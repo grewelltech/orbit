@@ -1,0 +1,41 @@
+name: integration
+
+# integration-CI (DESIGN §6): requires a live core + SCTP + lab network
+# reachability — NOT standard-runner-safe. Runs only on manual dispatch and
+# only does useful work on a self-hosted runner with lab-core access
+# (pending registration; until then this workflow documents the contract
+# and the suite is run from grewell01 via `make integration`).
+on:
+  workflow_dispatch:
+    inputs:
+      amf_n2:
+        description: AMF N2 address (host:port)
+        required: false
+        default: 172.17.50.11:38412
+
+jobs:
+  live-core:
+    runs-on: [self-hosted, lab-core]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: live-core reachability
+        run: |
+          ping -c 2 -W 2 "$(echo "${{ inputs.amf_n2 }}" | cut -d: -f1)"
+
+      - name: integration tests
+        env:
+          ORBIT_AMF_N2: ${{ inputs.amf_n2 }}
+        run: |
+          go run gotest.tools/gotestsum@latest --junitfile junit-integration.xml --format testname -- -tags=integration ./...
+
+      - name: test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-integration
+          path: junit-integration.xml

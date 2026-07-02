@@ -23,13 +23,49 @@ Where existing no-PHY simulators stop, ORBIT is built to be feature-complete:
 - **First-class observability** (structured logs, metrics, traces, live state
   streaming) and **CI/CD-native** operation from day one.
 
-> **Status: early — in design / scaffolding.** The full grounded design, phased
-> plan, discovery spikes, and risks are in **[docs/DESIGN.md](docs/DESIGN.md)**.
+> **Status: Phase 0 (foundations).** A gNB can complete an **NG Setup** exchange
+> against a live AMF over the full CLI → API → engine path. The grounded design,
+> phased plan, discovery spikes, and risks are in
+> **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 ## Build
 
 ```sh
 make build      # -> bin/orbit
+```
+
+## Try it (Phase 0)
+
+Run the API server, then drive an NG Setup exchange against an AMF through it:
+
+```sh
+./bin/orbit serve &
+./bin/orbit cell ngsetup \
+    --amf 172.17.50.11:38412 \
+    --mcc 208 --mnc 93 --tac 1 --sst 1 --sd 010203 \
+    --gnb-id 66 --name orbit-gnb-1
+# -> NG Setup accepted by AMF "AMF"
+```
+
+The CLI never touches the engine directly — it is a Connect client of the API,
+so every capability is machine-reachable (`--server` selects the endpoint).
+`/metrics` (Prometheus) and `/healthz` are served on the same listener.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `proto/`, `gen/` | API schema (Protobuf) and generated Connect/Go code (`make gen`). |
+| `internal/sctp`, `internal/ngap`, `internal/nas`, `internal/gtpu` | Thin adapters over the pinned transport/codec substrate. |
+| `internal/gnb` | gNB role — NG Setup today; NGAP procedure FSM grows here. |
+| `internal/server`, `internal/cli` | Connect API façade and the cobra CLI. |
+| `internal/observability` | slog (trace-correlated, credential-redacting), OTLP tracing, Prometheus. |
+
+## Testing
+
+```sh
+make test          # unit-CI: headless, no core required
+make integration   # integration-CI: needs a live core (ORBIT_AMF_N2 to override the AMF)
 ```
 
 ## Relationship to ran-twin
