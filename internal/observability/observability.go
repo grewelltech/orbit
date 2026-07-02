@@ -2,6 +2,28 @@
 // foundations (DESIGN §3): structured slog with trace correlation, an
 // env-gated OTLP trace exporter, and a Prometheus registry. Every layer
 // takes a *slog.Logger and a context; nothing logs through globals.
+//
+// Invariant: observability must never block or backpressure a data-plane
+// or control-plane hot path. The rules that guarantee it:
+//
+//   - Per-packet / per-UE-at-scale volume is recorded with METRICS, not
+//     logs. Prometheus counters/histograms are lock-free atomics; the OTLP
+//     trace exporter is batched (WithBatcher) and drops rather than blocks
+//     when its queue is full. Neither does synchronous I/O on the caller.
+//   - Hot-path logs are emitted at Debug. slog checks Handler.Enabled and
+//     returns before allocating the Record or touching the writer when the
+//     configured level is higher, so a Debug call under the default (Info)
+//     level costs one atomic compare — no formatting, no allocation, no
+//     I/O. Callers must keep expensive work out of the log arguments
+//     themselves (args evaluate before Enabled is consulted); guard with
+//     log.Enabled(ctx, LevelDebug) when an argument is costly to compute.
+//   - The default handler here writes synchronously to stderr, which is
+//     appropriate only for low-frequency control-plane events (session
+//     setup, procedure outcomes). Any sink that must accept high-frequency
+//     records at an enabled level MUST be fronted by a bounded, non-blocking
+//     handler that drops (and counts drops) rather than block the producer.
+//     That async handler lands with the data plane (Phase 1b), where it has
+//     a real producer to be tested against, not before.
 package observability
 
 import (

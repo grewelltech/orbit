@@ -40,11 +40,27 @@ import (
 // before changing this value or how it is passed.
 const PPIDNGAP uint32 = 60
 
-// PPIDNGAPSwapped is the byte-swapped rendering of the NGAP PPID observed
-// ON THE WIRE in downlink messages from the ATB-01 SD-Core AMF (pcap,
-// 2026-07-02: uplink carries the compliant 0x0000003c, the AMF's replies
-// carry 0x3c000000). The payloads are valid NGAP; receive paths treat this
-// value as NGAP-with-a-known-core-quirk rather than an error.
+// PPIDNGAPSwapped is the byte-reversed rendering of the NGAP PPID observed
+// ON THE WIRE in downlink messages from the ATB-01 SD-Core (omec) AMF.
+//
+// Evidence (pcap on the core node, 2026-07-02): our uplink carries PPID
+// wire bytes 00 00 00 3c (big-endian 60 — the conventional NGAP encoding);
+// the AMF's replies carry 3c 00 00 00 (big-endian 1,006,632,960, i.e. 60
+// byte-reversed). Both directions' payloads are valid NGAP.
+//
+// This is NOT strictly a protocol violation: RFC 4960 §3.3.1 states the
+// PPID "is NOT touched by an SCTP implementation; therefore its byte order
+// is NOT necessarily big endian. The upper layer is responsible for any
+// byte order conversions" — an explicit exception to SCTP's network-byte-
+// order rule, and SCTP never interprets the field. What the AMF does is
+// diverge from the universal NGAP convention (send 60 in network order):
+// the free5gc/omec code uses the precomputed constant 0x3c000000 (= 60
+// already put in network order for a non-swapping SCTP lib) but now runs a
+// library that byte-swaps again, so the wire gets 60 reversed. Benign
+// because no peer demuxes on the PPID; a candidate Phase-6 finding because
+// a strict peer checking PPID==60 in network order would reject it.
+//
+// ORBIT's receive path accepts both encodings and reports which was seen.
 const PPIDNGAPSwapped uint32 = 0x3c000000
 
 // NGAP non-UE-associated signalling (NG Setup, NG Reset, ...) uses SCTP
