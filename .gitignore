@@ -10,3 +10,6 @@ config.local.yaml
 *.out
 *.test
 *.pcap
+
+# CI test reports
+junit*.xml
