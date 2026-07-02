@@ -1,0 +1,12 @@
+# Build output
+/bin/
+
+# Local, environment-specific, and secrets
+config.local.yaml
+*.local.yaml
+.env
+
+# Test / profiling artifacts
+*.out
+*.test
+*.pcap
