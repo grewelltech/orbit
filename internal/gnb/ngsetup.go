@@ -12,10 +12,18 @@ import (
 )
 
 // BuildNGSetupRequest constructs the NG Setup Request PDU (TS 38.413
-// §8.7.1, §9.2.6.1). IE set and criticalities follow the spec and match
-// gnbsim's field-used builder (omec-project/gnbsim
-// util/ngapTestpacket/build.go): GlobalRANNodeID (reject), RANNodeName
-// (ignore, optional), SupportedTAList (reject), DefaultPagingDRX (ignore).
+// §8.7.1, §9.2.6.1). It is an NGAP InitiatingMessage with procedureCode
+// id-NGSetup (21) and criticality reject. IE set and criticalities follow
+// the spec and match gnbsim's field-used builder (omec-project/gnbsim
+// util/ngapTestpacket/build.go). Protocol IE IDs (TS 38.413 §9.3.1):
+//
+//	id-GlobalRANNodeID   (27,  reject)  who the gNB is (PLMN + gNB ID)
+//	id-RANNodeName       (82,  ignore)  optional human name
+//	id-SupportedTAList   (102, reject)  tracking areas + slices served
+//	id-DefaultPagingDRX  (21,  ignore)  paging cycle
+//
+// (Procedure codes and IE IDs are separate registries — NGSetup and
+// DefaultPagingDRX sharing the number 21 is a coincidence, not an error.)
 func BuildNGSetupRequest(cfg Config) (ngapType.NGAPPDU, error) {
 	var pdu ngapType.NGAPPDU
 	if err := cfg.validate(); err != nil {
@@ -132,9 +140,10 @@ type NGSetupResult struct {
 	AMFName string
 	// Cause describes the failure (empty on success).
 	Cause string
-	// ReplyPPID is the PPID carried by the AMF's reply. 60 is compliant;
-	// the ATB-01 SD-Core AMF is known to send the byte-swapped 0x3c000000
-	// (see sctp.PPIDNGAPSwapped).
+	// ReplyPPID is the PPID carried by the AMF's reply. 60 is the
+	// conventional NGAP encoding; the ATB-01 SD-Core AMF sends the
+	// byte-reversed 0x3c000000 (see sctp.PPIDNGAPSwapped for why that is a
+	// byte-order divergence rather than a protocol violation).
 	ReplyPPID uint32
 	// PDU is the raw decoded reply for callers needing more IEs.
 	PDU *ngapType.NGAPPDU
@@ -177,6 +186,9 @@ func NGSetup(ctx context.Context, conn *sctp.Conn, cfg Config) (*NGSetupResult, 
 	if rr.err != nil {
 		return nil, rr.err
 	}
+	// Accept both the conventional PPID 60 and the byte-reversed encoding
+	// the omec AMF emits (RFC 4960 §3.3.1 leaves PPID byte order to the
+	// application; see sctp.PPIDNGAPSwapped). Anything else is unexpected.
 	if rr.ppid != sctp.PPIDNGAP && rr.ppid != sctp.PPIDNGAPSwapped {
 		return nil, fmt.Errorf("reply PPID = %d, want %d (NGAP)", rr.ppid, sctp.PPIDNGAP)
 	}

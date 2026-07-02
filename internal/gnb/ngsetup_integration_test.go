@@ -51,6 +51,7 @@ func TestLiveNGSetup(t *testing.T) {
 	}
 	t.Logf("NG Setup accepted; AMF name %q, reply PPID %d", res.AMFName, res.ReplyPPID)
 	if res.ReplyPPID == sctp.PPIDNGAPSwapped {
-		t.Log("note: AMF sent the byte-swapped PPID 0x3c000000 (known SD-Core quirk, pcap-verified 2026-07-02)")
+		t.Log("note: AMF replied with byte-reversed PPID 0x3c000000 instead of network-order 60 " +
+			"(byte-order divergence, not an RFC 4960 violation; pcap-verified 2026-07-02)")
 	}
 }
