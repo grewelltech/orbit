@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+// ORBIT API, v1. The CLI and every other client drive ORBIT exclusively
+// through these services (CLI → API → Engine, docs/DESIGN.md §3).
+//
+// Service inventory grows per phase: Scenario, UEFleet, Mobility,
+// Conformance, Load, and StateStream are added when their engine layers
+// exist, so schemas freeze against working code rather than guesses
+// (DESIGN §5h).
+package orbit.v1;
+
+option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
+
+// SystemService reports information about the running ORBIT instance.
+service SystemService {
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse) {}
+}
+
+message GetInfoRequest {}
+
+message GetInfoResponse {
+  // Semantic version or git describe of the running binary.
+  string version = 1;
+  // Go runtime version the binary was built with.
+  string go_version = 2;
+}

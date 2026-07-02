@@ -1,7 +1,7 @@
 BIN     := bin/orbit
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test vet fmt tidy clean
+.PHONY: build test integration vet fmt tidy gen clean
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BIN) ./cmd/orbit
@@ -9,14 +9,26 @@ build:
 test:
 	go test ./...
 
+# Requires live-core reachability (integration-CI tier, DESIGN §6).
+# Override the AMF with ORBIT_AMF_N2=host:port.
+integration:
+	go test -tags=integration -count=1 -v ./...
+
 vet:
 	go vet ./...
+	go vet -tags=integration ./...
 
 fmt:
 	gofmt -w .
 
 tidy:
 	go mod tidy
+
+# Regenerates gen/ from proto/ (requires buf, protoc-gen-go,
+# protoc-gen-connect-go on PATH; `go install` each or see CI).
+gen:
+	buf lint
+	buf generate
 
 clean:
 	rm -rf bin
