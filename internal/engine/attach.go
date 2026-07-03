@@ -47,9 +47,13 @@ type AttachResult struct {
 	SessionActive bool
 	// PDUAddress is the allocated UE IP (when a session was established).
 	PDUAddress string
-	// UPFAddress/UPFTEID are the UPF uplink N3 endpoint (for Phase 1b).
+	// UPFAddress/UPFTEID are the UPF uplink N3 endpoint (send uplink here).
 	UPFAddress string
 	UPFTEID    uint32
+	// DLTEID is the gNB downlink TEID reported to the UPF; the UPF stamps it
+	// on downlink G-PDUs. QFI is the QoS flow of the default session.
+	DLTEID uint32
+	QFI    uint8
 }
 
 // Attach registers one UE over an already-NG-Setup association. It runs the
@@ -128,6 +132,8 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 			PDUAddress:    st.pduAddress,
 			UPFAddress:    st.upfAddress,
 			UPFTEID:       st.upfTEID,
+			DLTEID:        gnbDownlinkTEID,
+			QFI:           st.qfi,
 		},
 	}, nil
 }
@@ -153,6 +159,7 @@ type attachState struct {
 	pduAddress    string
 	upfAddress    string
 	upfTEID       uint32
+	qfi           uint8
 }
 
 // event publishes a state transition to the emitter, if any.
@@ -197,6 +204,9 @@ func (s *attachState) handlePDUSession(pdu *ngapType.NGAPPDU) (bool, error) {
 			}
 		}
 		s.upfAddress, s.upfTEID = r.UPFAddress, r.UPFTEID
+		if len(r.QFIs) > 0 {
+			s.qfi = uint8(r.QFIs[0])
+		}
 	}
 	s.sessionActive = true
 	s.log.InfoContext(s.ctx, "PDU session established",
