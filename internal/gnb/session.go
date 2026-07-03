@@ -42,13 +42,25 @@ func Dial(ctx context.Context, tr Transport, cfg Config) (*Session, error) {
 	if !ng.Accepted {
 		return nil, fmt.Errorf("NG Setup rejected: %s", ng.Cause)
 	}
+	// Spread UEs across the streams the association actually negotiated;
+	// the peer may grant fewer than requested. Transports without streams
+	// (the in-process pipe) report 1 via the default.
+	streams := uint16(1)
+	if sc, ok := tr.(interface{ OutStreams() uint16 }); ok {
+		if n := sc.OutStreams(); n > 0 {
+			streams = n
+		}
+	}
 	s := &Session{
-		cfg: cfg, tr: tr, streams: sctp.DefaultNGAPStreams,
+		cfg: cfg, tr: tr, streams: streams,
 		inboxes: make(map[int64]chan []byte), closed: make(chan struct{}),
 	}
 	go s.readLoop()
 	return s, nil
 }
+
+// Config returns the gNB configuration this session was set up with.
+func (s *Session) Config() Config { return s.cfg }
 
 // UETransport is a per-UE view of the shared association: writes go out on
 // the UE's assigned SCTP stream; reads come from the UE's demux inbox.
