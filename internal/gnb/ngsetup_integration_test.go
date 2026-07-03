@@ -18,8 +18,9 @@ import (
 //	go test -tags=integration ./internal/gnb -run TestLiveNGSetup -v
 //
 // ORBIT_AMF_N2 overrides the AMF address (default: ATB-01).
-// The gNB ID is deliberately distinct from the-earlier-project's gNBs — the ATB-01
-// core is shared, and NG Setup registrations are per-gNB-ID at the AMF.
+// The gNB ID is deliberately distinct — the ATB-01 core is shared, and NG
+// Setup registrations are per-gNB-ID at the AMF, so a unique ID avoids
+// colliding with other tenants.
 func TestLiveNGSetup(t *testing.T) {
 	amf := os.Getenv("ORBIT_AMF_N2")
 	if amf == "" {

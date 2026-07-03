@@ -91,14 +91,6 @@ make test          # unit-CI: headless, no core required
 make integration   # integration-CI: needs a live core (ORBIT_AMF_N2 to override the AMF)
 ```
 
-## Relationship to the-earlier-project
-
-ORBIT began as the "Release 2" concept of **the-earlier-project** — the existing
-UERANSIM-based 5G digital twin — and is now its own project. the-earlier-project remains the
-scenario-driven twin *over* UERANSIM; ORBIT is the purpose-built engine that owns
-the protocol stack end to end. The two share concepts (the scenario model) and can
-interoperate, but ORBIT does not depend on the-earlier-project.
-
 ## License
 
 [Apache-2.0](LICENSE).
