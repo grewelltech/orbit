@@ -54,9 +54,11 @@ type AttachResult struct {
 
 // Attach registers one UE over an already-NG-Setup association. It runs the
 // NAS-MM and NGAP procedure sequence to REGISTERED, wrapping NAS in the
-// security context once Security Mode Command activates it. The PDU-session
-// establishment (data plane) is Phase 1b and layered on top of this.
-func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger) (*AttachResult, error) {
+// security context once Security Mode Command activates it, then (if
+// requested) establishes one PDU session. emit, if non-nil, receives a
+// StateEvent at each transition. The returned Session holds the live
+// association and security context for later Status/Deregister.
+func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger, emit func(StateEvent)) (*Session, error) {
 	ranID := int64(1)
 	snn := auth.ServingNetworkName(gnbCfg.MCC, gnbCfg.MNC)
 
@@ -69,6 +71,11 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 		return nil, fmt.Errorf("build Registration Request: %w", err)
 	}
 
+	st := &attachState{
+		ctx: ctx, conn: conn, gnbCfg: gnbCfg, ueCfg: ueCfg,
+		snn: snn, ranID: ranID, regReq: regReq, log: log, emit: emit,
+	}
+
 	initial, err := gnb.BuildInitialUEMessage(gnbCfg, ranID, regReq)
 	if err != nil {
 		return nil, err
@@ -77,11 +84,7 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 		return nil, fmt.Errorf("send Initial UE Message: %w", err)
 	}
 	log.InfoContext(ctx, "sent Initial UE Message with Registration Request", "supi", ueCfg.Sub.SUPI)
-
-	st := &attachState{
-		ctx: ctx, conn: conn, gnbCfg: gnbCfg, ueCfg: ueCfg,
-		snn: snn, ranID: ranID, regReq: regReq, log: log,
-	}
+	st.event(StateRegistering, "sent Registration Request")
 
 	// The loop runs until the target state: REGISTERED, or (if a PDU session
 	// is requested) session-active. The PDU Session Establishment Request is
@@ -108,15 +111,24 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 		}
 	}
 
-	return &AttachResult{
-		Registered:    true,
-		SUPI:          ueCfg.Sub.SUPI,
-		AMFUENGAPID:   st.amfID,
-		RANUENGAPID:   ranID,
-		SessionActive: st.sessionActive,
-		PDUAddress:    st.pduAddress,
-		UPFAddress:    st.upfAddress,
-		UPFTEID:       st.upfTEID,
+	return &Session{
+		SUPI:   ueCfg.Sub.SUPI,
+		gnbCfg: gnbCfg,
+		conn:   conn,
+		sec:    st.sec,
+		amfID:  st.amfID,
+		ranID:  ranID,
+		guti:   st.guti,
+		Result: &AttachResult{
+			Registered:    true,
+			SUPI:          ueCfg.Sub.SUPI,
+			AMFUENGAPID:   st.amfID,
+			RANUENGAPID:   ranID,
+			SessionActive: st.sessionActive,
+			PDUAddress:    st.pduAddress,
+			UPFAddress:    st.upfAddress,
+			UPFTEID:       st.upfTEID,
+		},
 	}, nil
 }
 
@@ -129,16 +141,25 @@ type attachState struct {
 	ranID  int64
 	regReq []byte
 	log    *slog.Logger
+	emit   func(StateEvent)
 
 	amfID      int64
 	vec        *auth.Vector
 	sec        *nas.SecurityContext
+	guti       []byte
 	registered bool
 
 	sessionActive bool
 	pduAddress    string
 	upfAddress    string
 	upfTEID       uint32
+}
+
+// event publishes a state transition to the emitter, if any.
+func (s *attachState) event(state, detail string) {
+	if s.emit != nil {
+		s.emit(StateEvent{SUPI: s.ueCfg.Sub.SUPI, State: state, Detail: detail})
+	}
 }
 
 // done reports whether the attach has reached its target state.
@@ -180,6 +201,7 @@ func (s *attachState) handlePDUSession(pdu *ngapType.NGAPPDU) (bool, error) {
 	s.sessionActive = true
 	s.log.InfoContext(s.ctx, "PDU session established",
 		"ue_ip", s.pduAddress, "upf", s.upfAddress, "upf_teid", s.upfTEID)
+	s.event(StateSessionActive, fmt.Sprintf("PDU session active, UE IP %s", s.pduAddress))
 	return true, nil
 }
 
@@ -297,6 +319,7 @@ func (s *attachState) onAuthRequest(msg *f5nas.Message) error {
 		return err
 	}
 	s.log.InfoContext(s.ctx, "authenticated network, sent Authentication Response")
+	s.event(StateAuthenticated, "network authenticated, sent Authentication Response")
 	return nil
 }
 
@@ -325,10 +348,17 @@ func (s *attachState) onSecurityModeCommand(msg *f5nas.Message) error {
 	}
 	s.log.InfoContext(s.ctx, "verified Security Mode Command, sent Security Mode Complete",
 		"integrity", sel.Integrity, "ciphering", sel.Ciphering)
+	s.event(StateSecurityEstablished, "NAS security context established")
 	return nil
 }
 
-func (s *attachState) onRegistrationAccept(_ *f5nas.Message) error {
+func (s *attachState) onRegistrationAccept(msg *f5nas.Message) error {
+	if guti, err := ue.ParseRegistrationAccept(msg); err != nil {
+		s.log.WarnContext(s.ctx, "could not parse Registration Accept", "err", err)
+	} else if guti != nil {
+		s.guti = guti.Raw
+	}
+
 	complete, err := ue.BuildRegistrationComplete()
 	if err != nil {
 		return err
@@ -343,6 +373,7 @@ func (s *attachState) onRegistrationAccept(_ *f5nas.Message) error {
 	s.registered = true
 	s.log.InfoContext(s.ctx, "registration accepted; sent Registration Complete — UE is 5GMM-REGISTERED",
 		"supi", s.ueCfg.Sub.SUPI)
+	s.event(StateRegistered, "UE is 5GMM-REGISTERED")
 
 	// With a PDU session requested, kick off establishment now that the UE
 	// is REGISTERED (TS 23.502 §4.3.2.2).

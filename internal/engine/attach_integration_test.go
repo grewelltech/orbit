@@ -72,16 +72,17 @@ func TestLiveAttach(t *testing.T) {
 	}
 
 	log := observability.NewLogger(os.Stderr, -4) // debug
-	res, err := engine.Attach(ctx, conn, gnbCfg, engine.UEConfig{
+	sess, err := engine.Attach(ctx, conn, gnbCfg, engine.UEConfig{
 		Identity: id,
 		Sub:      auth.Subscription{SUPI: supi, Ki: ki, OPc: opc},
 		PDUSession: &ue.PDUSessionParams{
 			PDUSessionID: 1, SST: 1, SD: "010203", DNN: "internet",
 		},
-	}, log)
+	}, log, nil)
 	if err != nil {
 		t.Fatalf("attach failed: %v", err)
 	}
+	res := sess.Result
 	if !res.Registered {
 		t.Fatal("UE did not reach REGISTERED")
 	}

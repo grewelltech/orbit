@@ -249,6 +249,7 @@ Sequencing principle: **a minimal gNB+UE that registers ONE UE and passes data e
 **Verification:** against a **live core** — UE reaches `5GMM-REGISTERED`, obtains a PDU session context + IP allocation (control-plane confirmation, `PDUSessionResourceSetupResponse`); deterministic registration bytes match the golden fixture; `StateStream` shows transitions live.
 **Exit:** single UE reaches REGISTERED with an established session context via the API. **This is the go/no-go for the engine's control plane.**
 **Advances:** api, obs, cicd.
+**Status — DONE (2026-07-03), verified live against ATB-01 SD-Core (omec rel-3.1.0):** a UE registers (null-SUCI Registration → 5G-AKA → Security Mode NIA2/NEA0 → Initial Context Setup → Registration Complete) and establishes a PDU session with a real IP from the core's pool (192.168.100.0/24), driven through the Connect `UEService` (`Register`/`Deregister`/`Status`/`List`/`StateStream`) and the `orbit ue` CLI. UPF N3 endpoint (address+TEID) captured for Phase 1b. Reuse-first paid off: free5gc `util/{milenage,ueauth}` + `nas/security` supply the crypto; ORBIT builds the UE/gNB orchestration.
 
 ### Phase 1b — User-plane data path (keystone, part 2) `[perf obs cicd]`
 **Goal:** the Phase-1a session carries bidirectional user data.
