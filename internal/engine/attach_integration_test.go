@@ -75,6 +75,9 @@ func TestLiveAttach(t *testing.T) {
 	res, err := engine.Attach(ctx, conn, gnbCfg, engine.UEConfig{
 		Identity: id,
 		Sub:      auth.Subscription{SUPI: supi, Ki: ki, OPc: opc},
+		PDUSession: &ue.PDUSessionParams{
+			PDUSessionID: 1, SST: 1, SD: "010203", DNN: "internet",
+		},
 	}, log)
 	if err != nil {
 		t.Fatalf("attach failed: %v", err)
@@ -83,6 +86,10 @@ func TestLiveAttach(t *testing.T) {
 		t.Fatal("UE did not reach REGISTERED")
 	}
 	t.Logf("UE %s REGISTERED (AMF-UE-NGAP-ID %d)", res.SUPI, res.AMFUENGAPID)
+	if !res.SessionActive {
+		t.Fatal("PDU session was not established")
+	}
+	t.Logf("PDU session active: UE IP %s, UPF %s TEID %d", res.PDUAddress, res.UPFAddress, res.UPFTEID)
 }
 
 func envOr(k, def string) string {
