@@ -137,6 +137,19 @@ func (c *Conn) ReadMsg(buf []byte) (payload []byte, stream uint16, ppid uint32, 
 
 func (c *Conn) Close() error { return c.c.Close() }
 
+// OutStreams returns the number of outbound SCTP streams negotiated for this
+// association. NGAP spreads UE-associated signalling across streams to avoid
+// head-of-line blocking, but the peer may negotiate fewer than requested, so
+// callers must not send on a stream >= this value. Returns 1 on error (only
+// stream 0 is always safe).
+func (c *Conn) OutStreams() uint16 {
+	st, err := c.c.GetStatus()
+	if err != nil || st == nil || st.Ostreams == 0 {
+		return 1
+	}
+	return st.Ostreams
+}
+
 func resolve(hostport string) (*isctp.SCTPAddr, error) {
 	host, port, err := net.SplitHostPort(hostport)
 	if err != nil {
