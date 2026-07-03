@@ -27,8 +27,28 @@ type SecurityContext struct {
 	KNASint      [16]byte
 	KNASenc      [16]byte
 
-	ulCount uint32 // uplink NAS COUNT (next to send)
-	dlCount uint32 // downlink NAS COUNT (next expected)
+	// Network flips the role: a UE (default, false) sends uplink and
+	// receives downlink; an AMF/mock (true) sends downlink and receives
+	// uplink. Only the direction label differs — the tx/rx COUNTs and
+	// framing are identical, so one implementation serves both.
+	Network bool
+
+	txCount uint32 // NAS COUNT of the next message to send
+	rxCount uint32 // NAS COUNT tracking received messages
+}
+
+func (s *SecurityContext) txDir() uint8 {
+	if s.Network {
+		return security.DirectionDownlink
+	}
+	return security.DirectionUplink
+}
+
+func (s *SecurityContext) rxDir() uint8 {
+	if s.Network {
+		return security.DirectionUplink
+	}
+	return security.DirectionDownlink
 }
 
 // NIA/NEA identities, re-exported.
@@ -57,27 +77,27 @@ func (s *SecurityContext) EncodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte
 	// A "new 5G NAS security context" header activates the fresh context:
 	// both NAS COUNTs restart at 0 (TS 33.501 §6.4.3.1). Matches gnbsim.
 	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
-		s.ulCount, s.dlCount = 0, 0
+		s.txCount, s.rxCount = 0, 0
 	}
 	plain, err := msg.PlainNasEncode()
 	if err != nil {
 		return nil, fmt.Errorf("nas plain encode: %w", err)
 	}
 
-	seq := byte(s.ulCount & 0xFF)
+	seq := byte(s.txCount & 0xFF)
 	payload := append([]byte(nil), plain...)
 
 	ciphered := secHdr == SecHdrIntegrityCiphered || secHdr == SecHdrIntegrityCipheredNewCtx
 	if ciphered {
-		if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, s.ulCount,
-			security.Bearer3GPP, security.DirectionUplink, payload); err != nil {
+		if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, s.txCount,
+			security.Bearer3GPP, s.txDir(), payload); err != nil {
 			return nil, fmt.Errorf("nas encrypt: %w", err)
 		}
 	}
 
 	macInput := append([]byte{seq}, payload...)
-	mac, err := security.NASMacCalculate(s.IntegrityAlg, s.KNASint, s.ulCount,
-		security.Bearer3GPP, security.DirectionUplink, macInput)
+	mac, err := security.NASMacCalculate(s.IntegrityAlg, s.KNASint, s.txCount,
+		security.Bearer3GPP, s.txDir(), macInput)
 	if err != nil {
 		return nil, fmt.Errorf("nas mac calculate: %w", err)
 	}
@@ -88,7 +108,7 @@ func (s *SecurityContext) EncodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte
 	out = append(out, seq)
 	out = append(out, payload...)
 
-	s.ulCount++
+	s.txCount++
 	return out, nil
 }
 
@@ -117,16 +137,16 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 	// received sequence byte, bumping the overflow counter on wrap
 	// (TS 24.501 §4.4.3.1). Matches gnbsim.
 	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
-		s.dlCount = 0
+		s.rxCount = 0
 	}
-	if byte(s.dlCount&0xFF) > seq {
-		s.dlCount += 1 << 8 // overflow++
+	if byte(s.rxCount&0xFF) > seq {
+		s.rxCount += 1 << 8 // overflow++
 	}
-	count := s.dlCount&0xFFFFFF00 | uint32(seq)
+	count := s.rxCount&0xFFFFFF00 | uint32(seq)
 
 	macInput := append([]byte{seq}, payload...)
 	wantMAC, err := security.NASMacCalculate(s.IntegrityAlg, s.KNASint, count,
-		security.Bearer3GPP, security.DirectionDownlink, macInput)
+		security.Bearer3GPP, s.rxDir(), macInput)
 	if err != nil {
 		return nil, fmt.Errorf("nas mac calculate: %w", err)
 	}
@@ -137,13 +157,13 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 	ciphered := secHdr == SecHdrIntegrityCiphered || secHdr == SecHdrIntegrityCipheredNewCtx
 	if ciphered {
 		if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, count,
-			security.Bearer3GPP, security.DirectionDownlink, payload); err != nil {
+			security.Bearer3GPP, s.rxDir(), payload); err != nil {
 			return nil, fmt.Errorf("nas decrypt: %w", err)
 		}
 	}
 
-	// Track the last-received sequence number as the downlink COUNT state.
-	s.dlCount = count
+	// Track the last-received sequence number as the rx COUNT state.
+	s.rxCount = count
 
 	m := f5nas.NewMessage()
 	if err := m.PlainNasDecode(&payload); err != nil {
@@ -155,12 +175,12 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 // ResetCounts zeroes the NAS COUNTs, as when a fresh security context is
 // activated by Security Mode Command (TS 33.501 §6.4.3.1).
 func (s *SecurityContext) ResetCounts() {
-	s.ulCount = 0
-	s.dlCount = 0
+	s.txCount = 0
+	s.rxCount = 0
 }
 
 // UplinkCount reports the next uplink NAS COUNT (for observability/tests).
-func (s *SecurityContext) UplinkCount() uint32 { return s.ulCount }
+func (s *SecurityContext) UplinkCount() uint32 { return s.txCount }
 
 func equalMAC(a, b []byte) bool {
 	if len(a) != 4 || len(b) != 4 {
