@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	f5nas "github.com/free5gc/nas"
+	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -22,10 +23,18 @@ import (
 // (non-UE-associated NG Setup used stream 0).
 const ueStream uint16 = 1
 
-// UEConfig is the subscription and identity ORBIT registers.
+// UEConfig is the subscription and identity ORBIT registers. When
+// PDUSession is non-nil, the attach continues past REGISTERED to establish
+// one PDU session (control-plane signalling and IP allocation; no user-plane
+// bytes until Phase 1b).
 type UEConfig struct {
-	Identity ue.Identity
-	Sub      auth.Subscription
+	Identity   ue.Identity
+	Sub        auth.Subscription
+	PDUSession *ue.PDUSessionParams
+	// GNBN3Addr is the gNB N3 transport address reported to the AMF in the
+	// PDU Session Resource Setup Response. Phase 1a records the tunnel
+	// endpoints without moving data.
+	GNBN3Addr string
 }
 
 // AttachResult reports the outcome of a control-plane attach.
@@ -34,6 +43,13 @@ type AttachResult struct {
 	SUPI        string
 	AMFUENGAPID int64
 	RANUENGAPID int64
+	// SessionActive is true when a PDU session was established.
+	SessionActive bool
+	// PDUAddress is the allocated UE IP (when a session was established).
+	PDUAddress string
+	// UPFAddress/UPFTEID are the UPF uplink N3 endpoint (for Phase 1b).
+	UPFAddress string
+	UPFTEID    uint32
 }
 
 // Attach registers one UE over an already-NG-Setup association. It runs the
@@ -67,10 +83,18 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 		snn: snn, ranID: ranID, regReq: regReq, log: log,
 	}
 
-	for !st.registered {
+	// The loop runs until the target state: REGISTERED, or (if a PDU session
+	// is requested) session-active. The PDU Session Establishment Request is
+	// triggered once REGISTERED (see onRegistrationAccept).
+	for !st.done() {
 		pdu, err := gnb.ReadPDU(ctx, conn)
 		if err != nil {
 			return nil, err
+		}
+		if handled, err := st.handlePDUSession(pdu); err != nil {
+			return nil, err
+		} else if handled {
+			continue
 		}
 		dl, err := gnb.ParseDownlink(pdu)
 		if err != nil {
@@ -85,10 +109,14 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 	}
 
 	return &AttachResult{
-		Registered:  true,
-		SUPI:        ueCfg.Sub.SUPI,
-		AMFUENGAPID: st.amfID,
-		RANUENGAPID: ranID,
+		Registered:    true,
+		SUPI:          ueCfg.Sub.SUPI,
+		AMFUENGAPID:   st.amfID,
+		RANUENGAPID:   ranID,
+		SessionActive: st.sessionActive,
+		PDUAddress:    st.pduAddress,
+		UPFAddress:    st.upfAddress,
+		UPFTEID:       st.upfTEID,
 	}, nil
 }
 
@@ -106,6 +134,82 @@ type attachState struct {
 	vec        *auth.Vector
 	sec        *nas.SecurityContext
 	registered bool
+
+	sessionActive bool
+	pduAddress    string
+	upfAddress    string
+	upfTEID       uint32
+}
+
+// done reports whether the attach has reached its target state.
+func (s *attachState) done() bool {
+	if s.ueCfg.PDUSession != nil {
+		return s.sessionActive
+	}
+	return s.registered
+}
+
+// handlePDUSession processes a PDU Session Resource Setup Request: it acks
+// the session with the gNB downlink tunnel, extracts the allocated UE IP
+// from the embedded Establishment Accept, and records the UPF endpoint.
+// Returns true if it consumed the PDU.
+func (s *attachState) handlePDUSession(pdu *ngapType.NGAPPDU) (bool, error) {
+	amfID, ranID, res, err := gnb.ParsePDUSessionResourceSetupRequest(pdu)
+	if err != nil {
+		return false, nil // not a PDU Session Resource Setup Request
+	}
+	s.amfID = amfID
+	tun := gnb.GNBTunnel{Address: s.gnbN3Addr(), TEID: gnbDownlinkTEID}
+	resp, err := gnb.BuildPDUSessionResourceSetupResponse(amfID, ranID, res, tun)
+	if err != nil {
+		return true, err
+	}
+	if err := gnb.SendPDU(s.conn, ueStream, resp); err != nil {
+		return true, fmt.Errorf("send PDU Session Resource Setup Response: %w", err)
+	}
+	for _, r := range res {
+		if len(r.NASPDU) > 0 {
+			if ip, err := s.extractPDUAddress(r.NASPDU); err != nil {
+				s.log.WarnContext(s.ctx, "could not extract UE IP from PDU Session Establishment Accept", "err", err)
+			} else {
+				s.pduAddress = ip
+			}
+		}
+		s.upfAddress, s.upfTEID = r.UPFAddress, r.UPFTEID
+	}
+	s.sessionActive = true
+	s.log.InfoContext(s.ctx, "PDU session established",
+		"ue_ip", s.pduAddress, "upf", s.upfAddress, "upf_teid", s.upfTEID)
+	return true, nil
+}
+
+// extractPDUAddress decrypts the security-protected DL NAS Transport that
+// the AMF puts in the PDU session's NAS PDU, pulls out the N1 SM container
+// (the 5GSM Establishment Accept), and returns the allocated UE IP.
+func (s *attachState) extractPDUAddress(nasPDU []byte) (string, error) {
+	if s.sec == nil {
+		return "", fmt.Errorf("no security context")
+	}
+	msg, err := s.sec.DecodeSecure(nasPDU)
+	if err != nil {
+		return "", fmt.Errorf("decode secured DL NAS Transport: %w", err)
+	}
+	sm, err := ue.ExtractN1SMContainer(msg)
+	if err != nil {
+		return "", err
+	}
+	acc, err := ue.ParsePDUSessionEstablishmentAccept(sm)
+	if err != nil {
+		return "", err
+	}
+	return acc.IPv4, nil
+}
+
+func (s *attachState) gnbN3Addr() string {
+	if s.ueCfg.GNBN3Addr != "" {
+		return s.ueCfg.GNBN3Addr
+	}
+	return "127.0.0.1" // Phase 1a records the endpoint; Phase 1b wires it
 }
 
 // handle dispatches one AMF→gNB UE-associated message.
@@ -239,6 +343,35 @@ func (s *attachState) onRegistrationAccept(_ *f5nas.Message) error {
 	s.registered = true
 	s.log.InfoContext(s.ctx, "registration accepted; sent Registration Complete — UE is 5GMM-REGISTERED",
 		"supi", s.ueCfg.Sub.SUPI)
+
+	// With a PDU session requested, kick off establishment now that the UE
+	// is REGISTERED (TS 23.502 §4.3.2.2).
+	if s.ueCfg.PDUSession != nil {
+		return s.requestPDUSession(*s.ueCfg.PDUSession)
+	}
+	return nil
+}
+
+// requestPDUSession sends the 5GSM PDU Session Establishment Request wrapped
+// in a secured 5GMM UL NAS Transport (TS 24.501 §8.2.10, §8.3.1).
+func (s *attachState) requestPDUSession(p ue.PDUSessionParams) error {
+	sm, err := ue.BuildPDUSessionEstablishmentRequest(p)
+	if err != nil {
+		return err
+	}
+	transport, err := ue.BuildULNASTransportForPDUSession(sm, p)
+	if err != nil {
+		return err
+	}
+	wrapped, err := s.sec.EncodeSecure(transport, nas.SecHdrIntegrityCiphered)
+	if err != nil {
+		return fmt.Errorf("wrap PDU session UL NAS Transport: %w", err)
+	}
+	if err := s.sendUL(wrapped); err != nil {
+		return err
+	}
+	s.log.InfoContext(s.ctx, "sent PDU Session Establishment Request",
+		"pdu_session_id", p.PDUSessionID, "dnn", p.DNN)
 	return nil
 }
 
@@ -267,3 +400,7 @@ const (
 	ngapProcDownlinkNASTransport = 4
 	ngapProcInitialContextSetup  = 14
 )
+
+// gnbDownlinkTEID is the gNB-side downlink TEID reported for the single
+// Phase-1a session. Phase 1b allocates per-session TEIDs and wires GTP-U.
+const gnbDownlinkTEID uint32 = 1
