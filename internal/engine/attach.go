@@ -32,8 +32,9 @@ type UEConfig struct {
 	Sub        auth.Subscription
 	PDUSession *ue.PDUSessionParams
 	// GNBN3Addr is the gNB N3 transport address reported to the AMF in the
-	// PDU Session Resource Setup Response. Phase 1a records the tunnel
-	// endpoints without moving data.
+	// PDU Session Resource Setup Response and bound for the data path.
+	// Must be reachable from the UPF access-net; empty disables the data
+	// path (control-plane only).
 	GNBN3Addr string
 }
 
