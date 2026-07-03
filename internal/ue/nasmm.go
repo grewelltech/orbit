@@ -198,3 +198,53 @@ func ParseSecurityModeCommand(m *f5nas.Message) (*SelectedAlgorithms, error) {
 func DecodePlainMM(b []byte) (*f5nas.Message, error) {
 	return nas.DecodePlain(b)
 }
+
+// GUTI5G is the 5G Globally Unique Temporary Identity the AMF assigns in
+// Registration Accept; the UE uses it to identify itself thereafter
+// (TS 24.501 §9.11.3.4). The raw 11-octet 5GS mobile identity value is
+// carried so it can be echoed back verbatim in Deregistration Request.
+type GUTI5G struct {
+	Raw []byte // the 5GS mobile identity value (identity type = 5G-GUTI)
+}
+
+// ParseRegistrationAccept extracts the assigned 5G-GUTI, if present.
+func ParseRegistrationAccept(m *f5nas.Message) (*GUTI5G, error) {
+	if m.GmmMessage == nil || m.RegistrationAccept == nil {
+		return nil, fmt.Errorf("not a Registration Accept")
+	}
+	if m.RegistrationAccept.GUTI5G == nil {
+		return nil, nil
+	}
+	g := m.RegistrationAccept.GUTI5G
+	// GUTI5G.Octet is the 11-byte 5GS mobile identity value (type 5G-GUTI).
+	raw := make([]byte, g.Len)
+	copy(raw, g.Octet[:])
+	return &GUTI5G{Raw: raw}, nil
+}
+
+// BuildDeregistrationRequest builds a UE-originating Deregistration Request
+// (TS 24.501 §8.2.12). switchOff marks a power-off deregistration, for which
+// the network sends no Deregistration Accept. The UE identifies itself with
+// its assigned 5G-GUTI. Returns the plain 5GMM message for security wrapping.
+func BuildDeregistrationRequest(guti []byte, switchOff bool) (*f5nas.Message, error) {
+	if len(guti) == 0 {
+		return nil, fmt.Errorf("deregistration requires the assigned 5G-GUTI")
+	}
+	m, gmm := newGmm(f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration)
+	req := nasMessage.NewDeregistrationRequestUEOriginatingDeregistration(f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration)
+	setGmmHeader(&req.ExtendedProtocolDiscriminator, &req.SpareHalfOctetAndSecurityHeaderType,
+		&req.DeregistrationRequestMessageIdentity, f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration)
+
+	req.NgksiAndDeregistrationType.SetTSC(nasMessage.TypeOfSecurityContextFlagNative)
+	req.NgksiAndDeregistrationType.SetNasKeySetIdentifiler(0x01)
+	req.NgksiAndDeregistrationType.SetAccessType(nasMessage.AccessType3GPP)
+	req.NgksiAndDeregistrationType.SetReRegistrationRequired(0)
+	if switchOff {
+		req.NgksiAndDeregistrationType.SetSwitchOff(1)
+	}
+
+	req.MobileIdentity5GS = nasType.MobileIdentity5GS{Len: uint16(len(guti)), Buffer: guti}
+
+	gmm.DeregistrationRequestUEOriginatingDeregistration = req
+	return m, nil
+}

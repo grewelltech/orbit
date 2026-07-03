@@ -41,6 +41,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newServeCmd(version))
 	root.AddCommand(newSystemCmd(&serverURL))
 	root.AddCommand(newCellCmd(&serverURL))
+	root.AddCommand(newUECmd(&serverURL))
 	return root
 }
 
@@ -104,4 +105,8 @@ func systemClient(url *string) orbitv1connect.SystemServiceClient {
 
 func cellClient(url *string) orbitv1connect.CellServiceClient {
 	return orbitv1connect.NewCellServiceClient(http.DefaultClient, *url)
+}
+
+func ueClient(url *string) orbitv1connect.UEServiceClient {
+	return orbitv1connect.NewUEServiceClient(http.DefaultClient, *url)
 }
