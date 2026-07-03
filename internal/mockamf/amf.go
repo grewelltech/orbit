@@ -68,10 +68,22 @@ func New(cfg Config) (*AMF, error) {
 	return a, nil
 }
 
-// Connect returns a UE-side transport (to hand to engine.Attach) and spawns a
-// handler goroutine that drives that one UE's attach. The handler stops when
-// ctx is done or the UE completes/errors.
+// Connect returns a UE-side transport for a single UE (one pipe per UE), used
+// by the D-6 sim-capacity harness to isolate the actor-model cost. The
+// handler stops when ctx is done or the pipe closes.
 func (a *AMF) Connect(ctx context.Context) gnb.Transport {
+	return a.connect(ctx)
+}
+
+// ConnectShared returns a UE-side transport meant to carry MANY UEs
+// multiplexed over one association (as a gnb.Session does), demultiplexed by
+// RAN-UE-NGAP-ID — the real gNB pattern, for testing the actor model's
+// muxing in-process.
+func (a *AMF) ConnectShared(ctx context.Context) gnb.Transport {
+	return a.connect(ctx)
+}
+
+func (a *AMF) connect(ctx context.Context) gnb.Transport {
 	uePipe, amfPipe := newPipePair()
 	go func() {
 		_ = a.serve(ctx, amfPipe)
@@ -80,9 +92,10 @@ func (a *AMF) Connect(ctx context.Context) gnb.Transport {
 	return uePipe
 }
 
-// serve drives one UE from NG Setup to REGISTERED over amfPipe.
+// serve handles one association from NG Setup onward, tracking per-UE state
+// keyed by RAN-UE-NGAP-ID so a single pipe can carry many UEs.
 func (a *AMF) serve(ctx context.Context, p *pipe) error {
-	st := &ueState{ngksi: 1}
+	states := make(map[int64]*ueState)
 	buf := make([]byte, 65536)
 	for {
 		if ctx.Err() != nil {
@@ -96,13 +109,43 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 		if err != nil {
 			return fmt.Errorf("mock amf decode: %w", err)
 		}
-		done, err := a.handle(p, st, pdu)
+		if err := a.dispatch(p, states, pdu); err != nil {
+			return err
+		}
+	}
+}
+
+// dispatch routes one gNB→AMF PDU: NG Setup is answered once; UE-associated
+// messages go to their per-RAN-UE-NGAP-ID state.
+func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
+	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
+		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
+		resp, err := buildNGSetupResponse(a.plmn, a.cfg.SST, a.sdBytes)
 		if err != nil {
 			return err
 		}
-		if done {
-			return nil
-		}
+		return a.send(p, resp)
+	}
+	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
+		return nil // Initial Context Setup Response etc. — no action
+	}
+	up, err := parseUplink(pdu)
+	if err != nil {
+		return err
+	}
+	st := states[up.ranID]
+	if st == nil {
+		st = &ueState{ngksi: 1}
+		states[up.ranID] = st
+	}
+	switch up.procedure {
+	case ngapType.ProcedureCodeInitialUEMessage:
+		return a.onInitialUE(p, st, up)
+	case ngapType.ProcedureCodeUplinkNASTransport:
+		_, err := a.onUplinkNAS(p, st, up.nasPDU)
+		return err
+	default:
+		return nil
 	}
 }
 
@@ -111,37 +154,6 @@ type ueState struct {
 	supi         string
 	sec          *nas.SecurityContext
 	ngksi        uint8
-}
-
-// handle reacts to one gNB→AMF PDU. Returns done=true once the UE is
-// REGISTERED.
-func (a *AMF) handle(p *pipe, st *ueState, pdu *ngapType.NGAPPDU) (bool, error) {
-	// NG Setup Request → NG Setup Response.
-	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
-		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
-		resp, err := buildNGSetupResponse(a.plmn, a.cfg.SST, a.sdBytes)
-		if err != nil {
-			return false, err
-		}
-		return false, a.send(p, resp)
-	}
-	// Initial Context Setup Response and other successful outcomes: no action.
-	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
-		return false, nil
-	}
-
-	up, err := parseUplink(pdu)
-	if err != nil {
-		return false, err
-	}
-	switch up.procedure {
-	case ngapType.ProcedureCodeInitialUEMessage:
-		return false, a.onInitialUE(p, st, up)
-	case ngapType.ProcedureCodeUplinkNASTransport:
-		return a.onUplinkNAS(p, st, up.nasPDU)
-	default:
-		return false, nil
-	}
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
