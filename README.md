@@ -23,10 +23,11 @@ Where existing no-PHY simulators stop, ORBIT is built to be feature-complete:
 - **First-class observability** (structured logs, metrics, traces, live state
   streaming) and **CI/CD-native** operation from day one.
 
-> **Status: Phase 0 (foundations).** A gNB can complete an **NG Setup** exchange
-> against a live AMF over the full CLI → API → engine path. The grounded design,
-> phased plan, discovery spikes, and risks are in
-> **[docs/DESIGN.md](docs/DESIGN.md)**.
+> **Status: Phase 1a (control-plane attach).** A simulated UE registers on a
+> live 5G core — Registration, 5G-AKA, Security Mode, and a PDU session with
+> real IP allocation — driven entirely through the API, with live state
+> streaming. The grounded design, phased plan, discovery spikes, and risks are
+> in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 ## Build
 
@@ -45,6 +46,21 @@ Run the API server, then drive an NG Setup exchange against an AMF through it:
     --mcc 208 --mnc 93 --tac 1 --sst 1 --sd 010203 \
     --gnb-id 66 --name orbit-gnb-1
 # -> NG Setup accepted by AMF "AMF"
+```
+
+Register a UE (add `--pdu-session` to also establish a data session), then
+watch its lifecycle stream:
+
+```sh
+./bin/orbit ue watch &                       # StateStream: live FSM transitions
+./bin/orbit ue register \
+    --amf 172.17.50.11:38412 \
+    --supi 208930100007500 --ki <hex> --opc <hex> \
+    --mcc 208 --mnc 93 --tac 1 --sst 1 --sd 010203 \
+    --gnb-id 66 --pdu-session
+# -> UE 208930100007500 registered=true; PDU session: UE IP 192.168.100.83
+./bin/orbit ue list
+./bin/orbit ue deregister --supi 208930100007500
 ```
 
 The CLI never touches the engine directly — it is a Connect client of the API,
