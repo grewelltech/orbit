@@ -23,10 +23,12 @@ Where existing no-PHY simulators stop, ORBIT is built to be feature-complete:
 - **First-class observability** (structured logs, metrics, traces, live state
   streaming) and **CI/CD-native** operation from day one.
 
-> **Status: Phase 0 (foundations).** A gNB can complete an **NG Setup** exchange
-> against a live AMF over the full CLI → API → engine path. The grounded design,
-> phased plan, discovery spikes, and risks are in
-> **[docs/DESIGN.md](docs/DESIGN.md)**.
+> **Status: Phase 1b (user-plane data).** A simulated UE registers on a live 5G
+> core — Registration, 5G-AKA, Security Mode, PDU session with real IP — and
+> carries **bidirectional user data over N3** (GTP-U): `ue ping` sends an ICMP
+> echo through the tunnel to the internet and back. All driven through the API,
+> with live state streaming. The grounded design, phased plan, discovery
+> spikes, and risks are in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 ## Build
 
@@ -46,6 +48,27 @@ Run the API server, then drive an NG Setup exchange against an AMF through it:
     --gnb-id 66 --name orbit-gnb-1
 # -> NG Setup accepted by AMF "AMF"
 ```
+
+Register a UE (add `--pdu-session` to also establish a data session), then
+watch its lifecycle stream:
+
+```sh
+./bin/orbit ue watch &                       # StateStream: live FSM transitions
+./bin/orbit ue register \
+    --amf 172.17.50.11:38412 \
+    --supi 208930100007500 --ki <hex> --opc <hex> \
+    --mcc 208 --mnc 93 --tac 1 --sst 1 --sd 010203 \
+    --gnb-id 66 --pdu-session
+# -> UE 208930100007500 registered=true; PDU session: UE IP 192.168.100.83
+./bin/orbit ue ping --supi 208930100007500 --dst 8.8.8.8   # ICMP over N3
+./bin/orbit ue list
+./bin/orbit ue deregister --supi 208930100007500
+```
+
+> **Data-path note:** the user plane (N3/GTP-U) must run where the UPF's N3 is
+> reachable. On the ATB-01 testbed that is the RAN node, not the control-plane
+> host — pass `--gnb-n3 <reachable-ip>` at register time so the UPF returns
+> downlink to it.
 
 The CLI never touches the engine directly — it is a Connect client of the API,
 so every capability is machine-reachable (`--server` selects the endpoint).

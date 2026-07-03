@@ -20,6 +20,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
 )
@@ -31,6 +32,7 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry) http.Handle
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}))
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
+	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: engine.NewManager(log)}))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -99,6 +101,16 @@ func (s *cellService) RunNGSetup(
 		Cause:     res.Cause,
 		ReplyPpid: res.ReplyPPID,
 	}), nil
+}
+
+// withTimeout derives a context with a millisecond timeout, falling back to
+// defaultMs when ms is zero.
+func withTimeout(ctx context.Context, ms uint32, defaultMs uint32) (context.Context, context.CancelFunc) {
+	d := time.Duration(ms) * time.Millisecond
+	if d == 0 {
+		d = time.Duration(defaultMs) * time.Millisecond
+	}
+	return context.WithTimeout(ctx, d)
 }
 
 func gnbConfigFromProto(p *orbitv1.GnbConfig) (gnb.Config, error) {
