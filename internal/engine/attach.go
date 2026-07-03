@@ -35,6 +35,10 @@ type UEConfig struct {
 	// Must be reachable from the UPF access-net; empty disables the data
 	// path (control-plane only).
 	GNBN3Addr string
+	// RANUENGAPID is the gNB's identifier for this UE, unique per gNB
+	// association (TS 38.413 §9.3.3.2). It keys the demux when many UEs
+	// share one association; 0 defaults to 1 (single-UE case).
+	RANUENGAPID int64
 }
 
 // AttachResult reports the outcome of a control-plane attach.
@@ -63,7 +67,10 @@ type AttachResult struct {
 // StateEvent at each transition. The returned Session holds the live
 // association and security context for later Status/Deregister.
 func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger, emit func(StateEvent)) (*Session, error) {
-	ranID := int64(1)
+	ranID := ueCfg.RANUENGAPID
+	if ranID == 0 {
+		ranID = 1
+	}
 	snn := auth.ServingNetworkName(gnbCfg.MCC, gnbCfg.MNC)
 
 	suci, err := ueCfg.Identity.EncodeNullSUCI()
