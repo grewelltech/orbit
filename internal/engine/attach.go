@@ -14,7 +14,6 @@ import (
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
-	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -63,7 +62,7 @@ type AttachResult struct {
 // requested) establishes one PDU session. emit, if non-nil, receives a
 // StateEvent at each transition. The returned Session holds the live
 // association and security context for later Status/Deregister.
-func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger, emit func(StateEvent)) (*Session, error) {
+func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger, emit func(StateEvent)) (*Session, error) {
 	ranID := int64(1)
 	snn := auth.ServingNetworkName(gnbCfg.MCC, gnbCfg.MNC)
 
@@ -141,7 +140,7 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 
 type attachState struct {
 	ctx    context.Context
-	conn   *sctp.Conn
+	conn   gnb.Transport
 	gnbCfg gnb.Config
 	ueCfg  UEConfig
 	snn    string
