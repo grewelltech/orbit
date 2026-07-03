@@ -4,6 +4,10 @@ modules:
 lint:
   use:
     - STANDARD
+  except:
+    # StateStream streams StateEvent; the streamed element reads better as
+    # StateEvent than the convention's StateStreamResponse.
+    - RPC_RESPONSE_STANDARD_NAME
 breaking:
   use:
     - FILE

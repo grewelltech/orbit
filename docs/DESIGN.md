@@ -186,9 +186,9 @@ Reuse-first: reuse the entire codec + infrastructure substrate; build only the d
 | Tracing/logs | **`go.opentelemetry.io/otel` + `contrib/bridges/otelslog`** · Apache-2.0 | Spans per lifecycle op; `slog.InfoContext` auto-carries trace-id. |
 | CI test output | **`gotestyourself/gotestsum`** · Apache-2.0 | JUnit XML + exit codes for GitLab/GitHub CI. |
 | **NGAP/NAS procedure FSMs** | **BUILD** | Codecs give message *types*; sequencing, timers, retransmit, IE population are ours (clean-room from specs). |
-| **5G-AKA + Milenage + key hierarchy** | **BUILD** (~400 LoC + KDFs on `crypto/hmac`) | Extract algorithm logic from TS 35.206 / TS 33.501 Annex A; do not copy AGPL UERANSIM. |
+| **5G-AKA + Milenage + key hierarchy** | **REUSE primitives + BUILD orchestration** (`free5gc/util/{milenage,ueauth}` · Apache-2.0) | **Corrected from "BUILD ~400 LoC" once the reuse surface was confirmed:** Milenage f1–f5 (`util/milenage`, verified against the 3GPP conformance test set) and the TS 33.501 Annex A KDF (`util/ueauth`, all FC constants) are standard non-differentiating crypto — reuse them. ORBIT builds only the UE-side *orchestration* (RAND/AUTN → RES* + KNASint/KNASenc) in `internal/ue/auth`. Still no AGPL UERANSIM. |
 | **EAP-AKA' (RFC 5448)** | **BUILD** (Phase 7, gated) | No Go reference. AT_RAND/AUTN/MAC/RES parsing, CK'/IK' (FC=0x20). Transport IE already in `free5gc/nas`. |
-| **UE-side SUCI conceal (Profile A/B)** | **BUILD** (Phase 3+, off the keystone) on stdlib `curve25519`/`crypto/elliptic` | free5gc only decrypts. *Non-deterministic (ephemeral key) → verify via fixed-key test vectors + decrypt-and-compare, not bit-for-bit (§5f).* |
+| **UE-side SUCI conceal** | **BUILD** — null scheme done (Phase 1a, `internal/ue`); Profile A/B Phase 3+ on stdlib `curve25519`/`crypto/elliptic` | free5gc only decrypts. Null-scheme encoder built and round-tripped through free5gc's decoder (§5f). Profile A/B is *non-deterministic (ephemeral key) → verify via fixed-key test vectors + decrypt-and-compare, not bit-for-bit.* |
 | **XnAP (TS 38.423)** | **BUILD** (stub first; real codec Phase 4) | No Go library — largest pure-build unknown. In-process stub until multi-process Xn is required. |
 | **RRC abstraction (TS 38.331)** | **BUILD** (in-memory struct; wire codec only if forced) | UE↔gNB share a process → RRC is a Go channel, not bytes. |
 | **Mobility / measurement-synthesis engine** | **BUILD** (~200 LoC event logic + trajectory model) | The ORBIT differentiator; nothing open-source does programmable A3/A4/A5 synthesis. |
@@ -249,6 +249,7 @@ Sequencing principle: **a minimal gNB+UE that registers ONE UE and passes data e
 **Verification:** against a **live core** — UE reaches `5GMM-REGISTERED`, obtains a PDU session context + IP allocation (control-plane confirmation, `PDUSessionResourceSetupResponse`); deterministic registration bytes match the golden fixture; `StateStream` shows transitions live.
 **Exit:** single UE reaches REGISTERED with an established session context via the API. **This is the go/no-go for the engine's control plane.**
 **Advances:** api, obs, cicd.
+**Status — DONE (2026-07-03), verified live against ATB-01 SD-Core (omec rel-3.1.0):** a UE registers (null-SUCI Registration → 5G-AKA → Security Mode NIA2/NEA0 → Initial Context Setup → Registration Complete) and establishes a PDU session with a real IP from the core's pool (192.168.100.0/24), driven through the Connect `UEService` (`Register`/`Deregister`/`Status`/`List`/`StateStream`) and the `orbit ue` CLI. UPF N3 endpoint (address+TEID) captured for Phase 1b. Reuse-first paid off: free5gc `util/{milenage,ueauth}` + `nas/security` supply the crypto; ORBIT builds the UE/gNB orchestration.
 
 ### Phase 1b — User-plane data path (keystone, part 2) `[perf obs cicd]`
 **Goal:** the Phase-1a session carries bidirectional user data.
@@ -256,6 +257,7 @@ Sequencing principle: **a minimal gNB+UE that registers ONE UE and passes data e
 **Verification:** against the **live core** — an ICMP echo + a small native flow traverses N3 to the UPF and back (gnbsim's own smoke test is ICMP-over-N3). QFI correctly stamped as the first extension header; End-Marker path scaffolded (exercised in Phase 3).
 **Exit:** single UE, single session, **bidirectional data verified end-to-end on the real core**, driven entirely through the API.
 **Advances:** perf (data-path foundation), obs, cicd.
+**Status — DONE (2026-07-03), verified live against ATB-01:** Stage-1 userspace GTP-U (`internal/gtpu` codec + `internal/datapath` tunnel) carries an ICMP echo from the UE (192.168.100.x) to 8.8.8.8 and back through N3; `orbit ue ping` reports replies + RTT over the Connect API. On-wire capture confirms the 12-byte header + `0x85` PDU Session Container with QFI stamped first, both directions. **Infra note:** the UPF N3 (172.17.50.241) is on an isolated Multus access-net unreachable from grewell01, so the data path runs from the RAN node (172.17.50.12) — cross-compiled binary, `GNBN3Addr` reported to the UPF. N2 control plane still runs fine from grewell01.
 
 ### Phase 2 — Scale-out & multi-cell `[perf obs api cicd]`
 **Goal:** many UEs across multiple gNBs; the-earlier-project single-slice scenarios run unchanged; the actor architecture is chosen on evidence.
