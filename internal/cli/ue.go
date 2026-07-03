@@ -18,13 +18,39 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUEDeregisterCmd(serverURL))
 	cmd.AddCommand(newUEListCmd(serverURL))
 	cmd.AddCommand(newUEWatchCmd(serverURL))
+	cmd.AddCommand(newUEPingCmd(serverURL))
+	return cmd
+}
+
+func newUEPingCmd(serverURL *string) *cobra.Command {
+	var supi, dst string
+	var count uint32
+	cmd := &cobra.Command{
+		Use:   "ping",
+		Short: "Send ICMP echoes from a UE through its N3 data path",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ueClient(serverURL).Ping(cmd.Context(),
+				connect.NewRequest(&orbitv1.PingRequest{Supi: supi, Destination: dst, Count: count}))
+			if err != nil {
+				return err
+			}
+			m := res.Msg
+			fmt.Fprintf(cmd.OutOrStdout(), "%d/%d replies from %s (last RTT %.1f ms)\n",
+				m.GetReceived(), m.GetSent(), m.GetReplyFrom(), m.GetRttMs())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&dst, "dst", "8.8.8.8", "echo target IPv4")
+	cmd.Flags().Uint32Var(&count, "count", 3, "number of echoes")
+	_ = cmd.MarkFlagRequired("supi")
 	return cmd
 }
 
 func newUERegisterCmd(serverURL *string) *cobra.Command {
 	var (
 		amf, supi, ki, opc, rid         string
-		name, mcc, mnc, sd, dnn         string
+		name, mcc, mnc, sd, dnn, gnbN3  string
 		gnbID, gnbBits, tac, sst, pduID uint32
 		withPDU                         bool
 	)
@@ -45,6 +71,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 			}
 			if withPDU {
 				req.PduSession = &orbitv1.PDUSession{PduSessionId: pduID, Sst: sst, Sd: sd, Dnn: dnn}
+				req.GnbN3Addr = gnbN3
 			}
 			res, err := ueClient(serverURL).Register(cmd.Context(), connect.NewRequest(req))
 			if err != nil {
@@ -76,6 +103,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 	f.BoolVar(&withPDU, "pdu-session", false, "establish a PDU session after registration")
 	f.Uint32Var(&pduID, "pdu-session-id", 1, "PDU session id")
 	f.StringVar(&dnn, "dnn", "internet", "data network name")
+	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address for the data path (reachable from the UPF)")
 	for _, r := range []string{"amf", "supi", "ki", "opc", "mcc", "mnc"} {
 		_ = cmd.MarkFlagRequired(r)
 	}

@@ -41,6 +41,8 @@ const (
 	UEServiceStatusProcedure = "/orbit.v1.UEService/Status"
 	// UEServiceListProcedure is the fully-qualified name of the UEService's List RPC.
 	UEServiceListProcedure = "/orbit.v1.UEService/List"
+	// UEServicePingProcedure is the fully-qualified name of the UEService's Ping RPC.
+	UEServicePingProcedure = "/orbit.v1.UEService/Ping"
 	// UEServiceStateStreamProcedure is the fully-qualified name of the UEService's StateStream RPC.
 	UEServiceStateStreamProcedure = "/orbit.v1.UEService/StateStream"
 )
@@ -56,6 +58,9 @@ type UEServiceClient interface {
 	Status(context.Context, *connect.Request[v1.StatusRequest]) (*connect.Response[v1.StatusResponse], error)
 	// List returns all registered UEs.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
+	// Ping sends an ICMP echo from the UE through the N3 data path and
+	// reports the round trip — the user-plane health check.
+	Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error)
 	// StateStream pushes UE lifecycle transitions as they happen.
 	StateStream(context.Context, *connect.Request[v1.StateStreamRequest]) (*connect.ServerStreamForClient[v1.StateEvent], error)
 }
@@ -95,6 +100,12 @@ func NewUEServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(uEServiceMethods.ByName("List")),
 			connect.WithClientOptions(opts...),
 		),
+		ping: connect.NewClient[v1.PingRequest, v1.PingResponse](
+			httpClient,
+			baseURL+UEServicePingProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("Ping")),
+			connect.WithClientOptions(opts...),
+		),
 		stateStream: connect.NewClient[v1.StateStreamRequest, v1.StateEvent](
 			httpClient,
 			baseURL+UEServiceStateStreamProcedure,
@@ -110,6 +121,7 @@ type uEServiceClient struct {
 	deregister  *connect.Client[v1.DeregisterRequest, v1.DeregisterResponse]
 	status      *connect.Client[v1.StatusRequest, v1.StatusResponse]
 	list        *connect.Client[v1.ListRequest, v1.ListResponse]
+	ping        *connect.Client[v1.PingRequest, v1.PingResponse]
 	stateStream *connect.Client[v1.StateStreamRequest, v1.StateEvent]
 }
 
@@ -133,6 +145,11 @@ func (c *uEServiceClient) List(ctx context.Context, req *connect.Request[v1.List
 	return c.list.CallUnary(ctx, req)
 }
 
+// Ping calls orbit.v1.UEService.Ping.
+func (c *uEServiceClient) Ping(ctx context.Context, req *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error) {
+	return c.ping.CallUnary(ctx, req)
+}
+
 // StateStream calls orbit.v1.UEService.StateStream.
 func (c *uEServiceClient) StateStream(ctx context.Context, req *connect.Request[v1.StateStreamRequest]) (*connect.ServerStreamForClient[v1.StateEvent], error) {
 	return c.stateStream.CallServerStream(ctx, req)
@@ -149,6 +166,9 @@ type UEServiceHandler interface {
 	Status(context.Context, *connect.Request[v1.StatusRequest]) (*connect.Response[v1.StatusResponse], error)
 	// List returns all registered UEs.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
+	// Ping sends an ICMP echo from the UE through the N3 data path and
+	// reports the round trip — the user-plane health check.
+	Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error)
 	// StateStream pushes UE lifecycle transitions as they happen.
 	StateStream(context.Context, *connect.Request[v1.StateStreamRequest], *connect.ServerStream[v1.StateEvent]) error
 }
@@ -184,6 +204,12 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(uEServiceMethods.ByName("List")),
 		connect.WithHandlerOptions(opts...),
 	)
+	uEServicePingHandler := connect.NewUnaryHandler(
+		UEServicePingProcedure,
+		svc.Ping,
+		connect.WithSchema(uEServiceMethods.ByName("Ping")),
+		connect.WithHandlerOptions(opts...),
+	)
 	uEServiceStateStreamHandler := connect.NewServerStreamHandler(
 		UEServiceStateStreamProcedure,
 		svc.StateStream,
@@ -200,6 +226,8 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 			uEServiceStatusHandler.ServeHTTP(w, r)
 		case UEServiceListProcedure:
 			uEServiceListHandler.ServeHTTP(w, r)
+		case UEServicePingProcedure:
+			uEServicePingHandler.ServeHTTP(w, r)
 		case UEServiceStateStreamProcedure:
 			uEServiceStateStreamHandler.ServeHTTP(w, r)
 		default:
@@ -225,6 +253,10 @@ func (UnimplementedUEServiceHandler) Status(context.Context, *connect.Request[v1
 
 func (UnimplementedUEServiceHandler) List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.List is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.Ping is not implemented"))
 }
 
 func (UnimplementedUEServiceHandler) StateStream(context.Context, *connect.Request[v1.StateStreamRequest], *connect.ServerStream[v1.StateEvent]) error {

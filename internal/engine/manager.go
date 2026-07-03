@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/sctp"
@@ -36,13 +38,15 @@ type Session struct {
 	SUPI   string
 	Result *AttachResult
 
-	gnbCfg gnb.Config
-	conn   *sctp.Conn
-	sec    *nas.SecurityContext
-	amfID  int64
-	ranID  int64
-	guti   []byte
-	state  string
+	gnbCfg   gnb.Config
+	conn     *sctp.Conn
+	sec      *nas.SecurityContext
+	amfID    int64
+	ranID    int64
+	guti     []byte
+	state    string
+	gnbN3    string
+	dataPath *datapath.Tunnel // lazily created for Ping
 }
 
 // Manager owns registered UE sessions and the StateStream event hub. It is
@@ -97,6 +101,7 @@ func (m *Manager) Register(ctx context.Context, amfAddr string, gnbCfg gnb.Confi
 		return nil, err
 	}
 	sess.state = stateFromResult(sess.Result)
+	sess.gnbN3 = ueCfg.GNBN3Addr
 
 	m.mu.Lock()
 	m.sessions[sess.SUPI] = sess
@@ -140,6 +145,9 @@ func (m *Manager) Deregister(ctx context.Context, supi string) error {
 		return fmt.Errorf("UE %s is not registered", supi)
 	}
 	defer sess.conn.Close()
+	if sess.dataPath != nil {
+		sess.dataPath.Close()
+	}
 
 	if err := sess.deregister(ctx); err != nil {
 		return err
@@ -153,8 +161,90 @@ func (m *Manager) Subscribe() (<-chan StateEvent, func()) {
 	return m.hub.subscribe()
 }
 
+// PingResult reports an ICMP-over-N3 run.
+type PingResult struct {
+	Sent, Received int
+	LastRTT        time.Duration
+	ReplyFrom      string
+}
+
+// Ping sends count ICMP echoes from the UE through its N3 data path to dst
+// and reports the results. Requires the UE to have an active session and a
+// gNB N3 address (set at Register time) reachable from the UPF.
+func (m *Manager) Ping(supi, dst string, count int) (*PingResult, error) {
+	m.mu.Lock()
+	sess, ok := m.sessions[supi]
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("UE %s is not registered", supi)
+	}
+	if !sess.Result.SessionActive {
+		return nil, fmt.Errorf("UE %s has no active PDU session", supi)
+	}
+	if sess.gnbN3 == "" {
+		return nil, fmt.Errorf("UE %s registered without a gNB N3 address; data path disabled", supi)
+	}
+	if dst == "" {
+		dst = "8.8.8.8"
+	}
+	if count <= 0 {
+		count = 3
+	}
+	tun, err := sess.tunnel()
+	if err != nil {
+		return nil, err
+	}
+
+	ueIP := net.ParseIP(sess.Result.PDUAddress)
+	dstIP := net.ParseIP(dst)
+	if ueIP == nil || dstIP == nil {
+		return nil, fmt.Errorf("invalid IP (ue %q dst %q)", sess.Result.PDUAddress, dst)
+	}
+	res := &PingResult{}
+	for seq := 1; seq <= count; seq++ {
+		req, err := datapath.BuildICMPEchoRequest(ueIP, dstIP, uint16(0xB000|seq), uint16(seq), []byte("orbit"))
+		if err != nil {
+			return nil, err
+		}
+		start := time.Now()
+		if err := tun.SendUplink(req); err != nil {
+			return nil, err
+		}
+		res.Sent++
+		inner, err := tun.ReadDownlink(2 * time.Second)
+		if err != nil {
+			continue
+		}
+		if r, ok := datapath.MatchICMPEchoReply(inner, uint16(0xB000|seq), uint16(seq)); ok {
+			res.Received++
+			res.LastRTT = time.Since(start)
+			res.ReplyFrom = r.From.String()
+		}
+	}
+	return res, nil
+}
+
 // State reports the current lifecycle state of the session (snapshot).
 func (s *Session) State() string { return s.state }
+
+// tunnel lazily creates (and caches) the N3 tunnel for this session.
+func (s *Session) tunnel() (*datapath.Tunnel, error) {
+	if s.dataPath != nil {
+		return s.dataPath, nil
+	}
+	t, err := datapath.NewTunnel(datapath.Config{
+		LocalN3: net.JoinHostPort(s.gnbN3, "2152"),
+		UPFN3:   net.JoinHostPort(s.Result.UPFAddress, "2152"),
+		ULTEID:  s.Result.UPFTEID,
+		DLTEID:  s.Result.DLTEID,
+		QFI:     s.Result.QFI,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open N3 data path: %w", err)
+	}
+	s.dataPath = t
+	return t, nil
+}
 
 func stateFromResult(r *AttachResult) string {
 	if r.SessionActive {
