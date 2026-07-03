@@ -160,6 +160,20 @@ func (s Subscription) DeriveFromChallenge(rand, autn []byte, snn string, intAlg,
 	}, nil
 }
 
+// DeriveNASKeys derives the NAS integrity and ciphering keys from KAMF for
+// the algorithms the AMF selected in Security Mode Command (TS 33.501
+// Annex A.8). The keys returned by DeriveFromChallenge assume the algorithms
+// the UE advertised; call this once the selection is confirmed if it could
+// differ.
+func DeriveNASKeys(kAmf []byte, intAlg, encAlg uint8) (kNasInt, kNasEnc [16]byte, err error) {
+	kNasInt, err = deriveAlgKey(kAmf, algTypeNASInt, intAlg)
+	if err != nil {
+		return
+	}
+	kNasEnc, err = deriveAlgKey(kAmf, algTypeNASEnc, encAlg)
+	return
+}
+
 // deriveAlgKey computes a 128-bit NAS algorithm key: the least-significant
 // 128 bits of KDF(KAMF, FC=69, algType, algID) (TS 33.501 Annex A.8).
 func deriveAlgKey(kAmf []byte, algType, algID uint8) ([16]byte, error) {
