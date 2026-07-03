@@ -257,6 +257,7 @@ Sequencing principle: **a minimal gNB+UE that registers ONE UE and passes data e
 **Verification:** against the **live core** — an ICMP echo + a small native flow traverses N3 to the UPF and back (gnbsim's own smoke test is ICMP-over-N3). QFI correctly stamped as the first extension header; End-Marker path scaffolded (exercised in Phase 3).
 **Exit:** single UE, single session, **bidirectional data verified end-to-end on the real core**, driven entirely through the API.
 **Advances:** perf (data-path foundation), obs, cicd.
+**Status — DONE (2026-07-03), verified live against ATB-01:** Stage-1 userspace GTP-U (`internal/gtpu` codec + `internal/datapath` tunnel) carries an ICMP echo from the UE (192.168.100.x) to 8.8.8.8 and back through N3; `orbit ue ping` reports replies + RTT over the Connect API. On-wire capture confirms the 12-byte header + `0x85` PDU Session Container with QFI stamped first, both directions. **Infra note:** the UPF N3 (172.17.50.241) is on an isolated Multus access-net unreachable from grewell01, so the data path runs from the RAN node (172.17.50.12) — cross-compiled binary, `GNBN3Addr` reported to the UPF. N2 control plane still runs fine from grewell01.
 
 ### Phase 2 — Scale-out & multi-cell `[perf obs api cicd]`
 **Goal:** many UEs across multiple gNBs; ran-twin single-slice scenarios run unchanged; the actor architecture is chosen on evidence.

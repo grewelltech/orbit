@@ -45,8 +45,9 @@ func (s *ueService) Register(
 	}
 
 	ueCfg := engine.UEConfig{
-		Identity: id,
-		Sub:      auth.Subscription{SUPI: m.GetSupi(), Ki: ki, OPc: opc},
+		Identity:  id,
+		Sub:       auth.Subscription{SUPI: m.GetSupi(), Ki: ki, OPc: opc},
+		GNBN3Addr: m.GetGnbN3Addr(),
 	}
 	if p := m.GetPduSession(); p != nil {
 		if p.GetSst() > 0xFF {
@@ -139,6 +140,22 @@ func (s *ueService) StateStream(
 			}
 		}
 	}
+}
+
+func (s *ueService) Ping(
+	ctx context.Context,
+	req *connect.Request[orbitv1.PingRequest],
+) (*connect.Response[orbitv1.PingResponse], error) {
+	res, err := s.mgr.Ping(req.Msg.GetSupi(), req.Msg.GetDestination(), int(req.Msg.GetCount()))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	return connect.NewResponse(&orbitv1.PingResponse{
+		Sent:      uint32(res.Sent),
+		Received:  uint32(res.Received),
+		RttMs:     float64(res.LastRTT.Microseconds()) / 1000.0,
+		ReplyFrom: res.ReplyFrom,
+	}), nil
 }
 
 func ueStatusProto(sess *engine.Session) *orbitv1.UEStatus {

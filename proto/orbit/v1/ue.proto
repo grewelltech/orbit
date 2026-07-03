@@ -19,6 +19,9 @@ service UEService {
   rpc Status(StatusRequest) returns (StatusResponse) {}
   // List returns all registered UEs.
   rpc List(ListRequest) returns (ListResponse) {}
+  // Ping sends an ICMP echo from the UE through the N3 data path and
+  // reports the round trip — the user-plane health check.
+  rpc Ping(PingRequest) returns (PingResponse) {}
   // StateStream pushes UE lifecycle transitions as they happen.
   rpc StateStream(StateStreamRequest) returns (stream StateEvent) {}
 }
@@ -54,6 +57,10 @@ message RegisterRequest {
   PDUSession pdu_session = 6;
   // Attach timeout in milliseconds (0 = 20000).
   uint32 timeout_ms = 7;
+  // gNB N3 address reported to the UPF so downlink returns here; also the
+  // bind address for the data path. Must be reachable from the UPF
+  // access-net (empty = data path disabled).
+  string gnb_n3_addr = 8;
 }
 
 message RegisterResponse {
@@ -103,4 +110,20 @@ message StateEvent {
   string state = 2;
   string detail = 3;
   int64 unix_nano = 4;
+}
+
+message PingRequest {
+  string supi = 1;
+  // Echo target IPv4 (default 8.8.8.8).
+  string destination = 2;
+  // Number of echoes to send (default 3).
+  uint32 count = 3;
+}
+
+message PingResponse {
+  uint32 sent = 1;
+  uint32 received = 2;
+  // Round-trip time of the last successful echo, milliseconds.
+  double rtt_ms = 3;
+  string reply_from = 4;
 }

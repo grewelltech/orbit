@@ -160,7 +160,11 @@ type RegisterRequest struct {
 	// Optional PDU session to establish after REGISTERED.
 	PduSession *PDUSession `protobuf:"bytes,6,opt,name=pdu_session,json=pduSession,proto3" json:"pdu_session,omitempty"`
 	// Attach timeout in milliseconds (0 = 20000).
-	TimeoutMs     uint32 `protobuf:"varint,7,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	TimeoutMs uint32 `protobuf:"varint,7,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	// gNB N3 address reported to the UPF so downlink returns here; also the
+	// bind address for the data path. Must be reachable from the UPF
+	// access-net (empty = data path disabled).
+	GnbN3Addr     string `protobuf:"bytes,8,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -242,6 +246,13 @@ func (x *RegisterRequest) GetTimeoutMs() uint32 {
 		return x.TimeoutMs
 	}
 	return 0
+}
+
+func (x *RegisterRequest) GetGnbN3Addr() string {
+	if x != nil {
+		return x.GnbN3Addr
+	}
+	return ""
 }
 
 type RegisterResponse struct {
@@ -765,6 +776,137 @@ func (x *StateEvent) GetUnixNano() int64 {
 	return 0
 }
 
+type PingRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Supi  string                 `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
+	// Echo target IPv4 (default 8.8.8.8).
+	Destination string `protobuf:"bytes,2,opt,name=destination,proto3" json:"destination,omitempty"`
+	// Number of echoes to send (default 3).
+	Count         uint32 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PingRequest) Reset() {
+	*x = PingRequest{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PingRequest) ProtoMessage() {}
+
+func (x *PingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
+func (*PingRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PingRequest) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+func (x *PingRequest) GetDestination() string {
+	if x != nil {
+		return x.Destination
+	}
+	return ""
+}
+
+func (x *PingRequest) GetCount() uint32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+type PingResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Sent     uint32                 `protobuf:"varint,1,opt,name=sent,proto3" json:"sent,omitempty"`
+	Received uint32                 `protobuf:"varint,2,opt,name=received,proto3" json:"received,omitempty"`
+	// Round-trip time of the last successful echo, milliseconds.
+	RttMs         float64 `protobuf:"fixed64,3,opt,name=rtt_ms,json=rttMs,proto3" json:"rtt_ms,omitempty"`
+	ReplyFrom     string  `protobuf:"bytes,4,opt,name=reply_from,json=replyFrom,proto3" json:"reply_from,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PingResponse) Reset() {
+	*x = PingResponse{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PingResponse) ProtoMessage() {}
+
+func (x *PingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
+func (*PingResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PingResponse) GetSent() uint32 {
+	if x != nil {
+		return x.Sent
+	}
+	return 0
+}
+
+func (x *PingResponse) GetReceived() uint32 {
+	if x != nil {
+		return x.Received
+	}
+	return 0
+}
+
+func (x *PingResponse) GetRttMs() float64 {
+	if x != nil {
+		return x.RttMs
+	}
+	return 0
+}
+
+func (x *PingResponse) GetReplyFrom() string {
+	if x != nil {
+		return x.ReplyFrom
+	}
+	return ""
+}
+
 var File_orbit_v1_ue_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_ue_proto_rawDesc = "" +
@@ -778,7 +920,7 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x0epdu_session_id\x18\x01 \x01(\rR\fpduSessionId\x12\x10\n" +
 	"\x03sst\x18\x02 \x01(\rR\x03sst\x12\x0e\n" +
 	"\x02sd\x18\x03 \x01(\tR\x02sd\x12\x10\n" +
-	"\x03dnn\x18\x04 \x01(\tR\x03dnn\"\xa9\x02\n" +
+	"\x03dnn\x18\x04 \x01(\tR\x03dnn\"\xc9\x02\n" +
 	"\x0fRegisterRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12%\n" +
@@ -789,7 +931,8 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\vpdu_session\x18\x06 \x01(\v2\x14.orbit.v1.PDUSessionR\n" +
 	"pduSession\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\a \x01(\rR\ttimeoutMs\"\xef\x01\n" +
+	"timeout_ms\x18\a \x01(\rR\ttimeoutMs\x12\x1e\n" +
+	"\vgnb_n3_addr\x18\b \x01(\tR\tgnbN3Addr\"\xef\x01\n" +
 	"\x10RegisterResponse\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x1e\n" +
 	"\n" +
@@ -825,13 +968,24 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x16\n" +
 	"\x06detail\x18\x03 \x01(\tR\x06detail\x12\x1b\n" +
-	"\tunix_nano\x18\x04 \x01(\x03R\bunixNano2\xda\x02\n" +
+	"\tunix_nano\x18\x04 \x01(\x03R\bunixNano\"Y\n" +
+	"\vPingRequest\x12\x12\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\x12 \n" +
+	"\vdestination\x18\x02 \x01(\tR\vdestination\x12\x14\n" +
+	"\x05count\x18\x03 \x01(\rR\x05count\"t\n" +
+	"\fPingResponse\x12\x12\n" +
+	"\x04sent\x18\x01 \x01(\rR\x04sent\x12\x1a\n" +
+	"\breceived\x18\x02 \x01(\rR\breceived\x12\x15\n" +
+	"\x06rtt_ms\x18\x03 \x01(\x01R\x05rttMs\x12\x1d\n" +
+	"\n" +
+	"reply_from\x18\x04 \x01(\tR\treplyFrom2\x93\x03\n" +
 	"\tUEService\x12C\n" +
 	"\bRegister\x12\x19.orbit.v1.RegisterRequest\x1a\x1a.orbit.v1.RegisterResponse\"\x00\x12I\n" +
 	"\n" +
 	"Deregister\x12\x1b.orbit.v1.DeregisterRequest\x1a\x1c.orbit.v1.DeregisterResponse\"\x00\x12=\n" +
 	"\x06Status\x12\x17.orbit.v1.StatusRequest\x1a\x18.orbit.v1.StatusResponse\"\x00\x127\n" +
-	"\x04List\x12\x15.orbit.v1.ListRequest\x1a\x16.orbit.v1.ListResponse\"\x00\x12E\n" +
+	"\x04List\x12\x15.orbit.v1.ListRequest\x1a\x16.orbit.v1.ListResponse\"\x00\x127\n" +
+	"\x04Ping\x12\x15.orbit.v1.PingRequest\x1a\x16.orbit.v1.PingResponse\"\x00\x12E\n" +
 	"\vStateStream\x12\x1c.orbit.v1.StateStreamRequest\x1a\x14.orbit.v1.StateEvent\"\x000\x01B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
@@ -846,7 +1000,7 @@ func file_orbit_v1_ue_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_ue_proto_rawDescData
 }
 
-var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_orbit_v1_ue_proto_goTypes = []any{
 	(*Credentials)(nil),        // 0: orbit.v1.Credentials
 	(*PDUSession)(nil),         // 1: orbit.v1.PDUSession
@@ -861,10 +1015,12 @@ var file_orbit_v1_ue_proto_goTypes = []any{
 	(*ListResponse)(nil),       // 10: orbit.v1.ListResponse
 	(*StateStreamRequest)(nil), // 11: orbit.v1.StateStreamRequest
 	(*StateEvent)(nil),         // 12: orbit.v1.StateEvent
-	(*GnbConfig)(nil),          // 13: orbit.v1.GnbConfig
+	(*PingRequest)(nil),        // 13: orbit.v1.PingRequest
+	(*PingResponse)(nil),       // 14: orbit.v1.PingResponse
+	(*GnbConfig)(nil),          // 15: orbit.v1.GnbConfig
 }
 var file_orbit_v1_ue_proto_depIdxs = []int32{
-	13, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
+	15, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
 	0,  // 1: orbit.v1.RegisterRequest.credentials:type_name -> orbit.v1.Credentials
 	1,  // 2: orbit.v1.RegisterRequest.pdu_session:type_name -> orbit.v1.PDUSession
 	7,  // 3: orbit.v1.StatusResponse.status:type_name -> orbit.v1.UEStatus
@@ -873,14 +1029,16 @@ var file_orbit_v1_ue_proto_depIdxs = []int32{
 	4,  // 6: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
 	6,  // 7: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
 	9,  // 8: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
-	11, // 9: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
-	3,  // 10: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 11: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 12: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 13: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	12, // 14: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	10, // [10:15] is the sub-list for method output_type
-	5,  // [5:10] is the sub-list for method input_type
+	13, // 9: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
+	11, // 10: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
+	3,  // 11: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 12: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 13: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 14: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 15: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 16: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	11, // [11:17] is the sub-list for method output_type
+	5,  // [5:11] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
 	5,  // [5:5] is the sub-list for extension extendee
 	0,  // [0:5] is the sub-list for field type_name
@@ -898,7 +1056,7 @@ func file_orbit_v1_ue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_ue_proto_rawDesc), len(file_orbit_v1_ue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
