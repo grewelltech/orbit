@@ -36,7 +36,8 @@ type Config struct {
 	IDBits int // 0 defaults to 24
 
 	// Name is the human-readable RANNodeName (optional IE, criticality
-	// ignore). Distinct from the-earlier-project's gNBs — the ATB-01 core is shared.
+	// ignore). The ATB-01 core is shared, so give ORBIT gNBs distinct
+	// identities to avoid collisions with other tenants.
 	Name string
 
 	MCC string // 3 digits
