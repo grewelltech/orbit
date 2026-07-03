@@ -39,7 +39,7 @@ type Session struct {
 	Result *AttachResult
 
 	gnbCfg   gnb.Config
-	conn     *sctp.Conn
+	conn     gnb.Transport
 	sec      *nas.SecurityContext
 	amfID    int64
 	ranID    int64
