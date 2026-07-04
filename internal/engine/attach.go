@@ -39,6 +39,11 @@ type UEConfig struct {
 	// association (TS 38.413 §9.3.3.2). It keys the demux when many UEs
 	// share one association; 0 defaults to 1 (single-UE case).
 	RANUENGAPID int64
+	// RequestedNSSAI is the set of slices the UE requests at registration
+	// (TS 24.501 §9.11.3.37). If empty, it defaults to the PDU session's
+	// slice so a slice-aware core routes correctly; if there is no session
+	// either, none is sent and the AMF assigns the subscribed slice.
+	RequestedNSSAI []ue.SNSSAI
 }
 
 // AttachResult reports the outcome of a control-plane attach.
@@ -77,7 +82,11 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	if err != nil {
 		return nil, fmt.Errorf("encode SUCI: %w", err)
 	}
-	regReq, err := ue.BuildRegistrationRequest(suci, ue.SecurityCapability(), nil)
+	requested, err := ue.BuildRequestedNSSAI(requestedSlices(ueCfg))
+	if err != nil {
+		return nil, fmt.Errorf("build Requested NSSAI: %w", err)
+	}
+	regReq, err := ue.BuildRegistrationRequest(suci, ue.SecurityCapability(), requested)
 	if err != nil {
 		return nil, fmt.Errorf("build Registration Request: %w", err)
 	}
@@ -452,3 +461,15 @@ const (
 // gnbDownlinkTEID is the gNB-side downlink TEID reported for the single
 // Phase-1a session. Phase 1b allocates per-session TEIDs and wires GTP-U.
 const gnbDownlinkTEID uint32 = 1
+
+// requestedSlices returns the slices to advertise in the Registration
+// Request: the explicit set if given, else the PDU session's slice.
+func requestedSlices(cfg UEConfig) []ue.SNSSAI {
+	if len(cfg.RequestedNSSAI) > 0 {
+		return cfg.RequestedNSSAI
+	}
+	if cfg.PDUSession != nil {
+		return []ue.SNSSAI{cfg.PDUSession.Slice()}
+	}
+	return nil
+}

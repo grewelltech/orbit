@@ -71,7 +71,7 @@ func TestLiveFleet(t *testing.T) {
 	defer fleet.Close()
 
 	start := time.Now()
-	res := fleet.Register(ctx, ues, 8)
+	res := fleet.Register(ctx, ues, envInt("ORBIT_FLEET_WORKERS", 8))
 	dur := time.Since(start)
 
 	t.Logf("fleet: %d registered, %d failed across %d gNBs in %s (%.0f attach/s)",
