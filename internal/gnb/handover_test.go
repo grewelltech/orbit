@@ -11,9 +11,15 @@ import (
 
 // TestHandoverAckTransferRoundTrip confirms the target's downlink tunnel is
 // well-formed in the HandoverRequestAcknowledge transfer: it decodes back to
-// the address and TEID we put in. If this passes but a live handover does not
-// switch the downlink, the gap is in the core's N4 path switch, not our
-// encoding.
+// the address and TEID we put in.
+//
+// Note: these bytes round-trip under free5gc/aper but SD-Core's SMF (omec's
+// aper fork) rejects them with "align Bit is not zero" — a library-level APER
+// divergence on this transfer's bit layout, not a schema or encoding error
+// here (the struct tags are identical across both libraries, and the SMF
+// decodes our other free5gc-encoded transfers fine). This is why a live N2
+// handover completes on the control plane but the UPF downlink does not switch.
+// See docs/DESIGN.md D-4.
 func TestHandoverAckTransferRoundTrip(t *testing.T) {
 	pdu, err := BuildHandoverRequestAcknowledge(42, 1, []AdmittedSession{
 		{PDUSessionID: 1, GNBTunnel: GNBTunnel{Address: "172.17.50.13", TEID: 200}, QFIs: []int64{1}},
