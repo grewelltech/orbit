@@ -7,6 +7,8 @@ import (
 	"github.com/free5gc/aper"
 	"github.com/free5gc/ngap/ngapConvert"
 	"github.com/free5gc/ngap/ngapType"
+
+	"github.com/bgrewell/orbit/internal/coreprofile"
 )
 
 // N2 handover completion (TS 38.413 §8.4). After the source sends
@@ -59,7 +61,7 @@ type AdmittedSession struct {
 // BuildHandoverRequestAcknowledge builds the target's ack (TS 38.413
 // §9.2.3.3): the admitted sessions with the target's DL tunnels, plus the
 // target-to-source transparent container (RRC stub).
-func BuildHandoverRequestAcknowledge(amfID, targetRANID int64, admitted []AdmittedSession) (ngapType.NGAPPDU, error) {
+func BuildHandoverRequestAcknowledge(amfID, targetRANID int64, admitted []AdmittedSession, quirks coreprofile.Quirks) (ngapType.NGAPPDU, error) {
 	var pdu ngapType.NGAPPDU
 	container, err := encodeTargetToSourceContainer()
 	if err != nil {
@@ -93,7 +95,7 @@ func BuildHandoverRequestAcknowledge(amfID, targetRANID int64, admitted []Admitt
 		ie.Value.Present = ngapType.HandoverRequestAcknowledgeIEsPresentPDUSessionResourceAdmittedList
 		ie.Value.PDUSessionResourceAdmittedList = new(ngapType.PDUSessionResourceAdmittedList)
 		for _, a := range admitted {
-			transfer, err := encodeHandoverAckTransfer(a.GNBTunnel, a.QFIs)
+			transfer, err := encodeHandoverAckTransfer(a.GNBTunnel, a.QFIs, quirks.HandoverAckForwardingMandatory)
 			if err != nil {
 				continue
 			}
@@ -110,20 +112,60 @@ func BuildHandoverRequestAcknowledge(amfID, targetRANID int64, admitted []Admitt
 	return pdu, nil
 }
 
-func encodeHandoverAckTransfer(tun GNBTunnel, qfis []int64) (aper.OctetString, error) {
-	var t ngapType.HandoverRequestAcknowledgeTransfer
-	t.DLNGUUPTNLInformation.Present = ngapType.UPTransportLayerInformationPresentGTPTunnel
-	t.DLNGUUPTNLInformation.GTPTunnel = new(ngapType.GTPTunnel)
+func gtpTunnelUP(tun GNBTunnel) ngapType.UPTransportLayerInformation {
+	up := ngapType.UPTransportLayerInformation{Present: ngapType.UPTransportLayerInformationPresentGTPTunnel, GTPTunnel: new(ngapType.GTPTunnel)}
 	teid := make([]byte, 4)
 	binary.BigEndian.PutUint32(teid, tun.TEID)
-	t.DLNGUUPTNLInformation.GTPTunnel.GTPTEID.Value = teid
-	t.DLNGUUPTNLInformation.GTPTunnel.TransportLayerAddress = ngapConvert.IPAddressToNgap(tun.Address, "")
+	up.GTPTunnel.GTPTEID.Value = teid
+	up.GTPTunnel.TransportLayerAddress = ngapConvert.IPAddressToNgap(tun.Address, "")
+	return up
+}
+
+func qosFlowSetupResponseList(qfis []int64) ngapType.QosFlowListWithDataForwarding {
 	if len(qfis) == 0 {
 		qfis = []int64{1} // default flow
 	}
+	var l ngapType.QosFlowListWithDataForwarding
 	for _, qfi := range qfis {
-		t.QosFlowSetupResponseList.List = append(t.QosFlowSetupResponseList.List,
-			ngapType.QosFlowItemWithDataForwarding{QosFlowIdentifier: ngapType.QosFlowIdentifier{Value: qfi}})
+		l.List = append(l.List, ngapType.QosFlowItemWithDataForwarding{QosFlowIdentifier: ngapType.QosFlowIdentifier{Value: qfi}})
+	}
+	return l
+}
+
+// sdcoreHOAckTransfer mirrors ngapType.HandoverRequestAcknowledgeTransfer but
+// with dLForwardingUP-TNLInformation as a MANDATORY value (no `optional`),
+// matching SD-Core / omec-project ngap v2.x's non-conformant schema (3GPP TS
+// 38.413 defines it OPTIONAL). Encoded with ORBIT's own conformant aper, this
+// is byte-identical to omec's own v2.1.0 encoder — so omec's decoder accepts
+// it. Only used under the HandoverAckForwardingMandatory quirk; a conformant
+// core would reject these bytes. See docs/interop/sdcore.md.
+type sdcoreHOAckTransfer struct {
+	DLNGUUPTNLInformation         ngapType.UPTransportLayerInformation `aper:"valueLB:0,valueUB:1"`
+	DLForwardingUPTNLInformation  ngapType.UPTransportLayerInformation `aper:"valueLB:0,valueUB:1"`
+	SecurityResult                *ngapType.SecurityResult             `aper:"valueExt,optional"`
+	QosFlowSetupResponseList      ngapType.QosFlowListWithDataForwarding
+	QosFlowFailedToSetupList      *ngapType.QosFlowListWithCause                                               `aper:"optional"`
+	DataForwardingResponseDRBList *ngapType.DataForwardingResponseDRBList                                      `aper:"optional"`
+	IEExtensions                  *ngapType.ProtocolExtensionContainerHandoverRequestAcknowledgeTransferExtIEs `aper:"optional"`
+}
+
+// encodeHandoverAckTransfer builds the per-session Handover Request
+// Acknowledge Transfer with the target's downlink tunnel. With
+// forwardingMandatory set (SD-Core quirk), it also emits
+// dLForwardingUP-TNLInformation (as the same tunnel) so omec's decoder, which
+// wrongly requires it, accepts the message.
+func encodeHandoverAckTransfer(tun GNBTunnel, qfis []int64, forwardingMandatory bool) (aper.OctetString, error) {
+	if forwardingMandatory {
+		t := sdcoreHOAckTransfer{
+			DLNGUUPTNLInformation:        gtpTunnelUP(tun),
+			DLForwardingUPTNLInformation: gtpTunnelUP(tun),
+			QosFlowSetupResponseList:     qosFlowSetupResponseList(qfis),
+		}
+		return aper.MarshalWithParams(t, "valueExt")
+	}
+	t := ngapType.HandoverRequestAcknowledgeTransfer{
+		DLNGUUPTNLInformation:    gtpTunnelUP(tun),
+		QosFlowSetupResponseList: qosFlowSetupResponseList(qfis),
 	}
 	return aper.MarshalWithParams(t, "valueExt")
 }

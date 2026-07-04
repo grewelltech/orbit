@@ -2,11 +2,14 @@ package gnb
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"testing"
 
 	"github.com/free5gc/aper"
 	"github.com/free5gc/ngap/ngapConvert"
 	"github.com/free5gc/ngap/ngapType"
+
+	"github.com/bgrewell/orbit/internal/coreprofile"
 )
 
 // TestHandoverAckTransferRoundTrip confirms the target's downlink tunnel is
@@ -24,7 +27,7 @@ import (
 func TestHandoverAckTransferRoundTrip(t *testing.T) {
 	pdu, err := BuildHandoverRequestAcknowledge(42, 1, []AdmittedSession{
 		{PDUSessionID: 1, GNBTunnel: GNBTunnel{Address: "172.17.50.13", TEID: 200}, QFIs: []int64{1}},
-	})
+	}, coreprofile.Quirks{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,5 +58,31 @@ func TestHandoverAckTransferRoundTrip(t *testing.T) {
 	}
 	if len(got.QosFlowSetupResponseList.List) != 1 || got.QosFlowSetupResponseList.List[0].QosFlowIdentifier.Value != 1 {
 		t.Error("QoS flow list did not round-trip")
+	}
+}
+
+// TestHandoverAckTransferSDCoreQuirk locks in the SD-Core compatibility quirk:
+// with HandoverAckForwardingMandatory, the per-session transfer must encode to
+// the exact bytes omec's ngap v2.1.0 produces/accepts (dLForwardingUP-
+// TNLInformation present). This golden value was verified byte-identical to
+// omec's own encoder and decodable by omec's v2.1.0 decoder. See §5(i) /
+// docs/interop/sdcore.md.
+func TestHandoverAckTransferSDCoreQuirk(t *testing.T) {
+	// tunnel 172.17.50.13 / TEID 200, QFI 1
+	const golden = "000f80ac11320d000000c801f0ac11320d000000c80001"
+	got, err := encodeHandoverAckTransfer(GNBTunnel{Address: "172.17.50.13", TEID: 200}, []int64{1}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hex.EncodeToString(got) != golden {
+		t.Errorf("sdcore quirk transfer = %s, want %s", hex.EncodeToString(got), golden)
+	}
+	// The strict (conformant) encoding must remain the canonical, shorter form.
+	strict, err := encodeHandoverAckTransfer(GNBTunnel{Address: "172.17.50.13", TEID: 200}, []int64{1}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hex.EncodeToString(strict) != "0007c0ac11320d000000c80001" {
+		t.Errorf("strict transfer changed: %s", hex.EncodeToString(strict))
 	}
 }
