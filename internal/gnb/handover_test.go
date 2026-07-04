@@ -14,12 +14,13 @@ import (
 // the address and TEID we put in.
 //
 // Note: these bytes round-trip under free5gc/aper but SD-Core's SMF (omec's
-// aper fork) rejects them with "align Bit is not zero" — a library-level APER
-// divergence on this transfer's bit layout, not a schema or encoding error
-// here (the struct tags are identical across both libraries, and the SMF
-// decodes our other free5gc-encoded transfers fine). This is why a live N2
-// handover completes on the control plane but the UPF downlink does not switch.
-// See docs/DESIGN.md D-4.
+// aper fork) rejects them with "align Bit is not zero". An independent oracle
+// (pycrate's spec-derived NGAP ASN.1 + canonical APER) decodes them correctly
+// and re-encodes to the identical bytes — so ORBIT's encoding IS X.691-
+// conformant and SD-Core's decoder is the non-conformant party. This is why a
+// live N2 handover completes on the control plane but the UPF downlink does not
+// switch. The workaround belongs in an opt-in CoreProfile quirk, not here — the
+// codec stays conformant. See docs/DESIGN.md D-4 and §5(i).
 func TestHandoverAckTransferRoundTrip(t *testing.T) {
 	pdu, err := BuildHandoverRequestAcknowledge(42, 1, []AdmittedSession{
 		{PDUSessionID: 1, GNBTunnel: GNBTunnel{Address: "172.17.50.13", TEID: 200}, QFIs: []int64{1}},
