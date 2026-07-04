@@ -1,0 +1,122 @@
+# SD-Core (Aether / omec-project) interop notes
+
+Tracks conformance/interop issues ORBIT has found in the **Aether SD-Core**
+(omec-project) two-node testbed (ATB-01), and the opt-in quirks that work
+around them. ORBIT's codecs stay strict and 3GPP/X.691-conformant by default;
+quirks live only in the `sdcore` [core profile](../../internal/coreprofile)
+and never bend the codec. See `docs/DESIGN.md` §5(i).
+
+Deployed versions (read from the running SMF binary, `go version -m`):
+`omec-project/ngap/v2 v2.1.0`, `omec-project/nas/v2 v2.0.0`,
+`omec-project/smf` build `2026-06-02`.
+
+The N2 handover path is the source of these — it is **unexercised upstream**
+(gnbsim, omec's reference RAN sim, never drove N2 or Xn handover), so ORBIT is
+the first tool to exercise it end to end.
+
+---
+
+## Finding 1 — SMF cannot decode a conformant `HandoverRequestAcknowledgeTransfer` (FIXED via quirk)
+
+**Symptom.** After a fully-completed N2 handover (control plane green: AMF drives
+`HandoverRequired → HandoverRequest → HandoverRequestAcknowledge →
+HandoverCommand → HandoverNotify → UE Context Release`), the user-plane
+downlink never switches to the target. The UPF keeps sending downlink to the
+source gNB. SMF log:
+
+```
+ERROR producer/n1n2_data_handler.go:366
+  handle HandoverRequestAcknowledgeTransfer failed: align Bit is not zero
+```
+
+**Root cause — a missing `optional` in omec's generated ASN.1 type.** In
+`omec-project/ngap/v2 v2.1.0`, `HandoverRequestAcknowledgeTransfer` declares:
+
+```go
+DLForwardingUPTNLInformation  *UPTransportLayerInformation `aper:"valueLB:0,valueUB:1"`   // omec: NO `optional`
+```
+
+3GPP **TS 38.413 §9.3.4.11** defines `dLForwardingUP-TNLInformation` as
+**OPTIONAL**. free5gc has it right (`...,optional`); omec dropped the tag, so
+its codec treats a spec-OPTIONAL field as **mandatory**. Its decoder therefore
+expects a value where a conformant encoder (correctly) omitted one, desyncs,
+and fails at the next byte-alignment with *"align Bit is not zero"*.
+
+**Conformance verdict — ORBIT is correct, SD-Core is not.** Verified three
+independent ways that our encoding is the canonical X.691 APER:
+
+1. **pycrate** (independent spec-derived 3GPP NGAP ASN.1) decodes our bytes
+   `0007c0ac11320d000000c80001`, re-encodes to the identical bytes, and its
+   from-scratch canonical encode of the same value matches.
+2. **Byte-diff**: the *only* difference between free5gc's and omec's tags is
+   the missing `optional`; encoding a struct with omec's (buggy) tags via
+   free5gc's own aper reproduces omec's exact bytes — so the aper *libraries*
+   agree, the *type definition* is wrong.
+3. **omec's own v2.1.0 decoder** rejects the canonical bytes with the same
+   error, and accepts only the (non-conformant) form with the field present.
+
+**The quirk — `HandoverAckForwardingMandatory`.** Under the `sdcore` profile,
+ORBIT emits the transfer with `dLForwardingUP-TNLInformation` present (set to
+the same target tunnel), matching omec's schema. Implemented by encoding a
+local struct with omec's tags via ORBIT's *own conformant* aper — no omec
+dependency; verified byte-identical to omec's v2.1.0 encoder and decodable by
+it. Golden test: `internal/gnb.TestHandoverAckTransferSDCoreQuirk`. The bytes
+are non-conformant and a strict core would reject them — hence opt-in.
+
+**Verified live (2026-07-04).** With `ORBIT_CORE_PROFILE=sdcore`, the
+`align Bit is not zero` error disappears, the SMF decodes the transfer, and the
+downlink FAR's `OuterHeaderCreation` switches from the source address to the
+**target** (`172.17.50.13`) — which it never did before. Finding 1 is fixed.
+
+**Upstream.** Report to `omec-project/ngap`: add `optional` to
+`HandoverRequestAcknowledgeTransfer.DLForwardingUPTNLInformation` (and audit the
+generator for other OPTIONAL fields with the tag dropped). When fixed, retire
+this quirk.
+
+---
+
+## Finding 2 — SMF assigns TEID 0 to the target FAR and never programs the UPF (OPEN)
+
+Once Finding 1 is worked around, a **second, independent** SD-Core bug blocks
+data continuity:
+
+- The SMF builds the target downlink FAR with the correct **address**
+  (`172.17.50.13`) but **TEID 0** — not the target TEID (200) it decoded — and
+  leaves the rule in `State:[2]`.
+- That FAR is **never sent to the UPF**: the target address appears in **zero**
+  N4/PFCP packets (capture of UDP 8805 during the handover). The UPF's active
+  downlink rule stays pointed at the source.
+
+So the UPF still sends downlink to the old gNB, and a flow does not survive the
+handover. This is in the SMF's handover-completion logic (TEID assignment +
+PFCP push), **not** in the messages ORBIT sends — our transfer decodes to the
+correct tunnel (TEID 200). It is likely entangled with omec's handling of the
+now-present forwarding tunnel and/or its N2-handover PFCP state machine.
+
+**Status: open.** Needs SMF-side investigation (candidate for a follow-up quirk
+only if it turns out to be message-driven; otherwise a pure upstream fix). Does
+not block mobility *signalling*, which is fully proven.
+
+---
+
+## The compatibility model (why this isn't "tuning for SD-Core")
+
+- **Codecs stay conformant.** ORBIT's default profile is `strict-3gpp` (zero
+  quirks); a conformant core needs no profile and gets byte-exact 3GPP.
+- **Quirks are opt-in, named, and documented** with the exact defect, core,
+  version, and upstream report. Selected by `ORBIT_CORE_PROFILE` (currently the
+  integration tests; a CLI flag later).
+- **Quirks are observable** — `coreprofile.Profile.Active()` lists them, so the
+  set a core needs is a **conformance scorecard** (feeds Phase 6), not hidden
+  tuning.
+- **Upstream-first** — every quirk maps to a filed bug and is deleted when the
+  core is fixed.
+
+## Reproduction
+
+- Root-cause + conformance harnesses: `scratchpad/apertest` (Go — free5gc vs
+  omec v1/v2 encode/decode) and `scratchpad/conform.py` (pycrate).
+- Live: `internal/engine.TestLiveHandoverDataContinuity` with `-tags=integration`,
+  `ORBIT_CORE_PROFILE=sdcore`, distinct routed source IPs, fresh gNB IDs
+  (`ORBIT_SRC_GNB`/`ORBIT_TGT_GNB`) — the AMF does not re-key a reused gNB ID
+  cleanly (a third, minor SD-Core robustness gap).

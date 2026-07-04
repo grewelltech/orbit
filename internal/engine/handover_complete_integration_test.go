@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/coreprofile"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
@@ -107,7 +108,8 @@ func TestLiveHandoverComplete(t *testing.T) {
 			QFIs:         []int64{1},
 		})
 	}
-	ack, err := gnb.BuildHandoverRequestAcknowledge(hr.AMFUENGAPID, targetRANID, admitted)
+	profile, _ := coreprofile.Get(os.Getenv("ORBIT_CORE_PROFILE"))
+	ack, err := gnb.BuildHandoverRequestAcknowledge(hr.AMFUENGAPID, targetRANID, admitted, profile.Quirks)
 	if err != nil {
 		t.Fatal(err)
 	}

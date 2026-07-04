@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/coreprofile"
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
@@ -164,7 +165,8 @@ func runHandover(ctx context.Context, t *testing.T, src, tgt *sctp.Conn, srcCfg,
 	for _, sid := range hr.PDUSessionIDs {
 		admitted = append(admitted, gnb.AdmittedSession{PDUSessionID: sid, GNBTunnel: gnb.GNBTunnel{Address: tgtN3, TEID: targetDLTEID}, QFIs: []int64{1}})
 	}
-	ack, err := gnb.BuildHandoverRequestAcknowledge(hr.AMFUENGAPID, targetRANID, admitted)
+	profile, _ := coreprofile.Get(os.Getenv("ORBIT_CORE_PROFILE"))
+	ack, err := gnb.BuildHandoverRequestAcknowledge(hr.AMFUENGAPID, targetRANID, admitted, profile.Quirks)
 	if err != nil {
 		return err
 	}
