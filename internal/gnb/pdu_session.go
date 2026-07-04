@@ -90,7 +90,10 @@ type GNBTunnel struct {
 // the gNB downlink tunnel per session (TS 38.413 §8.2.1, §9.2.1.2). The
 // per-session response transfer is APER-encoded with the "valueExt" param
 // as an NGAP OCTET STRING, matching gnbsim's field-used encoding.
-func BuildPDUSessionResourceSetupResponse(amfID, ranID int64, res []PDUSessionResource, tun GNBTunnel) (ngapType.NGAPPDU, error) {
+// BuildPDUSessionResourceSetupResponse acknowledges each PDU session with the
+// gNB's downlink tunnel. gnbAddr is the shared gNB N3 address; teidFor gives
+// the per-session downlink TEID (each session needs a distinct one).
+func BuildPDUSessionResourceSetupResponse(amfID, ranID int64, res []PDUSessionResource, gnbAddr string, teidFor func(pduSessionID int64) uint32) (ngapType.NGAPPDU, error) {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentSuccessfulOutcome
 	pdu.SuccessfulOutcome = new(ngapType.SuccessfulOutcome)
@@ -123,6 +126,7 @@ func BuildPDUSessionResourceSetupResponse(amfID, ranID int64, res []PDUSessionRe
 		ie.Value.Present = ngapType.PDUSessionResourceSetupResponseIEsPresentPDUSessionResourceSetupListSURes
 		ie.Value.PDUSessionResourceSetupListSURes = new(ngapType.PDUSessionResourceSetupListSURes)
 		for _, r := range res {
+			tun := GNBTunnel{Address: gnbAddr, TEID: teidFor(r.PDUSessionID)}
 			transfer, err := encodeSetupResponseTransfer(tun, r.QFIs)
 			if err != nil {
 				return pdu, err
