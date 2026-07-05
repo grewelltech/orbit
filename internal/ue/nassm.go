@@ -13,12 +13,50 @@ import (
 // §8.2.10). A 5GSM message rides inside a 5GMM NAS Transport as an "N1 SM
 // container"; the AMF forwards it to the SMF.
 
-// PDUSessionParams describes the session the UE requests.
+// SNSSAI is one network slice: an SST plus an optional SD (TS 23.003 §28.4).
+type SNSSAI struct {
+	SST uint8
+	SD  string // 6 hex digits, optional
+}
+
+// PDUSessionParams describes one session the UE requests. Each session
+// carries its own slice and DNN, so a UE can hold sessions on distinct
+// slices (TS 23.501 §5.15).
 type PDUSessionParams struct {
 	PDUSessionID uint8  // 1-15 (TS 24.501 §9.4)
 	SST          uint8  // slice/service type
 	SD           string // 6 hex digits, optional
 	DNN          string // data network name, e.g. "internet"
+}
+
+// Slice returns the session's S-NSSAI.
+func (p PDUSessionParams) Slice() SNSSAI { return SNSSAI{SST: p.SST, SD: p.SD} }
+
+// BuildRequestedNSSAI encodes the slices the UE requests at registration into
+// a Requested NSSAI IE (TS 24.501 §9.11.3.37). Each entry is length-prefixed:
+// [0x01,SST] with no SD, or [0x04,SST,SD(3)]. Returns nil for an empty set
+// (the AMF then assigns the default/subscribed slice).
+func BuildRequestedNSSAI(slices []SNSSAI) (*nasType.RequestedNSSAI, error) {
+	if len(slices) == 0 {
+		return nil, nil
+	}
+	var buf []byte
+	for _, s := range slices {
+		if s.SD == "" {
+			buf = append(buf, 0x01, s.SST)
+			continue
+		}
+		sd, err := parseSD(s.SD)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, 0x04, s.SST)
+		buf = append(buf, sd[:]...)
+	}
+	n := nasType.NewRequestedNSSAI(nasMessage.RegistrationRequestRequestedNSSAIType)
+	n.SetLen(uint8(len(buf)))
+	n.Buffer = buf
+	return n, nil
 }
 
 // BuildPDUSessionEstablishmentRequest builds the 5GSM PDU Session

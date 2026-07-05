@@ -907,6 +907,159 @@ func (x *PingResponse) GetReplyFrom() string {
 	return ""
 }
 
+type HandoverRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Registered UE to hand over.
+	Supi string `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
+	// Target gNB to move the UE to.
+	TargetGnb *GnbConfig `protobuf:"bytes,2,opt,name=target_gnb,json=targetGnb,proto3" json:"target_gnb,omitempty"`
+	// AMF N2 endpoint for the target association (host:port).
+	AmfAddress string `protobuf:"bytes,3,opt,name=amf_address,json=amfAddress,proto3" json:"amf_address,omitempty"`
+	// SCTP bind address for the target gNB — use a distinct routed source IP
+	// per gNB (see docs/interop/sdcore.md).
+	BindAddress string `protobuf:"bytes,4,opt,name=bind_address,json=bindAddress,proto3" json:"bind_address,omitempty"`
+	// Target gNB N3 address for the downlink tunnel.
+	GnbN3Addr string `protobuf:"bytes,5,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"`
+	// Handover timeout in milliseconds (0 = 30000).
+	TimeoutMs     uint32 `protobuf:"varint,6,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HandoverRequest) Reset() {
+	*x = HandoverRequest{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HandoverRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HandoverRequest) ProtoMessage() {}
+
+func (x *HandoverRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HandoverRequest.ProtoReflect.Descriptor instead.
+func (*HandoverRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *HandoverRequest) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+func (x *HandoverRequest) GetTargetGnb() *GnbConfig {
+	if x != nil {
+		return x.TargetGnb
+	}
+	return nil
+}
+
+func (x *HandoverRequest) GetAmfAddress() string {
+	if x != nil {
+		return x.AmfAddress
+	}
+	return ""
+}
+
+func (x *HandoverRequest) GetBindAddress() string {
+	if x != nil {
+		return x.BindAddress
+	}
+	return ""
+}
+
+func (x *HandoverRequest) GetGnbN3Addr() string {
+	if x != nil {
+		return x.GnbN3Addr
+	}
+	return ""
+}
+
+func (x *HandoverRequest) GetTimeoutMs() uint32 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+type HandoverResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Supi  string                 `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
+	// The gNB ID the UE is now served by (the target on success).
+	GnbId uint32 `protobuf:"varint,2,opt,name=gnb_id,json=gnbId,proto3" json:"gnb_id,omitempty"`
+	// Terminal mobility state: HANDED_OVER or HANDOVER_FAILED.
+	State         string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HandoverResponse) Reset() {
+	*x = HandoverResponse{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HandoverResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HandoverResponse) ProtoMessage() {}
+
+func (x *HandoverResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HandoverResponse.ProtoReflect.Descriptor instead.
+func (*HandoverResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *HandoverResponse) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+func (x *HandoverResponse) GetGnbId() uint32 {
+	if x != nil {
+		return x.GnbId
+	}
+	return 0
+}
+
+func (x *HandoverResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
 var File_orbit_v1_ue_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_ue_proto_rawDesc = "" +
@@ -978,7 +1131,21 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\breceived\x18\x02 \x01(\rR\breceived\x12\x15\n" +
 	"\x06rtt_ms\x18\x03 \x01(\x01R\x05rttMs\x12\x1d\n" +
 	"\n" +
-	"reply_from\x18\x04 \x01(\tR\treplyFrom2\x93\x03\n" +
+	"reply_from\x18\x04 \x01(\tR\treplyFrom\"\xdc\x01\n" +
+	"\x0fHandoverRequest\x12\x12\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\x122\n" +
+	"\n" +
+	"target_gnb\x18\x02 \x01(\v2\x13.orbit.v1.GnbConfigR\ttargetGnb\x12\x1f\n" +
+	"\vamf_address\x18\x03 \x01(\tR\n" +
+	"amfAddress\x12!\n" +
+	"\fbind_address\x18\x04 \x01(\tR\vbindAddress\x12\x1e\n" +
+	"\vgnb_n3_addr\x18\x05 \x01(\tR\tgnbN3Addr\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x06 \x01(\rR\ttimeoutMs\"S\n" +
+	"\x10HandoverResponse\x12\x12\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x15\n" +
+	"\x06gnb_id\x18\x02 \x01(\rR\x05gnbId\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state2\xd8\x03\n" +
 	"\tUEService\x12C\n" +
 	"\bRegister\x12\x19.orbit.v1.RegisterRequest\x1a\x1a.orbit.v1.RegisterResponse\"\x00\x12I\n" +
 	"\n" +
@@ -986,7 +1153,8 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x06Status\x12\x17.orbit.v1.StatusRequest\x1a\x18.orbit.v1.StatusResponse\"\x00\x127\n" +
 	"\x04List\x12\x15.orbit.v1.ListRequest\x1a\x16.orbit.v1.ListResponse\"\x00\x127\n" +
 	"\x04Ping\x12\x15.orbit.v1.PingRequest\x1a\x16.orbit.v1.PingResponse\"\x00\x12E\n" +
-	"\vStateStream\x12\x1c.orbit.v1.StateStreamRequest\x1a\x14.orbit.v1.StateEvent\"\x000\x01B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\vStateStream\x12\x1c.orbit.v1.StateStreamRequest\x1a\x14.orbit.v1.StateEvent\"\x000\x01\x12C\n" +
+	"\bHandover\x12\x19.orbit.v1.HandoverRequest\x1a\x1a.orbit.v1.HandoverResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_ue_proto_rawDescOnce sync.Once
@@ -1000,7 +1168,7 @@ func file_orbit_v1_ue_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_ue_proto_rawDescData
 }
 
-var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_orbit_v1_ue_proto_goTypes = []any{
 	(*Credentials)(nil),        // 0: orbit.v1.Credentials
 	(*PDUSession)(nil),         // 1: orbit.v1.PDUSession
@@ -1017,31 +1185,36 @@ var file_orbit_v1_ue_proto_goTypes = []any{
 	(*StateEvent)(nil),         // 12: orbit.v1.StateEvent
 	(*PingRequest)(nil),        // 13: orbit.v1.PingRequest
 	(*PingResponse)(nil),       // 14: orbit.v1.PingResponse
-	(*GnbConfig)(nil),          // 15: orbit.v1.GnbConfig
+	(*HandoverRequest)(nil),    // 15: orbit.v1.HandoverRequest
+	(*HandoverResponse)(nil),   // 16: orbit.v1.HandoverResponse
+	(*GnbConfig)(nil),          // 17: orbit.v1.GnbConfig
 }
 var file_orbit_v1_ue_proto_depIdxs = []int32{
-	15, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
+	17, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
 	0,  // 1: orbit.v1.RegisterRequest.credentials:type_name -> orbit.v1.Credentials
 	1,  // 2: orbit.v1.RegisterRequest.pdu_session:type_name -> orbit.v1.PDUSession
 	7,  // 3: orbit.v1.StatusResponse.status:type_name -> orbit.v1.UEStatus
 	7,  // 4: orbit.v1.ListResponse.ues:type_name -> orbit.v1.UEStatus
-	2,  // 5: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
-	4,  // 6: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
-	6,  // 7: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
-	9,  // 8: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
-	13, // 9: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
-	11, // 10: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
-	3,  // 11: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 12: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 13: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 14: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	14, // 15: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
-	12, // 16: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	11, // [11:17] is the sub-list for method output_type
-	5,  // [5:11] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	17, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
+	2,  // 6: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
+	4,  // 7: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
+	6,  // 8: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
+	9,  // 9: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
+	13, // 10: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
+	11, // 11: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
+	15, // 12: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
+	3,  // 13: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 14: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 15: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 16: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 17: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 18: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	16, // 19: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
+	13, // [13:20] is the sub-list for method output_type
+	6,  // [6:13] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_ue_proto_init() }
@@ -1056,7 +1229,7 @@ func file_orbit_v1_ue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_ue_proto_rawDesc), len(file_orbit_v1_ue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -58,6 +58,7 @@ func newVersionCmd(version string) *cobra.Command {
 func newServeCmd(version string) *cobra.Command {
 	var listen string
 	var logLevel string
+	var coreProfile string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the ORBIT API server",
@@ -80,7 +81,7 @@ func newServeCmd(version string) *cobra.Command {
 			}()
 
 			reg := observability.NewRegistry()
-			handler := server.New(log, version, reg)
+			handler := server.New(log, version, reg, coreProfile)
 
 			srv := &http.Server{
 				Addr:              listen,
@@ -96,6 +97,7 @@ func newServeCmd(version string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&listen, "listen", DefaultListen, "listen address (host:port)")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
+	cmd.Flags().StringVar(&coreProfile, "core-profile", "", "core compatibility profile (strict-3gpp, sdcore); default strict-3gpp")
 	return cmd
 }
 
