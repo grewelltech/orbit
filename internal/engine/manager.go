@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/coreprofile"
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -57,7 +58,8 @@ type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 
-	hub *hub
+	hub     *hub
+	profile coreprofile.Profile // core-compatibility profile (default strict-3gpp)
 }
 
 // NewManager returns an empty session manager.
@@ -66,6 +68,7 @@ func NewManager(log *slog.Logger) *Manager {
 		log:      log,
 		sessions: make(map[string]*Session),
 		hub:      newHub(),
+		profile:  coreprofile.Default(),
 	}
 }
 
