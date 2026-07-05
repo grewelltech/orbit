@@ -27,7 +27,8 @@ func newLoadCmd() *cobra.Command {
 		gnbName, sd, dnn, gnbN3, rampSpec string
 		count, conc, gnbCount             int
 		gnbID, gnbBits, tac, sst          uint32
-		rate                              float64
+		rate, sloSuccess                  float64
+		sloRegP99, sloAttachP99           time.Duration
 		withPDU                           bool
 	)
 	cmd := &cobra.Command{
@@ -74,6 +75,21 @@ func newLoadCmd() *cobra.Command {
 				return err
 			}
 			printLoadReport(cmd.OutOrStdout(), rep)
+
+			slo := load.SLO{MinSuccessRate: sloSuccess, Latency: map[string]load.LatencyBound{}}
+			if sloRegP99 > 0 {
+				slo.Latency["registration"] = load.LatencyBound{P99: sloRegP99}
+			}
+			if sloAttachP99 > 0 {
+				slo.Latency["attach"] = load.LatencyBound{P99: sloAttachP99}
+			}
+			if !slo.Empty() {
+				v := slo.Evaluate(rep)
+				printVerdict(cmd.OutOrStdout(), v)
+				if !v.Pass {
+					return fmt.Errorf("SLO breached")
+				}
+			}
 			return nil
 		},
 	}
@@ -98,6 +114,9 @@ func newLoadCmd() *cobra.Command {
 	f.BoolVar(&withPDU, "pdu-session", false, "establish a PDU session per UE")
 	f.StringVar(&dnn, "dnn", "internet", "DNN (with --pdu-session)")
 	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address (with --pdu-session)")
+	f.Float64Var(&sloSuccess, "slo-min-success", 0, "SLO: minimum success rate (0-1); breach exits non-zero")
+	f.DurationVar(&sloRegP99, "slo-reg-p99", 0, "SLO: max registration P99 (e.g. 500ms)")
+	f.DurationVar(&sloAttachP99, "slo-attach-p99", 0, "SLO: max attach P99")
 	for _, r := range []string{"amf", "base-imsi", "ki", "opc", "mcc", "mnc"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
@@ -139,3 +158,18 @@ func printLoadReport(w io.Writer, rep load.Report) {
 }
 
 func round(d time.Duration) string { return d.Round(100 * time.Microsecond).String() }
+
+func printVerdict(w io.Writer, v load.Verdict) {
+	result := "PASS"
+	if !v.Pass {
+		result = "FAIL"
+	}
+	fmt.Fprintf(w, "SLO: %s\n", result)
+	for _, c := range v.Checks {
+		mark := "ok  "
+		if !c.Pass {
+			mark = "FAIL"
+		}
+		fmt.Fprintf(w, "  [%s] %-20s %s\n", mark, c.Name, c.Detail)
+	}
+}
