@@ -14,7 +14,6 @@ import (
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
-	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -28,14 +27,27 @@ const ueStream uint16 = 1
 // one PDU session (control-plane signalling and IP allocation; no user-plane
 // bytes until Phase 1b).
 type UEConfig struct {
-	Identity   ue.Identity
-	Sub        auth.Subscription
-	PDUSession *ue.PDUSessionParams
+	Identity ue.Identity
+	Sub      auth.Subscription
+	// PDUSession is a single session to establish (the API / single-session
+	// path). PDUSessions, if non-empty, takes precedence and establishes
+	// several sessions — each with its own DNN and S-NSSAI.
+	PDUSession  *ue.PDUSessionParams
+	PDUSessions []ue.PDUSessionParams
 	// GNBN3Addr is the gNB N3 transport address reported to the AMF in the
 	// PDU Session Resource Setup Response and bound for the data path.
 	// Must be reachable from the UPF access-net; empty disables the data
 	// path (control-plane only).
 	GNBN3Addr string
+	// RANUENGAPID is the gNB's identifier for this UE, unique per gNB
+	// association (TS 38.413 §9.3.3.2). It keys the demux when many UEs
+	// share one association; 0 defaults to 1 (single-UE case).
+	RANUENGAPID int64
+	// RequestedNSSAI is the set of slices the UE requests at registration
+	// (TS 24.501 §9.11.3.37). If empty, it defaults to the PDU session's
+	// slice so a slice-aware core routes correctly; if there is no session
+	// either, none is sent and the AMF assigns the subscribed slice.
+	RequestedNSSAI []ue.SNSSAI
 }
 
 // AttachResult reports the outcome of a control-plane attach.
@@ -44,17 +56,30 @@ type AttachResult struct {
 	SUPI        string
 	AMFUENGAPID int64
 	RANUENGAPID int64
-	// SessionActive is true when a PDU session was established.
+	// SessionActive is true when at least one PDU session was established.
 	SessionActive bool
-	// PDUAddress is the allocated UE IP (when a session was established).
+	// Sessions holds one entry per established PDU session.
+	Sessions []SessionResult
+	// The following mirror Sessions[0] for the single-session callers
+	// (Ping, the API). PDUAddress is the allocated UE IP; UPFAddress/UPFTEID
+	// the UPF uplink N3 endpoint; DLTEID the gNB downlink TEID; QFI the flow.
 	PDUAddress string
-	// UPFAddress/UPFTEID are the UPF uplink N3 endpoint (send uplink here).
 	UPFAddress string
 	UPFTEID    uint32
-	// DLTEID is the gNB downlink TEID reported to the UPF; the UPF stamps it
-	// on downlink G-PDUs. QFI is the QoS flow of the default session.
-	DLTEID uint32
-	QFI    uint8
+	DLTEID     uint32
+	QFI        uint8
+}
+
+// SessionResult is one established PDU session's endpoints.
+type SessionResult struct {
+	PDUSessionID uint8
+	DNN          string
+	Slice        ue.SNSSAI
+	IPv4         string
+	UPFAddress   string
+	UPFTEID      uint32
+	DLTEID       uint32
+	QFI          uint8
 }
 
 // Attach registers one UE over an already-NG-Setup association. It runs the
@@ -63,15 +88,22 @@ type AttachResult struct {
 // requested) establishes one PDU session. emit, if non-nil, receives a
 // StateEvent at each transition. The returned Session holds the live
 // association and security context for later Status/Deregister.
-func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger, emit func(StateEvent)) (*Session, error) {
-	ranID := int64(1)
+func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger, emit func(StateEvent)) (*Session, error) {
+	ranID := ueCfg.RANUENGAPID
+	if ranID == 0 {
+		ranID = 1
+	}
 	snn := auth.ServingNetworkName(gnbCfg.MCC, gnbCfg.MNC)
 
 	suci, err := ueCfg.Identity.EncodeNullSUCI()
 	if err != nil {
 		return nil, fmt.Errorf("encode SUCI: %w", err)
 	}
-	regReq, err := ue.BuildRegistrationRequest(suci, ue.SecurityCapability(), nil)
+	requested, err := ue.BuildRequestedNSSAI(requestedSlices(ueCfg))
+	if err != nil {
+		return nil, fmt.Errorf("build Requested NSSAI: %w", err)
+	}
+	regReq, err := ue.BuildRegistrationRequest(suci, ue.SecurityCapability(), requested)
 	if err != nil {
 		return nil, fmt.Errorf("build Registration Request: %w", err)
 	}
@@ -79,6 +111,8 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 	st := &attachState{
 		ctx: ctx, conn: conn, gnbCfg: gnbCfg, ueCfg: ueCfg,
 		snn: snn, ranID: ranID, regReq: regReq, log: log, emit: emit,
+		wanted: sessionsToEstablish(ueCfg), sessions: map[uint8]SessionResult{},
+		dlTEIDSeq: gnbDownlinkTEID,
 	}
 
 	initial, err := gnb.BuildInitialUEMessage(gnbCfg, ranID, regReq)
@@ -124,24 +158,35 @@ func Attach(ctx context.Context, conn *sctp.Conn, gnbCfg gnb.Config, ueCfg UECon
 		amfID:  st.amfID,
 		ranID:  ranID,
 		guti:   st.guti,
-		Result: &AttachResult{
-			Registered:    true,
-			SUPI:          ueCfg.Sub.SUPI,
-			AMFUENGAPID:   st.amfID,
-			RANUENGAPID:   ranID,
-			SessionActive: st.sessionActive,
-			PDUAddress:    st.pduAddress,
-			UPFAddress:    st.upfAddress,
-			UPFTEID:       st.upfTEID,
-			DLTEID:        gnbDownlinkTEID,
-			QFI:           st.qfi,
-		},
+		Result: st.result(ueCfg.Sub.SUPI, ranID),
 	}, nil
+}
+
+// result assembles the AttachResult, mirroring the first session into the
+// single-session fields for backward-compatible callers.
+func (s *attachState) result(supi string, ranID int64) *AttachResult {
+	r := &AttachResult{
+		Registered:    true,
+		SUPI:          supi,
+		AMFUENGAPID:   s.amfID,
+		RANUENGAPID:   ranID,
+		SessionActive: len(s.sessions) > 0,
+	}
+	for _, w := range s.wanted { // stable order = requested order
+		if sr, ok := s.sessions[w.PDUSessionID]; ok {
+			r.Sessions = append(r.Sessions, sr)
+		}
+	}
+	if len(r.Sessions) > 0 {
+		f := r.Sessions[0]
+		r.PDUAddress, r.UPFAddress, r.UPFTEID, r.DLTEID, r.QFI = f.IPv4, f.UPFAddress, f.UPFTEID, f.DLTEID, f.QFI
+	}
+	return r
 }
 
 type attachState struct {
 	ctx    context.Context
-	conn   *sctp.Conn
+	conn   gnb.Transport
 	gnbCfg gnb.Config
 	ueCfg  UEConfig
 	snn    string
@@ -156,11 +201,9 @@ type attachState struct {
 	guti       []byte
 	registered bool
 
-	sessionActive bool
-	pduAddress    string
-	upfAddress    string
-	upfTEID       uint32
-	qfi           uint8
+	wanted    []ue.PDUSessionParams   // sessions to establish
+	sessions  map[uint8]SessionResult // established, by PDU session ID
+	dlTEIDSeq uint32                  // next gNB downlink TEID to hand out
 }
 
 // event publishes a state transition to the emitter, if any.
@@ -170,50 +213,81 @@ func (s *attachState) event(state, detail string) {
 	}
 }
 
-// done reports whether the attach has reached its target state.
+// done reports whether the attach has reached its target state: all
+// requested PDU sessions established, or just REGISTERED if none requested.
 func (s *attachState) done() bool {
-	if s.ueCfg.PDUSession != nil {
-		return s.sessionActive
+	if len(s.wanted) > 0 {
+		return len(s.sessions) >= len(s.wanted)
 	}
 	return s.registered
 }
 
-// handlePDUSession processes a PDU Session Resource Setup Request: it acks
-// the session with the gNB downlink tunnel, extracts the allocated UE IP
-// from the embedded Establishment Accept, and records the UPF endpoint.
-// Returns true if it consumed the PDU.
+// handlePDUSession processes a PDU Session Resource Setup Request: it assigns
+// each session a distinct gNB downlink TEID, acks with the response, extracts
+// the allocated UE IP from the embedded Establishment Accept, and records the
+// UPF endpoint. One message may carry several sessions. Returns true if it
+// consumed the PDU.
 func (s *attachState) handlePDUSession(pdu *ngapType.NGAPPDU) (bool, error) {
 	amfID, ranID, res, err := gnb.ParsePDUSessionResourceSetupRequest(pdu)
 	if err != nil {
 		return false, nil // not a PDU Session Resource Setup Request
 	}
 	s.amfID = amfID
-	tun := gnb.GNBTunnel{Address: s.gnbN3Addr(), TEID: gnbDownlinkTEID}
-	resp, err := gnb.BuildPDUSessionResourceSetupResponse(amfID, ranID, res, tun)
+
+	// Assign a downlink TEID per session (stable if the same session recurs).
+	teids := map[int64]uint32{}
+	teidFor := func(id int64) uint32 {
+		if t, ok := teids[id]; ok {
+			return t
+		}
+		t := s.dlTEIDSeq
+		s.dlTEIDSeq++
+		teids[id] = t
+		return t
+	}
+	resp, err := gnb.BuildPDUSessionResourceSetupResponse(amfID, ranID, res, s.gnbN3Addr(), teidFor)
 	if err != nil {
 		return true, err
 	}
 	if err := gnb.SendPDU(s.conn, ueStream, resp); err != nil {
 		return true, fmt.Errorf("send PDU Session Resource Setup Response: %w", err)
 	}
+
 	for _, r := range res {
+		sr := SessionResult{
+			PDUSessionID: uint8(r.PDUSessionID),
+			UPFAddress:   r.UPFAddress,
+			UPFTEID:      r.UPFTEID,
+			DLTEID:       teids[r.PDUSessionID],
+		}
+		if p := s.wantedByID(uint8(r.PDUSessionID)); p != nil {
+			sr.DNN, sr.Slice = p.DNN, p.Slice()
+		}
+		if len(r.QFIs) > 0 {
+			sr.QFI = uint8(r.QFIs[0])
+		}
 		if len(r.NASPDU) > 0 {
 			if ip, err := s.extractPDUAddress(r.NASPDU); err != nil {
 				s.log.WarnContext(s.ctx, "could not extract UE IP from PDU Session Establishment Accept", "err", err)
 			} else {
-				s.pduAddress = ip
+				sr.IPv4 = ip
 			}
 		}
-		s.upfAddress, s.upfTEID = r.UPFAddress, r.UPFTEID
-		if len(r.QFIs) > 0 {
-			s.qfi = uint8(r.QFIs[0])
+		s.sessions[sr.PDUSessionID] = sr
+		s.log.InfoContext(s.ctx, "PDU session established",
+			"pdu_session_id", sr.PDUSessionID, "ue_ip", sr.IPv4, "dnn", sr.DNN, "upf", sr.UPFAddress)
+		s.event(StateSessionActive, fmt.Sprintf("PDU session %d active, UE IP %s", sr.PDUSessionID, sr.IPv4))
+	}
+	return true, nil
+}
+
+func (s *attachState) wantedByID(id uint8) *ue.PDUSessionParams {
+	for i := range s.wanted {
+		if s.wanted[i].PDUSessionID == id {
+			return &s.wanted[i]
 		}
 	}
-	s.sessionActive = true
-	s.log.InfoContext(s.ctx, "PDU session established",
-		"ue_ip", s.pduAddress, "upf", s.upfAddress, "upf_teid", s.upfTEID)
-	s.event(StateSessionActive, fmt.Sprintf("PDU session active, UE IP %s", s.pduAddress))
-	return true, nil
+	return nil
 }
 
 // extractPDUAddress decrypts the security-protected DL NAS Transport that
@@ -386,10 +460,12 @@ func (s *attachState) onRegistrationAccept(msg *f5nas.Message) error {
 		"supi", s.ueCfg.Sub.SUPI)
 	s.event(StateRegistered, "UE is 5GMM-REGISTERED")
 
-	// With a PDU session requested, kick off establishment now that the UE
-	// is REGISTERED (TS 23.502 §4.3.2.2).
-	if s.ueCfg.PDUSession != nil {
-		return s.requestPDUSession(*s.ueCfg.PDUSession)
+	// With PDU sessions requested, kick off establishment now that the UE is
+	// REGISTERED (TS 23.502 §4.3.2.2) — one request per session.
+	for _, p := range s.wanted {
+		if err := s.requestPDUSession(p); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -446,3 +522,33 @@ const (
 // gnbDownlinkTEID is the gNB-side downlink TEID reported for the single
 // Phase-1a session. Phase 1b allocates per-session TEIDs and wires GTP-U.
 const gnbDownlinkTEID uint32 = 1
+
+// sessionsToEstablish is the list of PDU sessions to bring up: the explicit
+// multi-session list if set, else the single PDUSession (API/single-session
+// callers), else none.
+func sessionsToEstablish(cfg UEConfig) []ue.PDUSessionParams {
+	if len(cfg.PDUSessions) > 0 {
+		return cfg.PDUSessions
+	}
+	if cfg.PDUSession != nil {
+		return []ue.PDUSessionParams{*cfg.PDUSession}
+	}
+	return nil
+}
+
+// requestedSlices returns the slices to advertise in the Registration
+// Request: the explicit set if given, else the union of the sessions' slices.
+func requestedSlices(cfg UEConfig) []ue.SNSSAI {
+	if len(cfg.RequestedNSSAI) > 0 {
+		return cfg.RequestedNSSAI
+	}
+	var out []ue.SNSSAI
+	seen := map[ue.SNSSAI]bool{}
+	for _, p := range sessionsToEstablish(cfg) {
+		if sl := p.Slice(); !seen[sl] {
+			seen[sl] = true
+			out = append(out, sl)
+		}
+	}
+	return out
+}

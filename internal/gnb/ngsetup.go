@@ -152,7 +152,7 @@ type NGSetupResult struct {
 // NGSetup runs one NG Setup exchange over an established association:
 // encode, send on stream 0 (non-UE-associated signalling, TS 38.412 §7),
 // then block for the AMF's reply until ctx expires.
-func NGSetup(ctx context.Context, conn *sctp.Conn, cfg Config) (*NGSetupResult, error) {
+func NGSetup(ctx context.Context, conn Transport, cfg Config) (*NGSetupResult, error) {
 	pdu, err := BuildNGSetupRequest(cfg)
 	if err != nil {
 		return nil, err
