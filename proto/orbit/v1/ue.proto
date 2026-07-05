@@ -28,6 +28,9 @@ service UEService {
   // handover. Drives the control plane end to end; the resulting mobility
   // states are pushed on StateStream.
   rpc Handover(HandoverRequest) returns (HandoverResponse) {}
+  // Traffic runs a loom-generated UDP flow from the UE over its N3 data path
+  // and reports throughput — the user-plane load generator.
+  rpc Traffic(TrafficRequest) returns (TrafficResponse) {}
 }
 
 // Credentials carries the subscriber secrets. Warning: Ki/OPc are long-term
@@ -154,4 +157,24 @@ message HandoverResponse {
   uint32 gnb_id = 2;
   // Terminal mobility state: HANDED_OVER or HANDOVER_FAILED.
   string state = 3;
+}
+
+message TrafficRequest {
+  string supi = 1;
+  // Destination host:port for the UDP flow.
+  string target = 2;
+  // loom rate string, e.g. "50Mbps"; empty = unlimited.
+  string rate = 3;
+  // Inner UDP payload size (default 1200).
+  uint32 packet_size = 4;
+  // Flow duration in milliseconds (default 5000).
+  uint32 duration_ms = 5;
+}
+
+message TrafficResponse {
+  uint64 bytes = 1;
+  uint64 packets = 2;
+  // Achieved application-layer throughput (megabits/sec).
+  double mbps = 3;
+  uint32 duration_ms = 4;
 }

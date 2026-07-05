@@ -47,6 +47,8 @@ const (
 	UEServiceStateStreamProcedure = "/orbit.v1.UEService/StateStream"
 	// UEServiceHandoverProcedure is the fully-qualified name of the UEService's Handover RPC.
 	UEServiceHandoverProcedure = "/orbit.v1.UEService/Handover"
+	// UEServiceTrafficProcedure is the fully-qualified name of the UEService's Traffic RPC.
+	UEServiceTrafficProcedure = "/orbit.v1.UEService/Traffic"
 )
 
 // UEServiceClient is a client for the orbit.v1.UEService service.
@@ -69,6 +71,9 @@ type UEServiceClient interface {
 	// handover. Drives the control plane end to end; the resulting mobility
 	// states are pushed on StateStream.
 	Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
+	// Traffic runs a loom-generated UDP flow from the UE over its N3 data path
+	// and reports throughput — the user-plane load generator.
+	Traffic(context.Context, *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error)
 }
 
 // NewUEServiceClient constructs a client for the orbit.v1.UEService service. By default, it uses
@@ -124,6 +129,12 @@ func NewUEServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(uEServiceMethods.ByName("Handover")),
 			connect.WithClientOptions(opts...),
 		),
+		traffic: connect.NewClient[v1.TrafficRequest, v1.TrafficResponse](
+			httpClient,
+			baseURL+UEServiceTrafficProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("Traffic")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -136,6 +147,7 @@ type uEServiceClient struct {
 	ping        *connect.Client[v1.PingRequest, v1.PingResponse]
 	stateStream *connect.Client[v1.StateStreamRequest, v1.StateEvent]
 	handover    *connect.Client[v1.HandoverRequest, v1.HandoverResponse]
+	traffic     *connect.Client[v1.TrafficRequest, v1.TrafficResponse]
 }
 
 // Register calls orbit.v1.UEService.Register.
@@ -173,6 +185,11 @@ func (c *uEServiceClient) Handover(ctx context.Context, req *connect.Request[v1.
 	return c.handover.CallUnary(ctx, req)
 }
 
+// Traffic calls orbit.v1.UEService.Traffic.
+func (c *uEServiceClient) Traffic(ctx context.Context, req *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error) {
+	return c.traffic.CallUnary(ctx, req)
+}
+
 // UEServiceHandler is an implementation of the orbit.v1.UEService service.
 type UEServiceHandler interface {
 	// Register attaches one UE (Registration + 5G-AKA + Security Mode +
@@ -193,6 +210,9 @@ type UEServiceHandler interface {
 	// handover. Drives the control plane end to end; the resulting mobility
 	// states are pushed on StateStream.
 	Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
+	// Traffic runs a loom-generated UDP flow from the UE over its N3 data path
+	// and reports throughput — the user-plane load generator.
+	Traffic(context.Context, *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error)
 }
 
 // NewUEServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -244,6 +264,12 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(uEServiceMethods.ByName("Handover")),
 		connect.WithHandlerOptions(opts...),
 	)
+	uEServiceTrafficHandler := connect.NewUnaryHandler(
+		UEServiceTrafficProcedure,
+		svc.Traffic,
+		connect.WithSchema(uEServiceMethods.ByName("Traffic")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orbit.v1.UEService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case UEServiceRegisterProcedure:
@@ -260,6 +286,8 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 			uEServiceStateStreamHandler.ServeHTTP(w, r)
 		case UEServiceHandoverProcedure:
 			uEServiceHandoverHandler.ServeHTTP(w, r)
+		case UEServiceTrafficProcedure:
+			uEServiceTrafficHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -295,4 +323,8 @@ func (UnimplementedUEServiceHandler) StateStream(context.Context, *connect.Reque
 
 func (UnimplementedUEServiceHandler) Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.Handover is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) Traffic(context.Context, *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.Traffic is not implemented"))
 }

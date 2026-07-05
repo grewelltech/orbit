@@ -20,6 +20,38 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUEWatchCmd(serverURL))
 	cmd.AddCommand(newUEPingCmd(serverURL))
 	cmd.AddCommand(newUEHandoverCmd(serverURL))
+	cmd.AddCommand(newUETrafficCmd(serverURL))
+	return cmd
+}
+
+func newUETrafficCmd(serverURL *string) *cobra.Command {
+	var supi, target, rate string
+	var packetSize, durationMs uint32
+	cmd := &cobra.Command{
+		Use:   "traffic",
+		Short: "Generate a loom UDP flow from a UE over its N3 data path",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ueClient(serverURL).Traffic(cmd.Context(),
+				connect.NewRequest(&orbitv1.TrafficRequest{
+					Supi: supi, Target: target, Rate: rate,
+					PacketSize: packetSize, DurationMs: durationMs,
+				}))
+			if err != nil {
+				return err
+			}
+			m := res.Msg
+			fmt.Fprintf(cmd.OutOrStdout(), "%d packets, %d bytes, %.1f Mbps over %dms\n",
+				m.GetPackets(), m.GetBytes(), m.GetMbps(), m.GetDurationMs())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&target, "target", "", "destination host:port")
+	cmd.Flags().StringVar(&rate, "rate", "", "loom rate, e.g. 50Mbps (empty = unlimited)")
+	cmd.Flags().Uint32Var(&packetSize, "packet-size", 1200, "inner UDP payload size")
+	cmd.Flags().Uint32Var(&durationMs, "duration-ms", 5000, "flow duration (ms)")
+	_ = cmd.MarkFlagRequired("supi")
+	_ = cmd.MarkFlagRequired("target")
 	return cmd
 }
 

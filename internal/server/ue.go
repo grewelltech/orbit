@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -155,6 +156,31 @@ func (s *ueService) Ping(
 		Received:  uint32(res.Received),
 		RttMs:     float64(res.LastRTT.Microseconds()) / 1000.0,
 		ReplyFrom: res.ReplyFrom,
+	}), nil
+}
+
+func (s *ueService) Traffic(
+	ctx context.Context,
+	req *connect.Request[orbitv1.TrafficRequest],
+) (*connect.Response[orbitv1.TrafficResponse], error) {
+	m := req.Msg
+	if m.GetSupi() == "" || m.GetTarget() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and target are required"))
+	}
+	dur := time.Duration(m.GetDurationMs()) * time.Millisecond
+	if dur <= 0 {
+		dur = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, dur+15*time.Second)
+	defer cancel()
+
+	res, err := s.mgr.Traffic(ctx, m.GetSupi(), m.GetTarget(), m.GetRate(), int(m.GetPacketSize()), dur)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	return connect.NewResponse(&orbitv1.TrafficResponse{
+		Bytes: res.Bytes, Packets: res.Packets, Mbps: res.Mbps,
+		DurationMs: uint32(res.Duration.Milliseconds()),
 	}), nil
 }
 
