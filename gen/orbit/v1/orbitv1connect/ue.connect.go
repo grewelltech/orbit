@@ -45,6 +45,8 @@ const (
 	UEServicePingProcedure = "/orbit.v1.UEService/Ping"
 	// UEServiceStateStreamProcedure is the fully-qualified name of the UEService's StateStream RPC.
 	UEServiceStateStreamProcedure = "/orbit.v1.UEService/StateStream"
+	// UEServiceHandoverProcedure is the fully-qualified name of the UEService's Handover RPC.
+	UEServiceHandoverProcedure = "/orbit.v1.UEService/Handover"
 )
 
 // UEServiceClient is a client for the orbit.v1.UEService service.
@@ -63,6 +65,10 @@ type UEServiceClient interface {
 	Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error)
 	// StateStream pushes UE lifecycle transitions as they happen.
 	StateStream(context.Context, *connect.Request[v1.StateStreamRequest]) (*connect.ServerStreamForClient[v1.StateEvent], error)
+	// Handover moves a registered UE to a target gNB via an N2 (AMF-mediated)
+	// handover. Drives the control plane end to end; the resulting mobility
+	// states are pushed on StateStream.
+	Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
 }
 
 // NewUEServiceClient constructs a client for the orbit.v1.UEService service. By default, it uses
@@ -112,6 +118,12 @@ func NewUEServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(uEServiceMethods.ByName("StateStream")),
 			connect.WithClientOptions(opts...),
 		),
+		handover: connect.NewClient[v1.HandoverRequest, v1.HandoverResponse](
+			httpClient,
+			baseURL+UEServiceHandoverProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("Handover")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -123,6 +135,7 @@ type uEServiceClient struct {
 	list        *connect.Client[v1.ListRequest, v1.ListResponse]
 	ping        *connect.Client[v1.PingRequest, v1.PingResponse]
 	stateStream *connect.Client[v1.StateStreamRequest, v1.StateEvent]
+	handover    *connect.Client[v1.HandoverRequest, v1.HandoverResponse]
 }
 
 // Register calls orbit.v1.UEService.Register.
@@ -155,6 +168,11 @@ func (c *uEServiceClient) StateStream(ctx context.Context, req *connect.Request[
 	return c.stateStream.CallServerStream(ctx, req)
 }
 
+// Handover calls orbit.v1.UEService.Handover.
+func (c *uEServiceClient) Handover(ctx context.Context, req *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error) {
+	return c.handover.CallUnary(ctx, req)
+}
+
 // UEServiceHandler is an implementation of the orbit.v1.UEService service.
 type UEServiceHandler interface {
 	// Register attaches one UE (Registration + 5G-AKA + Security Mode +
@@ -171,6 +189,10 @@ type UEServiceHandler interface {
 	Ping(context.Context, *connect.Request[v1.PingRequest]) (*connect.Response[v1.PingResponse], error)
 	// StateStream pushes UE lifecycle transitions as they happen.
 	StateStream(context.Context, *connect.Request[v1.StateStreamRequest], *connect.ServerStream[v1.StateEvent]) error
+	// Handover moves a registered UE to a target gNB via an N2 (AMF-mediated)
+	// handover. Drives the control plane end to end; the resulting mobility
+	// states are pushed on StateStream.
+	Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
 }
 
 // NewUEServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -216,6 +238,12 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(uEServiceMethods.ByName("StateStream")),
 		connect.WithHandlerOptions(opts...),
 	)
+	uEServiceHandoverHandler := connect.NewUnaryHandler(
+		UEServiceHandoverProcedure,
+		svc.Handover,
+		connect.WithSchema(uEServiceMethods.ByName("Handover")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orbit.v1.UEService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case UEServiceRegisterProcedure:
@@ -230,6 +258,8 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 			uEServicePingHandler.ServeHTTP(w, r)
 		case UEServiceStateStreamProcedure:
 			uEServiceStateStreamHandler.ServeHTTP(w, r)
+		case UEServiceHandoverProcedure:
+			uEServiceHandoverHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -261,4 +291,8 @@ func (UnimplementedUEServiceHandler) Ping(context.Context, *connect.Request[v1.P
 
 func (UnimplementedUEServiceHandler) StateStream(context.Context, *connect.Request[v1.StateStreamRequest], *connect.ServerStream[v1.StateEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.StateStream is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.Handover is not implemented"))
 }

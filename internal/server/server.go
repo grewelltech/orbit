@@ -28,11 +28,19 @@ import (
 // New builds the ORBIT HTTP handler. The h2c wrapper lets gRPC clients
 // connect without TLS on lab-internal listeners; the API is not meant to be
 // externally exposed (DESIGN §8, credential handling).
-func New(log *slog.Logger, version string, reg *prometheus.Registry) http.Handler {
+func New(log *slog.Logger, version string, reg *prometheus.Registry, coreProfile string) http.Handler {
+	mgr := engine.NewManager(log)
+	if coreProfile != "" {
+		if err := mgr.UseProfile(coreProfile); err != nil {
+			log.Warn("core profile not applied; using strict-3gpp", "err", err)
+		} else {
+			log.Info("core compatibility profile active", "profile", coreProfile)
+		}
+	}
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}))
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
-	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: engine.NewManager(log)}))
+	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr}))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

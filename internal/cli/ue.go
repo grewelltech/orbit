@@ -19,6 +19,54 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUEListCmd(serverURL))
 	cmd.AddCommand(newUEWatchCmd(serverURL))
 	cmd.AddCommand(newUEPingCmd(serverURL))
+	cmd.AddCommand(newUEHandoverCmd(serverURL))
+	return cmd
+}
+
+func newUEHandoverCmd(serverURL *string) *cobra.Command {
+	var (
+		supi, amf, bind, gnbN3   string
+		name, mcc, mnc, sd       string
+		gnbID, gnbBits, tac, sst uint32
+	)
+	cmd := &cobra.Command{
+		Use:   "handover",
+		Short: "Hand a registered UE over to a target gNB (N2 handover)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ueClient(serverURL).Handover(cmd.Context(),
+				connect.NewRequest(&orbitv1.HandoverRequest{
+					Supi:        supi,
+					AmfAddress:  amf,
+					BindAddress: bind,
+					GnbN3Addr:   gnbN3,
+					TargetGnb: &orbitv1.GnbConfig{
+						Id: gnbID, IdBits: gnbBits, Name: name,
+						Mcc: mcc, Mnc: mnc, Tac: tac,
+						Slices: []*orbitv1.Snssai{{Sst: sst, Sd: sd}},
+					},
+				}))
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (now on gNB %#x)\n",
+				res.Msg.GetSupi(), res.Msg.GetState(), res.Msg.GetGnbId())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI of the registered UE")
+	cmd.Flags().StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
+	cmd.Flags().StringVar(&bind, "bind", "", "SCTP bind address for the target gNB (distinct routed source IP)")
+	cmd.Flags().StringVar(&gnbN3, "gnb-n3", "", "target gNB N3 address for the downlink tunnel")
+	cmd.Flags().Uint32Var(&gnbID, "gnb-id", 0x43, "target gNB ID")
+	cmd.Flags().Uint32Var(&gnbBits, "gnb-bits", 24, "target gNB ID bit length")
+	cmd.Flags().StringVar(&name, "gnb-name", "orbit-gnb-tgt", "target gNB name")
+	cmd.Flags().StringVar(&mcc, "mcc", "208", "MCC")
+	cmd.Flags().StringVar(&mnc, "mnc", "93", "MNC")
+	cmd.Flags().Uint32Var(&tac, "tac", 1, "TAC")
+	cmd.Flags().Uint32Var(&sst, "sst", 1, "slice SST")
+	cmd.Flags().StringVar(&sd, "sd", "010203", "slice SD (6 hex)")
+	_ = cmd.MarkFlagRequired("supi")
+	_ = cmd.MarkFlagRequired("amf")
 	return cmd
 }
 
