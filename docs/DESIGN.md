@@ -411,10 +411,34 @@ Where it lands:
   the UPF's data-network side at line rate — a different axis from per-UE-over-GTP
   (which uses tcp/udp bound to the UE IP).
 
-Open items:
-- **Embedding surface** — confirm (or grow, in loom) a stable Go API for in-process
-  flow control + telemetry callbacks, so ORBIT drives loom as a library, not a
-  subprocess.
-- **Per-UE binding spike** (new, alongside D-5) — can loom source-bind many
-  concurrent flows to many local UE tunnel IPs from one process, or must we isolate
-  per UE netns? Resolve before Phase-5 scale.
+**Embedding path — RESOLVED (2026-07-05, loom source survey).** loom's `core/`
+is a clean, dependency-light, in-process library (hexagonal; DESIGN.md §3): drive
+a single flow with `flow.Build(spec flow.Spec, c *components.Components)` →
+`(*Flow).Run(ctx)`, reading `report.Summary{AvgBitsPerSec,Bytes,Packets}`
+(throughput) and `latency.Summary{Min,Max,Mean,StdDev,Jitter,LossPct}` (RTT/
+jitter/loss) programmatically — no daemon, no gRPC, no CLI (recipe:
+`cmd/loom/run.go:runFlow`). The datapath backend is a `datapath.TxDatapath` /
+`RxDatapath` pair (frame reserve/commit, `core/datapath/datapath.go`) resolved
+from an **injectable `components.Components`** — so `flow.Build(spec, c)` lets ORBIT
+register its **own** datapath without forking loom.
+
+**Chosen integration — fork-free Mode-B bridge (the concrete plan):**
+1. `internal/loomgtp` implements loom's `TxDatapath`/`RxDatapath` over ORBIT's
+   userspace GTP-U `datapath.Tunnel`: on `TxCommit`, wrap each frame's payload in a
+   native inner IPv4+UDP packet (UE IP → target) and `SendUplink`; on `RxPoll`,
+   `ReadDownlink` and hand the inner payload back. Needs a small native UDP
+   inner-packet builder alongside the existing ICMP one (`internal/datapath`).
+2. Register that datapath into a `components.Components` and drive a `flow.Spec`
+   (rate/size/duration) per UE, sourced from the UE's PDU IP — **no TUN, no
+   NET_ADMIN, no per-UE netns** (resolves the per-UE-binding open item: binding
+   lives in ORBIT's tunnel, not the kernel, so one process fans out to many UEs).
+3. Feed loom's `report`/`latency` summaries into the Phase-5 KPI/SLO/Prometheus
+   surface already built (`internal/load`), adding the data-plane axis
+   (throughput/latency/jitter) next to attach-storm KPIs. Verify live from the RAN
+   node against a UDP reflector.
+
+**Not needed for this path:** loom source-IP socket binding (`net.Dialer.LocalAddr`
+in `DialUDP`/`DialTCP`) — that's only for a real-socket **Mode A / per-UE TUN**
+variant; the survey flagged it as a small 3-call-site loom change if Mode A is
+ever wanted. Mode B above avoids it. Vendor loom at a pinned commit (`core/` has
+no v1 stability tag yet).
