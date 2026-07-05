@@ -87,3 +87,16 @@ func TestRateCurves(t *testing.T) {
 		t.Errorf("step after threshold = %.1f, want 20", got)
 	}
 }
+
+func TestObserverReceivesEverySample(t *testing.T) {
+	var got int64
+	obs := observerFunc(func(Sample) { atomic.AddInt64(&got, 1) })
+	Run(context.Background(), Config{Total: 50, Concurrency: 8, Observer: obs}, fakeAttach(time.Millisecond, 3))
+	if got != 50 {
+		t.Fatalf("observer saw %d samples, want 50", got)
+	}
+}
+
+type observerFunc func(Sample)
+
+func (f observerFunc) Observe(s Sample) { f(s) }

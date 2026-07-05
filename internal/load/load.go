@@ -21,11 +21,20 @@ type Sample struct {
 // (use it to pick a distinct SUPI/IMSI per UE).
 type AttachFunc func(ctx context.Context, index int) Sample
 
+// Observer receives each attempt's Sample as it completes — a live hook for
+// metrics exposition (e.g. Prometheus) during long runs, independent of the
+// final aggregated Report. Implementations must be safe for concurrent use.
+type Observer interface {
+	Observe(Sample)
+}
+
 // Config parameterises a load run.
 type Config struct {
 	Total       int  // number of attaches to attempt
 	Concurrency int  // max attaches in flight (bounds the burst; D-6). 0 = 64
 	Rate        Rate // offered-rate curve; nil = as fast as concurrency allows
+	// Observer, if set, is called once per completed attempt (live metrics).
+	Observer Observer
 }
 
 // Stats summarises one procedure's latency distribution.
@@ -150,6 +159,9 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 			mu.Unlock()
 			if len(s.Metrics) > 0 {
 				rec.record(s.Metrics)
+			}
+			if cfg.Observer != nil {
+				cfg.Observer.Observe(s)
 			}
 		}(i)
 	}
