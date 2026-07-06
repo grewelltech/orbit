@@ -72,3 +72,66 @@ func TestRunFlowValidatesConfig(t *testing.T) {
 		t.Fatal("expected error on malformed target")
 	}
 }
+
+// echoProbe turns each uplink ICMP echo request into a downlink echo reply,
+// optionally dropping every dropEvery-th probe to model loss.
+type echoProbe struct {
+	pending   []byte
+	seq       int
+	dropEvery int
+}
+
+func (e *echoProbe) SendUplink(inner []byte) error {
+	e.seq++
+	if e.dropEvery > 0 && e.seq%e.dropEvery == 0 {
+		e.pending = nil // dropped: no reply
+		return nil
+	}
+	r := make([]byte, len(inner))
+	copy(r, inner)
+	var tmp [4]byte // swap IP src/dst so the reply comes "from" the target
+	copy(tmp[:], r[12:16])
+	copy(r[12:16], r[16:20])
+	copy(r[16:20], tmp[:])
+	ihl := int(r[0]&0x0F) * 4
+	r[ihl] = 0 // ICMP echo reply
+	e.pending = r
+	return nil
+}
+
+func (e *echoProbe) ReadDownlink(timeout time.Duration) ([]byte, error) {
+	if e.pending != nil {
+		r := e.pending
+		e.pending = nil
+		return r, nil
+	}
+	return nil, context.DeadlineExceeded
+}
+
+func TestRunLatencyOverTunnel(t *testing.T) {
+	res, err := RunLatency(context.Background(), LatencyConfig{
+		Probe: &echoProbe{}, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
+		Probes: 10, Spacing: time.Millisecond, Timeout: 200 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Sent != 10 || res.Received != 10 || res.Lost != 0 {
+		t.Fatalf("sent/recv/lost = %d/%d/%d, want 10/10/0", res.Sent, res.Received, res.Lost)
+	}
+	t.Logf("latency over tunnel: min %v mean %v max %v jitter %v loss %.0f%%",
+		res.Min, res.Mean, res.Max, res.Jitter, res.LossPct)
+}
+
+func TestRunLatencyReportsLoss(t *testing.T) {
+	res, err := RunLatency(context.Background(), LatencyConfig{
+		Probe: &echoProbe{dropEvery: 2}, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
+		Probes: 10, Spacing: time.Millisecond, Timeout: 80 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Lost != 5 || res.LossPct != 50 {
+		t.Fatalf("lost/lossPct = %d/%.0f, want 5/50", res.Lost, res.LossPct)
+	}
+}

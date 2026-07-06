@@ -21,6 +21,39 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUEPingCmd(serverURL))
 	cmd.AddCommand(newUEHandoverCmd(serverURL))
 	cmd.AddCommand(newUETrafficCmd(serverURL))
+	cmd.AddCommand(newUELatencyCmd(serverURL))
+	return cmd
+}
+
+func newUELatencyCmd(serverURL *string) *cobra.Command {
+	var supi, target string
+	var probes, spacingMs, timeoutMs uint32
+	cmd := &cobra.Command{
+		Use:   "latency",
+		Short: "Probe RTT / jitter / loss from a UE over its N3 data path",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ueClient(serverURL).Latency(cmd.Context(),
+				connect.NewRequest(&orbitv1.LatencyRequest{
+					Supi: supi, Target: target, Probes: probes,
+					SpacingMs: spacingMs, TimeoutMs: timeoutMs,
+				}))
+			if err != nil {
+				return err
+			}
+			m := res.Msg
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"%d/%d replies (%.0f%% loss)  rtt min/mean/max %.2f/%.2f/%.2f ms  jitter %.2f ms\n",
+				m.GetReceived(), m.GetSent(), m.GetLossPct(),
+				m.GetMinMs(), m.GetMeanMs(), m.GetMaxMs(), m.GetJitterMs())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&target, "target", "8.8.8.8", "destination IPv4 to probe")
+	cmd.Flags().Uint32Var(&probes, "probes", 20, "number of echoes")
+	cmd.Flags().Uint32Var(&spacingMs, "spacing-ms", 50, "spacing between echoes (ms)")
+	cmd.Flags().Uint32Var(&timeoutMs, "timeout-ms", 1000, "per-echo timeout (ms)")
+	_ = cmd.MarkFlagRequired("supi")
 	return cmd
 }
 
