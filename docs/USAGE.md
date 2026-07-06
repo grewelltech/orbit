@@ -1,0 +1,166 @@
+# ORBIT usage
+
+How to drive ORBIT against a live 5G core. For the architecture and design
+rationale see [DESIGN.md](DESIGN.md); for known core-side issues and the
+`--core-profile` quirks see [interop/sdcore.md](interop/sdcore.md).
+
+## Prerequisites
+
+- A reachable 5G SA core (an AMF's N2/SCTP endpoint), and subscriber
+  credentials provisioned in the core: `Ki` and `OPc` (32 hex digits each) for
+  the SUPIs you use, plus the core's PLMN (`--mcc`/`--mnc`), TAC, and slice
+  (`--sst`/`--sd`) and DNN.
+- For the **user plane and handover**, a host on the core's N3 access network
+  (see "Where things must run" below).
+- `make build` → `bin/orbit`.
+
+## Where things must run (topology)
+
+- **Control plane** (attach, status, handover signalling) works from any host
+  that can reach the AMF's N2 endpoint.
+- **User plane** (`ping`, `traffic`, `latency`) and the **handover downlink**
+  need the gNB's N3 address to be reachable *from the UPF*. Register with
+  `--gnb-n3 <ip>` set to an address on the UPF's access network; the UPF returns
+  downlink there. On a split testbed (e.g. ATB-01) that address lives on the RAN
+  node, not the control-plane host, so run those commands from there.
+- **Handover** additionally needs each gNB on a **distinct routed source IP**
+  (`--bind <ip>:0`) — the AMF distinguishes gNBs by association address — and a
+  **fresh gNB ID per run**: the AMF does not cleanly re-key a reused gNB ID from
+  a new address (a stale association makes it drop the Handover Request). See
+  [interop/sdcore.md](interop/sdcore.md).
+
+## The server
+
+Most commands are Connect API clients; start the server first:
+
+```sh
+orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3gpp]
+```
+
+- `/metrics` (Prometheus) and `/healthz` are served on the same listener.
+- `--core-profile` selects core-compatibility quirks. Default `strict-3gpp`
+  (byte-exact 3GPP, zero quirks). Use `sdcore` to enable the documented N2
+  handover-transfer workaround for SD-Core; the set of quirks a core needs is a
+  conformance signal, not silent tuning.
+- `--server <url>` on every client command selects the endpoint (default
+  `http://127.0.0.1:8412`).
+
+## UE lifecycle
+
+```sh
+# Attach one UE; add --pdu-session (+ --gnb-n3) for a data session.
+orbit ue register --amf <host:port> --supi <imsi> --ki <hex> --opc <hex> \
+    --mcc 208 --mnc 93 --sst 1 --sd 010203 --gnb-id 1 \
+    --pdu-session --dnn internet --gnb-n3 <ip-reachable-from-upf>
+
+orbit ue status     --supi <imsi>
+orbit ue list
+orbit ue watch      [--supi <imsi>]      # live StateStream: FSM + mobility events
+orbit ue deregister --supi <imsi>        # UE-originated switch-off deregistration
+```
+
+`watch` streams lifecycle states (`REGISTERING`, `AUTHENTICATED`,
+`SECURITY_ESTABLISHED`, `REGISTERED`, `SESSION_ACTIVE`, `DEREGISTERED`) and
+mobility states (`HANDOVER_STARTED`, `HANDED_OVER`, `HANDOVER_FAILED`).
+
+## User-plane data
+
+Run these from a host on the UPF access network (see topology above).
+
+```sh
+orbit ue ping    --supi <imsi> --dst 8.8.8.8 --count 3            # ICMP over N3
+orbit ue latency --supi <imsi> --target 8.8.8.8 --probes 20       # RTT/jitter/loss (loom)
+orbit ue traffic --supi <imsi> --target 8.8.8.8:9999 \            # throughput (loom)
+    --rate 20Mbps --packet-size 1200 --duration-ms 5000
+```
+
+`traffic` and `latency` embed loom over the UE's GTP-U tunnel: `traffic`
+reports bytes/packets and achieved Mbps; `latency` reports sent/received/lost,
+loss %, and min/mean/max RTT plus jitter. `--rate` empty means unlimited.
+
+## Mobility (handover)
+
+The UE must already be registered (ideally with a session). Use a distinct
+`--bind`/`--gnb-n3` and a fresh `--gnb-id` for the target.
+
+```sh
+# N2 (AMF-mediated) handover:
+orbit ue handover    --supi <imsi> --amf <host:port> \
+    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13
+
+# Xn handover (NGAP PathSwitch; Xn prep stubbed in-process):
+orbit ue xn-handover --supi <imsi> --amf <host:port> \
+    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13
+```
+
+Both move the UE's session to the target gNB and emit mobility states on
+`watch`. On SD-Core, Xn completes with user-plane continuity; N2 does not (a
+core-side decode bug — [interop/sdcore.md](interop/sdcore.md)).
+
+## Load / performance
+
+`orbit load` is a direct-drive benchmark (it does not go through the API
+server). It reports **sim** vs **integration** capability separately — run it
+against a mock for the former and the real core for the latter.
+
+```sh
+# Rate-controlled attach storm with an SLO gate (non-zero exit on breach):
+orbit load --amf <host:port> --base-imsi 208930100007500 --count 100 \
+    --ki <hex> --opc <hex> --mcc 208 --mnc 93 \
+    --rate 20 --concurrency 64 \
+    --slo-min-success 0.99 --slo-reg-p99 3s
+
+# Linear ramp instead of a fixed rate ("find the knee"):
+orbit load ... --ramp 5:80:30          # 5→80 attach/s over 30s
+
+# Multi-gNB muxing and per-UE data sessions:
+orbit load ... --gnb-count 4 --pdu-session --gnb-n3 <ip>
+
+# Soak: sustain for a duration with a resource trend:
+orbit load ... --duration 10m --sample-interval 15s
+```
+
+Output is per-procedure latency (P50/P99/P99.9), achieved rate, success/failure
+counts, and (for soak) a goroutine/RSS trend. The `--slo-*` flags turn a run
+into a CI gate.
+
+## Conformance / regression
+
+`orbit conformance` runs the spec-cited regression suite in-process against a
+live core and exits non-zero on any failure — an integration-CI gate.
+
+```sh
+orbit conformance --amf <host:port> [--json] [--category negative-ie] \
+    [--gnb-base 0x400] [--per-test-timeout 15s]
+```
+
+Checks are framed as graceful-rejection / crash-safety regression guards, each
+with a 3GPP citation; `--json` emits machine-readable results with per-check
+verdict, expected/observed, and the spec reference.
+
+## The API
+
+The server exposes a Connect API (gRPC, gRPC-Web, and JSON/REST on one port).
+The CLI is a thin client of it; the same operations are reachable directly, e.g.
+over JSON:
+
+```sh
+curl -s http://127.0.0.1:8412/orbit.v1.UEService/List \
+    -H 'Content-Type: application/json' -d '{}'
+```
+
+Services: `UEService` (Register, Deregister, Status, List, Ping, Traffic,
+Latency, Handover, XnHandover, StateStream), `CellService` (RunNGSetup),
+`SystemService` (GetInfo). Schema in [`proto/orbit/v1`](../proto/orbit/v1);
+regenerate the Go/Connect bindings with `make gen`.
+
+## Testing
+
+```sh
+make test          # unit-CI: headless, no core required
+make integration   # integration-CI: needs a live core; ORBIT_AMF_N2 overrides the AMF
+```
+
+Integration tests are `//go:build integration`-tagged. The user-plane and
+handover integration tests read `ORBIT_TEST_KI`/`ORBIT_TEST_OPC` and expect to
+run from a host on the UPF access network with distinct routed source IPs.
