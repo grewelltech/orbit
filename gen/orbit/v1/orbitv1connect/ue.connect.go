@@ -47,6 +47,8 @@ const (
 	UEServiceStateStreamProcedure = "/orbit.v1.UEService/StateStream"
 	// UEServiceHandoverProcedure is the fully-qualified name of the UEService's Handover RPC.
 	UEServiceHandoverProcedure = "/orbit.v1.UEService/Handover"
+	// UEServiceXnHandoverProcedure is the fully-qualified name of the UEService's XnHandover RPC.
+	UEServiceXnHandoverProcedure = "/orbit.v1.UEService/XnHandover"
 	// UEServiceTrafficProcedure is the fully-qualified name of the UEService's Traffic RPC.
 	UEServiceTrafficProcedure = "/orbit.v1.UEService/Traffic"
 	// UEServiceLatencyProcedure is the fully-qualified name of the UEService's Latency RPC.
@@ -73,6 +75,10 @@ type UEServiceClient interface {
 	// handover. Drives the control plane end to end; the resulting mobility
 	// states are pushed on StateStream.
 	Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
+	// XnHandover moves a registered UE to a target gNB via an Xn handover
+	// (NGAP PathSwitchRequest; Xn preparation stubbed in-process). Unlike N2,
+	// the SD-Core downlink path switch takes effect.
+	XnHandover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
 	// Traffic runs a loom-generated UDP flow from the UE over its N3 data path
 	// and reports throughput — the user-plane load generator.
 	Traffic(context.Context, *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error)
@@ -134,6 +140,12 @@ func NewUEServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(uEServiceMethods.ByName("Handover")),
 			connect.WithClientOptions(opts...),
 		),
+		xnHandover: connect.NewClient[v1.HandoverRequest, v1.HandoverResponse](
+			httpClient,
+			baseURL+UEServiceXnHandoverProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("XnHandover")),
+			connect.WithClientOptions(opts...),
+		),
 		traffic: connect.NewClient[v1.TrafficRequest, v1.TrafficResponse](
 			httpClient,
 			baseURL+UEServiceTrafficProcedure,
@@ -158,6 +170,7 @@ type uEServiceClient struct {
 	ping        *connect.Client[v1.PingRequest, v1.PingResponse]
 	stateStream *connect.Client[v1.StateStreamRequest, v1.StateEvent]
 	handover    *connect.Client[v1.HandoverRequest, v1.HandoverResponse]
+	xnHandover  *connect.Client[v1.HandoverRequest, v1.HandoverResponse]
 	traffic     *connect.Client[v1.TrafficRequest, v1.TrafficResponse]
 	latency     *connect.Client[v1.LatencyRequest, v1.LatencyResponse]
 }
@@ -197,6 +210,11 @@ func (c *uEServiceClient) Handover(ctx context.Context, req *connect.Request[v1.
 	return c.handover.CallUnary(ctx, req)
 }
 
+// XnHandover calls orbit.v1.UEService.XnHandover.
+func (c *uEServiceClient) XnHandover(ctx context.Context, req *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error) {
+	return c.xnHandover.CallUnary(ctx, req)
+}
+
 // Traffic calls orbit.v1.UEService.Traffic.
 func (c *uEServiceClient) Traffic(ctx context.Context, req *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error) {
 	return c.traffic.CallUnary(ctx, req)
@@ -227,6 +245,10 @@ type UEServiceHandler interface {
 	// handover. Drives the control plane end to end; the resulting mobility
 	// states are pushed on StateStream.
 	Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
+	// XnHandover moves a registered UE to a target gNB via an Xn handover
+	// (NGAP PathSwitchRequest; Xn preparation stubbed in-process). Unlike N2,
+	// the SD-Core downlink path switch takes effect.
+	XnHandover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error)
 	// Traffic runs a loom-generated UDP flow from the UE over its N3 data path
 	// and reports throughput — the user-plane load generator.
 	Traffic(context.Context, *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error)
@@ -284,6 +306,12 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(uEServiceMethods.ByName("Handover")),
 		connect.WithHandlerOptions(opts...),
 	)
+	uEServiceXnHandoverHandler := connect.NewUnaryHandler(
+		UEServiceXnHandoverProcedure,
+		svc.XnHandover,
+		connect.WithSchema(uEServiceMethods.ByName("XnHandover")),
+		connect.WithHandlerOptions(opts...),
+	)
 	uEServiceTrafficHandler := connect.NewUnaryHandler(
 		UEServiceTrafficProcedure,
 		svc.Traffic,
@@ -312,6 +340,8 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 			uEServiceStateStreamHandler.ServeHTTP(w, r)
 		case UEServiceHandoverProcedure:
 			uEServiceHandoverHandler.ServeHTTP(w, r)
+		case UEServiceXnHandoverProcedure:
+			uEServiceXnHandoverHandler.ServeHTTP(w, r)
 		case UEServiceTrafficProcedure:
 			uEServiceTrafficHandler.ServeHTTP(w, r)
 		case UEServiceLatencyProcedure:
@@ -351,6 +381,10 @@ func (UnimplementedUEServiceHandler) StateStream(context.Context, *connect.Reque
 
 func (UnimplementedUEServiceHandler) Handover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.Handover is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) XnHandover(context.Context, *connect.Request[v1.HandoverRequest]) (*connect.Response[v1.HandoverResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.XnHandover is not implemented"))
 }
 
 func (UnimplementedUEServiceHandler) Traffic(context.Context, *connect.Request[v1.TrafficRequest]) (*connect.Response[v1.TrafficResponse], error) {
