@@ -43,6 +43,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newCellCmd(&serverURL))
 	root.AddCommand(newUECmd(&serverURL))
 	root.AddCommand(newLoadCmd())
+	root.AddCommand(newConformanceCmd())
 	return root
 }
 
