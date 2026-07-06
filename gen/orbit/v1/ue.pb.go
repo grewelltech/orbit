@@ -1209,6 +1209,186 @@ func (x *TrafficResponse) GetDurationMs() uint32 {
 	return 0
 }
 
+type LatencyRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Supi  string                 `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
+	// Destination IPv4 to probe (ICMP; no port).
+	Target string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// Number of echoes (default 20).
+	Probes uint32 `protobuf:"varint,3,opt,name=probes,proto3" json:"probes,omitempty"`
+	// Spacing between echoes, ms (default 50).
+	SpacingMs uint32 `protobuf:"varint,4,opt,name=spacing_ms,json=spacingMs,proto3" json:"spacing_ms,omitempty"`
+	// Per-echo timeout, ms (default 1000).
+	TimeoutMs     uint32 `protobuf:"varint,5,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LatencyRequest) Reset() {
+	*x = LatencyRequest{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LatencyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LatencyRequest) ProtoMessage() {}
+
+func (x *LatencyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LatencyRequest.ProtoReflect.Descriptor instead.
+func (*LatencyRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *LatencyRequest) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+func (x *LatencyRequest) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *LatencyRequest) GetProbes() uint32 {
+	if x != nil {
+		return x.Probes
+	}
+	return 0
+}
+
+func (x *LatencyRequest) GetSpacingMs() uint32 {
+	if x != nil {
+		return x.SpacingMs
+	}
+	return 0
+}
+
+func (x *LatencyRequest) GetTimeoutMs() uint32 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+type LatencyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sent          uint64                 `protobuf:"varint,1,opt,name=sent,proto3" json:"sent,omitempty"`
+	Received      uint64                 `protobuf:"varint,2,opt,name=received,proto3" json:"received,omitempty"`
+	Lost          uint64                 `protobuf:"varint,3,opt,name=lost,proto3" json:"lost,omitempty"`
+	LossPct       float64                `protobuf:"fixed64,4,opt,name=loss_pct,json=lossPct,proto3" json:"loss_pct,omitempty"`
+	MinMs         float64                `protobuf:"fixed64,5,opt,name=min_ms,json=minMs,proto3" json:"min_ms,omitempty"`
+	MeanMs        float64                `protobuf:"fixed64,6,opt,name=mean_ms,json=meanMs,proto3" json:"mean_ms,omitempty"`
+	MaxMs         float64                `protobuf:"fixed64,7,opt,name=max_ms,json=maxMs,proto3" json:"max_ms,omitempty"`
+	JitterMs      float64                `protobuf:"fixed64,8,opt,name=jitter_ms,json=jitterMs,proto3" json:"jitter_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LatencyResponse) Reset() {
+	*x = LatencyResponse{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LatencyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LatencyResponse) ProtoMessage() {}
+
+func (x *LatencyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LatencyResponse.ProtoReflect.Descriptor instead.
+func (*LatencyResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *LatencyResponse) GetSent() uint64 {
+	if x != nil {
+		return x.Sent
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetReceived() uint64 {
+	if x != nil {
+		return x.Received
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetLost() uint64 {
+	if x != nil {
+		return x.Lost
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetLossPct() float64 {
+	if x != nil {
+		return x.LossPct
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetMinMs() float64 {
+	if x != nil {
+		return x.MinMs
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetMeanMs() float64 {
+	if x != nil {
+		return x.MeanMs
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetMaxMs() float64 {
+	if x != nil {
+		return x.MaxMs
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetJitterMs() float64 {
+	if x != nil {
+		return x.JitterMs
+	}
+	return 0
+}
+
 var File_orbit_v1_ue_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_ue_proto_rawDesc = "" +
@@ -1308,7 +1488,24 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\apackets\x18\x02 \x01(\x04R\apackets\x12\x12\n" +
 	"\x04mbps\x18\x03 \x01(\x01R\x04mbps\x12\x1f\n" +
 	"\vduration_ms\x18\x04 \x01(\rR\n" +
-	"durationMs2\x9a\x04\n" +
+	"durationMs\"\x92\x01\n" +
+	"\x0eLatencyRequest\x12\x12\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x16\n" +
+	"\x06target\x18\x02 \x01(\tR\x06target\x12\x16\n" +
+	"\x06probes\x18\x03 \x01(\rR\x06probes\x12\x1d\n" +
+	"\n" +
+	"spacing_ms\x18\x04 \x01(\rR\tspacingMs\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x05 \x01(\rR\ttimeoutMs\"\xd4\x01\n" +
+	"\x0fLatencyResponse\x12\x12\n" +
+	"\x04sent\x18\x01 \x01(\x04R\x04sent\x12\x1a\n" +
+	"\breceived\x18\x02 \x01(\x04R\breceived\x12\x12\n" +
+	"\x04lost\x18\x03 \x01(\x04R\x04lost\x12\x19\n" +
+	"\bloss_pct\x18\x04 \x01(\x01R\alossPct\x12\x15\n" +
+	"\x06min_ms\x18\x05 \x01(\x01R\x05minMs\x12\x17\n" +
+	"\amean_ms\x18\x06 \x01(\x01R\x06meanMs\x12\x15\n" +
+	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\x12\x1b\n" +
+	"\tjitter_ms\x18\b \x01(\x01R\bjitterMs2\xdc\x04\n" +
 	"\tUEService\x12C\n" +
 	"\bRegister\x12\x19.orbit.v1.RegisterRequest\x1a\x1a.orbit.v1.RegisterResponse\"\x00\x12I\n" +
 	"\n" +
@@ -1318,7 +1515,8 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x04Ping\x12\x15.orbit.v1.PingRequest\x1a\x16.orbit.v1.PingResponse\"\x00\x12E\n" +
 	"\vStateStream\x12\x1c.orbit.v1.StateStreamRequest\x1a\x14.orbit.v1.StateEvent\"\x000\x01\x12C\n" +
 	"\bHandover\x12\x19.orbit.v1.HandoverRequest\x1a\x1a.orbit.v1.HandoverResponse\"\x00\x12@\n" +
-	"\aTraffic\x12\x18.orbit.v1.TrafficRequest\x1a\x19.orbit.v1.TrafficResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\aTraffic\x12\x18.orbit.v1.TrafficRequest\x1a\x19.orbit.v1.TrafficResponse\"\x00\x12@\n" +
+	"\aLatency\x12\x18.orbit.v1.LatencyRequest\x1a\x19.orbit.v1.LatencyResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_ue_proto_rawDescOnce sync.Once
@@ -1332,7 +1530,7 @@ func file_orbit_v1_ue_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_ue_proto_rawDescData
 }
 
-var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_orbit_v1_ue_proto_goTypes = []any{
 	(*Credentials)(nil),        // 0: orbit.v1.Credentials
 	(*PDUSession)(nil),         // 1: orbit.v1.PDUSession
@@ -1353,15 +1551,17 @@ var file_orbit_v1_ue_proto_goTypes = []any{
 	(*HandoverResponse)(nil),   // 16: orbit.v1.HandoverResponse
 	(*TrafficRequest)(nil),     // 17: orbit.v1.TrafficRequest
 	(*TrafficResponse)(nil),    // 18: orbit.v1.TrafficResponse
-	(*GnbConfig)(nil),          // 19: orbit.v1.GnbConfig
+	(*LatencyRequest)(nil),     // 19: orbit.v1.LatencyRequest
+	(*LatencyResponse)(nil),    // 20: orbit.v1.LatencyResponse
+	(*GnbConfig)(nil),          // 21: orbit.v1.GnbConfig
 }
 var file_orbit_v1_ue_proto_depIdxs = []int32{
-	19, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
+	21, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
 	0,  // 1: orbit.v1.RegisterRequest.credentials:type_name -> orbit.v1.Credentials
 	1,  // 2: orbit.v1.RegisterRequest.pdu_session:type_name -> orbit.v1.PDUSession
 	7,  // 3: orbit.v1.StatusResponse.status:type_name -> orbit.v1.UEStatus
 	7,  // 4: orbit.v1.ListResponse.ues:type_name -> orbit.v1.UEStatus
-	19, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
+	21, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
 	2,  // 6: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
 	4,  // 7: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
 	6,  // 8: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
@@ -1370,16 +1570,18 @@ var file_orbit_v1_ue_proto_depIdxs = []int32{
 	11, // 11: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
 	15, // 12: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
 	17, // 13: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
-	3,  // 14: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 15: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 16: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 17: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	14, // 18: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
-	12, // 19: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	16, // 20: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
-	18, // 21: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
-	14, // [14:22] is the sub-list for method output_type
-	6,  // [6:14] is the sub-list for method input_type
+	19, // 14: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
+	3,  // 15: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 16: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 17: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 18: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 19: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 20: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	16, // 21: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
+	18, // 22: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
+	20, // 23: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
+	15, // [15:24] is the sub-list for method output_type
+	6,  // [6:15] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1397,7 +1599,7 @@ func file_orbit_v1_ue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_ue_proto_rawDesc), len(file_orbit_v1_ue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

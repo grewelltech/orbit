@@ -184,6 +184,27 @@ func (s *ueService) Traffic(
 	}), nil
 }
 
+func (s *ueService) Latency(
+	ctx context.Context,
+	req *connect.Request[orbitv1.LatencyRequest],
+) (*connect.Response[orbitv1.LatencyResponse], error) {
+	m := req.Msg
+	if m.GetSupi() == "" || m.GetTarget() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and target are required"))
+	}
+	spacing := time.Duration(m.GetSpacingMs()) * time.Millisecond
+	timeout := time.Duration(m.GetTimeoutMs()) * time.Millisecond
+	res, err := s.mgr.Latency(ctx, m.GetSupi(), m.GetTarget(), int(m.GetProbes()), spacing, timeout)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	ms := func(d time.Duration) float64 { return float64(d.Microseconds()) / 1000.0 }
+	return connect.NewResponse(&orbitv1.LatencyResponse{
+		Sent: res.Sent, Received: res.Received, Lost: res.Lost, LossPct: res.LossPct,
+		MinMs: ms(res.Min), MeanMs: ms(res.Mean), MaxMs: ms(res.Max), JitterMs: ms(res.Jitter),
+	}), nil
+}
+
 func (s *ueService) Handover(
 	ctx context.Context,
 	req *connect.Request[orbitv1.HandoverRequest],
