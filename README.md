@@ -2,87 +2,64 @@
 
 **Open Radio Benchmark and Integration Testbed.**
 
-ORBIT is a from-scratch, Go-native 5G SA RAN + UE simulator and test harness for
+ORBIT is a Go-native 5G SA RAN + UE simulator and test harness for
 **benchmarking, conformance-checking, and integration-testing a real 5G core**.
 It speaks the actual control and user planes — NGAP over SCTP (N2), NAS-5GS (N1),
 and GTP-U (N3) — with the radio replaced by a software model instead of an RF
-PHY. That lets it drive genuine signaling and user data against the core under
-test while scaling to a large fleet of simulated devices.
+PHY. So you can drive genuine signaling and user data against the core you're
+testing, and scale to a large fleet of simulated devices, without any radios.
 
-## What it does
+## What you can do with it
 
-- **Attach & user plane** — a simulated UE completes Registration → 5G-AKA →
-  Security Mode → PDU session with a real allocated IP, and carries
-  bidirectional user data over N3 (GTP-U).
-- **Scale-out** — many UEs multiplexed over one N2 association per gNB, across
+- **Attach UEs and carry data.** A simulated UE completes Registration →
+  5G-AKA → Security Mode → PDU session with a real allocated IP, and sends
+  bidirectional user data over N3.
+- **Scale out.** Many UEs multiplexed over one N2 association per gNB, across
   multiple gNBs, with a bounded-concurrency attach scheduler.
-- **Emulated mobility** — synthesized RSRP/RSRQ over a trajectory model drives
-  A3/A4/A5 measurement events (TS 38.331), which trigger **real N2 *and* Xn
-  handover** against the core — no radio required.
-- **Load / performance** — rate-controlled attach storms with per-procedure
-  latency KPIs (P50/P99/P99.9) and an SLO gate, plus per-UE traffic and
-  throughput / latency / jitter via [loom](https://github.com/bgrewell/loom),
-  embedded as a library.
-- **Conformance / regression** — a structured, spec-cited harness that asserts
-  the core rejects malformed input gracefully (crash-safety regression guards),
-  with a machine-readable CI gate.
-- **API-first** — a Connect (gRPC + gRPC-Web + JSON/REST) API with a CLI that
-  only ever calls the API, plus structured logs, Prometheus metrics, OTLP
-  traces, and live state streaming.
+- **Move UEs around.** Synthesized RSRP/RSRQ over a trajectory drives A3/A4/A5
+  measurement events, which trigger real **N2 and Xn handover** against the
+  core — no radio required.
+- **Load- and performance-test.** Rate-controlled attach storms with
+  per-procedure latency percentiles and an SLO gate, plus per-UE traffic and
+  throughput / latency / jitter (traffic generation via
+  [loom](https://github.com/bgrewell/loom), embedded as a library).
+- **Check conformance.** A spec-cited harness that asserts the core rejects
+  malformed input gracefully, with a machine-readable pass/fail CI gate.
+- **Automate all of it.** Everything is a Connect (gRPC / gRPC-Web / JSON-REST)
+  API call; the CLI is just a client. Structured logs, Prometheus metrics, OTLP
+  traces, and a live state-event stream come built in.
 
-## Status
+## What to expect
 
-**Phases 0–6 complete** and live-verified against an Aether SD-Core testbed:
-control-plane attach, N3 data path, multi-gNB scale-out and slicing, N2 and Xn
-handover, the full load/perf suite, and the conformance harness. The grounded
-design, phased plan, discovery spikes, and risks are in
-**[docs/DESIGN.md](docs/DESIGN.md)**; day-to-day usage is in
-**[docs/USAGE.md](docs/USAGE.md)**.
+ORBIT reports two different numbers and keeps them separate, so you always know
+whether a limit is yours or the core's:
 
-## Honest scope
+- **Sim capability** — what ORBIT's own engine sustains (measured against an
+  in-process mock): **~1,350 attach/s**, sub-100 ms registration P99.
+- **Integration capability** — bounded by the *core under test*. Against an
+  Aether SD-Core testbed the attach ceiling is **~10 attach/s** — the core
+  serializes attaches, and turning up ORBIT's concurrency doesn't move it.
 
-ORBIT reports two different numbers and never conflates them:
+The point isn't a big headline number; it's honest attribution — ORBIT is built
+so the ceiling you hit is the core's, not the tool's.
 
-- **Sim capability** — what ORBIT's own engine sustains, measured against an
-  in-process mock AMF: **~1,350 attach/s** with sub-100 ms registration P99.
-- **Integration capability** — bounded by the *core under test*. Against the
-  SD-Core testbed the attach ceiling is **~10 attach/s** (the core serializes
-  attaches; raising ORBIT's concurrency doesn't move it), consistent with
-  SD-Core's stated ~5,000-UE / 10-attach-per-second envelope.
-
-"VIAVI/Spirent-class" describes an *architectural style* here, not a throughput
-claim — the core is the ceiling, and ORBIT is built to attribute limits to the
-core rather than to itself.
-
-## What it has found
-
-Driving a real core end to end surfaces real interop issues. Two examples,
-documented with root cause in **[docs/interop/sdcore.md](docs/interop/sdcore.md)**:
-
-- **N2 handover has no user-plane continuity on SD-Core** — the SMF can't decode
-  a spec-conformant `HandoverRequestAcknowledgeTransfer` (an omec type-generation
-  bug: a spec-OPTIONAL field marked mandatory), so the downlink never switches.
-- **Xn handover *does* complete with data continuity** on the same core — its
-  transfer type is tagged correctly. ORBIT demonstrates both, and pinpoints the
-  difference.
-
-ORBIT stays strictly 3GPP/X.691-conformant by default; core-specific workarounds
-live behind opt-in, documented `--core-profile` quirks, never in the codecs.
-
-## Build
+## Install
 
 ```sh
 make build      # -> bin/orbit
 ```
 
+You'll need a reachable 5G core (an AMF's N2/SCTP endpoint) and subscriber
+credentials provisioned in it (`Ki`/`OPc`, PLMN, slice, DNN).
+
 ## Quickstart
 
-Run the API server, register a UE (with a data session), and carry traffic:
+Start the API server, register a UE with a data session, and use the user plane:
 
 ```sh
 ./bin/orbit serve &                                  # API on 127.0.0.1:8412
 
-./bin/orbit ue watch --supi 208930100007500 &        # live FSM/mobility stream
+./bin/orbit ue watch --supi 208930100007500 &        # live state stream
 ./bin/orbit ue register \
     --amf 172.17.50.11:38412 \
     --supi 208930100007500 --ki <hex> --opc <hex> \
@@ -91,16 +68,16 @@ Run the API server, register a UE (with a data session), and carry traffic:
 # -> UE 208930100007500 registered=true; PDU session: UE IP 192.168.100.x
 
 ./bin/orbit ue ping    --supi 208930100007500 --dst 8.8.8.8
-./bin/orbit ue latency --supi 208930100007500 --target 8.8.8.8      # RTT/jitter/loss (loom)
+./bin/orbit ue latency --supi 208930100007500 --target 8.8.8.8       # RTT / jitter / loss
 ./bin/orbit ue traffic --supi 208930100007500 --target 8.8.8.8:9999 --rate 20Mbps
 ```
 
-Handover, a rate-controlled load storm with an SLO gate, and the conformance
-gate:
+Hand a UE over, run a rate-controlled load storm with an SLO gate, or run the
+conformance suite:
 
 ```sh
 ./bin/orbit ue xn-handover --supi 208930100007500 --amf 172.17.50.11:38412 \
-    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13     # or: ue handover (N2)
+    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13      # or: ue handover (N2)
 
 ./bin/orbit load --amf 172.17.50.11:38412 --base-imsi 208930100007500 --count 100 \
     --ki <hex> --opc <hex> --mcc 208 --mnc 93 --rate 20 --slo-min-success 0.99
@@ -108,33 +85,39 @@ gate:
 ./bin/orbit conformance --amf 172.17.50.11:38412 --json
 ```
 
-The CLI is a Connect client of the API (`--server` selects the endpoint), except
-the direct-drive `load` / `conformance` benchmarks. **The user plane and handover
-must run where the UPF's N3 is reachable** (on the ATB-01 testbed, the RAN node),
-and handover needs a distinct source IP and a fresh gNB ID per gNB — see
-[docs/USAGE.md](docs/USAGE.md).
+> **One thing to know up front:** the user plane and handover need the gNB's N3
+> address reachable *from the UPF*, so run those from a host on the core's access
+> network and pass `--gnb-n3 <that-ip>`. Full details, every command, and its
+> flags are in **[docs/USAGE.md](docs/USAGE.md)**.
 
-## Layout
+## Documentation
+
+- **[docs/USAGE.md](docs/USAGE.md)** — the practical guide: topology, every
+  command with its flags, and common workflows.
+- **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, design decisions, and
+  rationale.
+- **[docs/interop/sdcore.md](docs/interop/sdcore.md)** — interop issues ORBIT
+  has surfaced in SD-Core (with root cause), and the opt-in `--core-profile`
+  workarounds. ORBIT stays strictly 3GPP/X.691-conformant by default; any
+  core-specific quirk is opt-in and documented, never baked into the codecs.
+
+## Contributing
+
+Package layout for orientation:
 
 | Path | What |
 |---|---|
 | `proto/`, `gen/` | API schema (Protobuf) and generated Connect/Go code (`make gen`). |
-| `internal/sctp`, `internal/ngap`, `internal/nas`, `internal/gtpu`, `internal/datapath` | Thin adapters over the pinned transport/codec substrate + the N3 data path. |
-| `internal/gnb` | gNB role — NG Setup, UE-associated procedures, PDU sessions, N2/Xn handover. |
-| `internal/ue`, `internal/ue/auth` | UE identity, SUCI, NAS-5GS builders, 5G-AKA / key derivation. |
+| `internal/{sctp,ngap,nas,gtpu,datapath}` | Transport/codec adapters and the N3 data path. |
+| `internal/gnb`, `internal/ue` | gNB and UE roles (procedures, PDU sessions, handover, SUCI, 5G-AKA). |
 | `internal/engine` | Attach FSM, session manager, fleet, mobility, load driver. |
-| `internal/meas` | Measurement synthesis (RSRP model, A3/A4/A5 events). |
-| `internal/load`, `internal/loomgtp` | Load engine + SLO/KPIs, and the loom traffic bridge over GTP-U. |
+| `internal/{meas,load,loomgtp}` | Measurement synthesis, load engine + KPIs, and the loom traffic bridge. |
 | `internal/conformance` | Spec-cited conformance / regression harness. |
-| `internal/mockamf` | In-process mock AMF for headless sim-capacity measurement. |
-| `internal/server`, `internal/cli` | Connect API façade and the cobra CLI. |
-| `internal/observability` | slog (trace-correlated, credential-redacting), OTLP tracing, Prometheus. |
-
-## Testing
+| `internal/{server,cli,observability}` | API façade, CLI, and observability. |
 
 ```sh
-make test          # unit-CI: headless, no core required
-make integration   # integration-CI: needs a live core (ORBIT_AMF_N2 to point at the AMF)
+make test          # unit tests: headless, no core required
+make integration   # integration tests: needs a live core (ORBIT_AMF_N2 points at the AMF)
 ```
 
 ## License
