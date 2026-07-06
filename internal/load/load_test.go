@@ -100,3 +100,22 @@ func TestObserverReceivesEverySample(t *testing.T) {
 type observerFunc func(Sample)
 
 func (f observerFunc) Observe(s Sample) { f(s) }
+
+func TestSoakRunsForDurationWithResourceSamples(t *testing.T) {
+	rep := Run(context.Background(), Config{
+		Concurrency: 16, Rate: Constant{RPS: 200},
+		Duration: 500 * time.Millisecond, SampleInterval: 100 * time.Millisecond,
+	}, fakeAttach(time.Millisecond, 0))
+	if rep.Duration < 450*time.Millisecond {
+		t.Fatalf("soak ran %v, expected ~500ms", rep.Duration)
+	}
+	if rep.Succeeded < 50 {
+		t.Fatalf("soak did too little work: %d attaches", rep.Succeeded)
+	}
+	if len(rep.Resources) < 3 {
+		t.Fatalf("expected resource samples over the soak, got %d", len(rep.Resources))
+	}
+	if rep.Resources[0].Goroutines == 0 {
+		t.Error("resource sample has no goroutine count")
+	}
+}

@@ -2,6 +2,10 @@ package load
 
 import (
 	"context"
+	"os"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,11 +34,24 @@ type Observer interface {
 
 // Config parameterises a load run.
 type Config struct {
-	Total       int  // number of attaches to attempt
+	Total       int  // number of attaches to attempt (ignored if Duration > 0)
 	Concurrency int  // max attaches in flight (bounds the burst; D-6). 0 = 64
 	Rate        Rate // offered-rate curve; nil = as fast as concurrency allows
+	// Duration, if > 0, runs a soak: keep offering attaches until it elapses
+	// (Total is ignored), so resource stability can be observed over time.
+	Duration time.Duration
+	// SampleInterval, if > 0, records a resource sample (goroutines, RSS) at
+	// that cadence for the duration of the run (soak resource-trend hook).
+	SampleInterval time.Duration
 	// Observer, if set, is called once per completed attempt (live metrics).
 	Observer Observer
+}
+
+// ResourceSample is a point-in-time process resource reading during a run.
+type ResourceSample struct {
+	At         time.Duration
+	Goroutines int
+	RSSBytes   uint64
 }
 
 // Stats summarises one procedure's latency distribution.
@@ -50,6 +67,7 @@ type Report struct {
 	Duration                     time.Duration
 	AchievedRate                 float64          // succeeded per second over the run
 	Latencies                    map[string]Stats // per procedure name
+	Resources                    []ResourceSample // soak resource trend (if sampled)
 }
 
 // hist accumulates latencies for one procedure. hdrhistogram is not
@@ -131,9 +149,40 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		}()
 	}
 
+	// Soak resource-trend sampler.
+	var resMu sync.Mutex
+	var resources []ResourceSample
+	if cfg.SampleInterval > 0 {
+		go func() {
+			t := time.NewTicker(cfg.SampleInterval)
+			defer t.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case now := <-t.C:
+					resMu.Lock()
+					resources = append(resources, ResourceSample{
+						At: now.Sub(start), Goroutines: runtime.NumGoroutine(), RSSBytes: rssBytes(),
+					})
+					resMu.Unlock()
+				}
+			}
+		}()
+	}
+
+	// Dispatch: bounded by Total, or by Duration in soak mode.
+	soak := cfg.Duration > 0
 	sem := make(chan struct{}, conc)
 	var wg sync.WaitGroup
-	for i := 0; i < cfg.Total; i++ {
+	for i := 0; ; i++ {
+		if soak {
+			if time.Since(start) >= cfg.Duration {
+				break
+			}
+		} else if i >= cfg.Total {
+			break
+		}
 		if lim != nil {
 			if err := lim.Wait(ctx); err != nil {
 				break
@@ -142,8 +191,10 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			i = cfg.Total
-			continue
+			break
+		}
+		if ctx.Err() != nil {
+			break
 		}
 		wg.Add(1)
 		go func(idx int) {
@@ -173,6 +224,9 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 	if dur > 0 {
 		rate = float64(succeeded) / dur.Seconds()
 	}
+	resMu.Lock()
+	res := resources
+	resMu.Unlock()
 	return Report{
 		Attempted:    succeeded + failed,
 		Succeeded:    succeeded,
@@ -180,6 +234,7 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		Duration:     dur,
 		AchievedRate: rate,
 		Latencies:    rec.stats(),
+		Resources:    res,
 	}
 }
 
@@ -188,4 +243,18 @@ func nonZero(f float64) float64 {
 		return 0.0001
 	}
 	return f
+}
+
+// rssBytes returns the process resident set size (Linux /proc/self/statm).
+func rssBytes() uint64 {
+	b, err := os.ReadFile("/proc/self/statm")
+	if err != nil {
+		return 0
+	}
+	f := strings.Fields(string(b))
+	if len(f) < 2 {
+		return 0
+	}
+	resident, _ := strconv.ParseUint(f[1], 10, 64)
+	return resident * uint64(os.Getpagesize())
 }
