@@ -234,6 +234,31 @@ func (s *ueService) Handover(
 	}), nil
 }
 
+func (s *ueService) XnHandover(
+	ctx context.Context,
+	req *connect.Request[orbitv1.HandoverRequest],
+) (*connect.Response[orbitv1.HandoverResponse], error) {
+	m := req.Msg
+	if m.GetSupi() == "" || m.GetAmfAddress() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and amf_address are required"))
+	}
+	target, err := gnbConfigFromProto(m.GetTargetGnb())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
+	defer cancel()
+
+	if err := s.mgr.XnHandover(ctx, m.GetSupi(), engine.GNBEndpoint{
+		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: m.GetGnbN3Addr(),
+	}); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&orbitv1.HandoverResponse{
+		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
+	}), nil
+}
+
 func ueStatusProto(sess *engine.Session) *orbitv1.UEStatus {
 	return &orbitv1.UEStatus{
 		Supi:        sess.SUPI,
