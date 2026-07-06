@@ -93,6 +93,24 @@ func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 	return conn, nil
 }
 
+// Alive reports whether the AMF still accepts a fresh NG Setup — a liveness
+// probe used to confirm the core survived a malformed message. It uses a gNB
+// ID well clear of the per-test IDs so it never collides. This is the
+// crash-safety primitive: if a negative test leaves the AMF unable to complete
+// a fresh NG Setup, the core did not survive.
+func (e Env) Alive(ctx context.Context) bool {
+	probe := e.GNB
+	probe.ID = e.GNB.ID + 0x9000
+	probe.Name = "orbit-conf-probe"
+	conn, err := e.Dial()
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	ng, err := gnb.NGSetup(ctx, conn, probe)
+	return err == nil && ng.Accepted
+}
+
 type setupError struct{ s string }
 
 func (e *setupError) Error() string { return e.s }
@@ -145,6 +163,34 @@ func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats
 	}
 	return out
 }
+
+// Summary tallies a suite run for reporting and CI gating.
+type Summary struct {
+	Total, Pass, Fail, Error, Skip int
+	Results                        []Result
+}
+
+// Summarize counts verdicts across results.
+func Summarize(results []Result) Summary {
+	s := Summary{Total: len(results), Results: results}
+	for _, r := range results {
+		switch r.Verdict {
+		case Pass:
+			s.Pass++
+		case Fail:
+			s.Fail++
+		case Error:
+			s.Error++
+		case Skip:
+			s.Skip++
+		}
+	}
+	return s
+}
+
+// OK reports a clean run — no failed assertions and no harness errors. This is
+// the integration-CI gate.
+func (s Summary) OK() bool { return s.Fail == 0 && s.Error == 0 }
 
 // builtins is the registered test set (populated in the tests_*.go files).
 var builtins []Test
