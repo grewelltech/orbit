@@ -20,6 +20,71 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUEWatchCmd(serverURL))
 	cmd.AddCommand(newUEPingCmd(serverURL))
 	cmd.AddCommand(newUEHandoverCmd(serverURL))
+	cmd.AddCommand(newUETrafficCmd(serverURL))
+	cmd.AddCommand(newUELatencyCmd(serverURL))
+	return cmd
+}
+
+func newUELatencyCmd(serverURL *string) *cobra.Command {
+	var supi, target string
+	var probes, spacingMs, timeoutMs uint32
+	cmd := &cobra.Command{
+		Use:   "latency",
+		Short: "Probe RTT / jitter / loss from a UE over its N3 data path",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ueClient(serverURL).Latency(cmd.Context(),
+				connect.NewRequest(&orbitv1.LatencyRequest{
+					Supi: supi, Target: target, Probes: probes,
+					SpacingMs: spacingMs, TimeoutMs: timeoutMs,
+				}))
+			if err != nil {
+				return err
+			}
+			m := res.Msg
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"%d/%d replies (%.0f%% loss)  rtt min/mean/max %.2f/%.2f/%.2f ms  jitter %.2f ms\n",
+				m.GetReceived(), m.GetSent(), m.GetLossPct(),
+				m.GetMinMs(), m.GetMeanMs(), m.GetMaxMs(), m.GetJitterMs())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&target, "target", "8.8.8.8", "destination IPv4 to probe")
+	cmd.Flags().Uint32Var(&probes, "probes", 20, "number of echoes")
+	cmd.Flags().Uint32Var(&spacingMs, "spacing-ms", 50, "spacing between echoes (ms)")
+	cmd.Flags().Uint32Var(&timeoutMs, "timeout-ms", 1000, "per-echo timeout (ms)")
+	_ = cmd.MarkFlagRequired("supi")
+	return cmd
+}
+
+func newUETrafficCmd(serverURL *string) *cobra.Command {
+	var supi, target, rate string
+	var packetSize, durationMs uint32
+	cmd := &cobra.Command{
+		Use:   "traffic",
+		Short: "Generate a loom UDP flow from a UE over its N3 data path",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ueClient(serverURL).Traffic(cmd.Context(),
+				connect.NewRequest(&orbitv1.TrafficRequest{
+					Supi: supi, Target: target, Rate: rate,
+					PacketSize: packetSize, DurationMs: durationMs,
+				}))
+			if err != nil {
+				return err
+			}
+			m := res.Msg
+			fmt.Fprintf(cmd.OutOrStdout(), "%d packets, %d bytes, %.1f Mbps over %dms\n",
+				m.GetPackets(), m.GetBytes(), m.GetMbps(), m.GetDurationMs())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&target, "target", "", "destination host:port")
+	cmd.Flags().StringVar(&rate, "rate", "", "loom rate, e.g. 50Mbps (empty = unlimited)")
+	cmd.Flags().Uint32Var(&packetSize, "packet-size", 1200, "inner UDP payload size")
+	cmd.Flags().Uint32Var(&durationMs, "duration-ms", 5000, "flow duration (ms)")
+	_ = cmd.MarkFlagRequired("supi")
+	_ = cmd.MarkFlagRequired("target")
 	return cmd
 }
 

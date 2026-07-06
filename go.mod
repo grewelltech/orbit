@@ -9,6 +9,7 @@ replace github.com/songgao/water => github.com/bgrewell/water v0.0.0-20200317203
 require (
 	connectrpc.com/connect v1.20.0
 	github.com/HdrHistogram/hdrhistogram-go v1.2.0
+	github.com/bgrewell/loom v0.9.1
 	github.com/free5gc/aper v1.1.1
 	github.com/free5gc/nas v1.2.3
 	github.com/free5gc/ngap v1.1.3
@@ -26,10 +27,13 @@ require (
 )
 
 require (
+	github.com/BGrewell/go-conversions v0.0.0-20260615151034-4f93f00cd275 // indirect
 	github.com/aead/cmac v0.0.0-20160719120800-7af84192f0b1 // indirect
+	github.com/asavie/xdp v0.3.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cilium/ebpf v0.4.0 // indirect
 	github.com/free5gc/openapi v1.2.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -45,6 +49,8 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tim-ywliu/nested-logrus-formatter v1.3.2 // indirect
+	github.com/vishvananda/netlink v1.1.0 // indirect
+	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect

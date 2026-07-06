@@ -312,7 +312,9 @@ Sequencing principle: **a minimal gNB+UE that registers ONE UE and passes data e
 **Verification:** two distinct measurements — (1) **sim capability** against a mock AMF/UPF (the number that reflects *our* engine); (2) **integration** against the live core, where the **5,000-UE / 10-aps SD-Core baseline is the ceiling** and is stated as such. Export P99.9 histograms + Prometheus time-series to Grafana; SLO gate fails the build (integration-CI) on a synthetic threshold breach. Attribute failures core-vs-sim via time-aligned AMF/SMF/UPF metrics + logs.
 **Exit:** rate-controlled attach storm + throughput/latency/jitter reporting per-UE and aggregate; sim-vs-core numbers reported separately; SLO gate usable in integration-CI.
 **Advances:** perf, obs, api, cicd.
-**Status — control-plane load framework DONE (2026-07-05):** `internal/load` — ramp scheduler (Constant/LinearRamp/Step via `x/time/rate`), bounded-concurrency runner (the D-6 pool), per-procedure HdrHistograms (P50/P90/P99/P99.9), an **SLO assertion engine** (min success rate + per-procedure latency bounds → pass/fail verdict), and a live-metrics `Observer` with a `PrometheusObserver`. Driven two ways: sim capacity against the mock AMF (`~1350 attach/s`, reg P99 ~99ms) and integration against the live core via **`orbit load`** (`--rate`/`--ramp`, multi-gNB muxing via the Fleet, `--slo-*` gate). **Live: 50 UEs at ~9/s on SD-Core — core-bound at the measured ~10/s ceiling; sim and integration numbers reported separately.** Remaining: **loom** as the per-UE data-plane traffic generator (throughput/latency/**jitter**), handover-under-load, and soak mode.
+**Status — control-plane load framework DONE (2026-07-05):** `internal/load` — ramp scheduler (Constant/LinearRamp/Step via `x/time/rate`), bounded-concurrency runner (the D-6 pool), per-procedure HdrHistograms (P50/P90/P99/P99.9), an **SLO assertion engine** (min success rate + per-procedure latency bounds → pass/fail verdict), and a live-metrics `Observer` with a `PrometheusObserver`. Driven two ways: sim capacity against the mock AMF (`~1350 attach/s`, reg P99 ~99ms) and integration against the live core via **`orbit load`** (`--rate`/`--ramp`, multi-gNB muxing via the Fleet, `--slo-*` gate). **Live: 50 UEs at ~9/s on SD-Core — core-bound at the measured ~10/s ceiling; sim and integration numbers reported separately.**
+
+**Data-plane traffic via loom DONE (2026-07-05, Mode B, live-verified):** `internal/loomgtp` embeds **loom unmodified** (pinned) as the per-UE traffic engine — a loom `TxDatapath` registered into loom's injectable `components.Components` wraps each generated payload in a native inner UDP packet (`internal/datapath.BuildUDPPacket`) sourced from the UE's PDU IP and sends it up the GTP-U tunnel (no TUN, no NET_ADMIN, no per-UE netns). `Manager.Traffic` + the `UEService.Traffic` RPC + `orbit ue traffic` drive it. **Live: a 20 Mbps loom UDP flow from an attached UE ran at the offered rate over the live N3 tunnel to the real UPF (7501 packets, sourced from the UE IP).** **Latency/jitter/loss DONE too (2026-07-06):** a `tunnelPinger` implements loom's `latency.Pinger` by probing over the GTP-U tunnel (ICMP-over-N3); loom's `Sampler`/`Summarize` compute RTT/jitter/loss — ORBIT supplies only transport. `Manager.Latency` + `UEService.Latency` + `orbit ue latency`. **Live: probing 8.8.8.8 over an attached UE's tunnel → 14/15 replies, RTT 5.19/5.70/6.43 ms, jitter 0.33 ms.** So the full data-plane telemetry trio (throughput + latency + jitter) is loom's, over the real GTP-U path. **Soak mode DONE** (`load.Config.Duration` + resource-trend sampling of goroutines/RSS; `orbit load --duration --sample-interval`). **Handover-under-load DONE** (`engine.RunHandoverUnderLoad`: a mobile UE handed through N2 hops while a background attach storm loads the core; **live: 4/4 handovers at P50 525 ms while a 20-UE storm ran at ~7/s** — the mobility control plane holds up under attach load). **Phase 5 is feature-complete.** Not built (deferred by design): Stage-2 gtp5g (gated on D-5 — only if Stage-1 userspace GTP-U is the measured bottleneck); AF_XDP N6 line-rate (loom supports it, a later axis).
 
 ### Phase 6 — Core conformance / regression `[conf obs api cicd]`
 **Goal:** structured pass/fail probing with spec citations — framed as **graceful-rejection / regression assertion**, not novel bug-finding.
@@ -411,10 +413,34 @@ Where it lands:
   the UPF's data-network side at line rate — a different axis from per-UE-over-GTP
   (which uses tcp/udp bound to the UE IP).
 
-Open items:
-- **Embedding surface** — confirm (or grow, in loom) a stable Go API for in-process
-  flow control + telemetry callbacks, so ORBIT drives loom as a library, not a
-  subprocess.
-- **Per-UE binding spike** (new, alongside D-5) — can loom source-bind many
-  concurrent flows to many local UE tunnel IPs from one process, or must we isolate
-  per UE netns? Resolve before Phase-5 scale.
+**Embedding path — RESOLVED (2026-07-05, loom source survey).** loom's `core/`
+is a clean, dependency-light, in-process library (hexagonal; DESIGN.md §3): drive
+a single flow with `flow.Build(spec flow.Spec, c *components.Components)` →
+`(*Flow).Run(ctx)`, reading `report.Summary{AvgBitsPerSec,Bytes,Packets}`
+(throughput) and `latency.Summary{Min,Max,Mean,StdDev,Jitter,LossPct}` (RTT/
+jitter/loss) programmatically — no daemon, no gRPC, no CLI (recipe:
+`cmd/loom/run.go:runFlow`). The datapath backend is a `datapath.TxDatapath` /
+`RxDatapath` pair (frame reserve/commit, `core/datapath/datapath.go`) resolved
+from an **injectable `components.Components`** — so `flow.Build(spec, c)` lets ORBIT
+register its **own** datapath without forking loom.
+
+**Chosen integration — fork-free Mode-B bridge (the concrete plan):**
+1. `internal/loomgtp` implements loom's `TxDatapath`/`RxDatapath` over ORBIT's
+   userspace GTP-U `datapath.Tunnel`: on `TxCommit`, wrap each frame's payload in a
+   native inner IPv4+UDP packet (UE IP → target) and `SendUplink`; on `RxPoll`,
+   `ReadDownlink` and hand the inner payload back. Needs a small native UDP
+   inner-packet builder alongside the existing ICMP one (`internal/datapath`).
+2. Register that datapath into a `components.Components` and drive a `flow.Spec`
+   (rate/size/duration) per UE, sourced from the UE's PDU IP — **no TUN, no
+   NET_ADMIN, no per-UE netns** (resolves the per-UE-binding open item: binding
+   lives in ORBIT's tunnel, not the kernel, so one process fans out to many UEs).
+3. Feed loom's `report`/`latency` summaries into the Phase-5 KPI/SLO/Prometheus
+   surface already built (`internal/load`), adding the data-plane axis
+   (throughput/latency/jitter) next to attach-storm KPIs. Verify live from the RAN
+   node against a UDP reflector.
+
+**Not needed for this path:** loom source-IP socket binding (`net.Dialer.LocalAddr`
+in `DialUDP`/`DialTCP`) — that's only for a real-socket **Mode A / per-UE TUN**
+variant; the survey flagged it as a small 3-call-site loom change if Mode A is
+ever wanted. Mode B above avoids it. Vendor loom at a pinned commit (`core/` has
+no v1 stability tag yet).

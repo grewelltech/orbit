@@ -29,6 +29,7 @@ func newLoadCmd() *cobra.Command {
 		gnbID, gnbBits, tac, sst          uint32
 		rate, sloSuccess                  float64
 		sloRegP99, sloAttachP99           time.Duration
+		duration, sampleInterval          time.Duration
 		withPDU                           bool
 	)
 	cmd := &cobra.Command{
@@ -63,6 +64,7 @@ func newLoadCmd() *cobra.Command {
 			spec := engine.LoadSpec{
 				GNBs: gnbs, BaseIMSI: baseIMSI, Count: count, MCC: mcc, MNC: mnc,
 				Ki: kiB, OPc: opcB, Concurrency: conc, Rate: curve,
+				Duration: duration, SampleEvery: sampleInterval,
 			}
 			if withPDU {
 				spec.PDUSession = &ue.PDUSessionParams{PDUSessionID: 1, SST: uint8(sst), SD: sd, DNN: dnn}
@@ -117,6 +119,8 @@ func newLoadCmd() *cobra.Command {
 	f.Float64Var(&sloSuccess, "slo-min-success", 0, "SLO: minimum success rate (0-1); breach exits non-zero")
 	f.DurationVar(&sloRegP99, "slo-reg-p99", 0, "SLO: max registration P99 (e.g. 500ms)")
 	f.DurationVar(&sloAttachP99, "slo-attach-p99", 0, "SLO: max attach P99")
+	f.DurationVar(&duration, "duration", 0, "soak: run for this long instead of --count (e.g. 5m)")
+	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence (e.g. 10s)")
 	for _, r := range []string{"amf", "base-imsi", "ki", "opc", "mcc", "mnc"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
@@ -154,6 +158,11 @@ func printLoadReport(w io.Writer, rep load.Report) {
 		}
 		fmt.Fprintf(w, "  %-13s P50 %-8s P99 %-8s P99.9 %-8s max %s\n",
 			name, round(s.P50), round(s.P99), round(s.P999), round(s.Max))
+	}
+	if len(rep.Resources) > 0 {
+		first, last := rep.Resources[0], rep.Resources[len(rep.Resources)-1]
+		fmt.Fprintf(w, "  resources: goroutines %d→%d, RSS %dMB→%dMB over %d samples\n",
+			first.Goroutines, last.Goroutines, first.RSSBytes>>20, last.RSSBytes>>20, len(rep.Resources))
 	}
 }
 

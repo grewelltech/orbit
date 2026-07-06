@@ -61,6 +61,8 @@ type LoadSpec struct {
 	Ki, OPc     []byte
 	Concurrency int
 	Rate        load.Rate            // offered-rate curve (nil = concurrency-bound)
+	Duration    time.Duration        // soak: run for this long instead of Count
+	SampleEvery time.Duration        // soak: resource-sample cadence
 	PDUSession  *ue.PDUSessionParams // optional session per UE
 	GNBN3Addr   string               // gNB N3 for the data path (with PDUSession)
 }
@@ -94,7 +96,10 @@ func RunLoad(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report,
 		return cfg, nil
 	}
 
-	rep := load.Run(ctx, load.Config{Total: spec.Count, Concurrency: spec.Concurrency, Rate: spec.Rate}, f.LoadFunc(makeUE))
+	rep := load.Run(ctx, load.Config{
+		Total: spec.Count, Concurrency: spec.Concurrency, Rate: spec.Rate,
+		Duration: spec.Duration, SampleInterval: spec.SampleEvery,
+	}, f.LoadFunc(makeUE))
 	return rep, nil
 }
 
