@@ -19,7 +19,8 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUEListCmd(serverURL))
 	cmd.AddCommand(newUEWatchCmd(serverURL))
 	cmd.AddCommand(newUEPingCmd(serverURL))
-	cmd.AddCommand(newUEHandoverCmd(serverURL))
+	cmd.AddCommand(newUEHandoverCmd(serverURL, false))
+	cmd.AddCommand(newUEHandoverCmd(serverURL, true))
 	cmd.AddCommand(newUETrafficCmd(serverURL))
 	cmd.AddCommand(newUELatencyCmd(serverURL))
 	return cmd
@@ -88,28 +89,37 @@ func newUETrafficCmd(serverURL *string) *cobra.Command {
 	return cmd
 }
 
-func newUEHandoverCmd(serverURL *string) *cobra.Command {
+func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 	var (
 		supi, amf, bind, gnbN3   string
 		name, mcc, mnc, sd       string
 		gnbID, gnbBits, tac, sst uint32
 	)
+	use, short := "handover", "Hand a registered UE over to a target gNB (N2 handover)"
+	if xn {
+		use, short = "xn-handover", "Hand a registered UE over to a target gNB (Xn handover / PathSwitch)"
+	}
 	cmd := &cobra.Command{
-		Use:   "handover",
-		Short: "Hand a registered UE over to a target gNB (N2 handover)",
+		Use:   use,
+		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := ueClient(serverURL).Handover(cmd.Context(),
-				connect.NewRequest(&orbitv1.HandoverRequest{
-					Supi:        supi,
-					AmfAddress:  amf,
-					BindAddress: bind,
-					GnbN3Addr:   gnbN3,
-					TargetGnb: &orbitv1.GnbConfig{
-						Id: gnbID, IdBits: gnbBits, Name: name,
-						Mcc: mcc, Mnc: mnc, Tac: tac,
-						Slices: []*orbitv1.Snssai{{Sst: sst, Sd: sd}},
-					},
-				}))
+			req := connect.NewRequest(&orbitv1.HandoverRequest{
+				Supi:        supi,
+				AmfAddress:  amf,
+				BindAddress: bind,
+				GnbN3Addr:   gnbN3,
+				TargetGnb: &orbitv1.GnbConfig{
+					Id: gnbID, IdBits: gnbBits, Name: name,
+					Mcc: mcc, Mnc: mnc, Tac: tac,
+					Slices: []*orbitv1.Snssai{{Sst: sst, Sd: sd}},
+				},
+			})
+			client := ueClient(serverURL)
+			call := client.Handover
+			if xn {
+				call = client.XnHandover
+			}
+			res, err := call(cmd.Context(), req)
 			if err != nil {
 				return err
 			}

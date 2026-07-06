@@ -1505,7 +1505,7 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x06min_ms\x18\x05 \x01(\x01R\x05minMs\x12\x17\n" +
 	"\amean_ms\x18\x06 \x01(\x01R\x06meanMs\x12\x15\n" +
 	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\x12\x1b\n" +
-	"\tjitter_ms\x18\b \x01(\x01R\bjitterMs2\xdc\x04\n" +
+	"\tjitter_ms\x18\b \x01(\x01R\bjitterMs2\xa3\x05\n" +
 	"\tUEService\x12C\n" +
 	"\bRegister\x12\x19.orbit.v1.RegisterRequest\x1a\x1a.orbit.v1.RegisterResponse\"\x00\x12I\n" +
 	"\n" +
@@ -1514,7 +1514,9 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x04List\x12\x15.orbit.v1.ListRequest\x1a\x16.orbit.v1.ListResponse\"\x00\x127\n" +
 	"\x04Ping\x12\x15.orbit.v1.PingRequest\x1a\x16.orbit.v1.PingResponse\"\x00\x12E\n" +
 	"\vStateStream\x12\x1c.orbit.v1.StateStreamRequest\x1a\x14.orbit.v1.StateEvent\"\x000\x01\x12C\n" +
-	"\bHandover\x12\x19.orbit.v1.HandoverRequest\x1a\x1a.orbit.v1.HandoverResponse\"\x00\x12@\n" +
+	"\bHandover\x12\x19.orbit.v1.HandoverRequest\x1a\x1a.orbit.v1.HandoverResponse\"\x00\x12E\n" +
+	"\n" +
+	"XnHandover\x12\x19.orbit.v1.HandoverRequest\x1a\x1a.orbit.v1.HandoverResponse\"\x00\x12@\n" +
 	"\aTraffic\x12\x18.orbit.v1.TrafficRequest\x1a\x19.orbit.v1.TrafficResponse\"\x00\x12@\n" +
 	"\aLatency\x12\x18.orbit.v1.LatencyRequest\x1a\x19.orbit.v1.LatencyResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
@@ -1569,19 +1571,21 @@ var file_orbit_v1_ue_proto_depIdxs = []int32{
 	13, // 10: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
 	11, // 11: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
 	15, // 12: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
-	17, // 13: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
-	19, // 14: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
-	3,  // 15: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 16: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 17: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 18: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	14, // 19: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
-	12, // 20: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	16, // 21: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
-	18, // 22: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
-	20, // 23: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
-	15, // [15:24] is the sub-list for method output_type
-	6,  // [6:15] is the sub-list for method input_type
+	15, // 13: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
+	17, // 14: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
+	19, // 15: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
+	3,  // 16: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 17: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 18: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 19: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 20: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 21: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	16, // 22: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
+	16, // 23: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
+	18, // 24: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
+	20, // 25: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
+	16, // [16:26] is the sub-list for method output_type
+	6,  // [6:16] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name

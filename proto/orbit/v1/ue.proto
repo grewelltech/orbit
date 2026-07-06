@@ -28,6 +28,10 @@ service UEService {
   // handover. Drives the control plane end to end; the resulting mobility
   // states are pushed on StateStream.
   rpc Handover(HandoverRequest) returns (HandoverResponse) {}
+  // XnHandover moves a registered UE to a target gNB via an Xn handover
+  // (NGAP PathSwitchRequest; Xn preparation stubbed in-process). Unlike N2,
+  // the SD-Core downlink path switch takes effect.
+  rpc XnHandover(HandoverRequest) returns (HandoverResponse) {}
   // Traffic runs a loom-generated UDP flow from the UE over its N3 data path
   // and reports throughput — the user-plane load generator.
   rpc Traffic(TrafficRequest) returns (TrafficResponse) {}
