@@ -199,6 +199,16 @@ between steps. A ready-to-edit example is in
 The same topology rules apply — data-plane and handover steps must run where the
 UPF's N3 is reachable, with a fresh gNB ID per run.
 
+### Fleet mode (preview)
+
+A `kind: fleet` scenario ([`examples/fleet.yaml`](../examples/fleet.yaml))
+*generates* a topology of gNBs and a UE population running continuous behaviours
+(mobility + a traffic mix) for a duration, rather than listing explicit steps —
+for scale / soak / mass-mobility runs (design in
+[docs/adr/0004-fleet-population-mode.md](adr/0004-fleet-population-mode.md)).
+`source_ips` are addresses the host owns, one per gNB. Today `orbit run` on a
+fleet file **validates and prints the plan**; continuous execution lands next.
+
 ## The API
 
 The server exposes a Connect API (gRPC, gRPC-Web, and JSON/REST on one port).

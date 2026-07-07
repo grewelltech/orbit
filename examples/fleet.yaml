@@ -1,0 +1,59 @@
+# A fleet/population run (ADR-0004): a generated topology of gNBs and a UE
+# population running continuous behaviours (mobility + a traffic mix) for a
+# duration. Real-core scale here (10 gNBs, 100 UEs — within SD-Core's ceiling).
+#
+#   export ORBIT_KI=... ORBIT_OPC=...
+#   orbit run examples/fleet.yaml
+#
+# source_ips must be addresses THIS host owns — one per gNB, since handover
+# needs a distinct SCTP source per gNB. Run from a host on the UPF access
+# network. Edit the addresses for your testbed.
+
+kind: fleet
+name: dc-fleet-soak
+
+core:
+  amf: 172.17.50.11:38412
+  plmn: { mcc: "208", mnc: "93" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+topology:
+  gnbs:
+    count: 10
+    id_base: 1
+    layout: grid
+    source_ips:
+      - 172.17.50.20
+      - 172.17.50.21
+      - 172.17.50.22
+      - 172.17.50.23
+      - 172.17.50.24
+      - 172.17.50.25
+      - 172.17.50.26
+      - 172.17.50.27
+      - 172.17.50.28
+      - 172.17.50.29
+
+fleet:
+  count: 100
+  supi_base: "208930100007500"
+  distribution: even
+  attach_rate: 10/s
+  pdu_session: true
+
+behaviors:
+  mobility: { model: random_walk, speed: 3m/s, handover: xn }
+  traffic:
+    mix:
+      - { profile: web,   share: 0.5 }
+      - { profile: video, share: 0.3, rate: 8Mbps }
+      - { profile: voip,  share: 0.2, rate: 64kbps }
+
+run:
+  duration: 10m
