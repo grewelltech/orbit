@@ -10,16 +10,14 @@ protocol codecs are large, spec-exact, and unforgiving — APER (X.691) has
 exactly one legal encoding per value, and a single wrong tag makes a peer
 undecodable. Writing them from scratch would consume the whole project and add
 no differentiation. Mature Go implementations exist: **free5gc**'s
-`ngap`/`nas`/`aper` are Apache-2.0 and field-proven. **UERANSIM** is a strong
-behavioral reference but is **AGPL-3.0**.
+`ngap`/`nas`/`aper` are Apache-2.0 and field-proven.
 
 ## Decision
 
 Reuse **free5gc**'s `ngap`, `nas`, and `aper` (and its `util` crypto:
 milenage, ueauth, nas/security) as the codec and crypto substrate. Build only
 the **differentiating** layers clean-room from the 3GPP specs: the gNB/UE state
-machines, mobility synthesis, the conformance harness, and the API. Treat
-**UERANSIM as a behavioral reference only — never copy its code** (AGPL).
+machines, mobility synthesis, the conformance harness, and the API.
 
 ## Alternatives considered
 
