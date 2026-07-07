@@ -76,9 +76,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Interface management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| NG Setup | RAN→AMF | ✅ (used everywhere) | 🎯 missing mandatory IE / bad PLMN / bad TAC → NG Setup Failure | the densest entry point |
+| NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ⬜ bad PLMN / bad TAC | the densest entry point |
 | RAN Configuration Update | RAN→AMF | ⬜ | 🎯 malformed IE (high-value set) | |
-| NG Reset | RAN→AMF | 🎯 → NG Reset Acknowledge | ⬜ | RAN-initiated reset |
+| NG Reset | RAN→AMF | ✅ `NGAP-NG-RESET-ACK` (live PASS) | ⬜ | RAN-initiated reset-all → NG RESET ACKNOWLEDGE |
 | Error Indication | both | ✅ (we assert the core *sends* it) | — | |
 | AMF Configuration Update | AMF→RAN | — | — | ORBIT receives |
 | Overload Start / Stop | AMF→RAN | — | — | ORBIT receives |
@@ -134,15 +134,26 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**1 check today** — `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie): UE-associated
-message for an unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID
-handling). Live: PASS on the SD-Core testbed.
+**3 checks today** (all live-PASS on the SD-Core testbed):
+- `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie) — UE-associated message for an
+  unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
+- `NGAP-NG-RESET-ACK` (procedural) — RAN→AMF NG RESET (reset-all) → the AMF
+  completes the Reset procedure with NG RESET ACKNOWLEDGE (§8.7.4, a genuine
+  "shall"). Wire-confirmed the stimulus went out as a well-formed
+  InitiatingMessage/NGReset; reply decoded as NGResetAcknowledge.
+- `NGAP-NGSETUP-MISSING-TALIST` (negative-ie) — NG Setup with the mandatory
+  Supported TA List (id-102) removed → the AMF **rejects with NG SETUP FAILURE**
+  (spec-ideal). Confirms the core does not accept a setup missing a mandatory IE.
 
-**Highest-value next batch** (the first authoring-cycle session):
-1. **NG Reset** (procedural) — RAN→AMF reset → expect NG Reset Acknowledge.
-2. **RAN Configuration Update, malformed IE** (negative-ie) — clause-10 reject path.
-3. **GTP-U unknown-TEID → Error Indication** (gtpu) — TS 29.281 §7.3.1 is a genuine "shall", so a *real* FAIL is possible; runs from the RAN node. (Tracked here; GTP-U gets its own matrix below as it grows.)
-4. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
+**Highest-value next batch** (remaining in this authoring-cycle session):
+1. **GTP-U unknown-TEID → Error Indication** (gtpu) — TS 29.281 §7.3.1 is a genuine "shall", so a *real* FAIL is possible; runs from the RAN node. (Tracked here; GTP-U gets its own matrix below as it grows.)
+2. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
+
+> **Tooling note:** the testbed has no tshark, so wire disambiguation currently
+> uses a byte-level PPID scan that reads uplink cleanly but misses downlink
+> responses; response identity is confirmed via ORBIT's free5gc decode of the
+> received bytes. For checks where a FAIL is possible (e.g. the GTP-U "shall"),
+> a proper SCTP/NGAP pcap decoder (or tshark) would strengthen disambiguation.
 
 ## Other interfaces (matrices to grow)
 
