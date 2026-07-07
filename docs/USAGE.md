@@ -47,17 +47,25 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
 
 ### Run as a service
 
-To avoid backgrounding `orbit serve`, install it as a systemd service:
+To avoid backgrounding `orbit serve`, install it as a systemd service. One
+script does install, upgrade, and uninstall (needs root):
 
 ```sh
-sudo make install-service       # or: ./scripts/install-service.sh
+sudo bash scripts/orbit.sh install       # from a checkout, or straight from GitHub:
+curl -fsSL https://raw.githubusercontent.com/grewelltech/orbit/main/scripts/orbit.sh | sudo bash -s -- install
+
+sudo bash scripts/orbit.sh upgrade       # rebuild/replace the binary + restart
+sudo bash scripts/orbit.sh uninstall     # add --purge to also remove config
+sudo bash scripts/orbit.sh status
 ```
 
-This installs the `orbit` binary to `/usr/local/bin`, a unit at
+It installs the `orbit` binary to `/usr/local/bin`, a unit at
 `/etc/systemd/system/orbit.service`, and config at `/etc/orbit/orbit.env` — set
 `ORBIT_ARGS` there (e.g. `--listen 0.0.0.0:8412 --core-profile sdcore`), then
 `systemctl restart orbit`. Manage it with `systemctl {status,restart,stop}
-orbit` and follow logs with `journalctl -u orbit -f`.
+orbit` and follow logs with `journalctl -u orbit -f`. (`make install-service` /
+`upgrade-service` / `uninstall-service` wrap the script.) Install needs Go to
+build, or set `VERSION=` to download a release.
 
 ## UE lifecycle
 

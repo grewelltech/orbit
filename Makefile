@@ -1,7 +1,7 @@
 BIN     := bin/orbit
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test integration vet fmt tidy gen clean install install-service
+.PHONY: build test integration vet fmt tidy gen clean install install-service upgrade-service uninstall-service
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BIN) ./cmd/orbit
@@ -11,9 +11,14 @@ PREFIX ?= /usr/local
 install: build
 	install -Dm755 $(BIN) $(DESTDIR)$(PREFIX)/bin/orbit
 
-# Install and enable orbit as a systemd service (see scripts/install-service.sh).
+# Manage orbit as a systemd service (scripts/orbit.sh — install/upgrade/uninstall
+# in one script). These need root: run with sudo.
 install-service:
-	./scripts/install-service.sh
+	./scripts/orbit.sh install
+upgrade-service:
+	./scripts/orbit.sh upgrade
+uninstall-service:
+	./scripts/orbit.sh uninstall
 
 test:
 	go test ./...
