@@ -45,6 +45,20 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
 - `--server <url>` on every client command selects the endpoint (default
   `http://127.0.0.1:8412`).
 
+### Run as a service
+
+To avoid backgrounding `orbit serve`, install it as a systemd service:
+
+```sh
+sudo make install-service       # or: ./scripts/install-service.sh
+```
+
+This installs the `orbit` binary to `/usr/local/bin`, a unit at
+`/etc/systemd/system/orbit.service`, and config at `/etc/orbit/orbit.env` — set
+`ORBIT_ARGS` there (e.g. `--listen 0.0.0.0:8412 --core-profile sdcore`), then
+`systemctl restart orbit`. Manage it with `systemctl {status,restart,stop}
+orbit` and follow logs with `journalctl -u orbit -f`.
+
 ## UE lifecycle
 
 ```sh
@@ -179,7 +193,9 @@ steps:
 Steps run in order and stop at the first failure (a step fails on an RPC error,
 or on a natural assertion like a ping with zero replies). `wait: 5s` pauses
 between steps. A ready-to-edit example is in
-[`examples/attach-and-handover.yaml`](../examples/attach-and-handover.yaml).
+[`examples/attach-and-handover-xn.yaml`](../examples/attach-and-handover-xn.yaml)
+(and an N2 variant,
+[`attach-and-handover-n2.yaml`](../examples/attach-and-handover-n2.yaml)).
 The same topology rules apply — data-plane and handover steps must run where the
 UPF's N3 is reachable, with a fresh gNB ID per run.
 

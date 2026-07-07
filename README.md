@@ -46,49 +46,79 @@ so the ceiling you hit is the core's, not the tool's.
 ## Install
 
 ```sh
-make build      # -> bin/orbit
+make build              # -> bin/orbit
 ```
 
 You'll need a reachable 5G core (an AMF's N2/SCTP endpoint) and subscriber
 credentials provisioned in it (`Ki`/`OPc`, PLMN, slice, DNN).
 
-## Quickstart
+## Run the server
 
-Start the API server, register a UE with a data session, and use the user plane:
+The CLI talks to a local API server. Install it as a service so it's always
+running — no backgrounding:
 
 ```sh
-./bin/orbit serve &                                  # API on 127.0.0.1:8412
-
-./bin/orbit ue watch --supi 208930100007500 &        # live state stream
-./bin/orbit ue register \
-    --amf 172.17.50.11:38412 \
-    --supi 208930100007500 --ki <hex> --opc <hex> \
-    --mcc 208 --mnc 93 --sst 1 --sd 010203 \
-    --gnb-id 1 --pdu-session --gnb-n3 <ip-reachable-from-upf>
-# -> UE 208930100007500 registered=true; PDU session: UE IP 192.168.100.x
-
-./bin/orbit ue ping    --supi 208930100007500 --dst 8.8.8.8
-./bin/orbit ue latency --supi 208930100007500 --target 8.8.8.8       # RTT / jitter / loss
-./bin/orbit ue traffic --supi 208930100007500 --target 8.8.8.8:9999 --rate 20Mbps
+sudo make install-service        # installs the `orbit` binary + a systemd service
+systemctl status orbit           # listening on 127.0.0.1:8412
+journalctl -u orbit -f           # logs
 ```
 
-Hand a UE over, run a rate-controlled load storm with an SLO gate, or run the
-conformance suite:
+Config (listen address, `--core-profile`, log level) lives in
+`/etc/orbit/orbit.env`. For a throwaway run you can also just foreground it:
+`orbit serve`.
+
+## Quickstart — run a scenario (preferred)
+
+The clearest way to drive ORBIT is a declarative YAML scenario: declare the
+core, gNBs, and UEs once, then a list of steps. Point the example at your
+testbed, export your credentials, and run it:
 
 ```sh
-./bin/orbit ue xn-handover --supi 208930100007500 --amf 172.17.50.11:38412 \
-    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13      # or: ue handover (N2)
+export ORBIT_KI=... ORBIT_OPC=...
+orbit run examples/attach-and-handover-xn.yaml
+```
 
-./bin/orbit load --amf 172.17.50.11:38412 --base-imsi 208930100007500 --count 100 \
+```
+▶ attach-and-handover (1 UEs, 6 steps)
+✓ [1] register — 1 UE(s) registered
+✓ [2] ping — …: 3/3 replies from 8.8.8.8 (5.0 ms)
+✓ [3] latency — …: 20/20 replies, rtt 5.20 ms, jitter 0.33 ms
+✓ [4] handover — … → gnb-2 (Xn): HANDED_OVER
+✓ [5] ping — …: 3/3 replies from 8.8.8.8          # the user plane follows the handover
+✓ [6] deregister — 1 UE(s) deregistered
+```
+
+That attaches a UE, proves the data path, hands it over via **Xn**, and proves
+the flow survives — verified end to end on SD-Core. There's also an
+[N2 example](examples/attach-and-handover-n2.yaml); note N2 handover completes on
+the control plane but SD-Core does not carry the downlink across it (an upstream
+SMF bug — [docs/interop/sdcore.md](docs/interop/sdcore.md)), so **Xn is the path
+for mobility with data continuity**. Full scenario reference in
+[docs/USAGE.md](docs/USAGE.md).
+
+## Or drive it with individual commands
+
+Every scenario step is also a command:
+
+```sh
+orbit ue register --amf 172.17.50.11:38412 --supi 208930100007500 \
+    --ki <hex> --opc <hex> --mcc 208 --mnc 93 --sst 1 --sd 010203 \
+    --gnb-id 1 --pdu-session --gnb-n3 <ip-reachable-from-upf>
+orbit ue ping    --supi 208930100007500 --dst 8.8.8.8
+orbit ue latency --supi 208930100007500 --target 8.8.8.8
+orbit ue traffic --supi 208930100007500 --target 8.8.8.8:9999 --rate 20Mbps
+orbit ue xn-handover --supi 208930100007500 --amf 172.17.50.11:38412 \
+    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13   # or: ue handover (N2)
+
+orbit load --amf 172.17.50.11:38412 --base-imsi 208930100007500 --count 100 \
     --ki <hex> --opc <hex> --mcc 208 --mnc 93 --rate 20 --slo-min-success 0.99
-
-./bin/orbit conformance --amf 172.17.50.11:38412 --json
+orbit conformance --amf 172.17.50.11:38412 --json
 ```
 
 > **One thing to know up front:** the user plane and handover need the gNB's N3
 > address reachable *from the UPF*, so run those from a host on the core's access
-> network and pass `--gnb-n3 <that-ip>`. Full details, every command, and its
-> flags are in **[docs/USAGE.md](docs/USAGE.md)**.
+> network. Full details, every command, and its flags are in
+> **[docs/USAGE.md](docs/USAGE.md)**.
 
 ## Documentation
 

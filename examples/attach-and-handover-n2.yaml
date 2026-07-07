@@ -1,0 +1,44 @@
+# Attach a UE with a data session, prove the user plane, then hand it over via
+# N2 (AMF-mediated).
+#
+#   export ORBIT_KI=... ORBIT_OPC=...
+#   orbit run examples/attach-and-handover-n2.yaml
+#
+# Note: N2 handover completes the control-plane move (the UE ends up on the
+# target gNB), but on SD-Core the user-plane downlink does NOT follow — an open
+# upstream SMF bug leaves the target tunnel unprogrammed (docs/interop/sdcore.md,
+# Finding 2). ORBIT's `--core-profile sdcore` fixes a *separate* SMF decode bug
+# (Finding 1), but that does not restore the downlink — verified: the ping after
+# an N2 handover is 0/3 with or without the profile. Use the Xn example
+# (attach-and-handover-xn.yaml) for working data continuity. So this scenario
+# stops at the handover and does not ping after it.
+#
+# The user plane and handover need to run where the UPF's N3 is reachable
+# (see docs/USAGE.md "Where things must run").
+
+name: attach-and-handover-n2
+description: Attach + data + N2 (AMF-mediated) handover
+
+core:
+  amf: 172.17.50.11:38412
+  plmn: { mcc: "208", mnc: "93" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+gnbs:
+  - { id: 1, name: gnb-1, n3: 172.17.50.12 }
+  - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
+
+ues:
+  - { supi: "208930100007500", gnb: gnb-1, pdu_session: true }
+
+steps:
+  - register: all
+  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
+  - handover: { ue: "208930100007500", to: gnb-2, type: n2 }
+  - deregister: all
