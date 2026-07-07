@@ -1,6 +1,6 @@
 # ADR-0004: A fleet/population mode for large dynamic scenarios
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-07
 
 ## Context
@@ -48,10 +48,14 @@ core: { amf: ..., plmn: {...}, slice: {...}, dnn: internet }
 credentials: { ki: ${ORBIT_KI}, opc: ${ORBIT_OPC} }
 
 topology:
-  gnbs: { count: 100, id_base: 1, source_ips: 172.17.60.0/24, layout: grid }
+  gnbs:
+    count: 10
+    id_base: 1
+    source_ips: [172.17.50.20, 172.17.50.21, ...]   # operator-supplied, one per gNB
+    layout: grid
 
 fleet:
-  count: 10000
+  count: 100
   supi_base: 208930100007500
   distribution: even         # spread UEs across the topology
   attach_rate: 10/s          # -> internal/load
@@ -108,15 +112,23 @@ core's ceiling.
   source-IP prerequisite is documented, and the mode runs meaningfully against a
   mock core even where SD-Core can't carry the load.
 
-## Open questions (resolve before Accepted)
+## Decisions (resolved 2026-07-07)
 
-1. **Command surface** — a new `orbit emulate <fleet.yaml>` (direct-drive), or
-   fold into `orbit run` and route on `kind: fleet` vs the step form? (Leaning
-   `orbit run` + `kind:` for one entry point.)
-2. **Source IPs** — bind from a configured pool/subnet the host owns; cap gNBs
-   to available IPs with a clear error; is a mock-core path (no real IPs needed)
-   a first-class target for large runs?
-3. **Mobility geometry** — how much to expose (grid/cluster layout, speed,
-   model) vs sane defaults; random-walk first, explicit trajectories later?
-4. **Traffic profiles** — the built-in set (web/video/voip/full-buffer) and
-   their parameters; which need new loom capabilities.
+1. **One entry point.** `orbit run <file>` routes on a top-level `kind:` —
+   absent/`steps` is the ADR-0003 step runner (API client); `fleet` is this mode
+   (direct-drive). Two execution models behind one command.
+2. **Real core first, at modest scale.** The first target is the real SD-Core
+   at ~10 gNBs / 100 UEs (within its ceiling), not a 10k/100 sim run. The larger
+   sim-against-mock numbers come later; nothing here is mock-only.
+3. **User-supplied source IPs.** `topology.gnbs.source_ips` is a list the
+   operator provides (host must own them); each generated gNB binds a distinct
+   one for both its N2 SCTP source and N3. Error clearly if there are fewer IPs
+   than gNBs (handover needs one each).
+4. **Mobility.** Grid layout + random-walk first (reusing `meas.Cell`/`Track`);
+   explicit trajectories later.
+5. **Traffic — ORBIT-orchestrated first.** Start with profiles composed by
+   *ORBIT scheduling loom's constant-rate flows* over time (VoIP = a steady
+   low-rate flow; web = short on/off bursts; video = sustained higher rate;
+   full-buffer = unlimited) — this ships the profile *mix* without blocking on
+   loom. Only genuine in-flow shaping (jittered bursts, ramps) drives a change in
+   loom. The orchestration seam lives ORBIT-side so profiles evolve here first.
