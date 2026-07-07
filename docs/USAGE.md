@@ -138,6 +138,51 @@ Checks are framed as graceful-rejection / crash-safety regression guards, each
 with a 3GPP citation; `--json` emits machine-readable results with per-check
 verdict, expected/observed, and the spec reference.
 
+## Scenarios (`orbit run`)
+
+Instead of long, repetitive command lines, describe a whole test declaratively
+in YAML and run it: `orbit run scenario.yaml`. The runner is an ordinary API
+client (it drives the same operations as the `ue` commands), so it needs a
+running server (`orbit serve`).
+
+A scenario declares the **core**, **gNBs**, and **UEs** once, then an ordered
+**steps** list references them. Secrets use `${ENV}` references so they stay out
+of the file:
+
+```yaml
+name: attach-and-handover
+core:
+  amf: 172.17.50.11:38412
+  plmn: { mcc: "208", mnc: "93" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+credentials:
+  ki:  ${ORBIT_KI}          # export ORBIT_KI / ORBIT_OPC before running
+  opc: ${ORBIT_OPC}
+gnbs:
+  - { id: 1, name: gnb-1, n3: 172.17.50.12 }
+  - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
+ues:
+  - { supi: "208930100007500", gnb: gnb-1, pdu_session: true }
+  - range: { base: "208930100007501", count: 3 }   # 501, 502, 503
+    gnb: gnb-1
+steps:
+  - register: all                                            # or a single SUPI
+  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
+  - latency:  { ue: "208930100007500", target: 8.8.8.8, probes: 20 }
+  - traffic:  { ue: "208930100007500", target: 8.8.8.8:9999, rate: 20Mbps, duration: 5s }
+  - handover: { ue: "208930100007500", to: gnb-2, type: xn }  # or type: n2
+  - deregister: all
+```
+
+Steps run in order and stop at the first failure (a step fails on an RPC error,
+or on a natural assertion like a ping with zero replies). `wait: 5s` pauses
+between steps. A ready-to-edit example is in
+[`examples/attach-and-handover.yaml`](../examples/attach-and-handover.yaml).
+The same topology rules apply — data-plane and handover steps must run where the
+UPF's N3 is reachable, with a fresh gNB ID per run.
+
 ## The API
 
 The server exposes a Connect API (gRPC, gRPC-Web, and JSON/REST on one port).

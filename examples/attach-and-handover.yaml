@@ -1,0 +1,38 @@
+# Attach a UE with a data session, prove the user plane, hand it over via Xn,
+# prove it still works, then deregister.
+#
+# Secrets come from the environment — export them before running:
+#   export ORBIT_KI=... ORBIT_OPC=...
+#   orbit run examples/attach-and-handover.yaml
+#
+# The user plane and handover need to run where the UPF's N3 is reachable
+# (see docs/USAGE.md "Where things must run").
+
+name: attach-and-handover
+description: Attach + data + Xn handover + data continuity
+
+core:
+  amf: 172.17.50.11:38412
+  plmn: { mcc: "208", mnc: "93" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+gnbs:
+  - { id: 1, name: gnb-1, n3: 172.17.50.12 }
+  - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
+
+ues:
+  - { supi: "208930100007500", gnb: gnb-1, pdu_session: true }
+
+steps:
+  - register: all
+  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
+  - latency:  { ue: "208930100007500", target: 8.8.8.8, probes: 20 }
+  - handover: { ue: "208930100007500", to: gnb-2, type: xn }
+  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
+  - deregister: all
