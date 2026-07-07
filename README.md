@@ -96,6 +96,8 @@ conformance suite:
   command with its flags, and common workflows.
 - **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, design decisions, and
   rationale.
+- **[docs/adr/](docs/adr/)** — Architecture Decision Records: the *why* behind
+  significant, hard-to-reverse choices.
 - **[docs/interop/sdcore.md](docs/interop/sdcore.md)** — interop issues ORBIT
   has surfaced in SD-Core (with root cause), and the opt-in `--core-profile`
   workarounds. ORBIT stays strictly 3GPP/X.691-conformant by default; any
