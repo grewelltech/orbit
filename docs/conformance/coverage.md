@@ -134,20 +134,28 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**3 checks today** (all live-PASS on the SD-Core testbed):
-- `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie) — UE-associated message for an
+**4 checks today** (live on the SD-Core testbed):
+- `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
-- `NGAP-NG-RESET-ACK` (procedural) — RAN→AMF NG RESET (reset-all) → the AMF
+- `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
   completes the Reset procedure with NG RESET ACKNOWLEDGE (§8.7.4, a genuine
   "shall"). Wire-confirmed the stimulus went out as a well-formed
   InitiatingMessage/NGReset; reply decoded as NGResetAcknowledge.
-- `NGAP-NGSETUP-MISSING-TALIST` (negative-ie) — NG Setup with the mandatory
+- `NGAP-NGSETUP-MISSING-TALIST` (negative-ie, PASS) — NG Setup with the mandatory
   Supported TA List (id-102) removed → the AMF **rejects with NG SETUP FAILURE**
   (spec-ideal). Confirms the core does not accept a setup missing a mandatory IE.
+- `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, **DEVIATION**) — G-PDU with a non-zero
+  unknown TEID → TS 29.281 §7.3.1 says the UPF **shall** return an Error
+  Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
+  UPF, nothing back). Benign/commonly-unimplemented, so scored DEVIATION (does
+  not fail the gate), not FAIL. See interop/sdcore.md.
 
-**Highest-value next batch** (remaining in this authoring-cycle session):
-1. **GTP-U unknown-TEID → Error Indication** (gtpu) — TS 29.281 §7.3.1 is a genuine "shall", so a *real* FAIL is possible; runs from the RAN node. (Tracked here; GTP-U gets its own matrix below as it grows.)
-2. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
+**Verdict note:** `DEVIATION` was added for exactly this case — a spec "shall"
+the core doesn't meet but which is benign and steady-state, so it's *documented*
+without failing the CI gate (avoids crying wolf on a known, harmless gap).
+
+**Highest-value next batch** (remaining):
+1. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
 
 > **Tooling note:** the testbed has no tshark, so wire disambiguation currently
 > uses a byte-level PPID scan that reads uplink cleanly but misses downlink
@@ -161,5 +169,5 @@ Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
 - **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501).
-- **GTP-U** — TS 29.281 (§7 error handling: unknown-TEID → Error Indication, End Marker, Echo).
+- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, DEVIATION on SD-Core); ⬜ Echo Request/Response, End Marker.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

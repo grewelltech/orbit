@@ -29,6 +29,11 @@ const (
 	Fail  Verdict = "FAIL"  // the core violated the asserted behaviour
 	Error Verdict = "ERROR" // the test could not run (setup failure)
 	Skip  Verdict = "SKIP"  // not applicable / not exercised
+	// Deviation is a spec "shall" that the core does not meet but which is
+	// benign and commonly unimplemented (e.g. a courtesy Error Indication) — a
+	// documented non-conformance that does NOT fail the CI gate, so a known,
+	// steady-state gap is reported without crying wolf.
+	Deviation Verdict = "DEVIATION"
 )
 
 // Category groups tests for reporting and selective runs.
@@ -65,9 +70,16 @@ type Test interface {
 // Env is what a test needs to reach the core: the AMF N2 endpoint and a gNB
 // identity to present. Tests dial their own association(s) via Dial, since
 // most need a fresh or deliberately-misused one.
+//
+// UPFN3/N3Bind are optional and used only by user-plane (GTP-U) checks: UPFN3
+// is the UPF's N3 endpoint (host:port) and N3Bind the local N3 source
+// (host:port) — both must be set, from a host on the UPF access network, or
+// GTP-U checks SKIP. See docs/USAGE.md "Where things must run".
 type Env struct {
 	AMFAddr string
 	GNB     gnb.Config
+	UPFN3   string
+	N3Bind  string
 }
 
 // Dial opens a raw SCTP association to the AMF (no NG Setup).
@@ -166,8 +178,8 @@ func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats
 
 // Summary tallies a suite run for reporting and CI gating.
 type Summary struct {
-	Total, Pass, Fail, Error, Skip int
-	Results                        []Result
+	Total, Pass, Fail, Error, Skip, Deviation int
+	Results                                   []Result
 }
 
 // Summarize counts verdicts across results.
@@ -183,13 +195,16 @@ func Summarize(results []Result) Summary {
 			s.Error++
 		case Skip:
 			s.Skip++
+		case Deviation:
+			s.Deviation++
 		}
 	}
 	return s
 }
 
 // OK reports a clean run — no failed assertions and no harness errors. This is
-// the integration-CI gate.
+// the integration-CI gate. Deviations are documented non-conformances that do
+// not fail the gate.
 func (s Summary) OK() bool { return s.Fail == 0 && s.Error == 0 }
 
 // builtins is the registered test set (populated in the tests_*.go files).

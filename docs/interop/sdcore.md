@@ -99,6 +99,27 @@ not block mobility *signalling*, which is fully proven.
 
 ---
 
+## Finding 3 — UPF sends no GTP-U Error Indication on an unknown TEID (DEVIATION)
+
+TS 29.281 §7.3.1: when a GTP-U node receives a G-PDU for a TEID it has no
+context for, it "shall discard the G-PDU [and], if the TEID … is different from
+… 'all zeros', shall also return a GTP error indication" (message type 26, with
+TEID Data I echoing the offending TEID).
+
+Sending a well-formed 5G N3 G-PDU with a non-zero unknown TEID (`0x7FABCDEF`) to
+SD-Core's BESS-UPF produces **no Error Indication**. Wire-confirmed: the G-PDU
+leaves the RAN node to the UPF N3 (`172.17.50.12:2152 → 172.17.50.241:2152`,
+one packet) and nothing returns; the data path between these two is otherwise
+proven, so the G-PDU reaches the UPF and is silently dropped.
+
+**Severity: benign.** Discarding the packet is safe; the Error Indication is a
+courtesy that lets the sender tear down a stale tunnel faster, and it is
+commonly unimplemented in production UPFs. So the conformance suite scores this
+**DEVIATION**, not FAIL — a documented §7.3.1 gap that does not fail the CI gate.
+Check: `internal/conformance` `GTPU-UNKNOWN-TEID-ERRIND`.
+
+---
+
 ## The compatibility model (why this isn't "tuning for SD-Core")
 
 - **Codecs stay conformant.** ORBIT's default profile is `strict-3gpp` (zero
