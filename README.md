@@ -55,12 +55,13 @@ credentials provisioned in it (`Ki`/`OPc`, PLMN, slice, DNN).
 ## Run the server
 
 The CLI talks to a local API server. Install it as a service so it's always
-running — no backgrounding:
+running — one script does install, upgrade, and uninstall:
 
 ```sh
-sudo make install-service        # installs the `orbit` binary + a systemd service
-systemctl status orbit           # listening on 127.0.0.1:8412
-journalctl -u orbit -f           # logs
+sudo bash scripts/orbit.sh install    # or: curl -fsSL …/scripts/orbit.sh | sudo bash -s -- install
+systemctl status orbit                # listening on 127.0.0.1:8412
+journalctl -u orbit -f                # logs
+# later: sudo bash scripts/orbit.sh upgrade   |   sudo bash scripts/orbit.sh uninstall
 ```
 
 Config (listen address, `--core-profile`, log level) lives in
