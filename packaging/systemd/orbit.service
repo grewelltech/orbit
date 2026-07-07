@@ -1,0 +1,24 @@
+[Unit]
+Description=ORBIT — Open Radio Benchmark and Integration Testbed (API server)
+Documentation=https://github.com/grewelltech/orbit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Optional config; ORBIT_ARGS is passed to `orbit serve` (see orbit.env.example).
+EnvironmentFile=-/etc/orbit/orbit.env
+ExecStart=/usr/local/bin/orbit serve $ORBIT_ARGS
+Restart=on-failure
+RestartSec=2
+
+# ORBIT writes no files (logs go to the journal) and needs no privileges beyond
+# binding its API and N3 sockets, so it runs sandboxed under a transient user.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
