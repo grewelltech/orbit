@@ -108,8 +108,11 @@ orbit ue xn-handover --supi <imsi> --amf <host:port> \
 ```
 
 Both move the UE's session to the target gNB and emit mobility states on
-`watch`. On SD-Core, Xn completes with user-plane continuity; N2 does not (a
-core-side decode bug — [interop/sdcore.md](interop/sdcore.md)).
+`watch`. On SD-Core, **Xn** completes with user-plane continuity; **N2**
+completes the control-plane handover but the downlink does not follow — an open
+upstream SMF bug (not the decode issue the `sdcore` profile fixes). The
+[N2 example](../examples/attach-and-handover-n2.yaml) lays out all three N2
+issues; see also [interop/sdcore.md](interop/sdcore.md).
 
 ## Load / performance
 

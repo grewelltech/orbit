@@ -4,14 +4,38 @@
 #   export ORBIT_KI=... ORBIT_OPC=...
 #   orbit run examples/attach-and-handover-n2.yaml
 #
-# Note: N2 handover completes the control-plane move (the UE ends up on the
-# target gNB), but on SD-Core the user-plane downlink does NOT follow — an open
-# upstream SMF bug leaves the target tunnel unprogrammed (docs/interop/sdcore.md,
-# Finding 2). ORBIT's `--core-profile sdcore` fixes a *separate* SMF decode bug
-# (Finding 1), but that does not restore the downlink — verified: the ping after
-# an N2 handover is 0/3 with or without the profile. Use the Xn example
-# (attach-and-handover-xn.yaml) for working data continuity. So this scenario
+# ─────────────────────────────────────────────────────────────────────────────
+# N2 handover on SD-Core: three distinct issues (so this is clear for everyone)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# We hit three separate problems on the N2 path. They are easy to conflate, so
+# keep them apart:
+#
+#   1. Decode bug (Finding 1). The SMF cannot decode a spec-conformant handover
+#      transfer — an omec missing-`optional`-tag APER bug ("align bit is not
+#      zero"). FIXED by running the server with `--core-profile sdcore`, which
+#      emits the spec-OPTIONAL field the decoder wrongly requires.
+#
+#   2. Stale gNB association. The AMF keeps a dead association for a reused gNB
+#      ID / source address, so a later handover fails to deliver ("Ran addr is
+#      nil"). WORKED AROUND by using a fresh gNB ID and a distinct source IP per
+#      run — which is why the target (gnb-2) here has its own id + bind IP.
+#
+#   3. TEID-0 bug (Finding 2, OPEN). Even with 1 fixed and 2 avoided, the SMF
+#      builds the target downlink FAR with TEID 0 and never programs it to the
+#      UPF over N4 (the target address appears in zero N4/PFCP packets). So the
+#      UPF keeps sending downlink to the *source* gNB. This is an upstream SMF
+#      bug, not something ORBIT can fix.
+#
+# Net result: with the `sdcore` profile + fresh IDs, the N2 handover COMPLETES on
+# the control plane (state → HANDED_OVER) — but the user plane does NOT follow.
+# Verified: the ping after an N2 handover is 0/3 *with and without* the profile
+# (the profile fixes #1, but #3 still blocks the downlink). So this scenario
 # stops at the handover and does not ping after it.
+#
+# For working handover WITH data continuity on SD-Core, use Xn — its transfer
+# decodes cleanly and the UPF is reprogrammed (attach-and-handover-xn.yaml, ping
+# after = 3/3). Full details + N4 evidence: docs/interop/sdcore.md.
 #
 # The user plane and handover need to run where the UPF's N3 is reachable
 # (see docs/USAGE.md "Where things must run").
