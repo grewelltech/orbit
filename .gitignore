@@ -13,3 +13,6 @@ config.local.yaml
 
 # CI test reports
 junit*.xml
+
+# Local-only project instructions (not for upstream)
+/CLAUDE.md
