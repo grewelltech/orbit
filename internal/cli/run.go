@@ -130,6 +130,8 @@ func runFleet(cmd *cobra.Command, data []byte) error {
 			},
 			BindAddr: pg.GNB.Bind,
 			N3Addr:   pg.GNB.N3,
+			X:        pg.X,
+			Y:        pg.Y,
 		}
 	}
 	spec := engine.FleetRunSpec{
@@ -157,7 +159,6 @@ func runFleet(cmd *cobra.Command, data []byte) error {
 		if beh.MobileUEs < 1 {
 			beh.MobileUEs = 1
 		}
-		beh.HandoverEvery = 15 * time.Second
 	}
 	if t := f.Behaviors.Traffic; t != nil && len(t.Mix) > 0 && f.Fleet.PDUSession {
 		beh.Traffic = true

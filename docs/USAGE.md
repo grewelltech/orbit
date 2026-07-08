@@ -219,10 +219,11 @@ for scale / soak / mass-mobility runs (design in
 [docs/adr/0004-fleet-population-mode.md](adr/0004-fleet-population-mode.md)).
 `source_ips` are addresses the host owns, one per gNB. `orbit run` on a fleet
 file prints the plan, **attaches the population** across the gNBs, then runs
-**mobility** (Xn handovers move UEs between cells) and **traffic** for
-`run.duration` and reports (attach / handovers / traffic / deregister). Traffic
-is one loom flow per gNB today — full per-UE concurrent traffic needs a shared
-per-gNB N3 demux (a follow-on).
+**mobility** — each mobile UE moves along a track across the gNB grid and hands
+over (Xn) when a neighbour cell becomes stronger by the a3-offset (RSRP/A3
+model), not on a timer — and **traffic** (one loom flow per non-mobile UE over
+its gNB's shared N3 socket) for `run.duration`, then reports (attach / handovers
+/ traffic / deregister).
 
 ## The API
 

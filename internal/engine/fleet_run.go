@@ -14,17 +14,20 @@ import (
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/loomgtp"
+	"github.com/bgrewell/orbit/internal/meas"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
 // FleetGNB is one generated gNB in a fleet run: its NGAP config, the local
-// source address to bind (distinct per gNB, for handover), and its N3 address
-// for the data path (usually the same IP).
+// source address to bind (distinct per gNB, for handover), the N3 address for
+// the data path (usually the same IP), and its grid position (metres) for the
+// mobility model.
 type FleetGNB struct {
 	Config   gnb.Config
 	BindAddr string
 	N3Addr   string
+	X, Y     float64
 }
 
 // FleetRunSpec parameterises a fleet run (ADR-0004). UEs spread round-robin
@@ -42,13 +45,13 @@ type FleetRunSpec struct {
 }
 
 // FleetBehaviors are the continuous behaviours run on the attached fleet for
-// Duration (ADR-0004). Mobility hands a subset of UEs between gNBs; Traffic runs
-// one loom flow per gNB (a shared-N3 demux is needed for concurrent per-UE
-// traffic — deferred, so one representative flow per gNB for now).
+// Duration (ADR-0004). Mobility moves a subset of UEs along tracks across the
+// gNB grid; the meas RSRP/A3 model turns each UE's position into handover
+// triggers, executed on schedule. Traffic runs one loom flow per non-mobile UE
+// over its gNB's shared N3 socket.
 type FleetBehaviors struct {
 	Duration      time.Duration
 	MobileUEs     int
-	HandoverEvery time.Duration
 	Traffic       bool
 	TrafficRate   string
 	TrafficTarget string
@@ -215,38 +218,40 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, ues []*
 		}
 	}
 
-	// Mobility: cycle each mobile UE through the gNBs every HandoverEvery.
+	// Mobility: each mobile UE moves along a track across the gNB grid; the meas
+	// RSRP/A3 model turns its position into handover triggers (fire when a
+	// neighbour cell becomes the strongest by the a3-offset for the time-to-
+	// trigger), which we execute on schedule — geometry-driven, not a timer.
 	if beh.MobileUEs > 0 && len(f.sessions) > 1 {
-		every := beh.HandoverEvery
-		if every <= 0 {
-			every = 15 * time.Second
+		cells := make([]meas.Cell, len(spec.GNBs))
+		for i, g := range spec.GNBs {
+			cells[i] = meas.Cell{ID: int64(i), X: g.X, Y: g.Y}
 		}
+		base := time.Now()
 		var hmu sync.Mutex
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			t := time.NewTicker(every)
-			defer t.Stop()
-			mobile := ues[:min(beh.MobileUEs, len(ues))]
-			for {
-				select {
-				case <-dctx.Done():
-					return
-				case <-t.C:
-					for _, fu := range mobile {
-						target := (fu.gnbIdx + 1) % len(f.sessions)
-						err := fleetHandover(dctx, f, spec, fu, target)
-						hmu.Lock()
-						if err != nil {
-							rep.HandoverErr++
-						} else {
-							rep.Handovers++
-						}
-						hmu.Unlock()
+		mobile := ues[:min(beh.MobileUEs, len(ues))]
+		for _, fu := range mobile {
+			triggers := fleetUETriggers(cells, fu.gnbIdx, beh.Duration, base)
+			wg.Add(1)
+			go func(fu *fleetUE, triggers []meas.Trigger) {
+				defer wg.Done()
+				for _, tr := range triggers {
+					select {
+					case <-dctx.Done():
+						return
+					case <-time.After(time.Until(tr.At)):
 					}
+					err := fleetHandover(dctx, f, spec, fu, int(tr.TargetCellID))
+					hmu.Lock()
+					if err != nil {
+						rep.HandoverErr++
+					} else {
+						rep.Handovers++
+					}
+					hmu.Unlock()
 				}
-			}
-		}()
+			}(fu, triggers)
+		}
 	}
 
 	wg.Wait()
@@ -283,6 +288,23 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	fu.sess.Result.DLTEID = newTEID
 	fu.gnbIdx = target
 	return nil
+}
+
+// fleetUETriggers computes a mobile UE's handover triggers: it moves from its
+// serving cell across the grid to the roughly-opposite cell over the run, and
+// the meas RSRP/A3 model returns when (and to which cell) it should hand over.
+func fleetUETriggers(cells []meas.Cell, servingIdx int, duration time.Duration, base time.Time) []meas.Trigger {
+	start := cells[servingIdx]
+	dest := cells[(servingIdx+len(cells)/2)%len(cells)]
+	return meas.Scenario{
+		Cells:   cells,
+		Serving: int64(servingIdx),
+		Track: meas.Track{
+			StartX: start.X, StartY: start.Y, EndX: dest.X, EndY: dest.Y,
+			Duration: duration, Step: 500 * time.Millisecond,
+		},
+		Event: meas.EventA3{Offset: 3, Hysteresis: 1, TTT: 200 * time.Millisecond},
+	}.Run(base)
 }
 
 // uesOnGNB returns the non-mobile UEs (index >= mobile) currently served by
