@@ -75,27 +75,36 @@ this quirk.
 
 ---
 
-## Finding 2 — SMF assigns TEID 0 to the target FAR and never programs the UPF (OPEN)
+## Finding 2 — N2 handover: SMF mis-decodes the TEID and never pushes the switch (ROOT-CAUSED; fix filed)
 
 Once Finding 1 is worked around, a **second, independent** SD-Core bug blocks
-data continuity:
+data continuity across an N2 handover. Root-caused from the omec SMF source, its
+logs, and an N4 capture — **two** SMF bugs, both entirely SMF-side (ORBIT's
+transfer decodes to the correct tunnel, TEID `0x100`):
 
-- The SMF builds the target downlink FAR with the correct **address**
-  (`172.17.50.13`) but **TEID 0** — not the target TEID (200) it decoded — and
-  leaves the rule in `State:[2]`.
-- That FAR is **never sent to the UPF**: the target address appears in **zero**
-  N4/PFCP packets (capture of UDP 8805 during the handover). The UPF's active
-  downlink rule stays pointed at the source.
+1. **GTP-TEID decoded as a LEB128 varint.** `context/ngap_handler.go`
+   `HandleHandoverRequestAcknowledgeTransfer` reads the target downlink GTP-TEID
+   with `binary.ReadUvarint` instead of a fixed 4-octet `binary.BigEndian.Uint32`
+   (which every other TEID read in that file uses). ORBIT sends TEID `0x100`
+   (bytes `00 00 01 00`); `ReadUvarint` stops at the first `0x00` → **0**. The
+   downlink FAR is left with `OuterHeaderCreation {addr: target-gNB, TEID: 0,
+   State: RULE_UPDATE}` (confirmed in the SMF log).
+2. **The switch is never pushed to the UPF.** `producer/n1n2_data_handler.go`
+   `HandleUpdateHoState` takes no `pfcpAction`/`pfcpParam` and leaves the
+   SMContext in `SmStateModify`, so the updated (RULE_UPDATE) FAR is never put in
+   a PFCP Session Modification. The N4 capture across the whole handover shows
+   **zero** `SessionModificationRequest` — only heartbeats.
 
-So the UPF still sends downlink to the old gNB, and a flow does not survive the
-handover. This is in the SMF's handover-completion logic (TEID assignment +
-PFCP push), **not** in the messages ORBIT sends — our transfer decodes to the
-correct tunnel (TEID 200). It is likely entangled with omec's handling of the
-now-present forwarding tunnel and/or its N2-handover PFCP state machine.
+So the UPF keeps forwarding downlink to the source gNB and the flow does not
+survive.
 
-**Status: open.** Needs SMF-side investigation (candidate for a follow-up quirk
-only if it turns out to be message-driven; otherwise a pure upstream fix). Does
-not block mobility *signalling*, which is fully proven.
+**Status: fix filed** — [`bengrewell/smf#1`](https://github.com/bengrewell/smf/pull/1)
+fixes both (TEID → `BigEndian.Uint32`; `HoState_COMPLETED` collects the downlink
+FARs, requests the PFCP modify, and moves to `SmStatePfcpModify`, mirroring the
+`UpCnxState` `DEACTIVATED` path). To be proposed upstream to `omec-project/smf`
+after review/soak — the "upstream-first" step ADR-0002 requires. Does not block
+mobility *signalling*, which is fully proven; **Xn** already carries data across
+handover today.
 
 ---
 
