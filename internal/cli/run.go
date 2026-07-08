@@ -2,12 +2,20 @@ package cli
 
 import (
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
+	"github.com/bgrewell/orbit/internal/ue"
+	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
 // newRunCmd runs a declarative YAML scenario against the ORBIT API server. The
@@ -34,7 +42,7 @@ func newRunCmd(serverURL *string) *cobra.Command {
 				return err
 			}
 			if kind == "fleet" {
-				return runFleetPlan(cmd, data)
+				return runFleet(cmd, data)
 			}
 
 			sc, err := scenario.Parse(data)
@@ -50,10 +58,11 @@ func newRunCmd(serverURL *string) *cobra.Command {
 	}
 }
 
-// runFleetPlan validates a fleet scenario and prints the generated topology and
-// population. Execution (attach + continuous mobility/traffic) lands in a
-// follow-up; this lets an operator author and check a fleet run first.
-func runFleetPlan(cmd *cobra.Command, data []byte) error {
+// runFleet validates a fleet scenario, prints the generated topology and
+// population, and runs the attach phase (bringing up one association per gNB and
+// attaching the fleet across them at the offered rate). Continuous mobility and
+// traffic behaviours run on the attached fleet — added by later chunks.
+func runFleet(cmd *cobra.Command, data []byte) error {
 	f, err := scenario.ParseFleet(data)
 	if err != nil {
 		return err
@@ -66,7 +75,7 @@ func runFleetPlan(cmd *cobra.Command, data []byte) error {
 	if name == "" {
 		name = "fleet"
 	}
-	fmt.Fprintf(out, "▶ %s (plan)\n", name)
+	fmt.Fprintf(out, "▶ %s\n", name)
 	fmt.Fprintf(out, "  core:     %s  PLMN %s/%s\n", f.Core.AMF, f.Core.PLMN.MCC, f.Core.PLMN.MNC)
 	fmt.Fprintf(out, "  topology: %d gNBs (ids %d–%d), grid, source IPs %s\n",
 		len(gnbs), gnbs[0].GNB.ID, gnbs[len(gnbs)-1].GNB.ID, ipSummary(f.Topology.GNBs.SourceIPs, len(gnbs)))
@@ -96,8 +105,71 @@ func runFleetPlan(cmd *cobra.Command, data []byte) error {
 	if f.Run.Duration != "" {
 		fmt.Fprintf(out, "  run:      %s\n", f.Run.Duration)
 	}
-	fmt.Fprintln(out, "\nnote: fleet execution is not wired yet — this validates and plans the scenario.")
+
+	// Attach phase.
+	ki, err := auth.ParseHexKey("Ki", f.Credentials.Ki)
+	if err != nil {
+		return err
+	}
+	opc, err := auth.ParseHexKey("OPc", f.Credentials.OPc)
+	if err != nil {
+		return err
+	}
+	rate, err := parseAttachRate(f.Fleet.AttachRate)
+	if err != nil {
+		return err
+	}
+
+	fgnbs := make([]engine.FleetGNB, len(gnbs))
+	for i, pg := range gnbs {
+		fgnbs[i] = engine.FleetGNB{
+			Config: gnb.Config{
+				ID: pg.GNB.ID, Name: pg.GNB.Name,
+				MCC: f.Core.PLMN.MCC, MNC: f.Core.PLMN.MNC, TAC: f.Core.TAC,
+				Slices: []gnb.SNSSAI{{SST: uint8(f.Core.Slice.SST), SD: f.Core.Slice.SD}},
+			},
+			BindAddr: pg.GNB.Bind,
+			N3Addr:   pg.GNB.N3,
+		}
+	}
+	spec := engine.FleetRunSpec{
+		AMFAddr: f.Core.AMF, GNBs: fgnbs,
+		BaseIMSI: f.Fleet.SUPIBase, Count: f.Fleet.Count,
+		MCC: f.Core.PLMN.MCC, MNC: f.Core.PLMN.MNC,
+		Ki: ki, OPc: opc, Rate: rate, Concurrency: 64,
+	}
+	if f.Fleet.PDUSession {
+		spec.PDUSession = &ue.PDUSessionParams{
+			PDUSessionID: 1, SST: uint8(f.Core.Slice.SST), SD: f.Core.Slice.SD, DNN: f.Core.DNN,
+		}
+	}
+
+	fmt.Fprintf(out, "\nattaching %d UEs across %d gNBs…\n\n", spec.Count, len(fgnbs))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rep, err := engine.RunFleet(cmd.Context(), log, spec)
+	if err != nil {
+		return err
+	}
+	printLoadReport(out, rep)
+	fmt.Fprintln(out, "note: mobility + traffic behaviours are not executed yet (attach only).")
 	return nil
+}
+
+// parseAttachRate turns "10/s" (or "10") into a constant load.Rate; empty = nil.
+func parseAttachRate(s string) (load.Rate, error) {
+	s = strings.TrimSuffix(strings.TrimSpace(s), "/s")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	r, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil, fmt.Errorf("attach_rate %q: %w", s, err)
+	}
+	if r <= 0 {
+		return nil, nil
+	}
+	return load.Constant{RPS: r}, nil
 }
 
 func ipSummary(ips []string, n int) string {
