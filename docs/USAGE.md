@@ -217,8 +217,12 @@ A `kind: fleet` scenario ([`examples/fleet.yaml`](../examples/fleet.yaml))
 (mobility + a traffic mix) for a duration, rather than listing explicit steps —
 for scale / soak / mass-mobility runs (design in
 [docs/adr/0004-fleet-population-mode.md](adr/0004-fleet-population-mode.md)).
-`source_ips` are addresses the host owns, one per gNB. Today `orbit run` on a
-fleet file **validates and prints the plan**; continuous execution lands next.
+`source_ips` are addresses the host owns, one per gNB. `orbit run` on a fleet
+file prints the plan, **attaches the population** across the gNBs, then runs
+**mobility** (Xn handovers move UEs between cells) and **traffic** for
+`run.duration` and reports (attach / handovers / traffic / deregister). Traffic
+is one loom flow per gNB today — full per-UE concurrent traffic needs a shared
+per-gNB N3 demux (a follow-on).
 
 ## The API
 

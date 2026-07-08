@@ -153,6 +153,33 @@ func (s *Session) readLoop() {
 // ranUENGAPIDOf extracts the RAN-UE-NGAP-ID from a downlink PDU (the demux
 // key), covering the AMF→gNB messages an attach and session setup receive.
 func ranUENGAPIDOf(pdu *ngapType.NGAPPDU) (int64, bool) {
+	// UE-associated responses to a gNB-initiated procedure (e.g. an Xn
+	// PathSwitch) come back as Successful/Unsuccessful outcomes; route them by
+	// the RAN-UE-NGAP-ID the gNB sent so muxed callers receive their reply.
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome {
+		if pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPathSwitchRequestAcknowledge {
+			return findRANUEID(pdu.SuccessfulOutcome.Value.PathSwitchRequestAcknowledge.ProtocolIEs.List,
+				func(ie ngapType.PathSwitchRequestAcknowledgeIEs) (int64, bool) {
+					if ie.Id.Value == ngapType.ProtocolIEIDRANUENGAPID {
+						return ie.Value.RANUENGAPID.Value, true
+					}
+					return 0, false
+				})
+		}
+		return 0, false
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentUnsuccessfulOutcome {
+		if pdu.UnsuccessfulOutcome.Value.Present == ngapType.UnsuccessfulOutcomePresentPathSwitchRequestFailure {
+			return findRANUEID(pdu.UnsuccessfulOutcome.Value.PathSwitchRequestFailure.ProtocolIEs.List,
+				func(ie ngapType.PathSwitchRequestFailureIEs) (int64, bool) {
+					if ie.Id.Value == ngapType.ProtocolIEIDRANUENGAPID {
+						return ie.Value.RANUENGAPID.Value, true
+					}
+					return 0, false
+				})
+		}
+		return 0, false
+	}
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 		return 0, false
 	}

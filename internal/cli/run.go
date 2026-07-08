@@ -7,12 +7,12 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
-	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -115,7 +115,7 @@ func runFleet(cmd *cobra.Command, data []byte) error {
 	if err != nil {
 		return err
 	}
-	rate, err := parseAttachRate(f.Fleet.AttachRate)
+	rateRPS, err := parseAttachRate(f.Fleet.AttachRate)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func runFleet(cmd *cobra.Command, data []byte) error {
 		AMFAddr: f.Core.AMF, GNBs: fgnbs,
 		BaseIMSI: f.Fleet.SUPIBase, Count: f.Fleet.Count,
 		MCC: f.Core.PLMN.MCC, MNC: f.Core.PLMN.MNC,
-		Ki: ki, OPc: opc, Rate: rate, Concurrency: 64,
+		Ki: ki, OPc: opc, RateRPS: rateRPS, Concurrency: 64,
 	}
 	if f.Fleet.PDUSession {
 		spec.PDUSession = &ue.PDUSessionParams{
@@ -144,32 +144,73 @@ func runFleet(cmd *cobra.Command, data []byte) error {
 		}
 	}
 
-	fmt.Fprintf(out, "\nattaching %d UEs across %d gNBs…\n\n", spec.Count, len(fgnbs))
+	var beh engine.FleetBehaviors
+	if f.Run.Duration != "" {
+		d, err := time.ParseDuration(f.Run.Duration)
+		if err != nil {
+			return fmt.Errorf("run.duration %q: %w", f.Run.Duration, err)
+		}
+		beh.Duration = d
+	}
+	if f.Behaviors.Mobility != nil {
+		beh.MobileUEs = f.Fleet.Count / 2
+		if beh.MobileUEs < 1 {
+			beh.MobileUEs = 1
+		}
+		beh.HandoverEvery = 15 * time.Second
+	}
+	if t := f.Behaviors.Traffic; t != nil && len(t.Mix) > 0 && f.Fleet.PDUSession {
+		beh.Traffic = true
+		beh.TrafficRate = t.Mix[0].Rate
+		if beh.TrafficRate == "" {
+			beh.TrafficRate = "10Mbps"
+		}
+		beh.TrafficTarget = "8.8.8.8:9999"
+	}
+
+	fmt.Fprintf(out, "\nattaching %d UEs across %d gNBs", spec.Count, len(fgnbs))
+	if beh.Duration > 0 {
+		fmt.Fprintf(out, ", then running behaviours for %s", beh.Duration)
+	}
+	fmt.Fprint(out, "…\n\n")
+
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rep, err := engine.RunFleet(cmd.Context(), log, spec)
+	rep, err := engine.RunFleet(cmd.Context(), log, spec, beh)
 	if err != nil {
 		return err
 	}
-	printLoadReport(out, rep)
-	fmt.Fprintln(out, "note: mobility + traffic behaviours are not executed yet (attach only).")
+	printFleetReport(out, rep)
 	return nil
 }
 
-// parseAttachRate turns "10/s" (or "10") into a constant load.Rate; empty = nil.
-func parseAttachRate(s string) (load.Rate, error) {
+// parseAttachRate turns "10/s" (or "10") into an attaches/sec rate; empty = 0.
+func parseAttachRate(s string) (float64, error) {
 	s = strings.TrimSuffix(strings.TrimSpace(s), "/s")
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil, nil
+		return 0, nil
 	}
 	r, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return nil, fmt.Errorf("attach_rate %q: %w", s, err)
+		return 0, fmt.Errorf("attach_rate %q: %w", s, err)
 	}
-	if r <= 0 {
-		return nil, nil
+	if r < 0 {
+		return 0, nil
 	}
-	return load.Constant{RPS: r}, nil
+	return r, nil
+}
+
+func printFleetReport(out io.Writer, r engine.FleetReport) {
+	fmt.Fprintf(out, "attach:       %d/%d in %s\n", r.Attached, r.Attached+r.AttachFailed,
+		r.AttachElapsed.Round(time.Millisecond))
+	if r.Handovers+r.HandoverErr > 0 {
+		fmt.Fprintf(out, "handovers:    %d ok, %d failed\n", r.Handovers, r.HandoverErr)
+	}
+	if r.TrafficFlows > 0 {
+		fmt.Fprintf(out, "traffic:      %d flow(s) (one per gNB), %.1f MB total\n",
+			r.TrafficFlows, float64(r.TrafficBytes)/1e6)
+	}
+	fmt.Fprintf(out, "deregistered: %d\n", r.Deregistered)
 }
 
 func ipSummary(ips []string, n int) string {
