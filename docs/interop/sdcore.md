@@ -98,13 +98,15 @@ transfer decodes to the correct tunnel, TEID `0x100`):
 So the UPF keeps forwarding downlink to the source gNB and the flow does not
 survive.
 
-**Status: fix filed** — [`bengrewell/smf#1`](https://github.com/bengrewell/smf/pull/1)
+**Status: fixed and verified live** — [`bengrewell/smf#1`](https://github.com/bengrewell/smf/pull/1)
 fixes both (TEID → `BigEndian.Uint32`; `HoState_COMPLETED` collects the downlink
 FARs, requests the PFCP modify, and moves to `SmStatePfcpModify`, mirroring the
-`UpCnxState` `DEACTIVATED` path). To be proposed upstream to `omec-project/smf`
-after review/soak — the "upstream-first" step ADR-0002 requires. Does not block
-mobility *signalling*, which is fully proven; **Xn** already carries data across
-handover today.
+`UpCnxState` `DEACTIVATED` path). **Verified on the live SD-Core:** with the
+patched SMF swapped into the running pod, a ping after an N2 handover went from
+**0/3** (stock) to **3/3** — the downlink follows to the target gNB. To be
+proposed upstream to `omec-project/smf` — the "upstream-first" step ADR-0002
+requires (test host reverted to the stock image afterward). Until it lands, use
+**Xn**, which already carries data across handover today.
 
 ---
 
