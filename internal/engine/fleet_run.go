@@ -181,21 +181,37 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, ues []*
 	defer cancel()
 	var wg sync.WaitGroup
 
-	// Traffic: one loom flow per gNB, using a representative (non-mobile) UE.
+	// Traffic: one shared N3 socket per gNB; every non-mobile UE on it runs a
+	// loom flow concurrently (the shared-N3 demux — a whole population carries
+	// traffic without colliding on port 2152).
 	var trafficBytes atomic.Uint64
-	if beh.Traffic && spec.PDUSession != nil {
+	if beh.Traffic && spec.PDUSession != nil && len(ues) > 0 {
+		upfN3 := net.JoinHostPort(ues[0].sess.Result.UPFAddress, "2152")
 		for gi := range f.sessions {
-			fu := representativeUE(ues, gi, beh.MobileUEs)
-			if fu == nil {
+			flowUEs := uesOnGNB(ues, gi, beh.MobileUEs)
+			if len(flowUEs) == 0 {
 				continue
 			}
-			wg.Add(1)
-			rep.TrafficFlows++
-			go func(fu *fleetUE) {
-				defer wg.Done()
-				n := runFleetFlow(dctx, spec, fu, beh)
-				trafficBytes.Add(n)
-			}(fu)
+			st, err := datapath.NewSharedTunnel(net.JoinHostPort(spec.GNBs[gi].N3Addr, "2152"), upfN3)
+			if err != nil {
+				continue
+			}
+			defer st.Close()
+			for _, fu := range flowUEs {
+				wg.Add(1)
+				rep.TrafficFlows++
+				go func(fu *fleetUE, st *datapath.SharedTunnel) {
+					defer wg.Done()
+					r := fu.sess.Result
+					res, err := loomgtp.RunFlow(dctx, loomgtp.Config{
+						Uplink: st.UEFlow(r.UPFTEID, r.QFI), UEIP: net.ParseIP(r.PDUAddress),
+						Target: beh.TrafficTarget, Rate: beh.TrafficRate, Duration: beh.Duration,
+					})
+					if err == nil {
+						trafficBytes.Add(res.Bytes)
+					}
+				}(fu, st)
+			}
 		}
 	}
 
@@ -269,38 +285,16 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	return nil
 }
 
-// runFleetFlow runs one loom UDP flow over fu's tunnel for the duration and
-// returns the bytes sent.
-func runFleetFlow(ctx context.Context, spec FleetRunSpec, fu *fleetUE, beh FleetBehaviors) uint64 {
-	r := fu.sess.Result
-	tun, err := datapath.NewTunnel(datapath.Config{
-		LocalN3: net.JoinHostPort(spec.GNBs[fu.gnbIdx].N3Addr, "2152"),
-		UPFN3:   net.JoinHostPort(r.UPFAddress, "2152"),
-		ULTEID:  r.UPFTEID, DLTEID: r.DLTEID, QFI: r.QFI,
-	})
-	if err != nil {
-		return 0
-	}
-	defer tun.Close()
-	res, err := loomgtp.RunFlow(ctx, loomgtp.Config{
-		Uplink: tun, UEIP: net.ParseIP(r.PDUAddress),
-		Target: beh.TrafficTarget, Rate: beh.TrafficRate, Duration: beh.Duration,
-	})
-	if err != nil {
-		return 0
-	}
-	return res.Bytes
-}
-
-// representativeUE returns a non-mobile UE served by gNB gi (the first UE beyond
-// the mobile set that lands on gi), or nil.
-func representativeUE(ues []*fleetUE, gi, mobile int) *fleetUE {
+// uesOnGNB returns the non-mobile UEs (index >= mobile) currently served by
+// gNB gi — the flows that share that gNB's N3 socket.
+func uesOnGNB(ues []*fleetUE, gi, mobile int) []*fleetUE {
+	var out []*fleetUE
 	for i := mobile; i < len(ues); i++ {
 		if ues[i].gnbIdx == gi {
-			return ues[i]
+			out = append(out, ues[i])
 		}
 	}
-	return nil
+	return out
 }
 
 func orDefaultInt(v, d int) int {

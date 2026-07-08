@@ -207,7 +207,7 @@ func printFleetReport(out io.Writer, r engine.FleetReport) {
 		fmt.Fprintf(out, "handovers:    %d ok, %d failed\n", r.Handovers, r.HandoverErr)
 	}
 	if r.TrafficFlows > 0 {
-		fmt.Fprintf(out, "traffic:      %d flow(s) (one per gNB), %.1f MB total\n",
+		fmt.Fprintf(out, "traffic:      %d flow(s) (per UE, shared N3 socket per gNB), %.1f MB total\n",
 			r.TrafficFlows, float64(r.TrafficBytes)/1e6)
 	}
 	fmt.Fprintf(out, "deregistered: %d\n", r.Deregistered)
