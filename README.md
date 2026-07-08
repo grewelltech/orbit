@@ -2,12 +2,13 @@
 
 **Open Radio Benchmark and Integration Testbed.**
 
-ORBIT is a Go-native 5G SA RAN + UE simulator and test harness for
-**benchmarking, conformance-checking, and integration-testing a real 5G core**.
-It speaks the actual control and user planes — NGAP over SCTP (N2), NAS-5GS (N1),
-and GTP-U (N3) — with the radio replaced by a software model instead of an RF
-PHY. So you can drive genuine signaling and user data against the core you're
-testing, and scale to a large fleet of simulated devices, without any radios.
+ORBIT is a 5G SA RAN + UE simulator and test harness. It stands in for the radio
+network and the devices — the **gNBs** (5G base stations) and the **UEs**
+(phones) — so you can **benchmark, conformance-check, and integration-test a real
+5G core** with no radio hardware. It speaks the real 5G protocols on the wire
+(NGAP/N2, NAS/N1, GTP-U/N3); only the radio itself is replaced by software. So
+the core you're testing sees genuine signaling and user traffic, and you can
+scale from a single device to a large fleet.
 
 ## What you can do with it
 
@@ -16,9 +17,8 @@ testing, and scale to a large fleet of simulated devices, without any radios.
   bidirectional user data over N3.
 - **Scale out.** Many UEs multiplexed over one N2 association per gNB, across
   multiple gNBs, with a bounded-concurrency attach scheduler.
-- **Move UEs around.** Synthesized RSRP/RSRQ over a trajectory drives A3/A4/A5
-  measurement events, which trigger real **N2 and Xn handover** against the
-  core — no radio required.
+- **Move UEs between cells.** A built-in mobility/signal model triggers real
+  **N2 and Xn handovers** against the core — no radio required.
 - **Load- and performance-test.** Rate-controlled attach storms with
   per-procedure latency percentiles and an SLO gate, plus per-UE traffic and
   throughput / latency / jitter (traffic generation via
@@ -45,28 +45,33 @@ so the ceiling you hit is the core's, not the tool's.
 
 ## Install
 
-```sh
-make build              # -> bin/orbit
-```
-
-You'll need a reachable 5G core (an AMF's N2/SCTP endpoint) and subscriber
-credentials provisioned in it (`Ki`/`OPc`, PLMN, slice, DNN).
-
-## Run the server
-
-The CLI talks to a local API server. Install it as a service so it's always
-running — one script does install, upgrade, and uninstall:
+ORBIT is a CLI (`orbit`) that talks to a small local API server. The easiest
+setup installs both and runs the server as a background service — one script
+does install, upgrade, and uninstall (needs `sudo`):
 
 ```sh
-sudo bash scripts/orbit.sh install    # or: curl -fsSL …/scripts/orbit.sh | sudo bash -s -- install
-systemctl status orbit                # listening on 127.0.0.1:8412
-journalctl -u orbit -f                # logs
-# later: sudo bash scripts/orbit.sh upgrade   |   sudo bash scripts/orbit.sh uninstall
+curl -fsSL https://raw.githubusercontent.com/grewelltech/orbit/main/scripts/orbit.sh | sudo bash -s -- install
+# or, from a checkout of this repo:
+sudo bash scripts/orbit.sh install
 ```
 
-Config (listen address, `--core-profile`, log level) lives in
-`/etc/orbit/orbit.env`. For a throwaway run you can also just foreground it:
-`orbit serve`.
+Then:
+
+```sh
+systemctl status orbit                    # the server, running on 127.0.0.1:8412
+journalctl -u orbit -f                    # follow its logs
+sudo bash scripts/orbit.sh upgrade        # update to a newer build
+sudo bash scripts/orbit.sh uninstall      # remove it
+```
+
+Settings (listen address, core profile, log level) live in `/etc/orbit/orbit.env`.
+
+**Prefer to build it yourself?** `make build` produces `bin/orbit`, and
+`orbit serve` runs the server in the foreground (no service needed).
+
+Either way, you'll need a reachable 5G core (an AMF's N2/SCTP endpoint) and
+subscriber credentials provisioned in it — `Ki`/`OPc`, PLMN, slice, and DNN.
+(Don't have these? They come from whoever runs the core under test.)
 
 ## Quickstart — run a scenario (preferred)
 
