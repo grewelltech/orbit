@@ -129,6 +129,49 @@ Check: `internal/conformance` `GTPU-UNKNOWN-TEID-ERRIND`.
 
 ---
 
+## Finding 4 — No AMF handover event on the Kafka stream; gNB "Disconnected" only on SCTP teardown (OBSERVATION)
+
+Found while driving Xn + N2 handovers to study SD-Core's event stream (the AMF
+and SMF publish structured JSON events to the in-cluster Kafka topics
+`sdcore-data-source-amf` / `-smf`; `metricfunc` consumes them). Two related gaps,
+both observations rather than conformance failures:
+
+**(a) The AMF publishes no event at handover completion.** Neither an Xn path
+switch (`HandlePathSwitchRequest`) nor an N2 handover (`HandleHandoverNotify`)
+calls `AmfUe.PublishUeCtxtInfo()`, so the UE-context stream carries **no event
+when a UE moves cells**. Every other UE state transition (Authentication →
+SecurityMode → ContextSetup → Registered → Deregistered) publishes; handover is
+the one lifecycle change that is silent. The AMF *does* update its internal
+context (the new `RanUe`/`GnbId` is attached), so the move only becomes visible
+**lazily** — on the UE's *next* published event, which then carries the new
+`gnbid`. In a capture of one Xn + one N2 handover, the only event showing the
+target gNB was the final `Deregistered`. Consequence for anything consuming the
+stream: real-time handover tracking is impossible without an AMF change (add a
+`PublishUeCtxtInfo()` call at both handover-completion points). SMF side is more
+useful in real time — a handover drives extra `smf_pdu_sess_modify_req` events
+(observed: **1** for Xn, **3** for N2), so the *type* is inferable there, but the
+SMF events carry no gNB id for from/to attribution.
+
+**(b) gNB `Disconnected` events fire only on SCTP teardown, not on stale-context
+eviction.** `AmfRan.Remove()` does publish `NfStatusDisconnected`, but it is
+only reached from the SCTP notification path (`SCTP_COMM_LOST` /
+`SCTP_SHUTDOWN` in `ngap/dispatcher.go`). So: a gNB whose association is cleanly
+torn down publishes Disconnected; but a gNB that goes away **without** an SCTP
+close — or, notably, the **stale association from a reused gNB ID on a new source
+address** (Finding 1's workaround territory) — is never `Remove()`d and so
+**never publishes Disconnected**. The result is that `gnb_session_profile` /
+NF-status views accumulate **ghost gNBs** that show `Connected` forever. This
+matches what the core-side telemetry consumers see (an aether-ops issue tracks
+the same ghost-context accumulation across gNB/UE/NF). ORBIT keeps its own gNB
+associations up across a handover, so it does not itself emit spurious
+Disconnected events; the gap is that the *absence* of a disconnect is
+indistinguishable from a still-live gNB.
+
+**Severity: observation.** Neither is a wire-protocol conformance issue — they
+are gaps in SD-Core's *own* event/telemetry stream, relevant to tools that
+consume it (dashboards, event feeds) rather than to the signaling ORBIT tests.
+Recorded here so the handover/event-stream behavior isn't rediscovered.
+
 ## The compatibility model (why this isn't "tuning for SD-Core")
 
 - **Codecs stay conformant.** ORBIT's default profile is `strict-3gpp` (zero
