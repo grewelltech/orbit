@@ -172,6 +172,40 @@ are gaps in SD-Core's *own* event/telemetry stream, relevant to tools that
 consume it (dashboards, event feeds) rather than to the signaling ORBIT tests.
 Recorded here so the handover/event-stream behavior isn't rediscovered.
 
+## Finding 5 — bess-UPF: `measure_flow: true` segfaults bessd when flow stats are read (WORKAROUND: disable)
+
+Found while bringing up a fleet run on a fresh two-node SD-Core (chart
+`sd-core-4.1.2`, `upf-bess:rel-2.4.3` / `upf-pfcp:rel-2.4.3`, `mode:
+af_packet`). With `measure_flow: true` in `upf.jsonc`, the `bessd` container
+segfaults in `FlowMeasure::CommandReadStats` (SIGSEGV, `debug.cc:407` check
+failure) the first time per-flow statistics are read while a session with QERs
+is installed — within seconds to minutes of the first PDU session.
+
+The failure mode is nastier than a crash: Kubernetes restarts only the `bessd`
+container, while `pfcp-agent` keeps its PFCP association and keeps ACKing SMF
+requests — but its rules never reach the rebuilt datapath. The result is a core
+that looks healthy end to end on the control plane (registration, 5G-AKA, PDU
+session establishment all succeed; SMF logs "PFCP Modification Response
+Accept") while `pdrLookup`/`farLookup` in bess hold **0 rules** and every
+G-PDU lands in `pdrLookupFail`. From the RAN side: attach works, data gets
+0 replies, uplink G-PDUs are visible on the UPF's access interface, and no
+downlink ever returns.
+
+**Workaround:** set `"measure_flow": false` in the `upf` ConfigMap
+(`upf.jsonc`) — in the sd-core Helm values, the `config.upf` block — and
+restart `upf-0`. `measure_upf: true` (port-level stats) is unaffected and can
+stay on. Verified stable under a 20-UE fleet with per-UE traffic and Xn
+handovers after the change.
+
+**Severity: testbed-blocking, not a wire-conformance issue.** Recorded here
+because the symptom (silent one-way data path) looks exactly like a RAN-side
+N3 misconfiguration and cost a debugging session to attribute. If the data
+path dies while the control plane stays green, check
+`kubectl -n aether-5gc get pod upf-0` for a `bessd` restart count > 0 and
+`kubectl logs upf-0 -c bessd --previous` for the `FlowMeasure` stack trace.
+
+---
+
 ## The compatibility model (why this isn't "tuning for SD-Core")
 
 - **Codecs stay conformant.** ORBIT's default profile is `strict-3gpp` (zero

@@ -226,6 +226,74 @@ core.
   [docs/interop/sdcore.md](docs/interop/sdcore.md).
 - Start small and scale `count` / `attach_rate` up once it's clean.
 
+## Run it split: RAN and core on different machines
+
+The same loop works when ORBIT and the core run on separate machines — the
+usual shape past a smoke test (a `core` node running SD-Core, a `ran` node
+running ORBIT). Everything above carries over; what changes is where things
+run and which addresses you use. Verified end to end on a two-node SD-Core
+(RKE2, bess-UPF) with the core node on two networks — a management network
+carrying the AMF's N2 endpoint, and an access network carrying the UPF's N3
+interface — and the RAN node joined to both:
+
+```
+core node:  N2 net 10.32.2.10  ← AMF 10.32.2.10:38412 (SCTP, service external IP)
+            access net 10.32.3.10, UPF N3 at 10.32.3.241 (macvlan)
+ran  node:  N2 net 10.32.2.20
+            access net 10.32.3.20 + gNB IPs 10.32.3.120, 10.32.3.121
+```
+
+**1 — Install ORBIT on the RAN node** (step 1 above, unchanged).
+
+**2 — Put the gNB addresses on the access network.** The single-node rule
+becomes the whole game here: each gNB's `source_ip` is used for **both** its
+N2 association (the SCTP source the AMF sees) and its N3 traffic (GTP-U with
+the UPF). So every gNB IP must be an address the RAN node owns **on the
+core's access network** — the UPF sends downlink GTP-U straight to it. One
+IP per gNB, added on the access-network interface:
+
+```sh
+sudo ip addr add 10.32.3.120/24 dev <access-iface>
+sudo ip addr add 10.32.3.121/24 dev <access-iface>
+```
+
+(Persist them in netplan/systemd-networkd if the testbed reboots.) The N2 leg
+needs no extra setup: SCTP from an access-net source to an AMF on the
+management net is plain IP routing, and works as long as the core node sits
+on the access network too (it routes the return path directly; note strict
+per-interface `rp_filter` on the core node would drop this asymmetry —
+Linux defaults are fine).
+
+**3 — Point `fleet.yaml` at the remote core.** Same file as step 4 above with
+the remote addresses in: `core.amf: 10.32.2.10:38412`,
+`source_ips: [10.32.3.120, 10.32.3.121]`. Nothing else changes.
+
+**4 — Prove the path with one UE before the fleet** (from the RAN node):
+
+```sh
+orbit ue register --amf 10.32.2.10:38412 --supi <imsi> --ki $ORBIT_KI --opc $ORBIT_OPC \
+    --mcc 208 --mnc 93 --sst 1 --sd 010203 --gnb-id 90 --pdu-session --gnb-n3 10.32.3.120
+orbit ue ping --supi <imsi> --dst 8.8.8.8    # 3/3 replies = N2, N3, and routing all good
+orbit ue deregister --supi <imsi>
+```
+
+Then `orbit run fleet.yaml` exactly as before.
+
+**Split-deployment notes:**
+
+- **Attach succeeds but 0 replies** → the UPF can't reach your `source_ip`.
+  Watch the access network from the core node (`tcpdump -i <access-iface>
+  udp port 2152`): uplink G-PDUs arriving with no downlink coming back means
+  the UPF-side session state or return route is the problem, not ORBIT.
+- **Data path dies while the control plane stays green** (attach still works,
+  pings that used to work return nothing) — on SD-Core's bess-UPF check for
+  `bessd` container restarts: `measure_flow: true` in the UPF config
+  segfaults bessd under per-flow stats reads, and the rebuilt datapath comes
+  back empty while PFCP keeps ACKing. Set `measure_flow: false` and restart
+  `upf-0` — Finding 5 in [docs/interop/sdcore.md](docs/interop/sdcore.md).
+- The UE pool (e.g. `192.168.100.0/24`) lives behind the UPF; you never route
+  it on the RAN node. ORBIT carries UE traffic inside GTP-U on the gNB IPs.
+
 ## Documentation
 
 - **[docs/USAGE.md](docs/USAGE.md)** — the practical guide: topology, every
