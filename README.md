@@ -126,6 +126,106 @@ orbit conformance --amf 172.17.50.11:38412 --json
 > network. Full details, every command, and its flags are in
 > **[docs/USAGE.md](docs/USAGE.md)**.
 
+## Run a fleet test on a single-node SD-Core
+
+Just brought SD-Core up on one box and want to point a crowd of UEs at it? Here's
+the whole loop. Run ORBIT on the same node (or any host that can reach the core's
+N2 and N3).
+
+**1 — Install ORBIT and aim it at the core.**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/grewelltech/orbit/main/scripts/orbit.sh | sudo bash -s -- install
+echo 'ORBIT_ARGS="--listen 127.0.0.1:8412 --core-profile sdcore"' | sudo tee /etc/orbit/orbit.env
+sudo systemctl restart orbit
+systemctl status orbit          # active (running) on 127.0.0.1:8412
+```
+
+The `sdcore` profile turns on the documented N2 handover-transfer workaround.
+
+**2 — Grab two things from your SD-Core install:**
+
+- the **AMF N2 address** — the SCTP endpoint the gNB dials, `<amf-ip>:38412`
+  (your AMF service / NodePort);
+- the **subscribers you provisioned** — `Ki`/`OPc`, PLMN (`mcc`/`mnc`), slice
+  (`sst`/`sd`), DNN, and a block of IMSIs.
+
+**3 — Give each gNB an address the UPF can reach.** The one networking rule:
+a gNB's N3 `source_ip` must be an IP the UPF sends downlink back to — on a single
+node, an address on the UPF's *access* network (not loopback). Mobility moves UEs
+between gNBs, so use at least two; add a second local IP if needed:
+
+```sh
+sudo ip addr add <gnb2-ip>/<prefix> dev <access-iface>
+```
+
+**4 — Write `fleet.yaml`.** ORBIT generates the gNBs and the UE population from it:
+
+```yaml
+kind: fleet
+name: single-node-smoke
+core:
+  amf: <amf-ip>:38412
+  plmn: { mcc: "208", mnc: "93" }     # your core's values
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+credentials: { ki: ${ORBIT_KI}, opc: ${ORBIT_OPC} }   # read from the env, kept out of the file
+topology:
+  gnbs:
+    count: 2
+    id_base: 1                        # bump this on each re-run (see notes)
+    source_ips: [<gnb1-ip>, <gnb2-ip>]
+fleet:
+  count: 20
+  supi_base: "208930100007500"        # first IMSI; UEs count up from here
+  attach_rate: 5/s                     # SD-Core serialises attaches — keep it modest
+  pdu_session: true
+behaviors:
+  mobility: { model: random_walk, speed: 3m/s, handover: xn }
+  traffic:  { mix: [ { profile: video, share: 1.0, rate: 5Mbps } ] }
+run: { duration: 60s }
+```
+
+**5 — Launch it:**
+
+```sh
+export ORBIT_KI=<hex> ORBIT_OPC=<hex>
+orbit run fleet.yaml
+```
+
+```
+▶ single-node-smoke
+  core:     <amf-ip>:38412  PLMN 208/93
+  topology: 2 gNBs (ids 1–2), grid, source IPs <gnb1-ip>, <gnb2-ip>
+  fleet:    20 UEs (208930100007500…), even across gNBs, attach 5/s, PDU sessions
+  mobility: random_walk @ 3m/s, xn handover
+  traffic:  100% video (5Mbps)
+  run:      60s
+
+attaching 20 UEs across 2 gNBs, then running behaviours for 60s…
+
+attach:       20/20 in 4.1s
+handovers:    10 ok, 0 failed
+traffic:      10 flow(s) (per UE, shared N3 socket per gNB), 375.0 MB total
+deregistered: 20
+```
+
+That attaches 20 UEs, hands half of them between the two gNBs over **Xn** (data
+intact), runs a video flow on the rest, then deregisters — all against the real
+core.
+
+**Single-node notes:**
+
+- **N3 reachability is the thing to get right.** 0 replies in traffic almost
+  always means a `source_ip` the UPF can't route back to — not an ORBIT bug.
+- **Use a fresh `id_base` per run.** SD-Core doesn't cleanly re-key a reused gNB
+  ID from a new association, so bump it (1 → 3 → …) if you run again.
+- Fleet handover uses **Xn**, which carries data across the handover on SD-Core;
+  plain **N2** currently doesn't — see
+  [docs/interop/sdcore.md](docs/interop/sdcore.md).
+- Start small and scale `count` / `attach_rate` up once it's clean.
+
 ## Documentation
 
 - **[docs/USAGE.md](docs/USAGE.md)** — the practical guide: topology, every
