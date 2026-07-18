@@ -53,6 +53,8 @@ const (
 	UEServiceTrafficProcedure = "/orbit.v1.UEService/Traffic"
 	// UEServiceLatencyProcedure is the fully-qualified name of the UEService's Latency RPC.
 	UEServiceLatencyProcedure = "/orbit.v1.UEService/Latency"
+	// UEServiceDataStatsProcedure is the fully-qualified name of the UEService's DataStats RPC.
+	UEServiceDataStatsProcedure = "/orbit.v1.UEService/DataStats"
 )
 
 // UEServiceClient is a client for the orbit.v1.UEService service.
@@ -85,6 +87,10 @@ type UEServiceClient interface {
 	// Latency probes a target over the UE's N3 data path and reports loom's
 	// RTT / jitter / loss summary.
 	Latency(context.Context, *connect.Request[v1.LatencyRequest]) (*connect.Response[v1.LatencyResponse], error)
+	// DataStats reports the per-QFI uplink/downlink counters of a UE's N3
+	// data path. A UE whose data path has not been opened yet (nothing has
+	// used the tunnel) reports no flows.
+	DataStats(context.Context, *connect.Request[v1.DataStatsRequest]) (*connect.Response[v1.DataStatsResponse], error)
 }
 
 // NewUEServiceClient constructs a client for the orbit.v1.UEService service. By default, it uses
@@ -158,6 +164,12 @@ func NewUEServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(uEServiceMethods.ByName("Latency")),
 			connect.WithClientOptions(opts...),
 		),
+		dataStats: connect.NewClient[v1.DataStatsRequest, v1.DataStatsResponse](
+			httpClient,
+			baseURL+UEServiceDataStatsProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("DataStats")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -173,6 +185,7 @@ type uEServiceClient struct {
 	xnHandover  *connect.Client[v1.HandoverRequest, v1.HandoverResponse]
 	traffic     *connect.Client[v1.TrafficRequest, v1.TrafficResponse]
 	latency     *connect.Client[v1.LatencyRequest, v1.LatencyResponse]
+	dataStats   *connect.Client[v1.DataStatsRequest, v1.DataStatsResponse]
 }
 
 // Register calls orbit.v1.UEService.Register.
@@ -225,6 +238,11 @@ func (c *uEServiceClient) Latency(ctx context.Context, req *connect.Request[v1.L
 	return c.latency.CallUnary(ctx, req)
 }
 
+// DataStats calls orbit.v1.UEService.DataStats.
+func (c *uEServiceClient) DataStats(ctx context.Context, req *connect.Request[v1.DataStatsRequest]) (*connect.Response[v1.DataStatsResponse], error) {
+	return c.dataStats.CallUnary(ctx, req)
+}
+
 // UEServiceHandler is an implementation of the orbit.v1.UEService service.
 type UEServiceHandler interface {
 	// Register attaches one UE (Registration + 5G-AKA + Security Mode +
@@ -255,6 +273,10 @@ type UEServiceHandler interface {
 	// Latency probes a target over the UE's N3 data path and reports loom's
 	// RTT / jitter / loss summary.
 	Latency(context.Context, *connect.Request[v1.LatencyRequest]) (*connect.Response[v1.LatencyResponse], error)
+	// DataStats reports the per-QFI uplink/downlink counters of a UE's N3
+	// data path. A UE whose data path has not been opened yet (nothing has
+	// used the tunnel) reports no flows.
+	DataStats(context.Context, *connect.Request[v1.DataStatsRequest]) (*connect.Response[v1.DataStatsResponse], error)
 }
 
 // NewUEServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -324,6 +346,12 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(uEServiceMethods.ByName("Latency")),
 		connect.WithHandlerOptions(opts...),
 	)
+	uEServiceDataStatsHandler := connect.NewUnaryHandler(
+		UEServiceDataStatsProcedure,
+		svc.DataStats,
+		connect.WithSchema(uEServiceMethods.ByName("DataStats")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orbit.v1.UEService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case UEServiceRegisterProcedure:
@@ -346,6 +374,8 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 			uEServiceTrafficHandler.ServeHTTP(w, r)
 		case UEServiceLatencyProcedure:
 			uEServiceLatencyHandler.ServeHTTP(w, r)
+		case UEServiceDataStatsProcedure:
+			uEServiceDataStatsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -393,4 +423,8 @@ func (UnimplementedUEServiceHandler) Traffic(context.Context, *connect.Request[v
 
 func (UnimplementedUEServiceHandler) Latency(context.Context, *connect.Request[v1.LatencyRequest]) (*connect.Response[v1.LatencyResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.Latency is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) DataStats(context.Context, *connect.Request[v1.DataStatsRequest]) (*connect.Response[v1.DataStatsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.DataStats is not implemented"))
 }
