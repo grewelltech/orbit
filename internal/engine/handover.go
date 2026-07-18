@@ -16,7 +16,24 @@ const (
 	StateHandoverStarted  = "HANDOVER_STARTED"
 	StateHandoverComplete = "HANDED_OVER"
 	StateHandoverFailed   = "HANDOVER_FAILED"
+	// StatePathSwitchComplete marks the AMF's PathSwitchRequestAcknowledge
+	// during an Xn handover — the moment the core has switched the downlink
+	// to the target gNB's N3 tunnel. N2 has no RAN-visible equivalent.
+	StatePathSwitchComplete = "PATH_SWITCH_COMPLETE"
 )
+
+// publishMobility stamps a mobility phase event, logs it at info (so handover
+// phases are visible in serve logs with wall-clock timestamps and gNB/UE
+// identifiers — the correlation timeline's raw material), and fans it out to
+// StateStream subscribers.
+func (m *Manager) publishMobility(ev StateEvent, attrs ...any) {
+	if ev.Time.IsZero() {
+		ev.Time = time.Now()
+	}
+	m.log.Info("mobility phase",
+		append([]any{"supi", ev.SUPI, "state", ev.State, "detail", ev.Detail}, attrs...)...)
+	m.hub.publish(ev)
+}
 
 // GNBEndpoint describes a gNB the mobility layer can hand a UE over to: its
 // config (cell), the AMF N2 address, the SCTP bind address (a distinct routed
@@ -64,16 +81,19 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 		return fmt.Errorf("UE %s is not registered", supi)
 	}
 
-	m.hub.publish(StateEvent{SUPI: supi, State: StateHandoverStarted,
-		Detail: fmt.Sprintf("N2 handover %s → %s", sess.gnbCfg.Name, target.Config.Name), Time: time.Now()})
+	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
+		Detail: fmt.Sprintf("N2 handover %s → %s", sess.gnbCfg.Name, target.Config.Name)},
+		"type", "n2", "source_gnb", sess.gnbCfg.Name, "target_gnb", target.Config.Name)
 
 	if err := m.runHandover(ctx, sess, target); err != nil {
-		m.hub.publish(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: err.Error(), Time: time.Now()})
+		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: err.Error()},
+			"type", "n2", "target_gnb", target.Config.Name)
 		return err
 	}
 
-	m.hub.publish(StateEvent{SUPI: supi, State: StateHandoverComplete,
-		Detail: fmt.Sprintf("UE on gNB %s (cell %#x)", target.Config.Name, target.Config.ID), Time: time.Now()})
+	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverComplete,
+		Detail: fmt.Sprintf("UE on gNB %s (cell %#x)", target.Config.Name, target.Config.ID)},
+		"type", "n2", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID)
 	return nil
 }
 
@@ -148,6 +168,8 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	}
 
 	// 5. target → AMF: HandoverNotify (UE arrived → AMF drives N4 path switch).
+	// N2 gives the RAN no path-switch confirmation (nothing corresponding to
+	// Xn's PathSwitchRequestAcknowledge), so no PATH_SWITCH_COMPLETE here.
 	notify, err := gnb.BuildHandoverNotify(target.Config, hr.AMFUENGAPID, targetHandoverRANID)
 	if err != nil {
 		tgtConn.Close()

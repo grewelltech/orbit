@@ -1389,6 +1389,174 @@ func (x *LatencyResponse) GetJitterMs() float64 {
 	return 0
 }
 
+type DataStatsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Supi          string                 `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DataStatsRequest) Reset() {
+	*x = DataStatsRequest{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DataStatsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataStatsRequest) ProtoMessage() {}
+
+func (x *DataStatsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataStatsRequest.ProtoReflect.Descriptor instead.
+func (*DataStatsRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *DataStatsRequest) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+// QFIStats is one QoS flow's byte and packet counters, both directions,
+// counted over the inner (user) IP packets.
+type QFIStats struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Qfi             uint32                 `protobuf:"varint,1,opt,name=qfi,proto3" json:"qfi,omitempty"`
+	UplinkPackets   uint64                 `protobuf:"varint,2,opt,name=uplink_packets,json=uplinkPackets,proto3" json:"uplink_packets,omitempty"`
+	UplinkBytes     uint64                 `protobuf:"varint,3,opt,name=uplink_bytes,json=uplinkBytes,proto3" json:"uplink_bytes,omitempty"`
+	DownlinkPackets uint64                 `protobuf:"varint,4,opt,name=downlink_packets,json=downlinkPackets,proto3" json:"downlink_packets,omitempty"`
+	DownlinkBytes   uint64                 `protobuf:"varint,5,opt,name=downlink_bytes,json=downlinkBytes,proto3" json:"downlink_bytes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *QFIStats) Reset() {
+	*x = QFIStats{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QFIStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QFIStats) ProtoMessage() {}
+
+func (x *QFIStats) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QFIStats.ProtoReflect.Descriptor instead.
+func (*QFIStats) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *QFIStats) GetQfi() uint32 {
+	if x != nil {
+		return x.Qfi
+	}
+	return 0
+}
+
+func (x *QFIStats) GetUplinkPackets() uint64 {
+	if x != nil {
+		return x.UplinkPackets
+	}
+	return 0
+}
+
+func (x *QFIStats) GetUplinkBytes() uint64 {
+	if x != nil {
+		return x.UplinkBytes
+	}
+	return 0
+}
+
+func (x *QFIStats) GetDownlinkPackets() uint64 {
+	if x != nil {
+		return x.DownlinkPackets
+	}
+	return 0
+}
+
+func (x *QFIStats) GetDownlinkBytes() uint64 {
+	if x != nil {
+		return x.DownlinkBytes
+	}
+	return 0
+}
+
+type DataStatsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Per-QFI counters, ordered by QFI. Empty when the data path has not
+	// been opened yet.
+	Flows         []*QFIStats `protobuf:"bytes,1,rep,name=flows,proto3" json:"flows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DataStatsResponse) Reset() {
+	*x = DataStatsResponse{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DataStatsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataStatsResponse) ProtoMessage() {}
+
+func (x *DataStatsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataStatsResponse.ProtoReflect.Descriptor instead.
+func (*DataStatsResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *DataStatsResponse) GetFlows() []*QFIStats {
+	if x != nil {
+		return x.Flows
+	}
+	return nil
+}
+
 var File_orbit_v1_ue_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_ue_proto_rawDesc = "" +
@@ -1505,7 +1673,17 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x06min_ms\x18\x05 \x01(\x01R\x05minMs\x12\x17\n" +
 	"\amean_ms\x18\x06 \x01(\x01R\x06meanMs\x12\x15\n" +
 	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\x12\x1b\n" +
-	"\tjitter_ms\x18\b \x01(\x01R\bjitterMs2\xa3\x05\n" +
+	"\tjitter_ms\x18\b \x01(\x01R\bjitterMs\"&\n" +
+	"\x10DataStatsRequest\x12\x12\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\"\xb8\x01\n" +
+	"\bQFIStats\x12\x10\n" +
+	"\x03qfi\x18\x01 \x01(\rR\x03qfi\x12%\n" +
+	"\x0euplink_packets\x18\x02 \x01(\x04R\ruplinkPackets\x12!\n" +
+	"\fuplink_bytes\x18\x03 \x01(\x04R\vuplinkBytes\x12)\n" +
+	"\x10downlink_packets\x18\x04 \x01(\x04R\x0fdownlinkPackets\x12%\n" +
+	"\x0edownlink_bytes\x18\x05 \x01(\x04R\rdownlinkBytes\"=\n" +
+	"\x11DataStatsResponse\x12(\n" +
+	"\x05flows\x18\x01 \x03(\v2\x12.orbit.v1.QFIStatsR\x05flows2\xeb\x05\n" +
 	"\tUEService\x12C\n" +
 	"\bRegister\x12\x19.orbit.v1.RegisterRequest\x1a\x1a.orbit.v1.RegisterResponse\"\x00\x12I\n" +
 	"\n" +
@@ -1518,7 +1696,8 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\n" +
 	"XnHandover\x12\x19.orbit.v1.HandoverRequest\x1a\x1a.orbit.v1.HandoverResponse\"\x00\x12@\n" +
 	"\aTraffic\x12\x18.orbit.v1.TrafficRequest\x1a\x19.orbit.v1.TrafficResponse\"\x00\x12@\n" +
-	"\aLatency\x12\x18.orbit.v1.LatencyRequest\x1a\x19.orbit.v1.LatencyResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\aLatency\x12\x18.orbit.v1.LatencyRequest\x1a\x19.orbit.v1.LatencyResponse\"\x00\x12F\n" +
+	"\tDataStats\x12\x1a.orbit.v1.DataStatsRequest\x1a\x1b.orbit.v1.DataStatsResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_ue_proto_rawDescOnce sync.Once
@@ -1532,7 +1711,7 @@ func file_orbit_v1_ue_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_ue_proto_rawDescData
 }
 
-var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_orbit_v1_ue_proto_goTypes = []any{
 	(*Credentials)(nil),        // 0: orbit.v1.Credentials
 	(*PDUSession)(nil),         // 1: orbit.v1.PDUSession
@@ -1555,40 +1734,46 @@ var file_orbit_v1_ue_proto_goTypes = []any{
 	(*TrafficResponse)(nil),    // 18: orbit.v1.TrafficResponse
 	(*LatencyRequest)(nil),     // 19: orbit.v1.LatencyRequest
 	(*LatencyResponse)(nil),    // 20: orbit.v1.LatencyResponse
-	(*GnbConfig)(nil),          // 21: orbit.v1.GnbConfig
+	(*DataStatsRequest)(nil),   // 21: orbit.v1.DataStatsRequest
+	(*QFIStats)(nil),           // 22: orbit.v1.QFIStats
+	(*DataStatsResponse)(nil),  // 23: orbit.v1.DataStatsResponse
+	(*GnbConfig)(nil),          // 24: orbit.v1.GnbConfig
 }
 var file_orbit_v1_ue_proto_depIdxs = []int32{
-	21, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
+	24, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
 	0,  // 1: orbit.v1.RegisterRequest.credentials:type_name -> orbit.v1.Credentials
 	1,  // 2: orbit.v1.RegisterRequest.pdu_session:type_name -> orbit.v1.PDUSession
 	7,  // 3: orbit.v1.StatusResponse.status:type_name -> orbit.v1.UEStatus
 	7,  // 4: orbit.v1.ListResponse.ues:type_name -> orbit.v1.UEStatus
-	21, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
-	2,  // 6: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
-	4,  // 7: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
-	6,  // 8: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
-	9,  // 9: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
-	13, // 10: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
-	11, // 11: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
-	15, // 12: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
-	15, // 13: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
-	17, // 14: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
-	19, // 15: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
-	3,  // 16: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 17: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 18: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 19: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	14, // 20: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
-	12, // 21: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	16, // 22: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
-	16, // 23: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
-	18, // 24: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
-	20, // 25: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
-	16, // [16:26] is the sub-list for method output_type
-	6,  // [6:16] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	24, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
+	22, // 6: orbit.v1.DataStatsResponse.flows:type_name -> orbit.v1.QFIStats
+	2,  // 7: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
+	4,  // 8: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
+	6,  // 9: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
+	9,  // 10: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
+	13, // 11: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
+	11, // 12: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
+	15, // 13: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
+	15, // 14: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
+	17, // 15: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
+	19, // 16: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
+	21, // 17: orbit.v1.UEService.DataStats:input_type -> orbit.v1.DataStatsRequest
+	3,  // 18: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 19: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 20: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 21: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 22: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 23: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	16, // 24: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
+	16, // 25: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
+	18, // 26: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
+	20, // 27: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
+	23, // 28: orbit.v1.UEService.DataStats:output_type -> orbit.v1.DataStatsResponse
+	18, // [18:29] is the sub-list for method output_type
+	7,  // [7:18] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_ue_proto_init() }
@@ -1603,7 +1788,7 @@ func file_orbit_v1_ue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_ue_proto_rawDesc), len(file_orbit_v1_ue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
