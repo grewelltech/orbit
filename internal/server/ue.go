@@ -480,10 +480,21 @@ func voipMetricsProto(v *metrics.VoIP) *orbitv1.VoipMetrics {
 }
 
 func ueStatusProto(sess *engine.Session) *orbitv1.UEStatus {
-	return &orbitv1.UEStatus{
-		Supi:        sess.SUPI,
-		State:       sess.State(),
-		PduAddress:  sess.Result.PDUAddress,
-		AmfUeNgapId: sess.Result.AMFUENGAPID,
+	serving := sess.ServingGNB()
+	mobState, mobAt := sess.Mobility()
+	st := &orbitv1.UEStatus{
+		Supi:           sess.SUPI,
+		State:          sess.State(),
+		PduAddress:     sess.Result.PDUAddress,
+		AmfUeNgapId:    sess.Result.AMFUENGAPID,
+		ServingGnbId:   serving.ID,
+		ServingGnbName: serving.Name,
+		MobilityState:  mobState,
 	}
+	// A zero time means the UE has never moved; report 0 rather than the
+	// nonsensical epoch offset time.Time's zero value would produce.
+	if !mobAt.IsZero() {
+		st.MobilityChangedUnixNano = mobAt.UnixNano()
+	}
+	return st
 }

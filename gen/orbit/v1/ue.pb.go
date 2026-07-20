@@ -471,14 +471,28 @@ func (x *StatusRequest) GetSupi() string {
 	return ""
 }
 
+// UEStatus is a snapshot of one UE. Registration and mobility are orthogonal
+// axes: a UE that has handed over is still SESSION_ACTIVE, so `state` alone
+// cannot distinguish a UE whose handover failed from a healthy one — read it
+// together with `mobility_state`.
 type UEStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Supi          string                 `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
-	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // REGISTERING, REGISTERED, SESSION_ACTIVE, ...
-	PduAddress    string                 `protobuf:"bytes,3,opt,name=pdu_address,json=pduAddress,proto3" json:"pdu_address,omitempty"`
-	AmfUeNgapId   int64                  `protobuf:"varint,4,opt,name=amf_ue_ngap_id,json=amfUeNgapId,proto3" json:"amf_ue_ngap_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Supi  string                 `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
+	// Registration axis: REGISTERING, REGISTERED, SESSION_ACTIVE, ...
+	State       string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	PduAddress  string `protobuf:"bytes,3,opt,name=pdu_address,json=pduAddress,proto3" json:"pdu_address,omitempty"`
+	AmfUeNgapId int64  `protobuf:"varint,4,opt,name=amf_ue_ngap_id,json=amfUeNgapId,proto3" json:"amf_ue_ngap_id,omitempty"`
+	// The cell currently serving the UE. Follows the UE across handovers, so it
+	// answers "where is this UE now?".
+	ServingGnbId   uint32 `protobuf:"varint,5,opt,name=serving_gnb_id,json=servingGnbId,proto3" json:"serving_gnb_id,omitempty"`
+	ServingGnbName string `protobuf:"bytes,6,opt,name=serving_gnb_name,json=servingGnbName,proto3" json:"serving_gnb_name,omitempty"`
+	// Mobility axis, independent of `state`: HANDOVER_STARTED, HANDED_OVER,
+	// HANDOVER_FAILED, PATH_SWITCH_COMPLETE. Empty until the UE first moves.
+	MobilityState string `protobuf:"bytes,7,opt,name=mobility_state,json=mobilityState,proto3" json:"mobility_state,omitempty"`
+	// When mobility_state was recorded; 0 when the UE has never moved.
+	MobilityChangedUnixNano int64 `protobuf:"varint,8,opt,name=mobility_changed_unix_nano,json=mobilityChangedUnixNano,proto3" json:"mobility_changed_unix_nano,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *UEStatus) Reset() {
@@ -535,6 +549,34 @@ func (x *UEStatus) GetPduAddress() string {
 func (x *UEStatus) GetAmfUeNgapId() int64 {
 	if x != nil {
 		return x.AmfUeNgapId
+	}
+	return 0
+}
+
+func (x *UEStatus) GetServingGnbId() uint32 {
+	if x != nil {
+		return x.ServingGnbId
+	}
+	return 0
+}
+
+func (x *UEStatus) GetServingGnbName() string {
+	if x != nil {
+		return x.ServingGnbName
+	}
+	return ""
+}
+
+func (x *UEStatus) GetMobilityState() string {
+	if x != nil {
+		return x.MobilityState
+	}
+	return ""
+}
+
+func (x *UEStatus) GetMobilityChangedUnixNano() int64 {
+	if x != nil {
+		return x.MobilityChangedUnixNano
 	}
 	return 0
 }
@@ -2624,13 +2666,17 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\"\x14\n" +
 	"\x12DeregisterResponse\"#\n" +
 	"\rStatusRequest\x12\x12\n" +
-	"\x04supi\x18\x01 \x01(\tR\x04supi\"z\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\"\xae\x02\n" +
 	"\bUEStatus\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1f\n" +
 	"\vpdu_address\x18\x03 \x01(\tR\n" +
 	"pduAddress\x12#\n" +
-	"\x0eamf_ue_ngap_id\x18\x04 \x01(\x03R\vamfUeNgapId\"<\n" +
+	"\x0eamf_ue_ngap_id\x18\x04 \x01(\x03R\vamfUeNgapId\x12$\n" +
+	"\x0eserving_gnb_id\x18\x05 \x01(\rR\fservingGnbId\x12(\n" +
+	"\x10serving_gnb_name\x18\x06 \x01(\tR\x0eservingGnbName\x12%\n" +
+	"\x0emobility_state\x18\a \x01(\tR\rmobilityState\x12;\n" +
+	"\x1amobility_changed_unix_nano\x18\b \x01(\x03R\x17mobilityChangedUnixNano\"<\n" +
 	"\x0eStatusResponse\x12*\n" +
 	"\x06status\x18\x01 \x01(\v2\x12.orbit.v1.UEStatusR\x06status\"\r\n" +
 	"\vListRequest\"4\n" +

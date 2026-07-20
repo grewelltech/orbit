@@ -27,8 +27,8 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 	}
 
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
-		Detail: fmt.Sprintf("Xn handover %s → %s", sess.gnbCfg.Name, target.Config.Name)},
-		"type", "xn", "source_gnb", sess.gnbCfg.Name, "target_gnb", target.Config.Name)
+		Detail: fmt.Sprintf("Xn handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},
+		"type", "xn", "source_gnb", sess.ServingGNB().Name, "target_gnb", target.Config.Name)
 
 	if err := m.runXnHandover(ctx, sess, target); err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: "Xn: " + err.Error()},
@@ -101,7 +101,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	oldConn := sess.conn
 	m.mu.Lock()
 	sess.conn = tgtConn
-	sess.gnbCfg = target.Config
+	sess.setServingGNB(target.Config)
 	sess.ranID = targetHandoverRANID
 	if newAMFID != 0 {
 		sess.amfID = newAMFID
