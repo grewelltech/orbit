@@ -16,3 +16,6 @@ junit*.xml
 
 # Local-only project instructions (not for upstream)
 /CLAUDE.md
+
+# Claude Code local state (settings, agent memory, worktrees)
+/.claude/
