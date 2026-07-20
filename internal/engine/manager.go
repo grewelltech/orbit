@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bgrewell/orbit/internal/coreprofile"
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/loomgtp"
 	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/sctp"
 )
@@ -62,6 +64,30 @@ type Session struct {
 	rx     *datapath.UERx // this UE's downlink lane (keyed by DL TEID)
 	rxTEID uint32         // the DL TEID rx is currently registered under
 	n3Port string         // local N3 port; "" = "2152" (tests bind ephemeral)
+
+	// ueUp mirrors s.ue for SendUplink, which MUST NOT take dpMu: gVisor's
+	// TCP dispatcher calls SendUplink (via stackTx.TxCommit) synchronously
+	// while holding endpoint locks, and teardown/move paths hold dpMu while
+	// GNBStack.Detach/Close acquire those same endpoint locks
+	// (RemoveAddress → abortConns → Endpoint.Close). A dpMu-taking
+	// SendUplink is a permanent AB-BA deadlock under live TCP traffic
+	// (pinned by TestCloseDataPathUnderLiveTCPStream). Updated only under
+	// dpMu, read lock-free.
+	ueUp atomic.Pointer[datapath.UETunnel]
+
+	// Netstack bridge state (netstack.go, Phase 6), guarded by dpMu: the gNB
+	// bridge holding this UE's PDU address (nil until the session's first TCP
+	// app) and that address. nsNets — the live StackNetwork facades handed to
+	// TCP app sessions, retargeted on inter-gNB handover — has its own lock
+	// because facade Close callbacks arrive from app goroutines.
+	nsBridge *loomgtp.GNBStack
+	nsAddr   net.IP
+	nsNetsMu sync.Mutex
+	nsNets   map[*loomgtp.StackNetwork]struct{}
+
+	// notify publishes correlation-visible data-path events onto the
+	// Manager's hub (nil for sessions built outside a Manager).
+	notify func(StateEvent)
 }
 
 // SendUplink sends one inner IP packet up the session's CURRENT tunnel,
@@ -69,10 +95,15 @@ type Session struct {
 // hold the Session, never a tunnel snapshot, so a data path replaced by
 // rebindDataPath keeps carrying their media. *Session satisfies
 // loomgtp.Uplink.
+//
+// LOCK-FREE by contract: this runs on gVisor's TCP dispatcher goroutines
+// while they hold endpoint locks (stackTx.TxCommit), and teardown paths hold
+// dpMu while acquiring those endpoint locks — taking dpMu here would be an
+// AB-BA deadlock (see Session.ueUp). The atomic read may briefly observe the
+// pre-move view mid-rebind; those packets ride the old path, which is
+// exactly a handover's real loss window.
 func (s *Session) SendUplink(innerIP []byte) error {
-	s.dpMu.Lock()
-	t := s.ue
-	s.dpMu.Unlock()
+	t := s.ueUp.Load()
 	if t == nil {
 		return fmt.Errorf("UE %s has no open N3 data path", s.SUPI)
 	}
@@ -146,7 +177,8 @@ func (m *Manager) Register(ctx context.Context, amfAddr string, gnbCfg gnb.Confi
 	}
 	sess.state = stateFromResult(sess.Result)
 	sess.gnbN3 = ueCfg.GNBN3Addr
-	sess.n3 = m.n3 // data paths open on the Manager's shared per-gNB pool
+	sess.n3 = m.n3              // data paths open on the Manager's shared per-gNB pool
+	sess.notify = m.hub.publish // correlation-visible data-path events (netstack.go)
 
 	m.mu.Lock()
 	m.sessions[sess.SUPI] = sess
@@ -376,6 +408,7 @@ func (s *Session) dataplane() (*datapath.UETunnel, *datapath.UERx, error) {
 		return nil, nil, err
 	}
 	s.n3ref, s.ue, s.rx, s.rxTEID = ref, ue, ue.Lane(), s.Result.DLTEID
+	s.ueUp.Store(ue)
 	return s.ue, s.rx, nil
 }
 
@@ -427,9 +460,16 @@ func (s *Session) openViewLocked(lane *datapath.UERx, stats *datapath.UEStats) (
 
 // teardownLocked releases the session's view (closing its lane, waking
 // downlink consumers with net.ErrClosed) and its pool reference — the shared
-// socket closes only when the last session on the gNB lets go. Callers hold
-// dpMu.
+// socket closes only when the last session on the gNB lets go. The netstack
+// attachment goes first (RemoveAddress aborts live TCP conns, the uplink
+// route is cleaned — netstack.go); the gNB's stack itself closes with the
+// shared tunnel on the pool's last release. Callers hold dpMu.
 func (s *Session) teardownLocked() {
+	// Uplink senders are cut over first (lock-free readers — see ueUp): a
+	// gVisor dispatcher mid-TxCommit gets "no open N3 data path" errors
+	// (counted, never fatal) instead of racing the teardown below.
+	s.ueUp.Store(nil)
+	s.teardownNetstackLocked()
 	if s.ue != nil {
 		s.ue.Close()
 	}
@@ -464,10 +504,13 @@ type dataPathMove struct {
 
 // retargetDataPath applies a handover's data-path move: it updates the
 // session's data-path identity (gnbN3, Result's TEIDs/UPF address) and
-// rebinds any open path, all under dpMu — the same lock dataplane() and
-// SendUplink readers take — so a concurrent Ping/Traffic/app-session can
+// rebinds any open path, all under dpMu — the same lock dataplane() and the
+// open/teardown paths take — so a concurrent Ping/Traffic/app-session can
 // never observe a torn pair (e.g. the new DL TEID with the old gNB address,
 // which would register the new TEID's lane on the OLD gNB's demux).
+// SendUplink alone reads lock-free (Session.ueUp): it swaps atomically from
+// the old whole view to the new one, so it sees no torn pair either — at
+// worst a few packets ride the pre-move path (a handover's real loss window).
 func (s *Session) retargetDataPath(mv dataPathMove) error {
 	s.dpMu.Lock()
 	defer s.dpMu.Unlock()
@@ -548,6 +591,13 @@ func (s *Session) rebindLocked() error {
 	}
 	old := s.n3ref
 	s.n3ref, s.ue, s.rx, s.rxTEID = ref, ue, lane, s.Result.DLTEID
+	s.ueUp.Store(ue)
+	// A netstack-attached UE's address moves between the source and target
+	// gNB stacks (netstack.go): conns live during the move window are
+	// aborted (correlation event emitted), reconnects land on the target.
+	// Intra-gNB moves never get here — the TEID swap above the same stack
+	// is invisible to TCP.
+	s.moveNetstackLocked()
 	if s.n3 != nil {
 		// Grace-release: hold the source socket through the End-Marker
 		// window so the tombstoned TEID's marker still lands even when this

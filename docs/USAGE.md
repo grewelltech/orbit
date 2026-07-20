@@ -140,6 +140,73 @@ One call per UE at a time; UEs on the same gNB call concurrently over the
 gNB's shared N3 socket, and a call survives that UE's handover (TEID rebind,
 with the UPF's End Marker on the old path reported as a correlation event).
 
+## Application traffic (HTTP / video QoE)
+
+`orbit ue app http` and `orbit ue app video` run real TCP applications from a
+registered UE: loom's HTTP/1.1 (+ optional TLS 1.3 / HTTP/2) client, and its
+ABR video player, ride a per-gNB userspace TCP/IP stack over the UE's GTP-U
+tunnel — real SYN and TLS ClientHello bytes travel as inner IP packets — to
+the HTTPOrigin a **stock loomd agent** (loom ≥ v0.11) serves on the N6
+network. The video far end *is* the http origin (loom's player is
+client-only): one `loomd` serves voip, http, and video sessions alike.
+
+```sh
+# Web objects in a think-time loop; TTFB/goodput/error interval lines:
+orbit ue app http  --supi <imsi> --peer <n6-host>:9551 \
+    --object-size 100KB --think 200ms..2s --duration 60s \
+    [--url-path /object/65536] [--objects N] [--tls [--h2] --tls-insecure] \
+    [--port-min 40200 --port-max 40210] [--json]
+
+# A generated HLS ladder under the ABR buffer model; buffer/stall/startup lines:
+orbit ue app video --supi <imsi> --peer <n6-host>:9551 \
+    --ladder 240p:400k,480p:1200k,720p:2500k --duration 180s \
+    [--seg-duration 4s] [--segments 150] [--abr throughput|buffer] \
+    [--start-threshold 2s] [--buffer-target 12s] [--rebuffer-target 4s] \
+    [--tls ...] [--port-min ...] [--json]
+```
+
+`--peer`/`--token`/`--peer-data-ip` and the server-level defaults work exactly
+as for voip. Parameters travel verbatim to **both** ends (each engine reads
+only the keys it documents), so `--ladder`/`--seg-duration`/`--segments`
+configure the origin's generated manifest *and* pin the player's expectation —
+one grammar, both sides. The firewall matrix extends accordingly: the origin's
+data port (advertised back as `media port` in the report) must be reachable
+from the UPF's N6 subnet; pin it with `--port-min`/`--port-max` like the RTP
+range.
+
+The `http` CLI streams one line per interval from both ends — requests,
+errors, TTFB p95, goodput, plus TCP-connect/TLS-handshake means when new
+connections were opened (the origin end serves counts and goodput only; it
+measures no client-side latencies) — and the report carries the whole-run
+percentiles. The `video` CLI streams buffer level, interval bitrate, stall
+count/time, and startup delay; the report summarizes startup, stalls with
+their timestamped events, rebuffer ratio, and average bitrate.
+
+**TLS, honestly:** the origin generates a self-signed certificate per flow,
+and loom's control plane does not expose it remotely (`CertificatePEM` is an
+in-process accessor; the Configure response carries only the data port), so
+orbit cannot pin a remote origin's certificate for you — and neither can you:
+every session Configures a *new* flow with a *new* certificate, so no PEM
+obtained out of band ever matches, and a pinned session would pass setup and
+then burn its whole duration on 100%-error samples. orbit therefore **refuses
+`--tls-ca`** (and a `tls_ca` param in fleet cohorts) up front. Use plain
+HTTP/1.1, or `--tls --tls-insecure` (an explicit lab-only opt-in; verification
+is off, which is the only working TLS path to a stock loomd origin today).
+The flag returns when loom can hand out the per-flow origin certificate over
+the control plane.
+
+**Handover semantics (stated, not hidden):** an *intra*-gNB handover swaps
+TEIDs below the TCP stack — established connections survive and see only
+delay/loss. An *inter*-gNB handover moves the UE's address between gNB stacks,
+which **aborts** connections live during the move (the `TCP_CONNS_RESET`
+correlation event names the count); the http client's next request reconnects
+via the target gNB, and the video player retries the failed segment — visible
+as a TTFB spike or a stall, which is the realism the tool exists to measure.
+Handover correlation covers the TCP apps too: annotations join the handover
+with buffer drain → stall → ABR downshift (video) or error-burst/TTFB-spike
+evidence (http), the latter labeled *coincident* — temporal overlap, not
+causal proof.
+
 ## Mobility (handover)
 
 The UE must already be registered (ideally with a session). Use a distinct
@@ -266,6 +333,45 @@ over (Xn) when a neighbour cell becomes stronger by the a3-offset (RSRP/A3
 model), not on a timer — and **traffic** (one loom flow per non-mobile UE over
 its gNB's shared N3 socket) for `run.duration`, then reports (attach / handovers
 / traffic / deregister).
+
+#### App cohorts (real application traffic at fleet scale)
+
+Traffic mix entries with `app:` instead of `profile:` declare **application
+cohorts**: their share of the fleet runs loom's real protocol engines
+(`voip` — RTP/RTCP with G.107 MOS; `http` — HTTP/TLS over the per-gNB gVisor
+netstack; `video` — the ABR player against the http origin) through their
+GTP-U data paths to a stock `loomd` on the N6 network, exactly like
+`orbit ue app …` but for a population:
+
+```yaml
+behaviors:
+  traffic:
+    mix:
+      - { profile: web, share: 0.7 }                       # synthetic flows
+      - { app: voip, name: voip-calls, share: 0.2, peer: 172.17.60.10:9551,
+          params: { codec: pcmu, port_min: "40000", port_max: "40100" } }
+      - { app: http, name: web-real, share: 0.1, peer: 172.17.60.10:9551,
+          params: { object_size: 64KB, think: 200ms, tls: "true", tls_insecure: "true" } }
+```
+
+Cohorts need `fleet.pdu_session: true`; `peer` is the loomd control address
+(`token`, `peer_data_ip`, and `params` match the `orbit ue app` grammar; the
+firewall matrix above applies unchanged). The far-end plumbing is shared, not
+multiplied: **one control connection and one TimeSync loop per distinct
+loomd** across the whole fleet, **one shared http origin per cohort** (the
+origin serves any number of clients), and **one voip answerer per member** —
+the answerer latches a single source, so a voip cohort must fit inside its
+`port_min..port_max` range (an oversized cohort is refused up front with the
+required range). TCP cohorts share each gNB's single gVisor netstack; voip
+rides the lightweight dgram path, so fleet voice never pays the gVisor cost.
+RTCP reporting is randomized per RFC 3550 §6.3/A.7 inside loom, so thousands
+of concurrent calls do not synchronise into report storms.
+
+Cohort results are **distributions** (p5/p50/p95 across members): MOS for
+voip, TTFB and goodput for http, stall time and rebuffer ratio for video —
+printed in the fleet report and, with `orbit run --metrics-listen host:port`,
+served live on `/metrics` as `orbit_fleet_app_*` gauges labeled
+`{cohort, q}` (cohort names, never SUPIs — bounded cardinality).
 
 ## The API
 

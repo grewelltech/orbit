@@ -85,7 +85,7 @@ func NewTunnel(cfg Config) (*Tunnel, error) {
 	t := &Tunnel{st: st, ue: ue, conn: st.conn}
 	t.legacy = NewRing(defaultRingCapacity)
 	r := t.legacy
-	ue.Lane().SetDefaultSink(func(innerIP []byte) { r.Push(innerIP, time.Now()) })
+	ue.Lane().SetDefaultSink(func(innerIP []byte, arrival time.Time) { r.Push(innerIP, arrival) })
 	return t, nil
 }
 

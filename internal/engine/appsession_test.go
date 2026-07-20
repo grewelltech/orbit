@@ -796,7 +796,7 @@ func TestAppSessionValidation(t *testing.T) {
 	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx := context.Background()
 
-	if _, err := m.StartAppSession(ctx, appTestSUPI, AppSessionConfig{App: "http", PeerAgent: "n6:9551", Duration: time.Second}); err == nil || !strings.Contains(err.Error(), "not supported") {
+	if _, err := m.StartAppSession(ctx, appTestSUPI, AppSessionConfig{App: "ftp", PeerAgent: "n6:9551", Duration: time.Second}); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Errorf("unsupported app: %v", err)
 	}
 	if _, err := m.StartAppSession(ctx, appTestSUPI, AppSessionConfig{App: "voip", Duration: time.Second}); err == nil || !strings.Contains(err.Error(), "peer loomd") {

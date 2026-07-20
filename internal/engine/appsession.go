@@ -1,6 +1,6 @@
-// App sessions: real application traffic (VoIP first) from a registered UE
-// through its GTP-U data path to a stock loomd agent on the N6 network
-// (docs/design/real-app-traffic.md §7 — the "controller-lite").
+// App sessions: real application traffic (voip, http, video) from a
+// registered UE through its GTP-U data path to a stock loomd agent on the N6
+// network (docs/design/real-app-traffic.md §7 — the "controller-lite").
 //
 // The Manager plays a minimal loom controller for exactly one flow pair:
 //
@@ -11,7 +11,8 @@
 //  3. Configure+Start the far end (FLOW_ROLE_APP_SERVER, network "host",
 //     duration-bounded for orphan protection) and learn its data_port;
 //  4. build the LOCAL side in process — no local loomd — over the session's
-//     N3 data path via loomgtp.NetworkFor (dgram over the demuxed tunnel);
+//     N3 data path via Session.appNetwork (dgram over the demuxed tunnel for
+//     UDP apps; the per-gNB netstack for TCP apps — netstack.go);
 //  5. run the client as a managed session: local interval samples, the remote
 //     agent's StreamTelemetry series (re-stamped onto orbit's clock with the
 //     tracker offset, error bound carried), and correlation events (handover
@@ -40,17 +41,25 @@ import (
 	"github.com/bgrewell/loom/core/rtp"
 
 	"github.com/bgrewell/orbit/internal/datapath"
-	"github.com/bgrewell/orbit/internal/loomgtp"
 
 	// Register the loom app engines this build can run in-process. The voip
-	// pair self-registers into the global AppClients/AppServers registries
-	// (loom ADR-0006), which components.Default() exposes.
+	// pair, the http client/origin pair, and the (client-only) video player
+	// self-register into the global AppClients/AppServers registries (loom
+	// ADR-0006), which components.Default() exposes.
+	_ "github.com/bgrewell/loom/core/app/httpx"
+	_ "github.com/bgrewell/loom/core/app/vidstream"
 	_ "github.com/bgrewell/loom/core/app/voip"
 )
 
-// appMinLoomVersion is the first loom release whose agents carry the app
-// engines — the version named in skew-gate refusals (design §2.12).
-const appMinLoomVersion = "v0.10"
+// appMinLoomVersion names the first loom release whose agents carry a given
+// app engine — the version named in skew-gate refusals (design §2.12): voip
+// shipped in v0.10, the http origin (and with it the video far end) in v0.11.
+func appMinLoomVersion(serverApp string) string {
+	if serverApp == "http" {
+		return "v0.11"
+	}
+	return "v0.10"
+}
 
 // AppSample ends (AppSample.End): which side of the call measured the sample.
 const (
@@ -70,7 +79,8 @@ const AppEventUEReleased = "UE_RELEASED"
 
 // AppSessionConfig configures StartAppSession.
 type AppSessionConfig struct {
-	// App names the loom application engine. Only "voip" is supported today.
+	// App names the loom application engine: "voip" (RTP/RTCP over the dgram
+	// bridge), "http" or "video" (real TCP through the per-gNB netstack).
 	App string
 	// PeerAgent is the N6 loomd's control-plane address ("host:port").
 	// Empty falls back to the server-level default (SetLoomDefaults).
@@ -83,8 +93,14 @@ type AppSessionConfig struct {
 	// address may differ (the firewall matrix in docs/USAGE.md allows control
 	// on the management network while RTP enters from the UPF's N6 subnet).
 	PeerDataIP string
-	// Params are the app's tuning knobs, passed verbatim to both ends
-	// (voip: codec, ptime, jb_ms, port_min/port_max, …).
+	// Params are the app's tuning knobs, passed verbatim to both ends — the
+	// loom controller discipline: each engine reads only the keys it
+	// documents (voip: codec, ptime, jb_ms, port_min/port_max; http:
+	// url_path, objects, object_size, think, tls, tls_ca, tls_insecure, h2,
+	// host; video: url_name, ladder, seg_duration, segments, start_threshold,
+	// buffer_target, rebuffer_target, abr + the http transport keys —
+	// ladder/seg_duration/segments configure the origin and double as the
+	// player's expectation, one grammar for both sides).
 	Params map[string]string
 	// Duration bounds the call. It must be positive: the far-end flow is
 	// always duration-bounded (loom's orphan protection), so an unbounded
@@ -107,8 +123,12 @@ type AppSample struct {
 	End string
 	// Final marks the closing whole-call sample of a telemetry series.
 	Final bool
-	// VoIP is the quality snapshot for App "voip" samples (nil on events).
-	VoIP *metrics.VoIP
+	// Exactly one of VoIP/HTTP/Video is set on a quality sample (all nil on
+	// events), matching what the measuring end runs — a "video" session's
+	// remote (N6) samples are HTTP, because its far end is the http origin.
+	VoIP  *metrics.VoIP
+	HTTP  *metrics.HTTP
+	Video *metrics.Video
 
 	// Event/Detail carry correlation events (hub state phases such as
 	// HANDOVER_STARTED, AppEventEndMarker, AppEventUEReleased); Event is
@@ -127,10 +147,16 @@ type AppSessionReport struct {
 	DataPort uint32
 	Started  time.Time
 	Ended    time.Time
-	// Local is the in-process client's whole-call cumulative snapshot;
-	// Remote is the far end's final telemetry sample (nil if none arrived).
-	Local  metrics.VoIP
-	Remote *metrics.VoIP
+	// Whole-call cumulative snapshots: Local*/Remote* pairs, of which the
+	// session's app populates exactly one side each — Local/Remote for
+	// "voip", LocalHTTP/RemoteHTTP for "http", LocalVideo/RemoteHTTP for
+	// "video" (the video far end is the http origin). Remote snapshots are
+	// the far end's FINAL telemetry sample (nil if none arrived).
+	Local      metrics.VoIP
+	Remote     *metrics.VoIP
+	LocalHTTP  *metrics.HTTP
+	LocalVideo *metrics.Video
+	RemoteHTTP *metrics.HTTP
 	// LocalSeries and RemoteSeries are the retained per-interval samples of
 	// each end; Events the correlation events, all in arrival order.
 	LocalSeries  []AppSample
@@ -332,6 +358,9 @@ type appSession struct {
 	events       []AppSample
 	localFinal   metrics.VoIP
 	remoteFinal  *metrics.VoIP
+	localHTTP    *metrics.HTTP
+	localVideo   *metrics.Video
+	remoteHTTP   *metrics.HTTP
 	runErr       error
 	subs         map[int]chan AppSample
 	subSeq       int
@@ -355,14 +384,29 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 	}
 	m.apps.mu.Unlock()
 
-	if cfg.App != "voip" {
-		return "", fmt.Errorf("app %q is not supported (this build supports \"voip\")", cfg.App)
+	switch cfg.App {
+	case "voip", "http", "video":
+	default:
+		return "", fmt.Errorf("app %q is not supported (this build supports \"voip\", \"http\", \"video\")", cfg.App)
+	}
+	// The engine placed at the far end: every app's server is itself except
+	// video — loom's ABR player is client-only by design, so its far end is
+	// the "http" app's HTTPOrigin serving the generated ladder (the same
+	// mapping loom's own controller applies; params travel verbatim, so
+	// ladder/seg_duration/segments configure the origin while the player
+	// treats ladder as its expectation).
+	serverApp := cfg.App
+	if serverApp == "video" {
+		serverApp = "http"
 	}
 	if cfg.PeerAgent == "" {
 		return "", errors.New("no peer loomd agent: pass one per call or configure a server-level default")
 	}
 	if cfg.Duration <= 0 {
 		return "", errors.New("app sessions require a positive duration (the far-end flow is duration-bounded for orphan protection)")
+	}
+	if err := refuseUnusableTLSCA(cfg.App, cfg.Params); err != nil {
+		return "", err
 	}
 
 	// Session gating — the same preconditions as Traffic/Latency.
@@ -437,7 +481,7 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 	}); err != nil {
 		return "", fmt.Errorf("loomd at %s: Capabilities: %w", cfg.PeerAgent, err)
 	}
-	if !agentServesApp(caps, cfg.App) {
+	if !agentServesApp(caps, serverApp) {
 		version := "unknown version"
 		_ = rpc1(func(rctx context.Context) error {
 			if h, herr := agent.Health(rctx, &loomv1.HealthRequest{}); herr == nil && h.GetVersion() != "" {
@@ -445,8 +489,14 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 			}
 			return nil
 		})
-		return "", fmt.Errorf("loomd at %s (%s) lacks app %q; run loom >= %s",
-			cfg.PeerAgent, version, cfg.App, appMinLoomVersion)
+		want := fmt.Sprintf("app %q", serverApp)
+		if serverApp != cfg.App {
+			// The refusal names the engine actually required at the far end,
+			// so "video against an http-less agent" is actionable.
+			want = fmt.Sprintf("app %q (the far end of %q is the http origin)", serverApp, cfg.App)
+		}
+		return "", fmt.Errorf("loomd at %s (%s) lacks %s; run loom >= %s",
+			cfg.PeerAgent, version, want, appMinLoomVersion(serverApp))
 	}
 
 	// 3. Seed the OWD tracker with one exchange now (also proves the token
@@ -468,7 +518,7 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 	// far end never orphans (loom refuses unbounded app servers).
 	srvSpec := &loomv1.FlowSpec{
 		Role:     loomv1.FlowRole_FLOW_ROLE_APP_SERVER,
-		App:      cfg.App,
+		App:      serverApp,
 		Network:  "host",
 		Params:   cloneParams(cfg.Params),
 		Duration: durationpb.New(cfg.Duration + tun.serverSlack),
@@ -478,7 +528,7 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 		srvCfg, err = agent.Configure(rctx, &loomv1.ConfigureRequest{Flow: srvSpec})
 		return err
 	}); err != nil {
-		return "", fmt.Errorf("configure %s server on loomd at %s: %w", cfg.App, cfg.PeerAgent, err)
+		return "", fmt.Errorf("configure %s server on loomd at %s: %w", serverApp, cfg.PeerAgent, err)
 	}
 	remoteFlow := srvCfg.GetFlowId()
 	defer func() {
@@ -489,7 +539,7 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 		}
 	}()
 	if srvCfg.GetDataPort() == 0 {
-		return "", fmt.Errorf("loomd at %s advertised no data_port for the %s server", cfg.PeerAgent, cfg.App)
+		return "", fmt.Errorf("loomd at %s advertised no data_port for the %s server", cfg.PeerAgent, serverApp)
 	}
 	if err := rpc1(func(rctx context.Context) error {
 		_, serr := agent.Start(rctx, &loomv1.StartRequest{
@@ -498,19 +548,21 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 		})
 		return serr
 	}); err != nil {
-		return "", fmt.Errorf("start %s server on loomd at %s: %w", cfg.App, cfg.PeerAgent, err)
+		return "", fmt.Errorf("start %s server on loomd at %s: %w", serverApp, cfg.PeerAgent, err)
 	}
 
 	// 5. Local side, in process: the session's data plane (tunnel + demuxed
-	// downlink lane) bridged onto loom's netpath seam, then the app client
-	// built from the registry with the tracker as its OWD source. The
-	// Session itself is the uplink (not a tunnel snapshot), so the call's
-	// media follows a handover's data-path rebind.
+	// downlink lane) bridged onto loom's netpath seam — the app-protocol
+	// dimension of the bridge (netstack.go): UDP apps get the dgram network,
+	// TCP apps the per-gNB netstack — then the app client built from the
+	// registry with the tracker as its OWD source. The Session itself is the
+	// uplink (not a tunnel snapshot), so the call's media follows a
+	// handover's data-path rebind.
 	_, rx, err := sess.dataplane()
 	if err != nil {
 		return "", err
 	}
-	network, err := loomgtp.NetworkFor(sess, rx, ueIP, 0)
+	network, err := sess.appNetwork(cfg.App, ueIP)
 	if err != nil {
 		return "", err
 	}
@@ -727,11 +779,16 @@ func (s *appSession) finalize(tdone <-chan struct{}) {
 	// Whole-call local snapshot; CumulativeMetrics closes no observation
 	// interval, so it cannot corrupt the sampler's series.
 	if cs, ok := s.client.(interface{ CumulativeMetrics() metrics.Snapshot }); ok {
-		if v, ok := cs.CumulativeMetrics().(metrics.VoIP); ok {
-			s.mu.Lock()
+		s.mu.Lock()
+		switch v := cs.CumulativeMetrics().(type) {
+		case metrics.VoIP:
 			s.localFinal = v
-			s.mu.Unlock()
+		case metrics.HTTP:
+			s.localHTTP = &v
+		case metrics.Video:
+			s.localVideo = &v
 		}
+		s.mu.Unlock()
 	}
 
 	// Remote Stop, best-effort: the far end is duration-bounded anyway.
@@ -754,8 +811,23 @@ func (s *appSession) finalize(tdone <-chan struct{}) {
 	// Settle any open correlation window (emits its annotation through
 	// publish, so this must precede finalized=true) and drop the session's
 	// Prometheus series — a gauge frozen at its last MOS would read as a
-	// live call forever.
+	// live call forever. For video, the whole-call snapshot is fed through
+	// the correlator FIRST: vidstream closes a still-open stall at Run exit
+	// and emits its event only in the interval where it ENDS, so a stall
+	// completing in the final partial interval (after the sampler's last
+	// tick) exists solely in the cumulative StallEvents replay — without
+	// this, flush would settle the window with started > closed and
+	// annotate "stall ongoing … not recovered" while the report's own
+	// StallEvents list shows the stall completed.
 	if s.corr != nil {
+		s.mu.Lock()
+		lv := s.localVideo
+		s.mu.Unlock()
+		if lv != nil {
+			vc := *lv
+			s.corr.observe(AppSample{Time: time.Now(), TimeSource: "local",
+				End: AppEndUE, Final: true, Video: &vc})
+		}
 		s.corr.flush(time.Now())
 	}
 	s.m.appMetrics.cleanupSession(s.supi, s.cfg.App)
@@ -813,10 +885,18 @@ func (s *appSession) sampleLoop() {
 		case <-s.ctx.Done():
 			return
 		case <-t.C:
-			if v, ok := src.Metrics().(metrics.VoIP); ok {
-				vc := v
-				s.publish(AppSample{Time: time.Now(), TimeSource: "local", End: AppEndUE, VoIP: &vc})
+			sample := AppSample{Time: time.Now(), TimeSource: "local", End: AppEndUE}
+			switch v := src.Metrics().(type) {
+			case metrics.VoIP:
+				sample.VoIP = &v
+			case metrics.HTTP:
+				sample.HTTP = &v
+			case metrics.Video:
+				sample.Video = &v
+			default:
+				continue
 			}
+			s.publish(sample)
 		}
 	}
 }
@@ -889,15 +969,25 @@ func (s *appSession) telemetryLoop() {
 				}
 				lastIdx = idx
 			}
-			vp := ts.GetApp().GetVoip()
-			if vp == nil {
+			sample := AppSample{End: AppEndN6, Final: ts.GetFinal()}
+			// The far end's snapshot kind matches the engine placed there:
+			// voip for voip calls, http (the origin) for http AND video.
+			switch app := ts.GetApp(); {
+			case app.GetVoip() != nil:
+				v := voipFromProto(app.GetVoip())
+				sample.VoIP = &v
+			case app.GetHttp() != nil:
+				h := httpFromProto(app.GetHttp())
+				sample.HTTP = &h
+			case app.GetVideo() != nil:
+				v := videoFromProto(app.GetVideo())
+				sample.Video = &v
+			default:
 				if ts.GetFinal() {
 					return
 				}
 				continue
 			}
-			v := voipFromProto(vp)
-			sample := AppSample{End: AppEndN6, Final: ts.GetFinal(), VoIP: &v}
 			remoteAt := time.Unix(0, ts.GetNanos())
 			if off, errBound, ok := s.tracker.Offset(); ok {
 				// offset = remote − local, so local time = remote − offset.
@@ -910,7 +1000,8 @@ func (s *appSession) telemetryLoop() {
 			}
 			if ts.GetFinal() {
 				s.mu.Lock()
-				s.remoteFinal = &v
+				s.remoteFinal = sample.VoIP
+				s.remoteHTTP = sample.HTTP
 				s.mu.Unlock()
 				s.publish(sample)
 				return // the series is complete
@@ -995,6 +1086,9 @@ func (s *appSession) report() AppSessionReport {
 		Ended:        s.ended,
 		Local:        s.localFinal,
 		Remote:       s.remoteFinal,
+		LocalHTTP:    s.localHTTP,
+		LocalVideo:   s.localVideo,
+		RemoteHTTP:   s.remoteHTTP,
 		LocalSeries:  append([]AppSample(nil), s.localSeries...),
 		RemoteSeries: append([]AppSample(nil), s.remoteSeries...),
 		Events:       append([]AppSample(nil), s.events...),
@@ -1053,6 +1147,25 @@ func contains(list []string, v string) bool {
 	return false
 }
 
+// refuseUnusableTLSCA fails fast on a tls_ca param for the TCP apps: the
+// stock loomd origin generates a fresh self-signed certificate for EVERY
+// flow at Configure time, and loom's control plane does not expose it
+// (ConfigureResponse carries only flow_id and data_port; CertificatePEM is
+// an in-process accessor) — so no PEM the caller can supply ever matches.
+// Without this gate, setup succeeds completely and the session then burns
+// its whole duration on 100%-error samples (loom's httpx client counts x509
+// failures per request; it never returns a fatal error). docs/USAGE.md
+// ("TLS, honestly") records the limitation.
+func refuseUnusableTLSCA(app string, params map[string]string) error {
+	if app != "http" && app != "video" {
+		return nil // voip reads no tls_ca
+	}
+	if params["tls_ca"] == "" {
+		return nil
+	}
+	return fmt.Errorf("param tls_ca cannot verify a stock loomd origin: the origin's self-signed certificate is generated per flow at Configure time and is not exposed over the control plane, so verification would fail on every request for the whole session; use tls_insecure (explicit lab-only opt-in) until loom can hand out the per-flow origin certificate")
+}
+
 func cloneParams(m map[string]string) map[string]string {
 	if len(m) == 0 {
 		return nil
@@ -1095,6 +1208,43 @@ func voipFromProto(p *loomv1.VoipMetrics) metrics.VoIP {
 	}
 	for _, g := range p.GetGaps() {
 		v.MediaGaps = append(v.MediaGaps, rtp.Gap{
+			Start:       time.Unix(0, g.GetStartUnixNanos()),
+			End:         time.Unix(0, g.GetEndUnixNanos()),
+			PacketsLost: g.GetPacketsLost(),
+		})
+	}
+	return v
+}
+
+// httpFromProto converts the wire snapshot back into metrics.HTTP — the
+// inverse of loom's httpMetricsProto mapping. The wire carries a subset of
+// the local snapshot (no p50/p99 percentiles, no object-transfer times);
+// fields it does not carry stay zero, honestly, rather than being guessed.
+func httpFromProto(p *loomv1.HttpMetrics) metrics.HTTP {
+	return metrics.HTTP{
+		Requests:       p.GetRequests(),
+		Errors:         p.GetErrors(),
+		TTFBMsP95:      p.GetTtfbMsP95(),
+		GoodputMbps:    p.GetGoodputMbps(),
+		TLSHandshakeMs: p.GetTlsHandshakeMs(),
+		ConnectMs:      p.GetConnectMs(),
+	}
+}
+
+// videoFromProto converts the wire snapshot back into metrics.Video — the
+// inverse of loom's videoMetricsProto mapping (SegmentsFetched and the
+// RepSwitches counters do not travel and stay zero).
+func videoFromProto(p *loomv1.VideoMetrics) metrics.Video {
+	v := metrics.Video{
+		Stalls:         p.GetStalls(),
+		StallTimeMs:    p.GetStallTimeMs(),
+		RebufferRatio:  p.GetRebufferRatio(),
+		BufferMs:       p.GetBufferMs(),
+		AvgBitrateKbps: p.GetAvgBitrateKbps(),
+		StartupMs:      p.GetStartupMs(),
+	}
+	for _, g := range p.GetStallEvents() {
+		v.StallEvents = append(v.StallEvents, rtp.Gap{
 			Start:       time.Unix(0, g.GetStartUnixNanos()),
 			End:         time.Unix(0, g.GetEndUnixNanos()),
 			PacketsLost: g.GetPacketsLost(),

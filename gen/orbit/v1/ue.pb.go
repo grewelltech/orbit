@@ -1562,7 +1562,10 @@ type StartAppRequest struct {
 	// Registered UE the call runs from (needs an active PDU session and a
 	// gNB N3 address, like Traffic/Latency).
 	Supi string `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
-	// loom application engine; "voip" is the one this build supports.
+	// loom application engine: "voip" (RTP/RTCP over the dgram bridge),
+	// "http" or "video" (real TCP through the per-gNB netstack). The far end
+	// of "video" is the "http" app's HTTPOrigin — loom's video player is
+	// client-only, the same mapping loom's own controller applies.
 	App string `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`
 	// The N6 loomd's control-plane address (host:port) on the MANAGEMENT
 	// network. Empty falls back to the server-level default, if configured.
@@ -1572,8 +1575,13 @@ type StartAppRequest struct {
 	// Media address override: by default RTP is aimed at peer's host, but
 	// the management and N6 data addresses may differ.
 	PeerDataIp string `protobuf:"bytes,5,opt,name=peer_data_ip,json=peerDataIp,proto3" json:"peer_data_ip,omitempty"`
-	// App tuning knobs, passed verbatim to both ends
-	// (voip: codec, ptime, jb_ms, port_min, port_max, ...).
+	// App tuning knobs, passed verbatim to both ends — each engine reads only
+	// the keys it documents (voip: codec, ptime, jb_ms, port_min, port_max;
+	// http: url_path, objects, object_size, think, tls, tls_ca, tls_insecure,
+	// h2, host; video: url_name, ladder, seg_duration, segments,
+	// start_threshold, buffer_target, rebuffer_target, abr, plus the http
+	// transport keys — ladder/seg_duration/segments configure the origin and
+	// double as the player's expectation, one grammar for both sides).
 	Params map[string]string `protobuf:"bytes,6,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Call duration in milliseconds (0 = 60000). The far-end flow is always
 	// duration-bounded — loom's orphan protection.
@@ -2097,6 +2105,194 @@ func (x *MediaGap) GetPacketsLost() uint32 {
 	return 0
 }
 
+// HttpMetrics mirrors loom's requester-side HTTP/TLS quality snapshot
+// (loom.v1 HttpMetrics): completed/failed request counts, p95
+// time-to-first-byte, application-payload goodput, and the mean TCP-connect
+// and TLS-handshake times of newly established connections. On the server
+// (origin) end only requests/errors/goodput are meaningful — the origin
+// measures no client-side latencies.
+type HttpMetrics struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Requests       uint64                 `protobuf:"varint,1,opt,name=requests,proto3" json:"requests,omitempty"`                                      // requests completed this interval
+	Errors         uint64                 `protobuf:"varint,2,opt,name=errors,proto3" json:"errors,omitempty"`                                          // failed requests (also counted in requests)
+	TtfbMsP95      float64                `protobuf:"fixed64,3,opt,name=ttfb_ms_p95,json=ttfbMsP95,proto3" json:"ttfb_ms_p95,omitempty"`                // p95 time-to-first-byte, milliseconds
+	GoodputMbps    float64                `protobuf:"fixed64,4,opt,name=goodput_mbps,json=goodputMbps,proto3" json:"goodput_mbps,omitempty"`            // application-payload throughput
+	TlsHandshakeMs float64                `protobuf:"fixed64,5,opt,name=tls_handshake_ms,json=tlsHandshakeMs,proto3" json:"tls_handshake_ms,omitempty"` // mean TLS handshake time (new conns only)
+	ConnectMs      float64                `protobuf:"fixed64,6,opt,name=connect_ms,json=connectMs,proto3" json:"connect_ms,omitempty"`                  // mean TCP connect time (new conns only)
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *HttpMetrics) Reset() {
+	*x = HttpMetrics{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HttpMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HttpMetrics) ProtoMessage() {}
+
+func (x *HttpMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HttpMetrics.ProtoReflect.Descriptor instead.
+func (*HttpMetrics) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *HttpMetrics) GetRequests() uint64 {
+	if x != nil {
+		return x.Requests
+	}
+	return 0
+}
+
+func (x *HttpMetrics) GetErrors() uint64 {
+	if x != nil {
+		return x.Errors
+	}
+	return 0
+}
+
+func (x *HttpMetrics) GetTtfbMsP95() float64 {
+	if x != nil {
+		return x.TtfbMsP95
+	}
+	return 0
+}
+
+func (x *HttpMetrics) GetGoodputMbps() float64 {
+	if x != nil {
+		return x.GoodputMbps
+	}
+	return 0
+}
+
+func (x *HttpMetrics) GetTlsHandshakeMs() float64 {
+	if x != nil {
+		return x.TlsHandshakeMs
+	}
+	return 0
+}
+
+func (x *HttpMetrics) GetConnectMs() float64 {
+	if x != nil {
+		return x.ConnectMs
+	}
+	return 0
+}
+
+// VideoMetrics mirrors loom's player-side streaming QoE snapshot (loom.v1
+// VideoMetrics): stalls, stall time, rebuffer ratio (stall over stall+play
+// time, bounded [0,1]), current buffer depth, duration-weighted average
+// bitrate, startup delay, and each completed stall as a MediaGap-shaped
+// timed entry (packets_lost is 0 for stalls) so stalls align with media
+// gaps and handover events on one timeline.
+type VideoMetrics struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Stalls         uint64                 `protobuf:"varint,1,opt,name=stalls,proto3" json:"stalls,omitempty"`                                          // rebuffer events this interval
+	StallTimeMs    float64                `protobuf:"fixed64,2,opt,name=stall_time_ms,json=stallTimeMs,proto3" json:"stall_time_ms,omitempty"`          // total time stalled
+	RebufferRatio  float64                `protobuf:"fixed64,3,opt,name=rebuffer_ratio,json=rebufferRatio,proto3" json:"rebuffer_ratio,omitempty"`      // stall / (stall + play)
+	BufferMs       float64                `protobuf:"fixed64,4,opt,name=buffer_ms,json=bufferMs,proto3" json:"buffer_ms,omitempty"`                     // current buffer depth
+	AvgBitrateKbps float64                `protobuf:"fixed64,5,opt,name=avg_bitrate_kbps,json=avgBitrateKbps,proto3" json:"avg_bitrate_kbps,omitempty"` // average selected bitrate
+	StartupMs      float64                `protobuf:"fixed64,6,opt,name=startup_ms,json=startupMs,proto3" json:"startup_ms,omitempty"`                  // time to first play (0 until playing)
+	StallEvents    []*MediaGap            `protobuf:"bytes,7,rep,name=stall_events,json=stallEvents,proto3" json:"stall_events,omitempty"`              // individual stall intervals
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *VideoMetrics) Reset() {
+	*x = VideoMetrics{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VideoMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VideoMetrics) ProtoMessage() {}
+
+func (x *VideoMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VideoMetrics.ProtoReflect.Descriptor instead.
+func (*VideoMetrics) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *VideoMetrics) GetStalls() uint64 {
+	if x != nil {
+		return x.Stalls
+	}
+	return 0
+}
+
+func (x *VideoMetrics) GetStallTimeMs() float64 {
+	if x != nil {
+		return x.StallTimeMs
+	}
+	return 0
+}
+
+func (x *VideoMetrics) GetRebufferRatio() float64 {
+	if x != nil {
+		return x.RebufferRatio
+	}
+	return 0
+}
+
+func (x *VideoMetrics) GetBufferMs() float64 {
+	if x != nil {
+		return x.BufferMs
+	}
+	return 0
+}
+
+func (x *VideoMetrics) GetAvgBitrateKbps() float64 {
+	if x != nil {
+		return x.AvgBitrateKbps
+	}
+	return 0
+}
+
+func (x *VideoMetrics) GetStartupMs() float64 {
+	if x != nil {
+		return x.StartupMs
+	}
+	return 0
+}
+
+func (x *VideoMetrics) GetStallEvents() []*MediaGap {
+	if x != nil {
+		return x.StallEvents
+	}
+	return nil
+}
+
 type AppStreamRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
@@ -2106,7 +2302,7 @@ type AppStreamRequest struct {
 
 func (x *AppStreamRequest) Reset() {
 	*x = AppStreamRequest{}
-	mi := &file_orbit_v1_ue_proto_msgTypes[29]
+	mi := &file_orbit_v1_ue_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2118,7 +2314,7 @@ func (x *AppStreamRequest) String() string {
 func (*AppStreamRequest) ProtoMessage() {}
 
 func (x *AppStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_ue_proto_msgTypes[29]
+	mi := &file_orbit_v1_ue_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2131,7 +2327,7 @@ func (x *AppStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppStreamRequest.ProtoReflect.Descriptor instead.
 func (*AppStreamRequest) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{29}
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AppStreamRequest) GetSessionId() string {
@@ -2155,7 +2351,7 @@ type CorrelationEvent struct {
 
 func (x *CorrelationEvent) Reset() {
 	*x = CorrelationEvent{}
-	mi := &file_orbit_v1_ue_proto_msgTypes[30]
+	mi := &file_orbit_v1_ue_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2167,7 +2363,7 @@ func (x *CorrelationEvent) String() string {
 func (*CorrelationEvent) ProtoMessage() {}
 
 func (x *CorrelationEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_ue_proto_msgTypes[30]
+	mi := &file_orbit_v1_ue_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2180,7 +2376,7 @@ func (x *CorrelationEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CorrelationEvent.ProtoReflect.Descriptor instead.
 func (*CorrelationEvent) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{30}
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CorrelationEvent) GetUnixNano() int64 {
@@ -2218,17 +2414,24 @@ type AppSample struct {
 	// (no offset yet).
 	TimeSource string `protobuf:"bytes,3,opt,name=time_source,json=timeSource,proto3" json:"time_source,omitempty"`
 	// Closing whole-call sample of a telemetry series.
-	Final         bool                `protobuf:"varint,4,opt,name=final,proto3" json:"final,omitempty"`
+	Final bool `protobuf:"varint,4,opt,name=final,proto3" json:"final,omitempty"`
+	// Quality snapshot of the end that measured this sample; the populated
+	// field matches the session's app. local* is the in-process client behind
+	// the UE, remote* the N6 loomd flow. A "video" session's remote end is
+	// the http origin, so its remote samples arrive as remote_http.
 	Local         *VoipMetrics        `protobuf:"bytes,5,opt,name=local,proto3" json:"local,omitempty"`
 	Remote        *VoipMetrics        `protobuf:"bytes,6,opt,name=remote,proto3" json:"remote,omitempty"`
 	Events        []*CorrelationEvent `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
+	LocalHttp     *HttpMetrics        `protobuf:"bytes,8,opt,name=local_http,json=localHttp,proto3" json:"local_http,omitempty"`
+	RemoteHttp    *HttpMetrics        `protobuf:"bytes,9,opt,name=remote_http,json=remoteHttp,proto3" json:"remote_http,omitempty"`
+	LocalVideo    *VideoMetrics       `protobuf:"bytes,10,opt,name=local_video,json=localVideo,proto3" json:"local_video,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AppSample) Reset() {
 	*x = AppSample{}
-	mi := &file_orbit_v1_ue_proto_msgTypes[31]
+	mi := &file_orbit_v1_ue_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2240,7 +2443,7 @@ func (x *AppSample) String() string {
 func (*AppSample) ProtoMessage() {}
 
 func (x *AppSample) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_ue_proto_msgTypes[31]
+	mi := &file_orbit_v1_ue_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2253,7 +2456,7 @@ func (x *AppSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSample.ProtoReflect.Descriptor instead.
 func (*AppSample) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{31}
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *AppSample) GetUnixNano() int64 {
@@ -2305,6 +2508,27 @@ func (x *AppSample) GetEvents() []*CorrelationEvent {
 	return nil
 }
 
+func (x *AppSample) GetLocalHttp() *HttpMetrics {
+	if x != nil {
+		return x.LocalHttp
+	}
+	return nil
+}
+
+func (x *AppSample) GetRemoteHttp() *HttpMetrics {
+	if x != nil {
+		return x.RemoteHttp
+	}
+	return nil
+}
+
+func (x *AppSample) GetLocalVideo() *VideoMetrics {
+	if x != nil {
+		return x.LocalVideo
+	}
+	return nil
+}
+
 type StopAppRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
@@ -2314,7 +2538,7 @@ type StopAppRequest struct {
 
 func (x *StopAppRequest) Reset() {
 	*x = StopAppRequest{}
-	mi := &file_orbit_v1_ue_proto_msgTypes[32]
+	mi := &file_orbit_v1_ue_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2326,7 +2550,7 @@ func (x *StopAppRequest) String() string {
 func (*StopAppRequest) ProtoMessage() {}
 
 func (x *StopAppRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_ue_proto_msgTypes[32]
+	mi := &file_orbit_v1_ue_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2339,7 +2563,7 @@ func (x *StopAppRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopAppRequest.ProtoReflect.Descriptor instead.
 func (*StopAppRequest) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{32}
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *StopAppRequest) GetSessionId() string {
@@ -2361,9 +2585,11 @@ type AppReport struct {
 	DataPort        uint32 `protobuf:"varint,5,opt,name=data_port,json=dataPort,proto3" json:"data_port,omitempty"`
 	StartedUnixNano int64  `protobuf:"varint,6,opt,name=started_unix_nano,json=startedUnixNano,proto3" json:"started_unix_nano,omitempty"`
 	EndedUnixNano   int64  `protobuf:"varint,7,opt,name=ended_unix_nano,json=endedUnixNano,proto3" json:"ended_unix_nano,omitempty"`
-	// Whole-call cumulative snapshots: local is the in-process client behind
-	// the UE, remote the far end's final telemetry sample (unset if none
-	// arrived).
+	// Whole-call cumulative snapshots: local* is the in-process client behind
+	// the UE, remote* the far end's final telemetry sample (unset if none
+	// arrived). The populated pair matches the session's app; a "video"
+	// session's far end is the http origin, so its remote snapshot is
+	// remote_http.
 	Local  *VoipMetrics `protobuf:"bytes,8,opt,name=local,proto3" json:"local,omitempty"`
 	Remote *VoipMetrics `protobuf:"bytes,9,opt,name=remote,proto3" json:"remote,omitempty"`
 	// Human-readable correlation timeline, one line per event.
@@ -2372,14 +2598,17 @@ type AppReport struct {
 	MediaGaps []*MediaGapSummary `protobuf:"bytes,11,rep,name=media_gaps,json=mediaGaps,proto3" json:"media_gaps,omitempty"`
 	// The client engine's terminal error (e.g. a handshake timeout), empty
 	// for a clean run.
-	Error         string `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	Error         string        `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	LocalHttp     *HttpMetrics  `protobuf:"bytes,13,opt,name=local_http,json=localHttp,proto3" json:"local_http,omitempty"`
+	RemoteHttp    *HttpMetrics  `protobuf:"bytes,14,opt,name=remote_http,json=remoteHttp,proto3" json:"remote_http,omitempty"`
+	LocalVideo    *VideoMetrics `protobuf:"bytes,15,opt,name=local_video,json=localVideo,proto3" json:"local_video,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AppReport) Reset() {
 	*x = AppReport{}
-	mi := &file_orbit_v1_ue_proto_msgTypes[33]
+	mi := &file_orbit_v1_ue_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2391,7 +2620,7 @@ func (x *AppReport) String() string {
 func (*AppReport) ProtoMessage() {}
 
 func (x *AppReport) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_ue_proto_msgTypes[33]
+	mi := &file_orbit_v1_ue_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2404,7 +2633,7 @@ func (x *AppReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppReport.ProtoReflect.Descriptor instead.
 func (*AppReport) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{33}
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AppReport) GetSessionId() string {
@@ -2491,6 +2720,27 @@ func (x *AppReport) GetError() string {
 	return ""
 }
 
+func (x *AppReport) GetLocalHttp() *HttpMetrics {
+	if x != nil {
+		return x.LocalHttp
+	}
+	return nil
+}
+
+func (x *AppReport) GetRemoteHttp() *HttpMetrics {
+	if x != nil {
+		return x.RemoteHttp
+	}
+	return nil
+}
+
+func (x *AppReport) GetLocalVideo() *VideoMetrics {
+	if x != nil {
+		return x.LocalVideo
+	}
+	return nil
+}
+
 // MediaGapSummary is one media gap attributed to the end that observed it.
 type MediaGapSummary struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2512,7 +2762,7 @@ type MediaGapSummary struct {
 
 func (x *MediaGapSummary) Reset() {
 	*x = MediaGapSummary{}
-	mi := &file_orbit_v1_ue_proto_msgTypes[34]
+	mi := &file_orbit_v1_ue_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2524,7 +2774,7 @@ func (x *MediaGapSummary) String() string {
 func (*MediaGapSummary) ProtoMessage() {}
 
 func (x *MediaGapSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_ue_proto_msgTypes[34]
+	mi := &file_orbit_v1_ue_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2537,7 +2787,7 @@ func (x *MediaGapSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MediaGapSummary.ProtoReflect.Descriptor instead.
 func (*MediaGapSummary) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{34}
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *MediaGapSummary) GetEnd() string {
@@ -2770,14 +3020,31 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\bMediaGap\x12&\n" +
 	"\x0fstart_unix_nano\x18\x01 \x01(\x03R\rstartUnixNano\x12\"\n" +
 	"\rend_unix_nano\x18\x02 \x01(\x03R\vendUnixNano\x12!\n" +
-	"\fpackets_lost\x18\x03 \x01(\rR\vpacketsLost\"1\n" +
+	"\fpackets_lost\x18\x03 \x01(\rR\vpacketsLost\"\xcd\x01\n" +
+	"\vHttpMetrics\x12\x1a\n" +
+	"\brequests\x18\x01 \x01(\x04R\brequests\x12\x16\n" +
+	"\x06errors\x18\x02 \x01(\x04R\x06errors\x12\x1e\n" +
+	"\vttfb_ms_p95\x18\x03 \x01(\x01R\tttfbMsP95\x12!\n" +
+	"\fgoodput_mbps\x18\x04 \x01(\x01R\vgoodputMbps\x12(\n" +
+	"\x10tls_handshake_ms\x18\x05 \x01(\x01R\x0etlsHandshakeMs\x12\x1d\n" +
+	"\n" +
+	"connect_ms\x18\x06 \x01(\x01R\tconnectMs\"\x8e\x02\n" +
+	"\fVideoMetrics\x12\x16\n" +
+	"\x06stalls\x18\x01 \x01(\x04R\x06stalls\x12\"\n" +
+	"\rstall_time_ms\x18\x02 \x01(\x01R\vstallTimeMs\x12%\n" +
+	"\x0erebuffer_ratio\x18\x03 \x01(\x01R\rrebufferRatio\x12\x1b\n" +
+	"\tbuffer_ms\x18\x04 \x01(\x01R\bbufferMs\x12(\n" +
+	"\x10avg_bitrate_kbps\x18\x05 \x01(\x01R\x0eavgBitrateKbps\x12\x1d\n" +
+	"\n" +
+	"startup_ms\x18\x06 \x01(\x01R\tstartupMs\x125\n" +
+	"\fstall_events\x18\a \x03(\v2\x12.orbit.v1.MediaGapR\vstallEvents\"1\n" +
 	"\x10AppStreamRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\"[\n" +
 	"\x10CorrelationEvent\x12\x1b\n" +
 	"\tunix_nano\x18\x01 \x01(\x03R\bunixNano\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail\"\x93\x02\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"\xba\x03\n" +
 	"\tAppSample\x12\x1b\n" +
 	"\tunix_nano\x18\x01 \x01(\x03R\bunixNano\x12\"\n" +
 	"\rtime_err_nano\x18\x02 \x01(\x03R\vtimeErrNano\x12\x1f\n" +
@@ -2786,10 +3053,17 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x05final\x18\x04 \x01(\bR\x05final\x12+\n" +
 	"\x05local\x18\x05 \x01(\v2\x15.orbit.v1.VoipMetricsR\x05local\x12-\n" +
 	"\x06remote\x18\x06 \x01(\v2\x15.orbit.v1.VoipMetricsR\x06remote\x122\n" +
-	"\x06events\x18\a \x03(\v2\x1a.orbit.v1.CorrelationEventR\x06events\"/\n" +
+	"\x06events\x18\a \x03(\v2\x1a.orbit.v1.CorrelationEventR\x06events\x124\n" +
+	"\n" +
+	"local_http\x18\b \x01(\v2\x15.orbit.v1.HttpMetricsR\tlocalHttp\x126\n" +
+	"\vremote_http\x18\t \x01(\v2\x15.orbit.v1.HttpMetricsR\n" +
+	"remoteHttp\x127\n" +
+	"\vlocal_video\x18\n" +
+	" \x01(\v2\x16.orbit.v1.VideoMetricsR\n" +
+	"localVideo\"/\n" +
 	"\x0eStopAppRequest\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\"\xa3\x03\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xca\x04\n" +
 	"\tAppReport\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
@@ -2805,7 +3079,13 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	" \x03(\tR\vannotations\x128\n" +
 	"\n" +
 	"media_gaps\x18\v \x03(\v2\x19.orbit.v1.MediaGapSummaryR\tmediaGaps\x12\x14\n" +
-	"\x05error\x18\f \x01(\tR\x05error\"\xcc\x01\n" +
+	"\x05error\x18\f \x01(\tR\x05error\x124\n" +
+	"\n" +
+	"local_http\x18\r \x01(\v2\x15.orbit.v1.HttpMetricsR\tlocalHttp\x126\n" +
+	"\vremote_http\x18\x0e \x01(\v2\x15.orbit.v1.HttpMetricsR\n" +
+	"remoteHttp\x127\n" +
+	"\vlocal_video\x18\x0f \x01(\v2\x16.orbit.v1.VideoMetricsR\n" +
+	"localVideo\"\xcc\x01\n" +
 	"\x0fMediaGapSummary\x12\x10\n" +
 	"\x03end\x18\x01 \x01(\tR\x03end\x12&\n" +
 	"\x0fstart_unix_nano\x18\x02 \x01(\x03R\rstartUnixNano\x12\"\n" +
@@ -2843,7 +3123,7 @@ func file_orbit_v1_ue_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_ue_proto_rawDescData
 }
 
-var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_orbit_v1_ue_proto_goTypes = []any{
 	(*Credentials)(nil),        // 0: orbit.v1.Credentials
 	(*PDUSession)(nil),         // 1: orbit.v1.PDUSession
@@ -2874,65 +3154,74 @@ var file_orbit_v1_ue_proto_goTypes = []any{
 	(*VoipMetrics)(nil),        // 26: orbit.v1.VoipMetrics
 	(*EModelBreakdown)(nil),    // 27: orbit.v1.EModelBreakdown
 	(*MediaGap)(nil),           // 28: orbit.v1.MediaGap
-	(*AppStreamRequest)(nil),   // 29: orbit.v1.AppStreamRequest
-	(*CorrelationEvent)(nil),   // 30: orbit.v1.CorrelationEvent
-	(*AppSample)(nil),          // 31: orbit.v1.AppSample
-	(*StopAppRequest)(nil),     // 32: orbit.v1.StopAppRequest
-	(*AppReport)(nil),          // 33: orbit.v1.AppReport
-	(*MediaGapSummary)(nil),    // 34: orbit.v1.MediaGapSummary
-	nil,                        // 35: orbit.v1.StartAppRequest.ParamsEntry
-	(*GnbConfig)(nil),          // 36: orbit.v1.GnbConfig
+	(*HttpMetrics)(nil),        // 29: orbit.v1.HttpMetrics
+	(*VideoMetrics)(nil),       // 30: orbit.v1.VideoMetrics
+	(*AppStreamRequest)(nil),   // 31: orbit.v1.AppStreamRequest
+	(*CorrelationEvent)(nil),   // 32: orbit.v1.CorrelationEvent
+	(*AppSample)(nil),          // 33: orbit.v1.AppSample
+	(*StopAppRequest)(nil),     // 34: orbit.v1.StopAppRequest
+	(*AppReport)(nil),          // 35: orbit.v1.AppReport
+	(*MediaGapSummary)(nil),    // 36: orbit.v1.MediaGapSummary
+	nil,                        // 37: orbit.v1.StartAppRequest.ParamsEntry
+	(*GnbConfig)(nil),          // 38: orbit.v1.GnbConfig
 }
 var file_orbit_v1_ue_proto_depIdxs = []int32{
-	36, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
+	38, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
 	0,  // 1: orbit.v1.RegisterRequest.credentials:type_name -> orbit.v1.Credentials
 	1,  // 2: orbit.v1.RegisterRequest.pdu_session:type_name -> orbit.v1.PDUSession
 	7,  // 3: orbit.v1.StatusResponse.status:type_name -> orbit.v1.UEStatus
 	7,  // 4: orbit.v1.ListResponse.ues:type_name -> orbit.v1.UEStatus
-	36, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
+	38, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
 	22, // 6: orbit.v1.DataStatsResponse.flows:type_name -> orbit.v1.QFIStats
-	35, // 7: orbit.v1.StartAppRequest.params:type_name -> orbit.v1.StartAppRequest.ParamsEntry
+	37, // 7: orbit.v1.StartAppRequest.params:type_name -> orbit.v1.StartAppRequest.ParamsEntry
 	27, // 8: orbit.v1.VoipMetrics.emodel:type_name -> orbit.v1.EModelBreakdown
 	28, // 9: orbit.v1.VoipMetrics.media_gaps:type_name -> orbit.v1.MediaGap
-	26, // 10: orbit.v1.AppSample.local:type_name -> orbit.v1.VoipMetrics
-	26, // 11: orbit.v1.AppSample.remote:type_name -> orbit.v1.VoipMetrics
-	30, // 12: orbit.v1.AppSample.events:type_name -> orbit.v1.CorrelationEvent
-	26, // 13: orbit.v1.AppReport.local:type_name -> orbit.v1.VoipMetrics
-	26, // 14: orbit.v1.AppReport.remote:type_name -> orbit.v1.VoipMetrics
-	34, // 15: orbit.v1.AppReport.media_gaps:type_name -> orbit.v1.MediaGapSummary
-	2,  // 16: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
-	4,  // 17: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
-	6,  // 18: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
-	9,  // 19: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
-	13, // 20: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
-	11, // 21: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
-	15, // 22: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
-	15, // 23: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
-	17, // 24: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
-	19, // 25: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
-	21, // 26: orbit.v1.UEService.DataStats:input_type -> orbit.v1.DataStatsRequest
-	24, // 27: orbit.v1.UEService.StartApp:input_type -> orbit.v1.StartAppRequest
-	29, // 28: orbit.v1.UEService.AppStream:input_type -> orbit.v1.AppStreamRequest
-	32, // 29: orbit.v1.UEService.StopApp:input_type -> orbit.v1.StopAppRequest
-	3,  // 30: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 31: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 32: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 33: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	14, // 34: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
-	12, // 35: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	16, // 36: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
-	16, // 37: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
-	18, // 38: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
-	20, // 39: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
-	23, // 40: orbit.v1.UEService.DataStats:output_type -> orbit.v1.DataStatsResponse
-	25, // 41: orbit.v1.UEService.StartApp:output_type -> orbit.v1.StartAppResponse
-	31, // 42: orbit.v1.UEService.AppStream:output_type -> orbit.v1.AppSample
-	33, // 43: orbit.v1.UEService.StopApp:output_type -> orbit.v1.AppReport
-	30, // [30:44] is the sub-list for method output_type
-	16, // [16:30] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	28, // 10: orbit.v1.VideoMetrics.stall_events:type_name -> orbit.v1.MediaGap
+	26, // 11: orbit.v1.AppSample.local:type_name -> orbit.v1.VoipMetrics
+	26, // 12: orbit.v1.AppSample.remote:type_name -> orbit.v1.VoipMetrics
+	32, // 13: orbit.v1.AppSample.events:type_name -> orbit.v1.CorrelationEvent
+	29, // 14: orbit.v1.AppSample.local_http:type_name -> orbit.v1.HttpMetrics
+	29, // 15: orbit.v1.AppSample.remote_http:type_name -> orbit.v1.HttpMetrics
+	30, // 16: orbit.v1.AppSample.local_video:type_name -> orbit.v1.VideoMetrics
+	26, // 17: orbit.v1.AppReport.local:type_name -> orbit.v1.VoipMetrics
+	26, // 18: orbit.v1.AppReport.remote:type_name -> orbit.v1.VoipMetrics
+	36, // 19: orbit.v1.AppReport.media_gaps:type_name -> orbit.v1.MediaGapSummary
+	29, // 20: orbit.v1.AppReport.local_http:type_name -> orbit.v1.HttpMetrics
+	29, // 21: orbit.v1.AppReport.remote_http:type_name -> orbit.v1.HttpMetrics
+	30, // 22: orbit.v1.AppReport.local_video:type_name -> orbit.v1.VideoMetrics
+	2,  // 23: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
+	4,  // 24: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
+	6,  // 25: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
+	9,  // 26: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
+	13, // 27: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
+	11, // 28: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
+	15, // 29: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
+	15, // 30: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
+	17, // 31: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
+	19, // 32: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
+	21, // 33: orbit.v1.UEService.DataStats:input_type -> orbit.v1.DataStatsRequest
+	24, // 34: orbit.v1.UEService.StartApp:input_type -> orbit.v1.StartAppRequest
+	31, // 35: orbit.v1.UEService.AppStream:input_type -> orbit.v1.AppStreamRequest
+	34, // 36: orbit.v1.UEService.StopApp:input_type -> orbit.v1.StopAppRequest
+	3,  // 37: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 38: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 39: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 40: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 41: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 42: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	16, // 43: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
+	16, // 44: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
+	18, // 45: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
+	20, // 46: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
+	23, // 47: orbit.v1.UEService.DataStats:output_type -> orbit.v1.DataStatsResponse
+	25, // 48: orbit.v1.UEService.StartApp:output_type -> orbit.v1.StartAppResponse
+	33, // 49: orbit.v1.UEService.AppStream:output_type -> orbit.v1.AppSample
+	35, // 50: orbit.v1.UEService.StopApp:output_type -> orbit.v1.AppReport
+	37, // [37:51] is the sub-list for method output_type
+	23, // [23:37] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_ue_proto_init() }
@@ -2947,7 +3236,7 @@ func file_orbit_v1_ue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_ue_proto_rawDesc), len(file_orbit_v1_ue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   36,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

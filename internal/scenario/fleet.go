@@ -65,12 +65,34 @@ type TrafficBehavior struct {
 	Mix []TrafficShare `yaml:"mix"`
 }
 
-// TrafficShare assigns a fraction of the fleet to a named traffic profile.
+// TrafficShare assigns a fraction of the fleet to either a synthetic traffic
+// profile (`profile:` — a loom constant-rate flow) or a REAL application
+// cohort (`app:` — members run loom's voip/http/video engines against an N6
+// loomd, design §8). Exactly one of Profile/App must be set per entry.
 type TrafficShare struct {
-	Profile string  `yaml:"profile"` // web | video | voip | full-buffer
+	Profile string  `yaml:"profile"` // synthetic: web | video | voip | full-buffer
+	App     string  `yaml:"app"`     // app cohort: voip | http | video (real loom app engines)
 	Share   float64 `yaml:"share"`
 	Rate    string  `yaml:"rate"`
 	Target  string  `yaml:"target"`
+
+	// App-cohort fields (ignored on profile entries).
+	Name       string            `yaml:"name"`         // cohort label (default: the app name); unique across cohorts
+	Peer       string            `yaml:"peer"`         // N6 loomd control address ("host:port"), required
+	Token      string            `yaml:"token"`        // loomd bearer token ("" = unauthenticated)
+	PeerDataIP string            `yaml:"peer_data_ip"` // N6 media address when it differs from the control host
+	Params     map[string]string `yaml:"params"`       // app knobs, passed verbatim (same grammar as `orbit ue app`)
+}
+
+// isApp reports whether the entry declares a real-application cohort.
+func (m TrafficShare) isApp() bool { return m.App != "" }
+
+// cohortName is the entry's aggregate label (metrics + report).
+func (m TrafficShare) cohortName() string {
+	if m.Name != "" {
+		return m.Name
+	}
+	return m.App
 }
 
 type RunSpec struct {
@@ -138,9 +160,30 @@ func (f *FleetScenario) validate() error {
 	}
 	if t := f.Behaviors.Traffic; t != nil {
 		var sum float64
+		names := map[string]bool{}
 		for _, m := range t.Mix {
-			if m.Profile == "" {
-				return fmt.Errorf("every traffic mix entry needs a profile")
+			switch {
+			case m.Profile != "" && m.App != "":
+				return fmt.Errorf("traffic mix entry cannot set both profile (%q, synthetic) and app (%q, real application); pick one", m.Profile, m.App)
+			case m.Profile == "" && m.App == "":
+				return fmt.Errorf("every traffic mix entry needs a profile (synthetic) or an app (real application cohort)")
+			}
+			if m.isApp() {
+				switch m.App {
+				case "voip", "http", "video":
+				default:
+					return fmt.Errorf("traffic mix app %q is not supported (voip, http, video)", m.App)
+				}
+				if m.Peer == "" {
+					return fmt.Errorf("app cohort %q needs peer: the N6 loomd control address (host:port)", m.cohortName())
+				}
+				if !f.Fleet.PDUSession {
+					return fmt.Errorf("app cohort %q needs fleet.pdu_session: true (application traffic rides the UEs' GTP-U data paths)", m.cohortName())
+				}
+				if names[m.cohortName()] {
+					return fmt.Errorf("app cohort name %q is used twice; cohort names are the aggregate key — set a distinct name: per entry", m.cohortName())
+				}
+				names[m.cohortName()] = true
 			}
 			sum += m.Share
 		}
@@ -199,27 +242,86 @@ func (f *FleetScenario) GenFleet(gnbs []PlacedGNB) []FleetUE {
 	return out
 }
 
-// profileAssignment returns a per-UE traffic profile, allocated proportionally
-// to the mix shares (deterministic: contiguous blocks). Empty strings if no mix.
+// mixCounts allocates the fleet across the mix entries proportionally to
+// their shares (deterministic contiguous blocks; the last entry absorbs
+// rounding) — the population machinery behind both the per-UE profile labels
+// and the app-cohort sizes.
+func (f *FleetScenario) mixCounts() []int {
+	mix := f.Behaviors.Traffic.Mix
+	counts := make([]int, len(mix))
+	i := 0
+	for mi, m := range mix {
+		n := int(math.Round(m.Share * float64(f.Fleet.Count)))
+		if mi == len(mix)-1 {
+			n = f.Fleet.Count - i // last entry absorbs rounding
+		}
+		if n > f.Fleet.Count-i {
+			n = f.Fleet.Count - i
+		}
+		if n < 0 {
+			n = 0
+		}
+		counts[mi] = n
+		i += n
+	}
+	return counts
+}
+
+// profileAssignment returns a per-UE traffic label (the profile, or the
+// cohort name for app entries), allocated per mixCounts. Empty if no mix.
 func (f *FleetScenario) profileAssignment() []string {
 	out := make([]string, f.Fleet.Count)
 	if f.Behaviors.Traffic == nil || len(f.Behaviors.Traffic.Mix) == 0 {
 		return out
 	}
 	mix := f.Behaviors.Traffic.Mix
-	i := 0
-	for mi, m := range mix {
-		n := int(math.Round(m.Share * float64(f.Fleet.Count)))
-		if mi == len(mix)-1 {
-			n = f.Fleet.Count - i // last profile absorbs rounding
+	label := func(m TrafficShare) string {
+		if m.isApp() {
+			return m.cohortName()
 		}
+		return m.Profile
+	}
+	i := 0
+	for mi, n := range f.mixCounts() {
 		for k := 0; k < n && i < f.Fleet.Count; k++ {
-			out[i] = m.Profile
+			out[i] = label(mix[mi])
 			i++
 		}
 	}
 	for ; i < f.Fleet.Count; i++ {
-		out[i] = mix[len(mix)-1].Profile
+		out[i] = label(mix[len(mix)-1])
+	}
+	return out
+}
+
+// AppCohort is one derived real-application cohort (mix entries with app:
+// set), sized by the same contiguous share allocation that assigns profiles
+// to UEs.
+type AppCohort struct {
+	Name, App               string
+	Peer, Token, PeerDataIP string
+	Params                  map[string]string
+	Count                   int
+}
+
+// AppCohorts derives the app-traffic cohorts from the traffic mix. Cohorts
+// allocated zero UEs (tiny shares in tiny fleets) are dropped.
+func (f *FleetScenario) AppCohorts() []AppCohort {
+	if f.Behaviors.Traffic == nil {
+		return nil
+	}
+	mix := f.Behaviors.Traffic.Mix
+	counts := f.mixCounts()
+	var out []AppCohort
+	for i, m := range mix {
+		if !m.isApp() || counts[i] == 0 {
+			continue
+		}
+		out = append(out, AppCohort{
+			Name: m.cohortName(), App: m.App,
+			Peer: m.Peer, Token: m.Token, PeerDataIP: m.PeerDataIP,
+			Params: m.Params, Count: counts[i],
+		})
 	}
 	return out
 }

@@ -22,6 +22,12 @@ import (
 // appMetrics holds the app-session metric families. A nil *appMetrics is a
 // valid no-op receiver, so callers never nil-check (metrics are optional:
 // only servers call EnableAppMetrics).
+//
+// Counters (orbit_app_http_errors_total, orbit_app_stalls_total,
+// orbit_app_stall_time_ms) follow the media-gap histogram's lifecycle, not
+// the gauges': they are cumulative, so deleting them at session end would
+// drop increments landed between two scrapes and reset increase()/rate()
+// mid-run. They are reaped at UE deregistration (forgetUE).
 type appMetrics struct {
 	mos      *prometheus.GaugeVec     // orbit_app_mos{supi,app,end}
 	jitter   *prometheus.GaugeVec     // orbit_app_jitter_ms{supi,app,end}
@@ -30,6 +36,15 @@ type appMetrics struct {
 	owdErr   *prometheus.GaugeVec     // orbit_app_owd_err_ms{supi,app,end}
 	mediaGap *prometheus.HistogramVec // orbit_app_media_gap_ms{supi,app,end}
 	handover *prometheus.GaugeVec     // orbit_ue_handover_timestamp_seconds{supi}
+
+	// HTTP (design Phase 6) and video (Phase 7) families.
+	ttfb      *prometheus.GaugeVec   // orbit_app_ttfb_ms{supi,app,end}
+	goodput   *prometheus.GaugeVec   // orbit_app_goodput_mbps{supi,app,end}
+	httpErrs  *prometheus.CounterVec // orbit_app_http_errors_total{supi,app,end}
+	stalls    *prometheus.CounterVec // orbit_app_stalls_total{supi,app,end}
+	stallTime *prometheus.CounterVec // orbit_app_stall_time_ms{supi,app,end}
+	buffer    *prometheus.GaugeVec   // orbit_app_buffer_ms{supi,app,end}
+	bitrate   *prometheus.GaugeVec   // orbit_app_bitrate_kbps{supi,app,end}
 }
 
 var appLabels = []string{"supi", "app", "end"}
@@ -38,6 +53,11 @@ var appLabels = []string{"supi", "app", "end"}
 func newAppMetrics(reg prometheus.Registerer) *appMetrics {
 	gauge := func(name, help string) *prometheus.GaugeVec {
 		return prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "orbit", Subsystem: "app", Name: name, Help: help,
+		}, appLabels)
+	}
+	counter := func(name, help string) *prometheus.CounterVec {
+		return prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "orbit", Subsystem: "app", Name: name, Help: help,
 		}, appLabels)
 	}
@@ -56,8 +76,17 @@ func newAppMetrics(reg prometheus.Registerer) *appMetrics {
 			Namespace: "orbit", Subsystem: "ue", Name: "handover_timestamp_seconds",
 			Help: "Unix time of the UE's most recent HANDOVER_STARTED event (Grafana annotation source).",
 		}, []string{"supi"}),
+
+		ttfb:      gauge("ttfb_ms", "Interval HTTP time-to-first-byte p95 in milliseconds."),
+		goodput:   gauge("goodput_mbps", "Interval HTTP application-payload goodput in megabits per second."),
+		httpErrs:  counter("http_errors_total", "HTTP request errors (transport failures and non-2xx responses), cumulative."),
+		stalls:    counter("stalls_total", "Video player buffer-underrun (stall) events, cumulative."),
+		stallTime: counter("stall_time_ms", "Total video stall time in milliseconds, cumulative."),
+		buffer:    gauge("buffer_ms", "Current video player buffer level in milliseconds."),
+		bitrate:   gauge("bitrate_kbps", "Interval average bitrate of fetched video segments in kilobits per second."),
 	}
-	reg.MustRegister(a.mos, a.jitter, a.loss, a.owd, a.owdErr, a.mediaGap, a.handover)
+	reg.MustRegister(a.mos, a.jitter, a.loss, a.owd, a.owdErr, a.mediaGap, a.handover,
+		a.ttfb, a.goodput, a.httpErrs, a.stalls, a.stallTime, a.buffer, a.bitrate)
 	return a
 }
 
@@ -69,18 +98,36 @@ func (m *Manager) EnableAppMetrics(reg prometheus.Registerer) {
 	m.appMetrics = newAppMetrics(reg)
 }
 
-// observeSample updates the per-interval gauges from one quality sample.
-// Events and non-VoIP samples are ignored.
+// observeSample updates the per-interval families from one quality sample.
+// Events are ignored. Counters add the interval deltas of non-Final samples
+// only: a FINAL telemetry sample is whole-call cumulative, so adding it would
+// double-count every increment already recorded.
 func (a *appMetrics) observeSample(supi, app string, s AppSample) {
-	if a == nil || s.VoIP == nil || s.End == "" {
+	if a == nil || s.End == "" {
 		return
 	}
 	l := prometheus.Labels{"supi": supi, "app": app, "end": s.End}
-	a.mos.With(l).Set(s.VoIP.MOSCQ)
-	a.jitter.With(l).Set(s.VoIP.JitterMs)
-	a.loss.With(l).Set(s.VoIP.LossPct)
-	a.owd.With(l).Set(s.VoIP.OWDMs)
-	a.owdErr.With(l).Set(s.VoIP.OWDErrMs)
+	switch {
+	case s.VoIP != nil:
+		a.mos.With(l).Set(s.VoIP.MOSCQ)
+		a.jitter.With(l).Set(s.VoIP.JitterMs)
+		a.loss.With(l).Set(s.VoIP.LossPct)
+		a.owd.With(l).Set(s.VoIP.OWDMs)
+		a.owdErr.With(l).Set(s.VoIP.OWDErrMs)
+	case s.HTTP != nil:
+		a.ttfb.With(l).Set(s.HTTP.TTFBMsP95)
+		a.goodput.With(l).Set(s.HTTP.GoodputMbps)
+		if !s.Final {
+			a.httpErrs.With(l).Add(float64(s.HTTP.Errors))
+		}
+	case s.Video != nil:
+		a.buffer.With(l).Set(s.Video.BufferMs)
+		a.bitrate.With(l).Set(s.Video.AvgBitrateKbps)
+		if !s.Final {
+			a.stalls.With(l).Add(float64(s.Video.Stalls))
+			a.stallTime.With(l).Add(s.Video.StallTimeMs)
+		}
+	}
 }
 
 // observeGap records one first-seen media gap (the correlator dedups the
@@ -100,34 +147,60 @@ func (a *appMetrics) recordHandover(supi string, at time.Time) {
 	a.handover.WithLabelValues(supi).Set(float64(at.UnixNano()) / float64(time.Second))
 }
 
+// sessionGauges lists the families cleaned at session end: every per-interval
+// gauge, VoIP and TCP-app alike (a gauge frozen at its last value reads as a
+// live session forever).
+func (a *appMetrics) sessionGauges() []*prometheus.GaugeVec {
+	return []*prometheus.GaugeVec{
+		a.mos, a.jitter, a.loss, a.owd, a.owdErr,
+		a.ttfb, a.goodput, a.buffer, a.bitrate,
+	}
+}
+
+// cumulativeVecs lists the families that survive session end and are reaped
+// only at UE deregistration: the media-gap histogram and the error/stall
+// counters (deleting cumulative series mid-run drops observations landed
+// between two scrapes and breaks increase()/rate()).
+func (a *appMetrics) cumulativeVecs() []interface {
+	DeletePartialMatch(prometheus.Labels) int
+} {
+	return []interface {
+		DeletePartialMatch(prometheus.Labels) int
+	}{a.mediaGap, a.httpErrs, a.stalls, a.stallTime}
+}
+
 // cleanupSession deletes a finished session's labeled GAUGE series so they
 // do not linger at their last value after the call ends. The media-gap
-// HISTOGRAM is deliberately kept: it is cumulative, so deleting it here
-// would drop every observation from a session that ends between two scrapes
-// and reset the counters mid-run (breaking increase()/rate()); the "frozen
-// gauge reads as a live call" rationale does not apply to it. Its series are
-// reaped when the UE deregisters (forgetUE).
+// HISTOGRAM and the http-error/stall COUNTERS are deliberately kept: they
+// are cumulative, so deleting them here would drop every observation from a
+// session that ends between two scrapes and reset the counters mid-run
+// (breaking increase()/rate()); the "frozen gauge reads as a live call"
+// rationale does not apply to them. Their series are reaped when the UE
+// deregisters (forgetUE).
 func (a *appMetrics) cleanupSession(supi, app string) {
 	if a == nil {
 		return
 	}
 	match := prometheus.Labels{"supi": supi, "app": app}
-	for _, g := range []*prometheus.GaugeVec{a.mos, a.jitter, a.loss, a.owd, a.owdErr} {
+	for _, g := range a.sessionGauges() {
 		g.DeletePartialMatch(match)
 	}
 }
 
-// forgetUE drops every series of a deregistered UE: its handover timestamp
-// and — belt and braces, sessions clean up after themselves — any app series
-// left behind by a teardown that timed out.
+// forgetUE drops every series of a deregistered UE: its handover timestamp,
+// the cumulative histogram/counter series, and — belt and braces, sessions
+// clean up after themselves — any app series left behind by a teardown that
+// timed out.
 func (a *appMetrics) forgetUE(supi string) {
 	if a == nil {
 		return
 	}
 	a.handover.DeleteLabelValues(supi)
 	match := prometheus.Labels{"supi": supi}
-	for _, g := range []*prometheus.GaugeVec{a.mos, a.jitter, a.loss, a.owd, a.owdErr} {
+	for _, g := range a.sessionGauges() {
 		g.DeletePartialMatch(match)
 	}
-	a.mediaGap.DeletePartialMatch(match)
+	for _, v := range a.cumulativeVecs() {
+		v.DeletePartialMatch(match)
+	}
 }

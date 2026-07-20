@@ -54,6 +54,7 @@ func newDataSession(m *Manager, supi, upfAddr, n3Port string, ulTEID, dlTEID uin
 	}
 	sess.n3 = m.n3
 	sess.n3Port = n3Port
+	sess.notify = m.hub.publish
 	m.mu.Lock()
 	m.sessions[supi] = sess
 	m.mu.Unlock()
