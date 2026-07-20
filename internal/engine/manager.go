@@ -234,24 +234,32 @@ func (m *Manager) List() []*Session {
 func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
-	if ok {
-		delete(m.sessions, supi)
-	}
 	m.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("UE %s is not registered", supi)
 	}
 
-	// Removing the session from the map does not stop a handover that already
-	// captured the pointer, so wait for it: tearing the association down under
-	// an in-flight procedure races its writes and closes the socket it is
-	// using. Marking the session released fails any procedure queued behind
-	// this one rather than letting it run against a dead session.
+	// Wait for any in-flight procedure before touching the session: removing it
+	// from the map would not stop a handover that already captured the pointer,
+	// and tearing the association down under one races its writes and closes
+	// the socket it is using.
+	//
+	// The session stays in the map until the lock is held. Dropping it first
+	// and then failing to acquire — a caller cancelling while a 30s handover
+	// runs — would leave the only handle to a live SCTP association, N3 tunnel,
+	// and app sessions unreachable, with the UE still registered at the AMF and
+	// no way to retry.
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
 		return err
 	}
 	defer release()
+
+	// Committed now: drop it from the map and make it terminal, so a procedure
+	// queued behind this one fails rather than running against a dead session.
+	m.mu.Lock()
+	delete(m.sessions, supi)
+	m.mu.Unlock()
 	sess.markReleased()
 
 	// End any live app sessions first, while the tunnel is still open: each
