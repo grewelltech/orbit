@@ -9,7 +9,7 @@ replace github.com/songgao/water => github.com/bgrewell/water v0.0.0-20200317203
 require (
 	connectrpc.com/connect v1.20.0
 	github.com/HdrHistogram/hdrhistogram-go v1.2.0
-	github.com/bgrewell/loom v0.9.1
+	github.com/bgrewell/loom v0.10.0
 	github.com/free5gc/aper v1.1.1
 	github.com/free5gc/nas v1.2.3
 	github.com/free5gc/ngap v1.1.3

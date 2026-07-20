@@ -9,6 +9,8 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/bgrewell/loom/core/metrics"
+
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/ue"
@@ -17,8 +19,18 @@ import (
 
 // ueService adapts the engine.Manager to the UEService RPCs.
 type ueService struct {
-	log *slog.Logger
-	mgr *engine.Manager
+	log  *slog.Logger
+	mgr  *engine.Manager
+	apps appSessions
+}
+
+// appSessions is the app-session slice of the engine.Manager surface, split
+// out as an interface so the handler tests can drive the RPCs against a stub
+// engine (the rest of ueService keeps the concrete Manager).
+type appSessions interface {
+	StartAppSession(ctx context.Context, supi string, cfg engine.AppSessionConfig) (string, error)
+	AppSessionEvents(id string) (<-chan engine.AppSample, func())
+	StopAppSession(ctx context.Context, id string) (engine.AppSessionReport, error)
 }
 
 func (s *ueService) Register(
@@ -288,6 +300,183 @@ func (s *ueService) XnHandover(
 	return connect.NewResponse(&orbitv1.HandoverResponse{
 		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
 	}), nil
+}
+
+func (s *ueService) StartApp(
+	ctx context.Context,
+	req *connect.Request[orbitv1.StartAppRequest],
+) (*connect.Response[orbitv1.StartAppResponse], error) {
+	m := req.Msg
+	if m.GetSupi() == "" || m.GetApp() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and app are required"))
+	}
+	dur := time.Duration(m.GetDurationMs()) * time.Millisecond
+	if dur <= 0 {
+		dur = 60 * time.Second
+	}
+	id, err := s.apps.StartAppSession(ctx, m.GetSupi(), engine.AppSessionConfig{
+		App:        m.GetApp(),
+		PeerAgent:  m.GetPeer(),
+		Token:      m.GetToken(),
+		PeerDataIP: m.GetPeerDataIp(),
+		Params:     m.GetParams(),
+		Duration:   dur,
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	return connect.NewResponse(&orbitv1.StartAppResponse{SessionId: id}), nil
+}
+
+func (s *ueService) AppStream(
+	ctx context.Context,
+	req *connect.Request[orbitv1.AppStreamRequest],
+	stream *connect.ServerStream[orbitv1.AppSample],
+) error {
+	if req.Msg.GetSessionId() == "" {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session_id is required"))
+	}
+	events, cancel := s.apps.AppSessionEvents(req.Msg.GetSessionId())
+	defer cancel()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case a, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if err := stream.Send(appSampleProto(a)); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (s *ueService) StopApp(
+	ctx context.Context,
+	req *connect.Request[orbitv1.StopAppRequest],
+) (*connect.Response[orbitv1.AppReport], error) {
+	if req.Msg.GetSessionId() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session_id is required"))
+	}
+	rep, err := s.apps.StopAppSession(ctx, req.Msg.GetSessionId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	return connect.NewResponse(appReportProto(rep)), nil
+}
+
+// appSampleProto maps one engine sample onto the wire: a quality sample sets
+// local or remote by end; a correlation event rides in events.
+func appSampleProto(a engine.AppSample) *orbitv1.AppSample {
+	p := &orbitv1.AppSample{
+		UnixNano:    a.Time.UnixNano(),
+		TimeErrNano: int64(a.TimeErr),
+		TimeSource:  a.TimeSource,
+		Final:       a.Final,
+	}
+	if a.Event != "" {
+		p.Events = []*orbitv1.CorrelationEvent{{
+			UnixNano: a.Time.UnixNano(), Kind: a.Event, Detail: a.Detail,
+		}}
+		return p
+	}
+	if a.End == engine.AppEndN6 {
+		p.Remote = voipMetricsProto(a.VoIP)
+	} else {
+		p.Local = voipMetricsProto(a.VoIP)
+	}
+	return p
+}
+
+func appReportProto(rep engine.AppSessionReport) *orbitv1.AppReport {
+	p := &orbitv1.AppReport{
+		SessionId:       rep.ID,
+		Supi:            rep.SUPI,
+		App:             rep.App,
+		Peer:            rep.PeerAgent,
+		DataPort:        rep.DataPort,
+		StartedUnixNano: rep.Started.UnixNano(),
+		EndedUnixNano:   rep.Ended.UnixNano(),
+		Local:           voipMetricsProto(&rep.Local),
+		Remote:          voipMetricsProto(rep.Remote),
+		Error:           rep.Err,
+		MediaGaps:       appMediaGapSummaries(rep),
+	}
+	for _, ev := range rep.Events {
+		var line string
+		if ev.Event == engine.AppEventAnnotation {
+			// The correlator's composed join ("XnHandover @t → DL media gap
+			// 240ms → …") reads as a sentence on its own.
+			line = fmt.Sprintf("%s  %s", ev.Time.Format("15:04:05.000"), ev.Detail)
+		} else {
+			line = fmt.Sprintf("%s  %s", ev.Time.Format("15:04:05.000"), ev.Event)
+			if ev.Detail != "" {
+				line += " — " + ev.Detail
+			}
+		}
+		p.Annotations = append(p.Annotations, line)
+	}
+	return p
+}
+
+// appMediaGapSummaries maps the engine's report gaps onto the wire. The
+// engine already put both ends on one timeline where possible (remote gaps
+// re-stamped via the TimeSync offset) and labeled the clock of each — the
+// wire carries that label so a "remote-clock" gap is never silently rendered
+// alongside local timestamps as if aligned (design §5/§7).
+func appMediaGapSummaries(rep engine.AppSessionReport) []*orbitv1.MediaGapSummary {
+	var out []*orbitv1.MediaGapSummary
+	for _, g := range rep.MediaGaps {
+		out = append(out, &orbitv1.MediaGapSummary{
+			End: g.End, StartUnixNano: g.Start.UnixNano(),
+			EndUnixNano: g.Stop.UnixNano(), PacketsLost: g.PacketsLost,
+			Clock: g.Clock, TimeErrNano: int64(g.TimeErr),
+		})
+	}
+	return out
+}
+
+// voipMetricsProto maps loom's VoIP snapshot onto the wire (nil in → nil out,
+// so an absent remote report stays absent).
+func voipMetricsProto(v *metrics.VoIP) *orbitv1.VoipMetrics {
+	if v == nil {
+		return nil
+	}
+	p := &orbitv1.VoipMetrics{
+		Codec:         v.Codec,
+		TxPackets:     v.TxPackets,
+		RxPackets:     v.RxPackets,
+		Lost:          v.Lost,
+		Duplicates:    v.Duplicates,
+		Reordered:     v.Reordered,
+		LossPct:       v.LossPct,
+		DiscardPct:    v.DiscardPct,
+		JitterMs:      v.JitterMs,
+		RttMs:         v.RTTMs,
+		OwdMs:         v.OWDMs,
+		OwdErrMs:      v.OWDErrMs,
+		OwdMethod:     v.OWDMethod,
+		BurstR:        v.BurstR,
+		RFactor:       v.RFactor,
+		MosCq:         v.MOSCQ,
+		RemoteRFactor: v.RemoteRFactor,
+		RemoteMosCq:   v.RemoteMOSCQ,
+		Emodel: &orbitv1.EModelBreakdown{
+			Ro: v.EModel.Ro, Is: v.EModel.Is, Idte: v.EModel.Idte,
+			Idle: v.EModel.Idle, Idd: v.EModel.Idd, Id: v.EModel.Id,
+			Ie: v.EModel.Ie, IeEff: v.EModel.IeEff, A: v.EModel.A, R: v.EModel.R,
+		},
+	}
+	for _, g := range v.MediaGaps {
+		p.MediaGaps = append(p.MediaGaps, &orbitv1.MediaGap{
+			StartUnixNano: g.Start.UnixNano(),
+			EndUnixNano:   g.End.UnixNano(),
+			PacketsLost:   g.PacketsLost,
+		})
+	}
+	return p
 }
 
 func ueStatusProto(sess *engine.Session) *orbitv1.UEStatus {

@@ -6,6 +6,7 @@
 package datapath
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -14,6 +15,11 @@ import (
 
 	"github.com/bgrewell/orbit/internal/gtpu"
 )
+
+// ErrDownlinkOwned is returned by ReadDownlink once Demux() has been called:
+// the demux reader goroutine is the socket's only reader (design §6), and
+// downlink must be consumed via UERx subscriptions.
+var ErrDownlinkOwned = errors.New("tunnel downlink is owned by its Demux; consume via UERx subscriptions")
 
 // Tunnel is one gNB N3 endpoint. Uplink packets are sent to the UPF with the
 // UPF-allocated uplink TEID; downlink packets addressed to the gNB's
@@ -27,6 +33,15 @@ type Tunnel struct {
 
 	mu    sync.Mutex
 	stats map[uint8]*QFIStats
+
+	// readMu serializes direct downlink reads (ReadDownlink) against the
+	// demux handoff: Demux() acquires it after waking any blocked reader, so
+	// the demux reader goroutine never coexists with a direct read (§6
+	// single-reader invariant — enforced, not just documented).
+	readMu    sync.Mutex
+	demuxOnce sync.Once
+	demuxed   atomic.Bool
+	demux     *Demux
 }
 
 // QFIStats holds per-QoS-flow byte and packet counters.
@@ -85,6 +100,14 @@ func (t *Tunnel) SendUplink(innerIP []byte) error {
 // tunnel's downlink TEID and returns the inner IP packet. G-PDUs for a
 // different TEID are skipped (defence against cross-talk on a shared UPF).
 func (t *Tunnel) ReadDownlink(timeout time.Duration) ([]byte, error) {
+	// Hold readMu for the whole read so Demux() can wait out (after waking) a
+	// reader already blocked in ReadFromUDP — otherwise that reader would keep
+	// stealing G-PDUs from the demux lanes.
+	t.readMu.Lock()
+	defer t.readMu.Unlock()
+	if t.demuxed.Load() {
+		return nil, ErrDownlinkOwned
+	}
 	deadline := time.Now().Add(timeout)
 	if err := t.conn.SetReadDeadline(deadline); err != nil {
 		return nil, err
@@ -93,6 +116,10 @@ func (t *Tunnel) ReadDownlink(timeout time.Duration) ([]byte, error) {
 	for {
 		n, _, err := t.conn.ReadFromUDP(buf)
 		if err != nil {
+			if t.demuxed.Load() {
+				// Demux() force-woke this read to take ownership.
+				return nil, ErrDownlinkOwned
+			}
 			return nil, err
 		}
 		g, err := gtpu.DecodeGPDU(buf[:n])
@@ -137,7 +164,34 @@ type QFIStatsSnapshot struct {
 	DownlinkPackets, DownlinkBytes uint64
 }
 
-// Close releases the N3 socket.
+// Demux hands the tunnel's downlink read path to a Demux (created on first
+// call, then shared): its reader goroutine becomes the socket's only reader
+// and ReadDownlink is disabled. Per-QFI downlink counters keep flowing —
+// Stats() is unchanged — via the demux's accounting hook. Uplink
+// (SendUplink) is unaffected. Closing the tunnel stops the demux.
+func (t *Tunnel) Demux() *Demux {
+	t.demuxOnce.Do(func() {
+		t.demuxed.Store(true)
+		// Wake a reader blocked inside ReadDownlink's ReadFromUDP, then wait
+		// for it to leave (readMu) so the demux goroutine is the socket's
+		// only reader from its very first poll.
+		_ = t.conn.SetReadDeadline(time.Now())
+		t.readMu.Lock()
+		defer t.readMu.Unlock()
+		t.demux = NewDemux(t.conn, WithDownlinkStats(func(qfi uint8, hasQFI bool, payloadBytes int) {
+			q := t.qfi
+			if hasQFI {
+				q = qfi
+			}
+			s := t.qfiStats(q)
+			s.DownlinkPackets.Add(1)
+			s.DownlinkBytes.Add(uint64(payloadBytes))
+		}))
+	})
+	return t.demux
+}
+
+// Close releases the N3 socket (stopping any Demux reader with it).
 func (t *Tunnel) Close() error { return t.conn.Close() }
 
 func (t *Tunnel) qfiStats(qfi uint8) *QFIStats {

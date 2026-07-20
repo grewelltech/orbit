@@ -1,14 +1,26 @@
-// Package loomgtp bridges the loom traffic generator to ORBIT's userspace
-// GTP-U tunnel. It registers a loom TxDatapath (implementing loom's
-// datapath.TxDatapath frame contract) that, instead of opening a kernel
-// socket, wraps each generated payload in a native inner IPv4+UDP packet
-// sourced from the UE's PDU-session IP and sends it up the N3 tunnel.
+// Package loomgtp bridges loom to ORBIT's userspace GTP-U tunnel. It supplies
+// loom datapaths (implementing loom's datapath.Tx/RxDatapath frame contract)
+// that, instead of opening kernel sockets, ride the session's N3 tunnel — so
+// one process drives many UEs with no TUN device, no NET_ADMIN, and no per-UE
+// netns. loom is embedded unmodified via its injectable components; nothing
+// here forks loom. See docs/DESIGN.md (loom addendum) and
+// docs/design/real-app-traffic.md §6.
 //
-// This is the design's Mode B: loom is the traffic engine and the source
-// binding lives in ORBIT's tunnel, so one process drives many UEs with no TUN
-// device, no NET_ADMIN, and no per-UE netns. loom is embedded unmodified via
-// its injectable components.Components (flow.Build(spec, c)); nothing here
-// forks loom. See docs/DESIGN.md (loom addendum).
+// Two transmit variants exist because loom hands them different bytes:
+//
+//   - "orbit-gtp" (rawTx + rxDatapath, Capabilities.RawL3): frames are
+//     complete inner IP packets. loom's dgram network (core/netpath/dgram)
+//     encodes real IPv4+UDP headers — checksums included — into each frame,
+//     so TxCommit forwards the frame verbatim to Tunnel.SendUplink and never
+//     double-builds headers. Downlink is the session Demux's wildcard UDP
+//     lane (datapath.UERx.SubscribeUDPAll), arrival timestamps preserved into
+//     loom Frame.Meta. NetworkFor assembles the pair into a netpath.Network.
+//
+//   - "orbit-gtp-payload" (payloadTx, no RawL3): frames are raw application
+//     payloads from loom's legacy stream generator (RunFlow). TxCommit wraps
+//     each payload in an inner IPv4+UDP packet (datapath.BuildUDPPacket)
+//     before sending it uplink. Kept solely for the RunFlow throughput path;
+//     new consumers should go through NetworkFor.
 package loomgtp
 
 import (
@@ -35,34 +47,35 @@ type Uplink interface {
 
 const poolDepth = 64
 
-// txDatapath implements loom's datapath.TxDatapath over a GTP-U Uplink. The
-// pump reserves frames, the generator fills them, and TxCommit wraps each
-// filled payload in an inner UDP packet and sends it. The pump reserves →
-// fills → commits synchronously, so reusing one frame pool is safe.
-type txDatapath struct {
-	up               Uplink
-	src, dst         net.IP
-	srcPort, dstPort uint16
-	pool             []loomdp.Frame
+// rawTx implements loom's datapath.TxDatapath with Capabilities.RawL3: every
+// committed frame is already a complete inner IP packet (loom's dgram network
+// builds the IPv4+UDP headers, checksums included), so TxCommit sends
+// Data[:Len] up the GTP-U tunnel unmodified. The committer reserves → fills →
+// commits synchronously (dgram serializes pairs under its tx mutex), so
+// reusing one frame pool is safe.
+type rawTx struct {
+	up   Uplink
+	pool []loomdp.Frame
 }
 
-func newTx(up Uplink, src, dst net.IP, srcPort, dstPort uint16, frameSize int) *txDatapath {
+func newRawTx(up Uplink, frameSize int) *rawTx {
 	if frameSize <= 0 {
-		frameSize = 1400
+		frameSize = DefaultInnerMTU
 	}
-	t := &txDatapath{up: up, src: src, dst: dst, srcPort: srcPort, dstPort: dstPort}
-	t.pool = make([]loomdp.Frame, poolDepth)
+	t := &rawTx{up: up, pool: make([]loomdp.Frame, poolDepth)}
 	for i := range t.pool {
 		t.pool[i].Data = make([]byte, frameSize)
 	}
 	return t
 }
 
-func (t *txDatapath) Name() string              { return "orbit-gtp" }
-func (t *txDatapath) Caps() loomdp.Capabilities { return loomdp.Capabilities{} }
-func (t *txDatapath) Close() error              { return nil }
+func (t *rawTx) Name() string { return "orbit-gtp" }
+func (t *rawTx) Caps() loomdp.Capabilities {
+	return loomdp.Capabilities{RawL3: true} // frames are complete IP packets
+}
+func (t *rawTx) Close() error { return nil }
 
-func (t *txDatapath) TxReserve(n int) []loomdp.Frame {
+func (t *rawTx) TxReserve(n int) []loomdp.Frame {
 	if n > len(t.pool) {
 		n = len(t.pool)
 	}
@@ -72,7 +85,58 @@ func (t *txDatapath) TxReserve(n int) []loomdp.Frame {
 	return t.pool[:n]
 }
 
-func (t *txDatapath) TxCommit(frames []loomdp.Frame) (int, error) {
+func (t *rawTx) TxCommit(frames []loomdp.Frame) (int, error) {
+	sent := 0
+	for i := range frames {
+		if frames[i].Len == 0 {
+			continue
+		}
+		if err := t.up.SendUplink(frames[i].Data[:frames[i].Len]); err != nil {
+			return sent, err
+		}
+		sent++
+	}
+	return sent, nil
+}
+
+// payloadTx is the legacy transmit variant for RunFlow: loom's stream
+// generator fills frames with raw application payloads (not IP packets), so
+// TxCommit wraps each one in an inner IPv4+UDP packet before sending it
+// uplink. It does NOT advertise RawL3 — dgram.New rightly refuses it.
+type payloadTx struct {
+	up               Uplink
+	src, dst         net.IP
+	srcPort, dstPort uint16
+	pool             []loomdp.Frame
+}
+
+func newPayloadTx(up Uplink, src, dst net.IP, srcPort, dstPort uint16, frameSize int) *payloadTx {
+	if frameSize <= 0 {
+		frameSize = 1400
+	}
+	t := &payloadTx{up: up, src: src, dst: dst, srcPort: srcPort, dstPort: dstPort}
+	t.pool = make([]loomdp.Frame, poolDepth)
+	for i := range t.pool {
+		t.pool[i].Data = make([]byte, frameSize)
+	}
+	return t
+}
+
+func (t *payloadTx) Name() string              { return "orbit-gtp-payload" }
+func (t *payloadTx) Caps() loomdp.Capabilities { return loomdp.Capabilities{} }
+func (t *payloadTx) Close() error              { return nil }
+
+func (t *payloadTx) TxReserve(n int) []loomdp.Frame {
+	if n > len(t.pool) {
+		n = len(t.pool)
+	}
+	for i := 0; i < n; i++ {
+		t.pool[i].Len = 0
+	}
+	return t.pool[:n]
+}
+
+func (t *payloadTx) TxCommit(frames []loomdp.Frame) (int, error) {
 	sent := 0
 	for i := range frames {
 		if frames[i].Len == 0 {
@@ -110,7 +174,8 @@ type Result struct {
 
 // RunFlow drives one loom UDP flow over the GTP-U tunnel and returns its
 // throughput. It embeds loom via an injected component set with ORBIT's
-// datapath registered as "orbit-gtp".
+// legacy payload datapath registered as "orbit-gtp-payload" (the stream
+// generator hands raw payloads, so the datapath builds the inner headers).
 func RunFlow(ctx context.Context, cfg Config) (Result, error) {
 	host, portStr, err := net.SplitHostPort(cfg.Target)
 	if err != nil {
@@ -135,13 +200,13 @@ func RunFlow(ctx context.Context, cfg Config) (Result, error) {
 
 	comps := components.Default()
 	tx := registry.New[loomdp.TxDatapath, loomdp.Options]()
-	tx.Register("orbit-gtp", func(o loomdp.Options) (loomdp.TxDatapath, error) {
-		return newTx(cfg.Uplink, cfg.UEIP, dstIP, srcPort, uint16(dstPort), o.FrameSize), nil
+	tx.Register("orbit-gtp-payload", func(o loomdp.Options) (loomdp.TxDatapath, error) {
+		return newPayloadTx(cfg.Uplink, cfg.UEIP, dstIP, srcPort, uint16(dstPort), o.FrameSize), nil
 	})
 	comps.TxDatapaths = tx
 
 	f, err := flow.Build(flow.Spec{
-		Datapath:   "orbit-gtp",
+		Datapath:   "orbit-gtp-payload",
 		Target:     cfg.Target,
 		PacketSize: psize,
 		Rate:       cfg.Rate,
