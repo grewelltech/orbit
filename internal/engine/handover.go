@@ -30,6 +30,16 @@ func (m *Manager) publishMobility(ev StateEvent, attrs ...any) {
 	if ev.Time.IsZero() {
 		ev.Time = time.Now()
 	}
+	// Retain the phase on the session so it survives the event. StateStream is
+	// lossy (hub.publish drops on a full subscriber buffer) and has no replay,
+	// so a polling client would otherwise have no way to observe mobility at
+	// all. This is the single choke point for both N2 and Xn phases.
+	m.mu.Lock()
+	sess := m.sessions[ev.SUPI]
+	m.mu.Unlock()
+	if sess != nil {
+		sess.setMobility(ev.State, ev.Time)
+	}
 	m.log.Info("mobility phase",
 		append([]any{"supi", ev.SUPI, "state", ev.State, "detail", ev.Detail}, attrs...)...)
 	if ev.State == StateHandoverStarted {
@@ -89,8 +99,8 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 	}
 
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
-		Detail: fmt.Sprintf("N2 handover %s → %s", sess.gnbCfg.Name, target.Config.Name)},
-		"type", "n2", "source_gnb", sess.gnbCfg.Name, "target_gnb", target.Config.Name)
+		Detail: fmt.Sprintf("N2 handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},
+		"type", "n2", "source_gnb", sess.ServingGNB().Name, "target_gnb", target.Config.Name)
 
 	if err := m.runHandover(ctx, sess, target); err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: err.Error()},
@@ -120,7 +130,7 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 
 	// 1. source → AMF: HandoverRequired.
 	ho, err := gnb.BuildHandoverRequired(gnb.HandoverParams{
-		Source: sess.gnbCfg, Target: target.Config,
+		Source: sess.ServingGNB(), Target: target.Config,
 		AMFUENGAPID: sess.amfID, RANUENGAPID: sess.ranID, PDUSessionIDs: pduIDs,
 	})
 	if err != nil {
@@ -201,7 +211,7 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	// Move the session onto the target gNB.
 	m.mu.Lock()
 	sess.conn = tgtConn
-	sess.gnbCfg = target.Config
+	sess.setServingGNB(target.Config)
 	sess.ranID = targetHandoverRANID
 	sess.amfID = hr.AMFUENGAPID
 	// Per-session bookkeeping: new DL TEIDs, plus any UL F-TEID the core
