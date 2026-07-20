@@ -38,6 +38,10 @@ service UEService {
   // Latency probes a target over the UE's N3 data path and reports loom's
   // RTT / jitter / loss summary.
   rpc Latency(LatencyRequest) returns (LatencyResponse) {}
+  // DataStats reports the per-QFI uplink/downlink counters of a UE's N3
+  // data path. A UE whose data path has not been opened yet (nothing has
+  // used the tunnel) reports no flows.
+  rpc DataStats(DataStatsRequest) returns (DataStatsResponse) {}
 }
 
 // Credentials carries the subscriber secrets. Warning: Ki/OPc are long-term
@@ -207,4 +211,24 @@ message LatencyResponse {
   double mean_ms = 6;
   double max_ms = 7;
   double jitter_ms = 8;
+}
+
+message DataStatsRequest {
+  string supi = 1;
+}
+
+// QFIStats is one QoS flow's byte and packet counters, both directions,
+// counted over the inner (user) IP packets.
+message QFIStats {
+  uint32 qfi = 1;
+  uint64 uplink_packets = 2;
+  uint64 uplink_bytes = 3;
+  uint64 downlink_packets = 4;
+  uint64 downlink_bytes = 5;
+}
+
+message DataStatsResponse {
+  // Per-QFI counters, ordered by QFI. Empty when the data path has not
+  // been opened yet.
+  repeated QFIStats flows = 1;
 }

@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
@@ -27,16 +26,19 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 		return fmt.Errorf("UE %s is not registered", supi)
 	}
 
-	m.hub.publish(StateEvent{SUPI: supi, State: StateHandoverStarted,
-		Detail: fmt.Sprintf("Xn handover %s → %s", sess.gnbCfg.Name, target.Config.Name), Time: time.Now()})
+	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
+		Detail: fmt.Sprintf("Xn handover %s → %s", sess.gnbCfg.Name, target.Config.Name)},
+		"type", "xn", "source_gnb", sess.gnbCfg.Name, "target_gnb", target.Config.Name)
 
 	if err := m.runXnHandover(ctx, sess, target); err != nil {
-		m.hub.publish(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: "Xn: " + err.Error(), Time: time.Now()})
+		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: "Xn: " + err.Error()},
+			"type", "xn", "target_gnb", target.Config.Name)
 		return err
 	}
 
-	m.hub.publish(StateEvent{SUPI: supi, State: StateHandoverComplete,
-		Detail: fmt.Sprintf("UE on gNB %s (cell %#x) via Xn", target.Config.Name, target.Config.ID), Time: time.Now()})
+	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverComplete,
+		Detail: fmt.Sprintf("UE on gNB %s (cell %#x) via Xn", target.Config.Name, target.Config.ID)},
+		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID)
 	return nil
 }
 
@@ -79,6 +81,12 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		return fmt.Errorf("path switch not acknowledged")
 	}
 	newAMFID, _ := gnb.ParsePathSwitchAcknowledge(pdu)
+
+	// The core has switched the downlink to the target's N3 tunnel — the
+	// user-plane cutover point of an Xn handover.
+	m.publishMobility(StateEvent{SUPI: sess.SUPI, State: StatePathSwitchComplete,
+		Detail: fmt.Sprintf("PathSwitchRequestAcknowledge; downlink → %s (TEID %#x)", target.N3Addr, targetHandoverTEID)},
+		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID, "n3", target.N3Addr)
 
 	// Move the session onto the target gNB.
 	oldConn := sess.conn

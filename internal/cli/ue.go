@@ -23,6 +23,38 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUEHandoverCmd(serverURL, true))
 	cmd.AddCommand(newUETrafficCmd(serverURL))
 	cmd.AddCommand(newUELatencyCmd(serverURL))
+	cmd.AddCommand(newUEStatsCmd(serverURL))
+	return cmd
+}
+
+func newUEStatsCmd(serverURL *string) *cobra.Command {
+	var supi string
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show per-QFI uplink/downlink counters for a UE's N3 data path",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := ueClient(serverURL).DataStats(cmd.Context(),
+				connect.NewRequest(&orbitv1.DataStatsRequest{Supi: supi}))
+			if err != nil {
+				return err
+			}
+			flows := res.Msg.GetFlows()
+			if len(flows) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "no data-path activity yet (counters start with the first ping/traffic/latency run)")
+				return nil
+			}
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+			fmt.Fprintln(w, "QFI\tUL-PKTS\tUL-BYTES\tDL-PKTS\tDL-BYTES")
+			for _, f := range flows {
+				fmt.Fprintf(w, "%d\t%d\t%d\t%d\t%d\n", f.GetQfi(),
+					f.GetUplinkPackets(), f.GetUplinkBytes(),
+					f.GetDownlinkPackets(), f.GetDownlinkBytes())
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	_ = cmd.MarkFlagRequired("supi")
 	return cmd
 }
 

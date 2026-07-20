@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"connectrpc.com/connect"
@@ -203,6 +204,36 @@ func (s *ueService) Latency(
 		Sent: res.Sent, Received: res.Received, Lost: res.Lost, LossPct: res.LossPct,
 		MinMs: ms(res.Min), MeanMs: ms(res.Mean), MaxMs: ms(res.Max), JitterMs: ms(res.Jitter),
 	}), nil
+}
+
+func (s *ueService) DataStats(
+	ctx context.Context,
+	req *connect.Request[orbitv1.DataStatsRequest],
+) (*connect.Response[orbitv1.DataStatsResponse], error) {
+	if req.Msg.GetSupi() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi is required"))
+	}
+	stats, err := s.mgr.DataStats(req.Msg.GetSupi())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+	qfis := make([]uint8, 0, len(stats))
+	for qfi := range stats {
+		qfis = append(qfis, qfi)
+	}
+	sort.Slice(qfis, func(i, j int) bool { return qfis[i] < qfis[j] })
+	res := &orbitv1.DataStatsResponse{}
+	for _, qfi := range qfis {
+		st := stats[qfi]
+		res.Flows = append(res.Flows, &orbitv1.QFIStats{
+			Qfi:             uint32(qfi),
+			UplinkPackets:   st.UplinkPackets,
+			UplinkBytes:     st.UplinkBytes,
+			DownlinkPackets: st.DownlinkPackets,
+			DownlinkBytes:   st.DownlinkBytes,
+		})
+	}
+	return connect.NewResponse(res), nil
 }
 
 func (s *ueService) Handover(
