@@ -35,15 +35,35 @@ func TestPublishMobilityRetainsPhaseOnSession(t *testing.T) {
 	const supi = "001010000000001"
 	m.sessions[supi] = &Session{SUPI: supi, Result: &AttachResult{}}
 
-	before := time.Now()
-	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverComplete, Detail: "on target"})
+	// An explicit event time pins the assertion to the event's own stamp.
+	// Comparing against time.Now() would also pass if setMobility sampled its
+	// own clock, which is the mutation worth excluding.
+	stamp := time.Now().Add(-42 * time.Second).UTC()
+	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverComplete, Detail: "on target", Time: stamp})
 
 	phase, at := m.sessions[supi].Mobility()
 	if phase != StateHandoverComplete {
 		t.Errorf("mobility phase = %q, want %q", phase, StateHandoverComplete)
 	}
-	if at.Before(before) {
-		t.Errorf("mobility timestamp %v predates the event", at)
+	if !at.Equal(stamp) {
+		t.Errorf("mobility timestamp = %v, want the event's own stamp %v", at, stamp)
+	}
+}
+
+// An event published without a time is stamped on arrival, so a retained phase
+// always carries a usable instant.
+func TestPublishMobilityStampsAnUntimedEvent(t *testing.T) {
+	m := quietManager()
+	const supi = "001010000000001"
+	m.sessions[supi] = &Session{SUPI: supi, Result: &AttachResult{}}
+
+	before := time.Now()
+	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted})
+	after := time.Now()
+
+	_, at := m.sessions[supi].Mobility()
+	if at.Before(before) || at.After(after) {
+		t.Errorf("stamp %v outside the publish window [%v, %v]", at, before, after)
 	}
 }
 
@@ -75,9 +95,14 @@ func TestFailedHandoverIsDistinguishableWhileStateUnchanged(t *testing.T) {
 	}
 }
 
-// A handover moves the serving cell, and ServingGNB must follow it — the
-// question "where is this UE now?" has to survive the move.
-func TestServingGNBFollowsTheMove(t *testing.T) {
+// The serving-cell accessor pair round-trips, including across a change of
+// cell.
+//
+// Note: this does NOT prove a handover updates the cell — the N2, Xn, and
+// fleet paths all need live SCTP associations, so that belongs to the
+// integration tier (-tags=integration). Deleting setServingGNB from those
+// paths would keep this test green.
+func TestServingGNBAccessorRoundTrips(t *testing.T) {
 	src := gnb.Config{ID: 0x42, Name: "orbit-gnb-src"}
 	tgt := gnb.Config{ID: 0x43, Name: "orbit-gnb-tgt"}
 

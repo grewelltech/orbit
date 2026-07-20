@@ -20,8 +20,11 @@ upgrade-service:
 uninstall-service:
 	./scripts/orbit.sh uninstall
 
+# The race detector is on by default: concurrency invariants in the engine
+# (per-session state read by API handlers while a handover mutates it) are
+# only enforced by it, and an assertion-free race test is worthless without.
 test:
-	go test ./...
+	go test -race ./...
 
 # Requires live-core reachability (integration-CI tier, DESIGN §6).
 # Override the AMF with ORBIT_AMF_N2=host:port.
