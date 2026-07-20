@@ -39,9 +39,10 @@ upgrade-service:
 uninstall-service:
 	./scripts/orbit.sh uninstall
 
-# The race detector is on by default: concurrency invariants in the engine
-# (per-session state read by API handlers while a handover mutates it) are
-# only enforced by it, and an assertion-free race test is worthless without.
+# The race detector is on by default: several concurrency invariants (live
+# load stats read while the run's worker pool writes them, per-session state
+# read by API handlers while a handover mutates it) are enforced only by it,
+# and the tests covering them are assertion-free without it.
 test:
 	go test -race ./...
 
