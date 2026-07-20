@@ -106,6 +106,11 @@ loss %, and min/mean/max RTT plus jitter. `--rate` empty means unlimited.
 (cumulative since the data path opened; empty until the first
 ping/traffic/latency run touches it).
 
+All UEs on one gNB share a single N3 socket (one bind per gNB N3 address);
+each UE stamps its own TEID/QFI on uplink and the downlink is demultiplexed
+back to it by TEID, so any number of UEs on the same gNB can run data
+commands — and hold app sessions — concurrently.
+
 ## Application traffic (VoIP / MOS)
 
 `orbit ue app voip` places a real RTP/RTCP call from a registered UE through
@@ -131,6 +136,9 @@ media-gap summaries and the annotated event timeline. The exit code is
 non-zero when the call fails, e.g. a media handshake timeout because RTP
 cannot reach the N6 box (the firewall must allow loomd's control port from
 the management network and the RTP port range from the UPF's N6 subnet).
+One call per UE at a time; UEs on the same gNB call concurrently over the
+gNB's shared N3 socket, and a call survives that UE's handover (TEID rebind,
+with the UPF's End Marker on the old path reported as a correlation event).
 
 ## Mobility (handover)
 

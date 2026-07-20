@@ -1,47 +1,46 @@
-// Package datapath carries user-plane packets over N3. Phase-1b scope:
-// Stage-1 userspace GTP-U (DESIGN §5d) — a single UDP socket per gNB that
-// encapsulates uplink IP packets to the UPF and decapsulates downlink,
-// keyed by TEID. This is the "native flow" path (craft/consume packets in
-// process); the per-UE TUN (Mode A) layers on top of the same tunnel.
+// Package datapath carries user-plane packets over N3: Stage-1 userspace
+// GTP-U (DESIGN §5d). Since the Phase-5 cutover the primary surface is the
+// per-gNB SharedTunnel — ONE UDP socket per gNB N3 address whose Demux owns
+// the downlink read path — with per-UE views (UETunnel) that stamp their own
+// uplink TEID/QFI and subscribe downlink lanes. The engine's sessions share
+// those sockets through a refcounted pool; nothing binds a gNB's port 2152
+// twice.
 package datapath
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/bgrewell/orbit/internal/gtpu"
 )
 
 // ErrDownlinkOwned is returned by ReadDownlink once Demux() has been called:
-// the demux reader goroutine is the socket's only reader (design §6), and
-// downlink must be consumed via UERx subscriptions.
+// downlink consumers register lanes with the Demux (design §6) instead of
+// draining the tunnel's single legacy read queue.
 var ErrDownlinkOwned = errors.New("tunnel downlink is owned by its Demux; consume via UERx subscriptions")
 
-// Tunnel is one gNB N3 endpoint. Uplink packets are sent to the UPF with the
-// UPF-allocated uplink TEID; downlink packets addressed to the gNB's
-// downlink TEID are decapsulated. Per-QFI counters track both directions.
+// Tunnel is the retired per-session N3 endpoint, reduced to the shared
+// implementation's single-user case: one SharedTunnel with exactly one UE
+// registered. It keeps the classic surface (SendUplink / ReadDownlink /
+// Stats / Demux) for single-flow tools and tests; the engine no longer uses
+// it — Sessions ride per-gNB SharedTunnels via the Manager's pool, which is
+// what removed the port-2152 collision between UEs.
 type Tunnel struct {
-	conn    *net.UDPConn
-	upfAddr *net.UDPAddr
-	ulTEID  uint32 // UPF's uplink TEID (destination of our uplink)
-	dlTEID  uint32 // our downlink TEID (the UPF sends to this)
-	qfi     uint8
+	st   *SharedTunnel
+	ue   *UETunnel
+	conn *net.UDPConn // the shared socket (test convenience: LocalAddr)
 
-	mu    sync.Mutex
-	stats map[uint8]*QFIStats
-
-	// readMu serializes direct downlink reads (ReadDownlink) against the
-	// demux handoff: Demux() acquires it after waking any blocked reader, so
-	// the demux reader goroutine never coexists with a direct read (§6
-	// single-reader invariant — enforced, not just documented).
-	readMu    sync.Mutex
-	demuxOnce sync.Once
-	demuxed   atomic.Bool
-	demux     *Demux
+	// mu guards the legacy single-consumer read queue. ReadDownlink drains a
+	// catch-all ring fed by the lane's default sink; Demux() retires it so
+	// lane subscriptions become the only downlink surface (§6 single-owner
+	// invariant, enforced: a blocked ReadDownlink is woken with
+	// ErrDownlinkOwned, never left racing the lanes).
+	mu      sync.Mutex
+	legacy  *Ring
+	demuxed atomic.Bool
 }
 
 // QFIStats holds per-QoS-flow byte and packet counters.
@@ -50,6 +49,12 @@ type QFIStats struct {
 	UplinkBytes     atomic.Uint64
 	DownlinkPackets atomic.Uint64
 	DownlinkBytes   atomic.Uint64
+}
+
+// QFIStatsSnapshot is a point-in-time copy of a flow's counters.
+type QFIStatsSnapshot struct {
+	UplinkPackets, UplinkBytes     uint64
+	DownlinkPackets, DownlinkBytes uint64
 }
 
 // Config parameters a tunnel. LocalN3 is the gNB N3 address (host:port) to
@@ -63,144 +68,88 @@ type Config struct {
 	QFI     uint8
 }
 
-// NewTunnel binds the N3 socket and prepares encapsulation.
+// NewTunnel binds the N3 socket (via a single-user SharedTunnel) and
+// registers the one UE view. The legacy catch-all read queue is armed
+// immediately so downlink arriving before the first ReadDownlink call is
+// buffered, matching the old direct-read semantics.
 func NewTunnel(cfg Config) (*Tunnel, error) {
-	laddr, err := net.ResolveUDPAddr("udp", cfg.LocalN3)
+	st, err := NewSharedTunnel(cfg.LocalN3, cfg.UPFN3)
 	if err != nil {
-		return nil, fmt.Errorf("resolve local N3 %q: %w", cfg.LocalN3, err)
+		return nil, err
 	}
-	raddr, err := net.ResolveUDPAddr("udp", cfg.UPFN3)
+	ue, err := st.Register(UETunnelConfig{ULTEID: cfg.ULTEID, DLTEID: cfg.DLTEID, QFI: cfg.QFI})
 	if err != nil {
-		return nil, fmt.Errorf("resolve UPF N3 %q: %w", cfg.UPFN3, err)
+		_ = st.Close()
+		return nil, err
 	}
-	conn, err := net.ListenUDP("udp", laddr)
-	if err != nil {
-		return nil, fmt.Errorf("bind N3 socket %q: %w", cfg.LocalN3, err)
-	}
-	return &Tunnel{
-		conn: conn, upfAddr: raddr,
-		ulTEID: cfg.ULTEID, dlTEID: cfg.DLTEID, qfi: cfg.QFI,
-		stats: map[uint8]*QFIStats{cfg.QFI: {}},
-	}, nil
+	t := &Tunnel{st: st, ue: ue, conn: st.conn}
+	t.legacy = NewRing(defaultRingCapacity)
+	r := t.legacy
+	ue.Lane().SetDefaultSink(func(innerIP []byte) { r.Push(innerIP, time.Now()) })
+	return t, nil
 }
 
 // SendUplink encapsulates an inner IP packet and sends it to the UPF.
-func (t *Tunnel) SendUplink(innerIP []byte) error {
-	pkt := gtpu.EncodeGPDU(t.ulTEID, t.qfi, innerIP)
-	if _, err := t.conn.WriteToUDP(pkt, t.upfAddr); err != nil {
-		return fmt.Errorf("send uplink G-PDU: %w", err)
-	}
-	s := t.qfiStats(t.qfi)
-	s.UplinkPackets.Add(1)
-	s.UplinkBytes.Add(uint64(len(innerIP)))
-	return nil
-}
+func (t *Tunnel) SendUplink(innerIP []byte) error { return t.ue.SendUplink(innerIP) }
 
 // ReadDownlink blocks up to timeout for one downlink G-PDU addressed to this
-// tunnel's downlink TEID and returns the inner IP packet. G-PDUs for a
-// different TEID are skipped (defence against cross-talk on a shared UPF).
+// tunnel's downlink TEID and returns the inner IP packet (G-PDUs for other
+// TEIDs are skipped by the demux — the classic cross-talk defence). Once
+// Demux() has been called it returns ErrDownlinkOwned.
 func (t *Tunnel) ReadDownlink(timeout time.Duration) ([]byte, error) {
-	// Hold readMu for the whole read so Demux() can wait out (after waking) a
-	// reader already blocked in ReadFromUDP — otherwise that reader would keep
-	// stealing G-PDUs from the demux lanes.
-	t.readMu.Lock()
-	defer t.readMu.Unlock()
+	t.mu.Lock()
+	r := t.legacy
+	t.mu.Unlock()
 	if t.demuxed.Load() {
 		return nil, ErrDownlinkOwned
 	}
-	deadline := time.Now().Add(timeout)
-	if err := t.conn.SetReadDeadline(deadline); err != nil {
+	if r == nil {
+		return nil, net.ErrClosed // tunnel closed
+	}
+	f, err := r.Read(timeout)
+	if err != nil {
+		if errors.Is(err, net.ErrClosed) && t.demuxed.Load() {
+			// Demux() force-retired the legacy queue to take ownership.
+			return nil, ErrDownlinkOwned
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			// Preserve the classic direct-socket timeout surface: a deadline
+			// read used to return an error satisfying net.Error with
+			// Timeout() == true and errors.Is(err, os.ErrDeadlineExceeded).
+			return nil, os.ErrDeadlineExceeded
+		}
 		return nil, err
 	}
-	buf := make([]byte, 65536)
-	for {
-		n, _, err := t.conn.ReadFromUDP(buf)
-		if err != nil {
-			if t.demuxed.Load() {
-				// Demux() force-woke this read to take ownership.
-				return nil, ErrDownlinkOwned
-			}
-			return nil, err
-		}
-		g, err := gtpu.DecodeGPDU(buf[:n])
-		if err != nil {
-			continue // ignore malformed frames rather than failing the flow
-		}
-		if g.TEID != t.dlTEID || len(g.Payload) == 0 {
-			continue
-		}
-		qfi := t.qfi
-		if g.HasQFI {
-			qfi = g.QFI
-		}
-		s := t.qfiStats(qfi)
-		s.DownlinkPackets.Add(1)
-		s.DownlinkBytes.Add(uint64(len(g.Payload)))
-		out := make([]byte, len(g.Payload))
-		copy(out, g.Payload)
-		return out, nil
-	}
+	return f.Payload, nil
 }
 
 // Stats returns a snapshot of the per-QFI counters.
-func (t *Tunnel) Stats() map[uint8]QFIStatsSnapshot {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	out := make(map[uint8]QFIStatsSnapshot, len(t.stats))
-	for qfi, s := range t.stats {
-		out[qfi] = QFIStatsSnapshot{
-			UplinkPackets:   s.UplinkPackets.Load(),
-			UplinkBytes:     s.UplinkBytes.Load(),
-			DownlinkPackets: s.DownlinkPackets.Load(),
-			DownlinkBytes:   s.DownlinkBytes.Load(),
-		}
-	}
-	return out
-}
+func (t *Tunnel) Stats() map[uint8]QFIStatsSnapshot { return t.ue.Stats() }
 
-// QFIStatsSnapshot is a point-in-time copy of a flow's counters.
-type QFIStatsSnapshot struct {
-	UplinkPackets, UplinkBytes     uint64
-	DownlinkPackets, DownlinkBytes uint64
-}
-
-// Demux hands the tunnel's downlink read path to a Demux (created on first
-// call, then shared): its reader goroutine becomes the socket's only reader
-// and ReadDownlink is disabled. Per-QFI downlink counters keep flowing —
-// Stats() is unchanged — via the demux's accounting hook. Uplink
-// (SendUplink) is unaffected. Closing the tunnel stops the demux.
+// Demux hands the tunnel's downlink to lane subscriptions: the legacy
+// ReadDownlink queue is retired (a blocked reader wakes with
+// ErrDownlinkOwned) and the shared Demux — the socket's owner since
+// construction — is returned. Per-QFI downlink counters keep flowing (the
+// lane accounting hook); SendUplink is unaffected. Idempotent.
 func (t *Tunnel) Demux() *Demux {
-	t.demuxOnce.Do(func() {
-		t.demuxed.Store(true)
-		// Wake a reader blocked inside ReadDownlink's ReadFromUDP, then wait
-		// for it to leave (readMu) so the demux goroutine is the socket's
-		// only reader from its very first poll.
-		_ = t.conn.SetReadDeadline(time.Now())
-		t.readMu.Lock()
-		defer t.readMu.Unlock()
-		t.demux = NewDemux(t.conn, WithDownlinkStats(func(qfi uint8, hasQFI bool, payloadBytes int) {
-			q := t.qfi
-			if hasQFI {
-				q = qfi
-			}
-			s := t.qfiStats(q)
-			s.DownlinkPackets.Add(1)
-			s.DownlinkBytes.Add(uint64(payloadBytes))
-		}))
-	})
-	return t.demux
+	t.mu.Lock()
+	t.demuxed.Store(true)
+	if t.legacy != nil {
+		t.ue.Lane().SetDefaultSink(nil)
+		t.legacy.Close()
+		t.legacy = nil
+	}
+	t.mu.Unlock()
+	return t.st.Demux()
 }
 
-// Close releases the N3 socket (stopping any Demux reader with it).
-func (t *Tunnel) Close() error { return t.conn.Close() }
-
-func (t *Tunnel) qfiStats(qfi uint8) *QFIStats {
+// Close releases the N3 socket (stopping the Demux reader with it).
+func (t *Tunnel) Close() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	s, ok := t.stats[qfi]
-	if !ok {
-		s = &QFIStats{}
-		t.stats[qfi] = s
+	if t.legacy != nil {
+		t.legacy.Close()
+		t.legacy = nil
 	}
-	return s
+	t.mu.Unlock()
+	return t.st.Close()
 }

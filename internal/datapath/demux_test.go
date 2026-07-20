@@ -220,7 +220,10 @@ func TestDemuxDetachAttach(t *testing.T) {
 		t.Fatalf("detached lane's ring was closed by the old demux teardown: %v", err)
 	}
 
-	r2 := newDemuxRig(t, 1, newTEID, 1)
+	// The target rig's own UE view occupies its DLTEID (SharedTunnel
+	// registers the lane at construction), so the moved lane attaches under
+	// a distinct TEID — as a real inter-gNB move would.
+	r2 := newDemuxRig(t, 1, 0x999, 1)
 	if err := r2.d.Attach(newTEID, rx); err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
@@ -468,8 +471,8 @@ func TestDemuxEndMarker(t *testing.T) {
 	ring := rx.SubscribeICMP()
 
 	var seen atomic.Int64
-	var arrival atomic.Value
-	rx.SetEndMarkerFunc(func(at time.Time) { arrival.Store(at); seen.Add(1) })
+	var last atomic.Value
+	rx.SetEndMarkerFunc(func(em EndMarker) { last.Store(em); seen.Add(1) })
 
 	if _, err := r.upf.WriteToUDP(gtpu.EncodeEndMarker(dlTEID), r.tun.conn.LocalAddr().(*net.UDPAddr)); err != nil {
 		t.Fatal(err)
@@ -478,8 +481,15 @@ func TestDemuxEndMarker(t *testing.T) {
 	if seen.Load() != 1 {
 		t.Fatalf("callback fired %d times, want 1", seen.Load())
 	}
-	if at := arrival.Load().(time.Time); time.Since(at) > 5*time.Second || at.IsZero() {
-		t.Errorf("end-marker arrival %v not plausible", at)
+	em := last.Load().(EndMarker)
+	if time.Since(em.Arrival) > 5*time.Second || em.Arrival.IsZero() {
+		t.Errorf("end-marker arrival %v not plausible", em.Arrival)
+	}
+	if em.TEID != dlTEID || em.Stale {
+		t.Errorf("end marker = TEID %#x stale %v, want TEID %#x on the live lane", em.TEID, em.Stale, dlTEID)
+	}
+	if want := r.tun.conn.LocalAddr().String(); em.GNB != want {
+		t.Errorf("end-marker gNB = %q, want %q", em.GNB, want)
 	}
 	if _, err := ring.Read(30 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("end marker leaked into a packet lane")
@@ -495,6 +505,90 @@ func TestDemuxEndMarker(t *testing.T) {
 	waitFor(t, "end-marker TEID miss", func() bool { return r.d.TEIDMisses() == 1 })
 	if rx.EndMarkers() != 1 {
 		t.Errorf("foreign end marker reached this UE's lane")
+	}
+}
+
+// TestDemuxEndMarkerTombstoneAfterRebind: after the handover TEID swap, the
+// UPF's End Marker on the VACATED TEID must still reach the moved lane's
+// callback (marked stale, counted) instead of dropping as a TEID miss — the
+// "source path drained" correlation signal. Data G-PDUs on the vacated TEID
+// keep missing, and the tombstone expires after its grace window.
+func TestDemuxEndMarkerTombstoneAfterRebind(t *testing.T) {
+	const oldTEID, newTEID = 0x100, 0x200
+	r := newDemuxRig(t, 1, oldTEID, 1)
+	rx := r.d.Register(oldTEID)
+
+	var seen atomic.Int64
+	var last atomic.Value
+	rx.SetEndMarkerFunc(func(em EndMarker) { last.Store(em); seen.Add(1) })
+
+	if err := r.d.Rebind(oldTEID, newTEID); err != nil {
+		t.Fatal(err)
+	}
+	dst := r.tun.conn.LocalAddr().(*net.UDPAddr)
+	if _, err := r.upf.WriteToUDP(gtpu.EncodeEndMarker(oldTEID), dst); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "stale end marker via the tombstone", func() bool { return rx.EndMarkers() == 1 })
+	em := last.Load().(EndMarker)
+	if !em.Stale || em.TEID != oldTEID {
+		t.Errorf("end marker = TEID %#x stale %v, want the vacated TEID %#x stale", em.TEID, em.Stale, oldTEID)
+	}
+	if r.d.StaleEndMarkers() != 1 || r.d.TEIDMisses() != 0 {
+		t.Errorf("stale = %d, misses = %d, want 1/0", r.d.StaleEndMarkers(), r.d.TEIDMisses())
+	}
+
+	// Only End Markers ride the tombstone: a data G-PDU on the vacated TEID
+	// is still a miss, never resurrected into the lane.
+	r.sendDL(t, oldTEID, 1, icmpPkt(t, 3, 3))
+	waitFor(t, "vacated-TEID data miss", func() bool { return r.d.TEIDMisses() == 1 })
+
+	// Past the grace window the tombstone is gone: the marker is a miss.
+	r.d.mu.Lock()
+	r.d.tombs[oldTEID] = tombstone{rx: rx, expires: time.Now().Add(-time.Millisecond)}
+	r.d.mu.Unlock()
+	if _, err := r.upf.WriteToUDP(gtpu.EncodeEndMarker(oldTEID), dst); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "expired tombstone to miss", func() bool { return r.d.TEIDMisses() == 2 })
+	if rx.EndMarkers() != 1 {
+		t.Errorf("expired tombstone still delivered (count %d)", rx.EndMarkers())
+	}
+}
+
+// TestDemuxEndMarkerTombstoneAfterDetach: the inter-gNB half — a lane
+// Detached from the source demux (and re-attached elsewhere) still hears the
+// source socket's End Marker on its old TEID during the grace window, and a
+// new lane registering that TEID supersedes the tombstone.
+func TestDemuxEndMarkerTombstoneAfterDetach(t *testing.T) {
+	const teid = 0x321
+	r := newDemuxRig(t, 1, teid, 1)
+	rx := r.d.Register(teid)
+
+	var seen atomic.Int64
+	rx.SetEndMarkerFunc(func(em EndMarker) {
+		if em.Stale && em.TEID == teid {
+			seen.Add(1)
+		}
+	})
+	if got, ok := r.d.Detach(teid); !ok || got != rx {
+		t.Fatalf("Detach = (%v, %v)", got, ok)
+	}
+	dst := r.tun.conn.LocalAddr().(*net.UDPAddr)
+	if _, err := r.upf.WriteToUDP(gtpu.EncodeEndMarker(teid), dst); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "detached lane's end marker", func() bool { return seen.Load() == 1 })
+
+	// A new UE registering the TEID takes it over completely: its lane gets
+	// live End Markers and the old tombstone never fires again.
+	rx2 := r.d.Register(teid)
+	if _, err := r.upf.WriteToUDP(gtpu.EncodeEndMarker(teid), dst); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "successor lane's end marker", func() bool { return rx2.EndMarkers() == 1 })
+	if seen.Load() != 1 {
+		t.Errorf("tombstoned lane heard the successor's end marker (%d)", seen.Load())
 	}
 }
 
