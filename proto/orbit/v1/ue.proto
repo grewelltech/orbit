@@ -114,11 +114,25 @@ message StatusRequest {
   string supi = 1;
 }
 
+// UEStatus is a snapshot of one UE. Registration and mobility are orthogonal
+// axes: a UE that has handed over is still SESSION_ACTIVE, so `state` alone
+// cannot distinguish a UE whose handover failed from a healthy one — read it
+// together with `mobility_state`.
 message UEStatus {
   string supi = 1;
-  string state = 2;        // REGISTERING, REGISTERED, SESSION_ACTIVE, ...
+  // Registration axis: REGISTERING, REGISTERED, SESSION_ACTIVE, ...
+  string state = 2;
   string pdu_address = 3;
   int64 amf_ue_ngap_id = 4;
+  // The cell currently serving the UE. Follows the UE across handovers, so it
+  // answers "where is this UE now?".
+  uint32 serving_gnb_id = 5;
+  string serving_gnb_name = 6;
+  // Mobility axis, independent of `state`: HANDOVER_STARTED, HANDED_OVER,
+  // HANDOVER_FAILED, PATH_SWITCH_COMPLETE. Empty until the UE first moves.
+  string mobility_state = 7;
+  // When mobility_state was recorded; 0 when the UE has never moved.
+  int64 mobility_changed_unix_nano = 8;
 }
 
 message StatusResponse {

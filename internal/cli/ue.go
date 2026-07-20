@@ -278,8 +278,9 @@ func newUEStatusCmd(serverURL *string) *cobra.Command {
 				return err
 			}
 			s := res.Msg.GetStatus()
-			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  ip=%s  amf-ue-ngap-id=%d\n",
-				s.GetSupi(), s.GetState(), s.GetPduAddress(), s.GetAmfUeNgapId())
+			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  ip=%s  amf-ue-ngap-id=%d  gnb=%s%s\n",
+				s.GetSupi(), s.GetState(), s.GetPduAddress(), s.GetAmfUeNgapId(),
+				gnbLabel(s), mobilitySuffix(s))
 			return nil
 		},
 	}
@@ -317,9 +318,14 @@ func newUEListCmd(serverURL *string) *cobra.Command {
 				return err
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-			fmt.Fprintln(w, "SUPI\tSTATE\tIP\tAMF-UE-NGAP-ID")
+			fmt.Fprintln(w, "SUPI\tSTATE\tIP\tAMF-UE-NGAP-ID\tSERVING-GNB\tMOBILITY")
 			for _, u := range res.Msg.GetUes() {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", u.GetSupi(), u.GetState(), u.GetPduAddress(), u.GetAmfUeNgapId())
+				mob := u.GetMobilityState()
+				if mob == "" {
+					mob = "-"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n", u.GetSupi(), u.GetState(),
+					u.GetPduAddress(), u.GetAmfUeNgapId(), gnbLabel(u), mob)
 			}
 			return w.Flush()
 		},
@@ -347,4 +353,32 @@ func newUEWatchCmd(serverURL *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&supi, "supi", "", "only this SUPI (default: all)")
 	return cmd
+}
+
+// gnbLabel renders the serving cell as a name when the gNB advertises one,
+// falling back to the hex id. A UE that has never been placed shows "-".
+func gnbLabel(s *orbitv1.UEStatus) string {
+	if n := s.GetServingGnbName(); n != "" {
+		return n
+	}
+	if id := s.GetServingGnbId(); id != 0 {
+		return fmt.Sprintf("%#x", id)
+	}
+	return "-"
+}
+
+// mobilitySuffix appends the mobility phase and its age, when the UE has moved.
+// Registration and mobility are orthogonal axes, so this reads alongside the
+// UE's state rather than replacing it — a handed-over UE is still
+// SESSION_ACTIVE, and a UE whose handover failed says so here.
+func mobilitySuffix(s *orbitv1.UEStatus) string {
+	phase := s.GetMobilityState()
+	if phase == "" {
+		return ""
+	}
+	if ns := s.GetMobilityChangedUnixNano(); ns > 0 {
+		return fmt.Sprintf("  mobility=%s (%s ago)", phase,
+			time.Since(time.Unix(0, ns)).Truncate(time.Second))
+	}
+	return "  mobility=" + phase
 }

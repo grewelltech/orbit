@@ -41,14 +41,21 @@ type Session struct {
 	SUPI   string
 	Result *AttachResult
 
-	gnbCfg gnb.Config
-	conn   gnb.Transport
-	sec    *nas.SecurityContext
-	amfID  int64
-	ranID  int64
-	guti   []byte
-	state  string
-	gnbN3  string
+	conn  gnb.Transport
+	sec   *nas.SecurityContext
+	amfID int64
+	ranID int64
+	guti  []byte
+	gnbN3 string
+
+	// stMu guards the externally observable state below. Handover mutates the
+	// serving cell and the mobility phase while List/Status readers hold only
+	// the Manager's map lock, which guards the map and not its values.
+	stMu     sync.RWMutex
+	gnbCfg   gnb.Config
+	state    string
+	mobState string    // last mobility phase; empty until the UE first moves
+	mobAt    time.Time // when mobState was recorded
 
 	// N3 data path, created lazily on first use over the per-gNB shared
 	// tunnel pool (design §6, Phase 5): ONE socket per gNB N3 address,
@@ -175,7 +182,7 @@ func (m *Manager) Register(ctx context.Context, amfAddr string, gnbCfg gnb.Confi
 		conn.Close()
 		return nil, err
 	}
-	sess.state = stateFromResult(sess.Result)
+	sess.setState(stateFromResult(sess.Result))
 	sess.gnbN3 = ueCfg.GNBN3Addr
 	sess.n3 = m.n3              // data paths open on the Manager's shared per-gNB pool
 	sess.notify = m.hub.publish // correlation-visible data-path events (netstack.go)
@@ -381,8 +388,57 @@ func (m *Manager) ReleaseGNB(gnbN3 string) int {
 	return len(victims)
 }
 
-// State reports the current lifecycle state of the session (snapshot).
-func (s *Session) State() string { return s.state }
+// State reports the current registration state of the session (snapshot).
+//
+// Registration and mobility are orthogonal axes: a UE that has handed over is
+// still SESSION_ACTIVE, so a handover never changes this value. Use Mobility
+// for the mobility phase.
+func (s *Session) State() string {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.state
+}
+
+// ServingGNB reports the cell currently serving the UE (snapshot). It follows
+// the UE across handovers, so it answers "where is this UE now?".
+func (s *Session) ServingGNB() gnb.Config {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.gnbCfg
+}
+
+// Mobility reports the last mobility phase the UE reached and when. The phase
+// is empty, with a zero time, until the UE first moves.
+//
+// A failed handover is visible here as StateHandoverFailed while State still
+// reports SESSION_ACTIVE — the combination a polling client needs in order to
+// tell a UE with a broken path from a healthy one.
+func (s *Session) Mobility() (phase string, at time.Time) {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.mobState, s.mobAt
+}
+
+// setState records the registration state.
+func (s *Session) setState(state string) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.state = state
+}
+
+// setServingGNB moves the session to a new serving cell.
+func (s *Session) setServingGNB(cfg gnb.Config) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.gnbCfg = cfg
+}
+
+// setMobility records a mobility phase and its instant.
+func (s *Session) setMobility(phase string, at time.Time) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.mobState, s.mobAt = phase, at
+}
 
 // tunnel lazily creates (and caches) the session's uplink/stats view of its
 // gNB's shared N3 tunnel.
