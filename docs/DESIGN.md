@@ -436,10 +436,14 @@ register its **own** datapath without forking loom.
 
 **Chosen integration — fork-free Mode-B bridge (the concrete plan):**
 1. `internal/loomgtp` implements loom's `TxDatapath`/`RxDatapath` over ORBIT's
-   userspace GTP-U `datapath.Tunnel`: on `TxCommit`, wrap each frame's payload in a
-   native inner IPv4+UDP packet (UE IP → target) and `SendUplink`; on `RxPoll`,
-   `ReadDownlink` and hand the inner payload back. Needs a small native UDP
-   inner-packet builder alongside the existing ICMP one (`internal/datapath`).
+   userspace GTP-U data path — one `datapath.SharedTunnel` per gNB N3 address
+   (the only 2152 bind per gNB), every UE's uplink stamping its own TEID/QFI on
+   the shared socket, downlink demultiplexed back to per-UE lanes by TEID
+   (`datapath.Demux`), so many UEs on one gNB carry data concurrently. On
+   `TxCommit`, wrap each frame's payload in a native inner IPv4+UDP packet
+   (UE IP → target) and `SendUplink`; on `RxPoll`, read the UE's demux lane and
+   hand the inner payload back. Needs a small native UDP inner-packet builder
+   alongside the existing ICMP one (`internal/datapath`).
 2. Register that datapath into a `components.Components` and drive a `flow.Spec`
    (rate/size/duration) per UE, sourced from the UE's PDU IP — **no TUN, no
    NET_ADMIN, no per-UE netns** (resolves the per-UE-binding open item: binding

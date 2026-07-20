@@ -39,8 +39,10 @@ import (
 	"github.com/bgrewell/orbit/internal/datapath"
 )
 
-// Uplink is the GTP-U send side this bridge needs; *datapath.Tunnel satisfies
-// it. Kept minimal so tests can inject a loopback.
+// Uplink is the GTP-U send side this bridge needs; *engine.Session,
+// *datapath.UETunnel and *datapath.UEFlow all satisfy it (each stamping the
+// UE's own UL TEID/QFI on the shared per-gNB socket). Kept minimal so tests
+// can inject a loopback.
 type Uplink interface {
 	SendUplink(innerIP []byte) error
 }

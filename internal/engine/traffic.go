@@ -34,12 +34,13 @@ func (m *Manager) Traffic(ctx context.Context, supi, target, rate string, packet
 	if sess.gnbN3 == "" {
 		return nil, fmt.Errorf("UE %s registered without a gNB N3 address; data path disabled", supi)
 	}
-	tun, err := sess.tunnel()
-	if err != nil {
+	// Ensure the data path is open, but hand loom the Session itself as the
+	// uplink (not a tunnel snapshot) so a handover mid-run follows the rebind.
+	if _, err := sess.tunnel(); err != nil {
 		return nil, err
 	}
 	res, err := loomgtp.RunFlow(ctx, loomgtp.Config{
-		Uplink:     tun,
+		Uplink:     sess,
 		UEIP:       net.ParseIP(sess.Result.PDUAddress),
 		Target:     target,
 		PacketSize: packetSize,
@@ -75,16 +76,17 @@ func (m *Manager) Latency(ctx context.Context, supi, target string, probes int, 
 	if sess.gnbN3 == "" {
 		return nil, fmt.Errorf("UE %s registered without a gNB N3 address; data path disabled", supi)
 	}
-	tun, rx, err := sess.dataplane()
+	_, rx, err := sess.dataplane()
 	if err != nil {
 		return nil, err
 	}
 	// The probe consumes downlink via its own ICMP lane on the session demux
-	// (design §6) — media lanes and the probe share the tunnel socket.
+	// (design §6) — media lanes and the probe share the tunnel socket. The
+	// uplink is the Session (follows handover rebinds), never a snapshot.
 	ring := rx.SubscribeICMP()
 	defer rx.UnsubscribeICMP(ring)
 	res, err := loomgtp.RunLatency(ctx, loomgtp.LatencyConfig{
-		Uplink:  tun,
+		Uplink:  sess,
 		RX:      ring,
 		UEIP:    net.ParseIP(sess.Result.PDUAddress),
 		Target:  target,
