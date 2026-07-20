@@ -339,6 +339,16 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 // fleetHandover moves fu to the target gNB via an Xn PathSwitch on the target's
 // muxed association, updating the UE handle on success.
 func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE, target int) error {
+	// Same exclusion as the Manager's handover paths. Fleet sessions live
+	// outside Manager.sessions today, so nothing else drives them concurrently
+	// — but this keeps the invariant true for when ADR-0005 moves fleet runs
+	// onto the server's Manager.
+	release, err := fu.sess.beginProcedure(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	uetT, ranIDT := f.sessions[target].NewUE()
 	// DL TEIDs come from the same process-wide allocator as attach — a
 	// derived scheme (0x1000+ranID) could collide with a TEID a fleet attach

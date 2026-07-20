@@ -26,6 +26,14 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 		return fmt.Errorf("UE %s is not registered", supi)
 	}
 
+	// Serialise against another handover or a deregistration on this UE: they
+	// rewrite the association and the serving cell together.
+	release, err := sess.beginProcedure(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
 		Detail: fmt.Sprintf("Xn handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},
 		"type", "xn", "source_gnb", sess.ServingGNB().Name, "target_gnb", target.Config.Name)
