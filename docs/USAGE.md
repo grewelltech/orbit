@@ -106,6 +106,32 @@ loss %, and min/mean/max RTT plus jitter. `--rate` empty means unlimited.
 (cumulative since the data path opened; empty until the first
 ping/traffic/latency run touches it).
 
+## Application traffic (VoIP / MOS)
+
+`orbit ue app voip` places a real RTP/RTCP call from a registered UE through
+its GTP-U data path to a **stock loomd agent** (loom ≥ v0.10) on the N6
+network, and scores it with the ITU-T G.107 E-model:
+
+```sh
+# On the N6 box (once): loomd --token $TOKEN
+orbit ue app voip --supi <imsi> --peer <n6-host>:9551 \
+    --codec g711 --ptime 20ms --jb 40 --duration 60s [--json]
+```
+
+`--peer` is loomd's control address on the **management** network; if the N6
+media address differs, add `--peer-data-ip`. A server-level default can be
+set once at startup with `orbit serve --loom-agent <n6-host>:9551
+[--loom-token $TOKEN]`, after which `--peer`/`--token` may be omitted
+per call (per-call values override the defaults). The CLI streams one line per
+interval from *both* ends of the call — MOS/R, jitter, loss, jitter-buffer
+discard, RTT, and one-way delay labeled with its method and error bar
+(`owd 0.61±0.05ms (timesync)`) — with correlation events (handover phases,
+GTP-U End Markers) printed inline as they arrive, then a both-end report with
+media-gap summaries and the annotated event timeline. The exit code is
+non-zero when the call fails, e.g. a media handshake timeout because RTP
+cannot reach the N6 box (the firewall must allow loomd's control port from
+the management network and the RTP port range from the UPF's N6 subnet).
+
 ## Mobility (handover)
 
 The UE must already be registered (ideally with a session). Use a distinct
@@ -245,7 +271,8 @@ curl -s http://127.0.0.1:8412/orbit.v1.UEService/List \
 ```
 
 Services: `UEService` (Register, Deregister, Status, List, Ping, Traffic,
-Latency, Handover, XnHandover, StateStream), `CellService` (RunNGSetup),
+Latency, Handover, XnHandover, StateStream, DataStats, StartApp, AppStream,
+StopApp), `CellService` (RunNGSetup),
 `SystemService` (GetInfo). Schema in [`proto/orbit/v1`](../proto/orbit/v1);
 regenerate the Go/Connect bindings with `make gen`.
 

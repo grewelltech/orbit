@@ -75,12 +75,17 @@ func (m *Manager) Latency(ctx context.Context, supi, target string, probes int, 
 	if sess.gnbN3 == "" {
 		return nil, fmt.Errorf("UE %s registered without a gNB N3 address; data path disabled", supi)
 	}
-	tun, err := sess.tunnel()
+	tun, rx, err := sess.dataplane()
 	if err != nil {
 		return nil, err
 	}
+	// The probe consumes downlink via its own ICMP lane on the session demux
+	// (design §6) — media lanes and the probe share the tunnel socket.
+	ring := rx.SubscribeICMP()
+	defer rx.UnsubscribeICMP(ring)
 	res, err := loomgtp.RunLatency(ctx, loomgtp.LatencyConfig{
-		Probe:   tun,
+		Uplink:  tun,
+		RX:      ring,
 		UEIP:    net.ParseIP(sess.Result.PDUAddress),
 		Target:  target,
 		Probes:  probes,

@@ -1557,6 +1557,1031 @@ func (x *DataStatsResponse) GetFlows() []*QFIStats {
 	return nil
 }
 
+type StartAppRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Registered UE the call runs from (needs an active PDU session and a
+	// gNB N3 address, like Traffic/Latency).
+	Supi string `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
+	// loom application engine; "voip" is the one this build supports.
+	App string `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`
+	// The N6 loomd's control-plane address (host:port) on the MANAGEMENT
+	// network. Empty falls back to the server-level default, if configured.
+	Peer string `protobuf:"bytes,3,opt,name=peer,proto3" json:"peer,omitempty"`
+	// loomd control-plane bearer token (empty = server default / no auth).
+	Token string `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
+	// Media address override: by default RTP is aimed at peer's host, but
+	// the management and N6 data addresses may differ.
+	PeerDataIp string `protobuf:"bytes,5,opt,name=peer_data_ip,json=peerDataIp,proto3" json:"peer_data_ip,omitempty"`
+	// App tuning knobs, passed verbatim to both ends
+	// (voip: codec, ptime, jb_ms, port_min, port_max, ...).
+	Params map[string]string `protobuf:"bytes,6,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Call duration in milliseconds (0 = 60000). The far-end flow is always
+	// duration-bounded — loom's orphan protection.
+	DurationMs    uint32 `protobuf:"varint,7,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartAppRequest) Reset() {
+	*x = StartAppRequest{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartAppRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartAppRequest) ProtoMessage() {}
+
+func (x *StartAppRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartAppRequest.ProtoReflect.Descriptor instead.
+func (*StartAppRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *StartAppRequest) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+func (x *StartAppRequest) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *StartAppRequest) GetPeer() string {
+	if x != nil {
+		return x.Peer
+	}
+	return ""
+}
+
+func (x *StartAppRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *StartAppRequest) GetPeerDataIp() string {
+	if x != nil {
+		return x.PeerDataIp
+	}
+	return ""
+}
+
+func (x *StartAppRequest) GetParams() map[string]string {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+func (x *StartAppRequest) GetDurationMs() uint32 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+type StartAppResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Session id for AppStream / StopApp, e.g. "app-1".
+	SessionId     string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartAppResponse) Reset() {
+	*x = StartAppResponse{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartAppResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartAppResponse) ProtoMessage() {}
+
+func (x *StartAppResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartAppResponse.ProtoReflect.Descriptor instead.
+func (*StartAppResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *StartAppResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+// VoipMetrics mirrors loom's VoIP quality snapshot (metrics.VoIP): RFC 3550
+// receiver statistics, RFC 3611 discard accounting, one-way delay with its
+// provenance and error bar, and the G.107 E-model rating with its audit
+// breakdown.
+type VoipMetrics struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Codec      string                 `protobuf:"bytes,1,opt,name=codec,proto3" json:"codec,omitempty"`
+	TxPackets  uint64                 `protobuf:"varint,2,opt,name=tx_packets,json=txPackets,proto3" json:"tx_packets,omitempty"`
+	RxPackets  uint64                 `protobuf:"varint,3,opt,name=rx_packets,json=rxPackets,proto3" json:"rx_packets,omitempty"`
+	Lost       uint64                 `protobuf:"varint,4,opt,name=lost,proto3" json:"lost,omitempty"`
+	Duplicates uint64                 `protobuf:"varint,5,opt,name=duplicates,proto3" json:"duplicates,omitempty"`
+	Reordered  uint64                 `protobuf:"varint,6,opt,name=reordered,proto3" json:"reordered,omitempty"`
+	// Network loss and jitter-buffer discard, percent; their sum is the
+	// E-model's Ppl input, so delay spikes hurt MOS.
+	LossPct    float64 `protobuf:"fixed64,7,opt,name=loss_pct,json=lossPct,proto3" json:"loss_pct,omitempty"`
+	DiscardPct float64 `protobuf:"fixed64,8,opt,name=discard_pct,json=discardPct,proto3" json:"discard_pct,omitempty"`
+	// RFC 3550 A.8 interarrival jitter and §6.4.1 LSR/DLSR round trip.
+	JitterMs float64 `protobuf:"fixed64,9,opt,name=jitter_ms,json=jitterMs,proto3" json:"jitter_ms,omitempty"`
+	RttMs    float64 `protobuf:"fixed64,10,opt,name=rtt_ms,json=rttMs,proto3" json:"rtt_ms,omitempty"`
+	// One-way delay with its half-width error bound; owd_method labels the
+	// provenance ("timesync", "rtt/2", "assume-synced", "none") so an RTT/2
+	// guess is never presented as a measured number.
+	OwdMs     float64 `protobuf:"fixed64,11,opt,name=owd_ms,json=owdMs,proto3" json:"owd_ms,omitempty"`
+	OwdErrMs  float64 `protobuf:"fixed64,12,opt,name=owd_err_ms,json=owdErrMs,proto3" json:"owd_err_ms,omitempty"`
+	OwdMethod string  `protobuf:"bytes,13,opt,name=owd_method,json=owdMethod,proto3" json:"owd_method,omitempty"`
+	// Gilbert burst ratio (1 = random loss, >1 = bursty).
+	BurstR float64 `protobuf:"fixed64,14,opt,name=burst_r,json=burstR,proto3" json:"burst_r,omitempty"`
+	// Local G.107/G.107.1 rating and MOS-CQE, with the per-term breakdown.
+	RFactor float64          `protobuf:"fixed64,15,opt,name=r_factor,json=rFactor,proto3" json:"r_factor,omitempty"`
+	MosCq   float64          `protobuf:"fixed64,16,opt,name=mos_cq,json=mosCq,proto3" json:"mos_cq,omitempty"`
+	Emodel  *EModelBreakdown `protobuf:"bytes,17,opt,name=emodel,proto3" json:"emodel,omitempty"`
+	// The peer's view of the opposite direction via RTCP XR (0 = no report).
+	RemoteRFactor float64 `protobuf:"fixed64,18,opt,name=remote_r_factor,json=remoteRFactor,proto3" json:"remote_r_factor,omitempty"`
+	RemoteMosCq   float64 `protobuf:"fixed64,19,opt,name=remote_mos_cq,json=remoteMosCq,proto3" json:"remote_mos_cq,omitempty"`
+	// Holes in media arrival (>3·ptime of silence) — the raw material for
+	// handover/outage correlation.
+	MediaGaps     []*MediaGap `protobuf:"bytes,20,rep,name=media_gaps,json=mediaGaps,proto3" json:"media_gaps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VoipMetrics) Reset() {
+	*x = VoipMetrics{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VoipMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VoipMetrics) ProtoMessage() {}
+
+func (x *VoipMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VoipMetrics.ProtoReflect.Descriptor instead.
+func (*VoipMetrics) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *VoipMetrics) GetCodec() string {
+	if x != nil {
+		return x.Codec
+	}
+	return ""
+}
+
+func (x *VoipMetrics) GetTxPackets() uint64 {
+	if x != nil {
+		return x.TxPackets
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetRxPackets() uint64 {
+	if x != nil {
+		return x.RxPackets
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetLost() uint64 {
+	if x != nil {
+		return x.Lost
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetDuplicates() uint64 {
+	if x != nil {
+		return x.Duplicates
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetReordered() uint64 {
+	if x != nil {
+		return x.Reordered
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetLossPct() float64 {
+	if x != nil {
+		return x.LossPct
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetDiscardPct() float64 {
+	if x != nil {
+		return x.DiscardPct
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetJitterMs() float64 {
+	if x != nil {
+		return x.JitterMs
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetRttMs() float64 {
+	if x != nil {
+		return x.RttMs
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetOwdMs() float64 {
+	if x != nil {
+		return x.OwdMs
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetOwdErrMs() float64 {
+	if x != nil {
+		return x.OwdErrMs
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetOwdMethod() string {
+	if x != nil {
+		return x.OwdMethod
+	}
+	return ""
+}
+
+func (x *VoipMetrics) GetBurstR() float64 {
+	if x != nil {
+		return x.BurstR
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetRFactor() float64 {
+	if x != nil {
+		return x.RFactor
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetMosCq() float64 {
+	if x != nil {
+		return x.MosCq
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetEmodel() *EModelBreakdown {
+	if x != nil {
+		return x.Emodel
+	}
+	return nil
+}
+
+func (x *VoipMetrics) GetRemoteRFactor() float64 {
+	if x != nil {
+		return x.RemoteRFactor
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetRemoteMosCq() float64 {
+	if x != nil {
+		return x.RemoteMosCq
+	}
+	return 0
+}
+
+func (x *VoipMetrics) GetMediaGaps() []*MediaGap {
+	if x != nil {
+		return x.MediaGaps
+	}
+	return nil
+}
+
+// EModelBreakdown is the G.107 per-term audit trail behind r_factor, so a
+// rating can be attributed to delay, loss or codec rather than trusted
+// blindly.
+type EModelBreakdown struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ro            float64                `protobuf:"fixed64,1,opt,name=ro,proto3" json:"ro,omitempty"`
+	Is            float64                `protobuf:"fixed64,2,opt,name=is,proto3" json:"is,omitempty"`
+	Idte          float64                `protobuf:"fixed64,3,opt,name=idte,proto3" json:"idte,omitempty"`
+	Idle          float64                `protobuf:"fixed64,4,opt,name=idle,proto3" json:"idle,omitempty"`
+	Idd           float64                `protobuf:"fixed64,5,opt,name=idd,proto3" json:"idd,omitempty"`
+	Id            float64                `protobuf:"fixed64,6,opt,name=id,proto3" json:"id,omitempty"`
+	Ie            float64                `protobuf:"fixed64,7,opt,name=ie,proto3" json:"ie,omitempty"`
+	IeEff         float64                `protobuf:"fixed64,8,opt,name=ie_eff,json=ieEff,proto3" json:"ie_eff,omitempty"`
+	A             float64                `protobuf:"fixed64,9,opt,name=a,proto3" json:"a,omitempty"`
+	R             float64                `protobuf:"fixed64,10,opt,name=r,proto3" json:"r,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EModelBreakdown) Reset() {
+	*x = EModelBreakdown{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EModelBreakdown) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EModelBreakdown) ProtoMessage() {}
+
+func (x *EModelBreakdown) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EModelBreakdown.ProtoReflect.Descriptor instead.
+func (*EModelBreakdown) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *EModelBreakdown) GetRo() float64 {
+	if x != nil {
+		return x.Ro
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetIs() float64 {
+	if x != nil {
+		return x.Is
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetIdte() float64 {
+	if x != nil {
+		return x.Idte
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetIdle() float64 {
+	if x != nil {
+		return x.Idle
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetIdd() float64 {
+	if x != nil {
+		return x.Idd
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetId() float64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetIe() float64 {
+	if x != nil {
+		return x.Ie
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetIeEff() float64 {
+	if x != nil {
+		return x.IeEff
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetA() float64 {
+	if x != nil {
+		return x.A
+	}
+	return 0
+}
+
+func (x *EModelBreakdown) GetR() float64 {
+	if x != nil {
+		return x.R
+	}
+	return 0
+}
+
+// MediaGap is one hole in media arrival.
+type MediaGap struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StartUnixNano int64                  `protobuf:"varint,1,opt,name=start_unix_nano,json=startUnixNano,proto3" json:"start_unix_nano,omitempty"`
+	EndUnixNano   int64                  `protobuf:"varint,2,opt,name=end_unix_nano,json=endUnixNano,proto3" json:"end_unix_nano,omitempty"`
+	PacketsLost   uint32                 `protobuf:"varint,3,opt,name=packets_lost,json=packetsLost,proto3" json:"packets_lost,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MediaGap) Reset() {
+	*x = MediaGap{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MediaGap) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MediaGap) ProtoMessage() {}
+
+func (x *MediaGap) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MediaGap.ProtoReflect.Descriptor instead.
+func (*MediaGap) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *MediaGap) GetStartUnixNano() int64 {
+	if x != nil {
+		return x.StartUnixNano
+	}
+	return 0
+}
+
+func (x *MediaGap) GetEndUnixNano() int64 {
+	if x != nil {
+		return x.EndUnixNano
+	}
+	return 0
+}
+
+func (x *MediaGap) GetPacketsLost() uint32 {
+	if x != nil {
+		return x.PacketsLost
+	}
+	return 0
+}
+
+type AppStreamRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AppStreamRequest) Reset() {
+	*x = AppStreamRequest{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AppStreamRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AppStreamRequest) ProtoMessage() {}
+
+func (x *AppStreamRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AppStreamRequest.ProtoReflect.Descriptor instead.
+func (*AppStreamRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *AppStreamRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+// CorrelationEvent is a timestamped annotation on the call timeline: a hub
+// state phase (HANDOVER_STARTED, PATH_SWITCH_COMPLETE, ...), a GTP-U End
+// Marker (END_MARKER_RECEIVED), or a mid-call UE release (UE_RELEASED).
+type CorrelationEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UnixNano      int64                  `protobuf:"varint,1,opt,name=unix_nano,json=unixNano,proto3" json:"unix_nano,omitempty"`
+	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	Detail        string                 `protobuf:"bytes,3,opt,name=detail,proto3" json:"detail,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CorrelationEvent) Reset() {
+	*x = CorrelationEvent{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CorrelationEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CorrelationEvent) ProtoMessage() {}
+
+func (x *CorrelationEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CorrelationEvent.ProtoReflect.Descriptor instead.
+func (*CorrelationEvent) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *CorrelationEvent) GetUnixNano() int64 {
+	if x != nil {
+		return x.UnixNano
+	}
+	return 0
+}
+
+func (x *CorrelationEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *CorrelationEvent) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+// AppSample is one item on an app session's stream: an interval quality
+// sample from one end of the call — local (the in-process client behind
+// the UE) or remote (the N6 loomd server) — or correlation events.
+type AppSample struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Sample instant on orbit's clock, nanoseconds since the Unix epoch.
+	// Remote samples are re-stamped via the TimeSync offset when available.
+	UnixNano int64 `protobuf:"varint,1,opt,name=unix_nano,json=unixNano,proto3" json:"unix_nano,omitempty"`
+	// Half-width uncertainty of a re-stamped timestamp, nanoseconds.
+	TimeErrNano int64 `protobuf:"varint,2,opt,name=time_err_nano,json=timeErrNano,proto3" json:"time_err_nano,omitempty"`
+	// Clock provenance: "local", "timesync" (re-stamped), or "remote-clock"
+	// (no offset yet).
+	TimeSource string `protobuf:"bytes,3,opt,name=time_source,json=timeSource,proto3" json:"time_source,omitempty"`
+	// Closing whole-call sample of a telemetry series.
+	Final         bool                `protobuf:"varint,4,opt,name=final,proto3" json:"final,omitempty"`
+	Local         *VoipMetrics        `protobuf:"bytes,5,opt,name=local,proto3" json:"local,omitempty"`
+	Remote        *VoipMetrics        `protobuf:"bytes,6,opt,name=remote,proto3" json:"remote,omitempty"`
+	Events        []*CorrelationEvent `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AppSample) Reset() {
+	*x = AppSample{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AppSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AppSample) ProtoMessage() {}
+
+func (x *AppSample) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AppSample.ProtoReflect.Descriptor instead.
+func (*AppSample) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *AppSample) GetUnixNano() int64 {
+	if x != nil {
+		return x.UnixNano
+	}
+	return 0
+}
+
+func (x *AppSample) GetTimeErrNano() int64 {
+	if x != nil {
+		return x.TimeErrNano
+	}
+	return 0
+}
+
+func (x *AppSample) GetTimeSource() string {
+	if x != nil {
+		return x.TimeSource
+	}
+	return ""
+}
+
+func (x *AppSample) GetFinal() bool {
+	if x != nil {
+		return x.Final
+	}
+	return false
+}
+
+func (x *AppSample) GetLocal() *VoipMetrics {
+	if x != nil {
+		return x.Local
+	}
+	return nil
+}
+
+func (x *AppSample) GetRemote() *VoipMetrics {
+	if x != nil {
+		return x.Remote
+	}
+	return nil
+}
+
+func (x *AppSample) GetEvents() []*CorrelationEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+type StopAppRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopAppRequest) Reset() {
+	*x = StopAppRequest{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopAppRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopAppRequest) ProtoMessage() {}
+
+func (x *StopAppRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopAppRequest.ProtoReflect.Descriptor instead.
+func (*StopAppRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *StopAppRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+// AppReport is the both-end result of one app session.
+type AppReport struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Supi      string                 `protobuf:"bytes,2,opt,name=supi,proto3" json:"supi,omitempty"`
+	App       string                 `protobuf:"bytes,3,opt,name=app,proto3" json:"app,omitempty"`
+	// The N6 loomd control address the call was placed against.
+	Peer string `protobuf:"bytes,4,opt,name=peer,proto3" json:"peer,omitempty"`
+	// The far end's advertised media port.
+	DataPort        uint32 `protobuf:"varint,5,opt,name=data_port,json=dataPort,proto3" json:"data_port,omitempty"`
+	StartedUnixNano int64  `protobuf:"varint,6,opt,name=started_unix_nano,json=startedUnixNano,proto3" json:"started_unix_nano,omitempty"`
+	EndedUnixNano   int64  `protobuf:"varint,7,opt,name=ended_unix_nano,json=endedUnixNano,proto3" json:"ended_unix_nano,omitempty"`
+	// Whole-call cumulative snapshots: local is the in-process client behind
+	// the UE, remote the far end's final telemetry sample (unset if none
+	// arrived).
+	Local  *VoipMetrics `protobuf:"bytes,8,opt,name=local,proto3" json:"local,omitempty"`
+	Remote *VoipMetrics `protobuf:"bytes,9,opt,name=remote,proto3" json:"remote,omitempty"`
+	// Human-readable correlation timeline, one line per event.
+	Annotations []string `protobuf:"bytes,10,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	// Media gaps from both ends, tagged by end.
+	MediaGaps []*MediaGapSummary `protobuf:"bytes,11,rep,name=media_gaps,json=mediaGaps,proto3" json:"media_gaps,omitempty"`
+	// The client engine's terminal error (e.g. a handshake timeout), empty
+	// for a clean run.
+	Error         string `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AppReport) Reset() {
+	*x = AppReport{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AppReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AppReport) ProtoMessage() {}
+
+func (x *AppReport) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AppReport.ProtoReflect.Descriptor instead.
+func (*AppReport) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *AppReport) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *AppReport) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+func (x *AppReport) GetApp() string {
+	if x != nil {
+		return x.App
+	}
+	return ""
+}
+
+func (x *AppReport) GetPeer() string {
+	if x != nil {
+		return x.Peer
+	}
+	return ""
+}
+
+func (x *AppReport) GetDataPort() uint32 {
+	if x != nil {
+		return x.DataPort
+	}
+	return 0
+}
+
+func (x *AppReport) GetStartedUnixNano() int64 {
+	if x != nil {
+		return x.StartedUnixNano
+	}
+	return 0
+}
+
+func (x *AppReport) GetEndedUnixNano() int64 {
+	if x != nil {
+		return x.EndedUnixNano
+	}
+	return 0
+}
+
+func (x *AppReport) GetLocal() *VoipMetrics {
+	if x != nil {
+		return x.Local
+	}
+	return nil
+}
+
+func (x *AppReport) GetRemote() *VoipMetrics {
+	if x != nil {
+		return x.Remote
+	}
+	return nil
+}
+
+func (x *AppReport) GetAnnotations() []string {
+	if x != nil {
+		return x.Annotations
+	}
+	return nil
+}
+
+func (x *AppReport) GetMediaGaps() []*MediaGapSummary {
+	if x != nil {
+		return x.MediaGaps
+	}
+	return nil
+}
+
+func (x *AppReport) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// MediaGapSummary is one media gap attributed to the end that observed it.
+type MediaGapSummary struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "ue" (downlink hole) or "n6" (uplink hole).
+	End           string `protobuf:"bytes,1,opt,name=end,proto3" json:"end,omitempty"`
+	StartUnixNano int64  `protobuf:"varint,2,opt,name=start_unix_nano,json=startUnixNano,proto3" json:"start_unix_nano,omitempty"`
+	EndUnixNano   int64  `protobuf:"varint,3,opt,name=end_unix_nano,json=endUnixNano,proto3" json:"end_unix_nano,omitempty"`
+	PacketsLost   uint32 `protobuf:"varint,4,opt,name=packets_lost,json=packetsLost,proto3" json:"packets_lost,omitempty"`
+	// clock says whose clock the timestamps are on: "local" (orbit's), or for
+	// n6 gaps "timesync" (re-stamped onto orbit's clock via the session's
+	// TimeSync offset; time_err_nano carries the re-stamp's half-width
+	// uncertainty) or "remote-clock" (no offset was available — the raw remote
+	// stamp, NOT comparable with local timestamps and labeled as such).
+	Clock         string `protobuf:"bytes,5,opt,name=clock,proto3" json:"clock,omitempty"`
+	TimeErrNano   int64  `protobuf:"varint,6,opt,name=time_err_nano,json=timeErrNano,proto3" json:"time_err_nano,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MediaGapSummary) Reset() {
+	*x = MediaGapSummary{}
+	mi := &file_orbit_v1_ue_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MediaGapSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MediaGapSummary) ProtoMessage() {}
+
+func (x *MediaGapSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_ue_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MediaGapSummary.ProtoReflect.Descriptor instead.
+func (*MediaGapSummary) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_ue_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *MediaGapSummary) GetEnd() string {
+	if x != nil {
+		return x.End
+	}
+	return ""
+}
+
+func (x *MediaGapSummary) GetStartUnixNano() int64 {
+	if x != nil {
+		return x.StartUnixNano
+	}
+	return 0
+}
+
+func (x *MediaGapSummary) GetEndUnixNano() int64 {
+	if x != nil {
+		return x.EndUnixNano
+	}
+	return 0
+}
+
+func (x *MediaGapSummary) GetPacketsLost() uint32 {
+	if x != nil {
+		return x.PacketsLost
+	}
+	return 0
+}
+
+func (x *MediaGapSummary) GetClock() string {
+	if x != nil {
+		return x.Clock
+	}
+	return ""
+}
+
+func (x *MediaGapSummary) GetTimeErrNano() int64 {
+	if x != nil {
+		return x.TimeErrNano
+	}
+	return 0
+}
+
 var File_orbit_v1_ue_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_ue_proto_rawDesc = "" +
@@ -1683,7 +2708,111 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x10downlink_packets\x18\x04 \x01(\x04R\x0fdownlinkPackets\x12%\n" +
 	"\x0edownlink_bytes\x18\x05 \x01(\x04R\rdownlinkBytes\"=\n" +
 	"\x11DataStatsResponse\x12(\n" +
-	"\x05flows\x18\x01 \x03(\v2\x12.orbit.v1.QFIStatsR\x05flows2\xeb\x05\n" +
+	"\x05flows\x18\x01 \x03(\v2\x12.orbit.v1.QFIStatsR\x05flows\"\x9e\x02\n" +
+	"\x0fStartAppRequest\x12\x12\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x10\n" +
+	"\x03app\x18\x02 \x01(\tR\x03app\x12\x12\n" +
+	"\x04peer\x18\x03 \x01(\tR\x04peer\x12\x14\n" +
+	"\x05token\x18\x04 \x01(\tR\x05token\x12 \n" +
+	"\fpeer_data_ip\x18\x05 \x01(\tR\n" +
+	"peerDataIp\x12=\n" +
+	"\x06params\x18\x06 \x03(\v2%.orbit.v1.StartAppRequest.ParamsEntryR\x06params\x12\x1f\n" +
+	"\vduration_ms\x18\a \x01(\rR\n" +
+	"durationMs\x1a9\n" +
+	"\vParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"1\n" +
+	"\x10StartAppResponse\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xf4\x04\n" +
+	"\vVoipMetrics\x12\x14\n" +
+	"\x05codec\x18\x01 \x01(\tR\x05codec\x12\x1d\n" +
+	"\n" +
+	"tx_packets\x18\x02 \x01(\x04R\ttxPackets\x12\x1d\n" +
+	"\n" +
+	"rx_packets\x18\x03 \x01(\x04R\trxPackets\x12\x12\n" +
+	"\x04lost\x18\x04 \x01(\x04R\x04lost\x12\x1e\n" +
+	"\n" +
+	"duplicates\x18\x05 \x01(\x04R\n" +
+	"duplicates\x12\x1c\n" +
+	"\treordered\x18\x06 \x01(\x04R\treordered\x12\x19\n" +
+	"\bloss_pct\x18\a \x01(\x01R\alossPct\x12\x1f\n" +
+	"\vdiscard_pct\x18\b \x01(\x01R\n" +
+	"discardPct\x12\x1b\n" +
+	"\tjitter_ms\x18\t \x01(\x01R\bjitterMs\x12\x15\n" +
+	"\x06rtt_ms\x18\n" +
+	" \x01(\x01R\x05rttMs\x12\x15\n" +
+	"\x06owd_ms\x18\v \x01(\x01R\x05owdMs\x12\x1c\n" +
+	"\n" +
+	"owd_err_ms\x18\f \x01(\x01R\bowdErrMs\x12\x1d\n" +
+	"\n" +
+	"owd_method\x18\r \x01(\tR\towdMethod\x12\x17\n" +
+	"\aburst_r\x18\x0e \x01(\x01R\x06burstR\x12\x19\n" +
+	"\br_factor\x18\x0f \x01(\x01R\arFactor\x12\x15\n" +
+	"\x06mos_cq\x18\x10 \x01(\x01R\x05mosCq\x121\n" +
+	"\x06emodel\x18\x11 \x01(\v2\x19.orbit.v1.EModelBreakdownR\x06emodel\x12&\n" +
+	"\x0fremote_r_factor\x18\x12 \x01(\x01R\rremoteRFactor\x12\"\n" +
+	"\rremote_mos_cq\x18\x13 \x01(\x01R\vremoteMosCq\x121\n" +
+	"\n" +
+	"media_gaps\x18\x14 \x03(\v2\x12.orbit.v1.MediaGapR\tmediaGaps\"\xbe\x01\n" +
+	"\x0fEModelBreakdown\x12\x0e\n" +
+	"\x02ro\x18\x01 \x01(\x01R\x02ro\x12\x0e\n" +
+	"\x02is\x18\x02 \x01(\x01R\x02is\x12\x12\n" +
+	"\x04idte\x18\x03 \x01(\x01R\x04idte\x12\x12\n" +
+	"\x04idle\x18\x04 \x01(\x01R\x04idle\x12\x10\n" +
+	"\x03idd\x18\x05 \x01(\x01R\x03idd\x12\x0e\n" +
+	"\x02id\x18\x06 \x01(\x01R\x02id\x12\x0e\n" +
+	"\x02ie\x18\a \x01(\x01R\x02ie\x12\x15\n" +
+	"\x06ie_eff\x18\b \x01(\x01R\x05ieEff\x12\f\n" +
+	"\x01a\x18\t \x01(\x01R\x01a\x12\f\n" +
+	"\x01r\x18\n" +
+	" \x01(\x01R\x01r\"y\n" +
+	"\bMediaGap\x12&\n" +
+	"\x0fstart_unix_nano\x18\x01 \x01(\x03R\rstartUnixNano\x12\"\n" +
+	"\rend_unix_nano\x18\x02 \x01(\x03R\vendUnixNano\x12!\n" +
+	"\fpackets_lost\x18\x03 \x01(\rR\vpacketsLost\"1\n" +
+	"\x10AppStreamRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"[\n" +
+	"\x10CorrelationEvent\x12\x1b\n" +
+	"\tunix_nano\x18\x01 \x01(\x03R\bunixNano\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"\x93\x02\n" +
+	"\tAppSample\x12\x1b\n" +
+	"\tunix_nano\x18\x01 \x01(\x03R\bunixNano\x12\"\n" +
+	"\rtime_err_nano\x18\x02 \x01(\x03R\vtimeErrNano\x12\x1f\n" +
+	"\vtime_source\x18\x03 \x01(\tR\n" +
+	"timeSource\x12\x14\n" +
+	"\x05final\x18\x04 \x01(\bR\x05final\x12+\n" +
+	"\x05local\x18\x05 \x01(\v2\x15.orbit.v1.VoipMetricsR\x05local\x12-\n" +
+	"\x06remote\x18\x06 \x01(\v2\x15.orbit.v1.VoipMetricsR\x06remote\x122\n" +
+	"\x06events\x18\a \x03(\v2\x1a.orbit.v1.CorrelationEventR\x06events\"/\n" +
+	"\x0eStopAppRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xa3\x03\n" +
+	"\tAppReport\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
+	"\x04supi\x18\x02 \x01(\tR\x04supi\x12\x10\n" +
+	"\x03app\x18\x03 \x01(\tR\x03app\x12\x12\n" +
+	"\x04peer\x18\x04 \x01(\tR\x04peer\x12\x1b\n" +
+	"\tdata_port\x18\x05 \x01(\rR\bdataPort\x12*\n" +
+	"\x11started_unix_nano\x18\x06 \x01(\x03R\x0fstartedUnixNano\x12&\n" +
+	"\x0fended_unix_nano\x18\a \x01(\x03R\rendedUnixNano\x12+\n" +
+	"\x05local\x18\b \x01(\v2\x15.orbit.v1.VoipMetricsR\x05local\x12-\n" +
+	"\x06remote\x18\t \x01(\v2\x15.orbit.v1.VoipMetricsR\x06remote\x12 \n" +
+	"\vannotations\x18\n" +
+	" \x03(\tR\vannotations\x128\n" +
+	"\n" +
+	"media_gaps\x18\v \x03(\v2\x19.orbit.v1.MediaGapSummaryR\tmediaGaps\x12\x14\n" +
+	"\x05error\x18\f \x01(\tR\x05error\"\xcc\x01\n" +
+	"\x0fMediaGapSummary\x12\x10\n" +
+	"\x03end\x18\x01 \x01(\tR\x03end\x12&\n" +
+	"\x0fstart_unix_nano\x18\x02 \x01(\x03R\rstartUnixNano\x12\"\n" +
+	"\rend_unix_nano\x18\x03 \x01(\x03R\vendUnixNano\x12!\n" +
+	"\fpackets_lost\x18\x04 \x01(\rR\vpacketsLost\x12\x14\n" +
+	"\x05clock\x18\x05 \x01(\tR\x05clock\x12\"\n" +
+	"\rtime_err_nano\x18\x06 \x01(\x03R\vtimeErrNano2\xae\a\n" +
 	"\tUEService\x12C\n" +
 	"\bRegister\x12\x19.orbit.v1.RegisterRequest\x1a\x1a.orbit.v1.RegisterResponse\"\x00\x12I\n" +
 	"\n" +
@@ -1697,7 +2826,10 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"XnHandover\x12\x19.orbit.v1.HandoverRequest\x1a\x1a.orbit.v1.HandoverResponse\"\x00\x12@\n" +
 	"\aTraffic\x12\x18.orbit.v1.TrafficRequest\x1a\x19.orbit.v1.TrafficResponse\"\x00\x12@\n" +
 	"\aLatency\x12\x18.orbit.v1.LatencyRequest\x1a\x19.orbit.v1.LatencyResponse\"\x00\x12F\n" +
-	"\tDataStats\x12\x1a.orbit.v1.DataStatsRequest\x1a\x1b.orbit.v1.DataStatsResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\tDataStats\x12\x1a.orbit.v1.DataStatsRequest\x1a\x1b.orbit.v1.DataStatsResponse\"\x00\x12C\n" +
+	"\bStartApp\x12\x19.orbit.v1.StartAppRequest\x1a\x1a.orbit.v1.StartAppResponse\"\x00\x12@\n" +
+	"\tAppStream\x12\x1a.orbit.v1.AppStreamRequest\x1a\x13.orbit.v1.AppSample\"\x000\x01\x12:\n" +
+	"\aStopApp\x12\x18.orbit.v1.StopAppRequest\x1a\x13.orbit.v1.AppReport\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_ue_proto_rawDescOnce sync.Once
@@ -1711,7 +2843,7 @@ func file_orbit_v1_ue_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_ue_proto_rawDescData
 }
 
-var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_orbit_v1_ue_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_orbit_v1_ue_proto_goTypes = []any{
 	(*Credentials)(nil),        // 0: orbit.v1.Credentials
 	(*PDUSession)(nil),         // 1: orbit.v1.PDUSession
@@ -1737,43 +2869,70 @@ var file_orbit_v1_ue_proto_goTypes = []any{
 	(*DataStatsRequest)(nil),   // 21: orbit.v1.DataStatsRequest
 	(*QFIStats)(nil),           // 22: orbit.v1.QFIStats
 	(*DataStatsResponse)(nil),  // 23: orbit.v1.DataStatsResponse
-	(*GnbConfig)(nil),          // 24: orbit.v1.GnbConfig
+	(*StartAppRequest)(nil),    // 24: orbit.v1.StartAppRequest
+	(*StartAppResponse)(nil),   // 25: orbit.v1.StartAppResponse
+	(*VoipMetrics)(nil),        // 26: orbit.v1.VoipMetrics
+	(*EModelBreakdown)(nil),    // 27: orbit.v1.EModelBreakdown
+	(*MediaGap)(nil),           // 28: orbit.v1.MediaGap
+	(*AppStreamRequest)(nil),   // 29: orbit.v1.AppStreamRequest
+	(*CorrelationEvent)(nil),   // 30: orbit.v1.CorrelationEvent
+	(*AppSample)(nil),          // 31: orbit.v1.AppSample
+	(*StopAppRequest)(nil),     // 32: orbit.v1.StopAppRequest
+	(*AppReport)(nil),          // 33: orbit.v1.AppReport
+	(*MediaGapSummary)(nil),    // 34: orbit.v1.MediaGapSummary
+	nil,                        // 35: orbit.v1.StartAppRequest.ParamsEntry
+	(*GnbConfig)(nil),          // 36: orbit.v1.GnbConfig
 }
 var file_orbit_v1_ue_proto_depIdxs = []int32{
-	24, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
+	36, // 0: orbit.v1.RegisterRequest.gnb:type_name -> orbit.v1.GnbConfig
 	0,  // 1: orbit.v1.RegisterRequest.credentials:type_name -> orbit.v1.Credentials
 	1,  // 2: orbit.v1.RegisterRequest.pdu_session:type_name -> orbit.v1.PDUSession
 	7,  // 3: orbit.v1.StatusResponse.status:type_name -> orbit.v1.UEStatus
 	7,  // 4: orbit.v1.ListResponse.ues:type_name -> orbit.v1.UEStatus
-	24, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
+	36, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
 	22, // 6: orbit.v1.DataStatsResponse.flows:type_name -> orbit.v1.QFIStats
-	2,  // 7: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
-	4,  // 8: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
-	6,  // 9: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
-	9,  // 10: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
-	13, // 11: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
-	11, // 12: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
-	15, // 13: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
-	15, // 14: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
-	17, // 15: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
-	19, // 16: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
-	21, // 17: orbit.v1.UEService.DataStats:input_type -> orbit.v1.DataStatsRequest
-	3,  // 18: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 19: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 20: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 21: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	14, // 22: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
-	12, // 23: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	16, // 24: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
-	16, // 25: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
-	18, // 26: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
-	20, // 27: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
-	23, // 28: orbit.v1.UEService.DataStats:output_type -> orbit.v1.DataStatsResponse
-	18, // [18:29] is the sub-list for method output_type
-	7,  // [7:18] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	35, // 7: orbit.v1.StartAppRequest.params:type_name -> orbit.v1.StartAppRequest.ParamsEntry
+	27, // 8: orbit.v1.VoipMetrics.emodel:type_name -> orbit.v1.EModelBreakdown
+	28, // 9: orbit.v1.VoipMetrics.media_gaps:type_name -> orbit.v1.MediaGap
+	26, // 10: orbit.v1.AppSample.local:type_name -> orbit.v1.VoipMetrics
+	26, // 11: orbit.v1.AppSample.remote:type_name -> orbit.v1.VoipMetrics
+	30, // 12: orbit.v1.AppSample.events:type_name -> orbit.v1.CorrelationEvent
+	26, // 13: orbit.v1.AppReport.local:type_name -> orbit.v1.VoipMetrics
+	26, // 14: orbit.v1.AppReport.remote:type_name -> orbit.v1.VoipMetrics
+	34, // 15: orbit.v1.AppReport.media_gaps:type_name -> orbit.v1.MediaGapSummary
+	2,  // 16: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
+	4,  // 17: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
+	6,  // 18: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
+	9,  // 19: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
+	13, // 20: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
+	11, // 21: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
+	15, // 22: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
+	15, // 23: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
+	17, // 24: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
+	19, // 25: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
+	21, // 26: orbit.v1.UEService.DataStats:input_type -> orbit.v1.DataStatsRequest
+	24, // 27: orbit.v1.UEService.StartApp:input_type -> orbit.v1.StartAppRequest
+	29, // 28: orbit.v1.UEService.AppStream:input_type -> orbit.v1.AppStreamRequest
+	32, // 29: orbit.v1.UEService.StopApp:input_type -> orbit.v1.StopAppRequest
+	3,  // 30: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 31: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 32: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 33: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 34: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 35: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	16, // 36: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
+	16, // 37: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
+	18, // 38: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
+	20, // 39: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
+	23, // 40: orbit.v1.UEService.DataStats:output_type -> orbit.v1.DataStatsResponse
+	25, // 41: orbit.v1.UEService.StartApp:output_type -> orbit.v1.StartAppResponse
+	31, // 42: orbit.v1.UEService.AppStream:output_type -> orbit.v1.AppSample
+	33, // 43: orbit.v1.UEService.StopApp:output_type -> orbit.v1.AppReport
+	30, // [30:44] is the sub-list for method output_type
+	16, // [16:30] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_ue_proto_init() }
@@ -1788,7 +2947,7 @@ func file_orbit_v1_ue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_ue_proto_rawDesc), len(file_orbit_v1_ue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   24,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

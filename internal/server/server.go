@@ -25,22 +25,37 @@ import (
 	"github.com/bgrewell/orbit/internal/sctp"
 )
 
+// Options carries the optional server-level knobs for New.
+type Options struct {
+	// CoreProfile selects the core-compatibility profile ("" = strict-3gpp).
+	CoreProfile string
+	// LoomAgent/LoomToken are the default N6 loomd control address and bearer
+	// token for app sessions (`orbit serve --loom-agent/--loom-token`);
+	// per-call values override them.
+	LoomAgent, LoomToken string
+}
+
 // New builds the ORBIT HTTP handler. The h2c wrapper lets gRPC clients
 // connect without TLS on lab-internal listeners; the API is not meant to be
 // externally exposed (DESIGN §8, credential handling).
-func New(log *slog.Logger, version string, reg *prometheus.Registry, coreProfile string) http.Handler {
+func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Options) http.Handler {
 	mgr := engine.NewManager(log)
-	if coreProfile != "" {
-		if err := mgr.UseProfile(coreProfile); err != nil {
+	mgr.EnableAppMetrics(reg)
+	if opts.CoreProfile != "" {
+		if err := mgr.UseProfile(opts.CoreProfile); err != nil {
 			log.Warn("core profile not applied; using strict-3gpp", "err", err)
 		} else {
-			log.Info("core compatibility profile active", "profile", coreProfile)
+			log.Info("core compatibility profile active", "profile", opts.CoreProfile)
 		}
+	}
+	if opts.LoomAgent != "" || opts.LoomToken != "" {
+		mgr.SetLoomDefaults(opts.LoomAgent, opts.LoomToken)
+		log.Info("default loom agent configured", "agent", opts.LoomAgent)
 	}
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}))
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
-	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr}))
+	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

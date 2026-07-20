@@ -99,9 +99,11 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	}
 	sess.gnbN3 = target.N3Addr
 	sess.Result.DLTEID = targetHandoverTEID
-	if sess.dataPath != nil {
-		sess.dataPath.Close()
-		sess.dataPath = nil
+	// Move an open data path onto the target (keeping live media lanes — a
+	// running call sees a gap, then recovers); a closed one re-opens lazily.
+	if err := sess.rebindDataPath(); err != nil {
+		m.log.Warn("data path rebind after Xn handover failed; downlink consumers closed",
+			"supi", sess.SUPI, "err", err)
 	}
 	m.mu.Unlock()
 
