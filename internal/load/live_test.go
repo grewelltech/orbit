@@ -134,3 +134,48 @@ func TestObserversFanOut(t *testing.T) {
 		t.Errorf("second observer saw %d attempts, want 1", got)
 	}
 }
+
+// AchievedRate is computed from the run clock, which starts with the first
+// observed attempt rather than at construction — so a caller that builds
+// LiveStats before bringing up associations does not have setup time folded
+// into its rate.
+func TestLiveStatsRateExcludesPreRunTime(t *testing.T) {
+	l := NewLiveStats()
+
+	// Stand in for association bring-up between construction and the storm.
+	time.Sleep(40 * time.Millisecond)
+
+	before := l.Snapshot()
+	if before.Elapsed != 0 || before.AchievedRate != 0 {
+		t.Errorf("before the first attempt: elapsed %s rate %.2f, want 0 and 0",
+			before.Elapsed, before.AchievedRate)
+	}
+
+	l.Observe(Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+	after := l.Snapshot()
+
+	if after.Elapsed >= 40*time.Millisecond {
+		t.Errorf("elapsed %s includes the pre-run sleep; the clock should start at the first attempt", after.Elapsed)
+	}
+	if after.AchievedRate <= 0 {
+		t.Errorf("achieved rate = %.2f, want > 0 once an attempt has completed", after.AchievedRate)
+	}
+}
+
+// AchievedRate is successes per second over the run, and failures do not count
+// toward it.
+func TestLiveStatsAchievedRateCountsSuccessesOnly(t *testing.T) {
+	l := NewLiveStats()
+	l.Observe(Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+	l.Observe(Sample{Err: errors.New("rejected")})
+	time.Sleep(20 * time.Millisecond)
+
+	s := l.Snapshot()
+	want := float64(s.Succeeded) / s.Elapsed.Seconds()
+	if diff := s.AchievedRate - want; diff > 0.01 || diff < -0.01 {
+		t.Errorf("achieved rate = %.3f, want %.3f (succeeded/elapsed)", s.AchievedRate, want)
+	}
+	if s.Succeeded != 1 {
+		t.Errorf("succeeded = %d, want 1 — the failure must not count toward the rate", s.Succeeded)
+	}
+}
