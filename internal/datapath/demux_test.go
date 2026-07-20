@@ -434,7 +434,12 @@ func TestUERxDispatch(t *testing.T) {
 		t.Fatalf("default drops = %d, want 2", rx.DefaultDrops())
 	}
 	var sunk atomic.Uint64
-	rx.SetDefaultSink(func(innerIP []byte) { sunk.Add(1) })
+	rx.SetDefaultSink(func(innerIP []byte, arrival time.Time) {
+		if arrival.IsZero() {
+			t.Error("default sink lost the arrival timestamp")
+		}
+		sunk.Add(1)
+	})
 	rx.dispatch(udpPkt(t, 5555, []byte("x")), now) // unmatched UDP port
 	tcp := udpPkt(t, 5555, []byte("x"))
 	tcp[9] = 6 // rewrite protocol to TCP

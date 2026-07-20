@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -23,7 +26,8 @@ import (
 // operations as the individual `ue` commands, without the flag repetition.
 // A `kind: fleet` file selects the population mode (ADR-0004) instead.
 func newRunCmd(serverURL *string) *cobra.Command {
-	return &cobra.Command{
+	var metricsListen string
+	cmd := &cobra.Command{
 		Use:   "run <scenario.yaml>",
 		Short: "Run a declarative YAML scenario against the ORBIT API server",
 		Long: "Run a declarative YAML scenario. A step scenario declares the core, gNBs,\n" +
@@ -42,7 +46,7 @@ func newRunCmd(serverURL *string) *cobra.Command {
 				return err
 			}
 			if kind == "fleet" {
-				return runFleet(cmd, data)
+				return runFleet(cmd, data, metricsListen)
 			}
 
 			sc, err := scenario.Parse(data)
@@ -56,13 +60,16 @@ func newRunCmd(serverURL *string) *cobra.Command {
 			return runner.Run(cmd.Context())
 		},
 	}
+	cmd.Flags().StringVar(&metricsListen, "metrics-listen", "",
+		"serve Prometheus /metrics on this address during a fleet run (live orbit_fleet_app_* cohort gauges; empty = disabled)")
+	return cmd
 }
 
 // runFleet validates a fleet scenario, prints the generated topology and
 // population, and runs the attach phase (bringing up one association per gNB and
 // attaching the fleet across them at the offered rate). Continuous mobility and
 // traffic behaviours run on the attached fleet — added by later chunks.
-func runFleet(cmd *cobra.Command, data []byte) error {
+func runFleet(cmd *cobra.Command, data []byte, metricsListen string) error {
 	f, err := scenario.ParseFleet(data)
 	if err != nil {
 		return err
@@ -94,9 +101,14 @@ func runFleet(cmd *cobra.Command, data []byte) error {
 	if t := f.Behaviors.Traffic; t != nil && len(t.Mix) > 0 {
 		var parts []string
 		for _, m := range t.Mix {
-			s := fmt.Sprintf("%.0f%% %s", m.Share*100, m.Profile)
-			if m.Rate != "" {
-				s += " (" + m.Rate + ")"
+			var s string
+			if m.App != "" {
+				s = fmt.Sprintf("%.0f%% %s app → %s", m.Share*100, m.App, m.Peer)
+			} else {
+				s = fmt.Sprintf("%.0f%% %s", m.Share*100, m.Profile)
+				if m.Rate != "" {
+					s += " (" + m.Rate + ")"
+				}
 			}
 			parts = append(parts, s)
 		}
@@ -160,13 +172,49 @@ func runFleet(cmd *cobra.Command, data []byte) error {
 			beh.MobileUEs = 1
 		}
 	}
-	if t := f.Behaviors.Traffic; t != nil && len(t.Mix) > 0 && f.Fleet.PDUSession {
-		beh.Traffic = true
-		beh.TrafficRate = t.Mix[0].Rate
-		if beh.TrafficRate == "" {
-			beh.TrafficRate = "10Mbps"
+	if t := f.Behaviors.Traffic; t != nil && f.Fleet.PDUSession {
+		// Synthetic profiles → the loom constant-rate flows (first synthetic
+		// entry's rate applies, the preview behaviour).
+		for _, m := range t.Mix {
+			if m.Profile == "" {
+				continue
+			}
+			beh.Traffic = true
+			beh.TrafficRate = m.Rate
+			if beh.TrafficRate == "" {
+				beh.TrafficRate = "10Mbps"
+			}
+			beh.TrafficTarget = "8.8.8.8:9999"
+			break
 		}
-		beh.TrafficTarget = "8.8.8.8:9999"
+	}
+	// App cohorts (design §8): mix entries with app: become real-application
+	// cohorts, sized by the same share allocation as the profiles.
+	for _, c := range f.AppCohorts() {
+		beh.Apps = append(beh.Apps, engine.FleetAppCohort{
+			Name: c.Name, App: c.App,
+			Peer: c.Peer, Token: c.Token, PeerDataIP: c.PeerDataIP,
+			Params: c.Params, Count: c.Count,
+		})
+	}
+
+	// Optional live Prometheus surface for the run: the per-cohort
+	// orbit_fleet_app_* distribution gauges on /metrics.
+	if metricsListen != "" && len(beh.Apps) > 0 {
+		reg := observability.NewRegistry()
+		beh.AppMetricsReg = reg
+		msrv := &http.Server{
+			Addr:              metricsListen,
+			Handler:           promhttp.HandlerFor(reg, promhttp.HandlerOpts{}),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			if err := msrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				fmt.Fprintf(cmd.ErrOrStderr(), "metrics listener %s: %v\n", metricsListen, err)
+			}
+		}()
+		defer msrv.Close()
+		fmt.Fprintf(out, "  metrics:  http://%s/metrics\n", metricsListen)
 	}
 
 	fmt.Fprintf(out, "\nattaching %d UEs across %d gNBs", spec.Count, len(fgnbs))
@@ -210,6 +258,36 @@ func printFleetReport(out io.Writer, r engine.FleetReport) {
 	if r.TrafficFlows > 0 {
 		fmt.Fprintf(out, "traffic:      %d flow(s) (per UE, shared N3 socket per gNB), %.1f MB total\n",
 			r.TrafficFlows, float64(r.TrafficBytes)/1e6)
+	}
+	for _, c := range r.AppCohorts {
+		line := fmt.Sprintf("app %-10s %s: %d UE(s), %d server(s)", c.Name, c.App, c.UEs, c.Servers)
+		if c.Failed > 0 {
+			line += fmt.Sprintf(", %d failed", c.Failed)
+		}
+		if c.Err != "" {
+			fmt.Fprintf(out, "%s — %s\n", line, c.Err)
+			continue
+		}
+		if q := c.MOS; q != nil {
+			line += fmt.Sprintf(", MOS p5/p50/p95 %.2f/%.2f/%.2f", q.P5, q.P50, q.P95)
+		}
+		if q := c.TTFBMs; q != nil {
+			// Across-member quantiles of each member's MEDIAN TTFB
+			// (FleetAppCohortReport.TTFBMs) — label it so, or the p95 here
+			// reads as a request-level tail like the single-UE ttfb-p95
+			// (the 95th-percentile UE's median sits far below that).
+			line += fmt.Sprintf(", TTFB per-UE-median p5/p50/p95 %.1f/%.1f/%.1f ms", q.P5, q.P50, q.P95)
+		}
+		if q := c.GoodputMbps; q != nil {
+			line += fmt.Sprintf(", goodput %.2f/%.2f/%.2f Mbps", q.P5, q.P50, q.P95)
+		}
+		if q := c.StallTimeMs; q != nil {
+			line += fmt.Sprintf(", stall %.0f/%.0f/%.0f ms", q.P5, q.P50, q.P95)
+		}
+		if q := c.RebufferRatio; q != nil {
+			line += fmt.Sprintf(", rebuffer %.3f/%.3f/%.3f", q.P5, q.P50, q.P95)
+		}
+		fmt.Fprintln(out, line)
 	}
 	fmt.Fprintf(out, "deregistered: %d\n", r.Deregistered)
 }

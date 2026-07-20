@@ -51,9 +51,22 @@ behaviors:
   mobility: { model: random_walk, speed: 3m/s, handover: xn }
   traffic:
     mix:
-      - { profile: web,   share: 0.5 }
+      # Synthetic profiles: loom constant-rate flows (shape-only carriage).
+      - { profile: web,   share: 0.4 }
       - { profile: video, share: 0.3, rate: 8Mbps }
-      - { profile: voip,  share: 0.2, rate: 64kbps }
+      # Real application cohorts: members run loom's app engines through
+      # their GTP-U data paths against a stock loomd on the N6 network (the
+      # same far end as `orbit ue app …`). One control connection and one
+      # TimeSync loop are shared per loomd across the whole fleet; http
+      # cohorts share ONE origin, voip members get one answerer each — so a
+      # voip cohort must fit its port_min..port_max range (here 101 ports for
+      # 0.2 × 100 = 20 calls). Cohort results are reported as p5/p50/p95
+      # distributions, and served live as orbit_fleet_app_* gauges when
+      # `orbit run --metrics-listen host:port` is set.
+      - { app: voip, name: voip-calls, share: 0.2, peer: 172.17.60.10:9551,
+          params: { codec: pcmu, port_min: "40000", port_max: "40100" } }
+      - { app: http, name: web-real, share: 0.1, peer: 172.17.60.10:9551,
+          params: { object_size: 64KB, think: 200ms, tls: "true", tls_insecure: "true" } }
 
 run:
   duration: 10m

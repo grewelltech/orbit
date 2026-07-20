@@ -46,17 +46,11 @@ var errPollTimeout net.Error = timeoutError{}
 // arrival timestamp the demux reader stamped at the socket read into
 // Frame.Meta.Nanos — the way loom's own datapaths stamp receive time — so
 // dgram's MetaConn/ReadFromMeta can report receive time, not dequeue time.
-//
-// KNOWN LIMITATION (loom v0.10.0): the voip MediaSession's receive loop calls
-// plain ReadFrom and stamps arrival at dequeue (core/app/voip/session.go),
-// not ReadFromMeta — so RFC 3550 A.8 jitter measured through this bridge
-// still includes demux-ring wait, dgram conn-channel queueing, and two
-// goroutine handoffs (i.e. orbit's scheduler under load), and can diverge
-// from Wireshark's on-wire jitter. The fidelity chain below is correct and
-// ends at loom's consumer; the fix (type-assert dgram.MetaConn in the voip
-// rxLoop and use the carried arrival) belongs in loom and is tracked for the
-// next loom release. Until it lands, treat tunnel-path jitter/MOS as an
-// upper bound under load.
+// Since loom v0.11 the voip MediaSession's receive loop consumes that
+// MetaConn timestamp, so RFC 3550 A.8 jitter through this bridge anchors at
+// the wire arrival — demux-ring wait, dgram conn-channel queueing, and
+// goroutine handoffs no longer masquerade as network jitter (pinned by
+// TestArrivalMetaJitterOverBridge).
 //
 // Ring payloads are already private copies made by the demux reader, so
 // polled frames are simply handed out and RxRelease has nothing to reclaim.
@@ -141,8 +135,9 @@ func toLoomFrame(f datapath.Frame) loomdp.Frame {
 // session's GTP-U tunnel, and whose downlink is the session's demuxed
 // wildcard UDP lane (rx.SubscribeUDPAll; the ICMP latency probe and any
 // per-port lanes keep their own subscriptions). VoIP and other UDP apps
-// dial/listen through the returned Network; TCP apps need the Phase-6
-// netstack backend and are refused by dgram with ErrTCPUnsupported.
+// dial/listen through the returned Network; TCP apps (http, video) ride the
+// per-gNB GNBStack instead (stack.go — the engine's Session.appNetwork picks
+// per app) and are refused here by dgram with ErrTCPUnsupported.
 //
 // up and rx come from the session's data plane (engine Session.dataplane():
 // the *datapath.UETunnel view of the per-gNB SharedTunnel and its
