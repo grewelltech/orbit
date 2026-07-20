@@ -227,6 +227,26 @@ func (m *Manager) Ping(supi, dst string, count int) (*PingResult, error) {
 	return res, nil
 }
 
+// DataStats returns a snapshot of the per-QFI uplink/downlink counters on a
+// UE's N3 data path. A registered UE whose tunnel has not been opened yet
+// (nothing has used the data path) reports no flows rather than an error.
+func (m *Manager) DataStats(supi string) (map[uint8]datapath.QFIStatsSnapshot, error) {
+	m.mu.Lock()
+	sess, ok := m.sessions[supi]
+	var tun *datapath.Tunnel
+	if ok {
+		tun = sess.dataPath
+	}
+	m.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("UE %s is not registered", supi)
+	}
+	if tun == nil {
+		return map[uint8]datapath.QFIStatsSnapshot{}, nil
+	}
+	return tun.Stats(), nil
+}
+
 // State reports the current lifecycle state of the session (snapshot).
 func (s *Session) State() string { return s.state }
 

@@ -113,6 +113,7 @@ orbit ue register --amf 172.17.50.11:38412 --supi 208930100007500 \
 orbit ue ping    --supi 208930100007500 --dst 8.8.8.8
 orbit ue latency --supi 208930100007500 --target 8.8.8.8
 orbit ue traffic --supi 208930100007500 --target 8.8.8.8:9999 --rate 20Mbps
+orbit ue stats   --supi 208930100007500   # per-QFI UL/DL counters
 orbit ue xn-handover --supi 208930100007500 --amf 172.17.50.11:38412 \
     --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13   # or: ue handover (N2)
 

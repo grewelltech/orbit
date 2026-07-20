@@ -83,7 +83,9 @@ orbit ue deregister --supi <imsi>        # UE-originated switch-off deregistrati
 
 `watch` streams lifecycle states (`REGISTERING`, `AUTHENTICATED`,
 `SECURITY_ESTABLISHED`, `REGISTERED`, `SESSION_ACTIVE`, `DEREGISTERED`) and
-mobility states (`HANDOVER_STARTED`, `HANDED_OVER`, `HANDOVER_FAILED`).
+mobility states (`HANDOVER_STARTED`, `PATH_SWITCH_COMPLETE`, `HANDED_OVER`,
+`HANDOVER_FAILED`). Mobility events are also logged by `orbit serve` at info
+level with timestamps and gNB/UE identifiers.
 
 ## User-plane data
 
@@ -94,11 +96,15 @@ orbit ue ping    --supi <imsi> --dst 8.8.8.8 --count 3            # ICMP over N3
 orbit ue latency --supi <imsi> --target 8.8.8.8 --probes 20       # RTT/jitter/loss (loom)
 orbit ue traffic --supi <imsi> --target 8.8.8.8:9999 \            # throughput (loom)
     --rate 20Mbps --packet-size 1200 --duration-ms 5000
+orbit ue stats   --supi <imsi>                                    # per-QFI UL/DL counters
 ```
 
 `traffic` and `latency` embed loom over the UE's GTP-U tunnel: `traffic`
 reports bytes/packets and achieved Mbps; `latency` reports sent/received/lost,
 loss %, and min/mean/max RTT plus jitter. `--rate` empty means unlimited.
+`stats` reads the tunnel's per-QFI uplink/downlink packet and byte counters
+(cumulative since the data path opened; empty until the first
+ping/traffic/latency run touches it).
 
 ## Mobility (handover)
 
@@ -116,7 +122,9 @@ orbit ue xn-handover --supi <imsi> --amf <host:port> \
 ```
 
 Both move the UE's session to the target gNB and emit mobility states on
-`watch`. On SD-Core, **Xn** completes with user-plane continuity; **N2**
+`watch`; Xn additionally emits `PATH_SWITCH_COMPLETE` when the AMF's
+PathSwitchRequestAcknowledge arrives (the downlink cutover point — N2 has no
+RAN-visible equivalent). On SD-Core, **Xn** completes with user-plane continuity; **N2**
 completes the control-plane handover but the downlink does not follow — an open
 upstream SMF bug (not the decode issue the `sdcore` profile fixes). The
 [N2 example](../examples/attach-and-handover-n2.yaml) lays out all three N2
