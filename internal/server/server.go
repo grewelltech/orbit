@@ -23,6 +23,7 @@ import (
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
+	"github.com/bgrewell/orbit/internal/webui"
 )
 
 // Options carries the optional server-level knobs for New.
@@ -61,6 +62,12 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
 	})
+	// The dashboard takes the catch-all route; the Connect handlers above
+	// register explicit /<package>.<Service>/ prefixes, so they still win.
+	mux.Handle("/", webui.Handler())
+	if !webui.Available() {
+		log.Warn("dashboard assets not embedded; run `make ui` to build them")
+	}
 	return h2c.NewHandler(mux, &http2.Server{})
 }
 
