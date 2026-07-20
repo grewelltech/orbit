@@ -52,15 +52,20 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		return fmt.Errorf("target NG Setup: %w", err)
 	}
 
-	// Per-session PathSwitch with the target's new downlink tunnels.
+	// Per-session PathSwitch with the target's new downlink tunnels. Each
+	// session's DL TEID comes from the process-wide allocator: a constant
+	// per-target TEID would collide on the target's shared Demux (and at the
+	// UPF) as soon as a second UE handed over to the same gNB.
 	admitted := make([]gnb.AdmittedSession, 0)
-	teid := targetHandoverTEID
+	dlTEIDs := map[int64]uint32{}
 	for _, id := range sessionIDs(sess.Result) {
+		teid := allocDLTEID()
+		dlTEIDs[id] = teid
 		admitted = append(admitted, gnb.AdmittedSession{
 			PDUSessionID: id, GNBTunnel: gnb.GNBTunnel{Address: target.N3Addr, TEID: teid}, QFIs: []int64{1},
 		})
-		teid++
 	}
+	firstTEID := admitted[0].GNBTunnel.TEID
 	ps, err := gnb.BuildPathSwitchRequest(target.Config, sess.amfID, targetHandoverRANID, admitted)
 	if err != nil {
 		tgtConn.Close()
@@ -81,11 +86,15 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		return fmt.Errorf("path switch not acknowledged")
 	}
 	newAMFID, _ := gnb.ParsePathSwitchAcknowledge(pdu)
+	// The ack's switched list may carry NEW UPF UL F-TEIDs (re-anchoring at
+	// path switch, TS 38.413) — subsequent uplink must go there, or the UPF
+	// drops it as unknown-TEID.
+	switched := gnb.ParsePathSwitchAcknowledgeSwitched(pdu)
 
 	// The core has switched the downlink to the target's N3 tunnel — the
 	// user-plane cutover point of an Xn handover.
 	m.publishMobility(StateEvent{SUPI: sess.SUPI, State: StatePathSwitchComplete,
-		Detail: fmt.Sprintf("PathSwitchRequestAcknowledge; downlink → %s (TEID %#x)", target.N3Addr, targetHandoverTEID)},
+		Detail: fmt.Sprintf("PathSwitchRequestAcknowledge; downlink → %s (TEID %#x)", target.N3Addr, firstTEID)},
 		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID, "n3", target.N3Addr)
 
 	// Move the session onto the target gNB.
@@ -97,11 +106,17 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	if newAMFID != 0 {
 		sess.amfID = newAMFID
 	}
-	sess.gnbN3 = target.N3Addr
-	sess.Result.DLTEID = targetHandoverTEID
+	// Record per-session endpoints (multi-session bookkeeping).
+	applySwitchedSessions(sess.Result, dlTEIDs, switched)
 	// Move an open data path onto the target (keeping live media lanes — a
 	// running call sees a gap, then recovers); a closed one re-opens lazily.
-	if err := sess.rebindDataPath(); err != nil {
+	// The gnbN3/DLTEID/UL updates happen inside retargetDataPath under the
+	// data-path lock, so a concurrent dataplane() never sees a torn pair.
+	mv := dataPathMove{gnbN3: target.N3Addr, dlTEID: firstTEID}
+	if s := switchedFor(switched, firstSessionID(sess.Result)); s != nil {
+		mv.upfTEID, mv.upfN3 = s.UPFTEID, s.UPFAddress
+	}
+	if err := sess.retargetDataPath(mv); err != nil {
 		m.log.Warn("data path rebind after Xn handover failed; downlink consumers closed",
 			"supi", sess.SUPI, "err", err)
 	}
@@ -109,4 +124,43 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 
 	oldConn.Close() // AMF releases the source after the switch
 	return nil
+}
+
+// firstSessionID is the PDU session mirrored into the AttachResult's
+// single-session fields.
+func firstSessionID(r *AttachResult) int64 {
+	if len(r.Sessions) == 0 {
+		return 1
+	}
+	return int64(r.Sessions[0].PDUSessionID)
+}
+
+// switchedFor finds the switched-list entry for one PDU session (nil = the
+// core kept that session's UL tunnel).
+func switchedFor(switched []gnb.SwitchedSession, id int64) *gnb.SwitchedSession {
+	for i := range switched {
+		if switched[i].PDUSessionID == id {
+			return &switched[i]
+		}
+	}
+	return nil
+}
+
+// applySwitchedSessions updates the per-session result entries with the
+// handover's new DL TEIDs and any UL F-TEIDs the core reallocated. The
+// single-session mirror fields are updated by retargetDataPath (under the
+// data-path lock) — this covers the Sessions slice the status surfaces show.
+func applySwitchedSessions(r *AttachResult, dlTEIDs map[int64]uint32, switched []gnb.SwitchedSession) {
+	for i := range r.Sessions {
+		sr := &r.Sessions[i]
+		if teid, ok := dlTEIDs[int64(sr.PDUSessionID)]; ok {
+			sr.DLTEID = teid
+		}
+		if s := switchedFor(switched, int64(sr.PDUSessionID)); s != nil {
+			sr.UPFTEID = s.UPFTEID
+			if s.UPFAddress != "" {
+				sr.UPFAddress = s.UPFAddress
+			}
+		}
+	}
 }

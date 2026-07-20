@@ -15,65 +15,82 @@ import (
 
 // N3 downlink demultiplexer (design §6). Invariant: at any time, exactly one
 // reader owns a given N3 socket, and consumers register with its Demux —
-// never read the socket directly. Phase 4 layers the Demux on the existing
-// per-session Tunnel socket (Tunnel.Demux); Phase 5 moves it onto the
-// per-gNB SharedTunnel conn. The dispatch chain is
+// never read the socket directly. Since the Phase-5 cutover the Demux runs on
+// the per-gNB SharedTunnel conn (the only 2152 bind per gNB); every UE served
+// by that gNB has its own lane. The dispatch chain is
 //
 //	socket → Demux (TEID → UERx) → UERx (inner IP proto/port → Ring) → consumer
 //
-// so the ICMP latency probe and media lanes share one downlink from day one.
+// so the ICMP latency probe and media lanes of ALL UEs share one downlink.
 
 // Demux owns the single reader goroutine on one N3 UDP socket and routes
 // downlink G-PDUs to per-UE lanes by downlink TEID. G-PDUs for a TEID with no
-// registered lane are skipped and counted (the Tunnel.ReadDownlink cross-talk
-// defence, made observable); malformed frames are skipped and counted.
+// registered lane are skipped and counted (the classic cross-talk defence,
+// made observable); malformed frames are skipped and counted.
 type Demux struct {
 	conn  *net.UDPConn
-	stats func(qfi uint8, hasQFI bool, payloadBytes int)
+	local string // the socket's bound gNB N3 address, stamped on End Markers
 
 	mu    sync.RWMutex
 	lanes map[uint32]*UERx
+	// tombs are short-lived tombstones for TEIDs a handover just vacated
+	// (Rebind's old TEID, Detach's TEID): the UPF sends its GTP-U End Marker
+	// on the OLD tunnel after the path switch (TS 29.281 §7.3), so for a few
+	// seconds an End Marker on a vacated TEID is the "source path drained"
+	// correlation signal, not unknown-TEID noise. Only End Markers consult
+	// tombstones — data G-PDUs on a vacated TEID still miss.
+	tombs map[uint32]tombstone
 
-	teidMisses atomic.Uint64
-	decodeErrs atomic.Uint64
+	teidMisses      atomic.Uint64
+	decodeErrs      atomic.Uint64
+	staleEndMarkers atomic.Uint64
+
+	// tombsLive mirrors len(tombs) so the reader loop can decide to sweep
+	// without taking the mutex on every packet.
+	tombsLive atomic.Int64
+
+	// tombTTL is how long a vacated TEID keeps its tombstone (tests shorten).
+	tombTTL time.Duration
 
 	closed atomic.Bool
 	done   chan struct{}
 }
 
-// DemuxOption configures a Demux.
-type DemuxOption func(*Demux)
+// EndMarkerGraceTTL is the default tombstone lifetime: End Markers chase
+// the path switch within milliseconds, so a few seconds is generous without
+// letting a recycled TEID resurrect a long-gone lane. Exported so the engine
+// can keep a source gNB's shared socket alive for the same window after an
+// inter-gNB handover moved its last UE away — otherwise the UPF's End Marker
+// on the old path would hit a closed port and the tombstone never fires.
+const EndMarkerGraceTTL = 5 * time.Second
 
-// WithDownlinkStats installs an accounting hook called from the reader
-// goroutine for every accepted downlink G-PDU (registered TEID, non-empty
-// payload). It is the seam that keeps Tunnel.Stats() per-QFI counters flowing
-// once the Demux owns the tunnel's read path.
-func WithDownlinkStats(f func(qfi uint8, hasQFI bool, payloadBytes int)) DemuxOption {
-	return func(d *Demux) { d.stats = f }
+// tombstone remembers the lane that held a TEID until a handover moved it.
+type tombstone struct {
+	rx      *UERx
+	expires time.Time
 }
 
 // NewDemux takes ownership of conn's read path and starts the reader
-// goroutine. It wraps either a legacy Tunnel's conn (Phase 4, via
-// Tunnel.Demux) or the SharedTunnel conn (Phase 5+). After this, nothing else
-// may read conn.
-func NewDemux(conn *net.UDPConn, opts ...DemuxOption) *Demux {
+// goroutine (SharedTunnel does this at construction). After this, nothing
+// else may read conn.
+func NewDemux(conn *net.UDPConn) *Demux {
 	d := &Demux{
-		conn:  conn,
-		lanes: make(map[uint32]*UERx),
-		done:  make(chan struct{}),
+		conn:    conn,
+		local:   conn.LocalAddr().String(),
+		lanes:   make(map[uint32]*UERx),
+		tombs:   make(map[uint32]tombstone),
+		tombTTL: EndMarkerGraceTTL,
+		done:    make(chan struct{}),
 	}
-	for _, o := range opts {
-		o(d)
-	}
-	// Clear any deadline a previous direct reader (Tunnel.ReadDownlink) left.
+	// Clear any deadline a previous reader left.
 	_ = conn.SetReadDeadline(time.Time{})
 	go d.run()
 	return d
 }
 
 // Register returns the per-UE downlink lane for dlTEID, creating it if
-// needed. Phase 4 has one UE per socket; the map is the Phase-5 multi-UE
-// seam.
+// needed. SharedTunnel.Register goes through Attach instead so a TEID
+// collision between two UEs is an error, not silent lane sharing.
 func (d *Demux) Register(dlTEID uint32) *UERx {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -82,6 +99,8 @@ func (d *Demux) Register(dlTEID uint32) *UERx {
 	}
 	rx := newUERx()
 	d.lanes[dlTEID] = rx
+	delete(d.tombs, dlTEID) // a live lane supersedes any tombstone
+	d.tombsLive.Store(int64(len(d.tombs)))
 	return rx
 }
 
@@ -93,7 +112,7 @@ func (d *Demux) Unregister(dlTEID uint32) {
 	delete(d.lanes, dlTEID)
 	d.mu.Unlock()
 	if rx != nil {
-		rx.close()
+		rx.Close()
 	}
 }
 
@@ -103,13 +122,16 @@ func (d *Demux) Unregister(dlTEID uint32) {
 // re-attaches the live lane — rings, End-Marker callback and all — to the
 // target tunnel's Demux via Attach, so consumers blocked on the lane's rings
 // never observe a close. A lane detached from a Demux that is later closed
-// stays open.
+// stays open. The vacated TEID keeps a short-lived tombstone so the UPF's
+// post-handover End Marker on the old path still reaches the lane's
+// End-Marker callback (the source gNB's socket outlives the move).
 func (d *Demux) Detach(dlTEID uint32) (*UERx, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	rx, ok := d.lanes[dlTEID]
 	if ok {
 		delete(d.lanes, dlTEID)
+		d.tombstoneLocked(dlTEID, rx)
 	}
 	return rx, ok
 }
@@ -126,12 +148,16 @@ func (d *Demux) Attach(dlTEID uint32, rx *UERx) error {
 		return fmt.Errorf("attach: TEID %#x already registered", dlTEID)
 	}
 	d.lanes[dlTEID] = rx
+	delete(d.tombs, dlTEID) // a live lane supersedes any tombstone
+	d.tombsLive.Store(int64(len(d.tombs)))
 	return nil
 }
 
 // Rebind atomically moves the lane registered at oldTEID to newTEID — the
 // handover TEID swap. Packets never see an intermediate state: before the
-// swap they route (or miss) via oldTEID, after it via newTEID.
+// swap they route (or miss) via oldTEID, after it via newTEID. The old TEID
+// keeps a short-lived tombstone so the UPF's post-handover End Marker on the
+// vacated TEID still reaches the lane's End-Marker callback.
 func (d *Demux) Rebind(oldTEID, newTEID uint32) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -147,7 +173,55 @@ func (d *Demux) Rebind(oldTEID, newTEID uint32) error {
 	}
 	delete(d.lanes, oldTEID)
 	d.lanes[newTEID] = rx
+	d.tombstoneLocked(oldTEID, rx)
+	delete(d.tombs, newTEID)
+	d.tombsLive.Store(int64(len(d.tombs)))
 	return nil
+}
+
+// tombstoneLocked records a vacated TEID's lane for the End-Marker grace
+// window and sweeps expired entries (the map only ever holds a handful of
+// recent handovers, so the sweep is cheap). Callers hold d.mu.
+func (d *Demux) tombstoneLocked(teid uint32, rx *UERx) {
+	now := time.Now()
+	for t, tomb := range d.tombs {
+		if now.After(tomb.expires) {
+			delete(d.tombs, t)
+		}
+	}
+	d.tombs[teid] = tombstone{rx: rx, expires: now.Add(d.tombTTL)}
+	d.tombsLive.Store(int64(len(d.tombs)))
+}
+
+// sweepTombs drops every expired tombstone. The reader loop calls it on a
+// coarse cadence so the FINAL handover's tombstone (which no later insert
+// would ever sweep) does not pin its UERx for the life of the socket.
+func (d *Demux) sweepTombs(now time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for t, tomb := range d.tombs {
+		if now.After(tomb.expires) {
+			delete(d.tombs, t)
+		}
+	}
+	d.tombsLive.Store(int64(len(d.tombs)))
+}
+
+// tombstoneLane returns the lane tombstoned at teid, if the grace window is
+// still open.
+func (d *Demux) tombstoneLane(teid uint32, at time.Time) *UERx {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	tomb, ok := d.tombs[teid]
+	if !ok {
+		return nil
+	}
+	if at.After(tomb.expires) {
+		delete(d.tombs, teid)
+		d.tombsLive.Store(int64(len(d.tombs)))
+		return nil
+	}
+	return tomb.rx
 }
 
 // TEIDMisses counts downlink G-PDUs (and End Markers) whose TEID matched no
@@ -156,6 +230,11 @@ func (d *Demux) TEIDMisses() uint64 { return d.teidMisses.Load() }
 
 // DecodeErrors counts frames that failed GTP-U decoding (skipped).
 func (d *Demux) DecodeErrors() uint64 { return d.decodeErrs.Load() }
+
+// StaleEndMarkers counts End Markers that arrived on a tombstoned TEID — the
+// expected post-handover signal on the vacated path, delivered to the moved
+// lane instead of being dropped as a TEID miss.
+func (d *Demux) StaleEndMarkers() uint64 { return d.staleEndMarkers.Load() }
 
 // Close stops the reader goroutine and waits for it to exit. It does not
 // close the underlying socket (the Tunnel/SharedTunnel owns that); closing
@@ -178,13 +257,18 @@ func (d *Demux) run() {
 		for _, rx := range d.lanes {
 			lanes = append(lanes, rx)
 		}
+		// The socket is gone: no End Marker can arrive, so drop the
+		// tombstones (each pins a UERx) with it.
+		d.tombs = make(map[uint32]tombstone)
+		d.tombsLive.Store(0)
 		d.mu.Unlock()
 		for _, rx := range lanes {
-			rx.close()
+			rx.Close()
 		}
 		close(d.done)
 	}()
 	buf := make([]byte, 65536)
+	var nextSweep time.Time
 	for {
 		n, _, err := d.conn.ReadFromUDP(buf)
 		if err != nil {
@@ -194,6 +278,11 @@ func (d *Demux) run() {
 			continue // transient per-packet error (e.g. stray deadline)
 		}
 		arrival := time.Now()
+		// Coarse tombstone sweep: at most once per TTL, only while any exist.
+		if d.tombsLive.Load() > 0 && arrival.After(nextSweep) {
+			d.sweepTombs(arrival)
+			nextSweep = arrival.Add(d.tombTTL)
+		}
 		g, err := gtpu.DecodeGPDU(buf[:n])
 		if err != nil {
 			d.decodeErrs.Add(1)
@@ -201,8 +290,15 @@ func (d *Demux) run() {
 		}
 		switch g.MsgType {
 		case gtpu.MsgTypeEndMarker:
+			em := EndMarker{Arrival: arrival, TEID: g.TEID, GNB: d.local}
 			if rx := d.lane(g.TEID); rx != nil {
-				rx.noteEndMarker(arrival)
+				rx.noteEndMarker(em)
+			} else if rx := d.tombstoneLane(g.TEID, arrival); rx != nil {
+				// The vacated (pre-handover) TEID: the UPF drained the old
+				// path. Route it to the moved lane as a correlation input.
+				em.Stale = true
+				d.staleEndMarkers.Add(1)
+				rx.noteEndMarker(em)
 			} else {
 				d.teidMisses.Add(1)
 			}
@@ -215,9 +311,7 @@ func (d *Demux) run() {
 				d.teidMisses.Add(1)
 				continue
 			}
-			if d.stats != nil {
-				d.stats(g.QFI, g.HasQFI, len(g.Payload))
-			}
+			rx.noteDownlink(g.QFI, g.HasQFI, len(g.Payload))
 			pkt := make([]byte, len(g.Payload))
 			copy(pkt, g.Payload)
 			rx.dispatch(pkt, arrival)
@@ -248,7 +342,8 @@ type UERx struct {
 	udp         map[uint16]*Ring
 	udpAll      *Ring // wildcard UDP lane (SubscribeUDPAll); per-port lanes win
 	defaultSink func(innerIP []byte)
-	endMarkerFn func(arrival time.Time)
+	endMarkerFn func(em EndMarker)
+	dlStats     func(qfi uint8, hasQFI bool, payloadBytes int)
 
 	defaultDrops atomic.Uint64
 	endMarkers   atomic.Uint64
@@ -361,27 +456,60 @@ func (u *UERx) SetDefaultSink(f func(innerIP []byte)) {
 // sink was set.
 func (u *UERx) DefaultDrops() uint64 { return u.defaultDrops.Load() }
 
-// EndMarkers counts GTP-U End Marker G-PDUs (message type 254) received for
-// this UE's TEID — the UPF's "old path is drained" signal after a handover
-// path switch (TS 29.281 §7.3), a correlation input.
+// EndMarker describes one received GTP-U End Marker G-PDU (message type 254)
+// — the UPF's "old path is drained" signal after a handover path switch
+// (TS 29.281 §7.3), a correlation input (design §7).
+type EndMarker struct {
+	Arrival time.Time
+	TEID    uint32 // the TEID the marker arrived on (Stale: the vacated one)
+	GNB     string // the gNB N3 socket address it arrived on
+	// Stale marks a marker that arrived on a tombstoned TEID a handover just
+	// vacated (Rebind/Detach) — the expected post-switch case: the source
+	// gNB's shared socket outlives the move and the UPF drains the old path.
+	Stale bool
+}
+
+// EndMarkers counts GTP-U End Marker G-PDUs received for this UE — on its
+// live TEID or, within the post-handover grace window, on a vacated one.
 func (u *UERx) EndMarkers() uint64 { return u.endMarkers.Load() }
 
 // SetEndMarkerFunc installs a callback fired (from the reader goroutine, must
-// not block) with the arrival time of each End Marker. nil removes it; the
-// counter always runs.
-func (u *UERx) SetEndMarkerFunc(f func(arrival time.Time)) {
+// not block) with each End Marker's details. nil removes it; the counter
+// always runs. After an inter-gNB move the source socket's reader may still
+// fire it for the tombstoned TEID (em.Stale), concurrently with the target's.
+func (u *UERx) SetEndMarkerFunc(f func(em EndMarker)) {
 	u.mu.Lock()
 	u.endMarkerFn = f
 	u.mu.Unlock()
 }
 
-func (u *UERx) noteEndMarker(arrival time.Time) {
+// setDownlinkStats installs the per-UE downlink accounting hook, called from
+// the reader goroutine for every accepted G-PDU on this lane (registered
+// TEID, non-empty payload). SharedTunnel.Register wires it into the UE's
+// QFI counters; because the hook rides the lane, accounting follows the lane
+// across Detach/Attach handover moves.
+func (u *UERx) setDownlinkStats(f func(qfi uint8, hasQFI bool, payloadBytes int)) {
+	u.mu.Lock()
+	u.dlStats = f
+	u.mu.Unlock()
+}
+
+func (u *UERx) noteDownlink(qfi uint8, hasQFI bool, payloadBytes int) {
+	u.mu.RLock()
+	f := u.dlStats
+	u.mu.RUnlock()
+	if f != nil {
+		f(qfi, hasQFI, payloadBytes)
+	}
+}
+
+func (u *UERx) noteEndMarker(em EndMarker) {
 	u.endMarkers.Add(1)
 	u.mu.RLock()
 	f := u.endMarkerFn
 	u.mu.RUnlock()
 	if f != nil {
-		f(arrival)
+		f(em)
 	}
 }
 
@@ -440,8 +568,12 @@ func (u *UERx) toDefault(pkt []byte) {
 	u.defaultDrops.Add(1)
 }
 
-// close closes every subscription (lane unregistered / demux torn down).
-func (u *UERx) close() {
+// Close closes every subscription, waking blocked consumers with
+// net.ErrClosed. The Demux calls it when the lane is unregistered or the
+// demux tears down; the engine calls it directly only for a lane that was
+// Detached for a handover move and could not be re-attached — consumers must
+// see a closed signal, never a silent blackhole.
+func (u *UERx) Close() {
 	u.mu.Lock()
 	icmp := u.icmp
 	u.icmp = nil
@@ -449,6 +581,12 @@ func (u *UERx) close() {
 	u.udp = make(map[uint16]*Ring)
 	udpAll := u.udpAll
 	u.udpAll = nil
+	// Drop the callbacks too: a tombstone may keep this lane reachable from
+	// the reader for the grace window after the owning session is gone, and
+	// a stale End Marker must not fire into a finalized consumer.
+	u.endMarkerFn = nil
+	u.dlStats = nil
+	u.defaultSink = nil
 	u.mu.Unlock()
 	for _, r := range icmp {
 		r.Close()

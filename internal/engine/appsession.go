@@ -561,11 +561,17 @@ func (m *Manager) StartAppSession(ctx context.Context, supi string, cfg AppSessi
 		m.log.Info("app correlation", "id", s.id, "supi", s.supi, "annotation", text)
 		s.publish(AppSample{Time: at, TimeSource: "local", Event: AppEventAnnotation, Detail: text})
 	})
-	// End Markers are correlation events (design §6); the callback runs on
-	// the demux reader and must not block — publish never does.
-	rx.SetEndMarkerFunc(func(at time.Time) {
-		s.publish(AppSample{Time: at, TimeSource: "local", Event: AppEventEndMarker,
-			Detail: "GTP-U End Marker on the UE downlink lane"})
+	// End Markers are correlation events (design §6) naming where the old
+	// path went quiet — a marker on a TEID a handover just vacated rides the
+	// demux tombstone and arrives here too. The callback runs on the demux
+	// reader and must not block — publish never does.
+	rx.SetEndMarkerFunc(func(em datapath.EndMarker) {
+		detail := fmt.Sprintf("GTP-U End Marker on gNB %s, TEID %#x", em.GNB, em.TEID)
+		if em.Stale {
+			detail += " (vacated pre-handover TEID: source path drained)"
+		}
+		s.publish(AppSample{Time: em.Arrival, TimeSource: "local",
+			Event: AppEventEndMarker, Detail: detail})
 	})
 
 	id := m.apps.add(s)
