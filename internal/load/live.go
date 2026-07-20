@@ -46,20 +46,24 @@ type Snapshot struct {
 // Safe for concurrent use: Observe is called from the run's worker pool while
 // Snapshot is called from whatever is displaying progress.
 type LiveStats struct {
-	start time.Time
-
 	// mu guards every field below. hdrhistogram is not safe for concurrent
 	// read/write, so Snapshot's quantile reads take the same lock as Observe's
 	// writes rather than a separate reader lock.
-	mu                           sync.Mutex
+	mu sync.Mutex
+	// start is stamped by the first Observe, not by the constructor: a caller
+	// typically builds this before bringing up associations, and measuring from
+	// construction would fold connection setup into the elapsed time. Anchoring
+	// on the first completed attempt keeps AchievedRate comparable with the
+	// final Report, which measures from the storm's own start.
+	start                        time.Time
 	attempted, succeeded, failed int
 	hists                        map[string]*hdr.Histogram
 }
 
-// NewLiveStats starts a live aggregator. Elapsed time is measured from here,
-// so construct it immediately before the run.
+// NewLiveStats returns an empty live aggregator. The run clock starts with the
+// first observed attempt, so it is safe to construct this well before the run.
 func NewLiveStats() *LiveStats {
-	return &LiveStats{start: time.Now(), hists: map[string]*hdr.Histogram{}}
+	return &LiveStats{hists: map[string]*hdr.Histogram{}}
 }
 
 // Observe records one completed attempt. Implements Observer.
@@ -67,6 +71,9 @@ func (l *LiveStats) Observe(s Sample) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	if l.start.IsZero() {
+		l.start = time.Now()
+	}
 	l.attempted++
 	if s.Err != nil {
 		l.failed++
@@ -95,7 +102,12 @@ func (l *LiveStats) Snapshot() Snapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	elapsed := time.Since(l.start)
+	// Zero before the first attempt: the run has not started, so there is no
+	// elapsed time and no rate to report.
+	var elapsed time.Duration
+	if !l.start.IsZero() {
+		elapsed = time.Since(l.start)
+	}
 	lat := make(map[string]Stats, len(l.hists))
 	for name, h := range l.hists {
 		lat[name] = Stats{
