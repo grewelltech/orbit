@@ -12,19 +12,22 @@ import (
 	"github.com/bgrewell/orbit/internal/datapath"
 )
 
-// Probe is the GTP-U send+receive the latency bridge needs; *datapath.Tunnel
-// satisfies it.
-type Probe interface {
-	SendUplink(innerIP []byte) error
-	ReadDownlink(timeout time.Duration) ([]byte, error)
+// ICMPRx is the downlink side of the probe: an ICMP subscription on the
+// session's N3 demux (datapath.UERx.SubscribeICMP). *datapath.Ring satisfies
+// it. The probe never reads the tunnel socket directly — the Demux's reader
+// goroutine is the socket's only reader (design §6), so the probe and media
+// lanes share one downlink.
+type ICMPRx interface {
+	Read(timeout time.Duration) (datapath.Frame, error)
 }
 
 // tunnelPinger implements loom's latency.Pinger by sending an ICMP echo up the
-// GTP-U tunnel and timing the matching reply on the downlink. All the
-// statistics (jitter/loss/percentiles) are loom's — this only supplies the
-// tunnel transport for the probe.
+// GTP-U tunnel and timing the matching reply on its demuxed ICMP lane. All
+// the statistics (jitter/loss/percentiles) are loom's — this only supplies
+// the tunnel transport for the probe.
 type tunnelPinger struct {
-	probe     Probe
+	up        Uplink
+	rx        ICMPRx
 	ueIP, dst net.IP
 	id        uint16
 }
@@ -36,7 +39,7 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 		return 0, err
 	}
 	start := time.Now()
-	if err := p.probe.SendUplink(req); err != nil {
+	if err := p.up.SendUplink(req); err != nil {
 		return 0, err
 	}
 	deadline := time.Now().Add(time.Second)
@@ -48,20 +51,28 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 		if remaining <= 0 {
 			return 0, context.DeadlineExceeded
 		}
-		inner, err := p.probe.ReadDownlink(remaining)
+		f, err := p.rx.Read(remaining)
 		if err != nil {
-			return 0, err // timeout/read error → loom classifies as loss
+			return 0, err // timeout/closed → loom classifies as loss
 		}
-		if _, ok := datapath.MatchICMPEchoReply(inner, p.id, s); ok {
+		if _, ok := datapath.MatchICMPEchoReply(f.Payload, p.id, s); ok {
+			// Time the reply at the demux reader's socket-read stamp, not at
+			// ring dequeue: behind a shared demux the probe's frames can wait
+			// in the ring (and this goroutine can wake late) while media
+			// flows — exactly when inflating the RTT would matter most.
+			if !f.Arrival.IsZero() {
+				return f.Arrival.Sub(start), nil
+			}
 			return time.Since(start), nil
 		}
-		// downlink traffic that isn't our reply — keep reading until deadline.
+		// ICMP traffic that isn't our reply — keep reading until deadline.
 	}
 }
 
 // LatencyConfig parameterises an RTT/jitter/loss probe over the tunnel.
 type LatencyConfig struct {
-	Probe   Probe
+	Uplink  Uplink // GTP-U uplink (tunnel or UE flow)
+	RX      ICMPRx // demuxed downlink ICMP lane (UERx.SubscribeICMP)
 	UEIP    net.IP
 	Target  string        // destination IPv4 (ICMP; no port)
 	Probes  int           // number of echoes (default 20)
@@ -87,6 +98,9 @@ func RunLatency(ctx context.Context, cfg LatencyConfig) (LatencyResult, error) {
 	if cfg.UEIP == nil {
 		return LatencyResult{}, errors.New("UEIP is required")
 	}
+	if cfg.Uplink == nil || cfg.RX == nil {
+		return LatencyResult{}, errors.New("Uplink and RX (demux ICMP lane) are required")
+	}
 	probes := cfg.Probes
 	if probes <= 0 {
 		probes = 20
@@ -101,7 +115,7 @@ func RunLatency(ctx context.Context, cfg LatencyConfig) (LatencyResult, error) {
 	}
 
 	sampler := &latency.Sampler{
-		Pinger:   &tunnelPinger{probe: cfg.Probe, ueIP: cfg.UEIP, dst: dst, id: 0xB1A5},
+		Pinger:   &tunnelPinger{up: cfg.Uplink, rx: cfg.RX, ueIP: cfg.UEIP, dst: dst, id: 0xB1A5},
 		Probes:   probes,
 		Spacing:  spacing,
 		Timeout:  timeout,

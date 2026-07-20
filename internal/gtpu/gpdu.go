@@ -52,6 +52,7 @@ func EncodeGPDU(teid uint32, qfi uint8, payload []byte) []byte {
 // GPDU is a decoded G-PDU.
 type GPDU struct {
 	TEID    uint32
+	MsgType uint8 // GTP-U message type (octet 2); MsgTypeGPDU for user data
 	QFI     uint8
 	HasQFI  bool
 	Payload []byte
@@ -75,7 +76,7 @@ func DecodeGPDU(pkt []byte) (*GPDU, error) {
 	if HeaderSizeMandatory+length > len(pkt) {
 		return nil, fmt.Errorf("GTP-U length %d exceeds packet (%d bytes)", length, len(pkt))
 	}
-	out := &GPDU{TEID: teid}
+	out := &GPDU{TEID: teid, MsgType: msgType}
 	if msgType != MsgTypeGPDU {
 		// Echo/End Marker/etc. carry no user payload for our purposes.
 		return out, nil

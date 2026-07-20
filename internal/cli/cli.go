@@ -62,6 +62,7 @@ func newServeCmd(version string) *cobra.Command {
 	var listen string
 	var logLevel string
 	var coreProfile string
+	var loomAgent, loomToken string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the ORBIT API server",
@@ -84,7 +85,11 @@ func newServeCmd(version string) *cobra.Command {
 			}()
 
 			reg := observability.NewRegistry()
-			handler := server.New(log, version, reg, coreProfile)
+			handler := server.New(log, version, reg, server.Options{
+				CoreProfile: coreProfile,
+				LoomAgent:   loomAgent,
+				LoomToken:   loomToken,
+			})
 
 			srv := &http.Server{
 				Addr:              listen,
@@ -101,6 +106,8 @@ func newServeCmd(version string) *cobra.Command {
 	cmd.Flags().StringVar(&listen, "listen", DefaultListen, "listen address (host:port)")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 	cmd.Flags().StringVar(&coreProfile, "core-profile", "", "core compatibility profile (strict-3gpp, sdcore); default strict-3gpp")
+	cmd.Flags().StringVar(&loomAgent, "loom-agent", "", "default N6 loomd control address (host:port) for app sessions; per-call --peer overrides")
+	cmd.Flags().StringVar(&loomToken, "loom-token", "", "default loomd control-plane bearer token for app sessions")
 	return cmd
 }
 
