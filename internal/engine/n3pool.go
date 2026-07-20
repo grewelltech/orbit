@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/orbit/internal/datapath"
+	"github.com/bgrewell/orbit/internal/loomgtp"
 )
 
 // n3Pool owns the per-gNB shared N3 tunnels (design §6, Phase 5): ONE UDP
@@ -26,11 +27,44 @@ type n3Pool struct {
 }
 
 // sharedN3 is one refcounted pool entry: the gNB's SharedTunnel keyed by its
-// local N3 bind address.
+// local N3 bind address, plus the gNB's lazy netstack bridge (design §6 —
+// the ONE gVisor stack serving every TCP app on this gNB). The bridge shares
+// the entry's refcount lifecycle: created on the first TCP-app need, closed
+// with the shared tunnel when the last session releases the entry.
 type sharedN3 struct {
 	key  string // local N3 bind address ("host:port") — the pool key
 	st   *datapath.SharedTunnel
 	refs int
+
+	nsMu sync.Mutex
+	ns   *loomgtp.GNBStack
+}
+
+// netstack lazily creates (and caches) the gNB's netstack bridge — the
+// first TCP app on any of the gNB's sessions pays the gVisor cost, UDP-only
+// gNBs never do.
+func (r *sharedN3) netstack() (*loomgtp.GNBStack, error) {
+	r.nsMu.Lock()
+	defer r.nsMu.Unlock()
+	if r.ns == nil {
+		g, err := loomgtp.NewGNBStack(loomgtp.DefaultInnerMTU)
+		if err != nil {
+			return nil, err
+		}
+		r.ns = g
+	}
+	return r.ns, nil
+}
+
+// closeNetstack closes the entry's netstack bridge, if one was created.
+func (r *sharedN3) closeNetstack() {
+	r.nsMu.Lock()
+	ns := r.ns
+	r.ns = nil
+	r.nsMu.Unlock()
+	if ns != nil {
+		_ = ns.Close()
+	}
 }
 
 func newN3Pool() *n3Pool {
@@ -73,6 +107,10 @@ func (p *n3Pool) release(r *sharedN3) {
 	if cur, ok := p.tuns[r.key]; ok && cur == r {
 		delete(p.tuns, r.key)
 	}
+	// The gNB's netstack bridge dies with its shared tunnel (design Phase 6
+	// lifecycle): close it first so its receive loop and gVisor workers wind
+	// down before the socket that fed them goes away.
+	r.closeNetstack()
 	_ = r.st.Close()
 }
 
@@ -95,4 +133,22 @@ func (p *n3Pool) size() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.tuns)
+}
+
+// netstackCount reports how many pool entries hold a live netstack bridge —
+// the per-gNB gVisor budget assertion (design §8): TCP app cohorts share ONE
+// Stack per gNB N3 socket, so this may never exceed size(), no matter how
+// many UEs run TCP apps.
+func (p *n3Pool) netstackCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, r := range p.tuns {
+		r.nsMu.Lock()
+		if r.ns != nil {
+			n++
+		}
+		r.nsMu.Unlock()
+	}
+	return n
 }

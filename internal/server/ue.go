@@ -368,7 +368,10 @@ func (s *ueService) StopApp(
 }
 
 // appSampleProto maps one engine sample onto the wire: a quality sample sets
-// local or remote by end; a correlation event rides in events.
+// the local or remote field of its metric kind by end; a correlation event
+// rides in events. A "video" session's remote end is the http origin, so its
+// remote samples land in remote_http (there is no remote_video on the wire —
+// loom's video player is client-only).
 func appSampleProto(a engine.AppSample) *orbitv1.AppSample {
 	p := &orbitv1.AppSample{
 		UnixNano:    a.Time.UnixNano(),
@@ -384,8 +387,11 @@ func appSampleProto(a engine.AppSample) *orbitv1.AppSample {
 	}
 	if a.End == engine.AppEndN6 {
 		p.Remote = voipMetricsProto(a.VoIP)
+		p.RemoteHttp = httpMetricsProto(a.HTTP)
 	} else {
 		p.Local = voipMetricsProto(a.VoIP)
+		p.LocalHttp = httpMetricsProto(a.HTTP)
+		p.LocalVideo = videoMetricsProto(a.Video)
 	}
 	return p
 }
@@ -399,10 +405,18 @@ func appReportProto(rep engine.AppSessionReport) *orbitv1.AppReport {
 		DataPort:        rep.DataPort,
 		StartedUnixNano: rep.Started.UnixNano(),
 		EndedUnixNano:   rep.Ended.UnixNano(),
-		Local:           voipMetricsProto(&rep.Local),
 		Remote:          voipMetricsProto(rep.Remote),
+		LocalHttp:       httpMetricsProto(rep.LocalHTTP),
+		RemoteHttp:      httpMetricsProto(rep.RemoteHTTP),
+		LocalVideo:      videoMetricsProto(rep.LocalVideo),
 		Error:           rep.Err,
 		MediaGaps:       appMediaGapSummaries(rep),
+	}
+	// The voip local snapshot is a value (not a pointer) on the engine report;
+	// set it only for voip sessions so an http/video report does not carry a
+	// phantom all-zero VoipMetrics.
+	if rep.App == "voip" {
+		p.Local = voipMetricsProto(&rep.Local)
 	}
 	for _, ev := range rep.Events {
 		var line string
@@ -471,6 +485,47 @@ func voipMetricsProto(v *metrics.VoIP) *orbitv1.VoipMetrics {
 	}
 	for _, g := range v.MediaGaps {
 		p.MediaGaps = append(p.MediaGaps, &orbitv1.MediaGap{
+			StartUnixNano: g.Start.UnixNano(),
+			EndUnixNano:   g.End.UnixNano(),
+			PacketsLost:   g.PacketsLost,
+		})
+	}
+	return p
+}
+
+// httpMetricsProto maps loom's HTTP snapshot onto the wire (nil in → nil out).
+// Only the fields loom's own HttpMetrics wire message carries are mapped;
+// remote snapshots arrived with exactly these, so nothing is invented.
+func httpMetricsProto(h *metrics.HTTP) *orbitv1.HttpMetrics {
+	if h == nil {
+		return nil
+	}
+	return &orbitv1.HttpMetrics{
+		Requests:       h.Requests,
+		Errors:         h.Errors,
+		TtfbMsP95:      h.TTFBMsP95,
+		GoodputMbps:    h.GoodputMbps,
+		TlsHandshakeMs: h.TLSHandshakeMs,
+		ConnectMs:      h.ConnectMs,
+	}
+}
+
+// videoMetricsProto maps loom's video QoE snapshot onto the wire (nil in →
+// nil out), stall events included as MediaGap-shaped entries.
+func videoMetricsProto(v *metrics.Video) *orbitv1.VideoMetrics {
+	if v == nil {
+		return nil
+	}
+	p := &orbitv1.VideoMetrics{
+		Stalls:         v.Stalls,
+		StallTimeMs:    v.StallTimeMs,
+		RebufferRatio:  v.RebufferRatio,
+		BufferMs:       v.BufferMs,
+		AvgBitrateKbps: v.AvgBitrateKbps,
+		StartupMs:      v.StartupMs,
+	}
+	for _, g := range v.StallEvents {
+		p.StallEvents = append(p.StallEvents, &orbitv1.MediaGap{
 			StartUnixNano: g.Start.UnixNano(),
 			EndUnixNano:   g.End.UnixNano(),
 			PacketsLost:   g.PacketsLost,

@@ -250,7 +250,10 @@ message StartAppRequest {
   // Registered UE the call runs from (needs an active PDU session and a
   // gNB N3 address, like Traffic/Latency).
   string supi = 1;
-  // loom application engine; "voip" is the one this build supports.
+  // loom application engine: "voip" (RTP/RTCP over the dgram bridge),
+  // "http" or "video" (real TCP through the per-gNB netstack). The far end
+  // of "video" is the "http" app's HTTPOrigin — loom's video player is
+  // client-only, the same mapping loom's own controller applies.
   string app = 2;
   // The N6 loomd's control-plane address (host:port) on the MANAGEMENT
   // network. Empty falls back to the server-level default, if configured.
@@ -260,8 +263,13 @@ message StartAppRequest {
   // Media address override: by default RTP is aimed at peer's host, but
   // the management and N6 data addresses may differ.
   string peer_data_ip = 5;
-  // App tuning knobs, passed verbatim to both ends
-  // (voip: codec, ptime, jb_ms, port_min, port_max, ...).
+  // App tuning knobs, passed verbatim to both ends — each engine reads only
+  // the keys it documents (voip: codec, ptime, jb_ms, port_min, port_max;
+  // http: url_path, objects, object_size, think, tls, tls_ca, tls_insecure,
+  // h2, host; video: url_name, ladder, seg_duration, segments,
+  // start_threshold, buffer_target, rebuffer_target, abr, plus the http
+  // transport keys — ladder/seg_duration/segments configure the origin and
+  // double as the player's expectation, one grammar for both sides).
   map<string, string> params = 6;
   // Call duration in milliseconds (0 = 60000). The far-end flow is always
   // duration-bounded — loom's orphan protection.
@@ -334,6 +342,37 @@ message MediaGap {
   uint32 packets_lost = 3;
 }
 
+// HttpMetrics mirrors loom's requester-side HTTP/TLS quality snapshot
+// (loom.v1 HttpMetrics): completed/failed request counts, p95
+// time-to-first-byte, application-payload goodput, and the mean TCP-connect
+// and TLS-handshake times of newly established connections. On the server
+// (origin) end only requests/errors/goodput are meaningful — the origin
+// measures no client-side latencies.
+message HttpMetrics {
+  uint64 requests = 1;         // requests completed this interval
+  uint64 errors = 2;           // failed requests (also counted in requests)
+  double ttfb_ms_p95 = 3;      // p95 time-to-first-byte, milliseconds
+  double goodput_mbps = 4;     // application-payload throughput
+  double tls_handshake_ms = 5; // mean TLS handshake time (new conns only)
+  double connect_ms = 6;       // mean TCP connect time (new conns only)
+}
+
+// VideoMetrics mirrors loom's player-side streaming QoE snapshot (loom.v1
+// VideoMetrics): stalls, stall time, rebuffer ratio (stall over stall+play
+// time, bounded [0,1]), current buffer depth, duration-weighted average
+// bitrate, startup delay, and each completed stall as a MediaGap-shaped
+// timed entry (packets_lost is 0 for stalls) so stalls align with media
+// gaps and handover events on one timeline.
+message VideoMetrics {
+  uint64 stalls = 1;                  // rebuffer events this interval
+  double stall_time_ms = 2;           // total time stalled
+  double rebuffer_ratio = 3;          // stall / (stall + play)
+  double buffer_ms = 4;               // current buffer depth
+  double avg_bitrate_kbps = 5;        // average selected bitrate
+  double startup_ms = 6;              // time to first play (0 until playing)
+  repeated MediaGap stall_events = 7; // individual stall intervals
+}
+
 message AppStreamRequest {
   string session_id = 1;
 }
@@ -361,9 +400,16 @@ message AppSample {
   string time_source = 3;
   // Closing whole-call sample of a telemetry series.
   bool final = 4;
+  // Quality snapshot of the end that measured this sample; the populated
+  // field matches the session's app. local* is the in-process client behind
+  // the UE, remote* the N6 loomd flow. A "video" session's remote end is
+  // the http origin, so its remote samples arrive as remote_http.
   VoipMetrics local = 5;
   VoipMetrics remote = 6;
   repeated CorrelationEvent events = 7;
+  HttpMetrics local_http = 8;
+  HttpMetrics remote_http = 9;
+  VideoMetrics local_video = 10;
 }
 
 message StopAppRequest {
@@ -381,9 +427,11 @@ message AppReport {
   uint32 data_port = 5;
   int64 started_unix_nano = 6;
   int64 ended_unix_nano = 7;
-  // Whole-call cumulative snapshots: local is the in-process client behind
-  // the UE, remote the far end's final telemetry sample (unset if none
-  // arrived).
+  // Whole-call cumulative snapshots: local* is the in-process client behind
+  // the UE, remote* the far end's final telemetry sample (unset if none
+  // arrived). The populated pair matches the session's app; a "video"
+  // session's far end is the http origin, so its remote snapshot is
+  // remote_http.
   VoipMetrics local = 8;
   VoipMetrics remote = 9;
   // Human-readable correlation timeline, one line per event.
@@ -393,6 +441,9 @@ message AppReport {
   // The client engine's terminal error (e.g. a handshake timeout), empty
   // for a clean run.
   string error = 12;
+  HttpMetrics local_http = 13;
+  HttpMetrics remote_http = 14;
+  VideoMetrics local_video = 15;
 }
 
 // MediaGapSummary is one media gap attributed to the end that observed it.
