@@ -1,10 +1,29 @@
 BIN     := bin/orbit
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test integration vet fmt tidy gen clean install install-service upgrade-service uninstall-service
+.PHONY: build test integration vet fmt tidy gen clean install install-service upgrade-service uninstall-service ui ui-dev ui-clean
 
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BIN) ./cmd/orbit
+
+# ── dashboard ────────────────────────────────────────────────────────────────
+# Built assets live in internal/webui/dist and are committed, so `go build`
+# and `go install` work without a Node toolchain. Rebuild after changing web/.
+UI_SRC := $(shell find web/src web/index.html web/package.json web/vite.config.ts -type f 2>/dev/null)
+
+ui: internal/webui/dist/index.html
+
+internal/webui/dist/index.html: $(UI_SRC) web/package-lock.json
+	cd web && npm ci --no-fund --no-audit
+	cd web && npm run build
+
+# Vite dev server with HMR, proxying API calls to a running `orbit serve`.
+# Override the target with ORBIT_API=host:port.
+ui-dev:
+	cd web && npm install --no-fund --no-audit && npm run dev
+
+ui-clean:
+	rm -rf internal/webui/dist web/node_modules
 
 # Install the binary to $(PREFIX)/bin (default /usr/local).
 PREFIX ?= /usr/local
