@@ -55,6 +55,12 @@ const (
 	UEServiceLatencyProcedure = "/orbit.v1.UEService/Latency"
 	// UEServiceDataStatsProcedure is the fully-qualified name of the UEService's DataStats RPC.
 	UEServiceDataStatsProcedure = "/orbit.v1.UEService/DataStats"
+	// UEServiceStartAppProcedure is the fully-qualified name of the UEService's StartApp RPC.
+	UEServiceStartAppProcedure = "/orbit.v1.UEService/StartApp"
+	// UEServiceAppStreamProcedure is the fully-qualified name of the UEService's AppStream RPC.
+	UEServiceAppStreamProcedure = "/orbit.v1.UEService/AppStream"
+	// UEServiceStopAppProcedure is the fully-qualified name of the UEService's StopApp RPC.
+	UEServiceStopAppProcedure = "/orbit.v1.UEService/StopApp"
 )
 
 // UEServiceClient is a client for the orbit.v1.UEService service.
@@ -91,6 +97,19 @@ type UEServiceClient interface {
 	// data path. A UE whose data path has not been opened yet (nothing has
 	// used the tunnel) reports no flows.
 	DataStats(context.Context, *connect.Request[v1.DataStatsRequest]) (*connect.Response[v1.DataStatsResponse], error)
+	// StartApp starts a real application-traffic session (VoIP today) from a
+	// registered UE through its N3 data path to a loom agent on the N6
+	// network, and returns a session id. The call runs asynchronously:
+	// stream it with AppStream, finish it with StopApp.
+	StartApp(context.Context, *connect.Request[v1.StartAppRequest]) (*connect.Response[v1.StartAppResponse], error)
+	// AppStream pushes a running app session's interval quality samples
+	// (both ends of the call) and correlation events as they happen. The
+	// stream ends when the session does.
+	AppStream(context.Context, *connect.Request[v1.AppStreamRequest]) (*connect.ServerStreamForClient[v1.AppSample], error)
+	// StopApp ends an app session (one that already ran its duration out is
+	// reaped the same way) and returns the both-end report. The session id
+	// is forgotten once the report is returned.
+	StopApp(context.Context, *connect.Request[v1.StopAppRequest]) (*connect.Response[v1.AppReport], error)
 }
 
 // NewUEServiceClient constructs a client for the orbit.v1.UEService service. By default, it uses
@@ -170,6 +189,24 @@ func NewUEServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(uEServiceMethods.ByName("DataStats")),
 			connect.WithClientOptions(opts...),
 		),
+		startApp: connect.NewClient[v1.StartAppRequest, v1.StartAppResponse](
+			httpClient,
+			baseURL+UEServiceStartAppProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("StartApp")),
+			connect.WithClientOptions(opts...),
+		),
+		appStream: connect.NewClient[v1.AppStreamRequest, v1.AppSample](
+			httpClient,
+			baseURL+UEServiceAppStreamProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("AppStream")),
+			connect.WithClientOptions(opts...),
+		),
+		stopApp: connect.NewClient[v1.StopAppRequest, v1.AppReport](
+			httpClient,
+			baseURL+UEServiceStopAppProcedure,
+			connect.WithSchema(uEServiceMethods.ByName("StopApp")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -186,6 +223,9 @@ type uEServiceClient struct {
 	traffic     *connect.Client[v1.TrafficRequest, v1.TrafficResponse]
 	latency     *connect.Client[v1.LatencyRequest, v1.LatencyResponse]
 	dataStats   *connect.Client[v1.DataStatsRequest, v1.DataStatsResponse]
+	startApp    *connect.Client[v1.StartAppRequest, v1.StartAppResponse]
+	appStream   *connect.Client[v1.AppStreamRequest, v1.AppSample]
+	stopApp     *connect.Client[v1.StopAppRequest, v1.AppReport]
 }
 
 // Register calls orbit.v1.UEService.Register.
@@ -243,6 +283,21 @@ func (c *uEServiceClient) DataStats(ctx context.Context, req *connect.Request[v1
 	return c.dataStats.CallUnary(ctx, req)
 }
 
+// StartApp calls orbit.v1.UEService.StartApp.
+func (c *uEServiceClient) StartApp(ctx context.Context, req *connect.Request[v1.StartAppRequest]) (*connect.Response[v1.StartAppResponse], error) {
+	return c.startApp.CallUnary(ctx, req)
+}
+
+// AppStream calls orbit.v1.UEService.AppStream.
+func (c *uEServiceClient) AppStream(ctx context.Context, req *connect.Request[v1.AppStreamRequest]) (*connect.ServerStreamForClient[v1.AppSample], error) {
+	return c.appStream.CallServerStream(ctx, req)
+}
+
+// StopApp calls orbit.v1.UEService.StopApp.
+func (c *uEServiceClient) StopApp(ctx context.Context, req *connect.Request[v1.StopAppRequest]) (*connect.Response[v1.AppReport], error) {
+	return c.stopApp.CallUnary(ctx, req)
+}
+
 // UEServiceHandler is an implementation of the orbit.v1.UEService service.
 type UEServiceHandler interface {
 	// Register attaches one UE (Registration + 5G-AKA + Security Mode +
@@ -277,6 +332,19 @@ type UEServiceHandler interface {
 	// data path. A UE whose data path has not been opened yet (nothing has
 	// used the tunnel) reports no flows.
 	DataStats(context.Context, *connect.Request[v1.DataStatsRequest]) (*connect.Response[v1.DataStatsResponse], error)
+	// StartApp starts a real application-traffic session (VoIP today) from a
+	// registered UE through its N3 data path to a loom agent on the N6
+	// network, and returns a session id. The call runs asynchronously:
+	// stream it with AppStream, finish it with StopApp.
+	StartApp(context.Context, *connect.Request[v1.StartAppRequest]) (*connect.Response[v1.StartAppResponse], error)
+	// AppStream pushes a running app session's interval quality samples
+	// (both ends of the call) and correlation events as they happen. The
+	// stream ends when the session does.
+	AppStream(context.Context, *connect.Request[v1.AppStreamRequest], *connect.ServerStream[v1.AppSample]) error
+	// StopApp ends an app session (one that already ran its duration out is
+	// reaped the same way) and returns the both-end report. The session id
+	// is forgotten once the report is returned.
+	StopApp(context.Context, *connect.Request[v1.StopAppRequest]) (*connect.Response[v1.AppReport], error)
 }
 
 // NewUEServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -352,6 +420,24 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(uEServiceMethods.ByName("DataStats")),
 		connect.WithHandlerOptions(opts...),
 	)
+	uEServiceStartAppHandler := connect.NewUnaryHandler(
+		UEServiceStartAppProcedure,
+		svc.StartApp,
+		connect.WithSchema(uEServiceMethods.ByName("StartApp")),
+		connect.WithHandlerOptions(opts...),
+	)
+	uEServiceAppStreamHandler := connect.NewServerStreamHandler(
+		UEServiceAppStreamProcedure,
+		svc.AppStream,
+		connect.WithSchema(uEServiceMethods.ByName("AppStream")),
+		connect.WithHandlerOptions(opts...),
+	)
+	uEServiceStopAppHandler := connect.NewUnaryHandler(
+		UEServiceStopAppProcedure,
+		svc.StopApp,
+		connect.WithSchema(uEServiceMethods.ByName("StopApp")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orbit.v1.UEService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case UEServiceRegisterProcedure:
@@ -376,6 +462,12 @@ func NewUEServiceHandler(svc UEServiceHandler, opts ...connect.HandlerOption) (s
 			uEServiceLatencyHandler.ServeHTTP(w, r)
 		case UEServiceDataStatsProcedure:
 			uEServiceDataStatsHandler.ServeHTTP(w, r)
+		case UEServiceStartAppProcedure:
+			uEServiceStartAppHandler.ServeHTTP(w, r)
+		case UEServiceAppStreamProcedure:
+			uEServiceAppStreamHandler.ServeHTTP(w, r)
+		case UEServiceStopAppProcedure:
+			uEServiceStopAppHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -427,4 +519,16 @@ func (UnimplementedUEServiceHandler) Latency(context.Context, *connect.Request[v
 
 func (UnimplementedUEServiceHandler) DataStats(context.Context, *connect.Request[v1.DataStatsRequest]) (*connect.Response[v1.DataStatsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.DataStats is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) StartApp(context.Context, *connect.Request[v1.StartAppRequest]) (*connect.Response[v1.StartAppResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.StartApp is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) AppStream(context.Context, *connect.Request[v1.AppStreamRequest], *connect.ServerStream[v1.AppSample]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.AppStream is not implemented"))
+}
+
+func (UnimplementedUEServiceHandler) StopApp(context.Context, *connect.Request[v1.StopAppRequest]) (*connect.Response[v1.AppReport], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.UEService.StopApp is not implemented"))
 }

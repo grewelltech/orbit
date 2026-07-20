@@ -73,19 +73,23 @@ func TestRunFlowValidatesConfig(t *testing.T) {
 	}
 }
 
-// echoProbe turns each uplink ICMP echo request into a downlink echo reply,
+// echoProbe turns each uplink ICMP echo request into a downlink echo reply
+// pushed onto a demux-style ICMP ring (the lane the pinger now consumes),
 // optionally dropping every dropEvery-th probe to model loss.
 type echoProbe struct {
-	pending   []byte
+	ring      *datapath.Ring
 	seq       int
 	dropEvery int
+}
+
+func newEchoProbe(dropEvery int) *echoProbe {
+	return &echoProbe{ring: datapath.NewRing(16), dropEvery: dropEvery}
 }
 
 func (e *echoProbe) SendUplink(inner []byte) error {
 	e.seq++
 	if e.dropEvery > 0 && e.seq%e.dropEvery == 0 {
-		e.pending = nil // dropped: no reply
-		return nil
+		return nil // dropped: no reply
 	}
 	r := make([]byte, len(inner))
 	copy(r, inner)
@@ -95,22 +99,14 @@ func (e *echoProbe) SendUplink(inner []byte) error {
 	copy(r[16:20], tmp[:])
 	ihl := int(r[0]&0x0F) * 4
 	r[ihl] = 0 // ICMP echo reply
-	e.pending = r
+	e.ring.Push(r, time.Now())
 	return nil
 }
 
-func (e *echoProbe) ReadDownlink(timeout time.Duration) ([]byte, error) {
-	if e.pending != nil {
-		r := e.pending
-		e.pending = nil
-		return r, nil
-	}
-	return nil, context.DeadlineExceeded
-}
-
 func TestRunLatencyOverTunnel(t *testing.T) {
+	p := newEchoProbe(0)
 	res, err := RunLatency(context.Background(), LatencyConfig{
-		Probe: &echoProbe{}, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
+		Uplink: p, RX: p.ring, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
 		Probes: 10, Spacing: time.Millisecond, Timeout: 200 * time.Millisecond,
 	})
 	if err != nil {
@@ -124,8 +120,9 @@ func TestRunLatencyOverTunnel(t *testing.T) {
 }
 
 func TestRunLatencyReportsLoss(t *testing.T) {
+	p := newEchoProbe(2)
 	res, err := RunLatency(context.Background(), LatencyConfig{
-		Probe: &echoProbe{dropEvery: 2}, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
+		Uplink: p, RX: p.ring, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
 		Probes: 10, Spacing: time.Millisecond, Timeout: 80 * time.Millisecond,
 	})
 	if err != nil {

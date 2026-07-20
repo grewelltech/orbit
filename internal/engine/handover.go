@@ -32,6 +32,11 @@ func (m *Manager) publishMobility(ev StateEvent, attrs ...any) {
 	}
 	m.log.Info("mobility phase",
 		append([]any{"supi", ev.SUPI, "state", ev.State, "detail", ev.Detail}, attrs...)...)
+	if ev.State == StateHandoverStarted {
+		// orbit_ue_handover_timestamp_seconds — the Grafana annotation
+		// anchor for every handover, app session running or not.
+		m.appMetrics.recordHandover(ev.SUPI, ev.Time)
+	}
 	m.hub.publish(ev)
 }
 
@@ -194,9 +199,11 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	sess.amfID = hr.AMFUENGAPID
 	sess.gnbN3 = target.N3Addr
 	sess.Result.DLTEID = targetHandoverTEID
-	if sess.dataPath != nil {
-		sess.dataPath.Close()
-		sess.dataPath = nil // re-open against the target on next Ping
+	// Move an open data path onto the target (keeping live media lanes — a
+	// running call sees a gap, then recovers); a closed one re-opens lazily.
+	if err := sess.rebindDataPath(); err != nil {
+		m.log.Warn("data path rebind after N2 handover failed; downlink consumers closed",
+			"supi", sess.SUPI, "err", err)
 	}
 	m.mu.Unlock()
 

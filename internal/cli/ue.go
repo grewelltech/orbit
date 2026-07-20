@@ -24,6 +24,7 @@ func newUECmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newUETrafficCmd(serverURL))
 	cmd.AddCommand(newUELatencyCmd(serverURL))
 	cmd.AddCommand(newUEStatsCmd(serverURL))
+	cmd.AddCommand(newUEAppCmd(serverURL))
 	return cmd
 }
 
