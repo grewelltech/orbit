@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -247,5 +248,101 @@ func TestHandoverAfterDeregisterIsRefused(t *testing.T) {
 	// a caller still holding the pointer is refused by the released flag.
 	if _, err := sess.beginProcedure(context.Background()); err == nil {
 		t.Error("a procedure was allowed to start on a deregistered session")
+	}
+}
+
+// A Deregister that cannot acquire the procedure lock must leave the session
+// registered and recoverable. Dropping it from the map first and then failing
+// would strand a live SCTP association, N3 tunnel, and app sessions with no
+// handle to reach them, while the UE stayed registered at the AMF.
+func TestDeregisterKeepsSessionWhenLockUnavailable(t *testing.T) {
+	m := quietManager()
+	const supi = "001010000000001"
+	sess := deregisterableSession(supi)
+	m.sessions[supi] = sess
+
+	// A handover holds the lock for the whole of this attempt.
+	release, err := sess.beginProcedure(context.Background())
+	if err != nil {
+		t.Fatalf("simulated handover could not acquire: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := m.Deregister(ctx, supi); err == nil {
+		t.Fatal("Deregister reported success without acquiring the procedure lock")
+	}
+
+	// The UE must still be reachable, so the operator can retry.
+	if _, err := m.Status(supi); err != nil {
+		t.Errorf("session was dropped from the map despite the failed deregister: %v", err)
+	}
+	if len(m.List()) != 1 {
+		t.Errorf("List reports %d UEs, want 1 — the session was orphaned", len(m.List()))
+	}
+
+	// And the retry succeeds once the handover finishes.
+	release()
+	if err := m.Deregister(context.Background(), supi); err != nil {
+		t.Errorf("retry after the handover finished: %v", err)
+	}
+	if _, err := m.Status(supi); err == nil {
+		t.Error("session still registered after a successful deregister")
+	}
+}
+
+// Handover takes the procedure lock at its entry point, before any network
+// I/O. Without the guard it would proceed to dial the target association while
+// another procedure was mid-flight on the same UE.
+func TestHandoverTakesProcedureLock(t *testing.T) {
+	m := quietManager()
+	const supi = "001010000000001"
+	sess := deregisterableSession(supi)
+	m.sessions[supi] = sess
+
+	release, err := sess.beginProcedure(context.Background())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	// Asserting only "an error" would be tautological: without the lock the
+	// call proceeds to dial the target association and fails there anyway.
+	// The lock is proven by WHICH error comes back.
+	err = m.Handover(ctx, supi, GNBEndpoint{})
+	if err == nil {
+		t.Fatal("Handover ran while another procedure held the lock")
+	}
+	if !strings.Contains(err.Error(), "another procedure is in progress") {
+		t.Errorf("Handover failed with %v, want the procedure-lock error — it reached the network path", err)
+	}
+}
+
+// XnHandover takes the lock at its entry point too.
+func TestXnHandoverTakesProcedureLock(t *testing.T) {
+	m := quietManager()
+	const supi = "001010000000001"
+	sess := deregisterableSession(supi)
+	m.sessions[supi] = sess
+
+	release, err := sess.beginProcedure(context.Background())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	// Asserting only "an error" would be tautological: without the lock the
+	// call proceeds to dial the target association and fails there anyway.
+	// The lock is proven by WHICH error comes back.
+	err = m.XnHandover(ctx, supi, GNBEndpoint{})
+	if err == nil {
+		t.Fatal("XnHandover ran while another procedure held the lock")
+	}
+	if !strings.Contains(err.Error(), "another procedure is in progress") {
+		t.Errorf("XnHandover failed with %v, want the procedure-lock error — it reached the network path", err)
 	}
 }
