@@ -105,10 +105,10 @@ Harder:
   instances and take the server's. This is the bulk of the work and touches
   concurrency: the shared `Manager` must tolerate thousands of UEs arriving from
   a run while unary RPCs read the same maps.
-- Credentials (Ki/OPc) move from CLI flags into API requests. DESIGN §8 already
-  expects the API to carry subscriber secrets and to stay on a lab-internal
-  listener, but this raises the exposure and should be revisited when the API is
-  reachable off-host.
+- Credentials (Ki/OPc) move from CLI flags into API requests. Accepted: ORBIT is
+  a lab benchmarking and conformance tool, not production, and DESIGN §8 already
+  expects the API to carry subscriber secrets on a lab-internal listener. The
+  channel can be hardened if the API is ever exposed beyond the lab host.
 - Long-running work now lives in the daemon: cancellation, resource limits, and
   a policy for concurrent runs are required. The initial policy is one active
   run of a given kind, rejecting a second with `FAILED_PRECONDITION`.
