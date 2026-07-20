@@ -1,0 +1,97 @@
+/*
+ * ORBIT dashboard design tokens.
+ *
+ * Single source of colour/type/spacing truth. The CSS chrome reads these
+ * directly; the ECharts theme (src/theme/echarts.ts) reads the same values at
+ * runtime via getComputedStyle, so charts and chrome cannot drift apart.
+ *
+ * Aesthetic: dark instrument panel. Near-black navy base, hairline borders,
+ * one cyan accent carrying interaction, amber reserved for attention. Dense,
+ * technical, low chrome — the data is the decoration.
+ */
+
+:root {
+  /* ── surfaces ────────────────────────────────────────────────────────── */
+  --o-bg: #080d14;
+  --o-surface: #0d1520;
+  --o-surface-2: #111c29;
+  --o-surface-3: #162434;
+  --o-border: #1c2f42;
+  --o-border-soft: #16283a;
+  --o-border-accent: rgb(79 214 232 / 0.32);
+
+  /* ── ink ─────────────────────────────────────────────────────────────── */
+  --o-ink: #dce6f0;
+  --o-ink-2: #8ba3ba;
+  --o-ink-3: #5a7189;
+  --o-ink-inverse: #04080d;
+
+  /* ── accents ─────────────────────────────────────────────────────────── */
+  --o-accent: #4fd6e8;
+  --o-accent-dim: #2a8f9d;
+  --o-accent-glow: rgb(79 214 232 / 0.14);
+  --o-amber: #f5b942;
+
+  /* ── status ──────────────────────────────────────────────────────────── */
+  /* Reserved for state; never reused as a series colour. */
+  --o-ok: #6fe39b;
+  --o-warn: #f5b942;
+  --o-error: #ff7a93;
+  --o-idle: #5a7189;
+
+  /* ── categorical series ──────────────────────────────────────────────── */
+  /* Assigned in fixed order and never cycled. A 9th series folds into
+     "other" rather than inventing a hue. */
+  --o-series-1: #4fd6e8;
+  --o-series-2: #f5b942;
+  --o-series-3: #a98bff;
+  --o-series-4: #6fe39b;
+  --o-series-5: #ff7a93;
+  --o-series-6: #6ea8ff;
+  --o-series-7: #c9e36a;
+  --o-series-8: #ee86d6;
+
+  /* ── typography ──────────────────────────────────────────────────────── */
+  /* Mono carries every label, metric, and identifier — anything a reader
+     might compare column-wise. Sans carries prose only. */
+  --o-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --o-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+
+  --o-text-2xs: 0.6875rem; /* 11px — axis ticks, dense table cells */
+  --o-text-xs: 0.75rem;    /* 12px — labels, metadata */
+  --o-text-sm: 0.8125rem;  /* 13px — body, table text */
+  --o-text-base: 0.9375rem;
+  --o-text-lg: 1.125rem;
+  --o-text-metric: 1.75rem;    /* stat-tile value */
+  --o-text-metric-lg: 2.5rem;  /* hero metric */
+
+  --o-tracking-label: 0.11em; /* all-caps mono labels */
+  --o-tracking-title: 0.06em;
+
+  /* ── geometry ────────────────────────────────────────────────────────── */
+  --o-radius: 2px;
+  --o-radius-lg: 3px;
+  --o-hairline: 1px;
+
+  /* ── motion ──────────────────────────────────────────────────────────── */
+  /* Fast and unobtrusive: this is a monitoring surface, not a landing page.
+     Anything tied to live data updates instantly; only user-initiated state
+     transitions animate. */
+  --o-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --o-dur-fast: 90ms;
+  --o-dur: 160ms;
+
+  /* ── chart-specific ──────────────────────────────────────────────────── */
+  --o-grid-line: #16283a;
+  --o-axis-line: #22384e;
+  --o-crosshair: rgb(79 214 232 / 0.55);
+  --o-tooltip-bg: #0b1521;
+}
+
+/* Reduced-motion users get the same interface with transitions collapsed. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --o-dur-fast: 0ms;
+    --o-dur: 0ms;
+  }
+}

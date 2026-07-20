@@ -1,0 +1,107 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* Self-hosted: the dashboard is served from the orbit binary on lab networks
+   that may have no egress, so no font CDN can be relied on.
+   Latin subset only — the interface is English and the other subsets would
+   roughly triple the embedded font payload. */
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+
+/* Expose the tokens to Tailwind utilities (v4 reads @theme). */
+@theme inline {
+  --color-bg: var(--o-bg);
+  --color-surface: var(--o-surface);
+  --color-surface-2: var(--o-surface-2);
+  --color-surface-3: var(--o-surface-3);
+  --color-border: var(--o-border);
+  --color-border-soft: var(--o-border-soft);
+  --color-ink: var(--o-ink);
+  --color-ink-2: var(--o-ink-2);
+  --color-ink-3: var(--o-ink-3);
+  --color-accent: var(--o-accent);
+  --color-accent-dim: var(--o-accent-dim);
+  --color-amber: var(--o-amber);
+  --color-ok: var(--o-ok);
+  --color-warn: var(--o-warn);
+  --color-error: var(--o-error);
+  --color-idle: var(--o-idle);
+
+  --font-mono: var(--o-font-mono);
+  --font-sans: var(--o-font-sans);
+
+  --radius-panel: var(--o-radius-lg);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--o-bg);
+  color: var(--o-ink);
+  font-family: var(--o-font-sans);
+  font-size: var(--o-text-sm);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+
+  /* Faint engineering grid — atmosphere without texture noise over data.
+     Sits behind panels, which are opaque. */
+  background-image:
+    linear-gradient(to right, rgb(28 47 66 / 0.28) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(28 47 66 / 0.28) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-attachment: fixed;
+}
+
+/* Every number the reader might compare vertically gets tabular figures, so
+   digits align across rows and don't jitter as live values update. */
+.o-num {
+  font-family: var(--o-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+/* All-caps mono label — the recurring metadata voice of the interface. */
+.o-label {
+  font-family: var(--o-font-mono);
+  font-size: var(--o-text-xs);
+  font-weight: 500;
+  letter-spacing: var(--o-tracking-label);
+  text-transform: uppercase;
+  color: var(--o-ink-3);
+}
+
+/* Focus is always visible and always the accent — keyboard operators are a
+   first-class audience for a monitoring surface. */
+:focus-visible {
+  outline: 1px solid var(--o-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--o-accent);
+  color: var(--o-ink-inverse);
+}
+
+/* Scrollbars styled to disappear into the panel rather than punch holes in it. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--o-surface-3) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--o-surface-3);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
