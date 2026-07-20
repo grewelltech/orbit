@@ -331,8 +331,8 @@ func (d *Demux) lane(teid uint32) *UERx {
 
 // UERx is one UE's downlink lane: it dispatches inner IP packets by protocol
 // and (for UDP) destination port to bounded Rings. Packets that match no
-// subscription go to the default sink (the future netstack InjectInbound,
-// Phase 6); with no sink set they are dropped and counted.
+// subscription go to the default sink (the netstack InjectInbound seam —
+// loomgtp's per-gNB GNBStack); with no sink set they are dropped and counted.
 //
 // Dispatched packet slices are shared read-only between ICMP subscribers and
 // must not be mutated.
@@ -341,7 +341,7 @@ type UERx struct {
 	icmp        []*Ring
 	udp         map[uint16]*Ring
 	udpAll      *Ring // wildcard UDP lane (SubscribeUDPAll); per-port lanes win
-	defaultSink func(innerIP []byte)
+	defaultSink func(innerIP []byte, arrival time.Time)
 	endMarkerFn func(em EndMarker)
 	dlStats     func(qfi uint8, hasQFI bool, payloadBytes int)
 
@@ -444,9 +444,12 @@ func (u *UERx) UnsubscribeUDPAll(r *Ring) {
 }
 
 // SetDefaultSink installs the catch-all for packets matching no
-// subscription — the netstack InjectInbound seam. f runs on the reader
-// goroutine and must not block. nil restores drop-and-count.
-func (u *UERx) SetDefaultSink(f func(innerIP []byte)) {
+// subscription — the netstack InjectInbound seam (design §6): the loomgtp
+// GNBStack bridge feeds these packets, with the arrival timestamp the demux
+// reader stamped at the socket read, into the per-gNB gVisor stack's receive
+// ring. f runs on the reader goroutine and must not block. nil restores
+// drop-and-count.
+func (u *UERx) SetDefaultSink(f func(innerIP []byte, arrival time.Time)) {
 	u.mu.Lock()
 	u.defaultSink = f
 	u.mu.Unlock()
@@ -516,12 +519,12 @@ func (u *UERx) noteEndMarker(em EndMarker) {
 // dispatch routes one inner IP packet. Called only from the Demux reader.
 func (u *UERx) dispatch(pkt []byte, arrival time.Time) {
 	if len(pkt) < 20 || pkt[0]>>4 != 4 {
-		u.toDefault(pkt)
+		u.toDefault(pkt, arrival)
 		return
 	}
 	ihl := int(pkt[0]&0x0F) * 4
 	if ihl < 20 || len(pkt) < ihl {
-		u.toDefault(pkt)
+		u.toDefault(pkt, arrival)
 		return
 	}
 	// Non-first fragments carry no L4 header — only the default sink can
@@ -533,7 +536,7 @@ func (u *UERx) dispatch(pkt []byte, arrival time.Time) {
 		rings := u.icmp
 		u.mu.RUnlock()
 		if len(rings) == 0 {
-			u.toDefault(pkt)
+			u.toDefault(pkt, arrival)
 			return
 		}
 		for _, r := range rings {
@@ -548,21 +551,21 @@ func (u *UERx) dispatch(pkt []byte, arrival time.Time) {
 		}
 		u.mu.RUnlock()
 		if r == nil {
-			u.toDefault(pkt)
+			u.toDefault(pkt, arrival)
 			return
 		}
 		r.Push(pkt, arrival)
 	default:
-		u.toDefault(pkt)
+		u.toDefault(pkt, arrival)
 	}
 }
 
-func (u *UERx) toDefault(pkt []byte) {
+func (u *UERx) toDefault(pkt []byte, arrival time.Time) {
 	u.mu.RLock()
 	sink := u.defaultSink
 	u.mu.RUnlock()
 	if sink != nil {
-		sink(pkt)
+		sink(pkt, arrival)
 		return
 	}
 	u.defaultDrops.Add(1)

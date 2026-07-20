@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/time/rate"
 
 	"github.com/bgrewell/orbit/internal/datapath"
@@ -55,6 +56,16 @@ type FleetBehaviors struct {
 	Traffic       bool
 	TrafficRate   string
 	TrafficTarget string
+	// Apps are the application-traffic cohorts (design §8, fleet_app.go):
+	// carved subsets of the non-mobile fleet each running a real loom app
+	// engine (voip/http/video) against an N6 loomd, with the far-end
+	// control plumbing shared per loomd and results reported as per-cohort
+	// distributions.
+	Apps []FleetAppCohort
+	// AppMetricsReg, when set, registers the per-cohort distribution gauges
+	// (orbit_fleet_app_*, labeled by cohort name — bounded cardinality) and
+	// keeps them live during the run; nil disables them.
+	AppMetricsReg prometheus.Registerer
 }
 
 // FleetReport summarises a fleet run.
@@ -65,6 +76,9 @@ type FleetReport struct {
 	TrafficFlows           int
 	TrafficBytes           uint64
 	Deregistered           int
+	// AppCohorts are the app-traffic cohort outcomes, index-aligned with
+	// FleetBehaviors.Apps.
+	AppCohorts []FleetAppCohortReport
 }
 
 // fleetUE is a persistent attached UE and the gNB index currently serving it.
@@ -82,6 +96,13 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	if len(spec.GNBs) == 0 {
 		return rep, fmt.Errorf("fleet run needs at least one gNB")
 	}
+	// App-cohort specs that cannot run (unknown app, missing peer, a voip
+	// cohort exceeding its far-end port range) are refused BEFORE any gNB
+	// dials or attaches — an actionable error now beats per-UE failures
+	// minutes into a soak.
+	if err := validateFleetAppCohorts(beh.Apps); err != nil {
+		return rep, err
+	}
 	specs := make([]GNBSpec, len(spec.GNBs))
 	for i, g := range spec.GNBs {
 		specs[i] = GNBSpec{AMFAddr: spec.AMFAddr, Config: g.Config, BindAddr: g.BindAddr}
@@ -91,6 +112,12 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 		return rep, err
 	}
 	defer f.Close()
+
+	// One shared N3 tunnel pool for the whole run: sessions' lazy data
+	// paths (app cohorts) and the synthetic traffic flows all acquire the
+	// SAME per-gNB socket through it — one 2152 bind per gNB N3 address,
+	// never two behaviours colliding on the port.
+	pool := newN3Pool()
 
 	// Attach phase — persistent, keeping a handle per UE.
 	start := time.Now()
@@ -114,7 +141,7 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 		go func(i int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fu, err := attachFleetUE(ctx, f, spec, i)
+			fu, err := attachFleetUE(ctx, f, spec, pool, i)
 			amu.Lock()
 			defer amu.Unlock()
 			if err != nil {
@@ -133,11 +160,14 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 
 	// Behaviour phase.
 	if beh.Duration > 0 {
-		runFleetBehaviors(ctx, f, spec, ues, beh, &rep, log)
+		runFleetBehaviors(ctx, f, spec, pool, ues, beh, &rep, log)
 	}
 
-	// Deregister.
+	// Deregister. App-cohort members opened lazy data paths on the shared
+	// pool — close them first so the per-gNB sockets (and any netstack
+	// bridge) release with the last UE.
 	for _, fu := range ues {
+		fu.sess.closeDataPath()
 		if err := fu.sess.deregister(context.Background()); err == nil {
 			rep.Deregistered++
 		}
@@ -146,8 +176,9 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 }
 
 // attachFleetUE attaches one UE muxed on its serving gNB's association and
-// returns a persistent handle.
-func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, i int) (*fleetUE, error) {
+// returns a persistent handle. The session's data path (opened lazily only
+// when an app cohort uses the UE) rides the run's shared per-gNB pool.
+func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int) (*fleetUE, error) {
 	gi := i % len(f.sessions)
 	supi, err := incIMSI(spec.BaseIMSI, i)
 	if err != nil {
@@ -173,46 +204,55 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, i int) (*fl
 		return nil, fmt.Errorf("UE %s not registered", supi)
 	}
 	sess.gnbN3 = spec.GNBs[gi].N3Addr
+	sess.n3 = pool
 	return &fleetUE{sess: sess, gnbIdx: gi}, nil
 }
 
-// runFleetBehaviors runs mobility + traffic concurrently until the duration
-// elapses (or the context is cancelled).
-func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, ues []*fleetUE,
+// runFleetBehaviors runs mobility + traffic + app cohorts concurrently until
+// the duration elapses (or the context is cancelled).
+func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, ues []*fleetUE,
 	beh FleetBehaviors, rep *FleetReport, log *slog.Logger) {
 	dctx, cancel := context.WithTimeout(ctx, beh.Duration)
 	defer cancel()
 	var wg sync.WaitGroup
 
+	// App cohorts take their members from the TAIL of the fleet; mobility
+	// owns the head and the synthetic traffic below skips both populations.
+	appMembers, appTotal := carveAppCohorts(ues, min(beh.MobileUEs, len(ues)), beh.Apps, log)
+	trafficUEs := ues[:len(ues)-appTotal]
+
 	// Traffic: one shared N3 socket per gNB N3 ADDRESS (several FleetGNBs may
 	// share one N3 address — the single-node walkthrough shape — and binding
 	// it twice would EADDRINUSE); every non-mobile UE on it runs a loom flow
 	// concurrently (the shared-N3 demux — a whole population carries traffic
-	// without colliding on port 2152). A gNB whose socket cannot bind is
-	// logged and skipped — its flows are absent from TrafficFlows, never
-	// silently counted as run.
+	// without colliding on port 2152). The sockets come from the run's shared
+	// pool, so app-cohort data paths on the same gNB reuse them instead of
+	// fighting over the bind. A gNB whose socket cannot bind is logged and
+	// skipped — its flows are absent from TrafficFlows, never silently
+	// counted as run.
 	var trafficBytes atomic.Uint64
-	if beh.Traffic && spec.PDUSession != nil && len(ues) > 0 {
+	if beh.Traffic && spec.PDUSession != nil && len(trafficUEs) > 0 {
 		upfN3 := fleetUPFN3(ues[0].sess.Result.UPFAddress)
-		tuns := map[string]*datapath.SharedTunnel{}
+		tuns := map[string]*sharedN3{}
 		for gi := range f.sessions {
-			flowUEs := uesOnGNB(ues, gi, beh.MobileUEs)
+			flowUEs := uesOnGNB(trafficUEs, gi, beh.MobileUEs)
 			if len(flowUEs) == 0 {
 				continue
 			}
 			localN3 := net.JoinHostPort(spec.GNBs[gi].N3Addr, "2152")
-			st, ok := tuns[localN3]
+			ref, ok := tuns[localN3]
 			if !ok {
 				var err error
-				st, err = datapath.NewSharedTunnel(localN3, upfN3)
+				ref, err = pool.acquire(localN3, upfN3)
 				if err != nil {
 					log.Warn("fleet traffic: cannot bind gNB N3 socket; this gNB's flows are skipped",
 						"gnb_n3", localN3, "ues", len(flowUEs), "err", err)
 					continue
 				}
-				tuns[localN3] = st
-				defer st.Close()
+				tuns[localN3] = ref
+				defer pool.release(ref)
 			}
+			st := ref.st
 			for _, fu := range flowUEs {
 				r := fu.sess.Result
 				// Uplink goes to the UE's OWN UPF N3 endpoint (sessions may
@@ -238,6 +278,21 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, ues []*
 				}(fu, flow)
 			}
 		}
+	}
+
+	// App cohorts (fleet_app.go): real voip/http/video engines on the carved
+	// members, far-end plumbing shared per loomd (one control connection +
+	// one TimeSync loop), per-cohort distributions into the report. RTCP's
+	// randomized reporting interval (RFC 3550 §6.3/A.7, implemented by loom)
+	// keeps thousands of concurrent calls from synchronising their reports.
+	var appReports []FleetAppCohortReport
+	if appTotal > 0 {
+		agents := newFleetAgentPool(appTuning{})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			appReports = runFleetApps(dctx, log, agents, beh.Apps, appMembers, beh.Duration, beh.AppMetricsReg)
+		}()
 	}
 
 	// Mobility: each mobile UE moves along a track across the gNB grid; the meas
@@ -278,6 +333,7 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, ues []*
 
 	wg.Wait()
 	rep.TrafficBytes = trafficBytes.Load()
+	rep.AppCohorts = appReports
 }
 
 // fleetHandover moves fu to the target gNB via an Xn PathSwitch on the target's
