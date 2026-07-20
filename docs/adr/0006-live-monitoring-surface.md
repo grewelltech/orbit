@@ -1,6 +1,6 @@
 # ADR-0006: Live monitoring surface
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-20
 
 ## Context
