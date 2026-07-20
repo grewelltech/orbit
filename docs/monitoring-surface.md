@@ -232,9 +232,6 @@ on it.
 - **Concurrent runs.** Initial policy is one active run per kind. Whether
   multiple concurrent load runs are ever meaningful against a single core is a
   question about the core, not about ORBIT.
-- **Credentials over the API.** Moving `orbit load` server-side means Ki/OPc
-  travel in `StartRun`. DESIGN §8 anticipates this and keeps the listener
-  lab-internal, but it deserves a decision before the API is reachable off-host.
 - **History retention.** How many completed runs the daemon keeps, and whether
   reports persist across restarts. Sketch assumes in-memory and bounded.
 - **HDR concurrency.** `hdrhistogram` is not safe for concurrent read/write;
