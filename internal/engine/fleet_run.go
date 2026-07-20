@@ -311,6 +311,14 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	if newAMFID != 0 {
 		fu.sess.amfID = newAMFID
 	}
+	// The serving cell moves with the UE. Without this the session keeps
+	// reporting the cell it attached to, so ServingGNB would be wrong for
+	// every fleet UE that ever hands over.
+	//
+	// The mobility phase stays unset here: a fleet run has no event emitter
+	// (Attach is called with emit=nil), so its UEs publish nothing. That is
+	// the wider gap ADR-0005 addresses, not something to paper over locally.
+	fu.sess.setServingGNB(f.gnbConfigFor(target))
 	// Data-path identity moves under the session's data-path lock (fleet
 	// sessions have no open path today — mobile UEs carry no traffic — but
 	// the locked path keeps that invariant local, not load-bearing).
