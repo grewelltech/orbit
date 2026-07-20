@@ -1,9 +1,11 @@
 package gnb
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/free5gc/aper"
+	"github.com/free5gc/ngap/ngapConvert"
 	"github.com/free5gc/ngap/ngapType"
 )
 
@@ -138,4 +140,54 @@ func ParsePathSwitchAcknowledge(pdu *ngapType.NGAPPDU) (int64, error) {
 		}
 	}
 	return 0, nil
+}
+
+// SwitchedSession is one entry of the PathSwitchRequestAcknowledge's PDU
+// Session Resource Switched List whose transfer carried UL NG-U UP TNL
+// information — the core reallocated the UPF's uplink F-TEID at path switch
+// (TS 38.413 §9.3.4.14), and the gNB MUST send subsequent uplink there.
+type SwitchedSession struct {
+	PDUSessionID int64
+	UPFAddress   string // new UPF N3 IPv4
+	UPFTEID      uint32 // new UPF-allocated uplink TEID
+}
+
+// ParsePathSwitchAcknowledgeSwitched extracts the switched list's new UL
+// NG-U tunnels from a PathSwitchRequestAcknowledge. Sessions whose transfer
+// omits the (optional) UL NG-U UP TNL information — the common "UPF kept the
+// tunnel" case — are absent from the result. Transfers that fail to decode
+// are skipped: a missing UL update degrades to the pre-parse behaviour
+// (keep sending to the old F-TEID), never a failed handover.
+func ParsePathSwitchAcknowledgeSwitched(pdu *ngapType.NGAPPDU) []SwitchedSession {
+	if pdu.Present != ngapType.NGAPPDUPresentSuccessfulOutcome ||
+		pdu.SuccessfulOutcome.Value.Present != ngapType.SuccessfulOutcomePresentPathSwitchRequestAcknowledge {
+		return nil
+	}
+	var out []SwitchedSession
+	for _, ie := range pdu.SuccessfulOutcome.Value.PathSwitchRequestAcknowledge.ProtocolIEs.List {
+		if ie.Id.Value != ngapType.ProtocolIEIDPDUSessionResourceSwitchedList ||
+			ie.Value.PDUSessionResourceSwitchedList == nil {
+			continue
+		}
+		for _, item := range ie.Value.PDUSessionResourceSwitchedList.List {
+			var t ngapType.PathSwitchRequestAcknowledgeTransfer
+			if err := aper.UnmarshalWithParams(item.PathSwitchRequestAcknowledgeTransfer, &t, "valueExt"); err != nil {
+				continue
+			}
+			if t.ULNGUUPTNLInformation == nil || t.ULNGUUPTNLInformation.GTPTunnel == nil {
+				continue
+			}
+			gt := t.ULNGUUPTNLInformation.GTPTunnel
+			if len(gt.GTPTEID.Value) != 4 {
+				continue
+			}
+			v4, _ := ngapConvert.IPAddressToString(gt.TransportLayerAddress)
+			out = append(out, SwitchedSession{
+				PDUSessionID: item.PDUSessionID.Value,
+				UPFAddress:   v4,
+				UPFTEID:      binary.BigEndian.Uint32(gt.GTPTEID.Value),
+			})
+		}
+	}
+	return out
 }

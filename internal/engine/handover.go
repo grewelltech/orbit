@@ -62,11 +62,13 @@ func (m *Manager) UseProfile(name string) error {
 	return nil
 }
 
-// handover TEID/ID for the target side of the sim (single UE per target gNB).
-const (
-	targetHandoverRANID int64  = 1
-	targetHandoverTEID  uint32 = 0x100
-)
+// targetHandoverRANID is the RAN-UE-NGAP-ID on the target side. Each
+// handover dials its own SCTP association to the target, so a constant is
+// unambiguous per association. Downlink TEIDs, by contrast, key the target
+// gNB's shared Demux across ALL its UEs and come from the process-wide
+// allocator (allocDLTEID) — a constant there collided as soon as two UEs
+// handed over to the same target gNB.
+const targetHandoverRANID int64 = 1
 
 // Handover performs an N2 (AMF-mediated) handover of a registered UE from its
 // current gNB to target, driving both NGAP associations (TS 38.413 §8.4):
@@ -143,11 +145,16 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	}
 
 	// 3. target → AMF: HandoverRequestAcknowledge (target DL N3 tunnel).
+	// DL TEIDs come from the process-wide allocator so two UEs handing over
+	// to the same target gNB never collide on its shared Demux.
 	admitted := make([]gnb.AdmittedSession, 0, len(hr.PDUSessionIDs))
-	for i, sid := range hr.PDUSessionIDs {
+	dlTEIDs := map[int64]uint32{}
+	for _, sid := range hr.PDUSessionIDs {
+		teid := allocDLTEID()
+		dlTEIDs[sid] = teid
 		admitted = append(admitted, gnb.AdmittedSession{
 			PDUSessionID: sid,
-			GNBTunnel:    gnb.GNBTunnel{Address: target.N3Addr, TEID: targetHandoverTEID + uint32(i)},
+			GNBTunnel:    gnb.GNBTunnel{Address: target.N3Addr, TEID: teid},
 			QFIs:         []int64{1},
 		})
 	}
@@ -197,11 +204,30 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	sess.gnbCfg = target.Config
 	sess.ranID = targetHandoverRANID
 	sess.amfID = hr.AMFUENGAPID
-	sess.gnbN3 = target.N3Addr
-	sess.Result.DLTEID = targetHandoverTEID
+	// Per-session bookkeeping: new DL TEIDs, plus any UL F-TEID the core
+	// re-anchored (carried in the HandoverRequest's per-session transfer).
+	for i := range sess.Result.Sessions {
+		sr := &sess.Result.Sessions[i]
+		if teid, ok := dlTEIDs[int64(sr.PDUSessionID)]; ok {
+			sr.DLTEID = teid
+		}
+		if ul, ok := hr.ULTunnels[int64(sr.PDUSessionID)]; ok {
+			sr.UPFTEID, sr.UPFAddress = ul.TEID, ul.Address
+		}
+	}
 	// Move an open data path onto the target (keeping live media lanes — a
 	// running call sees a gap, then recovers); a closed one re-opens lazily.
-	if err := sess.rebindDataPath(); err != nil {
+	// gnbN3/DLTEID/UL updates happen inside retargetDataPath under the
+	// data-path lock, so a concurrent dataplane() never sees a torn pair.
+	firstID := firstSessionID(sess.Result)
+	mv := dataPathMove{gnbN3: target.N3Addr, dlTEID: dlTEIDs[firstID]}
+	if mv.dlTEID == 0 && len(admitted) > 0 {
+		mv.dlTEID = admitted[0].GNBTunnel.TEID
+	}
+	if ul, ok := hr.ULTunnels[firstID]; ok {
+		mv.upfTEID, mv.upfN3 = ul.TEID, ul.Address
+	}
+	if err := sess.retargetDataPath(mv); err != nil {
 		m.log.Warn("data path rebind after N2 handover failed; downlink consumers closed",
 			"supi", sess.SUPI, "err", err)
 	}

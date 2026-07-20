@@ -184,36 +184,58 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, ues []*
 	defer cancel()
 	var wg sync.WaitGroup
 
-	// Traffic: one shared N3 socket per gNB; every non-mobile UE on it runs a
-	// loom flow concurrently (the shared-N3 demux — a whole population carries
-	// traffic without colliding on port 2152).
+	// Traffic: one shared N3 socket per gNB N3 ADDRESS (several FleetGNBs may
+	// share one N3 address — the single-node walkthrough shape — and binding
+	// it twice would EADDRINUSE); every non-mobile UE on it runs a loom flow
+	// concurrently (the shared-N3 demux — a whole population carries traffic
+	// without colliding on port 2152). A gNB whose socket cannot bind is
+	// logged and skipped — its flows are absent from TrafficFlows, never
+	// silently counted as run.
 	var trafficBytes atomic.Uint64
 	if beh.Traffic && spec.PDUSession != nil && len(ues) > 0 {
-		upfN3 := net.JoinHostPort(ues[0].sess.Result.UPFAddress, "2152")
+		upfN3 := fleetUPFN3(ues[0].sess.Result.UPFAddress)
+		tuns := map[string]*datapath.SharedTunnel{}
 		for gi := range f.sessions {
 			flowUEs := uesOnGNB(ues, gi, beh.MobileUEs)
 			if len(flowUEs) == 0 {
 				continue
 			}
-			st, err := datapath.NewSharedTunnel(net.JoinHostPort(spec.GNBs[gi].N3Addr, "2152"), upfN3)
-			if err != nil {
-				continue
+			localN3 := net.JoinHostPort(spec.GNBs[gi].N3Addr, "2152")
+			st, ok := tuns[localN3]
+			if !ok {
+				var err error
+				st, err = datapath.NewSharedTunnel(localN3, upfN3)
+				if err != nil {
+					log.Warn("fleet traffic: cannot bind gNB N3 socket; this gNB's flows are skipped",
+						"gnb_n3", localN3, "ues", len(flowUEs), "err", err)
+					continue
+				}
+				tuns[localN3] = st
+				defer st.Close()
 			}
-			defer st.Close()
 			for _, fu := range flowUEs {
+				r := fu.sess.Result
+				// Uplink goes to the UE's OWN UPF N3 endpoint (sessions may
+				// anchor on different UPFs), not UE 0's.
+				flow, err := st.UEFlowTo(r.UPFTEID, r.QFI, fleetUPFN3(r.UPFAddress))
+				if err != nil {
+					log.Warn("fleet traffic: bad UPF N3 endpoint; UE flow skipped",
+						"supi", fu.sess.SUPI, "upf", r.UPFAddress, "err", err)
+					continue
+				}
 				wg.Add(1)
 				rep.TrafficFlows++
-				go func(fu *fleetUE, st *datapath.SharedTunnel) {
+				go func(fu *fleetUE, flow *datapath.UEFlow) {
 					defer wg.Done()
 					r := fu.sess.Result
 					res, err := loomgtp.RunFlow(dctx, loomgtp.Config{
-						Uplink: st.UEFlow(r.UPFTEID, r.QFI), UEIP: net.ParseIP(r.PDUAddress),
+						Uplink: flow, UEIP: net.ParseIP(r.PDUAddress),
 						Target: beh.TrafficTarget, Rate: beh.TrafficRate, Duration: beh.Duration,
 					})
 					if err == nil {
 						trafficBytes.Add(res.Bytes)
 					}
-				}(fu, st)
+				}(fu, flow)
 			}
 		}
 	}
@@ -262,7 +284,10 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, ues []*
 // muxed association, updating the UE handle on success.
 func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE, target int) error {
 	uetT, ranIDT := f.sessions[target].NewUE()
-	newTEID := uint32(0x1000) + uint32(ranIDT)
+	// DL TEIDs come from the same process-wide allocator as attach — a
+	// derived scheme (0x1000+ranID) could collide with a TEID a fleet attach
+	// already handed out on the target gNB.
+	newTEID := allocDLTEID()
 	ps, err := gnb.BuildPathSwitchRequest(f.gnbConfigFor(target), fu.sess.amfID, ranIDT,
 		[]gnb.AdmittedSession{{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: spec.GNBs[target].N3Addr, TEID: newTEID}, QFIs: []int64{1}}})
 	if err != nil {
@@ -281,13 +306,31 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 		return fmt.Errorf("path switch not acknowledged")
 	}
 	newAMFID, _ := gnb.ParsePathSwitchAcknowledge(resp)
+	switched := gnb.ParsePathSwitchAcknowledgeSwitched(resp)
 	fu.sess.conn = uetT
 	if newAMFID != 0 {
 		fu.sess.amfID = newAMFID
 	}
-	fu.sess.Result.DLTEID = newTEID
+	// Data-path identity moves under the session's data-path lock (fleet
+	// sessions have no open path today — mobile UEs carry no traffic — but
+	// the locked path keeps that invariant local, not load-bearing).
+	mv := dataPathMove{gnbN3: spec.GNBs[target].N3Addr, dlTEID: newTEID}
+	if s := switchedFor(switched, 1); s != nil {
+		mv.upfTEID, mv.upfN3 = s.UPFTEID, s.UPFAddress
+	}
+	if err := fu.sess.retargetDataPath(mv); err != nil {
+		return err
+	}
 	fu.gnbIdx = target
 	return nil
+}
+
+// fleetUPFN3 normalises a UPF address to host:port (bare IPs get GTP-U 2152).
+func fleetUPFN3(addr string) string {
+	if _, _, err := net.SplitHostPort(addr); err == nil {
+		return addr
+	}
+	return net.JoinHostPort(addr, "2152")
 }
 
 // fleetUETriggers computes a mobile UE's handover triggers: it moves from its

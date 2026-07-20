@@ -27,6 +27,14 @@ import (
 type HandoverRequestInfo struct {
 	AMFUENGAPID   int64
 	PDUSessionIDs []int64
+	// ULTunnels maps a PDU session ID to the UPF's uplink N3 endpoint from
+	// that session's Handover Request Transfer, when it decoded. The core
+	// may re-anchor the UL F-TEID across an N2 handover — the target gNB
+	// must send subsequent uplink there. Sessions absent from the map keep
+	// their previous UL tunnel (transfer missing or undecodable; free5gc-
+	// lineage cores encode the transfer as a PDU Session Resource Setup
+	// Request Transfer, which is what this parser understands).
+	ULTunnels map[int64]GNBTunnel
 }
 
 // ParseHandoverRequest extracts what the target needs to acknowledge.
@@ -44,6 +52,16 @@ func ParseHandoverRequest(pdu *ngapType.NGAPPDU) (*HandoverRequestInfo, error) {
 		case ngapType.ProtocolIEIDPDUSessionResourceSetupListHOReq:
 			for _, item := range ie.Value.PDUSessionResourceSetupListHOReq.List {
 				out.PDUSessionIDs = append(out.PDUSessionIDs, item.PDUSessionID.Value)
+				// Best-effort UL NG-U tunnel extraction; a failed decode
+				// leaves the session's previous UL tunnel in force.
+				var r PDUSessionResource
+				if err := decodeSetupRequestTransfer(item.HandoverRequestTransfer, &r); err == nil &&
+					r.UPFAddress != "" && r.UPFTEID != 0 {
+					if out.ULTunnels == nil {
+						out.ULTunnels = make(map[int64]GNBTunnel)
+					}
+					out.ULTunnels[item.PDUSessionID.Value] = GNBTunnel{Address: r.UPFAddress, TEID: r.UPFTEID}
+				}
 			}
 		}
 	}

@@ -145,7 +145,8 @@ func toLoomFrame(f datapath.Frame) loomdp.Frame {
 // netstack backend and are refused by dgram with ErrTCPUnsupported.
 //
 // up and rx come from the session's data plane (engine Session.dataplane():
-// the *datapath.Tunnel and its Demux-registered UERx), ueIP is the UE's
+// the *datapath.UETunnel view of the per-gNB SharedTunnel and its
+// Demux-registered UERx lane), ueIP is the UE's
 // PDU-session IPv4 address, and innerMTU bounds inner packets (<= 0 uses
 // DefaultInnerMTU; pass a tunnel-derived value when one exists).
 //

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/ngap/ngapType"
@@ -112,7 +113,6 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		ctx: ctx, conn: conn, gnbCfg: gnbCfg, ueCfg: ueCfg,
 		snn: snn, ranID: ranID, regReq: regReq, log: log, emit: emit,
 		wanted: sessionsToEstablish(ueCfg), sessions: map[uint8]SessionResult{},
-		dlTEIDSeq: gnbDownlinkTEID,
 	}
 
 	initial, err := gnb.BuildInitialUEMessage(gnbCfg, ranID, regReq)
@@ -201,9 +201,8 @@ type attachState struct {
 	guti       []byte
 	registered bool
 
-	wanted    []ue.PDUSessionParams   // sessions to establish
-	sessions  map[uint8]SessionResult // established, by PDU session ID
-	dlTEIDSeq uint32                  // next gNB downlink TEID to hand out
+	wanted   []ue.PDUSessionParams   // sessions to establish
+	sessions map[uint8]SessionResult // established, by PDU session ID
 }
 
 // event publishes a state transition to the emitter, if any.
@@ -234,14 +233,15 @@ func (s *attachState) handlePDUSession(pdu *ngapType.NGAPPDU) (bool, error) {
 	}
 	s.amfID = amfID
 
-	// Assign a downlink TEID per session (stable if the same session recurs).
+	// Assign a downlink TEID per session (stable if the same session recurs
+	// within the message), drawn from the process-wide allocator so every UE
+	// on a gNB gets a distinct demux key.
 	teids := map[int64]uint32{}
 	teidFor := func(id int64) uint32 {
 		if t, ok := teids[id]; ok {
 			return t
 		}
-		t := s.dlTEIDSeq
-		s.dlTEIDSeq++
+		t := allocDLTEID()
 		teids[id] = t
 		return t
 	}
@@ -519,9 +519,19 @@ const (
 	ngapProcInitialContextSetup  = 14
 )
 
-// gnbDownlinkTEID is the gNB-side downlink TEID reported for the single
-// Phase-1a session. Phase 1b allocates per-session TEIDs and wires GTP-U.
-const gnbDownlinkTEID uint32 = 1
+// dlTEIDSeq hands out gNB downlink TEIDs. It is process-wide (one counter
+// across every attach, handover, and fleet path switch), because the DL TEID
+// is the key of the per-gNB shared Demux (design §6): two UEs on one gNB —
+// or two UEs handed over to one target gNB — with the same DL TEID would
+// collide on the demux AND be indistinguishable to the UPF on the wire. A
+// per-attach sequence (the old shape: every UE started at 1) had exactly
+// that defect. Process-wide uniqueness is stronger than the per-gNB minimum,
+// and trivially safe.
+var dlTEIDSeq atomic.Uint32
+
+// allocDLTEID returns the next gNB downlink TEID (starting at 1; 0 is the
+// reserved "no TEID" value in GTP-U signalling here).
+func allocDLTEID() uint32 { return dlTEIDSeq.Add(1) }
 
 // sessionsToEstablish is the list of PDU sessions to bring up: the explicit
 // multi-session list if set, else the single PDUSession (API/single-session

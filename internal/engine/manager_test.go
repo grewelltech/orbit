@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/bgrewell/orbit/internal/datapath"
 )
 
 func TestDataStatsUnregistered(t *testing.T) {
@@ -34,7 +32,8 @@ func TestDataStatsNoDataPath(t *testing.T) {
 	}
 }
 
-// DataStats mirrors the tunnel's per-QFI counters once traffic has flowed.
+// DataStats mirrors the session's per-UE per-QFI counters once traffic has
+// flowed over the shared N3 data path.
 func TestDataStatsCountsUplink(t *testing.T) {
 	upf, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	if err != nil {
@@ -42,18 +41,21 @@ func TestDataStatsCountsUplink(t *testing.T) {
 	}
 	defer upf.Close()
 
-	tun, err := datapath.NewTunnel(datapath.Config{
-		LocalN3: "127.0.0.1:0", UPFN3: upf.LocalAddr().String(),
-		ULTEID: 0x111, DLTEID: 0x222, QFI: 1,
-	})
+	m := NewManager(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	const supi = "001010000000001"
+	sess := &Session{SUPI: supi, Result: &AttachResult{
+		UPFAddress: upf.LocalAddr().String(),
+		UPFTEID:    0x111, DLTEID: 0x222, QFI: 1,
+	}, gnbN3: "127.0.0.1"}
+	sess.n3 = m.n3
+	sess.n3Port = "0" // ephemeral bind, no real 2152
+	m.sessions[supi] = sess
+
+	tun, _, err := sess.dataplane()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tun.Close()
-
-	m := NewManager(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
-	const supi = "001010000000001"
-	m.sessions[supi] = &Session{SUPI: supi, Result: &AttachResult{}, dataPath: tun}
+	t.Cleanup(sess.closeDataPath)
 
 	payload := []byte{0x45, 0, 0, 4} // stand-in inner IP packet
 	if err := tun.SendUplink(payload); err != nil {
