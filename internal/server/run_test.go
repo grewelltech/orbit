@@ -117,7 +117,7 @@ func TestRunServiceOneActiveRejectsSecond(t *testing.T) {
 	// Hold the first run active with a launcher that blocks until the test ends.
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
-	if _, err := reg.StartLoad("blocking", func(ctx context.Context, _ *load.LiveStats) (load.Report, error) {
+	if _, err := reg.StartLoad("blocking", func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		select {
 		case <-block:
 		case <-ctx.Done():
@@ -234,7 +234,7 @@ func TestRunServiceReportOnComplete(t *testing.T) {
 			"attach": {Count: 98, P50: 12 * time.Millisecond, P99: 45 * time.Millisecond, Max: 90 * time.Millisecond},
 		},
 	}
-	id := seedRun(t, reg, "clean", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	id := seedRun(t, reg, "clean", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		return report, nil
 	})
 	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
@@ -270,7 +270,7 @@ func TestRunServiceGetRunLiveProgress(t *testing.T) {
 	proceed := make(chan struct{})
 	t.Cleanup(func() { close(proceed) })
 	seen := make(chan struct{})
-	id := seedRun(t, reg, "live", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	id := seedRun(t, reg, "live", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
 		s.Observe(load.Sample{Err: errBoom})
 		close(seen)
@@ -301,7 +301,7 @@ func (e errorString) Error() string { return string(e) }
 // StopRun of a live run over RPC returns the run and drives it to CANCELLED.
 func TestRunServiceStopRunSuccess(t *testing.T) {
 	c, reg := newRunRPCClient(t)
-	id := seedRun(t, reg, "stoppable", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	id := seedRun(t, reg, "stoppable", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		<-ctx.Done()
 		return load.Report{}, ctx.Err()
 	})
@@ -464,7 +464,7 @@ func TestRunServiceFleetReport(t *testing.T) {
 		Attached: 50, AttachFailed: 2, AttachElapsed: 3 * time.Second,
 		Handovers: 8, HandoverErr: 1, TrafficFlows: 40, TrafficBytes: 123456, Deregistered: 49,
 	}
-	info, err := reg.StartFleet("seeded", func(ctx context.Context) (engine.FleetReport, error) {
+	info, err := reg.StartFleet("seeded", func(ctx context.Context, _ engine.RunEventFunc) (engine.FleetReport, error) {
 		return want, nil
 	})
 	if err != nil {
@@ -539,7 +539,7 @@ func TestRunTelemetryUnknownRunIsNotFound(t *testing.T) {
 // one in every frame.
 func TestRunTelemetryClampsInterval(t *testing.T) {
 	c, reg := newRunRPCClient(t)
-	id := seedRun(t, reg, "done", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	id := seedRun(t, reg, "done", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		return load.Report{}, nil
 	})
 	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
@@ -566,7 +566,7 @@ func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(proceed) }) }
 	t.Cleanup(release) // never wedge the launcher if a RUNNING frame never arrives
-	info, err := reg.StartLoad("live", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, err := reg.StartLoad("live", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
 		s.Observe(load.Sample{Err: errBoom})
 		<-proceed
@@ -629,7 +629,7 @@ func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 // A run that is already terminal yields exactly one final frame, then ends.
 func TestRunTelemetryTerminalRunEndsAfterOneFrame(t *testing.T) {
 	c, reg := newRunRPCClient(t)
-	id := seedRun(t, reg, "done", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	id := seedRun(t, reg, "done", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		return load.Report{}, nil
 	})
 	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
@@ -662,7 +662,7 @@ func TestRunTelemetryStopsOnClientCancel(t *testing.T) {
 	c, reg := newRunRPCClient(t)
 	proceed := make(chan struct{})
 	t.Cleanup(func() { close(proceed) })
-	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
 		<-proceed // never completes on its own
 		return load.Report{}, nil
@@ -719,7 +719,7 @@ func TestRunTelemetryCancelIsPromptAtLongInterval(t *testing.T) {
 	c, reg := newRunRPCClient(t)
 	proceed := make(chan struct{})
 	t.Cleanup(func() { close(proceed) })
-	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		<-proceed // stays RUNNING
 		return load.Report{}, nil
 	})
@@ -751,5 +751,104 @@ func TestRunTelemetryCancelIsPromptAtLongInterval(t *testing.T) {
 		// Ended promptly, well within one 10s tick — the ctx.Done path fired.
 	case <-time.After(2 * time.Second):
 		t.Fatal("cancelled stream did not end promptly; it waited for the next tick instead of ctx.Done")
+	}
+}
+
+// RunEvents streams a run's events and ends once the run is terminal, with the
+// terminal event delivered.
+func TestRunEventsStreamsUntilTerminal(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	info, err := reg.StartLoad("evt", func(ctx context.Context, s *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
+		emit("error", "ATTACH", "imsi-1", "registration rejected")
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+
+	st, err := c.RunEvents(context.Background(), connect.NewRequest(&orbitv1.RunEventsRequest{RunId: info.ID}))
+	if err != nil {
+		t.Fatalf("RunEvents: %v", err)
+	}
+
+	var evs []*orbitv1.RunEvent
+	for st.Receive() {
+		evs = append(evs, st.Msg())
+	}
+	if err := st.Err(); err != nil {
+		t.Fatalf("stream error: %v", err)
+	}
+
+	if len(evs) < 3 {
+		t.Fatalf("got %d events, want started + failure + terminal", len(evs))
+	}
+	// seq is monotonic from 0.
+	for i, e := range evs {
+		if e.GetSeq() != uint64(i) {
+			t.Errorf("event %d seq = %d, want %d", i, e.GetSeq(), i)
+		}
+	}
+	var sawFailure, sawTerminal bool
+	for _, e := range evs {
+		if e.GetKind() == "ATTACH" && e.GetSupi() == "imsi-1" &&
+			e.GetSeverity() == orbitv1.EventSeverity_EVENT_SEVERITY_ERROR {
+			sawFailure = true
+		}
+		if e.GetKind() == "RUN" && strings.Contains(e.GetMessage(), "COMPLETE") {
+			sawTerminal = true
+		}
+	}
+	if !sawFailure {
+		t.Error("failure event not streamed")
+	}
+	if !sawTerminal {
+		t.Error("terminal event not streamed — the stream ended without the final event")
+	}
+}
+
+// A from_seq pointing into evicted history reports the drop count on the first
+// delivered event.
+func TestRunEventsReportsDroppedBefore(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	// Emit more than the ring holds, then complete, so history is evicted.
+	info, err := reg.StartLoad("drop", func(ctx context.Context, s *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
+		for i := 0; i < engine.DefaultRunEventCap+50; i++ {
+			emit("info", "N", "", "e")
+		}
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+	waitRunState(t, c, info.ID, orbitv1.RunState_RUN_STATE_COMPLETE)
+
+	// Resume from seq 0, which is long gone.
+	st, err := c.RunEvents(context.Background(), connect.NewRequest(&orbitv1.RunEventsRequest{RunId: info.ID, FromSeq: 0}))
+	if err != nil {
+		t.Fatalf("RunEvents: %v", err)
+	}
+	if !st.Receive() {
+		t.Fatalf("no first event: %v", st.Err())
+	}
+	if st.Msg().GetDroppedBefore() == 0 {
+		t.Error("first event reported 0 dropped, but early events were evicted")
+	}
+	for st.Receive() {
+	}
+	if err := st.Err(); err != nil {
+		t.Fatalf("stream error: %v", err)
+	}
+}
+
+// RunEvents on an unknown run is NotFound.
+func TestRunEventsUnknownRunIsNotFound(t *testing.T) {
+	c, _ := newRunRPCClient(t)
+	st, err := c.RunEvents(context.Background(), connect.NewRequest(&orbitv1.RunEventsRequest{RunId: "run-nope"}))
+	if err == nil {
+		st.Receive()
+		err = st.Err()
+	}
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
 	}
 }

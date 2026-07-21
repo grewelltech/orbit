@@ -15,9 +15,17 @@
  */
 import { createClient, type Client } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { RunService, RunState, type Run as PbRun, type TelemetryFrame as PbFrame, type LoadProgress } from "@/gen/orbit/v1/run_pb";
+import {
+  RunService,
+  RunState,
+  EventSeverity as PbSeverity,
+  type Run as PbRun,
+  type TelemetryFrame as PbFrame,
+  type RunEvent as PbEvent,
+  type LoadProgress,
+} from "@/gen/orbit/v1/run_pb";
 import { Emitter, type TelemetrySource } from "./source";
-import type { LatencySummary, SourceState, TelemetryFrame, TestEvent } from "./types";
+import type { EventSeverity, LatencySummary, SourceState, TelemetryFrame, TestEvent } from "./types";
 
 const POLL_INTERVAL_MS = 2000;
 const FRAME_INTERVAL_MS = 500;
@@ -150,10 +158,22 @@ export class ConnectSource implements TelemetrySource {
 
   private async streamRun(runId: string, signal: AbortSignal): Promise<void> {
     this.setConn("live");
+    // Aggregates and events stream concurrently; both end when the run is
+    // terminal. If either fails, the loop above backs off and re-selects.
+    await Promise.all([this.streamTelemetry(runId, signal), this.streamEvents(runId, signal)]);
+  }
+
+  private async streamTelemetry(runId: string, signal: AbortSignal): Promise<void> {
     for await (const frame of this.client.runTelemetry({ runId, intervalMs: FRAME_INTERVAL_MS }, { signal })) {
       const mapped = this.mapFrame(frame);
       if (mapped) this.frames.emit(mapped);
       this.prev = frame;
+    }
+  }
+
+  private async streamEvents(runId: string, signal: AbortSignal): Promise<void> {
+    for await (const ev of this.client.runEvents({ runId, fromSeq: 0n }, { signal })) {
+      this.events.emit(mapEvent(ev));
     }
   }
 
@@ -217,6 +237,29 @@ function attachLatency(lp: LoadProgress | null): LatencySummary {
   const l = lp.latency.find((x) => x.procedure === "attach") ?? lp.latency.find((x) => x.procedure === "registration") ?? lp.latency[0];
   if (!l) return empty;
   return { p50: l.p50Ms, p90: l.p90Ms, p99: l.p99Ms, max: l.maxMs };
+}
+
+/** Maps a wire RunEvent onto the dashboard's event model. */
+function mapEvent(ev: PbEvent): TestEvent {
+  return {
+    id: Number(ev.seq),
+    t: Number(ev.unixNano / 1_000_000n),
+    severity: severityName(ev.severity),
+    kind: ev.kind,
+    supi: ev.supi || undefined,
+    message: ev.message,
+  };
+}
+
+function severityName(s: PbSeverity): EventSeverity {
+  switch (s) {
+    case PbSeverity.WARN:
+      return "warn";
+    case PbSeverity.ERROR:
+      return "error";
+    default:
+      return "info";
+  }
 }
 
 function isTerminalState(s: RunState): boolean {

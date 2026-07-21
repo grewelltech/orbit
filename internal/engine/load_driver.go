@@ -34,12 +34,13 @@ func (f *Fleet) LoadFunc(makeUE func(i int) (UEConfig, error)) load.AttachFunc {
 				regDur = time.Since(start)
 			}
 		}
+		supi := cfg.Sub.SUPI
 		res, err := Attach(ctx, uet, f.gnbConfigFor(i), cfg, f.log, emit)
 		if err != nil {
-			return load.Sample{Err: err}
+			return load.Sample{Err: err, SUPI: supi}
 		}
 		if !res.Result.Registered {
-			return load.Sample{Err: fmt.Errorf("UE %s not registered", cfg.Sub.SUPI)}
+			return load.Sample{Err: fmt.Errorf("UE %s not registered", supi), SUPI: supi}
 		}
 		m := map[string]time.Duration{"attach": time.Since(start)}
 		if regDur > 0 {
@@ -48,7 +49,7 @@ func (f *Fleet) LoadFunc(makeUE func(i int) (UEConfig, error)) load.AttachFunc {
 		if res.Result.SessionActive {
 			m["pdu_session"] = time.Since(start)
 		}
-		return load.Sample{Metrics: m}
+		return load.Sample{Metrics: m, SUPI: supi}
 	}
 }
 
