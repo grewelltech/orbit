@@ -18,6 +18,9 @@ import (
 type Sample struct {
 	Metrics map[string]time.Duration
 	Err     error
+	// SUPI attributes the attempt to a UE, for an Observer that reports
+	// per-UE events. Empty when the driver does not set it.
+	SUPI string
 }
 
 // AttachFunc performs one attach attempt and returns its sample. It is called

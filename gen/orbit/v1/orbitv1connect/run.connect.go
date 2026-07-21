@@ -45,6 +45,8 @@ const (
 	RunServiceGetRunReportProcedure = "/orbit.v1.RunService/GetRunReport"
 	// RunServiceRunTelemetryProcedure is the fully-qualified name of the RunService's RunTelemetry RPC.
 	RunServiceRunTelemetryProcedure = "/orbit.v1.RunService/RunTelemetry"
+	// RunServiceRunEventsProcedure is the fully-qualified name of the RunService's RunEvents RPC.
+	RunServiceRunEventsProcedure = "/orbit.v1.RunService/RunEvents"
 )
 
 // RunServiceClient is a client for the orbit.v1.RunService service.
@@ -68,6 +70,12 @@ type RunServiceClient interface {
 	// stream may therefore be sampled without lying. The stream ends with a final
 	// frame once the run reaches a terminal state.
 	RunTelemetry(context.Context, *connect.Request[v1.RunTelemetryRequest]) (*connect.ServerStreamForClient[v1.TelemetryFrame], error)
+	// RunEvents streams discrete occurrences during a run, sequenced per run
+	// (ADR-0006). A client resumes from a sequence number; when the requested
+	// point has been evicted from the bounded ring, the first event reports how
+	// many were dropped, so a gap is detectable rather than silent. The stream
+	// ends once the run is terminal and its events are drained.
+	RunEvents(context.Context, *connect.Request[v1.RunEventsRequest]) (*connect.ServerStreamForClient[v1.RunEvent], error)
 }
 
 // NewRunServiceClient constructs a client for the orbit.v1.RunService service. By default, it uses
@@ -117,6 +125,12 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(runServiceMethods.ByName("RunTelemetry")),
 			connect.WithClientOptions(opts...),
 		),
+		runEvents: connect.NewClient[v1.RunEventsRequest, v1.RunEvent](
+			httpClient,
+			baseURL+RunServiceRunEventsProcedure,
+			connect.WithSchema(runServiceMethods.ByName("RunEvents")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -128,6 +142,7 @@ type runServiceClient struct {
 	getRun       *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
 	getRunReport *connect.Client[v1.GetRunReportRequest, v1.GetRunReportResponse]
 	runTelemetry *connect.Client[v1.RunTelemetryRequest, v1.TelemetryFrame]
+	runEvents    *connect.Client[v1.RunEventsRequest, v1.RunEvent]
 }
 
 // StartRun calls orbit.v1.RunService.StartRun.
@@ -160,6 +175,11 @@ func (c *runServiceClient) RunTelemetry(ctx context.Context, req *connect.Reques
 	return c.runTelemetry.CallServerStream(ctx, req)
 }
 
+// RunEvents calls orbit.v1.RunService.RunEvents.
+func (c *runServiceClient) RunEvents(ctx context.Context, req *connect.Request[v1.RunEventsRequest]) (*connect.ServerStreamForClient[v1.RunEvent], error) {
+	return c.runEvents.CallServerStream(ctx, req)
+}
+
 // RunServiceHandler is an implementation of the orbit.v1.RunService service.
 type RunServiceHandler interface {
 	// StartRun launches a run and returns its identity immediately. The run
@@ -181,6 +201,12 @@ type RunServiceHandler interface {
 	// stream may therefore be sampled without lying. The stream ends with a final
 	// frame once the run reaches a terminal state.
 	RunTelemetry(context.Context, *connect.Request[v1.RunTelemetryRequest], *connect.ServerStream[v1.TelemetryFrame]) error
+	// RunEvents streams discrete occurrences during a run, sequenced per run
+	// (ADR-0006). A client resumes from a sequence number; when the requested
+	// point has been evicted from the bounded ring, the first event reports how
+	// many were dropped, so a gap is detectable rather than silent. The stream
+	// ends once the run is terminal and its events are drained.
+	RunEvents(context.Context, *connect.Request[v1.RunEventsRequest], *connect.ServerStream[v1.RunEvent]) error
 }
 
 // NewRunServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -226,6 +252,12 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(runServiceMethods.ByName("RunTelemetry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	runServiceRunEventsHandler := connect.NewServerStreamHandler(
+		RunServiceRunEventsProcedure,
+		svc.RunEvents,
+		connect.WithSchema(runServiceMethods.ByName("RunEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orbit.v1.RunService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RunServiceStartRunProcedure:
@@ -240,6 +272,8 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 			runServiceGetRunReportHandler.ServeHTTP(w, r)
 		case RunServiceRunTelemetryProcedure:
 			runServiceRunTelemetryHandler.ServeHTTP(w, r)
+		case RunServiceRunEventsProcedure:
+			runServiceRunEventsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -271,4 +305,8 @@ func (UnimplementedRunServiceHandler) GetRunReport(context.Context, *connect.Req
 
 func (UnimplementedRunServiceHandler) RunTelemetry(context.Context, *connect.Request[v1.RunTelemetryRequest], *connect.ServerStream[v1.TelemetryFrame]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.RunService.RunTelemetry is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) RunEvents(context.Context, *connect.Request[v1.RunEventsRequest], *connect.ServerStream[v1.RunEvent]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.RunService.RunEvents is not implemented"))
 }
