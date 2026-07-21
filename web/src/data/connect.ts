@@ -15,7 +15,7 @@
  */
 import { createClient, type Client } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { RunService, RunState, type TelemetryFrame as PbFrame, type LoadProgress } from "@/gen/orbit/v1/run_pb";
+import { RunService, RunState, type Run as PbRun, type TelemetryFrame as PbFrame, type LoadProgress } from "@/gen/orbit/v1/run_pb";
 import { Emitter, type TelemetrySource } from "./source";
 import type { LatencySummary, SourceState, TelemetryFrame, TestEvent } from "./types";
 
@@ -42,6 +42,10 @@ export class ConnectSource implements TelemetrySource {
   private conn: SourceState = "disconnected";
   private prev: PbFrame | null = null;
   private started = false;
+  // The last terminal run already streamed to completion. Prevents re-streaming
+  // a finished run every poll when no live run exists — the dashboard shows its
+  // final frame once, then waits for a new or active run.
+  private lastTerminalId: string | null = null;
 
   constructor(opts: ConnectOptions = {}) {
     this.client = createClient(
@@ -91,17 +95,24 @@ export class ConnectSource implements TelemetrySource {
   private async loop(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       this.setConn("connecting");
-      let runId: string;
+      let run: PbRun | null;
       try {
-        runId = await this.selectRun(signal);
+        run = await this.selectRun(signal);
       } catch (err) {
         if (signal.aborted) return;
         this.setConn("error");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
-      if (!runId) {
+      if (!run) {
         // Nothing to watch yet; poll.
+        this.setConn("disconnected");
+        await sleep(POLL_INTERVAL_MS, signal);
+        continue;
+      }
+      if (isTerminalState(run.state) && run.runId === this.lastTerminalId) {
+        // Already showed this finished run's final frame; wait for a new or
+        // active one rather than reconnecting to it every poll.
         this.setConn("disconnected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
@@ -109,15 +120,16 @@ export class ConnectSource implements TelemetrySource {
 
       this.prev = null;
       try {
-        await this.streamRun(runId, signal);
+        await this.streamRun(run.runId, signal);
       } catch (err) {
         if (signal.aborted) return;
         this.setConn("error");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
-      // Stream ended (run terminal, or pinned run finished). If a specific run
-      // was pinned we're done; otherwise look for the next active run.
+      // The stream ends only when the run reaches a terminal state, so it is
+      // now finished — remember it so we don't re-stream it below.
+      this.lastTerminalId = run.runId;
       if (this.pinnedRunId) {
         this.setConn("disconnected");
         return;
@@ -126,13 +138,14 @@ export class ConnectSource implements TelemetrySource {
     }
   }
 
-  /** Returns the run id to watch: the pinned one, the active one, else "". */
-  private async selectRun(signal: AbortSignal): Promise<string> {
-    if (this.pinnedRunId) return this.pinnedRunId;
+  /** Returns the run to watch: the pinned one, the active one, else the most
+   * recent, or null when there are none. */
+  private async selectRun(signal: AbortSignal): Promise<PbRun | null> {
     const { runs } = await this.client.listRuns({}, { signal });
+    if (this.pinnedRunId) return runs.find((r) => r.runId === this.pinnedRunId) ?? null;
     // Newest-first from the server; prefer a live run, else the most recent.
     const active = runs.find((r) => r.state === RunState.RUNNING || r.state === RunState.PENDING);
-    return (active ?? runs[0])?.runId ?? "";
+    return active ?? runs[0] ?? null;
   }
 
   private async streamRun(runId: string, signal: AbortSignal): Promise<void> {
@@ -206,6 +219,10 @@ function attachLatency(lp: LoadProgress | null): LatencySummary {
   return { p50: l.p50Ms, p90: l.p90Ms, p99: l.p99Ms, max: l.maxMs };
 }
 
+function isTerminalState(s: RunState): boolean {
+  return s === RunState.COMPLETE || s === RunState.FAILED || s === RunState.CANCELLED;
+}
+
 function runStateName(s: RunState): TelemetryFrame["run"]["state"] {
   switch (s) {
     case RunState.PENDING:
@@ -232,10 +249,18 @@ function runKindLabel(f: PbFrame): string {
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
-    const id = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
+    // Symmetric cleanup: the timeout path removes the abort listener, and the
+    // abort path clears the timer. Without this the {once} listener lingers on
+    // the long-lived per-start signal on every poll, accumulating for the life
+    // of the dashboard.
+    const onAbort = () => {
       clearTimeout(id);
       resolve();
-    }, { once: true });
+    };
+    const id = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
