@@ -67,17 +67,21 @@ func RunHandoverUnderLoad(ctx context.Context, log *slog.Logger, spec HandoverLo
 	}
 
 	// Background attach storm, concurrent with the handovers.
+	//
+	// The storm's results land in goroutine-local variables and are merged
+	// after wg.Wait(), which supplies the happens-before edge. Writing them
+	// straight into rep would race the handover loop below, which writes the
+	// same struct from this goroutine.
 	rep := &HandoverLoadReport{}
+	var bgReport *load.Report
+	var bgErr error
 	var wg sync.WaitGroup
 	if spec.Background != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			bg, err := RunLoad(ctx, log, *spec.Background)
-			rep.Background = &bg
-			if err != nil && rep.FirstError == nil {
-				rep.FirstError = err
-			}
+			bgReport, bgErr = &bg, err
 		}()
 	}
 
@@ -97,6 +101,16 @@ func RunHandoverUnderLoad(ctx context.Context, log *slog.Logger, spec HandoverLo
 		lats = append(lats, time.Since(start))
 	}
 	wg.Wait()
+
+	// Merge the storm's outcome now that it has finished. A handover failure
+	// takes precedence over a background failure, which makes FirstError
+	// deterministic — previously whichever goroutine won the race decided it.
+	if bgReport != nil {
+		rep.Background = bgReport
+	}
+	if bgErr != nil && rep.FirstError == nil {
+		rep.FirstError = bgErr
+	}
 
 	rep.Handovers = len(lats)
 	sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
