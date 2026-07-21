@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -294,4 +295,58 @@ func TestRunRegistryConcurrent(t *testing.T) {
 
 	close(stop)
 	wg.Wait()
+}
+
+// A launcher that panics must fail the run — not crash the process — and must
+// leave the run terminal so it stops blocking future runs of its kind. That
+// this test's process survives at all is half the assertion.
+func TestRunRegistryPanicBecomesFailed(t *testing.T) {
+	r := quietRegistry(0)
+	info, err := r.StartLoad("boom", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		panic("nil map write deep in RunLoad")
+	})
+	if err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+	waitState(t, r, info.ID, RunFailed)
+
+	got, _ := r.Get(info.ID)
+	if !strings.Contains(got.Err, "panicked") {
+		t.Errorf("failed run error = %q, want it to mention the panic", got.Err)
+	}
+
+	// The kind is no longer active, so a new load run is accepted.
+	if _, err := r.StartLoad("after", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		return load.Report{}, nil
+	}); err != nil {
+		t.Errorf("panicked run left the kind stuck active: %v", err)
+	}
+}
+
+// markRunning promotes only from PENDING, so a Stop that set DRAINING before
+// the launcher was scheduled is never flipped back to RUNNING.
+func TestMarkRunningRespectsDraining(t *testing.T) {
+	r := quietRegistry(0)
+
+	// Seed a record directly in DRAINING, as a Stop-before-schedule leaves it.
+	r.mu.Lock()
+	r.runs["run-x"] = &run{info: RunInfo{ID: "run-x", Kind: RunKindLoad, State: RunDraining}, cancel: func() {}}
+	r.order = append(r.order, "run-x")
+	r.mu.Unlock()
+
+	r.markRunning("run-x")
+	if got, _ := r.Get("run-x"); got.State != RunDraining {
+		t.Errorf("markRunning overwrote DRAINING with %s", got.State)
+	}
+
+	// And it does promote a genuinely pending run.
+	r.mu.Lock()
+	r.runs["run-y"] = &run{info: RunInfo{ID: "run-y", Kind: RunKindLoad, State: RunPending}, cancel: func() {}}
+	r.order = append(r.order, "run-y")
+	r.mu.Unlock()
+
+	r.markRunning("run-y")
+	if got, _ := r.Get("run-y"); got.State != RunRunning {
+		t.Errorf("markRunning left a pending run at %s, want RUNNING", got.State)
+	}
 }

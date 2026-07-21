@@ -207,3 +207,158 @@ func TestRunServiceStopUnknown(t *testing.T) {
 		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
 	}
 }
+
+// seedRun registers a run through the registry with a controllable launcher and
+// returns its id. It lets the server tests exercise the COMPLETE/report and
+// StopRun-success paths that a real load run (needing a core) cannot reach.
+func seedRun(t *testing.T, reg *engine.RunRegistry, name string, fn engine.LoadRunFunc) string {
+	t.Helper()
+	info, err := reg.StartLoad(name, fn)
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	return info.ID
+}
+
+// The COMPLETE path: a run that finishes cleanly exposes its report over RPC,
+// with the load fields mapped through. This is the happy path a fail-fast spec
+// cannot reach.
+func TestRunServiceReportOnComplete(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	report := load.Report{
+		Attempted: 100, Succeeded: 98, Failed: 2,
+		Duration: 5 * time.Second, AchievedRate: 19.6,
+		Latencies: map[string]load.Stats{
+			"attach": {Count: 98, P50: 12 * time.Millisecond, P99: 45 * time.Millisecond, Max: 90 * time.Millisecond},
+		},
+	}
+	id := seedRun(t, reg, "clean", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		return report, nil
+	})
+	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
+
+	resp, err := c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+	if err != nil {
+		t.Fatalf("GetRunReport: %v", err)
+	}
+	lr := resp.Msg.GetLoad()
+	if lr == nil {
+		t.Fatal("completed run returned no load report")
+	}
+	if lr.GetAttempted() != 100 || lr.GetSucceeded() != 98 || lr.GetFailed() != 2 {
+		t.Errorf("report counts = %d/%d/%d, want 100/98/2", lr.GetAttempted(), lr.GetSucceeded(), lr.GetFailed())
+	}
+	var attach *orbitv1.ProcedureLatency
+	for _, l := range lr.GetLatency() {
+		if l.GetProcedure() == "attach" {
+			attach = l
+		}
+	}
+	if attach == nil {
+		t.Fatal("report has no attach latency")
+	}
+	if attach.GetP50Ms() != 12 || attach.GetP99Ms() != 45 {
+		t.Errorf("attach P50/P99 = %.0f/%.0f ms, want 12/45", attach.GetP50Ms(), attach.GetP99Ms())
+	}
+}
+
+// GetRun returns a live progress snapshot while a run is in flight.
+func TestRunServiceGetRunLiveProgress(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	proceed := make(chan struct{})
+	t.Cleanup(func() { close(proceed) })
+	seen := make(chan struct{})
+	id := seedRun(t, reg, "live", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
+		s.Observe(load.Sample{Err: errBoom})
+		close(seen)
+		<-proceed
+		return load.Report{}, nil
+	})
+	<-seen
+
+	resp, err := c.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	prog := resp.Msg.GetLoadProgress()
+	if prog == nil {
+		t.Fatal("running load run returned no live progress")
+	}
+	if prog.GetAttempted() != 2 || prog.GetSucceeded() != 1 || prog.GetFailed() != 1 {
+		t.Errorf("progress = %d/%d/%d, want 2/1/1", prog.GetAttempted(), prog.GetSucceeded(), prog.GetFailed())
+	}
+}
+
+var errBoom = errorString("attach rejected")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
+// StopRun of a live run over RPC returns the run and drives it to CANCELLED.
+func TestRunServiceStopRunSuccess(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	id := seedRun(t, reg, "stoppable", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		<-ctx.Done()
+		return load.Report{}, ctx.Err()
+	})
+
+	resp, err := c.StopRun(context.Background(), connect.NewRequest(&orbitv1.StopRunRequest{RunId: id}))
+	if err != nil {
+		t.Fatalf("StopRun: %v", err)
+	}
+	if got := resp.Msg.GetRun().GetRunId(); got != id {
+		t.Errorf("StopRun returned run %q, want %q", got, id)
+	}
+	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_CANCELLED)
+}
+
+// gnbs disagreeing on PLMN are rejected rather than silently taking the last
+// one's MCC/MNC for every UE's identity.
+func TestRunServiceRejectsMixedPLMN(t *testing.T) {
+	c, _ := newRunRPCClient(t)
+	spec := failFastLoadSpec()
+	spec.Gnbs = append(spec.Gnbs, &orbitv1.GnbConfig{
+		Id: 2, IdBits: 24, Name: "orbit-gnb-2",
+		Mcc: "310", Mnc: "410", Tac: 1, // different PLMN
+		Slices: []*orbitv1.Snssai{{Sst: 1, Sd: "010203"}},
+	})
+	_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+		Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+	}))
+	if err == nil {
+		t.Fatal("StartRun accepted gnbs with divergent PLMNs")
+	}
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+}
+
+// loadRunFunc maps the ramp fields onto a load.LinearRamp, and a ramp with no
+// duration is rejected rather than producing a degenerate curve.
+func TestLoadRunFuncRampMapping(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	bad := failFastLoadSpec()
+	bad.RampStart, bad.RampEnd = 5, 50 // ramp requested but no ramp_seconds
+	if _, err := loadRunFunc(log, bad); err == nil {
+		t.Error("a ramp with no ramp_seconds was accepted")
+	}
+
+	ok := failFastLoadSpec()
+	ok.RampStart, ok.RampEnd, ok.RampSeconds = 5, 50, 30
+	if _, err := loadRunFunc(log, ok); err != nil {
+		t.Errorf("a well-formed ramp was rejected: %v", err)
+	}
+}
+
+// loadRunFunc validates a PDU session's SST as one octet before a run starts.
+func TestLoadRunFuncPDUValidation(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	spec := failFastLoadSpec()
+	spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: 300, Dnn: "internet"} // > 0xFF
+	if _, err := loadRunFunc(log, spec); err == nil {
+		t.Error("an out-of-range SST was accepted")
+	}
+}
