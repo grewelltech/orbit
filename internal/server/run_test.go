@@ -519,3 +519,132 @@ func TestRunServiceFleetDoesNotExpandServerEnv(t *testing.T) {
 		t.Errorf("expected the literal ${ORBIT_TEST_SECRET} in the error, got %q", final.GetError())
 	}
 }
+
+// A telemetry stream on an unknown run is NotFound.
+func TestRunTelemetryUnknownRunIsNotFound(t *testing.T) {
+	c, _ := newRunRPCClient(t)
+	st, err := c.RunTelemetry(context.Background(), connect.NewRequest(&orbitv1.RunTelemetryRequest{RunId: "run-nope"}))
+	if err == nil {
+		// Some transports surface the error on first Receive rather than at open.
+		st.Receive()
+		err = st.Err()
+	}
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+// The server clamps a below-range requested interval and reports the applied
+// one in every frame.
+func TestRunTelemetryClampsInterval(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	id := seedRun(t, reg, "done", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		return load.Report{}, nil
+	})
+	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
+
+	st, err := c.RunTelemetry(context.Background(), connect.NewRequest(&orbitv1.RunTelemetryRequest{
+		RunId: id, IntervalMs: 1, // below the 100ms floor
+	}))
+	if err != nil {
+		t.Fatalf("RunTelemetry: %v", err)
+	}
+	if !st.Receive() {
+		t.Fatalf("no frame: %v", st.Err())
+	}
+	if got := st.Msg().GetIntervalMs(); got != 100 {
+		t.Errorf("applied interval = %d ms, want the clamped 100", got)
+	}
+}
+
+// A live run streams complete frames, sequenced, until it ends with a terminal
+// frame carrying the final state.
+func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	proceed := make(chan struct{})
+	info, err := reg.StartLoad("live", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
+		s.Observe(load.Sample{Err: errBoom})
+		<-proceed
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+
+	// Let the stream observe live frames, then let the run finish.
+	go func() {
+		time.Sleep(80 * time.Millisecond)
+		close(proceed)
+	}()
+
+	st, err := c.RunTelemetry(context.Background(), connect.NewRequest(&orbitv1.RunTelemetryRequest{
+		RunId: info.ID, IntervalMs: 20,
+	}))
+	if err != nil {
+		t.Fatalf("RunTelemetry: %v", err)
+	}
+
+	var frames []*orbitv1.TelemetryFrame
+	for st.Receive() {
+		frames = append(frames, st.Msg())
+	}
+	if err := st.Err(); err != nil {
+		t.Fatalf("stream error: %v", err)
+	}
+
+	if len(frames) < 2 {
+		t.Fatalf("got %d frames, want at least a live one and a terminal one", len(frames))
+	}
+	// frame_seq is monotonic from 0.
+	for i, f := range frames {
+		if f.GetFrameSeq() != uint64(i) {
+			t.Errorf("frame %d has seq %d, want %d", i, f.GetFrameSeq(), i)
+		}
+	}
+	// The stream ends on a terminal frame.
+	last := frames[len(frames)-1]
+	if last.GetState() != orbitv1.RunState_RUN_STATE_COMPLETE {
+		t.Errorf("final frame state = %v, want COMPLETE", last.GetState())
+	}
+	// A frame carried the load aggregates (2 attempts: 1 ok, 1 failed).
+	var sawProgress bool
+	for _, f := range frames {
+		if lp := f.GetLoad(); lp != nil && lp.GetAttempted() == 2 {
+			sawProgress = true
+			if lp.GetSucceeded() != 1 || lp.GetFailed() != 1 {
+				t.Errorf("progress = %d ok / %d failed, want 1/1", lp.GetSucceeded(), lp.GetFailed())
+			}
+		}
+	}
+	if !sawProgress {
+		t.Error("no frame carried the load progress aggregates")
+	}
+}
+
+// A run that is already terminal yields exactly one final frame, then ends.
+func TestRunTelemetryTerminalRunEndsAfterOneFrame(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	id := seedRun(t, reg, "done", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		return load.Report{}, nil
+	})
+	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
+
+	st, err := c.RunTelemetry(context.Background(), connect.NewRequest(&orbitv1.RunTelemetryRequest{RunId: id}))
+	if err != nil {
+		t.Fatalf("RunTelemetry: %v", err)
+	}
+	var n int
+	for st.Receive() {
+		n++
+		if st.Msg().GetState() != orbitv1.RunState_RUN_STATE_COMPLETE {
+			t.Errorf("frame state = %v, want COMPLETE", st.Msg().GetState())
+		}
+	}
+	if err := st.Err(); err != nil {
+		t.Fatalf("stream error: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("terminal run yielded %d frames, want exactly 1", n)
+	}
+}

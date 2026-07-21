@@ -127,6 +127,103 @@ func (s *runService) GetRunReport(
 	return connect.NewResponse(resp), nil
 }
 
+// Telemetry cadence bounds. A too-fast interval floods the client for no gain
+// (aggregates change on the order of the run's own sampling); a too-slow one
+// makes "live" meaningless.
+const (
+	telemetryMinInterval     = 100 * time.Millisecond
+	telemetryMaxInterval     = 10 * time.Second
+	telemetryDefaultInterval = 1 * time.Second
+)
+
+func (s *runService) RunTelemetry(
+	ctx context.Context,
+	req *connect.Request[orbitv1.RunTelemetryRequest],
+	stream *connect.ServerStream[orbitv1.TelemetryFrame],
+) error {
+	id := req.Msg.GetRunId()
+	if _, err := s.reg.Get(id); err != nil {
+		return runLookupError(err)
+	}
+
+	interval := telemetryDefaultInterval
+	if req.Msg.GetIntervalMs() > 0 {
+		interval = time.Duration(req.Msg.GetIntervalMs()) * time.Millisecond
+	}
+	if interval < telemetryMinInterval {
+		interval = telemetryMinInterval
+	}
+	if interval > telemetryMaxInterval {
+		interval = telemetryMaxInterval
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var seq uint64
+	// Each iteration sends one complete snapshot. A slow client backpressures
+	// Send, which stalls the loop and coalesces ticks — frames are naturally
+	// sampled, not queued, which is the whole point of self-contained frames.
+	send := func() (terminal bool, err error) {
+		info, err := s.reg.Get(id)
+		if err != nil {
+			// The run was evicted from history mid-stream; end cleanly.
+			return true, nil
+		}
+		frame := s.telemetryFrame(id, info, uint32(interval.Milliseconds()), seq)
+		seq++
+		if err := stream.Send(frame); err != nil {
+			return false, err
+		}
+		return runStateTerminal(info.State), nil
+	}
+
+	// Send an immediate first frame so a client sees state without waiting a
+	// full interval, then one final frame once the run is terminal.
+	if terminal, err := send(); err != nil || terminal {
+		return err
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if terminal, err := send(); err != nil || terminal {
+				return err
+			}
+		}
+	}
+}
+
+// telemetryFrame builds one snapshot frame for a run.
+func (s *runService) telemetryFrame(id string, info engine.RunInfo, intervalMs uint32, seq uint64) *orbitv1.TelemetryFrame {
+	now := time.Now()
+	elapsed := now.Sub(info.StartedAt)
+	if !info.EndedAt.IsZero() {
+		elapsed = info.EndedAt.Sub(info.StartedAt)
+	}
+	frame := &orbitv1.TelemetryFrame{
+		RunId:      id,
+		UnixNano:   now.UnixNano(),
+		IntervalMs: intervalMs,
+		FrameSeq:   seq,
+		State:      runStateProto(info.State),
+		ElapsedMs:  elapsed.Milliseconds(),
+	}
+	if info.Kind == engine.RunKindLoad {
+		if snap, ok := s.reg.Snapshot(id); ok {
+			frame.Progress = &orbitv1.TelemetryFrame_Load{Load: loadProgressProto(snap)}
+		}
+	}
+	return frame
+}
+
+// runStateTerminal reports whether a run state is final. It mirrors the engine's
+// internal notion via the exported states.
+func runStateTerminal(s engine.RunState) bool {
+	return s == engine.RunComplete || s == engine.RunFailed || s == engine.RunCancelled
+}
+
 // loadRunFunc builds the launcher the registry runs. It validates the spec up
 // front (so a bad request fails synchronously at StartRun) and closes over
 // engine.RunLoad, wiring the run's LiveStats in as the load Observer.
