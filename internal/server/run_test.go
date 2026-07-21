@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -360,5 +361,161 @@ func TestLoadRunFuncPDUValidation(t *testing.T) {
 	spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: 300, Dnn: "internet"} // > 0xFF
 	if _, err := loadRunFunc(log, spec); err == nil {
 		t.Error("an out-of-range SST was accepted")
+	}
+}
+
+// A minimal fleet scenario that fails fast: the AMF is unroutable, so the fleet
+// attach phase errors quickly and the run reaches a terminal state without a
+// live core. Exercises StartRun → registry → RunFleet over the wire.
+const failFastFleetYAML = `
+kind: fleet
+name: smoke
+core:
+  amf: 127.0.0.1:1
+  plmn: { mcc: "208", mnc: "93" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+credentials:
+  ki: "00112233445566778899aabbccddeeff"
+  opc: "000102030405060708090a0b0c0d0e0f"
+topology:
+  gnbs:
+    count: 1
+    id_base: 1
+    layout: grid
+    source_ips: ["127.0.0.1"]
+fleet:
+  count: 1
+  supi_base: "208930100007500"
+  distribution: even
+  attach_rate: 10/s
+`
+
+func fleetSpec() *orbitv1.FleetRunSpec {
+	return &orbitv1.FleetRunSpec{
+		ScenarioYaml: failFastFleetYAML,
+		Credentials: &orbitv1.Credentials{
+			Ki:  "00112233445566778899aabbccddeeff",
+			Opc: "000102030405060708090a0b0c0d0e0f",
+		},
+	}
+}
+
+// A fleet run starts server-side, is listed as a FLEET kind, and fails fast
+// against the dead AMF.
+func TestRunServiceStartFleet(t *testing.T) {
+	c, _ := newRunRPCClient(t)
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+		Name: "fleet-smoke",
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: fleetSpec()},
+	}))
+	if err != nil {
+		t.Fatalf("StartRun(fleet): %v", err)
+	}
+	run := resp.Msg.GetRun()
+	if run.GetKind() != orbitv1.RunKind_RUN_KIND_FLEET {
+		t.Errorf("kind = %v, want FLEET", run.GetKind())
+	}
+	final := waitRunState(t, c, run.GetRunId(), orbitv1.RunState_RUN_STATE_FAILED)
+
+	// The failure must come from RunFleet's dial against the dead AMF, proving
+	// the real StartRun → fleetRunFunc → RunFleet path ran — not a parse error
+	// or a stubbed launcher, which "FAILED, any cause" would also accept.
+	if !strings.Contains(final.GetError(), "127.0.0.1:1") {
+		t.Errorf("fleet run error = %q, want the AMF dial failure — it did not reach RunFleet", final.GetError())
+	}
+
+	list, _ := c.ListRuns(context.Background(), connect.NewRequest(&orbitv1.ListRunsRequest{
+		Kind: orbitv1.RunKind_RUN_KIND_FLEET,
+	}))
+	if len(list.Msg.GetRuns()) != 1 {
+		t.Errorf("fleet-filtered ListRuns returned %d, want 1", len(list.Msg.GetRuns()))
+	}
+}
+
+// A malformed fleet YAML is rejected synchronously, before a run is registered.
+func TestRunServiceFleetValidatesYAML(t *testing.T) {
+	c, _ := newRunRPCClient(t)
+	spec := fleetSpec()
+	spec.ScenarioYaml = "kind: fleet\nthis is: not valid: yaml: ["
+	_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: spec},
+	}))
+	if err == nil {
+		t.Fatal("StartRun accepted a malformed fleet YAML")
+	}
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
+	list, _ := c.ListRuns(context.Background(), connect.NewRequest(&orbitv1.ListRunsRequest{}))
+	if len(list.Msg.GetRuns()) != 0 {
+		t.Errorf("a rejected fleet StartRun registered %d runs, want 0", len(list.Msg.GetRuns()))
+	}
+}
+
+// A completed fleet run exposes its FleetReport over RPC (seeded, since a real
+// fleet needs a core).
+func TestRunServiceFleetReport(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	// Distinct values in every field, so a swapped or dropped mapping is caught.
+	want := engine.FleetReport{
+		Attached: 50, AttachFailed: 2, AttachElapsed: 3 * time.Second,
+		Handovers: 8, HandoverErr: 1, TrafficFlows: 40, TrafficBytes: 123456, Deregistered: 49,
+	}
+	info, err := reg.StartFleet("seeded", func(ctx context.Context) (engine.FleetReport, error) {
+		return want, nil
+	})
+	if err != nil {
+		t.Fatalf("seed fleet: %v", err)
+	}
+	waitRunState(t, c, info.ID, orbitv1.RunState_RUN_STATE_COMPLETE)
+
+	resp, err := c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: info.ID}))
+	if err != nil {
+		t.Fatalf("GetRunReport: %v", err)
+	}
+	fr := resp.Msg.GetFleet()
+	if fr == nil {
+		t.Fatal("completed fleet run returned no fleet report")
+	}
+	// Every field, so no wire mapping can silently swap or drop one.
+	if fr.GetAttached() != 50 || fr.GetAttachFailed() != 2 || fr.GetAttachElapsedMs() != 3000 ||
+		fr.GetHandovers() != 8 || fr.GetHandoverErrors() != 1 ||
+		fr.GetTrafficFlows() != 40 || fr.GetTrafficBytes() != 123456 || fr.GetDeregistered() != 49 {
+		t.Errorf("fleet report mismapped: %+v", fr)
+	}
+}
+
+// A ${VAR} in a client-submitted fleet YAML must NOT be expanded against the
+// server's environment — that would leak the server's variables back to the
+// client via the run error. The reference is left literal.
+func TestRunServiceFleetDoesNotExpandServerEnv(t *testing.T) {
+	t.Setenv("ORBIT_TEST_SECRET", "super-secret-value")
+	c, _ := newRunRPCClient(t)
+
+	spec := fleetSpec()
+	// Point the AMF at the secret via an env ref. If the server expanded it,
+	// the dial error would contain the secret.
+	spec.ScenarioYaml = strings.Replace(spec.ScenarioYaml, "amf: 127.0.0.1:1", "amf: ${ORBIT_TEST_SECRET}", 1)
+
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: spec},
+	}))
+	if err != nil {
+		// A literal "${ORBIT_TEST_SECRET}" is an invalid AMF address, so it may
+		// fail validation synchronously — also acceptable, and secret-free.
+		if strings.Contains(err.Error(), "super-secret-value") {
+			t.Fatal("server env secret leaked into the StartRun error")
+		}
+		return
+	}
+
+	final := waitRunState(t, c, resp.Msg.GetRun().GetRunId(), orbitv1.RunState_RUN_STATE_FAILED)
+	if strings.Contains(final.GetError(), "super-secret-value") {
+		t.Errorf("server env secret leaked into the run error: %q", final.GetError())
+	}
+	if !strings.Contains(final.GetError(), "ORBIT_TEST_SECRET") {
+		t.Errorf("expected the literal ${ORBIT_TEST_SECRET} in the error, got %q", final.GetError())
 	}
 }

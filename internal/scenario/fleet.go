@@ -127,9 +127,25 @@ func PeekKind(data []byte) (string, error) {
 }
 
 // ParseFleet decodes a fleet scenario, expanding ${ENV} first.
+// ParseFleet parses a fleet scenario, expanding ${ENV} references against the
+// process environment — the CLI convention for keeping secrets like Ki/OPc out
+// of the file. Use only for input the local operator controls.
 func ParseFleet(data []byte) (*FleetScenario, error) {
+	return parseFleet(expandEnv(data))
+}
+
+// ParseFleetNoEnv parses a fleet scenario WITHOUT ${ENV} expansion. Use it for
+// untrusted input — a scenario submitted over the API — where expanding against
+// the server's environment would substitute the server's own variables into the
+// run and leak their values back to the client (e.g. via a dial error). A
+// ${VAR} in such input is left literal.
+func ParseFleetNoEnv(data []byte) (*FleetScenario, error) {
+	return parseFleet(data)
+}
+
+func parseFleet(data []byte) (*FleetScenario, error) {
 	var f FleetScenario
-	if err := yaml.Unmarshal(expandEnv(data), &f); err != nil {
+	if err := yaml.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse fleet scenario: %w", err)
 	}
 	if err := f.validate(); err != nil {

@@ -67,10 +67,19 @@ type LoadRunFunc func(ctx context.Context, stats *load.LiveStats) (load.Report, 
 // RunRegistry.mu; nothing here is touched without it.
 type run struct {
 	info   RunInfo
-	live   *load.LiveStats // live aggregates while running (load kind)
-	report *load.Report    // final report, set on COMPLETE
+	live   *load.LiveStats // live aggregates while running (load kind; nil otherwise)
+	report any             // *load.Report or *FleetReport, set on COMPLETE
 	cancel context.CancelFunc
 }
+
+// FleetRunFunc executes a fleet run to completion. Unlike a load run it has no
+// per-attempt observer today; its progress is its final FleetReport.
+type FleetRunFunc func(ctx context.Context) (FleetReport, error)
+
+// runFunc is the kind-agnostic launcher the registry runs on a goroutine. It
+// returns a pointer to the kind's report (or nil), which is retained only when
+// the run completes cleanly.
+type runFunc func(ctx context.Context) (any, error)
 
 // RunRegistry owns run identity, lifecycle, and a bounded history. Runs execute
 // in goroutines it launches; a run outlives the client that started it, and is
@@ -113,18 +122,43 @@ func newRunID() string {
 // with ErrRunActive rather than queued — whether concurrent runs against a
 // single core are meaningful is a question about the core, revisited later.
 func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
+	live := load.NewLiveStats()
+	return r.start(RunKindLoad, name, live, func(ctx context.Context) (any, error) {
+		rep, err := fn(ctx, live)
+		if err != nil {
+			return nil, err
+		}
+		return &rep, nil
+	})
+}
+
+// StartFleet registers and launches a fleet run. Like StartLoad it enforces one
+// active run per kind. A fleet run reports only its final FleetReport; live
+// aggregates arrive with RunTelemetry (build order step 5).
+func (r *RunRegistry) StartFleet(name string, fn FleetRunFunc) (RunInfo, error) {
+	return r.start(RunKindFleet, name, nil, func(ctx context.Context) (any, error) {
+		rep, err := fn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &rep, nil
+	})
+}
+
+// start registers a run of the given kind and launches exec on its own
+// goroutine. live may be nil for kinds without per-attempt aggregates.
+func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, exec runFunc) (RunInfo, error) {
 	r.mu.Lock()
-	if active := r.activeOfKindLocked(RunKindLoad); active != "" {
+	if active := r.activeOfKindLocked(kind); active != "" {
 		r.mu.Unlock()
-		return RunInfo{}, &ErrRunActive{Kind: RunKindLoad, ActiveID: active}
+		return RunInfo{}, &ErrRunActive{Kind: kind, ActiveID: active}
 	}
 
 	id := r.freshIDLocked()
 	ctx, cancel := context.WithCancel(context.Background())
-	live := load.NewLiveStats()
 	rec := &run{
 		info: RunInfo{
-			ID: id, Kind: RunKindLoad, Name: name,
+			ID: id, Kind: kind, Name: name,
 			State: RunPending, StartedAt: time.Now(),
 		},
 		live:   live,
@@ -135,16 +169,16 @@ func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
 	info := rec.info
 	r.mu.Unlock()
 
-	go r.execLoad(ctx, id, live, fn)
+	go r.exec(ctx, id, exec)
 	return info, nil
 }
 
-// execLoad runs the launcher and records the outcome. It runs on its own
-// goroutine; the run survives a client disconnecting.
-func (r *RunRegistry) execLoad(ctx context.Context, id string, live *load.LiveStats, fn LoadRunFunc) {
+// exec runs the launcher and records the outcome. It runs on its own goroutine;
+// the run survives a client disconnecting.
+func (r *RunRegistry) exec(ctx context.Context, id string, fn runFunc) {
 	r.markRunning(id)
 
-	report, err := r.guard(id, ctx, live, fn)
+	report, err := r.guard(ctx, id, fn)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -155,14 +189,14 @@ func (r *RunRegistry) execLoad(ctx context.Context, id string, live *load.LiveSt
 	rec.info.EndedAt = time.Now()
 	switch {
 	case ctx.Err() != nil:
-		// A cancelled context is a requested stop, whatever error fn returned.
+		// A cancelled context is a requested stop, whatever the launcher returned.
 		rec.info.State = RunCancelled
 	case err != nil:
 		rec.info.State = RunFailed
 		rec.info.Err = err.Error()
 	default:
 		rec.info.State = RunComplete
-		rec.report = &report
+		rec.report = report
 	}
 	if r.log != nil {
 		r.log.Info("run finished", "run", id, "kind", rec.info.Kind, "state", rec.info.State)
@@ -174,7 +208,7 @@ func (r *RunRegistry) execLoad(ctx context.Context, id string, live *load.LiveSt
 // run cannot crash the daemon and take every other run down with it — and so
 // the run still reaches a terminal state rather than sticking in RUNNING and
 // blocking all future runs of its kind.
-func (r *RunRegistry) guard(id string, ctx context.Context, live *load.LiveStats, fn LoadRunFunc) (report load.Report, err error) {
+func (r *RunRegistry) guard(ctx context.Context, id string, fn runFunc) (report any, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			err = fmt.Errorf("run panicked: %v", p)
@@ -183,7 +217,7 @@ func (r *RunRegistry) guard(id string, ctx context.Context, live *load.LiveStats
 			}
 		}
 	}()
-	return fn(ctx, live)
+	return fn(ctx)
 }
 
 // Stop requests cancellation of a run. It is idempotent and returns the run's
@@ -248,13 +282,28 @@ func (r *RunRegistry) Snapshot(id string) (load.Snapshot, bool) {
 // Report returns a completed run's final report. It is available only once the
 // run has reached COMPLETE; a running or failed run returns false.
 func (r *RunRegistry) Report(id string) (load.Report, bool) {
+	if rep, ok := r.reportAny(id).(*load.Report); ok {
+		return *rep, true
+	}
+	return load.Report{}, false
+}
+
+// FleetResult returns a completed fleet run's report.
+func (r *RunRegistry) FleetResult(id string) (FleetReport, bool) {
+	if rep, ok := r.reportAny(id).(*FleetReport); ok {
+		return *rep, true
+	}
+	return FleetReport{}, false
+}
+
+// reportAny returns the run's retained report pointer, or nil.
+func (r *RunRegistry) reportAny(id string) any {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	rec := r.runs[id]
-	if rec == nil || rec.report == nil {
-		return load.Report{}, false
+	if rec := r.runs[id]; rec != nil {
+		return rec.report
 	}
-	return *rec.report, true
+	return nil
 }
 
 // StopAll cancels every active run. Called on server shutdown so runs do not
