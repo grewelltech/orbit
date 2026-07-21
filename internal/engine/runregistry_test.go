@@ -350,3 +350,59 @@ func TestMarkRunningRespectsDraining(t *testing.T) {
 		t.Errorf("markRunning left a pending run at %s, want RUNNING", got.State)
 	}
 }
+
+// A fleet run flows through the same lifecycle as a load run and exposes its
+// FleetReport on completion.
+func TestRunRegistryFleetCompletes(t *testing.T) {
+	r := quietRegistry(0)
+	want := FleetReport{Attached: 20, AttachFailed: 1, Handovers: 4, Deregistered: 20}
+	info, err := r.StartFleet("fleet-1", func(ctx context.Context) (FleetReport, error) {
+		return want, nil
+	})
+	if err != nil {
+		t.Fatalf("StartFleet: %v", err)
+	}
+	if info.Kind != RunKindFleet {
+		t.Errorf("kind = %s, want fleet", info.Kind)
+	}
+	waitState(t, r, info.ID, RunComplete)
+
+	got, ok := r.FleetResult(info.ID)
+	if !ok {
+		t.Fatal("no fleet report on a completed fleet run")
+	}
+	if got.Attached != 20 || got.Handovers != 4 {
+		t.Errorf("fleet report = %+v, want attached 20 / handovers 4", got)
+	}
+	// A fleet report must not masquerade as a load report.
+	if _, ok := r.Report(info.ID); ok {
+		t.Error("FleetReport leaked through the load Report accessor")
+	}
+}
+
+// Load and fleet are independent kinds: one of each may be active at once.
+func TestRunRegistryLoadAndFleetAreIndependentKinds(t *testing.T) {
+	r := quietRegistry(0)
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+
+	if _, err := r.StartLoad("l", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		<-block
+		return load.Report{}, nil
+	}); err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+	// A fleet run is allowed while a load run is active (different kind).
+	if _, err := r.StartFleet("f", func(ctx context.Context) (FleetReport, error) {
+		<-block
+		return FleetReport{}, nil
+	}); err != nil {
+		t.Errorf("StartFleet rejected while only a load run was active: %v", err)
+	}
+	// But a second fleet run is not.
+	if _, err := r.StartFleet("f2", func(ctx context.Context) (FleetReport, error) {
+		return FleetReport{}, nil
+	}); err == nil {
+		t.Error("a second concurrent fleet run was allowed")
+	}
+}

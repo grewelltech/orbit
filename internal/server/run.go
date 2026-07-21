@@ -12,6 +12,7 @@ import (
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/load"
+	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -40,8 +41,18 @@ func (s *runService) StartRun(
 			return nil, runStartError(err)
 		}
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
+	case *orbitv1.StartRunRequest_Fleet:
+		fn, err := fleetRunFunc(s.log, spec.Fleet)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		info, err := s.reg.StartFleet(m.GetName(), fn)
+		if err != nil {
+			return nil, runStartError(err)
+		}
+		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("a run spec is required (only load is supported)"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("a run spec is required (load or fleet)"))
 	}
 }
 
@@ -99,12 +110,19 @@ func (s *runService) GetRunReport(
 		return nil, runLookupError(err)
 	}
 	resp := &orbitv1.GetRunReportResponse{Run: runProto(info)}
-	if report, ok := s.reg.Report(id); ok {
-		resp.Report = &orbitv1.GetRunReportResponse_Load{Load: loadReportProto(report)}
-	} else if info.State != engine.RunComplete {
+	switch {
+	case info.State != engine.RunComplete:
 		// No report yet: tell the caller why rather than returning an empty one.
 		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("run %s is %s; a report is available only once complete", id, info.State))
+	case info.Kind == engine.RunKindLoad:
+		if report, ok := s.reg.Report(id); ok {
+			resp.Report = &orbitv1.GetRunReportResponse_Load{Load: loadReportProto(report)}
+		}
+	case info.Kind == engine.RunKindFleet:
+		if report, ok := s.reg.FleetResult(id); ok {
+			resp.Report = &orbitv1.GetRunReportResponse_Fleet{Fleet: fleetReportProto(report)}
+		}
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -185,6 +203,36 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 		s := spec
 		s.Observer = stats
 		return engine.RunLoad(ctx, log, s)
+	}, nil
+}
+
+// fleetRunFunc parses the fleet scenario YAML, injects the request's
+// credentials, and builds the launcher via the shared scenario→engine mapping —
+// the same one `orbit run <fleet>` uses, so CLI and server runs are identical.
+func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec) (engine.FleetRunFunc, error) {
+	if p.GetScenarioYaml() == "" {
+		return nil, fmt.Errorf("scenario_yaml is required")
+	}
+	f, err := scenario.ParseFleet([]byte(p.GetScenarioYaml()))
+	if err != nil {
+		return nil, err
+	}
+	// Credentials come from the request, not the YAML's ${ENV}: the server
+	// cannot expand the client's secrets from its own environment.
+	ki, err := auth.ParseHexKey("Ki", p.GetCredentials().GetKi())
+	if err != nil {
+		return nil, err
+	}
+	opc, err := auth.ParseHexKey("OPc", p.GetCredentials().GetOpc())
+	if err != nil {
+		return nil, err
+	}
+	spec, beh, err := scenario.BuildFleetRun(f, ki, opc)
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context) (engine.FleetReport, error) {
+		return engine.RunFleet(ctx, log, spec, beh)
 	}, nil
 }
 
@@ -310,6 +358,19 @@ func loadReportProto(r load.Report) *orbitv1.LoadReport {
 		})
 	}
 	return out
+}
+
+func fleetReportProto(r engine.FleetReport) *orbitv1.FleetReport {
+	return &orbitv1.FleetReport{
+		Attached:        uint32(r.Attached),
+		AttachFailed:    uint32(r.AttachFailed),
+		AttachElapsedMs: r.AttachElapsed.Milliseconds(),
+		Handovers:       uint32(r.Handovers),
+		HandoverErrors:  uint32(r.HandoverErr),
+		TrafficFlows:    uint32(r.TrafficFlows),
+		TrafficBytes:    r.TrafficBytes,
+		Deregistered:    uint32(r.Deregistered),
+	}
 }
 
 // procedureLatencies maps the per-procedure stats map to the wire slice, in a
