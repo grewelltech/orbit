@@ -213,7 +213,10 @@ func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec) (engine.FleetRunFun
 	if p.GetScenarioYaml() == "" {
 		return nil, fmt.Errorf("scenario_yaml is required")
 	}
-	f, err := scenario.ParseFleet([]byte(p.GetScenarioYaml()))
+	// Parse WITHOUT ${ENV} expansion: the YAML is client-supplied, and expanding
+	// it against the server's environment would leak the server's variables back
+	// to the client. Credentials come from the request, below.
+	f, err := scenario.ParseFleetNoEnv([]byte(p.GetScenarioYaml()))
 	if err != nil {
 		return nil, err
 	}
