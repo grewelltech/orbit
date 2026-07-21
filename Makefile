@@ -63,9 +63,15 @@ tidy:
 
 # Regenerates gen/ from proto/ (requires buf, protoc-gen-go,
 # protoc-gen-connect-go on PATH; `go install` each or see CI).
-gen:
+# buf.gen.yaml also emits TypeScript for the dashboard via protoc-gen-es, whose
+# binary lives in web/node_modules — install it if absent so `make gen` works
+# from a clean checkout.
+gen: web/node_modules/.bin/protoc-gen-es
 	buf lint
 	buf generate
+
+web/node_modules/.bin/protoc-gen-es: web/package-lock.json
+	cd web && npm ci --no-fund --no-audit
 
 clean:
 	rm -rf bin
