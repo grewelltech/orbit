@@ -30,6 +30,7 @@ func newLoadCmd() *cobra.Command {
 		rate, sloSuccess                  float64
 		sloRegP99, sloAttachP99           time.Duration
 		duration, sampleInterval          time.Duration
+		progressEvery                     time.Duration
 		withPDU                           bool
 	)
 	cmd := &cobra.Command{
@@ -71,8 +72,17 @@ func newLoadCmd() *cobra.Command {
 				spec.GNBN3Addr = gnbN3
 			}
 
+			// Live progress: a load run is silent for minutes otherwise, and
+			// an operator watching a soak needs to see it degrade as it happens
+			// rather than at the end. Progress goes to stderr so stdout stays
+			// the machine-readable report.
+			live := load.NewLiveStats()
+			spec.Observer = live
+			stopProgress := startLoadProgress(cmd.ErrOrStderr(), live, progressEvery)
+
 			log := slog.New(slog.NewTextHandler(io.Discard, nil))
 			rep, err := engine.RunLoad(cmd.Context(), log, spec)
+			stopProgress()
 			if err != nil {
 				return err
 			}
@@ -121,6 +131,7 @@ func newLoadCmd() *cobra.Command {
 	f.DurationVar(&sloAttachP99, "slo-attach-p99", 0, "SLO: max attach P99")
 	f.DurationVar(&duration, "duration", 0, "soak: run for this long instead of --count (e.g. 5m)")
 	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence (e.g. 10s)")
+	f.DurationVar(&progressEvery, "progress-every", 5*time.Second, "print live progress to stderr at this cadence (0 = off)")
 	for _, r := range []string{"amf", "base-imsi", "ki", "opc", "mcc", "mnc"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
@@ -181,4 +192,54 @@ func printVerdict(w io.Writer, v load.Verdict) {
 		}
 		fmt.Fprintf(w, "  [%s] %-20s %s\n", mark, c.Name, c.Detail)
 	}
+}
+
+// startLoadProgress prints a live progress line every interval until the
+// returned stop func is called. It returns a no-op when interval <= 0.
+//
+// Progress is written to stderr so a caller redirecting stdout still gets a
+// clean report. The stop func blocks until the printer has finished, so the
+// final report can never interleave with a progress line.
+func startLoadProgress(w io.Writer, live *load.LiveStats, interval time.Duration) func() {
+	if interval <= 0 || live == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		var prev load.Snapshot
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				s := live.Snapshot()
+				fmt.Fprintln(w, formatLoadProgress(s, prev))
+				prev = s
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-stopped
+	}
+}
+
+// formatLoadProgress renders one progress line. The interval rate comes from
+// the difference between successive snapshots — LiveStats reports cumulative
+// values only, so each consumer picks its own cadence.
+func formatLoadProgress(s, prev load.Snapshot) string {
+	var now float64
+	if d := s.Elapsed - prev.Elapsed; d > 0 {
+		now = float64(s.Succeeded-prev.Succeeded) / d.Seconds()
+	}
+	line := fmt.Sprintf("load: %s  %d ok / %d attempted  %d failed  %.1f attach/s (avg %.1f)",
+		s.Elapsed.Round(time.Second), s.Succeeded, s.Attempted, s.Failed, now, s.AchievedRate)
+	if a, ok := s.Latencies["attach"]; ok {
+		line += fmt.Sprintf("  attach P50 %s P99 %s", round(a.P50), round(a.P99))
+	}
+	return line
 }

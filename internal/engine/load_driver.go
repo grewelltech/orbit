@@ -65,6 +65,10 @@ type LoadSpec struct {
 	SampleEvery time.Duration        // soak: resource-sample cadence
 	PDUSession  *ue.PDUSessionParams // optional session per UE
 	GNBN3Addr   string               // gNB N3 for the data path (with PDUSession)
+	// Observer, if set, receives each attempt as it completes, so a caller can
+	// show progress or export metrics while the run is still going. The
+	// returned Report stays authoritative.
+	Observer load.Observer
 }
 
 // RunLoad brings up the fleet, generates Count UEs from BaseIMSI, and drives a
@@ -96,11 +100,24 @@ func RunLoad(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report,
 		return cfg, nil
 	}
 
-	rep := load.Run(ctx, load.Config{
-		Total: spec.Count, Concurrency: spec.Concurrency, Rate: spec.Rate,
-		Duration: spec.Duration, SampleInterval: spec.SampleEvery,
-	}, f.LoadFunc(makeUE))
+	rep := load.Run(ctx, loadConfig(spec), f.LoadFunc(makeUE))
 	return rep, nil
+}
+
+// loadConfig maps a LoadSpec onto the load engine's Config.
+//
+// Split out from RunLoad so the mapping is testable without a live core:
+// RunLoad brings up real SCTP associations, and a field silently missing here
+// is exactly how the Observer hook sat unwired.
+func loadConfig(spec LoadSpec) load.Config {
+	return load.Config{
+		Total:          spec.Count,
+		Concurrency:    spec.Concurrency,
+		Rate:           spec.Rate,
+		Duration:       spec.Duration,
+		SampleInterval: spec.SampleEvery,
+		Observer:       spec.Observer,
+	}
 }
 
 // incIMSI returns the base IMSI incremented by i, zero-padded to 15 digits.
