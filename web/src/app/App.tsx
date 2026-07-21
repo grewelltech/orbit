@@ -13,13 +13,21 @@ import { EventStream } from "@/panels/EventStream";
 import { GnbDistribution } from "@/panels/GnbDistribution";
 import { TimeSeriesPanel, type SeriesDef } from "@/panels/TimeSeriesPanel";
 import { MockSource } from "@/data/mock";
+import { ConnectSource } from "@/data/connect";
+import type { TelemetrySource } from "@/data/source";
 import { useTelemetry } from "@/hooks/useTelemetry";
 import { tokens } from "@/theme/tokens";
 import { bps, count, ms, pct } from "@/lib/format";
 
 export function App() {
-  // Swapped for the Connect-backed source once the monitoring API lands.
-  const source = useMemo(() => new MockSource(), []);
+  // The real RunService by default; ?mock forces the offline demo generator,
+  // and ?run=<id> pins a specific run instead of auto-selecting the active one.
+  const source = useMemo<TelemetrySource>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("mock")) return new MockSource();
+    const runId = params.get("run") ?? undefined;
+    return new ConnectSource(runId ? { runId } : {});
+  }, []);
   const telemetry = useTelemetry(source);
   const { latest, history, events, state } = telemetry;
 
