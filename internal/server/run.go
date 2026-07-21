@@ -131,15 +131,23 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 		return nil, err
 	}
 
+	// UE identity carries one PLMN, so every gNB in a run must agree on it.
+	// A single core serves one home PLMN; silently keeping the last gNB's would
+	// build UEs whose identity mismatches the gNBs serving them.
 	gnbs := make([]engine.GNBSpec, 0, len(p.GetGnbs()))
 	var mcc, mnc string
-	for _, gp := range p.GetGnbs() {
+	for i, gp := range p.GetGnbs() {
 		cfg, err := gnbConfigFromProto(gp)
 		if err != nil {
 			return nil, err
 		}
+		if i == 0 {
+			mcc, mnc = cfg.MCC, cfg.MNC
+		} else if cfg.MCC != mcc || cfg.MNC != mnc {
+			return nil, fmt.Errorf("all gnbs must share one PLMN; gnb %d is %s/%s, not %s/%s",
+				i, cfg.MCC, cfg.MNC, mcc, mnc)
+		}
 		gnbs = append(gnbs, engine.GNBSpec{Config: cfg, AMFAddr: p.GetAmfAddress()})
-		mcc, mnc = cfg.MCC, cfg.MNC
 	}
 
 	rate, err := loadRate(p)

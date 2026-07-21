@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -141,9 +142,9 @@ func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
 // execLoad runs the launcher and records the outcome. It runs on its own
 // goroutine; the run survives a client disconnecting.
 func (r *RunRegistry) execLoad(ctx context.Context, id string, live *load.LiveStats, fn LoadRunFunc) {
-	r.setState(id, RunRunning, "")
+	r.markRunning(id)
 
-	report, err := fn(ctx, live)
+	report, err := r.guard(id, ctx, live, fn)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -167,6 +168,22 @@ func (r *RunRegistry) execLoad(ctx context.Context, id string, live *load.LiveSt
 		r.log.Info("run finished", "run", id, "kind", rec.info.Kind, "state", rec.info.State)
 	}
 	r.evictLocked()
+}
+
+// guard runs the launcher, converting a panic into an error so a bug in the
+// run cannot crash the daemon and take every other run down with it — and so
+// the run still reaches a terminal state rather than sticking in RUNNING and
+// blocking all future runs of its kind.
+func (r *RunRegistry) guard(id string, ctx context.Context, live *load.LiveStats, fn LoadRunFunc) (report load.Report, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("run panicked: %v", p)
+			if r.log != nil {
+				r.log.Error("run panicked", "run", id, "panic", p, "stack", string(debug.Stack()))
+			}
+		}
+	}()
+	return fn(ctx, live)
 }
 
 // Stop requests cancellation of a run. It is idempotent and returns the run's
@@ -274,18 +291,15 @@ func (r *RunRegistry) freshIDLocked() string {
 	}
 }
 
-// setState transitions a run, ignoring a run that has vanished or is already
-// terminal (a stop that arrived first must win).
-func (r *RunRegistry) setState(id string, s RunState, errMsg string) {
+// markRunning promotes a PENDING run to RUNNING. It promotes only from PENDING,
+// so a run already DRAINING — a Stop that landed before the launcher goroutine
+// was scheduled — is not flipped back to RUNNING, which would transiently hide
+// a stop a client had already been told succeeded.
+func (r *RunRegistry) markRunning(id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	rec := r.runs[id]
-	if rec == nil || rec.info.State.terminal() {
-		return
-	}
-	rec.info.State = s
-	if errMsg != "" {
-		rec.info.Err = errMsg
+	if rec := r.runs[id]; rec != nil && rec.info.State == RunPending {
+		rec.info.State = RunRunning
 	}
 }
 
