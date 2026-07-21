@@ -1,0 +1,181 @@
+syntax = "proto3";
+
+package orbit.v1;
+
+import "orbit/v1/cell.proto";
+import "orbit/v1/ue.proto";
+
+option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
+
+// RunService owns test-run execution (ADR-0005): every client — CLI, web,
+// desktop — starts and observes runs through it, rather than orchestrating a
+// run in its own process. A run has a server-assigned identity, outlives the
+// client that started it, and is stopped only by an explicit StopRun.
+//
+// This is the unary slice of the surface (build order step 3): identity,
+// listing, history, and the end-of-run report. The live telemetry and event
+// streams (ADR-0006) arrive in later steps.
+service RunService {
+  // StartRun launches a run and returns its identity immediately. The run
+  // executes asynchronously; poll GetRun or fetch GetRunReport when done.
+  rpc StartRun(StartRunRequest) returns (StartRunResponse) {}
+  // StopRun requests cancellation. Idempotent; a terminal run is unchanged.
+  rpc StopRun(StopRunRequest) returns (StopRunResponse) {}
+  // ListRuns returns active and retained runs, newest first.
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {}
+  // GetRun returns one run's current state, plus a live progress snapshot
+  // while it is running.
+  rpc GetRun(GetRunRequest) returns (GetRunResponse) {}
+  // GetRunReport returns the authoritative end-of-run report. Available only
+  // once the run has completed.
+  rpc GetRunReport(GetRunReportRequest) returns (GetRunReportResponse) {}
+}
+
+// RunKind is what a run does. Only LOAD is executable in this slice; the others
+// are reserved so the schema does not renumber when they land.
+enum RunKind {
+  RUN_KIND_UNSPECIFIED = 0;
+  RUN_KIND_LOAD = 1;
+  RUN_KIND_FLEET = 2;
+  RUN_KIND_SCENARIO = 3;
+  RUN_KIND_CONFORMANCE = 4;
+}
+
+// RunState is a run's lifecycle position:
+// PENDING → RUNNING → (DRAINING) → COMPLETE | FAILED | CANCELLED.
+enum RunState {
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_PENDING = 1;
+  RUN_STATE_RUNNING = 2;
+  RUN_STATE_DRAINING = 3;
+  RUN_STATE_COMPLETE = 4;
+  RUN_STATE_FAILED = 5;
+  RUN_STATE_CANCELLED = 6;
+}
+
+// Run is a run's identity and lifecycle.
+message Run {
+  string run_id = 1;              // server-assigned, e.g. "run-7f3a91c2"
+  RunKind kind = 2;
+  string name = 3;                // caller-supplied label
+  RunState state = 4;
+  int64 started_unix_nano = 5;
+  int64 ended_unix_nano = 6;      // 0 while not terminal
+  string error = 7;               // set when state == RUN_STATE_FAILED
+}
+
+// LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
+// `orbit load` flags; credentials travel in the request because the server
+// owns execution (ADR-0005) and the listener is lab-internal.
+message LoadRunSpec {
+  string amf_address = 1;
+  // gNBs to mux UEs across. UE i attaches through gNBs[i % len].
+  repeated GnbConfig gnbs = 2;
+  string base_imsi = 3;           // first SUPI; each UE increments it
+  uint32 count = 4;               // UEs to attach (ignored when duration_ms > 0)
+  Credentials credentials = 5;
+  // Offered attach rate (attaches/sec); 0 = concurrency-bound.
+  double rate = 6;
+  // Linear ramp start:end over ramp_seconds, overriding rate when > 0.
+  double ramp_start = 7;
+  double ramp_end = 8;
+  uint32 ramp_seconds = 9;
+  uint32 concurrency = 10;        // max attaches in flight (0 = 64)
+  // Soak: run for this long instead of count (0 = count-bounded).
+  uint32 duration_ms = 11;
+  // Soak: resource-sample cadence (0 = off).
+  uint32 sample_interval_ms = 12;
+  // Optional PDU session per UE.
+  PDUSession pdu_session = 13;
+  string gnb_n3_addr = 14;        // gNB N3 for the data path (with pdu_session)
+}
+
+message StartRunRequest {
+  string name = 1;                // optional label; server names it if empty
+  oneof spec {
+    LoadRunSpec load = 2;
+  }
+}
+
+message StartRunResponse {
+  Run run = 1;
+}
+
+message StopRunRequest {
+  string run_id = 1;
+}
+
+message StopRunResponse {
+  Run run = 1;                    // state as of the stop request
+}
+
+message ListRunsRequest {
+  // Optional filter; RUN_KIND_UNSPECIFIED returns all kinds.
+  RunKind kind = 1;
+}
+
+message ListRunsResponse {
+  repeated Run runs = 1;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+// LoadProgress is a live aggregate snapshot of a load run in flight. Cumulative
+// values only; an interval rate is the difference between two snapshots.
+message LoadProgress {
+  int64 elapsed_ms = 1;
+  uint32 attempted = 2;
+  uint32 succeeded = 3;
+  uint32 failed = 4;
+  double achieved_rate = 5;       // succeeded per second since the run began
+  repeated ProcedureLatency latency = 6;
+}
+
+// ProcedureLatency is one procedure's live percentile summary, milliseconds.
+message ProcedureLatency {
+  string procedure = 1;           // "attach", "registration", "pdu_session"
+  uint64 count = 2;
+  double p50_ms = 3;
+  double p90_ms = 4;
+  double p99_ms = 5;
+  double p999_ms = 6;
+  double max_ms = 7;
+}
+
+message GetRunResponse {
+  Run run = 1;
+  // Populated for a LOAD run; empty for other kinds or before any attempt.
+  LoadProgress load_progress = 2;
+}
+
+message GetRunReportRequest {
+  string run_id = 1;
+}
+
+// LoadReport is the authoritative end-of-run result. Unlike LoadProgress it is
+// not sampled.
+message LoadReport {
+  uint32 attempted = 1;
+  uint32 succeeded = 2;
+  uint32 failed = 3;
+  int64 duration_ms = 4;
+  double achieved_rate = 5;
+  repeated ProcedureLatency latency = 6;
+  repeated ResourceSample resources = 7;
+}
+
+// ResourceSample is a point-in-time process reading during a soak.
+message ResourceSample {
+  int64 at_ms = 1;
+  uint32 goroutines = 2;
+  uint64 rss_bytes = 3;
+}
+
+message GetRunReportResponse {
+  Run run = 1;
+  oneof report {
+    LoadReport load = 2;
+  }
+}

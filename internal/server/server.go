@@ -34,6 +34,9 @@ type Options struct {
 	// token for app sessions (`orbit serve --loom-agent/--loom-token`);
 	// per-call values override them.
 	LoomAgent, LoomToken string
+	// RunHistory bounds how many terminal runs the registry retains (0 = the
+	// engine default).
+	RunHistory int
 }
 
 // New builds the ORBIT HTTP handler. The h2c wrapper lets gRPC clients
@@ -53,10 +56,13 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 		mgr.SetLoomDefaults(opts.LoomAgent, opts.LoomToken)
 		log.Info("default loom agent configured", "agent", opts.LoomAgent)
 	}
+	runReg := engine.NewRunRegistry(log, opts.RunHistory)
+
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}))
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}))
+	mux.Handle(orbitv1connect.NewRunServiceHandler(&runService{log: log, reg: runReg}))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
