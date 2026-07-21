@@ -48,6 +48,18 @@ type Session struct {
 	guti  []byte
 	gnbN3 string
 
+	// proc serialises the UE's control-plane procedures — handover and
+	// deregistration — which rewrite the association (conn, amfID, ranID) and
+	// the serving cell together. Two of them interleaving leaves the session
+	// describing neither. A 1-buffered channel rather than a Mutex so
+	// acquisition can respect a caller's context instead of blocking for the
+	// length of a handover.
+	//
+	// Data-path operations (ping, traffic, latency, app sessions) deliberately
+	// do NOT take this: measuring user-plane continuity *during* a handover is
+	// the point of the tool, and serialising them would defeat it.
+	proc chan struct{}
+
 	// stMu guards the externally observable state below. Handover mutates the
 	// serving cell and the mobility phase while List/Status readers hold only
 	// the Manager's map lock, which guards the map and not its values.
@@ -56,6 +68,7 @@ type Session struct {
 	state    string
 	mobState string    // last mobility phase; empty until the UE first moves
 	mobAt    time.Time // when mobState was recorded
+	released bool      // deregistered: no further procedure may run
 
 	// N3 data path, created lazily on first use over the per-gNB shared
 	// tunnel pool (design §6, Phase 5): ONE socket per gNB N3 address,
@@ -221,13 +234,34 @@ func (m *Manager) List() []*Session {
 func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
-	if ok {
-		delete(m.sessions, supi)
-	}
 	m.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("UE %s is not registered", supi)
 	}
+
+	// Wait for any in-flight procedure before touching the session: removing it
+	// from the map would not stop a handover that already captured the pointer,
+	// and tearing the association down under one races its writes and closes
+	// the socket it is using.
+	//
+	// The session stays in the map until the lock is held. Dropping it first
+	// and then failing to acquire — a caller cancelling while a 30s handover
+	// runs — would leave the only handle to a live SCTP association, N3 tunnel,
+	// and app sessions unreachable, with the UE still registered at the AMF and
+	// no way to retry.
+	release, err := sess.beginProcedure(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	// Committed now: drop it from the map and make it terminal, so a procedure
+	// queued behind this one fails rather than running against a dead session.
+	m.mu.Lock()
+	delete(m.sessions, supi)
+	m.mu.Unlock()
+	sess.markReleased()
+
 	// End any live app sessions first, while the tunnel is still open: each
 	// in-process client sends its RTCP BYE and stops its remote flow
 	// best-effort before the data path is torn away (design §7).
@@ -431,6 +465,53 @@ func (s *Session) setServingGNB(cfg gnb.Config) {
 	s.stMu.Lock()
 	defer s.stMu.Unlock()
 	s.gnbCfg = cfg
+}
+
+// procCh returns the procedure-lock channel, creating it on first use.
+//
+// Lazily rather than at construction so that no present or future construction
+// site can forget it: a nil channel would block the first procedure forever
+// instead of failing loudly.
+func (s *Session) procCh() chan struct{} {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	if s.proc == nil {
+		s.proc = make(chan struct{}, 1) // 1-buffered: holding a token is holding the lock
+	}
+	return s.proc
+}
+
+// beginProcedure takes the session's control-plane procedure lock, returning a
+// release func. It blocks until any in-flight procedure on this UE finishes, or
+// until ctx is done.
+//
+// A session that has been deregistered is terminal: its association is closed,
+// so a procedure that was waiting when it happened fails rather than running
+// against a torn-down session.
+func (s *Session) beginProcedure(ctx context.Context) (func(), error) {
+	ch := s.procCh()
+	select {
+	case ch <- struct{}{}:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("UE %s: another procedure is in progress: %w", s.SUPI, ctx.Err())
+	}
+	release := func() { <-ch }
+
+	s.stMu.RLock()
+	released := s.released
+	s.stMu.RUnlock()
+	if released {
+		release()
+		return nil, fmt.Errorf("UE %s is no longer registered", s.SUPI)
+	}
+	return release, nil
+}
+
+// markReleased makes the session terminal. Callers hold the procedure lock.
+func (s *Session) markReleased() {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.released = true
 }
 
 // setMobility records a mobility phase and its instant.
@@ -690,7 +771,7 @@ func (s *Session) deregister(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("wrap Deregistration Request: %w", err)
 	}
-	pdu, err := gnb.BuildUplinkNASTransport(s.gnbCfg, s.amfID, s.ranID, wrapped)
+	pdu, err := gnb.BuildUplinkNASTransport(s.ServingGNB(), s.amfID, s.ranID, wrapped)
 	if err != nil {
 		return err
 	}
