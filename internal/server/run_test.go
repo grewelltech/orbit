@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -562,6 +563,9 @@ func TestRunTelemetryClampsInterval(t *testing.T) {
 func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 	c, reg := newRunRPCClient(t)
 	proceed := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(proceed) }) }
+	t.Cleanup(release) // never wedge the launcher if a RUNNING frame never arrives
 	info, err := reg.StartLoad("live", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
 		s.Observe(load.Sample{Err: errBoom})
@@ -572,12 +576,6 @@ func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 		t.Fatalf("StartLoad: %v", err)
 	}
 
-	// Let the stream observe live frames, then let the run finish.
-	go func() {
-		time.Sleep(80 * time.Millisecond)
-		close(proceed)
-	}()
-
 	st, err := c.RunTelemetry(context.Background(), connect.NewRequest(&orbitv1.RunTelemetryRequest{
 		RunId: info.ID, IntervalMs: 20,
 	}))
@@ -585,9 +583,26 @@ func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 		t.Fatalf("RunTelemetry: %v", err)
 	}
 
+	// Deterministic, not wall-clock-raced: the run is blocked in its launcher
+	// and cannot finish until we release it — and we release it only after
+	// seeing a live RUNNING frame. So a RUNNING frame is guaranteed to precede
+	// the terminal one on every machine.
 	var frames []*orbitv1.TelemetryFrame
+	var sawRunningWithProgress bool
 	for st.Receive() {
-		frames = append(frames, st.Msg())
+		f := st.Msg()
+		frames = append(frames, f)
+		if f.GetState() == orbitv1.RunState_RUN_STATE_RUNNING {
+			// A live (non-terminal) frame must carry the aggregates — otherwise
+			// "live telemetry" is only ever the final snapshot.
+			if lp := f.GetLoad(); lp != nil && lp.GetAttempted() == 2 {
+				if lp.GetSucceeded() != 1 || lp.GetFailed() != 1 {
+					t.Errorf("running progress = %d ok / %d failed, want 1/1", lp.GetSucceeded(), lp.GetFailed())
+				}
+				sawRunningWithProgress = true
+			}
+			release() // release the run now that a live frame is in hand
+		}
 	}
 	if err := st.Err(); err != nil {
 		t.Fatalf("stream error: %v", err)
@@ -596,6 +611,9 @@ func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 	if len(frames) < 2 {
 		t.Fatalf("got %d frames, want at least a live one and a terminal one", len(frames))
 	}
+	if !sawRunningWithProgress {
+		t.Error("no RUNNING frame carried the live load aggregates")
+	}
 	// frame_seq is monotonic from 0.
 	for i, f := range frames {
 		if f.GetFrameSeq() != uint64(i) {
@@ -603,22 +621,8 @@ func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 		}
 	}
 	// The stream ends on a terminal frame.
-	last := frames[len(frames)-1]
-	if last.GetState() != orbitv1.RunState_RUN_STATE_COMPLETE {
+	if last := frames[len(frames)-1]; last.GetState() != orbitv1.RunState_RUN_STATE_COMPLETE {
 		t.Errorf("final frame state = %v, want COMPLETE", last.GetState())
-	}
-	// A frame carried the load aggregates (2 attempts: 1 ok, 1 failed).
-	var sawProgress bool
-	for _, f := range frames {
-		if lp := f.GetLoad(); lp != nil && lp.GetAttempted() == 2 {
-			sawProgress = true
-			if lp.GetSucceeded() != 1 || lp.GetFailed() != 1 {
-				t.Errorf("progress = %d ok / %d failed, want 1/1", lp.GetSucceeded(), lp.GetFailed())
-			}
-		}
-	}
-	if !sawProgress {
-		t.Error("no frame carried the load progress aggregates")
 	}
 }
 
@@ -646,5 +650,106 @@ func TestRunTelemetryTerminalRunEndsAfterOneFrame(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("terminal run yielded %d frames, want exactly 1", n)
+	}
+}
+
+// A client that cancels its context mid-stream stops the server-side loop
+// (guarding against a leaked ticker goroutine). The run keeps running; only
+// the stream ends. The frame count also proves the ticker fires at the
+// requested cadence rather than the 1s default — several frames arrive in a
+// sub-second window.
+func TestRunTelemetryStopsOnClientCancel(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	proceed := make(chan struct{})
+	t.Cleanup(func() { close(proceed) })
+	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+		<-proceed // never completes on its own
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	st, err := c.RunTelemetry(ctx, connect.NewRequest(&orbitv1.RunTelemetryRequest{
+		RunId: info.ID, IntervalMs: 20,
+	}))
+	if err != nil {
+		t.Fatalf("RunTelemetry: %v", err)
+	}
+
+	var mu sync.Mutex
+	var n int
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for st.Receive() {
+			mu.Lock()
+			n++
+			mu.Unlock()
+		}
+	}()
+
+	// Let frames flow at the 20ms cadence, then hang up. The window is well
+	// under the 1s default interval, so the ticker's actual period is
+	// observable: >1 frame here means it fired at the requested cadence, since
+	// the default would emit only the immediate frame in this window.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream did not end after the client cancelled — the server loop leaked")
+	}
+
+	mu.Lock()
+	got := n
+	mu.Unlock()
+	if got < 2 {
+		t.Errorf("received %d frames in 300ms; the ticker did not fire at the requested 20ms cadence (the 1s default would give 1)", got)
+	}
+}
+
+// With a long interval, a cancelled client must end the stream promptly via the
+// ctx.Done path — not linger until the next (far-off) tick, when Send would
+// finally fail on the closed connection. Pins the ctx.Done branch.
+func TestRunTelemetryCancelIsPromptAtLongInterval(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	proceed := make(chan struct{})
+	t.Cleanup(func() { close(proceed) })
+	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		<-proceed // stays RUNNING
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Requested 60s, clamped to the 10s max — far longer than the prompt window.
+	st, err := c.RunTelemetry(ctx, connect.NewRequest(&orbitv1.RunTelemetryRequest{
+		RunId: info.ID, IntervalMs: 60000,
+	}))
+	if err != nil {
+		t.Fatalf("RunTelemetry: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for st.Receive() {
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond) // let the immediate first frame land
+	cancel()
+
+	select {
+	case <-done:
+		// Ended promptly, well within one 10s tick — the ctx.Done path fired.
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled stream did not end promptly; it waited for the next tick instead of ctx.Done")
 	}
 }

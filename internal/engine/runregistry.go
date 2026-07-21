@@ -40,8 +40,8 @@ const (
 	RunCancelled RunState = "CANCELLED"
 )
 
-// terminal reports whether a state is final.
-func (s RunState) terminal() bool {
+// Terminal reports whether a state is final.
+func (s RunState) Terminal() bool {
 	return s == RunComplete || s == RunFailed || s == RunCancelled
 }
 
@@ -229,7 +229,7 @@ func (r *RunRegistry) Stop(id string) (RunInfo, error) {
 	if rec == nil {
 		return RunInfo{}, &ErrRunNotFound{ID: id}
 	}
-	if !rec.info.State.terminal() {
+	if !rec.info.State.Terminal() {
 		rec.info.State = RunDraining
 		rec.cancel()
 	}
@@ -312,7 +312,7 @@ func (r *RunRegistry) StopAll() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, rec := range r.runs {
-		if !rec.info.State.terminal() {
+		if !rec.info.State.Terminal() {
 			rec.info.State = RunDraining
 			rec.cancel()
 		}
@@ -323,7 +323,7 @@ func (r *RunRegistry) StopAll() {
 func (r *RunRegistry) activeOfKindLocked(kind RunKind) string {
 	for _, id := range r.order {
 		rec := r.runs[id]
-		if rec != nil && rec.info.Kind == kind && !rec.info.State.terminal() {
+		if rec != nil && rec.info.Kind == kind && !rec.info.State.Terminal() {
 			return id
 		}
 	}
@@ -358,7 +358,7 @@ func (r *RunRegistry) markRunning(id string) {
 func (r *RunRegistry) evictLocked() {
 	var terminal []string
 	for _, id := range r.order {
-		if rec := r.runs[id]; rec != nil && rec.info.State.terminal() {
+		if rec := r.runs[id]; rec != nil && rec.info.State.Terminal() {
 			terminal = append(terminal, id)
 		}
 	}

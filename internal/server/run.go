@@ -175,7 +175,7 @@ func (s *runService) RunTelemetry(
 		if err := stream.Send(frame); err != nil {
 			return false, err
 		}
-		return runStateTerminal(info.State), nil
+		return info.State.Terminal(), nil
 	}
 
 	// Send an immediate first frame so a client sees state without waiting a
@@ -216,12 +216,6 @@ func (s *runService) telemetryFrame(id string, info engine.RunInfo, intervalMs u
 		}
 	}
 	return frame
-}
-
-// runStateTerminal reports whether a run state is final. It mirrors the engine's
-// internal notion via the exported states.
-func runStateTerminal(s engine.RunState) bool {
-	return s == engine.RunComplete || s == engine.RunFailed || s == engine.RunCancelled
 }
 
 // loadRunFunc builds the launcher the registry runs. It validates the spec up
