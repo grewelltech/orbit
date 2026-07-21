@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -416,7 +417,14 @@ func TestRunServiceStartFleet(t *testing.T) {
 	if run.GetKind() != orbitv1.RunKind_RUN_KIND_FLEET {
 		t.Errorf("kind = %v, want FLEET", run.GetKind())
 	}
-	waitRunState(t, c, run.GetRunId(), orbitv1.RunState_RUN_STATE_FAILED)
+	final := waitRunState(t, c, run.GetRunId(), orbitv1.RunState_RUN_STATE_FAILED)
+
+	// The failure must come from RunFleet's dial against the dead AMF, proving
+	// the real StartRun → fleetRunFunc → RunFleet path ran — not a parse error
+	// or a stubbed launcher, which "FAILED, any cause" would also accept.
+	if !strings.Contains(final.GetError(), "127.0.0.1:1") {
+		t.Errorf("fleet run error = %q, want the AMF dial failure — it did not reach RunFleet", final.GetError())
+	}
 
 	list, _ := c.ListRuns(context.Background(), connect.NewRequest(&orbitv1.ListRunsRequest{
 		Kind: orbitv1.RunKind_RUN_KIND_FLEET,
@@ -450,7 +458,11 @@ func TestRunServiceFleetValidatesYAML(t *testing.T) {
 // fleet needs a core).
 func TestRunServiceFleetReport(t *testing.T) {
 	c, reg := newRunRPCClient(t)
-	want := engine.FleetReport{Attached: 50, AttachFailed: 2, Handovers: 8, Deregistered: 50}
+	// Distinct values in every field, so a swapped or dropped mapping is caught.
+	want := engine.FleetReport{
+		Attached: 50, AttachFailed: 2, AttachElapsed: 3 * time.Second,
+		Handovers: 8, HandoverErr: 1, TrafficFlows: 40, TrafficBytes: 123456, Deregistered: 49,
+	}
 	info, err := reg.StartFleet("seeded", func(ctx context.Context) (engine.FleetReport, error) {
 		return want, nil
 	})
@@ -467,7 +479,43 @@ func TestRunServiceFleetReport(t *testing.T) {
 	if fr == nil {
 		t.Fatal("completed fleet run returned no fleet report")
 	}
-	if fr.GetAttached() != 50 || fr.GetHandovers() != 8 || fr.GetDeregistered() != 50 {
-		t.Errorf("fleet report = %+v, want attached 50 / handovers 8 / dereg 50", fr)
+	// Every field, so no wire mapping can silently swap or drop one.
+	if fr.GetAttached() != 50 || fr.GetAttachFailed() != 2 || fr.GetAttachElapsedMs() != 3000 ||
+		fr.GetHandovers() != 8 || fr.GetHandoverErrors() != 1 ||
+		fr.GetTrafficFlows() != 40 || fr.GetTrafficBytes() != 123456 || fr.GetDeregistered() != 49 {
+		t.Errorf("fleet report mismapped: %+v", fr)
+	}
+}
+
+// A ${VAR} in a client-submitted fleet YAML must NOT be expanded against the
+// server's environment — that would leak the server's variables back to the
+// client via the run error. The reference is left literal.
+func TestRunServiceFleetDoesNotExpandServerEnv(t *testing.T) {
+	t.Setenv("ORBIT_TEST_SECRET", "super-secret-value")
+	c, _ := newRunRPCClient(t)
+
+	spec := fleetSpec()
+	// Point the AMF at the secret via an env ref. If the server expanded it,
+	// the dial error would contain the secret.
+	spec.ScenarioYaml = strings.Replace(spec.ScenarioYaml, "amf: 127.0.0.1:1", "amf: ${ORBIT_TEST_SECRET}", 1)
+
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: spec},
+	}))
+	if err != nil {
+		// A literal "${ORBIT_TEST_SECRET}" is an invalid AMF address, so it may
+		// fail validation synchronously — also acceptable, and secret-free.
+		if strings.Contains(err.Error(), "super-secret-value") {
+			t.Fatal("server env secret leaked into the StartRun error")
+		}
+		return
+	}
+
+	final := waitRunState(t, c, resp.Msg.GetRun().GetRunId(), orbitv1.RunState_RUN_STATE_FAILED)
+	if strings.Contains(final.GetError(), "super-secret-value") {
+		t.Errorf("server env secret leaked into the run error: %q", final.GetError())
+	}
+	if !strings.Contains(final.GetError(), "ORBIT_TEST_SECRET") {
+		t.Errorf("expected the literal ${ORBIT_TEST_SECRET} in the error, got %q", final.GetError())
 	}
 }
