@@ -5,7 +5,9 @@ const UNITS_BPS = ["bps", "kbps", "Mbps", "Gbps", "Tbps"] as const;
 /** Bits per second in SI steps, e.g. 1_500_000 → "1.50 Mbps". */
 export function bps(v: number): { value: string; unit: string } {
   if (!Number.isFinite(v) || v <= 0) return { value: "0", unit: "bps" };
-  const i = Math.min(UNITS_BPS.length - 1, Math.floor(Math.log10(v) / 3));
+  // Clamp to [0, last]: a sub-1 value (e.g. a fractional axis tick when all
+  // data is zero) would otherwise index below "bps" and read "undefined".
+  const i = Math.max(0, Math.min(UNITS_BPS.length - 1, Math.floor(Math.log10(v) / 3)));
   const scaled = v / 1000 ** i;
   return {
     value: scaled.toFixed(scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2),
