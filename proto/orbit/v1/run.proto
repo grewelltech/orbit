@@ -12,9 +12,9 @@ option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
 // run in its own process. A run has a server-assigned identity, outlives the
 // client that started it, and is stopped only by an explicit StopRun.
 //
-// This is the unary slice of the surface (build order step 3): identity,
-// listing, history, and the end-of-run report. The live telemetry and event
-// streams (ADR-0006) arrive in later steps.
+// The surface grows per build-order step: identity, listing, history, and the
+// end-of-run report (unary), plus RunTelemetry (live aggregate snapshots). The
+// per-run event stream (ADR-0006) arrives in a later step.
 service RunService {
   // StartRun launches a run and returns its identity immediately. The run
   // executes asynchronously; poll GetRun or fetch GetRunReport when done.
@@ -29,6 +29,13 @@ service RunService {
   // GetRunReport returns the authoritative end-of-run report. Available only
   // once the run has completed.
   rpc GetRunReport(GetRunReportRequest) returns (GetRunReportResponse) {}
+
+  // RunTelemetry streams periodic, self-contained aggregate snapshots of a run
+  // in flight (ADR-0006). Each frame is complete — never a delta — so a dropped
+  // frame costs one sample and never accumulates into a wrong picture; the
+  // stream may therefore be sampled without lying. The stream ends with a final
+  // frame once the run reaches a terminal state.
+  rpc RunTelemetry(RunTelemetryRequest) returns (stream TelemetryFrame) {}
 }
 
 // RunKind is what a run does. Only LOAD is executable in this slice; the others
@@ -159,6 +166,34 @@ message GetRunResponse {
   Run run = 1;
   // Populated for a LOAD run; empty for other kinds or before any attempt.
   LoadProgress load_progress = 2;
+}
+
+message RunTelemetryRequest {
+  string run_id = 1;
+  // Requested cadence. The server clamps it to a supported range and reports
+  // the interval it actually applied in each frame.
+  uint32 interval_ms = 2;
+}
+
+// TelemetryFrame is a complete snapshot of a run's aggregate state at an
+// instant — never a delta. Its size is independent of UE count: aggregates
+// only, no per-UE rows (per-UE detail is pulled via the UE service).
+message TelemetryFrame {
+  string run_id = 1;
+  int64 unix_nano = 2;
+  // The cadence the server applied, which may differ from the requested one.
+  uint32 interval_ms = 3;
+  // Monotonic within the stream, so a client can detect (not recover) a
+  // dropped frame.
+  uint64 frame_seq = 4;
+  RunState state = 5;
+  int64 elapsed_ms = 6;
+  // Aggregate progress, by kind. Empty for a kind without live aggregates yet
+  // (fleet aggregates arrive when run UEs join the shared engine, build order
+  // step 4b).
+  oneof progress {
+    LoadProgress load = 7;
+  }
 }
 
 message GetRunReportRequest {
