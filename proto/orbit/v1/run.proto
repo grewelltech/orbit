@@ -90,10 +90,21 @@ message LoadRunSpec {
   string gnb_n3_addr = 14;        // gNB N3 for the data path (with pdu_session)
 }
 
+// FleetRunSpec launches a population run (topology + attach + continuous
+// mobility + traffic) from a fleet scenario. The scenario travels as its YAML
+// so the RPC reuses the existing, proven fleet schema rather than re-modelling
+// it; credentials travel separately because the server owns execution and
+// cannot expand the YAML's ${ENV} against the client's secrets.
+message FleetRunSpec {
+  string scenario_yaml = 1;       // a `kind: fleet` scenario document
+  Credentials credentials = 2;
+}
+
 message StartRunRequest {
   string name = 1;                // optional label; server names it if empty
   oneof spec {
     LoadRunSpec load = 2;
+    FleetRunSpec fleet = 3;
   }
 }
 
@@ -173,9 +184,22 @@ message ResourceSample {
   uint64 rss_bytes = 3;
 }
 
+// FleetReport is the end-of-run result of a fleet run.
+message FleetReport {
+  uint32 attached = 1;
+  uint32 attach_failed = 2;
+  int64 attach_elapsed_ms = 3;
+  uint32 handovers = 4;
+  uint32 handover_errors = 5;
+  uint32 traffic_flows = 6;
+  uint64 traffic_bytes = 7;
+  uint32 deregistered = 8;
+}
+
 message GetRunReportResponse {
   Run run = 1;
   oneof report {
     LoadReport load = 2;
+    FleetReport fleet = 3;
   }
 }
