@@ -3,8 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -13,7 +16,42 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/ue/auth"
 )
+
+// resolveCreds returns validated Ki/OPc, falling back to $ORBIT_KI/$ORBIT_OPC,
+// so every run-starting subcommand acquires and validates credentials the same
+// way — and fails locally with a clear message rather than sending empty or
+// malformed keys the server rejects opaquely.
+func resolveCreds(ki, opc string) (string, string, error) {
+	if ki == "" {
+		ki = os.Getenv("ORBIT_KI")
+	}
+	if opc == "" {
+		opc = os.Getenv("ORBIT_OPC")
+	}
+	if ki == "" || opc == "" {
+		return "", "", fmt.Errorf("Ki and OPc are required (--ki/--opc or $ORBIT_KI/$ORBIT_OPC)")
+	}
+	if _, err := auth.ParseHexKey("Ki", ki); err != nil {
+		return "", "", err
+	}
+	if _, err := auth.ParseHexKey("OPc", opc); err != nil {
+		return "", "", err
+	}
+	return ki, opc, nil
+}
+
+// msDuration converts a duration to milliseconds for a uint32 proto field,
+// rejecting values that would overflow (~49.7 days) rather than wrapping to a
+// tiny soak that ends immediately.
+func msDuration(name string, d time.Duration) (uint32, error) {
+	ms := d.Milliseconds()
+	if ms < 0 || ms > math.MaxUint32 {
+		return 0, fmt.Errorf("%s %s is out of range (max ~49 days)", name, d)
+	}
+	return uint32(ms), nil
+}
 
 // runsClient builds a RunService client against the API server.
 func runsClient(url *string) orbitv1connect.RunServiceClient {
@@ -124,6 +162,7 @@ func newRunsWatchCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer stream.Close()
 			out := cmd.OutOrStdout()
 			for stream.Receive() {
 				f := stream.Msg()
@@ -161,8 +200,8 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 		count, gnbCount                        int
 		gnbID, gnbBits, tac, sst               uint32
 		rate                                   float64
-		rampStart, rampEnd                     float64
-		rampSeconds, concurrency               uint32
+		ramp                                   string
+		concurrency                            uint32
 		duration, sampleInterval               time.Duration
 		withPDU                                bool
 	)
@@ -170,6 +209,18 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 		Use:   "start-load",
 		Short: "Start a rate-controlled attach storm on the server",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ki, opc, err := resolveCreds(ki, opc)
+			if err != nil {
+				return err
+			}
+			durMs, err := msDuration("--duration", duration)
+			if err != nil {
+				return err
+			}
+			sampleMs, err := msDuration("--sample-interval", sampleInterval)
+			if err != nil {
+				return err
+			}
 			var gnbs []*orbitv1.GnbConfig
 			if gnbCount < 1 {
 				gnbCount = 1
@@ -184,9 +235,16 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 			spec := &orbitv1.LoadRunSpec{
 				AmfAddress: amf, Gnbs: gnbs, BaseImsi: baseIMSI, Count: uint32(count),
 				Credentials: &orbitv1.Credentials{Ki: ki, Opc: opc},
-				Rate:        rate, RampStart: rampStart, RampEnd: rampEnd, RampSeconds: rampSeconds,
-				Concurrency: concurrency,
-				DurationMs:  uint32(duration.Milliseconds()), SampleIntervalMs: uint32(sampleInterval.Milliseconds()),
+				Rate:        rate, Concurrency: concurrency,
+				DurationMs: durMs, SampleIntervalMs: sampleMs,
+			}
+			// Same ramp syntax as `orbit load`: start:end:seconds.
+			if ramp != "" {
+				start, end, secs, err := parseRampSpec(ramp)
+				if err != nil {
+					return err
+				}
+				spec.RampStart, spec.RampEnd, spec.RampSeconds = start, end, uint32(secs)
 			}
 			if withPDU {
 				spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: sst, Sd: sd, Dnn: dnn}
@@ -208,15 +266,13 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
 	f.StringVar(&baseIMSI, "base-imsi", "", "first SUPI/IMSI; each UE increments it")
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
-	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex)")
-	f.StringVar(&opc, "opc", "", "operator key OPc (32 hex)")
+	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex; default $ORBIT_KI)")
+	f.StringVar(&opc, "opc", "", "operator key OPc (32 hex; default $ORBIT_OPC)")
 	f.StringVar(&mcc, "mcc", "", "MCC")
 	f.StringVar(&mnc, "mnc", "", "MNC")
 	f.Uint32Var(&concurrency, "concurrency", 64, "max attaches in flight")
 	f.Float64Var(&rate, "rate", 0, "offered attach rate (attaches/sec; 0 = concurrency-bound)")
-	f.Float64Var(&rampStart, "ramp-start", 0, "linear ramp start rate")
-	f.Float64Var(&rampEnd, "ramp-end", 0, "linear ramp end rate")
-	f.Uint32Var(&rampSeconds, "ramp-seconds", 0, "linear ramp duration (seconds)")
+	f.StringVar(&ramp, "ramp", "", "linear ramp start:end:seconds (overrides --rate)")
 	f.IntVar(&gnbCount, "gnb-count", 1, "number of gNBs to mux UEs across")
 	f.Uint32Var(&gnbID, "gnb-id", 1, "base gNB ID")
 	f.Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB ID bit length")
@@ -229,7 +285,8 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address (with --pdu-session)")
 	f.DurationVar(&duration, "duration", 0, "soak: run for this long instead of --count")
 	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence")
-	for _, r := range []string{"amf", "base-imsi", "ki", "opc", "mcc", "mnc"} {
+	// Ki/OPc are not marked required: they may come from the environment.
+	for _, r := range []string{"amf", "base-imsi", "mcc", "mnc"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
 	return cmd
@@ -246,13 +303,12 @@ func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Credentials come from flags (or ORBIT_KI/ORBIT_OPC), never the
-			// scenario's ${ENV} — the server does not expand it (secret safety).
-			if ki == "" {
-				ki = os.Getenv("ORBIT_KI")
-			}
-			if opc == "" {
-				opc = os.Getenv("ORBIT_OPC")
+			// Credentials come from flags or $ORBIT_KI/$ORBIT_OPC, validated
+			// locally; never the scenario's ${ENV}, which the server does not
+			// expand (secret safety).
+			ki, opc, err := resolveCreds(ki, opc)
+			if err != nil {
+				return err
 			}
 			res, err := runsClient(serverURL).StartRun(cmd.Context(), connect.NewRequest(&orbitv1.StartRunRequest{
 				Name: name,
@@ -293,11 +349,7 @@ func runStateLabel(s orbitv1.RunState) string {
 		return "UNSPECIFIED"
 	}
 	// Strip the RUN_STATE_ prefix for readability.
-	const prefix = "RUN_STATE_"
-	if len(name) > len(prefix) {
-		return name[len(prefix):]
-	}
-	return name
+	return strings.TrimPrefix(name, "RUN_STATE_")
 }
 
 func runAge(r *orbitv1.Run) string {
@@ -312,7 +364,7 @@ func runAge(r *orbitv1.Run) string {
 	return end.Sub(start).Round(time.Second).String()
 }
 
-func printProcedureLatency(out interface{ Write([]byte) (int, error) }, lats []*orbitv1.ProcedureLatency) {
+func printProcedureLatency(out io.Writer, lats []*orbitv1.ProcedureLatency) {
 	for _, l := range lats {
 		fmt.Fprintf(out, "  %-13s P50 %.1f  P99 %.1f  max %.1f ms\n",
 			l.GetProcedure(), l.GetP50Ms(), l.GetP99Ms(), l.GetMaxMs())

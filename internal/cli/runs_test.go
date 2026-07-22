@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -187,5 +188,110 @@ func TestRunsWatchTailsFrames(t *testing.T) {
 	}
 	if !strings.Contains(out, "COMPLETE") {
 		t.Errorf("watch did not print the terminal frame:\n%s", out)
+	}
+}
+
+// start-load maps the ramp, soak, and PDU-session flags — the fields most
+// likely to drift, and previously unexercised.
+func TestRunsStartLoadMapsRampSoakPDU(t *testing.T) {
+	s := &stubRunService{startRunID: "run-x"}
+	runRunsCmd(t, stubRunServer(t, s),
+		"start-load", "--amf", "10.0.0.1:38412", "--base-imsi", "208930100007500",
+		"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f",
+		"--mcc", "208", "--mnc", "93",
+		"--ramp", "5:50:30", "--duration", "5m", "--sample-interval", "10s",
+		"--pdu-session", "--dnn", "internet", "--gnb-n3", "172.17.50.12", "--sd", "010203")
+	spec := s.startReq.GetLoad()
+	if spec.GetRampStart() != 5 || spec.GetRampEnd() != 50 || spec.GetRampSeconds() != 30 {
+		t.Errorf("ramp = %v/%v/%v, want 5/50/30", spec.GetRampStart(), spec.GetRampEnd(), spec.GetRampSeconds())
+	}
+	if spec.GetDurationMs() != 300000 || spec.GetSampleIntervalMs() != 10000 {
+		t.Errorf("soak ms = %d / %d, want 300000 / 10000", spec.GetDurationMs(), spec.GetSampleIntervalMs())
+	}
+	if spec.GetPduSession() == nil || spec.GetPduSession().GetDnn() != "internet" || spec.GetGnbN3Addr() != "172.17.50.12" {
+		t.Errorf("pdu session not mapped: %+v", spec.GetPduSession())
+	}
+}
+
+// A malformed ramp is rejected locally.
+func TestRunsStartLoadRejectsBadRamp(t *testing.T) {
+	s := &stubRunService{startRunID: "run-x"}
+	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd.SetArgs([]string{"start-load", "--amf", "a:1", "--base-imsi", "1", "--ki", "00112233445566778899aabbccddeeff",
+		"--opc", "000102030405060708090a0b0c0d0e0f", "--mcc", "208", "--mnc", "93", "--ramp", "nope"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	if err := cmd.Execute(); err == nil {
+		t.Error("a malformed --ramp was accepted")
+	}
+}
+
+// Credentials fall back to the environment, consistently across start-load and
+// start-fleet; a missing key is rejected locally with a clear error.
+func TestRunsCredsFromEnv(t *testing.T) {
+	t.Setenv("ORBIT_KI", "00112233445566778899aabbccddeeff")
+	t.Setenv("ORBIT_OPC", "000102030405060708090a0b0c0d0e0f")
+	s := &stubRunService{startRunID: "run-x"}
+	runRunsCmd(t, stubRunServer(t, s),
+		"start-load", "--amf", "a:1", "--base-imsi", "1", "--mcc", "208", "--mnc", "93")
+	if s.startReq.GetLoad().GetCredentials().GetKi() == "" {
+		t.Error("Ki not taken from the environment")
+	}
+}
+
+func TestRunsRejectsMissingCreds(t *testing.T) {
+	t.Setenv("ORBIT_KI", "")
+	t.Setenv("ORBIT_OPC", "")
+	s := &stubRunService{startRunID: "run-x"}
+	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd.SetArgs([]string{"start-load", "--amf", "a:1", "--base-imsi", "1", "--mcc", "208", "--mnc", "93"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "required") {
+		t.Errorf("missing creds error = %v, want a 'required' message", err)
+	}
+	if s.startReq != nil {
+		t.Error("a run was started despite missing credentials")
+	}
+}
+
+// A malformed Ki is rejected locally, before any request.
+func TestRunsRejectsBadHexKey(t *testing.T) {
+	s := &stubRunService{startRunID: "run-x"}
+	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd.SetArgs([]string{"start-load", "--amf", "a:1", "--base-imsi", "1", "--mcc", "208", "--mnc", "93",
+		"--ki", "not-hex", "--opc", "000102030405060708090a0b0c0d0e0f"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	if err := cmd.Execute(); err == nil {
+		t.Error("a malformed Ki was accepted")
+	}
+	if s.startReq != nil {
+		t.Error("a run was started despite a bad key")
+	}
+}
+
+// watch with no run id and no active run reports a clear error, not a hang.
+func TestRunsWatchNoActiveRun(t *testing.T) {
+	s := &stubRunService{} // ListRuns returns nothing
+	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd.SetArgs([]string{"watch"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "no active run") {
+		t.Errorf("watch with no active run = %v, want a 'no active run' error", err)
+	}
+}
+
+// An overlong soak duration is rejected rather than silently wrapping the
+// uint32 milliseconds field.
+func TestMsDurationRejectsOverflow(t *testing.T) {
+	if _, err := msDuration("--duration", 60*24*time.Hour); err == nil {
+		t.Error("a 60-day duration was accepted; uint32 ms overflows at ~49 days")
+	}
+	if ms, err := msDuration("--duration", 5*time.Minute); err != nil || ms != 300000 {
+		t.Errorf("5m = %d, %v; want 300000, nil", ms, err)
 	}
 }
