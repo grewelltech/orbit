@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -18,9 +19,11 @@ import (
 // session latency. This bridges the actor-model fleet to the load engine.
 func (f *Fleet) LoadFunc(makeUE func(i int) (UEConfig, error)) load.AttachFunc {
 	return func(ctx context.Context, i int) load.Sample {
+		gnbCfg := f.gnbConfigFor(i)
+		gnbLabel := gnbAttributionLabel(gnbCfg)
 		cfg, err := makeUE(i)
 		if err != nil {
-			return load.Sample{Err: err}
+			return load.Sample{Err: err, GNB: gnbLabel}
 		}
 		sess := f.sessions[i%len(f.sessions)]
 		uet, ranID := sess.NewUE()
@@ -35,12 +38,12 @@ func (f *Fleet) LoadFunc(makeUE func(i int) (UEConfig, error)) load.AttachFunc {
 			}
 		}
 		supi := cfg.Sub.SUPI
-		res, err := Attach(ctx, uet, f.gnbConfigFor(i), cfg, f.log, emit)
+		res, err := Attach(ctx, uet, gnbCfg, cfg, f.log, emit)
 		if err != nil {
-			return load.Sample{Err: err, SUPI: supi}
+			return load.Sample{Err: err, SUPI: supi, GNB: gnbLabel}
 		}
 		if !res.Result.Registered {
-			return load.Sample{Err: fmt.Errorf("UE %s not registered", supi), SUPI: supi}
+			return load.Sample{Err: fmt.Errorf("UE %s not registered", supi), SUPI: supi, GNB: gnbLabel}
 		}
 		m := map[string]time.Duration{"attach": time.Since(start)}
 		if regDur > 0 {
@@ -49,8 +52,19 @@ func (f *Fleet) LoadFunc(makeUE func(i int) (UEConfig, error)) load.AttachFunc {
 		if res.Result.SessionActive {
 			m["pdu_session"] = time.Since(start)
 		}
-		return load.Sample{Metrics: m, SUPI: supi}
+		return load.Sample{Metrics: m, SUPI: supi, GNB: gnbLabel}
 	}
+}
+
+// gnbAttributionLabel names a gNB for per-gNB telemetry attribution. The gNB
+// Name (RANNodeName) is an optional IE, so it falls back to the required, unique
+// gNB ID when unset: a fleet of unnamed gNBs still reports a distinct bucket per
+// gNB rather than collapsing every sample under the empty string.
+func gnbAttributionLabel(cfg gnb.Config) string {
+	if cfg.Name != "" {
+		return cfg.Name
+	}
+	return fmt.Sprintf("gnb-%d", cfg.ID)
 }
 
 // LoadSpec parameterises a rate-controlled attach storm against a core.

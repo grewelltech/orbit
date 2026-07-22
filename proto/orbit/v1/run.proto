@@ -156,6 +156,17 @@ message LoadProgress {
   uint32 failed = 4;
   double achieved_rate = 5;       // succeeded per second since the run began
   repeated ProcedureLatency latency = 6;
+  // Per-gNB spread of the attach population — where UEs currently sit across
+  // the fleet's gNBs. Empty until at least one attempt has been attributed.
+  repeated GnbProgress per_gnb = 7;
+}
+
+// GnbProgress is one gNB's share of the attach population in a load run.
+message GnbProgress {
+  string gnb = 1;                 // gNB name, or "gnb-<id>" when the name is unset
+  uint32 attempted = 2;
+  uint32 succeeded = 3;
+  uint32 failed = 4;
 }
 
 // ProcedureLatency is one procedure's live percentile summary, milliseconds.

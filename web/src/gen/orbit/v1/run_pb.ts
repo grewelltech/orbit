@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/run.proto.
  */
 export const file_orbit_v1_run: GenFile = /*@__PURE__*/
-  fileDesc("ChJvcmJpdC92MS9ydW4ucHJvdG8SCG9yYml0LnYxIqoBCgNSdW4SDgoGcnVuX2lkGAEgASgJEh8KBGtpbmQYAiABKA4yES5vcmJpdC52MS5SdW5LaW5kEgwKBG5hbWUYAyABKAkSIQoFc3RhdGUYBCABKA4yEi5vcmJpdC52MS5SdW5TdGF0ZRIZChFzdGFydGVkX3VuaXhfbmFubxgFIAEoAxIXCg9lbmRlZF91bml4X25hbm8YBiABKAMSDQoFZXJyb3IYByABKAki4wIKC0xvYWRSdW5TcGVjEhMKC2FtZl9hZGRyZXNzGAEgASgJEiEKBGduYnMYAiADKAsyEy5vcmJpdC52MS5HbmJDb25maWcSEQoJYmFzZV9pbXNpGAMgASgJEg0KBWNvdW50GAQgASgNEioKC2NyZWRlbnRpYWxzGAUgASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSDAoEcmF0ZRgGIAEoARISCgpyYW1wX3N0YXJ0GAcgASgBEhAKCHJhbXBfZW5kGAggASgBEhQKDHJhbXBfc2Vjb25kcxgJIAEoDRITCgtjb25jdXJyZW5jeRgKIAEoDRITCgtkdXJhdGlvbl9tcxgLIAEoDRIaChJzYW1wbGVfaW50ZXJ2YWxfbXMYDCABKA0SKQoLcGR1X3Nlc3Npb24YDSABKAsyFC5vcmJpdC52MS5QRFVTZXNzaW9uEhMKC2duYl9uM19hZGRyGA4gASgJIlEKDEZsZWV0UnVuU3BlYxIVCg1zY2VuYXJpb195YW1sGAEgASgJEioKC2NyZWRlbnRpYWxzGAIgASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMidwoPU3RhcnRSdW5SZXF1ZXN0EgwKBG5hbWUYASABKAkSJQoEbG9hZBgCIAEoCzIVLm9yYml0LnYxLkxvYWRSdW5TcGVjSAASJwoFZmxlZXQYAyABKAsyFi5vcmJpdC52MS5GbGVldFJ1blNwZWNIAEIGCgRzcGVjIi4KEFN0YXJ0UnVuUmVzcG9uc2USGgoDcnVuGAEgASgLMg0ub3JiaXQudjEuUnVuIiAKDlN0b3BSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSItCg9TdG9wUnVuUmVzcG9uc2USGgoDcnVuGAEgASgLMg0ub3JiaXQudjEuUnVuIjIKD0xpc3RSdW5zUmVxdWVzdBIfCgRraW5kGAEgASgOMhEub3JiaXQudjEuUnVuS2luZCIvChBMaXN0UnVuc1Jlc3BvbnNlEhsKBHJ1bnMYASADKAsyDS5vcmJpdC52MS5SdW4iHwoNR2V0UnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkinAEKDExvYWRQcm9ncmVzcxISCgplbGFwc2VkX21zGAEgASgDEhEKCWF0dGVtcHRlZBgCIAEoDRIRCglzdWNjZWVkZWQYAyABKA0SDgoGZmFpbGVkGAQgASgNEhUKDWFjaGlldmVkX3JhdGUYBSABKAESKwoHbGF0ZW5jeRgGIAMoCzIaLm9yYml0LnYxLlByb2NlZHVyZUxhdGVuY3kihQEKEFByb2NlZHVyZUxhdGVuY3kSEQoJcHJvY2VkdXJlGAEgASgJEg0KBWNvdW50GAIgASgEEg4KBnA1MF9tcxgDIAEoARIOCgZwOTBfbXMYBCABKAESDgoGcDk5X21zGAUgASgBEg8KB3A5OTlfbXMYBiABKAESDgoGbWF4X21zGAcgASgBIlsKDkdldFJ1blJlc3BvbnNlEhoKA3J1bhgBIAEoCzINLm9yYml0LnYxLlJ1bhItCg1sb2FkX3Byb2dyZXNzGAIgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzIjoKE1J1blRlbGVtZXRyeVJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhMKC2ludGVydmFsX21zGAIgASgNIsYBCg5UZWxlbWV0cnlGcmFtZRIOCgZydW5faWQYASABKAkSEQoJdW5peF9uYW5vGAIgASgDEhMKC2ludGVydmFsX21zGAMgASgNEhEKCWZyYW1lX3NlcRgEIAEoBBIhCgVzdGF0ZRgFIAEoDjISLm9yYml0LnYxLlJ1blN0YXRlEhIKCmVsYXBzZWRfbXMYBiABKAMSJgoEbG9hZBgHIAEoCzIWLm9yYml0LnYxLkxvYWRQcm9ncmVzc0gAQgoKCHByb2dyZXNzIjQKEFJ1bkV2ZW50c1JlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhAKCGZyb21fc2VxGAIgASgEIpoBCghSdW5FdmVudBILCgNzZXEYASABKAQSEQoJdW5peF9uYW5vGAIgASgDEikKCHNldmVyaXR5GAMgASgOMhcub3JiaXQudjEuRXZlbnRTZXZlcml0eRIMCgRraW5kGAQgASgJEgwKBHN1cGkYBSABKAkSDwoHbWVzc2FnZRgGIAEoCRIWCg5kcm9wcGVkX2JlZm9yZRgHIAEoBCIlChNHZXRSdW5SZXBvcnRSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSLIAQoKTG9hZFJlcG9ydBIRCglhdHRlbXB0ZWQYASABKA0SEQoJc3VjY2VlZGVkGAIgASgNEg4KBmZhaWxlZBgDIAEoDRITCgtkdXJhdGlvbl9tcxgEIAEoAxIVCg1hY2hpZXZlZF9yYXRlGAUgASgBEisKB2xhdGVuY3kYBiADKAsyGi5vcmJpdC52MS5Qcm9jZWR1cmVMYXRlbmN5EisKCXJlc291cmNlcxgHIAMoCzIYLm9yYml0LnYxLlJlc291cmNlU2FtcGxlIkYKDlJlc291cmNlU2FtcGxlEg0KBWF0X21zGAEgASgDEhIKCmdvcm91dGluZXMYAiABKA0SEQoJcnNzX2J5dGVzGAMgASgEIsEBCgtGbGVldFJlcG9ydBIQCghhdHRhY2hlZBgBIAEoDRIVCg1hdHRhY2hfZmFpbGVkGAIgASgNEhkKEWF0dGFjaF9lbGFwc2VkX21zGAMgASgDEhEKCWhhbmRvdmVycxgEIAEoDRIXCg9oYW5kb3Zlcl9lcnJvcnMYBSABKA0SFQoNdHJhZmZpY19mbG93cxgGIAEoDRIVCg10cmFmZmljX2J5dGVzGAcgASgEEhQKDGRlcmVnaXN0ZXJlZBgIIAEoDSKKAQoUR2V0UnVuUmVwb3J0UmVzcG9uc2USGgoDcnVuGAEgASgLMg0ub3JiaXQudjEuUnVuEiQKBGxvYWQYAiABKAsyFC5vcmJpdC52MS5Mb2FkUmVwb3J0SAASJgoFZmxlZXQYAyABKAsyFS5vcmJpdC52MS5GbGVldFJlcG9ydEgAQggKBnJlcG9ydCp7CgdSdW5LaW5kEhgKFFJVTl9LSU5EX1VOU1BFQ0lGSUVEEAASEQoNUlVOX0tJTkRfTE9BRBABEhIKDlJVTl9LSU5EX0ZMRUVUEAISFQoRUlVOX0tJTkRfU0NFTkFSSU8QAxIYChRSVU5fS0lORF9DT05GT1JNQU5DRRAEKrIBCghSdW5TdGF0ZRIZChVSVU5fU1RBVEVfVU5TUEVDSUZJRUQQABIVChFSVU5fU1RBVEVfUEVORElORxABEhUKEVJVTl9TVEFURV9SVU5OSU5HEAISFgoSUlVOX1NUQVRFX0RSQUlOSU5HEAMSFgoSUlVOX1NUQVRFX0NPTVBMRVRFEAQSFAoQUlVOX1NUQVRFX0ZBSUxFRBAFEhcKE1JVTl9TVEFURV9DQU5DRUxMRUQQBip7Cg1FdmVudFNldmVyaXR5Eh4KGkVWRU5UX1NFVkVSSVRZX1VOU1BFQ0lGSUVEEAASFwoTRVZFTlRfU0VWRVJJVFlfSU5GTxABEhcKE0VWRU5UX1NFVkVSSVRZX1dBUk4QAhIYChRFVkVOVF9TRVZFUklUWV9FUlJPUhADMvYDCgpSdW5TZXJ2aWNlEkMKCFN0YXJ0UnVuEhkub3JiaXQudjEuU3RhcnRSdW5SZXF1ZXN0Ghoub3JiaXQudjEuU3RhcnRSdW5SZXNwb25zZSIAEkAKB1N0b3BSdW4SGC5vcmJpdC52MS5TdG9wUnVuUmVxdWVzdBoZLm9yYml0LnYxLlN0b3BSdW5SZXNwb25zZSIAEkMKCExpc3RSdW5zEhkub3JiaXQudjEuTGlzdFJ1bnNSZXF1ZXN0Ghoub3JiaXQudjEuTGlzdFJ1bnNSZXNwb25zZSIAEj0KBkdldFJ1bhIXLm9yYml0LnYxLkdldFJ1blJlcXVlc3QaGC5vcmJpdC52MS5HZXRSdW5SZXNwb25zZSIAEk8KDEdldFJ1blJlcG9ydBIdLm9yYml0LnYxLkdldFJ1blJlcG9ydFJlcXVlc3QaHi5vcmJpdC52MS5HZXRSdW5SZXBvcnRSZXNwb25zZSIAEksKDFJ1blRlbGVtZXRyeRIdLm9yYml0LnYxLlJ1blRlbGVtZXRyeVJlcXVlc3QaGC5vcmJpdC52MS5UZWxlbWV0cnlGcmFtZSIAMAESPwoJUnVuRXZlbnRzEhoub3JiaXQudjEuUnVuRXZlbnRzUmVxdWVzdBoSLm9yYml0LnYxLlJ1bkV2ZW50IgAwAUIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM", [file_orbit_v1_cell, file_orbit_v1_ue]);
+  fileDesc("ChJvcmJpdC92MS9ydW4ucHJvdG8SCG9yYml0LnYxIqoBCgNSdW4SDgoGcnVuX2lkGAEgASgJEh8KBGtpbmQYAiABKA4yES5vcmJpdC52MS5SdW5LaW5kEgwKBG5hbWUYAyABKAkSIQoFc3RhdGUYBCABKA4yEi5vcmJpdC52MS5SdW5TdGF0ZRIZChFzdGFydGVkX3VuaXhfbmFubxgFIAEoAxIXCg9lbmRlZF91bml4X25hbm8YBiABKAMSDQoFZXJyb3IYByABKAki4wIKC0xvYWRSdW5TcGVjEhMKC2FtZl9hZGRyZXNzGAEgASgJEiEKBGduYnMYAiADKAsyEy5vcmJpdC52MS5HbmJDb25maWcSEQoJYmFzZV9pbXNpGAMgASgJEg0KBWNvdW50GAQgASgNEioKC2NyZWRlbnRpYWxzGAUgASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSDAoEcmF0ZRgGIAEoARISCgpyYW1wX3N0YXJ0GAcgASgBEhAKCHJhbXBfZW5kGAggASgBEhQKDHJhbXBfc2Vjb25kcxgJIAEoDRITCgtjb25jdXJyZW5jeRgKIAEoDRITCgtkdXJhdGlvbl9tcxgLIAEoDRIaChJzYW1wbGVfaW50ZXJ2YWxfbXMYDCABKA0SKQoLcGR1X3Nlc3Npb24YDSABKAsyFC5vcmJpdC52MS5QRFVTZXNzaW9uEhMKC2duYl9uM19hZGRyGA4gASgJIlEKDEZsZWV0UnVuU3BlYxIVCg1zY2VuYXJpb195YW1sGAEgASgJEioKC2NyZWRlbnRpYWxzGAIgASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMidwoPU3RhcnRSdW5SZXF1ZXN0EgwKBG5hbWUYASABKAkSJQoEbG9hZBgCIAEoCzIVLm9yYml0LnYxLkxvYWRSdW5TcGVjSAASJwoFZmxlZXQYAyABKAsyFi5vcmJpdC52MS5GbGVldFJ1blNwZWNIAEIGCgRzcGVjIi4KEFN0YXJ0UnVuUmVzcG9uc2USGgoDcnVuGAEgASgLMg0ub3JiaXQudjEuUnVuIiAKDlN0b3BSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSItCg9TdG9wUnVuUmVzcG9uc2USGgoDcnVuGAEgASgLMg0ub3JiaXQudjEuUnVuIjIKD0xpc3RSdW5zUmVxdWVzdBIfCgRraW5kGAEgASgOMhEub3JiaXQudjEuUnVuS2luZCIvChBMaXN0UnVuc1Jlc3BvbnNlEhsKBHJ1bnMYASADKAsyDS5vcmJpdC52MS5SdW4iHwoNR2V0UnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkixAEKDExvYWRQcm9ncmVzcxISCgplbGFwc2VkX21zGAEgASgDEhEKCWF0dGVtcHRlZBgCIAEoDRIRCglzdWNjZWVkZWQYAyABKA0SDgoGZmFpbGVkGAQgASgNEhUKDWFjaGlldmVkX3JhdGUYBSABKAESKwoHbGF0ZW5jeRgGIAMoCzIaLm9yYml0LnYxLlByb2NlZHVyZUxhdGVuY3kSJgoHcGVyX2duYhgHIAMoCzIVLm9yYml0LnYxLkduYlByb2dyZXNzIlAKC0duYlByb2dyZXNzEgsKA2duYhgBIAEoCRIRCglhdHRlbXB0ZWQYAiABKA0SEQoJc3VjY2VlZGVkGAMgASgNEg4KBmZhaWxlZBgEIAEoDSKFAQoQUHJvY2VkdXJlTGF0ZW5jeRIRCglwcm9jZWR1cmUYASABKAkSDQoFY291bnQYAiABKAQSDgoGcDUwX21zGAMgASgBEg4KBnA5MF9tcxgEIAEoARIOCgZwOTlfbXMYBSABKAESDwoHcDk5OV9tcxgGIAEoARIOCgZtYXhfbXMYByABKAEiWwoOR2V0UnVuUmVzcG9uc2USGgoDcnVuGAEgASgLMg0ub3JiaXQudjEuUnVuEi0KDWxvYWRfcHJvZ3Jlc3MYAiABKAsyFi5vcmJpdC52MS5Mb2FkUHJvZ3Jlc3MiOgoTUnVuVGVsZW1ldHJ5UmVxdWVzdBIOCgZydW5faWQYASABKAkSEwoLaW50ZXJ2YWxfbXMYAiABKA0ixgEKDlRlbGVtZXRyeUZyYW1lEg4KBnJ1bl9pZBgBIAEoCRIRCgl1bml4X25hbm8YAiABKAMSEwoLaW50ZXJ2YWxfbXMYAyABKA0SEQoJZnJhbWVfc2VxGAQgASgEEiEKBXN0YXRlGAUgASgOMhIub3JiaXQudjEuUnVuU3RhdGUSEgoKZWxhcHNlZF9tcxgGIAEoAxImCgRsb2FkGAcgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzSABCCgoIcHJvZ3Jlc3MiNAoQUnVuRXZlbnRzUmVxdWVzdBIOCgZydW5faWQYASABKAkSEAoIZnJvbV9zZXEYAiABKAQimgEKCFJ1bkV2ZW50EgsKA3NlcRgBIAEoBBIRCgl1bml4X25hbm8YAiABKAMSKQoIc2V2ZXJpdHkYAyABKA4yFy5vcmJpdC52MS5FdmVudFNldmVyaXR5EgwKBGtpbmQYBCABKAkSDAoEc3VwaRgFIAEoCRIPCgdtZXNzYWdlGAYgASgJEhYKDmRyb3BwZWRfYmVmb3JlGAcgASgEIiUKE0dldFJ1blJlcG9ydFJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIsgBCgpMb2FkUmVwb3J0EhEKCWF0dGVtcHRlZBgBIAEoDRIRCglzdWNjZWVkZWQYAiABKA0SDgoGZmFpbGVkGAMgASgNEhMKC2R1cmF0aW9uX21zGAQgASgDEhUKDWFjaGlldmVkX3JhdGUYBSABKAESKwoHbGF0ZW5jeRgGIAMoCzIaLm9yYml0LnYxLlByb2NlZHVyZUxhdGVuY3kSKwoJcmVzb3VyY2VzGAcgAygLMhgub3JiaXQudjEuUmVzb3VyY2VTYW1wbGUiRgoOUmVzb3VyY2VTYW1wbGUSDQoFYXRfbXMYASABKAMSEgoKZ29yb3V0aW5lcxgCIAEoDRIRCglyc3NfYnl0ZXMYAyABKAQiwQEKC0ZsZWV0UmVwb3J0EhAKCGF0dGFjaGVkGAEgASgNEhUKDWF0dGFjaF9mYWlsZWQYAiABKA0SGQoRYXR0YWNoX2VsYXBzZWRfbXMYAyABKAMSEQoJaGFuZG92ZXJzGAQgASgNEhcKD2hhbmRvdmVyX2Vycm9ycxgFIAEoDRIVCg10cmFmZmljX2Zsb3dzGAYgASgNEhUKDXRyYWZmaWNfYnl0ZXMYByABKAQSFAoMZGVyZWdpc3RlcmVkGAggASgNIooBChRHZXRSdW5SZXBvcnRSZXNwb25zZRIaCgNydW4YASABKAsyDS5vcmJpdC52MS5SdW4SJAoEbG9hZBgCIAEoCzIULm9yYml0LnYxLkxvYWRSZXBvcnRIABImCgVmbGVldBgDIAEoCzIVLm9yYml0LnYxLkZsZWV0UmVwb3J0SABCCAoGcmVwb3J0KnsKB1J1bktpbmQSGAoUUlVOX0tJTkRfVU5TUEVDSUZJRUQQABIRCg1SVU5fS0lORF9MT0FEEAESEgoOUlVOX0tJTkRfRkxFRVQQAhIVChFSVU5fS0lORF9TQ0VOQVJJTxADEhgKFFJVTl9LSU5EX0NPTkZPUk1BTkNFEAQqsgEKCFJ1blN0YXRlEhkKFVJVTl9TVEFURV9VTlNQRUNJRklFRBAAEhUKEVJVTl9TVEFURV9QRU5ESU5HEAESFQoRUlVOX1NUQVRFX1JVTk5JTkcQAhIWChJSVU5fU1RBVEVfRFJBSU5JTkcQAxIWChJSVU5fU1RBVEVfQ09NUExFVEUQBBIUChBSVU5fU1RBVEVfRkFJTEVEEAUSFwoTUlVOX1NUQVRFX0NBTkNFTExFRBAGKnsKDUV2ZW50U2V2ZXJpdHkSHgoaRVZFTlRfU0VWRVJJVFlfVU5TUEVDSUZJRUQQABIXChNFVkVOVF9TRVZFUklUWV9JTkZPEAESFwoTRVZFTlRfU0VWRVJJVFlfV0FSThACEhgKFEVWRU5UX1NFVkVSSVRZX0VSUk9SEAMy9gMKClJ1blNlcnZpY2USQwoIU3RhcnRSdW4SGS5vcmJpdC52MS5TdGFydFJ1blJlcXVlc3QaGi5vcmJpdC52MS5TdGFydFJ1blJlc3BvbnNlIgASQAoHU3RvcFJ1bhIYLm9yYml0LnYxLlN0b3BSdW5SZXF1ZXN0Ghkub3JiaXQudjEuU3RvcFJ1blJlc3BvbnNlIgASQwoITGlzdFJ1bnMSGS5vcmJpdC52MS5MaXN0UnVuc1JlcXVlc3QaGi5vcmJpdC52MS5MaXN0UnVuc1Jlc3BvbnNlIgASPQoGR2V0UnVuEhcub3JiaXQudjEuR2V0UnVuUmVxdWVzdBoYLm9yYml0LnYxLkdldFJ1blJlc3BvbnNlIgASTwoMR2V0UnVuUmVwb3J0Eh0ub3JiaXQudjEuR2V0UnVuUmVwb3J0UmVxdWVzdBoeLm9yYml0LnYxLkdldFJ1blJlcG9ydFJlc3BvbnNlIgASSwoMUnVuVGVsZW1ldHJ5Eh0ub3JiaXQudjEuUnVuVGVsZW1ldHJ5UmVxdWVzdBoYLm9yYml0LnYxLlRlbGVtZXRyeUZyYW1lIgAwARI/CglSdW5FdmVudHMSGi5vcmJpdC52MS5SdW5FdmVudHNSZXF1ZXN0GhIub3JiaXQudjEuUnVuRXZlbnQiADABQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_cell, file_orbit_v1_ue]);
 
 /**
  * Run is a run's identity and lifecycle.
@@ -389,6 +389,14 @@ export type LoadProgress = Message<"orbit.v1.LoadProgress"> & {
    * @generated from field: repeated orbit.v1.ProcedureLatency latency = 6;
    */
   latency: ProcedureLatency[];
+
+  /**
+   * Per-gNB spread of the attach population — where UEs currently sit across
+   * the fleet's gNBs. Empty until at least one attempt has been attributed.
+   *
+   * @generated from field: repeated orbit.v1.GnbProgress per_gnb = 7;
+   */
+  perGnb: GnbProgress[];
 };
 
 /**
@@ -397,6 +405,42 @@ export type LoadProgress = Message<"orbit.v1.LoadProgress"> & {
  */
 export const LoadProgressSchema: GenMessage<LoadProgress> = /*@__PURE__*/
   messageDesc(file_orbit_v1_run, 10);
+
+/**
+ * GnbProgress is one gNB's share of the attach population in a load run.
+ *
+ * @generated from message orbit.v1.GnbProgress
+ */
+export type GnbProgress = Message<"orbit.v1.GnbProgress"> & {
+  /**
+   * gNB name, or "gnb-<id>" when the name is unset
+   *
+   * @generated from field: string gnb = 1;
+   */
+  gnb: string;
+
+  /**
+   * @generated from field: uint32 attempted = 2;
+   */
+  attempted: number;
+
+  /**
+   * @generated from field: uint32 succeeded = 3;
+   */
+  succeeded: number;
+
+  /**
+   * @generated from field: uint32 failed = 4;
+   */
+  failed: number;
+};
+
+/**
+ * Describes the message orbit.v1.GnbProgress.
+ * Use `create(GnbProgressSchema)` to create a new message.
+ */
+export const GnbProgressSchema: GenMessage<GnbProgress> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_run, 11);
 
 /**
  * ProcedureLatency is one procedure's live percentile summary, milliseconds.
@@ -447,7 +491,7 @@ export type ProcedureLatency = Message<"orbit.v1.ProcedureLatency"> & {
  * Use `create(ProcedureLatencySchema)` to create a new message.
  */
 export const ProcedureLatencySchema: GenMessage<ProcedureLatency> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 11);
+  messageDesc(file_orbit_v1_run, 12);
 
 /**
  * @generated from message orbit.v1.GetRunResponse
@@ -471,7 +515,7 @@ export type GetRunResponse = Message<"orbit.v1.GetRunResponse"> & {
  * Use `create(GetRunResponseSchema)` to create a new message.
  */
 export const GetRunResponseSchema: GenMessage<GetRunResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 12);
+  messageDesc(file_orbit_v1_run, 13);
 
 /**
  * @generated from message orbit.v1.RunTelemetryRequest
@@ -496,7 +540,7 @@ export type RunTelemetryRequest = Message<"orbit.v1.RunTelemetryRequest"> & {
  * Use `create(RunTelemetryRequestSchema)` to create a new message.
  */
 export const RunTelemetryRequestSchema: GenMessage<RunTelemetryRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 13);
+  messageDesc(file_orbit_v1_run, 14);
 
 /**
  * TelemetryFrame is a complete snapshot of a run's aggregate state at an
@@ -562,7 +606,7 @@ export type TelemetryFrame = Message<"orbit.v1.TelemetryFrame"> & {
  * Use `create(TelemetryFrameSchema)` to create a new message.
  */
 export const TelemetryFrameSchema: GenMessage<TelemetryFrame> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 14);
+  messageDesc(file_orbit_v1_run, 15);
 
 /**
  * @generated from message orbit.v1.RunEventsRequest
@@ -587,7 +631,7 @@ export type RunEventsRequest = Message<"orbit.v1.RunEventsRequest"> & {
  * Use `create(RunEventsRequestSchema)` to create a new message.
  */
 export const RunEventsRequestSchema: GenMessage<RunEventsRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 15);
+  messageDesc(file_orbit_v1_run, 16);
 
 /**
  * RunEvent is one discrete occurrence during a run.
@@ -645,7 +689,7 @@ export type RunEvent = Message<"orbit.v1.RunEvent"> & {
  * Use `create(RunEventSchema)` to create a new message.
  */
 export const RunEventSchema: GenMessage<RunEvent> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 16);
+  messageDesc(file_orbit_v1_run, 17);
 
 /**
  * @generated from message orbit.v1.GetRunReportRequest
@@ -662,7 +706,7 @@ export type GetRunReportRequest = Message<"orbit.v1.GetRunReportRequest"> & {
  * Use `create(GetRunReportRequestSchema)` to create a new message.
  */
 export const GetRunReportRequestSchema: GenMessage<GetRunReportRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 17);
+  messageDesc(file_orbit_v1_run, 18);
 
 /**
  * LoadReport is the authoritative end-of-run result. Unlike LoadProgress it is
@@ -712,7 +756,7 @@ export type LoadReport = Message<"orbit.v1.LoadReport"> & {
  * Use `create(LoadReportSchema)` to create a new message.
  */
 export const LoadReportSchema: GenMessage<LoadReport> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 18);
+  messageDesc(file_orbit_v1_run, 19);
 
 /**
  * ResourceSample is a point-in-time process reading during a soak.
@@ -741,7 +785,7 @@ export type ResourceSample = Message<"orbit.v1.ResourceSample"> & {
  * Use `create(ResourceSampleSchema)` to create a new message.
  */
 export const ResourceSampleSchema: GenMessage<ResourceSample> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 19);
+  messageDesc(file_orbit_v1_run, 20);
 
 /**
  * FleetReport is the end-of-run result of a fleet run.
@@ -795,7 +839,7 @@ export type FleetReport = Message<"orbit.v1.FleetReport"> & {
  * Use `create(FleetReportSchema)` to create a new message.
  */
 export const FleetReportSchema: GenMessage<FleetReport> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 20);
+  messageDesc(file_orbit_v1_run, 21);
 
 /**
  * @generated from message orbit.v1.GetRunReportResponse
@@ -829,7 +873,7 @@ export type GetRunReportResponse = Message<"orbit.v1.GetRunReportResponse"> & {
  * Use `create(GetRunReportResponseSchema)` to create a new message.
  */
 export const GetRunReportResponseSchema: GenMessage<GetRunReportResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 21);
+  messageDesc(file_orbit_v1_run, 22);
 
 /**
  * RunKind is what a run does. Only LOAD is executable in this slice; the others

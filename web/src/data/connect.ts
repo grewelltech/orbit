@@ -260,7 +260,8 @@ export class ConnectSource implements TelemetrySource {
       throughput: { uplinkBps: 0, downlinkBps: 0, uplinkPps: 0, downlinkPps: 0 },
       cpLatency: cp,
       upLatency: null,
-      perGnb: {},
+      // Where the population sits: attached (succeeded) UEs per gNB.
+      perGnb: lp ? Object.fromEntries(lp.perGnb.map((g) => [g.gnb, g.succeeded])) : {},
     };
   }
 }
