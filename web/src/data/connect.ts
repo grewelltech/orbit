@@ -50,6 +50,10 @@ export class ConnectSource implements TelemetrySource {
   private conn: SourceState = "disconnected";
   private prev: PbFrame | null = null;
   private started = false;
+  // Monotonic across the source's life. RunEvent.seq restarts at 0 per run, so
+  // using it as the dashboard event id would collide across runs and duplicate
+  // React keys in the event log; this counter never resets.
+  private nextEventId = 0;
   // The last terminal run already streamed to completion. Prevents re-streaming
   // a finished run every poll when no live run exists — the dashboard shows its
   // final frame once, then waits for a new or active run.
@@ -159,8 +163,26 @@ export class ConnectSource implements TelemetrySource {
   private async streamRun(runId: string, signal: AbortSignal): Promise<void> {
     this.setConn("live");
     // Aggregates and events stream concurrently; both end when the run is
-    // terminal. If either fails, the loop above backs off and re-selects.
-    await Promise.all([this.streamTelemetry(runId, signal), this.streamEvents(runId, signal)]);
+    // terminal. If either fails, abort the sibling so it does not keep running
+    // (and get re-streamed as a duplicate) while the loop backs off and
+    // re-selects.
+    const child = new AbortController();
+    const relay = () => child.abort();
+    signal.addEventListener("abort", relay, { once: true });
+    try {
+      await Promise.all([
+        this.streamTelemetry(runId, child.signal).catch((e) => {
+          child.abort();
+          throw e;
+        }),
+        this.streamEvents(runId, child.signal).catch((e) => {
+          child.abort();
+          throw e;
+        }),
+      ]);
+    } finally {
+      signal.removeEventListener("abort", relay);
+    }
   }
 
   private async streamTelemetry(runId: string, signal: AbortSignal): Promise<void> {
@@ -173,8 +195,21 @@ export class ConnectSource implements TelemetrySource {
 
   private async streamEvents(runId: string, signal: AbortSignal): Promise<void> {
     for await (const ev of this.client.runEvents({ runId, fromSeq: 0n }, { signal })) {
-      this.events.emit(mapEvent(ev));
+      this.events.emit(this.mapEvent(ev));
     }
+  }
+
+  /** Maps a wire RunEvent onto the dashboard's event model, assigning a
+   * source-unique id (seq restarts per run and would collide). */
+  private mapEvent(ev: PbEvent): TestEvent {
+    return {
+      id: this.nextEventId++,
+      t: Number(ev.unixNano / 1_000_000n),
+      severity: severityName(ev.severity),
+      kind: ev.kind,
+      supi: ev.supi || undefined,
+      message: ev.message,
+    };
   }
 
   /** Maps a wire frame onto the dashboard model, or null if it has no progress. */
@@ -237,18 +272,6 @@ function attachLatency(lp: LoadProgress | null): LatencySummary {
   const l = lp.latency.find((x) => x.procedure === "attach") ?? lp.latency.find((x) => x.procedure === "registration") ?? lp.latency[0];
   if (!l) return empty;
   return { p50: l.p50Ms, p90: l.p90Ms, p99: l.p99Ms, max: l.maxMs };
-}
-
-/** Maps a wire RunEvent onto the dashboard's event model. */
-function mapEvent(ev: PbEvent): TestEvent {
-  return {
-    id: Number(ev.seq),
-    t: Number(ev.unixNano / 1_000_000n),
-    severity: severityName(ev.severity),
-    kind: ev.kind,
-    supi: ev.supi || undefined,
-    message: ev.message,
-  };
 }
 
 function severityName(s: PbSeverity): EventSeverity {

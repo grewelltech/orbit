@@ -24,16 +24,16 @@ type RunEventFunc func(severity, kind, supi, message string)
 
 // eventRing is a per-run bounded, sequenced event log with live fan-out.
 //
-// Retention is bounded regardless of run length; the oldest events are evicted
-// and counted, so a late or slow subscriber is told how many it missed rather
-// than silently under-reporting. Publish never blocks: a full subscriber
-// channel drops, which the seq/dropped accounting then makes visible.
+// Retention is bounded regardless of run length; a late or slow subscriber is
+// told how many events before its resume point were evicted (DroppedBefore),
+// so loss is detectable rather than silent. Publish never blocks: a full
+// subscriber channel drops the live copy, but the event stays in the ring and
+// a terminal-time reconciliation (see the server handler) recovers it.
 type eventRing struct {
 	mu      sync.Mutex
 	buf     []RunEvent // retained, oldest-first
 	cap     int
 	nextSeq uint64
-	dropped uint64 // evicted from the front, never delivered to a late subscriber
 	subs    map[int]chan RunEvent
 	nextSub int
 }
@@ -47,8 +47,14 @@ func newEventRing(capacity int) *eventRing {
 
 // emit assigns the next seq, retains the event (evicting the oldest when full),
 // and fans it out live. Safe for concurrent callers.
+//
+// The fan-out happens under the lock: the sends are non-blocking (a full
+// channel drops), so the lock is never held on a blocking operation, and
+// serializing against subscribe/cancel means a send can never race a close —
+// a subscriber removed from the map before emit runs is simply not sent to.
 func (r *eventRing) emit(severity, kind, supi, message string) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	ev := RunEvent{
 		Seq: r.nextSeq, Time: time.Now(),
 		Severity: severity, Kind: kind, SUPI: supi, Message: message,
@@ -60,20 +66,28 @@ func (r *eventRing) emit(severity, kind, supi, message string) {
 		// grow unbounded across a long run.
 		copy(r.buf, r.buf[1:])
 		r.buf = r.buf[:r.cap]
-		r.dropped++
 	}
-	subs := make([]chan RunEvent, 0, len(r.subs))
 	for _, ch := range r.subs {
-		subs = append(subs, ch)
-	}
-	r.mu.Unlock()
-
-	for _, ch := range subs {
 		select {
 		case ch <- ev:
-		default: // slow subscriber; it will observe the gap via seq
+		default: // slow subscriber; recovered at terminal from the retained ring
 		}
 	}
+}
+
+// snapshotSince returns retained events with Seq >= fromSeq, oldest-first. Used
+// to recover events a slow subscriber's channel dropped, which are still in the
+// ring.
+func (r *eventRing) snapshotSince(fromSeq uint64) []RunEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []RunEvent
+	for _, ev := range r.buf {
+		if ev.Seq >= fromSeq {
+			out = append(out, ev)
+		}
+	}
+	return out
 }
 
 // EventSubscription is a live event feed plus the backlog available at subscribe
