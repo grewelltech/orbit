@@ -141,15 +141,9 @@ func newLoadCmd() *cobra.Command {
 // parseRate turns the --rate / --ramp flags into a load.Rate (nil = unbounded).
 func parseRate(rate float64, ramp string) (load.Rate, error) {
 	if ramp != "" {
-		parts := strings.Split(ramp, ":")
-		if len(parts) != 3 {
-			return nil, fmt.Errorf("--ramp must be start:end:seconds, got %q", ramp)
-		}
-		start, err1 := strconv.ParseFloat(parts[0], 64)
-		end, err2 := strconv.ParseFloat(parts[1], 64)
-		secs, err3 := strconv.ParseFloat(parts[2], 64)
-		if err1 != nil || err2 != nil || err3 != nil {
-			return nil, fmt.Errorf("invalid --ramp %q", ramp)
+		start, end, secs, err := parseRampSpec(ramp)
+		if err != nil {
+			return nil, err
 		}
 		return load.LinearRamp{Start: start, End: end, Over: time.Duration(secs * float64(time.Second))}, nil
 	}
@@ -157,6 +151,31 @@ func parseRate(rate float64, ramp string) (load.Rate, error) {
 		return load.Constant{RPS: rate}, nil
 	}
 	return nil, nil
+}
+
+// parseRampSpec parses a "start:end:seconds" ramp string. Shared so the
+// in-process `orbit load` and the server-driven `orbit runs start-load` accept
+// exactly the same ramp syntax.
+func parseRampSpec(s string) (start, end, seconds float64, err error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return 0, 0, 0, fmt.Errorf("--ramp must be start:end:seconds, got %q", s)
+	}
+	e1 := parseFloatInto(parts[0], &start)
+	e2 := parseFloatInto(parts[1], &end)
+	e3 := parseFloatInto(parts[2], &seconds)
+	if e1 != nil || e2 != nil || e3 != nil {
+		return 0, 0, 0, fmt.Errorf("invalid --ramp %q", s)
+	}
+	return start, end, seconds, nil
+}
+
+func parseFloatInto(s string, dst *float64) error {
+	v, err := strconv.ParseFloat(s, 64)
+	if err == nil {
+		*dst = v
+	}
+	return err
 }
 
 func printLoadReport(w io.Writer, rep load.Report) {
