@@ -40,7 +40,7 @@ func TestRunRegistryCompletes(t *testing.T) {
 	r := quietRegistry(0)
 	want := load.Report{Attempted: 10, Succeeded: 9, Failed: 1}
 
-	info, err := r.StartLoad("soak", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, err := r.StartLoad("soak", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
 		return want, nil
 	})
@@ -68,7 +68,7 @@ func TestRunRegistryCompletes(t *testing.T) {
 // A run that returns an error ends FAILED with the message, and no report.
 func TestRunRegistryFails(t *testing.T) {
 	r := quietRegistry(0)
-	info, _ := r.StartLoad("bad", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, _ := r.StartLoad("bad", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		return load.Report{}, errors.New("AMF unreachable")
 	})
 	waitState(t, r, info.ID, RunFailed)
@@ -87,7 +87,7 @@ func TestRunRegistryFails(t *testing.T) {
 func TestRunRegistryStopCancels(t *testing.T) {
 	r := quietRegistry(0)
 	started := make(chan struct{})
-	info, _ := r.StartLoad("long", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, _ := r.StartLoad("long", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		close(started)
 		<-ctx.Done()
 		return load.Report{}, ctx.Err()
@@ -105,7 +105,7 @@ func TestRunRegistryStopCancels(t *testing.T) {
 func TestRunRegistryStopBeatsCleanReturn(t *testing.T) {
 	r := quietRegistry(0)
 	release := make(chan struct{})
-	info, _ := r.StartLoad("racy", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, _ := r.StartLoad("racy", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		<-release
 		return load.Report{Attempted: 1}, nil // clean return, but after a stop
 	})
@@ -124,12 +124,12 @@ func TestRunRegistryStopBeatsCleanReturn(t *testing.T) {
 func TestRunRegistryOneActivePerKind(t *testing.T) {
 	r := quietRegistry(0)
 	block := make(chan struct{})
-	first, _ := r.StartLoad("first", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	first, _ := r.StartLoad("first", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		<-block
 		return load.Report{}, nil
 	})
 
-	_, err := r.StartLoad("second", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	_, err := r.StartLoad("second", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		return load.Report{}, nil
 	})
 	var active *ErrRunActive
@@ -143,7 +143,7 @@ func TestRunRegistryOneActivePerKind(t *testing.T) {
 	// Once the first finishes, a new run is allowed.
 	close(block)
 	waitState(t, r, first.ID, RunComplete)
-	if _, err := r.StartLoad("third", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	if _, err := r.StartLoad("third", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		return load.Report{}, nil
 	}); err != nil {
 		t.Errorf("StartLoad after the first completed: %v", err)
@@ -155,7 +155,7 @@ func TestRunRegistrySnapshotLive(t *testing.T) {
 	r := quietRegistry(0)
 	proceed := make(chan struct{})
 	seen := make(chan struct{})
-	info, _ := r.StartLoad("live", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, _ := r.StartLoad("live", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
 		close(seen)
 		<-proceed
@@ -180,7 +180,7 @@ func TestRunRegistryHistoryBounded(t *testing.T) {
 	r := quietRegistry(3)
 	var ids []string
 	for i := 0; i < 6; i++ {
-		info, err := r.StartLoad("n", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		info, err := r.StartLoad("n", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 			return load.Report{}, nil
 		})
 		if err != nil {
@@ -212,7 +212,7 @@ func TestRunRegistryListNewestFirst(t *testing.T) {
 	r := quietRegistry(0)
 	var ids []string
 	for i := 0; i < 3; i++ {
-		info, _ := r.StartLoad("n", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		info, _ := r.StartLoad("n", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 			return load.Report{}, nil
 		})
 		waitState(t, r, info.ID, RunComplete)
@@ -246,7 +246,7 @@ func TestRunRegistryUnknownID(t *testing.T) {
 func TestRunRegistryStopAll(t *testing.T) {
 	r := quietRegistry(0)
 	started := make(chan struct{})
-	info, _ := r.StartLoad("a", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, _ := r.StartLoad("a", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		close(started)
 		<-ctx.Done()
 		return load.Report{}, ctx.Err()
@@ -280,7 +280,7 @@ func TestRunRegistryConcurrent(t *testing.T) {
 
 	// Serial starts (one active per kind), each stopped promptly.
 	for i := 0; i < 20; i++ {
-		info, err := r.StartLoad("n", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+		info, err := r.StartLoad("n", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 			<-ctx.Done()
 			return load.Report{}, ctx.Err()
 		})
@@ -302,7 +302,7 @@ func TestRunRegistryConcurrent(t *testing.T) {
 // this test's process survives at all is half the assertion.
 func TestRunRegistryPanicBecomesFailed(t *testing.T) {
 	r := quietRegistry(0)
-	info, err := r.StartLoad("boom", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	info, err := r.StartLoad("boom", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		panic("nil map write deep in RunLoad")
 	})
 	if err != nil {
@@ -316,7 +316,7 @@ func TestRunRegistryPanicBecomesFailed(t *testing.T) {
 	}
 
 	// The kind is no longer active, so a new load run is accepted.
-	if _, err := r.StartLoad("after", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	if _, err := r.StartLoad("after", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		return load.Report{}, nil
 	}); err != nil {
 		t.Errorf("panicked run left the kind stuck active: %v", err)
@@ -356,7 +356,7 @@ func TestMarkRunningRespectsDraining(t *testing.T) {
 func TestRunRegistryFleetCompletes(t *testing.T) {
 	r := quietRegistry(0)
 	want := FleetReport{Attached: 20, AttachFailed: 1, Handovers: 4, Deregistered: 20}
-	info, err := r.StartFleet("fleet-1", func(ctx context.Context) (FleetReport, error) {
+	info, err := r.StartFleet("fleet-1", func(ctx context.Context, _ RunEventFunc) (FleetReport, error) {
 		return want, nil
 	})
 	if err != nil {
@@ -386,23 +386,75 @@ func TestRunRegistryLoadAndFleetAreIndependentKinds(t *testing.T) {
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
 
-	if _, err := r.StartLoad("l", func(ctx context.Context, s *load.LiveStats) (load.Report, error) {
+	if _, err := r.StartLoad("l", func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		<-block
 		return load.Report{}, nil
 	}); err != nil {
 		t.Fatalf("StartLoad: %v", err)
 	}
 	// A fleet run is allowed while a load run is active (different kind).
-	if _, err := r.StartFleet("f", func(ctx context.Context) (FleetReport, error) {
+	if _, err := r.StartFleet("f", func(ctx context.Context, _ RunEventFunc) (FleetReport, error) {
 		<-block
 		return FleetReport{}, nil
 	}); err != nil {
 		t.Errorf("StartFleet rejected while only a load run was active: %v", err)
 	}
 	// But a second fleet run is not.
-	if _, err := r.StartFleet("f2", func(ctx context.Context) (FleetReport, error) {
+	if _, err := r.StartFleet("f2", func(ctx context.Context, _ RunEventFunc) (FleetReport, error) {
 		return FleetReport{}, nil
 	}); err == nil {
 		t.Error("a second concurrent fleet run was allowed")
+	}
+}
+
+// A run emits lifecycle events (started, terminal) and the launcher can emit
+// its own — and the terminal event is emitted before the run reads terminal,
+// so a late subscriber still gets it.
+func TestRunRegistryEmitsLifecycleEvents(t *testing.T) {
+	r := quietRegistry(0)
+	info, err := r.StartLoad("evt", func(ctx context.Context, s *load.LiveStats, emit RunEventFunc) (load.Report, error) {
+		emit("error", "ATTACH", "imsi-9", "rejected · cause 22")
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+	waitState(t, r, info.ID, RunComplete)
+
+	// Subscribe after completion: the whole backlog must be retained, including
+	// the terminal event (emitted before the state flipped).
+	sub, err := r.SubscribeEvents(info.ID, 0)
+	if err != nil {
+		t.Fatalf("SubscribeEvents: %v", err)
+	}
+	defer sub.Close()
+
+	kinds := map[string]int{}
+	var sawTerminal, sawFailure bool
+	for _, ev := range sub.Backlog {
+		kinds[ev.Kind]++
+		if ev.Kind == "RUN" && ev.Message == "run COMPLETE" {
+			sawTerminal = true
+		}
+		if ev.Kind == "ATTACH" && ev.SUPI == "imsi-9" {
+			sawFailure = true
+		}
+	}
+	if !sawTerminal {
+		t.Errorf("no terminal RUN event in backlog: %+v", sub.Backlog)
+	}
+	if !sawFailure {
+		t.Error("launcher-emitted failure event missing from backlog")
+	}
+	if kinds["RUN"] < 2 {
+		t.Errorf("expected at least started+terminal RUN events, got %d", kinds["RUN"])
+	}
+}
+
+// SubscribeEvents on an unknown run is a not-found error.
+func TestRunRegistrySubscribeUnknown(t *testing.T) {
+	r := quietRegistry(0)
+	if _, err := r.SubscribeEvents("run-nope", 0); err == nil {
+		t.Error("SubscribeEvents on unknown id returned no error")
 	}
 }

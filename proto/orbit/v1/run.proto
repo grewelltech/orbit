@@ -36,6 +36,13 @@ service RunService {
   // stream may therefore be sampled without lying. The stream ends with a final
   // frame once the run reaches a terminal state.
   rpc RunTelemetry(RunTelemetryRequest) returns (stream TelemetryFrame) {}
+
+  // RunEvents streams discrete occurrences during a run, sequenced per run
+  // (ADR-0006). A client resumes from a sequence number; when the requested
+  // point has been evicted from the bounded ring, the first event reports how
+  // many were dropped, so a gap is detectable rather than silent. The stream
+  // ends once the run is terminal and its events are drained.
+  rpc RunEvents(RunEventsRequest) returns (stream RunEvent) {}
 }
 
 // RunKind is what a run does. Only LOAD is executable in this slice; the others
@@ -194,6 +201,33 @@ message TelemetryFrame {
   oneof progress {
     LoadProgress load = 7;
   }
+}
+
+message RunEventsRequest {
+  string run_id = 1;
+  // Resume point: the first sequence number the client wants. 0 = from the
+  // oldest still retained.
+  uint64 from_seq = 2;
+}
+
+enum EventSeverity {
+  EVENT_SEVERITY_UNSPECIFIED = 0;
+  EVENT_SEVERITY_INFO = 1;
+  EVENT_SEVERITY_WARN = 2;
+  EVENT_SEVERITY_ERROR = 3;
+}
+
+// RunEvent is one discrete occurrence during a run.
+message RunEvent {
+  uint64 seq = 1;                // monotonic within the run
+  int64 unix_nano = 2;
+  EventSeverity severity = 3;
+  string kind = 4;               // "RUN", "ATTACH", "SLO", ...
+  string supi = 5;               // empty for run-scoped events
+  string message = 6;
+  // Set on the first event of a stream when the requested from_seq had already
+  // been evicted: how many events before this one the client will never see.
+  uint64 dropped_before = 7;
 }
 
 message GetRunReportRequest {

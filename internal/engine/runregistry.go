@@ -61,20 +61,25 @@ type RunInfo struct {
 // stats as it goes. It is the seam between the registry (which owns lifecycle)
 // and the engine's RunLoad (which owns execution), so the registry is testable
 // without a live core.
-type LoadRunFunc func(ctx context.Context, stats *load.LiveStats) (load.Report, error)
+type LoadRunFunc func(ctx context.Context, stats *load.LiveStats, emit RunEventFunc) (load.Report, error)
 
 // run is the registry's mutable record. Every field is guarded by
-// RunRegistry.mu; nothing here is touched without it.
+// RunRegistry.mu; nothing here is touched without it. The event ring has its
+// own lock and is safe to read after the record is published.
 type run struct {
 	info   RunInfo
 	live   *load.LiveStats // live aggregates while running (load kind; nil otherwise)
+	events *eventRing      // per-run discrete-event log
 	report any             // *load.Report or *FleetReport, set on COMPLETE
 	cancel context.CancelFunc
 }
 
 // FleetRunFunc executes a fleet run to completion. Unlike a load run it has no
 // per-attempt observer today; its progress is its final FleetReport.
-type FleetRunFunc func(ctx context.Context) (FleetReport, error)
+type FleetRunFunc func(ctx context.Context, emit RunEventFunc) (FleetReport, error)
+
+// DefaultRunEventCap bounds the per-run event ring.
+const DefaultRunEventCap = 500
 
 // runFunc is the kind-agnostic launcher the registry runs on a goroutine. It
 // returns a pointer to the kind's report (or nil), which is retained only when
@@ -123,12 +128,14 @@ func newRunID() string {
 // single core are meaningful is a question about the core, revisited later.
 func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
 	live := load.NewLiveStats()
-	return r.start(RunKindLoad, name, live, func(ctx context.Context) (any, error) {
-		rep, err := fn(ctx, live)
-		if err != nil {
-			return nil, err
+	return r.start(RunKindLoad, name, live, func(emit RunEventFunc) runFunc {
+		return func(ctx context.Context) (any, error) {
+			rep, err := fn(ctx, live, emit)
+			if err != nil {
+				return nil, err
+			}
+			return &rep, nil
 		}
-		return &rep, nil
 	})
 }
 
@@ -136,18 +143,21 @@ func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
 // active run per kind. A fleet run reports only its final FleetReport; live
 // aggregates arrive with RunTelemetry (build order step 5).
 func (r *RunRegistry) StartFleet(name string, fn FleetRunFunc) (RunInfo, error) {
-	return r.start(RunKindFleet, name, nil, func(ctx context.Context) (any, error) {
-		rep, err := fn(ctx)
-		if err != nil {
-			return nil, err
+	return r.start(RunKindFleet, name, nil, func(emit RunEventFunc) runFunc {
+		return func(ctx context.Context) (any, error) {
+			rep, err := fn(ctx, emit)
+			if err != nil {
+				return nil, err
+			}
+			return &rep, nil
 		}
-		return &rep, nil
 	})
 }
 
 // start registers a run of the given kind and launches exec on its own
-// goroutine. live may be nil for kinds without per-attempt aggregates.
-func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, exec runFunc) (RunInfo, error) {
+// goroutine. live may be nil for kinds without per-attempt aggregates. mkExec
+// builds the launcher once the run's event emitter exists.
+func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
 	r.mu.Lock()
 	if active := r.activeOfKindLocked(kind); active != "" {
 		r.mu.Unlock()
@@ -156,12 +166,14 @@ func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, exe
 
 	id := r.freshIDLocked()
 	ctx, cancel := context.WithCancel(context.Background())
+	ring := newEventRing(DefaultRunEventCap)
 	rec := &run{
 		info: RunInfo{
 			ID: id, Kind: kind, Name: name,
 			State: RunPending, StartedAt: time.Now(),
 		},
 		live:   live,
+		events: ring,
 		cancel: cancel,
 	}
 	r.runs[id] = rec
@@ -169,16 +181,41 @@ func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, exe
 	info := rec.info
 	r.mu.Unlock()
 
-	go r.exec(ctx, id, exec)
+	go r.exec(ctx, id, ring, mkExec(ring.emit))
 	return info, nil
 }
 
 // exec runs the launcher and records the outcome. It runs on its own goroutine;
 // the run survives a client disconnecting.
-func (r *RunRegistry) exec(ctx context.Context, id string, fn runFunc) {
-	r.markRunning(id)
+func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn runFunc) {
+	if r.markRunning(id) {
+		ring.emit("info", "RUN", "", "run started")
+	}
 
 	report, err := r.guard(ctx, id, fn)
+
+	// Decide the terminal state before committing it.
+	var state RunState
+	var errMsg string
+	switch {
+	case ctx.Err() != nil:
+		// A cancelled context is a requested stop, whatever the launcher returned.
+		state = RunCancelled
+	case err != nil:
+		state, errMsg = RunFailed, err.Error()
+	default:
+		state = RunComplete
+	}
+
+	// Emit the terminal event BEFORE flipping the observable state, so a client
+	// that sees the run terminal is guaranteed to have already received (or have
+	// buffered) its final event — no missed last event on the RunEvents stream.
+	msg := "run " + string(state)
+	sev := "info"
+	if state == RunFailed {
+		sev, msg = "error", "run failed: "+errMsg
+	}
+	ring.emit(sev, "RUN", "", msg)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -187,19 +224,13 @@ func (r *RunRegistry) exec(ctx context.Context, id string, fn runFunc) {
 		return // evicted — impossible while terminal-eviction skips this run, but defensive
 	}
 	rec.info.EndedAt = time.Now()
-	switch {
-	case ctx.Err() != nil:
-		// A cancelled context is a requested stop, whatever the launcher returned.
-		rec.info.State = RunCancelled
-	case err != nil:
-		rec.info.State = RunFailed
-		rec.info.Err = err.Error()
-	default:
-		rec.info.State = RunComplete
+	rec.info.State = state
+	rec.info.Err = errMsg
+	if state == RunComplete {
 		rec.report = report
 	}
 	if r.log != nil {
-		r.log.Info("run finished", "run", id, "kind", rec.info.Kind, "state", rec.info.State)
+		r.log.Info("run finished", "run", id, "kind", rec.info.Kind, "state", state)
 	}
 	r.evictLocked()
 }
@@ -344,12 +375,50 @@ func (r *RunRegistry) freshIDLocked() string {
 // so a run already DRAINING — a Stop that landed before the launcher goroutine
 // was scheduled — is not flipped back to RUNNING, which would transiently hide
 // a stop a client had already been told succeeded.
-func (r *RunRegistry) markRunning(id string) {
+func (r *RunRegistry) markRunning(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if rec := r.runs[id]; rec != nil && rec.info.State == RunPending {
 		rec.info.State = RunRunning
+		return true
 	}
+	return false
+}
+
+// SubscribeEvents returns a run's event backlog from fromSeq plus a live feed,
+// taken atomically. The returned cancel func must be called to release the
+// subscription. A run without a ring (unknown id) returns nil.
+func (r *RunRegistry) SubscribeEvents(id string, fromSeq uint64) (*EventSubscription, error) {
+	r.mu.Lock()
+	ring := func() *eventRing {
+		if rec := r.runs[id]; rec != nil {
+			return rec.events
+		}
+		return nil
+	}()
+	r.mu.Unlock()
+	if ring == nil {
+		return nil, &ErrRunNotFound{ID: id}
+	}
+	return ring.subscribeFrom(fromSeq), nil
+}
+
+// EventsSince returns a run's retained events with Seq >= fromSeq. It lets a
+// consumer recover events its live subscription dropped (they remain in the
+// ring), e.g. to reconcile at the end of a stream. Unknown id yields nil.
+func (r *RunRegistry) EventsSince(id string, fromSeq uint64) []RunEvent {
+	r.mu.Lock()
+	ring := func() *eventRing {
+		if rec := r.runs[id]; rec != nil {
+			return rec.events
+		}
+		return nil
+	}()
+	r.mu.Unlock()
+	if ring == nil {
+		return nil
+	}
+	return ring.snapshotSince(fromSeq)
 }
 
 // evictLocked trims terminal runs beyond maxHistory, oldest first. Active runs
