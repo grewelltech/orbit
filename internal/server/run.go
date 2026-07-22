@@ -127,6 +127,101 @@ func (s *runService) GetRunReport(
 	return connect.NewResponse(resp), nil
 }
 
+func (s *runService) RunEvents(
+	ctx context.Context,
+	req *connect.Request[orbitv1.RunEventsRequest],
+	stream *connect.ServerStream[orbitv1.RunEvent],
+) error {
+	id := req.Msg.GetRunId()
+	sub, err := s.reg.SubscribeEvents(id, req.Msg.GetFromSeq())
+	if err != nil {
+		return runLookupError(err)
+	}
+	defer sub.Close()
+
+	// nextSeq tracks the sequence number expected next, so a terminal-time
+	// reconciliation can send exactly the events not yet delivered.
+	nextSeq := req.Msg.GetFromSeq()
+	first := true
+	send := func(ev engine.RunEvent) error {
+		pb := runEventProto(ev)
+		if first {
+			pb.DroppedBefore = sub.DroppedBefore
+			first = false
+		}
+		if err := stream.Send(pb); err != nil {
+			return err
+		}
+		nextSeq = ev.Seq + 1
+		return nil
+	}
+	for _, ev := range sub.Backlog {
+		if err := send(ev); err != nil {
+			return err
+		}
+	}
+
+	ticker := time.NewTicker(eventPollInterval)
+	defer ticker.Stop()
+
+	// Stream live. Once the run is terminal, reconcile against the retained ring
+	// rather than only the channel: a slow client's channel may have dropped
+	// events (including the terminal one), but they are still in the ring. This
+	// is what makes "the client always gets the final event" true even under
+	// backpressure — the non-blocking fan-out alone cannot guarantee it.
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev, ok := <-sub.Ch:
+			if !ok {
+				return nil // subscription closed
+			}
+			if err := send(ev); err != nil {
+				return err
+			}
+		case <-ticker.C:
+			info, err := s.reg.Get(id)
+			if err != nil || info.State.Terminal() {
+				for _, ev := range s.reg.EventsSince(id, nextSeq) {
+					if err := send(ev); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+		}
+	}
+}
+
+// eventPollInterval bounds how long RunEvents waits between events before
+// re-checking whether the run has ended.
+const eventPollInterval = 200 * time.Millisecond
+
+func runEventProto(ev engine.RunEvent) *orbitv1.RunEvent {
+	return &orbitv1.RunEvent{
+		Seq:      ev.Seq,
+		UnixNano: ev.Time.UnixNano(),
+		Severity: eventSeverityProto(ev.Severity),
+		Kind:     ev.Kind,
+		Supi:     ev.SUPI,
+		Message:  ev.Message,
+	}
+}
+
+func eventSeverityProto(s string) orbitv1.EventSeverity {
+	switch s {
+	case "info":
+		return orbitv1.EventSeverity_EVENT_SEVERITY_INFO
+	case "warn":
+		return orbitv1.EventSeverity_EVENT_SEVERITY_WARN
+	case "error":
+		return orbitv1.EventSeverity_EVENT_SEVERITY_ERROR
+	default:
+		return orbitv1.EventSeverity_EVENT_SEVERITY_UNSPECIFIED
+	}
+}
+
 // Telemetry cadence bounds. A too-fast interval floods the client for no gain
 // (aggregates change on the order of the run's own sampling); a too-slow one
 // makes "live" meaningless.
@@ -290,11 +385,24 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 		spec.GNBN3Addr = p.GetGnbN3Addr()
 	}
 
-	return func(ctx context.Context, stats *load.LiveStats) (load.Report, error) {
+	return func(ctx context.Context, stats *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
 		s := spec
-		s.Observer = stats
+		// Fan out each attempt to the live aggregates and to a run-event
+		// reporter that turns failures into discrete events.
+		s.Observer = load.Observers{stats, failureEvents(emit)}
 		return engine.RunLoad(ctx, log, s)
 	}, nil
+}
+
+// failureEvents is a load.Observer that reports each failed attempt as a run
+// event. Successes are not evented — at fleet scale they are the aggregates'
+// job; the event stream is for what went wrong and for milestones.
+type failureEvents engine.RunEventFunc
+
+func (f failureEvents) Observe(s load.Sample) {
+	if s.Err != nil {
+		f("error", "ATTACH", s.SUPI, s.Err.Error())
+	}
 }
 
 // fleetRunFunc parses the fleet scenario YAML, injects the request's
@@ -325,7 +433,10 @@ func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec) (engine.FleetRunFun
 	if err != nil {
 		return nil, err
 	}
-	return func(ctx context.Context) (engine.FleetReport, error) {
+	return func(ctx context.Context, _ engine.RunEventFunc) (engine.FleetReport, error) {
+		// Fleet runs attach with no per-attempt observer today, so they emit
+		// only the registry's lifecycle events; per-UE fleet events arrive when
+		// the fleet attach path is wired to the emitter.
 		return engine.RunFleet(ctx, log, spec, beh)
 	}, nil
 }
