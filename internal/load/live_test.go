@@ -119,6 +119,56 @@ func TestLiveStatsConcurrentObserveAndSnapshot(t *testing.T) {
 	}
 }
 
+// A sample's GNB attributes its outcome to that gNB, so the snapshot reports
+// where the population sits. Only attributed samples appear; the totals still
+// count every attempt.
+func TestLiveStatsPerGNBDistribution(t *testing.T) {
+	l := NewLiveStats()
+	l.Observe(Sample{GNB: "gnb-0", Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+	l.Observe(Sample{GNB: "gnb-0", Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+	l.Observe(Sample{GNB: "gnb-1", Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+	l.Observe(Sample{GNB: "gnb-1", Err: errors.New("rejected")})
+
+	s := l.Snapshot()
+	if got := s.PerGNB["gnb-0"]; got != (GNBProgress{Attempted: 2, Succeeded: 2}) {
+		t.Errorf("gnb-0 = %+v, want {2 2 0}", got)
+	}
+	if got := s.PerGNB["gnb-1"]; got != (GNBProgress{Attempted: 2, Succeeded: 1, Failed: 1}) {
+		t.Errorf("gnb-1 = %+v, want {2 1 1}", got)
+	}
+	// The per-gNB failure is still counted in the run totals.
+	if s.Attempted != 4 || s.Succeeded != 3 || s.Failed != 1 {
+		t.Errorf("totals = %d/%d/%d, want 4/3/1", s.Attempted, s.Succeeded, s.Failed)
+	}
+}
+
+// A driver that does not name gNBs leaves PerGNB empty rather than bucketing
+// every attempt under "".
+func TestLiveStatsPerGNBEmptyWhenUnattributed(t *testing.T) {
+	l := NewLiveStats()
+	l.Observe(Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+	if s := l.Snapshot(); s.PerGNB != nil {
+		t.Errorf("PerGNB = %v, want nil for an unattributed run", s.PerGNB)
+	}
+}
+
+// Snapshot returns a copy of the per-gNB counters: mutating the result must not
+// change what a later snapshot reports, and continued Observe must not mutate
+// an already-returned snapshot.
+func TestLiveStatsPerGNBSnapshotIsCopied(t *testing.T) {
+	l := NewLiveStats()
+	l.Observe(Sample{GNB: "gnb-0", Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+	first := l.Snapshot()
+	l.Observe(Sample{GNB: "gnb-0", Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+
+	if got := first.PerGNB["gnb-0"].Succeeded; got != 1 {
+		t.Errorf("earlier snapshot mutated to %d; snapshots must be independent copies", got)
+	}
+	if got := l.Snapshot().PerGNB["gnb-0"].Succeeded; got != 2 {
+		t.Errorf("later snapshot = %d, want 2", got)
+	}
+}
+
 // Observers fans out to every member and tolerates nil entries, so callers can
 // build the slice with optional members.
 func TestObserversFanOut(t *testing.T) {
