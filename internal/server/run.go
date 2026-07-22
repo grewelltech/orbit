@@ -139,8 +139,9 @@ func (s *runService) RunEvents(
 	}
 	defer sub.Close()
 
-	// Replay the retained backlog first, tagging the first event with how many
-	// were evicted before it so the client can see the gap.
+	// nextSeq tracks the sequence number expected next, so a terminal-time
+	// reconciliation can send exactly the events not yet delivered.
+	nextSeq := req.Msg.GetFromSeq()
 	first := true
 	send := func(ev engine.RunEvent) error {
 		pb := runEventProto(ev)
@@ -148,7 +149,11 @@ func (s *runService) RunEvents(
 			pb.DroppedBefore = sub.DroppedBefore
 			first = false
 		}
-		return stream.Send(pb)
+		if err := stream.Send(pb); err != nil {
+			return err
+		}
+		nextSeq = ev.Seq + 1
+		return nil
 	}
 	for _, ev := range sub.Backlog {
 		if err := send(ev); err != nil {
@@ -156,9 +161,14 @@ func (s *runService) RunEvents(
 		}
 	}
 
-	// Then stream live. The run's terminal event is emitted BEFORE the run's
-	// state flips to terminal (see RunRegistry.exec), so once we observe the run
-	// terminal with no event ready, every event has been delivered and we end.
+	ticker := time.NewTicker(eventPollInterval)
+	defer ticker.Stop()
+
+	// Stream live. Once the run is terminal, reconcile against the retained ring
+	// rather than only the channel: a slow client's channel may have dropped
+	// events (including the terminal one), but they are still in the ring. This
+	// is what makes "the client always gets the final event" true even under
+	// backpressure — the non-blocking fan-out alone cannot guarantee it.
 	for {
 		select {
 		case <-ctx.Done():
@@ -170,32 +180,21 @@ func (s *runService) RunEvents(
 			if err := send(ev); err != nil {
 				return err
 			}
-		case <-time.After(eventPollInterval):
+		case <-ticker.C:
 			info, err := s.reg.Get(id)
 			if err != nil || info.State.Terminal() {
-				// The run has ended and its terminal event was emitted before the
-				// state flip, so everything is now in the channel. Deliver any
-				// buffered stragglers, then end — select may have preferred this
-				// timeout over a ready event.
-				for {
-					select {
-					case ev, ok := <-sub.Ch:
-						if !ok {
-							return nil
-						}
-						if err := send(ev); err != nil {
-							return err
-						}
-					default:
-						return nil
+				for _, ev := range s.reg.EventsSince(id, nextSeq) {
+					if err := send(ev); err != nil {
+						return err
 					}
 				}
+				return nil
 			}
 		}
 	}
 }
 
-// eventPollInterval bounds how long RunEvents blocks between events before
+// eventPollInterval bounds how long RunEvents waits between events before
 // re-checking whether the run has ended.
 const eventPollInterval = 200 * time.Millisecond
 

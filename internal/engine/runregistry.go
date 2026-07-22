@@ -403,6 +403,24 @@ func (r *RunRegistry) SubscribeEvents(id string, fromSeq uint64) (*EventSubscrip
 	return ring.subscribeFrom(fromSeq), nil
 }
 
+// EventsSince returns a run's retained events with Seq >= fromSeq. It lets a
+// consumer recover events its live subscription dropped (they remain in the
+// ring), e.g. to reconcile at the end of a stream. Unknown id yields nil.
+func (r *RunRegistry) EventsSince(id string, fromSeq uint64) []RunEvent {
+	r.mu.Lock()
+	ring := func() *eventRing {
+		if rec := r.runs[id]; rec != nil {
+			return rec.events
+		}
+		return nil
+	}()
+	r.mu.Unlock()
+	if ring == nil {
+		return nil
+	}
+	return ring.snapshotSince(fromSeq)
+}
+
 // evictLocked trims terminal runs beyond maxHistory, oldest first. Active runs
 // are never evicted, so a burst of long runs cannot drop one that is still
 // going. Callers hold r.mu.

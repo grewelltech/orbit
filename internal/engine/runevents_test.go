@@ -166,3 +166,105 @@ func TestEventRingConcurrent(t *testing.T) {
 	wg.Wait()
 	close(stop)
 }
+
+// Concurrent emit and subscriber Close must not panic (send on closed channel).
+// Run under -race. This is the crash the fan-out-under-lock fix prevents.
+func TestEventRingEmitCancelRace(t *testing.T) {
+	r := newEventRing(8)
+	var wg sync.WaitGroup
+
+	// Emitters.
+	stop := make(chan struct{})
+	for e := 0; e < 4; e++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					r.emit("info", "N", "", "e")
+				}
+			}
+		}()
+	}
+	// Subscribers that repeatedly subscribe and cancel, racing the emits.
+	for s := 0; s < 4; s++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				sub := r.subscribeFrom(0)
+				sub.Close()
+			}
+		}()
+	}
+	// Let it run; the assertion is simply that no send-on-closed panic occurs.
+	for i := 0; i < 50000; i++ {
+		r.emit("info", "N", "", "e")
+	}
+	close(stop)
+	wg.Wait()
+}
+
+// snapshotSince returns retained events past a sequence — the recovery path a
+// slow RunEvents subscriber relies on to still receive the terminal event.
+func TestEventRingSnapshotSince(t *testing.T) {
+	r := newEventRing(10)
+	for i := 0; i < 5; i++ {
+		r.emit("info", "N", "", "e")
+	}
+	got := r.snapshotSince(2)
+	if len(got) != 3 || got[0].Seq != 2 || got[2].Seq != 4 {
+		t.Errorf("snapshotSince(2) = %+v, want seq 2,3,4", got)
+	}
+	if after := r.snapshotSince(99); after != nil {
+		t.Errorf("snapshotSince beyond the end = %+v, want nil", after)
+	}
+}
+
+// The recovery contract the RunEvents handler relies on: when a subscriber's
+// channel drops events (full), the newest events — including the terminal one —
+// remain in the ring and are recoverable via snapshotSince past the last one
+// delivered. Deterministic: a single goroutine that never drains the channel.
+func TestEventRingNewestRecoverableAfterDrop(t *testing.T) {
+	r := newEventRing(4) // channel and ring both hold 4
+	sub := r.subscribeFrom(0)
+	defer sub.Close()
+
+	const n = 10
+	for i := 0; i < n; i++ {
+		r.emit("info", "N", "", "e")
+	}
+
+	// Drain whatever the (unread, so full) channel retained.
+	var lastDelivered uint64
+	delivered := false
+	for draining := true; draining; {
+		select {
+		case ev := <-sub.Ch:
+			lastDelivered, delivered = ev.Seq, true
+		default:
+			draining = false
+		}
+	}
+
+	// Everything past the last delivered that is still retained — the handler's
+	// terminal reconciliation. The newest event (seq n-1) must be present even
+	// though the channel dropped it.
+	from := uint64(0)
+	if delivered {
+		from = lastDelivered + 1
+	}
+	tail := r.snapshotSince(from)
+	var sawNewest bool
+	for _, ev := range tail {
+		if ev.Seq == n-1 {
+			sawNewest = true
+		}
+	}
+	if !sawNewest {
+		t.Errorf("newest event (seq %d) not recoverable after a channel drop; tail=%+v", n-1, tail)
+	}
+}
