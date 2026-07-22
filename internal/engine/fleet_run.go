@@ -350,6 +350,15 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	defer release()
 
 	uetT, ranIDT := f.sessions[target].NewUE()
+	// The target handle registers a demux inbox on the target gNB session.
+	// Release it unless the handover commits to it, or every failed handover
+	// leaks an inbox for the life of the run.
+	committed := false
+	defer func() {
+		if !committed {
+			_ = uetT.Close()
+		}
+	}()
 	// DL TEIDs come from the same process-wide allocator as attach — a
 	// derived scheme (0x1000+ranID) could collide with a TEID a fleet attach
 	// already handed out on the target gNB.
@@ -373,7 +382,15 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	}
 	newAMFID, _ := gnb.ParsePathSwitchAcknowledge(resp)
 	switched := gnb.ParsePathSwitchAcknowledgeSwitched(resp)
+	// Commit to the target handle and release the source one: the old handle's
+	// demux inbox on the source gNB session is no longer used, and dropping it
+	// without Close would leak it.
+	oldConn := fu.sess.conn
 	fu.sess.conn = uetT
+	committed = true
+	if oldConn != nil {
+		_ = oldConn.Close()
+	}
 	if newAMFID != 0 {
 		fu.sess.amfID = newAMFID
 	}
