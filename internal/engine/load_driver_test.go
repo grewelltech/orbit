@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/load"
 )
 
@@ -48,5 +49,22 @@ func TestLoadConfigCarriesEveryKnob(t *testing.T) {
 func TestLoadConfigOmitsAbsentObserver(t *testing.T) {
 	if cfg := loadConfig(LoadSpec{Count: 1}); cfg.Observer != nil {
 		t.Errorf("Observer = %v, want nil when the spec sets none", cfg.Observer)
+	}
+}
+
+// A gNB's per-telemetry label is its RANNodeName when set, and a distinct
+// "gnb-<id>" otherwise — RANNodeName is optional, so unnamed gNBs must still
+// attribute to separate buckets rather than collapsing under the empty string.
+func TestGNBAttributionLabel(t *testing.T) {
+	if got := gnbAttributionLabel(gnb.Config{Name: "orbit-gnb-0", ID: 7}); got != "orbit-gnb-0" {
+		t.Errorf("named gNB label = %q, want orbit-gnb-0", got)
+	}
+	a := gnbAttributionLabel(gnb.Config{ID: 1})
+	b := gnbAttributionLabel(gnb.Config{ID: 2})
+	if a != "gnb-1" || b != "gnb-2" {
+		t.Errorf("unnamed labels = %q,%q, want gnb-1,gnb-2", a, b)
+	}
+	if a == b {
+		t.Error("distinct unnamed gNBs collapsed to the same label")
 	}
 }

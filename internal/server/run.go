@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"connectrpc.com/connect"
@@ -543,7 +544,32 @@ func loadProgressProto(s load.Snapshot) *orbitv1.LoadProgress {
 		Failed:       uint32(s.Failed),
 		AchievedRate: s.AchievedRate,
 		Latency:      procedureLatencies(s.Latencies),
+		PerGnb:       gnbProgressProtos(s.PerGNB),
 	}
+}
+
+// gnbProgressProtos maps the per-gNB spread to proto, sorted by gNB name so the
+// frame is stable across samples (a map's iteration order is not).
+func gnbProgressProtos(m map[string]load.GNBProgress) []*orbitv1.GnbProgress {
+	if len(m) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*orbitv1.GnbProgress, 0, len(names))
+	for _, name := range names {
+		g := m[name]
+		out = append(out, &orbitv1.GnbProgress{
+			Gnb:       name,
+			Attempted: uint32(g.Attempted),
+			Succeeded: uint32(g.Succeeded),
+			Failed:    uint32(g.Failed),
+		})
+	}
+	return out
 }
 
 func loadReportProto(r load.Report) *orbitv1.LoadReport {

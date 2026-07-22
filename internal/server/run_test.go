@@ -292,6 +292,40 @@ func TestRunServiceGetRunLiveProgress(t *testing.T) {
 	}
 }
 
+// A running load run's live progress carries the per-gNB distribution end to
+// end: the run attributes samples to gNBs, and GetRun surfaces them sorted by
+// name so a client renders a stable population map.
+func TestRunServiceGetRunPerGNB(t *testing.T) {
+	c, reg := newRunRPCClient(t)
+	proceed := make(chan struct{})
+	t.Cleanup(func() { close(proceed) })
+	seen := make(chan struct{})
+	id := seedRun(t, reg, "pergnb", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+		s.Observe(load.Sample{GNB: "gnb-1", Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
+		s.Observe(load.Sample{GNB: "gnb-0", Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
+		s.Observe(load.Sample{GNB: "gnb-0", Err: errBoom})
+		close(seen)
+		<-proceed
+		return load.Report{}, nil
+	})
+	<-seen
+
+	resp, err := c.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	perGnb := resp.Msg.GetLoadProgress().GetPerGnb()
+	if len(perGnb) != 2 {
+		t.Fatalf("per-gNB entries = %d, want 2", len(perGnb))
+	}
+	if perGnb[0].GetGnb() != "gnb-0" || perGnb[1].GetGnb() != "gnb-1" {
+		t.Errorf("per-gNB order = %q,%q, want gnb-0,gnb-1", perGnb[0].GetGnb(), perGnb[1].GetGnb())
+	}
+	if perGnb[0].GetAttempted() != 2 || perGnb[0].GetSucceeded() != 1 || perGnb[0].GetFailed() != 1 {
+		t.Errorf("gnb-0 = %d/%d/%d, want 2/1/1", perGnb[0].GetAttempted(), perGnb[0].GetSucceeded(), perGnb[0].GetFailed())
+	}
+}
+
 var errBoom = errorString("attach rejected")
 
 type errorString string
@@ -850,5 +884,30 @@ func TestRunEventsUnknownRunIsNotFound(t *testing.T) {
 	}
 	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("code = %v, want NotFound", connect.CodeOf(err))
+	}
+}
+
+// gnbProgressProtos emits gNBs in name order regardless of map iteration, so a
+// telemetry frame's per-gNB list is stable across samples, and returns nil for
+// an unattributed run rather than an empty non-nil slice.
+func TestGNBProgressProtosSortedAndStable(t *testing.T) {
+	got := gnbProgressProtos(map[string]load.GNBProgress{
+		"gnb-2": {Attempted: 3, Succeeded: 2, Failed: 1},
+		"gnb-0": {Attempted: 5, Succeeded: 5},
+		"gnb-1": {Attempted: 4, Succeeded: 4},
+	})
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3", len(got))
+	}
+	for i, want := range []string{"gnb-0", "gnb-1", "gnb-2"} {
+		if got[i].GetGnb() != want {
+			t.Errorf("position %d = %q, want %q (not name-sorted)", i, got[i].GetGnb(), want)
+		}
+	}
+	if got[2].GetAttempted() != 3 || got[2].GetSucceeded() != 2 || got[2].GetFailed() != 1 {
+		t.Errorf("gnb-2 counts = %d/%d/%d, want 3/2/1", got[2].GetAttempted(), got[2].GetSucceeded(), got[2].GetFailed())
+	}
+	if gnbProgressProtos(nil) != nil {
+		t.Error("nil input must map to nil, not an empty slice")
 	}
 }

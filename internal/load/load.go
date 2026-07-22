@@ -21,6 +21,10 @@ type Sample struct {
 	// SUPI attributes the attempt to a UE, for an Observer that reports
 	// per-UE events. Empty when the driver does not set it.
 	SUPI string
+	// GNB names the gNB the attempt was muxed through, for an Observer that
+	// reports the population's spread across the fleet. Empty when the driver
+	// does not set it.
+	GNB string
 }
 
 // AttachFunc performs one attach attempt and returns its sample. It is called
