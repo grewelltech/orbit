@@ -110,6 +110,14 @@ func (t *UETransport) Close() error {
 	return nil
 }
 
+// NumUEs reports how many UE demux lanes are currently registered on the
+// session. A steadily growing count across handovers indicates leaked handles.
+func (s *Session) NumUEs() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.inboxes)
+}
+
 // Close tears down the session and its shared association, waking all UEs.
 func (s *Session) Close() error {
 	s.once.Do(func() { close(s.closed) })
