@@ -6,6 +6,10 @@ around them. ORBIT's codecs stay strict and 3GPP/X.691-conformant by default;
 quirks live only in the `sdcore` [core profile](../../internal/coreprofile)
 and never bend the codec. See `docs/DESIGN.md` §5(i).
 
+Performance defects live in a sibling document,
+[`sdcore-performance.md`](sdcore-performance.md) — registration-throughput
+root-causes, what has been ruled out, and open suspects.
+
 Deployed versions (read from the running SMF binary, `go version -m`):
 `omec-project/ngap/v2 v2.1.0`, `omec-project/nas/v2 v2.0.0`,
 `omec-project/smf` build `2026-06-02`.
