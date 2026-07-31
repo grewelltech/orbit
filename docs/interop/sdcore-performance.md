@@ -12,8 +12,17 @@ ceiling at **~10 attach/s** (`docs/DESIGN.md` §Phase-2). That number is the
 integration-capability bound on every scale claim ORBIT makes, and it is far
 below operator-grade. This document is the record of where it actually went.
 
-**Result so far: ~10 → ~190 attach/s (~19x), registration-only.** Three of the
-four throughput fixes are one-to-few-line changes in shared upstream libraries.
+> **Do not quote the improved numbers as SD-Core's capability.** Everything
+> above ~22 attach/s was measured against **locally patched binaries** running
+> from a hostPath mount on ATB-01. None of those patches are upstream.
+> ORBIT's published integration-capability figure stays at the stock number
+> until they land — see [Recheck list](#recheck-list-when-the-fixes-land).
+>
+> | Configuration | Ceiling | Status |
+> |---|---|---|
+> | Stock SD-Core, as shipped | ~10 attach/s | **This is the quotable number.** Matches `docs/DESIGN.md`. |
+> | \+ MongoDB CPU cap lifted | ~22 attach/s | Deployment config only, no code change. Quotable with that caveat. |
+> | \+ patched `openapi` and `udr` | ~190 attach/s | **Not quotable.** Requires unlanded patches. |
 
 Deployed versions (from `atb01-sdcore-config`): AMF rel-3.1.0, SMF rel-4.1.0,
 AUSF/UDM/UDR/NRF/NSSF/PCF rel-3.0.0, `omec-project/openapi/v2 v2.0.0`,
@@ -27,12 +36,12 @@ Registration only (no PDU session), `orbit load`, 2000 UEs across 4 gNBs unless
 noted. "Ceiling" = throughput flat while latency grows linearly with
 concurrency (Little's Law holds at every measured point).
 
-| Stage | Ceiling | Serial reg latency |
-|---|---|---|
-| Baseline as found | ~10/s | 400 ms |
-| \+ MongoDB CPU cap lifted (F1) | ~22/s | 288 ms |
-| \+ nrfcache UDR filter (F3) | ~185/s | 256 ms |
-| \+ UDR race fix (F5) — made 2000-UE runs survivable | 162–208/s (mean ~188) | 376 ms @ conc 64 |
+| Stage | Ceiling | Serial reg latency | Needs unlanded patch? |
+|---|---|---|---|
+| Baseline as found | ~10/s | 400 ms | no — stock |
+| \+ MongoDB CPU cap lifted (F1) | ~22/s | 288 ms | no — deployment config |
+| \+ nrfcache UDR filter (F3) | ~185/s | 256 ms | **yes** — `openapi` `2211d72` (+ `53e1d00`) |
+| \+ UDR race fix (F5) — made 2000-UE runs survivable | 162–208/s (mean ~188) | 376 ms @ conc 64 | **yes** — `openapi` + uncommitted `udr` fix |
 
 Final sweep, 2000/2000 UEs successful on every run: conc 64 → 166/s;
 conc 128 → 163 / 201 / 208; conc 256 → 162 / 204 / 187.
@@ -336,19 +345,77 @@ removing the volume/mount and restoring the original command.
 
 ## Upstream state
 
-Branch `fix/nrfcache-unrestricted-supi-ranges` against `omec-project/openapi`
-`main`, DCO signed, `gofmt`/`vet`/full suite clean:
+| Fix | Repo | State | Blocks |
+|---|---|---|---|
+| F2 — profiles without SUPI ranges are unrestricted | `omec-project/openapi` | committed `53e1d00`, **not pushed** | — |
+| F3 — register a match filter for UDR | `omec-project/openapi` | committed `2211d72`, **not pushed** | the 8x |
+| F4 — stop stalling cache hits behind an in-flight NRF query | `omec-project/openapi` | committed `2df2b1b`, **not pushed** | — |
+| F5 — UDR concurrent map writes | `omec-project/udr` | **uncommitted**, tested under `-race` | any scale-out |
+| F1 — MongoDB CPU cap | ATB-01 deployment | applied, persisted in StatefulSet | — |
+| F6 — HTTP/2 connection pinning | not started | — | next ceiling |
 
-| Commit | Finding |
-|---|---|
-| `53e1d00` | F2 — profiles without SUPI ranges are unrestricted |
-| `2211d72` | F3 — register a match filter for UDR |
-| `2df2b1b` | F4 — stop stalling cache hits behind an in-flight NRF query |
+F2/F3/F4 are one branch (`fix/nrfcache-unrestricted-supi-ranges`) against
+`openapi` `main`, DCO signed, `gofmt`/`vet`/full suite clean. F5 is a crash bug
+in a different repo and warrants its own PR.
 
-The F5 UDR race fix is complete and tested but lives in a separate repo and is
-not yet committed; as a crash bug it warrants its own PR.
+<a id="recheck-list-when-the-fixes-land"></a>
 
-None of these have been pushed.
+## Recheck list — when the fixes land
+
+Work items gated on the patches going upstream. Nothing here should be actioned
+before then, and nothing above the stock number should be published until the
+first three boxes are ticked.
+
+**Gated on F2+F3+F4 released in an `omec-project/openapi` tag:**
+
+- [ ] Confirm the released tag actually contains all three commits, and note the
+      version here.
+- [ ] Rebuild AMF/UDM/UDR from **stock upstream images** built against that tag —
+      not the hostPath binaries — and re-run the ceiling sweep. The ~190 figure
+      must be reproduced on unpatched images before it is quoted anywhere.
+- [ ] Remove the hostPath patch mechanism from ATB-01 (drop the `orbit-patch`
+      volume and mount from each deployment, restore `command` to
+      `["/opt/<nf>-run.sh"]`), so the testbed is stock again.
+- [ ] Re-run the full [ceiling sweep](#reproducing) and replace the numbers in
+      the tables above, including the "quotable number" banner.
+
+**Gated on F5 landing in `omec-project/udr`:**
+
+- [ ] Verify the UDR survives a 2000-UE run on a stock image. Until then, any
+      scale run on an unpatched UDR is expected to abort with exit 134.
+- [ ] Audit the EE-subscription path for the same race (Suspect 6) and decide
+      whether it ships in the same PR.
+
+**ORBIT-side updates, gated on all of the above:**
+
+All of the numbers below are **correct today** for stock SD-Core. They are
+listed so they can be revisited when that stops being true — not because they
+are wrong now.
+
+- [ ] `docs/DESIGN.md:25` — pivotal decision §1, "SD-Core's own validated
+      ceiling is ~5,000 UEs @ 10 attach/s" and "baseline 5k UEs / 10 aps".
+- [ ] `docs/DESIGN.md:280` — Phase-2 verification checkpoint,
+      "5,000 UEs @ 10 attach/s".
+- [ ] `docs/DESIGN.md:283` — Phase-2 status. The narrative ("the core serializes
+      attaches, it does not drop them") is now *explained* rather than
+      contradicted — the serialization was the nrfcache lock (F3/F4), not
+      anything intrinsic. Reword rather than delete.
+- [ ] `docs/DESIGN.md:379` — risks table, "5k UEs / 10 aps is the stated SD-Core
+      baseline".
+- [ ] `README.md:40` — the "~10 attach/s" integration-capability line.
+- [ ] `examples/fleet.yaml:47` — `attach_rate: 10/s`, chosen to match the
+      measured ceiling.
+- [ ] `docs/USAGE.md:170` — the `--slo-reg-p99 3s` example, sized for the old
+      latency profile.
+- [ ] Re-evaluate whether ORBIT is still the measurement bottleneck at the new
+      rate. The two-process control (see Ruled out) was run at 22/s; it needs
+      repeating near 200/s before ORBIT can be assumed transparent.
+
+**Independent of upstream:**
+
+- [ ] Keep findings in *this* file. Performance work on SD-Core belongs here, not
+      in a new document per investigation. Promote a finding out of *Suspects*
+      into *Proven* only when it has a measurement and an upstream file/line.
 
 ## Testbed state
 
