@@ -6,6 +6,10 @@ around them. ORBIT's codecs stay strict and 3GPP/X.691-conformant by default;
 quirks live only in the `sdcore` [core profile](../../internal/coreprofile)
 and never bend the codec. See `docs/DESIGN.md` §5(i).
 
+Performance defects live in a sibling document,
+[`sdcore-performance.md`](sdcore-performance.md) — registration-throughput
+root-causes, what has been ruled out, and open suspects.
+
 Deployed versions (read from the running SMF binary, `go version -m`):
 `omec-project/ngap/v2 v2.1.0`, `omec-project/nas/v2 v2.0.0`,
 `omec-project/smf` build `2026-06-02`.
@@ -166,6 +170,39 @@ the same ghost-context accumulation across gNB/UE/NF). ORBIT keeps its own gNB
 associations up across a handover, so it does not itself emit spurious
 Disconnected events; the gap is that the *absence* of a disconnect is
 indistinguishable from a still-live gNB.
+
+**Update (2026-07-14) — event signatures measured, and aether-ops now has a
+heuristic detector that still misses handovers.** Re-exercised on a fresh
+two-node LXD SD-Core (omec `5gc-smf:rel-4.1.0`) with controlled single-UE
+handovers, watching the aether-ops event stream:
+
+- An **Xn** handover publishes exactly **one** `smf_pdu_sess_modify_req` and
+  nothing else attributable to the move — no AMF event, and no target
+  `gnb-connect` (the target gNB is already N2-associated). Data survives.
+- An **N2** handover publishes **three** `smf_pdu_sess_modify_req` plus an AMF
+  `gnb-connect` (NF-status of the target gNB). No AMF handover event; data does
+  not survive (Finding 2).
+- Neither the `pdu-session-modify` nor the `gnb-connect` events carry a **UE
+  identity or a from/to gNB** — the modify detail is only
+  `{msg_type, source_nf_id}`. The stream shows *that* a session was modified,
+  not *which UE* moved *where*; in a busy stream it is indistinguishable from a
+  normal session modify (every PDU-session setup emits modifies too).
+- aether-ops has since added a derived `serving-gnb-changed` detector
+  (`source: derived, detector: heuristic`). In testing it fired only once, for a
+  **registration** transition (lagging one step), and **missed all four**
+  exercised handovers (2×N2, 2×Xn). It cannot attribute a mid-session cell
+  change to a UE because no per-UE event carries the new gNB between
+  registration and deregistration.
+- The only reliable per-UE gNB attribution remains the terminal
+  `deregistration` event (`{gnb, guti, ...}`), which correctly reported the UE's
+  final cell.
+
+Two ways to close it: (a) the AMF-side `PublishUeCtxtInfo()` change at both
+handover-completion points (the real fix — a proper per-UE handover event); or,
+without touching SD-Core, (b) have the consumer **poll** the AMF UE-context
+state (SBI / the backing Mongo) and diff each UE's serving gNB, since the AMF
+*does* hold the updated `GnbId` internally even though it publishes nothing —
+poll-granularity, but works for both Xn and N2.
 
 **Severity: observation.** Neither is a wire-protocol conformance issue — they
 are gaps in SD-Core's *own* event/telemetry stream, relevant to tools that
