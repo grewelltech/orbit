@@ -118,10 +118,21 @@ its GTP-U data path to a **stock loomd agent** (loom ≥ v0.10) on the N6
 network, and scores it with the ITU-T G.107 E-model:
 
 ```sh
-# On the N6 box (once): loomd --token $TOKEN
+# On the N6 box (once), either:
+loomd --token $TOKEN                                   # stock loom agent
+orbit responder --bind 0.0.0.0:9551 --token $TOKEN     # same agent, orbit binary
+
 orbit ue app voip --supi <imsi> --peer <n6-host>:9551 \
     --codec g711 --ptime 20ms --jb 40 --duration 60s [--json]
 ```
+
+`orbit responder` hosts loom's agent inside the ORBIT binary, so a run needs
+only one binary (ADR-0007). It is interchangeable with stock `loomd` — same
+control plane, same app engines — and the two are chosen freely per
+deployment. `--bind` is **required and has no default**: the responder is a
+remotely-aimable traffic generator, so its reachability is always stated
+explicitly. Binding a routable address without `--token` warns loudly and
+leaves the control plane open to anyone who can reach it.
 
 `--peer` is loomd's control address on the **management** network; if the N6
 media address differs, add `--peer-data-ip`. A server-level default can be

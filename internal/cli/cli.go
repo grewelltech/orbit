@@ -46,6 +46,7 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newRunsCmd(&serverURL))
 	root.AddCommand(newLoadCmd())
 	root.AddCommand(newConformanceCmd())
+	root.AddCommand(newResponderCmd(version))
 	return root
 }
 

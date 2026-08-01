@@ -20,3 +20,4 @@ between real alternatives (not for routine implementation choices). Use
 | [0004](0004-fleet-population-mode.md) | A fleet/population mode for large dynamic scenarios | Proposed |
 | [0005](0005-server-owned-run-execution.md) | The server owns run execution; every client drives it through the API | Accepted |
 | [0006](0006-live-monitoring-surface.md) | Live monitoring: snapshot frames for aggregates, sequenced events for occurrences | Accepted |
+| [0007](0007-orbit-hosted-loom-responder.md) | ORBIT hosts the loom responder; stock loomd stays supported | Accepted |
