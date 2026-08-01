@@ -239,12 +239,63 @@ with capacity for concurrent runs.
 **D — Bare-metal reimage.** Cleanest, far too slow for per-merge. Mentioned only
 to be ruled out except as a periodic baseline.
 
-**Current lean, revised:** **B collapsed for T1–T3**, falling back to C if
-BESS-UPF will not run nested, and **C separated for the one tier that has to
-exercise real interface separation** (§5.1) plus T4, where a stable substrate
-matters more than build speed. The earlier lean was C throughout, on the
-assumption that a two-network build was unavoidable; the collapsed profile makes
-that assumption wrong for most tiers.
+**E — testbox layered OS** ([bgrewell/testbox](https://github.com/bgrewell/testbox)).
+An mkosi-built Ubuntu 24.04 image on btrfs subvolumes: an immutable `@base`, an
+ephemeral `@runtime` **recreated as a fresh snapshot of `@base` on every boot**,
+a `@hostid` carve-out so SSH identity survives, and named `@<state>` layers that
+can be saved, switched from the bootloader, and chained (a state may snapshot
+another state).
+
+*For:*
+- **Clean is the default, not a step.** Everything outside a saved layer is
+  discarded on reboot, so a leaked artifact requires someone to have gone out of
+  their way. Compare option A, where cleanliness depends on teardown running and
+  being verified. This inverts §6 from "assert seven things are clean" to "assert
+  nothing was deliberately persisted".
+- **Chained states map onto the topology matrix.** `@base` →
+  `@sdcore-deployed` → `@collapsed-all` / `@collapsed-n2n3` / `@separated`, so
+  each profile is a cheap snapshot off a shared converged core rather than a
+  separate deployment. Adding a profile is a snapshot.
+- **Restore replaces deploy.** Attacks §8 Q1 directly: bring-up becomes reboot +
+  service start + NF reconverge instead of a full SD-Core deploy.
+- **Deterministic starting state**, which is better than either cold or warm
+  (§7) — a fixed point on that curve rather than wherever the previous run left
+  things.
+- **The base is declarative** (mkosi), so the golden image is *derived*, not
+  hand-crafted. That is what stops this from recreating §1's drift problem at a
+  different level.
+- `bootctl set-oneshot` switching leaves the default target alone, so the box
+  returns to `fresh` on the following boot without an explicit cleanup step.
+
+*Against / to resolve:*
+- **`state export` / `import` is deferred (roadmap S5).** Named layers are local
+  to a box, so a layer cannot yet be built once and distributed to N runners.
+  **This is the blocking gap for multi-runner CI** — until it exists, either
+  every runner rebuilds its layers (slow, and reintroduces drift) or CI is
+  single-box.
+- **Journals do not survive an ephemeral reboot.** Deliberate, and correct for
+  isolation — but a failing CI run that reboots loses its logs, which is exactly
+  when they are wanted. Logs and artifacts must be shipped off-box *during* the
+  run, or the failure state saved as a layer for post-mortem before reset.
+- **Reset costs a reboot**, not a snapshot rollback of a running system, and NF
+  processes restart cold — memory state is not preserved. Real, but far cheaper
+  than redeploying.
+- **MongoDB on btrfs CoW** needs measuring before T4 numbers are trusted (§3.4
+  already flags Mongo as the first bottleneck found). CoW fragmentation under a
+  database is a known hazard; `chattr +C` is the usual mitigation and interacts
+  with snapshotting.
+- UEFI only, and the project has not been touched since 2026-05.
+
+**Current lean, revised again: E (testbox) as the substrate, hosting B or C.**
+The options are not exclusive — testbox supplies the *machine* and its
+clean-by-default guarantee, and the core still has to run on something inside it
+(an ephemeral k3s/RKE2 whose etcd lives on `@runtime`, so a reboot wipes the
+cluster too). That combination gets clean-by-default from E, cluster isolation
+from B, and real interface separation from C for the `separated` profile.
+
+Blocking question for E is roadmap S5 (`state export`/`import`), which decides
+whether CI can be multi-runner or stays single-box. Worth asking whether S5 moves
+up.
 
 ---
 
@@ -315,7 +366,11 @@ path.
    If bring-up is fast and profiles run in parallel, T2 across all profiles is
    affordable per-merge; if not, T2 falls back to primary-plus-rotating with the
    full matrix nightly. Decide with a measured number, not a guess.
-9. **Which profile is primary** (the T4 pin, and the one T2 always runs)?
+9. **Does testbox S5 (`state export`/`import`) land?** Decides multi-runner vs
+   single-box CI (§5.2 E). The highest-leverage dependency outside this repo.
+10. **Does MongoDB on btrfs CoW distort T4?** Measure before trusting any number
+    produced on a testbox substrate.
+11. **Which profile is primary** (the T4 pin, and the one T2 always runs)?
    `collapsed-n2n3` is the likely answer as the common dev shape, but the
    argument for `separated` is that it is what production looks like.
 4. **Which SD-Core version does CI track** — a pinned release, or `latest`? A
