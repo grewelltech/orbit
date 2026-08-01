@@ -286,6 +286,14 @@ another state).
   with snapshotting.
 - UEFI only, and the project has not been touched since 2026-05.
 
+*Filed against testbox* (2026-08-01), so the work has a home rather than living
+only in this document:
+[#1 state export/import](https://github.com/bgrewell/testbox/issues/1) (the
+multi-runner blocker),
+[#2 journals lost on ephemeral reboot](https://github.com/bgrewell/testbox/issues/2),
+[#3 CoW guidance for databases](https://github.com/bgrewell/testbox/issues/3),
+[#4 automation ergonomics for state switching](https://github.com/bgrewell/testbox/issues/4).
+
 **Current lean, revised again: E (testbox) as the substrate, hosting B or C.**
 The options are not exclusive — testbox supplies the *machine* and its
 clean-by-default guarantee, and the core still has to run on something inside it
@@ -368,8 +376,10 @@ path.
    full matrix nightly. Decide with a measured number, not a guess.
 9. **Does testbox S5 (`state export`/`import`) land?** Decides multi-runner vs
    single-box CI (§5.2 E). The highest-leverage dependency outside this repo.
+   Tracked as [testbox#1](https://github.com/bgrewell/testbox/issues/1).
 10. **Does MongoDB on btrfs CoW distort T4?** Measure before trusting any number
-    produced on a testbox substrate.
+    produced on a testbox substrate. Tracked as
+    [testbox#3](https://github.com/bgrewell/testbox/issues/3).
 11. **Which profile is primary** (the T4 pin, and the one T2 always runs)?
    `collapsed-n2n3` is the likely answer as the common dev shape, but the
    argument for `separated` is that it is what production looks like.
