@@ -9,6 +9,11 @@ treated as decided.
 against, and destroys — so a merge into `main` is gated by integration evidence
 that carries no state from any previous run.
 
+**And built in every network topology ORBIT must support** (§5.1). ORBIT is a
+test tool aimed at cores it does not control, so the deployment shape is part of
+what has to be validated, not a convenience CI picks. A configuration that is
+never exercised is a configuration ORBIT is not known to work in.
+
 ---
 
 ## 1. Why: leftover state is not hypothetical
@@ -103,15 +108,16 @@ attractive designs.
 ## 4. Test tiers
 
 Not everything can run per-merge if bring-up is minutes. Proposed split, to be
-confirmed once §8 Q1 is answered:
+confirmed once §8 Q1 is answered. The matrix is tiers x **topology profiles**
+(§5.1) — breadth is spent on the cheap tiers, depth on the primary profile.
 
-| Tier | Trigger | Needs a core? | Content |
-|---|---|---|---|
-| **T0 unit** | every push | no | `go test ./...`, `vet`, `gofmt`, `go mod tidy` drift |
-| **T1 smoke** | every merge to `main` | yes, fresh | NG Setup, one attach, one PDU session, one ping over N3, teardown |
-| **T2 integration** | every merge to `main` | yes, fresh | Multi-UE fleet, N2 + Xn handover with data continuity, app session (VoIP) |
-| **T3 conformance** | every merge, or nightly | yes, fresh | The `orbit conformance` suite — the negative tests that need an expendable core |
-| **T4 performance** | nightly / on demand | yes, fresh + warmed | Attach-rate sweep, soak, handover-under-load. Regression-tracked, not pass/fail on absolute numbers (§7) |
+| Tier | Trigger | Needs a core? | Topology (§5.1) | Content |
+|---|---|---|---|---|
+| **T0 unit** | every push | no | n/a | `go test ./...`, `vet`, `gofmt`, `go mod tidy` drift |
+| **T1 smoke** | every merge to `main` | yes, fresh | **all profiles** | NG Setup, one attach, one PDU session, one ping over N3, teardown |
+| **T2 integration** | every merge to `main` | yes, fresh | **all profiles** (or primary + rotating, full matrix nightly) | Multi-UE fleet, N2 + Xn handover with data continuity, app session (VoIP) |
+| **T3 conformance** | every merge, or nightly | yes, fresh | one per merge, full matrix nightly | The `orbit conformance` suite — the negative tests that need an expendable core |
+| **T4 performance** | nightly / on demand | yes, fresh + warmed | **pinned to one**; others tracked as separate trends | Attach-rate sweep, soak, handover-under-load. Regression-tracked, not pass/fail on absolute numbers (§7) |
 
 T0 already exists in `.github/workflows/ci.yml`. T1–T4 are what this document is
 about. The existing `integration.yml` documents the contract but has no runner.
@@ -120,38 +126,88 @@ about. The existing `integration.yml` documents the contract but has no runner.
 
 ## 5. Options for the ephemeral core
 
-### 5.1 Topology profile is a separate axis from isolation
+### 5.1 Network topology is a validated dimension, not a deployment choice
 
-Two supported shapes, and the choice is independent of how the core is built:
+ORBIT is a test tool: it has to work against whatever topology the core under
+test happens to be deployed in. So topology is not something CI picks for
+convenience — **every supported configuration is validated, every time**, because
+a configuration that is not exercised is a configuration ORBIT is not known to
+support.
 
-- **Collapsed** — N2, N3 and often N6 share one network. What SD-Core/Aether
-  developers commonly run. No Multus/macvlan, no second interface, so the RAN
-  and core can sit on one host and the user plane needs no special placement.
-- **Separated** — N2, N3 and N6 on distinct networks, as ATB-01 is built and as
-  a real deployment looks.
+#### The blind spots are mutually exclusive
 
-**Collapsed is the better default for most tiers.** It removes the constraint
-that currently forces user-plane and handover tests onto the RAN node, makes an
-ephemeral single-host build practical, and cuts the moving parts CI has to stand
-up and verify.
+This is the load-bearing argument for a matrix rather than a default. Each
+profile is blind to the other's failure mode:
 
-**But it cannot be the only profile.** A collapsed run cannot catch the class of
-bug where an interface is *selected* wrongly, because every interface is the same
-one: an N3 socket bound to the wrong address, an N3 address advertised that
-differs from the one actually used, or source-address selection that happens to
-work when everything is on one subnet. Those are exactly the failures that bit
-during Phase 1b/3 bring-up. Handover's distinct-routed-source-IP-per-gNB
-requirement is satisfiable with multiple addresses on one network, so it does
-*not* by itself force separation — but verifying that the AMF really keys on the
-association address does benefit from it.
+- **Collapsed-only** cannot catch a wrongly *selected* interface, because every
+  interface is the same one. An N3 socket bound to the wrong address, an N3
+  address advertised that differs from the one actually used, or source-address
+  selection that happens to work on a single subnet — all pass. These are the
+  failures that bit during Phase 1b/3 bring-up.
+- **Separated-only** cannot catch code that *assumes* separation. Anything that
+  implicitly relies on the N2 and N3 addresses being different — binding logic,
+  socket or port collisions when both planes share one address, demux keys that
+  are only unique because the addresses differ, dedup that silently collapses —
+  all pass when the addresses are distinct and break the moment they are not.
 
-Proposal: **run most tiers collapsed, and at least one tier separated**, so the
-fast path is cheap and interface-selection regressions still get caught. Which
-tier lands where depends on §8 Q1.
+Neither profile is a superset of the other, so neither can stand in for the
+other. Running one and inferring the other is how a tool ships broken against a
+deployment shape nobody tested.
 
-The dedicated test environment being stood up will mirror the CI build exactly
-and support both profiles, which removes the "works in CI, fails locally" gap
-before it opens.
+#### Named profiles
+
+Declared in-repo so tests reference them by name and every result is attributable
+to a topology:
+
+| Profile | N2 | N3 | N6 | Hosts | Represents |
+|---|---|---|---|---|---|
+| `collapsed-all` | shared | shared | shared | single | simplest dev setup; all planes on one network |
+| `collapsed-n2n3` | shared | shared | separate | single | the common SD-Core/Aether dev shape |
+| `separated` | distinct | distinct | distinct | split RAN/core | ATB-01, and what a real deployment looks like |
+
+Each profile must also exercise **multiple gNB addresses**, since handover
+requires a distinct routed source IP per gNB and that requirement interacts with
+topology differently in each shape.
+
+Adding a profile is how ORBIT records that it supports a new deployment shape.
+The list is expected to grow — IPv6 and dual-stack are the obvious next
+candidates once the matrix mechanism exists.
+
+#### Cost, and where it is spent
+
+A full matrix is tiers x profiles, which multiplies bring-up cost — the one thing
+§8 Q1 says we cannot yet size. The strategy is to make **breadth cheap and depth
+selective**:
+
+- **T1 smoke runs on every profile, every merge.** It is the cheapest tier and
+  it is exactly what catches "this configuration does not come up at all", which
+  is the most likely topology-specific breakage. Breadth here is the highest
+  value per second of CI time.
+- **T2 integration runs on every profile, every merge** if bring-up allows;
+  otherwise on the primary profile every merge plus a rotating second profile,
+  with the full matrix nightly. Handover and data continuity are where
+  interface-selection bugs actually surface, so this tier benefits most from
+  breadth.
+- **T3 conformance runs on one profile per merge, full matrix nightly.** The
+  checks are control-plane and largely topology-insensitive, so breadth buys
+  less here.
+- **T4 performance pins one profile.** Numbers are not comparable across
+  topologies, so a matrix would produce trend lines that move for reasons
+  unrelated to the change. Any other profile is benchmarked as its own separate
+  trend, never compared against the primary.
+
+Profiles run **in parallel** where capacity allows, so matrix breadth costs
+wall-clock once rather than N times.
+
+#### Failure attribution
+
+Every result records the profile it ran under, and a failure names it. "T2 failed"
+is not actionable; "T2 failed on `collapsed-all`, passed on `separated`" points
+straight at address-selection logic and is often the whole diagnosis.
+
+The dedicated test environment being stood up mirrors the CI build exactly and
+supports every profile, so a topology-specific failure is reproducible by hand
+without rebuilding CI's world.
 
 ### 5.2 Build options
 
@@ -255,9 +311,13 @@ path.
 3. **Where does CI run?** ATB-01 has no spare capacity for concurrent ephemeral
    environments. A dedicated environment is being stood up, mirroring the CI
    build and supporting both topology profiles. Concurrency limit: 1, or N?
-8. **Which tier runs separated?** §5.1 argues at least one must. T2 (handover +
-   data continuity) is the natural candidate, since it is where
-   interface-selection bugs would show. Confirm once bring-up cost is known.
+8. **Can the full matrix run per-merge, or only T1?** Depends entirely on Q1.
+   If bring-up is fast and profiles run in parallel, T2 across all profiles is
+   affordable per-merge; if not, T2 falls back to primary-plus-rotating with the
+   full matrix nightly. Decide with a measured number, not a guess.
+9. **Which profile is primary** (the T4 pin, and the one T2 always runs)?
+   `collapsed-n2n3` is the likely answer as the common dev shape, but the
+   argument for `separated` is that it is what production looks like.
 4. **Which SD-Core version does CI track** — a pinned release, or `latest`? A
    pinned digest makes ORBIT's results reproducible; `latest` makes CI an early
    warning for upstream regressions. Possibly both, on different tiers.
@@ -279,6 +339,9 @@ This is done when:
 
 - A merge to `main` triggers a build that stands up a core from pinned artifacts,
   provisions subscribers, runs T1–T3, tears down, and **verifies teardown**.
+- **Every supported network topology is exercised on every merge** at least at
+  T1, so no configuration is silently unvalidated, and every result names the
+  profile it ran under.
 - Any leftover from a previous run fails the build rather than silently changing
   a result.
 - The run artifact records exactly what was tested: image digests, chart values,
