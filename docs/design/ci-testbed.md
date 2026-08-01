@@ -69,12 +69,15 @@ CI must use fresh gNB IDs per run, or a fresh core makes that moot.
 These are measured or directly observed, not assumed. They rule out otherwise
 attractive designs.
 
-1. **N3 requires topology, not just reachability.** The UPF sends downlink GTP-U
-   to the gNB's N3 address, so the RAN host must own an address on the UPF's
-   access network. On ATB-01 that network is an isolated Multus/macvlan segment
-   unreachable from the control-plane host — which is why user-plane tests run
-   from the RAN node. Any CI design must reproduce a two-network topology, not
-   just "a core on some IP".
+1. **N3 needs the gNB's N3 address to be reachable from the UPF** — the UPF sends
+   downlink GTP-U there. On ATB-01 the access network is an isolated
+   Multus/macvlan segment unreachable from the control-plane host, which is why
+   user-plane tests run from the RAN node.
+   **That is a property of ATB-01's deployment, not a protocol requirement.**
+   SD-Core/Aether developers commonly run a **collapsed** topology with N2, N3
+   and often N6 sharing one network, and it is a supported configuration. CI can
+   therefore choose its topology rather than being forced into a two-network
+   build — see §5.1.
 2. **Handover needs a distinct routed source IP per gNB.** The AMF distinguishes
    gNBs by association address.
 3. **The BESS UPF wedges** under sustained load (data plane hangs; pod stays
@@ -117,6 +120,41 @@ about. The existing `integration.yml` documents the contract but has no runner.
 
 ## 5. Options for the ephemeral core
 
+### 5.1 Topology profile is a separate axis from isolation
+
+Two supported shapes, and the choice is independent of how the core is built:
+
+- **Collapsed** — N2, N3 and often N6 share one network. What SD-Core/Aether
+  developers commonly run. No Multus/macvlan, no second interface, so the RAN
+  and core can sit on one host and the user plane needs no special placement.
+- **Separated** — N2, N3 and N6 on distinct networks, as ATB-01 is built and as
+  a real deployment looks.
+
+**Collapsed is the better default for most tiers.** It removes the constraint
+that currently forces user-plane and handover tests onto the RAN node, makes an
+ephemeral single-host build practical, and cuts the moving parts CI has to stand
+up and verify.
+
+**But it cannot be the only profile.** A collapsed run cannot catch the class of
+bug where an interface is *selected* wrongly, because every interface is the same
+one: an N3 socket bound to the wrong address, an N3 address advertised that
+differs from the one actually used, or source-address selection that happens to
+work when everything is on one subnet. Those are exactly the failures that bit
+during Phase 1b/3 bring-up. Handover's distinct-routed-source-IP-per-gNB
+requirement is satisfiable with multiple addresses on one network, so it does
+*not* by itself force separation — but verifying that the AMF really keys on the
+association address does benefit from it.
+
+Proposal: **run most tiers collapsed, and at least one tier separated**, so the
+fast path is cheap and interface-selection regressions still get caught. Which
+tier lands where depends on §8 Q1.
+
+The dedicated test environment being stood up will mirror the CI build exactly
+and support both profiles, which removes the "works in CI, fails locally" gap
+before it opens.
+
+### 5.2 Build options
+
 Ordered by isolation strength. None chosen yet.
 
 **A — Kubernetes namespace per run.** Deploy SD-Core into a fresh namespace on a
@@ -129,9 +167,12 @@ against exactly the class of leftovers §1 describes.**
 
 **B — Ephemeral cluster per run** (kind / k3d / RKE2-in-VM).
 *For:* clean cluster state including CRDs and PVCs; destroy is a single
-operation; plausibly reproducible from a pinned manifest set.
-*Against:* the UPF needs privileges and multiple networks — whether BESS-UPF
-works in a nested cluster is **unverified** and is the main risk to this option.
+operation; plausibly reproducible from a pinned manifest set. **A collapsed
+topology (§5.1) removes the multi-network requirement, which was this option's
+main obstacle** — the remaining question is only whether BESS-UPF tolerates a
+nested cluster.
+*Against:* the UPF still needs privileges; nested-cluster support is
+**unverified** (§8 Q2).
 
 **C — Fresh VMs per run** (LXD/libvirt from a golden image).
 *For:* clean OS, kernel, interfaces and routes; reproduces the real two-node
@@ -142,10 +183,12 @@ with capacity for concurrent runs.
 **D — Bare-metal reimage.** Cleanest, far too slow for per-merge. Mentioned only
 to be ruled out except as a periodic baseline.
 
-**Current lean: C for T2–T4, possibly A for T1**, on the grounds that the
-two-network topology (§3.1) is the thing hardest to fake and most load-bearing
-for user-plane and handover tests. This is a lean, not a decision — B becomes
-much more attractive if BESS-UPF is shown to work nested.
+**Current lean, revised:** **B collapsed for T1–T3**, falling back to C if
+BESS-UPF will not run nested, and **C separated for the one tier that has to
+exercise real interface separation** (§5.1) plus T4, where a stable substrate
+matters more than build speed. The earlier lean was C throughout, on the
+assumption that a two-network build was unavoidable; the collapsed profile makes
+that assumption wrong for most tiers.
 
 ---
 
@@ -206,10 +249,15 @@ path.
    nightly for T2–T4. *Measure it: script the deploy and time to first successful
    `orbit cell ngsetup`.*
 2. **Does BESS-UPF work in a nested/ephemeral cluster (option B)?** Needs
-   privileges and Multus. If yes, B likely beats C on speed. *Spike it.*
-3. **Where does CI run?** ATB-01 is a two-node testbed with no spare capacity for
-   concurrent ephemeral environments. A dedicated CI host or hypervisor is
-   probably required. Concurrency limit: 1, or N?
+   privileges; a collapsed topology removes the Multus requirement, so this is
+   now the *only* thing standing between B and being the default for T1–T3.
+   *Spike it — highest-value single experiment in this document.*
+3. **Where does CI run?** ATB-01 has no spare capacity for concurrent ephemeral
+   environments. A dedicated environment is being stood up, mirroring the CI
+   build and supporting both topology profiles. Concurrency limit: 1, or N?
+8. **Which tier runs separated?** §5.1 argues at least one must. T2 (handover +
+   data continuity) is the natural candidate, since it is where
+   interface-selection bugs would show. Confirm once bring-up cost is known.
 4. **Which SD-Core version does CI track** — a pinned release, or `latest`? A
    pinned digest makes ORBIT's results reproducible; `latest` makes CI an early
    warning for upstream regressions. Possibly both, on different tiers.
