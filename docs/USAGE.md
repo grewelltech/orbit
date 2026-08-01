@@ -257,6 +257,16 @@ orbit load --amf <host:port> --base-imsi 208930100007500 --count 100 \
 
 # Linear ramp instead of a fixed rate ("find the knee"):
 orbit load ... --ramp 5:80:30          # 5→80 attach/s over 30s
+orbit load ... --rate 175 --arrival poisson   # exponential inter-arrivals
+
+`--arrival` selects the arrival process for the offered rate. The default
+`constant` meters arrivals evenly, which is the easy case for a core: a uniform
+175/s never presents the transient bursts a real 175/s does. `poisson` draws
+exponentially distributed inter-arrival times about the same mean, which is how
+independent subscriber attaches actually arrive. Near saturation the difference
+is material — measured against SD-Core at an offered 175/s, registration P50 was
+190 ms under `constant` and 244 ms under `poisson`, the same load presented
+honestly. Set `ORBIT_LOAD_SEED` to make the arrival sequence reproducible.
 
 # Multi-gNB muxing and per-UE data sessions:
 orbit load ... --gnb-count 4 --pdu-session --gnb-n3 <ip>

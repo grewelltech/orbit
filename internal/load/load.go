@@ -134,9 +134,12 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 	var mu sync.Mutex
 	succeeded, failed := 0, 0
 
-	// Offered-rate limiter, updated on a curve if one is configured.
+	// Offered-rate metering. A Rate that paces itself (Poisson) meters its own
+	// arrivals; everything else rides the smooth limiter, which spaces arrivals
+	// evenly at the curve's current rate.
+	selfPaced, _ := cfg.Rate.(pacer)
 	var lim *rate.Limiter
-	if cfg.Rate != nil {
+	if cfg.Rate != nil && selfPaced == nil {
 		lim = rate.NewLimiter(rate.Limit(nonZero(cfg.Rate.rps(0))), 1)
 	}
 	start := time.Now()
@@ -192,6 +195,10 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		}
 		if lim != nil {
 			if err := lim.Wait(ctx); err != nil {
+				break
+			}
+		} else if selfPaced != nil {
+			if err := selfPaced.waitNext(ctx, time.Since(start)); err != nil {
 				break
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ func newLoadCmd() *cobra.Command {
 	var (
 		amf, baseIMSI, ki, opc, mcc, mnc  string
 		gnbName, sd, dnn, gnbN3, rampSpec string
+		arrival                           string
 		count, conc, gnbCount             int
 		gnbID, gnbBits, tac, sst          uint32
 		rate, sloSuccess                  float64
@@ -45,7 +47,7 @@ func newLoadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			curve, err := parseRate(rate, rampSpec)
+			curve, err := parseRateArrival(rate, rampSpec, arrival)
 			if err != nil {
 				return err
 			}
@@ -116,6 +118,7 @@ func newLoadCmd() *cobra.Command {
 	f.IntVar(&conc, "concurrency", 64, "max attaches in flight")
 	f.Float64Var(&rate, "rate", 0, "offered attach rate (attaches/sec; 0 = concurrency-bound)")
 	f.StringVar(&rampSpec, "ramp", "", "linear ramp start:end:seconds (overrides --rate)")
+	f.StringVar(&arrival, "arrival", "constant", "arrival process for the offered rate: constant (evenly spaced) or poisson (exponential inter-arrivals)")
 	f.IntVar(&gnbCount, "gnb-count", 1, "number of gNBs to mux UEs across")
 	f.Uint32Var(&gnbID, "gnb-id", 1, "base gNB ID")
 	f.Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB ID bit length")
@@ -140,6 +143,37 @@ func newLoadCmd() *cobra.Command {
 
 // parseRate turns the --rate / --ramp flags into a load.Rate (nil = unbounded).
 func parseRate(rate float64, ramp string) (load.Rate, error) {
+	return parseRateArrival(rate, ramp, "")
+}
+
+// parseRateArrival turns --rate/--ramp into a load.Rate and, when arrival is
+// "poisson", wraps it so inter-arrival times are exponentially distributed
+// about that mean instead of evenly spaced. seed 0 leaves the sequence
+// nondeterministic; ORBIT_LOAD_SEED pins it for a reproducible run.
+func parseRateArrival(rate float64, ramp, arrival string) (load.Rate, error) {
+	curve, err := parseRateCurve(rate, ramp)
+	if err != nil || curve == nil {
+		return curve, err
+	}
+	switch arrival {
+	case "", "constant", "uniform":
+		return curve, nil
+	case "poisson":
+		var seed uint64
+		if v := os.Getenv("ORBIT_LOAD_SEED"); v != "" {
+			n, perr := strconv.ParseUint(v, 10, 64)
+			if perr != nil {
+				return nil, fmt.Errorf("ORBIT_LOAD_SEED must be a uint64, got %q", v)
+			}
+			seed = n
+		}
+		return load.NewPoisson(curve, seed), nil
+	default:
+		return nil, fmt.Errorf("--arrival must be constant or poisson, got %q", arrival)
+	}
+}
+
+func parseRateCurve(rate float64, ramp string) (load.Rate, error) {
 	if ramp != "" {
 		start, end, secs, err := parseRampSpec(ramp)
 		if err != nil {
