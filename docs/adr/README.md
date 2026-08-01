@@ -17,6 +17,6 @@ between real alternatives (not for routine implementation choices). Use
 | [0001](0001-reuse-free5gc-codecs.md) | Reuse free5gc codecs; build the differentiators clean-room | Accepted |
 | [0002](0002-strict-codecs-with-core-profiles.md) | Strict-by-default codecs; core quirks are opt-in and named | Accepted |
 | [0003](0003-scenario-entities-and-steps.md) | Scenario files: declare entities, then ordered steps | Accepted |
-| [0004](0004-fleet-population-mode.md) | A fleet/population mode for large dynamic scenarios | Proposed |
+| [0004](0004-fleet-population-mode.md) | A fleet/population mode for large dynamic scenarios | Accepted |
 | [0005](0005-server-owned-run-execution.md) | The server owns run execution; every client drives it through the API | Accepted |
 | [0006](0006-live-monitoring-surface.md) | Live monitoring: snapshot frames for aggregates, sequenced events for occurrences | Accepted |

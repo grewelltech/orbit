@@ -635,6 +635,20 @@ Before any TCP-derived number is claimed: (a) publish a netstack-vs-kernel bench
 
 ## 12. Phased roadmap (each phase independently demoable)
 
+**Status — all phases 0–7 SHIPPED.** Phase 0 `8dbd898` (DataStats + handover
+phase events); phases 1–3 in loom (tag v0.10 / v0.11); Phase 4 `86fa1f9` (VoIP
+over GTP-U, app sessions, N3 demux, correlation); Phase 5 `e7c2f32` (per-gNB
+`SharedTunnel` — one N3 socket per gNB, the multi-UE cutover); phases 6–7
+`77966b4` / PR #35 (real HTTP/TLS + video via the per-gNB gVisor netstack, and
+fleet app cohorts — `behaviors.traffic.mix` entries taking `app: voip|http|video`
+with per-cohort p5/p50/p95 aggregates). Single-UE entry points are
+`orbit ue app voip|http|video`; the fleet entry point is a cohort in a fleet
+scenario. SIP remains queued, as noted in Phase 7.
+
+Rationale for stating this here: the per-phase deliverables below read as
+forward-looking plans, and without a status line they invite the conclusion that
+the work is outstanding.
+
 ### Phase 0 — Cheap observability wins (orbit, one small PR)
 
 - **Deliverable:** DataStats RPC + 'orbit ue stats' exposing the existing per-QFI Tunnel.Stats; explicit timestamped handover-phase StateEvents in hub (HandoverStarted/Complete/PathSwitchComplete). No data-path changes.
