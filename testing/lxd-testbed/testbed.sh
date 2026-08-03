@@ -44,6 +44,38 @@ require_lxd() {
         || die "storage pool '$TESTBED_STORAGE_POOL' not found — set TESTBED_STORAGE_POOL (lxc storage list)"
 }
 
+# LXD clients on this host have been seen to wedge indefinitely on a trivial
+# write (`lxc profile create`) while the daemon stayed responsive to every other
+# command and `lxc operation list` was empty — a stuck client, not a stuck
+# daemon. Killing it and retrying then succeeded instantly, twice.
+#
+# The root cause is not established, so this does not claim to fix it: it bounds
+# it. Every mutating call goes through a timeout and is retried, which turns an
+# indefinite hang into a slow-but-completing run. Without this, a CI gate built
+# on LXD inherits an occasional unbounded stall.
+: "${TESTBED_LXC_TIMEOUT:=90}"
+: "${TESTBED_LXC_RETRIES:=3}"
+
+lxc_do() {
+    local attempt=1
+    while :; do
+        if timeout "$TESTBED_LXC_TIMEOUT" lxc "$@"; then
+            return 0
+        fi
+        local rc=$?
+        # 124 is timeout(1)'s "command timed out"; anything else is a real
+        # failure from lxc and should not be retried.
+        if [ "$rc" -ne 124 ]; then
+            return "$rc"
+        fi
+        if [ "$attempt" -ge "$TESTBED_LXC_RETRIES" ]; then
+            die "lxc $1 ${2:-} timed out ${TESTBED_LXC_RETRIES}x after ${TESTBED_LXC_TIMEOUT}s each — see README (LXD client wedge)"
+        fi
+        warn "lxc $1 ${2:-} timed out after ${TESTBED_LXC_TIMEOUT}s; retrying ($attempt/$TESTBED_LXC_RETRIES)"
+        attempt=$((attempt + 1))
+    done
+}
+
 exists_net()      { lxc network show "$1" >/dev/null 2>&1; }
 exists_instance() { lxc info "$1" >/dev/null 2>&1; }
 exists_profile()  { lxc profile show "$1" >/dev/null 2>&1; }
@@ -71,7 +103,7 @@ make_net() {
         return
     fi
     info "creating network $name ($cidr) — $desc"
-    lxc network create "$name" \
+    lxc_do network create "$name" \
         ipv4.address="$(net_host "$cidr")" \
         ipv4.nat="$TESTBED_NAT" \
         ipv6.address=none >/dev/null
@@ -90,8 +122,8 @@ cmd_networks() {
 make_profile() {
     exists_profile "$PROFILE" && return
     info "creating profile $PROFILE"
-    lxc profile create "$PROFILE" >/dev/null
-    lxc profile device add "$PROFILE" root disk pool="$TESTBED_STORAGE_POOL" path=/ >/dev/null
+    lxc_do profile create "$PROFILE" >/dev/null
+    lxc_do profile device add "$PROFILE" root disk pool="$TESTBED_STORAGE_POOL" path=/ >/dev/null
 }
 
 cidr_for() {
@@ -145,7 +177,7 @@ make_node() {
         return
     fi
     info "creating $name (${cpu} vCPU, $mem, $disk)"
-    lxc init "$IMAGE_ALIAS" "$name" --vm \
+    lxc_do init "$IMAGE_ALIAS" "$name" --vm \
         --profile "$PROFILE" \
         -c limits.cpu="$cpu" -c limits.memory="$mem" \
         -d root,size="$disk" >/dev/null 2>&1
@@ -154,16 +186,16 @@ make_node() {
     for spec in "$@"; do
         net=${spec%%:*}; octet=${spec##*:}
         cidr=$(cidr_for "$net")
-        lxc config device add "$name" "eth$i" nic network="$net" >/dev/null
+        lxc_do config device add "$name" "eth$i" nic network="$net" >/dev/null
         printf '      eth%s  %-12s %s\n' "$i" "$net" "$(net_addr "$cidr" "$octet")"
         i=$((i + 1))
     done
 
     # Set after the NICs exist, so the MACs are known.
-    lxc config set "$name" cloud-init.network-config="$(netcfg_for "$name" "$@")"
+    lxc_do config set "$name" cloud-init.network-config="$(netcfg_for "$name" "$@")"
     if [ -n "${TESTBED_SSH_PUBKEY:-}" ]; then
         [ -f "$TESTBED_SSH_PUBKEY" ] || die "TESTBED_SSH_PUBKEY='$TESTBED_SSH_PUBKEY' not found"
-        lxc config set "$name" cloud-init.user-data="$(printf '#cloud-config\nssh_authorized_keys:\n  - %s\n' "$(cat "$TESTBED_SSH_PUBKEY")")"
+        lxc_do config set "$name" cloud-init.user-data="$(printf '#cloud-config\nssh_authorized_keys:\n  - %s\n' "$(cat "$TESTBED_SSH_PUBKEY")")"
     fi
     info "$name will write its netplan on first boot"
 }
@@ -187,7 +219,7 @@ cmd_up() {
     for n in "$NODE_CORE" "$NODE_RAN" "$NODE_APP"; do
         [ "$(lxc info "$n" | awk '/^Status:/{print tolower($2)}')" = "running" ] && continue
         info "starting $n"
-        lxc start "$n"
+        lxc_do start "$n"
     done
 
     info "waiting for nodes to report addresses (up to 180s)"
@@ -252,7 +284,7 @@ cmd_down() {
     for n in "$NODE_CORE" "$NODE_RAN" "$NODE_APP"; do
         if exists_instance "$n"; then
             info "deleting $n"
-            lxc delete --force "$n" >/dev/null
+            lxc_do delete --force "$n" >/dev/null
         fi
     done
     exists_profile "$PROFILE" && { info "deleting profile $PROFILE"; lxc profile delete "$PROFILE" >/dev/null; }

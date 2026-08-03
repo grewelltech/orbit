@@ -163,9 +163,16 @@ and `lxc exec <node> -- cloud-init status`.
 
 **`lxc` hangs on an otherwise idle host.** Seen twice at `lxc profile create`,
 hung 20+ minutes while the daemon answered every other command instantly and
-`lxc operation list` was empty — a stuck client, not a stuck daemon. Kill the
-client by PID and re-run; it then completes immediately. Worth understanding
-before a CI gate depends on it.
+`lxc operation list` was empty — a stuck client, not a stuck daemon. Killing the
+client and re-running succeeded immediately both times.
+
+The script now bounds this rather than inheriting it: every mutating `lxc` call
+runs under a timeout and is retried (`TESTBED_LXC_TIMEOUT`, default 90s;
+`TESTBED_LXC_RETRIES`, default 3). A wedge becomes a slow run instead of an
+indefinite stall, and a genuine `lxc` error is not retried. The root cause is
+still unknown — the daemon log shows nothing at the hang times, and the host had
+17 concurrent LXD connections from another workload, which may or may not be
+related.
 
 **Storage pool not found.** Set `TESTBED_STORAGE_POOL` to a pool from
 `lxc storage list`.
