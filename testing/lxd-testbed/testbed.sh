@@ -22,8 +22,7 @@ P="$TESTBED_PREFIX"
 NET_MGMT="$P-mgmt"; NET_N2="$P-n2"; NET_N3="$P-n3"; NET_N6="$P-n6"
 NODE_CORE="$P-core"; NODE_RAN="$P-ran"; NODE_APP="$P-app"
 PROFILE="$P"
-IMAGE_ALIAS="$P-testbox"
-SEED_LABEL="ORBITNET"
+IMAGE_ALIAS="$P-base"
 
 die()  { echo "$PROG: $*" >&2; exit 1; }
 # Progress goes to stderr: some of these functions return a value on stdout,
@@ -50,131 +49,16 @@ exists_instance() { lxc info "$1" >/dev/null 2>&1; }
 exists_profile()  { lxc profile show "$1" >/dev/null 2>&1; }
 exists_image()    { lxc image info "$1" >/dev/null 2>&1; }
 
-# ── image ────────────────────────────────────────────────────────────────────
-
-resolve_testbox_dir() {
-    if [ -n "${TESTBOX_DIR:-}" ]; then
-        [ -f "$TESTBOX_DIR/mkosi.conf" ] || die "TESTBOX_DIR='$TESTBOX_DIR' does not look like a testbox checkout"
-        echo "$TESTBOX_DIR"; return
-    fi
-    local d="$TESTBED_CACHE_DIR/testbox"
-    if [ ! -d "$d/.git" ]; then
-        info "cloning testbox into $d"
-        mkdir -p "$(dirname "$d")"
-        git clone --quiet "$TESTBOX_REPO" "$d"
-    fi
-    echo "$d"
-}
-
-# Stage the operator's public key into the image tree. The testbox image has no
-# cloud-init and LXD's agent is not in it, so a key cannot be injected after the
-# build — it has to be present at build time or not at all.
-stage_ssh_key() {
-    local tbdir=$1 key=$2
-    local dest="$tbdir/mkosi.extra/root/.ssh/authorized_keys"
-    [ -f "$key" ] || die "TESTBED_SSH_PUBKEY='$key' not found"
-    mkdir -p "$(dirname "$dest")"
-    install -m 600 "$key" "$dest"
-    STAGED_KEY="$dest"
-    info "staged $(basename "$key") into the image build"
-}
-unstage_ssh_key() { [ -n "${STAGED_KEY:-}" ] && rm -f "$STAGED_KEY" && unset STAGED_KEY || true; }
-
-# The image is shared by every node, so it carries the *mechanism* for per-node
-# addressing (read a seed volume, install its netplan) while the addresses
-# themselves stay out of it.
-stage_overlay() {
-    local tbdir=$1 src="$HERE/image-overlay"
-    [ -d "$src" ] || die "image-overlay/ is missing from $HERE"
-    info "staging the netplan-seed overlay into the image build"
-    cp -a "$src/." "$tbdir/mkosi.extra/"
-    # Enable the unit the way systemd would, so no first-boot step is needed.
-    mkdir -p "$tbdir/mkosi.extra/etc/systemd/system/sysinit.target.wants"
-    ln -sf ../orbit-netcfg.service \
-        "$tbdir/mkosi.extra/etc/systemd/system/sysinit.target.wants/orbit-netcfg.service"
-}
-unstage_overlay() {
-    local tbdir=$1
-    rm -f "$tbdir/mkosi.extra/usr/local/sbin/orbit-netcfg" \
-          "$tbdir/mkosi.extra/etc/systemd/system/orbit-netcfg.service" \
-          "$tbdir/mkosi.extra/etc/systemd/system/sysinit.target.wants/orbit-netcfg.service"
-}
-
-build_image() {
-    local tbdir; tbdir=$(resolve_testbox_dir)
-    command -v mkosi >/dev/null 2>&1 \
-        || die "mkosi not found. testbox needs mkosi v26+: pipx install git+https://github.com/systemd/mkosi.git@v26"
-
-    info "building the testbox CLI"
-    ( cd "$tbdir" && make build ) >&2
-
-    [ -n "${TESTBED_SSH_PUBKEY:-}" ] && stage_ssh_key "$tbdir" "$TESTBED_SSH_PUBKEY"
-    stage_overlay "$tbdir"
-    trap 'unstage_ssh_key; unstage_overlay "$tbdir"' EXIT
-
-    # sudo resets PATH from secure_path, which drops ~/.local/bin — where pipx
-    # puts mkosi. Carry the caller's PATH through so the build finds it.
-    info "building the testbox OS image (needs sudo: the relayout step loop-mounts the raw image)"
-    # mkosi refuses to overwrite an existing output and testbox's relayout then
-    # fails, which silently leaves the *previous* image in place — the stale
-    # image gets re-imported and none of the staged changes are in it. Clear the
-    # output first so a build is always a build.
-    local out="$tbdir/mkosi.output"
-    [ -d "$out" ] && { info "clearing previous build output"; sudo rm -rf "$out"; }
-
-    # stdout is the function's return channel (the image path), so the build's
-    # own chatter is sent to stderr rather than captured with it.
-    if ! ( cd "$tbdir" && sudo env "PATH=$PATH" ./bin/testbox build ) >&2; then
-        die "testbox build failed"
-    fi
-
-    unstage_ssh_key; unstage_overlay "$tbdir"; trap - EXIT
-
-    local raw="$tbdir/mkosi.output/testbox.raw"
-    [ -f "$raw" ] || die "expected image at $raw but it is not there"
-    # relayout can fail while the build still exits 0, which would ship an image
-    # without @base — and so without the staged overlay.
-    grep -qa "@base" "$raw" 2>/dev/null || warn "no @base found in $raw; the relayout step may not have run"
-    echo "$raw"
-}
-
-# LXD wants a VM image as a metadata tarball plus a qcow2 root disk.
-import_image() {
-    local raw=$1 work="$TESTBED_CACHE_DIR/import"
-    command -v qemu-img >/dev/null 2>&1 || die "qemu-img not found (install qemu-utils)"
-    rm -rf "$work"; mkdir -p "$work"
-
-    info "converting the raw image to qcow2"
-    qemu-img convert -f raw -O qcow2 "$raw" "$work/disk.qcow2"
-
-    cat > "$work/metadata.yaml" <<EOF
-architecture: x86_64
-creation_date: $(date +%s)
-properties:
-  description: testbox (Ubuntu 24.04, btrfs layered) for the ORBIT LXD testbed
-  os: ubuntu
-  release: noble
-EOF
-    ( cd "$work" && tar -cJf metadata.tar.xz metadata.yaml )
-
-    exists_image "$IMAGE_ALIAS" && lxc image delete "$IMAGE_ALIAS" >/dev/null
-    info "importing as LXD image '$IMAGE_ALIAS'"
-    lxc image import "$work/metadata.tar.xz" "$work/disk.qcow2" --alias "$IMAGE_ALIAS" >/dev/null
-    rm -rf "$work"
-}
+# ── image ──────────────────────────────────────────────────────────────────────
+# Stock Ubuntu cloud images carry cloud-init and the LXD agent, so there is
+# nothing to build: addressing is injected as cloud-init network-config, and
+# `lxc exec` works. That is why this is a published image and not a bespoke one.
 
 cmd_image() {
     require_lxd
-    mkdir -p "$TESTBED_CACHE_DIR"
-    local raw
-    if [ -n "${TESTBOX_IMAGE:-}" ]; then
-        [ -f "$TESTBOX_IMAGE" ] || die "TESTBOX_IMAGE='$TESTBOX_IMAGE' not found"
-        raw="$TESTBOX_IMAGE"
-        info "using prebuilt image $raw"
-    else
-        raw=$(build_image)
-    fi
-    import_image "$raw"
+    info "pulling $TESTBED_IMAGE (cached by LXD after the first use)"
+    lxc image copy "$TESTBED_IMAGE" local: --alias "$IMAGE_ALIAS" --vm >/dev/null 2>&1 \
+        || info "image already present locally"
     info "image ready: $IMAGE_ALIAS"
 }
 
@@ -208,57 +92,6 @@ make_profile() {
     info "creating profile $PROFILE"
     lxc profile create "$PROFILE" >/dev/null
     lxc profile device add "$PROFILE" root disk pool="$TESTBED_STORAGE_POOL" path=/ >/dev/null
-    # testbox installs its own unsigned systemd-boot at the firmware fallback
-    # path, so LXD's default Secure Boot would refuse to boot it.
-    lxc profile set "$PROFILE" security.secureboot=false
-}
-
-# Build this node's seed volume: a small vfat image holding exactly its netplan.
-# Addressing is static and on disk, because Aether OnRamp and SD-Core read the
-# interface configuration from the filesystem — a DHCP lease leaves nothing for
-# them to inspect.
-make_seed() {
-    local name=$1; shift
-    local seed_dir="$TESTBED_CACHE_DIR/seeds" img="$TESTBED_CACHE_DIR/seeds/$name.iso"
-    local staging; staging=$(mktemp -d)
-    mkdir -p "$seed_dir"
-
-    {
-        echo "# Generated by testbed.sh for $name — do not edit on the node."
-        echo "network:"
-        echo "  version: 2"
-        echo "  renderer: networkd"
-        echo "  ethernets:"
-        local i=0 spec net octet cidr
-        for spec in "$@"; do
-            net=${spec%%:*}; octet=${spec##*:}
-            cidr=$(cidr_for "$net")
-            echo "    eth$i:"
-            echo "      match:"
-            echo "        macaddress: $(mac_of "$name" "eth$i")"
-            echo "      set-name: eth$i"
-            echo "      addresses: [$(net_addr "$cidr" "$octet")/${cidr##*/}]"
-            # Only the management network carries a default route: the 3GPP
-            # reference points are deliberately not a path off the testbed.
-            if [ "$net" = "$NET_MGMT" ]; then
-                echo "      routes:"
-                echo "        - to: default"
-                echo "          via: $(net_addr "$cidr" 1)"
-                echo "      nameservers:"
-                echo "        addresses: [$(net_addr "$cidr" 1)]"
-            fi
-            i=$((i + 1))
-        done
-    } > "$staging/60-orbit.yaml"
-
-    # An ISO, not a raw filesystem image: LXD attaches a disk device whose
-    # source is a loose file to a VM only as a CD-ROM. A raw .img is accepted in
-    # the config and then simply never appears on the guest's bus — verified by
-    # its absence from the generated qemu.conf.
-    rm -f "$img"
-    xorrisofs -quiet -V "$SEED_LABEL" -o "$img" "$staging" 2>/dev/null
-    rm -rf "$staging"
-    echo "$img"
 }
 
 cidr_for() {
@@ -271,9 +104,38 @@ cidr_for() {
     esac
 }
 
-# The netplan matches on MAC, so the guest's interface naming cannot drift from
-# what the script intended. Read it back from LXD after the NIC is attached.
-mac_of() { lxc config get "$1" "volatile.$2.hwaddr"; }
+# Emit this node's netplan. cloud-init writes it to /etc/netplan on first boot,
+# so the addressing exists as a file on the node — which is what Aether OnRamp
+# and SD-Core read to discover interfaces. A DHCP lease leaves nothing there.
+#
+# Interfaces are matched by MAC rather than by name so the mapping cannot drift
+# from what this script intended; the MACs are read back from LXD after the NICs
+# are attached.
+netcfg_for() {
+    local name=$1; shift
+    echo "version: 2"
+    echo "ethernets:"
+    local i=0 spec net octet cidr
+    for spec in "$@"; do
+        net=${spec%%:*}; octet=${spec##*:}
+        cidr=$(cidr_for "$net")
+        echo "  eth$i:"
+        echo "    match:"
+        echo "      macaddress: $(lxc config get "$name" "volatile.eth$i.hwaddr")"
+        echo "    set-name: eth$i"
+        echo "    addresses: [$(net_addr "$cidr" "$octet")/${cidr##*/}]"
+        # Only management carries a default route and DNS: the 3GPP reference
+        # points are deliberately not a path off the testbed.
+        if [ "$net" = "$NET_MGMT" ]; then
+            echo "    routes:"
+            echo "      - to: default"
+            echo "        via: $(net_addr "$cidr" 1)"
+            echo "    nameservers:"
+            echo "      addresses: [$(net_addr "$cidr" 1)]"
+        fi
+        i=$((i + 1))
+    done
+}
 
 # make_node <name> <cpu> <mem> <disk> <net:octet>...
 make_node() {
@@ -292,20 +154,22 @@ make_node() {
     for spec in "$@"; do
         net=${spec%%:*}; octet=${spec##*:}
         cidr=$(cidr_for "$net")
-        # No ipv4.address here: addressing is the seed's job, not DHCP's.
         lxc config device add "$name" "eth$i" nic network="$net" >/dev/null
         printf '      eth%s  %-12s %s\n' "$i" "$net" "$(net_addr "$cidr" "$octet")"
         i=$((i + 1))
     done
 
-    local seed; seed=$(make_seed "$name" "$@")
-    lxc config device add "$name" netseed disk source="$seed" >/dev/null
-    info "seeded $name with a static netplan"
+    # Set after the NICs exist, so the MACs are known.
+    lxc config set "$name" cloud-init.network-config="$(netcfg_for "$name" "$@")"
+    if [ -n "${TESTBED_SSH_PUBKEY:-}" ]; then
+        [ -f "$TESTBED_SSH_PUBKEY" ] || die "TESTBED_SSH_PUBKEY='$TESTBED_SSH_PUBKEY' not found"
+        lxc config set "$name" cloud-init.user-data="$(printf '#cloud-config\nssh_authorized_keys:\n  - %s\n' "$(cat "$TESTBED_SSH_PUBKEY")")"
+    fi
+    info "$name will write its netplan on first boot"
 }
 
 cmd_up() {
     require_lxd
-    exists_image "$IMAGE_ALIAS" || die "image '$IMAGE_ALIAS' not found — run '$PROG image' first"
     cmd_networks
     make_profile
 
@@ -326,8 +190,8 @@ cmd_up() {
         lxc start "$n"
     done
 
-    info "waiting for DHCP leases (up to 120s)"
-    local deadline=$((SECONDS + 120)) ready=0
+    info "waiting for nodes to report addresses (up to 180s)"
+    local deadline=$((SECONDS + 180)) ready=0
     while [ $SECONDS -lt $deadline ]; do
         ready=0
         for n in "$NODE_CORE" "$NODE_RAN" "$NODE_APP"; do
@@ -395,7 +259,6 @@ cmd_down() {
     for n in "$NET_MGMT" "$NET_N2" "$NET_N3" "$NET_N6"; do
         exists_net "$n" && { info "deleting network $n"; lxc network delete "$n" >/dev/null; }
     done
-    rm -rf "$TESTBED_CACHE_DIR/seeds"
     if [ "${1:-}" = "--image" ] && exists_image "$IMAGE_ALIAS"; then
         info "deleting image $IMAGE_ALIAS"
         lxc image delete "$IMAGE_ALIAS" >/dev/null

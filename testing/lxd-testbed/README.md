@@ -6,10 +6,11 @@ another, which is the point of this profile — see
 [`docs/design/ci-testbed.md`](../../docs/design/ci-testbed.md) §5.1 for why the
 topology is something to validate rather than a convenience to pick.
 
-Nodes run [testbox](https://github.com/bgrewell/testbox) images: Ubuntu 24.04 on
-btrfs with an immutable base and an ephemeral root that is recreated from that
-base on every boot. Nothing survives a reboot unless it was explicitly saved as
-a layer, so the testbed is clean by default rather than clean-if-torn-down.
+Nodes run **stock Ubuntu 24.04 cloud images**. Cleanliness comes from rebuilding
+rather than from an ephemeral root: `down` then `up` is fast, so a run always
+starts from a known image. Addressing is static and written to disk by
+cloud-init, because Aether OnRamp and SD-Core discover interfaces by reading the
+network configuration from the filesystem — a DHCP lease leaves nothing there.
 
 This creates the machines and the wiring only. Deploying a 5G core onto them is
 a separate step.
@@ -58,37 +59,29 @@ Defaults — all configurable, see [Configuration](#configuration):
 The host holds `.1` on every bridge, so all four networks are reachable from the
 host with no extra routing.
 
-Addresses are **LXD DHCP reservations**, not in-guest configuration. The testbox
-image already DHCPs every wired interface, so nodes come up on predictable
-addresses without the image being customised per deployment.
+Addresses are **static netplan**, injected per node as `cloud-init.network-config`
+and written to `/etc/netplan/50-cloud-init.yaml` on first boot. Interfaces are
+matched by the MAC LXD assigned rather than by name, so the mapping cannot drift
+from what the script intended. Only the management interface carries a default
+route and DNS.
 
 ## Prerequisites
 
 - **LXD** with the VM (qemu) driver and a usable storage pool. Assumed present.
-- **qemu-utils** — `qemu-img`, to convert the testbox raw image to qcow2.
-- To *build* a testbox image (not needed if you have one):
-  **mkosi v26+**, plus the host packages testbox lists — `debootstrap`,
-  `mtools`, `btrfs-progs`, `systemd-container`, `dosfstools`, `squashfs-tools`,
-  `bubblewrap`, `debian-archive-keyring`, `ovmf`, `qemu-system-x86`. Ubuntu
-  noble does not ship a new enough mkosi:
-  ```sh
-  pipx install git+https://github.com/systemd/mkosi.git@v26
-  ```
-  The build needs `sudo` — testbox loop-mounts the raw image to create its
-  `@base` and `@hostid` subvolumes.
+- Network access to pull `ubuntu:24.04` the first time. Nothing is built locally.
 
 ## Usage
 
 ```sh
 cd testing/lxd-testbed
 
-./testbed.sh image     # build the testbox image and import it into LXD
+./testbed.sh image     # pull ubuntu:24.04 into LXD (once)
 ./testbed.sh up        # create networks + nodes and start them
 ./testbed.sh status    # what is running, and where
 ```
 
-`image` is the slow step and only needs repeating when the image should change.
-Point `TESTBOX_IMAGE` at an existing `testbox.raw` to skip the build entirely.
+`image` just caches the base image locally; `up` is safe to re-run and leaves
+existing instances alone. Point `TESTBED_IMAGE` elsewhere for a different base.
 
 Tear down:
 
@@ -102,29 +95,20 @@ environment on the same host is never at risk.
 
 ## Access
 
-**Console — always works, needs nothing:**
+The Ubuntu images carry the LXD agent, so:
 
 ```sh
-./testbed.sh console core     # detach with ctrl-a q
+lxc exec orbit-core -- bash            # straight in
+./testbed.sh console core              # console; detach with ctrl-a q
 ```
 
-The testbox image autologins root on the serial console.
-
-**SSH — needs a key baked in at image build time:**
+For SSH, set `TESTBED_SSH_PUBKEY` before `up` and cloud-init installs the key
+for the `ubuntu` user:
 
 ```sh
-TESTBED_SSH_PUBKEY=~/.ssh/id_ed25519.pub ./testbed.sh image
-./testbed.sh up
+TESTBED_SSH_PUBKEY=~/.ssh/id_ed25519.pub ./testbed.sh up
 ./testbed.sh ssh core
 ```
-
-The image carries no cloud-init, and LXD's guest agent is not in it, so a key
-cannot be injected after the fact — it is present from the build or not at all.
-The script stages the key into the image tree for the build and removes it
-afterwards, so the testbox checkout is left clean.
-
-> `lxc exec` does **not** work against these nodes. That needs the LXD agent,
-> which a custom OS image does not carry. Use `console` or `ssh`.
 
 ## Configuration
 
@@ -154,44 +138,34 @@ needs to pull images during bring-up.
 
 ## Notes and known edges
 
-**Secure Boot is disabled** on these VMs. testbox installs its own
-`systemd-bootx64.efi` at the UEFI fallback path, and that binary is not signed,
-so LXD's default Secure Boot would refuse to boot it.
+**The host routes between the bridges.** Each node's default route points at the
+management gateway, which is the host, and the host holds an address on all four
+bridges — so a node can reach an address on a network it has no interface on
+(`orbit-ran` can ping the core's N6 address). The L2 separation that matters for
+catching interface-selection bugs still holds: each node only has NICs on the
+reference points it belongs to, and traffic it *originates* leaves by the right
+interface. If a test needs true isolation, drop forwarding between the bridges
+on the host.
 
-**Journals do not survive a reboot.** That is the testbox ephemerality
-guarantee working as designed, but it means a node that reboots loses its logs.
-Collect anything needed before rebooting, or promote the state to a named layer
-first (`testbox state save <name>` inside the guest). Tracked upstream as
-[testbox#2](https://github.com/bgrewell/testbox/issues/2).
+**Extra gNB source addresses are not configured.** Handover needs a distinct
+routed source IP per gNB. Adding them is a netplan edit on `orbit-ran`, which
+belongs with RAN setup rather than here.
 
-**Layers are local to a node.** testbox cannot yet export or import a saved
-layer, so a known-good state cannot be moved between machines. This is the main
-gap between this testbed and a multi-runner CI —
-[testbox#1](https://github.com/bgrewell/testbox/issues/1).
-
-**Extra gNB source addresses are not configured yet.** Handover needs a distinct
-routed source IP per gNB, and LXD reserves one address per NIC. Additional N3
-addresses on `orbit-ran` need to be added in-guest, which belongs with the RAN
-setup step rather than here.
-
-**Databases on btrfs.** The root filesystem is copy-on-write, which is a known
-hazard for database write patterns and could colour benchmark results. Worth
-measuring before trusting performance numbers taken here —
-[testbox#3](https://github.com/bgrewell/testbox/issues/3).
+**`lxc profile create` has hung for 20+ minutes** twice on this host while the
+daemon stayed responsive to every other command. Killing the stuck client and
+re-running completed instantly. See Troubleshooting.
 
 ## Troubleshooting
 
-**A node has no address.** Check the console — the guest DHCPs `en*`/`eth*`, so
-a missing lease usually means it has not finished booting, or the image was
-built without the expected netplan. `./testbed.sh status` shows what LXD sees.
+**A node has no address.** cloud-init writes the netplan on first boot, so give
+it a moment. Check with `lxc exec <node> -- cat /etc/netplan/50-cloud-init.yaml`
+and `lxc exec <node> -- cloud-init status`.
 
-**`lxc start` fails with a Secure Boot or EFI error.** The profile should carry
-`security.secureboot=false`; confirm with
-`lxc profile show orbit`.
-
-**`image` fails in mkosi.** mkosi must be v26 or newer (`mkosi --version`);
-noble's archive version is too old. The build also needs the host packages
-listed above.
+**`lxc` hangs on an otherwise idle host.** Seen twice at `lxc profile create`,
+hung 20+ minutes while the daemon answered every other command instantly and
+`lxc operation list` was empty — a stuck client, not a stuck daemon. Kill the
+client by PID and re-run; it then completes immediately. Worth understanding
+before a CI gate depends on it.
 
 **Storage pool not found.** Set `TESTBED_STORAGE_POOL` to a pool from
 `lxc storage list`.
