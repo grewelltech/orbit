@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Stand up an LXD testbed for ORBIT: three testbox VMs on separated N2/N3/N6
+# Stand up an LXD testbed for ORBIT: three Ubuntu VMs on separated N2/N3/N6
 # networks. See README.md for usage, topology and troubleshooting.
 #
 # Every LXD object created here carries TESTBED_PREFIX, so `down` removes
@@ -39,7 +39,7 @@ require_lxd() {
     command -v lxc >/dev/null 2>&1 || die "lxc not found — LXD is a prerequisite (see README)"
     lxc info >/dev/null 2>&1 || die "cannot talk to the LXD daemon; is it running and is $USER in the lxd group?"
     lxc info 2>/dev/null | grep -q "qemu" \
-        || die "this LXD has no VM (qemu) driver; the testbox image is a full OS image and needs a VM"
+        || die "this LXD has no VM (qemu) driver; these nodes are VMs, not containers"
     lxc storage show "$TESTBED_STORAGE_POOL" >/dev/null 2>&1 \
         || die "storage pool '$TESTBED_STORAGE_POOL' not found — set TESTBED_STORAGE_POOL (lxc storage list)"
 }
@@ -270,7 +270,7 @@ usage() {
     cat <<EOF
 $PROG — LXD testbed for ORBIT (separated N2/N3/N6)
 
-  $PROG image              build (or import) the testbox image
+  $PROG image              cache the base image locally (once)
   $PROG up                 create networks and nodes, then start them
   $PROG status             show networks, nodes and addresses
   $PROG console <node>     attach to a node's console (autologin root)
