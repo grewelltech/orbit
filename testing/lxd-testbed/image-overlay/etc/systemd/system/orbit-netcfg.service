@@ -1,0 +1,16 @@
+[Unit]
+Description=Install this node's netplan from its seed volume
+Documentation=https://github.com/grewelltech/orbit/blob/main/testing/lxd-testbed/README.md
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs.target
+Wants=systemd-udev-settle.service
+Before=network-pre.target systemd-networkd.service
+RequiresMountsFor=/etc
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/orbit-netcfg
+
+[Install]
+WantedBy=sysinit.target
