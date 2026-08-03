@@ -219,7 +219,7 @@ make_profile() {
 # them to inspect.
 make_seed() {
     local name=$1; shift
-    local seed_dir="$TESTBED_CACHE_DIR/seeds" img="$TESTBED_CACHE_DIR/seeds/$name.img"
+    local seed_dir="$TESTBED_CACHE_DIR/seeds" img="$TESTBED_CACHE_DIR/seeds/$name.iso"
     local staging; staging=$(mktemp -d)
     mkdir -p "$seed_dir"
 
@@ -251,10 +251,12 @@ make_seed() {
         done
     } > "$staging/60-orbit.yaml"
 
+    # An ISO, not a raw filesystem image: LXD attaches a disk device whose
+    # source is a loose file to a VM only as a CD-ROM. A raw .img is accepted in
+    # the config and then simply never appears on the guest's bus — verified by
+    # its absence from the generated qemu.conf.
     rm -f "$img"
-    truncate -s 1M "$img"
-    mkfs.vfat -n "$SEED_LABEL" "$img" >/dev/null
-    MTOOLS_SKIP_CHECK=1 mcopy -i "$img" "$staging/60-orbit.yaml" ::60-orbit.yaml
+    xorrisofs -quiet -V "$SEED_LABEL" -o "$img" "$staging" 2>/dev/null
     rm -rf "$staging"
     echo "$img"
 }
