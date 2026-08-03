@@ -110,6 +110,47 @@ TESTBED_SSH_PUBKEY=~/.ssh/id_ed25519.pub ./testbed.sh up
 ./testbed.sh ssh core
 ```
 
+## Deploying the core (not yet automated)
+
+**Status: the machines and wiring are automated; the core install is not.** What
+follows is the design and the one real obstacle found, so the work starts from a
+known position rather than from scratch.
+
+### The obstacle: OnRamp collapses N3 and N6 by default
+
+Aether OnRamp keys the whole data plane off a single `core.data_iface`, and its
+stock values file uses that one interface as the macvlan parent for **both** UPF
+sides — `deps/5gc/roles/core/templates/radio-5g-values.yaml`:
+
+```yaml
+      access:                       # N3
+        cniPlugin: macvlan
+        iface: {{ core.data_iface }}
+      core:                         # N6
+        cniPlugin: macvlan
+        iface: {{ core.data_iface }}
+```
+
+That is the collapsed data plane. Pointing `core.data_iface` at one of our NICs
+would put N3 and N6 on the same wire and defeat the point of this testbed.
+
+**The way through is `core.values_file`**, which OnRamp already exposes as a
+setting. Supply a values file that sets `access.iface` to the node's N3
+interface (`eth2`) and `core.iface` to its N6 interface (`eth3`), leaving N2 to
+the AMF on `eth1`. Nothing in OnRamp needs patching — this is a supported
+extension point, and it is the piece to build next.
+
+### Remaining steps
+
+1. Install OnRamp on `orbit-core` at `ONRAMP_VERSION`, with a generated
+   `vars/main.yml` (AMF IP on the N2 address, UPF subnets matching N3/N6) and a
+   custom `core.values_file` per above.
+2. Run `make aether-k8s-install` then `make aether-5gc-install`.
+3. Install the ORBIT reflector on `orbit-app`, bound to its N6 address.
+4. Build and install ORBIT on `orbit-ran` at `ORBIT_VERSION`.
+
+Each becomes a `testbed.sh` subcommand so `up` can run the lot.
+
 ## Configuration
 
 [`testbed.conf`](testbed.conf) holds every tunable with its default and the
