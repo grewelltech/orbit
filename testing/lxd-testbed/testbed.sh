@@ -246,6 +246,102 @@ cmd_up() {
     cmd_status
 }
 
+# ── core (SD-Core via OnRamp) ────────────────────────────────────────────────
+
+# on_core <cmd...> — run a shell command on the core node as root.
+on_core() { lxc_do exec "$NODE_CORE" -- bash -lc "$*"; }
+
+cmd_core() {
+    require_lxd
+    exists_instance "$NODE_CORE" || die "$NODE_CORE not found — run '$PROG up' first"
+
+    local n2 n3p n6p access_ip core_ip
+    n2=$(net_addr "$TESTBED_NET_N2" "$TESTBED_HOST_CORE")
+    n3p=$(net_prefix "$TESTBED_NET_N3"); n6p=$(net_prefix "$TESTBED_NET_N6")
+    access_ip=$(net_addr "$TESTBED_NET_N3" "$TESTBED_UPF_ACCESS_IP")
+    core_ip=$(net_addr "$TESTBED_NET_N6" "$TESTBED_UPF_CORE_IP")
+
+    info "installing OnRamp prerequisites on $NODE_CORE"
+    on_core "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git make ansible >/dev/null" \
+        || die "could not install prerequisites (is NAT on? see TESTBED_NAT)"
+
+    # OnRamp expects helm on PATH but does not install it — its k8s role only
+    # pins a version. The Aether reference host carries a get_helm.sh for the
+    # same reason.
+    if ! on_core "command -v helm >/dev/null"; then
+        info "installing helm (OnRamp requires it but does not provide it)"
+        on_core "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash >/dev/null 2>&1" \
+            || die "could not install helm"
+    fi
+
+    info "fetching OnRamp${ONRAMP_VERSION:+ at $ONRAMP_VERSION}"
+    on_core "rm -rf $TESTBED_ONRAMP_DIR && git clone -q $ONRAMP_REPO $TESTBED_ONRAMP_DIR" \
+        || die "could not clone OnRamp from $ONRAMP_REPO"
+    if [ -n "${ONRAMP_VERSION:-}" ]; then
+        on_core "cd $TESTBED_ONRAMP_DIR && git checkout -q $ONRAMP_VERSION" || die "no such OnRamp ref: $ONRAMP_VERSION"
+    fi
+
+    # Ansible runs on the node against itself, so there are no SSH keys to manage.
+    info "writing inventory and vars"
+    on_core "printf '%s\n' '[all]' 'node1 ansible_host=127.0.0.1 ansible_connection=local ansible_user=root' '' '[master_nodes]' 'node1' '' '[worker_nodes]' '' '[gnbsim_nodes]' '' '[router_nodes]' > $TESTBED_ONRAMP_DIR/hosts.ini"
+
+    # data_iface_n6 does not exist in stock OnRamp; the patched values template
+    # below is what consumes it.
+    on_core "cd $TESTBED_ONRAMP_DIR && python3 -c \"
+import re
+p='vars/main.yml'; s=open(p).read()
+s=re.sub(r'^  data_iface:.*\$', '  data_iface: eth.n3\\n  data_iface_n6: eth.n6', s, flags=re.M)
+s=re.sub(r'^  values_file:.*\$', '  values_file: \\\"deps/5gc/roles/core/templates/radio-5g-values.yaml\\\"', s, flags=re.M)
+s=re.sub(r'^  ran_subnet:.*\$', '  ran_subnet: \\\"\\\"', s, flags=re.M)
+s=re.sub(r'^    ip: .*\$', '    ip: \\\"$n2\\\"', s, flags=re.M)
+s=re.sub(r'^        ue_ip_pool:.*\$', '        ue_ip_pool: \\\"$TESTBED_UE_POOL\\\"', s, flags=re.M)
+open(p,'w').write(s)
+\""
+
+    info "patching the UPF values template for separated interfaces"
+    on_core "cd $TESTBED_ONRAMP_DIR && python3 -c \"
+p='deps/5gc/roles/core/templates/radio-5g-values.yaml'; s=open(p).read()
+# macvlan makes a virtual child of one parent, which is what allows the
+# collapsed model. host-device moves the real NIC into the pod, so each plane
+# needs its own interface — that is what makes the separation real.
+s=s.replace(chr(123)+chr(123)+chr(32)+chr(39)+'vfioveth'+chr(39)+' if core.upf.mode == '+chr(39)+'dpdk'+chr(39)+' else '+chr(39)+'macvlan'+chr(39)+chr(32)+chr(125)+chr(125), 'host-device')
+lines=s.split(chr(10)); seen=False
+for i,l in enumerate(lines):
+    if l.strip()=='core:': seen=True
+    if seen and 'core.data_iface' in l and 'data_iface_n6' not in l:
+        lines[i]=l.replace('core.data_iface','core.data_iface_n6'); break
+s=chr(10).join(lines)
+for a,b in [('gateway: '+chr(123)+chr(123)+' access_gw '+chr(125)+chr(125),'gateway: $n3p.0.1'),
+            ('ip: '+chr(123)+chr(123)+' access_ip '+chr(125)+chr(125),'ip: $access_ip/16'),
+            ('gateway: '+chr(123)+chr(123)+' core_gw '+chr(125)+chr(125),'gateway: $n6p.0.1'),
+            ('ip: '+chr(123)+chr(123)+' core_ip '+chr(125)+chr(125),'ip: $core_ip/16')]:
+    s=s.replace(a,b)
+open(p,'w').write(s)
+\""
+
+    info "interface mapping as applied:"
+    on_core "cd $TESTBED_ONRAMP_DIR && grep -nE 'data_iface|ue_ip_pool|ran_subnet' vars/main.yml | sed 's/^/    /' && grep -nE 'host-device|data_iface' deps/5gc/roles/core/templates/radio-5g-values.yaml | sed 's/^/    /'"
+
+    info "installing Kubernetes (slow)"
+    on_core "cd $TESTBED_ONRAMP_DIR && make k8s-install" || die "k8s install failed"
+
+    # Deliberately not 5gc-install: that depends on 5gc-router-install, which
+    # assumes the collapsed single-interface model.
+    info "installing SD-Core, skipping the router step"
+    on_core "cd $TESTBED_ONRAMP_DIR && make 5gc-core-install" || die "SD-Core install failed"
+
+    cmd_core_status
+}
+
+cmd_core_status() {
+    require_lxd
+    echo "core pods"
+    lxc exec "$NODE_CORE" -- bash -lc 'kubectl -n aether-5gc get pods --no-headers 2>/dev/null' 2>/dev/null | sed 's/^/  /' || echo "  (kubectl not answering)"
+    echo
+    echo "host interfaces (eth.n3/eth.n6 leave once the UPF pod owns them)"
+    lxc exec "$NODE_CORE" -- ip -br -4 addr show 2>/dev/null | sed 's/^/  /'
+}
+
 # ── status / access / teardown ───────────────────────────────────────────────
 
 cmd_status() {
@@ -314,6 +410,8 @@ $PROG — LXD testbed for ORBIT (separated N2/N3/N6)
   $PROG image              cache the base image locally (once)
   $PROG up                 create networks and nodes, then start them
   $PROG status             show networks, nodes and addresses
+  $PROG core               deploy SD-Core onto the core node via OnRamp
+  $PROG core-status        show the core pods and interfaces
   $PROG console <node>     attach to a node's console (autologin root)
   $PROG ssh <node> [cmd]   ssh to a node (needs TESTBED_SSH_PUBKEY at build time)
   $PROG down [--image]     remove everything this script created
@@ -330,6 +428,8 @@ case "${1:-}" in
     up)       shift; cmd_up "$@" ;;
     networks) shift; cmd_networks "$@" ;;
     status)   shift; cmd_status "$@" ;;
+    core)     shift; cmd_core "$@" ;;
+    core-status) shift; cmd_core_status "$@" ;;
     console)  shift; cmd_console "$@" ;;
     ssh)      shift; cmd_ssh "$@" ;;
     down)     shift; cmd_down "$@" ;;

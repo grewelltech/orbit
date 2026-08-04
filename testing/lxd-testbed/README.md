@@ -135,48 +135,58 @@ TESTBED_SSH_PUBKEY=~/.ssh/id_ed25519.pub ./testbed.sh up
 ./testbed.sh ssh core
 ```
 
-## Deploying the core (not yet automated)
+## Deploying the core
 
-**Status: the machines and wiring are automated; the core install is not.** What
-follows is the design and the one real obstacle found, so the work starts from a
-known position rather than from scratch.
-
-### The obstacle: OnRamp collapses N3 and N6 by default
-
-Aether OnRamp keys the whole data plane off a single `core.data_iface`, and its
-stock values file uses that one interface as the macvlan parent for **both** UPF
-sides — `deps/5gc/roles/core/templates/radio-5g-values.yaml`:
-
-```yaml
-      access:                       # N3
-        cniPlugin: macvlan
-        iface: {{ core.data_iface }}
-      core:                         # N6
-        cniPlugin: macvlan
-        iface: {{ core.data_iface }}
+```sh
+./testbed.sh core           # OnRamp -> Kubernetes -> SD-Core, ~15 min
+./testbed.sh core-status    # pods and interfaces
 ```
 
-That is the collapsed data plane. Pointing `core.data_iface` at one of our NICs
-would put N3 and N6 on the same wire and defeat the point of this testbed.
+Automated end to end. Version is pinned by `ONRAMP_VERSION`, and everything the
+core needs is installed on the node — nothing is assumed present.
 
-**The way through is `core.values_file`**, which OnRamp already exposes as a
-setting. Supply a values file that sets `access.iface` to the node's N3
-interface (`eth2`) and `core.iface` to its N6 interface (`eth3`), leaving N2 to
-the AMF on `eth1`. Nothing in OnRamp needs patching — this is a supported
-extension point, and it is the piece to build next.
+### Why this is not stock OnRamp
 
-### Remaining steps
+OnRamp deploys **one collapsed data interface** by default. Separated N3/N6
+needs three deviations, matching the Aether team's own reference setup:
 
-1. Install OnRamp on `orbit-core` at `ONRAMP_VERSION`, with a generated
-   `vars/main.yml` (AMF IP on the N2 address, UPF subnets matching N3/N6) and a
-   custom `core.values_file` per above.
-2. Run `make aether-k8s-install` then `make aether-5gc-install`.
-3. Install the ORBIT reflector on `orbit-app`, bound to its N6 address.
-4. Build and install ORBIT on `orbit-ran` at `ORBIT_VERSION`.
+1. **Skip `5gc-router-install`.** It assumes the collapsed model. The script
+   calls `make 5gc-core-install` directly rather than `5gc-install`, so no
+   vendored Makefile has to be edited.
+2. **A `data_iface_n6` variable**, which stock OnRamp does not have.
+   `data_iface` becomes N3, `data_iface_n6` becomes N6.
+3. **`cniPlugin: macvlan` → `host-device`** on both UPF sides. This is the
+   change that actually separates them, and the one most easily missed:
+   `macvlan` makes a virtual child of one parent NIC so several pods can share
+   it — which is exactly what lets the collapsed model work. `host-device`
+   **moves the real NIC into the pod's namespace**, so each plane needs its own.
 
-Each becomes a `testbed.sh` subcommand so `up` can run the lot.
+The script applies all three and prints the resulting mapping before installing,
+so a wrong interface is visible before it costs 15 minutes.
 
-## Configuration
+### What to expect afterwards
+
+**`eth.n3` and `eth.n6` disappear from the core node.** `host-device` moves
+them into the UPF pod, addresses and all. This is correct, not a fault:
+
+```
+# on orbit-core                    # inside the UPF pod
+eth.mgmt   10.100.0.10/16          access   10.103.0.100/16
+eth.n2     10.102.0.10/16          core     10.106.0.100/16
+```
+
+The AMF takes the node's N2 address (`10.102.0.10`) and exposes NGAP on
+38412/SCTP, so a gNB on `orbit-ran` reaches it over N2 while user-plane traffic
+rides N3 to the UPF — genuinely separate paths.
+
+### Helm
+
+OnRamp requires `helm` but does not install it; its k8s role only pins a
+version. The script installs it, having watched the stock path fail with
+`Failed to find required executable "helm"`. (The Aether reference host carries
+a `get_helm.sh` for the same reason.)
+
+## Configuration## Configuration
 
 [`testbed.conf`](testbed.conf) holds every tunable with its default and the
 reasoning behind it. Three ways to override, in increasing precedence:
