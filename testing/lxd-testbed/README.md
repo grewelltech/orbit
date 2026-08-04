@@ -228,12 +228,26 @@ Both run as systemd units, so they survive a reboot and a failure is visible in
 | Node | Unit | Listens on |
 |---|---|---|
 | `orbit-app` | `orbit-responder` | `10.106.0.30:9551` — **N6 only** |
-| `orbit-ran` | `orbit` | `127.0.0.1:8412` |
+| `orbit-ran` | `orbit` | `0.0.0.0:8412` — API **and** dashboard |
 
 The responder binds its N6 address specifically rather than `0.0.0.0`: it is a
 remotely-aimable traffic generator and has no business answering on the
-management network. The API server binds loopback because it carries subscriber
-credentials and every client command runs on that node anyway.
+management network. The API server binds all interfaces because the same port
+serves the monitoring dashboard, which is worth reaching from a browser on the
+lab network:
+
+```sh
+# orbit-ran's management address
+xdg-open http://10.100.0.20:8412/
+```
+
+Warning: the API is unauthenticated and carries subscriber credentials (Ki /
+OPc). Binding it broadly is a lab-only posture, safe here because the testbed's
+networks are private to the LXD host — do not copy it onto a routed network.
+
+The dashboard is embedded into the binary at build time, so a build made
+without `make ui` starts fine but logs `dashboard assets not embedded` and
+serves a placeholder at `/`.
 
 ## Verifying the whole path
 
@@ -281,12 +295,26 @@ Both run as systemd units, so they survive a reboot and a failure is visible in
 | Node | Unit | Listens on |
 |---|---|---|
 | `orbit-app` | `orbit-responder` | `10.106.0.30:9551` — **N6 only** |
-| `orbit-ran` | `orbit` | `127.0.0.1:8412` |
+| `orbit-ran` | `orbit` | `0.0.0.0:8412` — API **and** dashboard |
 
 The responder binds its N6 address specifically rather than `0.0.0.0`: it is a
 remotely-aimable traffic generator and has no business answering on the
-management network. The API server binds loopback because it carries subscriber
-credentials and every client command runs on that node anyway.
+management network. The API server binds all interfaces because the same port
+serves the monitoring dashboard, which is worth reaching from a browser on the
+lab network:
+
+```sh
+# orbit-ran's management address
+xdg-open http://10.100.0.20:8412/
+```
+
+Warning: the API is unauthenticated and carries subscriber credentials (Ki /
+OPc). Binding it broadly is a lab-only posture, safe here because the testbed's
+networks are private to the LXD host — do not copy it onto a routed network.
+
+The dashboard is embedded into the binary at build time, so a build made
+without `make ui` starts fine but logs `dashboard assets not embedded` and
+serves a placeholder at `/`.
 
 ## Verifying the whole path
 

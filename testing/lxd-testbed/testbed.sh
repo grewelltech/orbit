@@ -475,11 +475,14 @@ cmd_ran() {
     bin=$(build_orbit)
     push_orbit "$NODE_RAN" "$bin"
 
-    # The API server binds loopback: every orbit client command runs on this
-    # node, and the API carries subscriber credentials.
+    # The API server binds all interfaces so the monitoring dashboard it
+    # serves on the same port is reachable from the lab network, not just
+    # from this node's shell. Warning: the API is unauthenticated and carries
+    # subscriber credentials (Ki/OPc), so this is a lab-only posture — the
+    # testbed's networks are private to the LXD host.
     info "starting the ORBIT API server"
     install_unit "$NODE_RAN" orbit "ORBIT API server" \
-        "/usr/local/bin/orbit serve --listen 127.0.0.1:8412"
+        "/usr/local/bin/orbit serve --listen 0.0.0.0:8412"
     # An already-running unit keeps the previous binary; restart so a
     # reinstall actually takes effect.
     lxc_do exec "$NODE_RAN" -- systemctl restart orbit >/dev/null 2>&1 || true
