@@ -327,6 +327,22 @@ start=int('$TESTBED_SUB_START'); end=start+$TESTBED_SUB_COUNT-1
 w=len('$TESTBED_SUB_START')
 s=re.sub(r'ueId-start: \\\"[0-9]+\\\"', 'ueId-start: \\\"%0*d\\\"' % (w,start), s)
 s=re.sub(r'ueId-end: \\\"[0-9]+\\\"',   'ueId-end: \\\"%0*d\\\"'   % (w,end),   s)
+# The device-group carries an explicit IMSI list, separate from the ueId
+# range. The range alone provisions authentication and AM data, but policy
+# and SM data come from this list — so a UE outside it authenticates and
+# then fails registration. Both have to grow together.
+lines=s.split(chr(10)); out=[]; i=0
+while i < len(lines):
+    if lines[i].strip() == 'imsis:':
+        indent = lines[i][:len(lines[i])-len(lines[i].lstrip())] + '  '
+        out.append(lines[i]); i += 1
+        while i < len(lines) and lines[i].strip().startswith('- \\\"0'):
+            i += 1
+        for n in range(start, end+1):
+            out.append('%s- \\\"%0*d\\\"' % (indent, w, n))
+        continue
+    out.append(lines[i]); i += 1
+s=chr(10).join(out)
 open(p,'w').write(s)
 \""
 
@@ -428,6 +444,15 @@ cmd_app() {
     # Bound to the N6 address specifically, not 0.0.0.0: the responder is a
     # remotely-aimable traffic generator and has no business on the management
     # network.
+    # Downlink needs a route back to the UE pool via the UPF's N6 address,
+    # otherwise traffic reaches the app server and the replies are dropped —
+    # the path looks broken in one direction only.
+    local upf_n6; upf_n6=$(net_addr "$TESTBED_NET_N6" "$TESTBED_UPF_CORE_IP")
+    info "routing the UE pool ($TESTBED_UE_POOL) back via the UPF at $upf_n6"
+    install_unit "$NODE_APP" orbit-ue-route "Route the UE pool back through the UPF" \
+        "/sbin/ip route replace $TESTBED_UE_POOL via $upf_n6 dev eth.n6"
+    lxc_do exec "$NODE_APP" -- bash -c "sed -i 's|^Restart=on-failure|Type=oneshot\nRemainAfterExit=yes|' /etc/systemd/system/orbit-ue-route.service && systemctl daemon-reload && systemctl restart orbit-ue-route" >/dev/null 2>&1 || true
+
     info "starting the responder on $n6:9551"
     install_unit "$NODE_APP" orbit-responder "ORBIT responder (loom agent) on N6" \
         "/usr/local/bin/orbit responder --bind $n6:9551"
