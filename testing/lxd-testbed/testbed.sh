@@ -409,7 +409,14 @@ build_orbit() {
 push_orbit() {
     local node=$1 bin=$2
     info "installing orbit on $node"
-    lxc_do file push "$bin" "$node/usr/local/bin/orbit" --mode 0755 >/dev/null
+    # A running unit holds the binary open, so writing over it fails with
+    # "text file busy". Land it beside the target and rename into place: the
+    # rename swaps the directory entry, which the running process does not
+    # block, and the old inode goes when it exits.
+    lxc_do file push "$bin" "$node/usr/local/bin/orbit.new" --mode 0755 >/dev/null \
+        || die "could not copy orbit to $node"
+    lxc_do exec "$node" -- mv -f /usr/local/bin/orbit.new /usr/local/bin/orbit \
+        || die "could not install orbit on $node"
 }
 
 # A unit rather than a bare process, so the node survives a reboot with the
@@ -456,6 +463,7 @@ cmd_app() {
     info "starting the responder on $n6:9551"
     install_unit "$NODE_APP" orbit-responder "ORBIT responder (loom agent) on N6" \
         "/usr/local/bin/orbit responder --bind $n6:9551"
+    lxc_do exec "$NODE_APP" -- systemctl restart orbit-responder >/dev/null 2>&1 || true
     lxc_do exec "$NODE_APP" -- systemctl is-active orbit-responder >/dev/null \
         && info "responder active" || warn "responder did not come up; check journalctl -u orbit-responder"
 }
@@ -472,6 +480,9 @@ cmd_ran() {
     info "starting the ORBIT API server"
     install_unit "$NODE_RAN" orbit "ORBIT API server" \
         "/usr/local/bin/orbit serve --listen 127.0.0.1:8412"
+    # An already-running unit keeps the previous binary; restart so a
+    # reinstall actually takes effect.
+    lxc_do exec "$NODE_RAN" -- systemctl restart orbit >/dev/null 2>&1 || true
     lxc_do exec "$NODE_RAN" -- systemctl is-active orbit >/dev/null \
         && info "orbit serve active" || warn "orbit did not come up; check journalctl -u orbit"
 }
