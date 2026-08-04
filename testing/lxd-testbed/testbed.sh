@@ -342,6 +342,97 @@ cmd_core_status() {
     lxc exec "$NODE_CORE" -- ip -br -4 addr show 2>/dev/null | sed 's/^/  /'
 }
 
+# ── orbit (reflector on the app node, ORBIT on the RAN node) ─────────────────
+
+# ORBIT is built here on the host and the binary pushed to the nodes. That
+# keeps repository credentials off the testbed, and is faster than installing a
+# Go toolchain on each node. ORBIT_VERSION picks the ref; empty builds the
+# working tree as-is, which is what you want mid-change.
+build_orbit() {
+    local repo_root out="$TESTBED_CACHE_DIR/orbit"
+    repo_root=$(cd "$HERE/../.." && pwd)
+    mkdir -p "$TESTBED_CACHE_DIR"
+    command -v go >/dev/null 2>&1 || die "go not found on this host; needed to build ORBIT"
+
+    if [ -n "${ORBIT_VERSION:-}" ]; then
+        info "building ORBIT at $ORBIT_VERSION"
+        local wt="$TESTBED_CACHE_DIR/orbit-src"
+        rm -rf "$wt"
+        git -C "$repo_root" worktree prune >/dev/null 2>&1 || true
+        git -C "$repo_root" worktree add -q --detach "$wt" "$ORBIT_VERSION" \
+            || die "no such ORBIT ref: $ORBIT_VERSION"
+        ( cd "$wt" && CGO_ENABLED=0 go build -o "$out" ./cmd/orbit ) >&2 || die "ORBIT build failed"
+        git -C "$repo_root" worktree remove --force "$wt" >/dev/null 2>&1 || true
+    else
+        info "building ORBIT from the working tree"
+        ( cd "$repo_root" && CGO_ENABLED=0 go build -o "$out" ./cmd/orbit ) >&2 || die "ORBIT build failed"
+    fi
+    echo "$out"
+}
+
+push_orbit() {
+    local node=$1 bin=$2
+    info "installing orbit on $node"
+    lxc_do file push "$bin" "$node/usr/local/bin/orbit" --mode 0755 >/dev/null
+}
+
+# A unit rather than a bare process, so the node survives a reboot with the
+# service still up and the failure mode is visible in systemctl.
+install_unit() {
+    local node=$1 name=$2 desc=$3 execstart=$4
+    lxc_do exec "$node" -- bash -c "cat > /etc/systemd/system/$name.service <<'EOF'
+[Unit]
+Description=$desc
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=$execstart
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now $name.service" >/dev/null
+}
+
+cmd_app() {
+    require_lxd
+    exists_instance "$NODE_APP" || die "$NODE_APP not found — run '$PROG up' first"
+    local bin n6
+    bin=$(build_orbit)
+    n6=$(net_addr "$TESTBED_NET_N6" "$TESTBED_HOST_APP")
+    push_orbit "$NODE_APP" "$bin"
+
+    # Bound to the N6 address specifically, not 0.0.0.0: the responder is a
+    # remotely-aimable traffic generator and has no business on the management
+    # network.
+    info "starting the responder on $n6:9551"
+    install_unit "$NODE_APP" orbit-responder "ORBIT responder (loom agent) on N6" \
+        "/usr/local/bin/orbit responder --bind $n6:9551"
+    lxc_do exec "$NODE_APP" -- systemctl is-active orbit-responder >/dev/null \
+        && info "responder active" || warn "responder did not come up; check journalctl -u orbit-responder"
+}
+
+cmd_ran() {
+    require_lxd
+    exists_instance "$NODE_RAN" || die "$NODE_RAN not found — run '$PROG up' first"
+    local bin
+    bin=$(build_orbit)
+    push_orbit "$NODE_RAN" "$bin"
+
+    # The API server binds loopback: every orbit client command runs on this
+    # node, and the API carries subscriber credentials.
+    info "starting the ORBIT API server"
+    install_unit "$NODE_RAN" orbit "ORBIT API server" \
+        "/usr/local/bin/orbit serve --listen 127.0.0.1:8412"
+    lxc_do exec "$NODE_RAN" -- systemctl is-active orbit >/dev/null \
+        && info "orbit serve active" || warn "orbit did not come up; check journalctl -u orbit"
+}
+
+cmd_apps() { cmd_app; cmd_ran; }
+
 # ── status / access / teardown ───────────────────────────────────────────────
 
 cmd_status() {
@@ -412,6 +503,9 @@ $PROG — LXD testbed for ORBIT (separated N2/N3/N6)
   $PROG status             show networks, nodes and addresses
   $PROG core               deploy SD-Core onto the core node via OnRamp
   $PROG core-status        show the core pods and interfaces
+  $PROG app                install the ORBIT responder on the app node (N6)
+  $PROG ran                install ORBIT on the RAN node
+  $PROG apps               both of the above
   $PROG console <node>     attach to a node's console (autologin root)
   $PROG ssh <node> [cmd]   ssh to a node (needs TESTBED_SSH_PUBKEY at build time)
   $PROG down [--image]     remove everything this script created
@@ -430,6 +524,9 @@ case "${1:-}" in
     status)   shift; cmd_status "$@" ;;
     core)     shift; cmd_core "$@" ;;
     core-status) shift; cmd_core_status "$@" ;;
+    app)      shift; cmd_app "$@" ;;
+    ran)      shift; cmd_ran "$@" ;;
+    apps)     shift; cmd_apps "$@" ;;
     console)  shift; cmd_console "$@" ;;
     ssh)      shift; cmd_ssh "$@" ;;
     down)     shift; cmd_down "$@" ;;

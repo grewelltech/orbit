@@ -186,7 +186,87 @@ version. The script installs it, having watched the stock path fail with
 `Failed to find required executable "helm"`. (The Aether reference host carries
 a `get_helm.sh` for the same reason.)
 
-## Configuration## Configuration
+## Installing ORBIT and the responder
+
+```sh
+./testbed.sh apps          # both of the below
+./testbed.sh app           # responder on orbit-app, bound to N6
+./testbed.sh ran           # ORBIT on orbit-ran
+```
+
+ORBIT is built **on the host** and the binary pushed to the nodes. That keeps
+repository credentials off the testbed and is faster than putting a Go
+toolchain on each node. `ORBIT_VERSION` selects the ref; empty builds the
+working tree as-is, which is what you want mid-change.
+
+Both run as systemd units, so they survive a reboot and a failure is visible in
+`systemctl` rather than a lost process:
+
+| Node | Unit | Listens on |
+|---|---|---|
+| `orbit-app` | `orbit-responder` | `10.106.0.30:9551` — **N6 only** |
+| `orbit-ran` | `orbit` | `127.0.0.1:8412` |
+
+The responder binds its N6 address specifically rather than `0.0.0.0`: it is a
+remotely-aimable traffic generator and has no business answering on the
+management network. The API server binds loopback because it carries subscriber
+credentials and every client command runs on that node anyway.
+
+## Verifying the whole path
+
+With the core deployed and ORBIT installed, this exercises N2 for real:
+
+```sh
+lxc exec orbit-ran -- orbit cell ngsetup --amf 10.102.0.10:38412 \
+    --mcc 001 --mnc 01 --tac 1 --sst 1 --sd 010203 --gnb-id 1
+# NG Setup accepted by AMF "AMF"
+```
+
+The deployed core uses PLMN `001/01`, TAC 1, slice `sst=1 sd=010203` — read
+from the values file with
+`grep -iE '^\s*(mcc|mnc|tac|sst|sd):' /opt/aether-onramp/deps/5gc/roles/core/templates/radio-5g-values.yaml`.
+
+## Configuration## Installing ORBIT and the responder
+
+```sh
+./testbed.sh apps          # both of the below
+./testbed.sh app           # responder on orbit-app, bound to N6
+./testbed.sh ran           # ORBIT on orbit-ran
+```
+
+ORBIT is built **on the host** and the binary pushed to the nodes. That keeps
+repository credentials off the testbed and is faster than putting a Go
+toolchain on each node. `ORBIT_VERSION` selects the ref; empty builds the
+working tree as-is, which is what you want mid-change.
+
+Both run as systemd units, so they survive a reboot and a failure is visible in
+`systemctl` rather than a lost process:
+
+| Node | Unit | Listens on |
+|---|---|---|
+| `orbit-app` | `orbit-responder` | `10.106.0.30:9551` — **N6 only** |
+| `orbit-ran` | `orbit` | `127.0.0.1:8412` |
+
+The responder binds its N6 address specifically rather than `0.0.0.0`: it is a
+remotely-aimable traffic generator and has no business answering on the
+management network. The API server binds loopback because it carries subscriber
+credentials and every client command runs on that node anyway.
+
+## Verifying the whole path
+
+With the core deployed and ORBIT installed, this exercises N2 for real:
+
+```sh
+lxc exec orbit-ran -- orbit cell ngsetup --amf 10.102.0.10:38412 \
+    --mcc 001 --mnc 01 --tac 1 --sst 1 --sd 010203 --gnb-id 1
+# NG Setup accepted by AMF "AMF"
+```
+
+The deployed core uses PLMN `001/01`, TAC 1, slice `sst=1 sd=010203` — read
+from the values file with
+`grep -iE '^\s*(mcc|mnc|tac|sst|sd):' /opt/aether-onramp/deps/5gc/roles/core/templates/radio-5g-values.yaml`.
+
+## Configuration
 
 [`testbed.conf`](testbed.conf) holds every tunable with its default and the
 reasoning behind it. Three ways to override, in increasing precedence:
