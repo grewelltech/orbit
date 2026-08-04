@@ -30,10 +30,19 @@ die()  { echo "$PROG: $*" >&2; exit 1; }
 info() { echo "==> $*" >&2; }
 warn() { echo "$PROG: warning: $*" >&2; }
 
-# net_host <cidr> -> the .1 address LXD gives the host on that bridge
-net_host() { echo "${1%.*/*}.1/${1##*/}"; }
-# net_addr <cidr> <octet> -> a host address inside that subnet
-net_addr() { echo "${1%.*/*}.$2"; }
+# The networks are /16 with the reference point encoded in the second octet
+# (10.102 = N2 and so on), so an address is built from the network's first two
+# octets plus a host part like "0.10". The host part carries the remaining two
+# octets, which leaves the third free for growth into large populations.
+net_prefix() { echo "$1" | cut -d. -f1,2; }
+# net_host <cidr> -> the address LXD gives the host on that bridge
+net_host() { echo "$(net_prefix "$1").0.1/${1##*/}"; }
+# net_addr <cidr> <host-part> -> an address inside that subnet
+net_addr() { echo "$(net_prefix "$1").$2"; }
+
+# label_for <network-name> -> the reference point it carries ("n2", "mgmt", ...)
+# Names are prefixed, so stripping the prefix leaves the identity.
+label_for() { echo "${1#"$P-"}"; }
 
 require_lxd() {
     command -v lxc >/dev/null 2>&1 || die "lxc not found — LXD is a prerequisite (see README)"
@@ -147,25 +156,25 @@ netcfg_for() {
     local name=$1; shift
     echo "version: 2"
     echo "ethernets:"
-    local i=0 spec net octet cidr
+    local spec net octet cidr
     for spec in "$@"; do
         net=${spec%%:*}; octet=${spec##*:}
         cidr=$(cidr_for "$net")
-        echo "  eth$i:"
+        local label; label=$(label_for "$net")
+        echo "  eth.$label:"
         echo "    match:"
-        echo "      macaddress: $(lxc config get "$name" "volatile.eth$i.hwaddr")"
-        echo "    set-name: eth$i"
+        echo "      macaddress: $(lxc config get "$name" "volatile.eth.$label.hwaddr")"
+        echo "    set-name: eth.$label"
         echo "    addresses: [$(net_addr "$cidr" "$octet")/${cidr##*/}]"
         # Only management carries a default route and DNS: the 3GPP reference
         # points are deliberately not a path off the testbed.
         if [ "$net" = "$NET_MGMT" ]; then
             echo "    routes:"
             echo "      - to: default"
-            echo "        via: $(net_addr "$cidr" 1)"
+            echo "        via: $(net_addr "$cidr" 0.1)"
             echo "    nameservers:"
-            echo "      addresses: [$(net_addr "$cidr" 1)]"
+            echo "      addresses: [$(net_addr "$cidr" 0.1)]"
         fi
-        i=$((i + 1))
     done
 }
 
@@ -182,13 +191,13 @@ make_node() {
         -c limits.cpu="$cpu" -c limits.memory="$mem" \
         -d root,size="$disk" >/dev/null 2>&1
 
-    local i=0 spec net octet cidr
+    local spec net octet cidr
     for spec in "$@"; do
         net=${spec%%:*}; octet=${spec##*:}
         cidr=$(cidr_for "$net")
-        lxc_do config device add "$name" "eth$i" nic network="$net" >/dev/null
-        printf '      eth%s  %-12s %s\n' "$i" "$net" "$(net_addr "$cidr" "$octet")"
-        i=$((i + 1))
+        local label; label=$(label_for "$net")
+        lxc_do config device add "$name" "eth.$label" nic network="$net" >/dev/null
+        printf '      %-9s %-12s %s\n' "eth.$label" "$net" "$(net_addr "$cidr" "$octet")"
     done
 
     # Set after the NICs exist, so the MACs are known.

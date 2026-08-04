@@ -43,20 +43,45 @@ a separate step.
 
 Defaults — all configurable, see [Configuration](#configuration):
 
-| Network | Subnet | Carries |
-|---|---|---|
-| `orbit-mgmt` | `10.60.0.0/24` | operator access only; no 3GPP traffic |
-| `orbit-n2` | `10.60.2.0/24` | gNB ↔ AMF, NGAP over SCTP |
-| `orbit-n3` | `10.60.3.0/24` | gNB ↔ UPF, GTP-U |
-| `orbit-n6` | `10.60.6.0/24` | UPF ↔ data network |
+| Network | Subnet | Guest interface | Carries |
+|---|---|---|---|
+| `orbit-mgmt` | `10.100.0.0/16` | `eth.mgmt` | operator access only; no 3GPP traffic |
+| `orbit-n2` | `10.102.0.0/16` | `eth.n2` | gNB ↔ AMF, NGAP over SCTP |
+| `orbit-n3` | `10.103.0.0/16` | `eth.n3` | gNB ↔ UPF, GTP-U |
+| `orbit-n6` | `10.106.0.0/16` | `eth.n6` | UPF ↔ data network |
+
+**The addressing states which interface it belongs to.** The second octet
+encodes the reference point — `10.102` is N2, `10.103` is N3, `10.106` is N6 —
+so a packet capture, a routing table or a log line identifies its plane at a
+glance, with nothing to look up. Management is `10.100`, the odd one out.
+
+Each network is a `/16`, not a `/24`, so a run can grow into thousands of UE or
+gNB addresses without renumbering; the third octet is free for that.
+
+Interfaces are renamed to match, so `ip addr` on a node reads as the topology:
+
+```
+eth.mgmt   UP   10.100.0.10/16
+eth.n2     UP   10.102.0.10/16
+eth.n3     UP   10.103.0.10/16
+eth.n6     UP   10.106.0.10/16
+```
+
+`eth0`/`eth1` ordering is an enumeration accident and tells you nothing about
+which plane a NIC carries; a mis-wired interface is obvious with these names and
+invisible without them. cloud-init does the renaming via netplan `set-name`,
+matched on the MAC LXD assigned.
+
+(172.16/12 would encode the same way — 172.22, 172.23, 172.26 — but 172.26.0.0
+is already carrying traffic on this host.)
 
 | Node | mgmt | N2 | N3 | N6 | Size |
 |---|---|---|---|---|---|
-| `orbit-core` | `.10` | `.10` | `.10` | `.10` | 8 vCPU / 16 GiB / 60 GiB |
-| `orbit-ran` | `.20` | `.20` | `.20` | — | 4 vCPU / 8 GiB / 30 GiB |
-| `orbit-app` | `.30` | — | — | `.30` | 2 vCPU / 4 GiB / 20 GiB |
+| `orbit-core` | `.0.10` | `.0.10` | `.0.10` | `.0.10` | 8 vCPU / 16 GiB / 60 GiB |
+| `orbit-ran` | `.0.20` | `.0.20` | `.0.20` | — | 4 vCPU / 8 GiB / 30 GiB |
+| `orbit-app` | `.0.30` | — | — | `.0.30` | 2 vCPU / 4 GiB / 20 GiB |
 
-The host holds `.1` on every bridge, so all four networks are reachable from the
+The host holds `.0.1` on every bridge, so all four networks are reachable from the
 host with no extra routing.
 
 Addresses are **static netplan**, injected per node as `cloud-init.network-config`
