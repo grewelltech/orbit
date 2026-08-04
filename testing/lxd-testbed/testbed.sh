@@ -319,11 +319,31 @@ for a,b in [('gateway: '+chr(123)+chr(123)+' access_gw '+chr(125)+chr(125),'gate
 open(p,'w').write(s)
 \""
 
+    info "provisioning $TESTBED_SUB_COUNT test subscribers from $TESTBED_SUB_START"
+    on_core "cd $TESTBED_ONRAMP_DIR && python3 -c \"
+import re
+p='deps/5gc/roles/core/templates/radio-5g-values.yaml'; s=open(p).read()
+start=int('$TESTBED_SUB_START'); end=start+$TESTBED_SUB_COUNT-1
+w=len('$TESTBED_SUB_START')
+s=re.sub(r'ueId-start: \\\"[0-9]+\\\"', 'ueId-start: \\\"%0*d\\\"' % (w,start), s)
+s=re.sub(r'ueId-end: \\\"[0-9]+\\\"',   'ueId-end: \\\"%0*d\\\"'   % (w,end),   s)
+open(p,'w').write(s)
+\""
+
     info "interface mapping as applied:"
     on_core "cd $TESTBED_ONRAMP_DIR && grep -nE 'data_iface|ue_ip_pool|ran_subnet' vars/main.yml | sed 's/^/    /' && grep -nE 'host-device|data_iface' deps/5gc/roles/core/templates/radio-5g-values.yaml | sed 's/^/    /'"
 
     info "installing Kubernetes (slow)"
     on_core "cd $TESTBED_ONRAMP_DIR && make k8s-install" || die "k8s install failed"
+
+    # OnRamp's install task does not upgrade an existing release — a re-run
+    # leaves helm at the same revision and silently keeps the old values, so a
+    # changed subscriber range or interface mapping never takes effect. Remove
+    # the release first so this command is genuinely repeatable.
+    if on_core "helm -n aether-5gc status sd-core >/dev/null 2>&1"; then
+        info "existing SD-Core release found; removing it so new values apply"
+        on_core "cd $TESTBED_ONRAMP_DIR && make 5gc-core-uninstall" || die "SD-Core uninstall failed"
+    fi
 
     # Deliberately not 5gc-install: that depends on 5gc-router-install, which
     # assumes the collapsed single-interface model.
@@ -433,6 +453,17 @@ cmd_ran() {
 
 cmd_apps() { cmd_app; cmd_ran; }
 
+# Everything, in order, from nothing to a testbed ready to exercise.
+cmd_all() {
+    cmd_image
+    cmd_up
+    cmd_core
+    cmd_apps
+    echo
+    info "testbed ready"
+    cmd_status
+}
+
 # ── status / access / teardown ───────────────────────────────────────────────
 
 cmd_status() {
@@ -506,6 +537,7 @@ $PROG — LXD testbed for ORBIT (separated N2/N3/N6)
   $PROG app                install the ORBIT responder on the app node (N6)
   $PROG ran                install ORBIT on the RAN node
   $PROG apps               both of the above
+  $PROG all                image + up + core + apps, from nothing to ready
   $PROG console <node>     attach to a node's console (autologin root)
   $PROG ssh <node> [cmd]   ssh to a node (needs TESTBED_SSH_PUBKEY at build time)
   $PROG down [--image]     remove everything this script created
@@ -527,6 +559,7 @@ case "${1:-}" in
     app)      shift; cmd_app "$@" ;;
     ran)      shift; cmd_ran "$@" ;;
     apps)     shift; cmd_apps "$@" ;;
+    all)      shift; cmd_all "$@" ;;
     console)  shift; cmd_console "$@" ;;
     ssh)      shift; cmd_ssh "$@" ;;
     down)     shift; cmd_down "$@" ;;

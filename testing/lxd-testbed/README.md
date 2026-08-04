@@ -135,6 +135,16 @@ TESTBED_SSH_PUBKEY=~/.ssh/id_ed25519.pub ./testbed.sh up
 ./testbed.sh ssh core
 ```
 
+## From nothing to ready
+
+```sh
+./testbed.sh all      # image + up + core + apps
+```
+
+Roughly 20 minutes, most of it the core. The steps remain available
+individually, which is usually what you want: `up` rebuilds the VMs in ~2
+minutes without touching a working core.
+
 ## Deploying the core
 
 ```sh
@@ -178,6 +188,20 @@ eth.n2     10.102.0.10/16          core     10.106.0.100/16
 The AMF takes the node's N2 address (`10.102.0.10`) and exposes NGAP on
 38412/SCTP, so a gNB on `orbit-ran` reaches it over N2 while user-plane traffic
 rides N3 to the UPF — genuinely separate paths.
+
+### Subscribers
+
+OnRamp's stock values file provisions only **10** subscribers, which runs out
+immediately for any population test. `TESTBED_SUB_COUNT` (default 100) and
+`TESTBED_SUB_START` set the range, and the script rewrites `ueId-start` /
+`ueId-end` before installing.
+
+> **Re-running `core` removes and reinstalls the SD-Core release.** OnRamp's
+> install task does not *upgrade* an existing release — helm stays at the same
+> revision and silently keeps the old values, so a changed subscriber range or
+> interface mapping would never take effect. The script removes the release
+> first to make the command genuinely repeatable. **This reset path is written
+> but not yet verified end to end.**
 
 ### Helm
 
