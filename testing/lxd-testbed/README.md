@@ -200,8 +200,7 @@ immediately for any population test. `TESTBED_SUB_COUNT` (default 100) and
 > install task does not *upgrade* an existing release — helm stays at the same
 > revision and silently keeps the old values, so a changed subscriber range or
 > interface mapping would never take effect. The script removes the release
-> first to make the command genuinely repeatable. **This reset path is written
-> but not yet verified end to end.**
+> first to make the command genuinely repeatable.
 
 ### Helm
 
@@ -246,6 +245,19 @@ lxc exec orbit-ran -- orbit cell ngsetup --amf 10.102.0.10:38412 \
 # NG Setup accepted by AMF "AMF"
 ```
 
+And a full registration, which exercises 5G-AKA and NAS security:
+
+```sh
+lxc exec orbit-ran -- orbit ue register --amf 10.102.0.10:38412 \
+    --supi 001010100007500 --ki ffffffffffffffffffffffffffffffff \
+    --opc 00000000000000000000000000000000 \
+    --mcc 001 --mnc 01 --sst 1 --sd 010203 --gnb-id 11
+# UE 001010100007500 registered=true (AMF-UE-NGAP-ID 3404775)
+```
+
+Use a fresh `--gnb-id` per run: the AMF does not cleanly re-key a reused gNB ID
+from a new association.
+
 The deployed core uses PLMN `001/01`, TAC 1, slice `sst=1 sd=010203` — read
 from the values file with
 `grep -iE '^\s*(mcc|mnc|tac|sst|sd):' /opt/aether-onramp/deps/5gc/roles/core/templates/radio-5g-values.yaml`.
@@ -285,6 +297,19 @@ lxc exec orbit-ran -- orbit cell ngsetup --amf 10.102.0.10:38412 \
     --mcc 001 --mnc 01 --tac 1 --sst 1 --sd 010203 --gnb-id 1
 # NG Setup accepted by AMF "AMF"
 ```
+
+And a full registration, which exercises 5G-AKA and NAS security:
+
+```sh
+lxc exec orbit-ran -- orbit ue register --amf 10.102.0.10:38412 \
+    --supi 001010100007500 --ki ffffffffffffffffffffffffffffffff \
+    --opc 00000000000000000000000000000000 \
+    --mcc 001 --mnc 01 --sst 1 --sd 010203 --gnb-id 11
+# UE 001010100007500 registered=true (AMF-UE-NGAP-ID 3404775)
+```
+
+Use a fresh `--gnb-id` per run: the AMF does not cleanly re-key a reused gNB ID
+from a new association.
 
 The deployed core uses PLMN `001/01`, TAC 1, slice `sst=1 sd=010203` — read
 from the values file with
