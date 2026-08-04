@@ -68,3 +68,49 @@ func TestGNBAttributionLabel(t *testing.T) {
 		t.Error("distinct unnamed gNBs collapsed to the same label")
 	}
 }
+
+// TestSoakCyclesTheSubscriberPool: a soak runs for a duration rather than a
+// count, so its dispatch index climbs without bound. It must wrap onto the
+// provisioned population — walking past the last subscriber turns every
+// further attach into a failure against an unknown SUPI, which looks like the
+// core rejecting load when it is really the generator asking for UEs that were
+// never provisioned.
+func TestSoakCyclesTheSubscriberPool(t *testing.T) {
+	base := "001010100007500"
+	spec := LoadSpec{BaseIMSI: base, Count: 100, Duration: time.Second}
+
+	// Indices past the pool must fold back onto it.
+	for _, tc := range []struct {
+		idx  int
+		want string
+	}{
+		{0, "001010100007500"},
+		{99, "001010100007599"},
+		{100, "001010100007500"}, // wraps
+		{205, "001010100007505"},
+	} {
+		i := tc.idx
+		if spec.Duration > 0 && spec.Count > 0 {
+			i %= spec.Count
+		}
+		got, err := incIMSI(spec.BaseIMSI, i)
+		if err != nil {
+			t.Fatalf("incIMSI(%d): %v", tc.idx, err)
+		}
+		if got != tc.want {
+			t.Errorf("index %d -> %s, want %s", tc.idx, got, tc.want)
+		}
+	}
+
+	// A counted run must NOT wrap: asking for more UEs than are provisioned is
+	// a real error the operator should see, not something to paper over.
+	counted := LoadSpec{BaseIMSI: base, Count: 100}
+	i := 150
+	if counted.Duration > 0 && counted.Count > 0 {
+		i %= counted.Count
+	}
+	got, _ := incIMSI(counted.BaseIMSI, i)
+	if got != "001010100007650" {
+		t.Errorf("counted run wrapped to %s; it must not wrap", got)
+	}
+}

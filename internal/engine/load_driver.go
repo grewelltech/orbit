@@ -98,6 +98,16 @@ func RunLoad(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report,
 	defer f.Close()
 
 	makeUE := func(i int) (UEConfig, error) {
+		// A soak keeps offering attaches for its whole duration, so the
+		// dispatch index climbs without bound. Left alone it walks straight
+		// past the provisioned subscribers and every attach beyond the last
+		// one fails on an unknown SUPI — a 10s soak against 100 subscribers
+		// reports "100/205 attached", where the 105 failures say nothing about
+		// the core. Cycle the population instead: Count is the pool, and a
+		// soak re-attaches the same UEs, which is what a soak is for.
+		if spec.Duration > 0 && spec.Count > 0 {
+			i %= spec.Count
+		}
 		supi, err := incIMSI(spec.BaseIMSI, i)
 		if err != nil {
 			return UEConfig{}, err
