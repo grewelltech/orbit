@@ -316,6 +316,7 @@ export class ConnectSource implements TelemetrySource {
         name: c.name,
         app: c.app,
         ues: c.ues,
+        failed: c.failed,
         elapsedMs: Number(c.elapsedMs),
         mos: quantiles(c.mos),
         ttfbMs: quantiles(c.ttfbMs),

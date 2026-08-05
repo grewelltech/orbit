@@ -73,6 +73,8 @@ export interface CohortQuality {
   name: string;
   app: string;
   ues: number;
+  /** Members whose client could not start or died. */
+  failed: number;
   elapsedMs: number;
   mos: Quantiles | null;
   ttfbMs: Quantiles | null;

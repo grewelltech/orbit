@@ -78,9 +78,13 @@ type FleetFlow struct {
 // apply to the cohort's app stay nil rather than reporting zeros — a voip
 // cohort has no time-to-first-byte, and 0 ms would read as an instant one.
 type FleetCohort struct {
-	Name    string
-	App     string
-	UEs     int
+	Name string
+	App  string
+	UEs  int
+	// Failed is members whose client could not start or died. Reported live,
+	// not only in the end-of-run report: a cohort whose members are all
+	// failing otherwise looks like a healthy population until it stops.
+	Failed  int
 	Elapsed time.Duration
 
 	MOS           *FleetQuantiles

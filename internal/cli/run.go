@@ -157,9 +157,10 @@ func runFleet(cmd *cobra.Command, data []byte, metricsListen string) error {
 	fmt.Fprint(out, "…\n\n")
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	// nil stats and events: this is the local, in-process path, which prints
-	// the final report and has no telemetry or event subscriber to serve.
-	rep, err := engine.RunFleet(cmd.Context(), log, spec, beh, nil, nil)
+	// Zero deps: this is the local, in-process path — it prints the final
+	// report, has no telemetry or event subscriber, and owns its own N3
+	// sockets because there is no server Manager to share them with.
+	rep, err := engine.RunFleet(cmd.Context(), log, spec, beh, engine.FleetDeps{})
 	if err != nil {
 		return err
 	}

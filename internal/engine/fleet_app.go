@@ -716,8 +716,11 @@ func (cr *cohortRun) publishLive(live *FleetLiveStats, snaps []metrics.Snapshot,
 		return
 	}
 	v := cr.allValues(snaps)
+	cr.mu.Lock()
+	failed := cr.failed
+	cr.mu.Unlock()
 	live.RecordCohort(FleetCohort{
-		Name: cr.name, App: cr.app, UEs: ues, Elapsed: elapsed, FarEnd: farEnd,
+		Name: cr.name, App: cr.app, UEs: ues, Failed: failed, Elapsed: elapsed, FarEnd: farEnd,
 		MOS:           fleetQuantiles(v.mos),
 		TTFBMs:        fleetQuantiles(v.ttfb),
 		GoodputMbps:   fleetQuantiles(v.goodput),

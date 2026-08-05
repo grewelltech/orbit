@@ -249,6 +249,10 @@ message CohortProgress {
   string app = 2;            // "voip" | "http" | "video"
   uint32 ues = 3;            // members running a client
   int64 elapsed_ms = 4;      // how long the cohort has been running
+  // Members whose client could not start or died. Live, not just in the final
+  // report: a cohort failing wholesale otherwise reads as a healthy
+  // population right up until it stops.
+  uint32 failed = 13;
 
   Quantiles mos = 5;             // voip
   Quantiles ttfb_ms = 6;         // http: across-member median TTFB

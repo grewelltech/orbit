@@ -94,11 +94,39 @@ type fleetUE struct {
 // runs the behaviours concurrently for the duration, then deregisters — the
 // direct-drive population run. Attach numbers are integration-capacity (bounded
 // by the core under test).
-// live and ev may be nil, which disables live reporting without changing
-// execution — the CLI path (`orbit run <fleet>`) has no telemetry subscriber
-// to serve.
+// FleetDeps are the seams a fleet run borrows from its host rather than
+// creating for itself. Every field is optional; the zero value runs the fleet
+// standalone, which is what the local `orbit run <fleet>` path wants.
+type FleetDeps struct {
+	// Stats and Events receive live reporting; nil disables it.
+	Stats  *FleetLiveStats
+	Events *RunEvents
+	// Manager, when set, lends its N3 socket pool.
+	//
+	// This matters more than it looks. A gNB's N3 address is ONE UDP bind for
+	// the whole process, so a fleet run with its own pool cannot open a data
+	// path on an address an ad-hoc `orbit ue` session already holds — and the
+	// failure is per-UE and quiet, so the run reports a healthy population
+	// carrying zero traffic. Sharing the pool makes the second acquirer reuse
+	// the socket, which is what the refcounting was always for.
+	Manager *Manager
+}
+
+// n3 returns the pool this run should use: the host Manager's, so ad-hoc UE
+// sessions and fleet UEs share one socket per gNB address, or a private one
+// when running standalone.
+func (d FleetDeps) n3() *n3Pool {
+	if d.Manager != nil && d.Manager.n3 != nil {
+		return d.Manager.n3
+	}
+	return newN3Pool()
+}
+
+// deps may be the zero value, which disables live reporting and runs the
+// fleet on its own socket pool.
 func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors,
-	live *FleetLiveStats, ev *RunEvents) (FleetReport, error) {
+	deps FleetDeps) (FleetReport, error) {
+	live, ev := deps.Stats, deps.Events
 	var rep FleetReport
 	if len(spec.GNBs) == 0 {
 		return rep, fmt.Errorf("fleet run needs at least one gNB")
@@ -120,11 +148,13 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	}
 	defer f.Close()
 
-	// One shared N3 tunnel pool for the whole run: sessions' lazy data
-	// paths (app cohorts) and the synthetic traffic flows all acquire the
-	// SAME per-gNB socket through it — one 2152 bind per gNB N3 address,
-	// never two behaviours colliding on the port.
-	pool := newN3Pool()
+	// One shared N3 tunnel pool: sessions' lazy data paths (app cohorts) and
+	// the synthetic traffic flows all acquire the SAME per-gNB socket through
+	// it — one 2152 bind per gNB N3 address, never two behaviours colliding on
+	// the port. Borrowed from the host Manager when there is one, so ad-hoc
+	// `orbit ue` sessions count against the same refcount rather than holding
+	// a bind this run then cannot get.
+	pool := deps.n3()
 
 	// Attach phase — persistent, keeping a handle per UE.
 	ev.Milestone(EventKindAttach, fmt.Sprintf("attach phase started: %d UEs across %d gNBs%s",

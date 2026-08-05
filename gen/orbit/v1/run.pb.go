@@ -1327,18 +1327,22 @@ func (x *Quantiles) GetP95() float64 {
 // produces are set — a voip cohort has no time-to-first-byte, and reporting a
 // zero would read as an instant one rather than as an absent measurement.
 type CohortProgress struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	App           string                 `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`                                          // "voip" | "http" | "video"
-	Ues           uint32                 `protobuf:"varint,3,opt,name=ues,proto3" json:"ues,omitempty"`                                         // members running a client
-	ElapsedMs     int64                  `protobuf:"varint,4,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`            // how long the cohort has been running
-	Mos           *Quantiles             `protobuf:"bytes,5,opt,name=mos,proto3" json:"mos,omitempty"`                                          // voip
-	TtfbMs        *Quantiles             `protobuf:"bytes,6,opt,name=ttfb_ms,json=ttfbMs,proto3" json:"ttfb_ms,omitempty"`                      // http: across-member median TTFB
-	GoodputMbps   *Quantiles             `protobuf:"bytes,7,opt,name=goodput_mbps,json=goodputMbps,proto3" json:"goodput_mbps,omitempty"`       // http
-	StallTimeMs   *Quantiles             `protobuf:"bytes,8,opt,name=stall_time_ms,json=stallTimeMs,proto3" json:"stall_time_ms,omitempty"`     // video
-	RebufferRatio *Quantiles             `protobuf:"bytes,9,opt,name=rebuffer_ratio,json=rebufferRatio,proto3" json:"rebuffer_ratio,omitempty"` // video
-	BitrateKbps   *Quantiles             `protobuf:"bytes,10,opt,name=bitrate_kbps,json=bitrateKbps,proto3" json:"bitrate_kbps,omitempty"`      // video
-	StartupMs     *Quantiles             `protobuf:"bytes,11,opt,name=startup_ms,json=startupMs,proto3" json:"startup_ms,omitempty"`            // video; absent until playback begins
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Name      string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	App       string                 `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`                               // "voip" | "http" | "video"
+	Ues       uint32                 `protobuf:"varint,3,opt,name=ues,proto3" json:"ues,omitempty"`                              // members running a client
+	ElapsedMs int64                  `protobuf:"varint,4,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"` // how long the cohort has been running
+	// Members whose client could not start or died. Live, not just in the final
+	// report: a cohort failing wholesale otherwise reads as a healthy
+	// population right up until it stops.
+	Failed        uint32     `protobuf:"varint,13,opt,name=failed,proto3" json:"failed,omitempty"`
+	Mos           *Quantiles `protobuf:"bytes,5,opt,name=mos,proto3" json:"mos,omitempty"`                                          // voip
+	TtfbMs        *Quantiles `protobuf:"bytes,6,opt,name=ttfb_ms,json=ttfbMs,proto3" json:"ttfb_ms,omitempty"`                      // http: across-member median TTFB
+	GoodputMbps   *Quantiles `protobuf:"bytes,7,opt,name=goodput_mbps,json=goodputMbps,proto3" json:"goodput_mbps,omitempty"`       // http
+	StallTimeMs   *Quantiles `protobuf:"bytes,8,opt,name=stall_time_ms,json=stallTimeMs,proto3" json:"stall_time_ms,omitempty"`     // video
+	RebufferRatio *Quantiles `protobuf:"bytes,9,opt,name=rebuffer_ratio,json=rebufferRatio,proto3" json:"rebuffer_ratio,omitempty"` // video
+	BitrateKbps   *Quantiles `protobuf:"bytes,10,opt,name=bitrate_kbps,json=bitrateKbps,proto3" json:"bitrate_kbps,omitempty"`      // video
+	StartupMs     *Quantiles `protobuf:"bytes,11,opt,name=startup_ms,json=startupMs,proto3" json:"startup_ms,omitempty"`            // video; absent until playback begins
 	// What the N6 agent reports about this cohort's traffic — a second observer,
 	// beyond the UPF, measured on its own clock.
 	FarEnd        *FarEndView `protobuf:"bytes,12,opt,name=far_end,json=farEnd,proto3" json:"far_end,omitempty"`
@@ -1400,6 +1404,13 @@ func (x *CohortProgress) GetUes() uint32 {
 func (x *CohortProgress) GetElapsedMs() int64 {
 	if x != nil {
 		return x.ElapsedMs
+	}
+	return 0
+}
+
+func (x *CohortProgress) GetFailed() uint32 {
+	if x != nil {
+		return x.Failed
 	}
 	return 0
 }
@@ -2739,13 +2750,14 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\tQuantiles\x12\x0e\n" +
 	"\x02p5\x18\x01 \x01(\x01R\x02p5\x12\x10\n" +
 	"\x03p50\x18\x02 \x01(\x01R\x03p50\x12\x10\n" +
-	"\x03p95\x18\x03 \x01(\x01R\x03p95\"\x84\x04\n" +
+	"\x03p95\x18\x03 \x01(\x01R\x03p95\"\x9c\x04\n" +
 	"\x0eCohortProgress\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x10\n" +
 	"\x03ues\x18\x03 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
-	"elapsed_ms\x18\x04 \x01(\x03R\telapsedMs\x12%\n" +
+	"elapsed_ms\x18\x04 \x01(\x03R\telapsedMs\x12\x16\n" +
+	"\x06failed\x18\r \x01(\rR\x06failed\x12%\n" +
 	"\x03mos\x18\x05 \x01(\v2\x13.orbit.v1.QuantilesR\x03mos\x12,\n" +
 	"\attfb_ms\x18\x06 \x01(\v2\x13.orbit.v1.QuantilesR\x06ttfbMs\x126\n" +
 	"\fgoodput_mbps\x18\a \x01(\v2\x13.orbit.v1.QuantilesR\vgoodputMbps\x127\n" +

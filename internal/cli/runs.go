@@ -333,7 +333,11 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 		fmt.Fprintln(out, ")")
 	}
 	for _, c := range p.GetCohorts() {
-		fmt.Fprintf(out, "  %-12s %-6s %d UEs %s%s\n", c.GetName(), c.GetApp(), c.GetUes(),
+		failed := ""
+		if f := c.GetFailed(); f > 0 {
+			failed = fmt.Sprintf(" (%d FAILED)", f)
+		}
+		fmt.Fprintf(out, "  %-12s %-6s %d UEs%s %s%s\n", c.GetName(), c.GetApp(), c.GetUes(), failed,
 			(time.Duration(c.GetElapsedMs()) * time.Millisecond).Round(time.Second), cohortQualityLine(c))
 		printFarEnd(out, c.GetFarEnd())
 	}

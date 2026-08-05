@@ -24,6 +24,10 @@ import (
 type runService struct {
 	log *slog.Logger
 	reg *engine.RunRegistry
+	// mgr is the same Manager the UE service drives. A fleet run borrows its
+	// N3 socket pool so an ad-hoc `orbit ue` session and a run cannot fight
+	// over one gNB's UDP bind — see engine.FleetDeps.
+	mgr *engine.Manager
 }
 
 func (s *runService) StartRun(
@@ -45,7 +49,7 @@ func (s *runService) StartRun(
 		}
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
-		fn, err := fleetRunFunc(s.log, spec.Fleet, verbosity)
+		fn, err := fleetRunFunc(s.log, s.mgr, spec.Fleet, verbosity)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -502,7 +506,7 @@ func fleetProgressProto(s engine.FleetSnapshot, now time.Time, rates *fleetRates
 // distinguishable downstream.
 func cohortProgressProto(c engine.FleetCohort) *orbitv1.CohortProgress {
 	return &orbitv1.CohortProgress{
-		Name: c.Name, App: c.App, Ues: uint32(c.UEs),
+		Name: c.Name, App: c.App, Ues: uint32(c.UEs), Failed: uint32(c.Failed),
 		ElapsedMs:     c.Elapsed.Milliseconds(),
 		Mos:           quantilesProto(c.MOS),
 		TtfbMs:        quantilesProto(c.TTFBMs),
@@ -640,7 +644,7 @@ func (f failureEvents) Observe(s load.Sample) {
 // fleetRunFunc parses the fleet scenario YAML, injects the request's
 // credentials, and builds the launcher via the shared scenario→engine mapping —
 // the same one `orbit run <fleet>` uses, so CLI and server runs are identical.
-func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (engine.FleetRunFunc, error) {
+func fleetRunFunc(log *slog.Logger, mgr *engine.Manager, p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (engine.FleetRunFunc, error) {
 	if p.GetScenarioYaml() == "" {
 		return nil, fmt.Errorf("scenario_yaml is required")
 	}
@@ -666,7 +670,11 @@ func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec, verbosity engine.Ev
 		return nil, err
 	}
 	return func(ctx context.Context, stats *engine.FleetLiveStats, emit engine.RunEventFunc) (engine.FleetReport, error) {
-		return engine.RunFleet(ctx, log, spec, beh, stats, engine.NewRunEvents(emit, verbosity))
+		return engine.RunFleet(ctx, log, spec, beh, engine.FleetDeps{
+			Stats:   stats,
+			Events:  engine.NewRunEvents(emit, verbosity),
+			Manager: mgr,
+		})
 	}, nil
 }
 
