@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
@@ -18,19 +19,22 @@ import (
 // Xn PathSwitch transfer decodes cleanly, so the UPF downlink switch takes
 // effect and a flow survives the handover. Mobility events reuse the
 // HANDOVER_* states with an "Xn" detail.
-func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoint) error {
+// The elapsed time is returned for the same reason as the N2 path: comparing
+// Xn against N2 on a given core is a question about numbers, not outcomes.
+func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoint) (time.Duration, error) {
+	start := time.Now()
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
 	m.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("UE %s is not registered", supi)
+		return 0, fmt.Errorf("UE %s is not registered", supi)
 	}
 
 	// Serialise against another handover or a deregistration on this UE: they
 	// rewrite the association and the serving cell together.
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer release()
 
@@ -41,13 +45,16 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 	if err := m.runXnHandover(ctx, sess, target); err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: "Xn: " + err.Error()},
 			"type", "xn", "target_gnb", target.Config.Name)
-		return err
+		return 0, err
 	}
 
+	elapsed := time.Since(start)
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverComplete,
-		Detail: fmt.Sprintf("UE on gNB %s (cell %#x) via Xn", target.Config.Name, target.Config.ID)},
-		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID)
-	return nil
+		Detail: fmt.Sprintf("UE on gNB %s (cell %#x) via Xn in %s", target.Config.Name, target.Config.ID,
+			elapsed.Round(time.Millisecond))},
+		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID,
+		"elapsed_ms", elapsed.Milliseconds())
+	return elapsed, nil
 }
 
 func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEndpoint) error {

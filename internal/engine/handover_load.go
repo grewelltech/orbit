@@ -88,8 +88,9 @@ func RunHandoverUnderLoad(ctx context.Context, log *slog.Logger, spec HandoverLo
 	var lats []time.Duration
 	for _, ep := range spec.Hops {
 		hctx, hcancel := context.WithTimeout(ctx, 15*time.Second)
-		start := time.Now()
-		err := mgr.Handover(hctx, spec.MobileSUPI, ep)
+		// The Manager times the procedure itself now, so this uses its number
+		// rather than measuring the same span a second time.
+		d, err := mgr.Handover(hctx, spec.MobileSUPI, ep)
 		hcancel()
 		if err != nil {
 			rep.HandoverFailures++
@@ -98,7 +99,7 @@ func RunHandoverUnderLoad(ctx context.Context, log *slog.Logger, spec HandoverLo
 			}
 			continue
 		}
-		lats = append(lats, time.Since(start))
+		lats = append(lats, d)
 	}
 	wg.Wait()
 

@@ -209,6 +209,14 @@ message FleetProgress {
   // currently attached on that gNB.
   repeated GnbProgress per_gnb = 16;
 
+  // Control-plane procedure latencies, by procedure. "registration",
+  // "pdu_session" and "attach" during the attach phase; "handover_xn" and
+  // "handover_n2" for the rest of a mobility run — so the panel stays live
+  // after attach rather than going flat. N2 and Xn are separate procedures on
+  // purpose: they are different exchanges, and one distribution over both
+  // would hide the comparison worth making.
+  repeated ProcedureLatency latency = 24;
+
   // Per-cohort application quality, one entry per app cohort, carrying the
   // most recent interval's across-member distribution.
   repeated CohortProgress cohorts = 20;

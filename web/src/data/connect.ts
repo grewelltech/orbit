@@ -257,7 +257,15 @@ export class ConnectSource implements TelemetrySource {
       if (dt > 0) handoverPerSec = Math.max(0, (fp.handovers - prevFp.handovers) / dt);
     }
 
-    const cp = attachLatency(lp);
+    // A fleet run reports a standing population rather than a stream of
+    // attempts, so its attach rate is the delta in `attached` between frames —
+    // real during the attach phase, and correctly zero once it is done.
+    if (fp && prevFp) {
+      const dt = (elapsedMs - Number(this.prev!.elapsedMs)) / 1000;
+      if (dt > 0) attachPerSec = Math.max(0, (fp.attached - prevFp.attached) / dt);
+    }
+
+    const cp = attachLatency(lp, fp);
 
     return {
       t,
@@ -399,10 +407,19 @@ function attachSuccessRatio(lp: LoadProgress | null, fp: FleetProgress | null): 
 }
 
 /** Picks the attach (or registration) procedure latency, in ms. */
-function attachLatency(lp: LoadProgress | null): LatencySummary {
+/**
+ * The headline control-plane latency. A load run measures attach; a fleet run
+ * measures attach during its attach phase and then handovers for the rest of
+ * the run, so the panel stays live instead of going flat once the population
+ * is up. Preference order picks the procedure that is actually happening.
+ */
+function attachLatency(lp: LoadProgress | null, fp: FleetProgress | null): LatencySummary {
   const empty = { p50: 0, p90: 0, p99: 0, max: 0 };
-  if (!lp) return empty;
-  const l = lp.latency.find((x) => x.procedure === "attach") ?? lp.latency.find((x) => x.procedure === "registration") ?? lp.latency[0];
+  const rows = lp?.latency ?? fp?.latency ?? [];
+  if (rows.length === 0) return empty;
+  const pick = (name: string) => rows.find((x) => x.procedure === name);
+  const l =
+    pick("handover_xn") ?? pick("handover_n2") ?? pick("attach") ?? pick("registration") ?? rows[0];
   if (!l) return empty;
   return { p50: l.p50Ms, p90: l.p90Ms, p99: l.p99Ms, max: l.maxMs };
 }

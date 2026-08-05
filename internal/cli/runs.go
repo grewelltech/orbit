@@ -324,6 +324,9 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 		fmt.Fprintf(out, "  N3 rate     ul %s   dl %s\n",
 			bitsPerSec(p.GetUplinkBps()), bitsPerSec(p.GetDownlinkBps()))
 	}
+	// Control-plane procedures: attach-phase ones during the attach, handovers
+	// for the rest of a mobility run — so this is not blank once the fleet is up.
+	printProcedureLatency(out, p.GetLatency())
 	if l := p.GetUpLatency(); l != nil {
 		fmt.Fprintf(out, "  UP RTT      p50 %.2f  p90 %.2f  p99 %.2f  max %.2f ms  (%d probes",
 			l.GetP50Ms(), l.GetP90Ms(), l.GetP99Ms(), l.GetMaxMs(), p.GetUpProbes())

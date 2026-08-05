@@ -484,6 +484,14 @@ func fleetProgressProto(s engine.FleetSnapshot, now time.Time, rates *fleetRates
 	for _, g := range sortedGNBs(s.PerGNB) {
 		p.PerGnb = append(p.PerGnb, &orbitv1.GnbProgress{Gnb: g, Succeeded: uint32(s.PerGNB[g])})
 	}
+	for _, name := range sortedProcedures(s.Procedures) {
+		st := s.Procedures[name]
+		p.Latency = append(p.Latency, &orbitv1.ProcedureLatency{
+			Procedure: name, Count: uint64(st.Count),
+			P50Ms: msFloat(st.P50), P90Ms: msFloat(st.P90),
+			P99Ms: msFloat(st.P99), P999Ms: msFloat(st.P999), MaxMs: msFloat(st.Max),
+		})
+	}
 	// Only when a probe actually ran: an unconfigured probe leaves the field
 	// absent, so a consumer sees "not measured" rather than a 0 ms data path.
 	if s.HasUPLatency {
@@ -537,6 +545,17 @@ func quantilesProto(q *engine.FleetQuantiles) *orbitv1.Quantiles {
 // msFloat renders a duration as fractional milliseconds, the unit every
 // latency field on the wire uses.
 func msFloat(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+
+// sortedProcedures keeps the latency list stable frame to frame; map order
+// would otherwise reshuffle the panel's series on every tick.
+func sortedProcedures(m map[string]load.Stats) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // sortedGNBs orders gNB labels so the per-gNB list is stable frame to frame —
 // map order would otherwise reshuffle the dashboard's bars every tick.

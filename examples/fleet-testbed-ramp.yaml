@@ -1,0 +1,93 @@
+# A thirty-minute escalating load test: HTTP that gets heavier every six
+# minutes, then delay-sensitive traffic dropped in at peak.
+#
+#   orbit runs start-fleet examples/fleet-testbed-ramp.yaml --name ramp
+#   orbit runs watch
+#
+# How the load escalates. loom's http client is a sequential request loop with
+# no rate or concurrency knob, so a single flow's throughput is governed by
+# object size — bigger objects spend proportionally more time in bulk transfer
+# and less in per-request round trips. Each stage therefore raises BOTH the
+# flow count and the per-flow rate, and stages accumulate rather than replace:
+#
+#    0:00  http-256k   20 UEs   256KB objects   baseline
+#    6:00  http-1m     20 UEs   1MB objects     40 flows, heavier each
+#   12:00  http-4m     20 UEs   4MB objects     60 flows
+#   18:00  http-16m    20 UEs   16MB objects    80 flows, 64x the baseline object
+#   24:00  voip        20 UEs                   arrives at peak load
+#   30:00  stop
+#
+# The voip cohort is the point of the last stage: bytes alone say how much was
+# pushed, not whether the path was still usable. Twenty calls arriving into a
+# fully loaded tunnel is the sharpest available read on that, and MOS degrading
+# while http throughput keeps climbing is a more interesting result than either
+# number alone.
+#
+# Expect the RAN node to be the limit, not the core. Downlink is per-flow-bound
+# in the userspace TCP stack — measured at ~8 Mbps for one UE and ~4 Mbps with
+# fifty — so 80 concurrent flows will saturate its 4 vCPUs. Read the result as
+# SIM capability unless the core's own metrics say otherwise.
+
+kind: fleet
+name: testbed-http-ramp
+
+core:
+  amf: 10.102.0.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+topology:
+  gnbs:
+    count: 1
+    id_base: 600
+    layout: grid
+    source_ips:
+      - 10.102.0.20
+    n3_ips:
+      - 10.103.0.20
+
+fleet:
+  count: 100
+  supi_base: "001010100007500"
+  distribution: even
+  attach_rate: 5/s
+  pdu_session: true
+
+behaviors:
+  traffic:
+    mix:
+      # think: "0" throughout — each member fetches back to back, so the only
+      # thing changing between stages is how much data each request moves.
+      - { app: http, name: http-256k, share: 0.2, peer: 10.106.0.30:9551,
+          params: { object_size: 256KB, think: "0" } }
+      - { app: http, name: http-1m, share: 0.2, peer: 10.106.0.30:9551,
+          start_after: 6m,
+          params: { object_size: 1MB, think: "0" } }
+      - { app: http, name: http-4m, share: 0.2, peer: 10.106.0.30:9551,
+          start_after: 12m,
+          params: { object_size: 4MB, think: "0" } }
+      - { app: http, name: http-16m, share: 0.2, peer: 10.106.0.30:9551,
+          start_after: 18m,
+          params: { object_size: 16MB, think: "0" } }
+      # The canary, last, into the heaviest load the run produces.
+      - { app: voip, name: voip-canary, share: 0.2, peer: 10.106.0.30:9551,
+          start_after: 24m,
+          params: { codec: pcmu, port_min: "40000", port_max: "40100" } }
+
+  # Every two seconds throughout: user-plane RTT is the earliest sign that a
+  # stage has pushed the path past what it can carry, and it moves well before
+  # goodput does.
+  latency:
+    target: 10.106.0.30
+    interval: 2s
+    ues: 6
+    timeout: 1s
+
+run:
+  duration: 1800s

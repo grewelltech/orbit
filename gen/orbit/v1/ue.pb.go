@@ -1046,7 +1046,11 @@ type HandoverResponse struct {
 	// The gNB ID the UE is now served by (the target on success).
 	GnbId uint32 `protobuf:"varint,2,opt,name=gnb_id,json=gnbId,proto3" json:"gnb_id,omitempty"`
 	// Terminal mobility state: HANDED_OVER or HANDOVER_FAILED.
-	State         string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	State string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	// How long the procedure took. A single-UE handover is then a measurement
+	// rather than a pass/fail, which is what comparing N2 against Xn on a given
+	// core needs. Zero on failure — there is no completed procedure to time.
+	ElapsedMs     float64 `protobuf:"fixed64,4,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1100,6 +1104,13 @@ func (x *HandoverResponse) GetState() string {
 		return x.State
 	}
 	return ""
+}
+
+func (x *HandoverResponse) GetElapsedMs() float64 {
+	if x != nil {
+		return x.ElapsedMs
+	}
+	return 0
 }
 
 type TrafficRequest struct {
@@ -2959,11 +2970,13 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\fbind_address\x18\x04 \x01(\tR\vbindAddress\x12\x1e\n" +
 	"\vgnb_n3_addr\x18\x05 \x01(\tR\tgnbN3Addr\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x06 \x01(\rR\ttimeoutMs\"S\n" +
+	"timeout_ms\x18\x06 \x01(\rR\ttimeoutMs\"r\n" +
 	"\x10HandoverResponse\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x15\n" +
 	"\x06gnb_id\x18\x02 \x01(\rR\x05gnbId\x12\x14\n" +
-	"\x05state\x18\x03 \x01(\tR\x05state\"\x92\x01\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x1d\n" +
+	"\n" +
+	"elapsed_ms\x18\x04 \x01(\x01R\telapsedMs\"\x92\x01\n" +
 	"\x0eTrafficRequest\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x12\n" +

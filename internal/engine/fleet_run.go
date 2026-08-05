@@ -180,7 +180,7 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 		go func(i int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fu, err := attachFleetUE(ctx, f, spec, pool, i, ev)
+			fu, err := attachFleetUE(ctx, f, spec, pool, i, ev, live)
 			amu.Lock()
 			defer amu.Unlock()
 			if err != nil {
@@ -257,7 +257,8 @@ func fleetSUPI(spec FleetRunSpec, i int) string {
 // attachFleetUE attaches one UE muxed on its serving gNB's association and
 // returns a persistent handle. The session's data path (opened lazily only
 // when an app cohort uses the UE) rides the run's shared per-gNB pool.
-func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int, ev *RunEvents) (*fleetUE, error) {
+func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int,
+	ev *RunEvents, live *FleetLiveStats) (*fleetUE, error) {
 	gi := i % len(f.sessions)
 	supi, err := incIMSI(spec.BaseIMSI, i)
 	if err != nil {
@@ -279,7 +280,22 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 	// stream here instead (there is no Manager behind a fleet run). The policy
 	// decides what survives: at normal verbosity these are suppressed in favour
 	// of the phase milestones above.
-	sess, err := Attach(ctx, uet, f.gnbConfigFor(gi), cfg, f.log, ev.stateEventSink())
+	//
+	// The same emitter splits registration from the whole attach, mirroring the
+	// load driver: REGISTERED marks the control-plane half, and whatever time
+	// remains is the PDU session being established.
+	start := time.Now()
+	var regDur time.Duration
+	sink := ev.stateEventSink()
+	emit := func(sev StateEvent) {
+		if sev.State == StateRegistered && regDur == 0 {
+			regDur = time.Since(start)
+		}
+		if sink != nil {
+			sink(sev)
+		}
+	}
+	sess, err := Attach(ctx, uet, f.gnbConfigFor(gi), cfg, f.log, emit)
 	if err != nil {
 		return nil, err
 	}
@@ -288,6 +304,13 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 	}
 	sess.gnbN3 = spec.GNBs[gi].N3Addr
 	sess.n3 = pool
+	live.RecordProcedure("attach", time.Since(start))
+	if regDur > 0 {
+		live.RecordProcedure("registration", regDur)
+	}
+	if sess.Result.SessionActive {
+		live.RecordProcedure("pdu_session", time.Since(start))
+	}
 	return &fleetUE{sess: sess, gnbIdx: gi}, nil
 }
 
@@ -432,7 +455,13 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 					case <-time.After(time.Until(tr.At)):
 					}
 					from := fu.gnbIdx
+					hoStart := time.Now()
 					err := fleetHandover(dctx, f, spec, fu, int(tr.TargetCellID))
+					if err == nil {
+						// Labelled by the procedure actually run, not by what
+						// the scenario asked for: fleet mobility is Xn today.
+						live.RecordProcedure(ProcedureHandoverXn, time.Since(hoStart))
+					}
 					hmu.Lock()
 					if err != nil {
 						rep.HandoverErr++

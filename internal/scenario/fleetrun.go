@@ -63,7 +63,21 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 		}
 		beh.Duration = d
 	}
-	if f.Behaviors.Mobility != nil {
+	if m := f.Behaviors.Mobility; m != nil {
+		// The handover kind was parsed and then ignored — fleet mobility runs
+		// an Xn PathSwitch regardless — so a scenario asking for N2 silently
+		// got Xn and its results were mislabelled. Refuse rather than
+		// pretend; single-UE N2 handover is available via `orbit ue handover`.
+		switch strings.ToLower(strings.TrimSpace(m.Handover)) {
+		case "", "xn":
+		case "n2":
+			return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+				fmt.Errorf("behaviors.mobility.handover: fleet mobility performs Xn path switches only; " +
+					"n2 is not implemented for fleet runs (use `orbit ue handover` for a single UE)")
+		default:
+			return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+				fmt.Errorf("behaviors.mobility.handover %q: want \"xn\" (or omit)", m.Handover)
+		}
 		beh.MobileUEs = f.Fleet.Count / 2
 		if beh.MobileUEs < 1 {
 			beh.MobileUEs = 1

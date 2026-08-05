@@ -156,8 +156,10 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (now on gNB %#x)\n",
-				res.Msg.GetSupi(), res.Msg.GetState(), res.Msg.GetGnbId())
+			// The duration makes a single handover a measurement rather than a
+			// pass/fail — the number an N2-vs-Xn comparison actually turns on.
+			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s in %.1f ms (now on gNB %#x)\n",
+				res.Msg.GetSupi(), res.Msg.GetState(), res.Msg.GetElapsedMs(), res.Msg.GetGnbId())
 			return nil
 		},
 	}
