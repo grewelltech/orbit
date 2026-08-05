@@ -18,6 +18,7 @@ import { MockSource } from "@/data/mock";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
 import type { TelemetryFrame } from "@/data/types";
+import { useTheme } from "@/theme/useTheme";
 import { useTelemetry } from "@/hooks/useTelemetry";
 import { tokens } from "@/theme/tokens";
 import { bps, count, ms, pct } from "@/lib/format";
@@ -34,7 +35,19 @@ export function App() {
   const telemetry = useTelemetry(source);
   const { latest, history, events, state, clearEvents } = telemetry;
 
+  const { theme, toggle } = useTheme();
   const t = tokens();
+
+  // Sessions in context: a bare count says nothing about whether it is all of
+  // them. Prefer the run's declared target; otherwise the funnel total, which
+  // is every UE seen including the ones that failed.
+  const sessionsDetail = (f: TelemetryFrame | null): string | undefined => {
+    if (f?.run.targetUes) return `target ${count(f.run.targetUes)}`;
+    const u = f?.ues;
+    if (!u) return undefined;
+    const total = u.sessionActive + u.registered + u.registering + u.failed;
+    return total > 0 ? `of ${count(total)} UEs` : undefined;
+  };
 
   // Mobility, stated as what happened: no handovers at all is a different
   // fact from every handover succeeding, and the tile should not blur them.
@@ -103,7 +116,13 @@ export function App() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
-      <Header frame={latest} sourceState={state} sourceName={source.name} />
+      <Header
+        frame={latest}
+        sourceState={state}
+        sourceName={source.name}
+        theme={theme}
+        onToggleTheme={toggle}
+      />
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
         {/* Headline numbers */}
@@ -113,7 +132,10 @@ export function App() {
             value={count(latest?.ues.sessionActive ?? 0)}
             tone="accent"
             history={spark.sessions}
-            detail={latest?.run.targetUes ? `target ${count(latest.run.targetUes)}` : undefined}
+            // A target when the run declares one, else the population the
+            // sessions are drawn from — so the tile carries a second line like
+            // its neighbours, and the number has a denominator either way.
+            detail={sessionsDetail(latest)}
           />
           <StatTile
             label="attach rate"

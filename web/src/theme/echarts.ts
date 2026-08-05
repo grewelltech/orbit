@@ -38,15 +38,24 @@ echarts.use([
 
 export const ORBIT_THEME = "orbit";
 
-let registered = false;
+/** ECharts theme name for an ORBIT theme. Charts key off this, so switching
+ *  themes gives them a different registered theme rather than mutating one. */
+export function orbitThemeName(theme: string): string {
+  return `${ORBIT_THEME}-${theme}`;
+}
+
+const registered = new Set<string>();
 
 /**
  * Registers the ORBIT theme with ECharts. Idempotent, and safe to call before
  * the first chart mounts; requires the stylesheet to be applied so the tokens
  * resolve.
  */
-export function registerOrbitTheme(): void {
-  if (registered) return;
+export function registerOrbitTheme(theme = "dark"): void {
+  const name = orbitThemeName(theme);
+  if (registered.has(name)) return;
+  // The tokens are read from the DOM, so the theme's attribute must already be
+  // applied when this runs — the caller sets data-theme first.
   const t = tokens();
 
   const axis = {
@@ -64,7 +73,7 @@ export function registerOrbitTheme(): void {
     splitArea: { show: false },
   };
 
-  echarts.registerTheme(ORBIT_THEME, {
+  echarts.registerTheme(name, {
     color: t.series,
     backgroundColor: "transparent",
     textStyle: { fontFamily: t.fontSans, color: t.ink2 },
@@ -142,7 +151,7 @@ export function registerOrbitTheme(): void {
     },
   });
 
-  registered = true;
+  registered.add(name);
 }
 
 export { echarts };

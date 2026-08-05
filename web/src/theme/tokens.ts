@@ -39,6 +39,15 @@ export interface Tokens {
 
 let cached: Tokens | null = null;
 
+/**
+ * Drops the cached values so the next tokens() re-reads the DOM. Called when
+ * the theme changes: the cache exists because getComputedStyle is expensive
+ * per chart, not because the values are immutable.
+ */
+export function resetTokens(): void {
+  cached = null;
+}
+
 export function tokens(): Tokens {
   if (cached) return cached;
   cached = {
