@@ -341,6 +341,82 @@ type fleetRates struct {
 	have                             bool
 	at                               time.Time
 	ulBytes, dlBytes, ulPkts, dlPkts uint64
+	// Per-flow previous cumulative bytes, keyed by SUPI+app so a UE running
+	// both a cohort client and a synthetic flow keeps them apart.
+	//
+	// flowsAt is tracked separately from `at`: observe() runs first and
+	// advances `at` to now, so measuring the flow interval against it would
+	// always yield zero and every per-flow rate would read 0 bps.
+	flows     map[string]flowSample
+	flowsAt   time.Time
+	flowsHave bool
+}
+
+type flowSample struct{ ulBytes, dlBytes uint64 }
+
+// MaxReportedFlows bounds the per-frame flow list. A population run has more
+// flows than any table should render, and an unbounded list would grow the
+// frame without bound; the frame also carries the untruncated total so a
+// short list is never mistaken for a complete one.
+const MaxReportedFlows = 100
+
+// flowRates folds in this frame's flows and returns them as wire rows, ranked
+// by current throughput and truncated. Rates come from the same per-stream
+// discipline as the run totals: the first frame of a stream reports none.
+func flowRows(now time.Time, flows []engine.FleetFlow, r *fleetRates) ([]*orbitv1.FlowRow, int) {
+	var prev map[string]flowSample
+	secs := 0.0
+	if r != nil {
+		prev = r.flows
+		if r.flowsHave {
+			secs = now.Sub(r.flowsAt).Seconds()
+		}
+		r.flows = make(map[string]flowSample, len(flows))
+		r.flowsAt, r.flowsHave = now, true
+	}
+
+	rows := make([]*orbitv1.FlowRow, 0, len(flows))
+	for _, f := range flows {
+		key := f.SUPI + "|" + f.App
+		if r != nil {
+			r.flows[key] = flowSample{ulBytes: f.UplinkBytes, dlBytes: f.DownlinkBytes}
+		}
+		row := &orbitv1.FlowRow{
+			Supi: f.SUPI, Cohort: f.Cohort, App: f.App, Peer: f.Peer, Gnb: f.GNB,
+			UplinkBytes: f.UplinkBytes, DownlinkBytes: f.DownlinkBytes,
+		}
+		if !f.Started.IsZero() {
+			row.ElapsedMs = now.Sub(f.Started).Milliseconds()
+		}
+		if p, ok := prev[key]; ok && secs > 0 {
+			row.UplinkBps = deltaBytes(f.UplinkBytes, p.ulBytes) * 8 / secs
+			row.DownlinkBps = deltaBytes(f.DownlinkBytes, p.dlBytes) * 8 / secs
+		}
+		rows = append(rows, row)
+	}
+	// Busiest first, so a truncated list keeps the flows worth looking at.
+	// Ties break on SUPI so the table does not reshuffle between frames.
+	sort.Slice(rows, func(i, j int) bool {
+		ri, rj := rows[i].GetUplinkBps()+rows[i].GetDownlinkBps(), rows[j].GetUplinkBps()+rows[j].GetDownlinkBps()
+		if ri != rj {
+			return ri > rj
+		}
+		return rows[i].GetSupi() < rows[j].GetSupi()
+	})
+	total := len(rows)
+	if len(rows) > MaxReportedFlows {
+		rows = rows[:MaxReportedFlows]
+	}
+	return rows, total
+}
+
+// deltaBytes guards a counter that went backwards (a tunnel torn down between
+// samples) rather than reporting a negative rate.
+func deltaBytes(now, then uint64) float64 {
+	if now < then {
+		return 0
+	}
+	return float64(now - then)
 }
 
 // observe folds in one cumulative sample and returns the rates since the
@@ -392,6 +468,15 @@ func fleetProgressProto(s engine.FleetSnapshot, now time.Time, rates *fleetRates
 	if rates != nil {
 		p.UplinkBps, p.DownlinkBps, p.UplinkPps, p.DownlinkPps = rates.observe(now, s)
 	}
+	// Flows are reported either way: the list and its cumulative counters do
+	// not depend on having a previous sample, and only the *_bps fields do.
+	// Gating the whole list on a rate tracker left a single-shot Get with no
+	// flows at all.
+	rows, total := flowRows(now, s.Flows, rates)
+	p.Flows, p.FlowsTotal, p.FlowsReported = rows, uint32(total), uint32(len(rows))
+	for _, c := range s.Cohorts {
+		p.Cohorts = append(p.Cohorts, cohortProgressProto(c))
+	}
 	for _, g := range sortedGNBs(s.PerGNB) {
 		p.PerGnb = append(p.PerGnb, &orbitv1.GnbProgress{Gnb: g, Succeeded: uint32(s.PerGNB[g])})
 	}
@@ -410,6 +495,30 @@ func fleetProgressProto(s engine.FleetSnapshot, now time.Time, rates *fleetRates
 		}
 	}
 	return p
+}
+
+// cohortProgressProto maps one cohort's live quality onto the wire. A family
+// the cohort's app does not produce stays nil, so "absent" and "zero" remain
+// distinguishable downstream.
+func cohortProgressProto(c engine.FleetCohort) *orbitv1.CohortProgress {
+	return &orbitv1.CohortProgress{
+		Name: c.Name, App: c.App, Ues: uint32(c.UEs),
+		ElapsedMs:     c.Elapsed.Milliseconds(),
+		Mos:           quantilesProto(c.MOS),
+		TtfbMs:        quantilesProto(c.TTFBMs),
+		GoodputMbps:   quantilesProto(c.GoodputMbps),
+		StallTimeMs:   quantilesProto(c.StallTimeMs),
+		RebufferRatio: quantilesProto(c.RebufferRatio),
+		BitrateKbps:   quantilesProto(c.BitrateKbps),
+		StartupMs:     quantilesProto(c.StartupMs),
+	}
+}
+
+func quantilesProto(q *engine.FleetQuantiles) *orbitv1.Quantiles {
+	if q == nil {
+		return nil
+	}
+	return &orbitv1.Quantiles{P5: q.P5, P50: q.P50, P95: q.P95}
 }
 
 // msFloat renders a duration as fractional milliseconds, the unit every

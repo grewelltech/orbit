@@ -260,6 +260,12 @@ export class MockSource implements TelemetrySource {
       cpLatency,
       upLatency,
       perGnb: { ...this.perGnb },
+      // The mock does not synthesise cohort quality or per-flow rows: they
+      // would be plausible-looking numbers with nothing behind them, which is
+      // exactly what the real source is careful not to report.
+      cohorts: [],
+      flows: [],
+      flowsTotal: 0,
     });
   }
 

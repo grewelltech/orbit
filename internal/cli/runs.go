@@ -188,6 +188,22 @@ func newRunsWatchCmd(serverURL *string) *cobra.Command {
 					if p.GetHandovers() > 0 || p.GetHandoverErrors() > 0 {
 						line += fmt.Sprintf("  ho %d/%d err", p.GetHandovers(), p.GetHandoverErrors())
 					}
+					for _, c := range p.GetCohorts() {
+						if m := c.GetMos(); m != nil {
+							line += fmt.Sprintf("  %s MOS %.2f", c.GetName(), m.GetP50())
+						} else if g := c.GetGoodputMbps(); g != nil {
+							line += fmt.Sprintf("  %s %.1f Mbps", c.GetName(), g.GetP50())
+						}
+					}
+					if n := p.GetFlowsTotal(); n > 0 {
+						line += fmt.Sprintf("  %d flows", n)
+						// The busiest flow, so a per-UE figure is visible
+						// without opening the dashboard.
+						if f := p.GetFlows(); len(f) > 0 {
+							line += fmt.Sprintf(" (top %s ul %s dl %s)", f[0].GetSupi(),
+								bitsPerSec(f[0].GetUplinkBps()), bitsPerSec(f[0].GetDownlinkBps()))
+						}
+					}
 				}
 				fmt.Fprintln(out, line)
 			}
@@ -316,9 +332,46 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 		}
 		fmt.Fprintln(out, ")")
 	}
+	for _, c := range p.GetCohorts() {
+		fmt.Fprintf(out, "  %-12s %-6s %d UEs %s%s\n", c.GetName(), c.GetApp(), c.GetUes(),
+			(time.Duration(c.GetElapsedMs()) * time.Millisecond).Round(time.Second), cohortQualityLine(c))
+	}
+	if n := p.GetFlowsTotal(); n > 0 {
+		fmt.Fprintf(out, "  flows       %d carrying traffic", n)
+		if shown := p.GetFlowsReported(); shown < n {
+			fmt.Fprintf(out, " (showing the %d busiest)", shown)
+		}
+		fmt.Fprintln(out)
+		for _, fl := range p.GetFlows() {
+			fmt.Fprintf(out, "    %-18s %-6s %-10s ul %s  dl %s\n",
+				fl.GetSupi(), fl.GetApp(), orDash(fl.GetCohort()),
+				bitsPerSec(fl.GetUplinkBps()), bitsPerSec(fl.GetDownlinkBps()))
+		}
+	}
 	for _, g := range p.GetPerGnb() {
 		fmt.Fprintf(out, "  %-16s %d attached\n", g.GetGnb(), g.GetSucceeded())
 	}
+}
+
+// cohortQualityLine renders whichever quality families the cohort's app
+// produced. An absent family prints nothing rather than a zero.
+func cohortQualityLine(c *orbitv1.CohortProgress) string {
+	var b strings.Builder
+	q := func(label string, v *orbitv1.Quantiles, unit string, prec int) {
+		if v == nil {
+			return
+		}
+		fmt.Fprintf(&b, "  %s p5/p50/p95 %.*f/%.*f/%.*f%s", label,
+			prec, v.GetP5(), prec, v.GetP50(), prec, v.GetP95(), unit)
+	}
+	q("MOS", c.GetMos(), "", 2)
+	q("TTFB", c.GetTtfbMs(), "ms", 1)
+	q("goodput", c.GetGoodputMbps(), "Mbps", 2)
+	q("bitrate", c.GetBitrateKbps(), "kbps", 0)
+	q("stall", c.GetStallTimeMs(), "ms", 0)
+	q("rebuffer", c.GetRebufferRatio(), "", 3)
+	q("startup", c.GetStartupMs(), "ms", 0)
+	return b.String()
 }
 
 // bitsPerSec renders a bit rate in the unit that keeps it readable.

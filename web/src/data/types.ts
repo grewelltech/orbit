@@ -57,6 +57,46 @@ export interface Throughput {
   downlinkPps: number;
 }
 
+/** An across-member distribution: p5/p50/p95 over a cohort's members. */
+export interface Quantiles {
+  p5: number;
+  p50: number;
+  p95: number;
+}
+
+/**
+ * One app cohort's live quality. Families the cohort's app does not produce
+ * are null, never 0 — a voip cohort has no TTFB, and a zero would read as an
+ * instant one rather than as an absent measurement.
+ */
+export interface CohortQuality {
+  name: string;
+  app: string;
+  ues: number;
+  elapsedMs: number;
+  mos: Quantiles | null;
+  ttfbMs: Quantiles | null;
+  goodputMbps: Quantiles | null;
+  stallTimeMs: Quantiles | null;
+  rebufferRatio: Quantiles | null;
+  bitrateKbps: Quantiles | null;
+  startupMs: Quantiles | null;
+}
+
+/** One UE's traffic on the data path. */
+export interface Flow {
+  supi: string;
+  cohort: string;
+  app: string;
+  peer: string;
+  gnb: string;
+  elapsedMs: number;
+  uplinkBps: number;
+  downlinkBps: number;
+  uplinkBytes: number;
+  downlinkBytes: number;
+}
+
 /** Latency summary in milliseconds. Percentiles come from the engine's HDR histogram. */
 export interface LatencySummary {
   p50: number;
@@ -79,6 +119,12 @@ export interface TelemetryFrame {
   upLatency: LatencySummary | null;
   /** Per-gNB UE distribution, keyed by gNB id. */
   perGnb: Record<string, number>;
+  /** Live app-cohort quality; empty for a run with no app cohorts. */
+  cohorts: CohortQuality[];
+  /** The busiest flows, already ranked and truncated by the server. */
+  flows: Flow[];
+  /** Flows carrying traffic before truncation, so a short list is not read as complete. */
+  flowsTotal: number;
 }
 
 export type EventSeverity = "info" | "warn" | "error";

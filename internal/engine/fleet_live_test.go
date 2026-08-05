@@ -18,9 +18,9 @@ func (f fakeCounters) Totals() (uint64, uint64, uint64, uint64) {
 // that advances after attach is reflected without the run reporting anything.
 func TestFleetLiveStatsSumsTunnelCounters(t *testing.T) {
 	live := NewFleetLiveStats()
-	live.AttachOK("gnb-1", fakeCounters{ulp: 10, ulb: 1000, dlp: 20, dlb: 2000})
-	live.AttachOK("gnb-1", fakeCounters{ulp: 5, ulb: 500, dlp: 6, dlb: 600})
-	live.AttachOK("gnb-2", fakeCounters{ulp: 1, ulb: 100, dlp: 2, dlb: 200})
+	live.AttachOK("gnb-1", "supi-1", fakeCounters{ulp: 10, ulb: 1000, dlp: 20, dlb: 2000})
+	live.AttachOK("gnb-1", "supi-2", fakeCounters{ulp: 5, ulb: 500, dlp: 6, dlb: 600})
+	live.AttachOK("gnb-2", "supi-3", fakeCounters{ulp: 1, ulb: 100, dlp: 2, dlb: 200})
 	live.AttachFailed()
 
 	got := live.Snapshot()
@@ -42,8 +42,8 @@ func TestFleetLiveStatsSumsTunnelCounters(t *testing.T) {
 // zeros rather than breaking the aggregate.
 func TestFleetLiveStatsNilSourceIsHarmless(t *testing.T) {
 	live := NewFleetLiveStats()
-	live.AttachOK("gnb-1", nil)
-	live.AttachOK("gnb-1", fakeCounters{ulb: 42})
+	live.AttachOK("gnb-1", "supi-4", nil)
+	live.AttachOK("gnb-1", "supi-5", fakeCounters{ulb: 42})
 	got := live.Snapshot()
 	if got.Attached != 2 {
 		t.Errorf("attached = %d, want 2", got.Attached)
@@ -58,8 +58,8 @@ func TestFleetLiveStatsNilSourceIsHarmless(t *testing.T) {
 // count must not change.
 func TestFleetLiveStatsHandoverMovesAttribution(t *testing.T) {
 	live := NewFleetLiveStats()
-	live.AttachOK("gnb-1", fakeCounters{})
-	live.AttachOK("gnb-1", fakeCounters{})
+	live.AttachOK("gnb-1", "supi-6", fakeCounters{})
+	live.AttachOK("gnb-1", "supi-7", fakeCounters{})
 	live.MovedGNB("gnb-1", "gnb-2")
 	live.Handover(nil)
 
@@ -97,8 +97,8 @@ func TestFleetLiveStatsTotalsSurviveTeardown(t *testing.T) {
 	live := NewFleetLiveStats()
 	a := &closableCounters{ulp: 10, ulb: 1000, dlp: 20, dlb: 2000}
 	b := &closableCounters{ulp: 5, ulb: 500, dlp: 6, dlb: 600}
-	live.AttachOK("gnb-1", a)
-	live.AttachOK("gnb-1", b)
+	live.AttachOK("gnb-1", "supi-8", a)
+	live.AttachOK("gnb-1", "supi-9", b)
 
 	if got := live.Snapshot(); got.UplinkBytes != 1500 || got.DownlinkBytes != 2600 {
 		t.Fatalf("live totals = %d/%d, want 1500/2600", got.UplinkBytes, got.DownlinkBytes)
@@ -129,7 +129,7 @@ func TestFleetLiveStatsTotalsSurviveTeardown(t *testing.T) {
 func TestFleetLiveStatsDetachDoesNotDoubleCount(t *testing.T) {
 	live := NewFleetLiveStats()
 	c := &closableCounters{ulb: 700}
-	live.AttachOK("gnb-1", c)
+	live.AttachOK("gnb-1", "supi-10", c)
 	live.Detached("gnb-1", c) // still open: naive code would count it twice
 
 	if got := live.Snapshot(); got.UplinkBytes != 700 {
@@ -143,7 +143,7 @@ func TestFleetLiveStatsDetachDoesNotDoubleCount(t *testing.T) {
 func TestFleetLiveStatsDetachKeepsBytes(t *testing.T) {
 	live := NewFleetLiveStats()
 	src := &closableCounters{ulb: 900, dlb: 100}
-	live.AttachOK("gnb-1", src)
+	live.AttachOK("gnb-1", "supi-11", src)
 	live.Detached("gnb-1", src)
 
 	got := live.Snapshot()
@@ -163,7 +163,7 @@ func TestFleetLiveStatsDetachKeepsBytes(t *testing.T) {
 // Snapshot must be safe, so RunFleet needs no nil checks at each call site.
 func TestFleetLiveStatsNilReceiver(t *testing.T) {
 	var live *FleetLiveStats
-	live.AttachOK("gnb-1", fakeCounters{ulb: 1})
+	live.AttachOK("gnb-1", "supi-12", fakeCounters{ulb: 1})
 	live.AttachFailed()
 	live.Handover(nil)
 	live.MovedGNB("a", "b")
@@ -184,7 +184,7 @@ func TestFleetLiveStatsConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			live.AttachOK("gnb-1", fakeCounters{ulb: 10})
+			live.AttachOK("gnb-1", "supi-13", fakeCounters{ulb: 10})
 			live.TrafficFlowStarted()
 		}()
 	}

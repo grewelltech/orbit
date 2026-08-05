@@ -673,19 +673,59 @@ func (cr *cohortRun) final(s metrics.Snapshot) {
 // values extracts the cohort's per-member metric families from a snapshot
 // list: the app decides which families exist.
 func (cr *cohortRun) values(snaps []metrics.Snapshot) (mos, ttfb, goodput, stallTime, rebuffer []float64) {
+	v := cr.allValues(snaps)
+	return v.mos, v.ttfb, v.goodput, v.stallTime, v.rebuffer
+}
+
+// cohortValues is every per-member family a cohort's app can produce. The
+// gauge path uses a subset; the telemetry path reports all of it.
+type cohortValues struct {
+	mos, ttfb, goodput  []float64
+	stallTime, rebuffer []float64
+	bitrate, startup    []float64
+}
+
+func (cr *cohortRun) allValues(snaps []metrics.Snapshot) cohortValues {
+	var out cohortValues
 	for _, s := range snaps {
 		switch v := s.(type) {
 		case metrics.VoIP:
-			mos = append(mos, v.MOSCQ)
+			out.mos = append(out.mos, v.MOSCQ)
 		case metrics.HTTP:
-			ttfb = append(ttfb, v.TTFBMsP50)
-			goodput = append(goodput, v.GoodputMbps)
+			out.ttfb = append(out.ttfb, v.TTFBMsP50)
+			out.goodput = append(out.goodput, v.GoodputMbps)
 		case metrics.Video:
-			stallTime = append(stallTime, v.StallTimeMs)
-			rebuffer = append(rebuffer, v.RebufferRatio)
+			out.stallTime = append(out.stallTime, v.StallTimeMs)
+			out.rebuffer = append(out.rebuffer, v.RebufferRatio)
+			out.bitrate = append(out.bitrate, v.AvgBitrateKbps)
+			// Startup is reported once playback begins; a zero means "not
+			// started yet", not "instant", so it stays out of the pool.
+			if v.StartupMs > 0 {
+				out.startup = append(out.startup, v.StartupMs)
+			}
 		}
 	}
-	return
+	return out
+}
+
+// publishLive folds a cohort's interval snapshots into the run's live stats,
+// the same numbers the gauges get. Kept separate from publish so the telemetry
+// path does not depend on Prometheus being enabled.
+func (cr *cohortRun) publishLive(live *FleetLiveStats, snaps []metrics.Snapshot, ues int, elapsed time.Duration) {
+	if live == nil {
+		return
+	}
+	v := cr.allValues(snaps)
+	live.RecordCohort(FleetCohort{
+		Name: cr.name, App: cr.app, UEs: ues, Elapsed: elapsed,
+		MOS:           fleetQuantiles(v.mos),
+		TTFBMs:        fleetQuantiles(v.ttfb),
+		GoodputMbps:   fleetQuantiles(v.goodput),
+		StallTimeMs:   fleetQuantiles(v.stallTime),
+		RebufferRatio: fleetQuantiles(v.rebuffer),
+		BitrateKbps:   fleetQuantiles(v.bitrate),
+		StartupMs:     fleetQuantiles(v.startup),
+	})
 }
 
 // publish sets the cohort's gauges from a snapshot list.
@@ -726,7 +766,7 @@ func (cr *cohortRun) intervalSnapshots() []metrics.Snapshot {
 // the fleet run. reg == nil disables the Prometheus gauges.
 func runFleetApps(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 	cohorts []FleetAppCohort, members [][]*fleetUE, duration time.Duration,
-	reg prometheus.Registerer) []FleetAppCohortReport {
+	reg prometheus.Registerer, live *FleetLiveStats) []FleetAppCohortReport {
 
 	fm := newFleetAppMetrics(reg)
 	reports := make([]FleetAppCohortReport, len(cohorts))
@@ -749,7 +789,7 @@ func runFleetApps(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 		wg.Add(1)
 		go func(c FleetAppCohort, rep *FleetAppCohortReport, mem []*fleetUE) {
 			defer wg.Done()
-			runFleetCohort(ctx, log, pool, fm, c, rep, mem, duration, origins, &originMu)
+			runFleetCohort(ctx, log, pool, fm, live, c, rep, mem, duration, origins, &originMu)
 		}(c, rep, members[i])
 	}
 	wg.Wait()
@@ -771,7 +811,7 @@ func runFleetApps(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 // http/video), one client goroutine per member, and an interval sampler
 // feeding the cohort gauges while the members run.
 func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, fm *fleetAppMetrics,
-	c FleetAppCohort, rep *FleetAppCohortReport, mem []*fleetUE, duration time.Duration,
+	live *FleetLiveStats, c FleetAppCohort, rep *FleetAppCohortReport, mem []*fleetUE, duration time.Duration,
 	origins map[string]*fleetOrigin, originMu *sync.Mutex) {
 
 	serverApp := fleetAppServerApp(c.App)
@@ -858,6 +898,9 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 			rep.Servers++
 		}
 		rep.UEs++
+		// The member's traffic rides its own session data path, so this
+		// labels the source registered at attach rather than adding another.
+		live.MarkCohortFlow(fu.sess.SUPI, rep.Name, c.App, c.Peer)
 		// The gauge tracks members that actually run a client (its help
 		// text, and exactly rep.UEs) — set as members clear per-UE server
 		// setup, so a failed voip answerer never inflates it.
@@ -875,9 +918,12 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 	// for) BEFORE the whole-run publish below, so the final gauge values are
 	// the report's distributions, not a late interval tick.
 	stopSampler := func() {}
-	if fm != nil {
+	// Runs for EITHER consumer: gating it on Prometheus alone was why a
+	// cohort's live quality never reached run telemetry.
+	if fm != nil || live != nil {
 		stop := make(chan struct{})
 		samplerDone := make(chan struct{})
+		cohortStart := time.Now()
 		go func() {
 			defer close(samplerDone)
 			t := time.NewTicker(pool.tun.sampleInterval)
@@ -889,7 +935,9 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					cr.publish(fm, cr.intervalSnapshots())
+					snaps := cr.intervalSnapshots()
+					cr.publish(fm, snaps)
+					cr.publishLive(live, snaps, rep.UEs, time.Since(cohortStart))
 				}
 			}
 		}()
