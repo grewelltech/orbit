@@ -78,6 +78,11 @@ type FleetAppCohort struct {
 	// port_min/port_max; http: object_size, think, tls, …; video: ladder,
 	// seg_duration, …).
 	Params map[string]string
+	// StartAfter delays this cohort's start relative to the behaviour phase.
+	// Members are still carved up front, so a delayed cohort's UEs sit idle
+	// rather than being reallocated; its run is shortened to end with the
+	// rest, so every cohort stops together.
+	StartAfter time.Duration
 	// Count is the cohort size. Members are carved from the tail of the
 	// attached, non-mobile fleet; a cohort that no longer fits (attach
 	// failures, other cohorts) is clamped, with a warning.
@@ -818,6 +823,24 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 	origins map[string]*fleetOrigin, originMu *sync.Mutex) {
 
 	serverApp := fleetAppServerApp(c.App)
+
+	// A staggered cohort waits before it does anything at all — including
+	// dialling its far end, so a delayed cohort costs nothing while it waits.
+	// Its run is shortened by the same amount so every cohort still stops with
+	// the run rather than overrunning it.
+	if c.StartAfter > 0 {
+		log.Info("fleet app cohort waiting to start", "cohort", rep.Name, "after", c.StartAfter)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(c.StartAfter):
+		}
+		duration -= c.StartAfter
+		if duration <= 0 {
+			return
+		}
+	}
+
 	agent, err := pool.acquire(ctx, c.Peer, c.Token)
 	if err != nil {
 		rep.Err = err.Error()

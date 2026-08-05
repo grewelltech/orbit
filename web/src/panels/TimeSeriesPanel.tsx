@@ -71,7 +71,7 @@ export function TimeSeriesPanel({
   className,
 }: TimeSeriesPanelProps) {
   const chartRef = useRef<ChartHandle>(null);
-  const { history, subscribeFrames } = telemetry;
+  const { history, subscribeFrames, historyEpoch } = telemetry;
 
   // Held in a ref so an inline `format` from the caller can't destabilise the
   // option memo. An unstable option re-fires setOption, which resets every
@@ -208,7 +208,10 @@ export function TimeSeriesPanel({
       off();
       cancelAnimationFrame(raf);
     };
-  }, [series, history, subscribeFrames, windowMs]);
+    // historyEpoch: the ring was replaced (restored across a refresh, or
+    // discarded as another run's), so reseed rather than keep points that are
+    // no longer in it.
+  }, [series, history, subscribeFrames, windowMs, historyEpoch]);
 
   return (
     <Panel title={title} meta={meta} live className={className}>

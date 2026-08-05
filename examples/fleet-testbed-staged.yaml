@@ -1,0 +1,76 @@
+# A staged ten-minute run: http alone first, then video, then voip on top.
+#
+#   orbit runs start-fleet examples/fleet-testbed-staged.yaml --name staged
+#   orbit runs watch
+#
+# The point is the TRANSITIONS. A mix where everything starts at once only ever
+# shows the steady state; staggering the cohorts shows what adding each kind of
+# traffic does to the ones already running — which is the question a mixed
+# network actually poses.
+#
+# Timeline (from the start of the behaviour phase):
+#
+#   0:00  http  50 UEs   bulk transfer, no think time — establishes a baseline
+#   3:00  video 30 UEs   sustained ABR streaming joins
+#   6:00  voip  20 UEs   the delay- and loss-sensitive traffic arrives last
+#  10:00  stop           every cohort ends with the run
+#
+# What to watch, in order: http goodput and user-plane RTT while http has the
+# tunnel to itself; both again once video joins; then whether voip MOS holds
+# when it arrives into an already-loaded path. voip is deliberately last — it
+# is the traffic most likely to suffer and least likely to cause suffering.
+
+kind: fleet
+name: testbed-staged-mix
+
+core:
+  amf: 10.102.0.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+topology:
+  gnbs:
+    count: 1
+    id_base: 500
+    layout: grid
+    source_ips:
+      - 10.102.0.20
+    n3_ips:
+      - 10.103.0.20
+
+fleet:
+  count: 100
+  supi_base: "001010100007500"
+  distribution: even
+  attach_rate: 5/s
+  pdu_session: true
+
+behaviors:
+  traffic:
+    mix:
+      # Members are carved for every cohort up front, so the video and voip UEs
+      # attach with the rest and simply sit idle until their start time.
+      - { app: http, name: web-bulk, share: 0.5, peer: 10.106.0.30:9551,
+          params: { object_size: 256KB, think: "0" } }
+      - { app: video, name: video-vod, share: 0.3, peer: 10.106.0.30:9551,
+          start_after: 3m }
+      - { app: voip, name: voip-calls, share: 0.2, peer: 10.106.0.30:9551,
+          start_after: 6m,
+          params: { codec: pcmu, port_min: "40000", port_max: "40100" } }
+
+  # Sampled every two seconds throughout, so the effect of each cohort joining
+  # is visible on the same timeline as the throughput.
+  latency:
+    target: 10.106.0.30
+    interval: 2s
+    ues: 6
+    timeout: 1s
+
+run:
+  duration: 600s

@@ -114,11 +114,29 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 	// App cohorts (design §8): mix entries with app: become real-application
 	// cohorts, sized by the same share allocation as the profiles.
 	for _, c := range f.AppCohorts() {
-		beh.Apps = append(beh.Apps, engine.FleetAppCohort{
+		cohort := engine.FleetAppCohort{
 			Name: c.Name, App: c.App,
 			Peer: c.Peer, Token: c.Token, PeerDataIP: c.PeerDataIP,
 			Params: c.Params, Count: c.Count,
-		})
+		}
+		if c.StartAfter != "" {
+			d, err := time.ParseDuration(c.StartAfter)
+			if err != nil {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("traffic cohort %q start_after %q: %w", c.Name, c.StartAfter, err)
+			}
+			if d < 0 {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("traffic cohort %q start_after %q must not be negative", c.Name, c.StartAfter)
+			}
+			if beh.Duration > 0 && d >= beh.Duration {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("traffic cohort %q starts after %s but the run is only %s, so it would never run",
+						c.Name, d, beh.Duration)
+			}
+			cohort.StartAfter = d
+		}
+		beh.Apps = append(beh.Apps, cohort)
 	}
 
 	return spec, beh, nil

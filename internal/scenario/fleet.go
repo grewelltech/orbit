@@ -93,6 +93,11 @@ type TrafficShare struct {
 	Target  string  `yaml:"target"`
 
 	// App-cohort fields (ignored on profile entries).
+	// StartAfter delays this cohort's start, measured from the beginning of
+	// the behaviour phase ("2m"). Empty starts with the run. Staggering
+	// cohorts is how you see what ADDING load does: a mix that all begins at
+	// once shows the steady state and never the transition.
+	StartAfter string            `yaml:"start_after"`
 	Name       string            `yaml:"name"`         // cohort label (default: the app name); unique across cohorts
 	Peer       string            `yaml:"peer"`         // N6 loomd control address ("host:port"), required
 	Token      string            `yaml:"token"`        // loomd bearer token ("" = unauthenticated)
@@ -339,6 +344,7 @@ type AppCohort struct {
 	Peer, Token, PeerDataIP string
 	Params                  map[string]string
 	Count                   int
+	StartAfter              string
 }
 
 // AppCohorts derives the app-traffic cohorts from the traffic mix. Cohorts
@@ -357,7 +363,7 @@ func (f *FleetScenario) AppCohorts() []AppCohort {
 		out = append(out, AppCohort{
 			Name: m.cohortName(), App: m.App,
 			Peer: m.Peer, Token: m.Token, PeerDataIP: m.PeerDataIP,
-			Params: m.Params, Count: counts[i],
+			Params: m.Params, Count: counts[i], StartAfter: m.StartAfter,
 		})
 	}
 	return out

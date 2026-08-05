@@ -1,6 +1,9 @@
 package scenario
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 const fleetSample = `
 kind: fleet
@@ -151,5 +154,50 @@ func TestGenGNBsSeparateN3(t *testing.T) {
 	got = f.GenGNBs()
 	if got[1].GNB.N3 != "10.102.0.21" {
 		t.Errorf("gNB 1 N3 = %q, want the source IP when n3_ips is unset", got[1].GNB.N3)
+	}
+}
+
+// start_after staggers a cohort so a run can show what ADDING load does, not
+// just the steady state of a mix that all began at once.
+func TestBuildFleetRunStaggersCohorts(t *testing.T) {
+	f := &FleetScenario{
+		Fleet:    FleetSpec{Count: 4, SUPIBase: "001010000000001", PDUSession: true},
+		Topology: Topology{GNBs: GNBGen{Count: 1, IDBase: 1, SourceIPs: []string{"10.0.0.1"}}},
+		Behaviors: Behaviors{Traffic: &TrafficBehavior{Mix: []TrafficShare{
+			{App: "http", Name: "web", Share: 0.5, Peer: "p:1"},
+			{App: "voip", Name: "calls", Share: 0.5, Peer: "p:1", StartAfter: "2m"},
+		}}},
+		Run: RunSpec{Duration: "10m"},
+	}
+	_, beh, err := BuildFleetRun(f, make([]byte, 16), make([]byte, 16))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	byName := map[string]time.Duration{}
+	for _, c := range beh.Apps {
+		byName[c.Name] = c.StartAfter
+	}
+	if byName["web"] != 0 {
+		t.Errorf("web start_after = %v, want 0 (unset starts with the run)", byName["web"])
+	}
+	if byName["calls"] != 2*time.Minute {
+		t.Errorf("calls start_after = %v, want 2m", byName["calls"])
+	}
+}
+
+// A cohort that would start after the run ends is refused at build time: it
+// would otherwise be carved members, occupy them for the whole run, and never
+// send anything.
+func TestBuildFleetRunRefusesUnreachableStart(t *testing.T) {
+	f := &FleetScenario{
+		Fleet:    FleetSpec{Count: 2, SUPIBase: "001010000000001", PDUSession: true},
+		Topology: Topology{GNBs: GNBGen{Count: 1, IDBase: 1, SourceIPs: []string{"10.0.0.1"}}},
+		Behaviors: Behaviors{Traffic: &TrafficBehavior{Mix: []TrafficShare{
+			{App: "http", Name: "late", Share: 1.0, Peer: "p:1", StartAfter: "10m"},
+		}}},
+		Run: RunSpec{Duration: "5m"},
+	}
+	if _, _, err := BuildFleetRun(f, make([]byte, 16), make([]byte, 16)); err == nil {
+		t.Error("a cohort starting after the run ends must be refused, not silently never run")
 	}
 }
