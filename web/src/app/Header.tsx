@@ -6,6 +6,7 @@
  */
 import { StatusDot, type Status } from "@/components/StatusDot";
 import type { RunState, SourceState, TelemetryFrame } from "@/data/types";
+import type { ThemeName, ThemeSetting } from "@/theme/useTheme";
 import { duration } from "@/lib/format";
 
 const SOURCE_STATUS: Record<SourceState, { status: Status; label: string }> = {
@@ -30,11 +31,12 @@ export interface HeaderProps {
   frame: TelemetryFrame | null;
   sourceState: SourceState;
   sourceName: string;
-  theme: "dark" | "light";
-  onToggleTheme: () => void;
+  theme: ThemeName;
+  themeSetting: ThemeSetting;
+  onCycleTheme: () => void;
 }
 
-export function Header({ frame, sourceState, sourceName, theme, onToggleTheme }: HeaderProps) {
+export function Header({ frame, sourceState, sourceName, theme, themeSetting, onCycleTheme }: HeaderProps) {
   const src = SOURCE_STATUS[sourceState];
   const run = frame?.run;
   const isMock = sourceName !== "orbit";
@@ -80,7 +82,7 @@ export function Header({ frame, sourceState, sourceName, theme, onToggleTheme }:
         <StatusDot status={src.status} label={src.label} />
         <button
           type="button"
-          onClick={onToggleTheme}
+          onClick={onCycleTheme}
           className="o-label cursor-pointer border px-1.5 py-0.5 transition-colors"
           style={{
             color: "var(--o-ink-3)",
@@ -88,10 +90,17 @@ export function Header({ frame, sourceState, sourceName, theme, onToggleTheme }:
             borderRadius: "var(--o-radius)",
             transitionDuration: "var(--o-dur-fast)",
           }}
-          aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-          title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          aria-label={`Theme: ${themeSetting}. Click to change.`}
+          title={
+            themeSetting === "system"
+              ? `following the system (${theme})`
+              : `pinned to ${themeSetting}`
+          }
         >
-          {theme === "dark" ? "light" : "dark"}
+          {/* The SETTING, not the resolved theme: "system" is a distinct
+              choice from "dark", and a button that only ever showed the
+              latter would hide whether the OS is still being followed. */}
+          {themeSetting}
         </button>
       </div>
     </header>

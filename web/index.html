@@ -3,8 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <title>ORBIT — Live</title>
+    <script>
+      // Resolve the theme before first paint. The React hook applies it in an
+      // effect, which is one frame too late: a light-mode operator would see
+      // the dark palette flash on every load. Kept deliberately tiny and
+      // dependency-free — it duplicates a few lines of useTheme.ts rather than
+      // pulling the bundle forward.
+      (function () {
+        try {
+          var saved = localStorage.getItem("orbit.theme");
+          var setting = saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+          var theme =
+            setting === "system"
+              ? window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches === false
+                ? "light"
+                : "dark"
+              : setting;
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

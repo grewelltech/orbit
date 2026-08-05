@@ -96,6 +96,11 @@
   --o-axis-line: #22384e;
   --o-crosshair: rgb(79 214 232 / 0.55);
   --o-tooltip-bg: #0b1521;
+
+  /* Page background grid. Reads as structure behind the panels rather than
+     texture: lifted off the old baked-in rgb(28 47 66 / 0.28) so the ruling
+     is actually visible on the near-black base. */
+  --o-bg-grid: rgb(45 73 100 / 0.45);
 }
 
 /* Reduced-motion users get the same interface with transitions collapsed. */
@@ -150,8 +155,12 @@
   --o-series-8: #cf5bb8;
 
   /* ── chart-specific ──────────────────────────────────────────────────── */
-  --o-grid-line: #e4ebf2;
-  --o-axis-line: #cfdae6;
+  --o-grid-line: #e8eef4;
+  --o-axis-line: #d6e0ea;
   --o-crosshair: rgb(13 143 168 / 0.55);
   --o-tooltip-bg: #ffffff;
+
+  /* Lighter touch than dark: on a pale base the same ruling reads as dirt on
+     the screen rather than as structure. */
+  --o-bg-grid: rgb(120 145 170 / 0.13);
 }

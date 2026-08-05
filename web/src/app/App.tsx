@@ -35,7 +35,7 @@ export function App() {
   const telemetry = useTelemetry(source);
   const { latest, history, events, state, clearEvents } = telemetry;
 
-  const { theme, toggle } = useTheme();
+  const { setting: themeSetting, theme, cycle: cycleTheme } = useTheme();
   const t = tokens();
 
   // Sessions in context: a bare count says nothing about whether it is all of
@@ -121,7 +121,8 @@ export function App() {
         sourceState={state}
         sourceName={source.name}
         theme={theme}
-        onToggleTheme={toggle}
+        themeSetting={themeSetting}
+        onCycleTheme={cycleTheme}
       />
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
