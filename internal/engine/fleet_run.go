@@ -270,7 +270,12 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 				}
 				wg.Add(1)
 				rep.TrafficFlows++
+				// The synthetic traffic path writes through this UEFlow, NOT
+				// through the session's lazily-opened UETunnel — a UE carrying
+				// only synthetic traffic never opens one. Register the flow so
+				// its bytes reach the live totals.
 				live.TrafficFlowStarted()
+				live.AddSource(flow)
 				go func(fu *fleetUE, flow *datapath.UEFlow) {
 					defer wg.Done()
 					r := fu.sess.Result

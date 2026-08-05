@@ -9,7 +9,7 @@ import (
 // path so the aggregation is testable without a live core.
 type fakeCounters struct{ ulp, ulb, dlp, dlb uint64 }
 
-func (f fakeCounters) n3Totals() (uint64, uint64, uint64, uint64) {
+func (f fakeCounters) Totals() (uint64, uint64, uint64, uint64) {
 	return f.ulp, f.ulb, f.dlp, f.dlb
 }
 

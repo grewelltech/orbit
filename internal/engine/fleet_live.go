@@ -35,7 +35,7 @@ type FleetSnapshot struct {
 // *Session satisfies it; the indirection keeps FleetLiveStats testable without
 // a live data path.
 type n3Counters interface {
-	n3Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64)
+	Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64)
 }
 
 // FleetLiveStats accumulates a fleet run's aggregates while it is in flight,
@@ -186,7 +186,7 @@ func (f *FleetLiveStats) Snapshot() FleetSnapshot {
 		s.PerGNB[k] = v
 	}
 	for _, src := range f.sources {
-		ulp, ulb, dlp, dlb := src.n3Totals()
+		ulp, ulb, dlp, dlb := src.Totals()
 		s.UplinkPackets += ulp
 		s.UplinkBytes += ulb
 		s.DownlinkPackets += dlp
@@ -195,10 +195,11 @@ func (f *FleetLiveStats) Snapshot() FleetSnapshot {
 	return s
 }
 
-// n3Totals satisfies [n3Counters]: a session with no data path yet (the app
-// cohorts open theirs lazily) contributes zeros rather than being an error, so
-// the fleet total is simply the traffic that has actually flowed.
-func (s *Session) n3Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
+// Totals sums this session's N3 counters across its QoS flows, satisfying
+// [n3Counters]. A session with no data path yet (app cohorts open theirs
+// lazily) contributes zeros rather than being an error, so a fleet total is
+// simply the traffic that has actually flowed.
+func (s *Session) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
 	s.dpMu.Lock()
 	ue := s.ue
 	s.dpMu.Unlock()
@@ -206,4 +207,16 @@ func (s *Session) n3Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
 		return 0, 0, 0, 0
 	}
 	return ue.Totals()
+}
+
+// AddSource registers an extra counter source that is not a Session — the
+// fleet's synthetic traffic writes through a datapath.UEFlow, which a UE
+// carrying no app cohort never backs with a session data path.
+func (f *FleetLiveStats) AddSource(src n3Counters) {
+	if f == nil || src == nil {
+		return
+	}
+	f.mu.Lock()
+	f.sources = append(f.sources, src)
+	f.mu.Unlock()
 }

@@ -247,3 +247,43 @@ func TestUETunnelRebindAndDetachCarry(t *testing.T) {
 		t.Errorf("carried DL packets = %d, want 3 (stats must survive the move)", st.DownlinkPackets)
 	}
 }
+
+// A UEFlow counts its own uplink. The fleet's synthetic traffic writes through
+// this handle and never opens a session data path, so without these counters
+// that traffic is invisible to every counter in the system — which is exactly
+// how a whole fleet run once reported zero bytes while flows were running.
+func TestUEFlowCountsUplink(t *testing.T) {
+	upf, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upf.Close()
+	st, err := NewSharedTunnel("127.0.0.1:0", upf.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	flow := st.UEFlow(0x1234, 9)
+	if ulp, ulb, dlp, dlb := flow.Totals(); ulp|ulb|dlp|dlb != 0 {
+		t.Fatalf("fresh flow totals = %d/%d/%d/%d, want zero", ulp, ulb, dlp, dlb)
+	}
+
+	payload := make([]byte, 100)
+	for i := 0; i < 3; i++ {
+		if err := flow.SendUplink(payload); err != nil {
+			t.Fatalf("SendUplink: %v", err)
+		}
+	}
+
+	ulp, ulb, dlp, dlb := flow.Totals()
+	if ulp != 3 || ulb != 300 {
+		t.Errorf("uplink = %d pkts / %d bytes, want 3/300", ulp, ulb)
+	}
+	// A UEFlow is uplink-only; the downlink return path lands on a registered
+	// UERx lane, not here, so claiming downlink would attribute traffic this
+	// object never saw.
+	if dlp != 0 || dlb != 0 {
+		t.Errorf("downlink = %d/%d, want 0/0 on an uplink-only handle", dlp, dlb)
+	}
+}
