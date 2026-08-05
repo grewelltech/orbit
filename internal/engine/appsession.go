@@ -848,12 +848,29 @@ func (s *appSession) finalize(tdone <-chan struct{}) {
 // management connection (never the tunnel — design §5), a short seeding burst
 // first and then every syncInterval.
 func (s *appSession) timesyncLoop() {
+	// A failing exchange used to be discarded silently, which left one-way
+	// delay quietly degraded to the rtt/2 estimate with nothing to say why —
+	// the sample line reads "owd 0.58±0.58ms (rtt/2)" and looks merely
+	// imprecise rather than broken. Report it, once, so the fallback is
+	// attributable instead of invisible.
+	var syncFailed bool
 	sync1 := func() {
 		ctx, cancel := context.WithTimeout(s.ctx, s.tun.rpcTimeout)
 		defer cancel()
-		if smp, err := control.Sync(ctx, s.agent); err == nil {
-			s.tracker.Feed(smp, time.Now())
+		smp, err := control.Sync(ctx, s.agent)
+		if err != nil {
+			if !syncFailed {
+				syncFailed = true
+				s.m.log.Warn("TimeSync failed; one-way delay falls back to rtt/2",
+					"id", s.id, "supi", s.supi, "err", err)
+			}
+			return
 		}
+		if syncFailed {
+			syncFailed = false
+			s.m.log.Info("TimeSync recovered", "id", s.id, "supi", s.supi)
+		}
+		s.tracker.Feed(smp, time.Now())
 	}
 	for i := 0; i < s.tun.syncBurst && s.ctx.Err() == nil; i++ {
 		sync1()
