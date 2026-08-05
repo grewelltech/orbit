@@ -94,9 +94,11 @@ type fleetUE struct {
 // runs the behaviours concurrently for the duration, then deregisters — the
 // direct-drive population run. Attach numbers are integration-capacity (bounded
 // by the core under test).
-// live may be nil, which disables live reporting without changing execution —
-// the CLI path (`orbit run <fleet>`) has no telemetry subscriber to serve.
-func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors, live *FleetLiveStats) (FleetReport, error) {
+// live and ev may be nil, which disables live reporting without changing
+// execution — the CLI path (`orbit run <fleet>`) has no telemetry subscriber
+// to serve.
+func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors,
+	live *FleetLiveStats, ev *RunEvents) (FleetReport, error) {
 	var rep FleetReport
 	if len(spec.GNBs) == 0 {
 		return rep, fmt.Errorf("fleet run needs at least one gNB")
@@ -125,6 +127,8 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	pool := newN3Pool()
 
 	// Attach phase — persistent, keeping a handle per UE.
+	ev.Milestone(EventKindAttach, fmt.Sprintf("attach phase started: %d UEs across %d gNBs%s",
+		spec.Count, len(spec.GNBs), attachRateNote(spec.RateRPS)))
 	start := time.Now()
 	ues := make([]*fleetUE, 0, spec.Count)
 	var amu sync.Mutex
@@ -146,12 +150,16 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 		go func(i int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fu, err := attachFleetUE(ctx, f, spec, pool, i)
+			fu, err := attachFleetUE(ctx, f, spec, pool, i, ev)
 			amu.Lock()
 			defer amu.Unlock()
 			if err != nil {
 				rep.AttachFailed++
 				live.AttachFailed()
+				// Per UE, at every verbosity: attach failures are rare and are
+				// the reason to be watching. supi is derived rather than taken
+				// from the (nil) handle.
+				ev.Failure(EventKindAttach, fleetSUPI(spec, i), err.Error())
 				return
 			}
 			ues = append(ues, fu)
@@ -161,13 +169,22 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	wg.Wait()
 	rep.Attached = len(ues)
 	rep.AttachElapsed = time.Since(start)
+	// The aggregated stand-in for the per-UE successes normal verbosity does
+	// not emit: one line that still says whether the phase went well.
+	attachMsg := fmt.Sprintf("attach complete: %d/%d in %s",
+		rep.Attached, rep.Attached+rep.AttachFailed, rep.AttachElapsed.Round(time.Millisecond))
+	if rep.AttachFailed > 0 {
+		ev.send("warn", EventKindAttach, "", attachMsg)
+	} else {
+		ev.Milestone(EventKindAttach, attachMsg)
+	}
 	if len(ues) == 0 {
 		return rep, fmt.Errorf("no UEs attached")
 	}
 
 	// Behaviour phase.
 	if beh.Duration > 0 {
-		runFleetBehaviors(ctx, f, spec, pool, ues, beh, &rep, log, live)
+		runFleetBehaviors(ctx, f, spec, pool, ues, beh, &rep, log, live, ev)
 	}
 
 	// Deregister. App-cohort members opened lazy data paths on the shared
@@ -183,13 +200,34 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 			rep.Deregistered++
 		}
 	}
+	ev.Milestone(EventKindAttach, fmt.Sprintf("deregistered %d/%d UEs", rep.Deregistered, len(ues)))
 	return rep, nil
+}
+
+// attachRateNote renders the offered attach rate for a milestone, or "" when
+// the run is concurrency-bound.
+func attachRateNote(rps float64) string {
+	if rps <= 0 {
+		return " (concurrency-bound)"
+	}
+	return fmt.Sprintf(" at %.3g/s", rps)
+}
+
+// fleetSUPI recovers UE i's SUPI for an event about an attach that failed
+// before a handle existed. A malformed base yields the index alone rather than
+// an error: this is a label on an event, never a control decision.
+func fleetSUPI(spec FleetRunSpec, i int) string {
+	supi, err := incIMSI(spec.BaseIMSI, i)
+	if err != nil {
+		return fmt.Sprintf("ue-%d", i)
+	}
+	return supi
 }
 
 // attachFleetUE attaches one UE muxed on its serving gNB's association and
 // returns a persistent handle. The session's data path (opened lazily only
 // when an app cohort uses the UE) rides the run's shared per-gNB pool.
-func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int) (*fleetUE, error) {
+func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int, ev *RunEvents) (*fleetUE, error) {
 	gi := i % len(f.sessions)
 	supi, err := incIMSI(spec.BaseIMSI, i)
 	if err != nil {
@@ -207,7 +245,11 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 		cfg.PDUSession = &p
 		cfg.GNBN3Addr = spec.GNBs[gi].N3Addr
 	}
-	sess, err := Attach(ctx, uet, f.gnbConfigFor(gi), cfg, f.log, nil)
+	// The lifecycle transitions the Manager publishes to its hub reach the run
+	// stream here instead (there is no Manager behind a fleet run). The policy
+	// decides what survives: at normal verbosity these are suppressed in favour
+	// of the phase milestones above.
+	sess, err := Attach(ctx, uet, f.gnbConfigFor(gi), cfg, f.log, ev.stateEventSink())
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +264,7 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 // runFleetBehaviors runs mobility + traffic + app cohorts concurrently until
 // the duration elapses (or the context is cancelled).
 func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, ues []*fleetUE,
-	beh FleetBehaviors, rep *FleetReport, log *slog.Logger, live *FleetLiveStats) {
+	beh FleetBehaviors, rep *FleetReport, log *slog.Logger, live *FleetLiveStats, ev *RunEvents) {
 	dctx, cancel := context.WithTimeout(ctx, beh.Duration)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -243,6 +285,8 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	// counted as run.
 	var trafficBytes atomic.Uint64
 	if beh.Traffic && spec.PDUSession != nil && len(trafficUEs) > 0 {
+		ev.Traffic(fmt.Sprintf("synthetic traffic started: %d UEs → %s%s",
+			len(trafficUEs), beh.TrafficTarget, trafficRateNote(beh.TrafficRate)))
 		upfN3 := fleetUPFN3(ues[0].sess.Result.UPFAddress)
 		tuns := map[string]*sharedN3{}
 		for gi := range f.sessions {
@@ -305,6 +349,13 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	var appReports []FleetAppCohortReport
 	if appTotal > 0 {
 		live.AppSessions(appTotal)
+		// One event per cohort, not per member: a 500-UE cohort costs one line.
+		for i, c := range beh.Apps {
+			if i < len(appMembers) {
+				ev.Traffic(fmt.Sprintf("cohort %s (%s) started: %d UEs → %s",
+					cohortName(c, i), c.App, len(appMembers[i]), c.Peer))
+			}
+		}
 		agents := newFleetAgentPool(appTuning{})
 		wg.Add(1)
 		go func() {
@@ -362,6 +413,13 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 					}
 					live.Handover(err)
 					hmu.Unlock()
+					if err != nil {
+						ev.Mobility(fu.sess.SUPI, StateHandoverFailed, err.Error())
+					} else {
+						ev.Mobility(fu.sess.SUPI, StateHandoverComplete,
+							fmt.Sprintf("%s → %s", gnbAttributionLabel(f.gnbConfigFor(from)),
+								gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx))))
+					}
 				}
 			}(fu, triggers)
 		}
@@ -370,6 +428,43 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	wg.Wait()
 	rep.TrafficBytes = trafficBytes.Load()
 	rep.AppCohorts = appReports
+	if beh.Traffic && spec.PDUSession != nil && len(trafficUEs) > 0 {
+		ev.Traffic(fmt.Sprintf("synthetic traffic stopped: %d flows, %s",
+			rep.TrafficFlows, byteSize(rep.TrafficBytes)))
+	}
+	for _, r := range appReports {
+		msg := fmt.Sprintf("cohort %s (%s) stopped: %d UEs", r.Name, r.App, r.UEs)
+		if r.Failed > 0 {
+			msg += fmt.Sprintf(", %d failed", r.Failed)
+		}
+		if r.Err != "" {
+			ev.Failure(EventKindTraffic, "", fmt.Sprintf("cohort %s (%s): %s", r.Name, r.App, r.Err))
+			continue
+		}
+		ev.Traffic(msg)
+	}
+}
+
+// trafficRateNote renders a synthetic flow's rate, or "" when unlimited.
+func trafficRateNote(rate string) string {
+	if rate == "" {
+		return ""
+	}
+	return " at " + rate
+}
+
+// byteSize renders a byte total in the unit that keeps an event line readable.
+func byteSize(b uint64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.2f MiB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
 }
 
 // fleetHandover moves fu to the target gNB via an Xn PathSwitch on the target's

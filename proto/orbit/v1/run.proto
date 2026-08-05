@@ -114,12 +114,24 @@ message FleetRunSpec {
   Credentials credentials = 2;
 }
 
+// EventVerbosity selects how much of a run's activity reaches the event stream.
+// The stream is a bounded ring, so this is a budget rather than a log level:
+// NORMAL spends it on failures, mobility and per-cohort traffic milestones and
+// aggregates routine per-UE progress, so a population run's failures are not
+// evicted by its own successes.
+enum EventVerbosity {
+  EVENT_VERBOSITY_UNSPECIFIED = 0; // treated as NORMAL
+  EVENT_VERBOSITY_NORMAL = 1;
+  EVENT_VERBOSITY_VERBOSE = 2;     // adds every UE lifecycle transition; widens the ring
+}
+
 message StartRunRequest {
   string name = 1;                // optional label; server names it if empty
   oneof spec {
     LoadRunSpec load = 2;
     FleetRunSpec fleet = 3;
   }
+  EventVerbosity event_verbosity = 4;
 }
 
 message StartRunResponse {

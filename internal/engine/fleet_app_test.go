@@ -264,7 +264,7 @@ func TestFleetAppCohortPortRangeRefused(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	spec := FleetRunSpec{AMFAddr: "127.0.0.1:1", GNBs: []FleetGNB{{BindAddr: "", N3Addr: "127.0.0.1"}}}
-	_, rerr := RunFleet(ctx, testLogger(), spec, FleetBehaviors{Duration: time.Second, Apps: cohorts}, nil)
+	_, rerr := RunFleet(ctx, testLogger(), spec, FleetBehaviors{Duration: time.Second, Apps: cohorts}, nil, nil)
 	if rerr == nil || !strings.Contains(rerr.Error(), "port(s); widen the range") {
 		t.Errorf("RunFleet did not refuse up front: %v", rerr)
 	}

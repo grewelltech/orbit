@@ -23,10 +23,12 @@ const ROW_HEIGHT = 22;
 export interface EventStreamProps {
   /** Newest-first. */
   events: TestEvent[];
+  /** Drops the events held for display; the server's ring is untouched. */
+  onClear?: () => void;
   className?: string;
 }
 
-export function EventStream({ events, className }: EventStreamProps) {
+export function EventStream({ events, onClear, className }: EventStreamProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
 
@@ -49,6 +51,24 @@ export function EventStream({ events, className }: EventStreamProps) {
       flush
       className={className}
       meta={
+        <div className="flex items-center gap-1.5">
+        {onClear && (
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={events.length === 0}
+            className="o-label cursor-pointer border px-1.5 py-0.5 transition-colors disabled:cursor-default disabled:opacity-40"
+            style={{
+              color: "var(--o-ink-3)",
+              borderColor: "var(--o-border)",
+              borderRadius: "var(--o-radius)",
+              transitionDuration: "var(--o-dur-fast)",
+            }}
+            title="Clear the events shown here. The server keeps its own record."
+          >
+            clear
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setFollow((f) => !f)}
@@ -63,6 +83,7 @@ export function EventStream({ events, className }: EventStreamProps) {
         >
           {follow ? "following" : "paused"}
         </button>
+        </div>
       }
     >
       <div

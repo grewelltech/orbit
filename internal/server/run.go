@@ -31,23 +31,25 @@ func (s *runService) StartRun(
 	req *connect.Request[orbitv1.StartRunRequest],
 ) (*connect.Response[orbitv1.StartRunResponse], error) {
 	m := req.Msg
+	verbosity := eventVerbosityFromProto(m.GetEventVerbosity())
+	opts := engine.RunOptions{Name: m.GetName(), Verbosity: verbosity}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
 		fn, err := loadRunFunc(s.log, spec.Load)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		info, err := s.reg.StartLoad(m.GetName(), fn)
+		info, err := s.reg.StartLoad(opts, fn)
 		if err != nil {
 			return nil, runStartError(err)
 		}
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
-		fn, err := fleetRunFunc(s.log, spec.Fleet)
+		fn, err := fleetRunFunc(s.log, spec.Fleet, verbosity)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		info, err := s.reg.StartFleet(m.GetName(), fn)
+		info, err := s.reg.StartFleet(opts, fn)
 		if err != nil {
 			return nil, runStartError(err)
 		}
@@ -520,7 +522,7 @@ func (f failureEvents) Observe(s load.Sample) {
 // fleetRunFunc parses the fleet scenario YAML, injects the request's
 // credentials, and builds the launcher via the shared scenario→engine mapping —
 // the same one `orbit run <fleet>` uses, so CLI and server runs are identical.
-func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec) (engine.FleetRunFunc, error) {
+func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (engine.FleetRunFunc, error) {
 	if p.GetScenarioYaml() == "" {
 		return nil, fmt.Errorf("scenario_yaml is required")
 	}
@@ -545,12 +547,8 @@ func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec) (engine.FleetRunFun
 	if err != nil {
 		return nil, err
 	}
-	return func(ctx context.Context, stats *engine.FleetLiveStats, _ engine.RunEventFunc) (engine.FleetReport, error) {
-		// Fleet runs attach with no per-attempt observer today, so they emit
-		// only the registry's lifecycle events; per-UE fleet events arrive when
-		// the fleet attach path is wired to the emitter. Aggregates, though,
-		// go into stats as the run proceeds and reach RunTelemetry live.
-		return engine.RunFleet(ctx, log, spec, beh, stats)
+	return func(ctx context.Context, stats *engine.FleetLiveStats, emit engine.RunEventFunc) (engine.FleetReport, error) {
+		return engine.RunFleet(ctx, log, spec, beh, stats, engine.NewRunEvents(emit, verbosity))
 	}, nil
 }
 
@@ -570,6 +568,16 @@ func loadRate(p *orbitv1.LoadRunSpec) (load.Rate, error) {
 		return load.Constant{RPS: p.GetRate()}, nil
 	}
 	return nil, nil
+}
+
+// eventVerbosityFromProto maps the wire enum onto the engine's verbosity,
+// treating UNSPECIFIED as the default rather than rejecting it — an older
+// client that never sets the field gets normal emission.
+func eventVerbosityFromProto(v orbitv1.EventVerbosity) engine.EventVerbosity {
+	if v == orbitv1.EventVerbosity_EVENT_VERBOSITY_VERBOSE {
+		return engine.EventsVerbose
+	}
+	return engine.EventsNormal
 }
 
 // runStartError maps a StartLoad error to a Connect code. A rejected concurrent

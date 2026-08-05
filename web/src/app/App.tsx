@@ -29,7 +29,7 @@ export function App() {
     return new ConnectSource(runId ? { runId } : {});
   }, []);
   const telemetry = useTelemetry(source);
-  const { latest, history, events, state } = telemetry;
+  const { latest, history, events, state, clearEvents } = telemetry;
 
   const t = tokens();
 
@@ -166,7 +166,7 @@ export function App() {
         {/* Distribution + events */}
         <section className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[320px_1fr]">
           <GnbDistribution frame={latest} className="min-h-[180px]" />
-          <EventStream events={events} className="min-h-[180px]" />
+          <EventStream events={events} onClear={clearEvents} className="min-h-[180px]" />
         </section>
       </main>
     </div>

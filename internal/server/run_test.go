@@ -117,7 +117,7 @@ func TestRunServiceOneActiveRejectsSecond(t *testing.T) {
 	// Hold the first run active with a launcher that blocks until the test ends.
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
-	if _, err := reg.StartLoad("blocking", func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+	if _, err := reg.StartLoad(engine.RunOptions{Name: "blocking"}, func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		select {
 		case <-block:
 		case <-ctx.Done():
@@ -215,7 +215,7 @@ func TestRunServiceStopUnknown(t *testing.T) {
 // StopRun-success paths that a real load run (needing a core) cannot reach.
 func seedRun(t *testing.T, reg *engine.RunRegistry, name string, fn engine.LoadRunFunc) string {
 	t.Helper()
-	info, err := reg.StartLoad(name, fn)
+	info, err := reg.StartLoad(engine.RunOptions{Name: name}, fn)
 	if err != nil {
 		t.Fatalf("seed run: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestRunServiceFleetReport(t *testing.T) {
 		Attached: 50, AttachFailed: 2, AttachElapsed: 3 * time.Second,
 		Handovers: 8, HandoverErr: 1, TrafficFlows: 40, TrafficBytes: 123456, Deregistered: 49,
 	}
-	info, err := reg.StartFleet("seeded", func(ctx context.Context, _ *engine.FleetLiveStats, _ engine.RunEventFunc) (engine.FleetReport, error) {
+	info, err := reg.StartFleet(engine.RunOptions{Name: "seeded"}, func(ctx context.Context, _ *engine.FleetLiveStats, _ engine.RunEventFunc) (engine.FleetReport, error) {
 		return want, nil
 	})
 	if err != nil {
@@ -600,7 +600,7 @@ func TestRunTelemetryStreamsUntilTerminal(t *testing.T) {
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(proceed) }) }
 	t.Cleanup(release) // never wedge the launcher if a RUNNING frame never arrives
-	info, err := reg.StartLoad("live", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+	info, err := reg.StartLoad(engine.RunOptions{Name: "live"}, func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": 10 * time.Millisecond}})
 		s.Observe(load.Sample{Err: errBoom})
 		<-proceed
@@ -696,7 +696,7 @@ func TestRunTelemetryStopsOnClientCancel(t *testing.T) {
 	c, reg := newRunRPCClient(t)
 	proceed := make(chan struct{})
 	t.Cleanup(func() { close(proceed) })
-	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+	info, err := reg.StartLoad(engine.RunOptions{Name: "blocked"}, func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
 		<-proceed // never completes on its own
 		return load.Report{}, nil
@@ -753,7 +753,7 @@ func TestRunTelemetryCancelIsPromptAtLongInterval(t *testing.T) {
 	c, reg := newRunRPCClient(t)
 	proceed := make(chan struct{})
 	t.Cleanup(func() { close(proceed) })
-	info, err := reg.StartLoad("blocked", func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+	info, err := reg.StartLoad(engine.RunOptions{Name: "blocked"}, func(ctx context.Context, s *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		<-proceed // stays RUNNING
 		return load.Report{}, nil
 	})
@@ -792,7 +792,7 @@ func TestRunTelemetryCancelIsPromptAtLongInterval(t *testing.T) {
 // terminal event delivered.
 func TestRunEventsStreamsUntilTerminal(t *testing.T) {
 	c, reg := newRunRPCClient(t)
-	info, err := reg.StartLoad("evt", func(ctx context.Context, s *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
+	info, err := reg.StartLoad(engine.RunOptions{Name: "evt"}, func(ctx context.Context, s *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
 		emit("error", "ATTACH", "imsi-1", "registration rejected")
 		return load.Report{}, nil
 	})
@@ -845,7 +845,7 @@ func TestRunEventsStreamsUntilTerminal(t *testing.T) {
 func TestRunEventsReportsDroppedBefore(t *testing.T) {
 	c, reg := newRunRPCClient(t)
 	// Emit more than the ring holds, then complete, so history is evicted.
-	info, err := reg.StartLoad("drop", func(ctx context.Context, s *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
+	info, err := reg.StartLoad(engine.RunOptions{Name: "drop"}, func(ctx context.Context, s *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
 		for i := 0; i < engine.DefaultRunEventCap+50; i++ {
 			emit("info", "N", "", "e")
 		}
