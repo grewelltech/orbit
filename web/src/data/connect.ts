@@ -126,21 +126,25 @@ export class ConnectSource implements TelemetrySource {
       try {
         run = await this.selectRun(signal);
       } catch (err) {
+        // listRuns failed: this is the real "cannot reach the server" case.
         if (signal.aborted) return;
-        this.setConn("error");
+        this.setConn("disconnected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
       if (!run) {
-        // Nothing to watch yet; poll.
-        this.setConn("disconnected");
+        // Nothing to watch yet; poll. listRuns just succeeded, so the server
+        // is reachable — saying "disconnected" here would report a fault that
+        // does not exist for as long as the testbed sits idle.
+        this.setConn("connected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
       if (isTerminalState(run.state) && run.runId === this.lastTerminalId) {
         // Already showed this finished run's final frame; wait for a new or
-        // active one rather than reconnecting to it every poll.
-        this.setConn("disconnected");
+        // active one rather than reconnecting to it every poll. Still
+        // connected — there is simply nothing new to stream.
+        this.setConn("connected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
@@ -158,7 +162,9 @@ export class ConnectSource implements TelemetrySource {
       // now finished — remember it so we don't re-stream it below.
       this.lastTerminalId = run.runId;
       if (this.pinnedRunId) {
-        this.setConn("disconnected");
+        // The pinned run has finished and nothing else will be streamed, but
+        // the server is still there.
+        this.setConn("connected");
         return;
       }
       await sleep(POLL_INTERVAL_MS, signal);
@@ -305,6 +311,7 @@ export class ConnectSource implements TelemetrySource {
       perGnb: Object.fromEntries(
         (lp?.perGnb ?? fp?.perGnb ?? []).map((g) => [g.gnb, g.succeeded]),
       ),
+      mobility: { handovers: fp?.handovers ?? 0, failed: fp?.handoverErrors ?? 0 },
       cohorts: (fp?.cohorts ?? []).map((c) => ({
         name: c.name,
         app: c.app,

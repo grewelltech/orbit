@@ -10,6 +10,7 @@ import { duration } from "@/lib/format";
 
 const SOURCE_STATUS: Record<SourceState, { status: Status; label: string }> = {
   connecting: { status: "warn", label: "connecting" },
+  connected: { status: "ok", label: "connected" },
   live: { status: "active", label: "live" },
   stalled: { status: "warn", label: "stalled" },
   disconnected: { status: "idle", label: "disconnected" },

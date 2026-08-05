@@ -263,6 +263,7 @@ export class MockSource implements TelemetrySource {
       // The mock does not synthesise cohort quality or per-flow rows: they
       // would be plausible-looking numbers with nothing behind them, which is
       // exactly what the real source is careful not to report.
+      mobility: { handovers: 0, failed: 0 },
       cohorts: [],
       flows: [],
       flowsTotal: 0,

@@ -138,6 +138,9 @@ export interface TelemetryFrame {
   upLatency: LatencySummary | null;
   /** Per-gNB UE distribution, keyed by gNB id. */
   perGnb: Record<string, number>;
+  /** Mobility outcomes so far. Counts, not a ratio: "100% ok" across zero
+   *  handovers reads as a healthy statistic when nothing has been tested. */
+  mobility: { handovers: number; failed: number };
   /** Live app-cohort quality; empty for a run with no app cohorts. */
   cohorts: CohortQuality[];
   /** The busiest flows, already ranked and truncated by the server. */
@@ -162,4 +165,18 @@ export interface TestEvent {
 }
 
 /** Connection state of the dashboard to its telemetry source. */
-export type SourceState = "connecting" | "live" | "stalled" | "disconnected" | "error";
+/**
+ * How the dashboard's data source is faring.
+ *
+ * `connected` and `disconnected` are about REACHABILITY, not about whether
+ * anything is happening: a server with no run to watch is connected and idle,
+ * not disconnected. Conflating the two made an idle dashboard permanently
+ * report a connection problem it did not have.
+ */
+export type SourceState =
+  | "connecting"
+  | "connected" // reachable; nothing to stream (no run, or the last one is done)
+  | "live" // streaming a run's frames
+  | "stalled"
+  | "disconnected" // the server could not be reached
+  | "error";

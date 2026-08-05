@@ -17,6 +17,7 @@ import { TimeSeriesPanel, type SeriesDef } from "@/panels/TimeSeriesPanel";
 import { MockSource } from "@/data/mock";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
+import type { TelemetryFrame } from "@/data/types";
 import { useTelemetry } from "@/hooks/useTelemetry";
 import { tokens } from "@/theme/tokens";
 import { bps, count, ms, pct } from "@/lib/format";
@@ -34,6 +35,15 @@ export function App() {
   const { latest, history, events, state, clearEvents } = telemetry;
 
   const t = tokens();
+
+  // Mobility, stated as what happened: no handovers at all is a different
+  // fact from every handover succeeding, and the tile should not blur them.
+  const handoverDetail = (f: TelemetryFrame | null): string => {
+    const h = f?.mobility.handovers ?? 0;
+    const bad = f?.mobility.failed ?? 0;
+    if (h + bad === 0) return "no handovers";
+    return bad > 0 ? `handovers ${h} ok · ${bad} failed` : `handovers ${h} ok`;
+  };
 
   // Stack order is bottom-first, and `failed` goes at the bottom deliberately.
   // Stacked on top it draws its band at the population's ceiling, so a healthy
@@ -128,11 +138,17 @@ export function App() {
             detail={`p50 ${ms(latest?.cpLatency.p50 ?? 0)} · p90 ${ms(latest?.cpLatency.p90 ?? 0)}`}
             tone={(latest?.cpLatency.p99 ?? 0) > 150 ? "warn" : "neutral"}
           />
+          {/*
+            The value is ATTACH failures and the detail is MOBILITY — two
+            different failure domains, so both are named. The detail reports
+            counts rather than a success ratio: "100% ok" over zero handovers
+            reads as a healthy statistic about something that never happened.
+          */}
           <StatTile
-            label="failures"
+            label="attach failures"
             value={count(latest?.ues.failed ?? 0)}
             tone={(latest?.ues.failed ?? 0) > 0 ? "error" : "ok"}
-            detail={`handover ok ${pct(latest?.rates.handoverSuccess ?? 1, 1)}%`}
+            detail={handoverDetail(latest)}
           />
         </section>
 
