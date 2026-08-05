@@ -15,7 +15,9 @@ import type { SourceState, TelemetryFrame, TestEvent } from "@/data/types";
 
 /** ~30 minutes at 2 Hz; bounded regardless of run length. */
 const HISTORY_CAPACITY = 3600;
-const EVENT_CAPACITY = 500;
+// Matches the server's per-run ring (engine.DefaultRunEventCap): holding less
+// would silently truncate history the server is still willing to replay.
+const EVENT_CAPACITY = 2000;
 
 export interface Telemetry {
   /** Most recent frame, republished at frame rate. */
@@ -27,6 +29,13 @@ export interface Telemetry {
   state: SourceState;
   /** Per-sample subscription that bypasses React entirely. */
   subscribeFrames: (fn: (f: TelemetryFrame) => void) => () => void;
+  /**
+   * Drops the events held for display. Local to this view: the server's ring
+   * is append-only and its sequence numbers are what make loss detectable, so
+   * clearing here must not mean deleting evidence for everyone. A reconnect
+   * replays whatever the server still retains.
+   */
+  clearEvents: () => void;
 }
 
 export function useTelemetry(source: TelemetrySource): Telemetry {
@@ -90,5 +99,10 @@ export function useTelemetry(source: TelemetrySource): Telemetry {
     };
   }, [source, history, eventRing]);
 
-  return { latest, history, events, state, subscribeFrames };
+  const clearEvents = useCallback(() => {
+    eventRing.clear();
+    setEvents([]);
+  }, [eventRing]);
+
+  return { latest, history, events, state, subscribeFrames, clearEvents };
 }

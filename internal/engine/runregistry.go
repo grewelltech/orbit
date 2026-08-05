@@ -57,6 +57,15 @@ type RunInfo struct {
 	Err       string    // set when State == RunFailed
 }
 
+// RunOptions are the per-run settings the registry applies to every kind, so a
+// new one does not mean another parameter on each Start* call.
+type RunOptions struct {
+	// Name is a caller-supplied label; the server names the run if empty.
+	Name string
+	// Verbosity selects the event-emission policy and the ring size.
+	Verbosity EventVerbosity
+}
+
 // LoadRunFunc executes a load run to completion, reporting each attempt to
 // stats as it goes. It is the seam between the registry (which owns lifecycle)
 // and the engine's RunLoad (which owns execution), so the registry is testable
@@ -80,8 +89,15 @@ type run struct {
 // end-of-run FleetReport exists.
 type FleetRunFunc func(ctx context.Context, stats *FleetLiveStats, emit RunEventFunc) (FleetReport, error)
 
-// DefaultRunEventCap bounds the per-run event ring.
-const DefaultRunEventCap = 500
+// DefaultRunEventCap bounds the per-run event ring. Sized so a soak keeps its
+// whole interesting history rather than the last few seconds.
+//
+// The number is a question of how much history is useful, not of cost: a
+// retained event measures ~120 B, so this is ~240 KB per run and ~12 MB across
+// the 50 runs the registry keeps, and emit is O(1) in capacity (eventRing.buf
+// overwrites in place rather than shifting — at cap 10000 that is the
+// difference between 22 µs and 0.24 µs per event).
+const DefaultRunEventCap = 2000
 
 // runFunc is the kind-agnostic launcher the registry runs on a goroutine. It
 // returns a pointer to the kind's report (or nil), which is retained only when
@@ -128,9 +144,9 @@ func newRunID() string {
 // Policy (ADR-0005, initial): one active run per kind. A second is rejected
 // with ErrRunActive rather than queued — whether concurrent runs against a
 // single core are meaningful is a question about the core, revisited later.
-func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
+func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error) {
 	live := load.NewLiveStats()
-	return r.start(RunKindLoad, name, live, nil, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindLoad, opts, live, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
 			if err != nil {
@@ -144,9 +160,9 @@ func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
 // StartFleet registers and launches a fleet run. Like StartLoad it enforces one
 // active run per kind, and publishes live aggregates for RunTelemetry as the
 // run proceeds.
-func (r *RunRegistry) StartFleet(name string, fn FleetRunFunc) (RunInfo, error) {
+func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, error) {
 	live := NewFleetLiveStats()
-	return r.start(RunKindFleet, name, nil, live, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindFleet, opts, nil, live, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
 			if err != nil {
@@ -160,7 +176,7 @@ func (r *RunRegistry) StartFleet(name string, fn FleetRunFunc) (RunInfo, error) 
 // start registers a run of the given kind and launches exec on its own
 // goroutine. Each kind supplies at most one live-aggregate holder (the other
 // is nil). mkExec builds the launcher once the run's event emitter exists.
-func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, fleetLive *FleetLiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
+func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats, fleetLive *FleetLiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
 	r.mu.Lock()
 	if active := r.activeOfKindLocked(kind); active != "" {
 		r.mu.Unlock()
@@ -169,10 +185,12 @@ func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, fle
 
 	id := r.freshIDLocked()
 	ctx, cancel := context.WithCancel(context.Background())
-	ring := newEventRing(DefaultRunEventCap)
+	// Verbosity sizes the ring: a verbose run emits every UE transition, and
+	// keeping the default capacity would let that volume evict its own detail.
+	ring := newEventRing(opts.Verbosity.RingCap())
 	rec := &run{
 		info: RunInfo{
-			ID: id, Kind: kind, Name: name,
+			ID: id, Kind: kind, Name: opts.Name,
 			State: RunPending, StartedAt: time.Now(),
 		},
 		live:      live,

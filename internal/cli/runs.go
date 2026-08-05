@@ -67,6 +67,7 @@ func newRunsCmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newRunsGetCmd(serverURL))
 	cmd.AddCommand(newRunsStopCmd(serverURL))
 	cmd.AddCommand(newRunsWatchCmd(serverURL))
+	cmd.AddCommand(newRunsEventsCmd(serverURL))
 	cmd.AddCommand(newRunsStartLoadCmd(serverURL))
 	cmd.AddCommand(newRunsStartFleetCmd(serverURL))
 	return cmd
@@ -195,6 +196,96 @@ func newRunsWatchCmd(serverURL *string) *cobra.Command {
 	}
 }
 
+// eventsFlagHelp documents the --events flag on every run-starting command.
+const eventsFlagHelp = "event detail: \"normal\" (failures, mobility, traffic and phase milestones) " +
+	"or \"verbose\" (adds every UE lifecycle transition; use on small runs)"
+
+// eventVerbosityFlag maps the --events flag onto the wire enum, refusing an
+// unknown value rather than silently defaulting: an operator who asked for
+// detail and got the default would read the resulting quiet stream as
+// "nothing happened".
+func eventVerbosityFlag(s string) (orbitv1.EventVerbosity, error) {
+	switch s {
+	case "", "normal":
+		return orbitv1.EventVerbosity_EVENT_VERBOSITY_NORMAL, nil
+	case "verbose":
+		return orbitv1.EventVerbosity_EVENT_VERBOSITY_VERBOSE, nil
+	default:
+		return 0, fmt.Errorf("unknown --events %q (want \"normal\" or \"verbose\")", s)
+	}
+}
+
+// newRunsEventsCmd tails a run's discrete events — the CLI view of what the
+// dashboard's event stream shows.
+func newRunsEventsCmd(serverURL *string) *cobra.Command {
+	var fromSeq uint64
+	cmd := &cobra.Command{
+		Use:   "events [run-id]",
+		Short: "Tail a run's event stream (default: the active run)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c := runsClient(serverURL)
+			runID := ""
+			if len(args) == 1 {
+				runID = args[0]
+			} else {
+				id, err := activeRunID(cmd.Context(), c)
+				if err != nil {
+					return err
+				}
+				runID = id
+			}
+			stream, err := c.RunEvents(cmd.Context(),
+				connect.NewRequest(&orbitv1.RunEventsRequest{RunId: runID, FromSeq: fromSeq}))
+			if err != nil {
+				return err
+			}
+			defer stream.Close()
+			out := cmd.OutOrStdout()
+			first := true
+			for stream.Receive() {
+				ev := stream.Msg()
+				// The ring is bounded, so say plainly when the resume point
+				// pointed into evicted history rather than showing a silent gap.
+				if first {
+					if d := ev.GetDroppedBefore(); d > 0 {
+						fmt.Fprintf(out, "(%d earlier events already evicted from the ring)\n", d)
+					}
+					first = false
+				}
+				fmt.Fprintf(out, "%s  %-5s %-8s %s%s\n",
+					time.Unix(0, ev.GetUnixNano()).Format("15:04:05.000"),
+					severityLabel(ev.GetSeverity()), ev.GetKind(),
+					supiPrefix(ev.GetSupi()), ev.GetMessage())
+			}
+			return stream.Err()
+		},
+	}
+	cmd.Flags().Uint64Var(&fromSeq, "from-seq", 0, "resume from this sequence number (0 = oldest retained)")
+	return cmd
+}
+
+// severityLabel renders the wire severity for a fixed-width column.
+func severityLabel(s orbitv1.EventSeverity) string {
+	switch s {
+	case orbitv1.EventSeverity_EVENT_SEVERITY_WARN:
+		return "WARN"
+	case orbitv1.EventSeverity_EVENT_SEVERITY_ERROR:
+		return "ERROR"
+	default:
+		return "INFO"
+	}
+}
+
+// supiPrefix renders a run-scoped event's empty SUPI as nothing rather than a
+// stray separator.
+func supiPrefix(supi string) string {
+	if supi == "" {
+		return ""
+	}
+	return supi + "  "
+}
+
 // printFleetProgress renders a fleet run's live aggregates. Rates print only
 // when a stream derived them (a single-shot Get cannot), so a zero there is
 // never mistaken for an idle data path.
@@ -275,6 +366,7 @@ func activeRunID(ctx context.Context, c orbitv1connect.RunServiceClient) (string
 func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	var (
 		name, amf, baseIMSI, ki, opc, mcc, mnc string
+		events                                 string
 		gnbName, sd, gnbN3, dnn                string
 		count, gnbCount                        int
 		gnbID, gnbBits, tac, sst               uint32
@@ -329,9 +421,14 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 				spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: sst, Sd: sd, Dnn: dnn}
 				spec.GnbN3Addr = gnbN3
 			}
+			verbosity, err := eventVerbosityFlag(events)
+			if err != nil {
+				return err
+			}
 			res, err := runsClient(serverURL).StartRun(cmd.Context(), connect.NewRequest(&orbitv1.StartRunRequest{
-				Name: name,
-				Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+				Name:           name,
+				Spec:           &orbitv1.StartRunRequest_Load{Load: spec},
+				EventVerbosity: verbosity,
 			}))
 			if err != nil {
 				return err
@@ -342,6 +439,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&name, "name", "", "run label")
+	f.StringVar(&events, "events", "normal", eventsFlagHelp)
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
 	f.StringVar(&baseIMSI, "base-imsi", "", "first SUPI/IMSI; each UE increments it")
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
@@ -372,7 +470,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 }
 
 func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
-	var name, ki, opc string
+	var name, ki, opc, events string
 	cmd := &cobra.Command{
 		Use:   "start-fleet <scenario.yaml>",
 		Short: "Start a fleet run on the server from a fleet scenario file",
@@ -389,12 +487,17 @@ func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			verbosity, err := eventVerbosityFlag(events)
+			if err != nil {
+				return err
+			}
 			res, err := runsClient(serverURL).StartRun(cmd.Context(), connect.NewRequest(&orbitv1.StartRunRequest{
 				Name: name,
 				Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{
 					ScenarioYaml: string(data),
 					Credentials:  &orbitv1.Credentials{Ki: ki, Opc: opc},
 				}},
+				EventVerbosity: verbosity,
 			}))
 			if err != nil {
 				return err
@@ -404,6 +507,7 @@ func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "run label")
+	cmd.Flags().StringVar(&events, "events", "normal", eventsFlagHelp)
 	cmd.Flags().StringVar(&ki, "ki", "", "subscriber key Ki (32 hex; default $ORBIT_KI)")
 	cmd.Flags().StringVar(&opc, "opc", "", "operator key OPc (32 hex; default $ORBIT_OPC)")
 	return cmd
