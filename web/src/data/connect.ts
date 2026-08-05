@@ -6,12 +6,17 @@
  * When no run is active it polls until one appears, so a dashboard left open
  * lights up as soon as a run starts.
  *
- * Honest-scope note: RunTelemetry currently carries only a load run's attach
- * aggregates (attempted/succeeded/failed, rate, procedure latency). Those map
- * to the UE-population funnel, the attach-rate, and the CP-latency panels.
- * Throughput, per-gNB distribution, and the event stream arrive with later
- * build-order steps (richer frames + RunEvents); until then those panels stay
- * empty rather than showing invented data.
+ * Honest-scope note, by run kind:
+ *   - LOAD frames carry attach aggregates (attempted/succeeded/failed, rate,
+ *     procedure latency) and the per-gNB spread. They feed the UE funnel, the
+ *     attach-rate, CP-latency and per-gNB panels. A load run drives no user
+ *     plane, so its throughput stays zero.
+ *   - FLEET frames carry the standing population, mobility outcomes, and the
+ *     N3 user-plane counters summed across the fleet's tunnels — so the
+ *     throughput panel is live for a fleet run. Rates arrive already derived
+ *     per-interval by the server.
+ * User-plane LATENCY is still unwired for both kinds and stays null rather
+ * than showing invented data.
  */
 import { createClient, type Client } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
@@ -23,6 +28,7 @@ import {
   type TelemetryFrame as PbFrame,
   type RunEvent as PbEvent,
   type LoadProgress,
+  type FleetProgress,
 } from "@/gen/orbit/v1/run_pb";
 import { Emitter, type TelemetrySource } from "./source";
 import type { EventSeverity, LatencySummary, SourceState, TelemetryFrame, TestEvent } from "./types";
@@ -215,6 +221,7 @@ export class ConnectSource implements TelemetrySource {
   /** Maps a wire frame onto the dashboard model, or null if it has no progress. */
   private mapFrame(f: PbFrame): TelemetryFrame | null {
     const lp = f.progress.case === "load" ? f.progress.value : null;
+    const fp = f.progress.case === "fleet" ? f.progress.value : null;
     const t = Number(f.unixNano / 1_000_000n);
     const elapsedMs = Number(f.elapsedMs);
 
@@ -225,6 +232,14 @@ export class ConnectSource implements TelemetrySource {
     if (lp && prevLp) {
       const dt = (elapsedMs - Number(this.prev!.elapsedMs)) / 1000;
       if (dt > 0) attachPerSec = Math.max(0, (lp.succeeded - prevLp.succeeded) / dt);
+    }
+
+    // Handovers per second, likewise from the delta between frames.
+    let handoverPerSec = 0;
+    const prevFp = this.prev?.progress.case === "fleet" ? this.prev.progress.value : null;
+    if (fp && prevFp) {
+      const dt = (elapsedMs - Number(this.prev!.elapsedMs)) / 1000;
+      if (dt > 0) handoverPerSec = Math.max(0, (fp.handovers - prevFp.handovers) / dt);
     }
 
     const cp = attachLatency(lp);
@@ -239,31 +254,75 @@ export class ConnectSource implements TelemetrySource {
         elapsedMs,
         targetUes: null,
       },
-      // A load run's attach funnel: in-flight = attempted not yet resolved.
-      ues: lp
-        ? {
-            deregistered: 0,
-            registering: Math.max(0, lp.attempted - lp.succeeded - lp.failed),
-            registered: 0,
-            sessionActive: lp.succeeded,
-            failed: lp.failed,
-          }
-        : { deregistered: 0, registering: 0, registered: 0, sessionActive: 0, failed: 0 },
+      // The attach funnel. A load run reports attempts (in-flight = attempted
+      // not yet resolved); a fleet run reports a standing population, whose
+      // attached UEs all hold a session.
+      ues: fleetOrLoadUes(lp, fp),
       rates: {
         attachPerSec,
         detachPerSec: 0,
-        handoverPerSec: 0,
-        attachSuccess: lp && lp.attempted > 0 ? lp.succeeded / lp.attempted : 1,
-        handoverSuccess: 1,
+        handoverPerSec,
+        attachSuccess: attachSuccessRatio(lp, fp),
+        handoverSuccess:
+          fp && fp.handovers + fp.handoverErrors > 0
+            ? fp.handovers / (fp.handovers + fp.handoverErrors)
+            : 1,
       },
-      // Not carried by the current frame; left zero rather than invented.
-      throughput: { uplinkBps: 0, downlinkBps: 0, uplinkPps: 0, downlinkPps: 0 },
+      // A fleet run's N3 user-plane counters. The server derives the rates
+      // from consecutive samples on this stream, so they are already
+      // per-interval; a load run carries none and stays zero rather than
+      // showing invented data.
+      throughput: fp
+        ? {
+            uplinkBps: fp.uplinkBps,
+            downlinkBps: fp.downlinkBps,
+            uplinkPps: fp.uplinkPps,
+            downlinkPps: fp.downlinkPps,
+          }
+        : { uplinkBps: 0, downlinkBps: 0, uplinkPps: 0, downlinkPps: 0 },
       cpLatency: cp,
       upLatency: null,
-      // Where the population sits: attached (succeeded) UEs per gNB.
-      perGnb: lp ? Object.fromEntries(lp.perGnb.map((g) => [g.gnb, g.succeeded])) : {},
+      // Where the population sits: attached UEs per gNB, for either kind.
+      perGnb: Object.fromEntries(
+        (lp?.perGnb ?? fp?.perGnb ?? []).map((g) => [g.gnb, g.succeeded]),
+      ),
     };
   }
+}
+
+/** The UE funnel for whichever kind the frame carries. */
+function fleetOrLoadUes(lp: LoadProgress | null, fp: FleetProgress | null) {
+  if (lp) {
+    return {
+      deregistered: 0,
+      registering: Math.max(0, lp.attempted - lp.succeeded - lp.failed),
+      registered: 0,
+      sessionActive: lp.succeeded,
+      failed: lp.failed,
+    };
+  }
+  if (fp) {
+    // A fleet UE is attached with its PDU session up, so the population sits
+    // in sessionActive; nothing is mid-attach once the attach phase is done.
+    return {
+      deregistered: 0,
+      registering: 0,
+      registered: 0,
+      sessionActive: fp.attached,
+      failed: fp.attachFailed,
+    };
+  }
+  return { deregistered: 0, registering: 0, registered: 0, sessionActive: 0, failed: 0 };
+}
+
+/** Attach success ratio for whichever kind the frame carries. */
+function attachSuccessRatio(lp: LoadProgress | null, fp: FleetProgress | null): number {
+  if (lp) return lp.attempted > 0 ? lp.succeeded / lp.attempted : 1;
+  if (fp) {
+    const total = fp.attached + fp.attachFailed;
+    return total > 0 ? fp.attached / total : 1;
+  }
+  return 1;
 }
 
 /** Picks the attach (or registration) procedure latency, in ms. */

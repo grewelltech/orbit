@@ -67,16 +67,18 @@ type LoadRunFunc func(ctx context.Context, stats *load.LiveStats, emit RunEventF
 // RunRegistry.mu; nothing here is touched without it. The event ring has its
 // own lock and is safe to read after the record is published.
 type run struct {
-	info   RunInfo
-	live   *load.LiveStats // live aggregates while running (load kind; nil otherwise)
-	events *eventRing      // per-run discrete-event log
-	report any             // *load.Report or *FleetReport, set on COMPLETE
-	cancel context.CancelFunc
+	info      RunInfo
+	live      *load.LiveStats // live aggregates while running (load kind; nil otherwise)
+	fleetLive *FleetLiveStats // live aggregates while running (fleet kind; nil otherwise)
+	events    *eventRing      // per-run discrete-event log
+	report    any             // *load.Report or *FleetReport, set on COMPLETE
+	cancel    context.CancelFunc
 }
 
-// FleetRunFunc executes a fleet run to completion. Unlike a load run it has no
-// per-attempt observer today; its progress is its final FleetReport.
-type FleetRunFunc func(ctx context.Context, emit RunEventFunc) (FleetReport, error)
+// FleetRunFunc executes a fleet run to completion, publishing its aggregates
+// into stats as it goes so RunTelemetry can report progress before the
+// end-of-run FleetReport exists.
+type FleetRunFunc func(ctx context.Context, stats *FleetLiveStats, emit RunEventFunc) (FleetReport, error)
 
 // DefaultRunEventCap bounds the per-run event ring.
 const DefaultRunEventCap = 500
@@ -128,7 +130,7 @@ func newRunID() string {
 // single core are meaningful is a question about the core, revisited later.
 func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
 	live := load.NewLiveStats()
-	return r.start(RunKindLoad, name, live, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindLoad, name, live, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
 			if err != nil {
@@ -140,12 +142,13 @@ func (r *RunRegistry) StartLoad(name string, fn LoadRunFunc) (RunInfo, error) {
 }
 
 // StartFleet registers and launches a fleet run. Like StartLoad it enforces one
-// active run per kind. A fleet run reports only its final FleetReport; live
-// aggregates arrive with RunTelemetry (build order step 5).
+// active run per kind, and publishes live aggregates for RunTelemetry as the
+// run proceeds.
 func (r *RunRegistry) StartFleet(name string, fn FleetRunFunc) (RunInfo, error) {
-	return r.start(RunKindFleet, name, nil, func(emit RunEventFunc) runFunc {
+	live := NewFleetLiveStats()
+	return r.start(RunKindFleet, name, nil, live, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
-			rep, err := fn(ctx, emit)
+			rep, err := fn(ctx, live, emit)
 			if err != nil {
 				return nil, err
 			}
@@ -155,9 +158,9 @@ func (r *RunRegistry) StartFleet(name string, fn FleetRunFunc) (RunInfo, error) 
 }
 
 // start registers a run of the given kind and launches exec on its own
-// goroutine. live may be nil for kinds without per-attempt aggregates. mkExec
-// builds the launcher once the run's event emitter exists.
-func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
+// goroutine. Each kind supplies at most one live-aggregate holder (the other
+// is nil). mkExec builds the launcher once the run's event emitter exists.
+func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, fleetLive *FleetLiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
 	r.mu.Lock()
 	if active := r.activeOfKindLocked(kind); active != "" {
 		r.mu.Unlock()
@@ -172,9 +175,10 @@ func (r *RunRegistry) start(kind RunKind, name string, live *load.LiveStats, mkE
 			ID: id, Kind: kind, Name: name,
 			State: RunPending, StartedAt: time.Now(),
 		},
-		live:   live,
-		events: ring,
-		cancel: cancel,
+		live:      live,
+		fleetLive: fleetLive,
+		events:    ring,
+		cancel:    cancel,
 	}
 	r.runs[id] = rec
 	r.order = append(r.order, id)
@@ -306,6 +310,23 @@ func (r *RunRegistry) Snapshot(id string) (load.Snapshot, bool) {
 	r.mu.Unlock()
 	if live == nil {
 		return load.Snapshot{}, false
+	}
+	return live.Snapshot(), true
+}
+
+// FleetSnapshot returns a fleet run's live aggregates. ok is false for a run
+// that is not a fleet run, or that the registry has since evicted.
+func (r *RunRegistry) FleetSnapshot(id string) (FleetSnapshot, bool) {
+	r.mu.Lock()
+	live := func() *FleetLiveStats {
+		if rec := r.runs[id]; rec != nil {
+			return rec.fleetLive
+		}
+		return nil
+	}()
+	r.mu.Unlock()
+	if live == nil {
+		return FleetSnapshot{}, false
 	}
 	return live.Snapshot(), true
 }

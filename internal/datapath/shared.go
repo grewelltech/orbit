@@ -210,6 +210,22 @@ func (s *UEStats) Snapshot() map[uint8]QFIStatsSnapshot {
 	return out
 }
 
+// Totals sums the per-QFI counters into one uplink/downlink set. Unlike
+// [UEStats.Snapshot] it allocates nothing, which is what makes it usable on a
+// live sampling path that walks a whole fleet every frame — Snapshot's
+// per-UE map would dominate the cost at population scale.
+func (s *UEStats) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.flows {
+		ulPackets += f.UplinkPackets.Load()
+		ulBytes += f.UplinkBytes.Load()
+		dlPackets += f.DownlinkPackets.Load()
+		dlBytes += f.DownlinkBytes.Load()
+	}
+	return
+}
+
 // UETunnel is one UE's session-facing view of a SharedTunnel: the surface the
 // retired per-session Tunnel provided, minus socket ownership. Uplink goes
 // out the shared socket stamped with this UE's TEID/QFI; downlink arrives on
@@ -267,6 +283,11 @@ func (u *UETunnel) Lane() *UERx { return u.rx }
 
 // Stats returns a snapshot of this UE's per-QFI counters.
 func (u *UETunnel) Stats() map[uint8]QFIStatsSnapshot { return u.stats.Snapshot() }
+
+// Totals sums this UE's counters across its QoS flows without allocating.
+func (u *UETunnel) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
+	return u.stats.Totals()
+}
 
 // DLTEID reports the downlink TEID the view's lane is registered under.
 func (u *UETunnel) DLTEID() uint32 {

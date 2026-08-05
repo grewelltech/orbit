@@ -93,9 +93,17 @@ func (s *runService) GetRun(
 		return nil, runLookupError(err)
 	}
 	resp := &orbitv1.GetRunResponse{Run: runProto(info)}
-	if info.Kind == engine.RunKindLoad {
+	switch info.Kind {
+	case engine.RunKindLoad:
 		if snap, ok := s.reg.Snapshot(id); ok {
 			resp.LoadProgress = loadProgressProto(snap)
+		}
+	case engine.RunKindFleet:
+		if snap, ok := s.reg.FleetSnapshot(id); ok {
+			// nil rate tracker: a single-shot Get has no previous sample to
+			// derive rates from, and inventing one from the run's start would
+			// report an average as though it were current.
+			resp.FleetProgress = fleetProgressProto(snap, time.Now(), nil)
 		}
 	}
 	return connect.NewResponse(resp), nil
@@ -257,6 +265,10 @@ func (s *runService) RunTelemetry(
 	defer ticker.Stop()
 
 	var seq uint64
+	// Rate state is per-stream, not per-run: a slow client's frames are spaced
+	// by its own coalesced ticks, so deriving rates here gives each subscriber
+	// figures over the interval it actually observed.
+	var rates fleetRates
 	// Each iteration sends one complete snapshot. A slow client backpressures
 	// Send, which stalls the loop and coalesces ticks — frames are naturally
 	// sampled, not queued, which is the whole point of self-contained frames.
@@ -266,7 +278,7 @@ func (s *runService) RunTelemetry(
 			// The run was evicted from history mid-stream; end cleanly.
 			return true, nil
 		}
-		frame := s.telemetryFrame(id, info, uint32(interval.Milliseconds()), seq)
+		frame := s.telemetryFrame(id, info, uint32(interval.Milliseconds()), seq, &rates)
 		seq++
 		if err := stream.Send(frame); err != nil {
 			return false, err
@@ -292,7 +304,7 @@ func (s *runService) RunTelemetry(
 }
 
 // telemetryFrame builds one snapshot frame for a run.
-func (s *runService) telemetryFrame(id string, info engine.RunInfo, intervalMs uint32, seq uint64) *orbitv1.TelemetryFrame {
+func (s *runService) telemetryFrame(id string, info engine.RunInfo, intervalMs uint32, seq uint64, rates *fleetRates) *orbitv1.TelemetryFrame {
 	now := time.Now()
 	elapsed := now.Sub(info.StartedAt)
 	if !info.EndedAt.IsZero() {
@@ -306,12 +318,93 @@ func (s *runService) telemetryFrame(id string, info engine.RunInfo, intervalMs u
 		State:      runStateProto(info.State),
 		ElapsedMs:  elapsed.Milliseconds(),
 	}
-	if info.Kind == engine.RunKindLoad {
+	switch info.Kind {
+	case engine.RunKindLoad:
 		if snap, ok := s.reg.Snapshot(id); ok {
 			frame.Progress = &orbitv1.TelemetryFrame_Load{Load: loadProgressProto(snap)}
 		}
+	case engine.RunKindFleet:
+		if snap, ok := s.reg.FleetSnapshot(id); ok {
+			frame.Progress = &orbitv1.TelemetryFrame_Fleet{Fleet: fleetProgressProto(snap, now, rates)}
+		}
 	}
 	return frame
+}
+
+// fleetRates derives per-interval throughput from consecutive cumulative
+// samples. It belongs to one telemetry stream: sharing it between subscribers
+// would have each one consume the other's baseline and report rates over
+// intervals neither observed.
+type fleetRates struct {
+	have                             bool
+	at                               time.Time
+	ulBytes, dlBytes, ulPkts, dlPkts uint64
+}
+
+// observe folds in one cumulative sample and returns the rates since the
+// previous one. The first sample of a stream has no interval behind it and
+// yields zeros rather than a rate computed against the run's start, which
+// would understate a run that was already in flight when the client attached.
+func (r *fleetRates) observe(now time.Time, s engine.FleetSnapshot) (ulBps, dlBps, ulPps, dlPps float64) {
+	prev := *r
+	r.have, r.at = true, now
+	r.ulBytes, r.dlBytes = s.UplinkBytes, s.DownlinkBytes
+	r.ulPkts, r.dlPkts = s.UplinkPackets, s.DownlinkPackets
+	if !prev.have {
+		return 0, 0, 0, 0
+	}
+	secs := now.Sub(prev.at).Seconds()
+	if secs <= 0 {
+		return 0, 0, 0, 0
+	}
+	// Counters are monotonic; delta guards against a UE's tunnel being torn
+	// down between samples rather than against real regression.
+	delta := func(now, then uint64) float64 {
+		if now < then {
+			return 0
+		}
+		return float64(now - then)
+	}
+	return delta(s.UplinkBytes, prev.ulBytes) * 8 / secs,
+		delta(s.DownlinkBytes, prev.dlBytes) * 8 / secs,
+		delta(s.UplinkPackets, prev.ulPkts) / secs,
+		delta(s.DownlinkPackets, prev.dlPkts) / secs
+}
+
+// fleetProgressProto maps a fleet snapshot onto the wire, deriving rates
+// through the stream's own tracker.
+func fleetProgressProto(s engine.FleetSnapshot, now time.Time, rates *fleetRates) *orbitv1.FleetProgress {
+	p := &orbitv1.FleetProgress{
+		ElapsedMs:       s.Elapsed.Milliseconds(),
+		Attached:        uint32(s.Attached),
+		AttachFailed:    uint32(s.AttachFailed),
+		Handovers:       uint32(s.Handovers),
+		HandoverErrors:  uint32(s.HandoverErrors),
+		TrafficFlows:    uint32(s.TrafficFlows),
+		AppSessions:     uint32(s.AppSessions),
+		UplinkBytes:     s.UplinkBytes,
+		DownlinkBytes:   s.DownlinkBytes,
+		UplinkPackets:   s.UplinkPackets,
+		DownlinkPackets: s.DownlinkPackets,
+	}
+	if rates != nil {
+		p.UplinkBps, p.DownlinkBps, p.UplinkPps, p.DownlinkPps = rates.observe(now, s)
+	}
+	for _, g := range sortedGNBs(s.PerGNB) {
+		p.PerGnb = append(p.PerGnb, &orbitv1.GnbProgress{Gnb: g, Succeeded: uint32(s.PerGNB[g])})
+	}
+	return p
+}
+
+// sortedGNBs orders gNB labels so the per-gNB list is stable frame to frame —
+// map order would otherwise reshuffle the dashboard's bars every tick.
+func sortedGNBs(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // loadRunFunc builds the launcher the registry runs. It validates the spec up
@@ -434,11 +527,12 @@ func fleetRunFunc(log *slog.Logger, p *orbitv1.FleetRunSpec) (engine.FleetRunFun
 	if err != nil {
 		return nil, err
 	}
-	return func(ctx context.Context, _ engine.RunEventFunc) (engine.FleetReport, error) {
+	return func(ctx context.Context, stats *engine.FleetLiveStats, _ engine.RunEventFunc) (engine.FleetReport, error) {
 		// Fleet runs attach with no per-attempt observer today, so they emit
 		// only the registry's lifecycle events; per-UE fleet events arrive when
-		// the fleet attach path is wired to the emitter.
-		return engine.RunFleet(ctx, log, spec, beh)
+		// the fleet attach path is wired to the emitter. Aggregates, though,
+		// go into stats as the run proceeds and reach RunTelemetry live.
+		return engine.RunFleet(ctx, log, spec, beh, stats)
 	}, nil
 }
 

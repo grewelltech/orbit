@@ -356,7 +356,7 @@ func TestMarkRunningRespectsDraining(t *testing.T) {
 func TestRunRegistryFleetCompletes(t *testing.T) {
 	r := quietRegistry(0)
 	want := FleetReport{Attached: 20, AttachFailed: 1, Handovers: 4, Deregistered: 20}
-	info, err := r.StartFleet("fleet-1", func(ctx context.Context, _ RunEventFunc) (FleetReport, error) {
+	info, err := r.StartFleet("fleet-1", func(ctx context.Context, _ *FleetLiveStats, _ RunEventFunc) (FleetReport, error) {
 		return want, nil
 	})
 	if err != nil {
@@ -393,14 +393,14 @@ func TestRunRegistryLoadAndFleetAreIndependentKinds(t *testing.T) {
 		t.Fatalf("StartLoad: %v", err)
 	}
 	// A fleet run is allowed while a load run is active (different kind).
-	if _, err := r.StartFleet("f", func(ctx context.Context, _ RunEventFunc) (FleetReport, error) {
+	if _, err := r.StartFleet("f", func(ctx context.Context, _ *FleetLiveStats, _ RunEventFunc) (FleetReport, error) {
 		<-block
 		return FleetReport{}, nil
 	}); err != nil {
 		t.Errorf("StartFleet rejected while only a load run was active: %v", err)
 	}
 	// But a second fleet run is not.
-	if _, err := r.StartFleet("f2", func(ctx context.Context, _ RunEventFunc) (FleetReport, error) {
+	if _, err := r.StartFleet("f2", func(ctx context.Context, _ *FleetLiveStats, _ RunEventFunc) (FleetReport, error) {
 		return FleetReport{}, nil
 	}); err == nil {
 		t.Error("a second concurrent fleet run was allowed")

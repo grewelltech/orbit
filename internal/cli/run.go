@@ -157,7 +157,9 @@ func runFleet(cmd *cobra.Command, data []byte, metricsListen string) error {
 	fmt.Fprint(out, "…\n\n")
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	rep, err := engine.RunFleet(cmd.Context(), log, spec, beh)
+	// nil live stats: this is the local, in-process path, which prints the
+	// final report and has no telemetry subscriber to serve.
+	rep, err := engine.RunFleet(cmd.Context(), log, spec, beh, nil)
 	if err != nil {
 		return err
 	}
