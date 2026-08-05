@@ -36,8 +36,13 @@ type GNBGen struct {
 	Count     int      `yaml:"count"`
 	IDBase    uint32   `yaml:"id_base"`
 	SourceIPs []string `yaml:"source_ips"`
-	Layout    string   `yaml:"layout"` // "grid" (default)
-	Spacing   float64  `yaml:"spacing_m"`
+	// N3IPs optionally gives each gNB a data-plane address distinct from its
+	// N2 source. Empty means N3 rides source_ips, which is right only where
+	// one interface carries both — a testbed with separated N2/N3 networks
+	// must set it, or the gNB advertises an N3 address the UPF cannot reach.
+	N3IPs   []string `yaml:"n3_ips"`
+	Layout  string   `yaml:"layout"` // "grid" (default)
+	Spacing float64  `yaml:"spacing_m"`
 }
 
 // FleetSpec generates the UE population.
@@ -53,6 +58,17 @@ type FleetSpec struct {
 type Behaviors struct {
 	Mobility *MobilityBehavior `yaml:"mobility"`
 	Traffic  *TrafficBehavior  `yaml:"traffic"`
+	Latency  *LatencyBehavior  `yaml:"latency"`
+}
+
+// LatencyBehavior samples user-plane RTT over the UEs' own N3 data paths for
+// the duration of the run. Without it the run reports no user-plane latency at
+// all, which is the honest state — zeros would read as an instant data path.
+type LatencyBehavior struct {
+	Target   string `yaml:"target"`   // IPv4 to echo (no port); required
+	Interval string `yaml:"interval"` // between probe rounds, e.g. "1s"
+	UEs      int    `yaml:"ues"`      // UEs sampled per round (default 4)
+	Timeout  string `yaml:"timeout"`  // per echo, e.g. "1s"
 }
 
 type MobilityBehavior struct {
@@ -210,8 +226,9 @@ func (f *FleetScenario) validate() error {
 	return nil
 }
 
-// GenGNBs materialises the topology: Count gNBs on a grid, each with a distinct
-// source IP (used as both bind and N3).
+// GenGNBs materialises the topology: Count gNBs on a grid, each with its N2
+// source IP and its N3 data-plane address (the same address unless n3_ips
+// separates them).
 func (f *FleetScenario) GenGNBs() []PlacedGNB {
 	g := f.Topology.GNBs
 	spacing := g.Spacing
@@ -222,11 +239,15 @@ func (f *FleetScenario) GenGNBs() []PlacedGNB {
 	out := make([]PlacedGNB, g.Count)
 	for i := 0; i < g.Count; i++ {
 		ip := g.SourceIPs[i]
+		n3 := ip
+		if i < len(g.N3IPs) && g.N3IPs[i] != "" {
+			n3 = g.N3IPs[i]
+		}
 		out[i] = PlacedGNB{
 			GNB: GNB{
 				ID:   g.IDBase + uint32(i),
 				Name: fmt.Sprintf("gnb-%d", i+1),
-				N3:   ip,
+				N3:   n3,
 				Bind: ip + ":0",
 			},
 			X: float64(i%side) * spacing,

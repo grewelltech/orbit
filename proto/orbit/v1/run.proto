@@ -161,6 +161,54 @@ message LoadProgress {
   repeated GnbProgress per_gnb = 7;
 }
 
+// FleetProgress is a live aggregate snapshot of a fleet run in flight: its
+// attach population, mobility outcomes, and the N3 user-plane counters summed
+// across every attached UE.
+//
+// The byte/packet fields are CUMULATIVE over the run — the honest quantity the
+// datapath actually holds. The *_bps/*_pps rates are derived by the server
+// from consecutive samples on one telemetry stream, so each subscriber gets
+// rates over its own frame cadence; they are zero on a stream's first frame,
+// which has no interval to divide by.
+message FleetProgress {
+  int64 elapsed_ms = 1;
+  uint32 attached = 2;            // UEs currently attached
+  uint32 attach_failed = 3;
+  uint32 handovers = 4;
+  uint32 handover_errors = 5;
+  uint32 traffic_flows = 6;       // synthetic loom flows started
+  uint32 app_sessions = 7;        // app-cohort members (voip/http/video)
+
+  // Cumulative N3 user-plane counters, summed across the fleet's UEs. These
+  // are the tunnel's own counters, so they cover every behaviour on the data
+  // path (synthetic flows and app cohorts alike).
+  uint64 uplink_bytes = 8;
+  uint64 downlink_bytes = 9;
+  uint64 uplink_packets = 10;
+  uint64 downlink_packets = 11;
+
+  // Derived rates over the interval since this stream's previous frame.
+  double uplink_bps = 12;
+  double downlink_bps = 13;
+  double uplink_pps = 14;
+  double downlink_pps = 15;
+
+  // Per-gNB spread of the attached population. `succeeded` carries the count
+  // currently attached on that gNB.
+  repeated GnbProgress per_gnb = 16;
+
+  // User-plane round-trip latency: ICMP echoes sent over sampled UEs' own N3
+  // data paths, so the figure is the tunnel's RTT rather than the management
+  // network's. Absent unless the scenario configures a latency probe —
+  // reporting zeros would read as an instant data path rather than as an
+  // unmeasured one. Its `procedure` is "user_plane".
+  ProcedureLatency up_latency = 17;
+  // Probes sent and lost, so a path that stops answering is visible as loss
+  // rather than as a percentile quietly computed over survivors.
+  uint64 up_probes = 18;
+  uint64 up_probes_lost = 19;
+}
+
 // GnbProgress is one gNB's share of the attach population in a load run.
 message GnbProgress {
   string gnb = 1;                 // gNB name, or "gnb-<id>" when the name is unset
@@ -184,6 +232,10 @@ message GetRunResponse {
   Run run = 1;
   // Populated for a LOAD run; empty for other kinds or before any attempt.
   LoadProgress load_progress = 2;
+  // Populated for a FLEET run. Its rate fields are always zero: rates are
+  // derived from consecutive samples, which a single-shot Get does not have.
+  // Subscribe to RunTelemetry for throughput.
+  FleetProgress fleet_progress = 3;
 }
 
 message RunTelemetryRequest {
@@ -206,11 +258,10 @@ message TelemetryFrame {
   uint64 frame_seq = 4;
   RunState state = 5;
   int64 elapsed_ms = 6;
-  // Aggregate progress, by kind. Empty for a kind without live aggregates yet
-  // (fleet aggregates arrive when run UEs join the shared engine, build order
-  // step 4b).
+  // Aggregate progress, by kind. Empty for a kind without live aggregates.
   oneof progress {
     LoadProgress load = 7;
+    FleetProgress fleet = 8;
   }
 }
 

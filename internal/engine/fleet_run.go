@@ -56,6 +56,9 @@ type FleetBehaviors struct {
 	Traffic       bool
 	TrafficRate   string
 	TrafficTarget string
+	// Latency, when its Target is set, samples user-plane RTT over the UEs'
+	// own N3 data paths for the duration of the run.
+	Latency FleetLatencyProbe
 	// Apps are the application-traffic cohorts (design §8, fleet_app.go):
 	// carved subsets of the non-mobile fleet each running a real loom app
 	// engine (voip/http/video) against an N6 loomd, with the far-end
@@ -91,7 +94,9 @@ type fleetUE struct {
 // runs the behaviours concurrently for the duration, then deregisters — the
 // direct-drive population run. Attach numbers are integration-capacity (bounded
 // by the core under test).
-func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors) (FleetReport, error) {
+// live may be nil, which disables live reporting without changing execution —
+// the CLI path (`orbit run <fleet>`) has no telemetry subscriber to serve.
+func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors, live *FleetLiveStats) (FleetReport, error) {
 	var rep FleetReport
 	if len(spec.GNBs) == 0 {
 		return rep, fmt.Errorf("fleet run needs at least one gNB")
@@ -146,9 +151,11 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 			defer amu.Unlock()
 			if err != nil {
 				rep.AttachFailed++
+				live.AttachFailed()
 				return
 			}
 			ues = append(ues, fu)
+			live.AttachOK(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess)
 		}(i)
 	}
 	wg.Wait()
@@ -160,13 +167,17 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 
 	// Behaviour phase.
 	if beh.Duration > 0 {
-		runFleetBehaviors(ctx, f, spec, pool, ues, beh, &rep, log)
+		runFleetBehaviors(ctx, f, spec, pool, ues, beh, &rep, log, live)
 	}
 
 	// Deregister. App-cohort members opened lazy data paths on the shared
 	// pool — close them first so the per-gNB sockets (and any netstack
 	// bridge) release with the last UE.
 	for _, fu := range ues {
+		// Retire the UE's counters BEFORE closing its data path: a closed
+		// session reports zeros, which would empty the run's totals at exactly
+		// the moment the final report is taken.
+		live.Detached(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess)
 		fu.sess.closeDataPath()
 		if err := fu.sess.deregister(context.Background()); err == nil {
 			rep.Deregistered++
@@ -211,7 +222,7 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 // runFleetBehaviors runs mobility + traffic + app cohorts concurrently until
 // the duration elapses (or the context is cancelled).
 func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, ues []*fleetUE,
-	beh FleetBehaviors, rep *FleetReport, log *slog.Logger) {
+	beh FleetBehaviors, rep *FleetReport, log *slog.Logger, live *FleetLiveStats) {
 	dctx, cancel := context.WithTimeout(ctx, beh.Duration)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -265,6 +276,12 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 				}
 				wg.Add(1)
 				rep.TrafficFlows++
+				// The synthetic traffic path writes through this UEFlow, NOT
+				// through the session's lazily-opened UETunnel — a UE carrying
+				// only synthetic traffic never opens one. Register the flow so
+				// its bytes reach the live totals.
+				live.TrafficFlowStarted()
+				live.AddSource(flow)
 				go func(fu *fleetUE, flow *datapath.UEFlow) {
 					defer wg.Done()
 					r := fu.sess.Result
@@ -287,11 +304,23 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	// keeps thousands of concurrent calls from synchronising their reports.
 	var appReports []FleetAppCohortReport
 	if appTotal > 0 {
+		live.AppSessions(appTotal)
 		agents := newFleetAgentPool(appTuning{})
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			appReports = runFleetApps(dctx, log, agents, beh.Apps, appMembers, beh.Duration, beh.AppMetricsReg)
+		}()
+	}
+
+	// User-plane latency: ICMP echoes over sampled UEs' own data paths, so the
+	// dashboard's UP-latency panel reports the tunnel's round trip rather than
+	// the management network's. Sampled, not swept — see FleetLatencyProbe.
+	if beh.Latency.Target != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runFleetLatencyProbe(dctx, ues, beh.Latency, live, log)
 		}()
 	}
 
@@ -318,13 +347,20 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 						return
 					case <-time.After(time.Until(tr.At)):
 					}
+					from := fu.gnbIdx
 					err := fleetHandover(dctx, f, spec, fu, int(tr.TargetCellID))
 					hmu.Lock()
 					if err != nil {
 						rep.HandoverErr++
 					} else {
 						rep.Handovers++
+						// fleetHandover updates fu.gnbIdx on success, so the
+						// population moves with the UE instead of the spread
+						// freezing at its attach-time shape.
+						live.MovedGNB(gnbAttributionLabel(f.gnbConfigFor(from)),
+							gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)))
 					}
+					live.Handover(err)
 					hmu.Unlock()
 				}
 			}(fu, triggers)

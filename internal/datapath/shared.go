@@ -129,18 +129,18 @@ func (s *SharedTunnel) Register(cfg UETunnelConfig) (*UETunnel, error) {
 }
 
 // UEFlow returns an uplink-only view that encapsulates with a UE's uplink
-// TEID/QFI and writes the shared socket — the fleet traffic path, which
-// needs neither downlink lanes nor per-UE stats. Safe from many goroutines.
-// The tunnel's default UPF N3 endpoint is used; UEFlowTo overrides it per UE.
+// TEID/QFI and writes the shared socket — the fleet traffic path, which needs
+// no downlink lane. Safe from many goroutines. The tunnel's default UPF N3
+// endpoint is used; UEFlowTo overrides it per UE.
 func (s *SharedTunnel) UEFlow(ulTEID uint32, qfi uint8) *UEFlow {
-	return &UEFlow{s: s, ulTEID: ulTEID, qfi: qfi}
+	return &UEFlow{s: s, ulTEID: ulTEID, qfi: qfi, stats: NewUEStats()}
 }
 
 // UEFlowTo is UEFlow with a per-UE UPF N3 endpoint: sessions anchored on a
 // different UPF than the tunnel's default (multi-UPF slice / DNN split) send
 // their uplink where THEIR PDU session terminates, not where UE 0's does.
 func (s *SharedTunnel) UEFlowTo(ulTEID uint32, qfi uint8, upfN3 string) (*UEFlow, error) {
-	f := &UEFlow{s: s, ulTEID: ulTEID, qfi: qfi}
+	f := &UEFlow{s: s, ulTEID: ulTEID, qfi: qfi, stats: NewUEStats()}
 	if upfN3 != "" {
 		raddr, err := net.ResolveUDPAddr("udp", upfN3)
 		if err != nil {
@@ -153,11 +153,17 @@ func (s *SharedTunnel) UEFlowTo(ulTEID uint32, qfi uint8, upfN3 string) (*UEFlow
 
 // UEFlow is one UE's uplink over a SharedTunnel. It satisfies the GTP-U
 // uplink interface the loom bridge needs (SendUplink).
+//
+// It carries its own counters rather than sharing the session's: a UEFlow is
+// handed out for a UE whose session data path may never be opened (the fleet's
+// synthetic traffic takes this path and nothing else), so without them the
+// traffic would be invisible to every counter in the system.
 type UEFlow struct {
 	s      *SharedTunnel
 	ulTEID uint32
 	qfi    uint8
 	upf    *net.UDPAddr // nil = the tunnel's default UPF N3 endpoint
+	stats  *UEStats
 }
 
 // SendUplink wraps innerIP in a GTP-U G-PDU for this UE's TEID and sends it.
@@ -169,7 +175,18 @@ func (u *UEFlow) SendUplink(innerIP []byte) error {
 	if _, err := u.s.conn.WriteToUDP(gtpu.EncodeGPDU(u.ulTEID, u.qfi, innerIP), upf); err != nil {
 		return fmt.Errorf("send uplink G-PDU: %w", err)
 	}
+	f := u.stats.flow(u.qfi)
+	f.UplinkPackets.Add(1)
+	f.UplinkBytes.Add(uint64(len(innerIP)))
 	return nil
+}
+
+// Totals sums this flow's counters without allocating. Downlink stays zero:
+// a UEFlow is an uplink-only handle, and the return path is delivered to a
+// registered UERx lane, not here — reporting it as downlink would attribute
+// traffic this object never saw.
+func (u *UEFlow) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
+	return u.stats.Totals()
 }
 
 // UEStats is one UE's per-QFI uplink/downlink counters. It is carried across
@@ -208,6 +225,22 @@ func (s *UEStats) Snapshot() map[uint8]QFIStatsSnapshot {
 		}
 	}
 	return out
+}
+
+// Totals sums the per-QFI counters into one uplink/downlink set. Unlike
+// [UEStats.Snapshot] it allocates nothing, which is what makes it usable on a
+// live sampling path that walks a whole fleet every frame — Snapshot's
+// per-UE map would dominate the cost at population scale.
+func (s *UEStats) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, f := range s.flows {
+		ulPackets += f.UplinkPackets.Load()
+		ulBytes += f.UplinkBytes.Load()
+		dlPackets += f.DownlinkPackets.Load()
+		dlBytes += f.DownlinkBytes.Load()
+	}
+	return
 }
 
 // UETunnel is one UE's session-facing view of a SharedTunnel: the surface the
@@ -267,6 +300,11 @@ func (u *UETunnel) Lane() *UERx { return u.rx }
 
 // Stats returns a snapshot of this UE's per-QFI counters.
 func (u *UETunnel) Stats() map[uint8]QFIStatsSnapshot { return u.stats.Snapshot() }
+
+// Totals sums this UE's counters across its QoS flows without allocating.
+func (u *UETunnel) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
+	return u.stats.Totals()
+}
 
 // DLTEID reports the downlink TEID the view's lane is registered under.
 func (u *UETunnel) DLTEID() uint32 {

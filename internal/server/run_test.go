@@ -498,7 +498,7 @@ func TestRunServiceFleetReport(t *testing.T) {
 		Attached: 50, AttachFailed: 2, AttachElapsed: 3 * time.Second,
 		Handovers: 8, HandoverErr: 1, TrafficFlows: 40, TrafficBytes: 123456, Deregistered: 49,
 	}
-	info, err := reg.StartFleet("seeded", func(ctx context.Context, _ engine.RunEventFunc) (engine.FleetReport, error) {
+	info, err := reg.StartFleet("seeded", func(ctx context.Context, _ *engine.FleetLiveStats, _ engine.RunEventFunc) (engine.FleetReport, error) {
 		return want, nil
 	})
 	if err != nil {
@@ -909,5 +909,101 @@ func TestGNBProgressProtosSortedAndStable(t *testing.T) {
 	}
 	if gnbProgressProtos(nil) != nil {
 		t.Error("nil input must map to nil, not an empty slice")
+	}
+}
+
+// The first frame of a stream has no interval behind it, so it reports no
+// rate; the second reports the delta over the elapsed time. Computing the
+// first against the run's start would understate a run already in flight when
+// the subscriber attached.
+func TestFleetRatesFirstFrameHasNoRate(t *testing.T) {
+	var r fleetRates
+	t0 := time.Unix(1700000000, 0)
+	snap := engine.FleetSnapshot{UplinkBytes: 1000, DownlinkBytes: 2000, UplinkPackets: 10, DownlinkPackets: 20}
+
+	if ul, dl, ulp, dlp := r.observe(t0, snap); ul != 0 || dl != 0 || ulp != 0 || dlp != 0 {
+		t.Errorf("first frame rates = %v/%v/%v/%v, want all zero", ul, dl, ulp, dlp)
+	}
+
+	snap2 := engine.FleetSnapshot{UplinkBytes: 2000, DownlinkBytes: 6000, UplinkPackets: 20, DownlinkPackets: 60}
+	ul, dl, ulp, dlp := r.observe(t0.Add(2*time.Second), snap2)
+	if ul != 4000 { // 1000 bytes * 8 / 2s
+		t.Errorf("uplink = %v bps, want 4000", ul)
+	}
+	if dl != 16000 { // 4000 bytes * 8 / 2s
+		t.Errorf("downlink = %v bps, want 16000", dl)
+	}
+	if ulp != 5 || dlp != 20 {
+		t.Errorf("pps ul/dl = %v/%v, want 5/20", ulp, dlp)
+	}
+}
+
+// Two subscribers must not consume each other's baseline: rate state is
+// per-stream, so each reports over the interval it actually observed.
+func TestFleetRatesArePerStream(t *testing.T) {
+	var fast, slow fleetRates
+	t0 := time.Unix(1700000000, 0)
+	base := engine.FleetSnapshot{UplinkBytes: 0}
+	fast.observe(t0, base)
+	slow.observe(t0, base)
+
+	// The fast stream samples at 1s, the slow one at 4s, over a steady
+	// 1000 B/s uplink.
+	fast.observe(t0.Add(time.Second), engine.FleetSnapshot{UplinkBytes: 1000})
+	ulFast, _, _, _ := fast.observe(t0.Add(2*time.Second), engine.FleetSnapshot{UplinkBytes: 2000})
+	ulSlow, _, _, _ := slow.observe(t0.Add(4*time.Second), engine.FleetSnapshot{UplinkBytes: 4000})
+
+	if ulFast != 8000 {
+		t.Errorf("fast stream = %v bps, want 8000", ulFast)
+	}
+	if ulSlow != 8000 {
+		t.Errorf("slow stream = %v bps, want 8000 (same steady rate over its own interval)", ulSlow)
+	}
+}
+
+// A snapshot whose counters went backwards (a tunnel torn down between
+// samples) must not produce a negative rate.
+func TestFleetRatesClampRegression(t *testing.T) {
+	var r fleetRates
+	t0 := time.Unix(1700000000, 0)
+	r.observe(t0, engine.FleetSnapshot{UplinkBytes: 5000, UplinkPackets: 50})
+	ul, _, ulp, _ := r.observe(t0.Add(time.Second), engine.FleetSnapshot{UplinkBytes: 1000, UplinkPackets: 10})
+	if ul != 0 || ulp != 0 {
+		t.Errorf("regressed counters gave %v bps / %v pps, want 0/0", ul, ulp)
+	}
+}
+
+// Two samples at the same instant have no interval to divide by.
+func TestFleetRatesZeroInterval(t *testing.T) {
+	var r fleetRates
+	t0 := time.Unix(1700000000, 0)
+	r.observe(t0, engine.FleetSnapshot{UplinkBytes: 100})
+	if ul, _, _, _ := r.observe(t0, engine.FleetSnapshot{UplinkBytes: 200}); ul != 0 {
+		t.Errorf("zero interval gave %v bps, want 0", ul)
+	}
+}
+
+// fleetProgressProto orders the per-gNB list, so the dashboard's bars keep a
+// stable position instead of reshuffling with Go's map iteration each frame.
+func TestFleetProgressProtoStableGNBOrder(t *testing.T) {
+	snap := engine.FleetSnapshot{
+		Attached: 6,
+		PerGNB:   map[string]int{"gnb-3": 1, "gnb-1": 3, "gnb-2": 2},
+	}
+	for i := 0; i < 20; i++ {
+		p := fleetProgressProto(snap, time.Now(), nil)
+		var got []string
+		for _, g := range p.GetPerGnb() {
+			got = append(got, g.GetGnb())
+		}
+		if len(got) != 3 || got[0] != "gnb-1" || got[1] != "gnb-2" || got[2] != "gnb-3" {
+			t.Fatalf("per-gNB order = %v, want sorted", got)
+		}
+	}
+	// A nil rate tracker (single-shot Get) leaves the rates zero rather than
+	// inventing an average.
+	p := fleetProgressProto(snap, time.Now(), nil)
+	if p.GetUplinkBps() != 0 || p.GetDownlinkBps() != 0 {
+		t.Errorf("rates without a tracker = %v/%v, want 0/0", p.GetUplinkBps(), p.GetDownlinkBps())
 	}
 }

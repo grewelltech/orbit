@@ -115,6 +115,9 @@ func newRunsGetCmd(serverURL *string) *cobra.Command {
 					p.GetSucceeded(), p.GetAttempted(), p.GetFailed(), p.GetAchievedRate())
 				printProcedureLatency(out, p.GetLatency())
 			}
+			if p := res.Msg.GetFleetProgress(); p != nil {
+				printFleetProgress(out, p, false)
+			}
 			return nil
 		},
 	}
@@ -172,10 +175,86 @@ func newRunsWatchCmd(serverURL *string) *cobra.Command {
 					line += fmt.Sprintf("  %d ok / %d attempted  %d failed  %.1f attach/s",
 						p.GetSucceeded(), p.GetAttempted(), p.GetFailed(), p.GetAchievedRate())
 				}
+				if p := f.GetFleet(); p != nil {
+					line += fmt.Sprintf("  %d attached  ul %s  dl %s",
+						p.GetAttached(), bitsPerSec(p.GetUplinkBps()), bitsPerSec(p.GetDownlinkBps()))
+					if l := p.GetUpLatency(); l != nil {
+						line += fmt.Sprintf("  up-rtt p50 %.2fms p99 %.2fms", l.GetP50Ms(), l.GetP99Ms())
+						if lost := p.GetUpProbesLost(); lost > 0 {
+							line += fmt.Sprintf(" (%d/%d lost)", lost, p.GetUpProbes())
+						}
+					}
+					if p.GetHandovers() > 0 || p.GetHandoverErrors() > 0 {
+						line += fmt.Sprintf("  ho %d/%d err", p.GetHandovers(), p.GetHandoverErrors())
+					}
+				}
 				fmt.Fprintln(out, line)
 			}
 			return stream.Err()
 		},
+	}
+}
+
+// printFleetProgress renders a fleet run's live aggregates. Rates print only
+// when a stream derived them (a single-shot Get cannot), so a zero there is
+// never mistaken for an idle data path.
+func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
+	fmt.Fprintf(out, "  %d attached, %d failed", p.GetAttached(), p.GetAttachFailed())
+	if p.GetTrafficFlows() > 0 {
+		fmt.Fprintf(out, "  %d flows", p.GetTrafficFlows())
+	}
+	if p.GetAppSessions() > 0 {
+		fmt.Fprintf(out, "  %d app", p.GetAppSessions())
+	}
+	if p.GetHandovers() > 0 || p.GetHandoverErrors() > 0 {
+		fmt.Fprintf(out, "  %d handovers (%d failed)", p.GetHandovers(), p.GetHandoverErrors())
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "  N3 total    ul %s / %d pkts   dl %s / %d pkts\n",
+		byteCount(p.GetUplinkBytes()), p.GetUplinkPackets(),
+		byteCount(p.GetDownlinkBytes()), p.GetDownlinkPackets())
+	if rates {
+		fmt.Fprintf(out, "  N3 rate     ul %s   dl %s\n",
+			bitsPerSec(p.GetUplinkBps()), bitsPerSec(p.GetDownlinkBps()))
+	}
+	if l := p.GetUpLatency(); l != nil {
+		fmt.Fprintf(out, "  UP RTT      p50 %.2f  p90 %.2f  p99 %.2f  max %.2f ms  (%d probes",
+			l.GetP50Ms(), l.GetP90Ms(), l.GetP99Ms(), l.GetMaxMs(), p.GetUpProbes())
+		if lost := p.GetUpProbesLost(); lost > 0 {
+			fmt.Fprintf(out, ", %d lost", lost)
+		}
+		fmt.Fprintln(out, ")")
+	}
+	for _, g := range p.GetPerGnb() {
+		fmt.Fprintf(out, "  %-16s %d attached\n", g.GetGnb(), g.GetSucceeded())
+	}
+}
+
+// bitsPerSec renders a bit rate in the unit that keeps it readable.
+func bitsPerSec(bps float64) string {
+	switch {
+	case bps >= 1e9:
+		return fmt.Sprintf("%.2f Gbps", bps/1e9)
+	case bps >= 1e6:
+		return fmt.Sprintf("%.2f Mbps", bps/1e6)
+	case bps >= 1e3:
+		return fmt.Sprintf("%.1f kbps", bps/1e3)
+	default:
+		return fmt.Sprintf("%.0f bps", bps)
+	}
+}
+
+// byteCount renders a cumulative byte total in the unit that keeps it readable.
+func byteCount(b uint64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.2f MiB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
 	}
 }
 

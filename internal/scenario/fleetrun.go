@@ -81,8 +81,34 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 			if beh.TrafficRate == "" {
 				beh.TrafficRate = "10Mbps"
 			}
-			beh.TrafficTarget = "8.8.8.8:9999"
+			// The entry's own target, when it names one. The previous
+			// hardcoded default silently ignored `target:`, so a scenario
+			// aimed at its own N6 responder was really addressing 8.8.8.8
+			// and only looked right because uplink counts either way.
+			beh.TrafficTarget = m.Target
+			if beh.TrafficTarget == "" {
+				beh.TrafficTarget = defaultTrafficTarget
+			}
 			break
+		}
+	}
+	if l := f.Behaviors.Latency; l != nil && l.Target != "" && f.Fleet.PDUSession {
+		beh.Latency = engine.FleetLatencyProbe{Target: l.Target, UEs: l.UEs}
+		if l.Interval != "" {
+			d, err := time.ParseDuration(l.Interval)
+			if err != nil {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("behaviors.latency.interval %q: %w", l.Interval, err)
+			}
+			beh.Latency.Interval = d
+		}
+		if l.Timeout != "" {
+			d, err := time.ParseDuration(l.Timeout)
+			if err != nil {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("behaviors.latency.timeout %q: %w", l.Timeout, err)
+			}
+			beh.Latency.Timeout = d
 		}
 	}
 	// App cohorts (design §8): mix entries with app: become real-application
@@ -97,6 +123,11 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 
 	return spec, beh, nil
 }
+
+// defaultTrafficTarget is where synthetic flows aim when a mix entry names no
+// target: an off-testbed address, so the traffic traverses the UPF and its N6
+// egress rather than looping back inside the lab.
+const defaultTrafficTarget = "8.8.8.8:9999"
 
 // ParseAttachRate turns "10/s" (or "10") into an attaches/sec rate; empty = 0.
 func ParseAttachRate(s string) (float64, error) {
