@@ -264,3 +264,27 @@ func TestUEAppVoipJSON(t *testing.T) {
 		t.Errorf("report JSON missing:\n%s", text)
 	}
 }
+
+// The origin never measures time-to-first-byte, so its interval line omits
+// the field rather than printing 0.00ms, which reads as an instant response.
+// The requester's line still carries it.
+func TestHTTPSampleLineOmitsUnmeasuredTTFB(t *testing.T) {
+	ue := httpSampleLine("ue", &orbitv1.HttpMetrics{
+		Requests: 31, Errors: 0, TtfbMsP95: 9.32, GoodputMbps: 18.4,
+	}, false)
+	if !strings.Contains(ue, "ttfb-p95 9.32ms") {
+		t.Errorf("requester line dropped a measured TTFB:\n%s", ue)
+	}
+
+	n6 := httpSampleLine("n6", &orbitv1.HttpMetrics{
+		Requests: 31, Errors: 0, TtfbMsP95: 0, GoodputMbps: 18.4,
+	}, true)
+	if strings.Contains(n6, "ttfb") {
+		t.Errorf("origin line reported an unmeasured TTFB:\n%s", n6)
+	}
+	for _, want := range []string{"reqs 31", "err 0", "goodput 18.40 Mbps", "[final]"} {
+		if !strings.Contains(n6, want) {
+			t.Errorf("origin line missing %q:\n%s", want, n6)
+		}
+	}
+}

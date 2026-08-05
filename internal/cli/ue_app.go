@@ -195,8 +195,15 @@ func voipSampleLine(end string, v *orbitv1.VoipMetrics, final bool) string {
 // end measures no client-side latencies, so its timing fields print only when
 // present.
 func httpSampleLine(end string, h *orbitv1.HttpMetrics, final bool) string {
-	line := fmt.Sprintf("%-3s reqs %d  err %d  ttfb-p95 %.2fms  goodput %.2f Mbps",
-		end, h.GetRequests(), h.GetErrors(), h.GetTtfbMsP95(), h.GetGoodputMbps())
+	line := fmt.Sprintf("%-3s reqs %d  err %d", end, h.GetRequests(), h.GetErrors())
+	// Time-to-first-byte is a requester-side measurement. The origin records
+	// only bytes, status and abort per response, so its TTFB percentile is
+	// unset — and printing "ttfb-p95 0.00ms" for it reads as an instant
+	// response rather than as no measurement.
+	if t := h.GetTtfbMsP95(); t > 0 {
+		line += fmt.Sprintf("  ttfb-p95 %.2fms", t)
+	}
+	line += fmt.Sprintf("  goodput %.2f Mbps", h.GetGoodputMbps())
 	if c := h.GetConnectMs(); c > 0 {
 		line += fmt.Sprintf("  connect %.2fms", c)
 	}
