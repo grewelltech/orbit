@@ -62,7 +62,7 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}))
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}))
-	mux.Handle(orbitv1connect.NewRunServiceHandler(&runService{log: log, reg: runReg}))
+	mux.Handle(orbitv1connect.NewRunServiceHandler(&runService{log: log, reg: runReg, mgr: mgr}))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

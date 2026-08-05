@@ -63,7 +63,21 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 		}
 		beh.Duration = d
 	}
-	if f.Behaviors.Mobility != nil {
+	if m := f.Behaviors.Mobility; m != nil {
+		// The handover kind was parsed and then ignored — fleet mobility runs
+		// an Xn PathSwitch regardless — so a scenario asking for N2 silently
+		// got Xn and its results were mislabelled. Refuse rather than
+		// pretend; single-UE N2 handover is available via `orbit ue handover`.
+		switch strings.ToLower(strings.TrimSpace(m.Handover)) {
+		case "", "xn":
+		case "n2":
+			return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+				fmt.Errorf("behaviors.mobility.handover: fleet mobility performs Xn path switches only; " +
+					"n2 is not implemented for fleet runs (use `orbit ue handover` for a single UE)")
+		default:
+			return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+				fmt.Errorf("behaviors.mobility.handover %q: want \"xn\" (or omit)", m.Handover)
+		}
 		beh.MobileUEs = f.Fleet.Count / 2
 		if beh.MobileUEs < 1 {
 			beh.MobileUEs = 1
@@ -114,11 +128,29 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 	// App cohorts (design §8): mix entries with app: become real-application
 	// cohorts, sized by the same share allocation as the profiles.
 	for _, c := range f.AppCohorts() {
-		beh.Apps = append(beh.Apps, engine.FleetAppCohort{
+		cohort := engine.FleetAppCohort{
 			Name: c.Name, App: c.App,
 			Peer: c.Peer, Token: c.Token, PeerDataIP: c.PeerDataIP,
 			Params: c.Params, Count: c.Count,
-		})
+		}
+		if c.StartAfter != "" {
+			d, err := time.ParseDuration(c.StartAfter)
+			if err != nil {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("traffic cohort %q start_after %q: %w", c.Name, c.StartAfter, err)
+			}
+			if d < 0 {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("traffic cohort %q start_after %q must not be negative", c.Name, c.StartAfter)
+			}
+			if beh.Duration > 0 && d >= beh.Duration {
+				return engine.FleetRunSpec{}, engine.FleetBehaviors{},
+					fmt.Errorf("traffic cohort %q starts after %s but the run is only %s, so it would never run",
+						c.Name, d, beh.Duration)
+			}
+			cohort.StartAfter = d
+		}
+		beh.Apps = append(beh.Apps, cohort)
 	}
 
 	return spec, beh, nil

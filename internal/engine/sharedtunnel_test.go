@@ -493,3 +493,66 @@ func TestReleaseGNBClosesLiveSessions(t *testing.T) {
 	}
 	sess.closeDataPath()
 }
+
+// A fleet run must borrow the host Manager's N3 pool. A gNB's N3 address is
+// one UDP bind for the whole process, so a run with its own pool cannot open a
+// data path on an address an ad-hoc `orbit ue` session already holds — and the
+// failure is per-UE and quiet, so the run reports a healthy population
+// carrying zero bytes. That is the shape of a real incident: 100 UEs attached,
+// 0 failed, and not a single byte moved.
+func TestFleetDepsShareTheManagersN3Pool(t *testing.T) {
+	m := NewManager(testLogger())
+
+	// With a Manager, the run uses ITS pool — so an address the Manager has
+	// already bound is reused rather than fought over.
+	if got := (FleetDeps{Manager: m}).n3(); got != m.n3 {
+		t.Error("a run with a Manager must borrow its pool, or the two race for one UDP bind")
+	}
+
+	// Standalone (the local `orbit run <fleet>` path) gets its own.
+	solo := (FleetDeps{}).n3()
+	if solo == nil {
+		t.Fatal("a run without a Manager still needs a pool")
+	}
+	if solo == m.n3 {
+		t.Error("a standalone run must not reach into a Manager it was not given")
+	}
+}
+
+// The concrete regression: an ad-hoc session holds a gNB's N3 socket, and a
+// fleet run on the same address then acquires the SAME tunnel instead of
+// failing to bind.
+func TestManagerAndFleetShareOneGNBSocket(t *testing.T) {
+	upf, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upf.Close()
+
+	m := NewManager(testLogger())
+	port := freeUDPPort(t)
+	localN3 := net.JoinHostPort("127.0.0.1", fmt.Sprint(port))
+
+	// An ad-hoc `orbit ue` session opens its data path first.
+	sess := newDataSession(m, "001010000000001", upf.LocalAddr().String(), port, 0xA1, 0xA2, 1)
+	if _, _, err := sess.dataplane(); err != nil {
+		t.Fatalf("ad-hoc session data path: %v", err)
+	}
+	t.Cleanup(sess.closeDataPath)
+
+	// A fleet run then wants the same gNB N3 address.
+	pool := FleetDeps{Manager: m}.n3()
+	ref, err := pool.acquire(localN3, upf.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("fleet run could not acquire the gNB N3 socket an ad-hoc session holds: %v "+
+			"(this is the bug: every app client's bridge fails and the run reports zero traffic)", err)
+	}
+	defer pool.release(ref)
+
+	if ref.st != sess.n3ref.st {
+		t.Error("the run and the session must share ONE socket for the gNB's N3 address")
+	}
+	if pool.size() != 1 {
+		t.Errorf("pool holds %d entries for one address, want 1", pool.size())
+	}
+}

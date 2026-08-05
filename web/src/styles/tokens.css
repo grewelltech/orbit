@@ -8,6 +8,16 @@
  * Aesthetic: dark instrument panel. Near-black navy base, hairline borders,
  * one cyan accent carrying interaction, amber reserved for attention. Dense,
  * technical, low chrome — the data is the decoration.
+ *
+ * Two themes. Dark is the default and lives on :root, so anything that never
+ * sets data-theme keeps exactly the palette this file has always had. Light
+ * overrides only what must change — surfaces, ink, and the series hues
+ * restated for a pale background. Everything structural (type, geometry,
+ * motion) is shared, which is why the light theme is a colour list rather
+ * than a second design.
+ *
+ * A series slot means the same entity in both themes: --o-series-4 is the
+ * green one either way, so a chart does not repaint when the theme flips.
  */
 
 :root {
@@ -86,6 +96,11 @@
   --o-axis-line: #22384e;
   --o-crosshair: rgb(79 214 232 / 0.55);
   --o-tooltip-bg: #0b1521;
+
+  /* Page background grid. Reads as structure behind the panels rather than
+     texture: lifted off the old baked-in rgb(28 47 66 / 0.28) so the ruling
+     is actually visible on the near-black base. */
+  --o-bg-grid: rgb(45 73 100 / 0.45);
 }
 
 /* Reduced-motion users get the same interface with transitions collapsed. */
@@ -94,4 +109,58 @@
     --o-dur-fast: 0ms;
     --o-dur: 0ms;
   }
+}
+
+/*
+ * Light theme. Chosen to look right on a pale surface: the same eight hues in
+ * the same order, darkened and saturated enough to hold their identity against
+ * white rather than washing out.
+ */
+:root[data-theme="light"] {
+  /* ── surfaces ────────────────────────────────────────────────────────── */
+  --o-bg: #eef2f7;
+  --o-surface: #ffffff;
+  --o-surface-2: #f7f9fc;
+  --o-surface-3: #eef3f8;
+  --o-border: #cfdae6;
+  --o-border-soft: #e1e8f0;
+  --o-border-accent: rgb(13 143 168 / 0.38);
+
+  /* ── ink ─────────────────────────────────────────────────────────────── */
+  --o-ink: #17232f;
+  --o-ink-2: #48607a;
+  --o-ink-3: #6d8299;
+  --o-ink-inverse: #ffffff;
+
+  /* ── accents ─────────────────────────────────────────────────────────── */
+  --o-accent: #0d8fa8;
+  --o-accent-dim: #0a7188;
+  --o-accent-glow: rgb(13 143 168 / 0.12);
+  --o-amber: #c78500;
+
+  /* ── status ──────────────────────────────────────────────────────────── */
+  --o-ok: #1f9e6b;
+  --o-warn: #c78500;
+  --o-error: #e04a67;
+  --o-idle: #8497a9;
+
+  /* ── categorical series ──────────────────────────────────────────────── */
+  --o-series-1: #0d8fa8;
+  --o-series-2: #c78500;
+  --o-series-3: #7c5cff;
+  --o-series-4: #1f9e6b;
+  --o-series-5: #e04a67;
+  --o-series-6: #3b7fe0;
+  --o-series-7: #86a01f;
+  --o-series-8: #cf5bb8;
+
+  /* ── chart-specific ──────────────────────────────────────────────────── */
+  --o-grid-line: #e8eef4;
+  --o-axis-line: #d6e0ea;
+  --o-crosshair: rgb(13 143 168 / 0.55);
+  --o-tooltip-bg: #ffffff;
+
+  /* Lighter touch than dark: on a pale base the same ruling reads as dirt on
+     the screen rather than as structure. */
+  --o-bg-grid: rgb(120 145 170 / 0.13);
 }

@@ -126,21 +126,25 @@ export class ConnectSource implements TelemetrySource {
       try {
         run = await this.selectRun(signal);
       } catch (err) {
+        // listRuns failed: this is the real "cannot reach the server" case.
         if (signal.aborted) return;
-        this.setConn("error");
+        this.setConn("disconnected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
       if (!run) {
-        // Nothing to watch yet; poll.
-        this.setConn("disconnected");
+        // Nothing to watch yet; poll. listRuns just succeeded, so the server
+        // is reachable — saying "disconnected" here would report a fault that
+        // does not exist for as long as the testbed sits idle.
+        this.setConn("connected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
       if (isTerminalState(run.state) && run.runId === this.lastTerminalId) {
         // Already showed this finished run's final frame; wait for a new or
-        // active one rather than reconnecting to it every poll.
-        this.setConn("disconnected");
+        // active one rather than reconnecting to it every poll. Still
+        // connected — there is simply nothing new to stream.
+        this.setConn("connected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }
@@ -158,7 +162,9 @@ export class ConnectSource implements TelemetrySource {
       // now finished — remember it so we don't re-stream it below.
       this.lastTerminalId = run.runId;
       if (this.pinnedRunId) {
-        this.setConn("disconnected");
+        // The pinned run has finished and nothing else will be streamed, but
+        // the server is still there.
+        this.setConn("connected");
         return;
       }
       await sleep(POLL_INTERVAL_MS, signal);
@@ -251,7 +257,15 @@ export class ConnectSource implements TelemetrySource {
       if (dt > 0) handoverPerSec = Math.max(0, (fp.handovers - prevFp.handovers) / dt);
     }
 
-    const cp = attachLatency(lp);
+    // A fleet run reports a standing population rather than a stream of
+    // attempts, so its attach rate is the delta in `attached` between frames —
+    // real during the attach phase, and correctly zero once it is done.
+    if (fp && prevFp) {
+      const dt = (elapsedMs - Number(this.prev!.elapsedMs)) / 1000;
+      if (dt > 0) attachPerSec = Math.max(0, (fp.attached - prevFp.attached) / dt);
+    }
+
+    const cp = attachLatency(lp, fp);
 
     return {
       t,
@@ -305,10 +319,12 @@ export class ConnectSource implements TelemetrySource {
       perGnb: Object.fromEntries(
         (lp?.perGnb ?? fp?.perGnb ?? []).map((g) => [g.gnb, g.succeeded]),
       ),
+      mobility: { handovers: fp?.handovers ?? 0, failed: fp?.handoverErrors ?? 0 },
       cohorts: (fp?.cohorts ?? []).map((c) => ({
         name: c.name,
         app: c.app,
         ues: c.ues,
+        failed: c.failed,
         elapsedMs: Number(c.elapsedMs),
         mos: quantiles(c.mos),
         ttfbMs: quantiles(c.ttfbMs),
@@ -391,10 +407,19 @@ function attachSuccessRatio(lp: LoadProgress | null, fp: FleetProgress | null): 
 }
 
 /** Picks the attach (or registration) procedure latency, in ms. */
-function attachLatency(lp: LoadProgress | null): LatencySummary {
+/**
+ * The headline control-plane latency. A load run measures attach; a fleet run
+ * measures attach during its attach phase and then handovers for the rest of
+ * the run, so the panel stays live instead of going flat once the population
+ * is up. Preference order picks the procedure that is actually happening.
+ */
+function attachLatency(lp: LoadProgress | null, fp: FleetProgress | null): LatencySummary {
   const empty = { p50: 0, p90: 0, p99: 0, max: 0 };
-  if (!lp) return empty;
-  const l = lp.latency.find((x) => x.procedure === "attach") ?? lp.latency.find((x) => x.procedure === "registration") ?? lp.latency[0];
+  const rows = lp?.latency ?? fp?.latency ?? [];
+  if (rows.length === 0) return empty;
+  const pick = (name: string) => rows.find((x) => x.procedure === name);
+  const l =
+    pick("handover_xn") ?? pick("handover_n2") ?? pick("attach") ?? pick("registration") ?? rows[0];
   if (!l) return empty;
   return { p50: l.p50Ms, p90: l.p90Ms, p99: l.p99Ms, max: l.maxMs };
 }

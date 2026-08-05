@@ -17,6 +17,9 @@ export interface GnbDistributionProps {
   className?: string;
 }
 
+// GNB_ROW_HEIGHT is the per-cell pitch: the 12px bar plus breathing room.
+const GNB_ROW_HEIGHT = 22;
+
 export function GnbDistribution({ frame, className }: GnbDistributionProps) {
   const chartRef = useRef<ChartHandle>(null);
   const entries = useMemo(() => Object.entries(frame?.perGnb ?? {}).sort(([a], [b]) => a.localeCompare(b)), [frame?.perGnb]);
@@ -25,7 +28,10 @@ export function GnbDistribution({ frame, className }: GnbDistributionProps) {
     const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
     return {
       animation: false,
-      grid: { top: 6, right: 52, bottom: 6, left: 62 },
+      // Fixed padding, not proportional: the grid's height is set by the
+      // wrapper below to exactly fit the rows, so the bars keep a constant
+      // pitch instead of being spread to fill whatever box they are given.
+      grid: { top: 4, right: 52, bottom: 4, left: 62 },
       xAxis: { type: "value", show: false, max: Math.max(1, ...entries.map(([, v]) => v)) * 1.15 },
       yAxis: {
         type: "category",
@@ -64,8 +70,17 @@ export function GnbDistribution({ frame, className }: GnbDistributionProps) {
       className={className}
       meta={`${entries.length} cells`}
     >
-      <div className="h-full min-h-0">
-        <Chart ref={chartRef} option={option} optionDeps={[option]} ariaLabel="UE distribution by gNB" />
+      {/*
+        ECharts spreads category rows evenly over the grid height, so one gNB
+        sits centred and four drift apart — the spacing reads as meaningful
+        when it is only an artefact of the box. Sizing the chart to the row
+        count instead keeps the pitch constant and anchors the list to the top,
+        and the outer box scrolls once a grid outgrows it.
+      */}
+      <div className="h-full min-h-0 overflow-y-auto">
+        <div style={{ height: Math.max(1, entries.length) * GNB_ROW_HEIGHT + 8 }}>
+          <Chart ref={chartRef} option={option} optionDeps={[option]} ariaLabel="UE distribution by gNB" />
+        </div>
       </div>
     </Panel>
   );

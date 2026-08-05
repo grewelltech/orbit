@@ -263,7 +263,7 @@ func (s *ueService) Handover(
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
-	err = s.mgr.Handover(ctx, m.GetSupi(), engine.GNBEndpoint{
+	elapsed, err := s.mgr.Handover(ctx, m.GetSupi(), engine.GNBEndpoint{
 		Config:   target,
 		AMFAddr:  m.GetAmfAddress(),
 		BindAddr: m.GetBindAddress(),
@@ -274,6 +274,7 @@ func (s *ueService) Handover(
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
 		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
+		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
 	}), nil
 }
 
@@ -292,13 +293,15 @@ func (s *ueService) XnHandover(
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
-	if err := s.mgr.XnHandover(ctx, m.GetSupi(), engine.GNBEndpoint{
+	elapsed, err := s.mgr.XnHandover(ctx, m.GetSupi(), engine.GNBEndpoint{
 		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: m.GetGnbN3Addr(),
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
 		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
+		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
 	}), nil
 }
 

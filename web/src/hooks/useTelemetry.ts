@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ring } from "@/data/ring";
+import { loadHistory, saveHistory } from "@/data/persist";
 import type { TelemetrySource } from "@/data/source";
 import type { SourceState, TelemetryFrame, TestEvent } from "@/data/types";
 
@@ -30,6 +31,13 @@ export interface Telemetry {
   /** Per-sample subscription that bypasses React entirely. */
   subscribeFrames: (fn: (f: TelemetryFrame) => void) => () => void;
   /**
+   * Bumped when the history ring is replaced wholesale — restored from a
+   * refresh, or discarded because it belonged to a different run. Panels seed
+   * from the ring on mount, so they must reseed when it changes underneath
+   * them rather than carrying another run's points.
+   */
+  historyEpoch: number;
+  /**
    * Drops the events held for display. Local to this view: the server's ring
    * is append-only and its sequence numbers are what make loss detectable, so
    * clearing here must not mean deleting evidence for everyone. A reconnect
@@ -39,7 +47,17 @@ export interface Telemetry {
 }
 
 export function useTelemetry(source: TelemetrySource): Telemetry {
-  const history = useMemo(() => new Ring<TelemetryFrame>(HISTORY_CAPACITY), []);
+  // Seeded synchronously from the tab's saved snapshot, BEFORE any panel
+  // mounts and seeds itself from it — restoring after the first frame would
+  // be too late, since panels read the ring once and then follow the stream.
+  const restored = useMemo(() => loadHistory(), []);
+  const history = useMemo(() => {
+    const r = new Ring<TelemetryFrame>(HISTORY_CAPACITY);
+    if (restored) for (const f of restored.frames) r.push(f);
+    return r;
+  }, [restored]);
+  const [historyEpoch, setHistoryEpoch] = useState(0);
+  const restoredRunId = useRef(restored?.runId);
   const eventRing = useMemo(() => new Ring<TestEvent>(EVENT_CAPACITY), []);
 
   const [latest, setLatest] = useState<TelemetryFrame | null>(null);
@@ -60,10 +78,29 @@ export function useTelemetry(source: TelemetrySource): Telemetry {
   }, []);
 
   useEffect(() => {
+    let lastSave = 0;
     const offFrame = source.onFrame((f) => {
+      // The restored snapshot is only ours if it belongs to this run. A
+      // different run means the points are someone else's history, so drop
+      // them and tell the panels to reseed rather than drawing a splice of
+      // two runs as one continuous series.
+      if (restoredRunId.current !== undefined && restoredRunId.current !== f.run.runId) {
+        history.clear();
+        restoredRunId.current = undefined;
+        setHistoryEpoch((n) => n + 1);
+      }
       history.push(f);
       dirtyFrame.current = true;
       for (const fn of passthrough.current) fn(f);
+
+      // Throttled: serialising the ring on every frame would cost more than
+      // the feature is worth, and losing the last couple of seconds across a
+      // refresh is not what anyone is complaining about.
+      const now = Date.now();
+      if (now - lastSave >= 2000) {
+        lastSave = now;
+        saveHistory(f.run.runId, history.toArray());
+      }
     });
 
     const offEvent = source.onEvent((e) => {
@@ -104,5 +141,6 @@ export function useTelemetry(source: TelemetrySource): Telemetry {
     setEvents([]);
   }, [eventRing]);
 
-  return { latest, history, events, state, subscribeFrames, clearEvents };
+
+  return { latest, history, events, state, subscribeFrames, clearEvents, historyEpoch };
 }

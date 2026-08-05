@@ -209,6 +209,14 @@ message FleetProgress {
   // currently attached on that gNB.
   repeated GnbProgress per_gnb = 16;
 
+  // Control-plane procedure latencies, by procedure. "registration",
+  // "pdu_session" and "attach" during the attach phase; "handover_xn" and
+  // "handover_n2" for the rest of a mobility run — so the panel stays live
+  // after attach rather than going flat. N2 and Xn are separate procedures on
+  // purpose: they are different exchanges, and one distribution over both
+  // would hide the comparison worth making.
+  repeated ProcedureLatency latency = 24;
+
   // Per-cohort application quality, one entry per app cohort, carrying the
   // most recent interval's across-member distribution.
   repeated CohortProgress cohorts = 20;
@@ -249,6 +257,10 @@ message CohortProgress {
   string app = 2;            // "voip" | "http" | "video"
   uint32 ues = 3;            // members running a client
   int64 elapsed_ms = 4;      // how long the cohort has been running
+  // Members whose client could not start or died. Live, not just in the final
+  // report: a cohort failing wholesale otherwise reads as a healthy
+  // population right up until it stops.
+  uint32 failed = 13;
 
   Quantiles mos = 5;             // voip
   Quantiles ttfb_ms = 6;         // http: across-member median TTFB

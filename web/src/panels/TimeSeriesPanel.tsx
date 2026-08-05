@@ -14,8 +14,26 @@ import type { Telemetry } from "@/hooks/useTelemetry";
 import type { TelemetryFrame } from "@/data/types";
 import { clock } from "@/lib/format";
 
-/** Samples held on screen. Older samples stay in the ring for export. */
-const WINDOW = 600;
+/**
+ * Selectable spans. The panels share one setting so they can be read against
+ * each other — two charts silently showing different spans is worse than
+ * either span being wrong.
+ */
+export const TIME_WINDOWS = [
+  { label: "1m", ms: 60_000 },
+  { label: "5m", ms: 300_000 },
+  { label: "10m", ms: 600_000 },
+  { label: "30m", ms: 1_800_000 },
+] as const;
+
+export const DEFAULT_WINDOW_MS = 600_000;
+
+/**
+ * Hard cap on buffered points, independent of the window. At one frame per
+ * second the 30m span is 1800 points; this only bites if frames arrive faster
+ * than that, and keeps a fast stream from growing the buffer without bound.
+ */
+const MAX_POINTS = 4000;
 
 export interface SeriesDef {
   name: string;
@@ -36,6 +54,8 @@ export interface TimeSeriesPanelProps {
   stack?: boolean;
   /** Pins the y-axis maximum, e.g. 1 for a ratio. */
   max?: number;
+  /** Span shown on the x-axis, in milliseconds. */
+  windowMs?: number;
   className?: string;
 }
 
@@ -47,10 +67,11 @@ export function TimeSeriesPanel({
   format,
   stack = false,
   max,
+  windowMs = DEFAULT_WINDOW_MS,
   className,
 }: TimeSeriesPanelProps) {
   const chartRef = useRef<ChartHandle>(null);
-  const { history, subscribeFrames } = telemetry;
+  const { history, subscribeFrames, historyEpoch } = telemetry;
 
   // Held in a ref so an inline `format` from the caller can't destabilise the
   // option memo. An unstable option re-fires setOption, which resets every
@@ -61,7 +82,11 @@ export function TimeSeriesPanel({
   // Column-oriented buffers: one array per series, plus shared timestamps.
   // Reused across updates so the steady state allocates only the sliced views
   // ECharts needs.
-  const buffers = useRef<{ t: number[]; cols: number[][] }>({ t: [], cols: [] });
+  // Points are [timestamp, value] pairs so the x-axis can be a real time
+  // axis: a category axis spaces samples evenly regardless of when they
+  // happened, so the visual density tracked how many samples existed rather
+  // than elapsed time — and a gap in the stream drew as continuous.
+  const buffers = useRef<{ pts: [number, number][][] }>({ pts: [] });
 
   const option = useMemo<EChartsOption>(
     () => ({
@@ -86,9 +111,11 @@ export function TimeSeriesPanel({
             }
           : { show: false },
       xAxis: {
-        type: "category",
-        boundaryGap: false,
-        axisLabel: { formatter: (v: string) => v, hideOverlap: true },
+        type: "time",
+        // The extent is pinned to the chosen window on every draw, so points
+        // scroll off the left edge instead of the whole series compressing to
+        // fit as a run gets longer.
+        axisLabel: { formatter: (v: number) => clock(v), hideOverlap: true },
       },
       yAxis: {
         type: "value",
@@ -131,34 +158,47 @@ export function TimeSeriesPanel({
 
   useEffect(() => {
     const buf = buffers.current;
-    buf.cols = series.map(() => []);
-    buf.t = [];
+    buf.pts = series.map(() => []);
+
+    // Prune by TIME, not by count: the window is a span, and a stream that
+    // slows down must not start showing a longer history than was asked for.
+    const prune = (now: number) => {
+      const cutoff = now - windowMs;
+      for (const col of buf.pts) {
+        let drop = 0;
+        while (drop < col.length && (col[drop] as [number, number])[0] < cutoff) drop++;
+        if (drop > 0) col.splice(0, drop);
+        if (col.length > MAX_POINTS) col.splice(0, col.length - MAX_POINTS);
+      }
+    };
 
     // Seed from history so a newly mounted panel isn't blank mid-run.
-    for (const f of history.toArray().slice(-WINDOW)) {
-      buf.t.push(f.t);
-      series.forEach((s, i) => (buf.cols[i] as number[]).push(s.value(f)));
+    for (const f of history.toArray()) {
+      series.forEach((s, i) => (buf.pts[i] as [number, number][]).push([f.t, s.value(f)]));
     }
+    prune(Date.now());
 
-    let dirty = buf.t.length > 0;
+    let dirty = buf.pts.some((c) => c.length > 0);
 
     const off = subscribeFrames((f) => {
-      buf.t.push(f.t);
-      series.forEach((s, i) => (buf.cols[i] as number[]).push(s.value(f)));
-      if (buf.t.length > WINDOW) {
-        buf.t.shift();
-        for (const col of buf.cols) col.shift();
-      }
+      series.forEach((s, i) => (buf.pts[i] as [number, number][]).push([f.t, s.value(f)]));
+      prune(f.t);
       dirty = true;
     });
 
-    // One chart update per frame at most, and none while idle.
+    // One chart update per frame at most. The extent is rewritten every draw
+    // even when no sample arrived, so an idle chart keeps scrolling rather
+    // than freezing with a stale right edge.
+    let last = 0;
     let raf = requestAnimationFrame(function draw() {
-      if (dirty) {
+      const now = Date.now();
+      if (dirty || now - last >= 1000) {
         dirty = false;
+        last = now;
+        prune(now);
         chartRef.current?.setOption({
-          xAxis: { data: buf.t.map(clock) },
-          series: buf.cols.map((data) => ({ data })),
+          xAxis: { min: now - windowMs, max: now },
+          series: buf.pts.map((data) => ({ data })),
         });
       }
       raf = requestAnimationFrame(draw);
@@ -168,7 +208,10 @@ export function TimeSeriesPanel({
       off();
       cancelAnimationFrame(raf);
     };
-  }, [series, history, subscribeFrames]);
+    // historyEpoch: the ring was replaced (restored across a refresh, or
+    // discarded as another run's), so reseed rather than keep points that are
+    // no longer in it.
+  }, [series, history, subscribeFrames, windowMs, historyEpoch]);
 
   return (
     <Panel title={title} meta={meta} live className={className}>

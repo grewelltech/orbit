@@ -195,6 +195,10 @@ message HandoverResponse {
   uint32 gnb_id = 2;
   // Terminal mobility state: HANDED_OVER or HANDOVER_FAILED.
   string state = 3;
+  // How long the procedure took. A single-UE handover is then a measurement
+  // rather than a pass/fail, which is what comparing N2 against Xn on a given
+  // core needs. Zero on failure — there is no completed procedure to time.
+  double elapsed_ms = 4;
 }
 
 message TrafficRequest {

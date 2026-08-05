@@ -41,6 +41,14 @@ type FleetSnapshot struct {
 	// Cohorts is each app cohort's most recent interval quality.
 	Cohorts []FleetCohort
 
+	// Procedures summarises control-plane procedure latencies by name —
+	// "registration", "pdu_session", "attach" during the attach phase, and
+	// "handover_xn" / "handover_n2" for the rest of a mobility run. Keyed by
+	// name and kept separate on purpose: an N2 handover and an Xn one are
+	// structurally different exchanges, and averaging them together turns two
+	// answers into a bimodal distribution that reads as noise.
+	Procedures map[string]load.Stats
+
 	// UPLatency summarises ICMP round trips over the UEs' own N3 data paths.
 	// HasUPLatency is false when no probe is configured, so a consumer can
 	// distinguish "not measured" from "measured as zero".
@@ -78,9 +86,13 @@ type FleetFlow struct {
 // apply to the cohort's app stay nil rather than reporting zeros — a voip
 // cohort has no time-to-first-byte, and 0 ms would read as an instant one.
 type FleetCohort struct {
-	Name    string
-	App     string
-	UEs     int
+	Name string
+	App  string
+	UEs  int
+	// Failed is members whose client could not start or died. Reported live,
+	// not only in the end-of-run report: a cohort whose members are all
+	// failing otherwise looks like a healthy population until it stops.
+	Failed  int
 	Elapsed time.Duration
 
 	MOS           *FleetQuantiles
@@ -149,7 +161,8 @@ type FleetLiveStats struct {
 	bySUPI         map[string]*fleetSource // for upgrading a session to a cohort flow
 	cohorts        map[string]*FleetCohort // latest interval quality, by cohort name
 
-	upHist       *hdr.Histogram // nil until the first probe result
+	procHists    map[string]*hdr.Histogram // control-plane procedures, by name
+	upHist       *hdr.Histogram            // nil until the first probe result
 	upProbes     uint64
 	upProbesLost uint64
 }
@@ -157,10 +170,11 @@ type FleetLiveStats struct {
 // NewFleetLiveStats returns stats whose elapsed clock starts now.
 func NewFleetLiveStats() *FleetLiveStats {
 	return &FleetLiveStats{
-		started: time.Now(),
-		perGNB:  map[string]int{},
-		bySUPI:  map[string]*fleetSource{},
-		cohorts: map[string]*FleetCohort{},
+		started:   time.Now(),
+		perGNB:    map[string]int{},
+		bySUPI:    map[string]*fleetSource{},
+		cohorts:   map[string]*FleetCohort{},
+		procHists: map[string]*hdr.Histogram{},
 	}
 }
 
@@ -328,6 +342,27 @@ func (f *FleetLiveStats) Detached(gnb string, src n3Counters) {
 	}
 }
 
+// RecordProcedure records one control-plane procedure's duration. Names are
+// the panel's series, so they must stay stable and must distinguish procedures
+// that are not comparable — see FleetSnapshot.Procedures.
+func (f *FleetLiveStats) RecordProcedure(name string, d time.Duration) {
+	if f == nil || name == "" || d <= 0 {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	h, ok := f.procHists[name]
+	if !ok {
+		h = hdr.New(1, 300_000_000, 3) // 1µs … 300s, as the load histograms
+		f.procHists[name] = h
+	}
+	v := d.Microseconds()
+	if v < 1 {
+		v = 1
+	}
+	_ = h.RecordValue(v)
+}
+
 // RecordUPLatency records one user-plane round trip measured over a UE's N3
 // data path. A lost probe advances the sent/lost counts without polluting the
 // percentiles with a timeout that is not a latency.
@@ -372,6 +407,19 @@ func (f *FleetLiveStats) Snapshot() FleetSnapshot {
 	}
 	for k, v := range f.perGNB {
 		s.PerGNB[k] = v
+	}
+	if len(f.procHists) > 0 {
+		s.Procedures = make(map[string]load.Stats, len(f.procHists))
+		for name, h := range f.procHists {
+			s.Procedures[name] = load.Stats{
+				Count: h.TotalCount(),
+				P50:   time.Duration(h.ValueAtQuantile(50)) * time.Microsecond,
+				P90:   time.Duration(h.ValueAtQuantile(90)) * time.Microsecond,
+				P99:   time.Duration(h.ValueAtQuantile(99)) * time.Microsecond,
+				P999:  time.Duration(h.ValueAtQuantile(99.9)) * time.Microsecond,
+				Max:   time.Duration(h.Max()) * time.Microsecond,
+			}
+		}
 	}
 	if f.upProbes > 0 {
 		s.HasUPLatency = true
@@ -420,3 +468,15 @@ func (s *Session) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
 	}
 	return ue.Totals()
 }
+
+// Control-plane procedure names. Stable: they are the CP-latency panel's
+// series, and N2 and Xn are kept apart because they are different exchanges —
+// N2 goes via the AMF, Xn switches the path directly — so one distribution
+// over both would hide the comparison worth making.
+const (
+	ProcedureAttach       = "attach"
+	ProcedureRegistration = "registration"
+	ProcedurePDUSession   = "pdu_session"
+	ProcedureHandoverXn   = "handover_xn"
+	ProcedureHandoverN2   = "handover_n2"
+)

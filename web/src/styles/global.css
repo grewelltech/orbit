@@ -51,10 +51,12 @@ body {
   text-rendering: optimizeLegibility;
 
   /* Faint engineering grid — atmosphere without texture noise over data.
-     Sits behind panels, which are opaque. */
+     Sits behind panels, which are opaque. Themed: the colour was hardcoded to
+     a dark-theme blue, which on a pale background would have drawn a dark grid
+     instead of a faint one. */
   background-image:
-    linear-gradient(to right, rgb(28 47 66 / 0.28) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(28 47 66 / 0.28) 1px, transparent 1px);
+    linear-gradient(to right, var(--o-bg-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--o-bg-grid) 1px, transparent 1px);
   background-size: 48px 48px;
   background-attachment: fixed;
 }

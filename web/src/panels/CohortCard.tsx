@@ -25,6 +25,25 @@ function Row({ label, q, unit, digits = 2 }: { label: string; q: Quantiles | nul
   );
 }
 
+/**
+ * A slot for one app kind. Rendered whether or not the run has such a cohort,
+ * so the three cards keep fixed positions: a panel that appears and disappears
+ * with the traffic mix moves everything below it, and an operator learns where
+ * to look rather than re-reading the layout each run.
+ */
+export function CohortSlot({ app, cohort }: { app: string; cohort: CohortQuality | null }) {
+  if (!cohort) {
+    return (
+      <Panel title={app} flush>
+        <p className="o-label px-3 py-3" style={{ color: "var(--o-ink-3)" }}>
+          no {app} cohort in this run
+        </p>
+      </Panel>
+    );
+  }
+  return <CohortCard cohort={cohort} />;
+}
+
 export function CohortCard({ cohort: c }: { cohort: CohortQuality }) {
   return (
     <Panel
@@ -32,8 +51,12 @@ export function CohortCard({ cohort: c }: { cohort: CohortQuality }) {
       live
       flush
       meta={
-        <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
-          {c.ues} UEs · {Math.round(c.elapsedMs / 1000)}s
+        <span
+          className="o-label"
+          style={{ color: c.failed > 0 ? "var(--o-error)" : "var(--o-ink-3)" }}
+        >
+          {c.ues} UEs
+          {c.failed > 0 ? ` · ${c.failed} failed` : ""} · {Math.round(c.elapsedMs / 1000)}s
         </span>
       }
     >

@@ -94,11 +94,39 @@ type fleetUE struct {
 // runs the behaviours concurrently for the duration, then deregisters — the
 // direct-drive population run. Attach numbers are integration-capacity (bounded
 // by the core under test).
-// live and ev may be nil, which disables live reporting without changing
-// execution — the CLI path (`orbit run <fleet>`) has no telemetry subscriber
-// to serve.
+// FleetDeps are the seams a fleet run borrows from its host rather than
+// creating for itself. Every field is optional; the zero value runs the fleet
+// standalone, which is what the local `orbit run <fleet>` path wants.
+type FleetDeps struct {
+	// Stats and Events receive live reporting; nil disables it.
+	Stats  *FleetLiveStats
+	Events *RunEvents
+	// Manager, when set, lends its N3 socket pool.
+	//
+	// This matters more than it looks. A gNB's N3 address is ONE UDP bind for
+	// the whole process, so a fleet run with its own pool cannot open a data
+	// path on an address an ad-hoc `orbit ue` session already holds — and the
+	// failure is per-UE and quiet, so the run reports a healthy population
+	// carrying zero traffic. Sharing the pool makes the second acquirer reuse
+	// the socket, which is what the refcounting was always for.
+	Manager *Manager
+}
+
+// n3 returns the pool this run should use: the host Manager's, so ad-hoc UE
+// sessions and fleet UEs share one socket per gNB address, or a private one
+// when running standalone.
+func (d FleetDeps) n3() *n3Pool {
+	if d.Manager != nil && d.Manager.n3 != nil {
+		return d.Manager.n3
+	}
+	return newN3Pool()
+}
+
+// deps may be the zero value, which disables live reporting and runs the
+// fleet on its own socket pool.
 func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors,
-	live *FleetLiveStats, ev *RunEvents) (FleetReport, error) {
+	deps FleetDeps) (FleetReport, error) {
+	live, ev := deps.Stats, deps.Events
 	var rep FleetReport
 	if len(spec.GNBs) == 0 {
 		return rep, fmt.Errorf("fleet run needs at least one gNB")
@@ -120,11 +148,13 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	}
 	defer f.Close()
 
-	// One shared N3 tunnel pool for the whole run: sessions' lazy data
-	// paths (app cohorts) and the synthetic traffic flows all acquire the
-	// SAME per-gNB socket through it — one 2152 bind per gNB N3 address,
-	// never two behaviours colliding on the port.
-	pool := newN3Pool()
+	// One shared N3 tunnel pool: sessions' lazy data paths (app cohorts) and
+	// the synthetic traffic flows all acquire the SAME per-gNB socket through
+	// it — one 2152 bind per gNB N3 address, never two behaviours colliding on
+	// the port. Borrowed from the host Manager when there is one, so ad-hoc
+	// `orbit ue` sessions count against the same refcount rather than holding
+	// a bind this run then cannot get.
+	pool := deps.n3()
 
 	// Attach phase — persistent, keeping a handle per UE.
 	ev.Milestone(EventKindAttach, fmt.Sprintf("attach phase started: %d UEs across %d gNBs%s",
@@ -150,7 +180,7 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 		go func(i int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			fu, err := attachFleetUE(ctx, f, spec, pool, i, ev)
+			fu, err := attachFleetUE(ctx, f, spec, pool, i, ev, live)
 			amu.Lock()
 			defer amu.Unlock()
 			if err != nil {
@@ -227,7 +257,8 @@ func fleetSUPI(spec FleetRunSpec, i int) string {
 // attachFleetUE attaches one UE muxed on its serving gNB's association and
 // returns a persistent handle. The session's data path (opened lazily only
 // when an app cohort uses the UE) rides the run's shared per-gNB pool.
-func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int, ev *RunEvents) (*fleetUE, error) {
+func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int,
+	ev *RunEvents, live *FleetLiveStats) (*fleetUE, error) {
 	gi := i % len(f.sessions)
 	supi, err := incIMSI(spec.BaseIMSI, i)
 	if err != nil {
@@ -249,7 +280,22 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 	// stream here instead (there is no Manager behind a fleet run). The policy
 	// decides what survives: at normal verbosity these are suppressed in favour
 	// of the phase milestones above.
-	sess, err := Attach(ctx, uet, f.gnbConfigFor(gi), cfg, f.log, ev.stateEventSink())
+	//
+	// The same emitter splits registration from the whole attach, mirroring the
+	// load driver: REGISTERED marks the control-plane half, and whatever time
+	// remains is the PDU session being established.
+	start := time.Now()
+	var regDur time.Duration
+	sink := ev.stateEventSink()
+	emit := func(sev StateEvent) {
+		if sev.State == StateRegistered && regDur == 0 {
+			regDur = time.Since(start)
+		}
+		if sink != nil {
+			sink(sev)
+		}
+	}
+	sess, err := Attach(ctx, uet, f.gnbConfigFor(gi), cfg, f.log, emit)
 	if err != nil {
 		return nil, err
 	}
@@ -258,6 +304,13 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 	}
 	sess.gnbN3 = spec.GNBs[gi].N3Addr
 	sess.n3 = pool
+	live.RecordProcedure("attach", time.Since(start))
+	if regDur > 0 {
+		live.RecordProcedure("registration", regDur)
+	}
+	if sess.Result.SessionActive {
+		live.RecordProcedure("pdu_session", time.Since(start))
+	}
 	return &fleetUE{sess: sess, gnbIdx: gi}, nil
 }
 
@@ -402,7 +455,13 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 					case <-time.After(time.Until(tr.At)):
 					}
 					from := fu.gnbIdx
+					hoStart := time.Now()
 					err := fleetHandover(dctx, f, spec, fu, int(tr.TargetCellID))
+					if err == nil {
+						// Labelled by the procedure actually run, not by what
+						// the scenario asked for: fleet mobility is Xn today.
+						live.RecordProcedure(ProcedureHandoverXn, time.Since(hoStart))
+					}
 					hmu.Lock()
 					if err != nil {
 						rep.HandoverErr++

@@ -90,19 +90,23 @@ const targetHandoverRANID int64 = 1
 // The control plane completes against a conformant core (and, with the sdcore
 // profile, against SD-Core). User-plane continuity is bounded by the core's
 // downlink path-switch behaviour — see docs/interop/sdcore.md.
-func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint) error {
+// The elapsed time is returned so a single-UE handover is a measurement rather
+// than a pass/fail: it is the same procedure the fleet's CP-latency series
+// records, and an operator comparing N2 against Xn needs the number.
+func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint) (time.Duration, error) {
+	start := time.Now()
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
 	m.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("UE %s is not registered", supi)
+		return 0, fmt.Errorf("UE %s is not registered", supi)
 	}
 
 	// Serialise against another handover or a deregistration on this UE: they
 	// rewrite the association and the serving cell together.
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer release()
 
@@ -113,13 +117,16 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 	if err := m.runHandover(ctx, sess, target); err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: err.Error()},
 			"type", "n2", "target_gnb", target.Config.Name)
-		return err
+		return 0, err
 	}
 
+	elapsed := time.Since(start)
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverComplete,
-		Detail: fmt.Sprintf("UE on gNB %s (cell %#x)", target.Config.Name, target.Config.ID)},
-		"type", "n2", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID)
-	return nil
+		Detail: fmt.Sprintf("UE on gNB %s (cell %#x) in %s", target.Config.Name, target.Config.ID,
+			elapsed.Round(time.Millisecond))},
+		"type", "n2", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID,
+		"elapsed_ms", elapsed.Milliseconds())
+	return elapsed, nil
 }
 
 func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndpoint) error {
@@ -269,7 +276,10 @@ func (e managerExecutor) Handover(ctx context.Context, t meas.Trigger) error {
 	if !ok {
 		return fmt.Errorf("no gNB endpoint for target cell %#x", t.TargetCellID)
 	}
-	return e.mgr.Handover(ctx, e.supi, ep)
+	// The executor's contract is pass/fail; the duration is recorded by the
+	// caller that wanted it.
+	_, err := e.mgr.Handover(ctx, e.supi, ep)
+	return err
 }
 
 // MobilityExecutor returns a HandoverExecutor that performs live N2 handovers

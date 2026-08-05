@@ -78,6 +78,11 @@ type FleetAppCohort struct {
 	// port_min/port_max; http: object_size, think, tls, …; video: ladder,
 	// seg_duration, …).
 	Params map[string]string
+	// StartAfter delays this cohort's start relative to the behaviour phase.
+	// Members are still carved up front, so a delayed cohort's UEs sit idle
+	// rather than being reallocated; its run is shortened to end with the
+	// rest, so every cohort stops together.
+	StartAfter time.Duration
 	// Count is the cohort size. Members are carved from the tail of the
 	// attached, non-mobile fleet; a cohort that no longer fits (attach
 	// failures, other cohorts) is clamped, with a warning.
@@ -692,12 +697,31 @@ func (cr *cohortRun) allValues(snaps []metrics.Snapshot) cohortValues {
 		case metrics.VoIP:
 			out.mos = append(out.mos, v.MOSCQ)
 		case metrics.HTTP:
-			out.ttfb = append(out.ttfb, v.TTFBMsP50)
+			// Goodput is collected unconditionally: bytes are credited as they
+			// transfer, so a member still mid-request genuinely moved data in
+			// this interval and its rate is real.
 			out.goodput = append(out.goodput, v.GoodputMbps)
+			// TTFB is not. It is a percentile over the requests that COMPLETED
+			// in the interval, so a member with none has an empty pool and
+			// reports 0 — which reads as an instantaneous response rather than
+			// as no measurement, and drags the cohort's median to zero. With
+			// objects larger than the sampling interval that is most members
+			// most of the time: a 16MB cohort reported TTFB 0.0/0.0/0.0ms
+			// while serving steadily.
+			if v.Requests > 0 {
+				out.ttfb = append(out.ttfb, v.TTFBMsP50)
+			}
 		case metrics.Video:
+			// Stalls and rebuffer ratio are meaningful with no segments this
+			// interval — "nothing stalled" is a real observation.
 			out.stallTime = append(out.stallTime, v.StallTimeMs)
 			out.rebuffer = append(out.rebuffer, v.RebufferRatio)
-			out.bitrate = append(out.bitrate, v.AvgBitrateKbps)
+			// Average bitrate is not: with no segment fetched it averages
+			// nothing and reports 0, which reads as a stream running at zero
+			// rather than one between segments.
+			if v.SegmentsFetched > 0 {
+				out.bitrate = append(out.bitrate, v.AvgBitrateKbps)
+			}
 			// Startup is reported once playback begins; a zero means "not
 			// started yet", not "instant", so it stays out of the pool.
 			if v.StartupMs > 0 {
@@ -716,8 +740,11 @@ func (cr *cohortRun) publishLive(live *FleetLiveStats, snaps []metrics.Snapshot,
 		return
 	}
 	v := cr.allValues(snaps)
+	cr.mu.Lock()
+	failed := cr.failed
+	cr.mu.Unlock()
 	live.RecordCohort(FleetCohort{
-		Name: cr.name, App: cr.app, UEs: ues, Elapsed: elapsed, FarEnd: farEnd,
+		Name: cr.name, App: cr.app, UEs: ues, Failed: failed, Elapsed: elapsed, FarEnd: farEnd,
 		MOS:           fleetQuantiles(v.mos),
 		TTFBMs:        fleetQuantiles(v.ttfb),
 		GoodputMbps:   fleetQuantiles(v.goodput),
@@ -815,6 +842,24 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 	origins map[string]*fleetOrigin, originMu *sync.Mutex) {
 
 	serverApp := fleetAppServerApp(c.App)
+
+	// A staggered cohort waits before it does anything at all — including
+	// dialling its far end, so a delayed cohort costs nothing while it waits.
+	// Its run is shortened by the same amount so every cohort still stops with
+	// the run rather than overrunning it.
+	if c.StartAfter > 0 {
+		log.Info("fleet app cohort waiting to start", "cohort", rep.Name, "after", c.StartAfter)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(c.StartAfter):
+		}
+		duration -= c.StartAfter
+		if duration <= 0 {
+			return
+		}
+	}
+
 	agent, err := pool.acquire(ctx, c.Peer, c.Token)
 	if err != nil {
 		rep.Err = err.Error()

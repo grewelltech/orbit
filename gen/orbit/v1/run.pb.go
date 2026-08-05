@@ -1046,6 +1046,13 @@ type FleetProgress struct {
 	// Per-gNB spread of the attached population. `succeeded` carries the count
 	// currently attached on that gNB.
 	PerGnb []*GnbProgress `protobuf:"bytes,16,rep,name=per_gnb,json=perGnb,proto3" json:"per_gnb,omitempty"`
+	// Control-plane procedure latencies, by procedure. "registration",
+	// "pdu_session" and "attach" during the attach phase; "handover_xn" and
+	// "handover_n2" for the rest of a mobility run — so the panel stays live
+	// after attach rather than going flat. N2 and Xn are separate procedures on
+	// purpose: they are different exchanges, and one distribution over both
+	// would hide the comparison worth making.
+	Latency []*ProcedureLatency `protobuf:"bytes,24,rep,name=latency,proto3" json:"latency,omitempty"`
 	// Per-cohort application quality, one entry per app cohort, carrying the
 	// most recent interval's across-member distribution.
 	Cohorts []*CohortProgress `protobuf:"bytes,20,rep,name=cohorts,proto3" json:"cohorts,omitempty"`
@@ -1212,6 +1219,13 @@ func (x *FleetProgress) GetPerGnb() []*GnbProgress {
 	return nil
 }
 
+func (x *FleetProgress) GetLatency() []*ProcedureLatency {
+	if x != nil {
+		return x.Latency
+	}
+	return nil
+}
+
 func (x *FleetProgress) GetCohorts() []*CohortProgress {
 	if x != nil {
 		return x.Cohorts
@@ -1327,18 +1341,22 @@ func (x *Quantiles) GetP95() float64 {
 // produces are set — a voip cohort has no time-to-first-byte, and reporting a
 // zero would read as an instant one rather than as an absent measurement.
 type CohortProgress struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	App           string                 `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`                                          // "voip" | "http" | "video"
-	Ues           uint32                 `protobuf:"varint,3,opt,name=ues,proto3" json:"ues,omitempty"`                                         // members running a client
-	ElapsedMs     int64                  `protobuf:"varint,4,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`            // how long the cohort has been running
-	Mos           *Quantiles             `protobuf:"bytes,5,opt,name=mos,proto3" json:"mos,omitempty"`                                          // voip
-	TtfbMs        *Quantiles             `protobuf:"bytes,6,opt,name=ttfb_ms,json=ttfbMs,proto3" json:"ttfb_ms,omitempty"`                      // http: across-member median TTFB
-	GoodputMbps   *Quantiles             `protobuf:"bytes,7,opt,name=goodput_mbps,json=goodputMbps,proto3" json:"goodput_mbps,omitempty"`       // http
-	StallTimeMs   *Quantiles             `protobuf:"bytes,8,opt,name=stall_time_ms,json=stallTimeMs,proto3" json:"stall_time_ms,omitempty"`     // video
-	RebufferRatio *Quantiles             `protobuf:"bytes,9,opt,name=rebuffer_ratio,json=rebufferRatio,proto3" json:"rebuffer_ratio,omitempty"` // video
-	BitrateKbps   *Quantiles             `protobuf:"bytes,10,opt,name=bitrate_kbps,json=bitrateKbps,proto3" json:"bitrate_kbps,omitempty"`      // video
-	StartupMs     *Quantiles             `protobuf:"bytes,11,opt,name=startup_ms,json=startupMs,proto3" json:"startup_ms,omitempty"`            // video; absent until playback begins
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Name      string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	App       string                 `protobuf:"bytes,2,opt,name=app,proto3" json:"app,omitempty"`                               // "voip" | "http" | "video"
+	Ues       uint32                 `protobuf:"varint,3,opt,name=ues,proto3" json:"ues,omitempty"`                              // members running a client
+	ElapsedMs int64                  `protobuf:"varint,4,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"` // how long the cohort has been running
+	// Members whose client could not start or died. Live, not just in the final
+	// report: a cohort failing wholesale otherwise reads as a healthy
+	// population right up until it stops.
+	Failed        uint32     `protobuf:"varint,13,opt,name=failed,proto3" json:"failed,omitempty"`
+	Mos           *Quantiles `protobuf:"bytes,5,opt,name=mos,proto3" json:"mos,omitempty"`                                          // voip
+	TtfbMs        *Quantiles `protobuf:"bytes,6,opt,name=ttfb_ms,json=ttfbMs,proto3" json:"ttfb_ms,omitempty"`                      // http: across-member median TTFB
+	GoodputMbps   *Quantiles `protobuf:"bytes,7,opt,name=goodput_mbps,json=goodputMbps,proto3" json:"goodput_mbps,omitempty"`       // http
+	StallTimeMs   *Quantiles `protobuf:"bytes,8,opt,name=stall_time_ms,json=stallTimeMs,proto3" json:"stall_time_ms,omitempty"`     // video
+	RebufferRatio *Quantiles `protobuf:"bytes,9,opt,name=rebuffer_ratio,json=rebufferRatio,proto3" json:"rebuffer_ratio,omitempty"` // video
+	BitrateKbps   *Quantiles `protobuf:"bytes,10,opt,name=bitrate_kbps,json=bitrateKbps,proto3" json:"bitrate_kbps,omitempty"`      // video
+	StartupMs     *Quantiles `protobuf:"bytes,11,opt,name=startup_ms,json=startupMs,proto3" json:"startup_ms,omitempty"`            // video; absent until playback begins
 	// What the N6 agent reports about this cohort's traffic — a second observer,
 	// beyond the UPF, measured on its own clock.
 	FarEnd        *FarEndView `protobuf:"bytes,12,opt,name=far_end,json=farEnd,proto3" json:"far_end,omitempty"`
@@ -1400,6 +1418,13 @@ func (x *CohortProgress) GetUes() uint32 {
 func (x *CohortProgress) GetElapsedMs() int64 {
 	if x != nil {
 		return x.ElapsedMs
+	}
+	return 0
+}
+
+func (x *CohortProgress) GetFailed() uint32 {
+	if x != nil {
+		return x.Failed
 	}
 	return 0
 }
@@ -2705,7 +2730,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x06failed\x18\x04 \x01(\rR\x06failed\x12#\n" +
 	"\rachieved_rate\x18\x05 \x01(\x01R\fachievedRate\x124\n" +
 	"\alatency\x18\x06 \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x12.\n" +
-	"\aper_gnb\x18\a \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\"\xf1\x06\n" +
+	"\aper_gnb\x18\a \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\"\xa7\a\n" +
 	"\rFleetProgress\x12\x1d\n" +
 	"\n" +
 	"elapsed_ms\x18\x01 \x01(\x03R\telapsedMs\x12\x1a\n" +
@@ -2726,7 +2751,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
 	"uplink_pps\x18\x0e \x01(\x01R\tuplinkPps\x12!\n" +
 	"\fdownlink_pps\x18\x0f \x01(\x01R\vdownlinkPps\x12.\n" +
-	"\aper_gnb\x18\x10 \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\x122\n" +
+	"\aper_gnb\x18\x10 \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\x124\n" +
+	"\alatency\x18\x18 \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x122\n" +
 	"\acohorts\x18\x14 \x03(\v2\x18.orbit.v1.CohortProgressR\acohorts\x12'\n" +
 	"\x05flows\x18\x15 \x03(\v2\x11.orbit.v1.FlowRowR\x05flows\x12\x1f\n" +
 	"\vflows_total\x18\x16 \x01(\rR\n" +
@@ -2739,13 +2765,14 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\tQuantiles\x12\x0e\n" +
 	"\x02p5\x18\x01 \x01(\x01R\x02p5\x12\x10\n" +
 	"\x03p50\x18\x02 \x01(\x01R\x03p50\x12\x10\n" +
-	"\x03p95\x18\x03 \x01(\x01R\x03p95\"\x84\x04\n" +
+	"\x03p95\x18\x03 \x01(\x01R\x03p95\"\x9c\x04\n" +
 	"\x0eCohortProgress\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x10\n" +
 	"\x03ues\x18\x03 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
-	"elapsed_ms\x18\x04 \x01(\x03R\telapsedMs\x12%\n" +
+	"elapsed_ms\x18\x04 \x01(\x03R\telapsedMs\x12\x16\n" +
+	"\x06failed\x18\r \x01(\rR\x06failed\x12%\n" +
 	"\x03mos\x18\x05 \x01(\v2\x13.orbit.v1.QuantilesR\x03mos\x12,\n" +
 	"\attfb_ms\x18\x06 \x01(\v2\x13.orbit.v1.QuantilesR\x06ttfbMs\x126\n" +
 	"\fgoodput_mbps\x18\a \x01(\v2\x13.orbit.v1.QuantilesR\vgoodputMbps\x127\n" +
@@ -2958,48 +2985,49 @@ var file_orbit_v1_run_proto_depIdxs = []int32{
 	21, // 13: orbit.v1.LoadProgress.latency:type_name -> orbit.v1.ProcedureLatency
 	20, // 14: orbit.v1.LoadProgress.per_gnb:type_name -> orbit.v1.GnbProgress
 	20, // 15: orbit.v1.FleetProgress.per_gnb:type_name -> orbit.v1.GnbProgress
-	17, // 16: orbit.v1.FleetProgress.cohorts:type_name -> orbit.v1.CohortProgress
-	19, // 17: orbit.v1.FleetProgress.flows:type_name -> orbit.v1.FlowRow
-	21, // 18: orbit.v1.FleetProgress.up_latency:type_name -> orbit.v1.ProcedureLatency
-	16, // 19: orbit.v1.CohortProgress.mos:type_name -> orbit.v1.Quantiles
-	16, // 20: orbit.v1.CohortProgress.ttfb_ms:type_name -> orbit.v1.Quantiles
-	16, // 21: orbit.v1.CohortProgress.goodput_mbps:type_name -> orbit.v1.Quantiles
-	16, // 22: orbit.v1.CohortProgress.stall_time_ms:type_name -> orbit.v1.Quantiles
-	16, // 23: orbit.v1.CohortProgress.rebuffer_ratio:type_name -> orbit.v1.Quantiles
-	16, // 24: orbit.v1.CohortProgress.bitrate_kbps:type_name -> orbit.v1.Quantiles
-	16, // 25: orbit.v1.CohortProgress.startup_ms:type_name -> orbit.v1.Quantiles
-	18, // 26: orbit.v1.CohortProgress.far_end:type_name -> orbit.v1.FarEndView
-	4,  // 27: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
-	14, // 28: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
-	15, // 29: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
-	1,  // 30: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
-	14, // 31: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
-	15, // 32: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
-	3,  // 33: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
-	21, // 34: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
-	29, // 35: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
-	4,  // 36: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
-	28, // 37: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
-	30, // 38: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
-	7,  // 39: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
-	9,  // 40: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
-	11, // 41: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
-	13, // 42: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
-	27, // 43: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
-	23, // 44: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
-	25, // 45: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
-	8,  // 46: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
-	10, // 47: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
-	12, // 48: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
-	22, // 49: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
-	31, // 50: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
-	24, // 51: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
-	26, // 52: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
-	46, // [46:53] is the sub-list for method output_type
-	39, // [39:46] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	21, // 16: orbit.v1.FleetProgress.latency:type_name -> orbit.v1.ProcedureLatency
+	17, // 17: orbit.v1.FleetProgress.cohorts:type_name -> orbit.v1.CohortProgress
+	19, // 18: orbit.v1.FleetProgress.flows:type_name -> orbit.v1.FlowRow
+	21, // 19: orbit.v1.FleetProgress.up_latency:type_name -> orbit.v1.ProcedureLatency
+	16, // 20: orbit.v1.CohortProgress.mos:type_name -> orbit.v1.Quantiles
+	16, // 21: orbit.v1.CohortProgress.ttfb_ms:type_name -> orbit.v1.Quantiles
+	16, // 22: orbit.v1.CohortProgress.goodput_mbps:type_name -> orbit.v1.Quantiles
+	16, // 23: orbit.v1.CohortProgress.stall_time_ms:type_name -> orbit.v1.Quantiles
+	16, // 24: orbit.v1.CohortProgress.rebuffer_ratio:type_name -> orbit.v1.Quantiles
+	16, // 25: orbit.v1.CohortProgress.bitrate_kbps:type_name -> orbit.v1.Quantiles
+	16, // 26: orbit.v1.CohortProgress.startup_ms:type_name -> orbit.v1.Quantiles
+	18, // 27: orbit.v1.CohortProgress.far_end:type_name -> orbit.v1.FarEndView
+	4,  // 28: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
+	14, // 29: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
+	15, // 30: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
+	1,  // 31: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
+	14, // 32: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
+	15, // 33: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
+	3,  // 34: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
+	21, // 35: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
+	29, // 36: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
+	4,  // 37: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
+	28, // 38: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
+	30, // 39: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
+	7,  // 40: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
+	9,  // 41: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
+	11, // 42: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
+	13, // 43: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
+	27, // 44: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
+	23, // 45: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
+	25, // 46: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
+	8,  // 47: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
+	10, // 48: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
+	12, // 49: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
+	22, // 50: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
+	31, // 51: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
+	24, // 52: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
+	26, // 53: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
+	47, // [47:54] is the sub-list for method output_type
+	40, // [40:47] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	40, // [40:40] is the sub-list for extension extendee
+	0,  // [0:40] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_run_proto_init() }

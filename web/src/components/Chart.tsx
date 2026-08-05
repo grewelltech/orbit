@@ -12,10 +12,12 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
 } from "react";
 import type { EChartsOption, ECharts, SetOptionOpts } from "echarts";
-import { echarts, ORBIT_THEME, registerOrbitTheme } from "@/theme/echarts";
+import { echarts, orbitThemeName, registerOrbitTheme } from "@/theme/echarts";
+import { currentTheme, THEME_EVENT } from "@/theme/useTheme";
 
 export interface ChartHandle {
   /** The live ECharts instance, or null before mount / after unmount. */
@@ -48,6 +50,15 @@ export const Chart = forwardRef<ChartHandle, ChartProps>(function Chart(
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ECharts | null>(null);
+  // Bumped on a theme change so the layout effect below tears the instance
+  // down and rebuilds it against the new palette.
+  const [themeEpoch, setThemeEpoch] = useState(0);
+
+  useEffect(() => {
+    const onTheme = () => setThemeEpoch((n) => n + 1);
+    window.addEventListener(THEME_EVENT, onTheme);
+    return () => window.removeEventListener(THEME_EVENT, onTheme);
+  }, []);
 
   // Layout effect so the instance exists before the browser paints, avoiding
   // a visible empty frame on mount.
@@ -55,8 +66,12 @@ export const Chart = forwardRef<ChartHandle, ChartProps>(function Chart(
     const host = hostRef.current;
     if (!host) return;
 
-    registerOrbitTheme();
-    const chart = echarts.init(host, ORBIT_THEME, {
+    // The theme is read at init because an ECharts instance binds its theme
+    // for life; App re-keys these on a theme change so a new instance picks
+    // up the new palette rather than the old one being mutated in place.
+    const theme = currentTheme();
+    registerOrbitTheme(theme);
+    const chart = echarts.init(host, orbitThemeName(theme), {
       renderer: "canvas",
       // Charts are laid out by CSS; ECharts measures the host on init.
       width: "auto",
@@ -83,9 +98,11 @@ export const Chart = forwardRef<ChartHandle, ChartProps>(function Chart(
       chart.dispose();
       chartRef.current = null;
     };
-    // Instance lifecycle is mount-scoped; `option` is applied via the effect below.
+    // Instance lifecycle is mount-scoped, plus a rebuild per theme change:
+    // an ECharts instance binds its theme at init, so a new palette needs a
+    // new instance. `option` is applied via the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [themeEpoch]);
 
   // Structural option changes only — see ChartProps.optionDeps.
   useEffect(() => {

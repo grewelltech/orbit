@@ -311,7 +311,7 @@ func TestHandoverTakesProcedureLock(t *testing.T) {
 	// Asserting only "an error" would be tautological: without the lock the
 	// call proceeds to dial the target association and fails there anyway.
 	// The lock is proven by WHICH error comes back.
-	err = m.Handover(ctx, supi, GNBEndpoint{})
+	_, err = m.Handover(ctx, supi, GNBEndpoint{})
 	if err == nil {
 		t.Fatal("Handover ran while another procedure held the lock")
 	}
@@ -338,7 +338,7 @@ func TestXnHandoverTakesProcedureLock(t *testing.T) {
 	// Asserting only "an error" would be tautological: without the lock the
 	// call proceeds to dial the target association and fails there anyway.
 	// The lock is proven by WHICH error comes back.
-	err = m.XnHandover(ctx, supi, GNBEndpoint{})
+	_, err = m.XnHandover(ctx, supi, GNBEndpoint{})
 	if err == nil {
 		t.Fatal("XnHandover ran while another procedure held the lock")
 	}

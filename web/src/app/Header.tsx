@@ -6,10 +6,12 @@
  */
 import { StatusDot, type Status } from "@/components/StatusDot";
 import type { RunState, SourceState, TelemetryFrame } from "@/data/types";
+import type { ThemeName, ThemeSetting } from "@/theme/useTheme";
 import { duration } from "@/lib/format";
 
 const SOURCE_STATUS: Record<SourceState, { status: Status; label: string }> = {
   connecting: { status: "warn", label: "connecting" },
+  connected: { status: "ok", label: "connected" },
   live: { status: "active", label: "live" },
   stalled: { status: "warn", label: "stalled" },
   disconnected: { status: "idle", label: "disconnected" },
@@ -29,11 +31,15 @@ export interface HeaderProps {
   frame: TelemetryFrame | null;
   sourceState: SourceState;
   sourceName: string;
+  theme: ThemeName;
+  themeSetting: ThemeSetting;
+  onCycleTheme: () => void;
 }
 
-export function Header({ frame, sourceState, sourceName }: HeaderProps) {
+export function Header({ frame, sourceState, sourceName, theme, themeSetting, onCycleTheme }: HeaderProps) {
   const src = SOURCE_STATUS[sourceState];
   const run = frame?.run;
+  const isMock = sourceName !== "orbit";
 
   return (
     <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-[var(--o-border)] bg-[var(--o-surface)]/70 px-4 py-2.5 backdrop-blur">
@@ -49,8 +55,18 @@ export function Header({ frame, sourceState, sourceName }: HeaderProps) {
         >
           ORBIT
         </span>
-        <span className="o-label" style={{ color: "var(--o-accent)" }}>
-          live
+        {/*
+          Live-vs-mock belongs here, beside the wordmark: it is the first thing
+          worth knowing and the badge was previously a decorative literal that
+          read "live" even when the numbers were synthetic. Amber because mock
+          data is a caveat on everything else on screen.
+        */}
+        <span
+          className="o-label"
+          style={{ color: isMock ? "var(--o-amber)" : "var(--o-accent)" }}
+          title={isMock ? "synthetic data — not a real core" : "live data from the ORBIT server"}
+        >
+          {isMock ? "mock" : "live"}
         </span>
       </div>
 
@@ -62,7 +78,30 @@ export function Header({ frame, sourceState, sourceName }: HeaderProps) {
 
       <div className="ml-auto flex items-center gap-4">
         {run && <StatusDot status={RUN_STATUS[run.state]} label={run.state} />}
-        <StatusDot status={src.status} label={`${src.label} · ${sourceName}`} />
+        {/* Reachability only. Which source it is now reads beside the wordmark. */}
+        <StatusDot status={src.status} label={src.label} />
+        <button
+          type="button"
+          onClick={onCycleTheme}
+          className="o-label cursor-pointer border px-1.5 py-0.5 transition-colors"
+          style={{
+            color: "var(--o-ink-3)",
+            borderColor: "var(--o-border)",
+            borderRadius: "var(--o-radius)",
+            transitionDuration: "var(--o-dur-fast)",
+          }}
+          aria-label={`Theme: ${themeSetting}. Click to change.`}
+          title={
+            themeSetting === "system"
+              ? `following the system (${theme})`
+              : `pinned to ${themeSetting}`
+          }
+        >
+          {/* The SETTING, not the resolved theme: "system" is a distinct
+              choice from "dark", and a button that only ever showed the
+              latter would hide whether the OS is still being followed. */}
+          {themeSetting}
+        </button>
       </div>
     </header>
   );
