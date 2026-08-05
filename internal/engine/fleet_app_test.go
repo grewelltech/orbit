@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bgrewell/loom/core/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -398,5 +399,45 @@ func TestFleetQuantiles(t *testing.T) {
 	}
 	if !(q.P5 >= 1 && q.P5 <= q.P50 && q.P95 >= q.P50 && q.P95 <= 3) {
 		t.Errorf("quantiles out of range: %+v", q)
+	}
+}
+
+// A percentile over an empty pool is 0, and 0 reads as "instantaneous" rather
+// than "not measured". With objects larger than the sampling interval most
+// members complete no request in most intervals, which dragged a cohort's TTFB
+// median to zero while it was serving steadily — a 16MB cohort reported
+// 0.0/0.0/0.0 ms. Goodput is different: bytes are credited as they transfer,
+// so a member mid-request really did move data and its rate belongs in the
+// distribution.
+func TestCohortValuesExcludeEmptyPercentilePools(t *testing.T) {
+	cr := &cohortRun{name: "c", app: "http"}
+	v := cr.allValues([]metrics.Snapshot{
+		// Completed a request: its TTFB is a measurement.
+		metrics.HTTP{Requests: 3, TTFBMsP50: 9, GoodputMbps: 5},
+		// Mid-transfer: no completion, so TTFB is an empty-pool zero — but it
+		// moved bytes, so goodput counts.
+		metrics.HTTP{Requests: 0, TTFBMsP50: 0, GoodputMbps: 7},
+	})
+	if len(v.ttfb) != 1 || v.ttfb[0] != 9 {
+		t.Errorf("ttfb pool = %v, want just the member that completed a request", v.ttfb)
+	}
+	if len(v.goodput) != 2 {
+		t.Errorf("goodput pool = %v, want both members — bytes transfer whether or not a request ends", v.goodput)
+	}
+}
+
+// Same rule for video: a stream between segments is not a stream at 0 kbps,
+// but "nothing stalled this interval" is a real observation and stays.
+func TestCohortValuesVideoBitrateNeedsASegment(t *testing.T) {
+	cr := &cohortRun{name: "v", app: "video"}
+	v := cr.allValues([]metrics.Snapshot{
+		metrics.Video{SegmentsFetched: 2, AvgBitrateKbps: 2500, StallTimeMs: 0},
+		metrics.Video{SegmentsFetched: 0, AvgBitrateKbps: 0, StallTimeMs: 0},
+	})
+	if len(v.bitrate) != 1 || v.bitrate[0] != 2500 {
+		t.Errorf("bitrate pool = %v, want only the member that fetched a segment", v.bitrate)
+	}
+	if len(v.stallTime) != 2 {
+		t.Errorf("stall pool = %v, want both — zero stalls is a measurement", v.stallTime)
 	}
 }

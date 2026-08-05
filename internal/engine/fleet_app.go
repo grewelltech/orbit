@@ -697,12 +697,31 @@ func (cr *cohortRun) allValues(snaps []metrics.Snapshot) cohortValues {
 		case metrics.VoIP:
 			out.mos = append(out.mos, v.MOSCQ)
 		case metrics.HTTP:
-			out.ttfb = append(out.ttfb, v.TTFBMsP50)
+			// Goodput is collected unconditionally: bytes are credited as they
+			// transfer, so a member still mid-request genuinely moved data in
+			// this interval and its rate is real.
 			out.goodput = append(out.goodput, v.GoodputMbps)
+			// TTFB is not. It is a percentile over the requests that COMPLETED
+			// in the interval, so a member with none has an empty pool and
+			// reports 0 — which reads as an instantaneous response rather than
+			// as no measurement, and drags the cohort's median to zero. With
+			// objects larger than the sampling interval that is most members
+			// most of the time: a 16MB cohort reported TTFB 0.0/0.0/0.0ms
+			// while serving steadily.
+			if v.Requests > 0 {
+				out.ttfb = append(out.ttfb, v.TTFBMsP50)
+			}
 		case metrics.Video:
+			// Stalls and rebuffer ratio are meaningful with no segments this
+			// interval — "nothing stalled" is a real observation.
 			out.stallTime = append(out.stallTime, v.StallTimeMs)
 			out.rebuffer = append(out.rebuffer, v.RebufferRatio)
-			out.bitrate = append(out.bitrate, v.AvgBitrateKbps)
+			// Average bitrate is not: with no segment fetched it averages
+			// nothing and reports 0, which reads as a stream running at zero
+			// rather than one between segments.
+			if v.SegmentsFetched > 0 {
+				out.bitrate = append(out.bitrate, v.AvgBitrateKbps)
+			}
 			// Startup is reported once playback begins; a zero means "not
 			// started yet", not "instant", so it stays out of the pool.
 			if v.StartupMs > 0 {
