@@ -983,7 +983,17 @@ type FleetProgress struct {
 	DownlinkPps float64 `protobuf:"fixed64,15,opt,name=downlink_pps,json=downlinkPps,proto3" json:"downlink_pps,omitempty"`
 	// Per-gNB spread of the attached population. `succeeded` carries the count
 	// currently attached on that gNB.
-	PerGnb        []*GnbProgress `protobuf:"bytes,16,rep,name=per_gnb,json=perGnb,proto3" json:"per_gnb,omitempty"`
+	PerGnb []*GnbProgress `protobuf:"bytes,16,rep,name=per_gnb,json=perGnb,proto3" json:"per_gnb,omitempty"`
+	// User-plane round-trip latency: ICMP echoes sent over sampled UEs' own N3
+	// data paths, so the figure is the tunnel's RTT rather than the management
+	// network's. Absent unless the scenario configures a latency probe —
+	// reporting zeros would read as an instant data path rather than as an
+	// unmeasured one. Its `procedure` is "user_plane".
+	UpLatency *ProcedureLatency `protobuf:"bytes,17,opt,name=up_latency,json=upLatency,proto3" json:"up_latency,omitempty"`
+	// Probes sent and lost, so a path that stops answering is visible as loss
+	// rather than as a percentile quietly computed over survivors.
+	UpProbes      uint64 `protobuf:"varint,18,opt,name=up_probes,json=upProbes,proto3" json:"up_probes,omitempty"`
+	UpProbesLost  uint64 `protobuf:"varint,19,opt,name=up_probes_lost,json=upProbesLost,proto3" json:"up_probes_lost,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1128,6 +1138,27 @@ func (x *FleetProgress) GetPerGnb() []*GnbProgress {
 		return x.PerGnb
 	}
 	return nil
+}
+
+func (x *FleetProgress) GetUpLatency() *ProcedureLatency {
+	if x != nil {
+		return x.UpLatency
+	}
+	return nil
+}
+
+func (x *FleetProgress) GetUpProbes() uint64 {
+	if x != nil {
+		return x.UpProbes
+	}
+	return 0
+}
+
+func (x *FleetProgress) GetUpProbesLost() uint64 {
+	if x != nil {
+		return x.UpProbesLost
+	}
+	return 0
 }
 
 // GnbProgress is one gNB's share of the attach population in a load run.
@@ -2148,7 +2179,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x06failed\x18\x04 \x01(\rR\x06failed\x12#\n" +
 	"\rachieved_rate\x18\x05 \x01(\x01R\fachievedRate\x124\n" +
 	"\alatency\x18\x06 \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x12.\n" +
-	"\aper_gnb\x18\a \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\"\xce\x04\n" +
+	"\aper_gnb\x18\a \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\"\xcc\x05\n" +
 	"\rFleetProgress\x12\x1d\n" +
 	"\n" +
 	"elapsed_ms\x18\x01 \x01(\x03R\telapsedMs\x12\x1a\n" +
@@ -2169,7 +2200,11 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
 	"uplink_pps\x18\x0e \x01(\x01R\tuplinkPps\x12!\n" +
 	"\fdownlink_pps\x18\x0f \x01(\x01R\vdownlinkPps\x12.\n" +
-	"\aper_gnb\x18\x10 \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\"s\n" +
+	"\aper_gnb\x18\x10 \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\x129\n" +
+	"\n" +
+	"up_latency\x18\x11 \x01(\v2\x1a.orbit.v1.ProcedureLatencyR\tupLatency\x12\x1b\n" +
+	"\tup_probes\x18\x12 \x01(\x04R\bupProbes\x12$\n" +
+	"\x0eup_probes_lost\x18\x13 \x01(\x04R\fupProbesLost\"s\n" +
 	"\vGnbProgress\x12\x10\n" +
 	"\x03gnb\x18\x01 \x01(\tR\x03gnb\x12\x1c\n" +
 	"\tattempted\x18\x02 \x01(\rR\tattempted\x12\x1c\n" +
@@ -2338,37 +2373,38 @@ var file_orbit_v1_run_proto_depIdxs = []int32{
 	16, // 12: orbit.v1.LoadProgress.latency:type_name -> orbit.v1.ProcedureLatency
 	15, // 13: orbit.v1.LoadProgress.per_gnb:type_name -> orbit.v1.GnbProgress
 	15, // 14: orbit.v1.FleetProgress.per_gnb:type_name -> orbit.v1.GnbProgress
-	3,  // 15: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
-	13, // 16: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
-	14, // 17: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
-	1,  // 18: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
-	13, // 19: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
-	14, // 20: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
-	2,  // 21: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
-	16, // 22: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
-	24, // 23: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
-	3,  // 24: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
-	23, // 25: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
-	25, // 26: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
-	6,  // 27: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
-	8,  // 28: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
-	10, // 29: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
-	12, // 30: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
-	22, // 31: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
-	18, // 32: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
-	20, // 33: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
-	7,  // 34: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
-	9,  // 35: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
-	11, // 36: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
-	17, // 37: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
-	26, // 38: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
-	19, // 39: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
-	21, // 40: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
-	34, // [34:41] is the sub-list for method output_type
-	27, // [27:34] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	16, // 15: orbit.v1.FleetProgress.up_latency:type_name -> orbit.v1.ProcedureLatency
+	3,  // 16: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
+	13, // 17: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
+	14, // 18: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
+	1,  // 19: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
+	13, // 20: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
+	14, // 21: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
+	2,  // 22: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
+	16, // 23: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
+	24, // 24: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
+	3,  // 25: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
+	23, // 26: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
+	25, // 27: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
+	6,  // 28: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
+	8,  // 29: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
+	10, // 30: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
+	12, // 31: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
+	22, // 32: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
+	18, // 33: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
+	20, // 34: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
+	7,  // 35: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
+	9,  // 36: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
+	11, // 37: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
+	17, // 38: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
+	26, // 39: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
+	19, // 40: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
+	21, // 41: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
+	35, // [35:42] is the sub-list for method output_type
+	28, // [28:35] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_run_proto_init() }

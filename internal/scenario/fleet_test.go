@@ -99,3 +99,57 @@ behaviors: { traffic: { mix: [ { profile: web, share: 0.3 } ] } }`
 		t.Error("want error for mix shares not summing to 1.0")
 	}
 }
+
+// A synthetic mix entry's target: is honoured. It was previously parsed and
+// ignored in favour of a hardcoded address, so a scenario aimed at its own N6
+// responder silently addressed the off-testbed default instead.
+func TestBuildFleetRunHonoursTrafficTarget(t *testing.T) {
+	f := &FleetScenario{
+		Fleet:     FleetSpec{Count: 2, SUPIBase: "001010000000001", PDUSession: true},
+		Topology:  Topology{GNBs: GNBGen{Count: 1, IDBase: 1, SourceIPs: []string{"10.0.0.1"}}},
+		Behaviors: Behaviors{Traffic: &TrafficBehavior{Mix: []TrafficShare{{Profile: "video", Share: 1, Target: "10.106.0.30:9600"}}}},
+		Run:       RunSpec{Duration: "5s"},
+	}
+	_, beh, err := BuildFleetRun(f, make([]byte, 16), make([]byte, 16))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if beh.TrafficTarget != "10.106.0.30:9600" {
+		t.Errorf("TrafficTarget = %q, want the entry's own target", beh.TrafficTarget)
+	}
+
+	f.Behaviors.Traffic.Mix[0].Target = ""
+	_, beh, err = BuildFleetRun(f, make([]byte, 16), make([]byte, 16))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if beh.TrafficTarget != defaultTrafficTarget {
+		t.Errorf("TrafficTarget = %q, want the default %q", beh.TrafficTarget, defaultTrafficTarget)
+	}
+}
+
+// n3_ips gives each gNB a data-plane address distinct from its N2 source, which
+// a testbed with separated N2/N3 networks needs — without it the gNB advertises
+// an N3 address the UPF cannot reach.
+func TestGenGNBsSeparateN3(t *testing.T) {
+	f := &FleetScenario{Topology: Topology{GNBs: GNBGen{
+		Count: 2, IDBase: 1,
+		SourceIPs: []string{"10.102.0.20", "10.102.0.21"},
+		N3IPs:     []string{"10.103.0.20", "10.103.0.21"},
+	}}}
+	got := f.GenGNBs()
+	if len(got) != 2 {
+		t.Fatalf("got %d gNBs, want 2", len(got))
+	}
+	if got[0].GNB.Bind != "10.102.0.20:0" || got[0].GNB.N3 != "10.103.0.20" {
+		t.Errorf("gNB 0 bind/N3 = %q/%q, want the N2 source and the N3 address",
+			got[0].GNB.Bind, got[0].GNB.N3)
+	}
+
+	// Without n3_ips, N3 rides the source IP as before.
+	f.Topology.GNBs.N3IPs = nil
+	got = f.GenGNBs()
+	if got[1].GNB.N3 != "10.102.0.21" {
+		t.Errorf("gNB 1 N3 = %q, want the source IP when n3_ips is unset", got[1].GNB.N3)
+	}
+}

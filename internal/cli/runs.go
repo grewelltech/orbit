@@ -178,6 +178,12 @@ func newRunsWatchCmd(serverURL *string) *cobra.Command {
 				if p := f.GetFleet(); p != nil {
 					line += fmt.Sprintf("  %d attached  ul %s  dl %s",
 						p.GetAttached(), bitsPerSec(p.GetUplinkBps()), bitsPerSec(p.GetDownlinkBps()))
+					if l := p.GetUpLatency(); l != nil {
+						line += fmt.Sprintf("  up-rtt p50 %.2fms p99 %.2fms", l.GetP50Ms(), l.GetP99Ms())
+						if lost := p.GetUpProbesLost(); lost > 0 {
+							line += fmt.Sprintf(" (%d/%d lost)", lost, p.GetUpProbes())
+						}
+					}
 					if p.GetHandovers() > 0 || p.GetHandoverErrors() > 0 {
 						line += fmt.Sprintf("  ho %d/%d err", p.GetHandovers(), p.GetHandoverErrors())
 					}
@@ -210,6 +216,14 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 	if rates {
 		fmt.Fprintf(out, "  N3 rate     ul %s   dl %s\n",
 			bitsPerSec(p.GetUplinkBps()), bitsPerSec(p.GetDownlinkBps()))
+	}
+	if l := p.GetUpLatency(); l != nil {
+		fmt.Fprintf(out, "  UP RTT      p50 %.2f  p90 %.2f  p99 %.2f  max %.2f ms  (%d probes",
+			l.GetP50Ms(), l.GetP90Ms(), l.GetP99Ms(), l.GetMaxMs(), p.GetUpProbes())
+		if lost := p.GetUpProbesLost(); lost > 0 {
+			fmt.Fprintf(out, ", %d lost", lost)
+		}
+		fmt.Fprintln(out, ")")
 	}
 	for _, g := range p.GetPerGnb() {
 		fmt.Fprintf(out, "  %-16s %d attached\n", g.GetGnb(), g.GetSucceeded())

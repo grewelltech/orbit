@@ -393,8 +393,26 @@ func fleetProgressProto(s engine.FleetSnapshot, now time.Time, rates *fleetRates
 	for _, g := range sortedGNBs(s.PerGNB) {
 		p.PerGnb = append(p.PerGnb, &orbitv1.GnbProgress{Gnb: g, Succeeded: uint32(s.PerGNB[g])})
 	}
+	// Only when a probe actually ran: an unconfigured probe leaves the field
+	// absent, so a consumer sees "not measured" rather than a 0 ms data path.
+	if s.HasUPLatency {
+		p.UpProbes, p.UpProbesLost = s.UPProbes, s.UPProbesLost
+		p.UpLatency = &orbitv1.ProcedureLatency{
+			Procedure: "user_plane",
+			Count:     uint64(s.UPLatency.Count),
+			P50Ms:     msFloat(s.UPLatency.P50),
+			P90Ms:     msFloat(s.UPLatency.P90),
+			P99Ms:     msFloat(s.UPLatency.P99),
+			P999Ms:    msFloat(s.UPLatency.P999),
+			MaxMs:     msFloat(s.UPLatency.Max),
+		}
+	}
 	return p
 }
+
+// msFloat renders a duration as fractional milliseconds, the unit every
+// latency field on the wire uses.
+func msFloat(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
 
 // sortedGNBs orders gNB labels so the per-gNB list is stable frame to frame —
 // map order would otherwise reshuffle the dashboard's bars every tick.

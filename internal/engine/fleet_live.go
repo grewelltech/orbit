@@ -3,6 +3,10 @@ package engine
 import (
 	"sync"
 	"time"
+
+	hdr "github.com/HdrHistogram/hdrhistogram-go"
+
+	"github.com/bgrewell/orbit/internal/load"
 )
 
 // FleetSnapshot is a point-in-time view of a fleet run's aggregates, copied
@@ -29,6 +33,14 @@ type FleetSnapshot struct {
 	// PerGNB counts UEs currently attached on each gNB, keyed by the same
 	// attribution label a load run uses.
 	PerGNB map[string]int
+
+	// UPLatency summarises ICMP round trips over the UEs' own N3 data paths.
+	// HasUPLatency is false when no probe is configured, so a consumer can
+	// distinguish "not measured" from "measured as zero".
+	HasUPLatency bool
+	UPLatency    load.Stats
+	UPProbes     uint64
+	UPProbesLost uint64
 }
 
 // n3Counters is the fleet's view of one UE's cumulative tunnel counters.
@@ -61,6 +73,17 @@ type FleetLiveStats struct {
 	appSessions    int
 	perGNB         map[string]int
 	sources        []n3Counters
+
+	// Counters of UEs that have left, folded in at the moment they leave.
+	// A Session stops reporting once its data path closes, so a total summed
+	// only from live sources would collapse to zero exactly when the run ends
+	// — the run's final, most-quoted number.
+	retiredULPackets, retiredULBytes uint64
+	retiredDLPackets, retiredDLBytes uint64
+
+	upHist       *hdr.Histogram // nil until the first probe result
+	upProbes     uint64
+	upProbesLost uint64
 }
 
 // NewFleetLiveStats returns stats whose elapsed clock starts now.
@@ -150,7 +173,11 @@ func (f *FleetLiveStats) AppSessions(n int) {
 // from the per-gNB spread. Its counters stay in the cumulative totals: the
 // bytes crossed the wire, and a total that fell as UEs drained would misreport
 // the run.
-func (f *FleetLiveStats) Detached(gnb string) {
+//
+// MUST be called BEFORE the caller tears the UE's data path down. src is read
+// here and retired, because a Session whose data path has closed reports
+// zeros — reading it afterwards would lose the whole UE's traffic.
+func (f *FleetLiveStats) Detached(gnb string, src n3Counters) {
 	if f == nil {
 		return
 	}
@@ -162,6 +189,44 @@ func (f *FleetLiveStats) Detached(gnb string) {
 	if gnb != "" && f.perGNB[gnb] > 0 {
 		f.perGNB[gnb]--
 	}
+	if src == nil {
+		return
+	}
+	ulp, ulb, dlp, dlb := src.Totals()
+	f.retiredULPackets += ulp
+	f.retiredULBytes += ulb
+	f.retiredDLPackets += dlp
+	f.retiredDLBytes += dlb
+	for i, existing := range f.sources {
+		if existing == src {
+			f.sources = append(f.sources[:i], f.sources[i+1:]...)
+			break
+		}
+	}
+}
+
+// RecordUPLatency records one user-plane round trip measured over a UE's N3
+// data path. A lost probe advances the sent/lost counts without polluting the
+// percentiles with a timeout that is not a latency.
+func (f *FleetLiveStats) RecordUPLatency(rtt time.Duration, lost bool) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.upProbes++
+	if lost {
+		f.upProbesLost++
+		return
+	}
+	if f.upHist == nil {
+		f.upHist = hdr.New(1, 300_000_000, 3) // 1µs … 300s, as the load histograms
+	}
+	v := rtt.Microseconds()
+	if v < 1 {
+		v = 1
+	}
+	_ = f.upHist.RecordValue(v)
 }
 
 // Snapshot copies the aggregates out, summing every registered UE's tunnel
@@ -185,6 +250,22 @@ func (f *FleetLiveStats) Snapshot() FleetSnapshot {
 	for k, v := range f.perGNB {
 		s.PerGNB[k] = v
 	}
+	if f.upProbes > 0 {
+		s.HasUPLatency = true
+		s.UPProbes, s.UPProbesLost = f.upProbes, f.upProbesLost
+		if h := f.upHist; h != nil {
+			s.UPLatency = load.Stats{
+				Count: h.TotalCount(),
+				P50:   time.Duration(h.ValueAtQuantile(50)) * time.Microsecond,
+				P90:   time.Duration(h.ValueAtQuantile(90)) * time.Microsecond,
+				P99:   time.Duration(h.ValueAtQuantile(99)) * time.Microsecond,
+				P999:  time.Duration(h.ValueAtQuantile(99.9)) * time.Microsecond,
+				Max:   time.Duration(h.Max()) * time.Microsecond,
+			}
+		}
+	}
+	s.UplinkPackets, s.UplinkBytes = f.retiredULPackets, f.retiredULBytes
+	s.DownlinkPackets, s.DownlinkBytes = f.retiredDLPackets, f.retiredDLBytes
 	for _, src := range f.sources {
 		ulp, ulb, dlp, dlb := src.Totals()
 		s.UplinkPackets += ulp

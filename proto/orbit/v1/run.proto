@@ -196,6 +196,17 @@ message FleetProgress {
   // Per-gNB spread of the attached population. `succeeded` carries the count
   // currently attached on that gNB.
   repeated GnbProgress per_gnb = 16;
+
+  // User-plane round-trip latency: ICMP echoes sent over sampled UEs' own N3
+  // data paths, so the figure is the tunnel's RTT rather than the management
+  // network's. Absent unless the scenario configures a latency probe —
+  // reporting zeros would read as an instant data path rather than as an
+  // unmeasured one. Its `procedure` is "user_plane".
+  ProcedureLatency up_latency = 17;
+  // Probes sent and lost, so a path that stops answering is visible as loss
+  // rather than as a percentile quietly computed over survivors.
+  uint64 up_probes = 18;
+  uint64 up_probes_lost = 19;
 }
 
 // GnbProgress is one gNB's share of the attach population in a load run.

@@ -15,8 +15,9 @@
  *     N3 user-plane counters summed across the fleet's tunnels — so the
  *     throughput panel is live for a fleet run. Rates arrive already derived
  *     per-interval by the server.
- * User-plane LATENCY is still unwired for both kinds and stays null rather
- * than showing invented data.
+ * User-plane LATENCY comes from a fleet run's latency probe when the scenario
+ * configures one, and stays null otherwise — never a zero that would read as
+ * an instant data path.
  */
 import { createClient, type Client } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
@@ -281,7 +282,17 @@ export class ConnectSource implements TelemetrySource {
           }
         : { uplinkBps: 0, downlinkBps: 0, uplinkPps: 0, downlinkPps: 0 },
       cpLatency: cp,
-      upLatency: null,
+      // User-plane RTT, from ICMP echoes over the UEs' own N3 data paths.
+      // Absent unless the scenario configures a latency probe — null keeps
+      // "not measured" distinct from "measured as zero".
+      upLatency: fp?.upLatency
+        ? {
+            p50: fp.upLatency.p50Ms,
+            p90: fp.upLatency.p90Ms,
+            p99: fp.upLatency.p99Ms,
+            max: fp.upLatency.maxMs,
+          }
+        : null,
       // Where the population sits: attached UEs per gNB, for either kind.
       perGnb: Object.fromEntries(
         (lp?.perGnb ?? fp?.perGnb ?? []).map((g) => [g.gnb, g.succeeded]),

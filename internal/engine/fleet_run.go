@@ -56,6 +56,9 @@ type FleetBehaviors struct {
 	Traffic       bool
 	TrafficRate   string
 	TrafficTarget string
+	// Latency, when its Target is set, samples user-plane RTT over the UEs'
+	// own N3 data paths for the duration of the run.
+	Latency FleetLatencyProbe
 	// Apps are the application-traffic cohorts (design §8, fleet_app.go):
 	// carved subsets of the non-mobile fleet each running a real loom app
 	// engine (voip/http/video) against an N6 loomd, with the far-end
@@ -171,11 +174,14 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	// pool — close them first so the per-gNB sockets (and any netstack
 	// bridge) release with the last UE.
 	for _, fu := range ues {
+		// Retire the UE's counters BEFORE closing its data path: a closed
+		// session reports zeros, which would empty the run's totals at exactly
+		// the moment the final report is taken.
+		live.Detached(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess)
 		fu.sess.closeDataPath()
 		if err := fu.sess.deregister(context.Background()); err == nil {
 			rep.Deregistered++
 		}
-		live.Detached(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)))
 	}
 	return rep, nil
 }
@@ -304,6 +310,17 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 		go func() {
 			defer wg.Done()
 			appReports = runFleetApps(dctx, log, agents, beh.Apps, appMembers, beh.Duration, beh.AppMetricsReg)
+		}()
+	}
+
+	// User-plane latency: ICMP echoes over sampled UEs' own data paths, so the
+	// dashboard's UP-latency panel reports the tunnel's round trip rather than
+	// the management network's. Sampled, not swept — see FleetLatencyProbe.
+	if beh.Latency.Target != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runFleetLatencyProbe(dctx, ues, beh.Latency, live, log)
 		}()
 	}
 
