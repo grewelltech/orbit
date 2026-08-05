@@ -35,12 +35,19 @@ export function App() {
 
   const t = tokens();
 
+  // Stack order is bottom-first, and `failed` goes at the bottom deliberately.
+  // Stacked on top it draws its band at the population's ceiling, so a healthy
+  // run of 100 UEs renders a red line across the top of the chart and reads as
+  // 100 failures. At the bottom the red band is the height of the failure
+  // count — invisible when nothing has failed, which is the honest picture.
+  // The rest ascend by progress through attach, so the chart fills upward as
+  // the population advances.
   const ueSeries = useMemo<SeriesDef[]>(
     () => [
-      { name: "session active", color: t.series[0] as string, value: (f) => f.ues.sessionActive, area: true },
-      { name: "registered", color: t.series[3] as string, value: (f) => f.ues.registered, area: true },
-      { name: "registering", color: t.series[1] as string, value: (f) => f.ues.registering, area: true },
       { name: "failed", color: t.series[4] as string, value: (f) => f.ues.failed, area: true },
+      { name: "registering", color: t.series[1] as string, value: (f) => f.ues.registering, area: true },
+      { name: "registered", color: t.series[3] as string, value: (f) => f.ues.registered, area: true },
+      { name: "session active", color: t.series[0] as string, value: (f) => f.ues.sessionActive, area: true },
     ],
     [t.series],
   );
