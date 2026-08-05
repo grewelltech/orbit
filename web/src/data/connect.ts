@@ -317,6 +317,17 @@ export class ConnectSource implements TelemetrySource {
         rebufferRatio: quantiles(c.rebufferRatio),
         bitrateKbps: quantiles(c.bitrateKbps),
         startupMs: quantiles(c.startupMs),
+        farEnd: c.farEnd
+          ? {
+              available: c.farEnd.available,
+              reason: c.farEnd.reason,
+              bytes: Number(c.farEnd.bytes),
+              packets: Number(c.farEnd.packets),
+              bitsPerSec: c.farEnd.bitsPerSec,
+              requests: Number(c.farEnd.requests),
+              errors: Number(c.farEnd.errors),
+            }
+          : null,
       })),
       flows: (fp?.flows ?? []).map((f) => ({
         supi: f.supi,

@@ -335,6 +335,7 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 	for _, c := range p.GetCohorts() {
 		fmt.Fprintf(out, "  %-12s %-6s %d UEs %s%s\n", c.GetName(), c.GetApp(), c.GetUes(),
 			(time.Duration(c.GetElapsedMs()) * time.Millisecond).Round(time.Second), cohortQualityLine(c))
+		printFarEnd(out, c.GetFarEnd())
 	}
 	if n := p.GetFlowsTotal(); n > 0 {
 		fmt.Fprintf(out, "  flows       %d carrying traffic", n)
@@ -350,6 +351,47 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 	}
 	for _, g := range p.GetPerGnb() {
 		fmt.Fprintf(out, "  %-16s %d attached\n", g.GetGnb(), g.GetSucceeded())
+	}
+}
+
+// printFarEnd renders the N6 agent's independent view, or why there isn't one.
+// The two figures are deliberately not divided into a ratio: N3 counts
+// encapsulated inner-IP bytes and this counts application payload, so a
+// quotient would read ~1.04 with nothing wrong. It is here to be COMPARED by
+// eye — a far end reporting far less than the tunnel carried, or nothing at
+// all, is the signal.
+func printFarEnd(out io.Writer, fe *orbitv1.FarEndView) {
+	if fe == nil {
+		return
+	}
+	if !fe.GetAvailable() {
+		if r := fe.GetReason(); r != "" {
+			fmt.Fprintf(out, "               N6 far end: %s\n", r)
+		}
+		return
+	}
+	line := fmt.Sprintf("               N6 far end: %s, %s (app payload)",
+		bitsPerSec(fe.GetBitsPerSec()), byteCountCLI(fe.GetBytes()))
+	if r := fe.GetRequests(); r > 0 {
+		line += fmt.Sprintf("  %d requests", r)
+		if e := fe.GetErrors(); e > 0 {
+			line += fmt.Sprintf(", %d errors", e)
+		}
+	}
+	fmt.Fprintln(out, line)
+}
+
+// byteCountCLI renders a byte total for a report line.
+func byteCountCLI(b uint64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.2f MiB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
 	}
 }
 

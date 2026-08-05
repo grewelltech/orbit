@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	loomv1 "github.com/bgrewell/loom/api/loomv1"
 )
 
 // fakeCounters is a fixed set of tunnel totals, standing in for a UE's data
@@ -245,5 +247,57 @@ func TestFleetLiveStatsLostProbeStaysOutOfPercentiles(t *testing.T) {
 	}
 	if got.UPLatency.Max > 3*time.Millisecond {
 		t.Errorf("max = %v, want ~2ms (a timeout leaked into the percentiles)", got.UPLatency.Max)
+	}
+}
+
+// An unwatched far end must carry its reason, never look like a far end that
+// received nothing. The distinction is the whole point of a second observer:
+// "not measured" and "measured zero" mean opposite things.
+func TestFarEndAbsenceCarriesItsReason(t *testing.T) {
+	var unwatched *farEndWatch
+	if got := unwatched.snapshot(); got.Available || got.Reason == "" {
+		t.Errorf("nil watch = %+v, want unavailable with a reason", got)
+	}
+
+	w := newFarEndWatch()
+	if got := w.snapshot(); got.Available {
+		t.Error("a fresh watch reports available before any sample")
+	}
+	w.unavailable("per-UE far ends are not watched")
+	got := w.snapshot()
+	if got.Available || got.Reason != "per-UE far ends are not watched" {
+		t.Errorf("got %+v, want the recorded reason", got)
+	}
+	if got.Bytes != 0 {
+		t.Errorf("bytes = %d, want 0 for an unavailable view", got.Bytes)
+	}
+}
+
+// The rate comes from the sample's own interval accounting — the far end
+// measured it on its own clock, which is what makes it an independent witness
+// rather than a restatement of our own timing.
+func TestFarEndUsesTheAgentsOwnInterval(t *testing.T) {
+	w := newFarEndWatch()
+	w.observe(&loomv1.TelemetrySample{
+		Bytes: 5_000_000, Packets: 4000,
+		IntervalBytes: 1_000_000, IntervalNanos: int64(time.Second),
+	})
+	got := w.snapshot()
+	if !got.Available {
+		t.Fatal("a sample did not mark the view available")
+	}
+	if got.Bytes != 5_000_000 || got.Packets != 4000 {
+		t.Errorf("cumulative = %d B / %d pkts, want 5000000/4000", got.Bytes, got.Packets)
+	}
+	// 1 MB in 1s = 8 Mbps.
+	if got.BitsPerSec != 8_000_000 {
+		t.Errorf("rate = %v bps, want 8000000 (from the sample's own interval)", got.BitsPerSec)
+	}
+
+	// A sample with no interval leaves the previous rate rather than dividing
+	// by zero.
+	w.observe(&loomv1.TelemetrySample{Bytes: 6_000_000})
+	if got := w.snapshot(); got.Bytes != 6_000_000 {
+		t.Errorf("bytes = %d, want the updated 6000000", got.Bytes)
 	}
 }

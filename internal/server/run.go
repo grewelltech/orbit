@@ -511,6 +511,15 @@ func cohortProgressProto(c engine.FleetCohort) *orbitv1.CohortProgress {
 		RebufferRatio: quantilesProto(c.RebufferRatio),
 		BitrateKbps:   quantilesProto(c.BitrateKbps),
 		StartupMs:     quantilesProto(c.StartupMs),
+		FarEnd: &orbitv1.FarEndView{
+			Available:  c.FarEnd.Available,
+			Reason:     c.FarEnd.Reason,
+			Bytes:      c.FarEnd.Bytes,
+			Packets:    c.FarEnd.Packets,
+			BitsPerSec: c.FarEnd.BitsPerSec,
+			Requests:   c.FarEnd.Requests,
+			Errors:     c.FarEnd.Errors,
+		},
 	}
 }
 

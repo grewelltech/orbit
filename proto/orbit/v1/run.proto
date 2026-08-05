@@ -257,6 +257,37 @@ message CohortProgress {
   Quantiles rebuffer_ratio = 9;  // video
   Quantiles bitrate_kbps = 10;   // video
   Quantiles startup_ms = 11;     // video; absent until playback begins
+
+  // What the N6 agent reports about this cohort's traffic — a second observer,
+  // beyond the UPF, measured on its own clock.
+  FarEndView far_end = 12;
+}
+
+// FarEndView is the N6 agent's independent account of a cohort's traffic.
+//
+// Deliberately NOT a delivery ratio against the N3 counters. Those count
+// encapsulated inner-IP bytes while this counts application payload, so their
+// quotient sits near 1.04 with nothing lost; and http/video ride TCP, which
+// retransmits until delivered, so an application byte-delta is ~0 whatever the
+// core does. Where UDP loss is real (voip), RTP sequence numbers already
+// measure it and feed MOS.
+//
+// A second observer earns its keep on DISAGREEMENT: traffic that never reaches
+// the intended far end, a peer that is not the configured one, and ORBIT's own
+// accounting being wrong.
+message FarEndView {
+  // available is false when no far-end view was collected; reason then says
+  // why, so an absent witness is never read as a silent zero.
+  bool available = 1;
+  string reason = 2;
+
+  uint64 bytes = 3;
+  uint64 packets = 4;
+  double bits_per_sec = 5; // the far end's own interval rate, on its own clock
+
+  // The http origin's application view; zero for apps that serve no requests.
+  uint64 requests = 6;
+  uint64 errors = 7;
 }
 
 // FlowRow is one UE's traffic on the data path. Byte counters are cumulative;

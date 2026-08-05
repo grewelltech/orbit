@@ -711,13 +711,13 @@ func (cr *cohortRun) allValues(snaps []metrics.Snapshot) cohortValues {
 // publishLive folds a cohort's interval snapshots into the run's live stats,
 // the same numbers the gauges get. Kept separate from publish so the telemetry
 // path does not depend on Prometheus being enabled.
-func (cr *cohortRun) publishLive(live *FleetLiveStats, snaps []metrics.Snapshot, ues int, elapsed time.Duration) {
+func (cr *cohortRun) publishLive(live *FleetLiveStats, snaps []metrics.Snapshot, ues int, elapsed time.Duration, farEnd FleetFarEnd) {
 	if live == nil {
 		return
 	}
 	v := cr.allValues(snaps)
 	live.RecordCohort(FleetCohort{
-		Name: cr.name, App: cr.app, UEs: ues, Elapsed: elapsed,
+		Name: cr.name, App: cr.app, UEs: ues, Elapsed: elapsed, FarEnd: farEnd,
 		MOS:           fleetQuantiles(v.mos),
 		TTFBMs:        fleetQuantiles(v.ttfb),
 		GoodputMbps:   fleetQuantiles(v.goodput),
@@ -852,10 +852,25 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 		return
 	}
 
+	// Far-end telemetry watchers, stopped with the cohort.
+	var fewg sync.WaitGroup
+	defer fewg.Wait()
+
 	// Far-end placement. http/video: ONE origin shared by the cohort (and by
 	// any other cohort with the same agent+app+params). voip: one answerer
 	// per member — the latch serves exactly one source.
 	perUEServer := serverApp == "voip"
+
+	// A second observer of this cohort's traffic, beyond the UPF. Only for a
+	// SHARED origin: a voip cohort configures one answerer per member, so
+	// watching them all would open a stream per UE and cost more control
+	// traffic than the witness is worth. Say so rather than showing a blank —
+	// and note that voip is precisely where RTP sequence numbers already
+	// measure loss properly.
+	farEnd := newFarEndWatch()
+	if perUEServer {
+		farEnd.unavailable("per-UE far ends are not watched (voip loss is measured from RTP sequence numbers instead)")
+	}
 	var sharedPort uint32
 	if !perUEServer {
 		key := originKey(agent, serverApp, c.Params)
@@ -878,7 +893,15 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 		// the actual Configure count for tests).
 		rep.Servers = 1
 		sharedPort = o.dataPort
+		sharedFlowID := o.flowID
 		originMu.Unlock()
+		if sharedFlowID != "" {
+			fewg.Add(1)
+			go func() {
+				defer fewg.Done()
+				watchFarEnd(ctx, log, agent, sharedFlowID, rep.Name, farEnd)
+			}()
+		}
 	}
 
 	cr := &cohortRun{name: rep.Name, app: c.App, clients: make(map[loomapp.Client]struct{})}
@@ -937,7 +960,7 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 				case <-t.C:
 					snaps := cr.intervalSnapshots()
 					cr.publish(fm, snaps)
-					cr.publishLive(live, snaps, rep.UEs, time.Since(cohortStart))
+					cr.publishLive(live, snaps, rep.UEs, time.Since(cohortStart), farEnd.snapshot())
 				}
 			}
 		}()

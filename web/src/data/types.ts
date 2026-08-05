@@ -81,6 +81,25 @@ export interface CohortQuality {
   rebufferRatio: Quantiles | null;
   bitrateKbps: Quantiles | null;
   startupMs: Quantiles | null;
+  farEnd: FarEndView | null;
+}
+
+/**
+ * The N6 agent's independent account of a cohort's traffic. Not a delivery
+ * ratio: N3 counts encapsulated inner-IP bytes and this counts application
+ * payload, and the TCP apps retransmit until delivered. It earns its keep on
+ * disagreement — a far end reporting far less than the tunnel carried, or
+ * nothing at all.
+ */
+export interface FarEndView {
+  available: boolean;
+  /** Why there is no view, when unavailable — never shown as a silent zero. */
+  reason: string;
+  bytes: number;
+  packets: number;
+  bitsPerSec: number;
+  requests: number;
+  errors: number;
 }
 
 /** One UE's traffic on the data path. */

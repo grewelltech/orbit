@@ -90,6 +90,9 @@ type FleetCohort struct {
 	RebufferRatio *FleetQuantiles
 	BitrateKbps   *FleetQuantiles
 	StartupMs     *FleetQuantiles
+
+	// FarEnd is the N6 agent's independent view of the same traffic.
+	FarEnd FleetFarEnd
 }
 
 // fleetSource is one counter source and what it is carrying. A UE contributes

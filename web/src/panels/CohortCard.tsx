@@ -8,6 +8,7 @@
  */
 import { Panel } from "@/components/Panel";
 import type { CohortQuality, Quantiles } from "@/data/types";
+import { bps } from "@/lib/format";
 
 function Row({ label, q, unit, digits = 2 }: { label: string; q: Quantiles | null; unit?: string; digits?: number }) {
   if (!q) return null;
@@ -47,6 +48,34 @@ export function CohortCard({ cohort: c }: { cohort: CohortQuality }) {
         <Row label="stall" q={c.stallTimeMs} unit="ms" digits={0} />
         <Row label="rebuffer" q={c.rebufferRatio} digits={3} />
         <Row label="startup" q={c.startupMs} unit="ms" digits={0} />
+        {c.farEnd && (
+          <div
+            className="mt-1 px-3 pt-1"
+            style={{ borderTop: "1px solid var(--o-border)" }}
+          >
+            {c.farEnd.available ? (
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
+                  N6 far end
+                </span>
+                <span className="font-mono text-xs">
+                  {(() => {
+                    const r = bps(c.farEnd.bitsPerSec);
+                    return `${r.value} ${r.unit}`;
+                  })()}
+                  {c.farEnd.requests > 0 ? ` · ${c.farEnd.requests} reqs` : ""}
+                  {c.farEnd.errors > 0 ? ` · ${c.farEnd.errors} err` : ""}
+                </span>
+              </div>
+            ) : (
+              // The reason, not a blank: an unwatched far end must not read as
+              // a far end that received nothing.
+              <p className="o-label" style={{ color: "var(--o-ink-3)" }}>
+                N6 far end — {c.farEnd.reason || "not collected"}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </Panel>
   );
