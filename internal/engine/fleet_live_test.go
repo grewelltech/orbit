@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	loomv1 "github.com/bgrewell/loom/api/loomv1"
 )
 
 // fakeCounters is a fixed set of tunnel totals, standing in for a UE's data
@@ -18,9 +20,9 @@ func (f fakeCounters) Totals() (uint64, uint64, uint64, uint64) {
 // that advances after attach is reflected without the run reporting anything.
 func TestFleetLiveStatsSumsTunnelCounters(t *testing.T) {
 	live := NewFleetLiveStats()
-	live.AttachOK("gnb-1", fakeCounters{ulp: 10, ulb: 1000, dlp: 20, dlb: 2000})
-	live.AttachOK("gnb-1", fakeCounters{ulp: 5, ulb: 500, dlp: 6, dlb: 600})
-	live.AttachOK("gnb-2", fakeCounters{ulp: 1, ulb: 100, dlp: 2, dlb: 200})
+	live.AttachOK("gnb-1", "supi-1", fakeCounters{ulp: 10, ulb: 1000, dlp: 20, dlb: 2000})
+	live.AttachOK("gnb-1", "supi-2", fakeCounters{ulp: 5, ulb: 500, dlp: 6, dlb: 600})
+	live.AttachOK("gnb-2", "supi-3", fakeCounters{ulp: 1, ulb: 100, dlp: 2, dlb: 200})
 	live.AttachFailed()
 
 	got := live.Snapshot()
@@ -42,8 +44,8 @@ func TestFleetLiveStatsSumsTunnelCounters(t *testing.T) {
 // zeros rather than breaking the aggregate.
 func TestFleetLiveStatsNilSourceIsHarmless(t *testing.T) {
 	live := NewFleetLiveStats()
-	live.AttachOK("gnb-1", nil)
-	live.AttachOK("gnb-1", fakeCounters{ulb: 42})
+	live.AttachOK("gnb-1", "supi-4", nil)
+	live.AttachOK("gnb-1", "supi-5", fakeCounters{ulb: 42})
 	got := live.Snapshot()
 	if got.Attached != 2 {
 		t.Errorf("attached = %d, want 2", got.Attached)
@@ -58,8 +60,8 @@ func TestFleetLiveStatsNilSourceIsHarmless(t *testing.T) {
 // count must not change.
 func TestFleetLiveStatsHandoverMovesAttribution(t *testing.T) {
 	live := NewFleetLiveStats()
-	live.AttachOK("gnb-1", fakeCounters{})
-	live.AttachOK("gnb-1", fakeCounters{})
+	live.AttachOK("gnb-1", "supi-6", fakeCounters{})
+	live.AttachOK("gnb-1", "supi-7", fakeCounters{})
 	live.MovedGNB("gnb-1", "gnb-2")
 	live.Handover(nil)
 
@@ -97,8 +99,8 @@ func TestFleetLiveStatsTotalsSurviveTeardown(t *testing.T) {
 	live := NewFleetLiveStats()
 	a := &closableCounters{ulp: 10, ulb: 1000, dlp: 20, dlb: 2000}
 	b := &closableCounters{ulp: 5, ulb: 500, dlp: 6, dlb: 600}
-	live.AttachOK("gnb-1", a)
-	live.AttachOK("gnb-1", b)
+	live.AttachOK("gnb-1", "supi-8", a)
+	live.AttachOK("gnb-1", "supi-9", b)
 
 	if got := live.Snapshot(); got.UplinkBytes != 1500 || got.DownlinkBytes != 2600 {
 		t.Fatalf("live totals = %d/%d, want 1500/2600", got.UplinkBytes, got.DownlinkBytes)
@@ -129,7 +131,7 @@ func TestFleetLiveStatsTotalsSurviveTeardown(t *testing.T) {
 func TestFleetLiveStatsDetachDoesNotDoubleCount(t *testing.T) {
 	live := NewFleetLiveStats()
 	c := &closableCounters{ulb: 700}
-	live.AttachOK("gnb-1", c)
+	live.AttachOK("gnb-1", "supi-10", c)
 	live.Detached("gnb-1", c) // still open: naive code would count it twice
 
 	if got := live.Snapshot(); got.UplinkBytes != 700 {
@@ -143,7 +145,7 @@ func TestFleetLiveStatsDetachDoesNotDoubleCount(t *testing.T) {
 func TestFleetLiveStatsDetachKeepsBytes(t *testing.T) {
 	live := NewFleetLiveStats()
 	src := &closableCounters{ulb: 900, dlb: 100}
-	live.AttachOK("gnb-1", src)
+	live.AttachOK("gnb-1", "supi-11", src)
 	live.Detached("gnb-1", src)
 
 	got := live.Snapshot()
@@ -163,7 +165,7 @@ func TestFleetLiveStatsDetachKeepsBytes(t *testing.T) {
 // Snapshot must be safe, so RunFleet needs no nil checks at each call site.
 func TestFleetLiveStatsNilReceiver(t *testing.T) {
 	var live *FleetLiveStats
-	live.AttachOK("gnb-1", fakeCounters{ulb: 1})
+	live.AttachOK("gnb-1", "supi-12", fakeCounters{ulb: 1})
 	live.AttachFailed()
 	live.Handover(nil)
 	live.MovedGNB("a", "b")
@@ -184,7 +186,7 @@ func TestFleetLiveStatsConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			live.AttachOK("gnb-1", fakeCounters{ulb: 10})
+			live.AttachOK("gnb-1", "supi-13", fakeCounters{ulb: 10})
 			live.TrafficFlowStarted()
 		}()
 	}
@@ -245,5 +247,57 @@ func TestFleetLiveStatsLostProbeStaysOutOfPercentiles(t *testing.T) {
 	}
 	if got.UPLatency.Max > 3*time.Millisecond {
 		t.Errorf("max = %v, want ~2ms (a timeout leaked into the percentiles)", got.UPLatency.Max)
+	}
+}
+
+// An unwatched far end must carry its reason, never look like a far end that
+// received nothing. The distinction is the whole point of a second observer:
+// "not measured" and "measured zero" mean opposite things.
+func TestFarEndAbsenceCarriesItsReason(t *testing.T) {
+	var unwatched *farEndWatch
+	if got := unwatched.snapshot(); got.Available || got.Reason == "" {
+		t.Errorf("nil watch = %+v, want unavailable with a reason", got)
+	}
+
+	w := newFarEndWatch()
+	if got := w.snapshot(); got.Available {
+		t.Error("a fresh watch reports available before any sample")
+	}
+	w.unavailable("per-UE far ends are not watched")
+	got := w.snapshot()
+	if got.Available || got.Reason != "per-UE far ends are not watched" {
+		t.Errorf("got %+v, want the recorded reason", got)
+	}
+	if got.Bytes != 0 {
+		t.Errorf("bytes = %d, want 0 for an unavailable view", got.Bytes)
+	}
+}
+
+// The rate comes from the sample's own interval accounting — the far end
+// measured it on its own clock, which is what makes it an independent witness
+// rather than a restatement of our own timing.
+func TestFarEndUsesTheAgentsOwnInterval(t *testing.T) {
+	w := newFarEndWatch()
+	w.observe(&loomv1.TelemetrySample{
+		Bytes: 5_000_000, Packets: 4000,
+		IntervalBytes: 1_000_000, IntervalNanos: int64(time.Second),
+	})
+	got := w.snapshot()
+	if !got.Available {
+		t.Fatal("a sample did not mark the view available")
+	}
+	if got.Bytes != 5_000_000 || got.Packets != 4000 {
+		t.Errorf("cumulative = %d B / %d pkts, want 5000000/4000", got.Bytes, got.Packets)
+	}
+	// 1 MB in 1s = 8 Mbps.
+	if got.BitsPerSec != 8_000_000 {
+		t.Errorf("rate = %v bps, want 8000000 (from the sample's own interval)", got.BitsPerSec)
+	}
+
+	// A sample with no interval leaves the previous rate rather than dividing
+	// by zero.
+	w.observe(&loomv1.TelemetrySample{Bytes: 6_000_000})
+	if got := w.snapshot(); got.Bytes != 6_000_000 {
+		t.Errorf("bytes = %d, want the updated 6000000", got.Bytes)
 	}
 }

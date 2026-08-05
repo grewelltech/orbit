@@ -10,6 +10,8 @@ import { useMemo } from "react";
 import { Header } from "./Header";
 import { StatTile } from "@/components/StatTile";
 import { EventStream } from "@/panels/EventStream";
+import { CohortCard } from "@/panels/CohortCard";
+import { FlowTable } from "@/panels/FlowTable";
 import { GnbDistribution } from "@/panels/GnbDistribution";
 import { TimeSeriesPanel, type SeriesDef } from "@/panels/TimeSeriesPanel";
 import { MockSource } from "@/data/mock";
@@ -163,9 +165,23 @@ export function App() {
           />
         </section>
 
-        {/* Distribution + events */}
-        <section className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[320px_1fr]">
+        {/* Per-cohort application quality, when the run has app cohorts. */}
+        {(latest?.cohorts.length ?? 0) > 0 && (
+          <section className="grid min-h-0 grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            {latest?.cohorts.map((c) => (
+              <CohortCard key={c.name} cohort={c} />
+            ))}
+          </section>
+        )}
+
+        {/* Flows + distribution + events */}
+        <section className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[320px_1fr_1fr]">
           <GnbDistribution frame={latest} className="min-h-[180px]" />
+          <FlowTable
+            flows={latest?.flows ?? []}
+            total={latest?.flowsTotal ?? 0}
+            className="min-h-[180px]"
+          />
           <EventStream events={events} onClear={clearEvents} className="min-h-[180px]" />
         </section>
       </main>

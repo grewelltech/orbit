@@ -146,7 +146,7 @@ func TestFleetAppCohortsSharedPlumbing(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	reports := runFleetApps(ctx, testLogger(), agents, cohorts, members, 4*time.Second, reg)
+	reports := runFleetApps(ctx, testLogger(), agents, cohorts, members, 4*time.Second, reg, nil)
 
 	// ONE control connection + ONE TimeSync loop for the whole fleet, and
 	// exactly 2 (per-UE voip) + 1 (shared http origin) = 3 Configures.

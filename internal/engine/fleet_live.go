@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -34,6 +35,12 @@ type FleetSnapshot struct {
 	// attribution label a load run uses.
 	PerGNB map[string]int
 
+	// Flows are the UEs actually carrying traffic, cumulative. Unbounded here
+	// — the wire bounds it, so the server can rank before truncating.
+	Flows []FleetFlow
+	// Cohorts is each app cohort's most recent interval quality.
+	Cohorts []FleetCohort
+
 	// UPLatency summarises ICMP round trips over the UEs' own N3 data paths.
 	// HasUPLatency is false when no probe is configured, so a consumer can
 	// distinguish "not measured" from "measured as zero".
@@ -49,6 +56,72 @@ type FleetSnapshot struct {
 type n3Counters interface {
 	Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64)
 }
+
+// FleetFlow is one UE's traffic: what it is, where it goes, and how much has
+// crossed. Cumulative rather than rated, for the same reason the run totals
+// are — a rate belongs to an observation interval, and the interval belongs to
+// whoever is watching (see fleetRates in the server).
+type FleetFlow struct {
+	SUPI    string
+	Cohort  string // app-cohort label; empty for synthetic traffic
+	App     string // "voip" | "http" | "video" | "udp"
+	Peer    string
+	GNB     string
+	Started time.Time
+
+	UplinkPackets, UplinkBytes     uint64
+	DownlinkPackets, DownlinkBytes uint64
+}
+
+// FleetCohort is one app cohort's most recent interval quality, as the cohort
+// sampler already computes it for the Prometheus gauges. Families that do not
+// apply to the cohort's app stay nil rather than reporting zeros — a voip
+// cohort has no time-to-first-byte, and 0 ms would read as an instant one.
+type FleetCohort struct {
+	Name    string
+	App     string
+	UEs     int
+	Elapsed time.Duration
+
+	MOS           *FleetQuantiles
+	TTFBMs        *FleetQuantiles
+	GoodputMbps   *FleetQuantiles
+	StallTimeMs   *FleetQuantiles
+	RebufferRatio *FleetQuantiles
+	BitrateKbps   *FleetQuantiles
+	StartupMs     *FleetQuantiles
+
+	// FarEnd is the N6 agent's independent view of the same traffic.
+	FarEnd FleetFarEnd
+}
+
+// fleetSource is one counter source and what it is carrying. A UE contributes
+// one source per data path it uses, so a UE running an app cohort and a UE
+// blasting synthetic traffic are each one source, and a UE doing neither still
+// registers (its session) so the totals cover ICMP probes and anything else
+// that later rides the path.
+type fleetSource struct {
+	flow FleetFlow
+	ctr  n3Counters // nil once retired
+
+	// Frozen at retire: a Session whose data path has closed reports zeros.
+	retired            bool
+	ulPackets, ulBytes uint64
+	dlPackets, dlBytes uint64
+}
+
+// totals reports the source's counters live, or its frozen values once retired.
+func (s *fleetSource) totals() (ulP, ulB, dlP, dlB uint64) {
+	if s.retired || s.ctr == nil {
+		return s.ulPackets, s.ulBytes, s.dlPackets, s.dlBytes
+	}
+	return s.ctr.Totals()
+}
+
+// carriesTraffic reports whether this source is a flow worth listing. A bare
+// attached session is not: listing every UE as a flow would bury the ones
+// actually sending behind a population of idle rows.
+func (s *fleetSource) carriesTraffic() bool { return s.flow.App != "" }
 
 // FleetLiveStats accumulates a fleet run's aggregates while it is in flight,
 // so RunTelemetry can report progress instead of making subscribers wait for
@@ -72,14 +145,9 @@ type FleetLiveStats struct {
 	trafficFlows   int
 	appSessions    int
 	perGNB         map[string]int
-	sources        []n3Counters
-
-	// Counters of UEs that have left, folded in at the moment they leave.
-	// A Session stops reporting once its data path closes, so a total summed
-	// only from live sources would collapse to zero exactly when the run ends
-	// — the run's final, most-quoted number.
-	retiredULPackets, retiredULBytes uint64
-	retiredDLPackets, retiredDLBytes uint64
+	sources        []*fleetSource
+	bySUPI         map[string]*fleetSource // for upgrading a session to a cohort flow
+	cohorts        map[string]*FleetCohort // latest interval quality, by cohort name
 
 	upHist       *hdr.Histogram // nil until the first probe result
 	upProbes     uint64
@@ -88,13 +156,18 @@ type FleetLiveStats struct {
 
 // NewFleetLiveStats returns stats whose elapsed clock starts now.
 func NewFleetLiveStats() *FleetLiveStats {
-	return &FleetLiveStats{started: time.Now(), perGNB: map[string]int{}}
+	return &FleetLiveStats{
+		started: time.Now(),
+		perGNB:  map[string]int{},
+		bySUPI:  map[string]*fleetSource{},
+		cohorts: map[string]*FleetCohort{},
+	}
 }
 
 // AttachOK records one UE attached on the named gNB and registers it as a
 // throughput source. An empty gnb leaves the UE out of the per-gNB spread
 // (matching load's rule) but still counted and still sampled.
-func (f *FleetLiveStats) AttachOK(gnb string, src n3Counters) {
+func (f *FleetLiveStats) AttachOK(gnb, supi string, src n3Counters) {
 	if f == nil {
 		return
 	}
@@ -104,9 +177,61 @@ func (f *FleetLiveStats) AttachOK(gnb string, src n3Counters) {
 	if gnb != "" {
 		f.perGNB[gnb]++
 	}
-	if src != nil {
-		f.sources = append(f.sources, src)
+	if src == nil {
+		return
 	}
+	fs := &fleetSource{flow: FleetFlow{SUPI: supi, GNB: gnb}, ctr: src}
+	f.sources = append(f.sources, fs)
+	if supi != "" {
+		f.bySUPI[supi] = fs
+	}
+}
+
+// AddFlow registers a traffic-carrying source that is not a UE's session — the
+// synthetic path writes through its own UEFlow handle.
+func (f *FleetLiveStats) AddFlow(flow FleetFlow, src n3Counters) {
+	if f == nil || src == nil {
+		return
+	}
+	if flow.Started.IsZero() {
+		flow.Started = time.Now()
+	}
+	f.mu.Lock()
+	f.sources = append(f.sources, &fleetSource{flow: flow, ctr: src})
+	f.mu.Unlock()
+}
+
+// MarkCohortFlow labels an already-attached UE as carrying app-cohort traffic.
+// An app cohort rides the UE's own session data path, so this upgrades the
+// existing source rather than adding a second one — adding one would count the
+// same bytes twice.
+func (f *FleetLiveStats) MarkCohortFlow(supi, cohort, app, peer string) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fs := f.bySUPI[supi]
+	if fs == nil {
+		return
+	}
+	fs.flow.Cohort, fs.flow.App, fs.flow.Peer = cohort, app, peer
+	if fs.flow.Started.IsZero() {
+		fs.flow.Started = time.Now()
+	}
+}
+
+// RecordCohort stores a cohort's most recent interval quality, replacing the
+// previous one — the wire carries the latest sample, and a consumer that wants
+// a series keeps its own history from the frames.
+func (f *FleetLiveStats) RecordCohort(c FleetCohort) {
+	if f == nil || c.Name == "" {
+		return
+	}
+	f.mu.Lock()
+	cp := c
+	f.cohorts[c.Name] = &cp
+	f.mu.Unlock()
 }
 
 // AttachFailed records one UE that did not attach.
@@ -192,14 +317,12 @@ func (f *FleetLiveStats) Detached(gnb string, src n3Counters) {
 	if src == nil {
 		return
 	}
-	ulp, ulb, dlp, dlb := src.Totals()
-	f.retiredULPackets += ulp
-	f.retiredULBytes += ulb
-	f.retiredDLPackets += dlp
-	f.retiredDLBytes += dlb
-	for i, existing := range f.sources {
-		if existing == src {
-			f.sources = append(f.sources[:i], f.sources[i+1:]...)
+	// Freeze in place rather than dropping: the flow stays listed with the
+	// traffic it carried, and its bytes stay in the totals.
+	for _, fs := range f.sources {
+		if fs.ctr == src && !fs.retired {
+			fs.ulPackets, fs.ulBytes, fs.dlPackets, fs.dlBytes = fs.ctr.Totals()
+			fs.retired = true
 			break
 		}
 	}
@@ -264,15 +387,23 @@ func (f *FleetLiveStats) Snapshot() FleetSnapshot {
 			}
 		}
 	}
-	s.UplinkPackets, s.UplinkBytes = f.retiredULPackets, f.retiredULBytes
-	s.DownlinkPackets, s.DownlinkBytes = f.retiredDLPackets, f.retiredDLBytes
-	for _, src := range f.sources {
-		ulp, ulb, dlp, dlb := src.Totals()
+	for _, fs := range f.sources {
+		ulp, ulb, dlp, dlb := fs.totals()
 		s.UplinkPackets += ulp
 		s.UplinkBytes += ulb
 		s.DownlinkPackets += dlp
 		s.DownlinkBytes += dlb
+		if fs.carriesTraffic() {
+			flow := fs.flow
+			flow.UplinkPackets, flow.UplinkBytes = ulp, ulb
+			flow.DownlinkPackets, flow.DownlinkBytes = dlp, dlb
+			s.Flows = append(s.Flows, flow)
+		}
 	}
+	for _, c := range f.cohorts {
+		s.Cohorts = append(s.Cohorts, *c)
+	}
+	sort.Slice(s.Cohorts, func(i, j int) bool { return s.Cohorts[i].Name < s.Cohorts[j].Name })
 	return s
 }
 
@@ -288,16 +419,4 @@ func (s *Session) Totals() (ulPackets, ulBytes, dlPackets, dlBytes uint64) {
 		return 0, 0, 0, 0
 	}
 	return ue.Totals()
-}
-
-// AddSource registers an extra counter source that is not a Session — the
-// fleet's synthetic traffic writes through a datapath.UEFlow, which a UE
-// carrying no app cohort never backs with a session data path.
-func (f *FleetLiveStats) AddSource(src n3Counters) {
-	if f == nil || src == nil {
-		return
-	}
-	f.mu.Lock()
-	f.sources = append(f.sources, src)
-	f.mu.Unlock()
 }

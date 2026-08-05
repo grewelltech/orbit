@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1005,5 +1006,109 @@ func TestFleetProgressProtoStableGNBOrder(t *testing.T) {
 	p := fleetProgressProto(snap, time.Now(), nil)
 	if p.GetUplinkBps() != 0 || p.GetDownlinkBps() != 0 {
 		t.Errorf("rates without a tracker = %v/%v, want 0/0", p.GetUplinkBps(), p.GetDownlinkBps())
+	}
+}
+
+// A population run has more flows than a table should render, so the frame is
+// truncated — but it must say so, or a short list reads as a complete one.
+func TestFleetFlowsAreRankedAndBounded(t *testing.T) {
+	var r fleetRates
+	t0 := time.Unix(1700000000, 0)
+
+	flows := make([]engine.FleetFlow, 250)
+	for i := range flows {
+		flows[i] = engine.FleetFlow{SUPI: fmt.Sprintf("supi-%03d", i), App: "udp", Started: t0}
+	}
+	flowRows(t0, flows, &r) // baseline: no rates on a stream's first frame
+
+	// A second sample where higher-indexed flows moved more bytes.
+	for i := range flows {
+		flows[i].UplinkBytes = uint64(i) * 1000
+	}
+	rows, total := flowRows(t0.Add(time.Second), flows, &r)
+
+	if total != 250 {
+		t.Errorf("total = %d, want 250 (the untruncated count)", total)
+	}
+	if len(rows) != MaxReportedFlows {
+		t.Fatalf("reported %d rows, want the cap %d", len(rows), MaxReportedFlows)
+	}
+	// Busiest first, so truncation keeps what is worth looking at.
+	if rows[0].GetSupi() != "supi-249" {
+		t.Errorf("first row = %q, want the busiest flow supi-249", rows[0].GetSupi())
+	}
+	for i := 1; i < len(rows); i++ {
+		prev := rows[i-1].GetUplinkBps() + rows[i-1].GetDownlinkBps()
+		cur := rows[i].GetUplinkBps() + rows[i].GetDownlinkBps()
+		if cur > prev {
+			t.Fatalf("row %d (%v bps) outranks row %d (%v bps); ordering is not by rate", i, cur, i-1, prev)
+		}
+	}
+	// 249000 bytes over 1s = 1.992 Mbps.
+	if got := rows[0].GetUplinkBps(); got != 249000*8 {
+		t.Errorf("busiest uplink = %v bps, want %v", got, float64(249000*8))
+	}
+}
+
+// A UE running both a cohort client and a synthetic flow keeps them apart, or
+// one would consume the other's baseline and both rates would be wrong.
+func TestFleetFlowRatesKeyOnSUPIAndApp(t *testing.T) {
+	var r fleetRates
+	t0 := time.Unix(1700000000, 0)
+	flows := []engine.FleetFlow{
+		{SUPI: "s1", App: "http", UplinkBytes: 0},
+		{SUPI: "s1", App: "udp", UplinkBytes: 0},
+	}
+	flowRows(t0, flows, &r)
+
+	flows[0].UplinkBytes = 1000 // http moved 1000 B
+	flows[1].UplinkBytes = 5000 // udp moved 5000 B
+	rows, _ := flowRows(t0.Add(time.Second), flows, &r)
+
+	byApp := map[string]float64{}
+	for _, row := range rows {
+		byApp[row.GetApp()] = row.GetUplinkBps()
+	}
+	if byApp["http"] != 8000 {
+		t.Errorf("http uplink = %v bps, want 8000", byApp["http"])
+	}
+	if byApp["udp"] != 40000 {
+		t.Errorf("udp uplink = %v bps, want 40000", byApp["udp"])
+	}
+}
+
+// A family the cohort's app does not produce must stay absent on the wire, so
+// a consumer can tell "no measurement" from "measured zero".
+func TestCohortProgressOmitsAbsentFamilies(t *testing.T) {
+	voip := cohortProgressProto(engine.FleetCohort{
+		Name: "calls", App: "voip", UEs: 4,
+		MOS: &engine.FleetQuantiles{P5: 4.1, P50: 4.37, P95: 4.4},
+	})
+	if voip.GetMos() == nil || voip.GetMos().GetP50() != 4.37 {
+		t.Errorf("voip MOS = %v, want p50 4.37", voip.GetMos())
+	}
+	if voip.GetTtfbMs() != nil {
+		t.Error("voip cohort reported a TTFB; an absent family must stay nil, not zero")
+	}
+	if voip.GetBitrateKbps() != nil {
+		t.Error("voip cohort reported a video bitrate")
+	}
+}
+
+// A single-shot GetRun has no previous sample, so it can report no rates — but
+// it must still list the flows. Gating the whole list on a rate tracker left
+// `orbit runs get` showing none at all.
+func TestFleetFlowsListedWithoutARateTracker(t *testing.T) {
+	rows, total := flowRows(time.Unix(1700000000, 0), []engine.FleetFlow{
+		{SUPI: "s1", App: "http", Cohort: "web", UplinkBytes: 100, DownlinkBytes: 900},
+	}, nil)
+	if total != 1 || len(rows) != 1 {
+		t.Fatalf("got %d rows (total %d), want 1/1 even with no rate tracker", len(rows), total)
+	}
+	if rows[0].GetDownlinkBytes() != 900 {
+		t.Errorf("downlink bytes = %d, want 900", rows[0].GetDownlinkBytes())
+	}
+	if rows[0].GetDownlinkBps() != 0 {
+		t.Errorf("downlink rate = %v, want 0 (no interval to divide by)", rows[0].GetDownlinkBps())
 	}
 }

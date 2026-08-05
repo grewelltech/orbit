@@ -163,7 +163,7 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 				return
 			}
 			ues = append(ues, fu)
-			live.AttachOK(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess)
+			live.AttachOK(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess.SUPI, fu.sess)
 		}(i)
 	}
 	wg.Wait()
@@ -325,7 +325,10 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 				// only synthetic traffic never opens one. Register the flow so
 				// its bytes reach the live totals.
 				live.TrafficFlowStarted()
-				live.AddSource(flow)
+				live.AddFlow(FleetFlow{
+					SUPI: fu.sess.SUPI, App: "udp", Peer: beh.TrafficTarget,
+					GNB: gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)),
+				}, flow)
 				go func(fu *fleetUE, flow *datapath.UEFlow) {
 					defer wg.Done()
 					r := fu.sess.Result
@@ -360,7 +363,7 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			appReports = runFleetApps(dctx, log, agents, beh.Apps, appMembers, beh.Duration, beh.AppMetricsReg)
+			appReports = runFleetApps(dctx, log, agents, beh.Apps, appMembers, beh.Duration, beh.AppMetricsReg, live)
 		}()
 	}
 

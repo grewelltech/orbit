@@ -188,6 +188,22 @@ func newRunsWatchCmd(serverURL *string) *cobra.Command {
 					if p.GetHandovers() > 0 || p.GetHandoverErrors() > 0 {
 						line += fmt.Sprintf("  ho %d/%d err", p.GetHandovers(), p.GetHandoverErrors())
 					}
+					for _, c := range p.GetCohorts() {
+						if m := c.GetMos(); m != nil {
+							line += fmt.Sprintf("  %s MOS %.2f", c.GetName(), m.GetP50())
+						} else if g := c.GetGoodputMbps(); g != nil {
+							line += fmt.Sprintf("  %s %.1f Mbps", c.GetName(), g.GetP50())
+						}
+					}
+					if n := p.GetFlowsTotal(); n > 0 {
+						line += fmt.Sprintf("  %d flows", n)
+						// The busiest flow, so a per-UE figure is visible
+						// without opening the dashboard.
+						if f := p.GetFlows(); len(f) > 0 {
+							line += fmt.Sprintf(" (top %s ul %s dl %s)", f[0].GetSupi(),
+								bitsPerSec(f[0].GetUplinkBps()), bitsPerSec(f[0].GetDownlinkBps()))
+						}
+					}
 				}
 				fmt.Fprintln(out, line)
 			}
@@ -316,9 +332,88 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 		}
 		fmt.Fprintln(out, ")")
 	}
+	for _, c := range p.GetCohorts() {
+		fmt.Fprintf(out, "  %-12s %-6s %d UEs %s%s\n", c.GetName(), c.GetApp(), c.GetUes(),
+			(time.Duration(c.GetElapsedMs()) * time.Millisecond).Round(time.Second), cohortQualityLine(c))
+		printFarEnd(out, c.GetFarEnd())
+	}
+	if n := p.GetFlowsTotal(); n > 0 {
+		fmt.Fprintf(out, "  flows       %d carrying traffic", n)
+		if shown := p.GetFlowsReported(); shown < n {
+			fmt.Fprintf(out, " (showing the %d busiest)", shown)
+		}
+		fmt.Fprintln(out)
+		for _, fl := range p.GetFlows() {
+			fmt.Fprintf(out, "    %-18s %-6s %-10s ul %s  dl %s\n",
+				fl.GetSupi(), fl.GetApp(), orDash(fl.GetCohort()),
+				bitsPerSec(fl.GetUplinkBps()), bitsPerSec(fl.GetDownlinkBps()))
+		}
+	}
 	for _, g := range p.GetPerGnb() {
 		fmt.Fprintf(out, "  %-16s %d attached\n", g.GetGnb(), g.GetSucceeded())
 	}
+}
+
+// printFarEnd renders the N6 agent's independent view, or why there isn't one.
+// The two figures are deliberately not divided into a ratio: N3 counts
+// encapsulated inner-IP bytes and this counts application payload, so a
+// quotient would read ~1.04 with nothing wrong. It is here to be COMPARED by
+// eye — a far end reporting far less than the tunnel carried, or nothing at
+// all, is the signal.
+func printFarEnd(out io.Writer, fe *orbitv1.FarEndView) {
+	if fe == nil {
+		return
+	}
+	if !fe.GetAvailable() {
+		if r := fe.GetReason(); r != "" {
+			fmt.Fprintf(out, "               N6 far end: %s\n", r)
+		}
+		return
+	}
+	line := fmt.Sprintf("               N6 far end: %s, %s (app payload)",
+		bitsPerSec(fe.GetBitsPerSec()), byteCountCLI(fe.GetBytes()))
+	if r := fe.GetRequests(); r > 0 {
+		line += fmt.Sprintf("  %d requests", r)
+		if e := fe.GetErrors(); e > 0 {
+			line += fmt.Sprintf(", %d errors", e)
+		}
+	}
+	fmt.Fprintln(out, line)
+}
+
+// byteCountCLI renders a byte total for a report line.
+func byteCountCLI(b uint64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.2f GiB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.2f MiB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
+
+// cohortQualityLine renders whichever quality families the cohort's app
+// produced. An absent family prints nothing rather than a zero.
+func cohortQualityLine(c *orbitv1.CohortProgress) string {
+	var b strings.Builder
+	q := func(label string, v *orbitv1.Quantiles, unit string, prec int) {
+		if v == nil {
+			return
+		}
+		fmt.Fprintf(&b, "  %s p5/p50/p95 %.*f/%.*f/%.*f%s", label,
+			prec, v.GetP5(), prec, v.GetP50(), prec, v.GetP95(), unit)
+	}
+	q("MOS", c.GetMos(), "", 2)
+	q("TTFB", c.GetTtfbMs(), "ms", 1)
+	q("goodput", c.GetGoodputMbps(), "Mbps", 2)
+	q("bitrate", c.GetBitrateKbps(), "kbps", 0)
+	q("stall", c.GetStallTimeMs(), "ms", 0)
+	q("rebuffer", c.GetRebufferRatio(), "", 3)
+	q("startup", c.GetStartupMs(), "ms", 0)
+	return b.String()
 }
 
 // bitsPerSec renders a bit rate in the unit that keeps it readable.

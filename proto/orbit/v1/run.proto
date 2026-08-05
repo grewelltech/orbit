@@ -209,6 +209,18 @@ message FleetProgress {
   // currently attached on that gNB.
   repeated GnbProgress per_gnb = 16;
 
+  // Per-cohort application quality, one entry per app cohort, carrying the
+  // most recent interval's across-member distribution.
+  repeated CohortProgress cohorts = 20;
+
+  // The UEs actually carrying traffic, newest rate first. BOUNDED: a
+  // population run has more flows than a table can show, so the server sends
+  // at most flows_reported of them and says how many exist — a truncated list
+  // presented as complete would misreport the run.
+  repeated FlowRow flows = 21;
+  uint32 flows_total = 22;    // flows carrying traffic, before truncation
+  uint32 flows_reported = 23; // entries actually in `flows`
+
   // User-plane round-trip latency: ICMP echoes sent over sampled UEs' own N3
   // data paths, so the figure is the tunnel's RTT rather than the management
   // network's. Absent unless the scenario configures a latency probe —
@@ -219,6 +231,80 @@ message FleetProgress {
   // rather than as a percentile quietly computed over survivors.
   uint64 up_probes = 18;
   uint64 up_probes_lost = 19;
+}
+
+// Quantiles is an across-member distribution: the p5/p50/p95 of one metric
+// over the cohort's members, not percentiles of a single member's samples.
+message Quantiles {
+  double p5 = 1;
+  double p50 = 2;
+  double p95 = 3;
+}
+
+// CohortProgress is one app cohort's live quality. Only the families its app
+// produces are set — a voip cohort has no time-to-first-byte, and reporting a
+// zero would read as an instant one rather than as an absent measurement.
+message CohortProgress {
+  string name = 1;
+  string app = 2;            // "voip" | "http" | "video"
+  uint32 ues = 3;            // members running a client
+  int64 elapsed_ms = 4;      // how long the cohort has been running
+
+  Quantiles mos = 5;             // voip
+  Quantiles ttfb_ms = 6;         // http: across-member median TTFB
+  Quantiles goodput_mbps = 7;    // http
+  Quantiles stall_time_ms = 8;   // video
+  Quantiles rebuffer_ratio = 9;  // video
+  Quantiles bitrate_kbps = 10;   // video
+  Quantiles startup_ms = 11;     // video; absent until playback begins
+
+  // What the N6 agent reports about this cohort's traffic — a second observer,
+  // beyond the UPF, measured on its own clock.
+  FarEndView far_end = 12;
+}
+
+// FarEndView is the N6 agent's independent account of a cohort's traffic.
+//
+// Deliberately NOT a delivery ratio against the N3 counters. Those count
+// encapsulated inner-IP bytes while this counts application payload, so their
+// quotient sits near 1.04 with nothing lost; and http/video ride TCP, which
+// retransmits until delivered, so an application byte-delta is ~0 whatever the
+// core does. Where UDP loss is real (voip), RTP sequence numbers already
+// measure it and feed MOS.
+//
+// A second observer earns its keep on DISAGREEMENT: traffic that never reaches
+// the intended far end, a peer that is not the configured one, and ORBIT's own
+// accounting being wrong.
+message FarEndView {
+  // available is false when no far-end view was collected; reason then says
+  // why, so an absent witness is never read as a silent zero.
+  bool available = 1;
+  string reason = 2;
+
+  uint64 bytes = 3;
+  uint64 packets = 4;
+  double bits_per_sec = 5; // the far end's own interval rate, on its own clock
+
+  // The http origin's application view; zero for apps that serve no requests.
+  uint64 requests = 6;
+  uint64 errors = 7;
+}
+
+// FlowRow is one UE's traffic on the data path. Byte counters are cumulative;
+// the rates are derived per-subscriber from consecutive samples, like the
+// run-level ones.
+message FlowRow {
+  string supi = 1;
+  string cohort = 2;   // app-cohort label; empty for synthetic traffic
+  string app = 3;      // "voip" | "http" | "video" | "udp"
+  string peer = 4;
+  string gnb = 5;
+  int64 elapsed_ms = 6;
+
+  uint64 uplink_bytes = 7;
+  uint64 downlink_bytes = 8;
+  double uplink_bps = 9;
+  double downlink_bps = 10;
 }
 
 // GnbProgress is one gNB's share of the attach population in a load run.

@@ -30,9 +30,17 @@ import {
   type RunEvent as PbEvent,
   type LoadProgress,
   type FleetProgress,
+  type Quantiles as PbQuantiles,
 } from "@/gen/orbit/v1/run_pb";
 import { Emitter, type TelemetrySource } from "./source";
-import type { EventSeverity, LatencySummary, SourceState, TelemetryFrame, TestEvent } from "./types";
+import type {
+  EventSeverity,
+  LatencySummary,
+  Quantiles,
+  SourceState,
+  TelemetryFrame,
+  TestEvent,
+} from "./types";
 
 const POLL_INTERVAL_MS = 2000;
 const FRAME_INTERVAL_MS = 500;
@@ -297,8 +305,54 @@ export class ConnectSource implements TelemetrySource {
       perGnb: Object.fromEntries(
         (lp?.perGnb ?? fp?.perGnb ?? []).map((g) => [g.gnb, g.succeeded]),
       ),
+      cohorts: (fp?.cohorts ?? []).map((c) => ({
+        name: c.name,
+        app: c.app,
+        ues: c.ues,
+        elapsedMs: Number(c.elapsedMs),
+        mos: quantiles(c.mos),
+        ttfbMs: quantiles(c.ttfbMs),
+        goodputMbps: quantiles(c.goodputMbps),
+        stallTimeMs: quantiles(c.stallTimeMs),
+        rebufferRatio: quantiles(c.rebufferRatio),
+        bitrateKbps: quantiles(c.bitrateKbps),
+        startupMs: quantiles(c.startupMs),
+        farEnd: c.farEnd
+          ? {
+              available: c.farEnd.available,
+              reason: c.farEnd.reason,
+              bytes: Number(c.farEnd.bytes),
+              packets: Number(c.farEnd.packets),
+              bitsPerSec: c.farEnd.bitsPerSec,
+              requests: Number(c.farEnd.requests),
+              errors: Number(c.farEnd.errors),
+            }
+          : null,
+      })),
+      flows: (fp?.flows ?? []).map((f) => ({
+        supi: f.supi,
+        cohort: f.cohort,
+        app: f.app,
+        peer: f.peer,
+        gnb: f.gnb,
+        elapsedMs: Number(f.elapsedMs),
+        uplinkBps: f.uplinkBps,
+        downlinkBps: f.downlinkBps,
+        uplinkBytes: Number(f.uplinkBytes),
+        downlinkBytes: Number(f.downlinkBytes),
+      })),
+      flowsTotal: fp?.flowsTotal ?? 0,
     };
   }
+}
+
+/**
+ * An absent distribution stays null rather than becoming zeros: the server
+ * omits families the cohort's app does not produce, and collapsing that to 0
+ * would present "not measured" as "measured perfect".
+ */
+function quantiles(q: PbQuantiles | undefined): Quantiles | null {
+  return q ? { p5: q.p5, p50: q.p50, p95: q.p95 } : null;
 }
 
 /** The UE funnel for whichever kind the frame carries. */
