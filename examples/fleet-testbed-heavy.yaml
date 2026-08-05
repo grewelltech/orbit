@@ -1,0 +1,95 @@
+# A heavy, long-running population test for the LXD testbed: the whole
+# provisioned subscriber pool carrying a realistic mix of real application
+# traffic for ten minutes.
+#
+#   orbit runs start-fleet examples/fleet-testbed-heavy.yaml --name heavy
+#   orbit runs watch                       # live line
+#   orbit runs events                      # milestones and failures
+#   orbit runs get <run-id>                # cohorts, flows, N6 witness
+#
+# Shape: 100 UEs on ONE gNB (the testbed has a single N2/N3 pair; multi-gNB
+# and therefore handover are not plumbed yet, so there is no mobility block).
+# All 100 run real app engines — no synthetic filler — split the way a mixed
+# access network tends to look:
+#
+#   http   50 UEs  bulk transfer, no think time: the bandwidth hog
+#   video  30 UEs  sustained ABR streaming, latency-tolerant, stall-sensitive
+#   voip   20 UEs  low bitrate, delay- and loss-sensitive: the quality canary
+#
+# What to watch. The interesting question is not "does it survive" but what
+# degrades FIRST and whether the degradation is honest: voip MOS and the
+# user-plane RTT are the sensitive signals, and http goodput is what crowds
+# them. A run where http climbs while MOS falls is QoS contention, which is
+# the point of mixing them.
+#
+# Honest scope. At this size the bottleneck is very likely ORBIT itself rather
+# than the core: downlink is per-flow-bound in the userspace TCP stack at
+# ~7 Mbps per UE, and 50 such flows will saturate the RAN node's 4 vCPUs long
+# before SD-Core notices. Read the result as SIM capability unless the core's
+# own metrics say otherwise — this is a load generator being loaded.
+
+kind: fleet
+name: testbed-heavy-mix
+
+core:
+  amf: 10.102.0.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+topology:
+  gnbs:
+    count: 1
+    id_base: 300
+    layout: grid
+    # N2 SCTP source and the N3 data-plane address are different networks on
+    # this testbed, so both are named explicitly.
+    source_ips:
+      - 10.102.0.20
+    n3_ips:
+      - 10.103.0.20
+
+fleet:
+  # The whole provisioned pool: testbed.conf provisions 100 subscribers from
+  # 001010100007500. Going past it does not fail loudly at setup — the extra
+  # UEs simply get "AMF rejected registration" one by one, which reads like a
+  # broken core rather than an exhausted subscriber list.
+  count: 100
+  supi_base: "001010100007500"
+  distribution: even
+  # Well under SD-Core's measured ~10 attach/s ceiling, so the attach phase
+  # (~20s) tests the traffic mix rather than the signalling ceiling. Raise it
+  # to probe attach capacity instead.
+  attach_rate: 5/s
+  pdu_session: true
+
+behaviors:
+  traffic:
+    mix:
+      # Bulk transfer with no think time — each member fetches back to back.
+      - { app: http, name: web-bulk, share: 0.5, peer: 10.106.0.30:9551,
+          params: { object_size: 256KB, think: "0" } }
+      # ABR streaming against its own origin (different params, so it does not
+      # share the bulk cohort's).
+      - { app: video, name: video-vod, share: 0.3, peer: 10.106.0.30:9551 }
+      # voip LAST so it absorbs the share rounding. Each call needs its own
+      # far-end answerer port — the server latches a single source — so the
+      # range must cover the cohort: 20 members here, 101 ports available.
+      - { app: voip, name: voip-calls, share: 0.2, peer: 10.106.0.30:9551,
+          params: { codec: pcmu, port_min: "40000", port_max: "40100" } }
+
+  # User-plane RTT over the UEs' own data paths, sampled rather than swept.
+  # Under this much traffic it is the clearest early sign of contention.
+  latency:
+    target: 10.106.0.30
+    interval: 2s
+    ues: 6
+    timeout: 1s
+
+run:
+  duration: 600s

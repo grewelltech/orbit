@@ -1,0 +1,57 @@
+# Mobility on the LXD testbed: a population spread across a grid of gNBs, half
+# of them moving, handing over as they go.
+#
+#   orbit runs start-fleet examples/fleet-testbed-mobility.yaml --name mobility
+#   orbit runs events        # HANDED_OVER / HANDOVER_FAILED per UE
+#
+# Requires the RAN node to hold one N2 and one N3 address per gNB — an AMF keys
+# a gNB's association on its source address, so two gNBs sharing one address
+# cannot be told apart and handover has nowhere to go. `testbed.sh addrs`
+# applies that addressing (TESTBED_RAN_GNBS, default 10) without a rebuild.
+
+kind: fleet
+name: testbed-mobility
+
+core:
+  amf: 10.102.0.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+topology:
+  gnbs:
+    count: 4
+    id_base: 400
+    layout: grid
+    # One N2 source and one N3 address per gNB, from the RAN node's range.
+    source_ips: [10.102.0.20, 10.102.0.21, 10.102.0.22, 10.102.0.23]
+    n3_ips:     [10.103.0.20, 10.103.0.21, 10.103.0.22, 10.103.0.23]
+
+fleet:
+  count: 20
+  supi_base: "001010100007500"
+  distribution: even
+  attach_rate: 5/s
+  pdu_session: true
+
+behaviors:
+  # Half the fleet moves; the meas RSRP/A3 model turns each mover's position
+  # into handover triggers, so the handovers are geometry-driven rather than
+  # fired on a timer. Xn keeps the UE's data path up across the switch.
+  mobility: { model: random_walk, speed: 20m/s, handover: xn }
+  traffic:
+    mix:
+      - { app: http, name: web, share: 1.0, peer: 10.106.0.30:9551,
+          params: { object_size: 64KB, think: "200ms" } }
+  latency:
+    target: 10.106.0.30
+    interval: 2s
+    ues: 4
+
+run:
+  duration: 90s

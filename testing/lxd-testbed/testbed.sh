@@ -44,6 +44,30 @@ net_addr() { echo "$(net_prefix "$1").$2"; }
 # Names are prefixed, so stripping the prefix leaves the identity.
 label_for() { echo "${1#"$P-"}"; }
 
+# Interface specs are "network:octet" or "network:octet:count". A count > 1
+# gives the interface that many CONSECUTIVE addresses, which is how the RAN
+# node carries one address per simulated gNB: handover needs a distinct source
+# IP per gNB (the AMF keys the association on it), so N gNBs on one node means
+# N addresses on one NIC.
+spec_net()   { echo "${1%%:*}"; }
+spec_octet() { local r=${1#*:}; echo "${r%%:*}"; }
+spec_count() {
+    local r=${1#*:} c
+    c=${r#*:}
+    if [ "$c" = "$r" ]; then echo 1; else echo "$c"; fi
+}
+
+# octet_at <octet> <i> -> the octet i places along ("0.20" 3 -> "0.23").
+# Only the last component moves, so a count that would carry past .255 is a
+# configuration error rather than something to silently wrap.
+octet_at() {
+    local octet=$1 i=$2 pre base
+    pre=${octet%.*}; base=${octet##*.}
+    local n=$((base + i))
+    [ "$n" -le 255 ] || die "address range starting $octet overruns .255 at +$i; shrink the count or move the base"
+    echo "$pre.$n"
+}
+
 require_lxd() {
     command -v lxc >/dev/null 2>&1 || die "lxc not found — LXD is a prerequisite (see README)"
     lxc info >/dev/null 2>&1 || die "cannot talk to the LXD daemon; is it running and is $USER in the lxd group?"
@@ -145,6 +169,16 @@ cidr_for() {
     esac
 }
 
+# addr_list <cidr> <octet> <count> -> "a/len, b/len, ..." for a netplan list.
+addr_list() {
+    local cidr=$1 octet=$2 count=$3 i out=""
+    for ((i = 0; i < count; i++)); do
+        [ -n "$out" ] && out+=", "
+        out+="$(net_addr "$cidr" "$(octet_at "$octet" "$i")")/${cidr##*/}"
+    done
+    echo "$out"
+}
+
 # Emit this node's netplan. cloud-init writes it to /etc/netplan on first boot,
 # so the addressing exists as a file on the node — which is what Aether OnRamp
 # and SD-Core read to discover interfaces. A DHCP lease leaves nothing there.
@@ -156,16 +190,16 @@ netcfg_for() {
     local name=$1; shift
     echo "version: 2"
     echo "ethernets:"
-    local spec net octet cidr
+    local spec net octet count cidr
     for spec in "$@"; do
-        net=${spec%%:*}; octet=${spec##*:}
+        net=$(spec_net "$spec"); octet=$(spec_octet "$spec"); count=$(spec_count "$spec")
         cidr=$(cidr_for "$net")
         local label; label=$(label_for "$net")
         echo "  eth.$label:"
         echo "    match:"
         echo "      macaddress: $(lxc config get "$name" "volatile.eth.$label.hwaddr")"
         echo "    set-name: eth.$label"
-        echo "    addresses: [$(net_addr "$cidr" "$octet")/${cidr##*/}]"
+        echo "    addresses: [$(addr_list "$cidr" "$octet" "$count")]"
         # Only management carries a default route and DNS: the 3GPP reference
         # points are deliberately not a path off the testbed.
         if [ "$net" = "$NET_MGMT" ]; then
@@ -191,13 +225,15 @@ make_node() {
         -c limits.cpu="$cpu" -c limits.memory="$mem" \
         -d root,size="$disk" >/dev/null 2>&1
 
-    local spec net octet cidr
+    local spec net octet count cidr
     for spec in "$@"; do
-        net=${spec%%:*}; octet=${spec##*:}
+        net=$(spec_net "$spec"); octet=$(spec_octet "$spec"); count=$(spec_count "$spec")
         cidr=$(cidr_for "$net")
         local label; label=$(label_for "$net")
         lxc_do config device add "$name" "eth.$label" nic network="$net" >/dev/null
-        printf '      %-9s %-12s %s\n' "eth.$label" "$net" "$(net_addr "$cidr" "$octet")"
+        local shown; shown=$(net_addr "$cidr" "$octet")
+        [ "$count" -gt 1 ] && shown="$shown … $(net_addr "$cidr" "$(octet_at "$octet" $((count - 1)))") ($count)"
+        printf '      %-9s %-12s %s\n' "eth.$label" "$net" "$shown"
     done
 
     # Set after the NICs exist, so the MACs are known.
@@ -207,6 +243,50 @@ make_node() {
         lxc_do config set "$name" cloud-init.user-data="$(printf '#cloud-config\nssh_authorized_keys:\n  - %s\n' "$(cat "$TESTBED_SSH_PUBKEY")")"
     fi
     info "$name will write its netplan on first boot"
+}
+
+# ran_specs echoes the RAN node's interface specs, so cmd_up and cmd_addrs
+# describe the same node rather than two drifting copies.
+ran_specs() {
+    echo "$NET_MGMT:$TESTBED_HOST_RAN" \
+         "$NET_N2:$TESTBED_HOST_RAN:$TESTBED_RAN_GNBS" \
+         "$NET_N3:$TESTBED_HOST_RAN:$TESTBED_RAN_GNBS"
+}
+
+# cmd_addrs re-applies a node's addressing to a RUNNING testbed, so growing the
+# gNB count does not mean rebuilding it. The netplan cloud-init wrote at first
+# boot is regenerated from the current config and replaced in place, then
+# applied — so the change survives a reboot instead of living only in the
+# kernel's address list.
+cmd_addrs() {
+    require_lxd
+    exists_instance "$NODE_RAN" || die "$NODE_RAN not found — run '$PROG up' first"
+    local cfg; cfg=$(netcfg_for "$NODE_RAN" $(ran_specs))
+
+    # Keep the instance config in step, or a rebuilt node reverts.
+    lxc_do config set "$NODE_RAN" cloud-init.network-config="$cfg" >/dev/null
+    info "applying $TESTBED_RAN_GNBS gNB address(es) to $NODE_RAN"
+    # cloud-init's network-config is the INNER fragment (version + ethernets);
+    # a file under /etc/netplan needs it wrapped in `network:` and indented.
+    # Writing the fragment straight out yields "unknown key 'version'".
+    printf '%s\n' "$cfg" | sed 's/^/  /' | \
+        (echo "network:"; cat) | \
+        lxc_do exec "$NODE_RAN" -- tee /etc/netplan/50-cloud-init.yaml >/dev/null
+    lxc_do exec "$NODE_RAN" -- chmod 600 /etc/netplan/50-cloud-init.yaml >/dev/null 2>&1 || true
+
+    local out
+    if ! out=$(lxc_do exec "$NODE_RAN" -- netplan apply 2>&1); then
+        die "netplan apply failed on $NODE_RAN: $out"
+    fi
+    # netplan can exit 0 having rejected the file, so verify the OUTCOME: count
+    # the addresses that actually landed rather than trusting the exit code.
+    local want=$TESTBED_RAN_GNBS iface got
+    for iface in n2 n3; do
+        got=$(lxc_do exec "$NODE_RAN" -- sh -c "ip -4 addr show eth.$iface | grep -c inet" 2>/dev/null | tr -d '\r')
+        [ "$got" = "$want" ] || die "eth.$iface has $got address(es), expected $want — netplan reported success but did not apply it${out:+ ($out)}"
+        printf '      %-9s %s address(es)\n' "eth.$iface" "$got"
+    done
+    info "addressing verified on $NODE_RAN"
 }
 
 cmd_up() {
@@ -219,8 +299,13 @@ cmd_up() {
     make_node "$NODE_CORE" "$TESTBED_CORE_CPU" "$TESTBED_CORE_MEM" "$TESTBED_CORE_DISK" \
         "$NET_MGMT:$TESTBED_HOST_CORE" "$NET_N2:$TESTBED_HOST_CORE" \
         "$NET_N3:$TESTBED_HOST_CORE" "$NET_N6:$TESTBED_HOST_CORE"
+    # The RAN node carries one N2 and one N3 address PER SIMULATED gNB: an AMF
+    # keys a gNB's association on its source address, so handover between two
+    # gNBs needs two distinct ones.
     make_node "$NODE_RAN" "$TESTBED_RAN_CPU" "$TESTBED_RAN_MEM" "$TESTBED_RAN_DISK" \
-        "$NET_MGMT:$TESTBED_HOST_RAN" "$NET_N2:$TESTBED_HOST_RAN" "$NET_N3:$TESTBED_HOST_RAN"
+        "$NET_MGMT:$TESTBED_HOST_RAN" \
+        "$NET_N2:$TESTBED_HOST_RAN:$TESTBED_RAN_GNBS" \
+        "$NET_N3:$TESTBED_HOST_RAN:$TESTBED_RAN_GNBS"
     make_node "$NODE_APP" "$TESTBED_APP_CPU" "$TESTBED_APP_MEM" "$TESTBED_APP_DISK" \
         "$NET_MGMT:$TESTBED_HOST_APP" "$NET_N6:$TESTBED_HOST_APP"
 
@@ -597,6 +682,7 @@ case "${1:-}" in
     core-status) shift; cmd_core_status "$@" ;;
     app)      shift; cmd_app "$@" ;;
     ran)      shift; cmd_ran "$@" ;;
+    addrs)    shift; cmd_addrs "$@" ;;
     apps)     shift; cmd_apps "$@" ;;
     all)      shift; cmd_all "$@" ;;
     console)  shift; cmd_console "$@" ;;
