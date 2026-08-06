@@ -20,6 +20,7 @@ import {
   type SeriesDef,
 } from "@/panels/TimeSeriesPanel";
 import { MockSource } from "@/data/mock";
+import { attachRateTile, attachRateLabel } from "@/app/attachRateTile";
 import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
 import { ConnectSource } from "@/data/connect";
@@ -143,6 +144,14 @@ export function App() {
     };
   }, [history, latest]);
 
+  // Peak and average over the WHOLE run, not the visible window: the attach
+  // burst is over in seconds, and a shorter span would scroll it out of view
+  // and take the headline number with it.
+  const atTile = useMemo(
+    () => attachRateTile(history.toArray(), (v) => pct(v, 1)),
+    [history, latest],
+  );
+
   const dl = bps(latest?.throughput.downlinkBps ?? 0);
   const attachOk = latest ? latest.rates.attachSuccess : 1;
 
@@ -171,11 +180,11 @@ export function App() {
             detail={sessionsDetail(latest)}
           />
           <StatTile
-            label="attach rate"
-            value={(latest?.rates.attachPerSec ?? 0).toFixed(1)}
+            label={attachRateLabel(atTile)}
+            value={atTile.value}
             unit="/s"
             history={spark.attach}
-            detail={`success ${pct(attachOk, 1)}%`}
+            detail={atTile.detail}
             tone={attachOk < 0.95 ? "warn" : "neutral"}
           />
           <StatTile
