@@ -42,3 +42,31 @@ jobs:
         with:
           name: junit
           path: junit.xml
+
+  # The dashboard was previously unchecked by CI: a type error or a broken
+  # build only surfaced when someone ran `make ui` by hand, and the embedded
+  # asset in a release could be stale relative to the source it came from.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: install
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: test
+        run: npm test
+
+      - name: build
+        run: npm run build
