@@ -49,6 +49,11 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 		MCC: f.Core.PLMN.MCC, MNC: f.Core.PLMN.MNC,
 		Ki: ki, OPc: opc, RateRPS: rateRPS, Concurrency: 64,
 	}
+	assign, err := GNBAssignment(f.Fleet.Count, len(fgnbs), f.Fleet.Distribution, f.Fleet.DistributionSeed)
+	if err != nil {
+		return engine.FleetRunSpec{}, engine.FleetBehaviors{}, err
+	}
+	spec.GNBAssign = assign
 	if f.Fleet.PDUSession {
 		spec.PDUSession = &ue.PDUSessionParams{
 			PDUSessionID: 1, SST: uint8(f.Core.Slice.SST), SD: f.Core.Slice.SD, DNN: f.Core.DNN,

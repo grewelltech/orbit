@@ -42,7 +42,26 @@ type FleetRunSpec struct {
 	Ki, OPc     []byte
 	RateRPS     float64 // offered attach rate (attaches/sec; 0 = concurrency-bound)
 	Concurrency int
-	PDUSession  *ue.PDUSessionParams // per-UE session using the serving gNB's N3
+	// GNBAssign maps UE index to serving gNB index. nil means round-robin,
+	// which is what every caller did before distributions existed and what a
+	// spec built without a scenario still wants.
+	GNBAssign  []int
+	PDUSession *ue.PDUSessionParams // per-UE session using the serving gNB's N3
+}
+
+// gnbForUE returns the gNB serving UE i. Out-of-range or absent assignments
+// fall back to round-robin rather than failing: a short assignment slice is a
+// caller bug, but dropping a UE over it would be worse than serving it evenly.
+func (s FleetRunSpec) gnbForUE(i, gnbs int) int {
+	if gnbs <= 0 {
+		return 0
+	}
+	if i < len(s.GNBAssign) {
+		if g := s.GNBAssign[i]; g >= 0 && g < gnbs {
+			return g
+		}
+	}
+	return i % gnbs
 }
 
 // FleetBehaviors are the continuous behaviours run on the attached fleet for
@@ -259,7 +278,7 @@ func fleetSUPI(spec FleetRunSpec, i int) string {
 // when an app cohort uses the UE) rides the run's shared per-gNB pool.
 func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int,
 	ev *RunEvents, live *FleetLiveStats) (*fleetUE, error) {
-	gi := i % len(f.sessions)
+	gi := spec.gnbForUE(i, len(f.sessions))
 	supi, err := incIMSI(spec.BaseIMSI, i)
 	if err != nil {
 		return nil, err

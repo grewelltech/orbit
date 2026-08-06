@@ -151,6 +151,22 @@ func (r *Registry) Tests() []Test { return r.tests }
 // and returns the results in registration order. Each test gets its own
 // timeout so one hang does not stall the suite.
 func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats ...Category) []Result {
+	var out []Result
+	r.RunStream(ctx, env, perTest, func(res Result, _, _ int) { out = append(out, res) }, cats...)
+	return out
+}
+
+// RunStream is Run with a callback per completed test, so a caller can report
+// results as they arrive rather than after the whole suite — a suite takes
+// tens of seconds, and a live view of it is exactly what the dashboard wants.
+// emit receives (result, index, total): index is the 0-based position among
+// the SELECTED tests and total their count, for progress display.
+//
+// Run is defined in terms of this so the two cannot drift: there is one
+// per-test loop, with one place that assigns a distinct gNB ID and one place
+// that stamps identity onto the result.
+func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration,
+	emit func(res Result, index, total int), cats ...Category) {
 	if perTest <= 0 {
 		perTest = 15 * time.Second
 	}
@@ -158,22 +174,41 @@ func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats
 	for _, c := range cats {
 		want[c] = true
 	}
-	var out []Result
-	for i, t := range r.tests {
-		if len(want) > 0 && !want[t.Category()] {
-			continue
+	// The selected set, so `total` and `index` count only what will run rather
+	// than every registered test.
+	var selected []Test
+	for _, t := range r.tests {
+		if len(want) == 0 || want[t.Category()] {
+			selected = append(selected, t)
+		}
+	}
+	for i, t := range selected {
+		if err := ctx.Err(); err != nil {
+			return // client went away; stop rather than keep dialling the core
 		}
 		// Give each test a distinct gNB ID — the AMF does not cleanly re-key a
-		// reused gNB ID from a new association (docs/interop/sdcore.md).
+		// reused gNB ID from a new association (docs/interop/sdcore.md). Indexed
+		// by position in the FULL registry so IDs are stable regardless of the
+		// category filter.
 		e := env
-		e.GNB.ID = env.GNB.ID + uint32(i)
+		e.GNB.ID = env.GNB.ID + uint32(r.indexOf(t))
 		tctx, cancel := context.WithTimeout(ctx, perTest)
 		res := t.Run(tctx, e)
 		cancel()
 		res.ID, res.Category, res.SpecRef = t.ID(), t.Category(), t.SpecRef()
-		out = append(out, res)
+		emit(res, i, len(selected))
 	}
-	return out
+}
+
+// indexOf returns a test's position in the full registry, used for a stable
+// per-test gNB ID.
+func (r *Registry) indexOf(t Test) int {
+	for i, x := range r.tests {
+		if x.ID() == t.ID() {
+			return i
+		}
+	}
+	return 0
 }
 
 // Summary tallies a suite run for reporting and CI gating.

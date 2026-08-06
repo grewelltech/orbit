@@ -47,11 +47,17 @@ type GNBGen struct {
 
 // FleetSpec generates the UE population.
 type FleetSpec struct {
-	Count        int    `yaml:"count"`
-	SUPIBase     string `yaml:"supi_base"`
-	Distribution string `yaml:"distribution"` // "even" (default)
-	AttachRate   string `yaml:"attach_rate"`  // e.g. "10/s"
-	PDUSession   bool   `yaml:"pdu_session"`
+	Count    int    `yaml:"count"`
+	SUPIBase string `yaml:"supi_base"`
+	// Distribution spreads the population across the gNBs: "even" (default,
+	// exact round-robin) or "uneven" (random shares that still total Count).
+	Distribution string `yaml:"distribution"`
+	// DistributionSeed reproduces an "uneven" layout exactly. 0 draws a fresh
+	// one per run, so two runs of the same file differ — which is the point of
+	// asking for uneven, but not what you want when comparing two builds.
+	DistributionSeed int64  `yaml:"distribution_seed"`
+	AttachRate       string `yaml:"attach_rate"` // e.g. "10/s"
+	PDUSession       bool   `yaml:"pdu_session"`
 }
 
 // Behaviors run concurrently for Run.Duration.
@@ -228,6 +234,18 @@ func (f *FleetScenario) validate() error {
 			return fmt.Errorf("traffic mix shares must sum to 1.0, got %.3f", sum)
 		}
 	}
+	// Handover moves a UE's user plane between gNBs, so there has to be one.
+	//
+	// Without a PDU session the AMF has no SM context to switch and rejects
+	// every attempt — an Xn PathSwitchRequest draws "smContext is nil" and a
+	// Path Switch Request Failure. The run then reports 100% handover failures,
+	// which reads as a broken core or a broken handover implementation rather
+	// than as a scenario that asked for something incoherent.
+	if m := f.Behaviors.Mobility; m != nil && m.Handover != "" && !f.Fleet.PDUSession {
+		return fmt.Errorf("mobility.handover: %s needs fleet.pdu_session: true "+
+			"(a handover switches the UE's user-plane path, and without a PDU session "+
+			"there is no path to switch — the AMF rejects every attempt)", m.Handover)
+	}
 	return nil
 }
 
@@ -284,21 +302,41 @@ func (f *FleetScenario) GenFleet(gnbs []PlacedGNB) []FleetUE {
 	return out
 }
 
-// mixCounts allocates the fleet across the mix entries proportionally to
-// their shares (deterministic contiguous blocks; the last entry absorbs
-// rounding) — the population machinery behind both the per-UE profile labels
-// and the app-cohort sizes.
+// trafficPopulation is how many UEs can actually carry the traffic mix.
+//
+// Mobility takes half the fleet (the engine's split), and a mobile UE runs no
+// app cohort — the two behaviour populations are disjoint by design. Sizing
+// the mix off the WHOLE fleet therefore over-asked by exactly the mobile half,
+// and the carve clamped the overflow in cohort order: the first cohort got
+// everything, the rest got zero, and a run configured for http+video+voip ran
+// http alone with only a log line saying so.
+func (f *FleetScenario) trafficPopulation() int {
+	if f.Behaviors.Mobility == nil {
+		return f.Fleet.Count
+	}
+	n := f.Fleet.Count - f.Fleet.Count/2 // engine: MobileUEs = Count/2
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// mixCounts allocates the traffic-carrying population across the mix entries
+// proportionally to their shares (deterministic contiguous blocks; the last
+// entry absorbs rounding) — the population machinery behind both the per-UE
+// profile labels and the app-cohort sizes.
 func (f *FleetScenario) mixCounts() []int {
 	mix := f.Behaviors.Traffic.Mix
+	pop := f.trafficPopulation()
 	counts := make([]int, len(mix))
 	i := 0
 	for mi, m := range mix {
-		n := int(math.Round(m.Share * float64(f.Fleet.Count)))
+		n := int(math.Round(m.Share * float64(pop)))
 		if mi == len(mix)-1 {
-			n = f.Fleet.Count - i // last entry absorbs rounding
+			n = pop - i // last entry absorbs rounding
 		}
-		if n > f.Fleet.Count-i {
-			n = f.Fleet.Count - i
+		if n > pop-i {
+			n = pop - i
 		}
 		if n < 0 {
 			n = 0

@@ -97,10 +97,11 @@
   --o-crosshair: rgb(79 214 232 / 0.55);
   --o-tooltip-bg: #0b1521;
 
-  /* Page background grid. Reads as structure behind the panels rather than
-     texture: lifted off the old baked-in rgb(28 47 66 / 0.28) so the ruling
-     is actually visible on the near-black base. */
-  --o-bg-grid: rgb(45 73 100 / 0.45);
+  /* Page background grid. Texture behind the panels, not structure — it should
+     register at the edge of vision and never compete with the data. Lifting it
+     to 0.45 to make it "visible" overshot into distracting; back down, still
+     above the original 0.28 so the ruling reads on the near-black base. */
+  --o-bg-grid: rgb(40 64 88 / 0.3);
 }
 
 /* Reduced-motion users get the same interface with transitions collapsed. */
