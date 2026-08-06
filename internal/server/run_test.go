@@ -588,8 +588,11 @@ func TestRunTelemetryClampsInterval(t *testing.T) {
 	if !st.Receive() {
 		t.Fatalf("no frame: %v", st.Err())
 	}
-	if got := st.Msg().GetIntervalMs(); got != 100 {
-		t.Errorf("applied interval = %d ms, want the clamped 100", got)
+	// A run is sampled on ONE canonical schedule so its retained series is a
+	// single series every subscriber shares; the requested interval is
+	// advisory, and the frame reports what was actually applied.
+	if got := st.Msg().GetIntervalMs(); got != uint32(sampleInterval.Milliseconds()) {
+		t.Errorf("applied interval = %d ms, want the canonical %d", got, sampleInterval.Milliseconds())
 	}
 }
 
@@ -726,10 +729,10 @@ func TestRunTelemetryStopsOnClientCancel(t *testing.T) {
 		}
 	}()
 
-	// Let frames flow at the 20ms cadence, then hang up. The window is well
-	// under the 1s default interval, so the ticker's actual period is
-	// observable: >1 frame here means it fired at the requested cadence, since
-	// the default would emit only the immediate frame in this window.
+	// Frames arrive on the run's canonical schedule regardless of what this
+	// subscriber asked for, so the window only needs to be long enough to
+	// receive the replayed backlog and prove the stream is live before
+	// hanging up.
 	time.Sleep(300 * time.Millisecond)
 	cancel()
 
@@ -742,8 +745,10 @@ func TestRunTelemetryStopsOnClientCancel(t *testing.T) {
 	mu.Lock()
 	got := n
 	mu.Unlock()
-	if got < 2 {
-		t.Errorf("received %d frames in 300ms; the ticker did not fire at the requested 20ms cadence (the 1s default would give 1)", got)
+	// At least the immediate first frame: the point of this test is that
+	// cancelling ends the stream, not how fast frames arrive.
+	if got < 1 {
+		t.Errorf("received %d frames before cancelling, want at least the first", got)
 	}
 }
 

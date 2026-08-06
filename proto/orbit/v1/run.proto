@@ -350,9 +350,16 @@ message GetRunResponse {
 
 message RunTelemetryRequest {
   string run_id = 1;
-  // Requested cadence. The server clamps it to a supported range and reports
-  // the interval it actually applied in each frame.
+  // Requested cadence. The server samples a run on ONE canonical schedule so
+  // every subscriber sees the same series, and reports the interval it applied
+  // in each frame; this remains advisory.
   uint32 interval_ms = 2;
+  // Resume point: the first frame sequence the client wants. 0 replays the
+  // whole retained series, which is what makes a reload — or attaching to a
+  // run already in progress — start with its history rather than an empty
+  // chart. Frames evicted before this point are reported once as
+  // dropped_before on the first frame delivered.
+  uint64 from_seq = 3;
 }
 
 // TelemetryFrame is a complete snapshot of a run's aggregate state at an
@@ -368,6 +375,10 @@ message TelemetryFrame {
   uint64 frame_seq = 4;
   RunState state = 5;
   int64 elapsed_ms = 6;
+  // Set on the first frame of a stream: how many frames before it were already
+  // evicted from the retained series, so a gap is stated rather than silently
+  // drawn as continuous.
+  uint64 dropped_before = 25;
   // Aggregate progress, by kind. Empty for a kind without live aggregates.
   oneof progress {
     LoadProgress load = 7;
