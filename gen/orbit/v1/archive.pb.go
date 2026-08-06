@@ -62,7 +62,21 @@ type RunArchive struct {
 	// The retained telemetry series, already trimmed of per-flow rows (the ring
 	// stores them that way; the rows are transient and a finished run's are all
 	// zero, while the flow COUNTS are kept).
-	Frames        []*TelemetryFrame `protobuf:"bytes,9,rep,name=frames,proto3" json:"frames,omitempty"`
+	Frames []*TelemetryFrame `protobuf:"bytes,9,rep,name=frames,proto3" json:"frames,omitempty"`
+	// What the run was asked to do, kept verbatim so the archive is
+	// self-describing. Without it a report says what happened but not what was
+	// configured, and two runs cannot be meaningfully compared — the difference
+	// between them is exactly the thing that is missing.
+	//
+	// Credentials are NOT stored: LoadRunSpec carries Ki/OPc, which have no place
+	// in an artefact meant to be attached to a ticket. They are stripped before
+	// the archive is written.
+	//
+	// Types that are valid to be assigned to Spec:
+	//
+	//	*RunArchive_LoadSpec
+	//	*RunArchive_FleetSpec
+	Spec          isRunArchive_Spec `protobuf_oneof:"spec"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -171,6 +185,31 @@ func (x *RunArchive) GetFrames() []*TelemetryFrame {
 	return nil
 }
 
+func (x *RunArchive) GetSpec() isRunArchive_Spec {
+	if x != nil {
+		return x.Spec
+	}
+	return nil
+}
+
+func (x *RunArchive) GetLoadSpec() *LoadRunSpec {
+	if x != nil {
+		if x, ok := x.Spec.(*RunArchive_LoadSpec); ok {
+			return x.LoadSpec
+		}
+	}
+	return nil
+}
+
+func (x *RunArchive) GetFleetSpec() *FleetRunSpec {
+	if x != nil {
+		if x, ok := x.Spec.(*RunArchive_FleetSpec); ok {
+			return x.FleetSpec
+		}
+	}
+	return nil
+}
+
 type isRunArchive_Report interface {
 	isRunArchive_Report()
 }
@@ -187,11 +226,27 @@ func (*RunArchive_LoadReport) isRunArchive_Report() {}
 
 func (*RunArchive_FleetReport) isRunArchive_Report() {}
 
+type isRunArchive_Spec interface {
+	isRunArchive_Spec()
+}
+
+type RunArchive_LoadSpec struct {
+	LoadSpec *LoadRunSpec `protobuf:"bytes,10,opt,name=load_spec,json=loadSpec,proto3,oneof"`
+}
+
+type RunArchive_FleetSpec struct {
+	FleetSpec *FleetRunSpec `protobuf:"bytes,11,opt,name=fleet_spec,json=fleetSpec,proto3,oneof"`
+}
+
+func (*RunArchive_LoadSpec) isRunArchive_Spec() {}
+
+func (*RunArchive_FleetSpec) isRunArchive_Spec() {}
+
 var File_orbit_v1_archive_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_archive_proto_rawDesc = "" +
 	"\n" +
-	"\x16orbit/v1/archive.proto\x12\borbit.v1\x1a\x12orbit/v1/run.proto\"\xd5\x03\n" +
+	"\x16orbit/v1/archive.proto\x12\borbit.v1\x1a\x12orbit/v1/run.proto\"\xcc\x04\n" +
 	"\n" +
 	"RunArchive\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\x1f\n" +
@@ -203,8 +258,13 @@ const file_orbit_v1_archive_proto_rawDesc = "" +
 	"\ffleet_report\x18\x06 \x01(\v2\x15.orbit.v1.FleetReportH\x00R\vfleetReport\x12*\n" +
 	"\x06events\x18\a \x03(\v2\x12.orbit.v1.RunEventR\x06events\x122\n" +
 	"\x15events_dropped_before\x18\b \x01(\x04R\x13eventsDroppedBefore\x120\n" +
-	"\x06frames\x18\t \x03(\v2\x18.orbit.v1.TelemetryFrameR\x06framesB\b\n" +
-	"\x06reportB0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\x06frames\x18\t \x03(\v2\x18.orbit.v1.TelemetryFrameR\x06frames\x124\n" +
+	"\tload_spec\x18\n" +
+	" \x01(\v2\x15.orbit.v1.LoadRunSpecH\x01R\bloadSpec\x127\n" +
+	"\n" +
+	"fleet_spec\x18\v \x01(\v2\x16.orbit.v1.FleetRunSpecH\x01R\tfleetSpecB\b\n" +
+	"\x06reportB\x06\n" +
+	"\x04specB0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_archive_proto_rawDescOnce sync.Once
@@ -228,6 +288,8 @@ var file_orbit_v1_archive_proto_goTypes = []any{
 	(*FleetReport)(nil),    // 5: orbit.v1.FleetReport
 	(*RunEvent)(nil),       // 6: orbit.v1.RunEvent
 	(*TelemetryFrame)(nil), // 7: orbit.v1.TelemetryFrame
+	(*LoadRunSpec)(nil),    // 8: orbit.v1.LoadRunSpec
+	(*FleetRunSpec)(nil),   // 9: orbit.v1.FleetRunSpec
 }
 var file_orbit_v1_archive_proto_depIdxs = []int32{
 	1, // 0: orbit.v1.RunArchive.run:type_name -> orbit.v1.Run
@@ -237,11 +299,13 @@ var file_orbit_v1_archive_proto_depIdxs = []int32{
 	5, // 4: orbit.v1.RunArchive.fleet_report:type_name -> orbit.v1.FleetReport
 	6, // 5: orbit.v1.RunArchive.events:type_name -> orbit.v1.RunEvent
 	7, // 6: orbit.v1.RunArchive.frames:type_name -> orbit.v1.TelemetryFrame
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	8, // 7: orbit.v1.RunArchive.load_spec:type_name -> orbit.v1.LoadRunSpec
+	9, // 8: orbit.v1.RunArchive.fleet_spec:type_name -> orbit.v1.FleetRunSpec
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_archive_proto_init() }
@@ -253,6 +317,8 @@ func file_orbit_v1_archive_proto_init() {
 	file_orbit_v1_archive_proto_msgTypes[0].OneofWrappers = []any{
 		(*RunArchive_LoadReport)(nil),
 		(*RunArchive_FleetReport)(nil),
+		(*RunArchive_LoadSpec)(nil),
+		(*RunArchive_FleetSpec)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

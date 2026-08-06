@@ -79,7 +79,8 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 	} else {
 		log.Warn("run history is in memory only; it will be lost on restart")
 	}
-	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive}
+	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive,
+		specs: newSpecStore(), version: version}
 	runSvc.restoreFrames()
 
 	mux := http.NewServeMux()

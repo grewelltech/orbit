@@ -43,6 +43,9 @@ const (
 	RunServiceGetRunProcedure = "/orbit.v1.RunService/GetRun"
 	// RunServiceGetRunReportProcedure is the fully-qualified name of the RunService's GetRunReport RPC.
 	RunServiceGetRunReportProcedure = "/orbit.v1.RunService/GetRunReport"
+	// RunServiceRenderRunReportProcedure is the fully-qualified name of the RunService's
+	// RenderRunReport RPC.
+	RunServiceRenderRunReportProcedure = "/orbit.v1.RunService/RenderRunReport"
 	// RunServiceRunTelemetryProcedure is the fully-qualified name of the RunService's RunTelemetry RPC.
 	RunServiceRunTelemetryProcedure = "/orbit.v1.RunService/RunTelemetry"
 	// RunServiceRunEventsProcedure is the fully-qualified name of the RunService's RunEvents RPC.
@@ -64,6 +67,10 @@ type RunServiceClient interface {
 	// GetRunReport returns the authoritative end-of-run report. Available only
 	// once the run has completed.
 	GetRunReport(context.Context, *connect.Request[v1.GetRunReportRequest]) (*connect.Response[v1.GetRunReportResponse], error)
+	// RenderRunReport returns a finished run as a self-contained HTML document.
+	// Rendered server-side so the CLI and the dashboard produce the identical
+	// artefact rather than each re-implementing it.
+	RenderRunReport(context.Context, *connect.Request[v1.RenderRunReportRequest]) (*connect.Response[v1.RenderRunReportResponse], error)
 	// RunTelemetry streams periodic, self-contained aggregate snapshots of a run
 	// in flight (ADR-0006). Each frame is complete — never a delta — so a dropped
 	// frame costs one sample and never accumulates into a wrong picture; the
@@ -119,6 +126,12 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(runServiceMethods.ByName("GetRunReport")),
 			connect.WithClientOptions(opts...),
 		),
+		renderRunReport: connect.NewClient[v1.RenderRunReportRequest, v1.RenderRunReportResponse](
+			httpClient,
+			baseURL+RunServiceRenderRunReportProcedure,
+			connect.WithSchema(runServiceMethods.ByName("RenderRunReport")),
+			connect.WithClientOptions(opts...),
+		),
 		runTelemetry: connect.NewClient[v1.RunTelemetryRequest, v1.TelemetryFrame](
 			httpClient,
 			baseURL+RunServiceRunTelemetryProcedure,
@@ -136,13 +149,14 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 
 // runServiceClient implements RunServiceClient.
 type runServiceClient struct {
-	startRun     *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
-	stopRun      *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
-	listRuns     *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
-	getRun       *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
-	getRunReport *connect.Client[v1.GetRunReportRequest, v1.GetRunReportResponse]
-	runTelemetry *connect.Client[v1.RunTelemetryRequest, v1.TelemetryFrame]
-	runEvents    *connect.Client[v1.RunEventsRequest, v1.RunEvent]
+	startRun        *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
+	stopRun         *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
+	listRuns        *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
+	getRun          *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
+	getRunReport    *connect.Client[v1.GetRunReportRequest, v1.GetRunReportResponse]
+	renderRunReport *connect.Client[v1.RenderRunReportRequest, v1.RenderRunReportResponse]
+	runTelemetry    *connect.Client[v1.RunTelemetryRequest, v1.TelemetryFrame]
+	runEvents       *connect.Client[v1.RunEventsRequest, v1.RunEvent]
 }
 
 // StartRun calls orbit.v1.RunService.StartRun.
@@ -170,6 +184,11 @@ func (c *runServiceClient) GetRunReport(ctx context.Context, req *connect.Reques
 	return c.getRunReport.CallUnary(ctx, req)
 }
 
+// RenderRunReport calls orbit.v1.RunService.RenderRunReport.
+func (c *runServiceClient) RenderRunReport(ctx context.Context, req *connect.Request[v1.RenderRunReportRequest]) (*connect.Response[v1.RenderRunReportResponse], error) {
+	return c.renderRunReport.CallUnary(ctx, req)
+}
+
 // RunTelemetry calls orbit.v1.RunService.RunTelemetry.
 func (c *runServiceClient) RunTelemetry(ctx context.Context, req *connect.Request[v1.RunTelemetryRequest]) (*connect.ServerStreamForClient[v1.TelemetryFrame], error) {
 	return c.runTelemetry.CallServerStream(ctx, req)
@@ -195,6 +214,10 @@ type RunServiceHandler interface {
 	// GetRunReport returns the authoritative end-of-run report. Available only
 	// once the run has completed.
 	GetRunReport(context.Context, *connect.Request[v1.GetRunReportRequest]) (*connect.Response[v1.GetRunReportResponse], error)
+	// RenderRunReport returns a finished run as a self-contained HTML document.
+	// Rendered server-side so the CLI and the dashboard produce the identical
+	// artefact rather than each re-implementing it.
+	RenderRunReport(context.Context, *connect.Request[v1.RenderRunReportRequest]) (*connect.Response[v1.RenderRunReportResponse], error)
 	// RunTelemetry streams periodic, self-contained aggregate snapshots of a run
 	// in flight (ADR-0006). Each frame is complete — never a delta — so a dropped
 	// frame costs one sample and never accumulates into a wrong picture; the
@@ -246,6 +269,12 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(runServiceMethods.ByName("GetRunReport")),
 		connect.WithHandlerOptions(opts...),
 	)
+	runServiceRenderRunReportHandler := connect.NewUnaryHandler(
+		RunServiceRenderRunReportProcedure,
+		svc.RenderRunReport,
+		connect.WithSchema(runServiceMethods.ByName("RenderRunReport")),
+		connect.WithHandlerOptions(opts...),
+	)
 	runServiceRunTelemetryHandler := connect.NewServerStreamHandler(
 		RunServiceRunTelemetryProcedure,
 		svc.RunTelemetry,
@@ -270,6 +299,8 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 			runServiceGetRunHandler.ServeHTTP(w, r)
 		case RunServiceGetRunReportProcedure:
 			runServiceGetRunReportHandler.ServeHTTP(w, r)
+		case RunServiceRenderRunReportProcedure:
+			runServiceRenderRunReportHandler.ServeHTTP(w, r)
 		case RunServiceRunTelemetryProcedure:
 			runServiceRunTelemetryHandler.ServeHTTP(w, r)
 		case RunServiceRunEventsProcedure:
@@ -301,6 +332,10 @@ func (UnimplementedRunServiceHandler) GetRun(context.Context, *connect.Request[v
 
 func (UnimplementedRunServiceHandler) GetRunReport(context.Context, *connect.Request[v1.GetRunReportRequest]) (*connect.Response[v1.GetRunReportResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.RunService.GetRunReport is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) RenderRunReport(context.Context, *connect.Request[v1.RenderRunReportRequest]) (*connect.Response[v1.RenderRunReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.RunService.RenderRunReport is not implemented"))
 }
 
 func (UnimplementedRunServiceHandler) RunTelemetry(context.Context, *connect.Request[v1.RunTelemetryRequest], *connect.ServerStream[v1.TelemetryFrame]) error {

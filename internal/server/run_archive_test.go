@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,5 +219,76 @@ func TestLiveRunNotDuplicatedByArchive(t *testing.T) {
 	}
 	if seen != 1 {
 		t.Errorf("run appears %d times in ListRuns, want exactly 1", seen)
+	}
+}
+
+func TestRenderRunReportProducesADocument(t *testing.T) {
+	dir := t.TempDir()
+	c := newArchivingRunService(t, dir)
+	id := runUntilArchived(t, c, dir, "report-run")
+
+	res, err := c.RenderRunReport(context.Background(),
+		connect.NewRequest(&orbitv1.RenderRunReportRequest{RunId: id}))
+	if err != nil {
+		t.Fatalf("RenderRunReport: %v", err)
+	}
+	html := string(res.Msg.GetHtml())
+	if !strings.Contains(html, "</html>") {
+		t.Fatal("truncated document")
+	}
+	if !strings.Contains(html, id) {
+		t.Error("report does not name the run it describes")
+	}
+	if !strings.Contains(html, "report-run") {
+		t.Error("report does not carry the run name")
+	}
+	// Self-contained is the requirement that makes the artefact useful.
+	for _, forbidden := range []string{"<script", "src=\"http", "href=\"http"} {
+		if strings.Contains(html, forbidden) {
+			t.Errorf("report is not self-contained; found %q", forbidden)
+		}
+	}
+	if !strings.Contains(html, "@media print") {
+		t.Error("no print stylesheet; PDF export would use the screen layout")
+	}
+	if fn := res.Msg.GetFilename(); !strings.HasSuffix(fn, ".html") || !strings.Contains(fn, id) {
+		t.Errorf("filename %q should name the run and be .html", fn)
+	}
+}
+
+func TestRenderRunReportRefusesAnUnfinishedRun(t *testing.T) {
+	// A report of a run still going is a snapshot pretending to be a
+	// conclusion. It must say so rather than render one.
+	c := newArchivingRunService(t, t.TempDir())
+	_, err := c.RenderRunReport(context.Background(),
+		connect.NewRequest(&orbitv1.RenderRunReportRequest{RunId: "run-missing"}))
+	var ce *connect.Error
+	if !errors.As(err, &ce) || ce.Code() != connect.CodeNotFound {
+		t.Fatalf("want NotFound for an unknown run, got %v", err)
+	}
+}
+
+func TestRenderRunReportEmbedsTheConfiguration(t *testing.T) {
+	// Without the config a report says what happened but not what was asked
+	// for, and two runs cannot be compared on their settings.
+	dir := t.TempDir()
+	c := newArchivingRunService(t, dir)
+	id := runUntilArchived(t, c, dir, "config-run")
+
+	res, err := c.RenderRunReport(context.Background(),
+		connect.NewRequest(&orbitv1.RenderRunReportRequest{RunId: id}))
+	if err != nil {
+		t.Fatalf("RenderRunReport: %v", err)
+	}
+	html := string(res.Msg.GetHtml())
+	if !strings.Contains(html, "127.0.0.1:1") {
+		t.Error("the AMF address the run was pointed at is not in the report")
+	}
+	// And the credentials it was given must NOT be.
+	if strings.Contains(html, "00112233445566778899aabbccddeeff") {
+		t.Fatal("subscriber Ki leaked into the report")
+	}
+	if strings.Contains(html, "000102030405060708090a0b0c0d0e0f") {
+		t.Fatal("subscriber OPc leaked into the report")
 	}
 }

@@ -70,6 +70,7 @@ func newRunsCmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newRunsEventsCmd(serverURL))
 	cmd.AddCommand(newRunsStartLoadCmd(serverURL))
 	cmd.AddCommand(newRunsStartFleetCmd(serverURL))
+	cmd.AddCommand(newRunsReportCmd(serverURL))
 	return cmd
 }
 
@@ -661,4 +662,59 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// newRunsReportCmd writes a finished run out as a document.
+//
+// The server renders it, so this and the dashboard produce the identical
+// artefact instead of each re-implementing the layout — and so a report can be
+// generated from CI, where there is no browser to drive.
+func newRunsReportCmd(serverURL *string) *cobra.Command {
+	var out string
+	cmd := &cobra.Command{
+		Use:   "report <run-id>",
+		Short: "Write a finished run as a self-contained HTML report",
+		Long: "Writes a single HTML file with no external dependencies: it opens offline, " +
+			"survives being emailed, and prints to PDF from any browser (Print → Save as PDF), " +
+			"for which it carries its own print stylesheet.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := runsClient(serverURL).RenderRunReport(cmd.Context(),
+				connect.NewRequest(&orbitv1.RenderRunReportRequest{RunId: args[0]}))
+			if err != nil {
+				return err
+			}
+			html := res.Msg.GetHtml()
+
+			// "-" writes to stdout, so the report can be piped somewhere
+			// without a temporary file.
+			if out == "-" {
+				_, err := cmd.OutOrStdout().Write(html)
+				return err
+			}
+			path := out
+			if path == "" {
+				path = res.Msg.GetFilename()
+			}
+			if err := os.WriteFile(path, html, 0o644); err != nil {
+				return fmt.Errorf("write %s: %w", path, err)
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "wrote %s (%s)\n", path, humanSize(len(html)))
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&out, "out", "o", "",
+		"output file (default: a name derived from the run; \"-\" for stdout)")
+	return cmd
+}
+
+func humanSize(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KiB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
