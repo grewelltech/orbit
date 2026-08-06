@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -9,6 +12,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/report"
 )
 
 // archiveRun captures a terminal run and writes it to the store.
@@ -29,6 +33,10 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 		Version: archiveVersion,
 		Run:     runProto(info),
 		Frames:  frames,
+	}
+	// What the run was asked to do, captured at StartRun and redacted there.
+	if held := s.specs.take(id); held != nil {
+		a.Spec = held.GetSpec()
 	}
 
 	// The final progress snapshot, exactly as GetRun would have returned it.
@@ -174,4 +182,69 @@ func archivedDroppedBefore(a *orbitv1.RunArchive, fromSeq uint64) uint64 {
 		return earliest - fromSeq
 	}
 	return 0
+}
+
+// RenderRunReport returns a finished run as a self-contained HTML document.
+//
+// Served from the archive, so a report can be produced long after the run
+// finished and regenerated later with an improved template — the alternative,
+// baking the document at run end, would freeze every report at the quality of
+// the build that produced it.
+func (s *runService) RenderRunReport(
+	ctx context.Context,
+	req *connect.Request[orbitv1.RenderRunReportRequest],
+) (*connect.Response[orbitv1.RenderRunReportResponse], error) {
+	id := req.Msg.GetRunId()
+
+	a, ok := s.archive.get(id)
+	if !ok {
+		// Not archived. Either the run is still going — a report of a run that
+		// has not finished would be a snapshot pretending to be a conclusion —
+		// or it predates persistence, or it never existed. Each deserves its
+		// own answer.
+		info, err := s.reg.Get(id)
+		if err != nil {
+			return nil, runLookupError(err)
+		}
+		if !info.State.Terminal() {
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("run %s is %s; a report is available once the run finishes", id, info.State))
+		}
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("run %s finished but was not archived; run history persistence is disabled", id))
+	}
+
+	host, _ := os.Hostname()
+	html, err := report.HTML(buildReport(a, s.version, host))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&orbitv1.RenderRunReportResponse{
+		Html:     html,
+		Filename: reportFilename(a),
+	}), nil
+}
+
+// reportFilename suggests a name that sorts by run and reads as a document.
+func reportFilename(a *orbitv1.RunArchive) string {
+	run := a.GetRun()
+	name := run.GetRunId()
+	if n := run.GetName(); n != "" {
+		name = fmt.Sprintf("%s-%s", run.GetRunId(), slug(n))
+	}
+	return name + ".html"
+}
+
+// slug reduces a run name to something safe in a file name.
+func slug(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ' || r == '_' || r == '-' || r == '.':
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }

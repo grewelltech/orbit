@@ -30,6 +30,11 @@ service RunService {
   // once the run has completed.
   rpc GetRunReport(GetRunReportRequest) returns (GetRunReportResponse) {}
 
+  // RenderRunReport returns a finished run as a self-contained HTML document.
+  // Rendered server-side so the CLI and the dashboard produce the identical
+  // artefact rather than each re-implementing it.
+  rpc RenderRunReport(RenderRunReportRequest) returns (RenderRunReportResponse) {}
+
   // RunTelemetry streams periodic, self-contained aggregate snapshots of a run
   // in flight (ADR-0006). Each frame is complete — never a delta — so a dropped
   // frame costs one sample and never accumulates into a wrong picture; the
@@ -411,6 +416,20 @@ message RunEvent {
   // Set on the first event of a stream when the requested from_seq had already
   // been evicted: how many events before this one the client will never see.
   uint64 dropped_before = 7;
+}
+
+// RenderRunReportRequest asks for a finished run as a document.
+message RenderRunReportRequest {
+  string run_id = 1;
+}
+
+// RenderRunReportResponse carries a complete, self-contained HTML document —
+// inline styles, inline SVG charts, no scripts and no external requests, so it
+// opens offline, survives being emailed, and prints to PDF unaided.
+message RenderRunReportResponse {
+  bytes html = 1;
+  // Suggested file name, so every client does not invent its own convention.
+  string filename = 2;
 }
 
 message GetRunReportRequest {

@@ -32,6 +32,12 @@ type runService struct {
 	// finished run still has a series to replay.
 	framesMu sync.Mutex
 	frames   map[string]*frameLog
+	// version is the running build, stamped into generated reports so an old
+	// artefact is not read as though it came from today's binary.
+	version string
+	// specs remembers what each run was asked to do, so the archive — and the
+	// report built from it — is self-describing.
+	specs *specStore
 	// archive persists terminal runs so history survives a restart. Never nil;
 	// a disabled store is a no-op rather than a special case at each call site.
 	archive *archiveStore
@@ -58,6 +64,7 @@ func (s *runService) StartRun(
 		if err != nil {
 			return nil, runStartError(err)
 		}
+		s.specs.put(info.ID, m)
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
@@ -69,6 +76,7 @@ func (s *runService) StartRun(
 		if err != nil {
 			return nil, runStartError(err)
 		}
+		s.specs.put(info.ID, m)
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	default:

@@ -50,4 +50,17 @@ message RunArchive {
   // stores them that way; the rows are transient and a finished run's are all
   // zero, while the flow COUNTS are kept).
   repeated TelemetryFrame frames = 9;
+
+  // What the run was asked to do, kept verbatim so the archive is
+  // self-describing. Without it a report says what happened but not what was
+  // configured, and two runs cannot be meaningfully compared — the difference
+  // between them is exactly the thing that is missing.
+  //
+  // Credentials are NOT stored: LoadRunSpec carries Ki/OPc, which have no place
+  // in an artefact meant to be attached to a ticket. They are stripped before
+  // the archive is written.
+  oneof spec {
+    LoadRunSpec load_spec = 10;
+    FleetRunSpec fleet_spec = 11;
+  }
 }
