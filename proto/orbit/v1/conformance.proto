@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package orbit.v1;
+
+option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
+
+// ConformanceService runs the core conformance / regression suite server-side,
+// so the dashboard (and any other client) can drive it and watch results
+// arrive instead of shelling out to the CLI.
+service ConformanceService {
+  // RunConformance executes the suite against a live core and streams one
+  // update per test as it completes — a suite run takes tens of seconds, and
+  // a client staring at a spinner for that long cannot tell a slow suite from
+  // a dead one. The final update carries done=true and the tallies.
+  rpc RunConformance(RunConformanceRequest) returns (stream ConformanceUpdate) {}
+
+  // ListConformanceTests reports the registered tests without running them,
+  // so a client can render the table skeleton (and per-category counts)
+  // before or without a run.
+  rpc ListConformanceTests(ListConformanceTestsRequest) returns (ListConformanceTestsResponse) {}
+}
+
+message RunConformanceRequest {
+  // The core under test. The AMF N2 endpoint is required; everything else
+  // defaults to the server's conventions.
+  string amf_address = 1;         // host:port, required
+  string mcc = 2;                 // default "001"
+  string mnc = 3;                 // default "01"
+  uint32 tac = 4;                 // default 1
+  // Base gNB ID. Each test presents a distinct ID above this base, because an
+  // AMF does not cleanly re-key a reused gNB ID from a new association.
+  uint32 gnb_id_base = 5;         // default 700
+  // User-plane checks (the gtpu category) need the UPF's N3 endpoint and a
+  // local N3 source address to bind. Absent, those tests report SKIP.
+  string upf_n3 = 6;              // host:port
+  string n3_bind = 7;             // local ip[:port]
+  // Categories to run; empty runs everything.
+  repeated string categories = 8;
+  // Per-test timeout in seconds (default 15). One hang must not stall the run.
+  uint32 per_test_seconds = 9;
+}
+
+// ConformanceUpdate is one test's outcome, or (with done=true) the summary.
+message ConformanceUpdate {
+  ConformanceResult result = 1;   // absent on the final summary update
+  bool done = 2;
+  ConformanceTally tally = 3;     // running totals, present on every update
+  // Position for progress display: test `index` of `total` selected.
+  uint32 index = 4;
+  uint32 total = 5;
+}
+
+message ConformanceResult {
+  string id = 1;
+  string category = 2;
+  string spec_ref = 3;
+  string verdict = 4;             // PASS | FAIL | ERROR | SKIP | DEVIATION
+  string expected = 5;
+  string observed = 6;
+  string detail = 7;
+}
+
+message ConformanceTally {
+  uint32 passed = 1;
+  uint32 failed = 2;
+  uint32 errored = 3;
+  uint32 skipped = 4;
+  uint32 deviations = 5;
+}
+
+message ListConformanceTestsRequest {}
+
+message ConformanceTestInfo {
+  string id = 1;
+  string category = 2;
+  string spec_ref = 3;
+}
+
+message ListConformanceTestsResponse {
+  repeated ConformanceTestInfo tests = 1;
+}
