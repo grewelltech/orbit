@@ -108,3 +108,38 @@ func TestDistributionEdgeCases(t *testing.T) {
 		t.Errorf("got %d assignments for 3 UEs", len(a))
 	}
 }
+
+func TestMixSizesOffTheTrafficPopulation(t *testing.T) {
+	// The regression: shares were multiplied by the WHOLE fleet while mobility
+	// held half of it, so the carve clamped the overflow in cohort order — the
+	// first cohort got everything, the rest got zero, and an http+video+voip
+	// run silently ran http alone.
+	f := &FleetScenario{
+		Fleet: FleetSpec{Count: 1000},
+		Behaviors: Behaviors{
+			Mobility: &MobilityBehavior{Model: "random_walk", Handover: "xn"},
+			Traffic: &TrafficBehavior{Mix: []TrafficShare{
+				{App: "http", Share: 0.5, Peer: "x:1"},
+				{App: "video", Share: 0.3, Peer: "x:1"},
+				{App: "voip", Share: 0.2, Peer: "x:1"},
+			}},
+		},
+	}
+	counts := f.mixCounts()
+	want := []int{250, 150, 100}
+	for i := range want {
+		if counts[i] != want[i] {
+			t.Fatalf("counts = %v, want %v (shares of the non-mobile half)", counts, want)
+		}
+	}
+
+	// Without mobility the whole fleet carries traffic, as before.
+	f.Behaviors.Mobility = nil
+	counts = f.mixCounts()
+	want = []int{500, 300, 200}
+	for i := range want {
+		if counts[i] != want[i] {
+			t.Fatalf("no mobility: counts = %v, want %v", counts, want)
+		}
+	}
+}

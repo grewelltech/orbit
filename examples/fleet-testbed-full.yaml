@@ -5,7 +5,8 @@
 #
 # How the fleet divides. Half the fleet is mobile (the engine's split), so 500
 # UEs walk the grid and hand over between cells while the other 500 carry the
-# application mix below: ~250 http, ~150 video, ~100 voip. Handovers are Xn —
+# application mix below — shares apply to the traffic-carrying half, so
+# 0.5/0.3/0.2 gives ~250 http, ~150 video, ~100 voip. Handovers are Xn —
 # the only kind fleet mobility performs — and need the PDU sessions this file
 # enables: a path switch moves the UE's user plane, so there must be one.
 #

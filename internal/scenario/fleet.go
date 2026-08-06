@@ -302,21 +302,41 @@ func (f *FleetScenario) GenFleet(gnbs []PlacedGNB) []FleetUE {
 	return out
 }
 
-// mixCounts allocates the fleet across the mix entries proportionally to
-// their shares (deterministic contiguous blocks; the last entry absorbs
-// rounding) — the population machinery behind both the per-UE profile labels
-// and the app-cohort sizes.
+// trafficPopulation is how many UEs can actually carry the traffic mix.
+//
+// Mobility takes half the fleet (the engine's split), and a mobile UE runs no
+// app cohort — the two behaviour populations are disjoint by design. Sizing
+// the mix off the WHOLE fleet therefore over-asked by exactly the mobile half,
+// and the carve clamped the overflow in cohort order: the first cohort got
+// everything, the rest got zero, and a run configured for http+video+voip ran
+// http alone with only a log line saying so.
+func (f *FleetScenario) trafficPopulation() int {
+	if f.Behaviors.Mobility == nil {
+		return f.Fleet.Count
+	}
+	n := f.Fleet.Count - f.Fleet.Count/2 // engine: MobileUEs = Count/2
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// mixCounts allocates the traffic-carrying population across the mix entries
+// proportionally to their shares (deterministic contiguous blocks; the last
+// entry absorbs rounding) — the population machinery behind both the per-UE
+// profile labels and the app-cohort sizes.
 func (f *FleetScenario) mixCounts() []int {
 	mix := f.Behaviors.Traffic.Mix
+	pop := f.trafficPopulation()
 	counts := make([]int, len(mix))
 	i := 0
 	for mi, m := range mix {
-		n := int(math.Round(m.Share * float64(f.Fleet.Count)))
+		n := int(math.Round(m.Share * float64(pop)))
 		if mi == len(mix)-1 {
-			n = f.Fleet.Count - i // last entry absorbs rounding
+			n = pop - i // last entry absorbs rounding
 		}
-		if n > f.Fleet.Count-i {
-			n = f.Fleet.Count - i
+		if n > pop-i {
+			n = pop - i
 		}
 		if n < 0 {
 			n = 0
