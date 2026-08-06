@@ -119,6 +119,16 @@ export interface Flow {
 }
 
 /** Latency summary in milliseconds. Percentiles come from the engine's HDR histogram. */
+/** A latency distribution attributed to the procedure it came from. */
+export interface ProcedureLatencySummary extends LatencySummary {
+  /** Procedure name as the server reports it ("attach", "handover_xn", …).
+   *  Empty when no procedure has been measured yet. */
+  procedure: string;
+  /** Samples behind the distribution. A count that stops rising means the
+   *  procedure stopped happening, and the numbers describe the past. */
+  count: number;
+}
+
 export interface LatencySummary {
   p50: number;
   p90: number;
@@ -134,8 +144,16 @@ export interface TelemetryFrame {
   ues: UeStateCounts;
   rates: ProcedureRates;
   throughput: Throughput;
-  /** Control-plane procedure latency (registration, session establishment). */
-  cpLatency: LatencySummary;
+  /**
+   * Control-plane procedure latency.
+   *
+   * Carries WHICH procedure it summarises, because that changes with the
+   * scenario — a mobility run reports handovers, a static one reports attach —
+   * and a tile labelled only "cp latency" silently changes meaning between the
+   * two. It also carries the sample count, which is what distinguishes a live
+   * measurement from one frozen since the attach phase ended.
+   */
+  cpLatency: ProcedureLatencySummary;
   /** User-plane round-trip latency, when a data path is up. */
   upLatency: LatencySummary | null;
   /** Per-gNB UE distribution, keyed by gNB id. */
