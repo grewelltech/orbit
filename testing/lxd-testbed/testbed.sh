@@ -498,31 +498,50 @@ open(p,'w').write(s)
 # limit during an attach storm, with throughput flat and latency climbing.
 # Lifting it is worth roughly 2x on attach rate.
 #
-# It must happen HERE, right after the install: mongo's datadir is an emptyDir,
-# so restarting the pod destroys every subscriber. Patching the StatefulSet
-# later wipes the population and leaves the NRF's NfProfile registry empty,
-# which presents as a totally dead core. Doing it before simapp provisions means
-# the restart costs nothing, and simapp then populates the fresh instance.
+# It must happen HERE, right after the install: the patch recreates the mongo
+# pod, and its datadir is an emptyDir, so every subscriber goes with it. Applied
+# to a populated core this wipes the population and leaves the NRF's NfProfile
+# registry empty, which presents as a totally dead core. Doing it before simapp
+# provisions means the restart costs nothing, and simapp populates the fresh
+# instance afterwards.
 raise_mongo_cpu() {
     info "raising the MongoDB CPU limit (chart default ${TESTBED_MONGO_CPU:+is }750m, throttles attach)"
     on_core "kubectl -n aether-5gc patch sts mongodb --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"mongodb\",\"resources\":{\"limits\":{\"cpu\":\"$TESTBED_MONGO_CPU\",\"memory\":\"$TESTBED_MONGO_MEM\"},\"requests\":{\"cpu\":\"1\",\"memory\":\"1Gi\"}}}]}}}}'" \
         >/dev/null 2>&1 || { info "could not patch mongodb resources; continuing at the chart default"; return 0; }
 
-    # The patch restarts mongo, which empties it. simapp provisions on startup,
-    # so it has to run again afterwards or the core comes up with no subscribers.
     on_core "kubectl -n aether-5gc rollout status sts/mongodb --timeout=300s" >/dev/null 2>&1 || true
-    info "reprovisioning subscribers into the restarted MongoDB"
+    cmd_reprovision
+}
+
+# cmd_reprovision repopulates a core whose MongoDB has been emptied.
+#
+# Mongo's datadir is an emptyDir, which is destroyed when the POD is recreated —
+# patching the StatefulSet, deleting the pod, or reinstalling the release. It
+# survives a core-node reboot, because the pod object and its directory outlive
+# the restart; that was verified rather than assumed. The core then looks
+# healthy while every attach fails, because two separate things are gone: the
+# subscriber population, and the NRF's registry of which NFs exist.
+#
+# Cheaper than `testbed.sh core`, which reinstalls the whole helm release.
+cmd_reprovision() {
+    require_lxd
+    info "reprovisioning subscribers into MongoDB"
     on_core "kubectl -n aether-5gc rollout restart deploy/simapp" >/dev/null 2>&1 || true
     on_core "kubectl -n aether-5gc rollout status deploy/simapp --timeout=300s" >/dev/null 2>&1 || true
 
     # Every NF registers with the NRF at startup, and that registry lives in the
     # same emptyDir. After a mongo restart it is empty and discovery fails for
-    # every NF pair, so they all have to re-register.
+    # every NF pair, so they all have to re-register. The NRF goes first: the
+    # others register against it as they come up.
     info "restarting network functions so they re-register with the NRF"
     on_core "kubectl -n aether-5gc rollout restart deploy/nrf" >/dev/null 2>&1 || true
     on_core "kubectl -n aether-5gc rollout status deploy/nrf --timeout=300s" >/dev/null 2>&1 || true
     on_core "for d in amf ausf udm udr pcf nssf smf; do kubectl -n aether-5gc rollout restart deploy/\$d; done" >/dev/null 2>&1 || true
     on_core "for d in amf ausf udm udr pcf nssf smf; do kubectl -n aether-5gc rollout status deploy/\$d --timeout=300s; done" >/dev/null 2>&1 || true
+
+    local subs
+    subs=$(on_core "kubectl -n aether-5gc exec mongodb-1 -c mongodb -- mongosh --quiet --eval 'print(db.getSiblingDB(\"authentication\")[\"subscriptionData.authenticationData.authenticationSubscription\"].countDocuments({}))'" 2>/dev/null | tr -d '\r')
+    info "subscribers provisioned: ${subs:-unknown} (expected $TESTBED_SUB_COUNT)"
 }
 
 cmd_core_status() {
@@ -739,6 +758,9 @@ $PROG — LXD testbed for ORBIT (separated N2/N3/N6)
   $PROG ran                install ORBIT on the RAN node
   $PROG apps               both of the above
   $PROG all                image + up + core + apps, from nothing to ready
+  $PROG reprovision        repopulate MongoDB after a mongo or core-node
+                           restart (its datadir is an emptyDir, so a restart
+                           empties both the subscribers and the NRF registry)
   $PROG console <node>     attach to a node's console (autologin root)
   $PROG ssh <node> [cmd]   ssh to a node (needs TESTBED_SSH_PUBKEY at build time)
   $PROG down [--image]     remove everything this script created
@@ -756,6 +778,7 @@ case "${1:-}" in
     networks) shift; cmd_networks "$@" ;;
     status)   shift; cmd_status "$@" ;;
     core)     shift; cmd_core "$@" ;;
+    reprovision) shift; cmd_reprovision "$@" ;;
     core-status) shift; cmd_core_status "$@" ;;
     app)      shift; cmd_app "$@" ;;
     ran)      shift; cmd_ran "$@" ;;

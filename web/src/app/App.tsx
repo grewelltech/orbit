@@ -20,8 +20,10 @@ import {
   type SeriesDef,
 } from "@/panels/TimeSeriesPanel";
 import { MockSource } from "@/data/mock";
+import { attachRateTile, attachRateLabel } from "@/app/attachRateTile";
 import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
+import { cpLatencyTile } from "@/app/cpLatencyTile";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
 import type { TelemetryFrame } from "@/data/types";
@@ -143,6 +145,18 @@ export function App() {
     };
   }, [history, latest]);
 
+  // Peak and average over the WHOLE run, not the visible window: the attach
+  // burst is over in seconds, and a shorter span would scroll it out of view
+  // and take the headline number with it.
+  const atTile = useMemo(
+    () => attachRateTile(history.toArray(), (v) => pct(v, 1)),
+    [history, latest],
+  );
+
+  // The tile names the procedure it is reporting and flags a value that has
+  // stopped advancing — see cpLatencyTile.
+  const cpTile = useMemo(() => cpLatencyTile(history.toArray().slice(-60), ms), [history, latest]);
+
   const dl = bps(latest?.throughput.downlinkBps ?? 0);
   const attachOk = latest ? latest.rates.attachSuccess : 1;
 
@@ -171,11 +185,11 @@ export function App() {
             detail={sessionsDetail(latest)}
           />
           <StatTile
-            label="attach rate"
-            value={(latest?.rates.attachPerSec ?? 0).toFixed(1)}
+            label={attachRateLabel(atTile)}
+            value={atTile.value}
             unit="/s"
             history={spark.attach}
-            detail={`success ${pct(attachOk, 1)}%`}
+            detail={atTile.detail}
             tone={attachOk < 0.95 ? "warn" : "neutral"}
           />
           <StatTile
@@ -186,12 +200,16 @@ export function App() {
             detail={`uplink ${(() => { const u = bps(latest?.throughput.uplinkBps ?? 0); return `${u.value} ${u.unit}`; })()}`}
           />
           <StatTile
-            label="cp latency p99"
+            label={cpTile.label}
             value={ms(latest?.cpLatency.p99 ?? 0)}
             unit="ms"
             history={spark.p99}
-            detail={`p50 ${ms(latest?.cpLatency.p50 ?? 0)} · p90 ${ms(latest?.cpLatency.p90 ?? 0)}`}
-            tone={(latest?.cpLatency.p99 ?? 0) > 150 ? "warn" : "neutral"}
+            detail={cpTile.detail}
+            // A stale value is not a warning about the control plane — it is a
+            // measurement from earlier in the run, so it stays neutral however
+            // large it is. Warning on it is what made a finished attach burst
+            // read as a live problem.
+            tone={!cpTile.stale && (latest?.cpLatency.p99 ?? 0) > 150 ? "warn" : "neutral"}
           />
           {/*
             The value is ATTACH failures and the detail is MOBILITY — two
