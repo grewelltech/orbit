@@ -27,6 +27,11 @@ message RunConformanceRequest {
   string mcc = 2;                 // default "001"
   string mnc = 3;                 // default "01"
   uint32 tac = 4;                 // default 1
+  // Supported slice broadcast in NG Setup. NG Setup fails without at least
+  // one, so these default rather than being required: sst defaults to 1, sd
+  // to "010203" (the testbed slice).
+  uint32 sst = 10;                // default 1
+  string sd = 11;                 // default "010203"
   // Base gNB ID. Each test presents a distinct ID above this base, because an
   // AMF does not cleanly re-key a reused gNB ID from a new association.
   uint32 gnb_id_base = 5;         // default 700

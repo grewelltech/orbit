@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -106,6 +107,32 @@ func TestRunConformanceStreamsAndSummarises(t *testing.T) {
 	total := tally.GetPassed() + tally.GetFailed() + tally.GetErrored() + tally.GetSkipped() + tally.GetDeviations()
 	if int(total) != results {
 		t.Errorf("tally totals %d but %d tests ran — a result was not counted", total, results)
+	}
+}
+
+func TestRunConformanceBroadcastsASlice(t *testing.T) {
+	// The regression: the handler built a gNB with no S-NSSAI, so NG Setup
+	// failed and every test ERRORed with "at least one supported S-NSSAI is
+	// required" — the whole suite red, with nothing to do with the core.
+	// The AMF here is unroutable, so tests still ERROR, but the DETAIL must no
+	// longer mention the missing slice.
+	c := newConformanceClient(t)
+	stream, err := c.RunConformance(context.Background(),
+		connect.NewRequest(&orbitv1.RunConformanceRequest{
+			AmfAddress: "127.0.0.1:1", PerTestSeconds: 2,
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for stream.Receive() {
+		if r := stream.Msg().GetResult(); r != nil {
+			if strings.Contains(r.GetDetail()+r.GetObserved(), "S-NSSAI") {
+				t.Fatalf("test %s still fails on the missing slice: %s", r.GetId(), r.GetObserved()+r.GetDetail())
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -45,6 +45,13 @@ func (s *conformanceService) RunConformance(
 			MCC:    orDefaultStr(m.GetMcc(), "001"),
 			MNC:    orDefaultStr(m.GetMnc(), "01"),
 			TAC:    orDefaultU32(m.GetTac(), 1),
+			// NG Setup fails without a supported slice, so one is always
+			// broadcast — this was the whole suite ERRORing "at least one
+			// supported S-NSSAI is required" until it was set.
+			Slices: []gnb.SNSSAI{{
+				SST: uint8(orDefaultU32(m.GetSst(), 1)),
+				SD:  orDefaultStr(m.GetSd(), "010203"),
+			}},
 		},
 	}
 

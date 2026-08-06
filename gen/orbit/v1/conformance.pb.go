@@ -29,6 +29,11 @@ type RunConformanceRequest struct {
 	Mcc        string `protobuf:"bytes,2,opt,name=mcc,proto3" json:"mcc,omitempty"`                                 // default "001"
 	Mnc        string `protobuf:"bytes,3,opt,name=mnc,proto3" json:"mnc,omitempty"`                                 // default "01"
 	Tac        uint32 `protobuf:"varint,4,opt,name=tac,proto3" json:"tac,omitempty"`                                // default 1
+	// Supported slice broadcast in NG Setup. NG Setup fails without at least
+	// one, so these default rather than being required: sst defaults to 1, sd
+	// to "010203" (the testbed slice).
+	Sst uint32 `protobuf:"varint,10,opt,name=sst,proto3" json:"sst,omitempty"` // default 1
+	Sd  string `protobuf:"bytes,11,opt,name=sd,proto3" json:"sd,omitempty"`    // default "010203"
 	// Base gNB ID. Each test presents a distinct ID above this base, because an
 	// AMF does not cleanly re-key a reused gNB ID from a new association.
 	GnbIdBase uint32 `protobuf:"varint,5,opt,name=gnb_id_base,json=gnbIdBase,proto3" json:"gnb_id_base,omitempty"` // default 700
@@ -100,6 +105,20 @@ func (x *RunConformanceRequest) GetTac() uint32 {
 		return x.Tac
 	}
 	return 0
+}
+
+func (x *RunConformanceRequest) GetSst() uint32 {
+	if x != nil {
+		return x.Sst
+	}
+	return 0
+}
+
+func (x *RunConformanceRequest) GetSd() string {
+	if x != nil {
+		return x.Sd
+	}
+	return ""
 }
 
 func (x *RunConformanceRequest) GetGnbIdBase() uint32 {
@@ -527,13 +546,16 @@ var File_orbit_v1_conformance_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
-	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\"\x88\x02\n" +
+	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\"\xaa\x02\n" +
 	"\x15RunConformanceRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12\x10\n" +
 	"\x03mcc\x18\x02 \x01(\tR\x03mcc\x12\x10\n" +
 	"\x03mnc\x18\x03 \x01(\tR\x03mnc\x12\x10\n" +
-	"\x03tac\x18\x04 \x01(\rR\x03tac\x12\x1e\n" +
+	"\x03tac\x18\x04 \x01(\rR\x03tac\x12\x10\n" +
+	"\x03sst\x18\n" +
+	" \x01(\rR\x03sst\x12\x0e\n" +
+	"\x02sd\x18\v \x01(\tR\x02sd\x12\x1e\n" +
 	"\vgnb_id_base\x18\x05 \x01(\rR\tgnbIdBase\x12\x15\n" +
 	"\x06upf_n3\x18\x06 \x01(\tR\x05upfN3\x12\x17\n" +
 	"\an3_bind\x18\a \x01(\tR\x06n3Bind\x12\x1e\n" +

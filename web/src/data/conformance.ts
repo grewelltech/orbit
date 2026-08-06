@@ -34,6 +34,8 @@ export interface ConformanceParams {
   mnc?: string;
   tac?: number;
   gnbIdBase?: number;
+  sst?: number;
+  sd?: string;
   upfN3?: string;
   n3Bind?: string;
   categories?: string[];
@@ -78,6 +80,8 @@ export function useConformance(baseUrl?: string) {
             mnc: params.mnc ?? "",
             tac: params.tac ?? 0,
             gnbIdBase: params.gnbIdBase ?? 0,
+            sst: params.sst ?? 0,
+            sd: params.sd ?? "",
             upfN3: params.upfN3 ?? "",
             n3Bind: params.n3Bind ?? "",
             categories: params.categories ?? [],
