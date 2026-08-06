@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -65,6 +66,8 @@ func newServeCmd(version string) *cobra.Command {
 	var logLevel string
 	var coreProfile string
 	var loomAgent, loomToken string
+	var stateDir string
+	var runHistory int
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the ORBIT API server",
@@ -87,10 +90,16 @@ func newServeCmd(version string) *cobra.Command {
 			}()
 
 			reg := observability.NewRegistry()
+			dir, err := resolveStateDir(stateDir)
+			if err != nil {
+				return err
+			}
 			handler := server.New(log, version, reg, server.Options{
 				CoreProfile: coreProfile,
 				LoomAgent:   loomAgent,
 				LoomToken:   loomToken,
+				StateDir:    dir,
+				RunHistory:  runHistory,
 			})
 
 			srv := &http.Server{
@@ -105,6 +114,11 @@ func newServeCmd(version string) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&stateDir, "state-dir", "",
+		"where finished runs are archived so history survives a restart "+
+			"(default $XDG_STATE_HOME/orbit/runs; \"none\" disables persistence)")
+	cmd.Flags().IntVar(&runHistory, "run-history", 0,
+		"how many finished runs to keep, in memory and on disk (0 = default 50)")
 	cmd.Flags().StringVar(&listen, "listen", DefaultListen, "listen address (host:port)")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 	cmd.Flags().StringVar(&coreProfile, "core-profile", "", "core compatibility profile (strict-3gpp, sdcore); default strict-3gpp")
@@ -124,3 +138,34 @@ func cellClient(url *string) orbitv1connect.CellServiceClient {
 func ueClient(url *string) orbitv1connect.UEServiceClient {
 	return orbitv1connect.NewUEServiceClient(http.DefaultClient, *url)
 }
+
+// resolveStateDir turns the --state-dir flag into a path.
+//
+// Order: an explicit flag, then the XDG state directory, then the system
+// default. XDG is right for an interactive user, but a daemon usually has
+// neither XDG_STATE_HOME nor HOME — systemd sets no environment by default —
+// so /var/lib is the fallback rather than giving up.
+//
+// It never silently returns "": persistence turning itself off because an
+// environment variable was missing is exactly the failure an operator would
+// not notice until the history they expected was gone. Only "none" disables
+// it, and that is deliberate and visible.
+func resolveStateDir(flag string) (string, error) {
+	if flag == "none" {
+		return "", nil
+	}
+	if flag != "" {
+		return flag, nil
+	}
+	if base := os.Getenv("XDG_STATE_HOME"); base != "" {
+		return filepath.Join(base, "orbit", "runs"), nil
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".local", "state", "orbit", "runs"), nil
+	}
+	return filepath.Join(SystemStateDir, "runs"), nil
+}
+
+// SystemStateDir is where a service with no user environment keeps state, per
+// the FHS: /var/lib is for data that persists between restarts of the program.
+const SystemStateDir = "/var/lib/orbit"

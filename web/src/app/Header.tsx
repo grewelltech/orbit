@@ -44,13 +44,21 @@ export function Header({ frame, sourceState, sourceName, theme, themeSetting, on
   return (
     <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-[var(--o-border)] bg-[var(--o-surface)]/70 px-4 py-2.5 backdrop-blur">
       <div className="flex items-baseline gap-2.5">
+        {/*
+          The wordmark expands on hover. The acronym is not self-evident, and
+          the header is where someone new to the tool looks first — cursor:help
+          signals there is something to hover for, which a bare title attribute
+          does not.
+        */}
         <span
+          title="Open Radio Benchmark and Integration Testbed"
           style={{
             fontFamily: "var(--o-font-mono)",
             fontSize: "var(--o-text-base)",
             fontWeight: 600,
             letterSpacing: "var(--o-tracking-title)",
             color: "var(--o-ink)",
+            cursor: "help",
           }}
         >
           ORBIT

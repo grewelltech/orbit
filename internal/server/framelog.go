@@ -176,6 +176,19 @@ func (l *frameLog) subscribeFrom(fromSeq uint64) *frameSubscription {
 	}
 }
 
+// retained returns the frames currently held, oldest first. Used to archive a
+// run at the moment it goes terminal; the frames are the trimmed copies the
+// ring stores, so the archive inherits that trimming rather than repeating it.
+func (l *frameLog) retained() []*orbitv1.TelemetryFrame {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]*orbitv1.TelemetryFrame, 0, l.n)
+	for i := 0; i < l.n; i++ {
+		out = append(out, l.at(i))
+	}
+	return out
+}
+
 // close ends live delivery once the run is terminal. The retained series stays
 // readable — that is the point of keeping it.
 func (l *frameLog) close() {

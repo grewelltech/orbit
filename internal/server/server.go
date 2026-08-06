@@ -35,8 +35,13 @@ type Options struct {
 	// per-call values override them.
 	LoomAgent, LoomToken string
 	// RunHistory bounds how many terminal runs the registry retains (0 = the
-	// engine default).
+	// engine default). It bounds the on-disk archive equally, so the two do
+	// not disagree about how far back history goes.
 	RunHistory int
+	// StateDir is where terminal runs are archived so history survives a
+	// restart. Empty disables persistence entirely — no filesystem access at
+	// all, which is what tests and ephemeral CI servers want.
+	StateDir string
 }
 
 // New builds the ORBIT HTTP handler. The h2c wrapper lets gRPC clients
@@ -57,12 +62,31 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 		log.Info("default loom agent configured", "agent", opts.LoomAgent)
 	}
 	runReg := engine.NewRunRegistry(log, opts.RunHistory)
+	history := opts.RunHistory
+	if history <= 0 {
+		history = engine.DefaultRunHistory
+	}
+	archive, err := newArchiveStore(log, opts.StateDir, history)
+	if err != nil {
+		// A state directory that cannot be opened is a configuration error, but
+		// it must not cost the operator a working server: run without
+		// persistence and say so, rather than refusing to start.
+		log.Error("run history will not persist", "dir", opts.StateDir, "err", err)
+		archive, _ = newArchiveStore(log, "", history)
+	}
+	if archive.enabled() {
+		log.Info("run history persists", "dir", opts.StateDir, "keep", history)
+	} else {
+		log.Warn("run history is in memory only; it will be lost on restart")
+	}
+	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive}
+	runSvc.restoreFrames()
 
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}))
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}))
-	mux.Handle(orbitv1connect.NewRunServiceHandler(&runService{log: log, reg: runReg, mgr: mgr}))
+	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
