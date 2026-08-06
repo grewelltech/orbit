@@ -1,0 +1,85 @@
+# Control-plane attach-rate measurement: the whole subscriber pool, registered
+# as fast as the core will take them, with no user plane at all.
+#
+# Why registration-only. A PDU session roughly triples the cost of an attach —
+# measured on the LXD testbed, 158 registrations/s against 43 full attaches/s —
+# because it pulls in the SMF and UPF on top of AMF/AUSF/UDM/UDR. Separating
+# them is what makes an attach-rate number mean something: a single figure that
+# silently includes session establishment is not comparable with anyone else's.
+#
+# What the dashboard shows for this run. UEs reach REGISTERED, not
+# SESSION_ACTIVE, so the "sessions active" tile stays at zero and throughput
+# stays flat — correctly, because there is no data path. Attach rate, the UE
+# population chart, CP latency and the per-gNB distribution are all live. Use
+# fleet-testbed-heavy.yaml instead when the user plane is the point.
+#
+# App cohorts are deliberately absent: they require pdu_session: true, since
+# application traffic rides the UEs' GTP-U data paths.
+
+kind: fleet
+name: attach-rate
+
+core:
+  amf: 10.102.0.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+# Ten gNBs, each with its own N2 source address. An AMF keys a gNB's
+# association on that address, so distinct IPs are what make ten gNBs ten gNBs
+# rather than one association reused.
+topology:
+  gnbs:
+    count: 10
+    id_base: 400
+    layout: grid
+    spacing_m: 1000
+    source_ips:
+      - 10.102.0.20
+      - 10.102.0.21
+      - 10.102.0.22
+      - 10.102.0.23
+      - 10.102.0.24
+      - 10.102.0.25
+      - 10.102.0.26
+      - 10.102.0.27
+      - 10.102.0.28
+      - 10.102.0.29
+    n3_ips:
+      - 10.103.0.20
+      - 10.103.0.21
+      - 10.103.0.22
+      - 10.103.0.23
+      - 10.103.0.24
+      - 10.103.0.25
+      - 10.103.0.26
+      - 10.103.0.27
+      - 10.103.0.28
+      - 10.103.0.29
+
+fleet:
+  count: 1000
+  supi_base: "001010100007500"
+  distribution: even
+  # Offered well above what the core can absorb, so the run measures the core's
+  # ceiling rather than this number. Concurrency is the real control: throughput
+  # peaks near 32 in flight and FALLS above it, as SBI calls between network
+  # functions begin to serialize.
+  attach_rate: 500/s
+  concurrency: 32
+  pdu_session: false
+
+# Mobility keeps the run alive past the attach phase and gives the dashboard
+# something to show — handovers are pure control plane, so they work perfectly
+# well without a user plane. Without this the run has nothing to do once the
+# population is attached and completes in seconds, too fast to watch.
+behaviors:
+  mobility: { model: random_walk, speed: 20m/s, handover: xn }
+
+run:
+  duration: 300s

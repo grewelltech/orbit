@@ -336,9 +336,33 @@ cmd_up() {
 # on_core <cmd...> — run a shell command on the core node as root.
 on_core() { lxc_do exec "$NODE_CORE" -- bash -lc "$*"; }
 
+# check_ue_pool_fits refuses a subscriber count the UE address pool cannot hold.
+#
+# Raising TESTBED_SUB_COUNT and leaving TESTBED_UE_POOL behind produces a core
+# that looks healthy and fails confusingly: subscribers authenticate and
+# register, then PDU session establishment fails once the pool runs dry, and the
+# SMF reports an empty "pdu session create:" error having just released the
+# address it allocated. Catching it here costs nothing; diagnosing it live cost
+# an afternoon.
+check_ue_pool_fits() {
+    local bits usable
+    bits=${TESTBED_UE_POOL##*/}
+    case "$bits" in
+        ''|*[!0-9]*) die "TESTBED_UE_POOL ($TESTBED_UE_POOL) has no valid prefix length" ;;
+    esac
+    # Network and broadcast are not assignable.
+    usable=$(( (1 << (32 - bits)) - 2 ))
+    if [ "$usable" -lt "$TESTBED_SUB_COUNT" ]; then
+        die "TESTBED_UE_POOL ($TESTBED_UE_POOL) holds $usable addresses but" \
+            "TESTBED_SUB_COUNT is $TESTBED_SUB_COUNT — widen the pool, or those" \
+            "UEs will register and then fail PDU session establishment"
+    fi
+}
+
 cmd_core() {
     require_lxd
     exists_instance "$NODE_CORE" || die "$NODE_CORE not found — run '$PROG up' first"
+    check_ue_pool_fits
 
     local n2 n3p n6p access_ip core_ip
     n2=$(net_addr "$TESTBED_NET_N2" "$TESTBED_HOST_CORE")
@@ -373,15 +397,25 @@ cmd_core() {
     # data_iface_n6 does not exist in stock OnRamp; the patched values template
     # below is what consumes it.
     on_core "cd $TESTBED_ONRAMP_DIR && python3 -c \"
-import re
+import re, sys
 p='vars/main.yml'; s=open(p).read()
-s=re.sub(r'^  data_iface:.*\$', '  data_iface: eth.n3\\n  data_iface_n6: eth.n6', s, flags=re.M)
-s=re.sub(r'^  values_file:.*\$', '  values_file: \\\"deps/5gc/roles/core/templates/radio-5g-values.yaml\\\"', s, flags=re.M)
-s=re.sub(r'^  ran_subnet:.*\$', '  ran_subnet: \\\"\\\"', s, flags=re.M)
-s=re.sub(r'^    ip: .*\$', '    ip: \\\"$n2\\\"', s, flags=re.M)
-s=re.sub(r'^        ue_ip_pool:.*\$', '        ue_ip_pool: \\\"$TESTBED_UE_POOL\\\"', s, flags=re.M)
+# A substitution that matches nothing is the dangerous case: the install
+# proceeds and reports success having applied none of the configuration. That
+# is exactly how ue_ip_pool stayed at its stock /24 while the subscriber count
+# grew past it — the pattern was anchored to an indent the file does not use.
+# Anchor on content, keep whatever indent is there, and fail loudly on a miss.
+def sub(pat, rep):
+    global s
+    s, n = re.subn(pat, rep, s, flags=re.M)
+    if n == 0:
+        sys.exit('vars/main.yml: no line matched ' + pat + ' — OnRamp layout changed')
+sub(r'^(\s*)data_iface:.*\$', r'\\g<1>data_iface: eth.n3\\n\\g<1>data_iface_n6: eth.n6')
+sub(r'^(\s*)values_file:.*\$', r'\\g<1>values_file: \\\"deps/5gc/roles/core/templates/radio-5g-values.yaml\\\"')
+sub(r'^(\s*)ran_subnet:.*\$', r'\\g<1>ran_subnet: \\\"\\\"')
+sub(r'^(\s*)ip: .*\$', r'\\g<1>ip: \\\"$n2\\\"')
+sub(r'^(\s*)ue_ip_pool:.*\$', r'\\g<1>ue_ip_pool: \\\"$TESTBED_UE_POOL\\\"')
 open(p,'w').write(s)
-\""
+\"" || die "could not apply the interface/pool configuration to OnRamp"
 
     info "patching the UPF values template for separated interfaces"
     on_core "cd $TESTBED_ONRAMP_DIR && python3 -c \"
@@ -451,7 +485,63 @@ open(p,'w').write(s)
     info "installing SD-Core, skipping the router step"
     on_core "cd $TESTBED_ONRAMP_DIR && make 5gc-core-install" || die "SD-Core install failed"
 
+    raise_mongo_cpu
+
     cmd_core_status
+}
+
+# raise_mongo_cpu lifts MongoDB off the Bitnami chart's default CPU limit.
+#
+# The chart ships `cpu: 750m` while no other NF has a limit at all, and a
+# registration costs ~55 MongoDB operations, so mongo saturates its quota and is
+# CFS-throttled long before anything else is busy — measured at 707m of a 750m
+# limit during an attach storm, with throughput flat and latency climbing.
+# Lifting it is worth roughly 2x on attach rate.
+#
+# It must happen HERE, right after the install: the patch recreates the mongo
+# pod, and its datadir is an emptyDir, so every subscriber goes with it. Applied
+# to a populated core this wipes the population and leaves the NRF's NfProfile
+# registry empty, which presents as a totally dead core. Doing it before simapp
+# provisions means the restart costs nothing, and simapp populates the fresh
+# instance afterwards.
+raise_mongo_cpu() {
+    info "raising the MongoDB CPU limit (chart default ${TESTBED_MONGO_CPU:+is }750m, throttles attach)"
+    on_core "kubectl -n aether-5gc patch sts mongodb --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"mongodb\",\"resources\":{\"limits\":{\"cpu\":\"$TESTBED_MONGO_CPU\",\"memory\":\"$TESTBED_MONGO_MEM\"},\"requests\":{\"cpu\":\"1\",\"memory\":\"1Gi\"}}}]}}}}'" \
+        >/dev/null 2>&1 || { info "could not patch mongodb resources; continuing at the chart default"; return 0; }
+
+    on_core "kubectl -n aether-5gc rollout status sts/mongodb --timeout=300s" >/dev/null 2>&1 || true
+    cmd_reprovision
+}
+
+# cmd_reprovision repopulates a core whose MongoDB has been emptied.
+#
+# Mongo's datadir is an emptyDir, which is destroyed when the POD is recreated —
+# patching the StatefulSet, deleting the pod, or reinstalling the release. It
+# survives a core-node reboot, because the pod object and its directory outlive
+# the restart; that was verified rather than assumed. The core then looks
+# healthy while every attach fails, because two separate things are gone: the
+# subscriber population, and the NRF's registry of which NFs exist.
+#
+# Cheaper than `testbed.sh core`, which reinstalls the whole helm release.
+cmd_reprovision() {
+    require_lxd
+    info "reprovisioning subscribers into MongoDB"
+    on_core "kubectl -n aether-5gc rollout restart deploy/simapp" >/dev/null 2>&1 || true
+    on_core "kubectl -n aether-5gc rollout status deploy/simapp --timeout=300s" >/dev/null 2>&1 || true
+
+    # Every NF registers with the NRF at startup, and that registry lives in the
+    # same emptyDir. After a mongo restart it is empty and discovery fails for
+    # every NF pair, so they all have to re-register. The NRF goes first: the
+    # others register against it as they come up.
+    info "restarting network functions so they re-register with the NRF"
+    on_core "kubectl -n aether-5gc rollout restart deploy/nrf" >/dev/null 2>&1 || true
+    on_core "kubectl -n aether-5gc rollout status deploy/nrf --timeout=300s" >/dev/null 2>&1 || true
+    on_core "for d in amf ausf udm udr pcf nssf smf; do kubectl -n aether-5gc rollout restart deploy/\$d; done" >/dev/null 2>&1 || true
+    on_core "for d in amf ausf udm udr pcf nssf smf; do kubectl -n aether-5gc rollout status deploy/\$d --timeout=300s; done" >/dev/null 2>&1 || true
+
+    local subs
+    subs=$(on_core "kubectl -n aether-5gc exec mongodb-1 -c mongodb -- mongosh --quiet --eval 'print(db.getSiblingDB(\"authentication\")[\"subscriptionData.authenticationData.authenticationSubscription\"].countDocuments({}))'" 2>/dev/null | tr -d '\r')
+    info "subscribers provisioned: ${subs:-unknown} (expected $TESTBED_SUB_COUNT)"
 }
 
 cmd_core_status() {
@@ -541,8 +631,14 @@ cmd_app() {
     # the path looks broken in one direction only.
     local upf_n6; upf_n6=$(net_addr "$TESTBED_NET_N6" "$TESTBED_UPF_CORE_IP")
     info "routing the UE pool ($TESTBED_UE_POOL) back via the UPF at $upf_n6"
+    # `ip route replace` only replaces an IDENTICAL prefix, so widening the pool
+    # (a /24 to a /22, say) leaves the old route in place. Both point at the same
+    # gateway today, which is why it goes unnoticed — but the stale, more
+    # specific route silently wins, so it would quietly override a pool that had
+    # genuinely moved. Every route via the UPF's N6 address is a UE-pool route by
+    # construction, so clearing them first is precise rather than a blunt flush.
     install_unit "$NODE_APP" orbit-ue-route "Route the UE pool back through the UPF" \
-        "/sbin/ip route replace $TESTBED_UE_POOL via $upf_n6 dev eth.n6"
+        "/bin/sh -c '/sbin/ip route show via $upf_n6 dev eth.n6 | awk \"{print \\\$1}\" | xargs -r -n1 /sbin/ip route del; /sbin/ip route replace $TESTBED_UE_POOL via $upf_n6 dev eth.n6'"
     lxc_do exec "$NODE_APP" -- bash -c "sed -i 's|^Restart=on-failure|Type=oneshot\nRemainAfterExit=yes|' /etc/systemd/system/orbit-ue-route.service && systemctl daemon-reload && systemctl restart orbit-ue-route" >/dev/null 2>&1 || true
 
     info "starting the responder on $n6:9551"
@@ -662,6 +758,9 @@ $PROG — LXD testbed for ORBIT (separated N2/N3/N6)
   $PROG ran                install ORBIT on the RAN node
   $PROG apps               both of the above
   $PROG all                image + up + core + apps, from nothing to ready
+  $PROG reprovision        repopulate MongoDB after a mongo or core-node
+                           restart (its datadir is an emptyDir, so a restart
+                           empties both the subscribers and the NRF registry)
   $PROG console <node>     attach to a node's console (autologin root)
   $PROG ssh <node> [cmd]   ssh to a node (needs TESTBED_SSH_PUBKEY at build time)
   $PROG down [--image]     remove everything this script created
@@ -679,6 +778,7 @@ case "${1:-}" in
     networks) shift; cmd_networks "$@" ;;
     status)   shift; cmd_status "$@" ;;
     core)     shift; cmd_core "$@" ;;
+    reprovision) shift; cmd_reprovision "$@" ;;
     core-status) shift; cmd_core_status "$@" ;;
     app)      shift; cmd_app "$@" ;;
     ran)      shift; cmd_ran "$@" ;;
