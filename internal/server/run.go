@@ -32,6 +32,9 @@ type runService struct {
 	// finished run still has a series to replay.
 	framesMu sync.Mutex
 	frames   map[string]*frameLog
+	// archive persists terminal runs so history survives a restart. Never nil;
+	// a disabled store is a no-op rather than a special case at each call site.
+	archive *archiveStore
 	// mgr is the same Manager the UE service drives. A fleet run borrows its
 	// N3 socket pool so an ad-hoc `orbit ue` session and a run cannot fight
 	// over one gNB's UDP bind — see engine.FleetDeps.
@@ -90,11 +93,27 @@ func (s *runService) ListRuns(
 ) (*connect.Response[orbitv1.ListRunsResponse], error) {
 	filter := runKindFromProto(req.Msg.GetKind())
 	var out []*orbitv1.Run
+	live := make(map[string]bool)
 	for _, info := range s.reg.List() {
+		live[info.ID] = true
 		if filter != "" && info.Kind != filter {
 			continue
 		}
 		out = append(out, runProto(info))
+	}
+	// Then runs that exist only on disk. The registry's list is already
+	// newest-first and every archived run predates every live one, so appending
+	// keeps the whole list ordered. Runs held in both are skipped here — the
+	// live record is the current one.
+	for _, a := range s.archive.list() {
+		r := a.GetRun()
+		if live[r.GetRunId()] {
+			continue
+		}
+		if filter != "" && runKindFromProto(r.GetKind()) != filter {
+			continue
+		}
+		out = append(out, r)
 	}
 	return connect.NewResponse(&orbitv1.ListRunsResponse{Runs: out}), nil
 }
@@ -106,6 +125,13 @@ func (s *runService) GetRun(
 	id := req.Msg.GetRunId()
 	info, err := s.reg.Get(id)
 	if err != nil {
+		if a, ok := s.archive.get(id); ok {
+			return connect.NewResponse(&orbitv1.GetRunResponse{
+				Run:           a.GetRun(),
+				LoadProgress:  a.GetLoadProgress(),
+				FleetProgress: a.GetFleetProgress(),
+			}), nil
+		}
 		return nil, runLookupError(err)
 	}
 	resp := &orbitv1.GetRunResponse{Run: runProto(info)}
@@ -132,6 +158,9 @@ func (s *runService) GetRunReport(
 	id := req.Msg.GetRunId()
 	info, err := s.reg.Get(id)
 	if err != nil {
+		if a, ok := s.archive.get(id); ok {
+			return archivedReportResponse(id, a)
+		}
 		return nil, runLookupError(err)
 	}
 	resp := &orbitv1.GetRunReportResponse{Run: runProto(info)}
@@ -160,6 +189,11 @@ func (s *runService) RunEvents(
 	id := req.Msg.GetRunId()
 	sub, err := s.reg.SubscribeEvents(id, req.Msg.GetFromSeq())
 	if err != nil {
+		// A run that exists only on disk has a complete, closed log: replay it
+		// and end the stream, rather than reporting the run as unknown.
+		if a, ok := s.archive.get(id); ok {
+			return sendArchivedEvents(stream, a, req.Msg.GetFromSeq())
+		}
 		return runLookupError(err)
 	}
 	defer sub.Close()
@@ -304,6 +338,10 @@ func (s *runService) sampleRun(id string, log *frameLog) {
 	t := time.NewTicker(sampleInterval)
 	defer t.Stop()
 
+	// done carries the terminal info so the run can be archived with its
+	// completed series; a run that vanished from the registry leaves it unset,
+	// because there is nothing left to archive.
+	var done *engine.RunInfo
 	sample := func() bool {
 		info, err := s.reg.Get(id)
 		if err != nil {
@@ -312,18 +350,32 @@ func (s *runService) sampleRun(id string, log *frameLog) {
 		f := s.telemetryFrame(id, info, uint32(sampleInterval.Milliseconds()), seq, &rates)
 		seq++
 		log.append(f)
-		return info.State.Terminal()
+		if info.State.Terminal() {
+			done = &info
+			return true
+		}
+		return false
+	}
+
+	// Archiving happens BEFORE the log closes, while the registry still holds
+	// the run: the archive needs its report, final snapshot and events, all of
+	// which go away when the record is evicted.
+	finish := func() {
+		if done != nil {
+			s.archiveRun(id, *done, log.retained())
+		}
+		log.close()
 	}
 
 	// An immediate first frame, so a subscriber attaching straight after the
 	// run starts has something rather than waiting a whole interval.
 	if sample() {
-		log.close()
+		finish()
 		return
 	}
 	for range t.C {
 		if sample() {
-			log.close()
+			finish()
 			return
 		}
 	}
@@ -336,7 +388,12 @@ func (s *runService) RunTelemetry(
 ) error {
 	id := req.Msg.GetRunId()
 	if _, err := s.reg.Get(id); err != nil {
-		return runLookupError(err)
+		// A restored run is not in the registry, but restoreFrames seeded its
+		// series — a pre-populated, closed log, which replays and ends. Only a
+		// run in neither place is unknown.
+		if _, ok := s.archive.get(id); !ok {
+			return runLookupError(err)
+		}
 	}
 
 	// Replay the retained series from the caller's resume point, then follow
@@ -854,6 +911,26 @@ func runKindFromProto(k orbitv1.RunKind) engine.RunKind {
 	default:
 		return "" // unspecified = no filter
 	}
+}
+
+// runStateLabel names a proto run state for a message. Only the archive path
+// needs it: everywhere else the engine's own RunState is still to hand.
+func runStateLabel(s orbitv1.RunState) string {
+	switch s {
+	case orbitv1.RunState_RUN_STATE_PENDING:
+		return string(engine.RunPending)
+	case orbitv1.RunState_RUN_STATE_RUNNING:
+		return string(engine.RunRunning)
+	case orbitv1.RunState_RUN_STATE_DRAINING:
+		return string(engine.RunDraining)
+	case orbitv1.RunState_RUN_STATE_COMPLETE:
+		return string(engine.RunComplete)
+	case orbitv1.RunState_RUN_STATE_FAILED:
+		return string(engine.RunFailed)
+	case orbitv1.RunState_RUN_STATE_CANCELLED:
+		return string(engine.RunCancelled)
+	}
+	return "UNSPECIFIED"
 }
 
 func runStateProto(s engine.RunState) orbitv1.RunState {
