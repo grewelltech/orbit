@@ -1,0 +1,97 @@
+# The full-dress population run: the whole 1000-subscriber pool across all ten
+# gNBs, every traffic type at once, mobility with Xn handovers, and an uneven
+# cell layout — 15 minutes of everything the testbed can exercise at the same
+# time.
+#
+# How the fleet divides. Half the fleet is mobile (the engine's split), so 500
+# UEs walk the grid and hand over between cells while the other 500 carry the
+# application mix below — shares apply to the traffic-carrying half, so
+# 0.5/0.3/0.2 gives ~250 http, ~150 video, ~100 voip. Handovers are Xn —
+# the only kind fleet mobility performs — and need the PDU sessions this file
+# enables: a path switch moves the UE's user plane, so there must be one.
+#
+# The uneven distribution is deliberate. A perfectly even 100-per-cell layout
+# is a property of the generator, not of anything real; "uneven" gives each
+# cell a random share (roughly 60-140 UEs) that still totals exactly 1000, and
+# with no distribution_seed the layout is fresh every run.
+#
+# Attach expectations, so the dashboard reads correctly: with PDU sessions this
+# core takes ~43 attaches/s (registration alone does ~160/s — a session
+# roughly triples the cost), so the population is up in ~25 seconds and the
+# attach tiles then hold their peak while the behaviours run.
+
+kind: fleet
+name: full-population
+
+core:
+  amf: 10.102.0.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slice: { sst: 1, sd: "010203" }
+  dnn: internet
+
+credentials:
+  ki: ${ORBIT_KI}
+  opc: ${ORBIT_OPC}
+
+topology:
+  gnbs:
+    count: 10
+    id_base: 500
+    layout: grid
+    spacing_m: 1000
+    source_ips:
+      - 10.102.0.20
+      - 10.102.0.21
+      - 10.102.0.22
+      - 10.102.0.23
+      - 10.102.0.24
+      - 10.102.0.25
+      - 10.102.0.26
+      - 10.102.0.27
+      - 10.102.0.28
+      - 10.102.0.29
+    n3_ips:
+      - 10.103.0.20
+      - 10.103.0.21
+      - 10.103.0.22
+      - 10.103.0.23
+      - 10.103.0.24
+      - 10.103.0.25
+      - 10.103.0.26
+      - 10.103.0.27
+      - 10.103.0.28
+      - 10.103.0.29
+
+fleet:
+  count: 1000
+  supi_base: "001010100007500"
+  distribution: uneven
+  attach_rate: 100/s
+  concurrency: 32
+  pdu_session: true
+
+behaviors:
+  mobility: { model: random_walk, speed: 20m/s, handover: xn }
+  traffic:
+    mix:
+      # ~250 members. 128KB objects with a short think keeps each flow around
+      # 2-3 Mbps, so the cohort offers several hundred Mbps in aggregate —
+      # heavy enough to matter without turning the run into a pure bandwidth
+      # saturation test that starves the other cohorts.
+      - { app: http, name: web, share: 0.5, peer: 10.106.0.30:9551,
+          params: { object_size: 128KB, think: "250ms" } }
+      # ~150 members at the default 2.5 Mbps ABR ladder.
+      - { app: video, name: video, share: 0.3, peer: 10.106.0.30:9551 }
+      # ~100 members; the far-end answerer latches one source per port, so the
+      # range must cover the cohort with headroom.
+      - { app: voip, name: voip, share: 0.2, peer: 10.106.0.30:9551,
+          params: { codec: pcmu, port_min: "40000", port_max: "40150" } }
+  latency:
+    target: 10.106.0.30
+    interval: 2s
+    ues: 10
+    timeout: 1s
+
+run:
+  duration: 900s
