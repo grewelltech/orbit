@@ -34,8 +34,8 @@ import {
 } from "@/gen/orbit/v1/run_pb";
 import { Emitter, type TelemetrySource } from "./source";
 import type {
+  ProcedureLatencySummary,
   EventSeverity,
-  LatencySummary,
   Quantiles,
   SourceState,
   TelemetryFrame,
@@ -413,22 +413,42 @@ function attachSuccessRatio(lp: LoadProgress | null, fp: FleetProgress | null): 
   return 1;
 }
 
-/** Picks the attach (or registration) procedure latency, in ms. */
+/**
+ * Picks the procedure whose latency the summary tile reports, in ms.
+ *
+ * Priority matters: on a mobility run handovers are the live control-plane
+ * work and attach finished minutes ago, so handovers win. On a static run
+ * there are none and attach is all there is.
+ *
+ * The chosen name travels WITH the numbers. Reporting the value alone let one
+ * tile mean "handover latency" in one scenario and "attach latency, measured
+ * during the opening burst and unchanged since" in another.
+ */
 /**
  * The headline control-plane latency. A load run measures attach; a fleet run
  * measures attach during its attach phase and then handovers for the rest of
  * the run, so the panel stays live instead of going flat once the population
  * is up. Preference order picks the procedure that is actually happening.
  */
-function attachLatency(lp: LoadProgress | null, fp: FleetProgress | null): LatencySummary {
-  const empty = { p50: 0, p90: 0, p99: 0, max: 0 };
+function attachLatency(
+  lp: LoadProgress | null,
+  fp: FleetProgress | null,
+): ProcedureLatencySummary {
+  const empty = { procedure: "", count: 0, p50: 0, p90: 0, p99: 0, max: 0 };
   const rows = lp?.latency ?? fp?.latency ?? [];
   if (rows.length === 0) return empty;
   const pick = (name: string) => rows.find((x) => x.procedure === name);
   const l =
     pick("handover_xn") ?? pick("handover_n2") ?? pick("attach") ?? pick("registration") ?? rows[0];
   if (!l) return empty;
-  return { p50: l.p50Ms, p90: l.p90Ms, p99: l.p99Ms, max: l.maxMs };
+  return {
+    procedure: l.procedure,
+    count: Number(l.count),
+    p50: l.p50Ms,
+    p90: l.p90Ms,
+    p99: l.p99Ms,
+    max: l.maxMs,
+  };
 }
 
 function severityName(s: PbSeverity): EventSeverity {

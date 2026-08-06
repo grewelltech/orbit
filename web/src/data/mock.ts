@@ -219,7 +219,14 @@ export class MockSource implements TelemetrySource {
 
     // ── latency degrades as the population grows (queueing at the core)
     const load = Math.min(1, this.sessionActive / Math.max(1, this.target));
-    const cpLatency = this.latency(18 + load * 55, 1.9);
+    // Attributed to "attach", and its sample count tracks the attached
+    // population — so the demo shows the same freeze a real run does once the
+    // attach phase ends, rather than a number that conveniently keeps moving.
+    const cpLatency = {
+      ...this.latency(18 + load * 55, 1.9),
+      procedure: "attach",
+      count: this.registered + this.sessionActive + this.failed,
+    };
     const upLatency = this.sessionActive > 0 ? this.latency(6 + load * 14, 1.5) : null;
 
     const ues: UeStateCounts = {
