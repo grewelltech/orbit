@@ -47,11 +47,17 @@ type GNBGen struct {
 
 // FleetSpec generates the UE population.
 type FleetSpec struct {
-	Count        int    `yaml:"count"`
-	SUPIBase     string `yaml:"supi_base"`
-	Distribution string `yaml:"distribution"` // "even" (default)
-	AttachRate   string `yaml:"attach_rate"`  // e.g. "10/s"
-	PDUSession   bool   `yaml:"pdu_session"`
+	Count    int    `yaml:"count"`
+	SUPIBase string `yaml:"supi_base"`
+	// Distribution spreads the population across the gNBs: "even" (default,
+	// exact round-robin) or "uneven" (random shares that still total Count).
+	Distribution string `yaml:"distribution"`
+	// DistributionSeed reproduces an "uneven" layout exactly. 0 draws a fresh
+	// one per run, so two runs of the same file differ — which is the point of
+	// asking for uneven, but not what you want when comparing two builds.
+	DistributionSeed int64  `yaml:"distribution_seed"`
+	AttachRate       string `yaml:"attach_rate"` // e.g. "10/s"
+	PDUSession       bool   `yaml:"pdu_session"`
 }
 
 // Behaviors run concurrently for Run.Duration.
@@ -227,6 +233,18 @@ func (f *FleetScenario) validate() error {
 		if len(t.Mix) > 0 && (sum < 0.999 || sum > 1.001) {
 			return fmt.Errorf("traffic mix shares must sum to 1.0, got %.3f", sum)
 		}
+	}
+	// Handover moves a UE's user plane between gNBs, so there has to be one.
+	//
+	// Without a PDU session the AMF has no SM context to switch and rejects
+	// every attempt — an Xn PathSwitchRequest draws "smContext is nil" and a
+	// Path Switch Request Failure. The run then reports 100% handover failures,
+	// which reads as a broken core or a broken handover implementation rather
+	// than as a scenario that asked for something incoherent.
+	if m := f.Behaviors.Mobility; m != nil && m.Handover != "" && !f.Fleet.PDUSession {
+		return fmt.Errorf("mobility.handover: %s needs fleet.pdu_session: true "+
+			"(a handover switches the UE's user-plane path, and without a PDU session "+
+			"there is no path to switch — the AMF rejects every attempt)", m.Handover)
 	}
 	return nil
 }
