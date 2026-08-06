@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
@@ -24,6 +26,12 @@ import (
 type runService struct {
 	log *slog.Logger
 	reg *engine.RunRegistry
+
+	// frames holds each run's retained telemetry series, produced by one
+	// sampler per run so every subscriber reads the same frames — and so a
+	// finished run still has a series to replay.
+	framesMu sync.Mutex
+	frames   map[string]*frameLog
 	// mgr is the same Manager the UE service drives. A fleet run borrows its
 	// N3 socket pool so an ad-hoc `orbit ue` session and a run cannot fight
 	// over one gNB's UDP bind — see engine.FleetDeps.
@@ -47,6 +55,7 @@ func (s *runService) StartRun(
 		if err != nil {
 			return nil, runStartError(err)
 		}
+		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
 		fn, err := fleetRunFunc(s.log, s.mgr, spec.Fleet, verbosity)
@@ -57,6 +66,7 @@ func (s *runService) StartRun(
 		if err != nil {
 			return nil, runStartError(err)
 		}
+		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("a run spec is required (load or fleet)"))
@@ -246,6 +256,79 @@ const (
 	telemetryDefaultInterval = 1 * time.Second
 )
 
+// sampleInterval is the canonical cadence a run's series is produced at. One
+// schedule per run rather than one per subscriber: retained history has to be a
+// single series, and two viewers seeing different samples of the same run was
+// never a feature.
+const sampleInterval = time.Second
+
+// frameLogFor returns a run's frame log, creating it — and starting its
+// sampler — on first use.
+//
+// The sampler is tied to the run EXISTING, not to StartRun having been called:
+// a run created any other way (the registry directly, as tests do) would
+// otherwise have a log nothing ever writes to or closes, and a telemetry
+// subscriber would wait on it forever.
+func (s *runService) frameLogFor(id string) *frameLog {
+	s.framesMu.Lock()
+	if s.frames == nil {
+		s.frames = make(map[string]*frameLog)
+	}
+	l, ok := s.frames[id]
+	if !ok {
+		l = newFrameLog(DefaultFrameCap)
+		s.frames[id] = l
+	}
+	start := !l.sampling
+	l.sampling = true
+	s.framesMu.Unlock()
+
+	if start {
+		go s.sampleRun(id, l)
+	}
+	return l
+}
+
+// startSampler begins a run's series at the moment it starts, rather than when
+// something first subscribes — history that only began when someone looked
+// would not be history.
+func (s *runService) startSampler(id string) { s.frameLogFor(id) }
+
+// sampleRun produces a run's telemetry series until it is terminal, then emits
+// one final frame and closes the log. Rates are derived here, once, so every
+// subscriber reads the same numbers; each stream previously computed its own
+// from its own cadence, which is why there was no single series to retain.
+func (s *runService) sampleRun(id string, log *frameLog) {
+	var rates fleetRates
+	var seq uint64
+	t := time.NewTicker(sampleInterval)
+	defer t.Stop()
+
+	sample := func() bool {
+		info, err := s.reg.Get(id)
+		if err != nil {
+			return true // evicted from history; nothing left to sample
+		}
+		f := s.telemetryFrame(id, info, uint32(sampleInterval.Milliseconds()), seq, &rates)
+		seq++
+		log.append(f)
+		return info.State.Terminal()
+	}
+
+	// An immediate first frame, so a subscriber attaching straight after the
+	// run starts has something rather than waiting a whole interval.
+	if sample() {
+		log.close()
+		return
+	}
+	for range t.C {
+		if sample() {
+			log.close()
+			return
+		}
+	}
+}
+
 func (s *runService) RunTelemetry(
 	ctx context.Context,
 	req *connect.Request[orbitv1.RunTelemetryRequest],
@@ -256,53 +339,44 @@ func (s *runService) RunTelemetry(
 		return runLookupError(err)
 	}
 
-	interval := telemetryDefaultInterval
-	if req.Msg.GetIntervalMs() > 0 {
-		interval = time.Duration(req.Msg.GetIntervalMs()) * time.Millisecond
-	}
-	if interval < telemetryMinInterval {
-		interval = telemetryMinInterval
-	}
-	if interval > telemetryMaxInterval {
-		interval = telemetryMaxInterval
-	}
+	// Replay the retained series from the caller's resume point, then follow
+	// live. This is what lets a reload, or a client attaching to a run already
+	// under way, start with the run's history instead of an empty chart — and
+	// it is why a finished run has anything to send at all.
+	sub := s.frameLogFor(id).subscribeFrom(req.Msg.GetFromSeq())
+	defer sub.Close()
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	var seq uint64
-	// Rate state is per-stream, not per-run: a slow client's frames are spaced
-	// by its own coalesced ticks, so deriving rates here gives each subscriber
-	// figures over the interval it actually observed.
-	var rates fleetRates
-	// Each iteration sends one complete snapshot. A slow client backpressures
-	// Send, which stalls the loop and coalesces ticks — frames are naturally
-	// sampled, not queued, which is the whole point of self-contained frames.
-	send := func() (terminal bool, err error) {
-		info, err := s.reg.Get(id)
-		if err != nil {
-			// The run was evicted from history mid-stream; end cleanly.
-			return true, nil
+	first := true
+	send := func(f *orbitv1.TelemetryFrame) error {
+		if first {
+			first = false
+			// Stated once, on the first frame: a gap the ring could not cover
+			// is reported rather than drawn as continuous.
+			if d := sub.DroppedBefore; d > 0 {
+				cp, _ := proto.Clone(f).(*orbitv1.TelemetryFrame)
+				cp.DroppedBefore = d
+				f = cp
+			}
 		}
-		frame := s.telemetryFrame(id, info, uint32(interval.Milliseconds()), seq, &rates)
-		seq++
-		if err := stream.Send(frame); err != nil {
-			return false, err
-		}
-		return info.State.Terminal(), nil
+		return stream.Send(f)
 	}
 
-	// Send an immediate first frame so a client sees state without waiting a
-	// full interval, then one final frame once the run is terminal.
-	if terminal, err := send(); err != nil || terminal {
-		return err
+	for _, f := range sub.Backlog {
+		if err := send(f); err != nil {
+			return err
+		}
 	}
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
-			if terminal, err := send(); err != nil || terminal {
+		case f, ok := <-sub.Ch:
+			if !ok {
+				// The run finished and the sampler closed the log; the caller
+				// has the whole series.
+				return nil
+			}
+			if err := send(f); err != nil {
 				return err
 			}
 		}

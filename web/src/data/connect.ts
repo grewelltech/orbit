@@ -207,7 +207,14 @@ export class ConnectSource implements TelemetrySource {
   }
 
   private async streamTelemetry(runId: string, signal: AbortSignal): Promise<void> {
-    for await (const frame of this.client.runTelemetry({ runId, intervalMs: FRAME_INTERVAL_MS }, { signal })) {
+    // fromSeq 0: replay the run's retained series before following it live, so
+    // a reload — or attaching to a run already under way — starts with its
+    // history rather than an empty chart. The server states any frames it could
+    // not cover as droppedBefore on the first one.
+    for await (const frame of this.client.runTelemetry(
+      { runId, intervalMs: FRAME_INTERVAL_MS, fromSeq: 0n },
+      { signal },
+    )) {
       const mapped = this.mapFrame(frame);
       if (mapped) this.frames.emit(mapped);
       this.prev = frame;

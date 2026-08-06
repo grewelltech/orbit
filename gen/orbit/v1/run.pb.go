@@ -1940,9 +1940,16 @@ func (x *GetRunResponse) GetFleetProgress() *FleetProgress {
 type RunTelemetryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	RunId string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	// Requested cadence. The server clamps it to a supported range and reports
-	// the interval it actually applied in each frame.
-	IntervalMs    uint32 `protobuf:"varint,2,opt,name=interval_ms,json=intervalMs,proto3" json:"interval_ms,omitempty"`
+	// Requested cadence. The server samples a run on ONE canonical schedule so
+	// every subscriber sees the same series, and reports the interval it applied
+	// in each frame; this remains advisory.
+	IntervalMs uint32 `protobuf:"varint,2,opt,name=interval_ms,json=intervalMs,proto3" json:"interval_ms,omitempty"`
+	// Resume point: the first frame sequence the client wants. 0 replays the
+	// whole retained series, which is what makes a reload — or attaching to a
+	// run already in progress — start with its history rather than an empty
+	// chart. Frames evicted before this point are reported once as
+	// dropped_before on the first frame delivered.
+	FromSeq       uint64 `protobuf:"varint,3,opt,name=from_seq,json=fromSeq,proto3" json:"from_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1991,6 +1998,13 @@ func (x *RunTelemetryRequest) GetIntervalMs() uint32 {
 	return 0
 }
 
+func (x *RunTelemetryRequest) GetFromSeq() uint64 {
+	if x != nil {
+		return x.FromSeq
+	}
+	return 0
+}
+
 // TelemetryFrame is a complete snapshot of a run's aggregate state at an
 // instant — never a delta. Its size is independent of UE count: aggregates
 // only, no per-UE rows (per-UE detail is pulled via the UE service).
@@ -2005,6 +2019,10 @@ type TelemetryFrame struct {
 	FrameSeq  uint64   `protobuf:"varint,4,opt,name=frame_seq,json=frameSeq,proto3" json:"frame_seq,omitempty"`
 	State     RunState `protobuf:"varint,5,opt,name=state,proto3,enum=orbit.v1.RunState" json:"state,omitempty"`
 	ElapsedMs int64    `protobuf:"varint,6,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`
+	// Set on the first frame of a stream: how many frames before it were already
+	// evicted from the retained series, so a gap is stated rather than silently
+	// drawn as continuous.
+	DroppedBefore uint64 `protobuf:"varint,25,opt,name=dropped_before,json=droppedBefore,proto3" json:"dropped_before,omitempty"`
 	// Aggregate progress, by kind. Empty for a kind without live aggregates.
 	//
 	// Types that are valid to be assigned to Progress:
@@ -2084,6 +2102,13 @@ func (x *TelemetryFrame) GetState() RunState {
 func (x *TelemetryFrame) GetElapsedMs() int64 {
 	if x != nil {
 		return x.ElapsedMs
+	}
+	return 0
+}
+
+func (x *TelemetryFrame) GetDroppedBefore() uint64 {
+	if x != nil {
+		return x.DroppedBefore
 	}
 	return 0
 }
@@ -2823,11 +2848,12 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x0eGetRunResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12;\n" +
 	"\rload_progress\x18\x02 \x01(\v2\x16.orbit.v1.LoadProgressR\floadProgress\x12>\n" +
-	"\x0efleet_progress\x18\x03 \x01(\v2\x17.orbit.v1.FleetProgressR\rfleetProgress\"M\n" +
+	"\x0efleet_progress\x18\x03 \x01(\v2\x17.orbit.v1.FleetProgressR\rfleetProgress\"h\n" +
 	"\x13RunTelemetryRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1f\n" +
 	"\vinterval_ms\x18\x02 \x01(\rR\n" +
-	"intervalMs\"\xb6\x02\n" +
+	"intervalMs\x12\x19\n" +
+	"\bfrom_seq\x18\x03 \x01(\x04R\afromSeq\"\xdd\x02\n" +
 	"\x0eTelemetryFrame\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
 	"\tunix_nano\x18\x02 \x01(\x03R\bunixNano\x12\x1f\n" +
@@ -2836,7 +2862,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\tframe_seq\x18\x04 \x01(\x04R\bframeSeq\x12(\n" +
 	"\x05state\x18\x05 \x01(\x0e2\x12.orbit.v1.RunStateR\x05state\x12\x1d\n" +
 	"\n" +
-	"elapsed_ms\x18\x06 \x01(\x03R\telapsedMs\x12,\n" +
+	"elapsed_ms\x18\x06 \x01(\x03R\telapsedMs\x12%\n" +
+	"\x0edropped_before\x18\x19 \x01(\x04R\rdroppedBefore\x12,\n" +
 	"\x04load\x18\a \x01(\v2\x16.orbit.v1.LoadProgressH\x00R\x04load\x12/\n" +
 	"\x05fleet\x18\b \x01(\v2\x17.orbit.v1.FleetProgressH\x00R\x05fleetB\n" +
 	"\n" +
