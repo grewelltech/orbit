@@ -1,8 +1,10 @@
 # ORBIT usage
 
-How to drive ORBIT against a live 5G core. For the architecture and design
-rationale see [DESIGN.md](DESIGN.md); for known core-side issues and the
-`--core-profile` quirks see [interop/sdcore.md](interop/sdcore.md).
+How to drive ORBIT against a live 5G core. New here? Start with
+[QUICKSTART.md](QUICKSTART.md) — this page is the reference. For the
+architecture and design rationale see [DESIGN.md](DESIGN.md); for known
+core-side issues and the `--core-profile` quirks see
+[interop/sdcore.md](interop/sdcore.md).
 
 ## Prerequisites
 

@@ -297,6 +297,8 @@ Then `orbit run fleet.yaml` exactly as before.
 
 ## Documentation
 
+- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — the on-ramp: what you need from
+  the core operator, a smoke test in order, and a first scenario.
 - **[docs/USAGE.md](docs/USAGE.md)** — the practical guide: topology, every
   command with its flags, and common workflows.
 - **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, design decisions, and
