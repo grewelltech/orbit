@@ -6,7 +6,7 @@
  * for individual occurrences. Density is deliberate — an operator watching a
  * run should not have to scroll to see whether it is healthy.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Header } from "./Header";
 import { StatTile } from "@/components/StatTile";
 import { EventStream } from "@/panels/EventStream";
@@ -20,6 +20,8 @@ import {
   type SeriesDef,
 } from "@/panels/TimeSeriesPanel";
 import { MockSource } from "@/data/mock";
+import { useRuns } from "@/data/runs";
+import { RunPicker } from "@/app/RunPicker";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
 import type { TelemetryFrame } from "@/data/types";
@@ -32,13 +34,29 @@ import { bps, count, ms, pct } from "@/lib/format";
 const COHORT_APPS = ["voip", "http", "video"] as const;
 
 export function App() {
-  // The real RunService by default; ?mock forces the offline demo generator,
-  // and ?run=<id> pins a specific run instead of auto-selecting the active one.
+  // ?mock forces the offline demo generator; ?run=<id> pins a run, and is kept
+  // in step with the picker so a selection survives a reload and can be shared
+  // as a link.
+  const mock = useMemo(() => new URLSearchParams(window.location.search).has("mock"), []);
+  const [selectedRun, setSelectedRun] = useState<string | undefined>(
+    () => new URLSearchParams(window.location.search).get("run") ?? undefined,
+  );
+  const runs = useRuns();
+
+  // Switching runs replaces the source outright rather than mutating it: a
+  // stream carries one run's series, and tearing it down is how the hook knows
+  // to clear the history it holds instead of splicing two runs together.
   const source = useMemo<TelemetrySource>(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("mock")) return new MockSource();
-    const runId = params.get("run") ?? undefined;
-    return new ConnectSource(runId ? { runId } : {});
+    if (mock) return new MockSource();
+    return new ConnectSource(selectedRun ? { runId: selectedRun } : {});
+  }, [mock, selectedRun]);
+
+  const selectRun = useCallback((runId: string | undefined) => {
+    setSelectedRun(runId);
+    const url = new URL(window.location.href);
+    if (runId) url.searchParams.set("run", runId);
+    else url.searchParams.delete("run");
+    window.history.replaceState(null, "", url);
   }, []);
   const telemetry = useTelemetry(source);
   const { latest, history, events, state, clearEvents } = telemetry;
@@ -189,8 +207,10 @@ export function App() {
           />
         </section>
 
-        {/* One span control for every chart below it. */}
-        <div className="flex shrink-0 items-center gap-1.5">
+        {/* Controls: which run, and over what span. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+          {!mock && <RunPicker runs={runs} selected={selectedRun} onSelect={selectRun} />}
+          <div className="flex items-center gap-1.5">
           <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
             window
           </span>
@@ -211,6 +231,7 @@ export function App() {
               {w.label}
             </button>
           ))}
+          </div>
         </div>
 
         {/* Time series */}
