@@ -45,13 +45,7 @@ func (f *Fleet) LoadFunc(makeUE func(i int) (UEConfig, error)) load.AttachFunc {
 		if !res.Result.Registered {
 			return load.Sample{Err: fmt.Errorf("UE %s not registered", supi), SUPI: supi, GNB: gnbLabel}
 		}
-		m := map[string]time.Duration{"attach": time.Since(start)}
-		if regDur > 0 {
-			m["registration"] = regDur
-		}
-		if res.Result.SessionActive {
-			m["pdu_session"] = time.Since(start)
-		}
+		m := attachProcedureDurations(time.Since(start), regDur, res.Result.SessionActive)
 		return load.Sample{Metrics: m, SUPI: supi, GNB: gnbLabel}
 	}
 }
@@ -152,4 +146,29 @@ func incIMSI(base string, i int) (string, error) {
 		return "", fmt.Errorf("base IMSI %q: %w", base, err)
 	}
 	return fmt.Sprintf("%015d", n+int64(i)), nil
+}
+
+// attachProcedureDurations splits one attach into the procedures reported as
+// control-plane latency: the whole attach, the registration half, and the PDU
+// session establishment that follows it.
+//
+// pdu_session is the REMAINDER after registration, not the whole attach over
+// again. Recording total for both made the two report an identical
+// distribution, which looks like agreement between two measurements while
+// actually being one measurement written down twice — and it hides how the
+// attach budget divides between the control-plane and session halves.
+//
+// regDur == 0 means REGISTERED was never observed, so there is no split to
+// report: only the total is meaningful, and inventing a pdu_session value from
+// it would be the same conflation in another form.
+func attachProcedureDurations(total, regDur time.Duration, sessionActive bool) map[string]time.Duration {
+	m := map[string]time.Duration{ProcedureAttach: total}
+	if regDur <= 0 {
+		return m
+	}
+	m[ProcedureRegistration] = regDur
+	if sessionActive && total > regDur {
+		m[ProcedurePDUSession] = total - regDur
+	}
+	return m
 }

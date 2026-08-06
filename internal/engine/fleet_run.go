@@ -304,12 +304,8 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 	}
 	sess.gnbN3 = spec.GNBs[gi].N3Addr
 	sess.n3 = pool
-	live.RecordProcedure("attach", time.Since(start))
-	if regDur > 0 {
-		live.RecordProcedure("registration", regDur)
-	}
-	if sess.Result.SessionActive {
-		live.RecordProcedure("pdu_session", time.Since(start))
+	for name, d := range attachProcedureDurations(time.Since(start), regDur, sess.Result.SessionActive) {
+		live.RecordProcedure(name, d)
 	}
 	return &fleetUE{sess: sess, gnbIdx: gi}, nil
 }
