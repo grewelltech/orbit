@@ -79,12 +79,20 @@ type Conn struct {
 
 // Dial opens an SCTP association to raddr (host:port). If laddr is non-empty
 // the association binds that local address first — one distinct bind IP per
-// gNB is the multi-gNB plan (DESIGN §3). Data-IO events are subscribed so
-// reads return per-message stream/PPID info.
+// gNB is the multi-gNB plan (DESIGN §3). laddr may be "" (kernel chooses),
+// a bare IP (ephemeral port), or ip:port; see NormalizeLocal. Every N2
+// source address in ORBIT — CLI --bind flags, API bind_address fields,
+// scenario source_ips — funnels through here, so the accepted forms are
+// defined exactly once. Data-IO events are subscribed so reads return
+// per-message stream/PPID info.
 func Dial(laddr, raddr string) (*Conn, error) {
 	ra, err := resolve(raddr)
 	if err != nil {
 		return nil, fmt.Errorf("resolve remote %q: %w", raddr, err)
+	}
+	laddr, err = NormalizeLocal(laddr)
+	if err != nil {
+		return nil, err
 	}
 	var la *isctp.SCTPAddr
 	if laddr != "" {
@@ -136,6 +144,41 @@ func (c *Conn) ReadMsg(buf []byte) (payload []byte, stream uint16, ppid uint32, 
 }
 
 func (c *Conn) Close() error { return c.c.Close() }
+
+// LocalAddr returns the association's local (source) address as the kernel
+// bound it — with the real port when the caller asked for :0 — so a command
+// can report the N2 source it actually used rather than the one it asked
+// for. nil when the library cannot read it back.
+func (c *Conn) LocalAddr() net.Addr { return c.c.LocalAddr() }
+
+// NormalizeLocal canonicalises a local N2 source address for Dial. It
+// accepts the forms an operator reasonably writes and returns host:port or
+// "":
+//
+//   - ""            → "" (the kernel picks source address and port)
+//   - "10.0.0.1"    → "10.0.0.1:0" (ephemeral port)
+//   - "10.0.0.1:0"  → unchanged; any explicit port is kept as given
+//   - "::1"         → "[::1]:0" (bare IPv6 is bracketed, not mangled)
+//   - "[::1]:38412" → unchanged
+//
+// Anything else — a hostname, a trailing colon with no port, an IP with
+// brackets but no port — is an error naming the input, so a typo fails at the
+// flag rather than as an opaque bind failure.
+func NormalizeLocal(laddr string) (string, error) {
+	if laddr == "" {
+		return "", nil
+	}
+	if host, port, err := net.SplitHostPort(laddr); err == nil {
+		if host == "" || port == "" || net.ParseIP(host) == nil {
+			return "", fmt.Errorf("invalid local address %q (want ip or ip:port)", laddr)
+		}
+		return laddr, nil
+	}
+	if net.ParseIP(laddr) != nil {
+		return net.JoinHostPort(laddr, "0"), nil
+	}
+	return "", fmt.Errorf("invalid local address %q (want ip or ip:port)", laddr)
+}
 
 // OutStreams returns the number of outbound SCTP streams negotiated for this
 // association. NGAP spreads UE-associated signalling across streams to avoid
