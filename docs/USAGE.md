@@ -37,16 +37,28 @@ Every command that opens an N2 association — `cell ngsetup`, `ue register`,
 `ue handover` / `xn-handover`, `load`, `runs start-load` and `conformance` —
 takes `--bind <ip[:port]>`: the local address the gNB's SCTP association is
 bound to. A bare IP means an ephemeral port (`10.0.0.21` is `10.0.0.21:0`); an
-explicit port is kept as given; IPv6 is written bare (`fd00::21`) or bracketed
-with a port (`[fd00::21]:0`). Unset, the kernel picks the host's primary
-address on the route to the AMF, which on a RAN host carrying several N2
-addresses is rarely the one you meant.
+explicit port is kept as given; IPv6 is written bare (`fd00::21`, zoned
+`fe80::1%eth0`) or bracketed with a port (`[fd00::21]:0`); a hostname is
+resolved at dial time. Unset, the SCTP association is unbound and multi-homed:
+its INIT advertises every address the host has, and the AMF sees all of them.
+That is why `--bind` is recommended on any RAN host with more than one N2
+address, and why an unbound `n2-source=` line lists several addresses with an
+"(unbound: SCTP multi-homed across host addresses)" note.
+
+**Port rule:** a fixed (non-zero) port is legal only when exactly one
+association will use that `ip:port`; port 0 is always legal because every dial
+gets a fresh ephemeral port. So a `--bind` shared by several `load` gNBs must
+be a bare IP or `ip:0`, two gNBs may not name the same fixed `ip:port`, and
+`conformance --bind` must be port 0 because each check dials afresh and the
+liveness probe opens a second association from the same address. These are
+rejected before anything is dialled.
 
 `--bind` is the **N2** source; the user plane has its own flags (`--gnb-n3` on
 the UE and load commands, `--n3-bind` on `conformance`). Each command prints
 the N2 source it actually used as `n2-source=<ip:port>`, with the real port,
-so a capture or an AMF-side log can be matched to the run; `conformance --json`
-records it in the summary as `N2Source`.
+so a capture or an AMF-side log can be matched to the run. `conformance --json`
+records the configured bind as `N2Source` in `ip:0` form: every check dials its
+own association on its own ephemeral port, so there is no single port to show.
 
 `load` and `runs start-load` take a list: none (kernel default), one (shared by
 every gNB, which leaves the AMF telling them apart by gNB ID only — the command
