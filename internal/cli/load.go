@@ -97,7 +97,7 @@ func newLoadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printLoadReport(cmd.OutOrStdout(), rep)
+			printLoadReport(cmd.OutOrStdout(), rep, len(binds) > 0)
 
 			slo := load.SLO{MinSuccessRate: sloSuccess, Latency: map[string]load.LatencyBound{}}
 			if sloRegP99 > 0 {
@@ -234,11 +234,17 @@ func parseFloatInto(s string, dst *float64) error {
 	return err
 }
 
-func printLoadReport(w io.Writer, rep load.Report) {
+// printLoadReport writes the report; bound says whether --bind was given, so
+// an unbound multi-homed source can be explained rather than left puzzling.
+func printLoadReport(w io.Writer, rep load.Report, bound bool) {
 	fmt.Fprintf(w, "load: %d/%d attached in %s (%.1f attach/s)\n",
 		rep.Succeeded, rep.Attempted, rep.Duration.Round(time.Millisecond), rep.AchievedRate)
 	if len(rep.N2Sources) > 0 {
-		fmt.Fprintf(w, "  n2-source: %s\n", strings.Join(rep.N2Sources, " "))
+		line := strings.Join(rep.N2Sources, " ")
+		if !bound && strings.Contains(line, "/") {
+			line += unboundNote
+		}
+		fmt.Fprintf(w, "  n2-source: %s\n", line)
 	}
 	for _, name := range []string{"registration", "pdu_session", "attach"} {
 		s, ok := rep.Latencies[name]

@@ -28,6 +28,9 @@ func newConformanceCmd() *cobra.Command {
 		Use:   "conformance",
 		Short: "Run the core conformance / regression suite against a live core",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := conformance.ValidateBind(bind); err != nil {
+				return fmt.Errorf("--bind: %w", err)
+			}
 			env := conformance.Env{
 				AMFAddr: amf,
 				Bind:    bind,
@@ -71,7 +74,7 @@ func newConformanceCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
-	f.StringVar(&bind, "bind", "", bindFlagHelp)
+	f.StringVar(&bind, "bind", "", bindFlagHelp+"; port must be 0 (each check dials afresh)")
 	f.StringVar(&mcc, "mcc", "208", "MCC")
 	f.StringVar(&mnc, "mnc", "93", "MNC")
 	f.StringVar(&upfN3, "upf-n3", "", "UPF N3 endpoint host:port (enables GTP-U checks; run from the UPF access network)")

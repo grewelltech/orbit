@@ -37,7 +37,7 @@ func newCellCmd(serverURL *string) *cobra.Command {
 			res, err := cellClient(serverURL).RunNGSetup(cmd.Context(),
 				connect.NewRequest(&orbitv1.RunNGSetupRequest{
 					AmfAddress:   amf,
-					LocalAddress: ngsetupLocalAddress(bind, local),
+					LocalAddress: ngsetupLocalAddress(cmd.Flags().Changed("bind"), bind, local),
 					Gnb: &orbitv1.GnbConfig{
 						Id:     gnbID,
 						IdBits: gnbBits,
@@ -59,7 +59,8 @@ func newCellCmd(serverURL *string) *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "NG Setup rejected: %s\n", m.GetCause())
 			}
 			if src := m.GetLocalAddress(); src != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  n2-source=%s\n", src)
+				bound := ngsetupLocalAddress(cmd.Flags().Changed("bind"), bind, local) != ""
+				fmt.Fprintf(cmd.OutOrStdout(), "  n2-source=%s\n", n2SourceLabel(src, bound))
 			}
 			return nil
 		},
@@ -84,11 +85,11 @@ func newCellCmd(serverURL *string) *cobra.Command {
 	return cmd
 }
 
-// ngsetupLocalAddress picks the N2 source for `cell ngsetup`: --bind, or the
-// deprecated --local when --bind is unset. Both set, --bind wins — the
-// deprecated flag never overrides the current one.
-func ngsetupLocalAddress(bind, local string) string {
-	if bind != "" {
+// ngsetupLocalAddress picks the N2 source for `cell ngsetup`: --bind when it
+// was given (even as an explicit "" meaning kernel default), else the
+// deprecated --local. The deprecated flag never overrides the current one.
+func ngsetupLocalAddress(bindSet bool, bind, local string) string {
+	if bindSet {
 		return bind
 	}
 	return local

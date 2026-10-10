@@ -13,6 +13,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/load"
 )
 
 // Every command that opens an N2 association (it takes --amf) must take
@@ -88,6 +89,8 @@ func TestCellNGSetupBindPrecedence(t *testing.T) {
 		{name: "bind alone", flags: []string{"--bind", "10.0.0.21"}, want: "10.0.0.21"},
 		{name: "deprecated local alone still works", flags: []string{"--local", "10.0.0.22:0"}, want: "10.0.0.22:0"},
 		{name: "both: bind wins", flags: []string{"--local", "10.0.0.22:0", "--bind", "10.0.0.21"}, want: "10.0.0.21"},
+		{name: "explicit empty bind beats local", flags: []string{"--local", "10.0.0.22:0", "--bind", ""}, want: ""},
+		{name: "explicit empty bind via equals beats local", flags: []string{"--local", "10.0.0.22:0", "--bind="}, want: ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,15 +119,20 @@ func TestCellNGSetupBindPrecedence(t *testing.T) {
 }
 
 func TestNGSetupLocalAddress(t *testing.T) {
-	tests := []struct{ bind, local, want string }{
-		{"", "", ""},
-		{"a", "", "a"},
-		{"", "b", "b"},
-		{"a", "b", "a"},
+	tests := []struct {
+		bindSet     bool
+		bind, local string
+		want        string
+	}{
+		{false, "", "", ""},
+		{true, "a", "", "a"},
+		{false, "", "b", "b"},
+		{true, "a", "b", "a"},
+		{true, "", "b", ""}, // an explicit --bind "" means kernel default, over --local
 	}
 	for _, tc := range tests {
-		if got := ngsetupLocalAddress(tc.bind, tc.local); got != tc.want {
-			t.Errorf("ngsetupLocalAddress(%q, %q) = %q, want %q", tc.bind, tc.local, got, tc.want)
+		if got := ngsetupLocalAddress(tc.bindSet, tc.bind, tc.local); got != tc.want {
+			t.Errorf("ngsetupLocalAddress(%v, %q, %q) = %q, want %q", tc.bindSet, tc.bind, tc.local, got, tc.want)
 		}
 	}
 }
@@ -155,6 +163,9 @@ func TestLoadBindCountValidation(t *testing.T) {
 		{name: "two binds for three gNBs", gnbCount: "3", binds: []string{"--bind", "10.0.0.1,10.0.0.2"}, wantErr: "2 bind addresses for 3 gNBs"},
 		{name: "four binds for three gNBs", gnbCount: "3", binds: []string{"--bind", "10.0.0.1", "--bind", "10.0.0.2", "--bind", "10.0.0.3", "--bind", "10.0.0.4"}, wantErr: "4 bind addresses for 3 gNBs"},
 		{name: "two binds for one gNB", gnbCount: "1", binds: []string{"--bind", "10.0.0.1,10.0.0.2"}, wantErr: "2 bind addresses for 1 gNBs"},
+		{name: "shared fixed port", gnbCount: "2", binds: []string{"--bind", "10.0.0.1:38412"}, wantErr: `shared bind address "10.0.0.1:38412" has a fixed port`},
+		{name: "duplicate fixed port", gnbCount: "2", binds: []string{"--bind", "10.0.0.1:38412,10.0.0.1:38412"}, wantErr: `both "10.0.0.1:38412"`},
+		{name: "malformed", gnbCount: "1", binds: []string{"--bind", "10.0.0.1:0:0"}, wantErr: `invalid local address "10.0.0.1:0:0"`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,5 +235,66 @@ func TestRunsStartLoadSendsBindAddresses(t *testing.T) {
 	got := stub.startReq.GetLoad().GetBindAddresses()
 	if strings.Join(got, ",") != "10.0.0.21,10.0.0.22:0" {
 		t.Errorf("bind_addresses = %q", got)
+	}
+}
+
+func TestN2SourceLabel(t *testing.T) {
+	tests := []struct {
+		name  string
+		src   string
+		bound bool
+		want  string
+	}{
+		{name: "bound single address", src: "10.0.0.21:40001", bound: true, want: "10.0.0.21:40001"},
+		{name: "unbound single address", src: "10.0.0.21:40001", bound: false, want: "10.0.0.21:40001"},
+		{name: "unbound multi-homed gets the note", src: "10.0.0.21/192.168.0.2:40001", bound: false, want: "10.0.0.21/192.168.0.2:40001" + unboundNote},
+		{name: "bound multi-homed is printed as-is", src: "10.0.0.21/10.0.0.22:40001", bound: true, want: "10.0.0.21/10.0.0.22:40001"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := n2SourceLabel(tc.src, tc.bound); got != tc.want {
+				t.Errorf("n2SourceLabel(%q, %v) = %q, want %q", tc.src, tc.bound, got, tc.want)
+			}
+		})
+	}
+}
+
+// The load report header explains an unbound multi-homed source the same way.
+func TestPrintLoadReportUnboundNote(t *testing.T) {
+	rep := load.Report{N2Sources: []string{"10.0.0.21/192.168.0.2:40001", "10.0.0.21/192.168.0.2:40002"}}
+	var out bytes.Buffer
+	printLoadReport(&out, rep, false)
+	if !strings.Contains(out.String(), unboundNote) {
+		t.Errorf("unbound multi-homed load header lacks the note:\n%s", out.String())
+	}
+	out.Reset()
+	printLoadReport(&out, load.Report{N2Sources: []string{"10.0.0.21:40001"}}, true)
+	if strings.Contains(out.String(), unboundNote) {
+		t.Errorf("bound load header carries the unbound note:\n%s", out.String())
+	}
+}
+
+// `orbit conformance --bind` refuses a fixed port before dialling anything:
+// each check opens a fresh association and the liveness probe a second one,
+// so only an ephemeral port works.
+func TestConformanceBindRejectsFixedPort(t *testing.T) {
+	tests := []struct {
+		name, bind, wantErr string
+	}{
+		{name: "fixed port", bind: "10.0.0.1:38412", wantErr: "fixes a port"},
+		{name: "malformed", bind: "10.0.0.1:0:0", wantErr: `invalid local address "10.0.0.1:0:0"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := New("test")
+			var out bytes.Buffer
+			root.SetOut(&out)
+			root.SetErr(&out)
+			root.SetArgs([]string{"conformance", "--amf", "127.0.0.1:1", "--bind", tc.bind, "--per-test-timeout", "1s"})
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) || !strings.HasPrefix(err.Error(), "--bind:") {
+				t.Fatalf("err = %v, want --bind: ... %q", err, tc.wantErr)
+			}
+		})
 	}
 }
