@@ -86,7 +86,7 @@ func TestFleetParseAndGen(t *testing.T) {
 
 func TestFleetValidateErrors(t *testing.T) {
 	tooFewIPs := `kind: fleet
-core: { amf: x }
+core: { amf: x, plmn: { mcc: "001", mnc: "01" } }
 topology: { gnbs: { count: 3, source_ips: [a, b] } }
 fleet: { count: 1, supi_base: "1" }`
 	if _, err := ParseFleet([]byte(tooFewIPs)); err == nil {
@@ -94,7 +94,7 @@ fleet: { count: 1, supi_base: "1" }`
 	}
 
 	badMix := `kind: fleet
-core: { amf: x }
+core: { amf: x, plmn: { mcc: "001", mnc: "01" } }
 topology: { gnbs: { count: 1, source_ips: [a] } }
 fleet: { count: 2, supi_base: "1" }
 behaviors: { traffic: { mix: [ { profile: web, share: 0.3 } ] } }`

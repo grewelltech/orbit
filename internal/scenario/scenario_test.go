@@ -71,10 +71,10 @@ func TestValidateErrors(t *testing.T) {
 	if _, err := Parse([]byte(`core: {}`)); err == nil {
 		t.Error("want error for missing core.amf")
 	}
-	if _, err := Parse([]byte("core: {amf: x}\nues:\n  - {supi: \"1\", gnb: nope}\n")); err == nil {
+	if _, err := Parse([]byte("core: {amf: x, plmn: {mcc: \"001\", mnc: \"01\"}}\nues:\n  - {supi: \"1\", gnb: nope}\n")); err == nil {
 		t.Error("want error for UE referencing an unknown gNB")
 	}
-	if _, err := Parse([]byte("core: {amf: x}\ngnbs:\n  - {name: g}\n  - {name: g}\n")); err == nil {
+	if _, err := Parse([]byte("core: {amf: x, plmn: {mcc: \"001\", mnc: \"01\"}}\ngnbs:\n  - {name: g}\n  - {name: g}\n")); err == nil {
 		t.Error("want error for duplicate gNB name")
 	}
 }

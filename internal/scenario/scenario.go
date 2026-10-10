@@ -13,6 +13,8 @@ import (
 	"strconv"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 // Scenario is a whole test description.
@@ -27,6 +29,10 @@ type Scenario struct {
 }
 
 // Core is the target and the defaults inherited by every gNB and UE.
+//
+// plmn.mcc and plmn.mnc are required (${ORBIT_MCC}/${ORBIT_MNC} expand like
+// the credential references); tac, slice.sst and dnn take the CLI defaults
+// (1, 1, "internet") when zero or empty, and slice.sd defaults to no SD.
 type Core struct {
 	AMF   string `yaml:"amf"`
 	PLMN  PLMN   `yaml:"plmn"`
@@ -35,9 +41,52 @@ type Core struct {
 	DNN   string `yaml:"dnn"`
 }
 
+// Defaults applied to a scenario's core when a field is zero or empty — the
+// same values the CLI flags default to, so a file and a command line that
+// omit the same thing mean the same thing.
+const (
+	DefaultTAC = 1
+	DefaultSST = 1
+	DefaultDNN = "internet"
+)
+
+// PLMN is the home network. Both fields are strings so a leading zero in the
+// MNC survives: yaml.v3 keeps the source text of a scalar when decoding into
+// a string, so `mnc: 01` arrives as "01" even unquoted, but quoting it in
+// files is still the convention that makes the intent obvious.
 type PLMN struct {
 	MCC string `yaml:"mcc"`
 	MNC string `yaml:"mnc"`
+}
+
+// applyDefaults fills the defaulted core fields and validates the identity
+// with the rule the CLI and the API use (gnb.ValidateIdentity), so a file
+// cannot describe a network the commands would refuse.
+func (c *Core) applyDefaults() error {
+	if c.AMF == "" {
+		return fmt.Errorf("core.amf is required")
+	}
+	if c.PLMN.MCC == "" || c.PLMN.MNC == "" {
+		return fmt.Errorf("core.plmn.mcc and core.plmn.mnc are required (quote them: mcc: \"001\", mnc: \"01\"; ${ORBIT_MCC}/${ORBIT_MNC} expand)")
+	}
+	if c.TAC == 0 {
+		c.TAC = DefaultTAC
+	}
+	if c.Slice.SST == 0 && c.Slice.SD == "" {
+		c.Slice.SST = DefaultSST
+	}
+	if c.DNN == "" {
+		c.DNN = DefaultDNN
+	}
+	cfg := gnb.Config{MCC: c.PLMN.MCC, MNC: c.PLMN.MNC, TAC: c.TAC,
+		Slices: []gnb.SNSSAI{{SST: uint8(c.Slice.SST), SD: c.Slice.SD}}}
+	if c.Slice.SST > 0xFF {
+		return fmt.Errorf("core.slice.sst %d: must be 0-255", c.Slice.SST)
+	}
+	if err := cfg.ValidateIdentity(); err != nil {
+		return fmt.Errorf("core: %w", err)
+	}
+	return nil
 }
 
 type Slice struct {
@@ -140,8 +189,8 @@ func Load(path string) (*Scenario, error) {
 }
 
 func (s *Scenario) validate() error {
-	if s.Core.AMF == "" {
-		return fmt.Errorf("core.amf is required")
+	if err := s.Core.applyDefaults(); err != nil {
+		return err
 	}
 	names := map[string]bool{}
 	for _, g := range s.GNBs {
