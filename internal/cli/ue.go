@@ -217,6 +217,12 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 		Use:   "register",
 		Short: "Attach one UE to the core (Registration + optional PDU session)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Flags or $ORBIT_KI/$ORBIT_OPC, validated here so a missing or
+			// malformed key fails before the request leaves the client.
+			ki, opc, err := resolveCreds(ki, opc)
+			if err != nil {
+				return err
+			}
 			req := &orbitv1.RegisterRequest{
 				AmfAddress:  amf,
 				BindAddress: bind,
@@ -253,8 +259,8 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
 	f.StringVar(&bind, "bind", "", bindFlagHelp)
 	f.StringVar(&supi, "supi", "", "SUPI / IMSI, e.g. 208930100007500")
-	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex digits)")
-	f.StringVar(&opc, "opc", "", "operator key OPc (32 hex digits)")
+	f.StringVar(&ki, "ki", "", kiFlagHelp)
+	f.StringVar(&opc, "opc", "", opcFlagHelp)
 	f.StringVar(&rid, "routing-indicator", "0", "SUCI routing indicator")
 	f.StringVar(&name, "gnb-name", "orbit-gnb", "RAN node name")
 	f.Uint32Var(&gnbID, "gnb-id", 1, "gNB identifier")
@@ -268,7 +274,8 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 	f.Uint32Var(&pduID, "pdu-session-id", 1, "PDU session id")
 	f.StringVar(&dnn, "dnn", "internet", "data network name")
 	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address for the data path (reachable from the UPF)")
-	for _, r := range []string{"amf", "supi", "ki", "opc", "mcc", "mnc"} {
+	// Ki/OPc are not marked required: they may come from the environment.
+	for _, r := range []string{"amf", "supi", "mcc", "mnc"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
 	return cmd

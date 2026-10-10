@@ -118,6 +118,8 @@ build, or set `VERSION=` to download a release.
 
 ```sh
 # Attach one UE; add --pdu-session (+ --gnb-n3) for a data session.
+# --ki/--opc may be omitted when $ORBIT_KI/$ORBIT_OPC are exported (every
+# command that takes credentials falls back to them).
 orbit ue register --amf <host:port> --supi <imsi> --ki <hex> --opc <hex> \
     --mcc 208 --mnc 93 --sst 1 --sd 010203 --gnb-id 1 \
     --pdu-session --dnn internet --gnb-n3 <ip-reachable-from-upf>
