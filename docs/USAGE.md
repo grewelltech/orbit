@@ -67,7 +67,7 @@ count is an error. Addresses are never auto-incremented from a base; list the
 ones the host owns, as fleet scenarios do with `topology.gnbs.source_ips`.
 
 ```sh
-orbit cell ngsetup --amf <host:port> --mcc 208 --mnc 93 --bind 172.17.50.21
+orbit cell ngsetup --amf <host:port> --mcc 001 --mnc 01 --bind 172.17.50.21
 orbit ue register  ... --bind 172.17.50.21 --gnb-n3 172.17.50.21
 orbit load         ... --gnb-count 3 --bind 172.17.50.21,172.17.50.22,172.17.50.23
 orbit conformance  --amf <host:port> --bind 172.17.50.21 --json
@@ -75,6 +75,43 @@ orbit conformance  --amf <host:port> --bind 172.17.50.21 --json
 
 `cell ngsetup --local` is the old name for the same flag; it still works but is
 deprecated, and `--bind` wins if both are given.
+
+### Network identity (`--mcc --mnc --tac --sst --sd --dnn`)
+
+Every command that dials a core takes the same identity flags with the same
+meaning, help and defaults, and prints the identity it used on one line:
+
+```
+network: plmn=001/01 tac=1 snssai=1/010203 dnn=internet
+```
+
+- **PLMN is required and never guessed.** `--mcc` (3 digits) and `--mnc` (2 or
+  3 digits, leading zeros kept) come from the flags or, when both are absent,
+  from `$ORBIT_MCC`/`$ORBIT_MNC`, exactly as the keys fall back to
+  `$ORBIT_KI`/`$ORBIT_OPC`. Neither present is one error naming both sources.
+  A wrong PLMN produces an NG Setup Failure that reads like a core finding,
+  which is why the tool carries no default.
+- **Defaults for the rest:** `--tac 1`, `--sst 1`, `--sd ""` (no slice
+  differentiator), `--dnn internet` (where a PDU session is involved). SD-Core
+  wants `--sd 010203`; pass it explicitly, as every example here does. The
+  values are whatever your core is configured with.
+- **Handover inherits.** `ue handover` / `xn-handover` take the same flags but
+  with no defaults: anything left unset is copied from the UE's serving gNB, so
+  a same-network handover needs only `--gnb-id`, `--bind` and `--gnb-n3`. A
+  field given explicitly overrides the inherited one.
+- **Scenario files** need `core.plmn.mcc` and `core.plmn.mnc` (quote them, so
+  `"01"` is read as the string it is; `${ORBIT_MCC}`/`${ORBIT_MNC}` expand);
+  `core.tac`, `core.slice.sst` and `core.dnn` take the defaults above when
+  omitted.
+- `conformance --json` records the identity as `Network{MCC, MNC, TAC, SST,
+  SD}` next to `N2Source`, so a verdict says which network it was taken under.
+
+```sh
+export ORBIT_MCC=001 ORBIT_MNC=01
+orbit cell ngsetup --amf <host:port> --sd 010203                 # PLMN from the environment
+orbit ue register  --amf <host:port> --supi <imsi> --sd 010203 --gnb-id 1
+orbit ue xn-handover --supi <imsi> --amf <host:port> --gnb-id 2 --bind <ip> --gnb-n3 <ip>  # inherits
+```
 
 ## The server
 
@@ -121,7 +158,7 @@ build, or set `VERSION=` to download a release.
 # --ki/--opc may be omitted when $ORBIT_KI/$ORBIT_OPC are exported (every
 # command that takes credentials falls back to them).
 orbit ue register --amf <host:port> --supi <imsi> --ki <hex> --opc <hex> \
-    --mcc 208 --mnc 93 --sst 1 --sd 010203 --gnb-id 1 \
+    --mcc 001 --mnc 01 --sst 1 --sd 010203 --gnb-id 1 \
     --pdu-session --dnn internet --gnb-n3 <ip-reachable-from-upf>
 
 orbit ue status     --supi <imsi>
@@ -300,7 +337,7 @@ against a mock for the former and the real core for the latter.
 ```sh
 # Rate-controlled attach storm with an SLO gate (non-zero exit on breach):
 orbit load --amf <host:port> --base-imsi 208930100007500 --count 100 \
-    --ki <hex> --opc <hex> --mcc 208 --mnc 93 \
+    --ki <hex> --opc <hex> --mcc 001 --mnc 01 --sd 010203 \
     --rate 20 --concurrency 64 \
     --slo-min-success 0.99 --slo-reg-p99 3s
 
@@ -361,7 +398,7 @@ of the file:
 name: attach-and-handover
 core:
   amf: 172.17.50.11:38412
-  plmn: { mcc: "208", mnc: "93" }
+  plmn: { mcc: "001", mnc: "01" }      # quoted, so "01" stays "01"
   tac: 1
   slice: { sst: 1, sd: "010203" }
   dnn: internet

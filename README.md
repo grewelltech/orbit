@@ -108,7 +108,7 @@ Every scenario step is also a command:
 
 ```sh
 orbit ue register --amf 172.17.50.11:38412 --supi 208930100007500 \
-    --ki <hex> --opc <hex> --mcc 208 --mnc 93 --sst 1 --sd 010203 \
+    --ki <hex> --opc <hex> --mcc 001 --mnc 01 --sst 1 --sd 010203 \
     --gnb-id 1 --pdu-session --gnb-n3 <ip-reachable-from-upf>
 orbit ue ping    --supi 208930100007500 --dst 8.8.8.8
 orbit ue latency --supi 208930100007500 --target 8.8.8.8
@@ -118,7 +118,7 @@ orbit ue xn-handover --supi 208930100007500 --amf 172.17.50.11:38412 \
     --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13   # or: ue handover (N2)
 
 orbit load --amf 172.17.50.11:38412 --base-imsi 208930100007500 --count 100 \
-    --ki <hex> --opc <hex> --mcc 208 --mnc 93 --rate 20 --slo-min-success 0.99
+    --ki <hex> --opc <hex> --mcc 001 --mnc 01 --sd 010203 --rate 20 --slo-min-success 0.99
 orbit conformance --amf 172.17.50.11:38412 --json
 ```
 
@@ -167,7 +167,7 @@ kind: fleet
 name: single-node-smoke
 core:
   amf: <amf-ip>:38412
-  plmn: { mcc: "208", mnc: "93" }     # your core's values
+  plmn: { mcc: "001", mnc: "01" }     # your core's values; keep the quotes so "01" stays "01"
   tac: 1
   slice: { sst: 1, sd: "010203" }
   dnn: internet
@@ -197,7 +197,7 @@ orbit run fleet.yaml
 
 ```
 ▶ single-node-smoke
-  core:     <amf-ip>:38412  PLMN 208/93
+  core:     <amf-ip>:38412  PLMN 001/01
   topology: 2 gNBs (ids 1–2), grid, source IPs <gnb1-ip>, <gnb2-ip>
   fleet:    20 UEs (208930100007500…), even across gNBs, attach 5/s, PDU sessions
   mobility: random_walk @ 3m/s, xn handover
@@ -274,7 +274,7 @@ the remote addresses in: `core.amf: 10.32.2.10:38412`,
 ```sh
 # Ki/OPc come from $ORBIT_KI/$ORBIT_OPC (exported in step 5 above) when --ki/--opc are omitted.
 orbit ue register --amf 10.32.2.10:38412 --supi <imsi> \
-    --mcc 208 --mnc 93 --sst 1 --sd 010203 --gnb-id 90 --pdu-session --gnb-n3 10.32.3.120
+    --mcc 001 --mnc 01 --sst 1 --sd 010203 --gnb-id 90 --pdu-session --gnb-n3 10.32.3.120
 orbit ue ping --supi <imsi> --dst 8.8.8.8    # 3/3 replies = N2, N3, and routing all good
 orbit ue deregister --supi <imsi>
 ```

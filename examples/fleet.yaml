@@ -14,7 +14,7 @@ name: dc-fleet-soak
 
 core:
   amf: 172.17.50.11:38412
-  plmn: { mcc: "208", mnc: "93" }
+  plmn: { mcc: "001", mnc: "01" }
   tac: 1
   slice: { sst: 1, sd: "010203" }
   dnn: internet
