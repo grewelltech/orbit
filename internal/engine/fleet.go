@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"sync/atomic"
 
@@ -22,20 +23,84 @@ type GNBSpec struct {
 	BindAddr string
 }
 
+// n2Conn is an N2 association as the engine needs it: a gNB transport that
+// can also report the local address the kernel bound, so callers can show
+// the N2 source actually in use.
+type n2Conn interface {
+	gnb.Transport
+	LocalAddr() net.Addr
+}
+
+// n2Dialer opens one N2 association from laddr (see sctp.NormalizeLocal for
+// the accepted forms; "" lets the kernel choose) to the AMF at raddr. It is
+// the seam that lets the bind plumbing be tested against an in-process AMF
+// without kernel SCTP; production code uses dialN2.
+type n2Dialer func(laddr, raddr string) (n2Conn, error)
+
+// dialN2 is the production n2Dialer: a real SCTP association.
+func dialN2(laddr, raddr string) (n2Conn, error) {
+	return sctp.Dial(laddr, raddr)
+}
+
+// localAddrString renders a connection's bound local address, or "" when the
+// transport cannot report one.
+func localAddrString(c n2Conn) string {
+	if a := c.LocalAddr(); a != nil {
+		return a.String()
+	}
+	return ""
+}
+
+// ExpandBindAddrs maps the N2 source addresses an operator supplied onto n
+// gNBs. The rule is the same on every surface (CLI --bind, LoadRunSpec
+// bind_addresses):
+//
+//   - none  → every gNB lets the kernel choose (today's behaviour)
+//   - one   → every gNB shares that address (gNBs then differ only by ID, so
+//     callers should say so)
+//   - n     → one address per gNB, in order
+//   - other → an error naming both counts
+//
+// Addresses are not validated here; sctp.Dial normalises and rejects them at
+// dial time, in one place.
+func ExpandBindAddrs(binds []string, n int) ([]string, error) {
+	switch {
+	case len(binds) == 0:
+		return make([]string, n), nil
+	case len(binds) == 1:
+		out := make([]string, n)
+		for i := range out {
+			out[i] = binds[0]
+		}
+		return out, nil
+	case len(binds) == n:
+		return append([]string(nil), binds...), nil
+	default:
+		return nil, fmt.Errorf("%d bind addresses for %d gNBs: pass none (kernel chooses), one (shared by every gNB), or exactly %d (one per gNB)",
+			len(binds), n, n)
+	}
+}
+
 // Fleet holds one gNB.Session (one N2 association) per gNB and registers UEs
 // across them. A real gNB muxes its whole UE population over a single
 // association, so this is one association per gNB, not per UE.
 type Fleet struct {
 	sessions []*gnb.Session
+	sources  []string // N2 source address per session, as actually bound
 	log      *slog.Logger
 }
 
 // NewFleet dials one association per gNB (distinct bind address where given)
 // and performs NG Setup on each. All associations are torn down by Close.
 func NewFleet(ctx context.Context, gnbs []GNBSpec, log *slog.Logger) (*Fleet, error) {
+	return newFleet(ctx, gnbs, log, dialN2)
+}
+
+// newFleet is NewFleet with the N2 dialer injected.
+func newFleet(ctx context.Context, gnbs []GNBSpec, log *slog.Logger, dial n2Dialer) (*Fleet, error) {
 	f := &Fleet{log: log}
 	for _, g := range gnbs {
-		conn, err := sctp.Dial(g.BindAddr, g.AMFAddr)
+		conn, err := dial(g.BindAddr, g.AMFAddr)
 		if err != nil {
 			f.Close()
 			return nil, fmt.Errorf("gNB %d dial %s: %w", g.Config.ID, g.AMFAddr, err)
@@ -47,8 +112,16 @@ func NewFleet(ctx context.Context, gnbs []GNBSpec, log *slog.Logger) (*Fleet, er
 			return nil, fmt.Errorf("gNB %d NG Setup: %w", g.Config.ID, err)
 		}
 		f.sessions = append(f.sessions, sess)
+		f.sources = append(f.sources, localAddrString(conn))
 	}
 	return f, nil
+}
+
+// N2Sources returns the local N2 address each gNB's association actually
+// bound, in gNB order — the real port even when the spec asked for :0, and
+// the kernel's choice when the spec left BindAddr empty.
+func (f *Fleet) N2Sources() []string {
+	return append([]string(nil), f.sources...)
 }
 
 // FleetResult summarises a fleet registration.

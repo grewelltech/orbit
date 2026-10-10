@@ -14,7 +14,6 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/loomgtp"
 	"github.com/bgrewell/orbit/internal/nas"
-	"github.com/bgrewell/orbit/internal/sctp"
 )
 
 // UE lifecycle states reported on StateStream and by Status.
@@ -47,6 +46,11 @@ type Session struct {
 	ranID int64
 	guti  []byte
 	gnbN3 string
+
+	// n2Source is the local address of the association the UE registered
+	// over, as the kernel bound it (immutable after Register; a handover
+	// opens a new association and does not rewrite it).
+	n2Source string
 
 	// proc serialises the UE's control-plane procedures — handover and
 	// deregistration — which rewrite the association (conn, amfID, ranID) and
@@ -151,6 +155,10 @@ type Manager struct {
 	// handover timestamps (appmetrics.go). Set once via EnableAppMetrics
 	// before serving; a nil *appMetrics is a valid no-op receiver.
 	appMetrics *appMetrics
+
+	// dial opens Register's N2 association; dialN2 in production, swapped
+	// by tests for an in-process AMF.
+	dial n2Dialer
 }
 
 // NewManager returns an empty session manager.
@@ -161,13 +169,18 @@ func NewManager(log *slog.Logger) *Manager {
 		hub:      newHub(),
 		profile:  coreprofile.Default(),
 		n3:       newN3Pool(),
+		dial:     dialN2,
 	}
 }
 
-// Register attaches one UE: it opens an SCTP association to amfAddr, performs
-// NG Setup, runs the attach FSM (emitting StateStream events), and retains
-// the session. A UE already registered under the same SUPI is rejected.
-func (m *Manager) Register(ctx context.Context, amfAddr string, gnbCfg gnb.Config, ueCfg UEConfig) (*AttachResult, error) {
+// Register attaches one UE through the gNB g: it opens an SCTP association
+// from g.BindAddr (empty = kernel's choice) to g.AMFAddr, performs NG Setup
+// with g.Config, runs the attach FSM (emitting StateStream events), and
+// retains the session. The N2 source actually bound is reported in
+// AttachResult.N2Source and on the Session. A UE already registered under
+// the same SUPI is rejected.
+func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*AttachResult, error) {
+	gnbCfg := g.Config
 	m.mu.Lock()
 	if _, ok := m.sessions[ueCfg.Sub.SUPI]; ok {
 		m.mu.Unlock()
@@ -175,7 +188,11 @@ func (m *Manager) Register(ctx context.Context, amfAddr string, gnbCfg gnb.Confi
 	}
 	m.mu.Unlock()
 
-	conn, err := sctp.Dial("", amfAddr)
+	dial := m.dial
+	if dial == nil {
+		dial = dialN2
+	}
+	conn, err := dial(g.BindAddr, g.AMFAddr)
 	if err != nil {
 		return nil, fmt.Errorf("SCTP dial: %w", err)
 	}
@@ -196,6 +213,8 @@ func (m *Manager) Register(ctx context.Context, amfAddr string, gnbCfg gnb.Confi
 		return nil, err
 	}
 	sess.setState(stateFromResult(sess.Result))
+	sess.n2Source = localAddrString(conn)
+	sess.Result.N2Source = sess.n2Source
 	sess.gnbN3 = ueCfg.GNBN3Addr
 	sess.n3 = m.n3              // data paths open on the Manager's shared per-gNB pool
 	sess.notify = m.hub.publish // correlation-visible data-path events (netstack.go)
@@ -432,6 +451,10 @@ func (s *Session) State() string {
 	defer s.stMu.RUnlock()
 	return s.state
 }
+
+// N2Source reports the local address of the N2 association the UE registered
+// over, as the kernel bound it. Empty for sessions built outside Register.
+func (s *Session) N2Source() string { return s.n2Source }
 
 // ServingGNB reports the cell currently serving the UE (snapshot). It follows
 // the UE across handovers, so it answers "where is this UE now?".

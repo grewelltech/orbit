@@ -120,6 +120,7 @@ func RunLoad(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report,
 	}
 
 	rep := load.Run(ctx, loadConfig(spec), f.LoadFunc(makeUE))
+	rep.N2Sources = f.N2Sources()
 	return rep, nil
 }
 
