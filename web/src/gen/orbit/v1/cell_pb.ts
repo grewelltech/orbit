@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/cell.proto.
  */
 export const file_orbit_v1_cell: GenFile = /*@__PURE__*/
-  fileDesc("ChNvcmJpdC92MS9jZWxsLnByb3RvEghvcmJpdC52MSIhCgZTbnNzYWkSCwoDc3N0GAEgASgNEgoKAnNkGAIgASgJIn8KCUduYkNvbmZpZxIKCgJpZBgBIAEoDRIPCgdpZF9iaXRzGAIgASgNEgwKBG5hbWUYAyABKAkSCwoDbWNjGAQgASgJEgsKA21uYxgFIAEoCRILCgN0YWMYBiABKA0SIAoGc2xpY2VzGAcgAygLMhAub3JiaXQudjEuU25zc2FpInUKEVJ1bk5HU2V0dXBSZXF1ZXN0EhMKC2FtZl9hZGRyZXNzGAEgASgJEhUKDWxvY2FsX2FkZHJlc3MYAiABKAkSIAoDZ25iGAMgASgLMhMub3JiaXQudjEuR25iQ29uZmlnEhIKCnRpbWVvdXRfbXMYBCABKA0iWwoSUnVuTkdTZXR1cFJlc3BvbnNlEhAKCGFjY2VwdGVkGAEgASgIEhAKCGFtZl9uYW1lGAIgASgJEg0KBWNhdXNlGAMgASgJEhIKCnJlcGx5X3BwaWQYBCABKA0yWAoLQ2VsbFNlcnZpY2USSQoKUnVuTkdTZXR1cBIbLm9yYml0LnYxLlJ1bk5HU2V0dXBSZXF1ZXN0Ghwub3JiaXQudjEuUnVuTkdTZXR1cFJlc3BvbnNlIgBCMFouZ2l0aHViLmNvbS9iZ3Jld2VsbC9vcmJpdC9nZW4vb3JiaXQvdjE7b3JiaXR2MWIGcHJvdG8z");
+  fileDesc("ChNvcmJpdC92MS9jZWxsLnByb3RvEghvcmJpdC52MSIhCgZTbnNzYWkSCwoDc3N0GAEgASgNEgoKAnNkGAIgASgJIn8KCUduYkNvbmZpZxIKCgJpZBgBIAEoDRIPCgdpZF9iaXRzGAIgASgNEgwKBG5hbWUYAyABKAkSCwoDbWNjGAQgASgJEgsKA21uYxgFIAEoCRILCgN0YWMYBiABKA0SIAoGc2xpY2VzGAcgAygLMhAub3JiaXQudjEuU25zc2FpInUKEVJ1bk5HU2V0dXBSZXF1ZXN0EhMKC2FtZl9hZGRyZXNzGAEgASgJEhUKDWxvY2FsX2FkZHJlc3MYAiABKAkSIAoDZ25iGAMgASgLMhMub3JiaXQudjEuR25iQ29uZmlnEhIKCnRpbWVvdXRfbXMYBCABKA0icgoSUnVuTkdTZXR1cFJlc3BvbnNlEhAKCGFjY2VwdGVkGAEgASgIEhAKCGFtZl9uYW1lGAIgASgJEg0KBWNhdXNlGAMgASgJEhIKCnJlcGx5X3BwaWQYBCABKA0SFQoNbG9jYWxfYWRkcmVzcxgFIAEoCTJYCgtDZWxsU2VydmljZRJJCgpSdW5OR1NldHVwEhsub3JiaXQudjEuUnVuTkdTZXR1cFJlcXVlc3QaHC5vcmJpdC52MS5SdW5OR1NldHVwUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM");
 
 /**
  * Snssai is one supported network slice (TS 38.413 §9.3.1.24).
@@ -115,7 +115,8 @@ export type RunNGSetupRequest = Message<"orbit.v1.RunNGSetupRequest"> & {
   amfAddress: string;
 
   /**
-   * Optional local bind address as host:port ("" = kernel default).
+   * Optional local N2 source address for the gNB's SCTP association, as ip
+   * or ip:port (ip alone = ephemeral port; "" = kernel default).
    *
    * @generated from field: string local_address = 2;
    */
@@ -173,6 +174,14 @@ export type RunNGSetupResponse = Message<"orbit.v1.RunNGSetupResponse"> & {
    * @generated from field: uint32 reply_ppid = 4;
    */
   replyPpid: number;
+
+  /**
+   * Local N2 source address the association actually used (host:port, with
+   * the real port even when local_address asked for :0).
+   *
+   * @generated from field: string local_address = 5;
+   */
+  localAddress: string;
 };
 
 /**

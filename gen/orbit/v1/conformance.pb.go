@@ -45,8 +45,12 @@ type RunConformanceRequest struct {
 	Categories []string `protobuf:"bytes,8,rep,name=categories,proto3" json:"categories,omitempty"`
 	// Per-test timeout in seconds (default 15). One hang must not stall the run.
 	PerTestSeconds uint32 `protobuf:"varint,9,opt,name=per_test_seconds,json=perTestSeconds,proto3" json:"per_test_seconds,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Local N2 source address for every check's SCTP association, as ip or
+	// ip:port (ip alone = ephemeral port; empty = kernel default). Checks run
+	// one at a time, so one address is one gNB on one address. N3 is n3_bind.
+	BindAddress   string `protobuf:"bytes,12,opt,name=bind_address,json=bindAddress,proto3" json:"bind_address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RunConformanceRequest) Reset() {
@@ -154,6 +158,13 @@ func (x *RunConformanceRequest) GetPerTestSeconds() uint32 {
 		return x.PerTestSeconds
 	}
 	return 0
+}
+
+func (x *RunConformanceRequest) GetBindAddress() string {
+	if x != nil {
+		return x.BindAddress
+	}
+	return ""
 }
 
 // ConformanceUpdate is one test's outcome, or (with done=true) the summary.
@@ -546,7 +557,7 @@ var File_orbit_v1_conformance_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
-	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\"\xaa\x02\n" +
+	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\"\xcd\x02\n" +
 	"\x15RunConformanceRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12\x10\n" +
@@ -562,7 +573,8 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
 	"categories\x18\b \x03(\tR\n" +
 	"categories\x12(\n" +
-	"\x10per_test_seconds\x18\t \x01(\rR\x0eperTestSeconds\"\xba\x01\n" +
+	"\x10per_test_seconds\x18\t \x01(\rR\x0eperTestSeconds\x12!\n" +
+	"\fbind_address\x18\f \x01(\tR\vbindAddress\"\xba\x01\n" +
 	"\x11ConformanceUpdate\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.orbit.v1.ConformanceResultR\x06result\x12\x12\n" +
 	"\x04done\x18\x02 \x01(\bR\x04done\x120\n" +

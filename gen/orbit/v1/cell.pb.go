@@ -180,7 +180,8 @@ type RunNGSetupRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// AMF N2 endpoint as host:port, e.g. "172.17.50.11:38412".
 	AmfAddress string `protobuf:"bytes,1,opt,name=amf_address,json=amfAddress,proto3" json:"amf_address,omitempty"`
-	// Optional local bind address as host:port ("" = kernel default).
+	// Optional local N2 source address for the gNB's SCTP association, as ip
+	// or ip:port (ip alone = ephemeral port; "" = kernel default).
 	LocalAddress string     `protobuf:"bytes,2,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
 	Gnb          *GnbConfig `protobuf:"bytes,3,opt,name=gnb,proto3" json:"gnb,omitempty"`
 	// Exchange timeout in milliseconds; 0 defaults to 10000.
@@ -257,7 +258,10 @@ type RunNGSetupResponse struct {
 	Cause string `protobuf:"bytes,3,opt,name=cause,proto3" json:"cause,omitempty"`
 	// PPID carried by the AMF reply; 60 is compliant, 0x3c000000 is the
 	// known SD-Core byte-swap quirk.
-	ReplyPpid     uint32 `protobuf:"varint,4,opt,name=reply_ppid,json=replyPpid,proto3" json:"reply_ppid,omitempty"`
+	ReplyPpid uint32 `protobuf:"varint,4,opt,name=reply_ppid,json=replyPpid,proto3" json:"reply_ppid,omitempty"`
+	// Local N2 source address the association actually used (host:port, with
+	// the real port even when local_address asked for :0).
+	LocalAddress  string `protobuf:"bytes,5,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -320,6 +324,13 @@ func (x *RunNGSetupResponse) GetReplyPpid() uint32 {
 	return 0
 }
 
+func (x *RunNGSetupResponse) GetLocalAddress() string {
+	if x != nil {
+		return x.LocalAddress
+	}
+	return ""
+}
+
 var File_orbit_v1_cell_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_cell_proto_rawDesc = "" +
@@ -342,13 +353,14 @@ const file_orbit_v1_cell_proto_rawDesc = "" +
 	"\rlocal_address\x18\x02 \x01(\tR\flocalAddress\x12%\n" +
 	"\x03gnb\x18\x03 \x01(\v2\x13.orbit.v1.GnbConfigR\x03gnb\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x04 \x01(\rR\ttimeoutMs\"\x80\x01\n" +
+	"timeout_ms\x18\x04 \x01(\rR\ttimeoutMs\"\xa5\x01\n" +
 	"\x12RunNGSetupResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x19\n" +
 	"\bamf_name\x18\x02 \x01(\tR\aamfName\x12\x14\n" +
 	"\x05cause\x18\x03 \x01(\tR\x05cause\x12\x1d\n" +
 	"\n" +
-	"reply_ppid\x18\x04 \x01(\rR\treplyPpid2X\n" +
+	"reply_ppid\x18\x04 \x01(\rR\treplyPpid\x12#\n" +
+	"\rlocal_address\x18\x05 \x01(\tR\flocalAddress2X\n" +
 	"\vCellService\x12I\n" +
 	"\n" +
 	"RunNGSetup\x12\x1b.orbit.v1.RunNGSetupRequest\x1a\x1c.orbit.v1.RunNGSetupResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"

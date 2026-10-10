@@ -42,7 +42,8 @@ message GnbConfig {
 message RunNGSetupRequest {
   // AMF N2 endpoint as host:port, e.g. "172.17.50.11:38412".
   string amf_address = 1;
-  // Optional local bind address as host:port ("" = kernel default).
+  // Optional local N2 source address for the gNB's SCTP association, as ip
+  // or ip:port (ip alone = ephemeral port; "" = kernel default).
   string local_address = 2;
   GnbConfig gnb = 3;
   // Exchange timeout in milliseconds; 0 defaults to 10000.
@@ -59,4 +60,7 @@ message RunNGSetupResponse {
   // PPID carried by the AMF reply; 60 is compliant, 0x3c000000 is the
   // known SD-Core byte-swap quirk.
   uint32 reply_ppid = 4;
+  // Local N2 source address the association actually used (host:port, with
+  // the real port even when local_address asked for :0).
+  string local_address = 5;
 }

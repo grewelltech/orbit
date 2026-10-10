@@ -363,8 +363,13 @@ type LoadRunSpec struct {
 	// Soak: resource-sample cadence (0 = off).
 	SampleIntervalMs uint32 `protobuf:"varint,12,opt,name=sample_interval_ms,json=sampleIntervalMs,proto3" json:"sample_interval_ms,omitempty"`
 	// Optional PDU session per UE.
-	PduSession    *PDUSession `protobuf:"bytes,13,opt,name=pdu_session,json=pduSession,proto3" json:"pdu_session,omitempty"`
-	GnbN3Addr     string      `protobuf:"bytes,14,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"` // gNB N3 for the data path (with pdu_session)
+	PduSession *PDUSession `protobuf:"bytes,13,opt,name=pdu_session,json=pduSession,proto3" json:"pdu_session,omitempty"`
+	GnbN3Addr  string      `protobuf:"bytes,14,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"` // gNB N3 for the data path (with pdu_session)
+	// Local N2 source addresses for the gNBs' SCTP associations, each ip or
+	// ip:port (ip alone = ephemeral port). Empty: the kernel chooses for every
+	// gNB. One: every gNB shares it. len(gnbs): one per gNB, in order. Any
+	// other count is rejected.
+	BindAddresses []string `protobuf:"bytes,15,rep,name=bind_addresses,json=bindAddresses,proto3" json:"bind_addresses,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -495,6 +500,13 @@ func (x *LoadRunSpec) GetGnbN3Addr() string {
 		return x.GnbN3Addr
 	}
 	return ""
+}
+
+func (x *LoadRunSpec) GetBindAddresses() []string {
+	if x != nil {
+		return x.BindAddresses
+	}
+	return nil
 }
 
 // FleetRunSpec launches a population run (topology + attach + continuous
@@ -2806,7 +2818,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x05state\x18\x04 \x01(\x0e2\x12.orbit.v1.RunStateR\x05state\x12*\n" +
 	"\x11started_unix_nano\x18\x05 \x01(\x03R\x0fstartedUnixNano\x12&\n" +
 	"\x0fended_unix_nano\x18\x06 \x01(\x03R\rendedUnixNano\x12\x14\n" +
-	"\x05error\x18\a \x01(\tR\x05error\"\xfc\x03\n" +
+	"\x05error\x18\a \x01(\tR\x05error\"\xa3\x04\n" +
 	"\vLoadRunSpec\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12'\n" +
@@ -2826,7 +2838,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x12sample_interval_ms\x18\f \x01(\rR\x10sampleIntervalMs\x125\n" +
 	"\vpdu_session\x18\r \x01(\v2\x14.orbit.v1.PDUSessionR\n" +
 	"pduSession\x12\x1e\n" +
-	"\vgnb_n3_addr\x18\x0e \x01(\tR\tgnbN3Addr\"l\n" +
+	"\vgnb_n3_addr\x18\x0e \x01(\tR\tgnbN3Addr\x12%\n" +
+	"\x0ebind_addresses\x18\x0f \x03(\tR\rbindAddresses\"l\n" +
 	"\fFleetRunSpec\x12#\n" +
 	"\rscenario_yaml\x18\x01 \x01(\tR\fscenarioYaml\x127\n" +
 	"\vcredentials\x18\x02 \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\"\xcd\x01\n" +
