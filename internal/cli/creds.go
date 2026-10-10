@@ -30,7 +30,7 @@ func resolveCreds(ki, opc string) (string, string, error) {
 		opc = os.Getenv("ORBIT_OPC")
 	}
 	if ki == "" || opc == "" {
-		return "", "", fmt.Errorf("Ki and OPc are required (--ki/--opc or $ORBIT_KI/$ORBIT_OPC)")
+		return "", "", fmt.Errorf("subscriber keys are required: pass --ki/--opc or set $ORBIT_KI/$ORBIT_OPC")
 	}
 	if _, err := auth.ParseHexKey("Ki", ki); err != nil {
 		return "", "", err

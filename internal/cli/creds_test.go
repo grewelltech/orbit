@@ -34,9 +34,9 @@ func TestResolveCreds(t *testing.T) {
 		{name: "env only", envKi: envKi, envOPc: envOPc, wantKi: envKi, wantOPc: envOPc},
 		{name: "both: flags win", flagKi: goodKi, flagOPc: goodOPc, envKi: envKi, envOPc: envOPc, wantKi: goodKi, wantOPc: goodOPc},
 		{name: "mixed: flag ki, env opc", flagKi: goodKi, envOPc: envOPc, wantKi: goodKi, wantOPc: envOPc},
-		{name: "neither", wantErr: "--ki/--opc or $ORBIT_KI/$ORBIT_OPC"},
-		{name: "ki only, no opc anywhere", flagKi: goodKi, wantErr: "--ki/--opc or $ORBIT_KI/$ORBIT_OPC"},
-		{name: "env opc only, no ki anywhere", envOPc: envOPc, wantErr: "--ki/--opc or $ORBIT_KI/$ORBIT_OPC"},
+		{name: "neither", wantErr: "pass --ki/--opc or set $ORBIT_KI/$ORBIT_OPC"},
+		{name: "ki only, no opc anywhere", flagKi: goodKi, wantErr: "pass --ki/--opc or set $ORBIT_KI/$ORBIT_OPC"},
+		{name: "env opc only, no ki anywhere", envOPc: envOPc, wantErr: "pass --ki/--opc or set $ORBIT_KI/$ORBIT_OPC"},
 		{name: "malformed flag ki", flagKi: "nothex", flagOPc: goodOPc, wantErr: "Ki"},
 		{name: "malformed flag opc", flagKi: goodKi, flagOPc: "0011", wantErr: "OPc"},
 		{name: "malformed env ki", envKi: "zz", envOPc: envOPc, wantErr: "Ki"},
@@ -137,7 +137,7 @@ func TestUERegisterCredsFromEnv(t *testing.T) {
 	}{
 		{name: "env only", envKi: envKi, envOPc: envOPc, wantKi: envKi, wantOPc: envOPc},
 		{name: "flags win", flags: []string{"--ki", goodKi, "--opc", goodOPc}, envKi: envKi, envOPc: envOPc, wantKi: goodKi, wantOPc: goodOPc},
-		{name: "neither", wantErr: "--ki/--opc or $ORBIT_KI/$ORBIT_OPC"},
+		{name: "neither", wantErr: "pass --ki/--opc or set $ORBIT_KI/$ORBIT_OPC"},
 		{name: "malformed env", envKi: "bad", envOPc: envOPc, wantErr: "Ki"},
 	}
 	for _, tc := range tests {
@@ -190,7 +190,7 @@ func TestLoadCredsFromEnv(t *testing.T) {
 		envKi, envOPc string
 		wantErr       string
 	}{
-		{name: "neither fails on credentials", wantErr: "--ki/--opc or $ORBIT_KI/$ORBIT_OPC"},
+		{name: "neither fails on credentials", wantErr: "pass --ki/--opc or set $ORBIT_KI/$ORBIT_OPC"},
 		{name: "malformed env fails on credentials", envKi: "bad", envOPc: envOPc, wantErr: "Ki"},
 		{name: "env resolves and the run proceeds to the bind check", envKi: envKi, envOPc: envOPc, wantErr: "--bind: 2 bind addresses for 3 gNBs"},
 		{name: "flags resolve and the run proceeds to the bind check", flags: []string{"--ki", goodKi, "--opc", goodOPc}, wantErr: "--bind: 2 bind addresses for 3 gNBs"},
