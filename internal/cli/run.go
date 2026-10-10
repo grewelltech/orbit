@@ -43,7 +43,12 @@ func newRunCmd(serverURL *string) *cobra.Command {
 				return err
 			}
 			if kind == "fleet" {
+				// Fleet mode drives the engine in-process and never builds a
+				// client, so it must not read or report --server/$ORBIT_SERVER.
 				return runFleet(cmd, data, metricsListen)
+			}
+			if err := applyServerURL(cmd, serverURL); err != nil {
+				return err
 			}
 
 			sc, err := scenario.Parse(data)

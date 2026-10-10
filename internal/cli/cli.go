@@ -63,10 +63,12 @@ func New(version string) *cobra.Command {
 	root.AddCommand(newServeCmd(version))
 	// The API clients resolve --server / $ORBIT_SERVER once, in a group-level
 	// hook, before any of their subcommands builds a client (serverurl.go).
+	// `run` resolves inside RunE instead: a `kind: fleet` scenario never talks
+	// to the server, so only its step path reads the variable.
 	root.AddCommand(withServerURL(newSystemCmd(&serverURL), &serverURL))
 	root.AddCommand(withServerURL(newCellCmd(&serverURL), &serverURL))
 	root.AddCommand(withServerURL(newUECmd(&serverURL), &serverURL))
-	root.AddCommand(withServerURL(newRunCmd(&serverURL), &serverURL))
+	root.AddCommand(newRunCmd(&serverURL))
 	root.AddCommand(withServerURL(newRunsCmd(&serverURL), &serverURL))
 	root.AddCommand(newLoadCmd())
 	root.AddCommand(newConformanceCmd())

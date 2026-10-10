@@ -135,7 +135,9 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
   `https://` URL (a bare `host:port` is rejected, naming where it came from).
   When the environment chose the server, the command says so on stderr before
   its first request: `server: http://10.127.0.21:8412 (from $ORBIT_SERVER)`.
-  `serve`, `load`, `conformance`, `responder` and `version` never read it, and
+  `serve`, `load`, `conformance`, `responder`, `version` and `run` with a
+  `kind: fleet` scenario never read it (fleet mode drives the engine
+  in-process; the step form of `run` is an API client and does), and
   `serve --listen` keeps its loopback default.
 
 ### Run as a service

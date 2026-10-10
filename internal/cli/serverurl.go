@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -66,8 +67,10 @@ func resolveServerURL(flag string) (string, serverSource, error) {
 	return raw, source, nil
 }
 
-// validateServerURL accepts an absolute http or https URL with a host. A path
-// prefix or trailing slash is fine: Connect joins the procedure path onto it.
+// validateServerURL accepts an absolute http or https URL with a hostname and,
+// if a port is given, one in 1..65535, so "fails before the first RPC" is
+// exact rather than left to the dial. A path prefix or trailing slash is
+// fine: Connect joins the procedure path onto it.
 func validateServerURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -76,39 +79,54 @@ func validateServerURL(raw string) error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("scheme %q is not http or https", u.Scheme)
 	}
-	if u.Host == "" {
+	if u.Hostname() == "" {
 		return fmt.Errorf("missing host")
+	}
+	if p := u.Port(); p != "" {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("port %q is not in 1..65535", p)
+		}
 	}
 	return nil
 }
 
-// withServerURL installs a PersistentPreRunE on a client command group that
-// resolves *serverURL in place, so every subcommand's client constructor sees
-// the final value without touching its call site. Only groups that talk to
-// the API server get it: `serve`, `load`, `conformance`, `responder` and
-// `version` never read $ORBIT_SERVER, so a malformed value cannot stop a
-// server from starting.
+// applyServerURL resolves *serverURL in place and, when $ORBIT_SERVER chose
+// it, prints one line to c's stderr before the first RPC, so a redirected
+// target shows in every transcript and log. Stderr only, so --json and piped
+// stdout are unchanged. Nothing is printed for an explicit flag (the operator
+// typed it) or for the default (nothing redirected the client).
 //
-// A fallback that is used is never silent: when the URL came from
-// $ORBIT_SERVER the hook prints one line to stderr before the first RPC, so a
-// redirected target shows in every transcript and log. Stderr only, so --json
-// and piped stdout are unchanged. Nothing is printed for an explicit flag
-// (the operator typed it) or for the default (nothing redirected the client).
+// withServerURL calls it from a group hook; `run` calls it directly on its
+// step path, because a `kind: fleet` scenario drives the engine in-process
+// and must neither be gated by the variable nor claim a redirect.
+func applyServerURL(c *cobra.Command, serverURL *string) error {
+	resolved, source, err := resolveServerURL(*serverURL)
+	if err != nil {
+		return err
+	}
+	if source == serverFromEnv {
+		// A failed stderr write is no reason to abort the command.
+		_, _ = fmt.Fprintf(c.ErrOrStderr(), "server: %s (from %s)\n", resolved, source)
+	}
+	*serverURL = resolved
+	return nil
+}
+
+// withServerURL installs a PersistentPreRunE on a client command group that
+// applies applyServerURL, so every subcommand's client constructor sees the
+// final value without touching its call site. Only groups whose every leaf
+// talks to the API server get it (system, cell, ue, runs): `serve`, `load`,
+// `conformance`, `responder` and `version` never read $ORBIT_SERVER, so a
+// malformed value cannot stop a server from starting. `run` is the one
+// client command without the hook: it is dual-mode, and only its step path
+// builds a client, so it resolves in RunE after reading the scenario kind.
 //
 // Cobra runs only the nearest PersistentPreRunE, so no descendant of a group
 // may define its own; TestServerURLHookCoversClientCommands guards that.
 func withServerURL(cmd *cobra.Command, serverURL *string) *cobra.Command {
 	cmd.PersistentPreRunE = func(c *cobra.Command, _ []string) error {
-		resolved, source, err := resolveServerURL(*serverURL)
-		if err != nil {
-			return err
-		}
-		if source == serverFromEnv {
-			// A failed stderr write is no reason to abort the command.
-			_, _ = fmt.Fprintf(c.ErrOrStderr(), "server: %s (from %s)\n", resolved, source)
-		}
-		*serverURL = resolved
-		return nil
+		return applyServerURL(c, serverURL)
 	}
 	return cmd
 }

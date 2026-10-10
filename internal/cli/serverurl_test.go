@@ -5,6 +5,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,6 +42,11 @@ func TestResolveServerURL(t *testing.T) {
 			wantErr: `invalid server URL "localhost:8412" (from $ORBIT_SERVER)`},
 		{name: "ftp scheme", env: "ftp://orbit.lab:8412", wantErr: `invalid server URL "ftp://orbit.lab:8412" (from $ORBIT_SERVER)`},
 		{name: "empty host", env: "http://", wantErr: `invalid server URL "http://" (from $ORBIT_SERVER)`},
+		{name: "port without host", env: "http://:8412", wantErr: `invalid server URL "http://:8412" (from $ORBIT_SERVER)`},
+		{name: "port out of range", env: "http://127.0.0.1:99999", wantErr: `invalid server URL "http://127.0.0.1:99999" (from $ORBIT_SERVER)`},
+		{name: "port zero", flag: "http://127.0.0.1:0", wantErr: `invalid server URL "http://127.0.0.1:0" (from --server)`},
+		{name: "ipv6 literal accepted", env: "http://[::1]:8412", want: "http://[::1]:8412", wantSrc: serverFromEnv},
+		{name: "no port accepted", env: "http://orbit.lab", want: "http://orbit.lab", wantSrc: serverFromEnv},
 		{name: "bad flag names the flag", flag: "not-a-url", env: "http://env:2",
 			wantErr: `invalid server URL "not-a-url" (from --server)`},
 		{name: "bad env ignored when flag set", flag: "http://flag:1", env: "garbage", want: "http://flag:1", wantSrc: serverFromFlag},
@@ -64,9 +71,20 @@ func TestResolveServerURL(t *testing.T) {
 	}
 }
 
-// clientGroups are the top-level commands whose subcommands talk to the API
+// hookedGroups are the top-level commands whose every leaf talks to the API
 // server; exactly these carry the --server resolution hook.
-var clientGroups = []string{"system", "cell", "ue", "run", "runs"}
+var hookedGroups = []string{"system", "cell", "ue", "runs"}
+
+// runCommand is the one dual-mode client command: a step scenario is an API
+// client and resolves --server in RunE, a `kind: fleet` scenario drives the
+// engine in-process and never reads $ORBIT_SERVER. It has no hook.
+const runCommand = "run"
+
+// localCommands are the top-level commands that never talk to the API server
+// and so never read $ORBIT_SERVER. With hookedGroups and runCommand this is
+// the whole top level: a new command must be classified in one of them, so a
+// client group added without withServerURL cannot pass as "local".
+var localCommands = []string{"version", "serve", "load", "conformance", "responder"}
 
 // leaves returns every runnable leaf below c with its full path.
 func leaves(c *cobra.Command, path string) []string {
@@ -80,19 +98,35 @@ func leaves(c *cobra.Command, path string) []string {
 	return out
 }
 
-// Every client group has the hook, nothing below a group overrides it (cobra
-// runs only the nearest PersistentPreRunE), and no non-client command has
-// one. Then, behaviourally: every client leaf fails on a malformed
-// $ORBIT_SERVER before doing anything else, while the commands that never
-// talk to the server are untouched by it.
+// Every hooked group has the hook, nothing below a group overrides it (cobra
+// runs only the nearest PersistentPreRunE), `run` resolves in RunE instead,
+// and no local command has a hook. Then, behaviourally: every hooked leaf
+// fails on a malformed $ORBIT_SERVER before doing anything else; `run` does
+// so only for a step scenario and ignores the variable for a fleet; the
+// commands that never talk to the server are untouched by it.
 func TestServerURLHookCoversClientCommands(t *testing.T) {
 	root := New("test")
 	isClient := map[string]bool{}
-	for _, g := range clientGroups {
+	for _, g := range hookedGroups {
 		isClient[g] = true
+	}
+	known := map[string]bool{runCommand: true}
+	for _, name := range append(append([]string{}, hookedGroups...), localCommands...) {
+		known[name] = true
+	}
+	for _, top := range root.Commands() {
+		if !known[top.Name()] {
+			t.Errorf("orbit %s: not classified; add it to hookedGroups (wrap it with withServerURL) or localCommands in serverurl_test.go", top.Name())
+		}
 	}
 	var clientLeaves []string
 	for _, top := range root.Commands() {
+		if top.Name() == runCommand {
+			if top.PersistentPreRunE != nil || top.PersistentPreRun != nil {
+				t.Error("orbit run: has a hook; it must resolve --server in RunE on the step path only")
+			}
+			continue
+		}
 		if isClient[top.Name()] {
 			if top.PersistentPreRunE == nil {
 				t.Errorf("orbit %s: client group has no PersistentPreRunE", top.Name())
@@ -121,6 +155,7 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	}
 
 	t.Setenv("ORBIT_SERVER", "not-a-url")
+	const wantURLErr = `invalid server URL "not-a-url" (from $ORBIT_SERVER)`
 	for _, leaf := range clientLeaves {
 		t.Run(leaf, func(t *testing.T) {
 			// One positional argument satisfies every leaf's Args rule; the hook
@@ -128,19 +163,65 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 			// RunE, so nothing here needs a server.
 			args := append(strings.Fields(leaf)[1:], "x")
 			err := execute(t, args...)
-			want := `invalid server URL "not-a-url" (from $ORBIT_SERVER)`
-			if err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("err = %v, want containing %q", err, want)
+			if err == nil || !strings.Contains(err.Error(), wantURLErr) {
+				t.Errorf("err = %v, want containing %q", err, wantURLErr)
 			}
 		})
 	}
+
+	// `run`: a step scenario is a client and fails on the URL before any
+	// request; a fleet scenario gets past URL handling (it fails later on its
+	// own terms, here validation) and prints no server line.
+	dir := t.TempDir()
+	stepFile := filepath.Join(dir, "step.yaml")
+	fleetFile := filepath.Join(dir, "fleet.yaml")
+	if err := os.WriteFile(stepFile, []byte("steps: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fleetFile, []byte("kind: fleet\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("orbit run step", func(t *testing.T) {
+		_, stderr, err := executeCapture(t, "run", stepFile)
+		if err == nil || !strings.Contains(err.Error(), wantURLErr) {
+			t.Errorf("err = %v, want containing %q", err, wantURLErr)
+		}
+		if stderr != "" {
+			t.Errorf("stderr = %q, want empty", stderr)
+		}
+	})
+	t.Run("orbit run fleet", func(t *testing.T) {
+		_, stderr, err := executeCapture(t, "run", fleetFile)
+		if err == nil {
+			t.Fatal("a bare fleet file ran; expected it to fail validation")
+		}
+		if strings.Contains(err.Error(), "invalid server URL") {
+			t.Errorf("fleet mode read $ORBIT_SERVER: %v", err)
+		}
+		if strings.Contains(stderr, "server:") {
+			t.Errorf("fleet mode printed the server line: %q", stderr)
+		}
+	})
+	t.Run("orbit run fleet with valid env prints nothing", func(t *testing.T) {
+		t.Setenv("ORBIT_SERVER", "http://192.0.2.1:8412")
+		_, stderr, err := executeCapture(t, "run", fleetFile)
+		if err == nil {
+			t.Fatal("a bare fleet file ran; expected it to fail validation")
+		}
+		if strings.Contains(stderr, "server:") {
+			t.Errorf("fleet mode printed the server line: %q", stderr)
+		}
+	})
 
 	// `version` runs to completion under a malformed $ORBIT_SERVER; the
 	// other non-client commands fail on an unknown flag, never on the URL.
 	if err := execute(t, "version"); err != nil {
 		t.Errorf("version: %v", err)
 	}
-	for _, name := range []string{"load", "conformance", "responder", "serve"} {
+	for _, name := range localCommands {
+		if name == "version" {
+			continue
+		}
 		err := execute(t, name, "--no-such-flag")
 		if err == nil || !strings.Contains(err.Error(), "unknown flag") {
 			t.Errorf("%s: err = %v, want unknown flag", name, err)
@@ -263,43 +344,43 @@ func TestUEListServerFromEnv(t *testing.T) {
 	}
 }
 
-// A fallback that is used is never silent: the hook prints the server line
-// exactly once, on stderr only, when $ORBIT_SERVER chose the URL, and not at
-// all for an explicit flag or the default. The leaf is `ue list`, one RPC
-// against a stub; the default case dials the loopback default and is refused.
+// A fallback that is used is never silent: applyServerURL prints the server
+// line exactly once, on stderr only, when $ORBIT_SERVER chose the URL, and
+// not at all for an explicit flag or the default; in every case the resolved
+// value is written back. Called directly so no connection is ever opened.
 func TestServerURLHookPrintsEnvSourceOnce(t *testing.T) {
+	const envURL = "http://192.0.2.1:8412"
+	const flagURL = "http://192.0.2.2:8412"
 	tests := []struct {
-		name     string
-		useFlag  bool
-		useEnv   bool
-		wantLine bool
+		name       string
+		flag       string
+		env        string
+		want       string
+		wantStderr string
 	}{
-		{name: "env prints once", useEnv: true, wantLine: true},
-		{name: "flag over env prints nothing", useFlag: true, useEnv: true},
-		{name: "neither prints nothing"},
+		{name: "env prints once", env: envURL, want: envURL, wantStderr: "server: " + envURL + " (from $ORBIT_SERVER)\n"},
+		{name: "flag over env prints nothing", flag: flagURL, env: envURL, want: flagURL},
+		{name: "neither prints nothing", want: defaultServerURL},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, stub := newUEListServer(t, "001010000000001")
-			env := ""
-			if tc.useEnv {
-				env = stub.URL
+			t.Setenv("ORBIT_SERVER", tc.env)
+			c := &cobra.Command{Use: "probe"}
+			var out, errOut bytes.Buffer
+			c.SetOut(&out)
+			c.SetErr(&errOut)
+			serverURL := tc.flag
+			if err := applyServerURL(c, &serverURL); err != nil {
+				t.Fatalf("applyServerURL: %v", err)
 			}
-			t.Setenv("ORBIT_SERVER", env)
-			var flags []string
-			if tc.useFlag {
-				flags = []string{"--server", stub.URL}
+			if serverURL != tc.want {
+				t.Errorf("resolved %q, want %q", serverURL, tc.want)
 			}
-			stdout, stderr, _ := executeCapture(t, append(flags, "ue", "list")...)
-			want := ""
-			if tc.wantLine {
-				want = "server: " + stub.URL + " (from $ORBIT_SERVER)\n"
+			if errOut.String() != tc.wantStderr {
+				t.Errorf("stderr = %q, want %q", errOut.String(), tc.wantStderr)
 			}
-			if stderr != want {
-				t.Errorf("stderr = %q, want %q", stderr, want)
-			}
-			if strings.Contains(stdout, "server:") {
-				t.Errorf("stdout carries the server line: %q", stdout)
+			if out.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", out.String())
 			}
 		})
 	}
