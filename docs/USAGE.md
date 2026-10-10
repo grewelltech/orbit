@@ -133,7 +133,10 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
   `$ORBIT_KI` / `$ORBIT_OPC`; when that is unset too, `http://127.0.0.1:8412`.
   An explicit flag always wins. The value must be an absolute `http://` or
   `https://` URL (a bare `host:port` is rejected, naming where it came from).
-  `serve`, `load`, `conformance`, `responder` and `version` never read it.
+  When the environment chose the server, the command says so on stderr before
+  its first request: `server: http://10.127.0.21:8412 (from $ORBIT_SERVER)`.
+  `serve`, `load`, `conformance`, `responder` and `version` never read it, and
+  `serve --listen` keeps its loopback default.
 
 ### Run as a service
 
