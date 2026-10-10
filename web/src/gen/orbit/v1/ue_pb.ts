@@ -513,7 +513,12 @@ export type HandoverRequest = Message<"orbit.v1.HandoverRequest"> & {
   supi: string;
 
   /**
-   * Target gNB to move the UE to.
+   * Target gNB to move the UE to. Its network identity is optional: when mcc
+   * and mnc are both empty the server copies the PLMN from the UE's serving
+   * gNB, a zero tac is copied likewise, and an empty slices list takes the
+   * serving gNB's slices. Any field given explicitly is kept. The result is
+   * validated like every other gNB config; an identity that is invalid even
+   * after inheriting is InvalidArgument.
    *
    * @generated from field: orbit.v1.GnbConfig target_gnb = 2;
    */

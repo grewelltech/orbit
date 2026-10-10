@@ -68,7 +68,7 @@ func TestFleetAppCohortsParse(t *testing.T) {
 func TestFleetAppCohortValidateErrors(t *testing.T) {
 	base := func(mix string) string {
 		return `kind: fleet
-core: { amf: x }
+core: { amf: x, plmn: { mcc: "001", mnc: "01" } }
 topology: { gnbs: { count: 1, source_ips: [a] } }
 fleet: { count: 10, supi_base: "1", pdu_session: PDU }
 behaviors: { traffic: { mix: [` + mix + `] } }`

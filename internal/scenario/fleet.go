@@ -184,8 +184,8 @@ func parseFleet(data []byte) (*FleetScenario, error) {
 const defaultSpacingM = 1000.0
 
 func (f *FleetScenario) validate() error {
-	if f.Core.AMF == "" {
-		return fmt.Errorf("core.amf is required")
+	if err := f.Core.applyDefaults(); err != nil {
+		return err
 	}
 	g := f.Topology.GNBs
 	if g.Count < 1 {

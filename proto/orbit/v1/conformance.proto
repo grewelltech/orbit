@@ -21,17 +21,18 @@ service ConformanceService {
 }
 
 message RunConformanceRequest {
-  // The core under test. The AMF N2 endpoint is required; everything else
-  // defaults to the server's conventions.
+  // The core under test. The AMF N2 endpoint and the PLMN are required: the
+  // server has no default PLMN, because a wrong-PLMN NG Setup Failure reads
+  // like a core finding. The rest defaults as on the CLI.
   string amf_address = 1;         // host:port, required
-  string mcc = 2;                 // default "001"
-  string mnc = 3;                 // default "01"
+  string mcc = 2;                 // 3 digits, required
+  string mnc = 3;                 // 2 or 3 digits (leading zeros kept), required
   uint32 tac = 4;                 // default 1
   // Supported slice broadcast in NG Setup. NG Setup fails without at least
-  // one, so these default rather than being required: sst defaults to 1, sd
-  // to "010203" (the testbed slice).
+  // one, so sst defaults to 1; sd has no default (empty = no SD; SD-Core
+  // wants "010203").
   uint32 sst = 10;                // default 1
-  string sd = 11;                 // default "010203"
+  string sd = 11;                 // default "" (no SD)
   // Base gNB ID. Each test presents a distinct ID above this base, because an
   // AMF does not cleanly re-key a reused gNB ID from a new association.
   uint32 gnb_id_base = 5;         // default 700

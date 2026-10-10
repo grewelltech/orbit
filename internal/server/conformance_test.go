@@ -69,7 +69,7 @@ func TestRunConformanceStreamsAndSummarises(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(),
 		connect.NewRequest(&orbitv1.RunConformanceRequest{
-			AmfAddress:     "127.0.0.1:1",
+			AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01",
 			PerTestSeconds: 2,
 			Categories:     []string{"procedural"},
 		}))
@@ -119,7 +119,7 @@ func TestRunConformanceBroadcastsASlice(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(),
 		connect.NewRequest(&orbitv1.RunConformanceRequest{
-			AmfAddress: "127.0.0.1:1", PerTestSeconds: 2,
+			AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2,
 		}))
 	if err != nil {
 		t.Fatal(err)

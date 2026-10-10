@@ -287,6 +287,28 @@ type Summary struct {
 	// own association, each on its own ephemeral port, so there is no single
 	// real port to report. Empty when the kernel chose.
 	N2Source string `json:",omitempty"`
+	// Network is the identity the checks presented to the core (PLMN, TAC,
+	// slice), so a verdict records which network it was taken under.
+	Network *NetworkIdentity `json:",omitempty"`
+}
+
+// NetworkIdentity is the PLMN, tracking area and slice a conformance run
+// presented, as recorded in the JSON summary.
+type NetworkIdentity struct {
+	MCC, MNC string
+	TAC      uint32
+	SST      uint32
+	SD       string
+}
+
+// Network reports the identity Env.GNB presents, for the summary. The first
+// supported slice is the one the checks register under.
+func (e Env) Network() *NetworkIdentity {
+	n := &NetworkIdentity{MCC: e.GNB.MCC, MNC: e.GNB.MNC, TAC: e.GNB.TAC}
+	if len(e.GNB.Slices) > 0 {
+		n.SST, n.SD = uint32(e.GNB.Slices[0].SST), e.GNB.Slices[0].SD
+	}
+	return n
 }
 
 // Summarize counts verdicts across results.

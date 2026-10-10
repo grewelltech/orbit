@@ -7,7 +7,15 @@
  * controls would muddle both.
  */
 import { useState } from "react";
-import { useConformance, type ConformanceResult } from "@/data/conformance";
+import {
+  identityComplete,
+  loadIdentity,
+  paramsFromIdentity,
+  saveIdentity,
+  useConformance,
+  type ConformanceResult,
+  type NetworkIdentity,
+} from "@/data/conformance";
 
 const VERDICT_COLOR: Record<string, string> = {
   PASS: "var(--o-accent)",
@@ -23,9 +31,29 @@ function verdictColor(v: string): string {
 
 const DEFAULT_AMF = "10.102.0.10:38412";
 
+// One field of the network identity: label, width and placeholder. The
+// server has no PLMN default, so the MCC/MNC placeholders are examples, not
+// values that get sent.
+const IDENTITY_FIELDS: { key: keyof NetworkIdentity; label: string; width: string; placeholder: string }[] = [
+  { key: "mcc", label: "MCC", width: "3.5rem", placeholder: "001" },
+  { key: "mnc", label: "MNC", width: "3.5rem", placeholder: "01" },
+  { key: "tac", label: "TAC", width: "3.5rem", placeholder: "1" },
+  { key: "sst", label: "SST", width: "3rem", placeholder: "1" },
+  { key: "sd", label: "SD", width: "5rem", placeholder: "010203" },
+];
+
 export function Conformance() {
   const { state, run, cancel } = useConformance();
   const [amf, setAmf] = useState(DEFAULT_AMF);
+  // The identity the suite registers under. Persisted so the next visit
+  // starts on the last core's values; the PLMN itself is never guessed.
+  const [identity, setIdentity] = useState<NetworkIdentity>(() => loadIdentity());
+  const ready = Boolean(amf) && identityComplete(identity);
+
+  const start = () => {
+    saveIdentity(identity);
+    run(paramsFromIdentity(amf, identity));
+  };
 
   const t = state.tally;
   const pct = state.progress != null ? Math.round(state.progress * 100) : 0;
@@ -50,7 +78,7 @@ export function Conformance() {
           conformance
         </span>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <input
             value={amf}
             onChange={(e) => setAmf(e.target.value)}
@@ -65,6 +93,28 @@ export function Conformance() {
               borderRadius: "var(--o-radius)",
             }}
           />
+          {IDENTITY_FIELDS.map((f) => (
+            <label key={f.key} className="flex items-center gap-1">
+              <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
+                {f.label}
+              </span>
+              <input
+                value={identity[f.key]}
+                onChange={(e) => setIdentity({ ...identity, [f.key]: e.target.value })}
+                placeholder={f.placeholder}
+                spellCheck={false}
+                aria-label={f.label}
+                className="o-label px-2 py-1"
+                style={{
+                  width: f.width,
+                  color: "var(--o-ink-2)",
+                  background: "var(--o-surface-2)",
+                  border: "1px solid var(--o-border)",
+                  borderRadius: "var(--o-radius)",
+                }}
+              />
+            </label>
+          ))}
           {state.running ? (
             <button
               type="button"
@@ -81,8 +131,9 @@ export function Conformance() {
           ) : (
             <button
               type="button"
-              onClick={() => run({ amfAddress: amf })}
-              disabled={!amf}
+              onClick={start}
+              disabled={!ready}
+              title={ready ? undefined : "AMF endpoint and PLMN (MCC/MNC) are required"}
               className="o-label cursor-pointer px-3 py-1"
               style={{
                 color: "var(--o-bg)",

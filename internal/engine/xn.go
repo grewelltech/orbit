@@ -38,6 +38,10 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 	}
 	defer release()
 
+	if target.Config, err = inheritIdentity(target.Config, sess.ServingGNB()); err != nil {
+		return 0, err
+	}
+
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
 		Detail: fmt.Sprintf("Xn handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},
 		"type", "xn", "source_gnb", sess.ServingGNB().Name, "target_gnb", target.Config.Name)

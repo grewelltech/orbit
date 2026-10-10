@@ -24,11 +24,18 @@ credentials for the subscribers it will simulate.
 | Subscriber keys | `--ki` / `--opc` | 32 hex digits each |
 
 Keys come from `$ORBIT_KI` / `$ORBIT_OPC` when the flags are omitted, which is
-how to keep them out of shell history and scenario files:
+how to keep them out of shell history and scenario files, and the PLMN comes
+from `$ORBIT_MCC` / `$ORBIT_MNC` the same way (ORBIT has no default PLMN: a
+wrong one fails NG Setup in a way that looks like a core problem):
 
 ```sh
 export ORBIT_KI=... ORBIT_OPC=...
+export ORBIT_MCC=001 ORBIT_MNC=01
 ```
+
+TAC, SST and DNN default to `1`, `1` and `internet`; SD has no default, so pass
+`--sd 010203` for SD-Core. Every command prints the identity it used as
+`network: plmn=001/01 tac=1 snssai=1/010203`.
 
 **The SUPIs must already be provisioned in the core.** An unprovisioned one
 fails with `AMF rejected registration`, which reads like a broken core rather
@@ -91,16 +98,15 @@ work.
 **Is the core there?** One NGAP exchange over SCTP:
 
 ```sh
-orbit cell ngsetup --amf 10.102.0.10:38412 \
-    --mcc 001 --mnc 01 --tac 1 --sst 1 --sd 010203 --gnb-id 1
+orbit cell ngsetup --amf 10.102.0.10:38412 --sd 010203 --gnb-id 1
 # NG Setup accepted by AMF "AMF"
+# network: plmn=001/01 tac=1 snssai=1/010203
 ```
 
 **Attach one UE.** Real 5G-AKA, NAS security, registration, then a PDU session:
 
 ```sh
-orbit ue register --amf 10.102.0.10:38412 --supi 001010100007500 \
-    --mcc 001 --mnc 01 --sst 1 --sd 010203 \
+orbit ue register --amf 10.102.0.10:38412 --supi 001010100007500 --sd 010203 \
     --gnb-id 2 --pdu-session --gnb-n3 10.103.0.20
 # UE 001010100007500 registered=true (AMF-UE-NGAP-ID …)
 #   PDU session: UE IP 192.168.100.x via UPF 10.103.0.100
@@ -134,8 +140,7 @@ list` returning an empty table is the tell.
 **A load run** — a rate-controlled attach storm:
 
 ```sh
-orbit runs start-load --amf 10.102.0.10:38412 \
-    --mcc 001 --mnc 01 --sst 1 --sd 010203 \
+orbit runs start-load --amf 10.102.0.10:38412 --sd 010203 \
     --base-imsi 001010100007500 --count 100 --rate 10 --gnb-id 10
 ```
 
@@ -145,8 +150,7 @@ step. The gate lives here rather than on `runs start-load`, because a run that
 outlives its client has nobody to return an exit status to:
 
 ```sh
-orbit load --amf 10.102.0.10:38412 \
-    --mcc 001 --mnc 01 --sst 1 --sd 010203 \
+orbit load --amf 10.102.0.10:38412 --sd 010203 \
     --base-imsi 001010100007500 --count 100 --rate 10 --gnb-id 11 \
     --slo-min-success 0.99 --slo-reg-p99 500ms --slo-attach-p99 1s
 ```

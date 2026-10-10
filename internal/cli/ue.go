@@ -124,9 +124,10 @@ func newUETrafficCmd(serverURL *string) *cobra.Command {
 
 func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 	var (
-		supi, amf, bind, gnbN3   string
-		name, mcc, mnc, sd       string
-		gnbID, gnbBits, tac, sst uint32
+		supi, amf, bind, gnbN3 string
+		name                   string
+		gnbID, gnbBits         uint32
+		id                     netIdentity
 	)
 	use, short := "handover", "Hand a registered UE over to a target gNB (N2 handover)"
 	if xn {
@@ -136,16 +137,18 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 		Use:   use,
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The target's network identity is optional: whatever is left
+			// unset the server copies from the UE's serving gNB, so the
+			// common same-network handover needs no PLMN flags at all.
+			if err := id.resolve(false); err != nil {
+				return err
+			}
 			req := connect.NewRequest(&orbitv1.HandoverRequest{
 				Supi:        supi,
 				AmfAddress:  amf,
 				BindAddress: bind,
 				GnbN3Addr:   gnbN3,
-				TargetGnb: &orbitv1.GnbConfig{
-					Id: gnbID, IdBits: gnbBits, Name: name,
-					Mcc: mcc, Mnc: mnc, Tac: tac,
-					Slices: []*orbitv1.Snssai{{Sst: sst, Sd: sd}},
-				},
+				TargetGnb:   id.gnbProto(gnbID, gnbBits, name),
 			})
 			client := ueClient(serverURL)
 			call := client.Handover
@@ -160,6 +163,7 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 			// pass/fail — the number an N2-vs-Xn comparison actually turns on.
 			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s in %.1f ms (now on gNB %#x)\n",
 				res.Msg.GetSupi(), res.Msg.GetState(), res.Msg.GetElapsedMs(), res.Msg.GetGnbId())
+			fmt.Fprintf(cmd.OutOrStdout(), "  network: %s\n", id)
 			return nil
 		},
 	}
@@ -170,11 +174,7 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 	cmd.Flags().Uint32Var(&gnbID, "gnb-id", 0x43, "target gNB ID")
 	cmd.Flags().Uint32Var(&gnbBits, "gnb-bits", 24, "target gNB ID bit length")
 	cmd.Flags().StringVar(&name, "gnb-name", "orbit-gnb-tgt", "target gNB name")
-	cmd.Flags().StringVar(&mcc, "mcc", "208", "MCC")
-	cmd.Flags().StringVar(&mnc, "mnc", "93", "MNC")
-	cmd.Flags().Uint32Var(&tac, "tac", 1, "TAC")
-	cmd.Flags().Uint32Var(&sst, "sst", 1, "slice SST")
-	cmd.Flags().StringVar(&sd, "sd", "010203", "slice SD (6 hex)")
+	addNetIdentityFlags(cmd.Flags(), &id, withInherit())
 	_ = cmd.MarkFlagRequired("supi")
 	_ = cmd.MarkFlagRequired("amf")
 	return cmd
@@ -207,11 +207,12 @@ func newUEPingCmd(serverURL *string) *cobra.Command {
 
 func newUERegisterCmd(serverURL *string) *cobra.Command {
 	var (
-		amf, supi, ki, opc, rid         string
-		name, mcc, mnc, sd, dnn, gnbN3  string
-		bind                            string
-		gnbID, gnbBits, tac, sst, pduID uint32
-		withPDU                         bool
+		amf, supi, ki, opc, rid string
+		name, gnbN3             string
+		bind                    string
+		gnbID, gnbBits, pduID   uint32
+		withPDU                 bool
+		id                      netIdentity
 	)
 	cmd := &cobra.Command{
 		Use:   "register",
@@ -223,20 +224,19 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := id.resolve(true); err != nil {
+				return err
+			}
 			req := &orbitv1.RegisterRequest{
-				AmfAddress:  amf,
-				BindAddress: bind,
-				Supi:        supi,
-				Gnb: &orbitv1.GnbConfig{
-					Id: gnbID, IdBits: gnbBits, Name: name,
-					Mcc: mcc, Mnc: mnc, Tac: tac,
-					Slices: []*orbitv1.Snssai{{Sst: sst, Sd: sd}},
-				},
+				AmfAddress:       amf,
+				BindAddress:      bind,
+				Supi:             supi,
+				Gnb:              id.gnbProto(gnbID, gnbBits, name),
 				Credentials:      &orbitv1.Credentials{Ki: ki, Opc: opc},
 				RoutingIndicator: rid,
 			}
 			if withPDU {
-				req.PduSession = &orbitv1.PDUSession{PduSessionId: pduID, Sst: sst, Sd: sd, Dnn: dnn}
+				req.PduSession = &orbitv1.PDUSession{PduSessionId: pduID, Sst: id.SST, Sd: id.SD, Dnn: id.DNN}
 				req.GnbN3Addr = gnbN3
 			}
 			res, err := ueClient(serverURL).Register(cmd.Context(), connect.NewRequest(req))
@@ -246,6 +246,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 			m := res.Msg
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "UE %s registered=%t (AMF-UE-NGAP-ID %d)\n", m.GetSupi(), m.GetRegistered(), m.GetAmfUeNgapId())
+			fmt.Fprintf(out, "  network: %s\n", id)
 			if src := m.GetN2Source(); src != "" {
 				fmt.Fprintf(out, "  n2-source=%s\n", n2SourceLabel(src, bind != ""))
 			}
@@ -265,17 +266,13 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 	f.StringVar(&name, "gnb-name", "orbit-gnb", "RAN node name")
 	f.Uint32Var(&gnbID, "gnb-id", 1, "gNB identifier")
 	f.Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB identifier bit length")
-	f.StringVar(&mcc, "mcc", "", "mobile country code")
-	f.StringVar(&mnc, "mnc", "", "mobile network code")
-	f.Uint32Var(&tac, "tac", 1, "tracking area code")
-	f.Uint32Var(&sst, "sst", 1, "slice/service type")
-	f.StringVar(&sd, "sd", "", "slice differentiator (6 hex digits)")
+	addNetIdentityFlags(f, &id, withDNN())
 	f.BoolVar(&withPDU, "pdu-session", false, "establish a PDU session after registration")
 	f.Uint32Var(&pduID, "pdu-session-id", 1, "PDU session id")
-	f.StringVar(&dnn, "dnn", "internet", "data network name")
 	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address for the data path (reachable from the UPF)")
-	// Ki/OPc are not marked required: they may come from the environment.
-	for _, r := range []string{"amf", "supi", "mcc", "mnc"} {
+	// Ki/OPc and the PLMN are not marked required: they may come from the
+	// environment ($ORBIT_KI/$ORBIT_OPC, $ORBIT_MCC/$ORBIT_MNC).
+	for _, r := range []string{"amf", "supi"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
 	return cmd
