@@ -27,12 +27,23 @@ func TestExpandBindAddrs(t *testing.T) {
 	}{
 		{name: "none: kernel chooses for every gNB", binds: nil, n: 3, want: []string{"", "", ""}},
 		{name: "none for one gNB", binds: nil, n: 1, want: []string{""}},
-		{name: "one shared by every gNB", binds: []string{"10.0.0.1"}, n: 3, want: []string{"10.0.0.1", "10.0.0.1", "10.0.0.1"}},
+		{name: "one shared by every gNB, normalised", binds: []string{"10.0.0.1"}, n: 3, want: []string{"10.0.0.1:0", "10.0.0.1:0", "10.0.0.1:0"}},
+		{name: "one shared ip:0 by every gNB", binds: []string{"10.0.0.1:0"}, n: 2, want: []string{"10.0.0.1:0", "10.0.0.1:0"}},
 		{name: "one for one gNB", binds: []string{"10.0.0.1:0"}, n: 1, want: []string{"10.0.0.1:0"}},
-		{name: "one per gNB in order", binds: []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}, n: 3, want: []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}},
+		{name: "one fixed port for one gNB is legal", binds: []string{"10.0.0.1:38412"}, n: 1, want: []string{"10.0.0.1:38412"}},
+		{name: "one per gNB in order", binds: []string{"10.0.0.1", "10.0.0.2:0", "::3"}, n: 3, want: []string{"10.0.0.1:0", "10.0.0.2:0", "[::3]:0"}},
+		{name: "one per gNB with distinct fixed ports", binds: []string{"10.0.0.1:38412", "10.0.0.1:38413"}, n: 2, want: []string{"10.0.0.1:38412", "10.0.0.1:38413"}},
+		{name: "one per gNB repeating ip:0 is sharing", binds: []string{"10.0.0.1", "10.0.0.1:0"}, n: 2, want: []string{"10.0.0.1:0", "10.0.0.1:0"}},
+		{name: "hostnames pass through to the dial", binds: []string{"ran-21"}, n: 1, want: []string{"ran-21:0"}},
 		{name: "one fewer than gNBs", binds: []string{"10.0.0.1", "10.0.0.2"}, n: 3, wantErr: "2 bind addresses for 3 gNBs"},
 		{name: "one more than gNBs", binds: []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"}, n: 3, wantErr: "4 bind addresses for 3 gNBs"},
 		{name: "two for one gNB", binds: []string{"10.0.0.1", "10.0.0.2"}, n: 1, wantErr: "2 bind addresses for 1 gNBs"},
+		{name: "shared fixed port for several gNBs", binds: []string{"10.0.0.1:38412"}, n: 3, wantErr: `shared bind address "10.0.0.1:38412" has a fixed port`},
+		{name: "duplicate fixed ip:port in the list", binds: []string{"10.0.0.1:38412", "10.0.0.2", "10.0.0.1:38412"}, n: 3, wantErr: `bind addresses 1 and 3 are both "10.0.0.1:38412"`},
+		{name: "malformed entry", binds: []string{"10.0.0.1", "10.0.0.2:0:0"}, n: 2, wantErr: `invalid local address "10.0.0.2:0:0"`},
+		{name: "empty entry", binds: []string{"10.0.0.1", ""}, n: 2, wantErr: "bind address 2 is empty"},
+		{name: "no gNBs", binds: nil, n: 0, wantErr: "need at least one gNB"},
+		{name: "negative gNBs", binds: []string{"10.0.0.1"}, n: -1, wantErr: "need at least one gNB"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -207,8 +218,8 @@ func TestManagerRegisterNilDialerFallsBack(t *testing.T) {
 	_, _, ki, opc := newBindTestAMF(t)
 	// A malformed bind fails in sctp.Dial's normalisation before any socket
 	// is opened, so this proves the fallback path without kernel SCTP.
-	_, err := m.Register(context.Background(), GNBSpec{AMFAddr: "127.0.0.1:38412", BindAddr: "not-an-ip"}, bindTestUE(t, "208930100000002", ki, opc))
-	if err == nil || !strings.Contains(err.Error(), `invalid local address "not-an-ip"`) {
+	_, err := m.Register(context.Background(), GNBSpec{AMFAddr: "127.0.0.1:38412", BindAddr: "10.0.0.1:0:0"}, bindTestUE(t, "208930100000002", ki, opc))
+	if err == nil || !strings.Contains(err.Error(), `invalid local address "10.0.0.1:0:0"`) {
 		t.Fatalf("err = %v, want the sctp normalisation error", err)
 	}
 }
@@ -264,5 +275,44 @@ func TestNewFleetBindsPerGNB(t *testing.T) {
 				t.Error("N2Sources returned the fleet's own slice")
 			}
 		})
+	}
+}
+
+// N2Source follows the association: the handover paths swap the connection
+// and record the target's bound source in the same locked section as the
+// serving cell, so a status read after a move shows the target's address.
+func TestSessionN2SourceFollowsHandover(t *testing.T) {
+	sess := &Session{SUPI: "208930100000001", Result: &AttachResult{}}
+	sess.setN2Source("10.0.0.21:40001")
+	sess.setServingGNB(gnb.Config{ID: 1, Name: "src"})
+	if got := sess.N2Source(); got != "10.0.0.21:40001" {
+		t.Fatalf("N2Source after register = %q", got)
+	}
+	// What handover.go / xn.go do under m.mu when the target is accepted.
+	tgt := pipeConn{local: &net.TCPAddr{IP: net.ParseIP("10.0.0.22"), Port: 40002}}
+	sess.setServingGNB(gnb.Config{ID: 2, Name: "tgt"})
+	sess.setN2Source(localAddrString(tgt))
+	if got := sess.N2Source(); got != "10.0.0.22:40002" {
+		t.Errorf("N2Source after handover = %q, want the target's bound source", got)
+	}
+	if sess.ServingGNB().ID != 2 {
+		t.Errorf("serving gNB did not move with the source")
+	}
+	// A transport that cannot report a local address leaves it empty rather
+	// than keeping the stale source.
+	sess.setN2Source(localAddrString(pipeConn{}))
+	if got := sess.N2Source(); got != "" {
+		t.Errorf("N2Source with no local address = %q, want empty", got)
+	}
+}
+
+// A fleet records each UE's N2 source from its gNB's association, and a
+// fleet handover moves it to the target gNB's source.
+func TestFleetN2SourceFor(t *testing.T) {
+	f := &Fleet{sources: []string{"10.0.0.21:40001", "10.0.0.22:40002"}}
+	for i, want := range []string{"10.0.0.21:40001", "10.0.0.22:40002", "10.0.0.21:40001"} {
+		if got := f.n2SourceFor(i); got != want {
+			t.Errorf("n2SourceFor(%d) = %q, want %q", i, got, want)
+		}
 	}
 }

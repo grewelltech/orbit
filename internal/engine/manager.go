@@ -47,11 +47,6 @@ type Session struct {
 	guti  []byte
 	gnbN3 string
 
-	// n2Source is the local address of the association the UE registered
-	// over, as the kernel bound it (immutable after Register; a handover
-	// opens a new association and does not rewrite it).
-	n2Source string
-
 	// proc serialises the UE's control-plane procedures — handover and
 	// deregistration — which rewrite the association (conn, amfID, ranID) and
 	// the serving cell together. Two of them interleaving leaves the session
@@ -69,6 +64,7 @@ type Session struct {
 	// the Manager's map lock, which guards the map and not its values.
 	stMu     sync.RWMutex
 	gnbCfg   gnb.Config
+	n2Source string // local address of the current N2 association, as bound
 	state    string
 	mobState string    // last mobility phase; empty until the UE first moves
 	mobAt    time.Time // when mobState was recorded
@@ -213,8 +209,8 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 		return nil, err
 	}
 	sess.setState(stateFromResult(sess.Result))
-	sess.n2Source = localAddrString(conn)
-	sess.Result.N2Source = sess.n2Source
+	sess.setN2Source(localAddrString(conn))
+	sess.Result.N2Source = sess.N2Source()
 	sess.gnbN3 = ueCfg.GNBN3Addr
 	sess.n3 = m.n3              // data paths open on the Manager's shared per-gNB pool
 	sess.notify = m.hub.publish // correlation-visible data-path events (netstack.go)
@@ -452,9 +448,22 @@ func (s *Session) State() string {
 	return s.state
 }
 
-// N2Source reports the local address of the N2 association the UE registered
-// over, as the kernel bound it. Empty for sessions built outside Register.
-func (s *Session) N2Source() string { return s.n2Source }
+// N2Source reports the local address of the N2 association currently
+// carrying the UE, as the kernel bound it. It follows the UE across
+// handovers (the target gNB's bind), like ServingGNB. Empty for sessions
+// whose association was supplied by the caller.
+func (s *Session) N2Source() string {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.n2Source
+}
+
+// setN2Source records the local address of the session's N2 association.
+func (s *Session) setN2Source(addr string) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.n2Source = addr
+}
 
 // ServingGNB reports the cell currently serving the UE (snapshot). It follows
 // the UE across handovers, so it answers "where is this UE now?".

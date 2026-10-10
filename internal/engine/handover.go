@@ -227,6 +227,7 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	m.mu.Lock()
 	sess.conn = tgtConn
 	sess.setServingGNB(target.Config)
+	sess.setN2Source(localAddrString(tgtConn))
 	sess.ranID = targetHandoverRANID
 	sess.amfID = hr.AMFUENGAPID
 	// Per-session bookkeeping: new DL TEIDs, plus any UL F-TEID the core

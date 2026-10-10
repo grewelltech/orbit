@@ -52,8 +52,8 @@ func localAddrString(c n2Conn) string {
 }
 
 // ExpandBindAddrs maps the N2 source addresses an operator supplied onto n
-// gNBs. The rule is the same on every surface (CLI --bind, LoadRunSpec
-// bind_addresses):
+// gNBs and returns them in sctp.NormalizeLocal's host:port form. The rule is
+// the same on every surface (CLI --bind, LoadRunSpec bind_addresses):
 //
 //   - none  → every gNB lets the kernel choose (today's behaviour)
 //   - one   → every gNB shares that address (gNBs then differ only by ID, so
@@ -61,24 +61,69 @@ func localAddrString(c n2Conn) string {
 //   - n     → one address per gNB, in order
 //   - other → an error naming both counts
 //
-// Addresses are not validated here; sctp.Dial normalises and rejects them at
-// dial time, in one place.
+// Port rule: an explicit non-zero port is legal only when exactly one
+// association will use that ip:port. So a shared address for more than one
+// gNB must have port 0 (each association then gets its own ephemeral port),
+// and two gNBs in the one-per-gNB list may not name the same non-zero
+// ip:port; the same ip:0 twice is just sharing and is allowed. Each address
+// is normalised here so a malformed one fails before anything is dialled;
+// host resolution and ownership are still the dial's to report.
 func ExpandBindAddrs(binds []string, n int) ([]string, error) {
+	if n < 1 {
+		return nil, fmt.Errorf("bind addresses for %d gNBs: need at least one gNB", n)
+	}
+	norm := make([]string, len(binds))
+	for i, b := range binds {
+		nb, err := sctp.NormalizeLocal(b)
+		if err != nil {
+			return nil, err
+		}
+		if nb == "" {
+			return nil, fmt.Errorf("bind address %d is empty; omit --bind entirely to let the kernel choose", i+1)
+		}
+		norm[i] = nb
+	}
 	switch {
-	case len(binds) == 0:
+	case len(norm) == 0:
 		return make([]string, n), nil
-	case len(binds) == 1:
+	case len(norm) == 1:
+		if n > 1 && !ephemeralPort(norm[0]) {
+			return nil, fmt.Errorf("shared bind address %q has a fixed port, which only one of the %d gNBs could bind: give the IP alone (or ip:0), or one address per gNB",
+				norm[0], n)
+		}
 		out := make([]string, n)
 		for i := range out {
-			out[i] = binds[0]
+			out[i] = norm[0]
 		}
 		return out, nil
-	case len(binds) == n:
-		return append([]string(nil), binds...), nil
+	case len(norm) == n:
+		seen := make(map[string]int, n)
+		for i, b := range norm {
+			if ephemeralPort(b) {
+				continue
+			}
+			if j, dup := seen[b]; dup {
+				return nil, fmt.Errorf("bind addresses %d and %d are both %q with a fixed port, which only one gNB could bind: use port 0 or distinct ports",
+					j+1, i+1, b)
+			}
+			seen[b] = i
+		}
+		return norm, nil
 	default:
 		return nil, fmt.Errorf("%d bind addresses for %d gNBs: pass none (kernel chooses), one (shared by every gNB), or exactly %d (one per gNB)",
-			len(binds), n, n)
+			len(norm), n, n)
 	}
+}
+
+// ephemeralPort reports whether a normalised host:port asks for port 0.
+func ephemeralPort(hostport string) bool {
+	_, port, err := net.SplitHostPort(hostport)
+	return err == nil && port == "0"
+}
+
+// n2SourceFor returns the N2 source bound for the gNB serving UE index i.
+func (f *Fleet) n2SourceFor(i int) string {
+	return f.sources[i%len(f.sources)]
 }
 
 // Fleet holds one gNB.Session (one N2 association) per gNB and registers UEs

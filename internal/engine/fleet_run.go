@@ -323,6 +323,7 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 	}
 	sess.gnbN3 = spec.GNBs[gi].N3Addr
 	sess.n3 = pool
+	sess.setN2Source(f.n2SourceFor(gi))
 	for name, d := range attachProcedureDurations(time.Since(start), regDur, sess.Result.SessionActive) {
 		live.RecordProcedure(name, d)
 	}
@@ -610,6 +611,7 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	// (Attach is called with emit=nil), so its UEs publish nothing. That is
 	// the wider gap ADR-0005 addresses, not something to paper over locally.
 	fu.sess.setServingGNB(f.gnbConfigFor(target))
+	fu.sess.setN2Source(f.n2SourceFor(target))
 	// Data-path identity moves under the session's data-path lock (fleet
 	// sessions have no open path today — mobile UEs carry no traffic — but
 	// the locked path keeps that invariant local, not load-bearing).
