@@ -31,6 +31,7 @@ wrong one fails NG Setup in a way that looks like a core problem):
 ```sh
 export ORBIT_KI=... ORBIT_OPC=...
 export ORBIT_MCC=001 ORBIT_MNC=01
+# export ORBIT_SERVER=http://<host>:8412   # only when serve is not on loopback
 ```
 
 TAC, SST and DNN default to `1`, `1` and `internet`; SD has no default, so pass

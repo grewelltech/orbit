@@ -128,8 +128,12 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
   (byte-exact 3GPP, zero quirks). Use `sdcore` to enable the documented N2
   handover-transfer workaround for SD-Core; the set of quirks a core needs is a
   conformance signal, not silent tuning.
-- `--server <url>` on every client command selects the endpoint (default
-  `http://127.0.0.1:8412`).
+- `--server <url>` on every client command selects the endpoint. When the flag
+  is omitted it comes from `$ORBIT_SERVER` the same way keys come from
+  `$ORBIT_KI` / `$ORBIT_OPC`; when that is unset too, `http://127.0.0.1:8412`.
+  An explicit flag always wins. The value must be an absolute `http://` or
+  `https://` URL (a bare `host:port` is rejected, naming where it came from).
+  `serve`, `load`, `conformance`, `responder` and `version` never read it.
 
 ### Run as a service
 
@@ -151,7 +155,9 @@ It installs the `orbit` binary to `/usr/local/bin`, a unit at
 `systemctl restart orbit`. Manage it with `systemctl {status,restart,stop}
 orbit` and follow logs with `journalctl -u orbit -f`. (`make install-service` /
 `upgrade-service` / `uninstall-service` wrap the script.) Install needs Go to
-build, or set `VERSION=` to download a release.
+build, or set `VERSION=` to download a release. When `--listen` is not
+loopback, export `ORBIT_SERVER=http://<listen>` in the shell you run client
+commands from, so they find the service without `--server` on every call.
 
 ## UE lifecycle
 
