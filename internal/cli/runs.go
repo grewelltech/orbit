@@ -16,31 +16,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
-	"github.com/bgrewell/orbit/internal/ue/auth"
 )
-
-// resolveCreds returns validated Ki/OPc, falling back to $ORBIT_KI/$ORBIT_OPC,
-// so every run-starting subcommand acquires and validates credentials the same
-// way — and fails locally with a clear message rather than sending empty or
-// malformed keys the server rejects opaquely.
-func resolveCreds(ki, opc string) (string, string, error) {
-	if ki == "" {
-		ki = os.Getenv("ORBIT_KI")
-	}
-	if opc == "" {
-		opc = os.Getenv("ORBIT_OPC")
-	}
-	if ki == "" || opc == "" {
-		return "", "", fmt.Errorf("Ki and OPc are required (--ki/--opc or $ORBIT_KI/$ORBIT_OPC)")
-	}
-	if _, err := auth.ParseHexKey("Ki", ki); err != nil {
-		return "", "", err
-	}
-	if _, err := auth.ParseHexKey("OPc", opc); err != nil {
-		return "", "", err
-	}
-	return ki, opc, nil
-}
 
 // msDuration converts a duration to milliseconds for a uint32 proto field,
 // rejecting values that would overflow (~49.7 days) rather than wrapping to a
@@ -549,8 +525,8 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.StringSliceVar(&binds, "bind", nil, bindFlagHelp+"; repeat or comma-separate for one per gNB (one value is shared by every gNB)")
 	f.StringVar(&baseIMSI, "base-imsi", "", "first SUPI/IMSI; each UE increments it")
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
-	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex; default $ORBIT_KI)")
-	f.StringVar(&opc, "opc", "", "operator key OPc (32 hex; default $ORBIT_OPC)")
+	f.StringVar(&ki, "ki", "", kiFlagHelp)
+	f.StringVar(&opc, "opc", "", opcFlagHelp)
 	f.StringVar(&mcc, "mcc", "", "MCC")
 	f.StringVar(&mnc, "mnc", "", "MNC")
 	f.Uint32Var(&concurrency, "concurrency", 64, "max attaches in flight")
@@ -614,8 +590,8 @@ func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "run label")
 	cmd.Flags().StringVar(&events, "events", "normal", eventsFlagHelp)
-	cmd.Flags().StringVar(&ki, "ki", "", "subscriber key Ki (32 hex; default $ORBIT_KI)")
-	cmd.Flags().StringVar(&opc, "opc", "", "operator key OPc (32 hex; default $ORBIT_OPC)")
+	cmd.Flags().StringVar(&ki, "ki", "", kiFlagHelp)
+	cmd.Flags().StringVar(&opc, "opc", "", opcFlagHelp)
 	return cmd
 }
 

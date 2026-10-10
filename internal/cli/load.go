@@ -40,6 +40,12 @@ func newLoadCmd() *cobra.Command {
 		Use:   "load",
 		Short: "Rate-controlled attach storm against the core with latency KPIs",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Flags or $ORBIT_KI/$ORBIT_OPC, validated before anything else
+			// is parsed so a credentials problem is the first thing reported.
+			ki, opc, err := resolveCreds(ki, opc)
+			if err != nil {
+				return err
+			}
 			kiB, err := auth.ParseHexKey("Ki", ki)
 			if err != nil {
 				return err
@@ -121,8 +127,8 @@ func newLoadCmd() *cobra.Command {
 	f.StringSliceVar(&binds, "bind", nil, bindFlagHelp+"; repeat or comma-separate for one per gNB (one value is shared by every gNB)")
 	f.StringVar(&baseIMSI, "base-imsi", "", "first SUPI/IMSI; each UE increments it")
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
-	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex)")
-	f.StringVar(&opc, "opc", "", "operator key OPc (32 hex)")
+	f.StringVar(&ki, "ki", "", kiFlagHelp)
+	f.StringVar(&opc, "opc", "", opcFlagHelp)
 	f.StringVar(&mcc, "mcc", "", "MCC")
 	f.StringVar(&mnc, "mnc", "", "MNC")
 	f.IntVar(&conc, "concurrency", 64, "max attaches in flight")
@@ -145,7 +151,8 @@ func newLoadCmd() *cobra.Command {
 	f.DurationVar(&duration, "duration", 0, "soak: run for this long instead of --count (e.g. 5m)")
 	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence (e.g. 10s)")
 	f.DurationVar(&progressEvery, "progress-every", 5*time.Second, "print live progress to stderr at this cadence (0 = off)")
-	for _, r := range []string{"amf", "base-imsi", "ki", "opc", "mcc", "mnc"} {
+	// Ki/OPc are not marked required: they may come from the environment.
+	for _, r := range []string{"amf", "base-imsi", "mcc", "mnc"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
 	return cmd
