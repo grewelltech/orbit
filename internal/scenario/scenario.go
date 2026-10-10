@@ -70,7 +70,8 @@ func (c *Core) applyDefaults() error {
 	if c.AMF == "" {
 		return fmt.Errorf("core.amf is required")
 	}
-	for name, v := range map[string]string{"mcc": c.PLMN.MCC, "mnc": c.PLMN.MNC} {
+	for _, f := range []struct{ name, v string }{{"mcc", c.PLMN.MCC}, {"mnc", c.PLMN.MNC}} {
+		name, v := f.name, f.v
 		if strings.Contains(v, "${") {
 			// Only `orbit run` expands ${ENV} (ParseFleet / Parse); a scenario
 			// sent to the server arrives literal (ParseFleetNoEnv), so the
