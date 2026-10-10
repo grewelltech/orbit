@@ -82,9 +82,24 @@ export function saveIdentity(id: NetworkIdentity): void {
   }
 }
 
-/** True when the identity can be sent: a PLMN is present and the numbers parse. */
+/** The server's bounds: TAC is 24 bits and at least 1, SST is one octet. */
+export const TAC_MAX = 0xffffff;
+export const SST_MAX = 255;
+
+/** A plain decimal integer within [min, max], as typed; the only thing the uint32 field accepts. */
+function inRange(s: string, min: number, max: number): boolean {
+  if (!/^\d+$/.test(s.trim())) return false;
+  const n = Number(s);
+  return Number.isInteger(n) && n >= min && n <= max;
+}
+
+/**
+ * True when the identity can be sent: a PLMN is present and TAC/SST are plain
+ * integers within the server's bounds, so the form refuses what the server
+ * would refuse.
+ */
 export function identityComplete(id: NetworkIdentity): boolean {
-  return id.mcc.trim() !== "" && id.mnc.trim() !== "" && Number.isFinite(Number(id.tac)) && Number.isFinite(Number(id.sst));
+  return id.mcc.trim() !== "" && id.mnc.trim() !== "" && inRange(id.tac, 1, TAC_MAX) && inRange(id.sst, 0, SST_MAX);
 }
 
 /** The RunConformance request for the given parameters, field for field. */

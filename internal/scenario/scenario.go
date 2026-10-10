@@ -32,7 +32,10 @@ type Scenario struct {
 //
 // plmn.mcc and plmn.mnc are required (${ORBIT_MCC}/${ORBIT_MNC} expand like
 // the credential references); tac, slice.sst and dnn take the CLI defaults
-// (1, 1, "internet") when zero or empty, and slice.sd defaults to no SD.
+// (1, 1, "internet") when zero or empty, and slice.sd defaults to no SD. An
+// omitted slice.sst is 1 even when slice.sd is given, so "SD given, SST
+// omitted" means 1/sd here exactly as on the CLI and the API, and SST 0 is
+// not expressible in a file (nor is it over the API).
 type Core struct {
 	AMF   string `yaml:"amf"`
 	PLMN  PLMN   `yaml:"plmn"`
@@ -72,7 +75,9 @@ func (c *Core) applyDefaults() error {
 	if c.TAC == 0 {
 		c.TAC = DefaultTAC
 	}
-	if c.Slice.SST == 0 && c.Slice.SD == "" {
+	if c.Slice.SST == 0 {
+		// Whenever unset, SD given or not: the CLI gives 1/<sd> for a bare
+		// --sd and the API maps sst 0 to 1, so a file must agree with both.
 		c.Slice.SST = DefaultSST
 	}
 	if c.DNN == "" {

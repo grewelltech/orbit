@@ -35,8 +35,8 @@ func TestNetIdentityResolve(t *testing.T) {
 		{name: "neither, optional: inherit", required: false, wantMCC: "", wantMNC: ""},
 		{name: "optional ignores the env and inherits", envMCC: "208", envMNC: "93", required: false, wantMCC: "", wantMNC: ""},
 		{name: "optional with explicit flags keeps them", args: []string{"--mcc", "001", "--mnc", "01"}, envMCC: "208", envMNC: "93", required: false, wantMCC: "001", wantMNC: "01"},
-		{name: "only mcc, optional", args: []string{"--mcc", "001"}, required: false, wantErr: "go together"},
-		{name: "only mnc from env, required", envMNC: "01", required: true, wantErr: "go together"},
+		{name: "only mcc, optional", args: []string{"--mcc", "001"}, required: false, wantErr: "neither to inherit"},
+		{name: "only mnc from env, required", envMNC: "01", required: true, wantErr: "$ORBIT_MCC/$ORBIT_MNC"},
 		{name: "invalid env mcc", envMCC: "1", envMNC: "01", required: true, wantErr: "mcc"},
 		{name: "invalid flag mnc", args: []string{"--mcc", "001", "--mnc", "1"}, required: true, wantErr: "mnc"},
 		{name: "tac zero", args: []string{"--mcc", "001", "--mnc", "01", "--tac", "0"}, required: true, wantErr: "tac"},
@@ -103,6 +103,7 @@ func TestNetIdentityString(t *testing.T) {
 		{name: "no sd, no dnn", args: []string{"--mcc", "001", "--mnc", "01"}, want: "plmn=001/01 tac=1 snssai=1"},
 		{name: "inherit everything", opts: []netIDOption{withInherit()}, want: "plmn=(inherited) tac=(inherited) snssai=(inherited)"},
 		{name: "inherit plmn, explicit slice", args: []string{"--sst", "2", "--sd", "abcdef"}, opts: []netIDOption{withInherit()}, want: "plmn=(inherited) tac=(inherited) snssai=2/abcdef"},
+		{name: "inherit plmn, explicit sst only", args: []string{"--sst", "2"}, opts: []netIDOption{withInherit()}, want: "plmn=(inherited) tac=(inherited) snssai=2"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -204,7 +205,7 @@ func TestUEHandoverSendsIdentityForInherit(t *testing.T) {
 		{name: "explicit plmn", cmd: "handover", flags: []string{"--mcc", "001", "--mnc", "01"}, wantMCC: "001"},
 		{name: "explicit tac only", cmd: "handover", flags: []string{"--tac", "7"}, wantTAC: 7},
 		{name: "explicit slice", cmd: "xn-handover", flags: []string{"--sst", "2", "--sd", "abcdef"}, wantSliceSent: true, wantSST: 2, wantSD: "abcdef"},
-		{name: "explicit sd alone", cmd: "handover", flags: []string{"--sd", "010203"}, wantSliceSent: true, wantSST: 0, wantSD: "010203"},
+		{name: "explicit sst alone", cmd: "handover", flags: []string{"--sst", "2"}, wantSliceSent: true, wantSST: 2, wantSD: ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -242,6 +243,27 @@ func TestUEHandoverSendsIdentityForInherit(t *testing.T) {
 				t.Errorf("no network line in output:\n%s", out.String())
 			}
 		})
+	}
+}
+
+// On handover the slice is given as a pair or not at all: --sd without --sst
+// would send SST 0, the not-given sentinel, as a value.
+func TestUEHandoverSDNeedsSST(t *testing.T) {
+	stub := &stubUEHandover{}
+	mux := http.NewServeMux()
+	mux.Handle(orbitv1connect.NewUEServiceHandler(stub))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	root := New("test")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"--server", srv.URL, "ue", "handover", "--supi", "001010000000001", "--amf", "198.51.100.1:38412", "--gnb-id", "2", "--sd", "010203"})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--sd needs --sst") {
+		t.Fatalf("err = %v, want the sd-needs-sst error", err)
+	}
+	if stub.req != nil {
+		t.Error("a request was sent with an SST-less slice")
 	}
 }
 

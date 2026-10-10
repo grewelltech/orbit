@@ -49,6 +49,18 @@ gnbs:
 	}
 }
 
+// A slice with only an SD still gets the default SST, matching the CLI
+// (`--sd 010203` alone is 1/010203) and the API (sst 0 maps to 1).
+func TestCoreSDAloneDefaultsSST(t *testing.T) {
+	sc, err := Parse([]byte("core:\n  amf: 1.2.3.4:38412\n  plmn: { mcc: \"001\", mnc: \"01\" }\n  slice: { sd: \"010203\" }\ngnbs:\n  - {id: 1, name: g}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Core.Slice.SST != 1 || sc.Core.Slice.SD != "010203" {
+		t.Errorf("slice = %d/%s, want 1/010203", sc.Core.Slice.SST, sc.Core.Slice.SD)
+	}
+}
+
 // Explicit core values are kept, not overwritten by the defaults.
 func TestCoreExplicitValuesKept(t *testing.T) {
 	sc, err := Parse([]byte(`

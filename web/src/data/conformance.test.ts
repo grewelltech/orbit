@@ -28,5 +28,15 @@ describe("conformance request", () => {
     expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001" })).toBe(false);
     expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01" })).toBe(true);
     expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", tac: "x" })).toBe(false);
+    // Only plain integers within the server's bounds are sent: TAC 1..0xFFFFFF, SST 0..255.
+    for (const bad of ["1.5", "-3", "1e3", "", "0x10"]) {
+      expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", tac: bad })).toBe(false);
+      expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", sst: bad })).toBe(false);
+    }
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", tac: "0" })).toBe(false);
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", tac: "16777216" })).toBe(false);
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", sst: "256" })).toBe(false);
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", sst: "0" })).toBe(true);
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", tac: "16777215", sst: "255" })).toBe(true);
   });
 });

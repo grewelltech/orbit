@@ -102,7 +102,10 @@ func (id *netIdentity) resolve(required bool) error {
 			return fmt.Errorf("network PLMN is required: pass --mcc/--mnc or set $ORBIT_MCC/$ORBIT_MNC")
 		}
 	case id.MCC == "" || id.MNC == "":
-		return fmt.Errorf("--mcc and --mnc go together: pass both (or set $ORBIT_MCC/$ORBIT_MNC), or neither to inherit")
+		if id.inherit {
+			return fmt.Errorf("--mcc and --mnc go together: pass both, or neither to inherit from the serving gNB")
+		}
+		return fmt.Errorf("--mcc and --mnc go together: pass both (or set $ORBIT_MCC/$ORBIT_MNC)")
 	default:
 		if err := gnb.ValidatePLMN(id.MCC, id.MNC); err != nil {
 			return err
@@ -112,6 +115,12 @@ func (id *netIdentity) resolve(required bool) error {
 		if err := gnb.ValidateTAC(id.TAC); err != nil {
 			return err
 		}
+	}
+	if id.inherit && id.fs != nil && id.fs.Changed("sd") && !id.fs.Changed("sst") {
+		// SST 0 is the not-given sentinel here, not a value: sending 0/sd
+		// would present a slice the operator never named (and one the API
+		// cannot even express). The slice is given as a pair or not at all.
+		return fmt.Errorf("on handover --sd needs --sst, or omit both to inherit the serving slice")
 	}
 	if err := gnb.ValidateSNSSAI(id.SST, id.SD); err != nil {
 		return err
