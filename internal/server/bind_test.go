@@ -17,10 +17,10 @@ import (
 	"github.com/bgrewell/orbit/internal/load"
 )
 
-// badBind is a local address sctp.Dial rejects during normalisation, before
-// any socket is opened. An error carrying it proves a request's bind address
-// reached the dialer, without kernel SCTP or a core.
-const badBind = "not-an-ip"
+// badBind is a local address sctp.NormalizeLocal rejects, so a handler that
+// validates bind addresses up front refuses it as InvalidArgument without
+// kernel SCTP or a core.
+const badBind = "10.0.0.1:0:0"
 
 const wantBindErr = `invalid local address "` + badBind + `"`
 
@@ -31,8 +31,9 @@ func testGNB() *orbitv1.GnbConfig {
 	}
 }
 
-// RunNGSetup dials from local_address.
-func TestRunNGSetupPassesLocalAddress(t *testing.T) {
+// RunNGSetup validates local_address up front: a malformed one is the
+// client's mistake, so InvalidArgument rather than a retryable Unavailable.
+func TestRunNGSetupRejectsBadLocalAddress(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: slog.New(slog.NewTextHandler(io.Discard, nil))}))
 	srv := httptest.NewServer(mux)
@@ -45,13 +46,13 @@ func TestRunNGSetupPassesLocalAddress(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), wantBindErr) {
 		t.Fatalf("err = %v, want containing %q", err, wantBindErr)
 	}
-	if connect.CodeOf(err) != connect.CodeUnavailable {
-		t.Errorf("code = %v, want Unavailable (a dial failure)", connect.CodeOf(err))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
 	}
 }
 
-// RegisterUE dials from bind_address.
-func TestRegisterUEPassesBindAddress(t *testing.T) {
+// RegisterUE validates bind_address up front.
+func TestRegisterUERejectsBadBindAddress(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: engine.NewManager(log)}))
@@ -69,27 +70,59 @@ func TestRegisterUEPassesBindAddress(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), wantBindErr) {
 		t.Fatalf("err = %v, want containing %q", err, wantBindErr)
 	}
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+	}
 }
 
-// RunConformance dials every check from bind_address.
-func TestRunConformancePassesBindAddress(t *testing.T) {
+// RunConformance validates bind_address up front: malformed, or a fixed
+// port (the suite opens several associations per check), is InvalidArgument
+// before any check runs.
+func TestRunConformanceRejectsBadBindAddress(t *testing.T) {
+	tests := []struct{ name, bind, wantErr string }{
+		{name: "malformed", bind: badBind, wantErr: wantBindErr},
+		{name: "fixed port", bind: "10.0.0.1:38412", wantErr: "fixes a port"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newConformanceClient(t)
+			stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
+				AmfAddress: "127.0.0.1:1", BindAddress: tc.bind, PerTestSeconds: 2, Categories: []string{"procedural"},
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stream.Receive() {
+				t.Fatal("a check ran with an invalid bind address")
+			}
+			err = stream.Err()
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+			}
+			if connect.CodeOf(err) != connect.CodeInvalidArgument {
+				t.Errorf("code = %v, want InvalidArgument", connect.CodeOf(err))
+			}
+		})
+	}
+}
+
+// A valid port-0 bind reaches every check's dial. The AMF is unroutable, so
+// every check ERRORs — on the dial from that bind, not on validation.
+func TestRunConformanceAcceptsEphemeralBind(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", BindAddress: badBind, PerTestSeconds: 2, Categories: []string{"procedural"},
+		AmfAddress: "127.0.0.1:1", BindAddress: "127.0.0.1", PerTestSeconds: 2, Categories: []string{"procedural"},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var results int
 	for stream.Receive() {
-		upd := stream.Msg()
-		if upd.GetDone() {
-			continue
-		}
-		results++
-		r := upd.GetResult()
-		if r.GetVerdict() != "ERROR" || !strings.Contains(r.GetObserved()+" "+r.GetDetail(), wantBindErr) {
-			t.Errorf("%s: verdict %s detail %q; want ERROR naming the bad bind", r.GetId(), r.GetVerdict(), r.GetDetail())
+		if r := stream.Msg().GetResult(); r != nil {
+			results++
+			if r.GetVerdict() != "ERROR" {
+				t.Errorf("%s: verdict %s against an unroutable AMF", r.GetId(), r.GetVerdict())
+			}
 		}
 	}
 	if err := stream.Err(); err != nil {
@@ -100,10 +133,10 @@ func TestRunConformancePassesBindAddress(t *testing.T) {
 	}
 }
 
-// StartRun with a load spec applies the none / one / one-per-gNB rule to
-// bind_addresses and refuses anything else as InvalidArgument, before a run
-// is registered.
-func TestStartLoadRejectsBadBindCount(t *testing.T) {
+// StartRun with a load spec applies the none / one / one-per-gNB rule and
+// the port rule to bind_addresses and refuses anything else as
+// InvalidArgument, before a run is registered.
+func TestStartLoadRejectsBadBinds(t *testing.T) {
 	tests := []struct {
 		name  string
 		gnbs  int
@@ -113,8 +146,12 @@ func TestStartLoadRejectsBadBindCount(t *testing.T) {
 		{name: "none", gnbs: 2, binds: nil, ok: true},
 		{name: "one shared", gnbs: 2, binds: []string{"10.0.0.1"}, ok: true},
 		{name: "one each", gnbs: 2, binds: []string{"10.0.0.1", "10.0.0.2"}, ok: true},
+		{name: "one each with distinct fixed ports", gnbs: 2, binds: []string{"10.0.0.1:38412", "10.0.0.1:38413"}, ok: true},
 		{name: "one fewer", gnbs: 3, binds: []string{"10.0.0.1", "10.0.0.2"}},
 		{name: "one more", gnbs: 2, binds: []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}},
+		{name: "shared fixed port", gnbs: 2, binds: []string{"10.0.0.1:38412"}},
+		{name: "duplicate fixed port", gnbs: 2, binds: []string{"10.0.0.1:38412", "10.0.0.1:38412"}},
+		{name: "malformed", gnbs: 1, binds: []string{badBind}},
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tc := range tests {
@@ -128,48 +165,53 @@ func TestStartLoadRejectsBadBindCount(t *testing.T) {
 			}
 			spec.BindAddresses = tc.binds
 			_, err := loadRunFunc(log, spec)
-			if tc.ok && err != nil {
-				t.Fatalf("loadRunFunc: %v", err)
+			if tc.ok {
+				if err != nil {
+					t.Fatalf("loadRunFunc: %v", err)
+				}
+				return
 			}
-			if !tc.ok {
-				if err == nil {
-					t.Fatal("bad bind count accepted")
-				}
-				if !strings.Contains(err.Error(), "bind addresses") {
-					t.Errorf("error %q does not explain the bind rule", err)
-				}
-				// Over the wire it is InvalidArgument and registers nothing.
-				c, _ := newRunRPCClient(t)
-				_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-					Spec: &orbitv1.StartRunRequest_Load{Load: spec},
-				}))
-				if connect.CodeOf(err) != connect.CodeInvalidArgument {
-					t.Errorf("StartRun code = %v, want InvalidArgument", connect.CodeOf(err))
-				}
-				list, lerr := c.ListRuns(context.Background(), connect.NewRequest(&orbitv1.ListRunsRequest{}))
-				if lerr != nil {
-					t.Fatal(lerr)
-				}
-				if n := len(list.Msg.GetRuns()); n != 0 {
-					t.Errorf("a rejected StartRun registered %d runs", n)
-				}
+			if err == nil {
+				t.Fatal("bad bind list accepted")
+			}
+			if !strings.Contains(err.Error(), "bind address") && !strings.Contains(err.Error(), "invalid local address") {
+				t.Errorf("error %q does not explain the bind rule", err)
+			}
+			// Over the wire it is InvalidArgument and registers nothing.
+			c, _ := newRunRPCClient(t)
+			_, err = c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+				Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+			}))
+			if connect.CodeOf(err) != connect.CodeInvalidArgument {
+				t.Errorf("StartRun code = %v, want InvalidArgument", connect.CodeOf(err))
+			}
+			list, lerr := c.ListRuns(context.Background(), connect.NewRequest(&orbitv1.ListRunsRequest{}))
+			if lerr != nil {
+				t.Fatal(lerr)
+			}
+			if n := len(list.Msg.GetRuns()); n != 0 {
+				t.Errorf("a rejected StartRun registered %d runs", n)
 			}
 		})
 	}
 }
 
 // A load run's gNBs dial from their bind_addresses: the launcher built by
-// loadRunFunc carries them through to the fleet.
+// loadRunFunc carries the normalised list through to the fleet, whose dial
+// names the source in its error.
 func TestLoadRunFuncPassesBindAddresses(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	spec := failFastLoadSpec()
-	spec.BindAddresses = []string{badBind}
+	spec.BindAddresses = []string{"127.0.0.1"}
 	fn, err := loadRunFunc(log, spec)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = fn(context.Background(), load.NewLiveStats(), func(string, string, string, string) {})
-	if err == nil || !strings.Contains(err.Error(), wantBindErr) {
-		t.Fatalf("run err = %v, want containing %q", err, wantBindErr)
+	if err == nil {
+		t.Fatal("a load run against an unroutable AMF succeeded")
+	}
+	if !strings.Contains(err.Error(), `from "127.0.0.1:0"`) {
+		t.Errorf("run err = %v, want the dial to name the bind address", err)
 	}
 }

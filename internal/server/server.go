@@ -133,6 +133,9 @@ func (s *cellService) RunNGSetup(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	if _, err := sctp.NormalizeLocal(msg.GetLocalAddress()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
 	timeout := time.Duration(msg.GetTimeoutMs()) * time.Millisecond
 	if timeout == 0 {

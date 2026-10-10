@@ -74,12 +74,7 @@ func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 
 	// Crash-safety confirmation: even a "graceful" outcome must leave the AMF
 	// able to complete a fresh NG Setup. If not, the core did not survive.
-	if r.Verdict == Pass && !env.Alive(ctx) {
-		r.Verdict = Fail
-		r.Observed = "AMF unresponsive after the message (" + r.Observed + ")"
-		r.Detail = "fresh NG Setup failed — the core did not survive the unexpected message"
-	}
-	return r
+	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive the unexpected message")
 }
 
 // isErrorIndication reports whether pdu is an NGAP Error Indication.

@@ -15,6 +15,8 @@ package conformance
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"time"
 
 	"github.com/bgrewell/orbit/internal/gnb"
@@ -72,12 +74,13 @@ type Test interface {
 // most need a fresh or deliberately-misused one.
 //
 // Bind is the local N2 source address every check's association binds, as
-// ip or ip:port (ip alone = ephemeral port; see sctp.NormalizeLocal); empty
-// lets the kernel choose. One address suffices because Registry.RunStream
-// runs the checks one after another, each presenting its own gNB ID over
-// its own association, so at any instant there is one gNB on that address.
-// A check that opens more than one association (the liveness probe after a
-// negative test) shares the address across them on distinct ports.
+// ip or ip:0 (see sctp.NormalizeLocal); empty lets the kernel choose. One
+// address suffices because Registry.RunStream runs the checks one after
+// another, each presenting its own gNB ID over its own association, so at
+// any instant there is one gNB on that address. The port must be 0: a check
+// may hold its association open while Alive probes the AMF over a second
+// one from the same Bind, and only an ephemeral port gives the two distinct
+// ports. ValidateBind enforces this; callers run it before a suite.
 //
 // UPFN3/N3Bind are optional and used only by user-plane (GTP-U) checks: UPFN3
 // is the UPF's N3 endpoint (host:port) and N3Bind the local N3 source
@@ -94,6 +97,23 @@ type Env struct {
 // Dial opens a raw SCTP association to the AMF (no NG Setup) from Bind.
 func (e Env) Dial() (*sctp.Conn, error) {
 	return sctp.Dial(e.Bind, e.AMFAddr)
+}
+
+// ValidateBind checks a conformance bind address up front: it must
+// normalise (sctp.NormalizeLocal) and must not fix a port, because the suite
+// opens several associations per check from the same address. "" is valid.
+func ValidateBind(bind string) error {
+	n, err := sctp.NormalizeLocal(bind)
+	if err != nil {
+		return err
+	}
+	if n == "" {
+		return nil
+	}
+	if _, port, err := net.SplitHostPort(n); err == nil && port != "0" {
+		return fmt.Errorf("bind address %q fixes a port, but conformance opens several associations per check; give --bind as ip or ip:0", bind)
+	}
+	return nil
 }
 
 // N2Source is Bind in the normalised ip:port form sctp.Dial uses, for
@@ -131,17 +151,42 @@ func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 // ID well clear of the per-test IDs so it never collides. This is the
 // crash-safety primitive: if a negative test leaves the AMF unable to complete
 // a fresh NG Setup, the core did not survive.
-func (e Env) Alive(ctx context.Context) bool {
+//
+// A non-nil error means the probe itself could not be made (the local dial
+// failed), which says nothing about the core: callers report it as a harness
+// ERROR, never as a FAIL. alive=false with a nil error is the core's doing.
+func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	probe := e.GNB
 	probe.ID = e.GNB.ID + 0x9000
 	probe.Name = "orbit-conf-probe"
 	conn, err := e.Dial()
 	if err != nil {
-		return false
+		return false, fmt.Errorf("liveness probe dial: %w", err)
 	}
 	defer conn.Close()
 	ng, err := gnb.NGSetup(ctx, conn, probe)
-	return err == nil && ng.Accepted
+	return err == nil && ng.Accepted, nil
+}
+
+// confirmAlive applies the crash-safety confirmation to a passing result: a
+// core that no longer completes a fresh NG Setup turns the PASS into a FAIL,
+// while a probe that could not even be dialled turns it into an ERROR.
+func confirmAlive(ctx context.Context, env Env, r Result, failDetail string) Result {
+	if r.Verdict != Pass {
+		return r
+	}
+	alive, err := env.Alive(ctx)
+	switch {
+	case err != nil:
+		r.Verdict = Error
+		r.Observed = "liveness probe could not run (" + r.Observed + ")"
+		r.Detail = err.Error()
+	case !alive:
+		r.Verdict = Fail
+		r.Observed = "AMF unresponsive after the message (" + r.Observed + ")"
+		r.Detail = failDetail
+	}
+	return r
 }
 
 type setupError struct{ s string }
@@ -236,10 +281,11 @@ func (r *Registry) indexOf(t Test) int {
 type Summary struct {
 	Total, Pass, Fail, Error, Skip, Deviation int
 	Results                                   []Result
-	// N2Source is the local N2 source address the checks dialled from, in
-	// the normalised ip:port form (port 0 = ephemeral per association), so a
-	// verdict records which address it was taken from. Empty when the kernel
-	// chose.
+	// N2Source is the configured Env.Bind in sctp.NormalizeLocal's ip:0
+	// form, so a verdict records which address the checks were taken from.
+	// It is the requested bind, not a bound address: every check dials its
+	// own association, each on its own ephemeral port, so there is no single
+	// real port to report. Empty when the kernel chose.
 	N2Source string `json:",omitempty"`
 }
 

@@ -33,6 +33,9 @@ func (s *conformanceService) RunConformance(
 		return connect.NewError(connect.CodeInvalidArgument,
 			errAMFRequired)
 	}
+	if err := conformance.ValidateBind(m.GetBindAddress()); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
 	env := conformance.Env{
 		AMFAddr: m.GetAmfAddress(),
