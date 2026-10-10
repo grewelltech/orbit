@@ -272,7 +272,8 @@ the remote addresses in: `core.amf: 10.32.2.10:38412`,
 **4 — Prove the path with one UE before the fleet** (from the RAN node):
 
 ```sh
-orbit ue register --amf 10.32.2.10:38412 --supi <imsi> --ki $ORBIT_KI --opc $ORBIT_OPC \
+# Ki/OPc come from $ORBIT_KI/$ORBIT_OPC (exported in step 5) when --ki/--opc are omitted.
+orbit ue register --amf 10.32.2.10:38412 --supi <imsi> \
     --mcc 208 --mnc 93 --sst 1 --sd 010203 --gnb-id 90 --pdu-session --gnb-n3 10.32.3.120
 orbit ue ping --supi <imsi> --dst 8.8.8.8    # 3/3 replies = N2, N3, and routing all good
 orbit ue deregister --supi <imsi>
