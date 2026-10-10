@@ -1,0 +1,32 @@
+import { describe, expect, it } from "vitest";
+import { buildRequest, identityComplete, paramsFromIdentity, DEFAULT_IDENTITY } from "./conformance";
+
+describe("conformance request", () => {
+  it("sends every identity field the user typed, PLMN as strings", () => {
+    // The server has no PLMN default any more, so the dashboard must send
+    // what the form holds — and MNC "01" must stay "01", never become 1.
+    const req = buildRequest(
+      paramsFromIdentity("10.0.0.1:38412", { mcc: "001", mnc: "01", tac: "7", sst: "2", sd: "abcdef" }),
+    );
+    expect(req.amfAddress).toBe("10.0.0.1:38412");
+    expect(req.mcc).toBe("001");
+    expect(req.mnc).toBe("01");
+    expect(req.tac).toBe(7);
+    expect(req.sst).toBe(2);
+    expect(req.sd).toBe("abcdef");
+  });
+
+  it("sends an empty SD when the user leaves it blank (no SD, not a placeholder)", () => {
+    const req = buildRequest(paramsFromIdentity("a:1", { ...DEFAULT_IDENTITY, mcc: "001", mnc: "01" }));
+    expect(req.sd).toBe("");
+    expect(req.tac).toBe(1);
+    expect(req.sst).toBe(1);
+  });
+
+  it("refuses to run without a PLMN", () => {
+    expect(identityComplete(DEFAULT_IDENTITY)).toBe(false);
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001" })).toBe(false);
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01" })).toBe(true);
+    expect(identityComplete({ ...DEFAULT_IDENTITY, mcc: "001", mnc: "01", tac: "x" })).toBe(false);
+  });
+});
