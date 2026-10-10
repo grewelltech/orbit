@@ -26,10 +26,43 @@ core-side issues and the `--core-profile` quirks see
   downlink there. On a split testbed (e.g. ATB-01) that address lives on the RAN
   node, not the control-plane host, so run those commands from there.
 - **Handover** additionally needs each gNB on a **distinct routed source IP**
-  (`--bind <ip>:0`) — the AMF distinguishes gNBs by association address — and a
+  (`--bind <ip>`) — the AMF distinguishes gNBs by association address — and a
   **fresh gNB ID per run**: the AMF does not cleanly re-key a reused gNB ID from
   a new address (a stale association makes it drop the Handover Request). See
   [interop/sdcore.md](interop/sdcore.md).
+
+### Choosing the N2 source address (`--bind`)
+
+Every command that opens an N2 association — `cell ngsetup`, `ue register`,
+`ue handover` / `xn-handover`, `load`, `runs start-load` and `conformance` —
+takes `--bind <ip[:port]>`: the local address the gNB's SCTP association is
+bound to. A bare IP means an ephemeral port (`10.0.0.21` is `10.0.0.21:0`); an
+explicit port is kept as given; IPv6 is written bare (`fd00::21`) or bracketed
+with a port (`[fd00::21]:0`). Unset, the kernel picks the host's primary
+address on the route to the AMF, which on a RAN host carrying several N2
+addresses is rarely the one you meant.
+
+`--bind` is the **N2** source; the user plane has its own flags (`--gnb-n3` on
+the UE and load commands, `--n3-bind` on `conformance`). Each command prints
+the N2 source it actually used as `n2-source=<ip:port>`, with the real port,
+so a capture or an AMF-side log can be matched to the run; `conformance --json`
+records it in the summary as `N2Source`.
+
+`load` and `runs start-load` take a list: none (kernel default), one (shared by
+every gNB, which leaves the AMF telling them apart by gNB ID only — the command
+says so), or exactly `--gnb-count` addresses, one per gNB in order. Any other
+count is an error. Addresses are never auto-incremented from a base; list the
+ones the host owns, as fleet scenarios do with `topology.gnbs.source_ips`.
+
+```sh
+orbit cell ngsetup --amf <host:port> --mcc 208 --mnc 93 --bind 172.17.50.21
+orbit ue register  ... --bind 172.17.50.21 --gnb-n3 172.17.50.21
+orbit load         ... --gnb-count 3 --bind 172.17.50.21,172.17.50.22,172.17.50.23
+orbit conformance  --amf <host:port> --bind 172.17.50.21 --json
+```
+
+`cell ngsetup --local` is the old name for the same flag; it still works but is
+deprecated, and `--bind` wins if both are given.
 
 ## The server
 
@@ -228,11 +261,11 @@ The UE must already be registered (ideally with a session). Use a distinct
 ```sh
 # N2 (AMF-mediated) handover:
 orbit ue handover    --supi <imsi> --amf <host:port> \
-    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13
+    --gnb-id 2 --bind 172.17.50.13 --gnb-n3 172.17.50.13
 
 # Xn handover (NGAP PathSwitch; Xn prep stubbed in-process):
 orbit ue xn-handover --supi <imsi> --amf <host:port> \
-    --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13
+    --gnb-id 2 --bind 172.17.50.13 --gnb-n3 172.17.50.13
 ```
 
 Both move the UE's session to the target gNB and emit mobility states on
@@ -273,6 +306,10 @@ honestly. Set `ORBIT_LOAD_SEED` to make the arrival sequence reproducible.
 # Multi-gNB muxing and per-UE data sessions:
 orbit load ... --gnb-count 4 --pdu-session --gnb-n3 <ip>
 
+# One N2 source address per gNB (or one shared address; see "Choosing the N2
+# source address" above):
+orbit load ... --gnb-count 2 --bind 172.17.50.21,172.17.50.22
+
 # Soak: sustain for a duration with a resource trend:
 orbit load ... --duration 10m --sample-interval 15s
 ```
@@ -287,8 +324,8 @@ into a CI gate.
 live core and exits non-zero on any failure — an integration-CI gate.
 
 ```sh
-orbit conformance --amf <host:port> [--json] [--category negative-ie] \
-    [--gnb-base 0x400] [--per-test-timeout 15s]
+orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
+    [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s]
 ```
 
 Checks are framed as graceful-rejection / crash-safety regression guards, each
