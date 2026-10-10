@@ -15,10 +15,14 @@ import (
 const (
 	mccFlagHelp = "mobile country code, 3 digits (default $ORBIT_MCC)"
 	mncFlagHelp = "mobile network code, 2 or 3 digits with leading zeros kept (default $ORBIT_MNC)"
-	tacFlagHelp = "tracking area code, 1-16777215"
-	sstFlagHelp = "slice/service type, 0-255"
-	sdFlagHelp  = "slice differentiator, 6 hex digits; empty = no SD (SD-Core uses 010203)"
-	dnnFlagHelp = "data network name for the PDU session"
+	// Inherit mode (handover) never reads the environment, so its help must
+	// not promise it.
+	mccInheritHelp = "mobile country code, 3 digits (omit to inherit from the serving gNB)"
+	mncInheritHelp = "mobile network code, 2 or 3 digits with leading zeros kept (omit to inherit from the serving gNB)"
+	tacFlagHelp    = "tracking area code, 1-16777215"
+	sstFlagHelp    = "slice/service type, 0-255"
+	sdFlagHelp     = "slice differentiator, 6 hex digits; empty = no SD (SD-Core uses 010203)"
+	dnnFlagHelp    = "data network name for the PDU session"
 )
 
 // Defaults shared by every command for the fields that have a sane one. The
@@ -69,11 +73,13 @@ func addNetIdentityFlags(f *pflag.FlagSet, id *netIdentity, opts ...netIDOption)
 	}
 	id.fs = f
 	tac, sst, sd := defaultTAC, defaultSST, defaultSD
+	mccHelp, mncHelp := mccFlagHelp, mncFlagHelp
 	if id.inherit {
 		tac, sst = 0, 0
+		mccHelp, mncHelp = mccInheritHelp, mncInheritHelp
 	}
-	f.StringVar(&id.MCC, "mcc", "", mccFlagHelp)
-	f.StringVar(&id.MNC, "mnc", "", mncFlagHelp)
+	f.StringVar(&id.MCC, "mcc", "", mccHelp)
+	f.StringVar(&id.MNC, "mnc", "", mncHelp)
 	f.Uint32Var(&id.TAC, "tac", tac, tacFlagHelp)
 	f.Uint32Var(&id.SST, "sst", sst, sstFlagHelp)
 	f.StringVar(&id.SD, "sd", sd, sdFlagHelp)

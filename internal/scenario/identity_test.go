@@ -114,6 +114,31 @@ func TestCorePLMNFromEnv(t *testing.T) {
 	}
 }
 
+// A scenario that reaches the server is not env-expanded, so a ${ORBIT_MCC}
+// reference is still literal there: the error must say so rather than claim
+// the value is not three digits, and the required-PLMN error must not promise
+// expansion on that path.
+func TestFleetServerPathDoesNotExpandPLMN(t *testing.T) {
+	t.Setenv("ORBIT_MCC", "001")
+	t.Setenv("ORBIT_MNC", "01")
+	y := `kind: fleet
+core: { amf: x, plmn: { mcc: "${ORBIT_MCC}", mnc: "${ORBIT_MNC}" } }
+topology: { gnbs: { count: 1, source_ips: [a] } }
+fleet: { count: 1, supi_base: "1" }
+`
+	if _, err := ParseFleet([]byte(y)); err != nil {
+		t.Fatalf("local parse (env-expanded) failed: %v", err)
+	}
+	_, err := ParseFleetNoEnv([]byte(y))
+	if err == nil || !strings.Contains(err.Error(), "not env-expanded") || !strings.Contains(err.Error(), "${ORBIT_MCC}") {
+		t.Fatalf("server-path err = %v, want the unexpanded-reference explanation", err)
+	}
+	_, err = ParseFleetNoEnv([]byte(strings.Replace(y, `plmn: { mcc: "${ORBIT_MCC}", mnc: "${ORBIT_MNC}" }`, "", 1)))
+	if err == nil || strings.Contains(err.Error(), "expand)") {
+		t.Fatalf("server-path missing-PLMN err = %v, must not claim env expansion", err)
+	}
+}
+
 // Fleet scenarios apply the same rule and defaults through the same code.
 func TestFleetCorePLMNRequiredAndDefaults(t *testing.T) {
 	base := `kind: fleet

@@ -145,8 +145,22 @@ func TestEveryAMFCommandHasIdentityFlags(t *testing.T) {
 					t.Errorf("%s: missing --%s", path, name)
 					continue
 				}
-				if f.Usage != w.help {
-					t.Errorf("%s: --%s help %q differs from the shared text", path, name, f.Usage)
+				help := w.help
+				if inherits[path] {
+					// Handover never reads the env, so its PLMN help must not
+					// promise it; it says to omit the flag to inherit instead.
+					switch name {
+					case "mcc":
+						help = mccInheritHelp
+					case "mnc":
+						help = mncInheritHelp
+					}
+					if (name == "mcc" || name == "mnc") && strings.Contains(f.Usage, "ORBIT_M") {
+						t.Errorf("%s: --%s help %q mentions the env, which handover ignores", path, name, f.Usage)
+					}
+				}
+				if f.Usage != help {
+					t.Errorf("%s: --%s help %q differs from the expected text %q", path, name, f.Usage, help)
 				}
 				def := w.def
 				if inherits[path] && (name == "tac" || name == "sst") {

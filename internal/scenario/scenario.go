@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -69,8 +70,17 @@ func (c *Core) applyDefaults() error {
 	if c.AMF == "" {
 		return fmt.Errorf("core.amf is required")
 	}
+	for name, v := range map[string]string{"mcc": c.PLMN.MCC, "mnc": c.PLMN.MNC} {
+		if strings.Contains(v, "${") {
+			// Only `orbit run` expands ${ENV} (ParseFleet / Parse); a scenario
+			// sent to the server arrives literal (ParseFleetNoEnv), so the
+			// reference is still here and the digit check below would only say
+			// "must be 3 digits" about a string that looks nothing like one.
+			return fmt.Errorf("core.plmn.%s is an unexpanded %s reference: a scenario sent to the server is not env-expanded, so give literal values there (or run it locally with `orbit run`, which expands ${ENV})", name, v)
+		}
+	}
 	if c.PLMN.MCC == "" || c.PLMN.MNC == "" {
-		return fmt.Errorf("core.plmn.mcc and core.plmn.mnc are required (quote them: mcc: \"001\", mnc: \"01\"; ${ORBIT_MCC}/${ORBIT_MNC} expand)")
+		return fmt.Errorf("core.plmn.mcc and core.plmn.mnc are required (quote them: mcc: \"001\", mnc: \"01\"). A scenario sent to the server is not env-expanded; `orbit run` expands ${ORBIT_MCC}/${ORBIT_MNC} locally")
 	}
 	if c.TAC == 0 {
 		c.TAC = DefaultTAC
