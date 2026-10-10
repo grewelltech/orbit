@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -61,6 +62,33 @@ type GNBEndpoint struct {
 	N3Addr   string
 }
 
+// ErrInvalidTarget marks a handover target whose network identity, after
+// inheriting from the serving gNB, is still invalid: a caller's input error
+// rather than a procedure failure.
+var ErrInvalidTarget = errors.New("invalid target gNB")
+
+// inheritIdentity fills the target's unset network identity from the UE's
+// serving gNB — the empty PLMN pair, a zero TAC, an empty slice list — and
+// validates the result. A field the caller set explicitly is kept. This is
+// what lets a same-network handover omit every identity flag, and it runs
+// under the session's procedure lock so the serving cell it copies is the
+// one the UE is actually on (a previous handover's target included).
+func inheritIdentity(target gnb.Config, serving gnb.Config) (gnb.Config, error) {
+	if target.MCC == "" && target.MNC == "" {
+		target.MCC, target.MNC = serving.MCC, serving.MNC
+	}
+	if target.TAC == 0 {
+		target.TAC = serving.TAC
+	}
+	if len(target.Slices) == 0 {
+		target.Slices = append([]gnb.SNSSAI(nil), serving.Slices...)
+	}
+	if err := target.ValidateIdentity(); err != nil {
+		return target, fmt.Errorf("%w: %v", ErrInvalidTarget, err)
+	}
+	return target, nil
+}
+
 // UseProfile selects the named core-compatibility profile (default
 // strict-3gpp). Unknown names are rejected.
 func (m *Manager) UseProfile(name string) error {
@@ -109,6 +137,10 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 		return 0, err
 	}
 	defer release()
+
+	if target.Config, err = inheritIdentity(target.Config, sess.ServingGNB()); err != nil {
+		return 0, err
+	}
 
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
 		Detail: fmt.Sprintf("N2 handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},

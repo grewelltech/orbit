@@ -981,7 +981,12 @@ type HandoverRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Registered UE to hand over.
 	Supi string `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
-	// Target gNB to move the UE to.
+	// Target gNB to move the UE to. Its network identity is optional: when mcc
+	// and mnc are both empty the server copies the PLMN from the UE's serving
+	// gNB, a zero tac is copied likewise, and an empty slices list takes the
+	// serving gNB's slices. Any field given explicitly is kept. The result is
+	// validated like every other gNB config; an identity that is invalid even
+	// after inheriting is InvalidArgument.
 	TargetGnb *GnbConfig `protobuf:"bytes,2,opt,name=target_gnb,json=targetGnb,proto3" json:"target_gnb,omitempty"`
 	// AMF N2 endpoint for the target association (host:port).
 	AmfAddress string `protobuf:"bytes,3,opt,name=amf_address,json=amfAddress,proto3" json:"amf_address,omitempty"`

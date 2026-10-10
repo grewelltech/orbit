@@ -13,7 +13,10 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 )
 
-var errAMFRequired = errors.New("amf_address is required (host:port of the AMF N2 endpoint)")
+var (
+	errAMFRequired  = errors.New("amf_address is required (host:port of the AMF N2 endpoint)")
+	errPLMNRequired = errors.New("mcc and mnc are required (the core's PLMN; the server has no default)")
+)
 
 // conformanceService runs the conformance suite server-side and streams results
 // to a client — the same suite the CLI runs, driven over the API so the
@@ -36,6 +39,14 @@ func (s *conformanceService) RunConformance(
 	if err := conformance.ValidateBind(m.GetBindAddress()); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// The PLMN is the caller's to supply: a wrong-PLMN NG Setup Failure reads
+	// like a core finding, so the server never guesses one.
+	if m.GetMcc() == "" || m.GetMnc() == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errPLMNRequired)
+	}
+	if err := gnb.ValidateSNSSAI(m.GetSst(), m.GetSd()); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
 	env := conformance.Env{
 		AMFAddr: m.GetAmfAddress(),
@@ -46,17 +57,19 @@ func (s *conformanceService) RunConformance(
 			ID:     orDefaultU32(m.GetGnbIdBase(), 700),
 			IDBits: 24,
 			Name:   "orbit-conformance",
-			MCC:    orDefaultStr(m.GetMcc(), "001"),
-			MNC:    orDefaultStr(m.GetMnc(), "01"),
+			MCC:    m.GetMcc(),
+			MNC:    m.GetMnc(),
 			TAC:    orDefaultU32(m.GetTac(), 1),
 			// NG Setup fails without a supported slice, so one is always
 			// broadcast — this was the whole suite ERRORing "at least one
-			// supported S-NSSAI is required" until it was set.
-			Slices: []gnb.SNSSAI{{
-				SST: uint8(orDefaultU32(m.GetSst(), 1)),
-				SD:  orDefaultStr(m.GetSd(), "010203"),
-			}},
+			// supported S-NSSAI is required" until it was set. SST defaults
+			// to 1; SD has no default (the core's slice is the caller's to
+			// name — SD-Core wants 010203).
+			Slices: []gnb.SNSSAI{{SST: uint8(orDefaultU32(m.GetSst(), 1)), SD: m.GetSd()}},
 		},
+	}
+	if err := env.GNB.ValidateIdentity(); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	var cats []conformance.Category
@@ -149,13 +162,6 @@ func cloneTally(t *orbitv1.ConformanceTally) *orbitv1.ConformanceTally {
 		Passed: t.Passed, Failed: t.Failed, Errored: t.Errored,
 		Skipped: t.Skipped, Deviations: t.Deviations,
 	}
-}
-
-func orDefaultStr(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }
 
 func orDefaultU32(v, def uint32) uint32 {

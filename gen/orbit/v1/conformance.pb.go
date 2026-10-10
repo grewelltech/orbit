@@ -23,17 +23,18 @@ const (
 
 type RunConformanceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The core under test. The AMF N2 endpoint is required; everything else
-	// defaults to the server's conventions.
+	// The core under test. The AMF N2 endpoint and the PLMN are required: the
+	// server has no default PLMN, because a wrong-PLMN NG Setup Failure reads
+	// like a core finding. The rest defaults as on the CLI.
 	AmfAddress string `protobuf:"bytes,1,opt,name=amf_address,json=amfAddress,proto3" json:"amf_address,omitempty"` // host:port, required
-	Mcc        string `protobuf:"bytes,2,opt,name=mcc,proto3" json:"mcc,omitempty"`                                 // default "001"
-	Mnc        string `protobuf:"bytes,3,opt,name=mnc,proto3" json:"mnc,omitempty"`                                 // default "01"
+	Mcc        string `protobuf:"bytes,2,opt,name=mcc,proto3" json:"mcc,omitempty"`                                 // 3 digits, required
+	Mnc        string `protobuf:"bytes,3,opt,name=mnc,proto3" json:"mnc,omitempty"`                                 // 2 or 3 digits (leading zeros kept), required
 	Tac        uint32 `protobuf:"varint,4,opt,name=tac,proto3" json:"tac,omitempty"`                                // default 1
 	// Supported slice broadcast in NG Setup. NG Setup fails without at least
-	// one, so these default rather than being required: sst defaults to 1, sd
-	// to "010203" (the testbed slice).
+	// one, so sst defaults to 1; sd has no default (empty = no SD; SD-Core
+	// wants "010203").
 	Sst uint32 `protobuf:"varint,10,opt,name=sst,proto3" json:"sst,omitempty"` // default 1
-	Sd  string `protobuf:"bytes,11,opt,name=sd,proto3" json:"sd,omitempty"`    // default "010203"
+	Sd  string `protobuf:"bytes,11,opt,name=sd,proto3" json:"sd,omitempty"`    // default "" (no SD)
 	// Base gNB ID. Each test presents a distinct ID above this base, because an
 	// AMF does not cleanly re-key a reused gNB ID from a new association.
 	GnbIdBase uint32 `protobuf:"varint,5,opt,name=gnb_id_base,json=gnbIdBase,proto3" json:"gnb_id_base,omitempty"` // default 700

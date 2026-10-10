@@ -182,7 +182,24 @@ func withTimeout(ctx context.Context, ms uint32, defaultMs uint32) (context.Cont
 	return context.WithTimeout(ctx, d)
 }
 
+// gnbConfigFromProto maps a request's gNB config and validates its network
+// identity with the same rule the CLI applies (gnb.Config.ValidateIdentity),
+// so the API rejects exactly what the CLI rejects.
 func gnbConfigFromProto(p *orbitv1.GnbConfig) (gnb.Config, error) {
+	cfg, err := gnbTargetFromProto(p)
+	if err != nil {
+		return cfg, err
+	}
+	if err := cfg.ValidateIdentity(); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// gnbTargetFromProto maps a gNB config WITHOUT validating its network
+// identity, for a handover target whose unset fields the engine fills from
+// the UE's serving gNB before validating (engine.GNBEndpoint).
+func gnbTargetFromProto(p *orbitv1.GnbConfig) (gnb.Config, error) {
 	var cfg gnb.Config
 	if p == nil {
 		return cfg, fmt.Errorf("gnb config is required")
@@ -196,8 +213,8 @@ func gnbConfigFromProto(p *orbitv1.GnbConfig) (gnb.Config, error) {
 		TAC:    p.GetTac(),
 	}
 	for _, s := range p.GetSlices() {
-		if s.GetSst() > 0xFF {
-			return cfg, fmt.Errorf("sst %d exceeds one octet", s.GetSst())
+		if err := gnb.ValidateSNSSAI(s.GetSst(), s.GetSd()); err != nil {
+			return cfg, err
 		}
 		cfg.Slices = append(cfg.Slices, gnb.SNSSAI{SST: uint8(s.GetSst()), SD: s.GetSd()})
 	}

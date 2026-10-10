@@ -17,8 +17,9 @@ export const file_orbit_v1_conformance: GenFile = /*@__PURE__*/
  */
 export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & {
   /**
-   * The core under test. The AMF N2 endpoint is required; everything else
-   * defaults to the server's conventions.
+   * The core under test. The AMF N2 endpoint and the PLMN are required: the
+   * server has no default PLMN, because a wrong-PLMN NG Setup Failure reads
+   * like a core finding. The rest defaults as on the CLI.
    *
    * host:port, required
    *
@@ -27,14 +28,14 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
   amfAddress: string;
 
   /**
-   * default "001"
+   * 3 digits, required
    *
    * @generated from field: string mcc = 2;
    */
   mcc: string;
 
   /**
-   * default "01"
+   * 2 or 3 digits (leading zeros kept), required
    *
    * @generated from field: string mnc = 3;
    */
@@ -49,8 +50,8 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
 
   /**
    * Supported slice broadcast in NG Setup. NG Setup fails without at least
-   * one, so these default rather than being required: sst defaults to 1, sd
-   * to "010203" (the testbed slice).
+   * one, so sst defaults to 1; sd has no default (empty = no SD; SD-Core
+   * wants "010203").
    *
    * default 1
    *
@@ -59,7 +60,7 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
   sst: number;
 
   /**
-   * default "010203"
+   * default "" (no SD)
    *
    * @generated from field: string sd = 11;
    */

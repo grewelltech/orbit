@@ -87,7 +87,7 @@ func TestRunConformanceRejectsBadBindAddress(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newConformanceClient(t)
 			stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-				AmfAddress: "127.0.0.1:1", BindAddress: tc.bind, PerTestSeconds: 2, Categories: []string{"procedural"},
+				AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", BindAddress: tc.bind, PerTestSeconds: 2, Categories: []string{"procedural"},
 			}))
 			if err != nil {
 				t.Fatal(err)
@@ -111,7 +111,7 @@ func TestRunConformanceRejectsBadBindAddress(t *testing.T) {
 func TestRunConformanceAcceptsEphemeralBind(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", BindAddress: "127.0.0.1", PerTestSeconds: 2, Categories: []string{"procedural"},
+		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", BindAddress: "127.0.0.1", PerTestSeconds: 2, Categories: []string{"procedural"},
 	}))
 	if err != nil {
 		t.Fatal(err)

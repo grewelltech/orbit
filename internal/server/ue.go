@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -262,7 +263,10 @@ func (s *ueService) Handover(
 	if m.GetSupi() == "" || m.GetAmfAddress() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and amf_address are required"))
 	}
-	target, err := gnbConfigFromProto(m.GetTargetGnb())
+	// Identity fields left empty inherit from the UE's serving gNB inside the
+	// engine (under the session's procedure lock), so only the target's shape
+	// is checked here.
+	target, err := gnbTargetFromProto(m.GetTargetGnb())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -276,7 +280,7 @@ func (s *ueService) Handover(
 		N3Addr:   m.GetGnbN3Addr(),
 	})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, handoverError(err)
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
 		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
@@ -292,7 +296,7 @@ func (s *ueService) XnHandover(
 	if m.GetSupi() == "" || m.GetAmfAddress() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and amf_address are required"))
 	}
-	target, err := gnbConfigFromProto(m.GetTargetGnb())
+	target, err := gnbTargetFromProto(m.GetTargetGnb()) // identity inherits in the engine, see Handover
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -303,12 +307,22 @@ func (s *ueService) XnHandover(
 		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: m.GetGnbN3Addr(),
 	})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, handoverError(err)
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
 		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
 		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
 	}), nil
+}
+
+// handoverError maps an engine handover failure to a Connect code: a target
+// whose identity is invalid even after inheriting is the caller's input
+// (InvalidArgument); anything else is a procedure failure (Internal).
+func handoverError(err error) error {
+	if errors.Is(err, engine.ErrInvalidTarget) {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return connect.NewError(connect.CodeInternal, err)
 }
 
 func (s *ueService) StartApp(
