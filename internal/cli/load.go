@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bgrewell/orbit/internal/engine"
-	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -24,17 +23,18 @@ import (
 // by the core under test.
 func newLoadCmd() *cobra.Command {
 	var (
-		amf, baseIMSI, ki, opc, mcc, mnc  string
-		gnbName, sd, dnn, gnbN3, rampSpec string
-		arrival                           string
-		binds                             []string
-		count, conc, gnbCount             int
-		gnbID, gnbBits, tac, sst          uint32
-		rate, sloSuccess                  float64
-		sloRegP99, sloAttachP99           time.Duration
-		duration, sampleInterval          time.Duration
-		progressEvery                     time.Duration
-		withPDU                           bool
+		amf, baseIMSI, ki, opc   string
+		gnbName, gnbN3, rampSpec string
+		arrival                  string
+		binds                    []string
+		count, conc, gnbCount    int
+		gnbID, gnbBits           uint32
+		id                       netIdentity
+		rate, sloSuccess         float64
+		sloRegP99, sloAttachP99  time.Duration
+		duration, sampleInterval time.Duration
+		progressEvery            time.Duration
+		withPDU                  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "load",
@@ -44,6 +44,9 @@ func newLoadCmd() *cobra.Command {
 			// is parsed so a credentials problem is the first thing reported.
 			ki, opc, err := resolveCreds(ki, opc)
 			if err != nil {
+				return err
+			}
+			if err := id.resolve(true); err != nil {
 				return err
 			}
 			kiB, err := auth.ParseHexKey("Ki", ki)
@@ -73,21 +76,19 @@ func newLoadCmd() *cobra.Command {
 				gnbs = append(gnbs, engine.GNBSpec{
 					AMFAddr:  amf,
 					BindAddr: bindAddrs[n],
-					Config: gnb.Config{
-						ID: gnbID + uint32(n), IDBits: int(gnbBits), Name: fmt.Sprintf("%s-%d", gnbName, n),
-						MCC: mcc, MNC: mnc, TAC: tac, Slices: []gnb.SNSSAI{{SST: uint8(sst), SD: sd}},
-					},
+					Config:   id.gnbConfig(gnbID+uint32(n), int(gnbBits), fmt.Sprintf("%s-%d", gnbName, n)),
 				})
 			}
 			spec := engine.LoadSpec{
-				GNBs: gnbs, BaseIMSI: baseIMSI, Count: count, MCC: mcc, MNC: mnc,
+				GNBs: gnbs, BaseIMSI: baseIMSI, Count: count, MCC: id.MCC, MNC: id.MNC,
 				Ki: kiB, OPc: opcB, Concurrency: conc, Rate: curve,
 				Duration: duration, SampleEvery: sampleInterval,
 			}
 			if withPDU {
-				spec.PDUSession = &ue.PDUSessionParams{PDUSessionID: 1, SST: uint8(sst), SD: sd, DNN: dnn}
+				spec.PDUSession = &ue.PDUSessionParams{PDUSessionID: 1, SST: uint8(id.SST), SD: id.SD, DNN: id.DNN}
 				spec.GNBN3Addr = gnbN3
 			}
+			fmt.Fprintf(cmd.OutOrStdout(), "network: %s\n", id)
 
 			// Live progress: a load run is silent for minutes otherwise, and
 			// an operator watching a soak needs to see it degrade as it happens
@@ -129,8 +130,7 @@ func newLoadCmd() *cobra.Command {
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
 	f.StringVar(&ki, "ki", "", kiFlagHelp)
 	f.StringVar(&opc, "opc", "", opcFlagHelp)
-	f.StringVar(&mcc, "mcc", "", "MCC")
-	f.StringVar(&mnc, "mnc", "", "MNC")
+	addNetIdentityFlags(f, &id, withDNN())
 	f.IntVar(&conc, "concurrency", 64, "max attaches in flight")
 	f.Float64Var(&rate, "rate", 0, "offered attach rate (attaches/sec; 0 = concurrency-bound)")
 	f.StringVar(&rampSpec, "ramp", "", "linear ramp start:end:seconds (overrides --rate)")
@@ -139,11 +139,7 @@ func newLoadCmd() *cobra.Command {
 	f.Uint32Var(&gnbID, "gnb-id", 1, "base gNB ID")
 	f.Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB ID bit length")
 	f.StringVar(&gnbName, "gnb-name", "orbit-gnb", "gNB name prefix")
-	f.Uint32Var(&tac, "tac", 1, "TAC")
-	f.Uint32Var(&sst, "sst", 1, "slice SST")
-	f.StringVar(&sd, "sd", "", "slice SD (6 hex)")
 	f.BoolVar(&withPDU, "pdu-session", false, "establish a PDU session per UE")
-	f.StringVar(&dnn, "dnn", "internet", "DNN (with --pdu-session)")
 	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address (with --pdu-session)")
 	f.Float64Var(&sloSuccess, "slo-min-success", 0, "SLO: minimum success rate (0-1); breach exits non-zero")
 	f.DurationVar(&sloRegP99, "slo-reg-p99", 0, "SLO: max registration P99 (e.g. 500ms)")
@@ -151,8 +147,9 @@ func newLoadCmd() *cobra.Command {
 	f.DurationVar(&duration, "duration", 0, "soak: run for this long instead of --count (e.g. 5m)")
 	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence (e.g. 10s)")
 	f.DurationVar(&progressEvery, "progress-every", 5*time.Second, "print live progress to stderr at this cadence (0 = off)")
-	// Ki/OPc are not marked required: they may come from the environment.
-	for _, r := range []string{"amf", "base-imsi", "mcc", "mnc"} {
+	// Ki/OPc and the PLMN are not marked required: they may come from the
+	// environment ($ORBIT_KI/$ORBIT_OPC, $ORBIT_MCC/$ORBIT_MNC).
+	for _, r := range []string{"amf", "base-imsi"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
 	return cmd

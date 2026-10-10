@@ -444,17 +444,18 @@ func activeRunID(ctx context.Context, c orbitv1connect.RunServiceClient) (string
 
 func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	var (
-		name, amf, baseIMSI, ki, opc, mcc, mnc string
-		events                                 string
-		gnbName, sd, gnbN3, dnn                string
-		binds                                  []string
-		count, gnbCount                        int
-		gnbID, gnbBits, tac, sst               uint32
-		rate                                   float64
-		ramp                                   string
-		concurrency                            uint32
-		duration, sampleInterval               time.Duration
-		withPDU                                bool
+		name, amf, baseIMSI, ki, opc string
+		events                       string
+		gnbName, gnbN3               string
+		binds                        []string
+		count, gnbCount              int
+		gnbID, gnbBits               uint32
+		id                           netIdentity
+		rate                         float64
+		ramp                         string
+		concurrency                  uint32
+		duration, sampleInterval     time.Duration
+		withPDU                      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "start-load",
@@ -462,6 +463,9 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ki, opc, err := resolveCreds(ki, opc)
 			if err != nil {
+				return err
+			}
+			if err := id.resolve(true); err != nil {
 				return err
 			}
 			durMs, err := msDuration("--duration", duration)
@@ -477,11 +481,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 				gnbCount = 1
 			}
 			for n := 0; n < gnbCount; n++ {
-				gnbs = append(gnbs, &orbitv1.GnbConfig{
-					Id: gnbID + uint32(n), IdBits: gnbBits, Name: fmt.Sprintf("%s-%d", gnbName, n),
-					Mcc: mcc, Mnc: mnc, Tac: tac,
-					Slices: []*orbitv1.Snssai{{Sst: sst, Sd: sd}},
-				})
+				gnbs = append(gnbs, id.gnbProto(gnbID+uint32(n), gnbBits, fmt.Sprintf("%s-%d", gnbName, n)))
 			}
 			spec := &orbitv1.LoadRunSpec{
 				AmfAddress: amf, Gnbs: gnbs, BaseImsi: baseIMSI, Count: uint32(count),
@@ -499,9 +499,12 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 				spec.RampStart, spec.RampEnd, spec.RampSeconds = start, end, uint32(secs)
 			}
 			if withPDU {
-				spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: sst, Sd: sd, Dnn: dnn}
+				spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: id.SST, Sd: id.SD, Dnn: id.DNN}
 				spec.GnbN3Addr = gnbN3
 			}
+			// stdout carries only the run id (scripts capture it); the
+			// identity report goes to stderr like the other diagnostics.
+			fmt.Fprintf(cmd.ErrOrStderr(), "network: %s\n", id)
 			verbosity, err := eventVerbosityFlag(events)
 			if err != nil {
 				return err
@@ -527,8 +530,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
 	f.StringVar(&ki, "ki", "", kiFlagHelp)
 	f.StringVar(&opc, "opc", "", opcFlagHelp)
-	f.StringVar(&mcc, "mcc", "", "MCC")
-	f.StringVar(&mnc, "mnc", "", "MNC")
+	addNetIdentityFlags(f, &id, withDNN())
 	f.Uint32Var(&concurrency, "concurrency", 64, "max attaches in flight")
 	f.Float64Var(&rate, "rate", 0, "offered attach rate (attaches/sec; 0 = concurrency-bound)")
 	f.StringVar(&ramp, "ramp", "", "linear ramp start:end:seconds (overrides --rate)")
@@ -536,16 +538,13 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.Uint32Var(&gnbID, "gnb-id", 1, "base gNB ID")
 	f.Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB ID bit length")
 	f.StringVar(&gnbName, "gnb-name", "orbit-gnb", "gNB name prefix")
-	f.Uint32Var(&tac, "tac", 1, "TAC")
-	f.Uint32Var(&sst, "sst", 1, "slice SST")
-	f.StringVar(&sd, "sd", "", "slice SD (6 hex)")
 	f.BoolVar(&withPDU, "pdu-session", false, "establish a PDU session per UE")
-	f.StringVar(&dnn, "dnn", "internet", "DNN (with --pdu-session)")
 	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address (with --pdu-session)")
 	f.DurationVar(&duration, "duration", 0, "soak: run for this long instead of --count")
 	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence")
-	// Ki/OPc are not marked required: they may come from the environment.
-	for _, r := range []string{"amf", "base-imsi", "mcc", "mnc"} {
+	// Ki/OPc and the PLMN are not marked required: they may come from the
+	// environment ($ORBIT_KI/$ORBIT_OPC, $ORBIT_MCC/$ORBIT_MNC).
+	for _, r := range []string{"amf", "base-imsi"} {
 		_ = cmd.MarkFlagRequired(r)
 	}
 	return cmd

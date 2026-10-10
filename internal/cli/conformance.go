@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bgrewell/orbit/internal/conformance"
-	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 // newConformanceCmd runs the conformance / regression suite in-process against
@@ -16,13 +15,14 @@ import (
 // fails or the harness errors — an integration-CI gate.
 func newConformanceCmd() *cobra.Command {
 	var (
-		amf, mcc, mnc string
+		amf           string
 		bind          string
 		upfN3, n3Bind string
 		gnbBase       uint32
 		categories    []string
 		jsonOut       bool
 		perTest       time.Duration
+		id            netIdentity
 	)
 	cmd := &cobra.Command{
 		Use:   "conformance",
@@ -31,15 +31,15 @@ func newConformanceCmd() *cobra.Command {
 			if err := conformance.ValidateBind(bind); err != nil {
 				return fmt.Errorf("--bind: %w", err)
 			}
+			if err := id.resolve(true); err != nil {
+				return err
+			}
 			env := conformance.Env{
 				AMFAddr: amf,
 				Bind:    bind,
 				UPFN3:   upfN3,
 				N3Bind:  n3Bind,
-				GNB: gnb.Config{
-					ID: gnbBase, Name: "orbit-conf", MCC: mcc, MNC: mnc, TAC: 1,
-					Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}},
-				},
+				GNB:     id.gnbConfig(gnbBase, 0, "orbit-conf"),
 			}
 			cats := make([]conformance.Category, 0, len(categories))
 			for _, c := range categories {
@@ -48,12 +48,14 @@ func newConformanceCmd() *cobra.Command {
 			results := conformance.NewRegistry().Run(cmd.Context(), env, perTest, cats...)
 			sum := conformance.Summarize(results)
 			sum.N2Source = env.N2Source()
+			sum.Network = env.Network()
 
 			out := cmd.OutOrStdout()
 			if jsonOut {
 				b, _ := json.MarshalIndent(sum, "", "  ")
 				fmt.Fprintln(out, string(b))
 			} else {
+				fmt.Fprintf(out, "network: %s\n", id)
 				if sum.N2Source != "" {
 					fmt.Fprintf(out, "n2-source=%s\n", sum.N2Source)
 				}
@@ -75,8 +77,7 @@ func newConformanceCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
 	f.StringVar(&bind, "bind", "", bindFlagHelp+"; port must be 0 (each check dials afresh)")
-	f.StringVar(&mcc, "mcc", "208", "MCC")
-	f.StringVar(&mnc, "mnc", "93", "MNC")
+	addNetIdentityFlags(f, &id)
 	f.StringVar(&upfN3, "upf-n3", "", "UPF N3 endpoint host:port (enables GTP-U checks; run from the UPF access network)")
 	f.StringVar(&n3Bind, "n3-bind", "", "local N3 source host:port for GTP-U checks (e.g. 172.17.50.12:2152)")
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")

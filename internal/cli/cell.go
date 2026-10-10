@@ -22,11 +22,7 @@ func newCellCmd(serverURL *string) *cobra.Command {
 		gnbID   uint32
 		gnbBits uint32
 		name    string
-		mcc     string
-		mnc     string
-		tac     uint32
-		sst     uint32
-		sd      string
+		id      netIdentity
 	)
 	ngsetup := &cobra.Command{
 		Use:   "ngsetup",
@@ -34,24 +30,20 @@ func newCellCmd(serverURL *string) *cobra.Command {
 		Long: "Opens an SCTP association to the AMF, sends NG Setup Request\n" +
 			"(TS 38.413 §8.7.1), and reports the AMF's answer.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := id.resolve(true); err != nil {
+				return err
+			}
 			res, err := cellClient(serverURL).RunNGSetup(cmd.Context(),
 				connect.NewRequest(&orbitv1.RunNGSetupRequest{
 					AmfAddress:   amf,
 					LocalAddress: ngsetupLocalAddress(cmd.Flags().Changed("bind"), bind, local),
-					Gnb: &orbitv1.GnbConfig{
-						Id:     gnbID,
-						IdBits: gnbBits,
-						Name:   name,
-						Mcc:    mcc,
-						Mnc:    mnc,
-						Tac:    tac,
-						Slices: []*orbitv1.Snssai{{Sst: sst, Sd: sd}},
-					},
+					Gnb:          id.gnbProto(gnbID, gnbBits, name),
 				}))
 			if err != nil {
 				return err
 			}
 			m := res.Msg
+			fmt.Fprintf(cmd.OutOrStdout(), "network: %s\n", id)
 			if m.GetAccepted() {
 				fmt.Fprintf(cmd.OutOrStdout(), "NG Setup accepted by AMF %q (reply PPID %d)\n",
 					m.GetAmfName(), m.GetReplyPpid())
@@ -72,14 +64,8 @@ func newCellCmd(serverURL *string) *cobra.Command {
 	ngsetup.Flags().Uint32Var(&gnbID, "gnb-id", 1, "gNB identifier")
 	ngsetup.Flags().Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB identifier bit length (22-32)")
 	ngsetup.Flags().StringVar(&name, "name", "orbit-gnb", "RAN node name")
-	ngsetup.Flags().StringVar(&mcc, "mcc", "", "mobile country code (3 digits)")
-	ngsetup.Flags().StringVar(&mnc, "mnc", "", "mobile network code (2-3 digits)")
-	ngsetup.Flags().Uint32Var(&tac, "tac", 1, "tracking area code (24-bit)")
-	ngsetup.Flags().Uint32Var(&sst, "sst", 1, "slice/service type")
-	ngsetup.Flags().StringVar(&sd, "sd", "", "slice differentiator (6 hex digits)")
+	addNetIdentityFlags(ngsetup.Flags(), &id)
 	_ = ngsetup.MarkFlagRequired("amf")
-	_ = ngsetup.MarkFlagRequired("mcc")
-	_ = ngsetup.MarkFlagRequired("mnc")
 
 	cmd.AddCommand(ngsetup)
 	return cmd

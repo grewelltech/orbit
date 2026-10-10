@@ -120,16 +120,28 @@ func TestRunsStop(t *testing.T) {
 	}
 }
 
-// start-load must build a LoadRunSpec faithfully from the flags.
+// start-load must build a LoadRunSpec faithfully from the flags, print only
+// the run id on stdout (scripts capture it) and report the network identity
+// on stderr.
 func TestRunsStartLoadBuildsSpec(t *testing.T) {
 	s := &stubRunService{startRunID: "run-new"}
-	out := runRunsCmd(t, stubRunServer(t, s),
+	cmd := newRunsCmd(stubRunServer(t, s))
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{
 		"start-load", "--name", "storm", "--amf", "10.0.0.1:38412",
 		"--base-imsi", "208930100007500", "--count", "250", "--rate", "12",
 		"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f",
-		"--mcc", "208", "--mnc", "93", "--gnb-count", "2", "--sst", "1", "--sd", "010203")
-	if strings.TrimSpace(out) != "run-new" {
-		t.Errorf("start-load printed %q, want the run id", out)
+		"--mcc", "208", "--mnc", "93", "--gnb-count", "2", "--sst", "1", "--sd", "010203"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("start-load: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != "run-new" {
+		t.Errorf("start-load printed %q on stdout, want the run id alone", out.String())
+	}
+	if !strings.Contains(errOut.String(), "network: plmn=208/93 tac=1 snssai=1/010203 dnn=internet") {
+		t.Errorf("start-load stderr lacks the network line:\n%s", errOut.String())
 	}
 	spec := s.startReq.GetLoad()
 	if spec == nil {
