@@ -143,6 +143,9 @@ systemctl status orbit          # active (running) on 127.0.0.1:8412
 ```
 
 The `sdcore` profile turns on the documented N2 handover-transfer workaround.
+If you change `--listen` to a non-loopback address, export
+`ORBIT_SERVER=http://<host>:8412` in your shell so the commands below reach it
+without `--server` on every call.
 
 **2 — Grab two things from your SD-Core install:**
 
