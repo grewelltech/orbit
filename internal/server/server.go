@@ -157,12 +157,16 @@ func (s *cellService) RunNGSetup(
 	s.log.InfoContext(ctx, "NG Setup finished",
 		"accepted", res.Accepted, "amf_name", res.AMFName, "cause", res.Cause, "reply_ppid", res.ReplyPPID)
 
-	return connect.NewResponse(&orbitv1.RunNGSetupResponse{
+	resp := &orbitv1.RunNGSetupResponse{
 		Accepted:  res.Accepted,
 		AmfName:   res.AMFName,
 		Cause:     res.Cause,
 		ReplyPpid: res.ReplyPPID,
-	}), nil
+	}
+	if la := conn.LocalAddr(); la != nil {
+		resp.LocalAddress = la.String()
+	}
+	return connect.NewResponse(resp), nil
 }
 
 // withTimeout derives a context with a millisecond timeout, falling back to

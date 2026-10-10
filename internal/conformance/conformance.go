@@ -71,20 +71,41 @@ type Test interface {
 // identity to present. Tests dial their own association(s) via Dial, since
 // most need a fresh or deliberately-misused one.
 //
+// Bind is the local N2 source address every check's association binds, as
+// ip or ip:port (ip alone = ephemeral port; see sctp.NormalizeLocal); empty
+// lets the kernel choose. One address suffices because Registry.RunStream
+// runs the checks one after another, each presenting its own gNB ID over
+// its own association, so at any instant there is one gNB on that address.
+// A check that opens more than one association (the liveness probe after a
+// negative test) shares the address across them on distinct ports.
+//
 // UPFN3/N3Bind are optional and used only by user-plane (GTP-U) checks: UPFN3
 // is the UPF's N3 endpoint (host:port) and N3Bind the local N3 source
 // (host:port) — both must be set, from a host on the UPF access network, or
 // GTP-U checks SKIP. See docs/USAGE.md "Where things must run".
 type Env struct {
 	AMFAddr string
+	Bind    string
 	GNB     gnb.Config
 	UPFN3   string
 	N3Bind  string
 }
 
-// Dial opens a raw SCTP association to the AMF (no NG Setup).
+// Dial opens a raw SCTP association to the AMF (no NG Setup) from Bind.
 func (e Env) Dial() (*sctp.Conn, error) {
-	return sctp.Dial("", e.AMFAddr)
+	return sctp.Dial(e.Bind, e.AMFAddr)
+}
+
+// N2Source is Bind in the normalised ip:port form sctp.Dial uses, for
+// reporting; "" when the kernel chooses. An unparseable Bind is returned as
+// written, since every check will have ERRORed on it and the report should
+// show what was asked for.
+func (e Env) N2Source() string {
+	n, err := sctp.NormalizeLocal(e.Bind)
+	if err != nil {
+		return e.Bind
+	}
+	return n
 }
 
 // DialSetup opens an association and performs NG Setup, returning it ready for
@@ -215,6 +236,11 @@ func (r *Registry) indexOf(t Test) int {
 type Summary struct {
 	Total, Pass, Fail, Error, Skip, Deviation int
 	Results                                   []Result
+	// N2Source is the local N2 source address the checks dialled from, in
+	// the normalised ip:port form (port 0 = ephemeral per association), so a
+	// verdict records which address it was taken from. Empty when the kernel
+	// chose.
+	N2Source string `json:",omitempty"`
 }
 
 // Summarize counts verdicts across results.

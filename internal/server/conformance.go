@@ -36,6 +36,7 @@ func (s *conformanceService) RunConformance(
 
 	env := conformance.Env{
 		AMFAddr: m.GetAmfAddress(),
+		Bind:    m.GetBindAddress(),
 		UPFN3:   m.GetUpfN3(),
 		N3Bind:  m.GetN3Bind(),
 		GNB: gnb.Config{

@@ -729,6 +729,14 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 		return nil, err
 	}
 
+	// N2 source addresses follow the same none / one / one-per-gNB rule as
+	// `orbit load --bind`, enforced here so the API and the direct-drive path
+	// cannot disagree about what a bind list means.
+	binds, err := engine.ExpandBindAddrs(p.GetBindAddresses(), len(p.GetGnbs()))
+	if err != nil {
+		return nil, err
+	}
+
 	// UE identity carries one PLMN, so every gNB in a run must agree on it.
 	// A single core serves one home PLMN; silently keeping the last gNB's would
 	// build UEs whose identity mismatches the gNBs serving them.
@@ -745,7 +753,7 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 			return nil, fmt.Errorf("all gnbs must share one PLMN; gnb %d is %s/%s, not %s/%s",
 				i, cfg.MCC, cfg.MNC, mcc, mnc)
 		}
-		gnbs = append(gnbs, engine.GNBSpec{Config: cfg, AMFAddr: p.GetAmfAddress()})
+		gnbs = append(gnbs, engine.GNBSpec{Config: cfg, AMFAddr: p.GetAmfAddress(), BindAddr: binds[i]})
 	}
 
 	rate, err := loadRate(p)
