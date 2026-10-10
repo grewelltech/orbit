@@ -33,6 +33,8 @@ func TestNetIdentityResolve(t *testing.T) {
 		{name: "three-digit mnc from env keeps leading zero", envMCC: "001", envMNC: "001", required: true, wantMCC: "001", wantMNC: "001"},
 		{name: "neither, required", required: true, wantErr: "--mcc/--mnc or set $ORBIT_MCC/$ORBIT_MNC"},
 		{name: "neither, optional: inherit", required: false, wantMCC: "", wantMNC: ""},
+		{name: "optional ignores the env and inherits", envMCC: "208", envMNC: "93", required: false, wantMCC: "", wantMNC: ""},
+		{name: "optional with explicit flags keeps them", args: []string{"--mcc", "001", "--mnc", "01"}, envMCC: "208", envMNC: "93", required: false, wantMCC: "001", wantMNC: "01"},
 		{name: "only mcc, optional", args: []string{"--mcc", "001"}, required: false, wantErr: "go together"},
 		{name: "only mnc from env, required", envMNC: "01", required: true, wantErr: "go together"},
 		{name: "invalid env mcc", envMCC: "1", envMNC: "01", required: true, wantErr: "mcc"},
@@ -185,9 +187,7 @@ func (s *stubUEHandover) XnHandover(ctx context.Context, req *connect.Request[or
 }
 
 // `ue handover` with no identity flags sends an empty PLMN, zero TAC and no
-// slices (the server inherits); explicit fields are sent as given, and the
-// PLMN env fallback is NOT applied to handover since it would silently
-// override the inherit rule.
+// slices (the server inherits); explicit fields are sent as given.
 func TestUEHandoverSendsIdentityForInherit(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -246,10 +246,10 @@ func TestUEHandoverSendsIdentityForInherit(t *testing.T) {
 }
 
 // With a PLMN exported, handover still inherits rather than taking the env:
-// the env fallback is for commands that REQUIRE a PLMN.
-func TestUEHandoverEnvFallbackStillApplies(t *testing.T) {
-	// Design: resolve applies the env fallback uniformly, so an exported PLMN
-	// IS sent on handover. Pin the behaviour so a change to it is deliberate.
+// a handover target is in the serving PLMN by definition, so the UE's
+// session is the source of truth and $ORBIT_MCC/$ORBIT_MNC are a convenience
+// for new attaches only.
+func TestUEHandoverIgnoresEnvPLMN(t *testing.T) {
 	t.Setenv("ORBIT_MCC", "001")
 	t.Setenv("ORBIT_MNC", "01")
 	stub := &stubUEHandover{}
@@ -263,8 +263,8 @@ func TestUEHandoverEnvFallbackStillApplies(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if g := stub.req.GetTargetGnb(); g.GetMcc() != "001" || g.GetMnc() != "01" {
-		t.Errorf("env PLMN not applied on handover: %s/%s", g.GetMcc(), g.GetMnc())
+	if g := stub.req.GetTargetGnb(); g.GetMcc() != "" || g.GetMnc() != "" {
+		t.Errorf("handover sent the env PLMN %s/%s; want empty so the server inherits", g.GetMcc(), g.GetMnc())
 	}
 }
 

@@ -96,9 +96,11 @@ network: plmn=001/01 tac=1 snssai=1/010203 dnn=internet
   wants `--sd 010203`; pass it explicitly, as every example here does. The
   values are whatever your core is configured with.
 - **Handover inherits.** `ue handover` / `xn-handover` take the same flags but
-  with no defaults: anything left unset is copied from the UE's serving gNB, so
-  a same-network handover needs only `--gnb-id`, `--bind` and `--gnb-n3`. A
-  field given explicitly overrides the inherited one.
+  with no defaults and no environment fallback: anything left unset is copied
+  from the UE's serving gNB (`$ORBIT_MCC`/`$ORBIT_MNC` are ignored here, since
+  the target is in the serving PLMN by definition), so a same-network handover
+  needs only `--gnb-id`, `--bind` and `--gnb-n3`. A field given explicitly
+  overrides the inherited one.
 - **Scenario files** need `core.plmn.mcc` and `core.plmn.mnc` (quote them, so
   `"01"` is read as the string it is; `${ORBIT_MCC}`/`${ORBIT_MNC}` expand);
   `core.tac`, `core.slice.sst` and `core.dnn` take the defaults above when

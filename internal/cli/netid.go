@@ -51,8 +51,13 @@ type netIDOption func(*netIdentity)
 // withDNN also registers --dnn (commands that can open a PDU session).
 func withDNN() netIDOption { return func(id *netIdentity) { id.hasDNN = true } }
 
-// withInherit registers the flags with no defaults at all: an unset field is
-// sent empty and the server fills it from the UE's serving gNB (handover).
+// withInherit registers the flags with no defaults at all and no environment
+// fallback: an unset field is sent empty and the server fills it from the
+// UE's serving gNB (handover). The env is skipped on purpose: a handover
+// target is in the serving PLMN by definition, so the UE's session is the
+// source of truth, not the shell; $ORBIT_MCC/$ORBIT_MNC are a convenience
+// for new attaches. Explicit flags still override, for the deliberate
+// wrong-PLMN-target negative case.
 func withInherit() netIDOption { return func(id *netIdentity) { id.inherit = true } }
 
 // addNetIdentityFlags registers --mcc --mnc --tac --sst --sd (and --dnn with
@@ -79,15 +84,17 @@ func addNetIdentityFlags(f *pflag.FlagSet, id *netIdentity, opts ...netIDOption)
 
 // resolve applies the $ORBIT_MCC/$ORBIT_MNC fallback (an explicit flag wins)
 // and validates every field with the shared gnb rules. With required, a
-// missing PLMN is one error naming both sources. Without it (handover), an
-// entirely absent PLMN is allowed and means "inherit from the serving gNB";
-// giving only one of the pair is still an error.
+// missing PLMN is one error naming both sources. Without it (handover), the
+// environment is not consulted and an entirely absent PLMN means "inherit
+// from the serving gNB"; giving only one of the pair is still an error.
 func (id *netIdentity) resolve(required bool) error {
-	if id.MCC == "" {
-		id.MCC = os.Getenv("ORBIT_MCC")
-	}
-	if id.MNC == "" {
-		id.MNC = os.Getenv("ORBIT_MNC")
+	if !id.inherit {
+		if id.MCC == "" {
+			id.MCC = os.Getenv("ORBIT_MCC")
+		}
+		if id.MNC == "" {
+			id.MNC = os.Getenv("ORBIT_MNC")
+		}
 	}
 	switch {
 	case id.MCC == "" && id.MNC == "":
