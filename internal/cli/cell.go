@@ -18,6 +18,7 @@ func newCellCmd(serverURL *string) *cobra.Command {
 	var (
 		amf     string
 		local   string
+		bind    string
 		gnbID   uint32
 		gnbBits uint32
 		name    string
@@ -36,7 +37,7 @@ func newCellCmd(serverURL *string) *cobra.Command {
 			res, err := cellClient(serverURL).RunNGSetup(cmd.Context(),
 				connect.NewRequest(&orbitv1.RunNGSetupRequest{
 					AmfAddress:   amf,
-					LocalAddress: local,
+					LocalAddress: ngsetupLocalAddress(bind, local),
 					Gnb: &orbitv1.GnbConfig{
 						Id:     gnbID,
 						IdBits: gnbBits,
@@ -57,11 +58,16 @@ func newCellCmd(serverURL *string) *cobra.Command {
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "NG Setup rejected: %s\n", m.GetCause())
 			}
+			if src := m.GetLocalAddress(); src != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  n2-source=%s\n", src)
+			}
 			return nil
 		},
 	}
 	ngsetup.Flags().StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
+	ngsetup.Flags().StringVar(&bind, "bind", "", bindFlagHelp)
 	ngsetup.Flags().StringVar(&local, "local", "", "local bind address (host:port)")
+	_ = ngsetup.Flags().MarkDeprecated("local", "use --bind")
 	ngsetup.Flags().Uint32Var(&gnbID, "gnb-id", 1, "gNB identifier")
 	ngsetup.Flags().Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB identifier bit length (22-32)")
 	ngsetup.Flags().StringVar(&name, "name", "orbit-gnb", "RAN node name")
@@ -76,4 +82,14 @@ func newCellCmd(serverURL *string) *cobra.Command {
 
 	cmd.AddCommand(ngsetup)
 	return cmd
+}
+
+// ngsetupLocalAddress picks the N2 source for `cell ngsetup`: --bind, or the
+// deprecated --local when --bind is unset. Both set, --bind wins — the
+// deprecated flag never overrides the current one.
+func ngsetupLocalAddress(bind, local string) string {
+	if bind != "" {
+		return bind
+	}
+	return local
 }

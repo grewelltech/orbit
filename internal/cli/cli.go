@@ -19,6 +19,12 @@ import (
 	"github.com/bgrewell/orbit/internal/server"
 )
 
+// bindFlagHelp is the one help text for --bind on every command that opens
+// an N2 association, so the flag reads the same everywhere and the N2/N3
+// pairing is explicit (--bind is N2; --gnb-n3 / --n3-bind are N3).
+const bindFlagHelp = "local N2 source address for the gNB's SCTP association, ip[:port]; " +
+	"empty lets the kernel choose (N3 is --gnb-n3 / --n3-bind)"
+
 // DefaultListen is the default API listen address. Loopback by default:
 // the API carries subscriber credentials from Phase 1a on and is not meant
 // to be exposed beyond the lab host without TLS.

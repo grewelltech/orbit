@@ -27,6 +27,7 @@ func newLoadCmd() *cobra.Command {
 		amf, baseIMSI, ki, opc, mcc, mnc  string
 		gnbName, sd, dnn, gnbN3, rampSpec string
 		arrival                           string
+		binds                             []string
 		count, conc, gnbCount             int
 		gnbID, gnbBits, tac, sst          uint32
 		rate, sloSuccess                  float64
@@ -54,10 +55,18 @@ func newLoadCmd() *cobra.Command {
 			if gnbCount < 1 {
 				gnbCount = 1
 			}
+			bindAddrs, err := engine.ExpandBindAddrs(binds, gnbCount)
+			if err != nil {
+				return fmt.Errorf("--bind: %w", err)
+			}
+			if note := sharedBindNote(binds, gnbCount); note != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), note)
+			}
 			var gnbs []engine.GNBSpec
 			for n := 0; n < gnbCount; n++ {
 				gnbs = append(gnbs, engine.GNBSpec{
-					AMFAddr: amf,
+					AMFAddr:  amf,
+					BindAddr: bindAddrs[n],
 					Config: gnb.Config{
 						ID: gnbID + uint32(n), IDBits: int(gnbBits), Name: fmt.Sprintf("%s-%d", gnbName, n),
 						MCC: mcc, MNC: mnc, TAC: tac, Slices: []gnb.SNSSAI{{SST: uint8(sst), SD: sd}},
@@ -109,6 +118,7 @@ func newLoadCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
+	f.StringSliceVar(&binds, "bind", nil, bindFlagHelp+"; repeat or comma-separate for one per gNB (one value is shared by every gNB)")
 	f.StringVar(&baseIMSI, "base-imsi", "", "first SUPI/IMSI; each UE increments it")
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
 	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex)")
@@ -139,6 +149,18 @@ func newLoadCmd() *cobra.Command {
 		_ = cmd.MarkFlagRequired(r)
 	}
 	return cmd
+}
+
+// sharedBindNote is the one-line stderr note for a load run whose gNBs all
+// share one N2 source address: the AMF then tells them apart by gNB ID only,
+// which an operator who passed a single --bind for several gNBs should know.
+// Empty when there is nothing to say.
+func sharedBindNote(binds []string, gnbCount int) string {
+	if len(binds) != 1 || gnbCount < 2 {
+		return ""
+	}
+	return fmt.Sprintf("note: %d gNBs share N2 source %s; the AMF distinguishes them by gNB ID only (pass %d --bind addresses for one each)",
+		gnbCount, binds[0], gnbCount)
 }
 
 // parseRate turns the --rate / --ramp flags into a load.Rate (nil = unbounded).
@@ -215,6 +237,9 @@ func parseFloatInto(s string, dst *float64) error {
 func printLoadReport(w io.Writer, rep load.Report) {
 	fmt.Fprintf(w, "load: %d/%d attached in %s (%.1f attach/s)\n",
 		rep.Succeeded, rep.Attempted, rep.Duration.Round(time.Millisecond), rep.AchievedRate)
+	if len(rep.N2Sources) > 0 {
+		fmt.Fprintf(w, "  n2-source: %s\n", strings.Join(rep.N2Sources, " "))
+	}
 	for _, name := range []string{"registration", "pdu_session", "attach"} {
 		s, ok := rep.Latencies[name]
 		if !ok {

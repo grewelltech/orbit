@@ -471,6 +471,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 		name, amf, baseIMSI, ki, opc, mcc, mnc string
 		events                                 string
 		gnbName, sd, gnbN3, dnn                string
+		binds                                  []string
 		count, gnbCount                        int
 		gnbID, gnbBits, tac, sst               uint32
 		rate                                   float64
@@ -508,8 +509,9 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 			}
 			spec := &orbitv1.LoadRunSpec{
 				AmfAddress: amf, Gnbs: gnbs, BaseImsi: baseIMSI, Count: uint32(count),
-				Credentials: &orbitv1.Credentials{Ki: ki, Opc: opc},
-				Rate:        rate, Concurrency: concurrency,
+				BindAddresses: binds,
+				Credentials:   &orbitv1.Credentials{Ki: ki, Opc: opc},
+				Rate:          rate, Concurrency: concurrency,
 				DurationMs: durMs, SampleIntervalMs: sampleMs,
 			}
 			// Same ramp syntax as `orbit load`: start:end:seconds.
@@ -544,6 +546,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.StringVar(&name, "name", "", "run label")
 	f.StringVar(&events, "events", "normal", eventsFlagHelp)
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
+	f.StringSliceVar(&binds, "bind", nil, bindFlagHelp+"; repeat or comma-separate for one per gNB (one value is shared by every gNB)")
 	f.StringVar(&baseIMSI, "base-imsi", "", "first SUPI/IMSI; each UE increments it")
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
 	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex; default $ORBIT_KI)")
