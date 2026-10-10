@@ -164,7 +164,10 @@ type RegisterRequest struct {
 	// gNB N3 address reported to the UPF so downlink returns here; also the
 	// bind address for the data path. Must be reachable from the UPF
 	// access-net (empty = data path disabled).
-	GnbN3Addr     string `protobuf:"bytes,8,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"`
+	GnbN3Addr string `protobuf:"bytes,8,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"`
+	// Local N2 source address for the gNB's SCTP association, as ip or ip:port
+	// (ip alone = ephemeral port; empty = kernel default). N3 is gnb_n3_addr.
+	BindAddress   string `protobuf:"bytes,9,opt,name=bind_address,json=bindAddress,proto3" json:"bind_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -255,6 +258,13 @@ func (x *RegisterRequest) GetGnbN3Addr() string {
 	return ""
 }
 
+func (x *RegisterRequest) GetBindAddress() string {
+	if x != nil {
+		return x.BindAddress
+	}
+	return ""
+}
+
 type RegisterResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Supi          string                 `protobuf:"bytes,1,opt,name=supi,proto3" json:"supi,omitempty"`
@@ -264,6 +274,8 @@ type RegisterResponse struct {
 	PduAddress    string                 `protobuf:"bytes,5,opt,name=pdu_address,json=pduAddress,proto3" json:"pdu_address,omitempty"` // allocated UE IP
 	UpfAddress    string                 `protobuf:"bytes,6,opt,name=upf_address,json=upfAddress,proto3" json:"upf_address,omitempty"` // UPF N3 endpoint (for the data plane)
 	UpfTeid       uint32                 `protobuf:"varint,7,opt,name=upf_teid,json=upfTeid,proto3" json:"upf_teid,omitempty"`
+	// Local N2 source address the gNB's association actually used (host:port).
+	N2Source      string `protobuf:"bytes,8,opt,name=n2_source,json=n2Source,proto3" json:"n2_source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -345,6 +357,13 @@ func (x *RegisterResponse) GetUpfTeid() uint32 {
 		return x.UpfTeid
 	}
 	return 0
+}
+
+func (x *RegisterResponse) GetN2Source() string {
+	if x != nil {
+		return x.N2Source
+	}
+	return ""
 }
 
 type DeregisterRequest struct {
@@ -491,8 +510,10 @@ type UEStatus struct {
 	MobilityState string `protobuf:"bytes,7,opt,name=mobility_state,json=mobilityState,proto3" json:"mobility_state,omitempty"`
 	// When mobility_state was recorded; 0 when the UE has never moved.
 	MobilityChangedUnixNano int64 `protobuf:"varint,8,opt,name=mobility_changed_unix_nano,json=mobilityChangedUnixNano,proto3" json:"mobility_changed_unix_nano,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Local N2 source address of the association the UE registered over.
+	N2Source      string `protobuf:"bytes,9,opt,name=n2_source,json=n2Source,proto3" json:"n2_source,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UEStatus) Reset() {
@@ -579,6 +600,13 @@ func (x *UEStatus) GetMobilityChangedUnixNano() int64 {
 		return x.MobilityChangedUnixNano
 	}
 	return 0
+}
+
+func (x *UEStatus) GetN2Source() string {
+	if x != nil {
+		return x.N2Source
+	}
+	return ""
 }
 
 type StatusResponse struct {
@@ -2898,7 +2926,7 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x0epdu_session_id\x18\x01 \x01(\rR\fpduSessionId\x12\x10\n" +
 	"\x03sst\x18\x02 \x01(\rR\x03sst\x12\x0e\n" +
 	"\x02sd\x18\x03 \x01(\tR\x02sd\x12\x10\n" +
-	"\x03dnn\x18\x04 \x01(\tR\x03dnn\"\xc9\x02\n" +
+	"\x03dnn\x18\x04 \x01(\tR\x03dnn\"\xec\x02\n" +
 	"\x0fRegisterRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12%\n" +
@@ -2910,7 +2938,8 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"pduSession\x12\x1d\n" +
 	"\n" +
 	"timeout_ms\x18\a \x01(\rR\ttimeoutMs\x12\x1e\n" +
-	"\vgnb_n3_addr\x18\b \x01(\tR\tgnbN3Addr\"\xef\x01\n" +
+	"\vgnb_n3_addr\x18\b \x01(\tR\tgnbN3Addr\x12!\n" +
+	"\fbind_address\x18\t \x01(\tR\vbindAddress\"\x8c\x02\n" +
 	"\x10RegisterResponse\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x1e\n" +
 	"\n" +
@@ -2922,12 +2951,13 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"pduAddress\x12\x1f\n" +
 	"\vupf_address\x18\x06 \x01(\tR\n" +
 	"upfAddress\x12\x19\n" +
-	"\bupf_teid\x18\a \x01(\rR\aupfTeid\"'\n" +
+	"\bupf_teid\x18\a \x01(\rR\aupfTeid\x12\x1b\n" +
+	"\tn2_source\x18\b \x01(\tR\bn2Source\"'\n" +
 	"\x11DeregisterRequest\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\"\x14\n" +
 	"\x12DeregisterResponse\"#\n" +
 	"\rStatusRequest\x12\x12\n" +
-	"\x04supi\x18\x01 \x01(\tR\x04supi\"\xae\x02\n" +
+	"\x04supi\x18\x01 \x01(\tR\x04supi\"\xcb\x02\n" +
 	"\bUEStatus\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1f\n" +
@@ -2937,7 +2967,8 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x0eserving_gnb_id\x18\x05 \x01(\rR\fservingGnbId\x12(\n" +
 	"\x10serving_gnb_name\x18\x06 \x01(\tR\x0eservingGnbName\x12%\n" +
 	"\x0emobility_state\x18\a \x01(\tR\rmobilityState\x12;\n" +
-	"\x1amobility_changed_unix_nano\x18\b \x01(\x03R\x17mobilityChangedUnixNano\"<\n" +
+	"\x1amobility_changed_unix_nano\x18\b \x01(\x03R\x17mobilityChangedUnixNano\x12\x1b\n" +
+	"\tn2_source\x18\t \x01(\tR\bn2Source\"<\n" +
 	"\x0eStatusResponse\x12*\n" +
 	"\x06status\x18\x01 \x01(\v2\x12.orbit.v1.UEStatusR\x06status\"\r\n" +
 	"\vListRequest\"4\n" +

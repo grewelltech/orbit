@@ -57,7 +57,7 @@ func RunHandoverUnderLoad(ctx context.Context, log *slog.Logger, spec HandoverLo
 		return nil, err
 	}
 	pdu := spec.Slice
-	if _, err := mgr.Register(ctx, spec.AMFAddr, spec.SourceGNB, UEConfig{
+	if _, err := mgr.Register(ctx, GNBSpec{Config: spec.SourceGNB, AMFAddr: spec.AMFAddr}, UEConfig{
 		Identity:   id,
 		Sub:        auth.Subscription{SUPI: spec.MobileSUPI, Ki: spec.Ki, OPc: spec.OPc},
 		PDUSession: &pdu,

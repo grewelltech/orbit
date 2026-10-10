@@ -117,6 +117,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	m.mu.Lock()
 	sess.conn = tgtConn
 	sess.setServingGNB(target.Config)
+	sess.setN2Source(localAddrString(tgtConn))
 	sess.ranID = targetHandoverRANID
 	if newAMFID != 0 {
 		sess.amfID = newAMFID

@@ -90,12 +90,7 @@ func (ngSetupMissingMandatoryIE) Run(ctx context.Context, env Env) Result {
 	}
 
 	// Crash-safety confirmation for the non-failure paths.
-	if r.Verdict == Pass && !env.Alive(ctx) {
-		r.Verdict = Fail
-		r.Observed = "AMF unresponsive after the message (" + r.Observed + ")"
-		r.Detail = "fresh NG Setup failed — the core did not survive"
-	}
-	return r
+	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive")
 }
 
 func isNGSetupFailure(pdu *ngapType.NGAPPDU) bool {

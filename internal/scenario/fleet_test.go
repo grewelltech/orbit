@@ -55,7 +55,7 @@ func TestFleetParseAndGen(t *testing.T) {
 	if gnbs[0].GNB.ID != 100 || gnbs[3].GNB.ID != 103 {
 		t.Errorf("gNB IDs = %d..%d", gnbs[0].GNB.ID, gnbs[3].GNB.ID)
 	}
-	if gnbs[2].GNB.N3 != "10.0.0.3" || gnbs[2].GNB.Bind != "10.0.0.3:0" {
+	if gnbs[2].GNB.N3 != "10.0.0.3" || gnbs[2].GNB.Bind != "10.0.0.3" {
 		t.Errorf("gNB[2] addr = %+v", gnbs[2].GNB)
 	}
 	// grid: side = ceil(sqrt(4)) = 2, spacing 500; gNB[3] at col 1, row 1.
@@ -144,7 +144,7 @@ func TestGenGNBsSeparateN3(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d gNBs, want 2", len(got))
 	}
-	if got[0].GNB.Bind != "10.102.0.20:0" || got[0].GNB.N3 != "10.103.0.20" {
+	if got[0].GNB.Bind != "10.102.0.20" || got[0].GNB.N3 != "10.103.0.20" {
 		t.Errorf("gNB 0 bind/N3 = %q/%q, want the N2 source and the N3 address",
 			got[0].GNB.Bind, got[0].GNB.N3)
 	}
@@ -199,5 +199,21 @@ func TestBuildFleetRunRefusesUnreachableStart(t *testing.T) {
 	}
 	if _, _, err := BuildFleetRun(f, make([]byte, 16), make([]byte, 16)); err == nil {
 		t.Error("a cohort starting after the run ends must be refused, not silently never run")
+	}
+}
+
+// A bare IPv6 source_ip is passed through untouched: sctp.Dial brackets and
+// ports it. Appending ":0" here produced a different, valid IPv6 literal.
+func TestGenGNBsBareIPv6Bind(t *testing.T) {
+	f := &FleetScenario{Topology: Topology{GNBs: GNBGen{
+		Count: 2, IDBase: 1,
+		SourceIPs: []string{"fd00::21", "fd00::22"},
+	}}}
+	got := f.GenGNBs()
+	if len(got) != 2 {
+		t.Fatalf("got %d gNBs, want 2", len(got))
+	}
+	if got[1].GNB.Bind != "fd00::22" || got[1].GNB.N3 != "fd00::22" {
+		t.Errorf("gNB 1 bind/N3 = %q/%q, want the bare IPv6 source", got[1].GNB.Bind, got[1].GNB.N3)
 	}
 }

@@ -271,7 +271,7 @@ func (f *FleetScenario) GenGNBs() []PlacedGNB {
 				ID:   g.IDBase + uint32(i),
 				Name: fmt.Sprintf("gnb-%d", i+1),
 				N3:   n3,
-				Bind: ip + ":0",
+				Bind: ip, // sctp.Dial normalises a bare IP to ip:0 (IPv6 included)
 			},
 			X: float64(i%side) * spacing,
 			Y: float64(i/side) * spacing,

@@ -165,7 +165,7 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI of the registered UE")
 	cmd.Flags().StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
-	cmd.Flags().StringVar(&bind, "bind", "", "SCTP bind address for the target gNB (distinct routed source IP)")
+	cmd.Flags().StringVar(&bind, "bind", "", bindFlagHelp)
 	cmd.Flags().StringVar(&gnbN3, "gnb-n3", "", "target gNB N3 address for the downlink tunnel")
 	cmd.Flags().Uint32Var(&gnbID, "gnb-id", 0x43, "target gNB ID")
 	cmd.Flags().Uint32Var(&gnbBits, "gnb-bits", 24, "target gNB ID bit length")
@@ -209,6 +209,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 	var (
 		amf, supi, ki, opc, rid         string
 		name, mcc, mnc, sd, dnn, gnbN3  string
+		bind                            string
 		gnbID, gnbBits, tac, sst, pduID uint32
 		withPDU                         bool
 	)
@@ -217,8 +218,9 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 		Short: "Attach one UE to the core (Registration + optional PDU session)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := &orbitv1.RegisterRequest{
-				AmfAddress: amf,
-				Supi:       supi,
+				AmfAddress:  amf,
+				BindAddress: bind,
+				Supi:        supi,
 				Gnb: &orbitv1.GnbConfig{
 					Id: gnbID, IdBits: gnbBits, Name: name,
 					Mcc: mcc, Mnc: mnc, Tac: tac,
@@ -238,6 +240,9 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 			m := res.Msg
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "UE %s registered=%t (AMF-UE-NGAP-ID %d)\n", m.GetSupi(), m.GetRegistered(), m.GetAmfUeNgapId())
+			if src := m.GetN2Source(); src != "" {
+				fmt.Fprintf(out, "  n2-source=%s\n", n2SourceLabel(src, bind != ""))
+			}
 			if m.GetSessionActive() {
 				fmt.Fprintf(out, "  PDU session: UE IP %s via UPF %s (TEID %d)\n", m.GetPduAddress(), m.GetUpfAddress(), m.GetUpfTeid())
 			}
@@ -246,6 +251,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
+	f.StringVar(&bind, "bind", "", bindFlagHelp)
 	f.StringVar(&supi, "supi", "", "SUPI / IMSI, e.g. 208930100007500")
 	f.StringVar(&ki, "ki", "", "subscriber key Ki (32 hex digits)")
 	f.StringVar(&opc, "opc", "", "operator key OPc (32 hex digits)")
@@ -280,9 +286,9 @@ func newUEStatusCmd(serverURL *string) *cobra.Command {
 				return err
 			}
 			s := res.Msg.GetStatus()
-			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  ip=%s  amf-ue-ngap-id=%d  gnb=%s%s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  ip=%s  amf-ue-ngap-id=%d  gnb=%s%s%s\n",
 				s.GetSupi(), s.GetState(), s.GetPduAddress(), s.GetAmfUeNgapId(),
-				gnbLabel(s), mobilitySuffix(s))
+				gnbLabel(s), n2SourceSuffix(s), mobilitySuffix(s))
 			return nil
 		},
 	}
@@ -367,6 +373,15 @@ func gnbLabel(s *orbitv1.UEStatus) string {
 		return fmt.Sprintf("%#x", id)
 	}
 	return "-"
+}
+
+// n2SourceSuffix appends the N2 source address the UE registered over, when
+// the server reports one (older servers do not).
+func n2SourceSuffix(s *orbitv1.UEStatus) string {
+	if src := s.GetN2Source(); src != "" {
+		return "  n2-source=" + src
+	}
+	return ""
 }
 
 // mobilitySuffix appends the mobility phase and its age, when the UE has moved.

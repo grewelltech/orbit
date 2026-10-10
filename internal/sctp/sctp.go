@@ -31,6 +31,8 @@ package sctp
 import (
 	"fmt"
 	"net"
+	"net/netip"
+	"strings"
 
 	isctp "github.com/ishidawataru/sctp"
 )
@@ -79,12 +81,18 @@ type Conn struct {
 
 // Dial opens an SCTP association to raddr (host:port). If laddr is non-empty
 // the association binds that local address first — one distinct bind IP per
-// gNB is the multi-gNB plan (DESIGN §3). Data-IO events are subscribed so
-// reads return per-message stream/PPID info.
+// gNB is the multi-gNB plan (DESIGN §3). laddr may be "" (kernel chooses),
+// a bare IP (ephemeral port), or ip:port; see NormalizeLocal. Every N2
+// source address in ORBIT — CLI --bind flags, API bind_address fields,
+// scenario source_ips — funnels through here, so the accepted forms are
+// defined exactly once. Data-IO events are subscribed so reads return
+// per-message stream/PPID info.
 func Dial(laddr, raddr string) (*Conn, error) {
-	ra, err := resolve(raddr)
+	// The local address is checked first so a bad --bind is reported even
+	// when the AMF address does not resolve either.
+	laddr, err := NormalizeLocal(laddr)
 	if err != nil {
-		return nil, fmt.Errorf("resolve remote %q: %w", raddr, err)
+		return nil, err
 	}
 	var la *isctp.SCTPAddr
 	if laddr != "" {
@@ -93,11 +101,24 @@ func Dial(laddr, raddr string) (*Conn, error) {
 			return nil, fmt.Errorf("resolve local %q: %w", laddr, err)
 		}
 	}
+	ra, err := resolve(raddr)
+	if err != nil {
+		return nil, fmt.Errorf("resolve remote %q: %w", raddr, err)
+	}
+	if err := sameFamily(la, ra); err != nil {
+		return nil, err
+	}
 	c, err := isctp.DialSCTPExt("sctp", la, ra, isctp.InitMsg{
 		NumOstreams:  DefaultNGAPStreams,
 		MaxInstreams: DefaultNGAPStreams,
 	})
 	if err != nil {
+		if laddr != "" {
+			// Name the source too: "cannot assign requested address" is
+			// about the bind, not the AMF, and the operator needs to see
+			// which address the host does not own.
+			return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, laddr, err)
+		}
 		return nil, fmt.Errorf("sctp dial %q: %w", raddr, err)
 	}
 	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
@@ -137,6 +158,48 @@ func (c *Conn) ReadMsg(buf []byte) (payload []byte, stream uint16, ppid uint32, 
 
 func (c *Conn) Close() error { return c.c.Close() }
 
+// LocalAddr returns the association's local (source) address as the kernel
+// bound it — with the real port when the caller asked for :0 — so a command
+// can report the N2 source it actually used rather than the one it asked
+// for. nil when the library cannot read it back.
+func (c *Conn) LocalAddr() net.Addr { return c.c.LocalAddr() }
+
+// NormalizeLocal canonicalises a local N2 source address for Dial. It
+// accepts every host:port form resolve accepted before it existed and ADDS
+// the port-less forms, returning host:port or "":
+//
+//   - ""                 → "" (the kernel picks source address and port)
+//   - "10.0.0.1"         → "10.0.0.1:0" (ephemeral port)
+//   - "10.0.0.1:0"       → unchanged; any explicit port is kept as given
+//   - "::1"              → "[::1]:0" (bare IPv6 is bracketed, not mangled)
+//   - "fe80::1%eth0"     → "[fe80::1%eth0]:0" (zoned link-local is kept)
+//   - "[::1]:38412"      → unchanged
+//   - "ran-21"           → "ran-21:0" (a hostname; resolved at dial time)
+//   - "ran-21:38412"     → unchanged
+//
+// Anything else — an IPv6 literal with brackets but no port, a trailing colon
+// with no port, too many colons — is an error naming the input, so a typo
+// fails at the flag rather than as an opaque bind failure. Host resolution
+// and port range are checked by resolve, as before.
+func NormalizeLocal(laddr string) (string, error) {
+	if laddr == "" {
+		return "", nil
+	}
+	if host, port, err := net.SplitHostPort(laddr); err == nil {
+		if host == "" || port == "" {
+			return "", fmt.Errorf("invalid local address %q (want host, ip, host:port or ip:port)", laddr)
+		}
+		return laddr, nil
+	}
+	if _, err := netip.ParseAddr(laddr); err == nil {
+		return net.JoinHostPort(laddr, "0"), nil
+	}
+	if !strings.Contains(laddr, ":") {
+		return net.JoinHostPort(laddr, "0"), nil // bare hostname
+	}
+	return "", fmt.Errorf("invalid local address %q (want host, ip, host:port or ip:port)", laddr)
+}
+
 // OutStreams returns the number of outbound SCTP streams negotiated for this
 // association. NGAP spreads UE-associated signalling across streams to avoid
 // head-of-line blocking, but the peer may negotiate fewer than requested, so
@@ -148,6 +211,30 @@ func (c *Conn) OutStreams() uint16 {
 		return 1
 	}
 	return st.Ostreams
+}
+
+// sameFamily rejects an IPv4 local address paired with an IPv6 AMF (or the
+// reverse) before any socket is opened. The kernel cannot say no to that
+// pairing quickly: the INIT goes nowhere and the dial sits through every
+// retransmit (minutes) before "connection timed out". A nil local address
+// (kernel's choice) always matches.
+func sameFamily(la, ra *isctp.SCTPAddr) error {
+	if la == nil || len(la.IPAddrs) == 0 || len(ra.IPAddrs) == 0 {
+		return nil
+	}
+	lv4, rv4 := la.IPAddrs[0].IP.To4() != nil, ra.IPAddrs[0].IP.To4() != nil
+	if lv4 == rv4 {
+		return nil
+	}
+	return fmt.Errorf("address family mismatch: local %s is %s but AMF %s is %s",
+		la.String(), family(lv4), ra.String(), family(rv4))
+}
+
+func family(v4 bool) string {
+	if v4 {
+		return "IPv4"
+	}
+	return "IPv6"
 }
 
 func resolve(hostport string) (*isctp.SCTPAddr, error) {

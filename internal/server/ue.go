@@ -13,6 +13,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -57,6 +58,9 @@ func (s *ueService) Register(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	if _, err := sctp.NormalizeLocal(m.GetBindAddress()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 
 	ueCfg := engine.UEConfig{
 		Identity:  id,
@@ -78,7 +82,8 @@ func (s *ueService) Register(
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 20000)
 	defer cancel()
 
-	res, err := s.mgr.Register(ctx, m.GetAmfAddress(), gnbCfg, ueCfg)
+	g := engine.GNBSpec{Config: gnbCfg, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress()}
+	res, err := s.mgr.Register(ctx, g, ueCfg)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -90,6 +95,7 @@ func (s *ueService) Register(
 		PduAddress:    res.PDUAddress,
 		UpfAddress:    res.UPFAddress,
 		UpfTeid:       res.UPFTEID,
+		N2Source:      res.N2Source,
 	}), nil
 }
 
@@ -548,6 +554,7 @@ func ueStatusProto(sess *engine.Session) *orbitv1.UEStatus {
 		ServingGnbId:   serving.ID,
 		ServingGnbName: serving.Name,
 		MobilityState:  mobState,
+		N2Source:       sess.N2Source(),
 	}
 	// A zero time means the UE has never moved; report 0 rather than the
 	// nonsensical epoch offset time.Time's zero value would produce.

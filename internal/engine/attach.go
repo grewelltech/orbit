@@ -69,6 +69,10 @@ type AttachResult struct {
 	UPFTEID    uint32
 	DLTEID     uint32
 	QFI        uint8
+	// N2Source is the local address of the N2 association the UE attached
+	// over, as actually bound. Set by Manager.Register (which owns the
+	// association); empty when the caller supplied its own transport.
+	N2Source string
 }
 
 // SessionResult is one established PDU session's endpoints.

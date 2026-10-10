@@ -43,6 +43,13 @@ message RunConformanceRequest {
   repeated string categories = 8;
   // Per-test timeout in seconds (default 15). One hang must not stall the run.
   uint32 per_test_seconds = 9;
+  // Local N2 source address for every check's SCTP association, as ip or
+  // ip:0 (empty = kernel default). Checks run one at a time, so one address
+  // is one gNB on one address; the port must be 0 because a check can hold
+  // its association open while the liveness probe dials a second one from
+  // the same address, and only ephemeral ports keep the two distinct. A
+  // fixed port is rejected as InvalidArgument. N3 is n3_bind.
+  string bind_address = 12;
 }
 
 // ConformanceUpdate is one test's outcome, or (with done=true) the summary.

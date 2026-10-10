@@ -92,6 +92,9 @@ message RegisterRequest {
   // bind address for the data path. Must be reachable from the UPF
   // access-net (empty = data path disabled).
   string gnb_n3_addr = 8;
+  // Local N2 source address for the gNB's SCTP association, as ip or ip:port
+  // (ip alone = ephemeral port; empty = kernel default). N3 is gnb_n3_addr.
+  string bind_address = 9;
 }
 
 message RegisterResponse {
@@ -102,6 +105,8 @@ message RegisterResponse {
   string pdu_address = 5;  // allocated UE IP
   string upf_address = 6;  // UPF N3 endpoint (for the data plane)
   uint32 upf_teid = 7;
+  // Local N2 source address the gNB's association actually used (host:port).
+  string n2_source = 8;
 }
 
 message DeregisterRequest {
@@ -133,6 +138,8 @@ message UEStatus {
   string mobility_state = 7;
   // When mobility_state was recorded; 0 when the UE has never moved.
   int64 mobility_changed_unix_nano = 8;
+  // Local N2 source address of the association the UE registered over.
+  string n2_source = 9;
 }
 
 message StatusResponse {

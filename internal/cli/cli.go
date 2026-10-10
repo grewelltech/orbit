@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,6 +19,27 @@ import (
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
 )
+
+// bindFlagHelp is the one help text for --bind on every command that opens
+// an N2 association, so the flag reads the same everywhere and the N2/N3
+// pairing is explicit (--bind is N2; --gnb-n3 / --n3-bind are N3).
+const bindFlagHelp = "local N2 source address for the gNB's SCTP association, ip[:port]; " +
+	"empty lets the kernel choose (N3 is --gnb-n3 / --n3-bind)"
+
+// unboundNote explains an n2-source that lists several addresses: with no
+// --bind, the SCTP socket is multi-homed and advertises every host address
+// in its INIT, which is exactly what the AMF sees. Honest, but surprising.
+const unboundNote = " (unbound: SCTP multi-homed across host addresses)"
+
+// n2SourceLabel renders a reported N2 source for human output, adding
+// unboundNote when no bind was given and the kernel reported more than one
+// address. A bound source, or a single address, is printed as-is.
+func n2SourceLabel(src string, bound bool) string {
+	if !bound && strings.Contains(src, "/") {
+		return src + unboundNote
+	}
+	return src
+}
 
 // DefaultListen is the default API listen address. Loopback by default:
 // the API carries subscriber credentials from Phase 1a on and is not meant

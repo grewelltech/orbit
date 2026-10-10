@@ -75,6 +75,10 @@ type Report struct {
 	AchievedRate                 float64          // succeeded per second over the run
 	Latencies                    map[string]Stats // per procedure name
 	Resources                    []ResourceSample // soak resource trend (if sampled)
+	// N2Sources is the local N2 address each gNB's association actually
+	// bound, in gNB order; filled by the engine, which owns the
+	// associations, so a report records which addresses the load came from.
+	N2Sources []string
 }
 
 // hist accumulates latencies for one procedure. hdrhistogram is not
