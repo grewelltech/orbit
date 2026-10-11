@@ -43,12 +43,12 @@ func TestLiveHandoverPrep(t *testing.T) {
 
 	// Distinct source IPs per gNB avoid the AMF keying both associations to
 	// one address (the "Ran addr is nil" symptom / PacketRusher #138).
-	src, err := sctp.Dial(envOr("ORBIT_SRC_BIND", ""), amf)
+	src, err := sctp.Dial(context.Background(), envOr("ORBIT_SRC_BIND", ""), amf)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer src.Close()
-	tgt, err := sctp.Dial(envOr("ORBIT_TGT_BIND", ""), amf)
+	tgt, err := sctp.Dial(context.Background(), envOr("ORBIT_TGT_BIND", ""), amf)
 	if err != nil {
 		t.Fatal(err)
 	}

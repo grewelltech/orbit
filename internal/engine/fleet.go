@@ -35,11 +35,11 @@ type n2Conn interface {
 // the accepted forms; "" binds the route-selected source) to the AMF at raddr. It is
 // the seam that lets the bind plumbing be tested against an in-process AMF
 // without kernel SCTP; production code uses dialN2.
-type n2Dialer func(laddr, raddr string) (n2Conn, error)
+type n2Dialer func(ctx context.Context, laddr, raddr string) (n2Conn, error)
 
-// dialN2 is the production n2Dialer: a real SCTP association.
-func dialN2(laddr, raddr string) (n2Conn, error) {
-	return sctp.Dial(laddr, raddr)
+// dialN2 is the production n2Dialer: a real SCTP association, bounded by ctx.
+func dialN2(ctx context.Context, laddr, raddr string) (n2Conn, error) {
+	return sctp.Dial(ctx, laddr, raddr)
 }
 
 // localAddrString renders a connection's bound local address, or "" when the
@@ -145,7 +145,7 @@ func NewFleet(ctx context.Context, gnbs []GNBSpec, log *slog.Logger) (*Fleet, er
 func newFleet(ctx context.Context, gnbs []GNBSpec, log *slog.Logger, dial n2Dialer) (*Fleet, error) {
 	f := &Fleet{log: log}
 	for _, g := range gnbs {
-		conn, err := dial(g.BindAddr, g.AMFAddr)
+		conn, err := dial(ctx, g.BindAddr, g.AMFAddr)
 		if err != nil {
 			f.Close()
 			return nil, fmt.Errorf("gNB %d dial %s: %w", g.Config.ID, g.AMFAddr, err)

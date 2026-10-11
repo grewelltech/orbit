@@ -94,9 +94,10 @@ type Env struct {
 	N3Bind  string
 }
 
-// Dial opens a raw SCTP association to the AMF (no NG Setup) from Bind.
-func (e Env) Dial() (*sctp.Conn, error) {
-	return sctp.Dial(e.Bind, e.AMFAddr)
+// Dial opens a raw SCTP association to the AMF (no NG Setup) from Bind,
+// bounded by ctx (see sctp.Dial).
+func (e Env) Dial(ctx context.Context) (*sctp.Conn, error) {
+	return sctp.Dial(ctx, e.Bind, e.AMFAddr)
 }
 
 // ValidateBind checks a conformance bind address up front: it must
@@ -142,7 +143,7 @@ func (e Env) N2Source() string {
 // DialSetup opens an association and performs NG Setup, returning it ready for
 // UE-associated signalling. The caller closes it.
 func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
-	conn, err := e.Dial()
+	conn, err := e.Dial(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +171,7 @@ func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	probe := e.GNB
 	probe.ID = e.GNB.ID + 0x9000
 	probe.Name = "orbit-conf-probe"
-	conn, err := e.Dial()
+	conn, err := e.Dial(ctx)
 	if err != nil {
 		return false, fmt.Errorf("liveness probe dial: %w", err)
 	}

@@ -188,7 +188,7 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 	if dial == nil {
 		dial = dialN2
 	}
-	conn, err := dial(g.BindAddr, g.AMFAddr)
+	conn, err := dial(ctx, g.BindAddr, g.AMFAddr)
 	if err != nil {
 		return nil, fmt.Errorf("SCTP dial: %w", err)
 	}

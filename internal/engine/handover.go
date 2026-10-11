@@ -163,7 +163,7 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 
 func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndpoint) error {
 	// Bring up the target association.
-	tgtConn, err := sctp.Dial(target.BindAddr, target.AMFAddr)
+	tgtConn, err := sctp.Dial(ctx, target.BindAddr, target.AMFAddr)
 	if err != nil {
 		return fmt.Errorf("dial target gNB: %w", err)
 	}

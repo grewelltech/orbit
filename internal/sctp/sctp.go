@@ -29,10 +29,14 @@
 package sctp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"strings"
+	"syscall"
+	"time"
 
 	isctp "github.com/ishidawataru/sctp"
 )
@@ -76,8 +80,43 @@ const DefaultNGAPStreams uint16 = 8
 
 // Conn is an established SCTP association carrying NGAP.
 type Conn struct {
-	c *isctp.SCTPConn
+	c rawConn
 }
+
+// rawConn is the slice of *isctp.SCTPConn that Conn uses. It exists so the
+// dial can be driven by a test double standing in for the kernel; production
+// code only ever holds an *isctp.SCTPConn here.
+type rawConn interface {
+	SCTPWrite(b []byte, info *isctp.SndRcvInfo) (int, error)
+	SCTPRead(b []byte) (int, *isctp.SndRcvInfo, error)
+	SubscribeEvents(flags int) error
+	GetStatus() (*isctp.Status, error)
+	LocalAddr() net.Addr
+	Close() error
+}
+
+// rawDialer performs the blocking SCTP connect: the one place the pinned
+// library's DialSCTPExt is called, so a context bound or a test double wraps
+// it without reshaping Dial.
+type rawDialer func(la, ra *isctp.SCTPAddr, init isctp.InitMsg) (rawConn, error)
+
+// kernelDial is the production rawDialer.
+func kernelDial(la, ra *isctp.SCTPAddr, init isctp.InitMsg) (rawConn, error) {
+	c, err := isctp.DialSCTPExt("sctp", la, ra, init)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// DefaultDialTimeout bounds an N2 dial whose context carries no deadline. A
+// black-holed AMF otherwise costs the kernel's full INIT retransmit schedule
+// (minutes); 20 s is long enough for any reachable core to answer the INIT.
+const DefaultDialTimeout = 20 * time.Second
+
+// maxInitTimeout is the top of the SCTP_INITMSG max-init-timeout range, in
+// milliseconds (the field is a uint16).
+const maxInitTimeout = 65535
 
 // DialOption configures Dial. Options exist for tests and for callers that
 // need to bound or steer the dial; the defaults are right for every command.
@@ -88,12 +127,56 @@ type dialConfig struct {
 	// source picks the local address for an unbound dial, given the
 	// resolved remote. Defaults to routeSource.
 	source func(remote *net.UDPAddr) (net.IP, error)
+	// timeout bounds the dial when ctx carries no deadline.
+	timeout time.Duration
+	// raw performs the blocking connect. Defaults to kernelDial.
+	raw rawDialer
 }
 
 // WithSourceResolver replaces how an unbound dial picks its local address.
 // The default asks the kernel which source it would route to remote from.
 func WithSourceResolver(f func(remote *net.UDPAddr) (net.IP, error)) DialOption {
 	return func(c *dialConfig) { c.source = f }
+}
+
+// WithDialTimeout sets the bound used when ctx has no deadline, in place of
+// DefaultDialTimeout. It never extends a deadline ctx already carries. A
+// non-positive d is ignored.
+func WithDialTimeout(d time.Duration) DialOption {
+	return func(c *dialConfig) {
+		if d > 0 {
+			c.timeout = d
+		}
+	}
+}
+
+// withRawDialer replaces the blocking connect; tests use it to stand in for
+// the kernel. Unexported so production code cannot bypass the real dial.
+func withRawDialer(f rawDialer) DialOption {
+	return func(c *dialConfig) { c.raw = f }
+}
+
+// initTimeout returns the SCTP max-init timeout to request, in milliseconds,
+// for a dial that must finish by deadline (a zero deadline means none, and
+// fallback applies). The result is clamped to the option's 1..65535 ms range:
+// never 0, which the kernel reads as "use the sysctl default" and is exactly
+// the unbounded wait being removed, and never above what the uint16 field
+// can carry. Computed from the time remaining, rounded up, so a deadline
+// already past still asks for the shortest bound.
+func initTimeout(now, deadline time.Time, fallback time.Duration) uint16 {
+	d := fallback
+	if !deadline.IsZero() {
+		d = deadline.Sub(now)
+	}
+	ms := (d + time.Millisecond - 1) / time.Millisecond
+	switch {
+	case ms < 1:
+		return 1
+	case ms > maxInitTimeout:
+		return maxInitTimeout
+	default:
+		return uint16(ms)
+	}
 }
 
 // routeSource is the default source resolver: it connects a UDP socket to
@@ -172,9 +255,18 @@ func SourceFor(raddr string) (net.IP, error) {
 // option) and bound with port 0, so the INIT carries one address exactly as
 // --bind does. No route to the AMF is an error naming --bind, not a fallback.
 //
+// The dial is bounded twice. The kernel bound: the SCTP max-init timeout is
+// set from ctx's deadline (or DefaultDialTimeout / WithDialTimeout when it
+// has none), so an AMF that never answers the INIT fails with "no INIT-ACK
+// within ..." instead of running the full retransmit schedule. The Go bound:
+// the blocking connect runs in a goroutine and Dial returns as soon as ctx
+// is done, wrapping ctx.Err() so callers can errors.Is it; the connection
+// the kernel may still produce is closed when it arrives, so a cancelled
+// dial never leaks an association past the kernel bound.
+//
 // Data-IO events are subscribed so reads return per-message stream/PPID info.
-func Dial(laddr, raddr string, opts ...DialOption) (*Conn, error) {
-	cfg := dialConfig{source: routeSource}
+func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, error) {
+	cfg := dialConfig{source: routeSource, timeout: DefaultDialTimeout, raw: kernelDial}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -209,18 +301,59 @@ func Dial(laddr, raddr string, opts ...DialOption) (*Conn, error) {
 	if err := sameFamily(la, ra); err != nil {
 		return nil, err
 	}
-	c, err := isctp.DialSCTPExt("sctp", la, ra, isctp.InitMsg{
-		NumOstreams:  DefaultNGAPStreams,
-		MaxInstreams: DefaultNGAPStreams,
-	})
-	if err != nil {
-		// Name the source too: "cannot assign requested address" is about
-		// the bind, not the AMF, and the operator needs to see which
-		// address the host does not own (or which one the route picked).
+
+	deadline, _ := ctx.Deadline() // zero when ctx has none
+	init := isctp.InitMsg{
+		NumOstreams:    DefaultNGAPStreams,
+		MaxInstreams:   DefaultNGAPStreams,
+		MaxInitTimeout: initTimeout(time.Now(), deadline, cfg.timeout),
+	}
+	bound := time.Duration(init.MaxInitTimeout) * time.Millisecond
+
+	// A context already done gets the same error it would get a moment later,
+	// without starting a connect nobody will wait for.
+	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, source, err)
 	}
+	type dialResult struct {
+		c   rawConn
+		err error
+	}
+	done := make(chan dialResult, 1)
+	go func() {
+		c, err := cfg.raw(la, ra, init)
+		done <- dialResult{c: c, err: err}
+	}()
+
+	var c rawConn
+	select {
+	case r := <-done:
+		if r.err != nil {
+			if errors.Is(r.err, syscall.ETIMEDOUT) {
+				// The kernel gave up on the INIT exchange within the bound
+				// we asked for: nothing answered.
+				return nil, fmt.Errorf("sctp dial %q from %q: no INIT-ACK within %s (AMF unreachable or black-holed): %w",
+					raddr, source, bound, r.err)
+			}
+			// Name the source too: "cannot assign requested address" is
+			// about the bind, not the AMF, and the operator needs to see
+			// which address the host does not own (or which one the route
+			// picked).
+			return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, source, r.err)
+		}
+		c = r.c
+	case <-ctx.Done():
+		// The kernel is still trying (for at most the bound above). Whatever
+		// it eventually produces belongs to nobody: close it on arrival.
+		go func() {
+			if r := <-done; r.c != nil {
+				_ = r.c.Close()
+			}
+		}()
+		return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, source, ctx.Err())
+	}
 	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
-		c.Close()
+		_ = c.Close()
 		return nil, fmt.Errorf("subscribe data-io events: %w", err)
 	}
 	return &Conn{c: c}, nil

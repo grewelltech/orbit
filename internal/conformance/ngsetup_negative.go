@@ -34,7 +34,7 @@ func (ngSetupMissingMandatoryIE) SpecRef() string {
 
 func (ngSetupMissingMandatoryIE) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "reject (NG SETUP FAILURE ideal) and survive; must not accept a setup missing a mandatory IE"}
-	conn, err := env.Dial() // raw association — we send our own (malformed) NG Setup
+	conn, err := env.Dial(ctx) // raw association — we send our own (malformed) NG Setup
 	if err != nil {
 		r.Verdict, r.Observed, r.Detail = Error, "dial failed", err.Error()
 		return r
