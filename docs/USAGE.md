@@ -45,7 +45,10 @@ advertises one address and the AMF sees exactly that; the `n2-source=` line
 reports it. Use `--bind` when the gNB should use a different address (a RAN
 host with several N2 addresses) or a fixed port. A host with no route to the
 AMF fails at dial with an error that names `--bind`; ORBIT never falls back to
-advertising every host address.
+advertising every host address. A dial to an AMF that never answers the INIT
+fails within 20 s (`no INIT-ACK within 20s`), or at the caller's deadline when
+that is shorter (the API's `timeout_ms` covers the dial), instead of waiting
+out the kernel's retransmit schedule for minutes.
 
 **Port rule:** a fixed (non-zero) port is legal only when exactly one
 association will use that `ip:port`; port 0 is always legal because every dial

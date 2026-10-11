@@ -129,7 +129,9 @@ export type RunNGSetupRequest = Message<"orbit.v1.RunNGSetupRequest"> & {
   gnb?: GnbConfig | undefined;
 
   /**
-   * Exchange timeout in milliseconds; 0 defaults to 10000.
+   * Timeout in milliseconds for the whole procedure, the SCTP dial (INIT
+   * exchange) included, so an AMF that never answers fails within it; 0
+   * defaults to 10000.
    *
    * @generated from field: uint32 timeout_ms = 4;
    */
