@@ -49,19 +49,24 @@ func TestValidateBind(t *testing.T) {
 	}
 }
 
+// N2Source is the normalised bind when one is given, and the route-selected
+// IP for the AMF (bare, no port) when not; a probe that cannot run yields "".
 func TestEnvN2Source(t *testing.T) {
-	tests := []struct{ bind, want string }{
-		{"", ""},
-		{"127.0.0.1", "127.0.0.1:0"},
-		{"10.0.0.21:38412", "10.0.0.21:38412"},
-		{"::1", "[::1]:0"},
-		{"ran-21", "ran-21:0"},
-		{"10.0.0.1:0:0", "10.0.0.1:0:0"}, // unparseable: reported as written
+	tests := []struct{ name, amf, bind, want string }{
+		{"unbound: route-selected ip for a loopback amf", "127.0.0.1:38412", "", "127.0.0.1"},
+		{"unbound: unresolvable amf gives nothing", "no-such-amf.invalid:38412", "", ""},
+		{"bare ip", "127.0.0.1:38412", "127.0.0.1", "127.0.0.1:0"},
+		{"ip with fixed port", "127.0.0.1:38412", "10.0.0.21:38412", "10.0.0.21:38412"},
+		{"bare ipv6", "127.0.0.1:38412", "::1", "[::1]:0"},
+		{"hostname", "127.0.0.1:38412", "ran-21", "ran-21:0"},
+		{"unparseable: reported as written", "127.0.0.1:38412", "10.0.0.1:0:0", "10.0.0.1:0:0"},
 	}
 	for _, tc := range tests {
-		if got := (Env{Bind: tc.bind}).N2Source(); got != tc.want {
-			t.Errorf("Env{Bind: %q}.N2Source() = %q, want %q", tc.bind, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := (Env{AMFAddr: tc.amf, Bind: tc.bind}).N2Source(); got != tc.want {
+				t.Errorf("Env{AMFAddr: %q, Bind: %q}.N2Source() = %q, want %q", tc.amf, tc.bind, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -84,8 +89,8 @@ func TestConfirmAliveProbeFailureIsError(t *testing.T) {
 	}
 }
 
-// The JSON summary records the N2 source when one was chosen and omits the
-// key when the kernel chose, so older consumers see no new field by default.
+// The JSON summary records the N2 source, bound (ip:0) or route-selected
+// (bare ip), and omits the key only when there is none to report.
 func TestSummaryJSONN2Source(t *testing.T) {
 	sum := Summarize(nil)
 	b, err := json.Marshal(sum)
@@ -95,16 +100,24 @@ func TestSummaryJSONN2Source(t *testing.T) {
 	if strings.Contains(string(b), "N2Source") {
 		t.Errorf("empty N2Source serialised: %s", b)
 	}
-	sum.N2Source = (Env{Bind: "10.0.0.21"}).N2Source()
-	b, err = json.Marshal(sum)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct{ name, bind, want string }{
+		{"bound", "10.0.0.21", "10.0.0.21:0"},
+		{"unbound", "", "127.0.0.1"},
 	}
-	var got map[string]any
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["N2Source"] != "10.0.0.21:0" {
-		t.Errorf("N2Source in JSON = %v, want 10.0.0.21:0 (got %s)", got["N2Source"], b)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sum.N2Source = (Env{AMFAddr: "127.0.0.1:38412", Bind: tc.bind}).N2Source()
+			b, err := json.Marshal(sum)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["N2Source"] != tc.want {
+				t.Errorf("N2Source in JSON = %v, want %s (got %s)", got["N2Source"], tc.want, b)
+			}
+		})
 	}
 }

@@ -223,6 +223,39 @@ func TestDialUnboundCarriesZone(t *testing.T) {
 	}
 }
 
+// SourceFor reports the address an unbound Dial would bind, without opening
+// an association: the route-selected IP for a resolvable AMF, Dial's own
+// error shape for one that does not resolve.
+func TestSourceFor(t *testing.T) {
+	tests := []struct {
+		name    string
+		raddr   string
+		want    string
+		wantErr string
+	}{
+		{name: "loopback amf", raddr: "127.0.0.1:38412", want: "127.0.0.1"},
+		{name: "unresolvable amf", raddr: "no-such-amf.invalid:38412", wantErr: `resolve remote "no-such-amf.invalid:38412"`},
+		{name: "not host:port", raddr: "127.0.0.1", wantErr: `resolve remote "127.0.0.1"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := SourceFor(tc.raddr)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("SourceFor(%q): %v", tc.raddr, err)
+			}
+			if got.String() != tc.want {
+				t.Errorf("SourceFor(%q) = %s, want %s", tc.raddr, got, tc.want)
+			}
+		})
+	}
+}
+
 // linkLocalAddr returns one of this host's IPv6 link-local addresses with its
 // interface as the zone, or skips the test when there is none.
 func linkLocalAddr(t *testing.T) *net.IPAddr {

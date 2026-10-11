@@ -118,6 +118,45 @@ func routeSource(remote *net.UDPAddr) (net.IP, error) {
 	return la.IP, nil
 }
 
+// probeSource runs a source resolver for the resolved remote ra (named raddr
+// in errors) and returns the address an unbound dial binds. Whatever the
+// resolver, an unspecified or missing address never gets through: that is
+// INADDR_ANY, the multi-homed socket this path exists to avoid, so Dial owns
+// the invariant rather than trusting each resolver. A link-local source keeps
+// the remote's zone, since a link-local pair shares an interface.
+func probeSource(source func(*net.UDPAddr) (net.IP, error), raddr string, ra *isctp.SCTPAddr) (net.IPAddr, error) {
+	remote := &net.UDPAddr{IP: ra.IPAddrs[0].IP, Port: ra.Port, Zone: ra.IPAddrs[0].Zone}
+	ip, err := source(remote)
+	if err != nil {
+		return net.IPAddr{}, fmt.Errorf("cannot determine N2 source for %q: %w; pass --bind", raddr, err)
+	}
+	if ip == nil || ip.IsUnspecified() {
+		return net.IPAddr{}, fmt.Errorf("cannot determine N2 source for %q: resolver returned %v; pass --bind", raddr, ip)
+	}
+	src := net.IPAddr{IP: ip}
+	if ip.IsLinkLocalUnicast() {
+		src.Zone = remote.Zone
+	}
+	return src, nil
+}
+
+// SourceFor reports the local address an unbound Dial to raddr would bind:
+// the route-selected source, with the same guard against an unspecified
+// result. It lets a caller that only needs to report the source (conformance
+// records which address its checks were taken from) answer without opening
+// an association. The error is the one Dial would return.
+func SourceFor(raddr string) (net.IP, error) {
+	ra, err := resolve(raddr)
+	if err != nil {
+		return nil, fmt.Errorf("resolve remote %q: %w", raddr, err)
+	}
+	src, err := probeSource(routeSource, raddr, ra)
+	if err != nil {
+		return nil, err
+	}
+	return src.IP, nil
+}
+
 // Dial opens an SCTP association to raddr (host:port). If laddr is non-empty
 // the association binds that local address first — one distinct bind IP per
 // gNB is the multi-gNB plan (DESIGN §3). laddr may be "" (the single address
@@ -160,21 +199,9 @@ func Dial(laddr, raddr string, opts ...DialOption) (*Conn, error) {
 	// the probed one marked as such so the operator can tell who chose it.
 	source := laddr
 	if la == nil {
-		remote := &net.UDPAddr{IP: ra.IPAddrs[0].IP, Port: ra.Port, Zone: ra.IPAddrs[0].Zone}
-		ip, err := cfg.source(remote)
+		src, err := probeSource(cfg.source, raddr, ra)
 		if err != nil {
-			return nil, fmt.Errorf("cannot determine N2 source for %q: %w; pass --bind", raddr, err)
-		}
-		// Whatever the resolver, an unspecified address must never reach the
-		// bind: that is INADDR_ANY, the multi-homed socket this path exists
-		// to avoid. Dial owns that invariant, not the resolver.
-		if ip == nil || ip.IsUnspecified() {
-			return nil, fmt.Errorf("cannot determine N2 source for %q: resolver returned %v; pass --bind", raddr, ip)
-		}
-		src := net.IPAddr{IP: ip}
-		if ip.IsLinkLocalUnicast() {
-			// A link-local source to a link-local AMF shares its interface.
-			src.Zone = remote.Zone
+			return nil, err
 		}
 		la = &isctp.SCTPAddr{IPAddrs: []net.IPAddr{src}, Port: 0}
 		source = la.String() + " (route-selected)"
