@@ -117,7 +117,7 @@ func ValidateBind(bind string) error {
 }
 
 // N2Source is Bind in the normalised ip:port form sctp.Dial uses, for
-// reporting; "" when the kernel chooses. An unparseable Bind is returned as
+// reporting; "" when the dial picks the route-selected source. An unparseable Bind is returned as
 // written, since every check will have ERRORed on it and the report should
 // show what was asked for.
 func (e Env) N2Source() string {

@@ -1,8 +1,12 @@
 package sctp
 
 import (
+	"errors"
+	"net"
 	"strings"
 	"testing"
+
+	isctp "github.com/ishidawataru/sctp"
 )
 
 func TestNormalizeLocal(t *testing.T) {
@@ -112,5 +116,143 @@ func TestDialErrorNamesLocal(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `from "127.0.0.1:0"`) {
 		t.Errorf("error %q does not name the local address", err)
+	}
+}
+
+// routeSource asks the kernel which address it routes to the remote from.
+// On loopback the answer is the loopback address of the remote's family.
+func TestRouteSource(t *testing.T) {
+	tests := []struct {
+		name   string
+		remote *net.UDPAddr
+		want   string
+	}{
+		{name: "ipv4 loopback", remote: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 38412}, want: "127.0.0.1"},
+		{name: "ipv6 loopback", remote: &net.UDPAddr{IP: net.ParseIP("::1"), Port: 38412}, want: "::1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := routeSource(tc.remote)
+			if err != nil {
+				if tc.remote.IP.To4() == nil {
+					t.Skipf("no IPv6 loopback on this host: %v", err)
+				}
+				t.Fatalf("routeSource(%s): %v", tc.remote, err)
+			}
+			if got.String() != tc.want {
+				t.Errorf("routeSource(%s) = %s, want %s", tc.remote, got, tc.want)
+			}
+		})
+	}
+}
+
+// An unbound dial whose source probe fails is refused with a message naming
+// the AMF address and --bind, before any connect is attempted: the remote is
+// a TEST-NET address a real SCTP connect would sit on for minutes.
+func TestDialUnboundProbeErrorNamesBind(t *testing.T) {
+	var seen *net.UDPAddr
+	_, err := Dial("", "192.0.2.1:38412", WithSourceResolver(func(remote *net.UDPAddr) (net.IP, error) {
+		seen = remote
+		return nil, errors.New("no route to host")
+	}))
+	if err == nil {
+		t.Fatal("Dial succeeded with a failing source probe")
+	}
+	for _, want := range []string{`cannot determine N2 source for "192.0.2.1:38412"`, "no route to host", "pass --bind"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+	if seen == nil || seen.IP.String() != "192.0.2.1" || seen.Port != 38412 {
+		t.Errorf("probe saw remote %v, want 192.0.2.1:38412", seen)
+	}
+}
+
+// The family check still runs on a probed source: a resolver handing back an
+// IPv6 address for an IPv4 AMF is refused before any socket is opened.
+func TestDialUnboundProbedSourceFamilyChecked(t *testing.T) {
+	_, err := Dial("", "127.0.0.1:38412", WithSourceResolver(func(*net.UDPAddr) (net.IP, error) {
+		return net.ParseIP("::1"), nil
+	}))
+	if err == nil {
+		t.Fatal("mismatched probed family dialled")
+	}
+	if !strings.Contains(err.Error(), "address family mismatch") {
+		t.Errorf("err = %v, want a family-mismatch error", err)
+	}
+}
+
+// The unbound twin of TestDialErrorNamesLocal: a failed dial names the
+// route-selected source, marked as such, so the operator can tell the probe
+// picked it rather than a --bind.
+func TestDialErrorNamesRouteSelectedSource(t *testing.T) {
+	_, err := Dial("", "127.0.0.1:1")
+	if err == nil {
+		t.Skip("an SCTP listener answered on 127.0.0.1:1")
+	}
+	if !strings.Contains(err.Error(), `from "127.0.0.1:0 (route-selected)"`) {
+		t.Errorf("error %q does not name the route-selected source", err)
+	}
+}
+
+// listenLoopbackSCTP opens a real SCTP listener on 127.0.0.1 with an
+// ephemeral port and accepts (and holds) every association until the test
+// ends. It skips the test when the host has no kernel SCTP.
+func listenLoopbackSCTP(t *testing.T) string {
+	t.Helper()
+	ln, err := isctp.ListenSCTPExt("sctp", &isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}}, isctp.InitMsg{})
+	if err != nil {
+		t.Skipf("no kernel SCTP on this host: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.AcceptSCTP()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = c.Close() })
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// Over a real association, an unbound dial binds exactly one address and
+// reports it as ip:port, and that address is the one an explicit --bind to
+// the same destination would use.
+func TestDialUnboundReportsOneAddress(t *testing.T) {
+	addr := listenLoopbackSCTP(t)
+
+	unbound, err := Dial("", addr)
+	if err != nil {
+		t.Fatalf("unbound Dial(%s): %v", addr, err)
+	}
+	defer func() { _ = unbound.Close() }()
+	bound, err := Dial("127.0.0.1", addr)
+	if err != nil {
+		t.Fatalf("bound Dial(%s): %v", addr, err)
+	}
+	defer func() { _ = bound.Close() }()
+
+	src := unbound.LocalAddr()
+	if src == nil {
+		t.Fatal("unbound association reports no local address")
+	}
+	if strings.Contains(src.String(), "/") {
+		t.Fatalf("unbound source %q lists several addresses", src)
+	}
+	host, port, err := net.SplitHostPort(src.String())
+	if err != nil {
+		t.Fatalf("unbound source %q is not host:port: %v", src, err)
+	}
+	if port == "0" || port == "" {
+		t.Errorf("unbound source %q has no real port", src)
+	}
+	bhost, _, err := net.SplitHostPort(bound.LocalAddr().String())
+	if err != nil {
+		t.Fatalf("bound source %q is not host:port: %v", bound.LocalAddr(), err)
+	}
+	if host != bhost {
+		t.Errorf("unbound source IP %s differs from the bound one %s", host, bhost)
 	}
 }

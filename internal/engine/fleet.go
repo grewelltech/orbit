@@ -110,7 +110,7 @@ func ExpandBindAddrs(binds []string, n int) ([]string, error) {
 		}
 		return norm, nil
 	default:
-		return nil, fmt.Errorf("%d bind addresses for %d gNBs: pass none (kernel chooses), one (shared by every gNB), or exactly %d (one per gNB)",
+		return nil, fmt.Errorf("%d bind addresses for %d gNBs: pass none (route-selected source), one (shared by every gNB), or exactly %d (one per gNB)",
 			len(norm), n, n)
 	}
 }
@@ -164,7 +164,7 @@ func newFleet(ctx context.Context, gnbs []GNBSpec, log *slog.Logger, dial n2Dial
 
 // N2Sources returns the local N2 address each gNB's association actually
 // bound, in gNB order — the real port even when the spec asked for :0, and
-// the kernel's choice when the spec left BindAddr empty.
+// the route-selected address when the spec left BindAddr empty.
 func (f *Fleet) N2Sources() []string {
 	return append([]string(nil), f.sources...)
 }

@@ -25,7 +25,7 @@ func TestExpandBindAddrs(t *testing.T) {
 		want    []string
 		wantErr string
 	}{
-		{name: "none: kernel chooses for every gNB", binds: nil, n: 3, want: []string{"", "", ""}},
+		{name: "none: route-selected source for every gNB", binds: nil, n: 3, want: []string{"", "", ""}},
 		{name: "none for one gNB", binds: nil, n: 1, want: []string{""}},
 		{name: "one shared by every gNB, normalised", binds: []string{"10.0.0.1"}, n: 3, want: []string{"10.0.0.1:0", "10.0.0.1:0", "10.0.0.1:0"}},
 		{name: "one shared ip:0 by every gNB", binds: []string{"10.0.0.1:0"}, n: 2, want: []string{"10.0.0.1:0", "10.0.0.1:0"}},

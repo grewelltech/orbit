@@ -79,15 +79,66 @@ type Conn struct {
 	c *isctp.SCTPConn
 }
 
+// DialOption configures Dial. Options exist for tests and for callers that
+// need to bound or steer the dial; the defaults are right for every command.
+type DialOption func(*dialConfig)
+
+// dialConfig is the resolved set of Dial options.
+type dialConfig struct {
+	// source picks the local address for an unbound dial, given the
+	// resolved remote. Defaults to routeSource.
+	source func(remote *net.UDPAddr) (net.IP, error)
+}
+
+// WithSourceResolver replaces how an unbound dial picks its local address.
+// The default asks the kernel which source it would route to remote from.
+func WithSourceResolver(f func(remote *net.UDPAddr) (net.IP, error)) DialOption {
+	return func(c *dialConfig) { c.source = f }
+}
+
+// routeSource is the default source resolver: it connects a UDP socket to
+// remote, which makes the kernel run route selection and fill in the source
+// address without sending a packet, then reads that address back and closes
+// the socket. The result is the address the host would use for an unbound
+// SCTP INIT to the same destination, as a single IP of remote's family.
+func routeSource(remote *net.UDPAddr) (net.IP, error) {
+	c, err := net.DialUDP("udp", nil, remote)
+	if err != nil {
+		return nil, err
+	}
+	la, ok := c.LocalAddr().(*net.UDPAddr)
+	// The probe socket carried nothing, so a close error has nothing to say.
+	_ = c.Close()
+	if !ok || la.IP == nil || la.IP.IsUnspecified() {
+		return nil, fmt.Errorf("kernel reported no source address for %s", remote)
+	}
+	if v4 := la.IP.To4(); v4 != nil {
+		return v4, nil
+	}
+	return la.IP, nil
+}
+
 // Dial opens an SCTP association to raddr (host:port). If laddr is non-empty
 // the association binds that local address first — one distinct bind IP per
-// gNB is the multi-gNB plan (DESIGN §3). laddr may be "" (kernel chooses),
-// a bare IP (ephemeral port), or ip:port; see NormalizeLocal. Every N2
-// source address in ORBIT — CLI --bind flags, API bind_address fields,
-// scenario source_ips — funnels through here, so the accepted forms are
-// defined exactly once. Data-IO events are subscribed so reads return
-// per-message stream/PPID info.
-func Dial(laddr, raddr string) (*Conn, error) {
+// gNB is the multi-gNB plan (DESIGN §3). laddr may be "" (the single address
+// the host routes to raddr from, ephemeral port), a bare IP (ephemeral port),
+// or ip:port; see NormalizeLocal. Every N2 source address in ORBIT — CLI
+// --bind flags, API bind_address fields, scenario source_ips — funnels
+// through here, so the accepted forms are defined exactly once.
+//
+// An unbound dial never leaves the socket on INADDR_ANY: SCTP would then
+// advertise every host address in the INIT, and the AMF would see loopback,
+// management and data addresses alongside the N2 one. Instead the
+// route-selected source is probed (routeSource, or the WithSourceResolver
+// option) and bound with port 0, so the INIT carries one address exactly as
+// --bind does. No route to the AMF is an error naming --bind, not a fallback.
+//
+// Data-IO events are subscribed so reads return per-message stream/PPID info.
+func Dial(laddr, raddr string, opts ...DialOption) (*Conn, error) {
+	cfg := dialConfig{source: routeSource}
+	for _, o := range opts {
+		o(&cfg)
+	}
 	// The local address is checked first so a bad --bind is reported even
 	// when the AMF address does not resolve either.
 	laddr, err := NormalizeLocal(laddr)
@@ -105,6 +156,17 @@ func Dial(laddr, raddr string) (*Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve remote %q: %w", raddr, err)
 	}
+	// source names the local address in errors: the normalised --bind, or
+	// the probed one marked as such so the operator can tell who chose it.
+	source := laddr
+	if la == nil {
+		ip, err := cfg.source(&net.UDPAddr{IP: ra.IPAddrs[0].IP, Port: ra.Port})
+		if err != nil {
+			return nil, fmt.Errorf("cannot determine N2 source for %q: %w; pass --bind", raddr, err)
+		}
+		la = &isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: ip}}, Port: 0}
+		source = la.String() + " (route-selected)"
+	}
 	if err := sameFamily(la, ra); err != nil {
 		return nil, err
 	}
@@ -113,13 +175,10 @@ func Dial(laddr, raddr string) (*Conn, error) {
 		MaxInstreams: DefaultNGAPStreams,
 	})
 	if err != nil {
-		if laddr != "" {
-			// Name the source too: "cannot assign requested address" is
-			// about the bind, not the AMF, and the operator needs to see
-			// which address the host does not own.
-			return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, laddr, err)
-		}
-		return nil, fmt.Errorf("sctp dial %q: %w", raddr, err)
+		// Name the source too: "cannot assign requested address" is about
+		// the bind, not the AMF, and the operator needs to see which
+		// address the host does not own (or which one the route picked).
+		return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, source, err)
 	}
 	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
 		c.Close()
@@ -168,7 +227,7 @@ func (c *Conn) LocalAddr() net.Addr { return c.c.LocalAddr() }
 // accepts every host:port form resolve accepted before it existed and ADDS
 // the port-less forms, returning host:port or "":
 //
-//   - ""                 → "" (the kernel picks source address and port)
+//   - ""                 → "" (Dial binds the route-selected address, ephemeral port)
 //   - "10.0.0.1"         → "10.0.0.1:0" (ephemeral port)
 //   - "10.0.0.1:0"       → unchanged; any explicit port is kept as given
 //   - "::1"              → "[::1]:0" (bare IPv6 is bracketed, not mangled)
@@ -216,8 +275,8 @@ func (c *Conn) OutStreams() uint16 {
 // sameFamily rejects an IPv4 local address paired with an IPv6 AMF (or the
 // reverse) before any socket is opened. The kernel cannot say no to that
 // pairing quickly: the INIT goes nowhere and the dial sits through every
-// retransmit (minutes) before "connection timed out". A nil local address
-// (kernel's choice) always matches.
+// retransmit (minutes) before "connection timed out". It runs on the probed
+// source of an unbound dial too; a nil local address always matches.
 func sameFamily(la, ra *isctp.SCTPAddr) error {
 	if la == nil || len(la.IPAddrs) == 0 || len(ra.IPAddrs) == 0 {
 		return nil
