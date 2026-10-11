@@ -181,7 +181,8 @@ type RunNGSetupRequest struct {
 	// AMF N2 endpoint as host:port, e.g. "172.17.50.11:38412".
 	AmfAddress string `protobuf:"bytes,1,opt,name=amf_address,json=amfAddress,proto3" json:"amf_address,omitempty"`
 	// Optional local N2 source address for the gNB's SCTP association, as ip
-	// or ip:port (ip alone = ephemeral port; "" = kernel default).
+	// or ip:port (ip alone = ephemeral port). Empty: binds the address the host
+	// routes to the AMF from (one address in the INIT), ephemeral port.
 	LocalAddress string     `protobuf:"bytes,2,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
 	Gnb          *GnbConfig `protobuf:"bytes,3,opt,name=gnb,proto3" json:"gnb,omitempty"`
 	// Exchange timeout in milliseconds; 0 defaults to 10000.

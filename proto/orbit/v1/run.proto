@@ -108,8 +108,9 @@ message LoadRunSpec {
   PDUSession pdu_session = 13;
   string gnb_n3_addr = 14;        // gNB N3 for the data path (with pdu_session)
   // Local N2 source addresses for the gNBs' SCTP associations, each ip or
-  // ip:port (ip alone = ephemeral port). Empty: the kernel chooses for every
-  // gNB. One: every gNB shares it. len(gnbs): one per gNB, in order. Any
+  // ip:port (ip alone = ephemeral port). Empty: every gNB binds the address
+  // the host routes to the AMF from (one address in the INIT), ephemeral
+  // port. One: every gNB shares it. len(gnbs): one per gNB, in order. Any
   // other count is rejected.
   repeated string bind_addresses = 15;
 }

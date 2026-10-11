@@ -116,7 +116,8 @@ export type RunNGSetupRequest = Message<"orbit.v1.RunNGSetupRequest"> & {
 
   /**
    * Optional local N2 source address for the gNB's SCTP association, as ip
-   * or ip:port (ip alone = ephemeral port; "" = kernel default).
+   * or ip:port (ip alone = ephemeral port). Empty: binds the address the host
+   * routes to the AMF from (one address in the INIT), ephemeral port.
    *
    * @generated from field: string local_address = 2;
    */

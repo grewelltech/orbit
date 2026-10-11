@@ -109,7 +109,8 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
 
   /**
    * Local N2 source address for every check's SCTP association, as ip or
-   * ip:0 (empty = kernel default). Checks run one at a time, so one address
+   * ip:0. Empty: binds the address the host routes to the AMF from (one
+   * address in the INIT), ephemeral port. Checks run one at a time, so one address
    * is one gNB on one address; the port must be 0 because a check can hold
    * its association open while the liveness probe dials a second one from
    * the same address, and only ephemeral ports keep the two distinct. A

@@ -173,8 +173,9 @@ export type LoadRunSpec = Message<"orbit.v1.LoadRunSpec"> & {
 
   /**
    * Local N2 source addresses for the gNBs' SCTP associations, each ip or
-   * ip:port (ip alone = ephemeral port). Empty: the kernel chooses for every
-   * gNB. One: every gNB shares it. len(gnbs): one per gNB, in order. Any
+   * ip:port (ip alone = ephemeral port). Empty: every gNB binds the address
+   * the host routes to the AMF from (one address in the INIT), ephemeral
+   * port. One: every gNB shares it. len(gnbs): one per gNB, in order. Any
    * other count is rejected.
    *
    * @generated from field: repeated string bind_addresses = 15;

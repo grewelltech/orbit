@@ -43,7 +43,8 @@ message RunNGSetupRequest {
   // AMF N2 endpoint as host:port, e.g. "172.17.50.11:38412".
   string amf_address = 1;
   // Optional local N2 source address for the gNB's SCTP association, as ip
-  // or ip:port (ip alone = ephemeral port; "" = kernel default).
+  // or ip:port (ip alone = ephemeral port). Empty: binds the address the host
+  // routes to the AMF from (one address in the INIT), ephemeral port.
   string local_address = 2;
   GnbConfig gnb = 3;
   // Exchange timeout in milliseconds; 0 defaults to 10000.
