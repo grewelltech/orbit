@@ -166,7 +166,8 @@ type RegisterRequest struct {
 	// access-net (empty = data path disabled).
 	GnbN3Addr string `protobuf:"bytes,8,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"`
 	// Local N2 source address for the gNB's SCTP association, as ip or ip:port
-	// (ip alone = ephemeral port; empty = kernel default). N3 is gnb_n3_addr.
+	// (ip alone = ephemeral port). Empty: binds the address the host routes to
+	// the AMF from (one address in the INIT), ephemeral port. N3 is gnb_n3_addr.
 	BindAddress   string `protobuf:"bytes,9,opt,name=bind_address,json=bindAddress,proto3" json:"bind_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -145,7 +145,8 @@ export type RegisterRequest = Message<"orbit.v1.RegisterRequest"> & {
 
   /**
    * Local N2 source address for the gNB's SCTP association, as ip or ip:port
-   * (ip alone = ephemeral port; empty = kernel default). N3 is gnb_n3_addr.
+   * (ip alone = ephemeral port). Empty: binds the address the host routes to
+   * the AMF from (one address in the INIT), ephemeral port. N3 is gnb_n3_addr.
    *
    * @generated from field: string bind_address = 9;
    */

@@ -366,8 +366,9 @@ type LoadRunSpec struct {
 	PduSession *PDUSession `protobuf:"bytes,13,opt,name=pdu_session,json=pduSession,proto3" json:"pdu_session,omitempty"`
 	GnbN3Addr  string      `protobuf:"bytes,14,opt,name=gnb_n3_addr,json=gnbN3Addr,proto3" json:"gnb_n3_addr,omitempty"` // gNB N3 for the data path (with pdu_session)
 	// Local N2 source addresses for the gNBs' SCTP associations, each ip or
-	// ip:port (ip alone = ephemeral port). Empty: the kernel chooses for every
-	// gNB. One: every gNB shares it. len(gnbs): one per gNB, in order. Any
+	// ip:port (ip alone = ephemeral port). Empty: every gNB binds the address
+	// the host routes to the AMF from (one address in the INIT), ephemeral
+	// port. One: every gNB shares it. len(gnbs): one per gNB, in order. Any
 	// other count is rejected.
 	BindAddresses []string `protobuf:"bytes,15,rep,name=bind_addresses,json=bindAddresses,proto3" json:"bind_addresses,omitempty"`
 	unknownFields protoimpl.UnknownFields

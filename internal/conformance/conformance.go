@@ -74,7 +74,7 @@ type Test interface {
 // most need a fresh or deliberately-misused one.
 //
 // Bind is the local N2 source address every check's association binds, as
-// ip or ip:0 (see sctp.NormalizeLocal); empty lets the kernel choose. One
+// ip or ip:0 (see sctp.NormalizeLocal); empty binds the route-selected source. One
 // address suffices because Registry.RunStream runs the checks one after
 // another, each presenting its own gNB ID over its own association, so at
 // any instant there is one gNB on that address. The port must be 0: a check
@@ -116,11 +116,22 @@ func ValidateBind(bind string) error {
 	return nil
 }
 
-// N2Source is Bind in the normalised ip:port form sctp.Dial uses, for
-// reporting; "" when the kernel chooses. An unparseable Bind is returned as
-// written, since every check will have ERRORed on it and the report should
-// show what was asked for.
+// N2Source is the address the checks' associations are taken from, for
+// reporting. With Bind set it is Bind in the normalised ip:port form
+// sctp.Dial uses (an unparseable Bind is returned as written, since every
+// check will have ERRORed on it and the report should show what was asked
+// for). Unbound, it is the route-selected IP for AMFAddr, as a bare IP: each
+// check opens its own association on a fresh ephemeral port, so there is no
+// one port to report. "" only when the probe fails, and then the first
+// check's Dial surfaces the same failure.
 func (e Env) N2Source() string {
+	if e.Bind == "" {
+		ip, err := sctp.SourceFor(e.AMFAddr)
+		if err != nil {
+			return ""
+		}
+		return ip.String()
+	}
 	n, err := sctp.NormalizeLocal(e.Bind)
 	if err != nil {
 		return e.Bind
@@ -281,11 +292,11 @@ func (r *Registry) indexOf(t Test) int {
 type Summary struct {
 	Total, Pass, Fail, Error, Skip, Deviation int
 	Results                                   []Result
-	// N2Source is the configured Env.Bind in sctp.NormalizeLocal's ip:0
-	// form, so a verdict records which address the checks were taken from.
-	// It is the requested bind, not a bound address: every check dials its
-	// own association, each on its own ephemeral port, so there is no single
-	// real port to report. Empty when the kernel chose.
+	// N2Source records which address the checks were taken from: the
+	// configured Env.Bind in sctp.NormalizeLocal's ip:0 form, or, unbound,
+	// the route-selected IP alone. It is never a bound ip:port: every check
+	// dials its own association on its own ephemeral port, so there is no
+	// single real port to report. Empty only when the source probe failed.
 	N2Source string `json:",omitempty"`
 	// Network is the identity the checks presented to the core (PLMN, TAC,
 	// slice), so a verdict records which network it was taken under.

@@ -248,7 +248,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 			fmt.Fprintf(out, "UE %s registered=%t (AMF-UE-NGAP-ID %d)\n", m.GetSupi(), m.GetRegistered(), m.GetAmfUeNgapId())
 			fmt.Fprintf(out, "  network: %s\n", id)
 			if src := m.GetN2Source(); src != "" {
-				fmt.Fprintf(out, "  n2-source=%s\n", n2SourceLabel(src, bind != ""))
+				_, _ = fmt.Fprintf(out, "  n2-source=%s\n", src)
 			}
 			if m.GetSessionActive() {
 				fmt.Fprintf(out, "  PDU session: UE IP %s via UPF %s (TEID %d)\n", m.GetPduAddress(), m.GetUpfAddress(), m.GetUpfTeid())

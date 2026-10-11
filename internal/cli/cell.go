@@ -51,8 +51,7 @@ func newCellCmd(serverURL *string) *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "NG Setup rejected: %s\n", m.GetCause())
 			}
 			if src := m.GetLocalAddress(); src != "" {
-				bound := ngsetupLocalAddress(cmd.Flags().Changed("bind"), bind, local) != ""
-				fmt.Fprintf(cmd.OutOrStdout(), "  n2-source=%s\n", n2SourceLabel(src, bound))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  n2-source=%s\n", src)
 			}
 			return nil
 		},
@@ -72,7 +71,7 @@ func newCellCmd(serverURL *string) *cobra.Command {
 }
 
 // ngsetupLocalAddress picks the N2 source for `cell ngsetup`: --bind when it
-// was given (even as an explicit "" meaning kernel default), else the
+// was given (even as an explicit "" meaning the route-selected source), else the
 // deprecated --local. The deprecated flag never overrides the current one.
 func ngsetupLocalAddress(bindSet bool, bind, local string) string {
 	if bindSet {

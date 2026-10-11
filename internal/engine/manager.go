@@ -170,7 +170,7 @@ func NewManager(log *slog.Logger) *Manager {
 }
 
 // Register attaches one UE through the gNB g: it opens an SCTP association
-// from g.BindAddr (empty = kernel's choice) to g.AMFAddr, performs NG Setup
+// from g.BindAddr (empty = route-selected source) to g.AMFAddr, performs NG Setup
 // with g.Config, runs the attach FSM (emitting StateStream events), and
 // retains the session. The N2 source actually bound is reported in
 // AttachResult.N2Source and on the Session. A UE already registered under

@@ -104,7 +104,7 @@ func newLoadCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printLoadReport(cmd.OutOrStdout(), rep, len(binds) > 0)
+			printLoadReport(cmd.OutOrStdout(), rep)
 
 			slo := load.SLO{MinSuccessRate: sloSuccess, Latency: map[string]load.LatencyBound{}}
 			if sloRegP99 > 0 {
@@ -156,15 +156,20 @@ func newLoadCmd() *cobra.Command {
 }
 
 // sharedBindNote is the one-line stderr note for a load run whose gNBs all
-// share one N2 source address: the AMF then tells them apart by gNB ID only,
-// which an operator who passed a single --bind for several gNBs should know.
-// Empty when there is nothing to say.
+// share one N2 source address: the AMF then tells them apart by gNB ID only.
+// That is the case for a single --bind given for several gNBs, and for no
+// --bind at all, since every unbound gNB dials from the same route-selected
+// address with its own ephemeral port. Empty when there is nothing to say.
 func sharedBindNote(binds []string, gnbCount int) string {
-	if len(binds) != 1 || gnbCount < 2 {
+	if len(binds) > 1 || gnbCount < 2 {
 		return ""
 	}
-	return fmt.Sprintf("note: %d gNBs share N2 source %s; the AMF distinguishes them by gNB ID only (pass %d --bind addresses for one each)",
-		gnbCount, binds[0], gnbCount)
+	src := "the route-selected address"
+	if len(binds) == 1 {
+		src = binds[0]
+	}
+	return fmt.Sprintf("note: %d gNBs share one N2 source (%s); the AMF distinguishes them by gNB ID only (pass %d --bind addresses for one each)",
+		gnbCount, src, gnbCount)
 }
 
 // parseRate turns the --rate / --ramp flags into a load.Rate (nil = unbounded).
@@ -238,17 +243,13 @@ func parseFloatInto(s string, dst *float64) error {
 	return err
 }
 
-// printLoadReport writes the report; bound says whether --bind was given, so
-// an unbound multi-homed source can be explained rather than left puzzling.
-func printLoadReport(w io.Writer, rep load.Report, bound bool) {
+// printLoadReport writes the report. Every N2 source is one ip:port, bound
+// or route-selected, so the sources are printed as the kernel reported them.
+func printLoadReport(w io.Writer, rep load.Report) {
 	fmt.Fprintf(w, "load: %d/%d attached in %s (%.1f attach/s)\n",
 		rep.Succeeded, rep.Attempted, rep.Duration.Round(time.Millisecond), rep.AchievedRate)
 	if len(rep.N2Sources) > 0 {
-		line := strings.Join(rep.N2Sources, " ")
-		if !bound && strings.Contains(line, "/") {
-			line += unboundNote
-		}
-		fmt.Fprintf(w, "  n2-source: %s\n", line)
+		_, _ = fmt.Fprintf(w, "  n2-source: %s\n", strings.Join(rep.N2Sources, " "))
 	}
 	for _, name := range []string{"registration", "pdu_session", "attach"} {
 		s, ok := rep.Latencies[name]
