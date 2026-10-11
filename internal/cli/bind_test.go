@@ -85,7 +85,7 @@ func TestCellNGSetupBindPrecedence(t *testing.T) {
 		flags []string
 		want  string
 	}{
-		{name: "neither: kernel default", want: ""},
+		{name: "neither: route-selected default", want: ""},
 		{name: "bind alone", flags: []string{"--bind", "10.0.0.21"}, want: "10.0.0.21"},
 		{name: "deprecated local alone still works", flags: []string{"--local", "10.0.0.22:0"}, want: "10.0.0.22:0"},
 		{name: "both: bind wins", flags: []string{"--local", "10.0.0.22:0", "--bind", "10.0.0.21"}, want: "10.0.0.21"},
@@ -128,7 +128,7 @@ func TestNGSetupLocalAddress(t *testing.T) {
 		{true, "a", "", "a"},
 		{false, "", "b", "b"},
 		{true, "a", "b", "a"},
-		{true, "", "b", ""}, // an explicit --bind "" means kernel default, over --local
+		{true, "", "b", ""}, // an explicit --bind "" means the route-selected source, over --local
 	}
 	for _, tc := range tests {
 		if got := ngsetupLocalAddress(tc.bindSet, tc.bind, tc.local); got != tc.want {
@@ -240,8 +240,8 @@ func TestRunsStartLoadSendsBindAddresses(t *testing.T) {
 }
 
 // An n2-source line is the single ip:port the server reported, bound or not:
-// unbound dials bind the route-selected address, so there is no multi-homed
-// case left to annotate.
+// unbound dials bind the route-selected address, so there is no several-
+// address case left to annotate. The literals below are the old note's words.
 func TestN2SourceLinePrintedAsIs(t *testing.T) {
 	tests := []struct {
 		name  string

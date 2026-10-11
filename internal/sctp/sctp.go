@@ -160,11 +160,23 @@ func Dial(laddr, raddr string, opts ...DialOption) (*Conn, error) {
 	// the probed one marked as such so the operator can tell who chose it.
 	source := laddr
 	if la == nil {
-		ip, err := cfg.source(&net.UDPAddr{IP: ra.IPAddrs[0].IP, Port: ra.Port})
+		remote := &net.UDPAddr{IP: ra.IPAddrs[0].IP, Port: ra.Port, Zone: ra.IPAddrs[0].Zone}
+		ip, err := cfg.source(remote)
 		if err != nil {
 			return nil, fmt.Errorf("cannot determine N2 source for %q: %w; pass --bind", raddr, err)
 		}
-		la = &isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: ip}}, Port: 0}
+		// Whatever the resolver, an unspecified address must never reach the
+		// bind: that is INADDR_ANY, the multi-homed socket this path exists
+		// to avoid. Dial owns that invariant, not the resolver.
+		if ip == nil || ip.IsUnspecified() {
+			return nil, fmt.Errorf("cannot determine N2 source for %q: resolver returned %v; pass --bind", raddr, ip)
+		}
+		src := net.IPAddr{IP: ip}
+		if ip.IsLinkLocalUnicast() {
+			// A link-local source to a link-local AMF shares its interface.
+			src.Zone = remote.Zone
+		}
+		la = &isctp.SCTPAddr{IPAddrs: []net.IPAddr{src}, Port: 0}
 		source = la.String() + " (route-selected)"
 	}
 	if err := sameFamily(la, ra); err != nil {

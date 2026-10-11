@@ -62,7 +62,7 @@ so a capture or an AMF-side log can be matched to the run. `conformance --json`
 records the configured bind as `N2Source` in `ip:0` form: every check dials its
 own association on its own ephemeral port, so there is no single port to show.
 
-`load` and `runs start-load` take a list: none (kernel default), one (shared by
+`load` and `runs start-load` take a list: none (route-selected source), one (shared by
 every gNB, which leaves the AMF telling them apart by gNB ID only — the command
 says so), or exactly `--gnb-count` addresses, one per gNB in order. Any other
 count is an error. Addresses are never auto-incremented from a base; list the

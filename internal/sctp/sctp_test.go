@@ -14,7 +14,7 @@ func TestNormalizeLocal(t *testing.T) {
 		name, in, want string
 		wantErr        bool
 	}{
-		{name: "empty means kernel default", in: "", want: ""},
+		{name: "empty means the route-selected source", in: "", want: ""},
 		{name: "bare ipv4 gets ephemeral port", in: "10.0.0.1", want: "10.0.0.1:0"},
 		{name: "ipv4 with zero port unchanged", in: "10.0.0.1:0", want: "10.0.0.1:0"},
 		{name: "ipv4 with explicit port unchanged", in: "10.0.0.1:38412", want: "10.0.0.1:38412"},
@@ -165,6 +165,100 @@ func TestDialUnboundProbeErrorNamesBind(t *testing.T) {
 	}
 	if seen == nil || seen.IP.String() != "192.0.2.1" || seen.Port != 38412 {
 		t.Errorf("probe saw remote %v, want 192.0.2.1:38412", seen)
+	}
+}
+
+// Dial, not the resolver, guarantees that no unbound dial ever binds an
+// unspecified address: nil, 0.0.0.0 and :: from an injected resolver are all
+// refused before any connect (the remote is a TEST-NET address a real connect
+// would sit on), so no resolver, present or future, can put the socket back
+// on INADDR_ANY.
+func TestDialUnboundRejectsUnspecifiedSource(t *testing.T) {
+	tests := []struct {
+		name string
+		ip   net.IP
+	}{
+		{name: "nil", ip: nil},
+		{name: "ipv4 any", ip: net.IPv4zero},
+		{name: "ipv6 any", ip: net.IPv6unspecified},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Dial("", "192.0.2.1:38412", WithSourceResolver(func(*net.UDPAddr) (net.IP, error) {
+				return tc.ip, nil
+			}))
+			if err == nil {
+				t.Fatal("Dial bound an unspecified source")
+			}
+			for _, want := range []string{`cannot determine N2 source for "192.0.2.1:38412"`, "resolver returned", "pass --bind"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q lacks %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// An IPv6 zone on the AMF address reaches the probe, and a link-local source
+// is bound with that zone, so a link-local AMF stays dialable without --bind.
+// The dial itself fails here (the source is not a host address, or there is
+// no kernel SCTP), and the error names the zoned route-selected source.
+func TestDialUnboundCarriesZone(t *testing.T) {
+	var seen *net.UDPAddr
+	_, err := Dial("", "[fe80::1%lo]:1", WithSourceResolver(func(remote *net.UDPAddr) (net.IP, error) {
+		seen = remote
+		return net.ParseIP("fe80::2"), nil
+	}))
+	if seen == nil {
+		t.Fatal("resolver was not called")
+	}
+	if seen.Zone != "lo" || seen.IP.String() != "fe80::1" || seen.Port != 1 {
+		t.Errorf("probe saw %v, want [fe80::1%%lo]:1", seen)
+	}
+	if err == nil {
+		t.Fatal("dial from a source the host does not own succeeded")
+	}
+	if !strings.Contains(err.Error(), `from "[fe80::2%lo]:0 (route-selected)"`) {
+		t.Errorf("error %q does not name the zoned route-selected source", err)
+	}
+}
+
+// linkLocalAddr returns one of this host's IPv6 link-local addresses with its
+// interface as the zone, or skips the test when there is none.
+func linkLocalAddr(t *testing.T) *net.IPAddr {
+	t.Helper()
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		t.Skipf("listing interfaces: %v", err)
+	}
+	for _, ifc := range ifaces {
+		if ifc.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if n, ok := a.(*net.IPNet); ok && n.IP.IsLinkLocalUnicast() && n.IP.To4() == nil {
+				return &net.IPAddr{IP: n.IP, Zone: ifc.Name}
+			}
+		}
+	}
+	t.Skip("no IPv6 link-local address on this host")
+	return nil
+}
+
+// The kernel probe honours the zone: routing to one of the host's own
+// link-local addresses picks that address as the source.
+func TestRouteSourceLinkLocalZone(t *testing.T) {
+	ll := linkLocalAddr(t)
+	got, err := routeSource(&net.UDPAddr{IP: ll.IP, Port: 38412, Zone: ll.Zone})
+	if err != nil {
+		t.Fatalf("routeSource(%v): %v", ll, err)
+	}
+	if !got.Equal(ll.IP) {
+		t.Errorf("routeSource(%v) = %s, want %s", ll, got, ll.IP)
 	}
 }
 

@@ -74,7 +74,7 @@ type Test interface {
 // most need a fresh or deliberately-misused one.
 //
 // Bind is the local N2 source address every check's association binds, as
-// ip or ip:0 (see sctp.NormalizeLocal); empty lets the kernel choose. One
+// ip or ip:0 (see sctp.NormalizeLocal); empty binds the route-selected source. One
 // address suffices because Registry.RunStream runs the checks one after
 // another, each presenting its own gNB ID over its own association, so at
 // any instant there is one gNB on that address. The port must be 0: a check

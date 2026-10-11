@@ -32,7 +32,7 @@ type n2Conn interface {
 }
 
 // n2Dialer opens one N2 association from laddr (see sctp.NormalizeLocal for
-// the accepted forms; "" lets the kernel choose) to the AMF at raddr. It is
+// the accepted forms; "" binds the route-selected source) to the AMF at raddr. It is
 // the seam that lets the bind plumbing be tested against an in-process AMF
 // without kernel SCTP; production code uses dialN2.
 type n2Dialer func(laddr, raddr string) (n2Conn, error)
@@ -55,7 +55,7 @@ func localAddrString(c n2Conn) string {
 // gNBs and returns them in sctp.NormalizeLocal's host:port form. The rule is
 // the same on every surface (CLI --bind, LoadRunSpec bind_addresses):
 //
-//   - none  → every gNB lets the kernel choose (today's behaviour)
+//   - none  → every gNB binds the address the host routes to the AMF from
 //   - one   → every gNB shares that address (gNBs then differ only by ID, so
 //     callers should say so)
 //   - n     → one address per gNB, in order
@@ -79,7 +79,7 @@ func ExpandBindAddrs(binds []string, n int) ([]string, error) {
 			return nil, err
 		}
 		if nb == "" {
-			return nil, fmt.Errorf("bind address %d is empty; omit --bind entirely to let the kernel choose", i+1)
+			return nil, fmt.Errorf("bind address %d is empty; omit --bind entirely to use the route-selected source", i+1)
 		}
 		norm[i] = nb
 	}

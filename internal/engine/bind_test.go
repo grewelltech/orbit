@@ -164,7 +164,7 @@ func TestManagerRegisterBindsAndReportsN2Source(t *testing.T) {
 		wantDial string // laddr handed to the dialer
 		wantHost string // host of the reported N2 source
 	}{
-		{name: "unset lets the kernel choose", bind: "", wantDial: "", wantHost: "192.0.2.1"},
+		{name: "unset binds the route-selected source", bind: "", wantDial: "", wantHost: "192.0.2.1"},
 		{name: "bare ip", bind: "127.0.0.1", wantDial: "127.0.0.1", wantHost: "127.0.0.1"},
 		{name: "ip with ephemeral port", bind: "127.0.0.2:0", wantDial: "127.0.0.2:0", wantHost: "127.0.0.2"},
 	}
