@@ -51,8 +51,7 @@ func newCellCmd(serverURL *string) *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "NG Setup rejected: %s\n", m.GetCause())
 			}
 			if src := m.GetLocalAddress(); src != "" {
-				bound := ngsetupLocalAddress(cmd.Flags().Changed("bind"), bind, local) != ""
-				fmt.Fprintf(cmd.OutOrStdout(), "  n2-source=%s\n", n2SourceLabel(src, bound))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  n2-source=%s\n", src)
 			}
 			return nil
 		},
