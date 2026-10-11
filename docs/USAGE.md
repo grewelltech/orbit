@@ -39,11 +39,13 @@ takes `--bind <ip[:port]>`: the local address the gNB's SCTP association is
 bound to. A bare IP means an ephemeral port (`10.0.0.21` is `10.0.0.21:0`); an
 explicit port is kept as given; IPv6 is written bare (`fd00::21`, zoned
 `fe80::1%eth0`) or bracketed with a port (`[fd00::21]:0`); a hostname is
-resolved at dial time. Unset, the SCTP association is unbound and multi-homed:
-its INIT advertises every address the host has, and the AMF sees all of them.
-That is why `--bind` is recommended on any RAN host with more than one N2
-address, and why an unbound `n2-source=` line lists several addresses with an
-"(unbound: SCTP multi-homed across host addresses)" note.
+resolved at dial time. Unset, the association is bound to the single address
+the host routes to the AMF from (with an ephemeral port), so the INIT
+advertises one address and the AMF sees exactly that; the `n2-source=` line
+reports it. Use `--bind` when the gNB should use a different address (a RAN
+host with several N2 addresses) or a fixed port. A host with no route to the
+AMF fails at dial with an error that names `--bind`; ORBIT never falls back to
+advertising every host address.
 
 **Port rule:** a fixed (non-zero) port is legal only when exactly one
 association will use that `ip:port`; port 0 is always legal because every dial
