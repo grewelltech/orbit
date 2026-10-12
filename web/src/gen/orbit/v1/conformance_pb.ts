@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/conformance.proto.
  */
 export const file_orbit_v1_conformance: GenFile = /*@__PURE__*/
-  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEi5gEKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCSKXAQoRQ29uZm9ybWFuY2VVcGRhdGUSKwoGcmVzdWx0GAEgASgLMhsub3JiaXQudjEuQ29uZm9ybWFuY2VSZXN1bHQSDAoEZG9uZRgCIAEoCBIpCgV0YWxseRgDIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSDQoFaW5kZXgYBCABKA0SDQoFdG90YWwYBSABKA0iiAEKEUNvbmZvcm1hbmNlUmVzdWx0EgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIZXhwZWN0ZWQYBSABKAkSEAoIb2JzZXJ2ZWQYBiABKAkSDgoGZGV0YWlsGAcgASgJImgKEENvbmZvcm1hbmNlVGFsbHkSDgoGcGFzc2VkGAEgASgNEg4KBmZhaWxlZBgCIAEoDRIPCgdlcnJvcmVkGAMgASgNEg8KB3NraXBwZWQYBCABKA0SEgoKZGV2aWF0aW9ucxgFIAEoDSIdChtMaXN0Q29uZm9ybWFuY2VUZXN0c1JlcXVlc3QiRQoTQ29uZm9ybWFuY2VUZXN0SW5mbxIKCgJpZBgBIAEoCRIQCghjYXRlZ29yeRgCIAEoCRIQCghzcGVjX3JlZhgDIAEoCSJMChxMaXN0Q29uZm9ybWFuY2VUZXN0c1Jlc3BvbnNlEiwKBXRlc3RzGAEgAygLMh0ub3JiaXQudjEuQ29uZm9ybWFuY2VUZXN0SW5mbzLRAQoSQ29uZm9ybWFuY2VTZXJ2aWNlElIKDlJ1bkNvbmZvcm1hbmNlEh8ub3JiaXQudjEuUnVuQ29uZm9ybWFuY2VSZXF1ZXN0Ghsub3JiaXQudjEuQ29uZm9ybWFuY2VVcGRhdGUiADABEmcKFExpc3RDb25mb3JtYW5jZVRlc3RzEiUub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0GiYub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZSIAQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw");
+  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEi/gEKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCRIWCg50YXJnZXRfcmVsZWFzZRgNIAEoDSKvAQoRQ29uZm9ybWFuY2VVcGRhdGUSKwoGcmVzdWx0GAEgASgLMhsub3JiaXQudjEuQ29uZm9ybWFuY2VSZXN1bHQSDAoEZG9uZRgCIAEoCBIpCgV0YWxseRgDIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSDQoFaW5kZXgYBCABKA0SDQoFdG90YWwYBSABKA0SFgoOdGFyZ2V0X3JlbGVhc2UYBiABKA0iwwEKEUNvbmZvcm1hbmNlUmVzdWx0EgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIZXhwZWN0ZWQYBSABKAkSEAoIb2JzZXJ2ZWQYBiABKAkSDgoGZGV0YWlsGAcgASgJEiQKCXNwZWNfcmVmcxgIIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYCSABKA0ixQEKB1NwZWNSZWYSDAoEc3BlYxgBIAEoCRIOCgZjbGF1c2UYAiABKAkSEAoIc3RyZW5ndGgYAyABKAkSDQoFc2luY2UYBCABKA0SJwoIdmVyaWZpZWQYBSADKAsyFS5vcmJpdC52MS5TcGVjVmVyc2lvbhIlCgdjaGFuZ2VkGAYgAygLMhQub3JiaXQudjEuU3BlY0NoYW5nZRIZChF3b3JkaW5nX3VuY2hhbmdlZBgHIAEoCBIQCghyZW5kZXJlZBgIIAEoCSJACgtTcGVjVmVyc2lvbhIPCgdyZWxlYXNlGAEgASgNEg8KB3ZlcnNpb24YAiABKAkSDwoHYXJjaGl2ZRgDIAEoCSIrCgpTcGVjQ2hhbmdlEg8KB3JlbGVhc2UYASABKA0SDAoEbm90ZRgCIAEoCSJoChBDb25mb3JtYW5jZVRhbGx5Eg4KBnBhc3NlZBgBIAEoDRIOCgZmYWlsZWQYAiABKA0SDwoHZXJyb3JlZBgDIAEoDRIPCgdza2lwcGVkGAQgASgNEhIKCmRldmlhdGlvbnMYBSABKA0iHQobTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0IoABChNDb25mb3JtYW5jZVRlc3RJbmZvEgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEiQKCXNwZWNfcmVmcxgEIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYBSABKA0iTAocTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZRIsCgV0ZXN0cxgBIAMoCzIdLm9yYml0LnYxLkNvbmZvcm1hbmNlVGVzdEluZm8y0QEKEkNvbmZvcm1hbmNlU2VydmljZRJSCg5SdW5Db25mb3JtYW5jZRIfLm9yYml0LnYxLlJ1bkNvbmZvcm1hbmNlUmVxdWVzdBobLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlIgAwARJnChRMaXN0Q29uZm9ybWFuY2VUZXN0cxIlLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVxdWVzdBomLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM");
 
 /**
  * @generated from message orbit.v1.RunConformanceRequest
@@ -119,6 +119,15 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
    * @generated from field: string bind_address = 12;
    */
   bindAddress: string;
+
+  /**
+   * 3GPP release the core claims (15 = Rel-15). A check that requires a
+   * newer release reports SKIP and never FAIL. 0 means unset: every check
+   * runs, and each result still states the release it requires.
+   *
+   * @generated from field: uint32 target_release = 13;
+   */
+  targetRelease: number;
 };
 
 /**
@@ -164,6 +173,13 @@ export type ConformanceUpdate = Message<"orbit.v1.ConformanceUpdate"> & {
    * @generated from field: uint32 total = 5;
    */
   total: number;
+
+  /**
+   * The target release the run is gated on (0 = unset), on every update.
+   *
+   * @generated from field: uint32 target_release = 6;
+   */
+  targetRelease: number;
 };
 
 /**
@@ -210,9 +226,25 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
   observed: string;
 
   /**
+   * ends with the requirement line ("requires Rel-15 or later; <spec_ref>")
+   *
    * @generated from field: string detail = 7;
    */
   detail: string;
+
+  /**
+   * The references spec_ref renders, structured with their provenance.
+   *
+   * @generated from field: repeated orbit.v1.SpecRef spec_refs = 8;
+   */
+  specRefs: SpecRef[];
+
+  /**
+   * oldest release the check applies to
+   *
+   * @generated from field: uint32 min_release = 9;
+   */
+  minRelease: number;
 };
 
 /**
@@ -221,6 +253,129 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
  */
 export const ConformanceResultSchema: GenMessage<ConformanceResult> = /*@__PURE__*/
   messageDesc(file_orbit_v1_conformance, 2);
+
+/**
+ * SpecRef is one clause a conformance check asserts, with the 3GPP release
+ * provenance read in the 3GPP archive.
+ *
+ * @generated from message orbit.v1.SpecRef
+ */
+export type SpecRef = Message<"orbit.v1.SpecRef"> & {
+  /**
+   * "TS 38.413"
+   *
+   * @generated from field: string spec = 1;
+   */
+  spec: string;
+
+  /**
+   * exact paragraph, e.g. "10.3.5 Reject IE bullet 1"
+   *
+   * @generated from field: string clause = 2;
+   */
+  clause: string;
+
+  /**
+   * shall | should | descriptive
+   *
+   * @generated from field: string strength = 3;
+   */
+  strength: string;
+
+  /**
+   * earliest release the requirement appears in
+   *
+   * @generated from field: uint32 since = 4;
+   */
+  since: number;
+
+  /**
+   * @generated from field: repeated orbit.v1.SpecVersion verified = 5;
+   */
+  verified: SpecVersion[];
+
+  /**
+   * @generated from field: repeated orbit.v1.SpecChange changed = 6;
+   */
+  changed: SpecChange[];
+
+  /**
+   * @generated from field: bool wording_unchanged = 7;
+   */
+  wordingUnchanged: boolean;
+
+  /**
+   * the one-line rendering, as in spec_ref
+   *
+   * @generated from field: string rendered = 8;
+   */
+  rendered: string;
+};
+
+/**
+ * Describes the message orbit.v1.SpecRef.
+ * Use `create(SpecRefSchema)` to create a new message.
+ */
+export const SpecRefSchema: GenMessage<SpecRef> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_conformance, 3);
+
+/**
+ * SpecVersion is one specification version whose wording was read.
+ *
+ * @generated from message orbit.v1.SpecVersion
+ */
+export type SpecVersion = Message<"orbit.v1.SpecVersion"> & {
+  /**
+   * @generated from field: uint32 release = 1;
+   */
+  release: number;
+
+  /**
+   * "V16.18.0"
+   *
+   * @generated from field: string version = 2;
+   */
+  version: string;
+
+  /**
+   * "38413-gi0.zip"
+   *
+   * @generated from field: string archive = 3;
+   */
+  archive: string;
+};
+
+/**
+ * Describes the message orbit.v1.SpecVersion.
+ * Use `create(SpecVersionSchema)` to create a new message.
+ */
+export const SpecVersionSchema: GenMessage<SpecVersion> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_conformance, 4);
+
+/**
+ * SpecChange is one release whose wording or clause number differs from the
+ * release the requirement first appeared in.
+ *
+ * @generated from message orbit.v1.SpecChange
+ */
+export type SpecChange = Message<"orbit.v1.SpecChange"> & {
+  /**
+   * @generated from field: uint32 release = 1;
+   */
+  release: number;
+
+  /**
+   * @generated from field: string note = 2;
+   */
+  note: string;
+};
+
+/**
+ * Describes the message orbit.v1.SpecChange.
+ * Use `create(SpecChangeSchema)` to create a new message.
+ */
+export const SpecChangeSchema: GenMessage<SpecChange> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_conformance, 5);
 
 /**
  * @generated from message orbit.v1.ConformanceTally
@@ -257,7 +412,7 @@ export type ConformanceTally = Message<"orbit.v1.ConformanceTally"> & {
  * Use `create(ConformanceTallySchema)` to create a new message.
  */
 export const ConformanceTallySchema: GenMessage<ConformanceTally> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 3);
+  messageDesc(file_orbit_v1_conformance, 6);
 
 /**
  * @generated from message orbit.v1.ListConformanceTestsRequest
@@ -270,7 +425,7 @@ export type ListConformanceTestsRequest = Message<"orbit.v1.ListConformanceTests
  * Use `create(ListConformanceTestsRequestSchema)` to create a new message.
  */
 export const ListConformanceTestsRequestSchema: GenMessage<ListConformanceTestsRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 4);
+  messageDesc(file_orbit_v1_conformance, 7);
 
 /**
  * @generated from message orbit.v1.ConformanceTestInfo
@@ -290,6 +445,16 @@ export type ConformanceTestInfo = Message<"orbit.v1.ConformanceTestInfo"> & {
    * @generated from field: string spec_ref = 3;
    */
   specRef: string;
+
+  /**
+   * @generated from field: repeated orbit.v1.SpecRef spec_refs = 4;
+   */
+  specRefs: SpecRef[];
+
+  /**
+   * @generated from field: uint32 min_release = 5;
+   */
+  minRelease: number;
 };
 
 /**
@@ -297,7 +462,7 @@ export type ConformanceTestInfo = Message<"orbit.v1.ConformanceTestInfo"> & {
  * Use `create(ConformanceTestInfoSchema)` to create a new message.
  */
 export const ConformanceTestInfoSchema: GenMessage<ConformanceTestInfo> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 5);
+  messageDesc(file_orbit_v1_conformance, 8);
 
 /**
  * @generated from message orbit.v1.ListConformanceTestsResponse
@@ -314,7 +479,7 @@ export type ListConformanceTestsResponse = Message<"orbit.v1.ListConformanceTest
  * Use `create(ListConformanceTestsResponseSchema)` to create a new message.
  */
 export const ListConformanceTestsResponseSchema: GenMessage<ListConformanceTestsResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 6);
+  messageDesc(file_orbit_v1_conformance, 9);
 
 /**
  * ConformanceService runs the core conformance / regression suite server-side,
