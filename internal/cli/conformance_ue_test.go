@@ -27,6 +27,9 @@ func TestConformanceUEFlagsSpec(t *testing.T) {
 		{name: "no keys", flags: conformanceUEFlags{supi: "208930100000011", gnbN3: "10.0.0.5"}, wantErr: "subscriber keys are required"},
 		{name: "bad key", flags: conformanceUEFlags{supi: "208930100000011", ki: "zz", opc: opc, gnbN3: "10.0.0.5"}, wantErr: "Ki"},
 		{name: "no gNB N3", flags: conformanceUEFlags{supi: "208930100000011", ki: ki, opc: opc}, wantErr: "--gnb-n3"},
+		{name: "IPv6 gNB N3", flags: conformanceUEFlags{supi: "208930100000011", ki: ki, opc: opc, gnbN3: "0:0:0:0:0:0:0:1"}, wantErr: "IPv6 N3 is not supported yet (#156)"},
+		{name: "IPv4-mapped gNB N3 is canonicalised", flags: conformanceUEFlags{supi: "208930100000011", ki: ki, opc: opc, gnbN3: "::ffff:10.0.0.5"},
+			want: conformance.UESpec{SUPI: "208930100000011", Ki: ki, OPc: opc, DNN: "internet", GNBN3: "10.0.0.5"}},
 		{name: "gNB N3 with a port", flags: conformanceUEFlags{supi: "208930100000011", ki: ki, opc: opc, gnbN3: "10.0.0.5:2152"}, wantErr: "--gnb-n3"},
 		{name: "traffic without a port", flags: conformanceUEFlags{supi: "208930100000011", ki: ki, opc: opc, gnbN3: "10.0.0.5", traffic: "10.1.1.1"}, wantErr: "--traffic"},
 		{name: "SUPI outside the PLMN", flags: conformanceUEFlags{supi: "001010000000001", ki: ki, opc: opc, gnbN3: "10.0.0.5"}, wantErr: "--supi"},
@@ -49,6 +52,34 @@ func TestConformanceUEFlagsSpec(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Errorf("spec = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// gnbN3Flag applies the shared rule to every --gnb-n3: IPv4 and IPv4-mapped
+// (canonicalised) pass, "" stays "", IPv6 is refused citing #156.
+func TestGNBN3Flag(t *testing.T) {
+	tests := []struct {
+		in, want, wantErr string
+	}{
+		{in: "", want: ""},
+		{in: "10.0.0.5", want: "10.0.0.5"},
+		{in: "::ffff:10.0.0.5", want: "10.0.0.5"},
+		{in: "0:0:0:0:0:0:0:1", wantErr: "--gnb-n3: gNB N3 address must be IPv4 (IPv4-mapped accepted); IPv6 N3 is not supported yet (#156)"},
+		{in: "10.0.0.5:2152", wantErr: "--gnb-n3"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := gnbN3Flag(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("gnbN3Flag(%q) = %q, %v; want an error containing %q", tc.in, got, err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Errorf("gnbN3Flag(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
 			}
 		})
 	}

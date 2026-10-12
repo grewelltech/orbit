@@ -143,11 +143,15 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 			if err := id.resolve(false); err != nil {
 				return err
 			}
+			n3, err := gnbN3Flag(gnbN3)
+			if err != nil {
+				return err
+			}
 			req := connect.NewRequest(&orbitv1.HandoverRequest{
 				Supi:        supi,
 				AmfAddress:  amf,
 				BindAddress: bind,
-				GnbN3Addr:   gnbN3,
+				GnbN3Addr:   n3,
 				TargetGnb:   id.gnbProto(gnbID, gnbBits, name),
 			})
 			client := ueClient(serverURL)
@@ -227,6 +231,10 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 			if err := id.resolve(true); err != nil {
 				return err
 			}
+			n3, err := gnbN3Flag(gnbN3)
+			if err != nil {
+				return err
+			}
 			req := &orbitv1.RegisterRequest{
 				AmfAddress:       amf,
 				BindAddress:      bind,
@@ -237,7 +245,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 			}
 			if withPDU {
 				req.PduSession = &orbitv1.PDUSession{PduSessionId: pduID, Sst: id.SST, Sd: id.SD, Dnn: id.DNN}
-				req.GnbN3Addr = gnbN3
+				req.GnbN3Addr = n3
 			}
 			res, err := ueClient(serverURL).Register(cmd.Context(), connect.NewRequest(req))
 			if err != nil {

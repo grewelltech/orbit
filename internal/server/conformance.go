@@ -217,7 +217,8 @@ var errUENeedsSUPI = errors.New("credentials, gnb_n3 and traffic describe the mo
 
 // conformanceUE builds the suite's UE section from a request. Without a
 // SUPI there is none (the mobility checks SKIP). With one, the keys must
-// parse, the SUPI must be in the request's PLMN, gnb_n3 must be an IP and
+// parse, the SUPI must be in the request's PLMN, gnb_n3 must be an IPv4
+// address (canonicalised; see gnb.CanonicalN3) and
 // traffic, when given, a host:port. Errors never echo the keys.
 func conformanceUE(m *orbitv1.RunConformanceRequest) (conformance.UESpec, error) {
 	if m.GetSupi() == "" {
@@ -235,8 +236,12 @@ func conformanceUE(m *orbitv1.RunConformanceRequest) (conformance.UESpec, error)
 	if _, err := auth.ParseHexKey("OPc", m.GetCredentials().GetOpc()); err != nil {
 		return conformance.UESpec{}, err
 	}
-	if net.ParseIP(m.GetGnbN3()) == nil {
-		return conformance.UESpec{}, fmt.Errorf("gnb_n3 must be the gNB N3 IP with supi, got %q", m.GetGnbN3())
+	if m.GetGnbN3() == "" {
+		return conformance.UESpec{}, errors.New("gnb_n3 (the gNB N3 IP) is required with supi")
+	}
+	n3, err := gnb.CanonicalN3(m.GetGnbN3())
+	if err != nil {
+		return conformance.UESpec{}, fmt.Errorf("gnb_n3: %w", err)
 	}
 	if t := m.GetTraffic(); t != "" {
 		if _, _, err := net.SplitHostPort(t); err != nil {
@@ -249,6 +254,6 @@ func conformanceUE(m *orbitv1.RunConformanceRequest) (conformance.UESpec, error)
 	}
 	return conformance.UESpec{
 		SUPI: m.GetSupi(), Ki: m.GetCredentials().GetKi(), OPc: m.GetCredentials().GetOpc(),
-		DNN: dnn, GNBN3: m.GetGnbN3(), Traffic: m.GetTraffic(),
+		DNN: dnn, GNBN3: n3, Traffic: m.GetTraffic(),
 	}, nil
 }

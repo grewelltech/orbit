@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/ue"
 
 	"fmt"
@@ -199,6 +200,19 @@ func (f *FleetScenario) validate() error {
 	}
 	if f.Fleet.Count < 1 {
 		return fmt.Errorf("fleet.count must be >= 1")
+	}
+	// With PDU sessions each gNB announces an N3 address: its n3_ips entry,
+	// else its source IP. It must be one the gNB can encode.
+	if f.Fleet.PDUSession {
+		for i := 0; i < g.Count; i++ {
+			field, n3 := fmt.Sprintf("source_ips[%d]", i), g.SourceIPs[i]
+			if i < len(g.N3IPs) && g.N3IPs[i] != "" {
+				field, n3 = fmt.Sprintf("n3_ips[%d]", i), g.N3IPs[i]
+			}
+			if _, err := gnb.CanonicalN3(n3); err != nil {
+				return fmt.Errorf("topology.gnbs.%s (gNB %d's N3 address): %w", field, i+1, err)
+			}
+		}
 	}
 	// supi_base may be written as imsi-<digits>; it is stored digits-only so
 	// GenFleet's arithmetic and the generated SUPIs are digits-only.

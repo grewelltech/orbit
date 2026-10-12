@@ -125,7 +125,7 @@ type conformanceUEFlags struct {
 // mobility checks SKIP), and the other UE flags are refused rather than
 // silently ignored. With one, the keys come from --ki/--opc or
 // $ORBIT_KI/$ORBIT_OPC, the SUPI must be in the PLMN and --gnb-n3 must be
-// an IP.
+// an IPv4 address (canonicalised; see gnb.CanonicalN3).
 func (u conformanceUEFlags) spec(dnn, mcc, mnc string) (conformance.UESpec, error) {
 	if u.supi == "" {
 		if u.gnbN3 != "" || u.traffic != "" || u.ki != "" || u.opc != "" {
@@ -140,13 +140,17 @@ func (u conformanceUEFlags) spec(dnn, mcc, mnc string) (conformance.UESpec, erro
 	if err != nil {
 		return conformance.UESpec{}, err
 	}
-	if net.ParseIP(u.gnbN3) == nil {
-		return conformance.UESpec{}, fmt.Errorf("--gnb-n3: the mobility checks need the gNB N3 IP with --supi, got %q", u.gnbN3)
+	if u.gnbN3 == "" {
+		return conformance.UESpec{}, fmt.Errorf("--gnb-n3: the mobility checks need the gNB N3 IP with --supi")
+	}
+	n3, err := gnbN3Flag(u.gnbN3)
+	if err != nil {
+		return conformance.UESpec{}, err
 	}
 	if u.traffic != "" {
 		if _, _, err := net.SplitHostPort(u.traffic); err != nil {
 			return conformance.UESpec{}, fmt.Errorf("--traffic: want host:port: %w", err)
 		}
 	}
-	return conformance.UESpec{SUPI: u.supi, Ki: ki, OPc: opc, DNN: dnn, GNBN3: u.gnbN3, Traffic: u.traffic}, nil
+	return conformance.UESpec{SUPI: u.supi, Ki: ki, OPc: opc, DNN: dnn, GNBN3: n3, Traffic: u.traffic}, nil
 }

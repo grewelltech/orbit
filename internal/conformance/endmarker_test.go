@@ -201,6 +201,8 @@ func TestEndMarkerCheckWithoutHarness(t *testing.T) {
 	noN3.UE.GNBN3 = ""
 	badSUPI := env
 	badSUPI.UE.SUPI = "001010000000001" // other PLMN
+	ipv6 := env
+	ipv6.UE.GNBN3 = "0:0:0:0:0:0:0:1"
 	tests := []struct {
 		name         string
 		env          Env
@@ -213,6 +215,9 @@ func TestEndMarkerCheckWithoutHarness(t *testing.T) {
 		{name: "bad Ki", env: badKey, want: Error, wantObserved: "harness setup failed", wantDetail: "Ki"},
 		{name: "no gNB N3", env: noN3, want: Error, wantObserved: "harness setup failed", wantDetail: "--gnb-n3"},
 		{name: "SUPI outside the PLMN", env: badSUPI, want: Error, wantObserved: "harness setup failed", wantDetail: "mcc+mnc"},
+		// Refused up front instead of panicking in PDU session setup (#156).
+		{name: "IPv6 gNB N3", env: ipv6, want: Error, wantObserved: "harness setup failed",
+			wantDetail: "gNB N3 address must be IPv4 (IPv4-mapped accepted); IPv6 N3 is not supported yet (#156)"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -399,7 +404,8 @@ func TestEndMarkerCheckAgainstMockPair(t *testing.T) {
 // --gnb-n3 spelled in a non-canonical form still PASSes against a core that
 // sends the End Marker: the source socket comes from the engine's bound
 // socket, and sockets compare as values. The detail shows the canonical
-// form.
+// form. (An IPv6 gNB N3 is refused up front, #156: see
+// TestEndMarkerCheckWithoutHarness.)
 func TestEndMarkerCheckNonCanonicalGNBN3(t *testing.T) {
 	tests := []struct {
 		name      string

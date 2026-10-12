@@ -113,8 +113,12 @@ func NewUEHarness(env Env, log *slog.Logger) (*UEHarness, error) {
 	if !env.UE.Configured() {
 		return nil, errors.New("no UE configured")
 	}
-	if net.ParseIP(env.UE.GNBN3) == nil {
-		return nil, fmt.Errorf("the UE needs a gNB N3 IP address (--gnb-n3) for the data path, got %q", env.UE.GNBN3)
+	if env.UE.GNBN3 == "" {
+		return nil, errors.New("the UE needs a gNB N3 IP address (--gnb-n3) for the data path")
+	}
+	n3, err := gnb.CanonicalN3(env.UE.GNBN3)
+	if err != nil {
+		return nil, err
 	}
 	supi, err := ue.NormalizeSUPI(env.UE.SUPI)
 	if err != nil {
@@ -139,6 +143,7 @@ func NewUEHarness(env Env, log *slog.Logger) (*UEHarness, error) {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	env.UE.GNBN3 = n3
 	return &UEHarness{
 		env: env, m: engine.NewManager(log), supi: supi, id: id,
 		sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}, pdu: pdu,

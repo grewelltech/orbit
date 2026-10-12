@@ -435,6 +435,10 @@ orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
     --gnb-n3 172.17.50.12 [--traffic 192.168.250.1:7] --per-test-timeout 20s
 ```
 
+Every `--gnb-n3` (here and on `ue register`, `ue handover`, `load` and
+`runs`) must be an IPv4 address, and an IPv4-mapped form is accepted. IPv6 N3
+is not supported yet (#156).
+
 `GTPU-END-MARKER-ON-PATH-SWITCH` registers the UE with a PDU session on one
 gNB and hands it over to a second gNB. The second gNB uses the same `--bind`
 and `--gnb-n3` and a gNB ID 0x8000 above the first. The check then waits

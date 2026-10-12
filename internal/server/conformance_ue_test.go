@@ -44,6 +44,9 @@ func TestConformanceUE(t *testing.T) {
 		{name: "bad OPc", req: with(func(m *orbitv1.RunConformanceRequest) { m.Credentials = &orbitv1.Credentials{Ki: confKi, Opc: "12"} }), wantErr: "OPc"},
 		{name: "SUPI outside the PLMN", req: with(func(m *orbitv1.RunConformanceRequest) { m.Supi = "001010000000001" }), wantErr: "mcc+mnc"},
 		{name: "no gNB N3", req: with(func(m *orbitv1.RunConformanceRequest) { m.GnbN3 = "" }), wantErr: "gnb_n3"},
+		{name: "IPv6 gNB N3", req: with(func(m *orbitv1.RunConformanceRequest) { m.GnbN3 = "0:0:0:0:0:0:0:1" }), wantErr: "IPv6 N3 is not supported yet (#156)"},
+		{name: "IPv4-mapped gNB N3 is canonicalised", req: with(func(m *orbitv1.RunConformanceRequest) { m.GnbN3 = "::ffff:10.0.0.5" }),
+			want: conformance.UESpec{SUPI: "208930100000011", Ki: confKi, OPc: confOPc, DNN: "internet", GNBN3: "10.0.0.5"}},
 		{name: "bad traffic", req: with(func(m *orbitv1.RunConformanceRequest) { m.Traffic = "10.1.1.1" }), wantErr: "traffic"},
 		{name: "UE fields without a SUPI", req: with(func(m *orbitv1.RunConformanceRequest) { m.Supi = "" }), wantErr: "need supi"},
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
@@ -39,4 +40,14 @@ func resolveCreds(ki, opc string) (string, string, error) {
 		return "", "", err
 	}
 	return ki, opc, nil
+}
+
+// gnbN3Flag validates and canonicalises a --gnb-n3 value with the shared
+// gnb.CanonicalN3 rule ("" stays "").
+func gnbN3Flag(v string) (string, error) {
+	n3, err := gnb.CanonicalN3(v)
+	if err != nil {
+		return "", fmt.Errorf("--gnb-n3: %w", err)
+	}
+	return n3, nil
 }
