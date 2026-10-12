@@ -139,7 +139,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**4 checks today** (live on the SD-Core testbed):
+**5 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -154,6 +154,12 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
   UPF, nothing back). Benign/commonly-unimplemented, so scored DEVIATION (does
   not fail the gate), not FAIL. See interop/sdcore.md.
+- `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
+  session hands over by Xn; the core must send a GTP-U End Marker on the old
+  F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
+  5.8.2.9.1, TS 29.281 7.3.2). Needs a UE (`--supi`, `--ki/--opc`,
+  `--gnb-n3`), else SKIP. Expected on SD-Core today: FAIL (absent), because
+  the UPF's `enable_end_marker` is unset by default (#126).
 
 **Verdict note:** `DEVIATION` was added for exactly this case — a spec "shall"
 the core doesn't meet but which is benign and steady-state, so it's *documented*
@@ -174,5 +180,5 @@ Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
 - **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501).
-- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, DEVIATION on SD-Core); ⬜ Echo Request/Response, End Marker.
+- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, DEVIATION on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

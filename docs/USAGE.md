@@ -424,6 +424,29 @@ orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
     [--target-release Rel-16]
 ```
 
+The `mobility` category registers a real UE and hands it over by Xn, so it
+needs a subscriber and a gNB N3 address reachable from the UPF. Without
+`--supi` its checks SKIP with "no UE configured":
+
+```sh
+export ORBIT_KI=... ORBIT_OPC=...       # or --ki / --opc
+orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
+    --category mobility --supi 001010100007500 --dnn internet \
+    --gnb-n3 172.17.50.12 [--traffic 192.168.250.1:7] --per-test-timeout 20s
+```
+
+`GTPU-END-MARKER-ON-PATH-SWITCH` registers the UE with a PDU session on one
+gNB and hands it over to a second gNB. The second gNB uses the same `--bind`
+and `--gnb-n3` and a gNB ID 0x8000 above the first. The check then waits
+5 s after the Path Switch Request Acknowledge. Give `--per-test-timeout`
+room for the registration, the handover and that wait. It passes when a GTP-U
+End Marker arrives on the old downlink tunnel at the source gNB, and no
+G-PDU arrives on that tunnel after it. `--traffic` names an optional UDP echo
+peer the UE sends to across the handover, so downlink is flowing on the old
+path. The detail records the old tunnel, the End Marker counts, whether the
+marker carried a QFI (recorded, not asserted), and the downlink seen before
+the switch. It never records the keys.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the
