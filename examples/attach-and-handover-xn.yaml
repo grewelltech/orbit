@@ -27,12 +27,12 @@ gnbs:
   - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
 
 ues:
-  - { supi: "208930100007500", gnb: gnb-1, pdu_session: true }
+  - { supi: "001010100007500", gnb: gnb-1, pdu_session: true }
 
 steps:
   - register: all
-  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
-  - latency:  { ue: "208930100007500", target: 8.8.8.8, probes: 20 }
-  - handover: { ue: "208930100007500", to: gnb-2, type: xn }
-  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
+  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
+  - latency:  { ue: "001010100007500", target: 8.8.8.8, probes: 20 }
+  - handover: { ue: "001010100007500", to: gnb-2, type: xn }
+  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
   - deregister: all

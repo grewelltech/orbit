@@ -774,6 +774,11 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 		Duration:    time.Duration(p.GetDurationMs()) * time.Millisecond,
 		SampleEvery: time.Duration(p.GetSampleIntervalMs()) * time.Millisecond,
 	}
+	// The same rule the in-process load applies: a malformed base_imsi is one
+	// error before any association is opened (InvalidArgument over the wire).
+	if err := spec.Validate(); err != nil {
+		return nil, err
+	}
 	if pdu := p.GetPduSession(); pdu != nil {
 		if pdu.GetSst() > 0xFF {
 			return nil, fmt.Errorf("sst %d exceeds one octet", pdu.GetSst())

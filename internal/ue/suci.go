@@ -37,12 +37,43 @@ type Identity struct {
 	RoutingIndicator string
 }
 
+// SUPI length bounds per TS 23.003 §2.2: an IMSI is MCC (3) + MNC (2 or 3)
+// + MSIN, at most 15 digits; short test IMSIs down to 5 digits are legal.
+const (
+	minSUPIDigits = 5
+	maxSUPIDigits = 15
+)
+
+// supiNAIPrefix is the NAI spelling of an IMSI-based SUPI ("imsi-<digits>",
+// TS 23.003 §28.7.2); lower-case only, as the spec writes it.
+const supiNAIPrefix = "imsi-"
+
+// NormalizeSUPI returns the digits-only SUPI for either accepted spelling:
+// the bare IMSI ("208930100007500") or the NAI form ("imsi-208930100007500").
+// Anything else (empty, another or upper-case prefix, non-digits, fewer than
+// 5 or more than 15 digits) is an error naming the two accepted forms.
+//
+// It is the one place a SUPI is normalised: every producer of an
+// auth.Subscription or a session key calls it, so SUCI encoding, the KAMF
+// derivation (TS 33.501 A.7 takes the IMSI digits) and lookups all see the
+// same digits whichever form the operator typed.
+func NormalizeSUPI(s string) (string, error) {
+	digits := strings.TrimPrefix(s, supiNAIPrefix)
+	if digits == "" || !isDigits(digits) || len(digits) < minSUPIDigits || len(digits) > maxSUPIDigits {
+		return "", fmt.Errorf("invalid SUPI %q: want 5-15 digits or imsi-<digits>", s)
+	}
+	return digits, nil
+}
+
 // ParseIdentity splits a SUPI into MCC/MNC/MSIN. It accepts either the bare
-// IMSI ("208930100007500") or the NAI form ("imsi-208930100007500"). mnc
-// must be given explicitly because MNC length (2 or 3) is not recoverable
-// from the digit string alone.
+// IMSI ("208930100007500") or the NAI form ("imsi-208930100007500"), via
+// NormalizeSUPI. mnc must be given explicitly because MNC length (2 or 3) is
+// not recoverable from the digit string alone.
 func ParseIdentity(supi, mcc, mnc, routingIndicator string) (Identity, error) {
-	supi = strings.TrimPrefix(supi, "imsi-")
+	supi, err := NormalizeSUPI(supi)
+	if err != nil {
+		return Identity{}, err
+	}
 	if len(mcc) != 3 {
 		return Identity{}, fmt.Errorf("mcc %q must be 3 digits", mcc)
 	}

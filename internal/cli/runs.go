@@ -526,7 +526,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.StringVar(&events, "events", "normal", eventsFlagHelp)
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
 	f.StringSliceVar(&binds, "bind", nil, bindFlagHelp+"; repeat or comma-separate for one per gNB (one value is shared by every gNB)")
-	f.StringVar(&baseIMSI, "base-imsi", "", "first SUPI/IMSI; each UE increments it")
+	f.StringVar(&baseIMSI, "base-imsi", "", baseIMSIFlagHelp)
 	f.IntVar(&count, "count", 100, "number of UEs to attach")
 	f.StringVar(&ki, "ki", "", kiFlagHelp)
 	f.StringVar(&opc, "opc", "", opcFlagHelp)

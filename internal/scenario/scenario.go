@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/ue"
 )
 
 // Scenario is a whole test description.
@@ -218,8 +219,17 @@ func (s *Scenario) validate() error {
 		}
 		names[g.Name] = true
 	}
-	if _, err := s.ResolveUEs(); err != nil {
+	ues, err := s.ResolveUEs()
+	if err != nil {
 		return err
+	}
+	// Every UE's SUPI must parse under core.plmn, so a supi or range from
+	// another PLMN (or a range that runs past 15 digits) fails at parse
+	// instead of at registration.
+	for _, u := range ues {
+		if _, err := ue.ParseIdentity(u.SUPI, s.Core.PLMN.MCC, s.Core.PLMN.MNC, "0"); err != nil {
+			return fmt.Errorf("ue %s: %w", u.SUPI, err)
+		}
 	}
 	return nil
 }
@@ -253,14 +263,18 @@ func (u UESpec) supis() ([]string, error) {
 		if u.SUPI != "" {
 			return nil, fmt.Errorf("a UE sets either supi or range, not both")
 		}
-		base, err := strconv.ParseUint(u.Range.Base, 10, 64)
+		digits, err := ue.NormalizeSUPI(u.Range.Base)
+		if err != nil {
+			return nil, fmt.Errorf("range.base: %w", err)
+		}
+		base, err := strconv.ParseUint(digits, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("range.base %q is not numeric: %w", u.Range.Base, err)
 		}
 		if u.Range.Count < 1 {
 			return nil, fmt.Errorf("range.count must be >= 1")
 		}
-		width := len(u.Range.Base)
+		width := len(digits)
 		out := make([]string, u.Range.Count)
 		for i := range out {
 			out[i] = fmt.Sprintf("%0*d", width, base+uint64(i))
@@ -270,5 +284,9 @@ func (u UESpec) supis() ([]string, error) {
 	if u.SUPI == "" {
 		return nil, fmt.Errorf("a UE needs a supi or a range")
 	}
-	return []string{u.SUPI}, nil
+	supi, err := ue.NormalizeSUPI(u.SUPI)
+	if err != nil {
+		return nil, fmt.Errorf("supi: %w", err)
+	}
+	return []string{supi}, nil
 }

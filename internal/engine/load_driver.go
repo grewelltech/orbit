@@ -80,11 +80,50 @@ type LoadSpec struct {
 	Observer load.Observer
 }
 
-// RunLoad brings up the fleet, generates Count UEs from BaseIMSI, and drives a
-// rate-controlled attach storm, returning the per-procedure KPI report. It is
-// the integration-capacity path — the numbers are bounded by the core under
-// test (report them separately from mock-AMF sim capacity).
+// Validate checks the spec once, before anything is dialled, and normalises
+// what it can: BaseIMSI may be given as digits or imsi-<digits> and is stored
+// digits-only, so every generated SUPI is digits-only and a malformed base
+// is one clear error here instead of a silent "0/N attached" from per-UE
+// failures. Both the API server (LoadRunSpec) and the in-process `orbit load`
+// go through RunLoad, so this is the one place the rule applies to a load.
+//
+// The generated range is checked too: the first and last SUPIs (incIMSI pads
+// to 15 digits) must parse under the spec's MCC/MNC, so a base from another
+// PLMN, a short base that padding pushes out of the PLMN prefix, or a range
+// that runs past 15 digits fails here rather than as N silent per-UE
+// failures. A soak cycles the index modulo Count, so first and last cover
+// every SUPI it generates.
+func (s *LoadSpec) Validate() error {
+	base, err := ue.NormalizeSUPI(s.BaseIMSI)
+	if err != nil {
+		return fmt.Errorf("base IMSI: %w", err)
+	}
+	s.BaseIMSI = base
+	last := s.Count - 1
+	if last < 0 {
+		last = 0
+	}
+	for _, i := range []int{0, last} {
+		supi, err := incIMSI(base, i)
+		if err != nil {
+			return err
+		}
+		if _, err := ue.ParseIdentity(supi, s.MCC, s.MNC, "0"); err != nil {
+			return fmt.Errorf("base IMSI %s (UE %d of %d): %w", base, i+1, max(s.Count, 1), err)
+		}
+	}
+	return nil
+}
+
+// RunLoad validates the spec, brings up the fleet, generates Count UEs from
+// BaseIMSI, and drives a rate-controlled attach storm, returning the
+// per-procedure KPI report. It is the integration-capacity path — the numbers
+// are bounded by the core under test (report them separately from mock-AMF
+// sim capacity).
 func RunLoad(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report, error) {
+	if err := spec.Validate(); err != nil {
+		return load.Report{}, err
+	}
 	f, err := NewFleet(ctx, spec.GNBs, log)
 	if err != nil {
 		return load.Report{}, err
@@ -142,7 +181,14 @@ func loadConfig(spec LoadSpec) load.Config {
 
 // incIMSI returns the base IMSI incremented by i, zero-padded to 15 digits.
 func incIMSI(base string, i int) (string, error) {
-	n, err := strconv.ParseInt(base, 10, 64)
+	// Specs are validated (and their base stored digits-only) before any UE
+	// is generated, so this normalisation is a no-op safety net for a caller
+	// that reaches incIMSI with the imsi- spelling.
+	digits, err := ue.NormalizeSUPI(base)
+	if err != nil {
+		return "", fmt.Errorf("base IMSI: %w", err)
+	}
+	n, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("base IMSI %q: %w", base, err)
 	}

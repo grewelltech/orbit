@@ -161,9 +161,11 @@ func TestStartAppRPC(t *testing.T) {
 	}
 
 	// Engine refusals surface as failed_precondition (the Traffic pattern).
-	stub.startErr = errors.New("UE x has no active PDU session")
+	// The SUPI is well-formed so it passes the boundary and reaches the
+	// engine stub; a malformed one would be InvalidArgument before that.
+	stub.startErr = errors.New("UE 208930100000099 has no active PDU session")
 	_, err = client.StartApp(ctx, connect.NewRequest(&orbitv1.StartAppRequest{
-		Supi: "x", App: "voip", Peer: "n6:9551",
+		Supi: "208930100000099", App: "voip", Peer: "n6:9551",
 	}))
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("engine error: code %v, want failed_precondition", connect.CodeOf(err))

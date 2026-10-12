@@ -124,7 +124,7 @@ func TestFleetServerPathDoesNotExpandPLMN(t *testing.T) {
 	y := `kind: fleet
 core: { amf: x, plmn: { mcc: "${ORBIT_MCC}", mnc: "${ORBIT_MNC}" } }
 topology: { gnbs: { count: 1, source_ips: [a] } }
-fleet: { count: 1, supi_base: "1" }
+fleet: { count: 1, supi_base: "001010100007500" }
 `
 	if _, err := ParseFleet([]byte(y)); err != nil {
 		t.Fatalf("local parse (env-expanded) failed: %v", err)
@@ -144,7 +144,7 @@ func TestFleetCorePLMNRequiredAndDefaults(t *testing.T) {
 	base := `kind: fleet
 core: CORE
 topology: { gnbs: { count: 1, source_ips: [a] } }
-fleet: { count: 1, supi_base: "1" }
+fleet: { count: 1, supi_base: "001010100007500" }
 `
 	if _, err := ParseFleet([]byte(strings.Replace(base, "CORE", `{ amf: x }`, 1))); err == nil || !strings.Contains(err.Error(), "core.plmn") {
 		t.Fatalf("fleet without plmn: err = %v", err)

@@ -205,6 +205,12 @@ orbit ue watch      [--supi <imsi>]      # live StateStream: FSM + mobility even
 orbit ue deregister --supi <imsi>        # UE-originated switch-off deregistration
 ```
 
+`--supi` takes the IMSI as digits or in the NAI spelling `imsi-<digits>`
+(5 to 15 digits either way); ORBIT normalises it once at the server, so a UE
+registered as `imsi-001010100007500` is the same session as `001010100007500`
+and is stored and shown as digits. The same holds for `--base-imsi` and for
+scenario `supi`, `range.base` and `supi_base` values.
+
 `watch` streams lifecycle states (`REGISTERING`, `AUTHENTICATED`,
 `SECURITY_ESTABLISHED`, `REGISTERED`, `SESSION_ACTIVE`, `DEREGISTERED`) and
 mobility states (`HANDOVER_STARTED`, `PATH_SWITCH_COMPLETE`, `HANDED_OVER`,
@@ -374,7 +380,7 @@ against a mock for the former and the real core for the latter.
 
 ```sh
 # Rate-controlled attach storm with an SLO gate (non-zero exit on breach):
-orbit load --amf <host:port> --base-imsi 208930100007500 --count 100 \
+orbit load --amf <host:port> --base-imsi 001010100007500 --count 100 \
     --ki <hex> --opc <hex> --mcc 001 --mnc 01 --sd 010203 \
     --rate 20 --concurrency 64 \
     --slo-min-success 0.99 --slo-reg-p99 3s
@@ -447,15 +453,15 @@ gnbs:
   - { id: 1, name: gnb-1, n3: 172.17.50.12 }
   - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
 ues:
-  - { supi: "208930100007500", gnb: gnb-1, pdu_session: true }
-  - range: { base: "208930100007501", count: 3 }   # 501, 502, 503
+  - { supi: "001010100007500", gnb: gnb-1, pdu_session: true }
+  - range: { base: "001010100007501", count: 3 }   # 501, 502, 503
     gnb: gnb-1
 steps:
   - register: all                                            # or a single SUPI
-  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
-  - latency:  { ue: "208930100007500", target: 8.8.8.8, probes: 20 }
-  - traffic:  { ue: "208930100007500", target: 8.8.8.8:9999, rate: 20Mbps, duration: 5s }
-  - handover: { ue: "208930100007500", to: gnb-2, type: xn }  # or type: n2
+  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
+  - latency:  { ue: "001010100007500", target: 8.8.8.8, probes: 20 }
+  - traffic:  { ue: "001010100007500", target: 8.8.8.8:9999, rate: 20Mbps, duration: 5s }
+  - handover: { ue: "001010100007500", to: gnb-2, type: xn }  # or type: n2
   - deregister: all
 ```
 

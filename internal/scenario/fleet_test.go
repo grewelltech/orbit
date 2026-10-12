@@ -88,7 +88,7 @@ func TestFleetValidateErrors(t *testing.T) {
 	tooFewIPs := `kind: fleet
 core: { amf: x, plmn: { mcc: "001", mnc: "01" } }
 topology: { gnbs: { count: 3, source_ips: [a, b] } }
-fleet: { count: 1, supi_base: "1" }`
+fleet: { count: 1, supi_base: "001010100007500" }`
 	if _, err := ParseFleet([]byte(tooFewIPs)); err == nil {
 		t.Error("want error for fewer source_ips than gNBs")
 	}
@@ -96,7 +96,7 @@ fleet: { count: 1, supi_base: "1" }`
 	badMix := `kind: fleet
 core: { amf: x, plmn: { mcc: "001", mnc: "01" } }
 topology: { gnbs: { count: 1, source_ips: [a] } }
-fleet: { count: 2, supi_base: "1" }
+fleet: { count: 2, supi_base: "001010100007500" }
 behaviors: { traffic: { mix: [ { profile: web, share: 0.3 } ] } }`
 	if _, err := ParseFleet([]byte(badMix)); err == nil {
 		t.Error("want error for mix shares not summing to 1.0")

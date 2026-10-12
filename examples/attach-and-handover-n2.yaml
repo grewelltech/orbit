@@ -59,10 +59,10 @@ gnbs:
   - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
 
 ues:
-  - { supi: "208930100007500", gnb: gnb-1, pdu_session: true }
+  - { supi: "001010100007500", gnb: gnb-1, pdu_session: true }
 
 steps:
   - register: all
-  - ping:     { ue: "208930100007500", dst: 8.8.8.8 }
-  - handover: { ue: "208930100007500", to: gnb-2, type: n2 }
+  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
+  - handover: { ue: "001010100007500", to: gnb-2, type: n2 }
   - deregister: all
