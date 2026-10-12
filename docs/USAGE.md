@@ -205,6 +205,12 @@ orbit ue watch      [--supi <imsi>]      # live StateStream: FSM + mobility even
 orbit ue deregister --supi <imsi>        # UE-originated switch-off deregistration
 ```
 
+`--supi` takes the IMSI as digits or in the NAI spelling `imsi-<digits>`
+(5 to 15 digits either way); ORBIT normalises it once at the server, so a UE
+registered as `imsi-001010100007500` is the same session as `001010100007500`
+and is stored and shown as digits. The same holds for `--base-imsi` and for
+scenario `supi`, `range.base` and `supi_base` values.
+
 `watch` streams lifecycle states (`REGISTERING`, `AUTHENTICATED`,
 `SECURITY_ESTABLISHED`, `REGISTERED`, `SESSION_ACTIVE`, `DEREGISTERED`) and
 mobility states (`HANDOVER_STARTED`, `PATH_SWITCH_COMPLETE`, `HANDED_OVER`,
