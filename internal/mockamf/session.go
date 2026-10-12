@@ -184,8 +184,11 @@ func (a *AMF) onPDUSessionSetupResponse(resp *ngapType.PDUSessionResourceSetupRe
 // association: it finds the UE by its source AMF-UE-NGAP-ID, moves each
 // listed session's downlink to the target's tunnel (reallocating the UPF
 // uplink TEID when configured), adopts the target RAN-UE-NGAP-ID on this
-// association, acknowledges, and then tells the UPF. Unknown UEs are
-// answered with nothing, as the engine treats a missing ack as a failure.
+// association, acknowledges, and then tells the UPF. When the UE or none of
+// the listed sessions is known (always so without a UPF), it answers a
+// PathSwitchRequestFailure listing the requested sessions (TS 38.413
+// §8.4.4.3), as a real AMF would, so the caller fails at once instead of
+// waiting out its timeout.
 func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapType.PathSwitchRequest) error {
 	var ranID, srcAMFID int64
 	newDL := map[uint8]Tunnel{}
@@ -210,15 +213,18 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 		}
 	}
 
+	requested := make([]uint8, 0, len(newDL))
+	for id := range newDL {
+		requested = append(requested, id)
+	}
 	var switches []PathSwitch
 	var switched []switchedItem
 	a.mu.Lock()
 	st := a.ues[srcAMFID]
 	if st == nil {
 		a.mu.Unlock()
-		return nil
+		return a.send(p, buildPathSwitchRequestFailure(srcAMFID, ranID, requested))
 	}
-	st.ranID = ranID
 	for id, dl := range newDL {
 		s := st.sessions[id]
 		if s == nil {
@@ -236,6 +242,11 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 		switched = append(switched, si)
 	}
 	amfID := st.amfID
+	if len(switched) == 0 {
+		a.mu.Unlock()
+		return a.send(p, buildPathSwitchRequestFailure(amfID, ranID, requested))
+	}
+	st.ranID = ranID
 	a.mu.Unlock()
 	states[ranID] = st
 
@@ -515,4 +526,56 @@ func buildPathSwitchRequestAcknowledge(amfID, ranID int64, switched []switchedIt
 		ie.Value.AllowedNSSAI = &ngapType.AllowedNSSAI{List: []ngapType.AllowedNSSAIItem{{SNSSAI: snssai(sst, sd)}}}
 	})
 	return pdu, nil
+}
+
+// buildPathSwitchRequestFailure builds the AMF's PathSwitchRequestFailure
+// (TS 38.413 §9.2.3.12): the UE's NGAP IDs and, when the request listed
+// sessions, each in the PDU Session Resource Released List with cause
+// "misc: unspecified" (the list is SIZE(1..), so it is omitted when empty).
+func buildPathSwitchRequestFailure(amfID, ranID int64, sessions []uint8) ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentUnsuccessfulOutcome
+	pdu.UnsuccessfulOutcome = new(ngapType.UnsuccessfulOutcome)
+	pdu.UnsuccessfulOutcome.ProcedureCode.Value = ngapType.ProcedureCodePathSwitchRequest
+	pdu.UnsuccessfulOutcome.Criticality.Value = ngapType.CriticalityPresentReject
+	pdu.UnsuccessfulOutcome.Value.Present = ngapType.UnsuccessfulOutcomePresentPathSwitchRequestFailure
+	pdu.UnsuccessfulOutcome.Value.PathSwitchRequestFailure = new(ngapType.PathSwitchRequestFailure)
+	list := &pdu.UnsuccessfulOutcome.Value.PathSwitchRequestFailure.ProtocolIEs.List
+	add := func(ieID int64, crit aper.Enumerated, fill func(*ngapType.PathSwitchRequestFailureIEs)) {
+		ie := ngapType.PathSwitchRequestFailureIEs{}
+		ie.Id.Value = ieID
+		ie.Criticality.Value = crit
+		fill(&ie)
+		*list = append(*list, ie)
+	}
+	add(ngapType.ProtocolIEIDAMFUENGAPID, ngapType.CriticalityPresentIgnore, func(ie *ngapType.PathSwitchRequestFailureIEs) {
+		ie.Value.Present = ngapType.PathSwitchRequestFailureIEsPresentAMFUENGAPID
+		ie.Value.AMFUENGAPID = &ngapType.AMFUENGAPID{Value: amfID}
+	})
+	add(ngapType.ProtocolIEIDRANUENGAPID, ngapType.CriticalityPresentIgnore, func(ie *ngapType.PathSwitchRequestFailureIEs) {
+		ie.Value.Present = ngapType.PathSwitchRequestFailureIEsPresentRANUENGAPID
+		ie.Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranID}
+	})
+	if len(sessions) > 0 {
+		var items []ngapType.PDUSessionResourceReleasedItemPSFail
+		for _, id := range sessions {
+			tr := ngapType.PathSwitchRequestUnsuccessfulTransfer{Cause: ngapType.Cause{
+				Present: ngapType.CausePresentMisc, Misc: &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnspecified}}}
+			b, err := aper.MarshalWithParams(tr, "valueExt")
+			if err != nil {
+				continue // one session's transfer; send still reports a PDU that will not encode
+			}
+			item := ngapType.PDUSessionResourceReleasedItemPSFail{}
+			item.PDUSessionID.Value = int64(id)
+			item.PathSwitchRequestUnsuccessfulTransfer = b
+			items = append(items, item)
+		}
+		if len(items) > 0 {
+			add(ngapType.ProtocolIEIDPDUSessionResourceReleasedListPSFail, ngapType.CriticalityPresentIgnore, func(ie *ngapType.PathSwitchRequestFailureIEs) {
+				ie.Value.Present = ngapType.PathSwitchRequestFailureIEsPresentPDUSessionResourceReleasedListPSFail
+				ie.Value.PDUSessionResourceReleasedListPSFail = &ngapType.PDUSessionResourceReleasedListPSFail{List: items}
+			})
+		}
+	}
+	return pdu
 }

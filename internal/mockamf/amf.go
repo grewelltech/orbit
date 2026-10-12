@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -36,7 +37,9 @@ type Config struct {
 	// PDU Session Establishment Request with a PDU Session Resource Setup
 	// Request) and report sessions and path switches to it. Nil keeps the
 	// mock's registration-only behaviour: PDU session requests go
-	// unanswered. PathSwitchRequest is answered either way.
+	// unanswered. A PathSwitchRequest is always answered: with an
+	// Acknowledge when at least one listed session is known, else with a
+	// PathSwitchRequestFailure (always the case without a UPF).
 	UPF UPF
 	// UPFAddress is the IPv4 the mock advertises as the UPF's uplink N3
 	// address; required with UPF.
@@ -45,6 +48,9 @@ type Config struct {
 	// a new UPF uplink TEID for each switched session, the re-anchoring case
 	// of TS 38.413 §9.3.4.14; by default the uplink tunnel is kept.
 	ReallocateULOnPathSwitch bool
+	// Log receives the mock's own errors that do not end an association,
+	// such as a downlink PDU that fails to encode. Nil discards them.
+	Log *slog.Logger
 }
 
 // AMF is an in-process mock AMF for sim-capacity measurement.
@@ -61,6 +67,10 @@ type AMF struct {
 	ues       map[int64]*ueState // by AMF-UE-NGAP-ID
 	ueIPSeq   atomic.Uint32
 	ulTEIDSeq atomic.Uint32
+	// encodeErrs counts downlink PDUs that failed to encode and were
+	// dropped instead of ending the association.
+	encodeErrs atomic.Int64
+	log        *slog.Logger
 }
 
 // New validates config and returns a mock AMF.
@@ -86,8 +96,12 @@ func New(cfg Config) (*AMF, error) {
 			return nil, fmt.Errorf("UPFAddress %q must be an IPv4 address when a UPF is configured", cfg.UPFAddress)
 		}
 	}
+	log := cfg.Log
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	a := &AMF{cfg: cfg, plmn: plmn, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState)}
+		ues: make(map[int64]*ueState), log: log}
 	go func() {
 		id := int64(1)
 		for {
@@ -186,6 +200,13 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	}
 }
 
+// ueState is one UE's state. ranID and sessions are guarded by AMF.mu, since
+// a path switch reaches them from the target association's goroutine. sec,
+// the NAS security context, is owned by whichever association currently
+// carries the UE's NAS: the source until the path switch, the target after
+// it. The hand-over is ordered through the gNB (the source sends no NAS
+// after it asks for the switch), so sec is never used from two goroutines at
+// once; a change that lets both associations send NAS must guard it.
 type ueState struct {
 	ranID, amfID int64
 	supi         string
@@ -281,13 +302,23 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	}
 }
 
+// send encodes and writes one downlink PDU. A PDU that fails to encode is
+// the mock's own bug for that one message: it is logged, counted and
+// dropped, and the association carries on, so no single malformed answer
+// can end it. A write error still ends the association (the peer is gone).
 func (a *AMF) send(p *pipe, pdu ngapType.NGAPPDU) error {
 	b, err := encode(pdu)
 	if err != nil {
-		return err
+		a.encodeErrs.Add(1)
+		a.log.Error("mock amf: dropping a downlink PDU that does not encode", "present", pdu.Present, "err", err)
+		return nil
 	}
 	return p.WriteNGAP(1, b)
 }
+
+// EncodeErrors reports how many downlink PDUs failed to encode and were
+// dropped; tests use it to assert the mock never produced one.
+func (a *AMF) EncodeErrors() int64 { return a.encodeErrs.Load() }
 
 // supiFromRegistration decodes the SUCI in a Registration Request and returns
 // the SUPI in IMSI form (MCC+MNC+MSIN).
