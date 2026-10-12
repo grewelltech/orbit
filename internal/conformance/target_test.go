@@ -170,3 +170,57 @@ func TestSummarizeSpecTargetsNeverNull(t *testing.T) {
 		t.Errorf("summary JSON %s (%v) lacks an empty spec_targets", b, err)
 	}
 }
+
+// The defaults are Rel-18 with TS 29.244 pinned to Rel-16, and each call
+// returns a map the caller may change without touching the next one.
+func TestDefaultTargets(t *testing.T) {
+	if DefaultTargetRelease != 18 {
+		t.Errorf("DefaultTargetRelease = %s, want Rel-18", DefaultTargetRelease)
+	}
+	a := DefaultSpecTargets()
+	if len(a) != 1 || a["TS 29.244"] != 16 {
+		t.Fatalf("DefaultSpecTargets = %v, want TS 29.244 at Rel-16", a)
+	}
+	a["TS 29.244"] = 1
+	if b := DefaultSpecTargets(); b["TS 29.244"] != 16 {
+		t.Errorf("DefaultSpecTargets shares its map: %v", b)
+	}
+}
+
+// defaultSkips lists the registered checks allowed to SKIP at the default
+// targets, each with the reason. It is empty: the defaults must not silently
+// shrink the suite, so a check that defaults to SKIP is listed on purpose.
+var defaultSkips = map[string]string{}
+
+// Every registered check runs at the default targets, apart from those
+// listed in defaultSkips.
+func TestNoCheckSkipsAtDefaultTargets(t *testing.T) {
+	e := Env{TargetRelease: DefaultTargetRelease, SpecTargets: DefaultSpecTargets()}
+	for _, c := range NewRegistry().Tests() {
+		why, skip := skipReason(c, e)
+		if _, listed := defaultSkips[c.ID()]; skip != listed {
+			t.Errorf("%s: skips at the defaults = %v (%s), listed in defaultSkips = %v", c.ID(), skip, why, listed)
+		}
+	}
+}
+
+// A TS 29.244 requirement newer than Rel-16 SKIPs at the defaults, naming
+// the pin; at Rel-16 it runs.
+func TestRunOneDefaultPFCPPin(t *testing.T) {
+	e := Env{TargetRelease: DefaultTargetRelease, SpecTargets: DefaultSpecTargets()}
+	for _, tc := range []struct {
+		since   Release
+		wantRan bool
+	}{{17, false}, {16, true}} {
+		ran := false
+		ref := SpecRef{Spec: "TS 29.244", Clause: "5.3.2", Strength: Shall, Since: tc.since, WordingUnchanged: true}
+		c := provTest{id: "PFCP-X", refs: []SpecRef{ref}, class: Fail, ran: &ran, result: Result{Verdict: Pass}}
+		res := runOne(context.Background(), c, e, time.Second)
+		if ran != tc.wantRan {
+			t.Errorf("Since %s: ran = %v, want %v (%q)", tc.since, ran, tc.wantRan, res.Detail)
+		}
+		if !tc.wantRan && !strings.Contains(res.Detail, "target for TS 29.244 is Rel-16") {
+			t.Errorf("Since %s: detail %q does not name the pin", tc.since, res.Detail)
+		}
+	}
+}

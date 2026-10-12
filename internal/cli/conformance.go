@@ -57,6 +57,7 @@ func newConformanceCmd() *cobra.Command {
 				N3Bind:        n3Bind,
 				GNB:           id.gnbConfig(gnbBase, 0, "orbit-conf"),
 				TargetRelease: target,
+				SpecTargets:   conformance.DefaultSpecTargets(),
 				UE:            ueSpec,
 			}
 			cats := make([]conformance.Category, 0, len(categories))
@@ -106,7 +107,7 @@ func newConformanceCmd() *cobra.Command {
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", 15*time.Second, "per-check timeout")
 	f.StringVar(&targetRelease, "target-release", "",
-		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default unset: every check runs)")
+		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, the SD-Core release; TS 29.244 pinned to Rel-16; \"unset\" runs every check)")
 	f.StringVar(&ueFlags.supi, "supi", "", supiFlagHelp+"; enables the mobility checks")
 	f.StringVar(&ueFlags.ki, "ki", "", kiFlagHelp)
 	f.StringVar(&ueFlags.opc, "opc", "", opcFlagHelp)

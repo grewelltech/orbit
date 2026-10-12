@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -206,5 +207,50 @@ func TestRunConformanceTargetReleaseSkips(t *testing.T) {
 	}
 	if results == 0 {
 		t.Fatal("no results")
+	}
+}
+
+// target_release 0 is the server default, Rel-18 with TS 29.244 pinned to
+// Rel-16, the same run the CLI makes with no flag; an explicit release is
+// honoured with the pin when it still narrows. Every update states both.
+func TestRunConformanceDefaultTargets(t *testing.T) {
+	tests := []struct {
+		name       string
+		target     uint32
+		wantTarget uint32
+		wantPins   map[string]uint32
+	}{
+		{name: "default", target: 0, wantTarget: 18, wantPins: map[string]uint32{"TS 29.244": 16}},
+		{name: "explicit", target: 17, wantTarget: 17, wantPins: map[string]uint32{"TS 29.244": 16}},
+		{name: "explicit below the pin", target: 15, wantTarget: 15, wantPins: map[string]uint32{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newConformanceClient(t)
+			stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
+				AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2,
+				Categories: []string{"procedural"}, TargetRelease: tc.target,
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var updates int
+			for stream.Receive() {
+				u := stream.Msg()
+				updates++
+				if u.GetTargetRelease() != tc.wantTarget {
+					t.Errorf("update target_release = %d, want %d", u.GetTargetRelease(), tc.wantTarget)
+				}
+				if got := u.GetSpecTargetReleases(); len(got) != len(tc.wantPins) || (len(got) > 0 && !reflect.DeepEqual(got, tc.wantPins)) {
+					t.Errorf("update spec_target_releases = %v, want %v", got, tc.wantPins)
+				}
+			}
+			if err := stream.Err(); err != nil {
+				t.Fatal(err)
+			}
+			if updates == 0 {
+				t.Fatal("no updates")
+			}
+		})
 	}
 }

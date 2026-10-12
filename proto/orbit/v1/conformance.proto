@@ -55,8 +55,10 @@ message RunConformanceRequest {
   // fixed port is rejected as InvalidArgument. N3 is n3_bind.
   string bind_address = 12;
   // 3GPP release the core claims (15 = Rel-15). A check that requires a
-  // newer release reports SKIP and never FAIL. 0 means unset: every check
-  // runs, and each result still states the release it requires.
+  // newer release reports SKIP and never FAIL. 0 means the server default,
+  // Rel-18 with TS 29.244 pinned to Rel-16, the same run the CLI makes with
+  // no --target-release (docs/conformance/target-release.md). Each result
+  // still states the release it requires.
   uint32 target_release = 13;
   // The UE the mobility checks register (a PDU session on one gNB, then an
   // Xn path switch to a second). Empty supi: no UE, and the mobility checks
@@ -79,6 +81,10 @@ message ConformanceUpdate {
   uint32 total = 5;
   // The target release the run is gated on (0 = unset), on every update.
   uint32 target_release = 6;
+  // The per-specification pins that narrowed the run ("TS 29.244" -> 16),
+  // each at its effective release, on every update; empty when
+  // target_release is 0 or no pin is older than it.
+  map<string, uint32> spec_target_releases = 7;
 }
 
 message ConformanceResult {
