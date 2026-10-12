@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -120,14 +121,35 @@ type Session struct {
 // while they hold endpoint locks (stackTx.TxCommit), and teardown paths hold
 // dpMu while acquiring those endpoint locks — taking dpMu here would be an
 // AB-BA deadlock (see Session.ueUp). The atomic read may briefly observe the
-// pre-move view mid-rebind; those packets ride the old path, which is
-// exactly a handover's real loss window.
+// pre-move view mid-rebind: a write that lands on a source socket an
+// inter-gNB rebind has already released fails with net.ErrClosed, and is then
+// sent once more on the current view (sendUplinkRetrying), which is what a
+// path switch means for uplink.
 func (s *Session) SendUplink(innerIP []byte) error {
-	t := s.ueUp.Load()
+	return sendUplinkRetrying(s.ueUp.Load, s.SUPI, innerIP)
+}
+
+// sendUplinkRetrying sends innerIP on the view load returns and, when that
+// write fails with net.ErrClosed because the view moved between the load and
+// the write (an inter-gNB handover released the source socket), sends once
+// more on the current view. Exactly once: if the view has not changed, the
+// socket was closed by a teardown and the closed error stands (the documented
+// no-silent-blackhole outcome); if the second view is closed too, its error
+// is returned, never a third attempt. Errors other than ErrClosed are
+// returned as they are. UETunnel.SendUplink counts only on success, so a
+// retry never double-counts. load is called at most twice and may return nil.
+func sendUplinkRetrying(load func() *datapath.UETunnel, supi string, innerIP []byte) error {
+	t := load()
 	if t == nil {
-		return fmt.Errorf("UE %s has no open N3 data path", s.SUPI)
+		return fmt.Errorf("UE %s has no open N3 data path", supi)
 	}
-	return t.SendUplink(innerIP)
+	err := t.SendUplink(innerIP)
+	if err != nil && errors.Is(err, net.ErrClosed) {
+		if cur := load(); cur != nil && cur != t {
+			return cur.SendUplink(innerIP)
+		}
+	}
+	return err
 }
 
 // Manager owns registered UE sessions and the StateStream event hub. It is
