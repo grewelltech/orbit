@@ -472,14 +472,18 @@ type EndMarker struct {
 	Stale bool
 }
 
-// EndMarkers counts GTP-U End Marker G-PDUs received for this UE — on its
-// live TEID or, within the post-handover grace window, on a vacated one.
+// EndMarkers counts GTP-U End Marker G-PDUs delivered to this UE — on its
+// live TEID or, within the post-handover grace window, on a vacated one. A
+// marker is counted after its SetEndMarkerFunc callback has returned, so a
+// reader that sees N can rely on N callbacks having completed; the counter
+// never leads the callback. Monotonic; written only by the reader goroutine.
 func (u *UERx) EndMarkers() uint64 { return u.endMarkers.Load() }
 
 // SetEndMarkerFunc installs a callback fired (from the reader goroutine, must
 // not block) with each End Marker's details. nil removes it; the counter
-// always runs. After an inter-gNB move the source socket's reader may still
-// fire it for the tombstoned TEID (em.Stale), concurrently with the target's.
+// always runs, and increments once the callback has returned (EndMarkers).
+// After an inter-gNB move the source socket's reader may still fire it for
+// the tombstoned TEID (em.Stale), concurrently with the target's.
 func (u *UERx) SetEndMarkerFunc(f func(em EndMarker)) {
 	u.mu.Lock()
 	u.endMarkerFn = f
@@ -506,14 +510,17 @@ func (u *UERx) noteDownlink(qfi uint8, hasQFI bool, payloadBytes int) {
 	}
 }
 
+// noteEndMarker delivers one End Marker: the callback first, then the count,
+// so EndMarkers never reports a marker whose callback is still running. Called
+// only from the reader goroutine; the callback runs outside u.mu.
 func (u *UERx) noteEndMarker(em EndMarker) {
-	u.endMarkers.Add(1)
 	u.mu.RLock()
 	f := u.endMarkerFn
 	u.mu.RUnlock()
 	if f != nil {
 		f(em)
 	}
+	u.endMarkers.Add(1)
 }
 
 // dispatch routes one inner IP packet. Called only from the Demux reader.
