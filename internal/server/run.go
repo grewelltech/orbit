@@ -717,6 +717,10 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 	if p.GetBaseImsi() == "" {
 		return nil, fmt.Errorf("base_imsi is required")
 	}
+	baseIMSI, err := ue.NormalizeSUPI(p.GetBaseImsi())
+	if err != nil {
+		return nil, fmt.Errorf("base_imsi: %w", err)
+	}
 	if len(p.GetGnbs()) == 0 {
 		return nil, fmt.Errorf("at least one gnb is required")
 	}
@@ -763,7 +767,7 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 
 	spec := engine.LoadSpec{
 		GNBs:        gnbs,
-		BaseIMSI:    p.GetBaseImsi(),
+		BaseIMSI:    baseIMSI,
 		Count:       int(p.GetCount()),
 		MCC:         mcc,
 		MNC:         mnc,

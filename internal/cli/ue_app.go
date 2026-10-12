@@ -130,7 +130,7 @@ func newUEAppVoipCmd(serverURL *string) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&supi, "supi", "", "SUPI / IMSI of the registered UE")
+	f.StringVar(&supi, "supi", "", supiFlagHelp+" of the registered UE")
 	f.StringVar(&peer, "peer", "", "N6 loomd control address (host:port) on the management network")
 	f.StringVar(&token, "token", "", "loomd control-plane bearer token")
 	f.StringVar(&peerDataIP, "peer-data-ip", "", "N6 media address, when it differs from the --peer host")

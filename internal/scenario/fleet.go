@@ -1,6 +1,8 @@
 package scenario
 
 import (
+	"github.com/bgrewell/orbit/internal/ue"
+
 	"fmt"
 	"math"
 	"strconv"
@@ -198,6 +200,13 @@ func (f *FleetScenario) validate() error {
 	if f.Fleet.Count < 1 {
 		return fmt.Errorf("fleet.count must be >= 1")
 	}
+	// supi_base may be written as imsi-<digits>; it is stored digits-only so
+	// GenFleet's arithmetic and the generated SUPIs are digits-only.
+	supiBase, err := ue.NormalizeSUPI(f.Fleet.SUPIBase)
+	if err != nil {
+		return fmt.Errorf("fleet.supi_base: %w", err)
+	}
+	f.Fleet.SUPIBase = supiBase
 	if _, err := strconv.ParseUint(f.Fleet.SUPIBase, 10, 64); err != nil {
 		return fmt.Errorf("fleet.supi_base %q is not numeric: %w", f.Fleet.SUPIBase, err)
 	}

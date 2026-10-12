@@ -142,7 +142,13 @@ func loadConfig(spec LoadSpec) load.Config {
 
 // incIMSI returns the base IMSI incremented by i, zero-padded to 15 digits.
 func incIMSI(base string, i int) (string, error) {
-	n, err := strconv.ParseInt(base, 10, 64)
+	// The base may be given as imsi-<digits>; generated SUPIs are digits
+	// only, so Subscription.SUPI and the session keys stay digits-only.
+	digits, err := ue.NormalizeSUPI(base)
+	if err != nil {
+		return "", fmt.Errorf("base IMSI: %w", err)
+	}
+	n, err := strconv.ParseInt(digits, 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("base IMSI %q: %w", base, err)
 	}

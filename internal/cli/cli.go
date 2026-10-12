@@ -25,6 +25,13 @@ import (
 const bindFlagHelp = "local N2 source address for the gNB's SCTP association, ip[:port]; " +
 	"empty binds the address the host routes to the AMF from (N3 is --gnb-n3 / --n3-bind)"
 
+// supiFlagHelp is the one help text for every --supi flag, so each names the
+// two accepted spellings; the server normalises both to digits.
+const supiFlagHelp = "SUPI, digits or imsi-<digits> (e.g. 001010100007500)"
+
+// baseIMSIFlagHelp is the one help text for --base-imsi on load commands.
+const baseIMSIFlagHelp = "first " + supiFlagHelp + "; each UE increments it"
+
 // DefaultListen is the default API listen address. Loopback by default:
 // the API carries subscriber credentials from Phase 1a on and is not meant
 // to be exposed beyond the lab host without TLS.

@@ -54,7 +54,7 @@ func newUEStatsCmd(serverURL *string) *cobra.Command {
 			return w.Flush()
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp)
 	_ = cmd.MarkFlagRequired("supi")
 	return cmd
 }
@@ -82,7 +82,7 @@ func newUELatencyCmd(serverURL *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp)
 	cmd.Flags().StringVar(&target, "target", "8.8.8.8", "destination IPv4 to probe")
 	cmd.Flags().Uint32Var(&probes, "probes", 20, "number of echoes")
 	cmd.Flags().Uint32Var(&spacingMs, "spacing-ms", 50, "spacing between echoes (ms)")
@@ -112,7 +112,7 @@ func newUETrafficCmd(serverURL *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp)
 	cmd.Flags().StringVar(&target, "target", "", "destination host:port")
 	cmd.Flags().StringVar(&rate, "rate", "", "loom rate, e.g. 50Mbps (empty = unlimited)")
 	cmd.Flags().Uint32Var(&packetSize, "packet-size", 1200, "inner UDP payload size")
@@ -167,7 +167,7 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI of the registered UE")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp+" of the registered UE")
 	cmd.Flags().StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
 	cmd.Flags().StringVar(&bind, "bind", "", bindFlagHelp)
 	cmd.Flags().StringVar(&gnbN3, "gnb-n3", "", "target gNB N3 address for the downlink tunnel")
@@ -198,7 +198,7 @@ func newUEPingCmd(serverURL *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp)
 	cmd.Flags().StringVar(&dst, "dst", "8.8.8.8", "echo target IPv4")
 	cmd.Flags().Uint32Var(&count, "count", 3, "number of echoes")
 	_ = cmd.MarkFlagRequired("supi")
@@ -259,7 +259,7 @@ func newUERegisterCmd(serverURL *string) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
 	f.StringVar(&bind, "bind", "", bindFlagHelp)
-	f.StringVar(&supi, "supi", "", "SUPI / IMSI, e.g. 208930100007500")
+	f.StringVar(&supi, "supi", "", supiFlagHelp)
 	f.StringVar(&ki, "ki", "", kiFlagHelp)
 	f.StringVar(&opc, "opc", "", opcFlagHelp)
 	f.StringVar(&rid, "routing-indicator", "0", "SUCI routing indicator")
@@ -296,7 +296,7 @@ func newUEStatusCmd(serverURL *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp)
 	_ = cmd.MarkFlagRequired("supi")
 	return cmd
 }
@@ -315,7 +315,7 @@ func newUEDeregisterCmd(serverURL *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "SUPI / IMSI")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp)
 	_ = cmd.MarkFlagRequired("supi")
 	return cmd
 }
@@ -363,7 +363,7 @@ func newUEWatchCmd(serverURL *string) *cobra.Command {
 			return stream.Err()
 		},
 	}
-	cmd.Flags().StringVar(&supi, "supi", "", "only this SUPI (default: all)")
+	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp+"; only this UE (default: all)")
 	return cmd
 }
 

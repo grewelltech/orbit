@@ -52,14 +52,20 @@ func RunHandoverUnderLoad(ctx context.Context, log *slog.Logger, spec HandoverLo
 		}
 	}
 
-	id, err := ue.ParseIdentity(spec.MobileSUPI, spec.MCC, spec.MNC, "0")
+	// One normalisation for the mobile UE: identity, subscription and the
+	// handover calls below all use the digits-only form.
+	mobileSUPI, err := ue.NormalizeSUPI(spec.MobileSUPI)
+	if err != nil {
+		return nil, err
+	}
+	id, err := ue.ParseIdentity(mobileSUPI, spec.MCC, spec.MNC, "0")
 	if err != nil {
 		return nil, err
 	}
 	pdu := spec.Slice
 	if _, err := mgr.Register(ctx, GNBSpec{Config: spec.SourceGNB, AMFAddr: spec.AMFAddr}, UEConfig{
 		Identity:   id,
-		Sub:        auth.Subscription{SUPI: spec.MobileSUPI, Ki: spec.Ki, OPc: spec.OPc},
+		Sub:        auth.Subscription{SUPI: mobileSUPI, Ki: spec.Ki, OPc: spec.OPc},
 		PDUSession: &pdu,
 		GNBN3Addr:  spec.SourceN3,
 	}); err != nil {
@@ -90,7 +96,7 @@ func RunHandoverUnderLoad(ctx context.Context, log *slog.Logger, spec HandoverLo
 		hctx, hcancel := context.WithTimeout(ctx, 15*time.Second)
 		// The Manager times the procedure itself now, so this uses its number
 		// rather than measuring the same span a second time.
-		d, err := mgr.Handover(hctx, spec.MobileSUPI, ep)
+		d, err := mgr.Handover(hctx, mobileSUPI, ep)
 		hcancel()
 		if err != nil {
 			rep.HandoverFailures++

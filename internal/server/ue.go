@@ -35,6 +35,19 @@ type appSessions interface {
 	StopAppSession(ctx context.Context, id string) (engine.AppSessionReport, error)
 }
 
+// supiArg normalises a request SUPI (digits or imsi-<digits>, see
+// ue.NormalizeSUPI) so the Manager's session map is keyed by digits whichever
+// form the operator typed and every auth.Subscription is digits-only by
+// construction. The server is the one boundary that does this: a malformed or
+// empty SUPI is InvalidArgument here, before the Manager is touched.
+func supiArg(s string) (string, error) {
+	supi, err := ue.NormalizeSUPI(s)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return supi, nil
+}
+
 func (s *ueService) Register(
 	ctx context.Context,
 	req *connect.Request[orbitv1.RegisterRequest],
@@ -42,6 +55,10 @@ func (s *ueService) Register(
 	m := req.Msg
 	if m.GetAmfAddress() == "" || m.GetSupi() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("amf_address and supi are required"))
+	}
+	supi, err := supiArg(m.GetSupi())
+	if err != nil {
+		return nil, err
 	}
 	gnbCfg, err := gnbConfigFromProto(m.GetGnb())
 	if err != nil {
@@ -55,7 +72,7 @@ func (s *ueService) Register(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	id, err := ue.ParseIdentity(m.GetSupi(), gnbCfg.MCC, gnbCfg.MNC, m.GetRoutingIndicator())
+	id, err := ue.ParseIdentity(supi, gnbCfg.MCC, gnbCfg.MNC, m.GetRoutingIndicator())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -65,7 +82,7 @@ func (s *ueService) Register(
 
 	ueCfg := engine.UEConfig{
 		Identity:  id,
-		Sub:       auth.Subscription{SUPI: m.GetSupi(), Ki: ki, OPc: opc},
+		Sub:       auth.Subscription{SUPI: supi, Ki: ki, OPc: opc},
 		GNBN3Addr: m.GetGnbN3Addr(),
 	}
 	if p := m.GetPduSession(); p != nil {
@@ -104,7 +121,11 @@ func (s *ueService) Deregister(
 	ctx context.Context,
 	req *connect.Request[orbitv1.DeregisterRequest],
 ) (*connect.Response[orbitv1.DeregisterResponse], error) {
-	if err := s.mgr.Deregister(ctx, req.Msg.GetSupi()); err != nil {
+	supi, err := supiArg(req.Msg.GetSupi())
+	if err != nil {
+		return nil, err
+	}
+	if err := s.mgr.Deregister(ctx, supi); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&orbitv1.DeregisterResponse{}), nil
@@ -114,7 +135,11 @@ func (s *ueService) Status(
 	ctx context.Context,
 	req *connect.Request[orbitv1.StatusRequest],
 ) (*connect.Response[orbitv1.StatusResponse], error) {
-	sess, err := s.mgr.Status(req.Msg.GetSupi())
+	supi, err := supiArg(req.Msg.GetSupi())
+	if err != nil {
+		return nil, err
+	}
+	sess, err := s.mgr.Status(supi)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -138,6 +163,14 @@ func (s *ueService) StateStream(
 	stream *connect.ServerStream[orbitv1.StateEvent],
 ) error {
 	filter := req.Msg.GetSupi()
+	if filter != "" {
+		// Sessions are keyed by digits, so the filter must be too.
+		f, err := supiArg(filter)
+		if err != nil {
+			return err
+		}
+		filter = f
+	}
 	events, cancel := s.mgr.Subscribe()
 	defer cancel()
 	for {
@@ -167,7 +200,11 @@ func (s *ueService) Ping(
 	ctx context.Context,
 	req *connect.Request[orbitv1.PingRequest],
 ) (*connect.Response[orbitv1.PingResponse], error) {
-	res, err := s.mgr.Ping(req.Msg.GetSupi(), req.Msg.GetDestination(), int(req.Msg.GetCount()))
+	supi, err := supiArg(req.Msg.GetSupi())
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.mgr.Ping(supi, req.Msg.GetDestination(), int(req.Msg.GetCount()))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -187,6 +224,10 @@ func (s *ueService) Traffic(
 	if m.GetSupi() == "" || m.GetTarget() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and target are required"))
 	}
+	supi, err := supiArg(m.GetSupi())
+	if err != nil {
+		return nil, err
+	}
 	dur := time.Duration(m.GetDurationMs()) * time.Millisecond
 	if dur <= 0 {
 		dur = 5 * time.Second
@@ -194,7 +235,7 @@ func (s *ueService) Traffic(
 	ctx, cancel := context.WithTimeout(ctx, dur+15*time.Second)
 	defer cancel()
 
-	res, err := s.mgr.Traffic(ctx, m.GetSupi(), m.GetTarget(), m.GetRate(), int(m.GetPacketSize()), dur)
+	res, err := s.mgr.Traffic(ctx, supi, m.GetTarget(), m.GetRate(), int(m.GetPacketSize()), dur)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -212,9 +253,13 @@ func (s *ueService) Latency(
 	if m.GetSupi() == "" || m.GetTarget() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and target are required"))
 	}
+	supi, err := supiArg(m.GetSupi())
+	if err != nil {
+		return nil, err
+	}
 	spacing := time.Duration(m.GetSpacingMs()) * time.Millisecond
 	timeout := time.Duration(m.GetTimeoutMs()) * time.Millisecond
-	res, err := s.mgr.Latency(ctx, m.GetSupi(), m.GetTarget(), int(m.GetProbes()), spacing, timeout)
+	res, err := s.mgr.Latency(ctx, supi, m.GetTarget(), int(m.GetProbes()), spacing, timeout)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
@@ -232,7 +277,11 @@ func (s *ueService) DataStats(
 	if req.Msg.GetSupi() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi is required"))
 	}
-	stats, err := s.mgr.DataStats(req.Msg.GetSupi())
+	supi, err := supiArg(req.Msg.GetSupi())
+	if err != nil {
+		return nil, err
+	}
+	stats, err := s.mgr.DataStats(supi)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
@@ -263,6 +312,10 @@ func (s *ueService) Handover(
 	if m.GetSupi() == "" || m.GetAmfAddress() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and amf_address are required"))
 	}
+	supi, err := supiArg(m.GetSupi())
+	if err != nil {
+		return nil, err
+	}
 	// Identity fields left empty inherit from the UE's serving gNB inside the
 	// engine (under the session's procedure lock), so only the target's shape
 	// is checked here.
@@ -273,7 +326,7 @@ func (s *ueService) Handover(
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
-	elapsed, err := s.mgr.Handover(ctx, m.GetSupi(), engine.GNBEndpoint{
+	elapsed, err := s.mgr.Handover(ctx, supi, engine.GNBEndpoint{
 		Config:   target,
 		AMFAddr:  m.GetAmfAddress(),
 		BindAddr: m.GetBindAddress(),
@@ -283,7 +336,7 @@ func (s *ueService) Handover(
 		return nil, handoverError(err)
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
-		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
+		Supi: supi, GnbId: target.ID, State: engine.StateHandoverComplete,
 		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
 	}), nil
 }
@@ -296,6 +349,10 @@ func (s *ueService) XnHandover(
 	if m.GetSupi() == "" || m.GetAmfAddress() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and amf_address are required"))
 	}
+	supi, err := supiArg(m.GetSupi())
+	if err != nil {
+		return nil, err
+	}
 	target, err := gnbTargetFromProto(m.GetTargetGnb()) // identity inherits in the engine, see Handover
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -303,14 +360,14 @@ func (s *ueService) XnHandover(
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
-	elapsed, err := s.mgr.XnHandover(ctx, m.GetSupi(), engine.GNBEndpoint{
+	elapsed, err := s.mgr.XnHandover(ctx, supi, engine.GNBEndpoint{
 		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: m.GetGnbN3Addr(),
 	})
 	if err != nil {
 		return nil, handoverError(err)
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
-		Supi: m.GetSupi(), GnbId: target.ID, State: engine.StateHandoverComplete,
+		Supi: supi, GnbId: target.ID, State: engine.StateHandoverComplete,
 		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
 	}), nil
 }
@@ -333,11 +390,15 @@ func (s *ueService) StartApp(
 	if m.GetSupi() == "" || m.GetApp() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("supi and app are required"))
 	}
+	supi, err := supiArg(m.GetSupi())
+	if err != nil {
+		return nil, err
+	}
 	dur := time.Duration(m.GetDurationMs()) * time.Millisecond
 	if dur <= 0 {
 		dur = 60 * time.Second
 	}
-	id, err := s.apps.StartAppSession(ctx, m.GetSupi(), engine.AppSessionConfig{
+	id, err := s.apps.StartAppSession(ctx, supi, engine.AppSessionConfig{
 		App:        m.GetApp(),
 		PeerAgent:  m.GetPeer(),
 		Token:      m.GetToken(),
