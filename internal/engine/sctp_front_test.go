@@ -42,7 +42,17 @@ func sctpFront(t *testing.T, amf *mockamf.AMF) string {
 			go bridgeSCTP(c, amf.ConnectShared(ctx))
 		}
 	}()
-	return ln.Addr().String()
+	// The pinned library reads the address with a stack buffer passed to
+	// getsockopt as a uintptr through a helper, so a stack move between the
+	// conversion and the syscall can make the read fail (seen under -race).
+	// A retry runs on the already-grown stack.
+	for i := 0; i < 5; i++ {
+		if addr := ln.Addr(); addr != nil {
+			return addr.String()
+		}
+	}
+	t.Fatalf("SCTP listener reports no local address")
+	return ""
 }
 
 // bridgeSCTP copies NGAP messages between one accepted SCTP association and
