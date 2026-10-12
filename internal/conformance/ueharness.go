@@ -41,10 +41,13 @@ type UESpec struct {
 // Configured reports whether a UE is configured.
 func (s UESpec) Configured() bool { return s.SUPI != "" }
 
-// targetGNBOffset separates the handover target's gNB ID from the per-check
-// IDs the registry assigns (base + index) and from the liveness probe
-// (base + 0x9000): the AMF does not cleanly re-key a reused gNB ID from a
-// new association.
+// targetGNBOffset separates the handover target's gNB ID from the other IDs
+// a suite presents, because the AMF does not cleanly re-key a reused gNB ID
+// from a new association. gNB ID offsets in use from the base (--gnb-base):
+// each check's own gNB at base + registry index (RunStream), a mobility
+// check's handover target at check ID + 0x8000 (here), and the liveness
+// probe at check ID + 0x9000 (Env.Alive). A new check needing another gNB
+// must pick an offset clear of all three.
 const targetGNBOffset = 0x8000
 
 // trafficRate and trafficPacketSize shape the optional echo flow: enough
