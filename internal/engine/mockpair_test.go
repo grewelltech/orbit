@@ -50,6 +50,13 @@ func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every PDU the mock answered with must have encoded: a dropped one
+	// would turn a mock defect into a silent engine timeout.
+	t.Cleanup(func() {
+		if n := amf.EncodeErrors(); n != 0 {
+			t.Errorf("mock AMF dropped %d PDUs that failed to encode", n)
+		}
+	})
 	return &mockPair{
 		amf: amf, upf: upf, amfAddr: sctpFront(t, amf),
 		srcN3: base + "11", tgtN3: base + "12", ki: ki, opc: opc,
@@ -319,5 +326,75 @@ func TestMockPairXnPathSwitch(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ObserveDownlink sees what the UPF sends on the old path across an Xn path
+// switch: the End Marker on the vacated TEID at the source gNB, with its QFI
+// container when the UPF adds one, and a late G-PDU on that TEID after it,
+// in arrival order. An unregistered UE is an error.
+func TestObserveDownlinkAcrossXn(t *testing.T) {
+	p := newMockPair(t, 47, mockupf.Options{EndMarker: true, LateGPDU: true, QFI: true}, false)
+	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.n3.grace = 250 * time.Millisecond
+	const supi = "208930100000003"
+
+	if _, err := m.ObserveDownlink(supi, nil, nil); err == nil {
+		t.Fatal("ObserveDownlink on an unregistered UE succeeded")
+	}
+
+	sess := p.register(t, m, supi)
+	oldDL := sess.Result.DLTEID
+	type obs struct {
+		at     time.Time
+		marker bool
+		teid   uint32
+		gnb    string
+		hasQFI bool
+	}
+	var mu sync.Mutex
+	var seen []obs
+	stop, err := m.ObserveDownlink(supi,
+		func(em datapath.EndMarker) {
+			mu.Lock()
+			seen = append(seen, obs{at: em.Arrival, marker: true, teid: em.TEID, gnb: em.GNB, hasQFI: em.HasQFI})
+			mu.Unlock()
+		},
+		func(g datapath.GPDUArrival) {
+			mu.Lock()
+			seen = append(seen, obs{at: g.Arrival, teid: g.TEID, gnb: g.GNB})
+			mu.Unlock()
+		})
+	if err != nil {
+		t.Fatalf("ObserveDownlink: %v", err)
+	}
+	defer stop()
+
+	p.xn(t, m, supi)
+
+	snapshot := func() []obs {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]obs(nil), seen...)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(snapshot()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	got := snapshot()
+	if len(got) != 2 {
+		t.Fatalf("observed %+v, want the End Marker then the late G-PDU", got)
+	}
+	src := net.JoinHostPort(p.srcN3, "2152")
+	for _, o := range got {
+		if o.teid != oldDL || o.gnb != src {
+			t.Errorf("observation %+v, want TEID %#x at %s", o, oldDL, src)
+		}
+	}
+	if !got[0].marker || got[1].marker || got[1].at.Before(got[0].at) {
+		t.Errorf("observed %+v, want the End Marker first and the G-PDU after it", got)
+	}
+	if !got[0].hasQFI {
+		t.Error("End Marker QFI container not recorded")
 	}
 }
