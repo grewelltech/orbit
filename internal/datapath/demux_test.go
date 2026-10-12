@@ -792,3 +792,126 @@ func TestUERxWildcardReplaceAndStaleUnsubscribe(t *testing.T) {
 		t.Fatalf("wildcard lane got %q, want %q", payload, "still-here")
 	}
 }
+
+// endMarkerWithQFI hand-builds an End Marker carrying a PDU Session
+// Container extension header with the given QFI.
+func endMarkerWithQFI(teid uint32, qfi uint8) []byte {
+	return []byte{
+		0x34, gtpu.MsgTypeEndMarker, 0x00, 0x08, // E flag, length 8
+		byte(teid >> 24), byte(teid >> 16), byte(teid >> 8), byte(teid),
+		0x00, 0x00, 0x00, gtpu.ExtHeaderTypePDUSessionContainer, // seq, N-PDU, next ext
+		0x01, 0x00, qfi & 0x3f, 0x00, // ext length 1, DL PDU type, QFI, no next
+	}
+}
+
+// TestDemuxEndMarkerQFI: an End Marker's PDU Session Container QFI is
+// recorded on the delivered EndMarker; one without the container reports
+// HasQFI false.
+func TestDemuxEndMarkerQFI(t *testing.T) {
+	tests := []struct {
+		name    string
+		pkt     []byte
+		wantHas bool
+		wantQFI uint8
+	}{
+		{name: "with container", pkt: endMarkerWithQFI(0x777, 9), wantHas: true, wantQFI: 9},
+		{name: "without container", pkt: gtpu.EncodeEndMarker(0x777)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newDemuxRig(t, 1, 0x777, 1)
+			rx := r.d.Register(0x777)
+			var last atomic.Value
+			rx.SetEndMarkerFunc(func(em EndMarker) { last.Store(em) })
+			if _, err := r.upf.WriteToUDP(tc.pkt, r.tun.conn.LocalAddr().(*net.UDPAddr)); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "end marker", func() bool { return rx.EndMarkers() == 1 })
+			em, ok := last.Load().(EndMarker)
+			if !ok {
+				t.Fatal("no End Marker stored")
+			}
+			if em.HasQFI != tc.wantHas || em.QFI != tc.wantQFI {
+				t.Errorf("End Marker QFI = %v/%d, want %v/%d", em.HasQFI, em.QFI, tc.wantHas, tc.wantQFI)
+			}
+		})
+	}
+}
+
+// TestDemuxGPDUObserver: the lane's G-PDU observer sees each delivered
+// G-PDU on its live TEID, and each G-PDU on a TEID it vacated within the
+// grace window (stale, still a TEID miss and never delivered). A G-PDU for a
+// foreign TEID, or past the window, is not observed; nil removes the
+// observer.
+func TestDemuxGPDUObserver(t *testing.T) {
+	const oldTEID, newTEID = 0x100, 0x200
+	r := newDemuxRig(t, 1, oldTEID, 1)
+	rx := r.d.Register(oldTEID)
+	ring := rx.SubscribeICMP()
+	var mu sync.Mutex
+	var seen []GPDUArrival
+	rx.SetGPDUFunc(func(g GPDUArrival) {
+		mu.Lock()
+		seen = append(seen, g)
+		mu.Unlock()
+	})
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen)
+	}
+	at := func(i int) GPDUArrival {
+		mu.Lock()
+		defer mu.Unlock()
+		return seen[i]
+	}
+	gnbAddr := r.tun.conn.LocalAddr().String()
+
+	// Live TEID: observed and delivered.
+	r.sendDL(t, oldTEID, 1, icmpPkt(t, 3, 1))
+	if _, err := ring.Read(2 * time.Second); err != nil {
+		t.Fatalf("live G-PDU not delivered: %v", err)
+	}
+	waitFor(t, "live observation", func() bool { return count() == 1 })
+	if g := at(0); g.TEID != oldTEID || g.Stale || g.GNB != gnbAddr || g.Arrival.IsZero() {
+		t.Errorf("live observation = %+v, want TEID %#x at %s, not stale", g, oldTEID, gnbAddr)
+	}
+
+	// Foreign TEID: a miss, not observed.
+	r.sendDL(t, 0xBAD, 1, icmpPkt(t, 3, 2))
+	waitFor(t, "foreign miss", func() bool { return r.d.TEIDMisses() == 1 })
+
+	// Vacated TEID within the window: observed as stale, still a miss, not
+	// delivered.
+	if err := r.d.Rebind(oldTEID, newTEID); err != nil {
+		t.Fatal(err)
+	}
+	r.sendDL(t, oldTEID, 1, icmpPkt(t, 3, 3))
+	waitFor(t, "stale observation", func() bool { return count() == 2 })
+	if g := at(1); g.TEID != oldTEID || !g.Stale {
+		t.Errorf("vacated observation = %+v, want TEID %#x stale", g, oldTEID)
+	}
+	if r.d.TEIDMisses() != 2 {
+		t.Errorf("TEID misses = %d, want 2 (the vacated G-PDU is still a miss)", r.d.TEIDMisses())
+	}
+	if _, err := ring.Read(30 * time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Error("vacated-TEID G-PDU was delivered to the lane")
+	}
+
+	// Past the window: not observed.
+	r.d.mu.Lock()
+	r.d.tombs[oldTEID] = tombstone{rx: rx, expires: time.Now().Add(-time.Millisecond)}
+	r.d.mu.Unlock()
+	r.sendDL(t, oldTEID, 1, icmpPkt(t, 3, 4))
+	waitFor(t, "expired miss", func() bool { return r.d.TEIDMisses() == 3 })
+
+	// nil removes the observer; delivery continues.
+	rx.SetGPDUFunc(nil)
+	r.sendDL(t, newTEID, 1, icmpPkt(t, 3, 5))
+	if _, err := ring.Read(2 * time.Second); err != nil {
+		t.Fatalf("G-PDU after removing the observer not delivered: %v", err)
+	}
+	if n := count(); n != 2 {
+		t.Errorf("observer saw %d G-PDUs, want 2", n)
+	}
+}
