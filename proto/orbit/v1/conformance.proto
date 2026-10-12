@@ -4,6 +4,8 @@ package orbit.v1;
 
 option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
 
+import "orbit/v1/ue.proto";
+
 // ConformanceService runs the core conformance / regression suite server-side,
 // so the dashboard (and any other client) can drive it and watch results
 // arrive instead of shelling out to the CLI.
@@ -56,6 +58,15 @@ message RunConformanceRequest {
   // newer release reports SKIP and never FAIL. 0 means unset: every check
   // runs, and each result still states the release it requires.
   uint32 target_release = 13;
+  // The UE the mobility checks register (a PDU session on one gNB, then an
+  // Xn path switch to a second). Empty supi: no UE, and the mobility checks
+  // report SKIP. With a supi, credentials and gnb_n3 are required; the
+  // server keeps the keys out of results and logs.
+  string supi = 14;               // digits or imsi-<digits>, in the request's PLMN
+  Credentials credentials = 15;
+  string dnn = 16;                // PDU session DNN; default "internet"
+  string gnb_n3 = 17;             // gNB N3 IP, reachable from the UPF; both gNBs use it
+  string traffic = 18;            // optional echo peer host:port for traffic across the handover
 }
 
 // ConformanceUpdate is one test's outcome, or (with done=true) the summary.

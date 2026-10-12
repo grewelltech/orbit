@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"connectrpc.com/connect"
@@ -11,6 +13,8 @@ import (
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/ue"
+	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
 var (
@@ -76,6 +80,11 @@ func (s *conformanceService) RunConformance(
 	if err := env.GNB.ValidateIdentity(); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	ueSpec, err := conformanceUE(m)
+	if err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	env.UE = ueSpec
 
 	var cats []conformance.Category
 	for _, c := range m.GetCategories() {
@@ -200,4 +209,51 @@ func orDefaultU32(v, def uint32) uint32 {
 		return def
 	}
 	return v
+}
+
+// errUENeedsSUPI refuses UE fields without a SUPI: they would be silently
+// ignored, and the mobility checks would SKIP.
+var errUENeedsSUPI = errors.New("credentials, gnb_n3 and traffic describe the mobility checks' UE and need supi")
+
+// conformanceUE builds the suite's UE section from a request. Without a
+// SUPI there is none (the mobility checks SKIP). With one, the keys must
+// parse, the SUPI must be in the request's PLMN, gnb_n3 must be an IPv4
+// address (canonicalised; see gnb.CanonicalN3) and
+// traffic, when given, a host:port. Errors never echo the keys.
+func conformanceUE(m *orbitv1.RunConformanceRequest) (conformance.UESpec, error) {
+	if m.GetSupi() == "" {
+		if m.GetGnbN3() != "" || m.GetTraffic() != "" || m.GetCredentials().GetKi() != "" || m.GetCredentials().GetOpc() != "" {
+			return conformance.UESpec{}, errUENeedsSUPI
+		}
+		return conformance.UESpec{}, nil
+	}
+	if _, err := ue.ParseIdentity(m.GetSupi(), m.GetMcc(), m.GetMnc(), "0"); err != nil {
+		return conformance.UESpec{}, err
+	}
+	if _, err := auth.ParseHexKey("Ki", m.GetCredentials().GetKi()); err != nil {
+		return conformance.UESpec{}, err
+	}
+	if _, err := auth.ParseHexKey("OPc", m.GetCredentials().GetOpc()); err != nil {
+		return conformance.UESpec{}, err
+	}
+	if m.GetGnbN3() == "" {
+		return conformance.UESpec{}, errors.New("gnb_n3 (the gNB N3 IP) is required with supi")
+	}
+	n3, err := gnb.CanonicalN3(m.GetGnbN3())
+	if err != nil {
+		return conformance.UESpec{}, fmt.Errorf("gnb_n3: %w", err)
+	}
+	if t := m.GetTraffic(); t != "" {
+		if _, _, err := net.SplitHostPort(t); err != nil {
+			return conformance.UESpec{}, fmt.Errorf("traffic: want host:port: %w", err)
+		}
+	}
+	dnn := m.GetDnn()
+	if dnn == "" {
+		dnn = "internet"
+	}
+	return conformance.UESpec{
+		SUPI: m.GetSupi(), Ki: m.GetCredentials().GetKi(), OPc: m.GetCredentials().GetOpc(),
+		DNN: dnn, GNBN3: n3, Traffic: m.GetTraffic(),
+	}, nil
 }

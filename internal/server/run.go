@@ -14,6 +14,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/ue"
@@ -789,7 +790,11 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 			SD:           pdu.GetSd(),
 			DNN:          pdu.GetDnn(),
 		}
-		spec.GNBN3Addr = p.GetGnbN3Addr()
+		n3, err := gnb.CanonicalN3(p.GetGnbN3Addr())
+		if err != nil {
+			return nil, fmt.Errorf("gnb_n3_addr: %w", err)
+		}
+		spec.GNBN3Addr = n3
 	}
 
 	return func(ctx context.Context, stats *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {

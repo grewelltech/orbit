@@ -483,6 +483,10 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 			for n := 0; n < gnbCount; n++ {
 				gnbs = append(gnbs, id.gnbProto(gnbID+uint32(n), gnbBits, fmt.Sprintf("%s-%d", gnbName, n)))
 			}
+			n3, err := gnbN3Flag(gnbN3)
+			if err != nil {
+				return err
+			}
 			spec := &orbitv1.LoadRunSpec{
 				AmfAddress: amf, Gnbs: gnbs, BaseImsi: baseIMSI, Count: uint32(count),
 				BindAddresses: binds,
@@ -500,7 +504,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 			}
 			if withPDU {
 				spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: id.SST, Sd: id.SD, Dnn: id.DNN}
-				spec.GnbN3Addr = gnbN3
+				spec.GnbN3Addr = n3
 			}
 			// stdout carries only the run id (scripts capture it); the
 			// identity report goes to stderr like the other diagnostics.

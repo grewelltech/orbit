@@ -14,6 +14,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -48,6 +49,16 @@ func supiArg(s string) (string, error) {
 	return supi, nil
 }
 
+// gnbN3Arg validates and canonicalises a request's gnb_n3_addr with the
+// shared gnb.CanonicalN3 rule, as InvalidArgument ("" stays "").
+func gnbN3Arg(v string) (string, error) {
+	n3, err := gnb.CanonicalN3(v)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("gnb_n3_addr: %w", err))
+	}
+	return n3, nil
+}
+
 func (s *ueService) Register(
 	ctx context.Context,
 	req *connect.Request[orbitv1.RegisterRequest],
@@ -79,11 +90,15 @@ func (s *ueService) Register(
 	if _, err := sctp.NormalizeLocal(m.GetBindAddress()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	n3, err := gnbN3Arg(m.GetGnbN3Addr())
+	if err != nil {
+		return nil, err
+	}
 
 	ueCfg := engine.UEConfig{
 		Identity:  id,
 		Sub:       auth.Subscription{SUPI: supi, Ki: ki, OPc: opc},
-		GNBN3Addr: m.GetGnbN3Addr(),
+		GNBN3Addr: n3,
 	}
 	if p := m.GetPduSession(); p != nil {
 		if p.GetSst() > 0xFF {
@@ -323,6 +338,10 @@ func (s *ueService) Handover(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	n3, err := gnbN3Arg(m.GetGnbN3Addr())
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
@@ -330,7 +349,7 @@ func (s *ueService) Handover(
 		Config:   target,
 		AMFAddr:  m.GetAmfAddress(),
 		BindAddr: m.GetBindAddress(),
-		N3Addr:   m.GetGnbN3Addr(),
+		N3Addr:   n3,
 	})
 	if err != nil {
 		return nil, handoverError(err)
@@ -357,11 +376,15 @@ func (s *ueService) XnHandover(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	n3, err := gnbN3Arg(m.GetGnbN3Addr())
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
 	elapsed, err := s.mgr.XnHandover(ctx, supi, engine.GNBEndpoint{
-		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: m.GetGnbN3Addr(),
+		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: n3,
 	})
 	if err != nil {
 		return nil, handoverError(err)

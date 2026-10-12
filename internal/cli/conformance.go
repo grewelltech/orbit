@@ -3,11 +3,13 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bgrewell/orbit/internal/conformance"
+	"github.com/bgrewell/orbit/internal/ue"
 )
 
 // newConformanceCmd runs the conformance / regression suite in-process against
@@ -24,6 +26,7 @@ func newConformanceCmd() *cobra.Command {
 		perTest       time.Duration
 		id            netIdentity
 		targetRelease string
+		ueFlags       conformanceUEFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "conformance",
@@ -33,6 +36,10 @@ func newConformanceCmd() *cobra.Command {
 				return fmt.Errorf("--bind: %w", err)
 			}
 			if err := id.resolve(true); err != nil {
+				return err
+			}
+			ueSpec, err := ueFlags.spec(id.DNN, id.MCC, id.MNC)
+			if err != nil {
 				return err
 			}
 			target := conformance.DefaultTargetRelease
@@ -50,6 +57,7 @@ func newConformanceCmd() *cobra.Command {
 				N3Bind:        n3Bind,
 				GNB:           id.gnbConfig(gnbBase, 0, "orbit-conf"),
 				TargetRelease: target,
+				UE:            ueSpec,
 			}
 			cats := make([]conformance.Category, 0, len(categories))
 			for _, c := range categories {
@@ -89,15 +97,60 @@ func newConformanceCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
 	f.StringVar(&bind, "bind", "", bindFlagHelp+"; port must be 0 (each check dials afresh)")
-	addNetIdentityFlags(f, &id)
+	addNetIdentityFlags(f, &id, withDNN())
 	f.StringVar(&upfN3, "upf-n3", "", "UPF N3 endpoint host:port (enables GTP-U checks; run from the UPF access network)")
 	f.StringVar(&n3Bind, "n3-bind", "", "local N3 source host:port for GTP-U checks (e.g. 172.17.50.12:2152)")
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")
-	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing)")
+	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility)")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", 15*time.Second, "per-check timeout")
 	f.StringVar(&targetRelease, "target-release", "",
 		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default unset: every check runs)")
+	f.StringVar(&ueFlags.supi, "supi", "", supiFlagHelp+"; enables the mobility checks")
+	f.StringVar(&ueFlags.ki, "ki", "", kiFlagHelp)
+	f.StringVar(&ueFlags.opc, "opc", "", opcFlagHelp)
+	f.StringVar(&ueFlags.gnbN3, "gnb-n3", "", "gNB N3 IP for the mobility checks' data path (reachable from the UPF; both gNBs use it)")
+	f.StringVar(&ueFlags.traffic, "traffic", "", "optional echo peer host:port the mobility checks' UE sends to across the handover")
 	_ = cmd.MarkFlagRequired("amf")
 	return cmd
+}
+
+// conformanceUEFlags are the conformance flags describing the UE the
+// mobility checks register.
+type conformanceUEFlags struct {
+	supi, ki, opc, gnbN3, traffic string
+}
+
+// spec builds the suite's UE section. With no --supi there is no UE (the
+// mobility checks SKIP), and the other UE flags are refused rather than
+// silently ignored. With one, the keys come from --ki/--opc or
+// $ORBIT_KI/$ORBIT_OPC, the SUPI must be in the PLMN and --gnb-n3 must be
+// an IPv4 address (canonicalised; see gnb.CanonicalN3).
+func (u conformanceUEFlags) spec(dnn, mcc, mnc string) (conformance.UESpec, error) {
+	if u.supi == "" {
+		if u.gnbN3 != "" || u.traffic != "" || u.ki != "" || u.opc != "" {
+			return conformance.UESpec{}, fmt.Errorf("--gnb-n3, --traffic, --ki and --opc describe the mobility checks' UE and need --supi")
+		}
+		return conformance.UESpec{}, nil
+	}
+	if _, err := ue.ParseIdentity(u.supi, mcc, mnc, "0"); err != nil {
+		return conformance.UESpec{}, fmt.Errorf("--supi: %w", err)
+	}
+	ki, opc, err := resolveCreds(u.ki, u.opc)
+	if err != nil {
+		return conformance.UESpec{}, err
+	}
+	if u.gnbN3 == "" {
+		return conformance.UESpec{}, fmt.Errorf("--gnb-n3: the mobility checks need the gNB N3 IP with --supi")
+	}
+	n3, err := gnbN3Flag(u.gnbN3)
+	if err != nil {
+		return conformance.UESpec{}, err
+	}
+	if u.traffic != "" {
+		if _, _, err := net.SplitHostPort(u.traffic); err != nil {
+			return conformance.UESpec{}, fmt.Errorf("--traffic: want host:port: %w", err)
+		}
+	}
+	return conformance.UESpec{SUPI: u.supi, Ki: ki, OPc: opc, DNN: dnn, GNBN3: n3, Traffic: u.traffic}, nil
 }

@@ -65,3 +65,51 @@ func TestEncodeEndMarker(t *testing.T) {
 		t.Errorf("message type = %#x, want %#x", em[1], MsgTypeEndMarker)
 	}
 }
+
+// TestDecodeEndMarkerExtensions: an End Marker's PDU Session Container QFI
+// is decoded; a marker without one has no QFI; an unreadable extension chain
+// still yields the marker (without a QFI) rather than an error; a G-PDU
+// with the same broken chain is still an error. End Markers carry no payload.
+func TestDecodeEndMarkerExtensions(t *testing.T) {
+	withQFI := []byte{0x34, MsgTypeEndMarker, 0x00, 0x08, 0, 0, 0x02, 0x51,
+		0, 0, 0, ExtHeaderTypePDUSessionContainer, 0x01, 0x00, 0x07, 0x00}
+	badLen := []byte{0x34, MsgTypeEndMarker, 0x00, 0x08, 0, 0, 0x02, 0x51,
+		0, 0, 0, ExtHeaderTypePDUSessionContainer, 0x05, 0x00, 0x07, 0x00}
+	badGPDU := append([]byte(nil), badLen...)
+	badGPDU[1] = MsgTypeGPDU
+	tests := []struct {
+		name    string
+		pkt     []byte
+		wantErr bool
+		wantHas bool
+		wantQFI uint8
+	}{
+		{name: "container", pkt: withQFI, wantHas: true, wantQFI: 7},
+		{name: "no container", pkt: EncodeEndMarker(0x251)},
+		{name: "bad extension length", pkt: badLen},
+		{name: "g-pdu with bad extension length", pkt: badGPDU, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g, err := DecodeGPDU(tc.pkt)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecodeGPDU: %v", err)
+			}
+			if g.MsgType != MsgTypeEndMarker || g.TEID != 0x251 {
+				t.Errorf("decoded type %#x TEID %#x, want an End Marker on 0x251", g.MsgType, g.TEID)
+			}
+			if g.HasQFI != tc.wantHas || g.QFI != tc.wantQFI {
+				t.Errorf("QFI = %v/%d, want %v/%d", g.HasQFI, g.QFI, tc.wantHas, tc.wantQFI)
+			}
+			if len(g.Payload) != 0 {
+				t.Errorf("End Marker payload = %x, want none", g.Payload)
+			}
+		})
+	}
+}

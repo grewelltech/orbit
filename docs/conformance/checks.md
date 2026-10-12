@@ -6,12 +6,19 @@ Every check names the clauses it asserts and the 3GPP releases they come from, v
 
 | Check | Category | Verdict class | Requires | Clauses |
 |---|---|---|---|---|
+| [GTPU-END-MARKER-ON-PATH-SWITCH](provenance/GTPU-END-MARKER-ON-PATH-SWITCH.md) | mobility | FAIL | Rel-15 | TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: "In case of" reads "In the case of" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; "set to 1" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag) |
 | [GTPU-UNKNOWN-TEID-ERRIND](provenance/GTPU-UNKNOWN-TEID-ERRIND.md) | gtpu | DEVIATION | Rel-15 | TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without "PDU Session"; Rel-15: "PDU Session" added in V15.4.0) |
 | [NGAP-UNKNOWN-UE-SURVIVES](provenance/NGAP-UNKNOWN-UE-SURVIVES.md) | negative-ie | FAIL | Rel-15 | TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences) |
 | [NGAP-NGSETUP-MISSING-TALIST](provenance/NGAP-NGSETUP-MISSING-TALIST.md) | negative-ie | FAIL | Rel-15 | TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads "GLOBAL reject" in V15.0.0, "YES reject" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NGAP-NG-RESET-ACK](provenance/NGAP-NG-RESET-ACK.md) | procedural | FAIL | Rel-15 | TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19) |
 
 ## Verified versions
+
+### GTPU-END-MARKER-ON-PATH-SWITCH
+
+- TS 23.501 5.8.2.9.1 (shall, since Rel-15): Rel-15 V15.0.0 (`23501-f00.zip`), Rel-15 V15.13.0 (`23501-fd0.zip`), Rel-16 V16.20.0 (`23501-gk0.zip`), Rel-17 V17.15.0 (`23501-hf0.zip`), Rel-18 V18.12.0 (`23501-ic0.zip`), Rel-19 V19.9.0 (`23501-j90.zip`)
+- TS 29.281 7.3.2 (shall, since Rel-15): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.2.0 (`29281-f20.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
+- TS 29.244 8.2.31 (shall, since Rel-14): Rel-14 V14.0.0 (`29244-e00.zip`), Rel-15 V15.10.0 (`29244-fa0.zip`), Rel-16 V16.13.0 (`29244-gd0.zip`), Rel-17 V17.10.0 (`29244-ha0.zip`), Rel-18 V18.10.0 (`29244-ia0.zip`), Rel-19 V19.6.0 (`29244-j60.zip`)
 
 ### GTPU-UNKNOWN-TEID-ERRIND
 

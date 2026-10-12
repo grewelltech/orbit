@@ -8,89 +8,17 @@ import (
 	"testing"
 	"time"
 
-	isctp "github.com/ishidawataru/sctp"
-
-	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
-	"github.com/bgrewell/orbit/internal/sctp"
+	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 )
 
-// sctpFront puts the pipe-only mock AMF behind a real loopback SCTP listener,
-// so the engine's genuine dial path (sctp.Dial, source selection, kernel
-// port assignment) is exercised against it. Each accepted association is
-// bridged to its own mock AMF connection. The test is skipped when the host
-// has no kernel SCTP.
+// sctpFront puts the pipe-only mock AMF behind a real loopback SCTP
+// listener (sctpfront.Listen), so the engine's genuine dial path is
+// exercised against it. The test is skipped when the host has no kernel
+// SCTP.
 func sctpFront(t *testing.T, amf *mockamf.AMF) string {
 	t.Helper()
-	ln, err := isctp.ListenSCTPExt("sctp",
-		&isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}},
-		isctp.InitMsg{NumOstreams: sctp.DefaultNGAPStreams, MaxInstreams: sctp.DefaultNGAPStreams})
-	if err != nil {
-		t.Skipf("no kernel SCTP on this host: %v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() {
-		cancel()
-		_ = ln.Close()
-	})
-	go func() {
-		for {
-			c, err := ln.AcceptSCTP()
-			if err != nil {
-				return
-			}
-			go bridgeSCTP(c, amf.ConnectShared(ctx))
-		}
-	}()
-	// The pinned library reads the address with a stack buffer passed to
-	// getsockopt as a uintptr through a helper, so a stack move between the
-	// conversion and the syscall can make the read fail (seen under -race).
-	// A retry runs on the already-grown stack.
-	for i := 0; i < 5; i++ {
-		if addr := ln.Addr(); addr != nil {
-			return addr.String()
-		}
-	}
-	t.Fatalf("SCTP listener reports no local address")
-	return ""
-}
-
-// bridgeSCTP copies NGAP messages between one accepted SCTP association and
-// one mock AMF transport, preserving the stream and tagging downlink with
-// the NGAP PPID. It returns when either side closes.
-func bridgeSCTP(c *isctp.SCTPConn, tr gnb.Transport) {
-	defer func() { _ = c.Close() }()
-	defer func() { _ = tr.Close() }()
-	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
-		return
-	}
-	go func() {
-		buf := make([]byte, 65536)
-		for {
-			payload, stream, _, err := tr.ReadMsg(buf)
-			if err != nil {
-				_ = c.Close()
-				return
-			}
-			if _, err := c.SCTPWrite(payload, &isctp.SndRcvInfo{Stream: stream, PPID: sctp.PPIDNGAP}); err != nil {
-				return
-			}
-		}
-	}()
-	buf := make([]byte, 65536)
-	for {
-		n, info, err := c.SCTPRead(buf)
-		if err != nil {
-			return
-		}
-		var stream uint16
-		if info != nil {
-			stream = info.Stream
-		}
-		if err := tr.WriteNGAP(stream, append([]byte(nil), buf[:n]...)); err != nil {
-			return
-		}
-	}
+	return sctpfront.Listen(t, amf)
 }
 
 // With no bind addresses, every gNB in a fleet dials from the route-selected

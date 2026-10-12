@@ -290,7 +290,7 @@ func (d *Demux) run() {
 		}
 		switch g.MsgType {
 		case gtpu.MsgTypeEndMarker:
-			em := EndMarker{Arrival: arrival, TEID: g.TEID, GNB: d.local}
+			em := EndMarker{Arrival: arrival, TEID: g.TEID, GNB: d.local, HasQFI: g.HasQFI, QFI: g.QFI}
 			if rx := d.lane(g.TEID); rx != nil {
 				rx.noteEndMarker(em)
 			} else if rx := d.tombstoneLane(g.TEID, arrival); rx != nil {
@@ -309,9 +309,17 @@ func (d *Demux) run() {
 			rx := d.lane(g.TEID)
 			if rx == nil {
 				d.teidMisses.Add(1)
+				// A G-PDU on a TEID a handover just vacated is not
+				// delivered, but the moved lane's observer still sees it
+				// (the late-G-PDU-after-End-Marker evidence).
+				if d.tombsLive.Load() > 0 {
+					if trx := d.tombstoneLane(g.TEID, arrival); trx != nil {
+						trx.noteStaleGPDU(GPDUArrival{Arrival: arrival, TEID: g.TEID, GNB: d.local, Stale: true})
+					}
+				}
 				continue
 			}
-			rx.noteDownlink(g.QFI, g.HasQFI, len(g.Payload))
+			rx.noteDownlink(g.QFI, g.HasQFI, len(g.Payload), GPDUArrival{Arrival: arrival, TEID: g.TEID, GNB: d.local})
 			pkt := make([]byte, len(g.Payload))
 			copy(pkt, g.Payload)
 			rx.dispatch(pkt, arrival)
@@ -343,6 +351,7 @@ type UERx struct {
 	udpAll      *Ring // wildcard UDP lane (SubscribeUDPAll); per-port lanes win
 	defaultSink func(innerIP []byte, arrival time.Time)
 	endMarkerFn func(em EndMarker)
+	gpduFn      func(g GPDUArrival)
 	dlStats     func(qfi uint8, hasQFI bool, payloadBytes int)
 
 	defaultDrops atomic.Uint64
@@ -470,6 +479,45 @@ type EndMarker struct {
 	// vacated (Rebind/Detach) — the expected post-switch case: the source
 	// gNB's shared socket outlives the move and the UPF drains the old path.
 	Stale bool
+	// HasQFI reports whether the marker carried a PDU Session Container
+	// extension header, and QFI is its QoS Flow Identifier. Recorded only:
+	// TS 29.281 7.3.2 requires the container solely on 5GS-EPS forwarding
+	// tunnels.
+	HasQFI bool
+	QFI    uint8
+}
+
+// GPDUArrival describes one downlink G-PDU seen for a lane: on its live TEID
+// (delivered) or, within the post-handover grace window, on a TEID it just
+// vacated (Stale; counted as a TEID miss and not delivered). It lets a
+// caller check what the UPF sent on the old path around a path switch.
+type GPDUArrival struct {
+	Arrival time.Time
+	TEID    uint32 // the TEID the G-PDU arrived on
+	GNB     string // the gNB N3 socket address it arrived on
+	Stale   bool   // arrived on a tombstoned (vacated) TEID
+}
+
+// SetGPDUFunc installs a callback fired (from the reader goroutine, must not
+// block) for each non-empty downlink G-PDU on this lane's live TEID, and for
+// each one on a TEID the lane vacated within the grace window (g.Stale). nil
+// removes it. Like SetEndMarkerFunc, the source socket's reader may fire it
+// concurrently with the target's after an inter-gNB move.
+func (u *UERx) SetGPDUFunc(f func(g GPDUArrival)) {
+	u.mu.Lock()
+	u.gpduFn = f
+	u.mu.Unlock()
+}
+
+// noteStaleGPDU delivers a G-PDU seen on a vacated TEID to the observer.
+// Called only from a reader goroutine; the callback runs outside u.mu.
+func (u *UERx) noteStaleGPDU(g GPDUArrival) {
+	u.mu.RLock()
+	f := u.gpduFn
+	u.mu.RUnlock()
+	if f != nil {
+		f(g)
+	}
 }
 
 // EndMarkers counts GTP-U End Marker G-PDUs delivered to this UE — on its
@@ -501,12 +549,17 @@ func (u *UERx) setDownlinkStats(f func(qfi uint8, hasQFI bool, payloadBytes int)
 	u.mu.Unlock()
 }
 
-func (u *UERx) noteDownlink(qfi uint8, hasQFI bool, payloadBytes int) {
+// noteDownlink runs the accounting hook and the G-PDU observer for one
+// delivered G-PDU, reading both under a single lock acquisition.
+func (u *UERx) noteDownlink(qfi uint8, hasQFI bool, payloadBytes int, g GPDUArrival) {
 	u.mu.RLock()
-	f := u.dlStats
+	f, obs := u.dlStats, u.gpduFn
 	u.mu.RUnlock()
 	if f != nil {
 		f(qfi, hasQFI, payloadBytes)
+	}
+	if obs != nil {
+		obs(g)
 	}
 }
 

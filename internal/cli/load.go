@@ -79,6 +79,10 @@ func newLoadCmd() *cobra.Command {
 					Config:   id.gnbConfig(gnbID+uint32(n), int(gnbBits), fmt.Sprintf("%s-%d", gnbName, n)),
 				})
 			}
+			n3, err := gnbN3Flag(gnbN3)
+			if err != nil {
+				return err
+			}
 			spec := engine.LoadSpec{
 				GNBs: gnbs, BaseIMSI: baseIMSI, Count: count, MCC: id.MCC, MNC: id.MNC,
 				Ki: kiB, OPc: opcB, Concurrency: conc, Rate: curve,
@@ -86,7 +90,7 @@ func newLoadCmd() *cobra.Command {
 			}
 			if withPDU {
 				spec.PDUSession = &ue.PDUSessionParams{PDUSessionID: 1, SST: uint8(id.SST), SD: id.SD, DNN: id.DNN}
-				spec.GNBN3Addr = gnbN3
+				spec.GNBN3Addr = n3
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "network: %s\n", id)
 

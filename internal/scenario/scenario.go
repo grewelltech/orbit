@@ -210,7 +210,7 @@ func (s *Scenario) validate() error {
 		return err
 	}
 	names := map[string]bool{}
-	for _, g := range s.GNBs {
+	for i, g := range s.GNBs {
 		if g.Name == "" {
 			return fmt.Errorf("every gNB needs a name")
 		}
@@ -218,6 +218,11 @@ func (s *Scenario) validate() error {
 			return fmt.Errorf("duplicate gNB name %q", g.Name)
 		}
 		names[g.Name] = true
+		n3, err := gnb.CanonicalN3(g.N3)
+		if err != nil {
+			return fmt.Errorf("gnb %s: n3: %w", g.Name, err)
+		}
+		s.GNBs[i].N3 = n3
 	}
 	ues, err := s.ResolveUEs()
 	if err != nil {

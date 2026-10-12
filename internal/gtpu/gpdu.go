@@ -61,7 +61,9 @@ type GPDU struct {
 // DecodeGPDU parses a GTP-U packet, returning the TEID, the QFI from the PDU
 // Session Container (if present), and the inner IP payload. It walks the
 // extension-header chain so a container that is not first still decodes,
-// though ORBIT (and the spec) place it first.
+// though ORBIT (and the spec) place it first. An End Marker's chain is
+// walked too, for its QFI; an unreadable chain on an End Marker yields the
+// marker without a QFI rather than an error.
 func DecodeGPDU(pkt []byte) (*GPDU, error) {
 	if len(pkt) < HeaderSizeMandatory {
 		return nil, fmt.Errorf("GTP-U packet too short: %d bytes", len(pkt))
@@ -77,16 +79,39 @@ func DecodeGPDU(pkt []byte) (*GPDU, error) {
 		return nil, fmt.Errorf("GTP-U length %d exceeds packet (%d bytes)", length, len(pkt))
 	}
 	out := &GPDU{TEID: teid, MsgType: msgType}
-	if msgType != MsgTypeGPDU {
-		// Echo/End Marker/etc. carry no user payload for our purposes.
+	if msgType != MsgTypeGPDU && msgType != MsgTypeEndMarker {
+		// Echo/Error Indication/etc. carry no user payload for our purposes.
 		return out, nil
 	}
 
-	pos := HeaderSizeMandatory
+	pos, qfi, hasQFI, err := walkExtensions(pkt, flags)
+	if err != nil {
+		if msgType == MsgTypeEndMarker {
+			// The marker itself is intact; only its optional extension
+			// headers are unreadable, so it is still delivered, without a
+			// QFI.
+			return out, nil
+		}
+		return nil, err
+	}
+	out.QFI, out.HasQFI = qfi, hasQFI
+	if msgType == MsgTypeGPDU {
+		// An End Marker's extension headers (QFI) are decoded, but it
+		// carries no payload.
+		out.Payload = pkt[pos : HeaderSizeMandatory+length]
+	}
+	return out, nil
+}
+
+// walkExtensions walks the optional header and extension-header chain after
+// the mandatory header, returning the offset of the payload and the QFI of a
+// PDU Session Container when one is present.
+func walkExtensions(pkt []byte, flags byte) (pos int, qfi uint8, hasQFI bool, err error) {
+	pos = HeaderSizeMandatory
 	nextExt := byte(0)
 	if flags&0x07 != 0 { // E, S, or PN set → 4-byte optional field present
 		if pos+4 > len(pkt) {
-			return nil, fmt.Errorf("truncated GTP-U optional header")
+			return 0, 0, false, fmt.Errorf("truncated GTP-U optional header")
 		}
 		nextExt = pkt[pos+3]
 		pos += 4
@@ -94,24 +119,21 @@ func DecodeGPDU(pkt []byte) (*GPDU, error) {
 
 	for nextExt != 0 {
 		if pos+1 > len(pkt) {
-			return nil, fmt.Errorf("truncated GTP-U extension header")
+			return 0, 0, false, fmt.Errorf("truncated GTP-U extension header")
 		}
 		extLen := int(pkt[pos]) * 4
 		if extLen == 0 || pos+extLen > len(pkt) {
-			return nil, fmt.Errorf("bad GTP-U extension header length %d", extLen)
+			return 0, 0, false, fmt.Errorf("bad GTP-U extension header length %d", extLen)
 		}
 		content := pkt[pos+1 : pos+extLen-1]
 		thisType := nextExt
 		nextExt = pkt[pos+extLen-1]
 		if thisType == ExtHeaderTypePDUSessionContainer && len(content) >= 2 {
-			out.QFI = content[1] & 0x3F
-			out.HasQFI = true
+			qfi, hasQFI = content[1]&0x3F, true
 		}
 		pos += extLen
 	}
-
-	out.Payload = pkt[pos : HeaderSizeMandatory+length]
-	return out, nil
+	return pos, qfi, hasQFI, nil
 }
 
 // EncodeEndMarker builds a GTP-U End Marker (type 0xFE) for the given
