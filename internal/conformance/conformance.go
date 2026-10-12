@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/bgrewell/orbit/internal/gnb"
@@ -49,22 +50,39 @@ const (
 	Timing     Category = "timing"      // concurrent-procedure timing (flaky-allowed)
 )
 
-// Result is one test's structured outcome.
+// Result is one test's structured outcome. The registry stamps the identity
+// and provenance fields from the test, so a check sets only the verdict and
+// what it saw. Detail always ends with the requirement line ("requires
+// Rel-15 or later; <refs>"), so every verdict names its clauses and release.
 type Result struct {
 	ID       string   `json:"id"`
 	Category Category `json:"category"`
-	SpecRef  string   `json:"spec_ref"`
-	Verdict  Verdict  `json:"verdict"`
-	Expected string   `json:"expected"`
-	Observed string   `json:"observed"`
-	Detail   string   `json:"detail,omitempty"`
+	// SpecRef is the check's references rendered on one line (RenderRefs),
+	// kept for consumers of the original string field.
+	SpecRef string `json:"spec_ref"`
+	// SpecRefs are the same references, structured.
+	SpecRefs []SpecRef `json:"spec_refs"`
+	// MinRelease is the oldest release the check applies to.
+	MinRelease Release `json:"min_release"`
+	Verdict    Verdict `json:"verdict"`
+	Expected   string  `json:"expected"`
+	Observed   string  `json:"observed"`
+	Detail     string  `json:"detail,omitempty"`
 }
 
 // Test is a single conformance / regression check.
 type Test interface {
 	ID() string
 	Category() Category
-	SpecRef() string
+	// SpecRefs are the clauses the check asserts, with their release
+	// provenance; ValidateTest states the rules they must meet.
+	SpecRefs() []SpecRef
+	// VerdictClass is the worst verdict the check gives a core: Fail, or
+	// Deviation for a check that documents a gap without failing the gate
+	// (required when it cites no "shall"). A FAIL-class check may also
+	// report DEVIATION for an outcome that misses its shall without harming
+	// the core; the registry never lets a Deviation-class check report Fail.
+	VerdictClass() Verdict
 	// Run drives the check against env and returns its verdict.
 	Run(ctx context.Context, env Env) Result
 }
@@ -86,12 +104,17 @@ type Test interface {
 // is the UPF's N3 endpoint (host:port) and N3Bind the local N3 source
 // (host:port) — both must be set, from a host on the UPF access network, or
 // GTP-U checks SKIP. See docs/USAGE.md "Where things must run".
+//
+// TargetRelease is the 3GPP release the core claims; a check that requires a
+// newer release SKIPs instead of running. The zero value (unset) runs every
+// check.
 type Env struct {
-	AMFAddr string
-	Bind    string
-	GNB     gnb.Config
-	UPFN3   string
-	N3Bind  string
+	AMFAddr       string
+	Bind          string
+	GNB           gnb.Config
+	UPFN3         string
+	N3Bind        string
+	TargetRelease Release
 }
 
 // Dial opens a raw SCTP association to the AMF (no NG Setup) from Bind,
@@ -180,11 +203,14 @@ func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	return err == nil && ng.Accepted, nil
 }
 
-// confirmAlive applies the crash-safety confirmation to a passing result: a
-// core that no longer completes a fresh NG Setup turns the PASS into a FAIL,
-// while a probe that could not even be dialled turns it into an ERROR.
+// confirmAlive applies the crash-safety confirmation to a result in which
+// the core survived the message by its own account (PASS, or DEVIATION for a
+// non-spec but non-fatal reaction): a fresh NG Setup must still complete. If
+// it does not, the core did not survive (FAIL); if the probe itself cannot
+// be made, that says nothing about the core (ERROR). Other verdicts pass
+// through unchanged.
 func confirmAlive(ctx context.Context, env Env, r Result, failDetail string) Result {
-	if r.Verdict != Pass {
+	if r.Verdict != Pass && r.Verdict != Deviation {
 		return r
 	}
 	alive, err := env.Alive(ctx)
@@ -270,12 +296,63 @@ func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration
 		// category filter.
 		e := env
 		e.GNB.ID = env.GNB.ID + uint32(r.indexOf(t))
-		tctx, cancel := context.WithTimeout(ctx, perTest)
-		res := t.Run(tctx, e)
-		cancel()
-		res.ID, res.Category, res.SpecRef = t.ID(), t.Category(), t.SpecRef()
-		emit(res, i, len(selected))
+		emit(runOne(ctx, t, e, perTest), i, len(selected))
 	}
+}
+
+// runOne runs one check, or SKIPs it when it requires a release newer than
+// the target, and stamps identity and provenance onto the result. A
+// Deviation-class check is never allowed to report Fail. Every result's
+// detail ends with the requirement line; when the target is newer than the
+// releases the wording was verified through, the detail says so.
+func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
+	min := MinRelease(t)
+	var res Result
+	if e.TargetRelease != 0 && min > e.TargetRelease {
+		res = Result{Verdict: Skip, Observed: "requires a newer release than the target",
+			Detail: fmt.Sprintf("requires %s (%s); target release is %s", min, refsSince(t, min), e.TargetRelease)}
+	} else {
+		tctx, cancel := context.WithTimeout(ctx, perTest)
+		res = t.Run(tctx, e)
+		cancel()
+		if res.Verdict == Fail && t.VerdictClass() == Deviation {
+			res.Verdict = Deviation
+		}
+		if e.TargetRelease > LatestRelease {
+			res.Detail = joinDetail(res.Detail, fmt.Sprintf("wording verified through %s", LatestRelease))
+		}
+	}
+	res.ID, res.Category = t.ID(), t.Category()
+	res.SpecRefs = t.SpecRefs()
+	res.SpecRef = RenderRefs(res.SpecRefs)
+	res.MinRelease = min
+	res.Detail = joinDetail(res.Detail, requirementLine(t))
+	return res
+}
+
+// refsSince names, briefly, the references that set a check's minimum
+// release ("TS 24.501 5.4.1.3.7"), for the SKIP detail.
+func refsSince(t Test, min Release) string {
+	var out []string
+	for _, r := range t.SpecRefs() {
+		if r.Since >= min {
+			out = append(out, r.Spec+" "+r.Clause)
+		}
+	}
+	if len(out) == 0 { // a check whose MinRelease is declared above every Since
+		for _, r := range t.SpecRefs() {
+			out = append(out, r.Spec+" "+r.Clause)
+		}
+	}
+	return strings.Join(out, "; ")
+}
+
+// joinDetail appends one sentence to a detail.
+func joinDetail(detail, more string) string {
+	if detail == "" {
+		return more
+	}
+	return detail + "; " + more
 }
 
 // indexOf returns a test's position in the full registry, used for a stable
@@ -302,6 +379,9 @@ type Summary struct {
 	// Network is the identity the checks presented to the core (PLMN, TAC,
 	// slice), so a verdict records which network it was taken under.
 	Network *NetworkIdentity `json:",omitempty"`
+	// TargetRelease is the release the run was gated on ("unset" when none
+	// was given, in which case every check ran).
+	TargetRelease Release
 }
 
 // NetworkIdentity is the PLMN, tracking area and slice a conformance run

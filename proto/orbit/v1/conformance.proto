@@ -52,6 +52,10 @@ message RunConformanceRequest {
   // the same address, and only ephemeral ports keep the two distinct. A
   // fixed port is rejected as InvalidArgument. N3 is n3_bind.
   string bind_address = 12;
+  // 3GPP release the core claims (15 = Rel-15). A check that requires a
+  // newer release reports SKIP and never FAIL. 0 means unset: every check
+  // runs, and each result still states the release it requires.
+  uint32 target_release = 13;
 }
 
 // ConformanceUpdate is one test's outcome, or (with done=true) the summary.
@@ -62,6 +66,8 @@ message ConformanceUpdate {
   // Position for progress display: test `index` of `total` selected.
   uint32 index = 4;
   uint32 total = 5;
+  // The target release the run is gated on (0 = unset), on every update.
+  uint32 target_release = 6;
 }
 
 message ConformanceResult {
@@ -71,7 +77,37 @@ message ConformanceResult {
   string verdict = 4;             // PASS | FAIL | ERROR | SKIP | DEVIATION
   string expected = 5;
   string observed = 6;
-  string detail = 7;
+  string detail = 7;             // ends with the requirement line ("requires Rel-15 or later; <spec_ref>")
+  // The references spec_ref renders, structured with their provenance.
+  repeated SpecRef spec_refs = 8;
+  uint32 min_release = 9;         // oldest release the check applies to
+}
+
+// SpecRef is one clause a conformance check asserts, with the 3GPP release
+// provenance read in the 3GPP archive.
+message SpecRef {
+  string spec = 1;                // "TS 38.413"
+  string clause = 2;              // exact paragraph, e.g. "10.3.5 Reject IE bullet 1"
+  string strength = 3;            // shall | should | descriptive
+  uint32 since = 4;               // earliest release the requirement appears in
+  repeated SpecVersion verified = 5;
+  repeated SpecChange changed = 6;
+  bool wording_unchanged = 7;
+  string rendered = 8;            // the one-line rendering, as in spec_ref
+}
+
+// SpecVersion is one specification version whose wording was read.
+message SpecVersion {
+  uint32 release = 1;
+  string version = 2;             // "V16.18.0"
+  string archive = 3;             // "38413-gi0.zip"
+}
+
+// SpecChange is one release whose wording or clause number differs from the
+// release the requirement first appeared in.
+message SpecChange {
+  uint32 release = 1;
+  string note = 2;
 }
 
 message ConformanceTally {
@@ -88,6 +124,8 @@ message ConformanceTestInfo {
   string id = 1;
   string category = 2;
   string spec_ref = 3;
+  repeated SpecRef spec_refs = 4;
+  uint32 min_release = 5;
 }
 
 message ListConformanceTestsResponse {

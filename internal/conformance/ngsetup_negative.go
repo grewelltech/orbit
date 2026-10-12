@@ -28,12 +28,21 @@ type ngSetupMissingMandatoryIE struct{}
 
 func (ngSetupMissingMandatoryIE) ID() string         { return "NGAP-NGSETUP-MISSING-TALIST" }
 func (ngSetupMissingMandatoryIE) Category() Category { return NegativeIE }
-func (ngSetupMissingMandatoryIE) SpecRef() string {
-	return "TS 38.413 §9.2.6.1 (NG SETUP mandatory IEs) / §10 (missing mandatory IE)"
+func (ngSetupMissingMandatoryIE) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 38.413", Clause: "9.2.6.1 Supported TA List", Strength: Descriptive, Since: 15, Verified: ts38413Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0"},
+				{Release: 19, Note: "semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject"},
+			}},
+		{Spec: "TS 38.413", Clause: "10.3.5 Reject IE bullet 1", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
+	}
 }
 
+func (ngSetupMissingMandatoryIE) VerdictClass() Verdict { return Fail }
+
 func (ngSetupMissingMandatoryIE) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "reject (NG SETUP FAILURE ideal) and survive; must not accept a setup missing a mandatory IE"}
+	r := Result{Expected: "NG SETUP FAILURE reporting the missing Supported TA List, and the core survives (TS 38.413 10.3.5)"}
 	conn, err := env.Dial(ctx) // raw association — we send our own (malformed) NG Setup
 	if err != nil {
 		r.Verdict, r.Observed, r.Detail = Error, "dial failed", err.Error()
@@ -71,26 +80,47 @@ func (ngSetupMissingMandatoryIE) Run(ctx context.Context, env Env) Result {
 	rctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
+	r.Verdict, r.Observed, r.Detail = classifyMissingTAList(resp, err)
+
+	// Crash-safety confirmation for the PASS and DEVIATION paths.
+	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive")
+}
+
+// classifyMissingTAList maps the AMF's reaction to an NG Setup Request
+// without the mandatory Supported TA List onto a verdict. 10.3.5 requires
+// the procedure to be rejected with the message that reports its
+// unsuccessful outcome: NG SETUP FAILURE is PASS, with whether it carries
+// Criticality Diagnostics recorded (not asserted). Surviving without that (a
+// silent drop, an ERROR INDICATION or another PDU) misses the shall without
+// harming the core: DEVIATION. Accepting the setup, or resetting the
+// association: FAIL.
+func classifyMissingTAList(resp *ngapType.NGAPPDU, err error) (Verdict, string, string) {
 	switch {
 	case err == nil && isNGSetupFailure(resp):
-		r.Verdict, r.Observed = Pass, "NG SETUP FAILURE (rejected)"
-	case err == nil && isErrorIndication(resp):
-		r.Verdict, r.Observed = Pass, "Error Indication (rejected)"
+		if hasCriticalityDiagnostics(resp) {
+			return Pass, "NG SETUP FAILURE (rejected)", "Criticality Diagnostics present"
+		}
+		return Pass, "NG SETUP FAILURE (rejected)", "Criticality Diagnostics absent (10.3.5 asks for it; recorded, not asserted)"
 	case err == nil && isNGSetupResponse(resp):
-		r.Verdict, r.Observed, r.Detail = Fail, "NG SETUP RESPONSE (accepted!)",
-			"AMF accepted an NG Setup missing the mandatory Supported TA List"
+		return Fail, "NG SETUP RESPONSE (accepted!)", "AMF accepted an NG Setup missing the mandatory Supported TA List"
 	case err == nil:
-		r.Verdict, r.Observed = Pass, ngapName(resp)
-		r.Detail = "responded (not acceptance) without crashing"
+		return Deviation, ngapName(resp), "answered with " + ngapName(resp) + " instead of NG SETUP FAILURE; the association survived"
 	case errors.Is(err, context.DeadlineExceeded):
-		r.Verdict, r.Observed = Pass, "silently dropped; association survived"
-		r.Detail = "graceful drop of the malformed setup; NG SETUP FAILURE would be spec-ideal"
+		return Deviation, "silently dropped; association survived", "no NG SETUP FAILURE within the wait; the association survived"
 	default:
-		r.Verdict, r.Observed, r.Detail = Fail, "association reset", err.Error()
+		return Fail, "association reset", err.Error()
 	}
+}
 
-	// Crash-safety confirmation for the non-failure paths.
-	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive")
+// hasCriticalityDiagnostics reports whether an NG SETUP FAILURE carries the
+// Criticality Diagnostics IE.
+func hasCriticalityDiagnostics(pdu *ngapType.NGAPPDU) bool {
+	for _, ie := range pdu.UnsuccessfulOutcome.Value.NGSetupFailure.ProtocolIEs.List {
+		if ie.Id.Value == ngapType.ProtocolIEIDCriticalityDiagnostics && ie.Value.CriticalityDiagnostics != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func isNGSetupFailure(pdu *ngapType.NGAPPDU) bool {

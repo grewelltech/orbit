@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -81,9 +82,14 @@ func TestConfirmAliveProbeFailureIsError(t *testing.T) {
 	if !strings.Contains(got.Detail, "liveness probe dial") || !strings.Contains(got.Observed, "ok") {
 		t.Errorf("result does not explain the probe failure: %+v", got)
 	}
-	for _, v := range []Verdict{Fail, Error, Skip, Deviation} {
+	// DEVIATION is a surviving outcome too, so the probe applies to it.
+	gotDev := confirmAlive(context.Background(), env, Result{Verdict: Deviation, Observed: "silently dropped"}, "core died")
+	if gotDev.Verdict != Error || !strings.Contains(gotDev.Observed, "silently dropped") {
+		t.Errorf("DEVIATION with a failed probe = %+v, want ERROR naming the observation", gotDev)
+	}
+	for _, v := range []Verdict{Fail, Error, Skip} {
 		in := Result{Verdict: v, Observed: "x", Detail: "y"}
-		if out := confirmAlive(context.Background(), env, in, "core died"); out != in {
+		if out := confirmAlive(context.Background(), env, in, "core died"); !reflect.DeepEqual(out, in) {
 			t.Errorf("confirmAlive changed a %s result: %+v", v, out)
 		}
 	}

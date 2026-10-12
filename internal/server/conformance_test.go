@@ -145,3 +145,66 @@ func connectErrorAs(err error, target **connect.Error) bool {
 	}
 	return false
 }
+
+// ListConformanceTests carries each check's structured references and the
+// release it requires, with spec_ref the same rendering as each ref.
+func TestListConformanceTestsCarriesProvenance(t *testing.T) {
+	c := newConformanceClient(t)
+	res, err := c.ListConformanceTests(context.Background(), connect.NewRequest(&orbitv1.ListConformanceTestsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tst := range res.Msg.GetTests() {
+		if tst.GetMinRelease() < 15 || len(tst.GetSpecRefs()) == 0 {
+			t.Errorf("%s: min_release %d, %d spec_refs", tst.GetId(), tst.GetMinRelease(), len(tst.GetSpecRefs()))
+			continue
+		}
+		var rendered []string
+		for _, r := range tst.GetSpecRefs() {
+			if r.GetSpec() == "" || r.GetClause() == "" || r.GetStrength() == "" || len(r.GetVerified()) == 0 {
+				t.Errorf("%s: incomplete ref %+v", tst.GetId(), r)
+			}
+			rendered = append(rendered, r.GetRendered())
+		}
+		if got := strings.Join(rendered, "; "); got != tst.GetSpecRef() {
+			t.Errorf("%s: spec_ref %q differs from its refs' rendering %q", tst.GetId(), tst.GetSpecRef(), got)
+		}
+	}
+}
+
+// A target release older than every check's requirement SKIPs the whole
+// suite without dialling (the AMF here is unroutable), each result carrying
+// its provenance and the reason, and every update reports the target.
+func TestRunConformanceTargetReleaseSkips(t *testing.T) {
+	c := newConformanceClient(t)
+	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
+		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2, TargetRelease: 14,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var results int
+	for stream.Receive() {
+		u := stream.Msg()
+		if u.GetTargetRelease() != 14 {
+			t.Errorf("update target_release = %d, want 14", u.GetTargetRelease())
+		}
+		r := u.GetResult()
+		if r == nil {
+			continue
+		}
+		results++
+		if r.GetVerdict() != "SKIP" || !strings.Contains(r.GetDetail(), "target release is Rel-14") {
+			t.Errorf("%s: verdict %s detail %q, want SKIP for the target", r.GetId(), r.GetVerdict(), r.GetDetail())
+		}
+		if len(r.GetSpecRefs()) == 0 || r.GetMinRelease() < 15 || !strings.HasSuffix(r.GetDetail(), r.GetSpecRef()) {
+			t.Errorf("%s: result lacks provenance: %+v", r.GetId(), r)
+		}
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if results == 0 {
+		t.Fatal("no results")
+	}
+}

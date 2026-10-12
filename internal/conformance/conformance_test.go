@@ -14,7 +14,10 @@ type fakeTest struct {
 
 func (f fakeTest) ID() string         { return f.id }
 func (f fakeTest) Category() Category { return f.cat }
-func (f fakeTest) SpecRef() string    { return "TS 00.000 §0" }
+func (f fakeTest) SpecRefs() []SpecRef {
+	return []SpecRef{{Spec: "TS 00.000", Clause: "0", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true}}
+}
+func (f fakeTest) VerdictClass() Verdict { return Fail }
 func (f fakeTest) Run(context.Context, Env) Result {
 	return Result{Verdict: f.verdict, Observed: "fake"}
 }
