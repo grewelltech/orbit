@@ -28,9 +28,18 @@ type ngSetupMissingMandatoryIE struct{}
 
 func (ngSetupMissingMandatoryIE) ID() string         { return "NGAP-NGSETUP-MISSING-TALIST" }
 func (ngSetupMissingMandatoryIE) Category() Category { return NegativeIE }
-func (ngSetupMissingMandatoryIE) SpecRef() string {
-	return "TS 38.413 §9.2.6.1 (NG SETUP mandatory IEs) / §10 (missing mandatory IE)"
+func (ngSetupMissingMandatoryIE) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 38.413", Clause: "9.2.6.1 Supported TA List", Strength: Descriptive, Since: 15, Verified: ts38413Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0"},
+				{Release: 19, Note: "semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject"},
+			}},
+		{Spec: "TS 38.413", Clause: "10.3.5 Reject IE bullet 1", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
+	}
 }
+
+func (ngSetupMissingMandatoryIE) VerdictClass() Verdict { return Fail }
 
 func (ngSetupMissingMandatoryIE) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "reject (NG SETUP FAILURE ideal) and survive; must not accept a setup missing a mandatory IE"}

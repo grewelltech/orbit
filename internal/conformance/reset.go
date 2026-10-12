@@ -24,9 +24,18 @@ type ngResetAcknowledged struct{}
 
 func (ngResetAcknowledged) ID() string         { return "NGAP-NG-RESET-ACK" }
 func (ngResetAcknowledged) Category() Category { return Procedural }
-func (ngResetAcknowledged) SpecRef() string {
-	return "TS 38.413 §8.7.4 (Reset) / §9.2.6.4-5 (NG RESET / ACKNOWLEDGE)"
+
+// SpecRefs cites the shall in 8.7.4.2.2. The NG RESET and NG RESET
+// ACKNOWLEDGE message clauses (9.2.6.11, 9.2.6.12) are cited in the
+// provenance file only: their numbering was verified V15.0.0 to V19.4.0 but
+// their IE tables were not compared release by release.
+func (ngResetAcknowledged) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 38.413", Clause: "8.7.4.2.2", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
+	}
 }
+
+func (ngResetAcknowledged) VerdictClass() Verdict { return Fail }
 
 func (ngResetAcknowledged) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "NG RESET ACKNOWLEDGE (Reset procedure completes)"}

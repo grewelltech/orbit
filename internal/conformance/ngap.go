@@ -27,9 +27,19 @@ type errorIndicationOnUnknownUE struct{}
 
 func (errorIndicationOnUnknownUE) ID() string         { return "NGAP-UNKNOWN-UE-SURVIVES" }
 func (errorIndicationOnUnknownUE) Category() Category { return NegativeIE }
-func (errorIndicationOnUnknownUE) SpecRef() string {
-	return "TS 38.413 §8.7.1 (Error Indication) / §10.6 (AP ID errors)"
+func (errorIndicationOnUnknownUE) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, Verified: ts38413Verified,
+			Changed: []SpecChange{{Release: 15, Note: "V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message"}}},
+		{Spec: "TS 38.413", Clause: "8.7.5.2", Strength: Shall, Since: 15, Verified: ts38413Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "example cause names replaced in V15.4.0"},
+				{Release: 19, Note: "V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences"},
+			}},
+	}
 }
+
+func (errorIndicationOnUnknownUE) VerdictClass() Verdict { return Fail }
 
 func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "core survives the unexpected message (Error Indication ideal; graceful drop OK)"}

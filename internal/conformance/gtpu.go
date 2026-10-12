@@ -30,9 +30,26 @@ type gtpuUnknownTEID struct{}
 
 func (gtpuUnknownTEID) ID() string         { return "GTPU-UNKNOWN-TEID-ERRIND" }
 func (gtpuUnknownTEID) Category() Category { return GTPU }
-func (gtpuUnknownTEID) SpecRef() string {
-	return "TS 29.281 §7.3.1 (Error Indication on unknown TEID)"
+func (gtpuUnknownTEID) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, Verified: ts29281Verified,
+			Changed: []SpecChange{
+				{Release: 8, Note: "V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0"},
+				{Release: 11, Note: "the 'all zeros' TEID exception is present by V11.6.0"},
+				{Release: 12, Note: "current wording from V12.0.0, without \"PDU Session\""},
+				{Release: 15, Note: "\"PDU Session\" added in V15.4.0"},
+			}},
+	}
 }
+
+// MinRelease is Rel-15: the requirement dates from Rel-8, but this check
+// asserts it for a PDU Session, wording added in V15.4.0.
+func (gtpuUnknownTEID) MinRelease() Release { return 15 }
+
+// VerdictClass is Deviation by policy: the courtesy Error Indication is a
+// shall many UPFs leave unimplemented, so a missing one is reported without
+// failing the gate.
+func (gtpuUnknownTEID) VerdictClass() Verdict { return Deviation }
 
 func (gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "GTP-U Error Indication (type 26) echoing the unknown TEID"}

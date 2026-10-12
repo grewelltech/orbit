@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -83,7 +84,7 @@ func TestConfirmAliveProbeFailureIsError(t *testing.T) {
 	}
 	for _, v := range []Verdict{Fail, Error, Skip, Deviation} {
 		in := Result{Verdict: v, Observed: "x", Detail: "y"}
-		if out := confirmAlive(context.Background(), env, in, "core died"); out != in {
+		if out := confirmAlive(context.Background(), env, in, "core died"); !reflect.DeepEqual(out, in) {
 			t.Errorf("confirmAlive changed a %s result: %+v", v, out)
 		}
 	}

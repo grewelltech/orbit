@@ -23,6 +23,7 @@ func newConformanceCmd() *cobra.Command {
 		jsonOut       bool
 		perTest       time.Duration
 		id            netIdentity
+		targetRelease string
 	)
 	cmd := &cobra.Command{
 		Use:   "conformance",
@@ -34,12 +35,21 @@ func newConformanceCmd() *cobra.Command {
 			if err := id.resolve(true); err != nil {
 				return err
 			}
+			target := conformance.DefaultTargetRelease
+			if targetRelease != "" {
+				t, err := conformance.ParseRelease(targetRelease)
+				if err != nil {
+					return fmt.Errorf("--target-release: %w", err)
+				}
+				target = t
+			}
 			env := conformance.Env{
-				AMFAddr: amf,
-				Bind:    bind,
-				UPFN3:   upfN3,
-				N3Bind:  n3Bind,
-				GNB:     id.gnbConfig(gnbBase, 0, "orbit-conf"),
+				AMFAddr:       amf,
+				Bind:          bind,
+				UPFN3:         upfN3,
+				N3Bind:        n3Bind,
+				GNB:           id.gnbConfig(gnbBase, 0, "orbit-conf"),
+				TargetRelease: target,
 			}
 			cats := make([]conformance.Category, 0, len(categories))
 			for _, c := range categories {
@@ -49,6 +59,7 @@ func newConformanceCmd() *cobra.Command {
 			sum := conformance.Summarize(results)
 			sum.N2Source = env.N2Source()
 			sum.Network = env.Network()
+			sum.TargetRelease = target
 
 			out := cmd.OutOrStdout()
 			if jsonOut {
@@ -59,11 +70,12 @@ func newConformanceCmd() *cobra.Command {
 				if sum.N2Source != "" {
 					fmt.Fprintf(out, "n2-source=%s\n", sum.N2Source)
 				}
+				_, _ = fmt.Fprintf(out, "target-release: %s\n", sum.TargetRelease)
 				for _, r := range sum.Results {
 					fmt.Fprintf(out, "%-5s [%-11s] %-26s %s\n", r.Verdict, r.Category, r.ID, r.Observed)
-					if r.Detail != "" {
-						fmt.Fprintf(out, "      %s — %s\n", r.SpecRef, r.Detail)
-					}
+					// Detail always ends with the requirement line: the release
+					// the check requires and its clauses.
+					_, _ = fmt.Fprintf(out, "      %s\n", r.Detail)
 				}
 				fmt.Fprintf(out, "\n%d checks: %d pass, %d fail, %d deviation, %d error, %d skip\n",
 					sum.Total, sum.Pass, sum.Fail, sum.Deviation, sum.Error, sum.Skip)
@@ -84,6 +96,8 @@ func newConformanceCmd() *cobra.Command {
 	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing)")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", 15*time.Second, "per-check timeout")
+	f.StringVar(&targetRelease, "target-release", "",
+		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default unset: every check runs)")
 	_ = cmd.MarkFlagRequired("amf")
 	return cmd
 }
