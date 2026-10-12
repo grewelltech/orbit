@@ -47,10 +47,17 @@ message RunNGSetupRequest {
   // routes to the AMF from (one address in the INIT), ephemeral port.
   string local_address = 2;
   GnbConfig gnb = 3;
-  // Timeout in milliseconds for the whole procedure, the SCTP dial (INIT
-  // exchange) included, so an AMF that never answers fails within it; 0
-  // defaults to 10000.
+  // Timeout in milliseconds for the dial (INIT exchange) plus the NG Setup
+  // exchange, so an AMF that never answers fails within it; 0 defaults to
+  // 10000. A hold (hold_ms) runs after it on its own clock and never extends
+  // it.
   uint32 timeout_ms = 4;
+  // Keep the association open this long after a successful NG Setup, in
+  // milliseconds, so the AMF's SCTP heartbeat and anything it sends
+  // unprompted can be observed; inbound NGAP is drained and logged. 0 closes
+  // at once. Capped at 600000 (10 minutes): a larger value is
+  // InvalidArgument. Not run after an NG Setup Failure.
+  uint32 hold_ms = 5;
 }
 
 message RunNGSetupResponse {
@@ -66,4 +73,9 @@ message RunNGSetupResponse {
   // Local N2 source address the association actually used (host:port, with
   // the real port even when local_address asked for :0).
   string local_address = 5;
+  // How long the association was actually held after the NG Setup Response,
+  // in milliseconds: about hold_ms when the hold ran to completion, less when
+  // the call was cancelled or the AMF closed the association first; 0 when
+  // no hold was requested or NG Setup failed.
+  uint32 held_ms = 6;
 }

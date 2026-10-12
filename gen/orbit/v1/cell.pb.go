@@ -185,10 +185,17 @@ type RunNGSetupRequest struct {
 	// routes to the AMF from (one address in the INIT), ephemeral port.
 	LocalAddress string     `protobuf:"bytes,2,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
 	Gnb          *GnbConfig `protobuf:"bytes,3,opt,name=gnb,proto3" json:"gnb,omitempty"`
-	// Timeout in milliseconds for the whole procedure, the SCTP dial (INIT
-	// exchange) included, so an AMF that never answers fails within it; 0
-	// defaults to 10000.
-	TimeoutMs     uint32 `protobuf:"varint,4,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	// Timeout in milliseconds for the dial (INIT exchange) plus the NG Setup
+	// exchange, so an AMF that never answers fails within it; 0 defaults to
+	// 10000. A hold (hold_ms) runs after it on its own clock and never extends
+	// it.
+	TimeoutMs uint32 `protobuf:"varint,4,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	// Keep the association open this long after a successful NG Setup, in
+	// milliseconds, so the AMF's SCTP heartbeat and anything it sends
+	// unprompted can be observed; inbound NGAP is drained and logged. 0 closes
+	// at once. Capped at 600000 (10 minutes): a larger value is
+	// InvalidArgument. Not run after an NG Setup Failure.
+	HoldMs        uint32 `protobuf:"varint,5,opt,name=hold_ms,json=holdMs,proto3" json:"hold_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -251,6 +258,13 @@ func (x *RunNGSetupRequest) GetTimeoutMs() uint32 {
 	return 0
 }
 
+func (x *RunNGSetupRequest) GetHoldMs() uint32 {
+	if x != nil {
+		return x.HoldMs
+	}
+	return 0
+}
+
 type RunNGSetupResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// True on NGSetupResponse, false on NGSetupFailure.
@@ -264,7 +278,12 @@ type RunNGSetupResponse struct {
 	ReplyPpid uint32 `protobuf:"varint,4,opt,name=reply_ppid,json=replyPpid,proto3" json:"reply_ppid,omitempty"`
 	// Local N2 source address the association actually used (host:port, with
 	// the real port even when local_address asked for :0).
-	LocalAddress  string `protobuf:"bytes,5,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
+	LocalAddress string `protobuf:"bytes,5,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
+	// How long the association was actually held after the NG Setup Response,
+	// in milliseconds: about hold_ms when the hold ran to completion, less when
+	// the call was cancelled or the AMF closed the association first; 0 when
+	// no hold was requested or NG Setup failed.
+	HeldMs        uint32 `protobuf:"varint,6,opt,name=held_ms,json=heldMs,proto3" json:"held_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -334,6 +353,13 @@ func (x *RunNGSetupResponse) GetLocalAddress() string {
 	return ""
 }
 
+func (x *RunNGSetupResponse) GetHeldMs() uint32 {
+	if x != nil {
+		return x.HeldMs
+	}
+	return 0
+}
+
 var File_orbit_v1_cell_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_cell_proto_rawDesc = "" +
@@ -349,21 +375,23 @@ const file_orbit_v1_cell_proto_rawDesc = "" +
 	"\x03mcc\x18\x04 \x01(\tR\x03mcc\x12\x10\n" +
 	"\x03mnc\x18\x05 \x01(\tR\x03mnc\x12\x10\n" +
 	"\x03tac\x18\x06 \x01(\rR\x03tac\x12(\n" +
-	"\x06slices\x18\a \x03(\v2\x10.orbit.v1.SnssaiR\x06slices\"\x9f\x01\n" +
+	"\x06slices\x18\a \x03(\v2\x10.orbit.v1.SnssaiR\x06slices\"\xb8\x01\n" +
 	"\x11RunNGSetupRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12#\n" +
 	"\rlocal_address\x18\x02 \x01(\tR\flocalAddress\x12%\n" +
 	"\x03gnb\x18\x03 \x01(\v2\x13.orbit.v1.GnbConfigR\x03gnb\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x04 \x01(\rR\ttimeoutMs\"\xa5\x01\n" +
+	"timeout_ms\x18\x04 \x01(\rR\ttimeoutMs\x12\x17\n" +
+	"\ahold_ms\x18\x05 \x01(\rR\x06holdMs\"\xbe\x01\n" +
 	"\x12RunNGSetupResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x19\n" +
 	"\bamf_name\x18\x02 \x01(\tR\aamfName\x12\x14\n" +
 	"\x05cause\x18\x03 \x01(\tR\x05cause\x12\x1d\n" +
 	"\n" +
 	"reply_ppid\x18\x04 \x01(\rR\treplyPpid\x12#\n" +
-	"\rlocal_address\x18\x05 \x01(\tR\flocalAddress2X\n" +
+	"\rlocal_address\x18\x05 \x01(\tR\flocalAddress\x12\x17\n" +
+	"\aheld_ms\x18\x06 \x01(\rR\x06heldMs2X\n" +
 	"\vCellService\x12I\n" +
 	"\n" +
 	"RunNGSetup\x12\x1b.orbit.v1.RunNGSetupRequest\x1a\x1c.orbit.v1.RunNGSetupResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
