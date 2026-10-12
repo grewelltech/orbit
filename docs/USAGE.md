@@ -46,11 +46,15 @@ reports it. Use `--bind` when the gNB should use a different address (a RAN
 host with several N2 addresses) or a fixed port. A host with no route to the
 AMF fails at dial with an error that names `--bind`; ORBIT never falls back to
 advertising every host address. A dial to an AMF that never answers the INIT
-fails after 20 s on every command (`no INIT-ACK after 20.0s (bound 20s; AMF
-unreachable or black-holed)`), or at the caller's deadline when that is
-shorter (the API's `timeout_ms` covers the dial), instead of waiting out the
-kernel's retransmit schedule for minutes; the kernel is told to abandon the
-exchange at about the same time, so nothing keeps retransmitting afterwards.
+fails within a bound (`no INIT-ACK after 10.0s (bound 10s; AMF unreachable or
+black-holed)`) instead of waiting out the kernel's retransmit schedule for
+minutes; the kernel is told to abandon the exchange at about the same time,
+so nothing keeps retransmitting afterwards. The bound is per command: `ue
+register`, `ue handover` / `xn-handover`, `load` and `runs start-load` use the
+20 s dial default; `cell ngsetup --timeout` bounds its dial plus the NG Setup
+exchange (default 10 s); `conformance --per-test-timeout` bounds each check
+(default 15 s). The printed bound is the deadline remaining when the dial
+started, which is why `ngsetup` says `bound 10s` and `register` `bound 20s`.
 
 **Port rule:** a fixed (non-zero) port is legal only when exactly one
 association will use that `ip:port`; port 0 is always legal because every dial
@@ -82,6 +86,20 @@ orbit conformance  --amf <host:port> --bind 172.17.50.21 --json
 
 `cell ngsetup --local` is the old name for the same flag; it still works but is
 deprecated, and `--bind` wins if both are given.
+
+`cell ngsetup` is a probe, not a persistent gNB: it runs one NG Setup and
+closes the association as soon as the answer arrives, and `ue register` opens
+its own gNB association for the UE procedures. To watch what the AMF does with
+an idle association (its SCTP heartbeat, an AMF Configuration Update, anything
+else it sends unprompted), add `--hold <duration>`: the association stays open
+that long after a successful NG Setup, inbound NGAP is drained and logged by
+procedure code on the server, and the output ends with `held: <duration>`.
+Ctrl-C ends the hold early. The server caps a hold at 10 minutes, and a
+rejected NG Setup is never held.
+
+```sh
+orbit cell ngsetup --amf <host:port> --mcc 001 --mnc 01 --bind 172.17.50.21 --hold 30s
+```
 
 ### Network identity (`--mcc --mnc --tac --sst --sd --dnn`)
 

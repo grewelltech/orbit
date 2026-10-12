@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/free5gc/ngap/ngapType"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
@@ -22,6 +23,7 @@ import (
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/ngap"
 	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/webui"
 )
@@ -121,6 +123,14 @@ type cellService struct {
 	log *slog.Logger
 }
 
+// maxNGSetupHold caps RunNGSetupRequest.hold_ms so a unary call cannot keep
+// an association, and the RPC, open indefinitely.
+const maxNGSetupHold = 10 * time.Minute
+
+// defaultNGSetupTimeout bounds the dial plus the NG Setup exchange when the
+// request carries no timeout_ms.
+const defaultNGSetupTimeout = 10 * time.Second
+
 func (s *cellService) RunNGSetup(
 	ctx context.Context,
 	req *connect.Request[orbitv1.RunNGSetupRequest],
@@ -136,26 +146,34 @@ func (s *cellService) RunNGSetup(
 	if _, err := sctp.NormalizeLocal(msg.GetLocalAddress()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	hold := time.Duration(msg.GetHoldMs()) * time.Millisecond
+	if hold > maxNGSetupHold {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("hold_ms %d exceeds the cap of %d ms (%s)", msg.GetHoldMs(), maxNGSetupHold.Milliseconds(), maxNGSetupHold))
+	}
 
+	// timeout_ms bounds the dial and the NG Setup exchange; the hold, if
+	// any, runs afterwards on its own clock and never extends that budget,
+	// so the setup gets its own context here while the hold answers to the
+	// RPC's (client cancel).
 	timeout := time.Duration(msg.GetTimeoutMs()) * time.Millisecond
 	if timeout == 0 {
-		timeout = 10 * time.Second
+		timeout = defaultNGSetupTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	setupCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	s.log.InfoContext(ctx, "running NG Setup",
-		"amf", msg.GetAmfAddress(), "gnb_id", cfg.ID, "plmn", cfg.MCC+"/"+cfg.MNC)
+		"amf", msg.GetAmfAddress(), "gnb_id", cfg.ID, "plmn", cfg.MCC+"/"+cfg.MNC, "hold", hold)
 
-	// ctx carries timeout_ms, so the dial is bounded by it too.
-	conn, err := sctp.Dial(ctx, msg.GetLocalAddress(), msg.GetAmfAddress())
+	conn, err := sctp.Dial(setupCtx, msg.GetLocalAddress(), msg.GetAmfAddress())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnavailable, err)
 	}
-	defer conn.Close()
 
-	res, err := gnb.NGSetup(ctx, conn, cfg)
+	res, err := gnb.NGSetup(setupCtx, conn, cfg)
 	if err != nil {
+		_ = conn.Close()
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "NG Setup finished",
@@ -170,7 +188,78 @@ func (s *cellService) RunNGSetup(
 	if la := conn.LocalAddr(); la != nil {
 		resp.LocalAddress = la.String()
 	}
+	// A rejected gNB holding its association is not the behaviour a hold
+	// measures, so only an accepted setup is held.
+	if hold > 0 && res.Accepted {
+		held := s.holdAssociation(ctx, conn, hold)
+		resp.HeldMs = uint32(held / time.Millisecond)
+	} else {
+		_ = conn.Close()
+	}
 	return connect.NewResponse(resp), nil
+}
+
+// holdAssociation keeps conn open until hold elapses, ctx is done (client
+// cancel or RPC deadline), or the peer closes it, whichever comes first, and
+// closes it exactly once. SCTP heartbeat is kernel-level, so observing it
+// needs only the open socket; the receive buffer must still be drained, so a
+// reader logs each inbound NGAP PDU by procedure code and stream instead of
+// letting it fill. conn.Close is what unblocks that reader on the timer and
+// cancel paths. Returns how long the association was held, measured from the
+// NG Setup Response to the close.
+func (s *cellService) holdAssociation(ctx context.Context, conn *sctp.Conn, hold time.Duration) time.Duration {
+	start := time.Now()
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buf := make([]byte, 65536)
+		for {
+			payload, stream, ppid, err := conn.ReadMsg(buf)
+			if err != nil {
+				return // peer closed or aborted, or we closed below
+			}
+			kind, proc, derr := describeNGAP(payload)
+			if derr != nil {
+				s.log.WarnContext(ctx, "undecodable NGAP during hold", "stream", stream, "ppid", ppid, "bytes", len(payload), "err", derr)
+				continue
+			}
+			s.log.InfoContext(ctx, "NGAP during hold", "kind", kind, "proc", proc, "stream", stream, "ppid", ppid, "bytes", len(payload))
+		}
+	}()
+	timer := time.NewTimer(hold)
+	defer timer.Stop()
+	why := "hold elapsed"
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		why = "cancelled: " + ctx.Err().Error()
+	case <-readDone:
+		why = "peer closed"
+	}
+	_ = conn.Close()
+	<-readDone
+	held := time.Since(start)
+	s.log.InfoContext(ctx, "NG Setup hold ended", "held", held.Round(time.Millisecond), "requested", hold, "why", why)
+	return held
+}
+
+// describeNGAP names an NGAP PDU for the hold log: its kind (initiating,
+// successful or unsuccessful outcome) and procedure code.
+func describeNGAP(raw []byte) (kind string, proc int64, err error) {
+	pdu, err := ngap.Decode(raw)
+	if err != nil {
+		return "", 0, err
+	}
+	switch pdu.Present {
+	case ngapType.NGAPPDUPresentInitiatingMessage:
+		return "initiating", pdu.InitiatingMessage.ProcedureCode.Value, nil
+	case ngapType.NGAPPDUPresentSuccessfulOutcome:
+		return "successful-outcome", pdu.SuccessfulOutcome.ProcedureCode.Value, nil
+	case ngapType.NGAPPDUPresentUnsuccessfulOutcome:
+		return "unsuccessful-outcome", pdu.UnsuccessfulOutcome.ProcedureCode.Value, nil
+	default:
+		return "", 0, fmt.Errorf("PDU present=%d is not a known choice", pdu.Present)
+	}
 }
 
 // withTimeout derives a context with a millisecond timeout, falling back to

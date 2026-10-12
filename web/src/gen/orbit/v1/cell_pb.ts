@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/cell.proto.
  */
 export const file_orbit_v1_cell: GenFile = /*@__PURE__*/
-  fileDesc("ChNvcmJpdC92MS9jZWxsLnByb3RvEghvcmJpdC52MSIhCgZTbnNzYWkSCwoDc3N0GAEgASgNEgoKAnNkGAIgASgJIn8KCUduYkNvbmZpZxIKCgJpZBgBIAEoDRIPCgdpZF9iaXRzGAIgASgNEgwKBG5hbWUYAyABKAkSCwoDbWNjGAQgASgJEgsKA21uYxgFIAEoCRILCgN0YWMYBiABKA0SIAoGc2xpY2VzGAcgAygLMhAub3JiaXQudjEuU25zc2FpInUKEVJ1bk5HU2V0dXBSZXF1ZXN0EhMKC2FtZl9hZGRyZXNzGAEgASgJEhUKDWxvY2FsX2FkZHJlc3MYAiABKAkSIAoDZ25iGAMgASgLMhMub3JiaXQudjEuR25iQ29uZmlnEhIKCnRpbWVvdXRfbXMYBCABKA0icgoSUnVuTkdTZXR1cFJlc3BvbnNlEhAKCGFjY2VwdGVkGAEgASgIEhAKCGFtZl9uYW1lGAIgASgJEg0KBWNhdXNlGAMgASgJEhIKCnJlcGx5X3BwaWQYBCABKA0SFQoNbG9jYWxfYWRkcmVzcxgFIAEoCTJYCgtDZWxsU2VydmljZRJJCgpSdW5OR1NldHVwEhsub3JiaXQudjEuUnVuTkdTZXR1cFJlcXVlc3QaHC5vcmJpdC52MS5SdW5OR1NldHVwUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM");
+  fileDesc("ChNvcmJpdC92MS9jZWxsLnByb3RvEghvcmJpdC52MSIhCgZTbnNzYWkSCwoDc3N0GAEgASgNEgoKAnNkGAIgASgJIn8KCUduYkNvbmZpZxIKCgJpZBgBIAEoDRIPCgdpZF9iaXRzGAIgASgNEgwKBG5hbWUYAyABKAkSCwoDbWNjGAQgASgJEgsKA21uYxgFIAEoCRILCgN0YWMYBiABKA0SIAoGc2xpY2VzGAcgAygLMhAub3JiaXQudjEuU25zc2FpIoYBChFSdW5OR1NldHVwUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRIVCg1sb2NhbF9hZGRyZXNzGAIgASgJEiAKA2duYhgDIAEoCzITLm9yYml0LnYxLkduYkNvbmZpZxISCgp0aW1lb3V0X21zGAQgASgNEg8KB2hvbGRfbXMYBSABKA0igwEKElJ1bk5HU2V0dXBSZXNwb25zZRIQCghhY2NlcHRlZBgBIAEoCBIQCghhbWZfbmFtZRgCIAEoCRINCgVjYXVzZRgDIAEoCRISCgpyZXBseV9wcGlkGAQgASgNEhUKDWxvY2FsX2FkZHJlc3MYBSABKAkSDwoHaGVsZF9tcxgGIAEoDTJYCgtDZWxsU2VydmljZRJJCgpSdW5OR1NldHVwEhsub3JiaXQudjEuUnVuTkdTZXR1cFJlcXVlc3QaHC5vcmJpdC52MS5SdW5OR1NldHVwUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM");
 
 /**
  * Snssai is one supported network slice (TS 38.413 §9.3.1.24).
@@ -129,13 +129,25 @@ export type RunNGSetupRequest = Message<"orbit.v1.RunNGSetupRequest"> & {
   gnb?: GnbConfig | undefined;
 
   /**
-   * Timeout in milliseconds for the whole procedure, the SCTP dial (INIT
-   * exchange) included, so an AMF that never answers fails within it; 0
-   * defaults to 10000.
+   * Timeout in milliseconds for the dial (INIT exchange) plus the NG Setup
+   * exchange, so an AMF that never answers fails within it; 0 defaults to
+   * 10000. A hold (hold_ms) runs after it on its own clock and never extends
+   * it.
    *
    * @generated from field: uint32 timeout_ms = 4;
    */
   timeoutMs: number;
+
+  /**
+   * Keep the association open this long after a successful NG Setup, in
+   * milliseconds, so the AMF's SCTP heartbeat and anything it sends
+   * unprompted can be observed; inbound NGAP is drained and logged. 0 closes
+   * at once. Capped at 600000 (10 minutes): a larger value is
+   * InvalidArgument. Not run after an NG Setup Failure.
+   *
+   * @generated from field: uint32 hold_ms = 5;
+   */
+  holdMs: number;
 };
 
 /**
@@ -185,6 +197,16 @@ export type RunNGSetupResponse = Message<"orbit.v1.RunNGSetupResponse"> & {
    * @generated from field: string local_address = 5;
    */
   localAddress: string;
+
+  /**
+   * How long the association was actually held after the NG Setup Response,
+   * in milliseconds: about hold_ms when the hold ran to completion, less when
+   * the call was cancelled or the AMF closed the association first; 0 when
+   * no hold was requested or NG Setup failed.
+   *
+   * @generated from field: uint32 held_ms = 6;
+   */
+  heldMs: number;
 };
 
 /**
