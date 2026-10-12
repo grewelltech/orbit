@@ -4,13 +4,15 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Credentials } from "./ue_pb";
+import { file_orbit_v1_ue } from "./ue_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file orbit/v1/conformance.proto.
  */
 export const file_orbit_v1_conformance: GenFile = /*@__PURE__*/
-  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEi/gEKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCRIWCg50YXJnZXRfcmVsZWFzZRgNIAEoDSKvAQoRQ29uZm9ybWFuY2VVcGRhdGUSKwoGcmVzdWx0GAEgASgLMhsub3JiaXQudjEuQ29uZm9ybWFuY2VSZXN1bHQSDAoEZG9uZRgCIAEoCBIpCgV0YWxseRgDIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSDQoFaW5kZXgYBCABKA0SDQoFdG90YWwYBSABKA0SFgoOdGFyZ2V0X3JlbGVhc2UYBiABKA0iwwEKEUNvbmZvcm1hbmNlUmVzdWx0EgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIZXhwZWN0ZWQYBSABKAkSEAoIb2JzZXJ2ZWQYBiABKAkSDgoGZGV0YWlsGAcgASgJEiQKCXNwZWNfcmVmcxgIIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYCSABKA0ixQEKB1NwZWNSZWYSDAoEc3BlYxgBIAEoCRIOCgZjbGF1c2UYAiABKAkSEAoIc3RyZW5ndGgYAyABKAkSDQoFc2luY2UYBCABKA0SJwoIdmVyaWZpZWQYBSADKAsyFS5vcmJpdC52MS5TcGVjVmVyc2lvbhIlCgdjaGFuZ2VkGAYgAygLMhQub3JiaXQudjEuU3BlY0NoYW5nZRIZChF3b3JkaW5nX3VuY2hhbmdlZBgHIAEoCBIQCghyZW5kZXJlZBgIIAEoCSJACgtTcGVjVmVyc2lvbhIPCgdyZWxlYXNlGAEgASgNEg8KB3ZlcnNpb24YAiABKAkSDwoHYXJjaGl2ZRgDIAEoCSIrCgpTcGVjQ2hhbmdlEg8KB3JlbGVhc2UYASABKA0SDAoEbm90ZRgCIAEoCSJoChBDb25mb3JtYW5jZVRhbGx5Eg4KBnBhc3NlZBgBIAEoDRIOCgZmYWlsZWQYAiABKA0SDwoHZXJyb3JlZBgDIAEoDRIPCgdza2lwcGVkGAQgASgNEhIKCmRldmlhdGlvbnMYBSABKA0iHQobTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0IoABChNDb25mb3JtYW5jZVRlc3RJbmZvEgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEiQKCXNwZWNfcmVmcxgEIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYBSABKA0iTAocTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZRIsCgV0ZXN0cxgBIAMoCzIdLm9yYml0LnYxLkNvbmZvcm1hbmNlVGVzdEluZm8y0QEKEkNvbmZvcm1hbmNlU2VydmljZRJSCg5SdW5Db25mb3JtYW5jZRIfLm9yYml0LnYxLlJ1bkNvbmZvcm1hbmNlUmVxdWVzdBobLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlIgAwARJnChRMaXN0Q29uZm9ybWFuY2VUZXN0cxIlLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVxdWVzdBomLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM");
+  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEi5gIKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCRIWCg50YXJnZXRfcmVsZWFzZRgNIAEoDRIMCgRzdXBpGA4gASgJEioKC2NyZWRlbnRpYWxzGA8gASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSCwoDZG5uGBAgASgJEg4KBmduYl9uMxgRIAEoCRIPCgd0cmFmZmljGBIgASgJIq8BChFDb25mb3JtYW5jZVVwZGF0ZRIrCgZyZXN1bHQYASABKAsyGy5vcmJpdC52MS5Db25mb3JtYW5jZVJlc3VsdBIMCgRkb25lGAIgASgIEikKBXRhbGx5GAMgASgLMhoub3JiaXQudjEuQ29uZm9ybWFuY2VUYWxseRINCgVpbmRleBgEIAEoDRINCgV0b3RhbBgFIAEoDRIWCg50YXJnZXRfcmVsZWFzZRgGIAEoDSLDAQoRQ29uZm9ybWFuY2VSZXN1bHQSCgoCaWQYASABKAkSEAoIY2F0ZWdvcnkYAiABKAkSEAoIc3BlY19yZWYYAyABKAkSDwoHdmVyZGljdBgEIAEoCRIQCghleHBlY3RlZBgFIAEoCRIQCghvYnNlcnZlZBgGIAEoCRIOCgZkZXRhaWwYByABKAkSJAoJc3BlY19yZWZzGAggAygLMhEub3JiaXQudjEuU3BlY1JlZhITCgttaW5fcmVsZWFzZRgJIAEoDSLFAQoHU3BlY1JlZhIMCgRzcGVjGAEgASgJEg4KBmNsYXVzZRgCIAEoCRIQCghzdHJlbmd0aBgDIAEoCRINCgVzaW5jZRgEIAEoDRInCgh2ZXJpZmllZBgFIAMoCzIVLm9yYml0LnYxLlNwZWNWZXJzaW9uEiUKB2NoYW5nZWQYBiADKAsyFC5vcmJpdC52MS5TcGVjQ2hhbmdlEhkKEXdvcmRpbmdfdW5jaGFuZ2VkGAcgASgIEhAKCHJlbmRlcmVkGAggASgJIkAKC1NwZWNWZXJzaW9uEg8KB3JlbGVhc2UYASABKA0SDwoHdmVyc2lvbhgCIAEoCRIPCgdhcmNoaXZlGAMgASgJIisKClNwZWNDaGFuZ2USDwoHcmVsZWFzZRgBIAEoDRIMCgRub3RlGAIgASgJImgKEENvbmZvcm1hbmNlVGFsbHkSDgoGcGFzc2VkGAEgASgNEg4KBmZhaWxlZBgCIAEoDRIPCgdlcnJvcmVkGAMgASgNEg8KB3NraXBwZWQYBCABKA0SEgoKZGV2aWF0aW9ucxgFIAEoDSIdChtMaXN0Q29uZm9ybWFuY2VUZXN0c1JlcXVlc3QigAEKE0NvbmZvcm1hbmNlVGVzdEluZm8SCgoCaWQYASABKAkSEAoIY2F0ZWdvcnkYAiABKAkSEAoIc3BlY19yZWYYAyABKAkSJAoJc3BlY19yZWZzGAQgAygLMhEub3JiaXQudjEuU3BlY1JlZhITCgttaW5fcmVsZWFzZRgFIAEoDSJMChxMaXN0Q29uZm9ybWFuY2VUZXN0c1Jlc3BvbnNlEiwKBXRlc3RzGAEgAygLMh0ub3JiaXQudjEuQ29uZm9ybWFuY2VUZXN0SW5mbzLRAQoSQ29uZm9ybWFuY2VTZXJ2aWNlElIKDlJ1bkNvbmZvcm1hbmNlEh8ub3JiaXQudjEuUnVuQ29uZm9ybWFuY2VSZXF1ZXN0Ghsub3JiaXQudjEuQ29uZm9ybWFuY2VVcGRhdGUiADABEmcKFExpc3RDb25mb3JtYW5jZVRlc3RzEiUub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0GiYub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZSIAQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_ue]);
 
 /**
  * @generated from message orbit.v1.RunConformanceRequest
@@ -128,6 +130,44 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
    * @generated from field: uint32 target_release = 13;
    */
   targetRelease: number;
+
+  /**
+   * The UE the mobility checks register (a PDU session on one gNB, then an
+   * Xn path switch to a second). Empty supi: no UE, and the mobility checks
+   * report SKIP. With a supi, credentials and gnb_n3 are required; the
+   * server keeps the keys out of results and logs.
+   *
+   * digits or imsi-<digits>, in the request's PLMN
+   *
+   * @generated from field: string supi = 14;
+   */
+  supi: string;
+
+  /**
+   * @generated from field: orbit.v1.Credentials credentials = 15;
+   */
+  credentials?: Credentials | undefined;
+
+  /**
+   * PDU session DNN; default "internet"
+   *
+   * @generated from field: string dnn = 16;
+   */
+  dnn: string;
+
+  /**
+   * gNB N3 IP, reachable from the UPF; both gNBs use it
+   *
+   * @generated from field: string gnb_n3 = 17;
+   */
+  gnbN3: string;
+
+  /**
+   * optional echo peer host:port for traffic across the handover
+   *
+   * @generated from field: string traffic = 18;
+   */
+  traffic: string;
 };
 
 /**

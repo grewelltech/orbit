@@ -58,6 +58,15 @@ type RunConformanceRequest struct {
 	// newer release reports SKIP and never FAIL. 0 means unset: every check
 	// runs, and each result still states the release it requires.
 	TargetRelease uint32 `protobuf:"varint,13,opt,name=target_release,json=targetRelease,proto3" json:"target_release,omitempty"`
+	// The UE the mobility checks register (a PDU session on one gNB, then an
+	// Xn path switch to a second). Empty supi: no UE, and the mobility checks
+	// report SKIP. With a supi, credentials and gnb_n3 are required; the
+	// server keeps the keys out of results and logs.
+	Supi          string       `protobuf:"bytes,14,opt,name=supi,proto3" json:"supi,omitempty"` // digits or imsi-<digits>, in the request's PLMN
+	Credentials   *Credentials `protobuf:"bytes,15,opt,name=credentials,proto3" json:"credentials,omitempty"`
+	Dnn           string       `protobuf:"bytes,16,opt,name=dnn,proto3" json:"dnn,omitempty"`                  // PDU session DNN; default "internet"
+	GnbN3         string       `protobuf:"bytes,17,opt,name=gnb_n3,json=gnbN3,proto3" json:"gnb_n3,omitempty"` // gNB N3 IP, reachable from the UPF; both gNBs use it
+	Traffic       string       `protobuf:"bytes,18,opt,name=traffic,proto3" json:"traffic,omitempty"`          // optional echo peer host:port for traffic across the handover
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -181,6 +190,41 @@ func (x *RunConformanceRequest) GetTargetRelease() uint32 {
 		return x.TargetRelease
 	}
 	return 0
+}
+
+func (x *RunConformanceRequest) GetSupi() string {
+	if x != nil {
+		return x.Supi
+	}
+	return ""
+}
+
+func (x *RunConformanceRequest) GetCredentials() *Credentials {
+	if x != nil {
+		return x.Credentials
+	}
+	return nil
+}
+
+func (x *RunConformanceRequest) GetDnn() string {
+	if x != nil {
+		return x.Dnn
+	}
+	return ""
+}
+
+func (x *RunConformanceRequest) GetGnbN3() string {
+	if x != nil {
+		return x.GnbN3
+	}
+	return ""
+}
+
+func (x *RunConformanceRequest) GetTraffic() string {
+	if x != nil {
+		return x.Traffic
+	}
+	return ""
 }
 
 // ConformanceUpdate is one test's outcome, or (with done=true) the summary.
@@ -832,7 +876,7 @@ var File_orbit_v1_conformance_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
-	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\"\xf4\x02\n" +
+	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\x1a\x11orbit/v1/ue.proto\"\x84\x04\n" +
 	"\x15RunConformanceRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12\x10\n" +
@@ -850,7 +894,12 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"categories\x12(\n" +
 	"\x10per_test_seconds\x18\t \x01(\rR\x0eperTestSeconds\x12!\n" +
 	"\fbind_address\x18\f \x01(\tR\vbindAddress\x12%\n" +
-	"\x0etarget_release\x18\r \x01(\rR\rtargetRelease\"\xe1\x01\n" +
+	"\x0etarget_release\x18\r \x01(\rR\rtargetRelease\x12\x12\n" +
+	"\x04supi\x18\x0e \x01(\tR\x04supi\x127\n" +
+	"\vcredentials\x18\x0f \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\x12\x10\n" +
+	"\x03dnn\x18\x10 \x01(\tR\x03dnn\x12\x15\n" +
+	"\x06gnb_n3\x18\x11 \x01(\tR\x05gnbN3\x12\x18\n" +
+	"\atraffic\x18\x12 \x01(\tR\atraffic\"\xe1\x01\n" +
 	"\x11ConformanceUpdate\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.orbit.v1.ConformanceResultR\x06result\x12\x12\n" +
 	"\x04done\x18\x02 \x01(\bR\x04done\x120\n" +
@@ -932,24 +981,26 @@ var file_orbit_v1_conformance_proto_goTypes = []any{
 	(*ListConformanceTestsRequest)(nil),  // 7: orbit.v1.ListConformanceTestsRequest
 	(*ConformanceTestInfo)(nil),          // 8: orbit.v1.ConformanceTestInfo
 	(*ListConformanceTestsResponse)(nil), // 9: orbit.v1.ListConformanceTestsResponse
+	(*Credentials)(nil),                  // 10: orbit.v1.Credentials
 }
 var file_orbit_v1_conformance_proto_depIdxs = []int32{
-	2, // 0: orbit.v1.ConformanceUpdate.result:type_name -> orbit.v1.ConformanceResult
-	6, // 1: orbit.v1.ConformanceUpdate.tally:type_name -> orbit.v1.ConformanceTally
-	3, // 2: orbit.v1.ConformanceResult.spec_refs:type_name -> orbit.v1.SpecRef
-	4, // 3: orbit.v1.SpecRef.verified:type_name -> orbit.v1.SpecVersion
-	5, // 4: orbit.v1.SpecRef.changed:type_name -> orbit.v1.SpecChange
-	3, // 5: orbit.v1.ConformanceTestInfo.spec_refs:type_name -> orbit.v1.SpecRef
-	8, // 6: orbit.v1.ListConformanceTestsResponse.tests:type_name -> orbit.v1.ConformanceTestInfo
-	0, // 7: orbit.v1.ConformanceService.RunConformance:input_type -> orbit.v1.RunConformanceRequest
-	7, // 8: orbit.v1.ConformanceService.ListConformanceTests:input_type -> orbit.v1.ListConformanceTestsRequest
-	1, // 9: orbit.v1.ConformanceService.RunConformance:output_type -> orbit.v1.ConformanceUpdate
-	9, // 10: orbit.v1.ConformanceService.ListConformanceTests:output_type -> orbit.v1.ListConformanceTestsResponse
-	9, // [9:11] is the sub-list for method output_type
-	7, // [7:9] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	10, // 0: orbit.v1.RunConformanceRequest.credentials:type_name -> orbit.v1.Credentials
+	2,  // 1: orbit.v1.ConformanceUpdate.result:type_name -> orbit.v1.ConformanceResult
+	6,  // 2: orbit.v1.ConformanceUpdate.tally:type_name -> orbit.v1.ConformanceTally
+	3,  // 3: orbit.v1.ConformanceResult.spec_refs:type_name -> orbit.v1.SpecRef
+	4,  // 4: orbit.v1.SpecRef.verified:type_name -> orbit.v1.SpecVersion
+	5,  // 5: orbit.v1.SpecRef.changed:type_name -> orbit.v1.SpecChange
+	3,  // 6: orbit.v1.ConformanceTestInfo.spec_refs:type_name -> orbit.v1.SpecRef
+	8,  // 7: orbit.v1.ListConformanceTestsResponse.tests:type_name -> orbit.v1.ConformanceTestInfo
+	0,  // 8: orbit.v1.ConformanceService.RunConformance:input_type -> orbit.v1.RunConformanceRequest
+	7,  // 9: orbit.v1.ConformanceService.ListConformanceTests:input_type -> orbit.v1.ListConformanceTestsRequest
+	1,  // 10: orbit.v1.ConformanceService.RunConformance:output_type -> orbit.v1.ConformanceUpdate
+	9,  // 11: orbit.v1.ConformanceService.ListConformanceTests:output_type -> orbit.v1.ListConformanceTestsResponse
+	10, // [10:12] is the sub-list for method output_type
+	8,  // [8:10] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_conformance_proto_init() }
@@ -957,6 +1008,7 @@ func file_orbit_v1_conformance_proto_init() {
 	if File_orbit_v1_conformance_proto != nil {
 		return
 	}
+	file_orbit_v1_ue_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
