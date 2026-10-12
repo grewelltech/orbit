@@ -717,10 +717,6 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 	if p.GetBaseImsi() == "" {
 		return nil, fmt.Errorf("base_imsi is required")
 	}
-	baseIMSI, err := ue.NormalizeSUPI(p.GetBaseImsi())
-	if err != nil {
-		return nil, fmt.Errorf("base_imsi: %w", err)
-	}
 	if len(p.GetGnbs()) == 0 {
 		return nil, fmt.Errorf("at least one gnb is required")
 	}
@@ -767,7 +763,7 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 
 	spec := engine.LoadSpec{
 		GNBs:        gnbs,
-		BaseIMSI:    baseIMSI,
+		BaseIMSI:    p.GetBaseImsi(),
 		Count:       int(p.GetCount()),
 		MCC:         mcc,
 		MNC:         mnc,
@@ -777,6 +773,11 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 		Rate:        rate,
 		Duration:    time.Duration(p.GetDurationMs()) * time.Millisecond,
 		SampleEvery: time.Duration(p.GetSampleIntervalMs()) * time.Millisecond,
+	}
+	// The same rule the in-process load applies: a malformed base_imsi is one
+	// error before any association is opened (InvalidArgument over the wire).
+	if err := spec.Validate(); err != nil {
+		return nil, err
 	}
 	if pdu := p.GetPduSession(); pdu != nil {
 		if pdu.GetSst() > 0xFF {

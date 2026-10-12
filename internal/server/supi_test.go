@@ -166,7 +166,8 @@ func TestRegisterPrefixedSUPIFoundByEitherForm(t *testing.T) {
 }
 
 // A load run's base_imsi accepts the imsi- spelling and rejects a malformed
-// value with the shared message before anything is launched.
+// value before anything is launched, through the engine's LoadSpec.Validate
+// (the same rule the in-process load applies, not a server-side copy).
 func TestLoadRunFuncNormalizesBaseIMSI(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	spec := failFastLoadSpec()
@@ -176,7 +177,7 @@ func TestLoadRunFuncNormalizesBaseIMSI(t *testing.T) {
 	}
 	spec.BaseImsi = "IMSI-208930100000000"
 	_, err := loadRunFunc(log, spec)
-	if err == nil || !strings.Contains(err.Error(), "base_imsi: invalid SUPI") || !strings.Contains(err.Error(), "want 5-15 digits or imsi-<digits>") {
+	if err == nil || !strings.Contains(err.Error(), `base IMSI: invalid SUPI "IMSI-208930100000000": want 5-15 digits or imsi-<digits>`) {
 		t.Errorf("malformed base_imsi: err = %v, want the shared message", err)
 	}
 }

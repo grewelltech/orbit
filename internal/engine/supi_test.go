@@ -92,3 +92,64 @@ func TestIncIMSIAcceptsBothForms(t *testing.T) {
 		})
 	}
 }
+
+// LoadSpec.Validate normalises the base IMSI once and stores it digits-only;
+// a malformed base is the shared message with the "base IMSI" prefix.
+func TestLoadSpecValidateBaseIMSI(t *testing.T) {
+	tests := []struct {
+		name    string
+		base    string
+		want    string
+		wantErr string
+	}{
+		{name: "bare", base: "208930100000000", want: "208930100000000"},
+		{name: "nai stored as digits", base: "imsi-208930100000000", want: "208930100000000"},
+		{name: "too short", base: "2089", wantErr: `base IMSI: invalid SUPI "2089": want 5-15 digits or imsi-<digits>`},
+		{name: "upper-case prefix", base: "IMSI-208930100000000", wantErr: `base IMSI: invalid SUPI "IMSI-208930100000000"`},
+		{name: "empty", base: "", wantErr: `base IMSI: invalid SUPI ""`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := LoadSpec{BaseIMSI: tc.base}
+			err := spec.Validate()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			if spec.BaseIMSI != tc.want {
+				t.Errorf("BaseIMSI after Validate = %q, want %q", spec.BaseIMSI, tc.want)
+			}
+		})
+	}
+}
+
+// RunLoad refuses a malformed base IMSI before any association is opened:
+// the error is the validation message, not a dial error, and it returns at
+// once (the gNB points at a refused loopback port, so a dial attempt would
+// have produced "sctp dial ..." instead).
+func TestRunLoadRejectsMalformedBaseBeforeDialing(t *testing.T) {
+	_, cfg, ki, opc := newBindTestAMF(t)
+	spec := LoadSpec{
+		GNBs:     []GNBSpec{{Config: cfg, AMFAddr: "127.0.0.1:1"}},
+		BaseIMSI: "2089", Count: 1, MCC: "208", MNC: "93", Ki: ki, OPc: opc,
+	}
+	start := time.Now()
+	_, err := RunLoad(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), spec)
+	if err == nil {
+		t.Fatal("RunLoad with a malformed base IMSI succeeded")
+	}
+	if !strings.Contains(err.Error(), `base IMSI: invalid SUPI "2089"`) {
+		t.Errorf("err = %v, want the base IMSI validation error", err)
+	}
+	if strings.Contains(err.Error(), "sctp dial") {
+		t.Errorf("a dial was attempted before validation: %v", err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("RunLoad took %s to refuse a bad base", took)
+	}
+}

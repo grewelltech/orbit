@@ -80,11 +80,30 @@ type LoadSpec struct {
 	Observer load.Observer
 }
 
-// RunLoad brings up the fleet, generates Count UEs from BaseIMSI, and drives a
-// rate-controlled attach storm, returning the per-procedure KPI report. It is
-// the integration-capacity path — the numbers are bounded by the core under
-// test (report them separately from mock-AMF sim capacity).
+// Validate checks the spec once, before anything is dialled, and normalises
+// what it can: BaseIMSI may be given as digits or imsi-<digits> and is stored
+// digits-only, so every generated SUPI is digits-only and a malformed base
+// is one clear error here instead of a silent "0/N attached" from per-UE
+// failures. Both the API server (LoadRunSpec) and the in-process `orbit load`
+// go through RunLoad, so this is the one place the rule applies to a load.
+func (s *LoadSpec) Validate() error {
+	base, err := ue.NormalizeSUPI(s.BaseIMSI)
+	if err != nil {
+		return fmt.Errorf("base IMSI: %w", err)
+	}
+	s.BaseIMSI = base
+	return nil
+}
+
+// RunLoad validates the spec, brings up the fleet, generates Count UEs from
+// BaseIMSI, and drives a rate-controlled attach storm, returning the
+// per-procedure KPI report. It is the integration-capacity path — the numbers
+// are bounded by the core under test (report them separately from mock-AMF
+// sim capacity).
 func RunLoad(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report, error) {
+	if err := spec.Validate(); err != nil {
+		return load.Report{}, err
+	}
 	f, err := NewFleet(ctx, spec.GNBs, log)
 	if err != nil {
 		return load.Report{}, err
@@ -142,8 +161,9 @@ func loadConfig(spec LoadSpec) load.Config {
 
 // incIMSI returns the base IMSI incremented by i, zero-padded to 15 digits.
 func incIMSI(base string, i int) (string, error) {
-	// The base may be given as imsi-<digits>; generated SUPIs are digits
-	// only, so Subscription.SUPI and the session keys stay digits-only.
+	// Specs are validated (and their base stored digits-only) before any UE
+	// is generated, so this normalisation is a no-op safety net for a caller
+	// that reaches incIMSI with the imsi- spelling.
 	digits, err := ue.NormalizeSUPI(base)
 	if err != nil {
 		return "", fmt.Errorf("base IMSI: %w", err)
