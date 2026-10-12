@@ -181,7 +181,10 @@ func ValidateTest(t Test) error {
 		return fmt.Errorf("%s: no spec references", t.ID())
 	}
 	hasShall := false
-	minSince := Release(0)
+	// floor is the newest Since among the refs that carry a requirement
+	// (shall or should), or among all refs when none does: a check cannot
+	// apply to a release older than a requirement it asserts.
+	var floor, floorAll Release
 	for i, r := range refs {
 		where := fmt.Sprintf("%s ref %d (%s %s)", t.ID(), i+1, r.Spec, r.Clause)
 		if err := validateRef(r); err != nil {
@@ -190,9 +193,15 @@ func ValidateTest(t Test) error {
 		if r.Strength == Shall {
 			hasShall = true
 		}
-		if minSince == 0 || r.Since < minSince {
-			minSince = r.Since
+		if r.Since > floorAll {
+			floorAll = r.Since
 		}
+		if (r.Strength == Shall || r.Strength == Should) && r.Since > floor {
+			floor = r.Since
+		}
+	}
+	if floor == 0 {
+		floor = floorAll
 	}
 	switch t.VerdictClass() {
 	case Fail:
@@ -203,8 +212,8 @@ func ValidateTest(t Test) error {
 	default:
 		return fmt.Errorf("%s: VerdictClass must be FAIL or DEVIATION, got %q", t.ID(), t.VerdictClass())
 	}
-	if m := MinRelease(t); m < minSince || m > LatestRelease {
-		return fmt.Errorf("%s: MinRelease %s outside its references' range %s..%s", t.ID(), m, minSince, LatestRelease)
+	if m := MinRelease(t); m < floor || m > LatestRelease {
+		return fmt.Errorf("%s: MinRelease %s outside %s..%s: it must be at least the newest Since among the requirements it asserts", t.ID(), m, floor, LatestRelease)
 	}
 	return nil
 }

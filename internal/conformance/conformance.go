@@ -79,8 +79,9 @@ type Test interface {
 	SpecRefs() []SpecRef
 	// VerdictClass is the worst verdict the check gives a core: Fail, or
 	// Deviation for a check that documents a gap without failing the gate
-	// (required when it cites no "shall"). The registry never lets a
-	// Deviation-class check report Fail.
+	// (required when it cites no "shall"). A FAIL-class check may also
+	// report DEVIATION for an outcome that misses its shall without harming
+	// the core; the registry never lets a Deviation-class check report Fail.
 	VerdictClass() Verdict
 	// Run drives the check against env and returns its verdict.
 	Run(ctx context.Context, env Env) Result
@@ -202,11 +203,14 @@ func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	return err == nil && ng.Accepted, nil
 }
 
-// confirmAlive applies the crash-safety confirmation to a passing result: a
-// core that no longer completes a fresh NG Setup turns the PASS into a FAIL,
-// while a probe that could not even be dialled turns it into an ERROR.
+// confirmAlive applies the crash-safety confirmation to a result in which
+// the core survived the message by its own account (PASS, or DEVIATION for a
+// non-spec but non-fatal reaction): a fresh NG Setup must still complete. If
+// it does not, the core did not survive (FAIL); if the probe itself cannot
+// be made, that says nothing about the core (ERROR). Other verdicts pass
+// through unchanged.
 func confirmAlive(ctx context.Context, env Env, r Result, failDetail string) Result {
-	if r.Verdict != Pass {
+	if r.Verdict != Pass && r.Verdict != Deviation {
 		return r
 	}
 	alive, err := env.Alive(ctx)

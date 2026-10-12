@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -58,8 +59,8 @@ func TestEveryCheckHasVerifiedProvenance(t *testing.T) {
 				t.Fatalf("no provenance file: %v", err)
 			}
 			for _, r := range c.SpecRefs() {
-				if !strings.Contains(string(b), r.Spec+" "+r.Clause) {
-					t.Errorf("provenance file does not cover %s %s", r.Spec, r.Clause)
+				if !provenanceCovers(string(b), r) {
+					t.Errorf("provenance file does not cite %s %s", r.Spec, r.Clause)
 				}
 			}
 			if !strings.Contains(string(b), "https://www.3gpp.org/ftp/Specs/archive/") {
@@ -112,6 +113,11 @@ func TestValidateTestRejects(t *testing.T) {
 		{name: "should-only check declared DEVIATION", test: provTest{id: "OK", class: Deviation, refs: mod(func(r *SpecRef) { r.Strength = Should })}},
 		{name: "verdict class neither", test: provTest{id: "X", class: Pass, refs: []SpecRef{goodRef()}}, wantErr: "VerdictClass must be"},
 		{name: "declared MinRelease beyond Latest", test: provTestMin{provTest{id: "X", class: Fail, refs: []SpecRef{goodRef()}, min: 20}}, wantErr: "MinRelease Rel-20"},
+		{name: "declared MinRelease older than a requirement's Since", test: provTestMin{provTest{id: "X", class: Fail, min: 15,
+			refs: []SpecRef{goodRef(), {Spec: "TS 24.501", Clause: "5.4.1.3.7", Strength: Shall, Since: 17, Verified: ts38413Verified[3:], WordingUnchanged: true}}}},
+			wantErr: "MinRelease Rel-15 outside Rel-17..Rel-19"},
+		{name: "declared MinRelease above a descriptive ref's Since is fine", test: provTestMin{provTest{id: "OK", class: Fail, min: 15,
+			refs: []SpecRef{goodRef(), {Spec: "TS 38.413", Clause: "9.2.6.11", Strength: Descriptive, Since: 15, Verified: ts38413Verified, WordingUnchanged: true}}}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -259,6 +265,35 @@ func TestSummaryJSONTargetRelease(t *testing.T) {
 		b, err := json.Marshal(s)
 		if err != nil || !strings.Contains(string(b), tc.want) {
 			t.Errorf("summary JSON %s (%v) lacks %s", b, err, tc.want)
+		}
+	}
+}
+
+// provenanceCovers reports whether a provenance file cites exactly this
+// reference: "<Spec> <Clause>" as a whole token, followed by a character
+// that is neither a digit nor a dot, or by the end of the line, so "7.3.10"
+// does not cover "7.3.1".
+func provenanceCovers(file string, r SpecRef) bool {
+	re := regexp.MustCompile(`(?m)` + regexp.QuoteMeta(r.Spec+" "+r.Clause) + `([^0-9.]|$)`)
+	return re.MatchString(file)
+}
+
+// The match is exact on the clause.
+func TestProvenanceCovers(t *testing.T) {
+	r := SpecRef{Spec: "TS 29.281", Clause: "7.3.1"}
+	for _, tc := range []struct {
+		file string
+		want bool
+	}{
+		{"## TS 29.281 7.3.1 (Error Indication), shall\n", true},
+		{"## TS 29.281 7.3.1\n", true},
+		{"see TS 29.281 7.3.1, which requires", true},
+		{"## TS 29.281 7.3.10 (something else)\n", false},
+		{"TS 29.281 7.3.1.2 only\n", false},
+		{"TS 29.281 7.3.1.\n", false},
+	} {
+		if got := provenanceCovers(tc.file, r); got != tc.want {
+			t.Errorf("provenanceCovers(%q) = %v, want %v", tc.file, got, tc.want)
 		}
 	}
 }

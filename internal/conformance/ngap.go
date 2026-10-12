@@ -42,7 +42,7 @@ func (errorIndicationOnUnknownUE) SpecRefs() []SpecRef {
 func (errorIndicationOnUnknownUE) VerdictClass() Verdict { return Fail }
 
 func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "core survives the unexpected message (Error Indication ideal; graceful drop OK)"}
+	r := Result{Expected: "ERROR INDICATION for the unknown UE NGAP IDs, and the NG association keeps working (TS 38.413 10.6, 8.7.5.2)"}
 	conn, err := env.DialSetup(ctx)
 	if err != nil {
 		r.Verdict, r.Observed, r.Detail = Error, "setup failed", err.Error()
@@ -66,25 +66,30 @@ func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
+	r.Verdict, r.Observed, r.Detail = classifyUnknownUE(resp, err)
+
+	// Crash-safety confirmation: a PASS or DEVIATION outcome must leave the
+	// AMF able to complete a fresh NG Setup. If not, the core did not survive.
+	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive the unexpected message")
+}
+
+// classifyUnknownUE maps the AMF's reaction to an Uplink NAS Transport for
+// unknown UE NGAP IDs onto a verdict. The stimulus is not the last message on
+// a UE-associated connection, so 10.6 requires an ERROR INDICATION (not just
+// a local release): that is PASS. Surviving without one (a silent drop, or
+// another PDU) misses the shall without harming the core: DEVIATION. An
+// association reset: FAIL.
+func classifyUnknownUE(resp *ngapType.NGAPPDU, err error) (Verdict, string, string) {
 	switch {
 	case err == nil && isErrorIndication(resp):
-		r.Verdict, r.Observed = Pass, "Error Indication (spec-ideal)"
+		return Pass, "ERROR INDICATION", ""
 	case err == nil:
-		r.Verdict, r.Observed = Pass, ngapName(resp)
-		r.Detail = "responded without crashing (not an Error Indication)"
+		return Deviation, ngapName(resp), "answered with " + ngapName(resp) + " instead of an ERROR INDICATION; the association survived"
 	case errors.Is(err, context.DeadlineExceeded):
-		// No response within the wait, but the association is still up — the
-		// AMF dropped the message gracefully.
-		r.Verdict, r.Observed = Pass, "silently dropped; association survived"
-		r.Detail = "spec-ideal is an Error Indication; a graceful drop still passes the crash-safety guard"
+		return Deviation, "silently dropped; association survived", "no ERROR INDICATION within the wait; the association survived"
 	default:
-		// The association errored (reset/EOF) — the core did not survive.
-		r.Verdict, r.Observed, r.Detail = Fail, "association reset", err.Error()
+		return Fail, "association reset", err.Error()
 	}
-
-	// Crash-safety confirmation: even a "graceful" outcome must leave the AMF
-	// able to complete a fresh NG Setup. If not, the core did not survive.
-	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive the unexpected message")
 }
 
 // isErrorIndication reports whether pdu is an NGAP Error Indication.
