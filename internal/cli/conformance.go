@@ -68,6 +68,7 @@ func newConformanceCmd() *cobra.Command {
 			sum.N2Source = env.N2Source()
 			sum.Network = env.Network()
 			sum.TargetRelease = target
+			sum.SpecTargets = env.NarrowingSpecTargets()
 
 			out := cmd.OutOrStdout()
 			if jsonOut {
@@ -78,7 +79,7 @@ func newConformanceCmd() *cobra.Command {
 				if sum.N2Source != "" {
 					fmt.Fprintf(out, "n2-source=%s\n", sum.N2Source)
 				}
-				_, _ = fmt.Fprintf(out, "target-release: %s\n", sum.TargetRelease)
+				_, _ = fmt.Fprintf(out, "target-release: %s\n", sum.TargetLine())
 				for _, r := range sum.Results {
 					fmt.Fprintf(out, "%-5s [%-11s] %-26s %s\n", r.Verdict, r.Category, r.ID, r.Observed)
 					// Detail always ends with the requirement line: the release
