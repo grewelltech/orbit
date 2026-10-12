@@ -181,6 +181,9 @@ func TestDefaultTargets(t *testing.T) {
 	if len(a) != 1 || a["TS 29.244"] != 16 {
 		t.Fatalf("DefaultSpecTargets = %v, want TS 29.244 at Rel-16", a)
 	}
+	if got := defaultTargetLine(); got != "Rel-18 (TS 29.244 at Rel-16)" {
+		t.Errorf("defaultTargetLine = %q", got)
+	}
 	a["TS 29.244"] = 1
 	if b := DefaultSpecTargets(); b["TS 29.244"] != 16 {
 		t.Errorf("DefaultSpecTargets shares its map: %v", b)

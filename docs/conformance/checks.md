@@ -4,6 +4,8 @@
 
 Every check names the clauses it asserts and the 3GPP releases they come from, verified in the [3GPP archive](https://www.3gpp.org/ftp/Specs/archive/) through Rel-19. A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. The quoted normative text for each check is in [provenance/](provenance/).
 
+Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-release.md).
+
 | Check | Category | Verdict class | Requires | Clauses |
 |---|---|---|---|---|
 | [GTPU-END-MARKER-ON-PATH-SWITCH](provenance/GTPU-END-MARKER-ON-PATH-SWITCH.md) | mobility | FAIL | Rel-15 | TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: "In case of" reads "In the case of" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; "set to 1" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag) |
