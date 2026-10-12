@@ -34,9 +34,14 @@ stimulus → run live + pcap-disambiguate → calibrate honestly → cite) is in
 
 ## Release policy
 
-- **The suite is release-*aware*, not multi-release-exhaustive.** Every check is
-  tagged with the 3GPP **Release** and TS version it asserts against (carried in
-  its `SpecRef`, e.g. `TS 38.413 v16.8.0 §8.7.1`).
+- **The suite is release-*aware*, not multi-release-exhaustive.** Every check
+  names its exact clauses with their provenance in code (`SpecRefs()`: spec,
+  clause, strength, since, the versions read in the 3GPP archive through
+  Rel-19, and the releases whose wording changed), and a check without verified
+  provenance cannot merge. The generated table is [checks.md](checks.md); the
+  quoted normative text per check is in [provenance/](provenance/).
+  `--target-release` SKIPs a check that requires a newer release than the core
+  claims.
 - **Baseline: match the core under test.** ORBIT's baseline tracks the release
   the DUT implements. For the SD-Core testbed that is the omec NGAP/NAS
   lineage — **confirm the exact release from the deployed omec version** before

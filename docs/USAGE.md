@@ -420,12 +420,23 @@ live core and exits non-zero on any failure — an integration-CI gate.
 
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
-    [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s]
+    [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s] \
+    [--target-release Rel-16]
 ```
 
-Checks are framed as graceful-rejection / crash-safety regression guards, each
-with a 3GPP citation; `--json` emits machine-readable results with per-check
-verdict, expected/observed, and the spec reference.
+Checks are framed as graceful-rejection / crash-safety regression guards. Each
+names the exact clauses it asserts and the 3GPP releases they come from,
+verified in the 3GPP archive through Rel-19, and every result ends with the
+release it requires and those clauses, for example
+`requires Rel-15 or later; TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)`.
+`--target-release` names the release the core claims: a check that requires a
+newer one reports SKIP, never FAIL. It is unset by default, so every check
+runs; the output and `--json` record the target (`unset` when none is given).
+`--json` emits per-check verdict, expected/observed, the rendered `spec_ref`,
+the structured `spec_refs` (clause, strength, since, verified versions,
+changes) and `min_release`. The full table is
+[docs/conformance/checks.md](conformance/checks.md), with the quoted normative
+text per check in [docs/conformance/provenance/](conformance/provenance/).
 
 ## Scenarios (`orbit run`)
 
