@@ -20,6 +20,8 @@ func TestStepScenarioSUPIForms(t *testing.T) {
 		{name: "nai range base", ues: "  - {range: {base: \"imsi-208930100007500\", count: 2}, gnb: g}\n", want: []string{"208930100007500", "208930100007501"}},
 		{name: "malformed supi", ues: "  - {supi: \"IMSI-208930100007500\", gnb: g}\n", wantErr: "supi: invalid SUPI \"IMSI-208930100007500\": want 5-15 digits or imsi-<digits>"},
 		{name: "malformed range base", ues: "  - {range: {base: \"2089\", count: 2}, gnb: g}\n", wantErr: "range.base: invalid SUPI \"2089\""},
+		{name: "supi from another PLMN", ues: "  - {supi: \"001010000000001\", gnb: g}\n", wantErr: "ue 001010000000001: supi \"001010000000001\" does not start with mcc+mnc \"20893\""},
+		{name: "range walks out of the PLMN", ues: "  - {range: {base: \"208939999999999\", count: 2}, gnb: g}\n", wantErr: "ue 208940000000000: supi \"208940000000000\" does not start with mcc+mnc"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,6 +71,9 @@ fleet: { count: 2, supi_base: "%s" }
 		{name: "bare", base: "208930100007500", want: []string{"208930100007500", "208930100007501"}},
 		{name: "nai", base: "imsi-208930100007500", want: []string{"208930100007500", "208930100007501"}},
 		{name: "malformed", base: "imsi-2089", wantErr: "fleet.supi_base: invalid SUPI \"imsi-2089\": want 5-15 digits or imsi-<digits>"},
+		{name: "other PLMN", base: "001010000000001", wantErr: "fleet.supi_base 001010000000001 (UE 1 of 2): supi \"001010000000001\" does not start with mcc+mnc \"20893\""},
+		{name: "padded short base", base: "imsi-20893", wantErr: "fleet.supi_base 20893 (UE 1 of 2): supi \"000000000020893\" does not start with mcc+mnc"},
+		{name: "range walks out of the PLMN", base: "208939999999999", wantErr: "fleet.supi_base 208939999999999 (UE 2 of 2): supi \"208940000000000\" does not start with mcc+mnc"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -86,12 +86,32 @@ type LoadSpec struct {
 // is one clear error here instead of a silent "0/N attached" from per-UE
 // failures. Both the API server (LoadRunSpec) and the in-process `orbit load`
 // go through RunLoad, so this is the one place the rule applies to a load.
+//
+// The generated range is checked too: the first and last SUPIs (incIMSI pads
+// to 15 digits) must parse under the spec's MCC/MNC, so a base from another
+// PLMN, a short base that padding pushes out of the PLMN prefix, or a range
+// that runs past 15 digits fails here rather than as N silent per-UE
+// failures. A soak cycles the index modulo Count, so first and last cover
+// every SUPI it generates.
 func (s *LoadSpec) Validate() error {
 	base, err := ue.NormalizeSUPI(s.BaseIMSI)
 	if err != nil {
 		return fmt.Errorf("base IMSI: %w", err)
 	}
 	s.BaseIMSI = base
+	last := s.Count - 1
+	if last < 0 {
+		last = 0
+	}
+	for _, i := range []int{0, last} {
+		supi, err := incIMSI(base, i)
+		if err != nil {
+			return err
+		}
+		if _, err := ue.ParseIdentity(supi, s.MCC, s.MNC, "0"); err != nil {
+			return fmt.Errorf("base IMSI %s (UE %d of %d): %w", base, i+1, max(s.Count, 1), err)
+		}
+	}
 	return nil
 }
 

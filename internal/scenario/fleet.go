@@ -207,8 +207,19 @@ func (f *FleetScenario) validate() error {
 		return fmt.Errorf("fleet.supi_base: %w", err)
 	}
 	f.Fleet.SUPIBase = supiBase
-	if _, err := strconv.ParseUint(f.Fleet.SUPIBase, 10, 64); err != nil {
+	base, err := strconv.ParseUint(f.Fleet.SUPIBase, 10, 64)
+	if err != nil {
 		return fmt.Errorf("fleet.supi_base %q is not numeric: %w", f.Fleet.SUPIBase, err)
+	}
+	// The fleet driver generates SUPIs padded to 15 digits from this base;
+	// the first and last must parse under core.plmn, so a base from another
+	// PLMN, a short base that padding breaks, or a range past 15 digits is
+	// refused here instead of failing every attach.
+	for _, i := range []uint64{0, uint64(f.Fleet.Count - 1)} {
+		supi := fmt.Sprintf("%015d", base+i)
+		if _, err := ue.ParseIdentity(supi, f.Core.PLMN.MCC, f.Core.PLMN.MNC, "0"); err != nil {
+			return fmt.Errorf("fleet.supi_base %s (UE %d of %d): %w", f.Fleet.SUPIBase, i+1, f.Fleet.Count, err)
+		}
 	}
 	if t := f.Behaviors.Traffic; t != nil {
 		var sum float64

@@ -219,8 +219,17 @@ func (s *Scenario) validate() error {
 		}
 		names[g.Name] = true
 	}
-	if _, err := s.ResolveUEs(); err != nil {
+	ues, err := s.ResolveUEs()
+	if err != nil {
 		return err
+	}
+	// Every UE's SUPI must parse under core.plmn, so a supi or range from
+	// another PLMN (or a range that runs past 15 digits) fails at parse
+	// instead of at registration.
+	for _, u := range ues {
+		if _, err := ue.ParseIdentity(u.SUPI, s.Core.PLMN.MCC, s.Core.PLMN.MNC, "0"); err != nil {
+			return fmt.Errorf("ue %s: %w", u.SUPI, err)
+		}
 	}
 	return nil
 }
