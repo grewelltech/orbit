@@ -147,7 +147,8 @@ func (s *cellService) RunNGSetup(
 	s.log.InfoContext(ctx, "running NG Setup",
 		"amf", msg.GetAmfAddress(), "gnb_id", cfg.ID, "plmn", cfg.MCC+"/"+cfg.MNC)
 
-	conn, err := sctp.Dial(msg.GetLocalAddress(), msg.GetAmfAddress())
+	// ctx carries timeout_ms, so the dial is bounded by it too.
+	conn, err := sctp.Dial(ctx, msg.GetLocalAddress(), msg.GetAmfAddress())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeUnavailable, err)
 	}

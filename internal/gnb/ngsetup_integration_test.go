@@ -27,7 +27,7 @@ func TestLiveNGSetup(t *testing.T) {
 		amf = "172.17.50.11:38412"
 	}
 
-	conn, err := sctp.Dial("", amf)
+	conn, err := sctp.Dial(context.Background(), "", amf)
 	if err != nil {
 		t.Fatalf("SCTP association to %s failed: %v", amf, err)
 	}

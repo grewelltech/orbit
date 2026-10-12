@@ -104,7 +104,7 @@ type fakeN2Dialer struct {
 	port   int
 }
 
-func (d *fakeN2Dialer) dial(laddr, raddr string) (n2Conn, error) {
+func (d *fakeN2Dialer) dial(_ context.Context, laddr, raddr string) (n2Conn, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.laddrs = append(d.laddrs, laddr)

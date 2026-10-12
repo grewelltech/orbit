@@ -1,6 +1,7 @@
 package sctp
 
 import (
+	"context"
 	"errors"
 	"net"
 	"strings"
@@ -56,7 +57,7 @@ func TestNormalizeLocal(t *testing.T) {
 // normalisation error rather than a resolver or bind error — and before the
 // remote is looked at, so a bad --bind is reported even alongside a bad AMF.
 func TestDialRejectsBadLocal(t *testing.T) {
-	_, err := Dial("10.0.0.1:0:0", "not-an-amf")
+	_, err := Dial(context.Background(), "10.0.0.1:0:0", "not-an-amf")
 	if err == nil {
 		t.Fatal("Dial with a bad local address succeeded")
 	}
@@ -68,7 +69,7 @@ func TestDialRejectsBadLocal(t *testing.T) {
 // The port range is enforced by resolve, as it always was: 70000 passes
 // normalisation and is rejected before any socket is opened.
 func TestDialRejectsOutOfRangeLocalPort(t *testing.T) {
-	_, err := Dial("10.0.0.1:70000", "127.0.0.1:38412")
+	_, err := Dial(context.Background(), "10.0.0.1:70000", "127.0.0.1:38412")
 	if err == nil {
 		t.Fatal("Dial with port 70000 succeeded")
 	}
@@ -90,7 +91,7 @@ func TestDialRejectsFamilyMismatch(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Dial(tc.laddr, tc.raddr)
+			_, err := Dial(context.Background(), tc.laddr, tc.raddr)
 			if err == nil {
 				t.Fatal("mismatched families dialled")
 			}
@@ -100,7 +101,7 @@ func TestDialRejectsFamilyMismatch(t *testing.T) {
 		})
 	}
 	// Matching families are not refused here (the dial itself may still fail).
-	if _, err := Dial("::1", "[::1]:1"); err != nil && strings.Contains(err.Error(), "address family mismatch") {
+	if _, err := Dial(context.Background(), "::1", "[::1]:1"); err != nil && strings.Contains(err.Error(), "address family mismatch") {
 		t.Errorf("same-family dial refused as a mismatch: %v", err)
 	}
 }
@@ -110,7 +111,7 @@ func TestDialRejectsFamilyMismatch(t *testing.T) {
 // Whatever this host's SCTP support (refused, or no kernel module), the
 // error carries the normalised source.
 func TestDialErrorNamesLocal(t *testing.T) {
-	_, err := Dial("127.0.0.1", "127.0.0.1:1")
+	_, err := Dial(context.Background(), "127.0.0.1", "127.0.0.1:1")
 	if err == nil {
 		t.Skip("an SCTP listener answered on 127.0.0.1:1")
 	}
@@ -151,7 +152,7 @@ func TestRouteSource(t *testing.T) {
 // a TEST-NET address a real SCTP connect would sit on for minutes.
 func TestDialUnboundProbeErrorNamesBind(t *testing.T) {
 	var seen *net.UDPAddr
-	_, err := Dial("", "192.0.2.1:38412", WithSourceResolver(func(remote *net.UDPAddr) (net.IP, error) {
+	_, err := Dial(context.Background(), "", "192.0.2.1:38412", WithSourceResolver(func(remote *net.UDPAddr) (net.IP, error) {
 		seen = remote
 		return nil, errors.New("no route to host")
 	}))
@@ -184,7 +185,7 @@ func TestDialUnboundRejectsUnspecifiedSource(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Dial("", "192.0.2.1:38412", WithSourceResolver(func(*net.UDPAddr) (net.IP, error) {
+			_, err := Dial(context.Background(), "", "192.0.2.1:38412", WithSourceResolver(func(*net.UDPAddr) (net.IP, error) {
 				return tc.ip, nil
 			}))
 			if err == nil {
@@ -205,7 +206,7 @@ func TestDialUnboundRejectsUnspecifiedSource(t *testing.T) {
 // no kernel SCTP), and the error names the zoned route-selected source.
 func TestDialUnboundCarriesZone(t *testing.T) {
 	var seen *net.UDPAddr
-	_, err := Dial("", "[fe80::1%lo]:1", WithSourceResolver(func(remote *net.UDPAddr) (net.IP, error) {
+	_, err := Dial(context.Background(), "", "[fe80::1%lo]:1", WithSourceResolver(func(remote *net.UDPAddr) (net.IP, error) {
 		seen = remote
 		return net.ParseIP("fe80::2"), nil
 	}))
@@ -298,7 +299,7 @@ func TestRouteSourceLinkLocalZone(t *testing.T) {
 // The family check still runs on a probed source: a resolver handing back an
 // IPv6 address for an IPv4 AMF is refused before any socket is opened.
 func TestDialUnboundProbedSourceFamilyChecked(t *testing.T) {
-	_, err := Dial("", "127.0.0.1:38412", WithSourceResolver(func(*net.UDPAddr) (net.IP, error) {
+	_, err := Dial(context.Background(), "", "127.0.0.1:38412", WithSourceResolver(func(*net.UDPAddr) (net.IP, error) {
 		return net.ParseIP("::1"), nil
 	}))
 	if err == nil {
@@ -313,7 +314,7 @@ func TestDialUnboundProbedSourceFamilyChecked(t *testing.T) {
 // route-selected source, marked as such, so the operator can tell the probe
 // picked it rather than a --bind.
 func TestDialErrorNamesRouteSelectedSource(t *testing.T) {
-	_, err := Dial("", "127.0.0.1:1")
+	_, err := Dial(context.Background(), "", "127.0.0.1:1")
 	if err == nil {
 		t.Skip("an SCTP listener answered on 127.0.0.1:1")
 	}
@@ -350,12 +351,12 @@ func listenLoopbackSCTP(t *testing.T) string {
 func TestDialUnboundReportsOneAddress(t *testing.T) {
 	addr := listenLoopbackSCTP(t)
 
-	unbound, err := Dial("", addr)
+	unbound, err := Dial(context.Background(), "", addr)
 	if err != nil {
 		t.Fatalf("unbound Dial(%s): %v", addr, err)
 	}
 	defer func() { _ = unbound.Close() }()
-	bound, err := Dial("127.0.0.1", addr)
+	bound, err := Dial(context.Background(), "127.0.0.1", addr)
 	if err != nil {
 		t.Fatalf("bound Dial(%s): %v", addr, err)
 	}

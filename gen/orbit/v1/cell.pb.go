@@ -185,7 +185,9 @@ type RunNGSetupRequest struct {
 	// routes to the AMF from (one address in the INIT), ephemeral port.
 	LocalAddress string     `protobuf:"bytes,2,opt,name=local_address,json=localAddress,proto3" json:"local_address,omitempty"`
 	Gnb          *GnbConfig `protobuf:"bytes,3,opt,name=gnb,proto3" json:"gnb,omitempty"`
-	// Exchange timeout in milliseconds; 0 defaults to 10000.
+	// Timeout in milliseconds for the whole procedure, the SCTP dial (INIT
+	// exchange) included, so an AMF that never answers fails within it; 0
+	// defaults to 10000.
 	TimeoutMs     uint32 `protobuf:"varint,4,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

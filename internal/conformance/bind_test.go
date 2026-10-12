@@ -10,7 +10,7 @@ import (
 // Env.Dial dials from Bind: a malformed one fails in sctp.Dial's
 // normalisation, before any socket is opened, naming the input.
 func TestEnvDialUsesBind(t *testing.T) {
-	_, err := Env{AMFAddr: "127.0.0.1:38412", Bind: "10.0.0.1:0:0"}.Dial()
+	_, err := Env{AMFAddr: "127.0.0.1:38412", Bind: "10.0.0.1:0:0"}.Dial(context.Background())
 	if err == nil || !strings.Contains(err.Error(), `invalid local address "10.0.0.1:0:0"`) {
 		t.Fatalf("err = %v, want the normalisation error for the bind", err)
 	}

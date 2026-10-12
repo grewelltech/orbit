@@ -53,7 +53,7 @@ func TestLiveAttach(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conn, err := sctp.Dial("", amf)
+	conn, err := sctp.Dial(context.Background(), "", amf)
 	if err != nil {
 		t.Fatalf("SCTP dial %s: %v", amf, err)
 	}

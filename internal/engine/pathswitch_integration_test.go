@@ -47,12 +47,12 @@ func TestLivePathSwitch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	src, err := sctp.Dial(srcBind, amf)
+	src, err := sctp.Dial(context.Background(), srcBind, amf)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer src.Close()
-	tgt, err := sctp.Dial(tgtBind, amf)
+	tgt, err := sctp.Dial(context.Background(), tgtBind, amf)
 	if err != nil {
 		t.Fatal(err)
 	}
