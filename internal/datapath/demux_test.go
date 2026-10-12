@@ -486,7 +486,10 @@ func TestDemuxEndMarker(t *testing.T) {
 	if seen.Load() != 1 {
 		t.Fatalf("callback fired %d times, want 1", seen.Load())
 	}
-	em := last.Load().(EndMarker)
+	em, ok := last.Load().(EndMarker)
+	if !ok {
+		t.Fatal("EndMarkers() reported a marker whose callback had not stored it")
+	}
 	if time.Since(em.Arrival) > 5*time.Second || em.Arrival.IsZero() {
 		t.Errorf("end-marker arrival %v not plausible", em.Arrival)
 	}
@@ -534,8 +537,17 @@ func TestDemuxEndMarkerTombstoneAfterRebind(t *testing.T) {
 	if _, err := r.upf.WriteToUDP(gtpu.EncodeEndMarker(oldTEID), dst); err != nil {
 		t.Fatal(err)
 	}
+	// EndMarkers counts a marker only after its callback returned, so the
+	// stored value is there once the count is; a regression fails here with
+	// a message rather than a nil type-assertion panic (#118).
 	waitFor(t, "stale end marker via the tombstone", func() bool { return rx.EndMarkers() == 1 })
-	em := last.Load().(EndMarker)
+	if seen.Load() != 1 {
+		t.Fatalf("callback fired %d times, want 1", seen.Load())
+	}
+	em, ok := last.Load().(EndMarker)
+	if !ok {
+		t.Fatal("EndMarkers() reported a marker whose callback had not stored it")
+	}
 	if !em.Stale || em.TEID != oldTEID {
 		t.Errorf("end marker = TEID %#x stale %v, want the vacated TEID %#x stale", em.TEID, em.Stale, oldTEID)
 	}
@@ -559,6 +571,50 @@ func TestDemuxEndMarkerTombstoneAfterRebind(t *testing.T) {
 	if rx.EndMarkers() != 1 {
 		t.Errorf("expired tombstone still delivered (count %d)", rx.EndMarkers())
 	}
+}
+
+// TestEndMarkerCountFollowsCallback pins the EndMarkers contract: the count
+// does not move while the marker's callback is still running, and moves once
+// it returns. A callback that blocks stands in for one that has not yet
+// stored what the test will read. On the old order (count, then callback)
+// the count reaches 1 while the callback is blocked and this test fails.
+func TestEndMarkerCountFollowsCallback(t *testing.T) {
+	const dlTEID = 0x555
+	r := newDemuxRig(t, 1, dlTEID, 1)
+	rx := r.d.Register(dlTEID)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	// Registered after the rig's cleanup, so it runs before it: a failing
+	// assertion must still let the reader out of the callback, or the
+	// tunnel's close would wait on it forever and the failure would surface
+	// as a test-binary timeout instead of a message.
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	rx.SetEndMarkerFunc(func(EndMarker) {
+		close(entered)
+		<-release
+	})
+	if _, err := r.upf.WriteToUDP(gtpu.EncodeEndMarker(dlTEID), r.tun.conn.LocalAddr().(*net.UDPAddr)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("callback never ran")
+	}
+	// While the callback is blocked the count must stay 0; poll for a while
+	// so a count that leads the callback cannot slip through unseen.
+	until := time.Now().Add(100 * time.Millisecond)
+	for time.Now().Before(until) {
+		if n := rx.EndMarkers(); n != 0 {
+			t.Fatalf("EndMarkers() = %d while the callback is still running, want 0", n)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	unblock()
+	waitFor(t, "end marker counted after the callback returned", func() bool { return rx.EndMarkers() == 1 })
 }
 
 // TestDemuxEndMarkerTombstoneAfterDetach: the inter-gNB half — a lane
