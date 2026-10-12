@@ -238,11 +238,38 @@ function Row({ r }: { r: ConformanceResult }) {
       </td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink)", fontSize: "0.82rem" }}>{r.id}</td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{r.category}</td>
-      <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{r.specRef}</td>
+      <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>
+        <SpecCell r={r} />
+      </td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink-2)", fontSize: "0.82rem" }}>
         {r.observed || r.detail}
       </td>
     </tr>
+  );
+}
+
+// SpecCell shows the release a check requires and its clauses rendered the
+// same way as the CLI and JSON; it expands to the 3GPP versions each clause
+// was verified in.
+function SpecCell({ r }: { r: ConformanceResult }) {
+  if (r.specRefs.length === 0) {
+    return <>{r.specRef}</>;
+  }
+  return (
+    <details>
+      <summary style={{ cursor: "pointer" }}>
+        {r.minRelease > 0 ? `requires Rel-${r.minRelease} or later; ` : ""}
+        {r.specRef}
+      </summary>
+      <ul style={{ margin: "4px 0 0 1rem", padding: 0 }}>
+        {r.specRefs.map((ref) => (
+          <li key={`${ref.spec} ${ref.clause}`}>
+            {ref.spec} {ref.clause} ({ref.strength}, since Rel-{ref.since}):{" "}
+            {ref.verified.map((v) => `Rel-${v.release} ${v.version}`).join(", ")}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
