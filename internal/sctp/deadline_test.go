@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,29 +15,29 @@ import (
 	isctp "github.com/ishidawataru/sctp"
 )
 
-// The requested SCTP max-init timeout is the time remaining to the deadline,
-// rounded up and clamped to the option's 1..65535 ms range; with no deadline
-// it is the fallback. Never 0: the kernel reads 0 as its sysctl default.
+// The requested SCTP max-init timeout caps ONE INIT attempt's RTO, so it is a
+// quarter of the dial bound (three retransmits, initAttempts, then make up
+// the rest), rounded up and clamped to the option's 1..65535 ms range. Never
+// 0: the kernel reads 0 as its sysctl default.
 func TestInitTimeout(t *testing.T) {
-	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
-		name     string
-		deadline time.Time
-		fallback time.Duration
-		want     uint16
+		name  string
+		bound time.Duration
+		want  uint16
 	}{
-		{name: "no deadline: fallback", fallback: DefaultDialTimeout, want: 20000},
-		{name: "no deadline: option", fallback: 2 * time.Second, want: 2000},
-		{name: "5 s left", deadline: now.Add(5 * time.Second), fallback: DefaultDialTimeout, want: 5000},
-		{name: "100 s left clamps to the field max", deadline: now.Add(100 * time.Second), fallback: DefaultDialTimeout, want: 65535},
-		{name: "0.4 ms left rounds up to 1", deadline: now.Add(400 * time.Microsecond), fallback: DefaultDialTimeout, want: 1},
-		{name: "deadline in the past is still 1", deadline: now.Add(-time.Minute), fallback: DefaultDialTimeout, want: 1},
-		{name: "zero fallback and no deadline is still 1", fallback: 0, want: 1},
+		{name: "default 20 s", bound: DefaultDialTimeout, want: 5000},
+		{name: "2 s", bound: 2 * time.Second, want: 500},
+		{name: "5 s", bound: 5 * time.Second, want: 1250},
+		{name: "2 ms rounds up to 1", bound: 2 * time.Millisecond, want: 1},
+		{name: "0.4 ms is still 1", bound: 400 * time.Microsecond, want: 1},
+		{name: "spent bound is still 1", bound: -time.Minute, want: 1},
+		{name: "zero is still 1", bound: 0, want: 1},
+		{name: "300 s clamps to the field max", bound: 300 * time.Second, want: 65535},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := initTimeout(now, tc.deadline, tc.fallback); got != tc.want {
-				t.Errorf("initTimeout(%v, %v) = %d, want %d", tc.deadline, tc.fallback, got, tc.want)
+			if got := initTimeout(tc.bound); got != tc.want {
+				t.Errorf("initTimeout(%v) = %d, want %d", tc.bound, got, tc.want)
 			}
 		})
 	}
@@ -88,24 +89,32 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// Dial returns as soon as its context is done even while the kernel is still
-// connecting, wraps the context error so callers can errors.Is it, names the
-// source, and closes the connection the kernel eventually produces exactly
+// Dial returns as soon as its bound passes even while the kernel is still
+// connecting: the caller's deadline, a cancel, or, with no deadline at all,
+// the timeout Dial sets itself (the bound is always on). It wraps the context
+// error so callers can errors.Is it, names the source, the elapsed time and
+// the bound, and closes the connection the kernel eventually produces exactly
 // once, so a cancelled dial leaks nothing.
 func TestDialContextBoundReturnsEarlyAndClosesLate(t *testing.T) {
 	tests := []struct {
-		name    string
-		ctx     func() (context.Context, context.CancelFunc)
-		wantErr error
+		name     string
+		ctx      func() (context.Context, context.CancelFunc)
+		opts     []DialOption
+		wantErr  error
+		wantText []string
 	}{
 		{name: "deadline", ctx: func() (context.Context, context.CancelFunc) {
 			return context.WithTimeout(context.Background(), 50*time.Millisecond)
-		}, wantErr: context.DeadlineExceeded},
+		}, wantErr: context.DeadlineExceeded, wantText: []string{"no INIT-ACK after ", "(bound 50ms; AMF unreachable or black-holed)"}},
 		{name: "cancel", ctx: func() (context.Context, context.CancelFunc) {
 			ctx, cancel := context.WithCancel(context.Background())
 			go func() { time.Sleep(50 * time.Millisecond); cancel() }()
 			return ctx, cancel
-		}, wantErr: context.Canceled},
+		}, wantErr: context.Canceled, wantText: []string{"cancelled after "}},
+		{name: "no deadline: Dial's own bound", ctx: func() (context.Context, context.CancelFunc) {
+			return context.Background(), func() {}
+		}, opts: []DialOption{WithDialTimeout(50 * time.Millisecond)}, wantErr: context.DeadlineExceeded,
+			wantText: []string{"no INIT-ACK after ", "(bound 50ms; AMF unreachable or black-holed)"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,15 +122,20 @@ func TestDialContextBoundReturnsEarlyAndClosesLate(t *testing.T) {
 			defer cancel()
 			b := newBlockingDialer()
 			start := time.Now()
-			_, err := Dial(ctx, "127.0.0.1", "127.0.0.1:38412", withRawDialer(b.dial))
+			_, err := Dial(ctx, "127.0.0.1", "127.0.0.1:38412", append([]DialOption{withRawDialer(b.dial)}, tc.opts...)...)
 			if elapsed := time.Since(start); elapsed > time.Second {
-				t.Errorf("Dial took %s; it must return when the context is done", elapsed)
+				t.Errorf("Dial took %s; it must return when the bound passes", elapsed)
 			}
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("err = %v, want errors.Is %v", err, tc.wantErr)
 			}
-			if !strings.Contains(err.Error(), `sctp dial "127.0.0.1:38412" from "127.0.0.1:0"`) {
-				t.Errorf("error %q does not name the AMF and source", err)
+			for _, w := range append([]string{`sctp dial "127.0.0.1:38412" from "127.0.0.1:0"`}, tc.wantText...) {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("error %q lacks %q", err, w)
+				}
+			}
+			if tc.wantErr == context.Canceled && strings.Contains(err.Error(), "INIT-ACK") {
+				t.Errorf("a cancel must not claim the AMF was unreachable: %q", err)
 			}
 			if got := b.conn.closes.Load(); got != 0 {
 				t.Fatalf("connection closed %d times before the kernel produced it", got)
@@ -136,9 +150,9 @@ func TestDialContextBoundReturnsEarlyAndClosesLate(t *testing.T) {
 	}
 }
 
-// A kernel timeout on the INIT exchange is reported as "no INIT-ACK within
-// <bound>", naming the bound actually requested; any other connect error
-// keeps its existing wrapping. Both still wrap the syscall error.
+// A kernel timeout on the INIT exchange is reported as "no INIT-ACK after
+// <elapsed> (bound <bound>; ...)", naming the bound actually requested; any
+// other connect error keeps its existing wrapping. Both wrap the syscall error.
 func TestDialKernelErrorMapping(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -149,9 +163,9 @@ func TestDialKernelErrorMapping(t *testing.T) {
 		wantIsTO bool
 	}{
 		{name: "timed out, default bound", dialErr: syscall.ETIMEDOUT,
-			want: []string{`sctp dial "127.0.0.1:38412" from "127.0.0.1:0"`, "no INIT-ACK within 20s", "AMF unreachable or black-holed"}, wantIsTO: true},
+			want: []string{`sctp dial "127.0.0.1:38412" from "127.0.0.1:0"`, "no INIT-ACK after ", "(bound 20s; AMF unreachable or black-holed)"}, wantIsTO: true},
 		{name: "timed out, option bound", opts: []DialOption{WithDialTimeout(3 * time.Second)}, dialErr: syscall.ETIMEDOUT,
-			want: []string{"no INIT-ACK within 3s"}, wantIsTO: true},
+			want: []string{"(bound 3s;"}, wantIsTO: true},
 		{name: "refused is unchanged", dialErr: syscall.ECONNREFUSED,
 			want: []string{`sctp dial "127.0.0.1:38412" from "127.0.0.1:0": connection refused`}, wantNot: "INIT-ACK"},
 	}
@@ -182,9 +196,10 @@ func TestDialKernelErrorMapping(t *testing.T) {
 	}
 }
 
-// The max-init timeout handed to the kernel follows the context deadline
-// when there is one and the option (or the default) when there is not; the
-// option never extends a deadline. Streams are untouched.
+// The InitMsg handed to the kernel asks for a quarter of the bound per INIT
+// attempt and three retransmits, so it abandons the exchange at about the
+// bound: the context deadline when there is one, else the option or the
+// default; the option never extends a deadline. Streams are untouched.
 func TestDialInitTimeoutPrecedence(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -192,12 +207,14 @@ func TestDialInitTimeoutPrecedence(t *testing.T) {
 		opts     []DialOption
 		min, max uint16
 	}{
-		{name: "default", min: 20000, max: 20000},
-		{name: "option without deadline", opts: []DialOption{WithDialTimeout(2 * time.Second)}, min: 2000, max: 2000},
-		{name: "deadline without option", timeout: 500 * time.Millisecond, min: 400, max: 500},
-		{name: "option never extends a deadline", timeout: 500 * time.Millisecond, opts: []DialOption{WithDialTimeout(2 * time.Second)}, min: 400, max: 500},
-		{name: "deadline beyond the field max clamps", timeout: 90 * time.Second, min: 65535, max: 65535},
-		{name: "non-positive option is ignored", opts: []DialOption{WithDialTimeout(0)}, min: 20000, max: 20000},
+		{name: "default 20 s", min: 5000, max: 5000},
+		{name: "option 2 s without deadline", opts: []DialOption{WithDialTimeout(2 * time.Second)}, min: 500, max: 500},
+		{name: "option 2 ms without deadline", opts: []DialOption{WithDialTimeout(2 * time.Millisecond)}, min: 1, max: 1},
+		{name: "deadline 500 ms without option", timeout: 500 * time.Millisecond, min: 100, max: 125},
+		{name: "option never extends a deadline", timeout: 500 * time.Millisecond, opts: []DialOption{WithDialTimeout(2 * time.Second)}, min: 100, max: 125},
+		{name: "deadline 90 s", timeout: 90 * time.Second, min: 22400, max: 22500},
+		{name: "deadline beyond four times the field max clamps", timeout: 300 * time.Second, min: 65535, max: 65535},
+		{name: "non-positive option is ignored", opts: []DialOption{WithDialTimeout(0)}, min: 5000, max: 5000},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -215,8 +232,11 @@ func TestDialInitTimeoutPrecedence(t *testing.T) {
 			if got.MaxInitTimeout < tc.min || got.MaxInitTimeout > tc.max {
 				t.Errorf("MaxInitTimeout = %d, want in [%d, %d]", got.MaxInitTimeout, tc.min, tc.max)
 			}
-			if got.NumOstreams != DefaultNGAPStreams || got.MaxInstreams != DefaultNGAPStreams || got.MaxAttempts != 0 {
-				t.Errorf("InitMsg = %+v; streams or attempts changed", got)
+			if got.NumOstreams != DefaultNGAPStreams || got.MaxInstreams != DefaultNGAPStreams {
+				t.Errorf("InitMsg = %+v; streams changed", got)
+			}
+			if got.MaxAttempts != initAttempts {
+				t.Errorf("MaxAttempts = %d, want %d", got.MaxAttempts, initAttempts)
 			}
 		})
 	}
@@ -244,4 +264,55 @@ func TestDialDoneContextSkipsConnect(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `invalid local address "10.0.0.1:0:0"`) {
 		t.Errorf("err = %v, want the bind error ahead of the context error", err)
 	}
+}
+
+// openFDs counts this process's open file descriptors.
+func openFDs(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Skipf("cannot count file descriptors: %v", err)
+	}
+	return len(entries)
+}
+
+// Against a real black hole (an address that drops SCTP; set
+// ORBIT_BLACKHOLE_AMF=ip:port, normally inside a network namespace), a dial
+// with a 2 s deadline returns in about 2 s with the context error, and the
+// kernel socket the dial left behind is closed within a few seconds of that,
+// because the kernel was asked to abandon the exchange at about the bound
+// rather than after its default ~2.4 min. Skipped by default so the unit
+// suite sends nothing off-host.
+func TestDialBlackHoleBounded(t *testing.T) {
+	amf := os.Getenv("ORBIT_BLACKHOLE_AMF")
+	if amf == "" {
+		t.Skip("set ORBIT_BLACKHOLE_AMF=ip:port (an address that drops SCTP) to run")
+	}
+	baseline := openFDs(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err := Dial(ctx, "", amf)
+	took := time.Since(start)
+	t.Logf("Dial(%s) returned after %s: %v", amf, took.Round(100*time.Millisecond), err)
+	if err == nil {
+		t.Fatal("the black hole answered")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, syscall.ETIMEDOUT) {
+		t.Errorf("err = %v, want the deadline or a kernel timeout", err)
+	}
+	if took < 1500*time.Millisecond || took > 4*time.Second {
+		t.Errorf("Dial took %s, want about 2 s", took)
+	}
+	// rto_min (1 s by default) floors each attempt, so with a 2 s bound the
+	// kernel needs about 4.5 s in all to give up; allow for that.
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		if openFDs(t) <= baseline {
+			t.Logf("orphaned socket closed %s after Dial returned", time.Since(start.Add(took)).Round(100*time.Millisecond))
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Errorf("file descriptors did not return to the baseline of %d within 6 s of the dial returning", baseline)
 }
