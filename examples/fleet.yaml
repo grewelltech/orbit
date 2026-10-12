@@ -42,7 +42,7 @@ topology:
 
 fleet:
   count: 100
-  supi_base: "208930100007500"
+  supi_base: "001010100007500"
   distribution: even
   attach_rate: 10/s
   pdu_session: true
