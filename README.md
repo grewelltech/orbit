@@ -107,17 +107,17 @@ for mobility with data continuity**. Full scenario reference in
 Every scenario step is also a command:
 
 ```sh
-orbit ue register --amf 172.17.50.11:38412 --supi 208930100007500 \
+orbit ue register --amf 172.17.50.11:38412 --supi 001010100007500 \
     --ki <hex> --opc <hex> --mcc 001 --mnc 01 --sst 1 --sd 010203 \
     --gnb-id 1 --pdu-session --gnb-n3 <ip-reachable-from-upf>
-orbit ue ping    --supi 208930100007500 --dst 8.8.8.8
-orbit ue latency --supi 208930100007500 --target 8.8.8.8
-orbit ue traffic --supi 208930100007500 --target 8.8.8.8:9999 --rate 20Mbps
-orbit ue stats   --supi 208930100007500   # per-QFI UL/DL counters
-orbit ue xn-handover --supi 208930100007500 --amf 172.17.50.11:38412 \
+orbit ue ping    --supi 001010100007500 --dst 8.8.8.8
+orbit ue latency --supi 001010100007500 --target 8.8.8.8
+orbit ue traffic --supi 001010100007500 --target 8.8.8.8:9999 --rate 20Mbps
+orbit ue stats   --supi 001010100007500   # per-QFI UL/DL counters
+orbit ue xn-handover --supi 001010100007500 --amf 172.17.50.11:38412 \
     --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13   # or: ue handover (N2)
 
-orbit load --amf 172.17.50.11:38412 --base-imsi 208930100007500 --count 100 \
+orbit load --amf 172.17.50.11:38412 --base-imsi 001010100007500 --count 100 \
     --ki <hex> --opc <hex> --mcc 001 --mnc 01 --sd 010203 --rate 20 --slo-min-success 0.99
 orbit conformance --amf 172.17.50.11:38412 --json
 ```
@@ -182,7 +182,7 @@ topology:
     source_ips: [<gnb1-ip>, <gnb2-ip>]
 fleet:
   count: 20
-  supi_base: "208930100007500"        # first IMSI; UEs count up from here
+  supi_base: "001010100007500"        # first IMSI; UEs count up from here
   attach_rate: 5/s                     # SD-Core serialises attaches — keep it modest
   pdu_session: true
 behaviors:
@@ -202,7 +202,7 @@ orbit run fleet.yaml
 ▶ single-node-smoke
   core:     <amf-ip>:38412  PLMN 001/01
   topology: 2 gNBs (ids 1–2), grid, source IPs <gnb1-ip>, <gnb2-ip>
-  fleet:    20 UEs (208930100007500…), even across gNBs, attach 5/s, PDU sessions
+  fleet:    20 UEs (001010100007500…), even across gNBs, attach 5/s, PDU sessions
   mobility: random_walk @ 3m/s, xn handover
   traffic:  100% video (5Mbps)
   run:      60s
