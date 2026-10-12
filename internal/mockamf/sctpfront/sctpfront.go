@@ -7,6 +7,7 @@ package sctpfront
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"testing"
 
 	isctp "github.com/ishidawataru/sctp"
@@ -16,12 +17,30 @@ import (
 	"github.com/bgrewell/orbit/internal/sctp"
 )
 
-// Listen starts a loopback SCTP listener bridging each accepted association
-// to its own mock AMF connection, and returns its address. The listener
-// closes when the test ends. The test is skipped when the host has no kernel
-// SCTP.
+// Front is a running loopback SCTP listener in front of a mock AMF.
+type Front struct {
+	// Addr is the listener's address (host:port), for the gNB to dial.
+	Addr   string
+	active atomic.Int64
+}
+
+// Active is the number of associations currently bridged: accepted and not
+// yet closed by either side.
+func (f *Front) Active() int { return int(f.active.Load()) }
+
+// Listen starts a loopback SCTP listener in front of amf and returns its
+// address (see Start).
 func Listen(t testing.TB, amf *mockamf.AMF) string {
 	t.Helper()
+	return Start(t, amf).Addr
+}
+
+// Start starts a loopback SCTP listener bridging each accepted association
+// to its own mock AMF connection. The listener closes when the test ends.
+// The test is skipped when the host has no kernel SCTP.
+func Start(t testing.TB, amf *mockamf.AMF) *Front {
+	t.Helper()
+	f := &Front{}
 	ln, err := isctp.ListenSCTPExt("sctp",
 		&isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}},
 		isctp.InitMsg{NumOstreams: sctp.DefaultNGAPStreams, MaxInstreams: sctp.DefaultNGAPStreams})
@@ -39,7 +58,11 @@ func Listen(t testing.TB, amf *mockamf.AMF) string {
 			if err != nil {
 				return
 			}
-			go bridge(c, amf.ConnectShared(ctx))
+			f.active.Add(1)
+			go func() {
+				defer f.active.Add(-1)
+				bridge(c, amf.ConnectShared(ctx))
+			}()
 		}
 	}()
 	// The pinned library reads the address with a stack buffer passed to
@@ -48,11 +71,12 @@ func Listen(t testing.TB, amf *mockamf.AMF) string {
 	// #131). A retry runs on the already-grown stack.
 	for i := 0; i < 5; i++ {
 		if addr := ln.Addr(); addr != nil {
-			return addr.String()
+			f.Addr = addr.String()
+			return f
 		}
 	}
 	t.Fatalf("SCTP listener reports no local address")
-	return ""
+	return nil
 }
 
 // bridge copies NGAP messages between one accepted SCTP association and one

@@ -48,6 +48,7 @@ const (
 	Security   Category = "security"    // NAS security-context violations
 	GTPU       Category = "gtpu"        // user-plane error handling
 	Timing     Category = "timing"      // concurrent-procedure timing (flaky-allowed)
+	Mobility   Category = "mobility"    // UE-level procedures over two gNB associations (needs Env.UE)
 )
 
 // Result is one test's structured outcome. The registry stamps the identity
@@ -108,6 +109,9 @@ type Test interface {
 // TargetRelease is the 3GPP release the core claims; a check that requires a
 // newer release SKIPs instead of running. The zero value (unset) runs every
 // check.
+//
+// UE is the subscriber the Mobility checks register (see UESpec and
+// UEHarness); with no SUPI they SKIP, so a suite without one runs as before.
 type Env struct {
 	AMFAddr       string
 	Bind          string
@@ -115,6 +119,7 @@ type Env struct {
 	UPFN3         string
 	N3Bind        string
 	TargetRelease Release
+	UE            UESpec
 }
 
 // Dial opens a raw SCTP association to the AMF (no NG Setup) from Bind,
