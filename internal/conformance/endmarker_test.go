@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,12 @@ func TestClassifyEndMarker(t *testing.T) {
 			wantDetail: []string{"no GTP-U End Marker on the old F-TEID between Path Switch Request and 5s after its Acknowledge. TS 23.501 5.8.2.9.1", "enable_end_marker", "TS 29.244 8.2.31"}},
 		{name: "marker on the new TEID does not count", markers: []datapath.EndMarker{em(50*time.Millisecond, newTEID, src)},
 			want: Fail, wantDetail: []string{"on other tunnels 1"}},
+		{name: "marker reported in IPv4-mapped form counts", markers: []datapath.EndMarker{em(50*time.Millisecond, oldTEID, "[::ffff:10.0.0.1]:2152")},
+			want: Pass, wantDetail: []string{"End Markers counted 1"}},
+		{name: "marker on another socket of the same host does not count", markers: []datapath.EndMarker{em(50*time.Millisecond, oldTEID, "10.0.0.1:2153")},
+			want: Fail, wantDetail: []string{"on other tunnels 1"}},
+		{name: "g-pdu reported in IPv4-mapped form after the marker", markers: []datapath.EndMarker{em(50*time.Millisecond, oldTEID, src)},
+			gpdus: []datapath.GPDUArrival{gp(60*time.Millisecond, oldTEID, "[::ffff:10.0.0.1]:2152")}, want: Fail},
 		{name: "marker at the target gNB does not count", markers: []datapath.EndMarker{em(50*time.Millisecond, oldTEID, tgt)},
 			want: Fail, wantDetail: []string{"on other tunnels 1"}},
 		{name: "marker after the window does not count", markers: []datapath.EndMarker{em(ackPlus(ack, grace, t0)+time.Millisecond, oldTEID, src)},
@@ -71,7 +78,7 @@ func TestClassifyEndMarker(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			o := PathObservation{OldTEID: oldTEID, SourceN3: src, Started: started, Ack: ack, AckFromEvent: true,
+			o := PathObservation{OldTEID: oldTEID, SourceN3: netip.MustParseAddrPort(src), Started: started, Ack: ack, AckFromEvent: true,
 				EndMarkers: tc.markers, GPDUs: tc.gpdus}
 			v, observed, detail := classifyEndMarker(o, grace)
 			if v != tc.want {
@@ -86,6 +93,37 @@ func TestClassifyEndMarker(t *testing.T) {
 				t.Error("detail claims a fallback Acknowledge time")
 			}
 		})
+	}
+}
+
+// sameSocket compares socket addresses as values: IPv4-mapped and
+// non-canonical IPv6 spellings of one socket are equal; another port, host
+// or an unparseable report is not.
+func TestSameSocket(t *testing.T) {
+	v4 := canonical(netip.MustParseAddrPort("[::ffff:127.0.0.1]:2152"))
+	v6 := canonical(netip.MustParseAddrPort("[0:0:0:0:0:0:0:1]:2152"))
+	if v4.String() != "127.0.0.1:2152" || v6.String() != "[::1]:2152" {
+		t.Fatalf("canonical forms %s and %s, want 127.0.0.1:2152 and [::1]:2152", v4, v6)
+	}
+	tests := []struct {
+		ap       netip.AddrPort
+		reported string
+		want     bool
+	}{
+		{v4, "127.0.0.1:2152", true},
+		{v4, "[::ffff:127.0.0.1]:2152", true},
+		{v4, "127.0.0.1:2153", false},
+		{v4, "127.0.0.2:2152", false},
+		{v6, "[::1]:2152", true},
+		{v6, "[0:0:0:0:0:0:0:1]:2152", true},
+		{v6, "[::2]:2152", false},
+		{v4, "not-an-address", false},
+		{v4, "", false},
+	}
+	for _, tc := range tests {
+		if got := sameSocket(tc.ap, tc.reported); got != tc.want {
+			t.Errorf("sameSocket(%s, %q) = %v, want %v", tc.ap, tc.reported, got, tc.want)
+		}
 	}
 }
 
@@ -126,7 +164,7 @@ func TestClassifyEndMarkerRecords(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			o := PathObservation{OldTEID: 1, SourceN3: src, Started: t0, Ack: t0.Add(10 * time.Millisecond),
+			o := PathObservation{OldTEID: 1, SourceN3: netip.MustParseAddrPort(src), Started: t0, Ack: t0.Add(10 * time.Millisecond),
 				AckFromEvent: tc.ackEv, EndMarkers: tc.markers, GPDUs: tc.gpdus, Traffic: tc.traffic}
 			_, _, detail := classifyEndMarker(o, time.Second)
 			for _, w := range tc.want {
@@ -238,9 +276,17 @@ type mockCore struct {
 func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string) *mockCore {
 	t.Helper()
 	base := fmt.Sprintf("127.0.%d.", net24)
-	upf, err := mockupf.Listen(base+"10:2152", opts)
+	return newMockCoreAt(t, base+"10:2152", base+"10", base+"11", opts, ki)
+}
+
+// newMockCoreAt is newMockCore with explicit addresses: the stub UPF's
+// listen address, the IPv4 the mock AMF advertises for it, and the gNB N3
+// address the UE is configured with.
+func newMockCoreAt(t *testing.T, upfListen, upfAddr, n3 string, opts mockupf.Options, ki string) *mockCore {
+	t.Helper()
+	upf, err := mockupf.Listen(upfListen, opts)
 	if err != nil {
-		t.Skipf("cannot bind the stub UPF on %s10:2152: %v", base, err)
+		t.Skipf("cannot bind the stub UPF on %s: %v", upfListen, err)
 	}
 	t.Cleanup(func() { _ = upf.Close() })
 	k, err := auth.ParseHexKey("Ki", ki)
@@ -253,7 +299,7 @@ func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string) *mock
 	}
 	amf, err := mockamf.New(mockamf.Config{
 		Ki: k, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
-		MCC: "208", MNC: "93", SST: 1, SD: "010203", UPF: upf, UPFAddress: base + "10",
+		MCC: "208", MNC: "93", SST: 1, SD: "010203", UPF: upf, UPFAddress: upfAddr,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +309,7 @@ func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string) *mock
 			t.Errorf("mock AMF dropped %d PDUs that failed to encode", n)
 		}
 	})
-	return &mockCore{front: sctpfront.Start(t, amf), upf: upf, amf: amf, n3: base + "11"}
+	return &mockCore{front: sctpfront.Start(t, amf), upf: upf, amf: amf, n3: n3}
 }
 
 // assertClosed waits for every gNB association to close and checks the core
@@ -344,6 +390,39 @@ func TestEndMarkerCheckAgainstMockPair(t *testing.T) {
 			}
 			if tc.traffic != "" && len(c.upf.Uplink()) == 0 {
 				t.Error("the configured flow sent no uplink")
+			}
+			c.assertClosed(t, env)
+		})
+	}
+}
+
+// --gnb-n3 spelled in a non-canonical form still PASSes against a core that
+// sends the End Marker: the source socket comes from the engine's bound
+// socket, and sockets compare as values. The detail shows the canonical
+// form.
+func TestEndMarkerCheckNonCanonicalGNBN3(t *testing.T) {
+	tests := []struct {
+		name      string
+		upfListen string
+		upfAddr   string
+		n3        string
+		wantSrc   string
+	}{
+		{name: "IPv4-mapped", upfListen: "127.0.68.10:2152", upfAddr: "127.0.68.10", n3: "::ffff:127.0.68.11", wantSrc: "127.0.68.11:2152"},
+		{name: "IPv4-mapped, expanded", upfListen: "127.0.69.10:2152", upfAddr: "127.0.69.10", n3: "0:0:0:0:0:ffff:7f00:450b", wantSrc: "127.0.69.11:2152"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newMockCoreAt(t, tc.upfListen, tc.upfAddr, tc.n3, mockupf.Options{EndMarker: true}, testKi)
+			env := ueEnv(c.front.Addr, "", c.n3)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			r := endMarkerOnPathSwitch{window: 300 * time.Millisecond}.Run(ctx, env)
+			if r.Verdict != Pass {
+				t.Fatalf("verdict %s (%s; %s), want PASS", r.Verdict, r.Observed, r.Detail)
+			}
+			if !strings.Contains(r.Detail, "at source N3 "+tc.wantSrc+";") {
+				t.Errorf("detail %q does not show the canonical source %s", r.Detail, tc.wantSrc)
 			}
 			c.assertClosed(t, env)
 		})

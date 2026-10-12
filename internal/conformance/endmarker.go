@@ -130,7 +130,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // otherwise PASS. The detail always records the tunnel, the marker counts,
 // the QFI container, the downlink before the switch and the traffic.
 func classifyEndMarker(o PathObservation, grace time.Duration) (Verdict, string, string) {
-	onOld := func(teid uint32, gnb string) bool { return teid == o.OldTEID && gnb == o.SourceN3 }
+	onOld := func(teid uint32, gnb string) bool { return teid == o.OldTEID && sameSocket(o.SourceN3, gnb) }
 	closes := o.Ack.Add(grace)
 
 	var counted []datapath.EndMarker

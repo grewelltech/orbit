@@ -369,9 +369,15 @@ func TestObserveDownlinkAcrossXn(t *testing.T) {
 		t.Fatalf("ObserveDownlink: %v", err)
 	}
 	defer stop()
+	if a := sess.N3LocalAddr(); a == nil || a.String() != net.JoinHostPort(p.srcN3, "2152") {
+		t.Errorf("N3LocalAddr before the switch = %v, want the source gNB socket", a)
+	}
 
 	p.xn(t, m, supi)
 
+	if a := sess.N3LocalAddr(); a == nil || a.String() != net.JoinHostPort(p.tgtN3, "2152") {
+		t.Errorf("N3LocalAddr after the switch = %v, want the target gNB socket", a)
+	}
 	snapshot := func() []obs {
 		mu.Lock()
 		defer mu.Unlock()

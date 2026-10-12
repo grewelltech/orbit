@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -86,9 +87,10 @@ type UEHarness struct {
 // switch, for a check to judge.
 type PathObservation struct {
 	// OldTEID and SourceN3 are the vacated downlink tunnel: the TEID gNB A
-	// gave the core and gNB A's N3 socket (host:port).
+	// gave the core and gNB A's N3 socket as the engine bound it, with an
+	// IPv4-mapped address unmapped (the canonical form).
 	OldTEID  uint32
-	SourceN3 string
+	SourceN3 netip.AddrPort
 	// Started is taken just before the handover began, so it precedes the
 	// Path Switch Request; Ack is when the engine read the Path Switch
 	// Request Acknowledge (AckFromEvent false: the handover's return was
@@ -171,10 +173,42 @@ func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) 
 		return nil, fmt.Errorf("data path: %w", err)
 	}
 	h.stopObs = stop
+	src, err := h.boundN3()
+	if err != nil {
+		return nil, fmt.Errorf("data path: %w", err)
+	}
 	h.mu.Lock()
 	h.obs.OldTEID = res.DLTEID
+	h.obs.SourceN3 = src
 	h.mu.Unlock()
 	return res, nil
+}
+
+// boundN3 is gNB A's N3 socket as the engine bound it, in canonical form,
+// so the check never compares against the operator's spelling of --gnb-n3.
+func (h *UEHarness) boundN3() (netip.AddrPort, error) {
+	sess, err := h.m.Status(h.supi)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	ua, ok := sess.N3LocalAddr().(*net.UDPAddr)
+	if !ok || ua == nil {
+		return netip.AddrPort{}, errors.New("no bound N3 socket")
+	}
+	return canonical(ua.AddrPort()), nil
+}
+
+// canonical unmaps an IPv4-mapped address, so the two spellings of one
+// IPv4 socket compare equal.
+func canonical(ap netip.AddrPort) netip.AddrPort {
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+}
+
+// sameSocket reports whether a demux-reported socket address ("host:port")
+// is the socket ap, compared as values.
+func sameSocket(ap netip.AddrPort, reported string) bool {
+	r, err := netip.ParseAddrPort(reported)
+	return err == nil && canonical(r) == ap
 }
 
 func (h *UEHarness) noteEndMarker(em datapath.EndMarker) {
@@ -239,16 +273,9 @@ drain:
 	}
 	h.mu.Lock()
 	h.obs.OldTEID = src
-	h.obs.SourceN3 = gnbN3Socket(h.env.UE.GNBN3)
 	h.obs.Started, h.obs.Ack, h.obs.AckFromEvent = started, ack, fromEvent
 	h.mu.Unlock()
 	return nil
-}
-
-// gnbN3Socket is the N3 socket address the engine binds for a gNB N3 IP,
-// as the demux reports it on End Markers and G-PDUs.
-func gnbN3Socket(ip string) string {
-	return net.JoinHostPort(ip, "2152")
 }
 
 // Observe returns what has been seen so far, with the switch's timing.

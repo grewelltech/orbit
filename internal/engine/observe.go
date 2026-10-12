@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/bgrewell/orbit/internal/datapath"
 )
@@ -41,4 +42,17 @@ func (m *Manager) ObserveDownlink(supi string, onEndMarker func(datapath.EndMark
 		rx.SetEndMarkerFunc(nil)
 		rx.SetGPDUFunc(nil)
 	}, nil
+}
+
+// N3LocalAddr reports the socket address the UE's open data path is bound
+// to, as the kernel bound it: the shared N3 tunnel of the gNB currently
+// serving the UE. It is the address the demux stamps on End Markers and
+// G-PDUs. nil when no data path is open.
+func (s *Session) N3LocalAddr() net.Addr {
+	s.dpMu.Lock()
+	defer s.dpMu.Unlock()
+	if s.n3ref == nil {
+		return nil
+	}
+	return s.n3ref.st.LocalAddr()
 }
