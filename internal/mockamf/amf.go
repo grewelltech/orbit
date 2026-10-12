@@ -5,7 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasConvert"
@@ -28,6 +31,20 @@ type Config struct {
 	MCC, MNC string
 	SST      uint8
 	SD       string // 6 hex digits, optional
+
+	// UPF, when set, makes the mock establish PDU sessions (answering a UE's
+	// PDU Session Establishment Request with a PDU Session Resource Setup
+	// Request) and report sessions and path switches to it. Nil keeps the
+	// mock's registration-only behaviour: PDU session requests go
+	// unanswered. PathSwitchRequest is answered either way.
+	UPF UPF
+	// UPFAddress is the IPv4 the mock advertises as the UPF's uplink N3
+	// address; required with UPF.
+	UPFAddress string
+	// ReallocateULOnPathSwitch makes the PathSwitchRequestAcknowledge carry
+	// a new UPF uplink TEID for each switched session, the re-anchoring case
+	// of TS 38.413 §9.3.4.14; by default the uplink tunnel is kept.
+	ReallocateULOnPathSwitch bool
 }
 
 // AMF is an in-process mock AMF for sim-capacity measurement.
@@ -37,6 +54,13 @@ type AMF struct {
 	sdBytes []byte
 	snn     string
 	amfSeq  chan int64 // hands out AMF-UE-NGAP-IDs
+
+	// mu guards ues and the per-UE session maps: a UE registers on one
+	// association and its path switch arrives on another.
+	mu        sync.Mutex
+	ues       map[int64]*ueState // by AMF-UE-NGAP-ID
+	ueIPSeq   atomic.Uint32
+	ulTEIDSeq atomic.Uint32
 }
 
 // New validates config and returns a mock AMF.
@@ -57,7 +81,13 @@ func New(cfg Config) (*AMF, error) {
 			return nil, fmt.Errorf("SD %q must be 6 hex digits", cfg.SD)
 		}
 	}
-	a := &AMF{cfg: cfg, plmn: plmn, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64)}
+	if cfg.UPF != nil {
+		if ip := net.ParseIP(cfg.UPFAddress); ip == nil || ip.To4() == nil {
+			return nil, fmt.Errorf("UPFAddress %q must be an IPv4 address when a UPF is configured", cfg.UPFAddress)
+		}
+	}
+	a := &AMF{cfg: cfg, plmn: plmn, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
+		ues: make(map[int64]*ueState)}
 	go func() {
 		id := int64(1)
 		for {
@@ -126,8 +156,15 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		}
 		return a.send(p, resp)
 	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceSetupResponse {
+		return a.onPDUSessionSetupResponse(pdu.SuccessfulOutcome.Value.PDUSessionResourceSetupResponse)
+	}
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 		return nil // Initial Context Setup Response etc. — no action
+	}
+	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentPathSwitchRequest {
+		return a.onPathSwitchRequest(p, states, pdu.InitiatingMessage.Value.PathSwitchRequest)
 	}
 	up, err := parseUplink(pdu)
 	if err != nil {
@@ -154,11 +191,15 @@ type ueState struct {
 	supi         string
 	sec          *nas.SecurityContext
 	ngksi        uint8
+	sessions     map[uint8]*pduSession // guarded by AMF.mu
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	st.ranID = up.ranID
 	st.amfID = <-a.amfSeq
+	a.mu.Lock()
+	a.ues[st.amfID] = st
+	a.mu.Unlock()
 
 	supi, err := supiFromRegistration(up.nasPDU)
 	if err != nil {
@@ -233,6 +274,8 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return false, a.send(p, buildInitialContextSetupRequest(st.amfID, st.ranID, wrapped, a.plmn, a.cfg.SST, a.sdBytes))
 	case f5nas.MsgTypeRegistrationComplete:
 		return true, nil // UE is REGISTERED
+	case f5nas.MsgTypeULNASTransport:
+		return false, a.onPDUSessionRequest(p, st, msg)
 	default:
 		return false, nil
 	}
