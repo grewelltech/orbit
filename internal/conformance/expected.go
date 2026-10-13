@@ -58,6 +58,8 @@ type StaleExpectation struct {
 // LoadExpectedFailures reads and validates a list. Every entry must name a
 // registered check, an observed text, a finding, an added date (YYYY-MM-DD)
 // and a reason; (check, observed) must be unique; unknown keys are refused.
+// An observed text from a liveness probe (a core that stopped answering, or
+// one that could not be checked) is refused: those always gate.
 // Errors name the file and, for an entry, its index.
 func LoadExpectedFailures(path string) (*ExpectedFailures, error) {
 	b, err := os.ReadFile(path)
@@ -93,6 +95,9 @@ func parseExpectedFailures(path string, b []byte, known map[string]bool) (*Expec
 			if strings.TrimSpace(f.v) == "" {
 				return nil, fmt.Errorf("%s: %s is required", where, f.name)
 			}
+		}
+		if hasPrefixAny(e.Observed, livenessTexts) {
+			return nil, fmt.Errorf("%s: observed %q reports a core that stopped answering or could not be checked; it cannot be listed", where, e.Observed)
 		}
 		if !known[e.Check] {
 			return nil, fmt.Errorf("%s: unknown check %q", where, e.Check)

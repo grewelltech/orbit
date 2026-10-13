@@ -58,6 +58,10 @@ func TestParseExpectedFailures(t *testing.T) {
 		{name: "same check, other observed", yaml: head + entry(full...) + "  - " + strings.Join(append([]string{full[0], `observed: "association reset"`}, full[2:]...), "\n    ") + "\n", entries: 2},
 		{name: "unknown key in entry", yaml: head + entry(append(full, "severity: low")...), wantErr: "field severity not found"},
 		{name: "unknown top-level key", yaml: head + "owner: x\n", wantErr: "field owner not found"},
+		{name: "a dead AMF", yaml: head + entry(full[0], `observed: "AMF unresponsive after the message (silently dropped; association survived)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
+		{name: "a probe that could not run", yaml: head + entry(full[0], `observed: "liveness probe could not run (silently dropped; association survived)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
+		{name: "a dead UPF", yaml: head + entry("check: GTPU-UNKNOWN-TEID-ERRIND", `observed: "UPF unresponsive after the G-PDU (no Echo Response)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
+		{name: "an unconfirmed UPF", yaml: head + entry("check: GTPU-UNKNOWN-TEID-ERRIND", `observed: "UPF did not answer a GTP-U Echo Request before the test"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

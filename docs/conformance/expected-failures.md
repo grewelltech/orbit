@@ -65,6 +65,27 @@ So an entry for a silent drop never hides an `association reset` from the same
 check, nor a core that stopped answering afterwards (`AMF unresponsive after
 the message (...)`). An entry never matches an ERROR, a DEVIATION or a PASS.
 
+The liveness probes' own texts cannot be listed at all, so loading refuses an
+entry whose `observed` starts with any of them:
+
+- `AMF unresponsive after the message`
+- `liveness probe could not run`
+- `UPF unresponsive after the G-PDU (no Echo Response)`
+- `UPF did not answer a GTP-U Echo Request before the test`
+
+A crash always gates. On a check citing only shoulds it stays FAIL rather than
+becoming DEVIATION.
+
+`GTPU-UNKNOWN-TEID-ERRIND` sends a GTP-U Echo Request before and after its
+G-PDU, so `no Error Indication` means a UPF that was alive before and after
+and still sent nothing.
+
+- **No Echo Response before:** ERROR. A wrong `--upf-n3` (it must be the
+  UPF's primary N3 address) or a UPF without Echo support can never be
+  listed.
+- **No Echo Response after:** FAIL with the unresponsive text, which no entry
+  matches.
+
 `observed` must be the exact text the check reports, as it appears in the
 text output and in the JSON's `observed` field. Some FAIL texts carry values
 that change between runs, such as End Marker's `N G-PDU(s) after`; those cannot

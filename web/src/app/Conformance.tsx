@@ -182,7 +182,7 @@ export function Conformance() {
         <div className="border-b px-4 py-1.5 o-label" style={{ borderColor: "var(--o-border)", color: "var(--o-ink-3)" }}>
           expected failures: {state.expectedCore}
           {state.stale.map((s) => (
-            <div key={`${s.check} ${s.finding}`} style={{ color: "var(--o-amber)" }}>
+            <div key={`${s.check} ${s.finding} ${s.observed}`} style={{ color: "var(--o-amber)" }}>
               stale expected failure: {s.check} {s.finding}: now {s.verdict} &quot;{s.observed}&quot;
             </div>
           ))}

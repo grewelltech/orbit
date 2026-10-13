@@ -147,10 +147,13 @@ func TestRunOneVerdictRule(t *testing.T) {
 		name       string
 		refs       []SpecRef
 		run        Verdict
+		observed   string
 		want       Verdict
 		wantDetail string
 	}{
 		{name: "FAIL from a should-only check", refs: []SpecRef{should}, run: Fail, want: Deviation},
+		{name: "a crash on a should-only check stays FAIL", refs: []SpecRef{should}, run: Fail, observed: ObservedAMFUnresponsive + " (x)", want: Fail},
+		{name: "a dead UPF on a should-only check stays FAIL", refs: []SpecRef{should}, run: Fail, observed: ObservedUPFUnresponsive, want: Fail},
 		{name: "DEVIATION from a shall-only check", refs: []SpecRef{shall}, run: Deviation, want: Fail,
 			wantDetail: "scored FAIL: DEVIATION is reserved for a missed should"},
 		{name: "DEVIATION from a check citing a should", refs: []SpecRef{shall, should}, run: Deviation, want: Deviation},
@@ -159,7 +162,7 @@ func TestRunOneVerdictRule(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			c := provTest{id: "X", refs: tc.refs, result: Result{Verdict: tc.run}}
+			c := provTest{id: "X", refs: tc.refs, result: Result{Verdict: tc.run, Observed: tc.observed}}
 			res := runOne(context.Background(), c, Env{}, time.Second)
 			if res.Verdict != tc.want {
 				t.Errorf("verdict = %s, want %s", res.Verdict, tc.want)

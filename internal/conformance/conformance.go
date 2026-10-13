@@ -237,6 +237,42 @@ func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	return err == nil && ng.Accepted, nil
 }
 
+// Observed texts the liveness probes write. They are shared with
+// LoadExpectedFailures, which refuses a list entry for any of them, and with
+// runOne, which never demotes a crash: a list can never tolerate a dead core
+// or a check that could not confirm it was alive.
+const (
+	// ObservedAMFUnresponsive prefixes a FAIL whose fresh NG Setup no longer
+	// completes after the stimulus (confirmAlive).
+	ObservedAMFUnresponsive = "AMF unresponsive after the message"
+	// ObservedProbeFailed prefixes an ERROR whose liveness probe could not
+	// be made (confirmAlive).
+	ObservedProbeFailed = "liveness probe could not run"
+	// ObservedUPFUnresponsive is a FAIL whose UPF answered GTP-U Echo before
+	// the unknown-TEID G-PDU and not after it.
+	ObservedUPFUnresponsive = "UPF unresponsive after the G-PDU (no Echo Response)"
+	// ObservedUPFNoEcho is an ERROR whose UPF did not answer GTP-U Echo
+	// before the test, so its liveness cannot be confirmed.
+	ObservedUPFNoEcho = "UPF did not answer a GTP-U Echo Request before the test"
+)
+
+// livenessTexts are the Observed prefixes no expected-failures entry may
+// name; crashTexts are those that report a core that stopped answering.
+var (
+	livenessTexts = []string{ObservedAMFUnresponsive, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho}
+	crashTexts    = []string{ObservedAMFUnresponsive, ObservedUPFUnresponsive}
+)
+
+// hasPrefixAny reports whether s starts with any of prefixes.
+func hasPrefixAny(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // confirmAlive applies the crash-safety confirmation to a result in which
 // the association survived the message (survived), whatever the verdict: a
 // PASS, or a FAIL for a missed shall such as a silent drop. A fresh NG Setup
@@ -253,11 +289,11 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 	switch {
 	case err != nil:
 		r.Verdict = Error
-		r.Observed = "liveness probe could not run (" + r.Observed + ")"
+		r.Observed = ObservedProbeFailed + " (" + r.Observed + ")"
 		r.Detail = err.Error()
 	case !alive:
 		r.Verdict = Fail
-		r.Observed = "AMF unresponsive after the message (" + r.Observed + ")"
+		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
 		r.Detail = failDetail
 	}
 	return r
@@ -341,7 +377,7 @@ func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration
 // result. The verdict follows the check's references (WorstVerdict): a FAIL
 // from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
 // check that cites no should becomes FAIL, since DEVIATION is reserved for a
-// missed should. Every
+// missed should. A crash (the core stopped answering) is never demoted. Every
 // result's detail ends with the requirement line; when the target is newer
 // than the releases the wording was verified through, the detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
@@ -354,7 +390,7 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		res = t.Run(tctx, e)
 		cancel()
 		switch {
-		case res.Verdict == Fail && WorstVerdict(t) == Deviation:
+		case res.Verdict == Fail && WorstVerdict(t) == Deviation && !hasPrefixAny(res.Observed, crashTexts):
 			res.Verdict = Deviation
 		case res.Verdict == Deviation && !cites(t, Should):
 			res.Verdict = Fail

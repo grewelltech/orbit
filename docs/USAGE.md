@@ -65,7 +65,9 @@ liveness probe opens a second association from the same address. These are
 rejected before anything is dialled.
 
 `--bind` is the **N2** source; the user plane has its own flags (`--gnb-n3` on
-the UE and load commands, `--n3-bind` on `conformance`). Each command prints
+the UE and load commands, `--n3-bind` on `conformance`, whose `--upf-n3` must be
+the UPF's primary N3 address: the GTP-U check confirms the UPF is alive with a
+GTP-U Echo Request, and a UPF may answer Echo only there). Each command prints
 the N2 source it actually used as `n2-source=<ip:port>`, with the real port,
 so a capture or an AMF-side log can be matched to the run. `conformance --json`
 records the configured bind as `N2Source` in `ip:0` form: every check dials its
