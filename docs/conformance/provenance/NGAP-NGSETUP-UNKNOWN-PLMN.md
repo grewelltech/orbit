@@ -1,6 +1,6 @@
 # NGAP-NGSETUP-UNKNOWN-PLMN
 
-Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/38_series/38.413/](https://www.3gpp.org/ftp/Specs/archive/38_series/38.413/). Versions read: V15.0.0 (`38413-f00.zip`), V15.1.0, V15.2.0 (`38413-f20.zip`), V15.13.0 (`38413-fd0.zip`), V16.5.0 (`38413-g50.zip`), V16.9.0 (`38413-g90.zip`), V16.18.0 (`38413-gi0.zip`), V17.15.0 (`38413-hf0.zip`), V18.11.0 (`38413-ib0.zip`), V19.0.0, V19.4.0 (`38413-j40.zip`).
+Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/38_series/38.413/](https://www.3gpp.org/ftp/Specs/archive/38_series/38.413/). Versions read: V15.0.0 (`38413-f00.zip`), V15.1.0 (`38413-f10.zip`), V15.2.0 (`38413-f20.zip`), V15.13.0 (`38413-fd0.zip`), V16.4.0 (`38413-g40.zip`), V16.5.0 (`38413-g50.zip`), V16.9.0 (`38413-g90.zip`), V16.18.0 (`38413-gi0.zip`), V17.15.0 (`38413-hf0.zip`), V18.11.0 (`38413-ib0.zip`), V19.0.0 (`38413-j00.zip`), V19.4.0 (`38413-j40.zip`).
 
 ## TS 38.413 8.7.1.4 (NG Setup, Abnormal Conditions), shall
 
@@ -17,5 +17,5 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/38_series
 > "Unknown PLMN or SNPN | The AMF does not identify any PLMN or SNPN provided by the NG-RAN node."
 
 - **Since:** Rel-15, as "Unknown PLMN".
-- **Changes:** renamed "Unknown PLMN or SNPN" in V16.5.0 (`38413-g50.zip`). The enumeration value is unchanged.
+- **Changes:** "Unknown PLMN" through V16.4.0 (`38413-g40.zip`); renamed "Unknown PLMN or SNPN" in V16.5.0 (`38413-g50.zip`). The enumeration value is unchanged.
 - **Use:** the cause an AMF is expected to give for 8.7.1.4. The check names it in the detail when present and does not assert it.
