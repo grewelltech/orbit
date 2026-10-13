@@ -135,11 +135,17 @@ func (s *runService) GetRun(
 	info, err := s.reg.Get(id)
 	if err != nil {
 		if a, ok := s.archive.get(id); ok {
-			return connect.NewResponse(&orbitv1.GetRunResponse{
+			resp := &orbitv1.GetRunResponse{
 				Run:           a.GetRun(),
 				LoadProgress:  a.GetLoadProgress(),
 				FleetProgress: a.GetFleetProgress(),
-			}), nil
+			}
+			// The archive holds a report only for a run that completed, the
+			// same predicate as the live path below.
+			if a.GetRun().GetState() == orbitv1.RunState_RUN_STATE_COMPLETE {
+				resp.FleetReport = a.GetFleetReport()
+			}
+			return connect.NewResponse(resp), nil
 		}
 		return nil, runLookupError(err)
 	}
@@ -155,6 +161,14 @@ func (s *runService) GetRun(
 			// derive rates from, and inventing one from the run's start would
 			// report an average as though it were current.
 			resp.FleetProgress = fleetProgressProto(snap, time.Now(), nil)
+		}
+		// A finished run's live snapshot is torn down (every UE detached),
+		// so its totals come from the report, on the same terms as
+		// GetRunReport: only once the run completed.
+		if info.State == engine.RunComplete {
+			if rep, ok := s.reg.FleetResult(id); ok {
+				resp.FleetReport = fleetReportProto(rep)
+			}
 		}
 	}
 	return connect.NewResponse(resp), nil
@@ -1043,6 +1057,7 @@ func fleetReportProto(r engine.FleetReport) *orbitv1.FleetReport {
 		TrafficFlows:    uint32(r.TrafficFlows),
 		TrafficBytes:    r.TrafficBytes,
 		Deregistered:    uint32(r.Deregistered),
+		PerGnb:          gnbProgressProtos(r.PerGNB),
 	}
 }
 

@@ -498,6 +498,7 @@ func TestRunServiceFleetReport(t *testing.T) {
 	want := engine.FleetReport{
 		Attached: 50, AttachFailed: 2, AttachElapsed: 3 * time.Second,
 		Handovers: 8, HandoverErr: 1, TrafficFlows: 40, TrafficBytes: 123456, Deregistered: 49,
+		PerGNB: map[string]load.GNBProgress{"gnb-b": {Attempted: 27, Succeeded: 25, Failed: 2}, "gnb-a": {Attempted: 25, Succeeded: 25}},
 	}
 	info, err := reg.StartFleet(engine.RunOptions{Name: "seeded"}, func(ctx context.Context, _ *engine.FleetLiveStats, _ engine.RunEventFunc) (engine.FleetReport, error) {
 		return want, nil
@@ -520,6 +521,10 @@ func TestRunServiceFleetReport(t *testing.T) {
 		fr.GetHandovers() != 8 || fr.GetHandoverErrors() != 1 ||
 		fr.GetTrafficFlows() != 40 || fr.GetTrafficBytes() != 123456 || fr.GetDeregistered() != 49 {
 		t.Errorf("fleet report mismapped: %+v", fr)
+	}
+	if g := fr.GetPerGnb(); len(g) != 2 || g[0].GetGnb() != "gnb-a" || g[1].GetGnb() != "gnb-b" ||
+		g[1].GetAttempted() != 27 || g[1].GetSucceeded() != 25 || g[1].GetFailed() != 2 || g[0].GetSucceeded() != 25 {
+		t.Errorf("per_gnb mismapped or unsorted: %v", g)
 	}
 }
 

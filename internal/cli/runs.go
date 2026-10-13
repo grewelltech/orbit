@@ -74,7 +74,7 @@ func newRunsListCmd(serverURL *string) *cobra.Command {
 func newRunsGetCmd(serverURL *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <run-id>",
-		Short: "Show a run's state, plus live progress while it is running",
+		Short: "Show a run's state, plus live progress while it is running or a finished fleet run's report",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			res, err := runsClient(serverURL).GetRun(cmd.Context(),
@@ -93,7 +93,11 @@ func newRunsGetCmd(serverURL *string) *cobra.Command {
 					p.GetSucceeded(), p.GetAttempted(), p.GetFailed(), p.GetAchievedRate())
 				printProcedureLatency(out, p.GetLatency())
 			}
-			if p := res.Msg.GetFleetProgress(); p != nil {
+			// A finished fleet run is summarised from its report; its live
+			// snapshot has every UE detached and would read "0 attached".
+			if rep := res.Msg.GetFleetReport(); rep != nil {
+				printFleetRunReport(out, rep)
+			} else if p := res.Msg.GetFleetProgress(); p != nil {
 				printFleetProgress(out, p, false)
 			}
 			return nil
@@ -283,7 +287,7 @@ func supiPrefix(supi string) string {
 // when a stream derived them (a single-shot Get cannot), so a zero there is
 // never mistaken for an idle data path.
 func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
-	fmt.Fprintf(out, "  %d attached, %d failed", p.GetAttached(), p.GetAttachFailed())
+	_, _ = fmt.Fprintf(out, "  %d currently attached, %d failed", p.GetAttached(), p.GetAttachFailed())
 	if p.GetTrafficFlows() > 0 {
 		fmt.Fprintf(out, "  %d flows", p.GetTrafficFlows())
 	}
@@ -334,7 +338,33 @@ func printFleetProgress(out io.Writer, p *orbitv1.FleetProgress, rates bool) {
 		}
 	}
 	for _, g := range p.GetPerGnb() {
-		fmt.Fprintf(out, "  %-16s %d attached\n", g.GetGnb(), g.GetSucceeded())
+		_, _ = fmt.Fprintf(out, "  %-16s %d attached now\n", g.GetGnb(), g.GetSucceeded())
+	}
+}
+
+// printFleetRunReport renders a completed fleet run's end-of-run report: the
+// attach phase's totals, overall and per gNB, and what the behaviours did.
+func printFleetRunReport(out io.Writer, r *orbitv1.FleetReport) {
+	attempted := r.GetAttached() + r.GetAttachFailed()
+	_, _ = fmt.Fprintf(out, "  attach        %d/%d in %s", r.GetAttached(), attempted,
+		(time.Duration(r.GetAttachElapsedMs()) * time.Millisecond).Round(time.Millisecond))
+	if f := r.GetAttachFailed(); f > 0 {
+		_, _ = fmt.Fprintf(out, " (%d failed)", f)
+	}
+	_, _ = fmt.Fprintln(out)
+	if r.GetHandovers()+r.GetHandoverErrors() > 0 {
+		_, _ = fmt.Fprintf(out, "  handovers     %d ok, %d failed\n", r.GetHandovers(), r.GetHandoverErrors())
+	}
+	if r.GetTrafficFlows() > 0 {
+		_, _ = fmt.Fprintf(out, "  traffic       %d flow(s), %s\n", r.GetTrafficFlows(), byteCount(r.GetTrafficBytes()))
+	}
+	_, _ = fmt.Fprintf(out, "  deregistered  %d/%d\n", r.GetDeregistered(), r.GetAttached())
+	for _, g := range r.GetPerGnb() {
+		_, _ = fmt.Fprintf(out, "  %-16s %d/%d attached", g.GetGnb(), g.GetSucceeded(), g.GetAttempted())
+		if f := g.GetFailed(); f > 0 {
+			_, _ = fmt.Fprintf(out, " (%d failed)", f)
+		}
+		_, _ = fmt.Fprintln(out)
 	}
 }
 
