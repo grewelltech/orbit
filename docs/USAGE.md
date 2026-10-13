@@ -461,7 +461,7 @@ newer one reports SKIP, never FAIL. It defaults to Rel-18, the SD-Core
 release, with TS 29.244 (PFCP) pinned to Rel-16; an explicit value replaces
 Rel-18 and the pin still applies where it is older, and `--target-release unset`
 runs every check. The output and `--json` record the targets
-(`target-release: Rel-18 (TS 29.244 at Rel-16)`, and `spec_targets` in JSON).
+(`target-release: Rel-18 (TS 29.244 at Rel-16)`, and `SpecTargets` in JSON).
 The evidence and caveats are in
 [docs/conformance/target-release.md](conformance/target-release.md).
 `--json` emits per-check verdict, expected/observed, the rendered `spec_ref`,

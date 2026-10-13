@@ -369,9 +369,10 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 // shall or should reference whose Since is newer than its spec's target
 // (Env.SpecTarget) skips it; a descriptive reference never does, unless the
 // check cites nothing stronger (the same floor ValidateTest uses). A declared
-// MinRelease newer than the run target skips it too. When the run target
-// binds, the reason is the run-target text; when only a pin binds, it names
-// the reference and the pinned target.
+// MinRelease newer than the run target skips it too, whatever the pins say:
+// the declaration is about the whole check, not one specification (see
+// minReleaser). When the run target binds, the reason is the run-target
+// text; when only a pin binds, it names the reference and the pinned target.
 func skipReason(t Test, e Env) (string, bool) {
 	if e.TargetRelease == 0 {
 		return "", false
@@ -420,14 +421,15 @@ func requirementRefs(refs []SpecRef) []SpecRef {
 // refsSince names, briefly, the references that set a check's minimum
 // release ("TS 24.501 5.4.1.3.7"), for the SKIP detail.
 func refsSince(t Test, min Release) string {
+	refs := requirementRefs(t.SpecRefs())
 	var out []string
-	for _, r := range t.SpecRefs() {
+	for _, r := range refs {
 		if r.Since >= min {
 			out = append(out, r.Spec+" "+r.Clause)
 		}
 	}
 	if len(out) == 0 { // a check whose MinRelease is declared above every Since
-		for _, r := range t.SpecRefs() {
+		for _, r := range refs {
 			out = append(out, r.Spec+" "+r.Clause)
 		}
 	}
@@ -472,7 +474,7 @@ type Summary struct {
 	// SpecTargets are the per-specification pins that narrowed the run
 	// (Env.NarrowingSpecTargets), each at its effective release; empty when
 	// TargetRelease is unset.
-	SpecTargets map[string]Release `json:"spec_targets"`
+	SpecTargets map[string]Release
 }
 
 // TargetLine renders the run's targets for the text output: "Rel-18 (TS

@@ -38,7 +38,8 @@ Each reference a check cites is gated on its specification's effective target:
 A check SKIPs when a shall or should reference requires a release newer than
 its effective target. A descriptive reference never causes a SKIP (unless the
 check cites nothing stronger). A check that declares its own minimum release
-SKIPs when that is newer than the run target. The SKIP detail names what bound
+SKIPs when that is newer than the run target; the declaration is about the
+whole check, so pins do not apply to it. The SKIP detail names what bound
 it:
 
 - `requires Rel-19 (TS 38.413 <clause>); target release is Rel-18` for the run target;
@@ -46,7 +47,7 @@ it:
 
 Every run states what it used: the text output prints
 `target-release: Rel-18 (TS 29.244 at Rel-16)` (or `unset`), `--json` carries
-`TargetRelease` and `spec_targets` (the pins that narrowed the run), and every
+`TargetRelease` and `SpecTargets` (the pins that narrowed the run), and every
 API update carries `target_release` and `spec_target_releases`.
 
 ## Overriding

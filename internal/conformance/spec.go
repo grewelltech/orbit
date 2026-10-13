@@ -152,17 +152,23 @@ func RenderRefs(refs []SpecRef) string {
 }
 
 // minReleaser is implemented by a check whose applicability is newer than
-// its refs' Since, because it asserts the newer wording of a clause.
+// its refs' Since, because it asserts the newer wording of a clause. The
+// declaration is a statement about the whole check, so it gates on the run
+// target only; per-specification pins narrow through the refs' Since (see
+// skipReason).
 type minReleaser interface{ MinRelease() Release }
 
 // MinRelease is the oldest release a check applies to: its own declaration
-// if it has one, else the highest Since among its references.
+// if it has one, else the highest Since among its shall and should
+// references (requirementRefs: descriptive ones count only when the check
+// cites nothing stronger). It is the floor ValidateTest and skipReason use,
+// so the "requires Rel-N or later" line agrees with what gates the check.
 func MinRelease(t Test) Release {
 	if m, ok := t.(minReleaser); ok {
 		return m.MinRelease()
 	}
 	var max Release
-	for _, r := range t.SpecRefs() {
+	for _, r := range requirementRefs(t.SpecRefs()) {
 		if r.Since > max {
 			max = r.Since
 		}
