@@ -168,7 +168,7 @@ func (s *cellService) RunNGSetup(
 
 	conn, err := sctp.Dial(setupCtx, msg.GetLocalAddress(), msg.GetAmfAddress())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeUnavailable, err)
+		return nil, n2Error(err)
 	}
 
 	res, err := gnb.NGSetup(setupCtx, conn, cfg)

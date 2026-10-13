@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -118,7 +117,7 @@ func (s *ueService) Register(
 	g := engine.GNBSpec{Config: gnbCfg, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress()}
 	res, err := s.mgr.Register(ctx, g, ueCfg)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, n2Error(err)
 	}
 	return connect.NewResponse(&orbitv1.RegisterResponse{
 		Supi:          res.SUPI,
@@ -352,7 +351,7 @@ func (s *ueService) Handover(
 		N3Addr:   n3,
 	})
 	if err != nil {
-		return nil, handoverError(err)
+		return nil, n2Error(err)
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
 		Supi: supi, GnbId: target.ID, State: engine.StateHandoverComplete,
@@ -387,22 +386,12 @@ func (s *ueService) XnHandover(
 		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: n3,
 	})
 	if err != nil {
-		return nil, handoverError(err)
+		return nil, n2Error(err)
 	}
 	return connect.NewResponse(&orbitv1.HandoverResponse{
 		Supi: supi, GnbId: target.ID, State: engine.StateHandoverComplete,
 		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
 	}), nil
-}
-
-// handoverError maps an engine handover failure to a Connect code: a target
-// whose identity is invalid even after inheriting is the caller's input
-// (InvalidArgument); anything else is a procedure failure (Internal).
-func handoverError(err error) error {
-	if errors.Is(err, engine.ErrInvalidTarget) {
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	return connect.NewError(connect.CodeInternal, err)
 }
 
 func (s *ueService) StartApp(
