@@ -149,6 +149,9 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
 ```
 
 - `/metrics` (Prometheus) and `/healthz` are served on the same listener.
+- `--conformance-expected-failures <file>` loads a core's expected-failures
+  list at startup (a bad file stops startup); dashboard and API conformance runs
+  apply it. See [docs/conformance/expected-failures.md](conformance/expected-failures.md).
 - `--core-profile` selects core-compatibility quirks. Default `strict-3gpp`
   (byte-exact 3GPP, zero quirks). Use `sdcore` to enable the documented N2
   handover-transfer workaround for SD-Core; the set of quirks a core needs is a
@@ -421,7 +424,7 @@ live core and exits non-zero on any failure — an integration-CI gate.
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
     [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s] \
-    [--target-release Rel-16]
+    [--target-release Rel-16] [--expected-failures <core-list.yaml>]
 ```
 
 The `mobility` category registers a real UE and hands it over by Xn, so it
@@ -464,9 +467,16 @@ runs every check. The output and `--json` record the targets
 (`target-release: Rel-18 (TS 29.244 at Rel-16)`, and `SpecTargets` in JSON).
 The evidence and caveats are in
 [docs/conformance/target-release.md](conformance/target-release.md).
+Every missed **shall** is FAIL and DEVIATION is reserved for a missed
+**should**. `--expected-failures <file>` names the core's list of known,
+tolerated FAILs, each matched exactly on check and observed text. A listed
+FAIL still prints FAIL, tagged `(expected: <finding>)`, but does not fail the
+gate. Entries whose check now gives something else print as stale. With no
+list, every FAIL gates. The format and rules are in
+[docs/conformance/expected-failures.md](conformance/expected-failures.md).
 `--json` emits per-check verdict, expected/observed, the rendered `spec_ref`,
 the structured `spec_refs` (clause, strength, since, verified versions,
-changes) and `min_release`. The full table is
+changes), `min_release` and, on a listed FAIL, `expected_failure`. The full table is
 [docs/conformance/checks.md](conformance/checks.md), with the quoted normative
 text per check in [docs/conformance/provenance/](conformance/provenance/).
 

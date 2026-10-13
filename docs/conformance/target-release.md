@@ -59,3 +59,7 @@ API update carries `target_release` and `spec_target_releases`.
   no way to ask for an unset target over the API yet.
 
 Per-specification pins are not configurable yet; they are the defaults above.
+
+The target release only decides which checks run. The verdict rule and a
+core's expected-failures list ([expected-failures.md](expected-failures.md))
+apply to whatever ran.

@@ -148,11 +148,11 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 - `NGAP-NGSETUP-MISSING-TALIST` (negative-ie, PASS) — NG Setup with the mandatory
   Supported TA List (id-102) removed → the AMF **rejects with NG SETUP FAILURE**
   (spec-ideal). Confirms the core does not accept a setup missing a mandatory IE.
-- `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, **DEVIATION**) — G-PDU with a non-zero
+- `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, FAIL-class) — G-PDU with a non-zero
   unknown TEID → TS 29.281 §7.3.1 says the UPF **shall** return an Error
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
-  UPF, nothing back). Benign/commonly-unimplemented, so scored DEVIATION (does
-  not fail the gate), not FAIL. See interop/sdcore.md.
+  UPF, nothing back), so it scores FAIL; a lab that tolerates it lists it on
+  its expected-failures list. See interop/sdcore.md.
 - `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
@@ -160,9 +160,11 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   `--gnb-n3`), else SKIP. Expected on SD-Core today: FAIL (absent), because
   the UPF's `enable_end_marker` is unset by default (#126).
 
-**Verdict note:** `DEVIATION` was added for exactly this case — a spec "shall"
-the core doesn't meet but which is benign and steady-state, so it's *documented*
-without failing the CI gate (avoids crying wolf on a known, harmless gap).
+**Verdict note:** every missed **shall** is FAIL, including one that leaves the
+core running; `DEVIATION` is reserved for a missed **should**. A known failure
+that a lab tolerates goes on that core's expected-failures list, which keeps it
+FAIL in the report but out of the gate. See
+[expected-failures.md](expected-failures.md).
 
 **Highest-value next batch** (remaining):
 1. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
@@ -179,5 +181,5 @@ Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
 - **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501).
-- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, DEVIATION on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
+- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).
