@@ -109,6 +109,10 @@ func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 		r.Verdict, r.Observed, r.Detail = Error, "GTP-U Echo Request", err.Error()
 		return r
 	}
+	if !alive && cutShort(ctx) {
+		r.Observed = ObservedUPFNoEcho
+		return cutShortResult(r, gtpuNeeds(errWait, echo))
+	}
 	if !alive {
 		r.Verdict, r.Observed = Error, ObservedUPFNoEcho
 		r.Detail = fmt.Sprintf("no GTP-U Echo Response from %s within %s before the test, so the UPF's liveness cannot be confirmed: "+
@@ -158,6 +162,10 @@ func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 		r.Verdict, r.Observed, r.Detail = Error, "GTP-U Echo Request", err.Error()
 		return r
 	}
+	if !alive && cutShort(ctx) {
+		r.Observed = "no Error Indication"
+		return cutShortResult(r, gtpuNeeds(errWait, echo))
+	}
 	if !alive {
 		r.Verdict, r.Observed = Fail, ObservedUPFUnresponsive
 		r.Detail = fmt.Sprintf("the UPF answered a GTP-U Echo Request before the unknown-TEID G-PDU but not within %s after it, "+
@@ -170,6 +178,12 @@ func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 		"TS 29.281 7.3.1: the UPF shall discard the G-PDU and, for a non-zero TEID, shall also return an Error Indication",
 		bogusN3TEID, errWait)
 	return r
+}
+
+// gtpuNeeds renders how long the check needs: an Echo wait, the Error
+// Indication wait and a second Echo wait ("8s" at the defaults).
+func gtpuNeeds(errWait, echo time.Duration) string {
+	return (errWait + 2*echo).String()
 }
 
 // gtpuEcho sends a GTP-U Echo Request with sequence number seq to raddr and

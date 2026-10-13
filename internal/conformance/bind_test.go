@@ -3,9 +3,15 @@ package conformance
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	isctp "github.com/ishidawataru/sctp"
+
+	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 // Env.Dial dials from Bind: a malformed one fails in sctp.Dial's
@@ -126,5 +132,33 @@ func TestSummaryJSONN2Source(t *testing.T) {
 				t.Errorf("N2Source in JSON = %v, want %s (got %s)", got["N2Source"], tc.want, b)
 			}
 		})
+	}
+}
+
+// A liveness probe the per-test timeout cuts short is a harness ERROR that
+// keeps what was observed, never a crash FAIL: here the AMF accepts the
+// association and never answers the probe's NG Setup before ctx expires.
+func TestConfirmAliveCutShortIsError(t *testing.T) {
+	ln, err := isctp.ListenSCTP("sctp", &isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}})
+	if err != nil {
+		t.Skipf("no kernel SCTP on this host: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = c.Close() }) // held open, never answered
+		}
+	}()
+	env := Env{AMFAddr: ln.Addr().String(), GNB: gnb.Config{ID: 1, Name: "g", MCC: "001", MNC: "01", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1}}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	got := confirmAlive(ctx, env, Result{Verdict: Fail, Observed: "silently dropped; association survived"}, true, "core died")
+	if got.Verdict != Error || got.Observed != ObservedProbeCutShort+" (silently dropped; association survived)" ||
+		!strings.Contains(got.Detail, "--per-test-timeout") {
+		t.Errorf("= %+v, want ERROR cut short", got)
 	}
 }

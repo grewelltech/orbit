@@ -61,6 +61,7 @@ func TestParseExpectedFailures(t *testing.T) {
 		{name: "a dead AMF", yaml: head + entry(full[0], `observed: "AMF unresponsive after the message (silently dropped; association survived)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
 		{name: "a probe that could not run", yaml: head + entry(full[0], `observed: "liveness probe could not run (silently dropped; association survived)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
 		{name: "a dead UPF", yaml: head + entry("check: GTPU-UNKNOWN-TEID-ERRIND", `observed: "UPF unresponsive after the G-PDU (no Echo Response)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
+		{name: "a probe cut short", yaml: head + entry(full[0], `observed: "liveness probe cut short by the per-test timeout (silently dropped; association survived)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
 		{name: "an unconfirmed UPF", yaml: head + entry("check: GTPU-UNKNOWN-TEID-ERRIND", `observed: "UPF did not answer a GTP-U Echo Request before the test"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
 	}
 	for _, tc := range tests {

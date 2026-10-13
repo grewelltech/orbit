@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -86,6 +87,8 @@ func TestGTPUUnknownTEIDLiveness(t *testing.T) {
 		wantListed   bool
 		seqOffset    uint16
 		lateDup      time.Duration
+		perTest      time.Duration
+		wantDetail   string
 	}{
 		{name: "answers both, discards", echoes: 2, want: Fail, wantObserved: "no Error Indication", wantListed: true},
 		{name: "answers neither", echoes: 0, want: Error, wantObserved: ObservedUPFNoEcho},
@@ -96,16 +99,29 @@ func TestGTPUUnknownTEIDLiveness(t *testing.T) {
 		// The first probe's answer, repeated late, arrives while the second
 		// probe waits; it must not count as the second answer.
 		{name: "late reply to the first probe", echoes: 1, lateDup: 300 * time.Millisecond, want: Fail, wantObserved: ObservedUPFUnresponsive},
+		// The per-test timeout expiring during a probe is the harness's
+		// doing: ERROR, never a crash FAIL, keeping what was seen before.
+		// The reviewer's case: a live UPF that always answers, with a
+		// per-test timeout shorter than the Error Indication wait, so the
+		// second probe starts on an expired deadline.
+		{name: "timeout cuts the after-probe short", echoes: 2, perTest: 150 * time.Millisecond, want: Error,
+			wantObserved: ObservedProbeCutShort + " (no Error Indication)", wantDetail: "raise --per-test-timeout (this check needs about 600ms)"},
+		{name: "timeout cuts the before-probe short", echoes: 0, perTest: 100 * time.Millisecond, want: Error,
+			wantObserved: ObservedProbeCutShort + " (" + ObservedUPFNoEcho + ")"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			upf := startFakeUPFWith(t, &fakeUPF{echoes: tc.echoes, errInd: tc.errInd, seqOffset: tc.seqOffset, lateDup: tc.lateDup})
 			c := gtpuUnknownTEID{errWait: 200 * time.Millisecond, echoWait: 200 * time.Millisecond}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			perTest := 5 * time.Second
+			if tc.perTest > 0 {
+				perTest = tc.perTest
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), perTest)
 			defer cancel()
 			res := c.Run(ctx, Env{UPFN3: upf.conn.LocalAddr().String(), N3Bind: "127.0.0.1:0"})
-			if res.Verdict != tc.want || res.Observed != tc.wantObserved {
-				t.Fatalf("= %s %q (%s), want %s %q", res.Verdict, res.Observed, res.Detail, tc.want, tc.wantObserved)
+			if res.Verdict != tc.want || res.Observed != tc.wantObserved || !strings.Contains(res.Detail, tc.wantDetail) {
+				t.Fatalf("= %s %q (%s), want %s %q with detail containing %q", res.Verdict, res.Observed, res.Detail, tc.want, tc.wantObserved, tc.wantDetail)
 			}
 			res.ID = c.ID()
 			results := []Result{res}

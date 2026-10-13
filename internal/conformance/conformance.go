@@ -254,12 +254,36 @@ const (
 	// ObservedUPFNoEcho is an ERROR whose UPF did not answer GTP-U Echo
 	// before the test, so its liveness cannot be confirmed.
 	ObservedUPFNoEcho = "UPF did not answer a GTP-U Echo Request before the test"
+	// ObservedProbeCutShort prefixes an ERROR whose liveness probe came
+	// back negative because the per-test timeout expired during it: the
+	// harness, not the core, ran out of time.
+	ObservedProbeCutShort = "liveness probe cut short by the per-test timeout"
 )
+
+// cutShort reports whether ctx's deadline has passed (or ctx is done), so a
+// negative liveness probe says nothing about the core.
+func cutShort(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	d, ok := ctx.Deadline()
+	return ok && !time.Now().Before(d)
+}
+
+// cutShortResult turns r into the ERROR for a liveness probe the per-test
+// timeout cut short, keeping what was observed before the cut.
+func cutShortResult(r Result, needs string) Result {
+	r.Verdict = Error
+	r.Observed = ObservedProbeCutShort + " (" + r.Observed + ")"
+	r.Detail = "the per-test timeout expired before the liveness probe completed, so the core's state is unknown; " +
+		"raise --per-test-timeout (this check needs about " + needs + ")"
+	return r
+}
 
 // livenessTexts are the Observed prefixes no expected-failures entry may
 // name; crashTexts are those that report a core that stopped answering.
 var (
-	livenessTexts = []string{ObservedAMFUnresponsive, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho}
+	livenessTexts = []string{ObservedAMFUnresponsive, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho, ObservedProbeCutShort}
 	crashTexts    = []string{ObservedAMFUnresponsive, ObservedUPFUnresponsive}
 )
 
@@ -279,8 +303,9 @@ func hasPrefixAny(s string, prefixes []string) bool {
 // must still complete. If it does not, the core did not survive: FAIL with
 // its own Observed text, so an expected-failures entry for the survivable
 // outcome never hides a dead core. If the probe itself cannot be made, that
-// says nothing about the core (ERROR). A result whose association did not
-// survive passes through unchanged.
+// says nothing about the core (ERROR), and neither does a probe the
+// per-test timeout cut short (ERROR, ObservedProbeCutShort). A result whose
+// association did not survive passes through unchanged.
 func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDetail string) Result {
 	if !survived {
 		return r
@@ -291,6 +316,10 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 		r.Verdict = Error
 		r.Observed = ObservedProbeFailed + " (" + r.Observed + ")"
 		r.Detail = err.Error()
+	case !alive && cutShort(ctx):
+		// The probe ran out of the check's time: that is the harness, not
+		// a dead core.
+		r = cutShortResult(r, "its wait plus a fresh NG Setup")
 	case !alive:
 		r.Verdict = Fail
 		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"

@@ -72,6 +72,9 @@ entry whose `observed` starts with any of them:
 - `liveness probe could not run`
 - `UPF unresponsive after the G-PDU (no Echo Response)`
 - `UPF did not answer a GTP-U Echo Request before the test`
+- `liveness probe cut short by the per-test timeout` (an ERROR: the per-test
+  timeout expired during a probe, so the core's state is unknown; raise
+  `--per-test-timeout`)
 
 A crash always gates. On a check citing only shoulds it stays FAIL rather than
 becoming DEVIATION.
