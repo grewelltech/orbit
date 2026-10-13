@@ -247,6 +247,26 @@ func SourceFor(raddr string) (net.IP, error) {
 	return src.IP, nil
 }
 
+// DialError is every failure Dial returns once the local address is
+// well-formed: the AMF could not be reached from this host, or the attempt
+// was cancelled. Its text is the cause's, unchanged; callers classify with
+// errors.As rather than by message, and errors.Is still sees the context
+// errors and errnos the cause wraps.
+type DialError struct {
+	Remote string // the AMF address as given
+	// Source is the local address in the form errors name it: the
+	// normalised --bind, the probed one marked "(route-selected)", or ""
+	// while it is not yet known.
+	Source string
+	Err    error
+}
+
+// Error returns the cause's text.
+func (e *DialError) Error() string { return e.Err.Error() }
+
+// Unwrap returns the cause.
+func (e *DialError) Unwrap() error { return e.Err }
+
 // Dial opens an SCTP association to raddr (host:port). If laddr is non-empty
 // the association binds that local address first — one distinct bind IP per
 // gNB is the multi-gNB plan (DESIGN §3). laddr may be "" (the single address
@@ -272,6 +292,10 @@ func SourceFor(raddr string) (net.IP, error) {
 // produce after an early return is closed when it arrives. Nothing leaks, and
 // nothing keeps retransmitting for the sysctl default of minutes.
 //
+// Every failure after the local address is normalised and resolved is a
+// *DialError (see there); a malformed or unresolvable local address is a
+// plain error, as is a failure to subscribe events on an open association.
+//
 // Data-IO events are subscribed so reads return per-message stream/PPID info.
 func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, error) {
 	cfg := dialConfig{source: routeSource, timeout: DefaultDialTimeout, raw: kernelDial}
@@ -293,7 +317,7 @@ func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, 
 	}
 	ra, err := resolve(raddr)
 	if err != nil {
-		return nil, fmt.Errorf("resolve remote %q: %w", raddr, err)
+		return nil, &DialError{Remote: raddr, Source: laddr, Err: fmt.Errorf("resolve remote %q: %w", raddr, err)}
 	}
 	// source names the local address in errors: the normalised --bind, or
 	// the probed one marked as such so the operator can tell who chose it.
@@ -301,19 +325,20 @@ func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, 
 	if la == nil {
 		src, err := probeSource(cfg.source, raddr, ra)
 		if err != nil {
-			return nil, err
+			return nil, &DialError{Remote: raddr, Err: err}
 		}
 		la = &isctp.SCTPAddr{IPAddrs: []net.IPAddr{src}, Port: 0}
 		source = la.String() + " (route-selected)"
 	}
+	dialErr := func(err error) error { return &DialError{Remote: raddr, Source: source, Err: err} }
 	if err := sameFamily(la, ra); err != nil {
-		return nil, err
+		return nil, dialErr(err)
 	}
 
 	// A context already done gets the same error it would get a moment later,
 	// without starting a connect nobody will wait for.
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, source, err)
+		return nil, dialErr(fmt.Errorf("sctp dial %q from %q: %w", raddr, source, err))
 	}
 
 	// The bound: the caller's deadline, else one Dial sets itself, so it is
@@ -352,14 +377,14 @@ func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, 
 		if r.err != nil {
 			if errors.Is(r.err, syscall.ETIMEDOUT) {
 				// The kernel abandoned the INIT exchange: nothing answered.
-				return nil, fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
-					raddr, source, elapsed(), bound.Round(time.Millisecond), r.err)
+				return nil, dialErr(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
+					raddr, source, elapsed(), bound.Round(time.Millisecond), r.err))
 			}
 			// Name the source too: "cannot assign requested address" is
 			// about the bind, not the AMF, and the operator needs to see
 			// which address the host does not own (or which one the route
 			// picked).
-			return nil, fmt.Errorf("sctp dial %q from %q: %w", raddr, source, r.err)
+			return nil, dialErr(fmt.Errorf("sctp dial %q from %q: %w", raddr, source, r.err))
 		}
 		c = r.c
 	case <-ctx.Done():
@@ -373,10 +398,10 @@ func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, 
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			// Same fact as the kernel branch, nothing answered the INIT, so
 			// the operator reads the same hint whichever bound fired first.
-			return nil, fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
-				raddr, source, elapsed(), bound.Round(time.Millisecond), ctx.Err())
+			return nil, dialErr(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
+				raddr, source, elapsed(), bound.Round(time.Millisecond), ctx.Err()))
 		}
-		return nil, fmt.Errorf("sctp dial %q from %q: cancelled after %s: %w", raddr, source, elapsed(), ctx.Err())
+		return nil, dialErr(fmt.Errorf("sctp dial %q from %q: cancelled after %s: %w", raddr, source, elapsed(), ctx.Err()))
 	}
 	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
 		_ = c.Close()
