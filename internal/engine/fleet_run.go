@@ -14,6 +14,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/loomgtp"
 	"github.com/bgrewell/orbit/internal/meas"
 	"github.com/bgrewell/orbit/internal/ue"
@@ -98,9 +99,29 @@ type FleetReport struct {
 	TrafficFlows           int
 	TrafficBytes           uint64
 	Deregistered           int
+	// PerGNB is the attach phase's outcome per gNB, keyed by the gNB's
+	// attribution label (its name, or "gnb-<id>"), as the load run's per-gNB
+	// counts are: the totals the attach milestone reports, split by gNB.
+	// Unlike the live snapshot it does not fall as UEs deregister.
+	PerGNB map[string]load.GNBProgress
 	// AppCohorts are the app-traffic cohort outcomes, index-aligned with
 	// FleetBehaviors.Apps.
 	AppCohorts []FleetAppCohortReport
+}
+
+// notePerGNB counts one attach attempt on the gNB labelled gnb.
+func (r *FleetReport) notePerGNB(gnb string, ok bool) {
+	if r.PerGNB == nil {
+		r.PerGNB = map[string]load.GNBProgress{}
+	}
+	g := r.PerGNB[gnb]
+	g.Attempted++
+	if ok {
+		g.Succeeded++
+	} else {
+		g.Failed++
+	}
+	r.PerGNB[gnb] = g
 }
 
 // fleetUE is a persistent attached UE and the gNB index currently serving it.
@@ -202,6 +223,7 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 			fu, err := attachFleetUE(ctx, f, spec, pool, i, ev, live)
 			amu.Lock()
 			defer amu.Unlock()
+			rep.notePerGNB(gnbAttributionLabel(f.gnbConfigFor(spec.gnbForUE(i, len(f.sessions)))), err == nil)
 			if err != nil {
 				rep.AttachFailed++
 				live.AttachFailed()

@@ -24,6 +24,7 @@ type stubRunService struct {
 	startReq    *orbitv1.StartRunRequest
 	startRunID  string
 	getProgress *orbitv1.LoadProgress
+	getResp     *orbitv1.GetRunResponse // when set, GetRun returns it as is
 	stoppedID   string
 	frames      []*orbitv1.TelemetryFrame
 }
@@ -43,6 +44,9 @@ func (s *stubRunService) ListRuns(_ context.Context, _ *connect.Request[orbitv1.
 }
 
 func (s *stubRunService) GetRun(_ context.Context, req *connect.Request[orbitv1.GetRunRequest]) (*connect.Response[orbitv1.GetRunResponse], error) {
+	if s.getResp != nil {
+		return connect.NewResponse(s.getResp), nil
+	}
 	return connect.NewResponse(&orbitv1.GetRunResponse{
 		Run:          &orbitv1.Run{RunId: req.Msg.GetRunId(), Kind: orbitv1.RunKind_RUN_KIND_LOAD, State: orbitv1.RunState_RUN_STATE_RUNNING},
 		LoadProgress: s.getProgress,
@@ -305,5 +309,58 @@ func TestMsDurationRejectsOverflow(t *testing.T) {
 	}
 	if ms, err := msDuration("--duration", 5*time.Minute); err != nil || ms != 300000 {
 		t.Errorf("5m = %d, %v; want 300000, nil", ms, err)
+	}
+}
+
+// runs get on a finished fleet run prints its end-of-run report, not the
+// torn-down snapshot's "0 attached" (#104); on a running one it prints the
+// snapshot, labelled as what is attached now.
+func TestRunsGetFleet(t *testing.T) {
+	fleetRun := func(state orbitv1.RunState) *orbitv1.Run {
+		return &orbitv1.Run{RunId: "run-f", Kind: orbitv1.RunKind_RUN_KIND_FLEET, State: state}
+	}
+	torn := &orbitv1.FleetProgress{PerGnb: []*orbitv1.GnbProgress{{Gnb: "gnb-1"}, {Gnb: "gnb-2"}}}
+	tests := []struct {
+		name string
+		resp *orbitv1.GetRunResponse
+		want string
+	}{
+		{name: "complete", resp: &orbitv1.GetRunResponse{
+			Run:           fleetRun(orbitv1.RunState_RUN_STATE_COMPLETE),
+			FleetProgress: torn,
+			FleetReport: &orbitv1.FleetReport{Attached: 4, AttachFailed: 1, AttachElapsedMs: 1234, Handovers: 12, HandoverErrors: 1,
+				TrafficFlows: 3, TrafficBytes: 2048, Deregistered: 4,
+				PerGnb: []*orbitv1.GnbProgress{{Gnb: "gnb-1", Attempted: 3, Succeeded: 2, Failed: 1}, {Gnb: "gnb-2", Attempted: 2, Succeeded: 2}}},
+		}, want: "run-f  fleet  COMPLETE\n" +
+			"  attach        4/5 in 1.234s (1 failed)\n" +
+			"  handovers     12 ok, 1 failed\n" +
+			"  traffic       3 flow(s), 2.0 KiB\n" +
+			"  deregistered  4/4\n" +
+			"  gnb-1            2/3 attached (1 failed)\n" +
+			"  gnb-2            2/2 attached\n"},
+		{name: "running", resp: &orbitv1.GetRunResponse{
+			Run: fleetRun(orbitv1.RunState_RUN_STATE_RUNNING),
+			FleetProgress: &orbitv1.FleetProgress{Attached: 4,
+				PerGnb: []*orbitv1.GnbProgress{{Gnb: "gnb-1", Succeeded: 2}, {Gnb: "gnb-2", Succeeded: 2}}},
+		}, want: "run-f  fleet  RUNNING\n" +
+			"  4 currently attached, 0 failed\n" +
+			"  N3 total    ul 0 B / 0 pkts   dl 0 B / 0 pkts\n" +
+			"  gnb-1            2 attached now\n" +
+			"  gnb-2            2 attached now\n"},
+		{name: "finished without a report", resp: &orbitv1.GetRunResponse{
+			Run: fleetRun(orbitv1.RunState_RUN_STATE_FAILED), FleetProgress: torn,
+		}, want: "run-f  fleet  FAILED\n" +
+			"  0 currently attached, 0 failed\n" +
+			"  N3 total    ul 0 B / 0 pkts   dl 0 B / 0 pkts\n" +
+			"  gnb-1            0 attached now\n" +
+			"  gnb-2            0 attached now\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runRunsCmd(t, stubRunServer(t, &stubRunService{getResp: tc.resp}), "get", "run-f")
+			if out != tc.want {
+				t.Errorf("output:\n%s\nwant:\n%s", out, tc.want)
+			}
+		})
 	}
 }

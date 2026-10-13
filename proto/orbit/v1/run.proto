@@ -357,6 +357,11 @@ message GetRunResponse {
   // derived from consecutive samples, which a single-shot Get does not have.
   // Subscribe to RunTelemetry for throughput.
   FleetProgress fleet_progress = 3;
+  // The end-of-run report of a FLEET run that completed, the same one
+  // GetRunReport returns; absent while the run is in flight or when it did
+  // not complete. A finished run's fleet_progress is its torn-down live
+  // snapshot (UEs currently attached: none), so read totals from here.
+  FleetReport fleet_report = 4;
 }
 
 message RunTelemetryRequest {
@@ -471,6 +476,10 @@ message FleetReport {
   uint32 traffic_flows = 6;
   uint64 traffic_bytes = 7;
   uint32 deregistered = 8;
+  // The attach phase per gNB (attempted, succeeded, failed), sorted by gNB
+  // label like LoadProgress.per_gnb. These are the run's totals, unlike
+  // FleetProgress.per_gnb, which counts the UEs attached at the moment.
+  repeated GnbProgress per_gnb = 9;
 }
 
 message GetRunReportResponse {
