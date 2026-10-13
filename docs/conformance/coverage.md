@@ -157,8 +157,17 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
   5.8.2.9.1, TS 29.281 7.3.2). Needs a UE (`--supi`, `--ki/--opc`,
-  `--gnb-n3`), else SKIP. Expected on SD-Core today: FAIL (absent), because
-  the UPF's `enable_end_marker` is unset by default (#126).
+  `--gnb-n3`), else SKIP. Measured on Ref 2 (SD-Core: AMF v3.3.2, SMF v4.3.3,
+  UPF v2.6.3; Orbit c89f23b; 2026-10-12):
+  - **FAIL** with the UPF's `enable_end_marker` off, which is the chart and
+    OnRamp default. The SMF sets SNDEM on the path switch, and no End Marker
+    arrives.
+  - **PASS** with it on: one End Marker on the old TEID, no G-PDU after it,
+    and the End Marker 11.5 ms after the last old-path G-PDU at 100 echoes/s.
+
+  Evidence is on #126. Under the verdict rule, a lab that runs with it off
+  lists `no End Marker on the old F-TEID` on its expected-failures list
+  ([expected-failures.md](expected-failures.md)).
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
