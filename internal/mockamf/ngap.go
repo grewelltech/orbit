@@ -25,6 +25,49 @@ func bits(v uint64, n int) aper.BitString {
 	return aper.BitString{Bytes: b, BitLength: uint64(n)}
 }
 
+// servesAnyTAPLMN reports whether an NG Setup Request's Supported TA List
+// broadcasts plmn in any tracking area, the PLMN check of TS 38.413 8.7.1.4.
+// A request without a Supported TA List is not judged here (it reports
+// true), so the mock's answer to a malformed request is unchanged.
+func servesAnyTAPLMN(req *ngapType.NGSetupRequest, plmn [3]byte) bool {
+	for _, ie := range req.ProtocolIEs.List {
+		if ie.Id.Value != ngapType.ProtocolIEIDSupportedTAList || ie.Value.SupportedTAList == nil {
+			continue
+		}
+		for _, ta := range ie.Value.SupportedTAList.List {
+			for _, bp := range ta.BroadcastPLMNList.List {
+				if string(bp.PLMNIdentity.Value) == string(plmn[:]) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// buildNGSetupFailureUnknownPLMN builds the NG SETUP FAILURE an AMF sends
+// when it identifies none of the gNB's PLMNs (TS 38.413 8.7.1.4), with cause
+// Misc unknown-PLMN (9.3.1.2).
+func buildNGSetupFailureUnknownPLMN() ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentUnsuccessfulOutcome
+	pdu.UnsuccessfulOutcome = new(ngapType.UnsuccessfulOutcome)
+	pdu.UnsuccessfulOutcome.ProcedureCode.Value = ngapType.ProcedureCodeNGSetup
+	pdu.UnsuccessfulOutcome.Criticality.Value = ngapType.CriticalityPresentReject
+	pdu.UnsuccessfulOutcome.Value.Present = ngapType.UnsuccessfulOutcomePresentNGSetupFailure
+	pdu.UnsuccessfulOutcome.Value.NGSetupFailure = new(ngapType.NGSetupFailure)
+	ie := ngapType.NGSetupFailureIEs{}
+	ie.Id.Value = ngapType.ProtocolIEIDCause
+	ie.Criticality.Value = ngapType.CriticalityPresentIgnore
+	ie.Value.Present = ngapType.NGSetupFailureIEsPresentCause
+	ie.Value.Cause = &ngapType.Cause{Present: ngapType.CausePresentMisc,
+		Misc: &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnknownPLMN}}
+	pdu.UnsuccessfulOutcome.Value.NGSetupFailure.ProtocolIEs.List = append(
+		pdu.UnsuccessfulOutcome.Value.NGSetupFailure.ProtocolIEs.List, ie)
+	return pdu
+}
+
 // buildNGSetupResponse builds a minimal but well-formed NG Setup Response
 // (TS 38.413 §9.2.6.2): AMF name, one served GUAMI, relative capacity, and
 // one PLMN support entry for the served slice.

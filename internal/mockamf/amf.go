@@ -48,6 +48,12 @@ type Config struct {
 	// a new UPF uplink TEID for each switched session, the re-anchoring case
 	// of TS 38.413 §9.3.4.14; by default the uplink tunnel is kept.
 	ReallocateULOnPathSwitch bool
+	// AcceptUnknownPLMN makes the mock accept an NG Setup whose Supported
+	// TA List names none of its PLMN, where by default it rejects it with
+	// NG SETUP FAILURE, cause Misc unknown-PLMN (TS 38.413 8.7.1.4). It
+	// stands in for a core that does not check, so the conformance check's
+	// FAIL path can be exercised.
+	AcceptUnknownPLMN bool
 	// Log receives the mock's own errors that do not end an association,
 	// such as a downlink PDU that fails to encode. Nil discards them.
 	Log *slog.Logger
@@ -164,6 +170,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
+		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.plmn) {
+			return a.send(p, buildNGSetupFailureUnknownPLMN())
+		}
 		resp, err := buildNGSetupResponse(a.plmn, a.cfg.SST, a.sdBytes)
 		if err != nil {
 			return err
