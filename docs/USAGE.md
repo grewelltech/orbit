@@ -65,7 +65,9 @@ liveness probe opens a second association from the same address. These are
 rejected before anything is dialled.
 
 `--bind` is the **N2** source; the user plane has its own flags (`--gnb-n3` on
-the UE and load commands, `--n3-bind` on `conformance`). Each command prints
+the UE and load commands, `--n3-bind` on `conformance`, whose `--upf-n3` must be
+the UPF's primary N3 address: the GTP-U check confirms the UPF is alive with a
+GTP-U Echo Request, and a UPF may answer Echo only there). Each command prints
 the N2 source it actually used as `n2-source=<ip:port>`, with the real port,
 so a capture or an AMF-side log can be matched to the run. `conformance --json`
 records the configured bind as `N2Source` in `ip:0` form: every check dials its
@@ -149,6 +151,9 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
 ```
 
 - `/metrics` (Prometheus) and `/healthz` are served on the same listener.
+- `--conformance-expected-failures <file>` loads a core's expected-failures
+  list at startup (a bad file stops startup); dashboard and API conformance runs
+  apply it. See [docs/conformance/expected-failures.md](conformance/expected-failures.md).
 - `--core-profile` selects core-compatibility quirks. Default `strict-3gpp`
   (byte-exact 3GPP, zero quirks). Use `sdcore` to enable the documented N2
   handover-transfer workaround for SD-Core; the set of quirks a core needs is a
@@ -421,7 +426,7 @@ live core and exits non-zero on any failure — an integration-CI gate.
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
     [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s] \
-    [--target-release Rel-16]
+    [--target-release Rel-16] [--expected-failures <core-list.yaml>]
 ```
 
 The `mobility` category registers a real UE and hands it over by Xn, so it
@@ -461,12 +466,19 @@ newer one reports SKIP, never FAIL. It defaults to Rel-18, the SD-Core
 release, with TS 29.244 (PFCP) pinned to Rel-16; an explicit value replaces
 Rel-18 and the pin still applies where it is older, and `--target-release unset`
 runs every check. The output and `--json` record the targets
-(`target-release: Rel-18 (TS 29.244 at Rel-16)`, and `spec_targets` in JSON).
+(`target-release: Rel-18 (TS 29.244 at Rel-16)`, and `SpecTargets` in JSON).
 The evidence and caveats are in
 [docs/conformance/target-release.md](conformance/target-release.md).
+Every missed **shall** is FAIL and DEVIATION is reserved for a missed
+**should**. `--expected-failures <file>` names the core's list of known,
+tolerated FAILs, each matched exactly on check and observed text. A listed
+FAIL still prints FAIL, tagged `(expected: <finding>)`, but does not fail the
+gate. Entries whose check now gives something else print as stale. With no
+list, every FAIL gates. The format and rules are in
+[docs/conformance/expected-failures.md](conformance/expected-failures.md).
 `--json` emits per-check verdict, expected/observed, the rendered `spec_ref`,
 the structured `spec_refs` (clause, strength, since, verified versions,
-changes) and `min_release`. The full table is
+changes), `min_release` and, on a listed FAIL, `expected_failure`. The full table is
 [docs/conformance/checks.md](conformance/checks.md), with the quoted normative
 text per check in [docs/conformance/provenance/](conformance/provenance/).
 

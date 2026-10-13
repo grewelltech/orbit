@@ -8,6 +8,7 @@
  */
 import { useState } from "react";
 import {
+  failedLabel,
   identityComplete,
   loadIdentity,
   paramsFromIdentity,
@@ -153,7 +154,7 @@ export function Conformance() {
         style={{ borderColor: "var(--o-border)" }}
       >
         <Stat label="passed" value={t?.passed ?? 0} color="var(--o-accent)" />
-        <Stat label="failed" value={t?.failed ?? 0} color={verdictColor("FAIL")} />
+        <Stat label={failedLabel(t, state.expectedCore)} value={t?.failed ?? 0} color={verdictColor("FAIL")} />
         <Stat label="errored" value={t?.errored ?? 0} color={verdictColor("ERROR")} />
         <Stat label="deviations" value={t?.deviations ?? 0} color="var(--o-amber)" />
         <Stat label="skipped" value={t?.skipped ?? 0} color="var(--o-ink-3)" />
@@ -176,6 +177,17 @@ export function Conformance() {
           </span>
         </div>
       </div>
+
+      {state.expectedCore && (
+        <div className="border-b px-4 py-1.5 o-label" style={{ borderColor: "var(--o-border)", color: "var(--o-ink-3)" }}>
+          expected failures: {state.expectedCore}
+          {state.stale.map((s) => (
+            <div key={`${s.check} ${s.finding} ${s.observed}`} style={{ color: "var(--o-amber)" }}>
+              stale expected failure: {s.check} {s.finding}: now {s.verdict} &quot;{s.observed}&quot;
+            </div>
+          ))}
+        </div>
+      )}
 
       {state.error && (
         <div className="px-4 py-2 o-label" style={{ color: verdictColor("FAIL") }}>
@@ -235,6 +247,15 @@ function Row({ r }: { r: ConformanceResult }) {
         >
           {r.verdict}
         </span>
+        {r.expectedFailure && (
+          <span
+            className="o-label"
+            title={`${r.expectedFailure.reason} (added ${r.expectedFailure.added})`}
+            style={{ marginLeft: "0.5rem", color: "var(--o-ink-3)" }}
+          >
+            expected: {r.expectedFailure.finding}
+          </span>
+        )}
       </td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink)", fontSize: "0.82rem" }}>{r.id}</td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{r.category}</td>

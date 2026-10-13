@@ -14,13 +14,19 @@ import {
   ConformanceService,
   type ConformanceResult,
   type ConformanceTally,
+  type ConformanceUpdate,
+  type StaleExpectation,
 } from "@/gen/orbit/v1/conformance_pb";
 
-export type { ConformanceResult, ConformanceTally };
+export type { ConformanceResult, ConformanceTally, StaleExpectation };
 
 export interface ConformanceState {
   results: ConformanceResult[];
   tally: ConformanceTally | undefined;
+  /** The core line of the server's expected-failures list; "" without one. */
+  expectedCore: string;
+  /** Entries whose check ran without the FAIL they tolerate; set by the final update. */
+  stale: StaleExpectation[];
   /** 0..1 while running; undefined when idle. */
   progress: number | undefined;
   running: boolean;
@@ -134,11 +140,39 @@ export function paramsFromIdentity(amfAddress: string, id: NetworkIdentity): Con
 const EMPTY: ConformanceState = {
   results: [],
   tally: undefined,
+  expectedCore: "",
+  stale: [],
   progress: undefined,
   running: false,
   done: false,
   error: undefined,
 };
+
+/** Folds one streamed update into the view state. */
+export function applyUpdate(prev: ConformanceState, upd: ConformanceUpdate): ConformanceState {
+  const results = upd.result ? [...prev.results, upd.result] : prev.results;
+  // total is 0 on the final summary update; keep the last real value so the
+  // bar lands at 100% instead of snapping back.
+  const progress = upd.total > 0 ? (upd.index + 1) / upd.total : prev.progress ?? (upd.done ? 1 : undefined);
+  return {
+    results,
+    tally: upd.tally ?? prev.tally,
+    expectedCore: upd.expectedFailuresCore || prev.expectedCore,
+    stale: upd.done ? upd.stale : prev.stale,
+    progress: upd.done ? 1 : progress,
+    running: !upd.done,
+    done: upd.done,
+    error: undefined,
+  };
+}
+
+/**
+ * The tally's failed label: "failed (N expected)" when the server applies
+ * an expected-failures list, so tolerated FAILs are counted but not hidden.
+ */
+export function failedLabel(tally: ConformanceTally | undefined, expectedCore: string): string {
+  return expectedCore ? `failed (${tally?.expectedFailures ?? 0} expected)` : "failed";
+}
 
 export function useConformance(baseUrl?: string) {
   const client = useMemo(
@@ -164,21 +198,7 @@ export function useConformance(baseUrl?: string) {
       try {
         const stream = client.runConformance(buildRequest(params), { signal: ctrl.signal });
         for await (const upd of stream) {
-          setState((prev) => {
-            const results = upd.result ? [...prev.results, upd.result] : prev.results;
-            // total is 0 on the final summary update; keep the last real value
-            // so the bar lands at 100% instead of snapping back.
-            const progress =
-              upd.total > 0 ? (upd.index + 1) / upd.total : prev.progress ?? (upd.done ? 1 : undefined);
-            return {
-              results,
-              tally: upd.tally ?? prev.tally,
-              progress: upd.done ? 1 : progress,
-              running: !upd.done,
-              done: upd.done,
-              error: undefined,
-            };
-          });
+          setState((prev) => applyUpdate(prev, upd));
         }
       } catch (err) {
         if (ctrl.signal.aborted) return; // superseded by a newer run; not an error

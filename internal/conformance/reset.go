@@ -35,8 +35,6 @@ func (ngResetAcknowledged) SpecRefs() []SpecRef {
 	}
 }
 
-func (ngResetAcknowledged) VerdictClass() Verdict { return Fail }
-
 func (ngResetAcknowledged) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "NG RESET ACKNOWLEDGE (Reset procedure completes)"}
 	conn, err := env.DialSetup(ctx)

@@ -14,6 +14,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/conformance"
 )
 
 func newConformanceClient(t *testing.T) orbitv1connect.ConformanceServiceClient {
@@ -252,5 +253,72 @@ func TestRunConformanceDefaultTargets(t *testing.T) {
 				t.Fatal("no updates")
 			}
 		})
+	}
+}
+
+// A FAIL the server's list tolerates carries its entry on the wire and is
+// counted in the tally's expected_failures as well as failed; other
+// verdicts are never counted there. Stale entries carry what the check gave.
+func TestConformanceExpectedFailureProto(t *testing.T) {
+	var tally orbitv1.ConformanceTally
+	tolerated := conformance.Result{ID: "A", Verdict: conformance.Fail, Observed: "o",
+		ExpectedFailure: &conformance.ExpectedFailure{Finding: "EX-1", Added: "2026-10-12", Reason: "example"}}
+	for _, r := range []conformance.Result{tolerated, {ID: "B", Verdict: conformance.Fail}, {ID: "C", Verdict: conformance.Error}} {
+		addToTally(&tally, r)
+	}
+	if tally.GetFailed() != 2 || tally.GetExpectedFailures() != 1 || tally.GetErrored() != 1 {
+		t.Errorf("tally = %+v", &tally)
+	}
+	if c := cloneTally(&tally); c.GetExpectedFailures() != 1 {
+		t.Errorf("cloneTally dropped expected_failures: %+v", c)
+	}
+	p := resultProto(tolerated)
+	if e := p.GetExpectedFailure(); e.GetFinding() != "EX-1" || e.GetAdded() != "2026-10-12" || e.GetReason() != "example" || p.GetVerdict() != "FAIL" {
+		t.Errorf("result proto = %+v", p)
+	}
+	if resultProto(conformance.Result{ID: "B", Verdict: conformance.Fail}).GetExpectedFailure() != nil {
+		t.Error("an untolerated FAIL carries an expected_failure")
+	}
+	st := staleProto([]conformance.StaleExpectation{{Check: "A", Finding: "EX-1", ExpectedObserved: "o", Verdict: conformance.Pass, Observed: "ok"}})
+	if len(st) != 1 || st[0].GetVerdict() != "PASS" || st[0].GetExpectedObserved() != "o" || st[0].GetObserved() != "ok" {
+		t.Errorf("stale proto = %+v", st)
+	}
+}
+
+// Every update names the server's list; checks that ERROR are neither
+// tolerated nor stale.
+func TestRunConformanceCarriesExpectedFailuresCore(t *testing.T) {
+	x, err := conformance.LoadExpectedFailures("../conformance/testdata/expected-failures.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mux := http.NewServeMux()
+	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: x}))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c := orbitv1connect.NewConformanceServiceClient(srv.Client(), srv.URL)
+	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
+		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2, Categories: []string{"negative-ie"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last *orbitv1.ConformanceUpdate
+	for stream.Receive() {
+		u := stream.Msg()
+		if u.GetExpectedFailuresCore() != "Example core (lab A)" {
+			t.Errorf("update expected_failures_core = %q", u.GetExpectedFailuresCore())
+		}
+		if r := u.GetResult(); r != nil && r.GetExpectedFailure() != nil {
+			t.Errorf("%s (%s) tolerated", r.GetId(), r.GetVerdict())
+		}
+		last = u
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !last.GetDone() || len(last.GetStale()) != 0 || last.GetTally().GetExpectedFailures() != 0 {
+		t.Errorf("final update = %+v", last)
 	}
 }

@@ -152,22 +152,49 @@ func RenderRefs(refs []SpecRef) string {
 }
 
 // minReleaser is implemented by a check whose applicability is newer than
-// its refs' Since, because it asserts the newer wording of a clause.
+// its refs' Since, because it asserts the newer wording of a clause. The
+// declaration is a statement about the whole check, so it gates on the run
+// target only; per-specification pins narrow through the refs' Since (see
+// skipReason).
 type minReleaser interface{ MinRelease() Release }
 
 // MinRelease is the oldest release a check applies to: its own declaration
-// if it has one, else the highest Since among its references.
+// if it has one, else the highest Since among its shall and should
+// references (requirementRefs: descriptive ones count only when the check
+// cites nothing stronger). It is the floor ValidateTest and skipReason use,
+// so the "requires Rel-N or later" line agrees with what gates the check.
 func MinRelease(t Test) Release {
 	if m, ok := t.(minReleaser); ok {
 		return m.MinRelease()
 	}
 	var max Release
-	for _, r := range t.SpecRefs() {
+	for _, r := range requirementRefs(t.SpecRefs()) {
 		if r.Since > max {
 			max = r.Since
 		}
 	}
 	return max
+}
+
+// WorstVerdict is the worst verdict a check can give a core, derived from
+// what it cites: FAIL when it cites a shall, DEVIATION when it cites only
+// shoulds. A missed shall is a failure and DEVIATION is reserved for a missed
+// should; runOne enforces this whatever a check's Run returns.
+func WorstVerdict(t Test) Verdict {
+	if cites(t, Shall) {
+		return Fail
+	}
+	return Deviation
+}
+
+// cites reports whether a check cites a reference of strength s.
+func cites(t Test, s Strength) bool {
+	for _, r := range t.SpecRefs() {
+		if r.Strength == s {
+			return true
+		}
+	}
+	return false
 }
 
 // requirementLine is the provenance line every result's detail ends with:
@@ -189,7 +216,7 @@ func ValidateTest(t Test) error {
 	if len(refs) == 0 {
 		return fmt.Errorf("%s: no spec references", t.ID())
 	}
-	hasShall := false
+	hasRequirement := false
 	// floor is the newest Since among the refs that carry a requirement
 	// (shall or should), or among all refs when none does: a check cannot
 	// apply to a release older than a requirement it asserts.
@@ -199,8 +226,8 @@ func ValidateTest(t Test) error {
 		if err := validateRef(r); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
-		if r.Strength == Shall {
-			hasShall = true
+		if r.Strength == Shall || r.Strength == Should {
+			hasRequirement = true
 		}
 		if r.Since > floorAll {
 			floorAll = r.Since
@@ -212,14 +239,8 @@ func ValidateTest(t Test) error {
 	if floor == 0 {
 		floor = floorAll
 	}
-	switch t.VerdictClass() {
-	case Fail:
-		if !hasShall {
-			return fmt.Errorf("%s: a FAIL-class check must cite at least one shall; declare VerdictClass Deviation", t.ID())
-		}
-	case Deviation:
-	default:
-		return fmt.Errorf("%s: VerdictClass must be FAIL or DEVIATION, got %q", t.ID(), t.VerdictClass())
+	if !hasRequirement {
+		return fmt.Errorf("%s: cites no shall or should; descriptive references alone carry no verdict", t.ID())
 	}
 	if m := MinRelease(t); m < floor || m > LatestRelease {
 		return fmt.Errorf("%s: MinRelease %s outside %s..%s: it must be at least the newest Since among the requirements it asserts", t.ID(), m, floor, LatestRelease)

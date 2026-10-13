@@ -17,13 +17,18 @@ func init() {
 
 // errorIndicationOnUnknownUE sends a UE-associated message (Uplink NAS
 // Transport) referencing a UE-NGAP-ID pair the AMF never established. TS 38.413
-// §8.7.1 / §10.6 have the AMF *ideally* reply with an Error Indication; the
-// load-bearing regression assertion, though, is crash-safety — the core must
-// survive the unexpected message (association stays up). This is the class of
-// defect behind omec AMF #672/#673 (crashes, fixed in v2.2.1), so on the
-// deployed v3.1.0 this should PASS. A graceful silent drop is acceptable;
-// only an association reset is a FAIL.
+// 10.6 and 8.7.5.2 require an ERROR INDICATION, and the core must survive the
+// unexpected message (the class of defect behind omec AMF #672/#673). An
+// ERROR INDICATION with a working association afterwards is PASS. Surviving
+// without one (a silent drop within unknownUEWait, or another PDU) misses the
+// shall: FAIL, with Observed saying which. An association reset, or a fresh
+// NG Setup that no longer completes, is FAIL too, with its own Observed text.
 type errorIndicationOnUnknownUE struct{}
+
+// unknownUEWait is how long the check waits for the ERROR INDICATION. A
+// silent drop is inferred from its absence within this bound, and the
+// detail says so.
+const unknownUEWait = 3 * time.Second
 
 func (errorIndicationOnUnknownUE) ID() string         { return "NGAP-UNKNOWN-UE-SURVIVES" }
 func (errorIndicationOnUnknownUE) Category() Category { return NegativeIE }
@@ -38,8 +43,6 @@ func (errorIndicationOnUnknownUE) SpecRefs() []SpecRef {
 			}},
 	}
 }
-
-func (errorIndicationOnUnknownUE) VerdictClass() Verdict { return Fail }
 
 func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "ERROR INDICATION for the unknown UE NGAP IDs, and the NG association keeps working (TS 38.413 10.6, 8.7.5.2)"}
@@ -63,32 +66,39 @@ func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 		return r
 	}
 
-	rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	sent := time.Now()
+	rctx, cancel := context.WithTimeout(ctx, unknownUEWait)
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
-	r.Verdict, r.Observed, r.Detail = classifyUnknownUE(resp, err)
+	var survived bool
+	r.Verdict, r.Observed, r.Detail, survived = classifyUnknownUE(resp, err, time.Since(sent))
 
-	// Crash-safety confirmation: a PASS or DEVIATION outcome must leave the
-	// AMF able to complete a fresh NG Setup. If not, the core did not survive.
-	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive the unexpected message")
+	// Crash-safety confirmation: whenever the association survived, the AMF
+	// must still complete a fresh NG Setup. If not, the core did not survive.
+	return confirmAlive(ctx, env, r, survived, "fresh NG Setup failed — the core did not survive the unexpected message")
 }
 
 // classifyUnknownUE maps the AMF's reaction to an Uplink NAS Transport for
-// unknown UE NGAP IDs onto a verdict. The stimulus is not the last message on
-// a UE-associated connection, so 10.6 requires an ERROR INDICATION (not just
-// a local release): that is PASS. Surviving without one (a silent drop, or
-// another PDU) misses the shall without harming the core: DEVIATION. An
-// association reset: FAIL.
-func classifyUnknownUE(resp *ngapType.NGAPPDU, err error) (Verdict, string, string) {
+// unknown UE NGAP IDs onto a verdict; after is how long after the stimulus
+// the reaction came. The stimulus is not the last message on a UE-associated
+// connection, so 10.6 requires an ERROR INDICATION (not just a local
+// release): that is PASS. Surviving without one (a silent drop, or another
+// PDU) misses the shall: FAIL, with Observed keeping the two apart from each
+// other and from an association reset. survived reports whether the
+// association is still up, so the caller confirms the core with a fresh NG
+// Setup.
+func classifyUnknownUE(resp *ngapType.NGAPPDU, err error, after time.Duration) (v Verdict, observed, detail string, survived bool) {
 	switch {
 	case err == nil && isErrorIndication(resp):
-		return Pass, "ERROR INDICATION", ""
+		return Pass, "ERROR INDICATION", "", true
 	case err == nil:
-		return Deviation, ngapName(resp), "answered with " + ngapName(resp) + " instead of an ERROR INDICATION; the association survived"
+		return Fail, ngapName(resp), fmt.Sprintf("answered with %s %s after the UPLINK NAS TRANSPORT instead of an ERROR INDICATION; the association survived",
+			ngapName(resp), after.Round(time.Millisecond)), true
 	case errors.Is(err, context.DeadlineExceeded):
-		return Deviation, "silently dropped; association survived", "no ERROR INDICATION within the wait; the association survived"
+		return Fail, "silently dropped; association survived",
+			fmt.Sprintf("no ERROR INDICATION within %s of the UPLINK NAS TRANSPORT (absence inferred within this bound); the association survived", unknownUEWait), true
 	default:
-		return Fail, "association reset", err.Error()
+		return Fail, "association reset", err.Error(), false
 	}
 }
 

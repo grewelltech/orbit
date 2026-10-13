@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/free5gc/ngap/ngapType"
@@ -16,15 +17,20 @@ func init() {
 
 // ngSetupMissingMandatoryIE sends an NG SETUP REQUEST with the mandatory
 // Supported TA List IE (id-102) removed. It is mandatory in the NG SETUP
-// message contents (TS 38.413 §9.2.6.1); per clause 10 (missing mandatory IE /
-// abstract syntax error) the AMF should reject with NG SETUP FAILURE (or Error
-// Indication), not accept the setup and not crash.
+// message contents (TS 38.413 9.2.6.1), and 10.3.5 requires the AMF to reject
+// the procedure with NG SETUP FAILURE.
 //
-// Load-bearing assertions: the core (1) does not accept an NG Setup missing a
-// mandatory IE, and (2) survives. NG SETUP FAILURE is spec-ideal; a graceful
-// drop still passes crash-safety; an NG SETUP RESPONSE (acceptance) is a FAIL;
-// an association reset is a FAIL.
+// NG SETUP FAILURE with a working core afterwards is PASS. Everything else
+// misses the shall and is FAIL, with Observed saying which: a silent drop
+// within ngSetupWait, another PDU (an ERROR INDICATION included), acceptance
+// (NG SETUP RESPONSE), an association reset, or a fresh NG Setup that no
+// longer completes.
 type ngSetupMissingMandatoryIE struct{}
+
+// ngSetupWait is how long the check waits for the NG SETUP FAILURE. A silent
+// drop is inferred from its absence within this bound, and the detail says
+// so.
+const ngSetupWait = 4 * time.Second
 
 func (ngSetupMissingMandatoryIE) ID() string         { return "NGAP-NGSETUP-MISSING-TALIST" }
 func (ngSetupMissingMandatoryIE) Category() Category { return NegativeIE }
@@ -38,8 +44,6 @@ func (ngSetupMissingMandatoryIE) SpecRefs() []SpecRef {
 		{Spec: "TS 38.413", Clause: "10.3.5 Reject IE bullet 1", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
 	}
 }
-
-func (ngSetupMissingMandatoryIE) VerdictClass() Verdict { return Fail }
 
 func (ngSetupMissingMandatoryIE) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "NG SETUP FAILURE reporting the missing Supported TA List, and the core survives (TS 38.413 10.3.5)"}
@@ -77,38 +81,43 @@ func (ngSetupMissingMandatoryIE) Run(ctx context.Context, env Env) Result {
 		return r
 	}
 
-	rctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	sent := time.Now()
+	rctx, cancel := context.WithTimeout(ctx, ngSetupWait)
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
-	r.Verdict, r.Observed, r.Detail = classifyMissingTAList(resp, err)
+	var survived bool
+	r.Verdict, r.Observed, r.Detail, survived = classifyMissingTAList(resp, err, time.Since(sent))
 
-	// Crash-safety confirmation for the PASS and DEVIATION paths.
-	return confirmAlive(ctx, env, r, "fresh NG Setup failed — the core did not survive")
+	// Crash-safety confirmation whenever the association survived.
+	return confirmAlive(ctx, env, r, survived, "fresh NG Setup failed — the core did not survive")
 }
 
 // classifyMissingTAList maps the AMF's reaction to an NG Setup Request
-// without the mandatory Supported TA List onto a verdict. 10.3.5 requires
-// the procedure to be rejected with the message that reports its
-// unsuccessful outcome: NG SETUP FAILURE is PASS, with whether it carries
-// Criticality Diagnostics recorded (not asserted). Surviving without that (a
-// silent drop, an ERROR INDICATION or another PDU) misses the shall without
-// harming the core: DEVIATION. Accepting the setup, or resetting the
-// association: FAIL.
-func classifyMissingTAList(resp *ngapType.NGAPPDU, err error) (Verdict, string, string) {
+// without the mandatory Supported TA List onto a verdict; after is how long
+// after the request the reaction came. 10.3.5 requires the procedure to be
+// rejected with the message that reports its unsuccessful outcome: NG SETUP
+// FAILURE is PASS, with whether it carries Criticality Diagnostics recorded
+// (not asserted). Anything else misses the shall: FAIL, with Observed keeping
+// a silent drop, another PDU (an ERROR INDICATION included), acceptance and a
+// reset apart. survived reports whether the association is still up, so the
+// caller confirms the core with a fresh NG Setup.
+func classifyMissingTAList(resp *ngapType.NGAPPDU, err error, after time.Duration) (v Verdict, observed, detail string, survived bool) {
 	switch {
 	case err == nil && isNGSetupFailure(resp):
 		if hasCriticalityDiagnostics(resp) {
-			return Pass, "NG SETUP FAILURE (rejected)", "Criticality Diagnostics present"
+			return Pass, "NG SETUP FAILURE (rejected)", "Criticality Diagnostics present", true
 		}
-		return Pass, "NG SETUP FAILURE (rejected)", "Criticality Diagnostics absent (10.3.5 asks for it; recorded, not asserted)"
+		return Pass, "NG SETUP FAILURE (rejected)", "Criticality Diagnostics absent (10.3.5 asks for it; recorded, not asserted)", true
 	case err == nil && isNGSetupResponse(resp):
-		return Fail, "NG SETUP RESPONSE (accepted!)", "AMF accepted an NG Setup missing the mandatory Supported TA List"
+		return Fail, "NG SETUP RESPONSE (accepted!)", "AMF accepted an NG Setup missing the mandatory Supported TA List", true
 	case err == nil:
-		return Deviation, ngapName(resp), "answered with " + ngapName(resp) + " instead of NG SETUP FAILURE; the association survived"
+		return Fail, ngapName(resp), fmt.Sprintf("answered with %s %s after the NG SETUP REQUEST instead of NG SETUP FAILURE; the association survived",
+			ngapName(resp), after.Round(time.Millisecond)), true
 	case errors.Is(err, context.DeadlineExceeded):
-		return Deviation, "silently dropped; association survived", "no NG SETUP FAILURE within the wait; the association survived"
+		return Fail, "silently dropped; association survived",
+			fmt.Sprintf("no NG SETUP FAILURE within %s of the NG SETUP REQUEST (absence inferred within this bound); the association survived", ngSetupWait), true
 	default:
-		return Fail, "association reset", err.Error()
+		return Fail, "association reset", err.Error(), false
 	}
 }
 

@@ -33,10 +33,10 @@ const (
 	Fail  Verdict = "FAIL"  // the core violated the asserted behaviour
 	Error Verdict = "ERROR" // the test could not run (setup failure)
 	Skip  Verdict = "SKIP"  // not applicable / not exercised
-	// Deviation is a spec "shall" that the core does not meet but which is
-	// benign and commonly unimplemented (e.g. a courtesy Error Indication) — a
-	// documented non-conformance that does NOT fail the CI gate, so a known,
-	// steady-state gap is reported without crying wolf.
+	// Deviation is a missed "should": a recommendation the core does not
+	// follow. It does not fail the CI gate. A missed "shall" is always Fail;
+	// a known, tolerated failure goes on the core's expected-failures list,
+	// not into a softer verdict.
 	Deviation Verdict = "DEVIATION"
 )
 
@@ -70,6 +70,10 @@ type Result struct {
 	Expected   string  `json:"expected"`
 	Observed   string  `json:"observed"`
 	Detail     string  `json:"detail,omitempty"`
+	// ExpectedFailure is set on a FAIL the run's expected-failures list
+	// tolerates (ExpectedFailures.Apply); the verdict stays FAIL. It is
+	// unrelated to Expected, the behaviour the spec expects.
+	ExpectedFailure *ExpectedFailure `json:"expected_failure,omitempty"`
 }
 
 // Test is a single conformance / regression check.
@@ -79,12 +83,6 @@ type Test interface {
 	// SpecRefs are the clauses the check asserts, with their release
 	// provenance; ValidateTest states the rules they must meet.
 	SpecRefs() []SpecRef
-	// VerdictClass is the worst verdict the check gives a core: Fail, or
-	// Deviation for a check that documents a gap without failing the gate
-	// (required when it cites no "shall"). A FAIL-class check may also
-	// report DEVIATION for an outcome that misses its shall without harming
-	// the core; the registry never lets a Deviation-class check report Fail.
-	VerdictClass() Verdict
 	// Run drives the check against env and returns its verdict.
 	Run(ctx context.Context, env Env) Result
 }
@@ -239,25 +237,92 @@ func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	return err == nil && ng.Accepted, nil
 }
 
+// Observed texts the liveness probes write. They are shared with
+// LoadExpectedFailures, which refuses a list entry for any of them, and with
+// runOne, which never demotes a crash: a list can never tolerate a dead core
+// or a check that could not confirm it was alive.
+const (
+	// ObservedAMFUnresponsive prefixes a FAIL whose fresh NG Setup no longer
+	// completes after the stimulus (confirmAlive).
+	ObservedAMFUnresponsive = "AMF unresponsive after the message"
+	// ObservedProbeFailed prefixes an ERROR whose liveness probe could not
+	// be made (confirmAlive).
+	ObservedProbeFailed = "liveness probe could not run"
+	// ObservedUPFUnresponsive is a FAIL whose UPF answered GTP-U Echo before
+	// the unknown-TEID G-PDU and not after it.
+	ObservedUPFUnresponsive = "UPF unresponsive after the G-PDU (no Echo Response)"
+	// ObservedUPFNoEcho is an ERROR whose UPF did not answer GTP-U Echo
+	// before the test, so its liveness cannot be confirmed.
+	ObservedUPFNoEcho = "UPF did not answer a GTP-U Echo Request before the test"
+	// ObservedProbeCutShort prefixes an ERROR whose liveness probe came
+	// back negative because the per-test timeout expired during it: the
+	// harness, not the core, ran out of time.
+	ObservedProbeCutShort = "liveness probe cut short by the per-test timeout"
+)
+
+// cutShort reports whether ctx's deadline has passed (or ctx is done), so a
+// negative liveness probe says nothing about the core.
+func cutShort(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	d, ok := ctx.Deadline()
+	return ok && !time.Now().Before(d)
+}
+
+// cutShortResult turns r into the ERROR for a liveness probe the per-test
+// timeout cut short, keeping what was observed before the cut.
+func cutShortResult(r Result, needs string) Result {
+	r.Verdict = Error
+	r.Observed = ObservedProbeCutShort + " (" + r.Observed + ")"
+	r.Detail = "the per-test timeout expired before the liveness probe completed, so the core's state is unknown; " +
+		"raise --per-test-timeout (this check needs about " + needs + ")"
+	return r
+}
+
+// livenessTexts are the Observed prefixes no expected-failures entry may
+// name; crashTexts are those that report a core that stopped answering.
+var (
+	livenessTexts = []string{ObservedAMFUnresponsive, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho, ObservedProbeCutShort}
+	crashTexts    = []string{ObservedAMFUnresponsive, ObservedUPFUnresponsive}
+)
+
+// hasPrefixAny reports whether s starts with any of prefixes.
+func hasPrefixAny(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // confirmAlive applies the crash-safety confirmation to a result in which
-// the core survived the message by its own account (PASS, or DEVIATION for a
-// non-spec but non-fatal reaction): a fresh NG Setup must still complete. If
-// it does not, the core did not survive (FAIL); if the probe itself cannot
-// be made, that says nothing about the core (ERROR). Other verdicts pass
-// through unchanged.
-func confirmAlive(ctx context.Context, env Env, r Result, failDetail string) Result {
-	if r.Verdict != Pass && r.Verdict != Deviation {
+// the association survived the message (survived), whatever the verdict: a
+// PASS, or a FAIL for a missed shall such as a silent drop. A fresh NG Setup
+// must still complete. If it does not, the core did not survive: FAIL with
+// its own Observed text, so an expected-failures entry for the survivable
+// outcome never hides a dead core. If the probe itself cannot be made, that
+// says nothing about the core (ERROR), and neither does a probe the
+// per-test timeout cut short (ERROR, ObservedProbeCutShort). A result whose
+// association did not survive passes through unchanged.
+func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDetail string) Result {
+	if !survived {
 		return r
 	}
 	alive, err := env.Alive(ctx)
 	switch {
 	case err != nil:
 		r.Verdict = Error
-		r.Observed = "liveness probe could not run (" + r.Observed + ")"
+		r.Observed = ObservedProbeFailed + " (" + r.Observed + ")"
 		r.Detail = err.Error()
+	case !alive && cutShort(ctx):
+		// The probe ran out of the check's time: that is the harness, not
+		// a dead core.
+		r = cutShortResult(r, "its wait plus a fresh NG Setup")
 	case !alive:
 		r.Verdict = Fail
-		r.Observed = "AMF unresponsive after the message (" + r.Observed + ")"
+		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
 		r.Detail = failDetail
 	}
 	return r
@@ -338,7 +403,10 @@ func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration
 
 // runOne runs one check, or SKIPs it when it requires a release newer than
 // the target (see skipReason), and stamps identity and provenance onto the
-// result. A Deviation-class check is never allowed to report Fail. Every
+// result. The verdict follows the check's references (WorstVerdict): a FAIL
+// from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
+// check that cites no should becomes FAIL, since DEVIATION is reserved for a
+// missed should. A crash (the core stopped answering) is never demoted. Every
 // result's detail ends with the requirement line; when the target is newer
 // than the releases the wording was verified through, the detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
@@ -350,8 +418,12 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		tctx, cancel := context.WithTimeout(ctx, perTest)
 		res = t.Run(tctx, e)
 		cancel()
-		if res.Verdict == Fail && t.VerdictClass() == Deviation {
+		switch {
+		case res.Verdict == Fail && WorstVerdict(t) == Deviation && !hasPrefixAny(res.Observed, crashTexts):
 			res.Verdict = Deviation
+		case res.Verdict == Deviation && !cites(t, Should):
+			res.Verdict = Fail
+			res.Detail = joinDetail(res.Detail, "scored FAIL: DEVIATION is reserved for a missed should")
 		}
 		if e.TargetRelease > LatestRelease {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("wording verified through %s", LatestRelease))
@@ -369,9 +441,10 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 // shall or should reference whose Since is newer than its spec's target
 // (Env.SpecTarget) skips it; a descriptive reference never does, unless the
 // check cites nothing stronger (the same floor ValidateTest uses). A declared
-// MinRelease newer than the run target skips it too. When the run target
-// binds, the reason is the run-target text; when only a pin binds, it names
-// the reference and the pinned target.
+// MinRelease newer than the run target skips it too, whatever the pins say:
+// the declaration is about the whole check, not one specification (see
+// minReleaser). When the run target binds, the reason is the run-target
+// text; when only a pin binds, it names the reference and the pinned target.
 func skipReason(t Test, e Env) (string, bool) {
 	if e.TargetRelease == 0 {
 		return "", false
@@ -420,14 +493,15 @@ func requirementRefs(refs []SpecRef) []SpecRef {
 // refsSince names, briefly, the references that set a check's minimum
 // release ("TS 24.501 5.4.1.3.7"), for the SKIP detail.
 func refsSince(t Test, min Release) string {
+	refs := requirementRefs(t.SpecRefs())
 	var out []string
-	for _, r := range t.SpecRefs() {
+	for _, r := range refs {
 		if r.Since >= min {
 			out = append(out, r.Spec+" "+r.Clause)
 		}
 	}
 	if len(out) == 0 { // a check whose MinRelease is declared above every Since
-		for _, r := range t.SpecRefs() {
+		for _, r := range refs {
 			out = append(out, r.Spec+" "+r.Clause)
 		}
 	}
@@ -472,7 +546,16 @@ type Summary struct {
 	// SpecTargets are the per-specification pins that narrowed the run
 	// (Env.NarrowingSpecTargets), each at its effective release; empty when
 	// TargetRelease is unset.
-	SpecTargets map[string]Release `json:"spec_targets"`
+	SpecTargets map[string]Release
+	// ExpectedFail counts the FAILs an expected-failures entry tolerates;
+	// they are in Fail too, and only the rest gate (OK).
+	ExpectedFail int
+	// Stale lists the expected-failures entries whose check ran without the
+	// FAIL they tolerate (ExpectedFailures.Stale); they warn, not gate.
+	Stale []StaleExpectation `json:",omitempty"`
+	// ExpectedFailures is the core line of the list the run used, "" when
+	// none was given.
+	ExpectedFailures string `json:",omitempty"`
 }
 
 // TargetLine renders the run's targets for the text output: "Rel-18 (TS
@@ -521,6 +604,9 @@ func Summarize(results []Result) Summary {
 			s.Pass++
 		case Fail:
 			s.Fail++
+			if r.ExpectedFailure != nil {
+				s.ExpectedFail++
+			}
 		case Error:
 			s.Error++
 		case Skip:
@@ -532,10 +618,10 @@ func Summarize(results []Result) Summary {
 	return s
 }
 
-// OK reports a clean run — no failed assertions and no harness errors. This is
-// the integration-CI gate. Deviations are documented non-conformances that do
-// not fail the gate.
-func (s Summary) OK() bool { return s.Fail == 0 && s.Error == 0 }
+// OK reports a clean run: no FAIL beyond those the expected-failures list
+// tolerates, and no harness errors. This is the integration-CI gate.
+// Deviations (missed shoulds) and stale entries do not fail it.
+func (s Summary) OK() bool { return s.Fail-s.ExpectedFail == 0 && s.Error == 0 }
 
 // builtins is the registered test set (populated in the tests_*.go files).
 var builtins []Test

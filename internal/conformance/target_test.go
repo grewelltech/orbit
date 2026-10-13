@@ -101,7 +101,7 @@ func TestRunOneSpecTargets(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ran := false
-			c := provTest{id: "NEW-CHECK", refs: tc.refs, class: Fail, ran: &ran, result: Result{Verdict: Pass}}
+			c := provTest{id: "NEW-CHECK", refs: tc.refs, ran: &ran, result: Result{Verdict: Pass}}
 			res := runOne(context.Background(), c, Env{TargetRelease: tc.target, SpecTargets: pins}, time.Second)
 			if ran != tc.wantRan {
 				t.Fatalf("ran = %v, want %v (verdict %s, detail %q)", ran, tc.wantRan, res.Verdict, res.Detail)
@@ -123,7 +123,7 @@ func TestRunOneSpecTargets(t *testing.T) {
 // text, whatever the pins say.
 func TestRunOneDeclaredMinAboveTarget(t *testing.T) {
 	ref := SpecRef{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, WordingUnchanged: true}
-	c := provTestMin{provTest{id: "GTPU-X", refs: []SpecRef{ref}, class: Fail, min: 17}}
+	c := provTestMin{provTest{id: "GTPU-X", refs: []SpecRef{ref}, min: 17}}
 	res := runOne(context.Background(), c, Env{TargetRelease: 16, SpecTargets: map[string]Release{"TS 29.281": 15}}, time.Second)
 	if res.Verdict != Skip || !strings.Contains(res.Detail, "requires Rel-17 (TS 29.281 7.3.1); target release is Rel-16") {
 		t.Errorf("verdict %s detail %q", res.Verdict, res.Detail)
@@ -140,10 +140,10 @@ func TestSummaryTargets(t *testing.T) {
 		wantLine string
 		wantJSON string
 	}{
-		{name: "pinned", target: 18, pins: map[string]Release{"TS 29.244": 16}, wantLine: "Rel-18 (TS 29.244 at Rel-16)", wantJSON: `"spec_targets":{"TS 29.244":"Rel-16"}`},
+		{name: "pinned", target: 18, pins: map[string]Release{"TS 29.244": 16}, wantLine: "Rel-18 (TS 29.244 at Rel-16)", wantJSON: `"SpecTargets":{"TS 29.244":"Rel-16"}`},
 		{name: "two pins sorted", target: 18, pins: map[string]Release{"TS 29.281": 17, "TS 29.244": 16}, wantLine: "Rel-18 (TS 29.244 at Rel-16, TS 29.281 at Rel-17)"},
-		{name: "no pins", target: 18, pins: map[string]Release{}, wantLine: "Rel-18", wantJSON: `"spec_targets":{}`},
-		{name: "unset", target: 0, pins: map[string]Release{}, wantLine: "unset", wantJSON: `"spec_targets":{}`},
+		{name: "no pins", target: 18, pins: map[string]Release{}, wantLine: "Rel-18", wantJSON: `"SpecTargets":{}`},
+		{name: "unset", target: 0, pins: map[string]Release{}, wantLine: "unset", wantJSON: `"SpecTargets":{}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -163,11 +163,11 @@ func TestSummaryTargets(t *testing.T) {
 	}
 }
 
-// A summary nobody set pins on still carries an empty spec_targets, never null.
+// A summary nobody set pins on still carries an empty SpecTargets, never null.
 func TestSummarizeSpecTargetsNeverNull(t *testing.T) {
 	b, err := json.Marshal(Summarize(nil))
-	if err != nil || !strings.Contains(string(b), `"spec_targets":{}`) {
-		t.Errorf("summary JSON %s (%v) lacks an empty spec_targets", b, err)
+	if err != nil || !strings.Contains(string(b), `"SpecTargets":{}`) {
+		t.Errorf("summary JSON %s (%v) lacks an empty SpecTargets", b, err)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestRunOneDefaultPFCPPin(t *testing.T) {
 	}{{17, false}, {16, true}} {
 		ran := false
 		ref := SpecRef{Spec: "TS 29.244", Clause: "5.3.2", Strength: Shall, Since: tc.since, WordingUnchanged: true}
-		c := provTest{id: "PFCP-X", refs: []SpecRef{ref}, class: Fail, ran: &ran, result: Result{Verdict: Pass}}
+		c := provTest{id: "PFCP-X", refs: []SpecRef{ref}, ran: &ran, result: Result{Verdict: Pass}}
 		res := runOne(context.Background(), c, e, time.Second)
 		if ran != tc.wantRan {
 			t.Errorf("Since %s: ran = %v, want %v (%q)", tc.since, ran, tc.wantRan, res.Detail)
@@ -225,5 +225,36 @@ func TestRunOneDefaultPFCPPin(t *testing.T) {
 		if !tc.wantRan && !strings.Contains(res.Detail, "target for TS 29.244 is Rel-16") {
 			t.Errorf("Since %s: detail %q does not name the pin", tc.since, res.Detail)
 		}
+	}
+}
+
+// MinRelease falls back to the requirement floor: a descriptive reference
+// newer than the check's shall does not raise it, so the check runs at a
+// target between the two and its requirement line names the shall's release.
+func TestMinReleaseRequirementFloor(t *testing.T) {
+	refs := []SpecRef{
+		{Spec: "TS 38.413", Clause: "10.3.5", Strength: Shall, Since: 15, WordingUnchanged: true},
+		{Spec: "TS 38.413", Clause: "9.2.6.1", Strength: Descriptive, Since: 17, WordingUnchanged: true},
+	}
+	ran := false
+	c := provTest{id: "FLOOR", refs: refs, ran: &ran, result: Result{Verdict: Pass}}
+	if got := MinRelease(c); got != 15 {
+		t.Errorf("MinRelease = %s, want Rel-15", got)
+	}
+	res := runOne(context.Background(), c, Env{TargetRelease: 16}, time.Second)
+	if !ran || res.Verdict != Pass {
+		t.Fatalf("ran = %v verdict %s at target Rel-16, want it to run and PASS", ran, res.Verdict)
+	}
+	if res.MinRelease != 15 || !strings.Contains(res.Detail, "requires Rel-15 or later") {
+		t.Errorf("MinRelease %s, detail %q", res.MinRelease, res.Detail)
+	}
+	// The run-target SKIP names only the requirement that binds.
+	newer := []SpecRef{
+		{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 18, WordingUnchanged: true},
+		{Spec: "TS 38.413", Clause: "9.2.3.4", Strength: Descriptive, Since: 19, WordingUnchanged: true},
+	}
+	res = runOne(context.Background(), provTest{id: "NEWER", refs: newer}, Env{TargetRelease: 17}, time.Second)
+	if res.Verdict != Skip || !strings.Contains(res.Detail, "requires Rel-18 (TS 38.413 10.6); target release is Rel-17") {
+		t.Errorf("verdict %s detail %q", res.Verdict, res.Detail)
 	}
 }

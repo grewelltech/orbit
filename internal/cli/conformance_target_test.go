@@ -64,7 +64,7 @@ func TestConformanceJSONRecordsTargetRelease(t *testing.T) {
 			out, _ := runConformance(t, append([]string{"--json", "--category", "procedural"}, tc.args...)...)
 			var sum struct {
 				TargetRelease string
-				SpecTargets   map[string]string `json:"spec_targets"`
+				SpecTargets   map[string]string
 				Results       []struct {
 					SpecRefs   []map[string]any `json:"spec_refs"`
 					MinRelease string           `json:"min_release"`
@@ -78,7 +78,7 @@ func TestConformanceJSONRecordsTargetRelease(t *testing.T) {
 				t.Errorf("TargetRelease = %q, want %q", sum.TargetRelease, tc.wantTarget)
 			}
 			if sum.SpecTargets == nil || !reflect.DeepEqual(sum.SpecTargets, tc.wantPins) {
-				t.Errorf("spec_targets = %v, want %v", sum.SpecTargets, tc.wantPins)
+				t.Errorf("SpecTargets = %v, want %v", sum.SpecTargets, tc.wantPins)
 			}
 			if len(sum.Results) == 0 {
 				t.Fatal("no results")
