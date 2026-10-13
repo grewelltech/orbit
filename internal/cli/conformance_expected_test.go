@@ -99,3 +99,18 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// orbit serve refuses to start with a bad list, before it listens.
+func TestServeRefusesBadExpectedFailures(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "bad.yaml")
+	writeFile(t, bad, "core: c\n") // no version
+	root := New("test")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"serve", "--listen", "127.0.0.1:0", "--state-dir", t.TempDir(), "--conformance-expected-failures", bad})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--conformance-expected-failures:") || !strings.Contains(err.Error(), "version is required") {
+		t.Errorf("err = %v", err)
+	}
+}

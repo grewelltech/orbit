@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
 )
@@ -84,6 +85,7 @@ func newServeCmd(version string) *cobra.Command {
 	var loomAgent, loomToken string
 	var stateDir string
 	var runHistory int
+	var expectedPath string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the ORBIT API server",
@@ -93,6 +95,18 @@ func newServeCmd(version string) *cobra.Command {
 				return fmt.Errorf("invalid --log-level %q: %w", logLevel, err)
 			}
 			log := observability.NewLogger(os.Stderr, level)
+
+			// Loaded before anything starts: a bad list fails startup
+			// rather than serving runs that gate on the wrong FAILs.
+			var expected *conformance.ExpectedFailures
+			if expectedPath != "" {
+				x, err := conformance.LoadExpectedFailures(expectedPath)
+				if err != nil {
+					return fmt.Errorf("--conformance-expected-failures: %w", err)
+				}
+				expected = x
+				log.Info("conformance expected-failures list loaded", "core", x.Core, "entries", len(x.Entries), "path", expectedPath)
+			}
 
 			shutdown, err := observability.SetupTracing(cmd.Context(),
 				os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "orbit", version)
@@ -116,6 +130,8 @@ func newServeCmd(version string) *cobra.Command {
 				LoomToken:   loomToken,
 				StateDir:    dir,
 				RunHistory:  runHistory,
+
+				ConformanceExpected: expected,
 			})
 
 			srv := &http.Server{
@@ -135,6 +151,8 @@ func newServeCmd(version string) *cobra.Command {
 			"(default $XDG_STATE_HOME/orbit/runs; \"none\" disables persistence)")
 	cmd.Flags().IntVar(&runHistory, "run-history", 0,
 		"how many finished runs to keep, in memory and on disk (0 = default 50)")
+	cmd.Flags().StringVar(&expectedPath, "conformance-expected-failures", "",
+		"YAML list of the core's known, tolerated conformance FAILs that dashboard and API runs apply (docs/conformance/expected-failures.md)")
 	cmd.Flags().StringVar(&listen, "listen", DefaultListen, "listen address (host:port)")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 	cmd.Flags().StringVar(&coreProfile, "core-profile", "", "core compatibility profile (strict-3gpp, sdcore); default strict-3gpp")

@@ -21,6 +21,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/ngap"
@@ -44,6 +45,10 @@ type Options struct {
 	// restart. Empty disables persistence entirely — no filesystem access at
 	// all, which is what tests and ephemeral CI servers want.
 	StateDir string
+	// ConformanceExpected is the expected-failures list conformance runs
+	// apply (orbit serve --conformance-expected-failures); nil for none. The
+	// caller loads it, so a bad file fails startup.
+	ConformanceExpected *conformance.ExpectedFailures
 }
 
 // New builds the ORBIT HTTP handler. The h2c wrapper lets gRPC clients
@@ -90,7 +95,7 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}))
 	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc))
-	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log}))
+	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected}))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

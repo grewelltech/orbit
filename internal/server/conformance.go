@@ -27,6 +27,10 @@ var (
 // dashboard can present it live.
 type conformanceService struct {
 	log *slog.Logger
+	// expected is the server's expected-failures list (orbit serve
+	// --conformance-expected-failures), loaded at startup; nil without one.
+	// A request never names a path.
+	expected *conformance.ExpectedFailures
 }
 
 // RunConformance streams one update per completed test, then a final summary.
@@ -101,20 +105,27 @@ func (s *conformanceService) RunConformance(
 	}
 
 	var tally orbitv1.ConformanceTally
+	var results []conformance.Result // for the stale entries at the end
 	var sendErr error
+	core := s.expected.Label()
 	conformance.NewRegistry().RunStream(ctx, env, perTest,
 		func(res conformance.Result, index, total int) {
 			if sendErr != nil {
 				return // a prior Send failed; stop trying but let the loop unwind
 			}
-			addToTally(&tally, res.Verdict)
+			one := []conformance.Result{res}
+			s.expected.Apply(one)
+			res = one[0]
+			results = append(results, res)
+			addToTally(&tally, res)
 			upd := &orbitv1.ConformanceUpdate{
-				Result:             resultProto(res),
-				Tally:              cloneTally(&tally),
-				Index:              uint32(index),
-				Total:              uint32(total),
-				TargetRelease:      uint32(target),
-				SpecTargetReleases: specTargets,
+				Result:               resultProto(res),
+				Tally:                cloneTally(&tally),
+				Index:                uint32(index),
+				Total:                uint32(total),
+				TargetRelease:        uint32(target),
+				SpecTargetReleases:   specTargets,
+				ExpectedFailuresCore: core,
 			}
 			if err := stream.Send(upd); err != nil {
 				sendErr = err
@@ -131,10 +142,12 @@ func (s *conformanceService) RunConformance(
 
 	// Final summary update.
 	return stream.Send(&orbitv1.ConformanceUpdate{
-		Done:               true,
-		Tally:              cloneTally(&tally),
-		TargetRelease:      uint32(target),
-		SpecTargetReleases: specTargets,
+		Done:                 true,
+		Tally:                cloneTally(&tally),
+		TargetRelease:        uint32(target),
+		SpecTargetReleases:   specTargets,
+		ExpectedFailuresCore: core,
+		Stale:                staleProto(s.expected.Stale(results)),
 	})
 }
 
@@ -159,16 +172,35 @@ func (s *conformanceService) ListConformanceTests(
 
 func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 	return &orbitv1.ConformanceResult{
-		Id:         r.ID,
-		Category:   string(r.Category),
-		SpecRef:    r.SpecRef,
-		Verdict:    string(r.Verdict),
-		Expected:   r.Expected,
-		Observed:   r.Observed,
-		Detail:     r.Detail,
-		SpecRefs:   specRefsProto(r.SpecRefs),
-		MinRelease: uint32(r.MinRelease),
+		Id:              r.ID,
+		Category:        string(r.Category),
+		SpecRef:         r.SpecRef,
+		Verdict:         string(r.Verdict),
+		Expected:        r.Expected,
+		Observed:        r.Observed,
+		Detail:          r.Detail,
+		SpecRefs:        specRefsProto(r.SpecRefs),
+		MinRelease:      uint32(r.MinRelease),
+		ExpectedFailure: expectedFailureProto(r.ExpectedFailure),
 	}
+}
+
+// expectedFailureProto carries a tolerated FAIL's entry, nil for none.
+func expectedFailureProto(e *conformance.ExpectedFailure) *orbitv1.ExpectedFailure {
+	if e == nil {
+		return nil
+	}
+	return &orbitv1.ExpectedFailure{Finding: e.Finding, Added: e.Added, Reason: e.Reason}
+}
+
+// staleProto carries the stale expected-failures entries on the wire.
+func staleProto(stale []conformance.StaleExpectation) []*orbitv1.StaleExpectation {
+	out := make([]*orbitv1.StaleExpectation, 0, len(stale))
+	for _, st := range stale {
+		out = append(out, &orbitv1.StaleExpectation{Check: st.Check, Finding: st.Finding,
+			ExpectedObserved: st.ExpectedObserved, Verdict: string(st.Verdict), Observed: st.Observed})
+	}
+	return out
 }
 
 // specRefsProto carries a check's structured references on the wire.
@@ -190,12 +222,15 @@ func specRefsProto(refs []conformance.SpecRef) []*orbitv1.SpecRef {
 	return out
 }
 
-func addToTally(t *orbitv1.ConformanceTally, v conformance.Verdict) {
-	switch v {
+func addToTally(t *orbitv1.ConformanceTally, r conformance.Result) {
+	switch r.Verdict {
 	case conformance.Pass:
 		t.Passed++
 	case conformance.Fail:
 		t.Failed++
+		if r.ExpectedFailure != nil {
+			t.ExpectedFailures++
+		}
 	case conformance.Error:
 		t.Errored++
 	case conformance.Skip:
@@ -210,7 +245,7 @@ func addToTally(t *orbitv1.ConformanceTally, v conformance.Verdict) {
 func cloneTally(t *orbitv1.ConformanceTally) *orbitv1.ConformanceTally {
 	return &orbitv1.ConformanceTally{
 		Passed: t.Passed, Failed: t.Failed, Errored: t.Errored,
-		Skipped: t.Skipped, Deviations: t.Deviations,
+		Skipped: t.Skipped, Deviations: t.Deviations, ExpectedFailures: t.ExpectedFailures,
 	}
 }
 

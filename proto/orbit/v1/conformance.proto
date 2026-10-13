@@ -85,6 +85,12 @@ message ConformanceUpdate {
   // each at its effective release, on every update; empty when
   // target_release is 0 or no pin is older than it.
   map<string, uint32> spec_target_releases = 7;
+  // The core line of the server's expected-failures list (orbit serve
+  // --conformance-expected-failures), on every update; empty without one.
+  string expected_failures_core = 8;
+  // Entries whose check ran without the FAIL they tolerate; on the final
+  // update only. They warn, not gate.
+  repeated StaleExpectation stale = 9;
 }
 
 message ConformanceResult {
@@ -98,6 +104,28 @@ message ConformanceResult {
   // The references spec_ref renders, structured with their provenance.
   repeated SpecRef spec_refs = 8;
   uint32 min_release = 9;         // oldest release the check applies to
+  // Set on a FAIL the server's expected-failures list tolerates; the
+  // verdict stays FAIL. Unrelated to `expected`, the behaviour the spec
+  // expects.
+  ExpectedFailure expected_failure = 10;
+}
+
+// ExpectedFailure is the expected-failures entry that tolerates a FAIL
+// (docs/conformance/expected-failures.md).
+message ExpectedFailure {
+  string finding = 1;
+  string added = 2;               // YYYY-MM-DD
+  string reason = 3;
+}
+
+// StaleExpectation is an expected-failures entry whose check ran without the
+// FAIL it tolerates, with what the check gave instead.
+message StaleExpectation {
+  string check = 1;
+  string finding = 2;
+  string expected_observed = 3;   // the entry's observed text
+  string verdict = 4;             // what the check gave this run
+  string observed = 5;
 }
 
 // SpecRef is one clause a conformance check asserts, with the 3GPP release
@@ -133,6 +161,8 @@ message ConformanceTally {
   uint32 errored = 3;
   uint32 skipped = 4;
   uint32 deviations = 5;
+  // FAILs the expected-failures list tolerates; they are in `failed` too.
+  uint32 expected_failures = 6;
 }
 
 message ListConformanceTestsRequest {}
