@@ -157,8 +157,20 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
   5.8.2.9.1, TS 29.281 7.3.2). Needs a UE (`--supi`, `--ki/--opc`,
-  `--gnb-n3`), else SKIP. Expected on SD-Core today: FAIL (absent), because
-  the UPF's `enable_end_marker` is unset by default (#126).
+  `--gnb-n3`), else SKIP. Measured on Ref 2 (SD-Core images amf rel-3.3.2,
+  smf rel-4.3.3, upf-bess rel-2.6.3; Orbit c89f23b; 2026-10-12):
+  - **FAIL** with the UPF's `enable_end_marker` off, which is the chart and
+    OnRamp default. The SMF sets SNDEM on the path switch, and no End Marker
+    arrives.
+  - **PASS** with it on: one End Marker on the old TEID and no G-PDU after
+    it, with 488 downlink G-PDUs on the old path before the Path Switch
+    Request Acknowledge and 2,470 on the new path after it.
+
+  A separate Xn handover run at 100 echoes/s with the flag on (not the
+  conformance check) delivered 2,913 of 2,913, with the End Marker 11.5 ms
+  after the last old-path G-PDU. Evidence for both runs is on #126. Under the verdict rule, a lab that runs with it off
+  lists `no End Marker on the old F-TEID` on its expected-failures list
+  ([expected-failures.md](expected-failures.md)).
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure

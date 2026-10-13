@@ -452,9 +452,14 @@ room for the registration, the handover and that wait. It passes when a GTP-U
 End Marker arrives on the old downlink tunnel at the source gNB, and no
 G-PDU arrives on that tunnel after it. `--traffic` names an optional UDP echo
 peer the UE sends to across the handover, so downlink is flowing on the old
-path. The detail records the old tunnel, the End Marker counts, whether the
-marker carried a QFI (recorded, not asserted), and the downlink seen before
-the switch. It never records the keys.
+path. Run with `--traffic` so the run has a G-PDU positive control. Without it
+the check can still FAIL or PASS on the marker, but the run carries no
+downlink evidence. Both gNBs share `--gnb-n3`, so after the switch only the
+downlink tunnel's TEID changes, not its address. The check keys on the old
+TEID at the source gNB's N3 socket, so the shared address does not make the
+old and new tunnels indistinguishable. The detail records the old tunnel, the
+End Marker counts, whether the marker carried a QFI (recorded, not asserted),
+and the downlink seen before the switch. It never records the keys.
 
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
