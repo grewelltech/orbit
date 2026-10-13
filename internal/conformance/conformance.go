@@ -70,6 +70,10 @@ type Result struct {
 	Expected   string  `json:"expected"`
 	Observed   string  `json:"observed"`
 	Detail     string  `json:"detail,omitempty"`
+	// ExpectedFailure is set on a FAIL the run's expected-failures list
+	// tolerates (ExpectedFailures.Apply); the verdict stays FAIL. It is
+	// unrelated to Expected, the behaviour the spec expects.
+	ExpectedFailure *ExpectedFailure `json:"expected_failure,omitempty"`
 }
 
 // Test is a single conformance / regression check.
@@ -478,6 +482,15 @@ type Summary struct {
 	// (Env.NarrowingSpecTargets), each at its effective release; empty when
 	// TargetRelease is unset.
 	SpecTargets map[string]Release
+	// ExpectedFail counts the FAILs an expected-failures entry tolerates;
+	// they are in Fail too, and only the rest gate (OK).
+	ExpectedFail int
+	// Stale lists the expected-failures entries whose check ran without the
+	// FAIL they tolerate (ExpectedFailures.Stale); they warn, not gate.
+	Stale []StaleExpectation `json:",omitempty"`
+	// ExpectedFailures is the core line of the list the run used, "" when
+	// none was given.
+	ExpectedFailures string `json:",omitempty"`
 }
 
 // TargetLine renders the run's targets for the text output: "Rel-18 (TS
@@ -526,6 +539,9 @@ func Summarize(results []Result) Summary {
 			s.Pass++
 		case Fail:
 			s.Fail++
+			if r.ExpectedFailure != nil {
+				s.ExpectedFail++
+			}
 		case Error:
 			s.Error++
 		case Skip:
@@ -537,9 +553,10 @@ func Summarize(results []Result) Summary {
 	return s
 }
 
-// OK reports a clean run — no failed assertions and no harness errors. This is
-// the integration-CI gate. Deviations (missed shoulds) do not fail the gate.
-func (s Summary) OK() bool { return s.Fail == 0 && s.Error == 0 }
+// OK reports a clean run: no FAIL beyond those the expected-failures list
+// tolerates, and no harness errors. This is the integration-CI gate.
+// Deviations (missed shoulds) and stale entries do not fail it.
+func (s Summary) OK() bool { return s.Fail-s.ExpectedFail == 0 && s.Error == 0 }
 
 // builtins is the registered test set (populated in the tests_*.go files).
 var builtins []Test

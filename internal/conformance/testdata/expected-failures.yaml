@@ -1,0 +1,17 @@
+# Example expected-failures list for a fictional core. The findings (EX-n)
+# and reasons are synthetic; the check IDs are real, because loading checks
+# them against the registry. Each entry tolerates one FAIL mode of one
+# check, matched exactly on (check, observed); anything else still fails.
+core: Example core (lab A)
+version: "AMF 1.2.3, UPF 4.5.6"
+entries:
+  - check: NGAP-UNKNOWN-UE-SURVIVES
+    observed: "silently dropped; association survived"
+    finding: EX-1
+    added: 2026-10-12
+    reason: "example: the AMF drops the message without ERROR INDICATION"
+  - check: GTPU-UNKNOWN-TEID-ERRIND
+    observed: "no Error Indication"
+    finding: EX-2
+    added: 2026-10-12
+    reason: "example: the UPF discards the G-PDU without an Error Indication"
