@@ -43,10 +43,9 @@ stimulus → run live + pcap-disambiguate → calibrate honestly → cite) is in
   `--target-release` SKIPs a check that requires a newer release than the core
   claims.
 - **Baseline: match the core under test.** ORBIT's baseline tracks the release
-  the DUT implements. For the SD-Core testbed that is the omec NGAP/NAS
-  lineage — **confirm the exact release from the deployed omec version** before
-  asserting release-specific behaviour (it is roughly Rel-15/16-era; do not
-  assume Rel-17+ IEs are present).
+  the DUT implements. For SD-Core that is Rel-18 (NGAP, NAS) with PFCP at
+  Rel-16, the default target; the evidence and caveats are in
+  [target-release.md](target-release.md).
 - **Cross-release deltas are mostly additive.** The core NGAP/NAS procedures are
   stable Rel-15 → Rel-18; most deltas are new IEs / new procedures / new
   features (slicing enhancements, RedCap, NR-NTN, etc.). A check that depends on

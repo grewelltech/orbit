@@ -57,6 +57,7 @@ func newConformanceCmd() *cobra.Command {
 				N3Bind:        n3Bind,
 				GNB:           id.gnbConfig(gnbBase, 0, "orbit-conf"),
 				TargetRelease: target,
+				SpecTargets:   conformance.DefaultSpecTargets(),
 				UE:            ueSpec,
 			}
 			cats := make([]conformance.Category, 0, len(categories))
@@ -68,6 +69,7 @@ func newConformanceCmd() *cobra.Command {
 			sum.N2Source = env.N2Source()
 			sum.Network = env.Network()
 			sum.TargetRelease = target
+			sum.SpecTargets = env.NarrowingSpecTargets()
 
 			out := cmd.OutOrStdout()
 			if jsonOut {
@@ -78,7 +80,7 @@ func newConformanceCmd() *cobra.Command {
 				if sum.N2Source != "" {
 					fmt.Fprintf(out, "n2-source=%s\n", sum.N2Source)
 				}
-				_, _ = fmt.Fprintf(out, "target-release: %s\n", sum.TargetRelease)
+				_, _ = fmt.Fprintf(out, "target-release: %s\n", sum.TargetLine())
 				for _, r := range sum.Results {
 					fmt.Fprintf(out, "%-5s [%-11s] %-26s %s\n", r.Verdict, r.Category, r.ID, r.Observed)
 					// Detail always ends with the requirement line: the release
@@ -105,7 +107,7 @@ func newConformanceCmd() *cobra.Command {
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", 15*time.Second, "per-check timeout")
 	f.StringVar(&targetRelease, "target-release", "",
-		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default unset: every check runs)")
+		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, the SD-Core release; TS 29.244 pinned to Rel-16; \"unset\" runs every check)")
 	f.StringVar(&ueFlags.supi, "supi", "", supiFlagHelp+"; enables the mobility checks")
 	f.StringVar(&ueFlags.ki, "ki", "", kiFlagHelp)
 	f.StringVar(&ueFlags.opc, "opc", "", opcFlagHelp)

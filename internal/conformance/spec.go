@@ -15,11 +15,20 @@ type Release int
 // through in the 3GPP archive.
 const LatestRelease Release = 19
 
-// DefaultTargetRelease is the target release a run uses when none is given.
-// It is unset: an unset target skips nothing, so every check runs, and each
-// result still states the release it requires. Setting it to the release the
-// core under test is built against is a one-line change.
-const DefaultTargetRelease Release = 0
+// DefaultTargetRelease is the target release a run uses when none is given:
+// Rel-18, the release SD-Core's NGAP, NAS and charts are built against.
+// DefaultSpecTargets narrows it where SD-Core is older. A check that requires
+// a newer release SKIPs; the target never decides what passes. The evidence
+// and caveats are in docs/conformance/target-release.md.
+const DefaultTargetRelease Release = 18
+
+// DefaultSpecTargets returns the per-specification pins a run uses with
+// DefaultTargetRelease, as a fresh map the caller may change: TS 29.244
+// (PFCP) at Rel-16, the release SD-Core's UPF and its PFCP library implement.
+// A pin only narrows the run target (see Env.SpecTarget).
+func DefaultSpecTargets() map[string]Release {
+	return map[string]Release{"TS 29.244": 16}
+}
 
 // String renders "Rel-15", or "unset" for the zero value.
 func (r Release) String() string {

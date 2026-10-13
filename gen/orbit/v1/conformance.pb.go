@@ -55,8 +55,10 @@ type RunConformanceRequest struct {
 	// fixed port is rejected as InvalidArgument. N3 is n3_bind.
 	BindAddress string `protobuf:"bytes,12,opt,name=bind_address,json=bindAddress,proto3" json:"bind_address,omitempty"`
 	// 3GPP release the core claims (15 = Rel-15). A check that requires a
-	// newer release reports SKIP and never FAIL. 0 means unset: every check
-	// runs, and each result still states the release it requires.
+	// newer release reports SKIP and never FAIL. 0 means the server default,
+	// Rel-18 with TS 29.244 pinned to Rel-16, the same run the CLI makes with
+	// no --target-release (docs/conformance/target-release.md). Each result
+	// still states the release it requires.
 	TargetRelease uint32 `protobuf:"varint,13,opt,name=target_release,json=targetRelease,proto3" json:"target_release,omitempty"`
 	// The UE the mobility checks register (a PDU session on one gNB, then an
 	// Xn path switch to a second). Empty supi: no UE, and the mobility checks
@@ -238,8 +240,12 @@ type ConformanceUpdate struct {
 	Total uint32 `protobuf:"varint,5,opt,name=total,proto3" json:"total,omitempty"`
 	// The target release the run is gated on (0 = unset), on every update.
 	TargetRelease uint32 `protobuf:"varint,6,opt,name=target_release,json=targetRelease,proto3" json:"target_release,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The per-specification pins that narrowed the run ("TS 29.244" -> 16),
+	// each at its effective release, on every update; empty when
+	// target_release is 0 or no pin is older than it.
+	SpecTargetReleases map[string]uint32 `protobuf:"bytes,7,rep,name=spec_target_releases,json=specTargetReleases,proto3" json:"spec_target_releases,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ConformanceUpdate) Reset() {
@@ -312,6 +318,13 @@ func (x *ConformanceUpdate) GetTargetRelease() uint32 {
 		return x.TargetRelease
 	}
 	return 0
+}
+
+func (x *ConformanceUpdate) GetSpecTargetReleases() map[string]uint32 {
+	if x != nil {
+		return x.SpecTargetReleases
+	}
+	return nil
 }
 
 type ConformanceResult struct {
@@ -899,14 +912,18 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\vcredentials\x18\x0f \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\x12\x10\n" +
 	"\x03dnn\x18\x10 \x01(\tR\x03dnn\x12\x15\n" +
 	"\x06gnb_n3\x18\x11 \x01(\tR\x05gnbN3\x12\x18\n" +
-	"\atraffic\x18\x12 \x01(\tR\atraffic\"\xe1\x01\n" +
+	"\atraffic\x18\x12 \x01(\tR\atraffic\"\x8f\x03\n" +
 	"\x11ConformanceUpdate\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.orbit.v1.ConformanceResultR\x06result\x12\x12\n" +
 	"\x04done\x18\x02 \x01(\bR\x04done\x120\n" +
 	"\x05tally\x18\x03 \x01(\v2\x1a.orbit.v1.ConformanceTallyR\x05tally\x12\x14\n" +
 	"\x05index\x18\x04 \x01(\rR\x05index\x12\x14\n" +
 	"\x05total\x18\x05 \x01(\rR\x05total\x12%\n" +
-	"\x0etarget_release\x18\x06 \x01(\rR\rtargetRelease\"\x95\x02\n" +
+	"\x0etarget_release\x18\x06 \x01(\rR\rtargetRelease\x12e\n" +
+	"\x14spec_target_releases\x18\a \x03(\v23.orbit.v1.ConformanceUpdate.SpecTargetReleasesEntryR\x12specTargetReleases\x1aE\n" +
+	"\x17SpecTargetReleasesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x95\x02\n" +
 	"\x11ConformanceResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x19\n" +
@@ -969,7 +986,7 @@ func file_orbit_v1_conformance_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_conformance_proto_rawDescData
 }
 
-var file_orbit_v1_conformance_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_orbit_v1_conformance_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_orbit_v1_conformance_proto_goTypes = []any{
 	(*RunConformanceRequest)(nil),        // 0: orbit.v1.RunConformanceRequest
 	(*ConformanceUpdate)(nil),            // 1: orbit.v1.ConformanceUpdate
@@ -981,26 +998,28 @@ var file_orbit_v1_conformance_proto_goTypes = []any{
 	(*ListConformanceTestsRequest)(nil),  // 7: orbit.v1.ListConformanceTestsRequest
 	(*ConformanceTestInfo)(nil),          // 8: orbit.v1.ConformanceTestInfo
 	(*ListConformanceTestsResponse)(nil), // 9: orbit.v1.ListConformanceTestsResponse
-	(*Credentials)(nil),                  // 10: orbit.v1.Credentials
+	nil,                                  // 10: orbit.v1.ConformanceUpdate.SpecTargetReleasesEntry
+	(*Credentials)(nil),                  // 11: orbit.v1.Credentials
 }
 var file_orbit_v1_conformance_proto_depIdxs = []int32{
-	10, // 0: orbit.v1.RunConformanceRequest.credentials:type_name -> orbit.v1.Credentials
+	11, // 0: orbit.v1.RunConformanceRequest.credentials:type_name -> orbit.v1.Credentials
 	2,  // 1: orbit.v1.ConformanceUpdate.result:type_name -> orbit.v1.ConformanceResult
 	6,  // 2: orbit.v1.ConformanceUpdate.tally:type_name -> orbit.v1.ConformanceTally
-	3,  // 3: orbit.v1.ConformanceResult.spec_refs:type_name -> orbit.v1.SpecRef
-	4,  // 4: orbit.v1.SpecRef.verified:type_name -> orbit.v1.SpecVersion
-	5,  // 5: orbit.v1.SpecRef.changed:type_name -> orbit.v1.SpecChange
-	3,  // 6: orbit.v1.ConformanceTestInfo.spec_refs:type_name -> orbit.v1.SpecRef
-	8,  // 7: orbit.v1.ListConformanceTestsResponse.tests:type_name -> orbit.v1.ConformanceTestInfo
-	0,  // 8: orbit.v1.ConformanceService.RunConformance:input_type -> orbit.v1.RunConformanceRequest
-	7,  // 9: orbit.v1.ConformanceService.ListConformanceTests:input_type -> orbit.v1.ListConformanceTestsRequest
-	1,  // 10: orbit.v1.ConformanceService.RunConformance:output_type -> orbit.v1.ConformanceUpdate
-	9,  // 11: orbit.v1.ConformanceService.ListConformanceTests:output_type -> orbit.v1.ListConformanceTestsResponse
-	10, // [10:12] is the sub-list for method output_type
-	8,  // [8:10] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	10, // 3: orbit.v1.ConformanceUpdate.spec_target_releases:type_name -> orbit.v1.ConformanceUpdate.SpecTargetReleasesEntry
+	3,  // 4: orbit.v1.ConformanceResult.spec_refs:type_name -> orbit.v1.SpecRef
+	4,  // 5: orbit.v1.SpecRef.verified:type_name -> orbit.v1.SpecVersion
+	5,  // 6: orbit.v1.SpecRef.changed:type_name -> orbit.v1.SpecChange
+	3,  // 7: orbit.v1.ConformanceTestInfo.spec_refs:type_name -> orbit.v1.SpecRef
+	8,  // 8: orbit.v1.ListConformanceTestsResponse.tests:type_name -> orbit.v1.ConformanceTestInfo
+	0,  // 9: orbit.v1.ConformanceService.RunConformance:input_type -> orbit.v1.RunConformanceRequest
+	7,  // 10: orbit.v1.ConformanceService.ListConformanceTests:input_type -> orbit.v1.ListConformanceTestsRequest
+	1,  // 11: orbit.v1.ConformanceService.RunConformance:output_type -> orbit.v1.ConformanceUpdate
+	9,  // 12: orbit.v1.ConformanceService.ListConformanceTests:output_type -> orbit.v1.ListConformanceTestsResponse
+	11, // [11:13] is the sub-list for method output_type
+	9,  // [9:11] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_conformance_proto_init() }
@@ -1015,7 +1034,7 @@ func file_orbit_v1_conformance_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_conformance_proto_rawDesc), len(file_orbit_v1_conformance_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -52,6 +52,8 @@ func (s *conformanceService) RunConformance(
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
+	// 0 is the server default, the same run the CLI makes with no
+	// --target-release; an explicit "unset" is not expressible here yet.
 	target := conformance.DefaultTargetRelease
 	if m.GetTargetRelease() != 0 {
 		target = conformance.Release(m.GetTargetRelease())
@@ -62,6 +64,7 @@ func (s *conformanceService) RunConformance(
 		UPFN3:         m.GetUpfN3(),
 		N3Bind:        m.GetN3Bind(),
 		TargetRelease: target,
+		SpecTargets:   conformance.DefaultSpecTargets(),
 		GNB: gnb.Config{
 			ID:     orDefaultU32(m.GetGnbIdBase(), 700),
 			IDBits: 24,
@@ -92,6 +95,11 @@ func (s *conformanceService) RunConformance(
 	}
 	perTest := time.Duration(m.GetPerTestSeconds()) * time.Second
 
+	specTargets := map[string]uint32{}
+	for spec, rel := range env.NarrowingSpecTargets() {
+		specTargets[spec] = uint32(rel)
+	}
+
 	var tally orbitv1.ConformanceTally
 	var sendErr error
 	conformance.NewRegistry().RunStream(ctx, env, perTest,
@@ -101,11 +109,12 @@ func (s *conformanceService) RunConformance(
 			}
 			addToTally(&tally, res.Verdict)
 			upd := &orbitv1.ConformanceUpdate{
-				Result:        resultProto(res),
-				Tally:         cloneTally(&tally),
-				Index:         uint32(index),
-				Total:         uint32(total),
-				TargetRelease: uint32(target),
+				Result:             resultProto(res),
+				Tally:              cloneTally(&tally),
+				Index:              uint32(index),
+				Total:              uint32(total),
+				TargetRelease:      uint32(target),
+				SpecTargetReleases: specTargets,
 			}
 			if err := stream.Send(upd); err != nil {
 				sendErr = err
@@ -122,9 +131,10 @@ func (s *conformanceService) RunConformance(
 
 	// Final summary update.
 	return stream.Send(&orbitv1.ConformanceUpdate{
-		Done:          true,
-		Tally:         cloneTally(&tally),
-		TargetRelease: uint32(target),
+		Done:               true,
+		Tally:              cloneTally(&tally),
+		TargetRelease:      uint32(target),
+		SpecTargetReleases: specTargets,
 	})
 }
 

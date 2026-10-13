@@ -20,6 +20,7 @@ func ChecksMarkdown(tests []Test) string {
 	fmt.Fprintf(&b, "Every check names the clauses it asserts and the 3GPP releases they come from, verified in the [3GPP archive](https://www.3gpp.org/ftp/Specs/archive/) through %s. ", LatestRelease)
 	b.WriteString("A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. ")
 	b.WriteString("The quoted normative text for each check is in [provenance/](provenance/).\n\n")
+	fmt.Fprintf(&b, "Default target: %s; see [target-release.md](target-release.md).\n\n", defaultTargetLine())
 	b.WriteString("| Check | Category | Verdict class | Requires | Clauses |\n")
 	b.WriteString("|---|---|---|---|---|\n")
 	for _, t := range tests {
@@ -46,3 +47,10 @@ func ChecksMarkdown(tests []Test) string {
 
 // mdEscape keeps a rendered reference from breaking a table cell.
 func mdEscape(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
+
+// defaultTargetLine renders the default targets as the run's target line
+// does: "Rel-18 (TS 29.244 at Rel-16)".
+func defaultTargetLine() string {
+	e := Env{TargetRelease: DefaultTargetRelease, SpecTargets: DefaultSpecTargets()}
+	return Summary{TargetRelease: e.TargetRelease, SpecTargets: e.NarrowingSpecTargets()}.TargetLine()
+}

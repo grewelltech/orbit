@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -108,7 +109,9 @@ type Test interface {
 //
 // TargetRelease is the 3GPP release the core claims; a check that requires a
 // newer release SKIPs instead of running. The zero value (unset) runs every
-// check.
+// check. SpecTargets pins individual specifications ("TS 29.244") to an older
+// release than TargetRelease, for a core whose interfaces are built against
+// different releases; a pin only narrows (see Env.SpecTarget).
 //
 // UE is the subscriber the Mobility checks register (see UESpec and
 // UEHarness); with no SUPI they SKIP, so a suite without one runs as before.
@@ -119,7 +122,35 @@ type Env struct {
 	UPFN3         string
 	N3Bind        string
 	TargetRelease Release
+	SpecTargets   map[string]Release
 	UE            UESpec
+}
+
+// SpecTarget is the release a reference to spec is gated on: the pin for
+// spec when it is older than TargetRelease, else TargetRelease. A pin never
+// widens a run, and with TargetRelease unset (0) nothing is gated, pins
+// included.
+func (e Env) SpecTarget(spec string) Release {
+	if e.TargetRelease == 0 {
+		return 0
+	}
+	if pin, ok := e.SpecTargets[spec]; ok && pin < e.TargetRelease {
+		return pin
+	}
+	return e.TargetRelease
+}
+
+// NarrowingSpecTargets returns the pins that narrow the run, each at its
+// effective release: none when TargetRelease is unset, and none for a pin at
+// or above TargetRelease. The map is fresh and never nil.
+func (e Env) NarrowingSpecTargets() map[string]Release {
+	out := map[string]Release{}
+	for spec := range e.SpecTargets {
+		if t := e.SpecTarget(spec); t != e.TargetRelease {
+			out[spec] = t
+		}
+	}
+	return out
 }
 
 // Dial opens a raw SCTP association to the AMF (no NG Setup) from Bind,
@@ -306,16 +337,15 @@ func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration
 }
 
 // runOne runs one check, or SKIPs it when it requires a release newer than
-// the target, and stamps identity and provenance onto the result. A
-// Deviation-class check is never allowed to report Fail. Every result's
-// detail ends with the requirement line; when the target is newer than the
-// releases the wording was verified through, the detail says so.
+// the target (see skipReason), and stamps identity and provenance onto the
+// result. A Deviation-class check is never allowed to report Fail. Every
+// result's detail ends with the requirement line; when the target is newer
+// than the releases the wording was verified through, the detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	min := MinRelease(t)
 	var res Result
-	if e.TargetRelease != 0 && min > e.TargetRelease {
-		res = Result{Verdict: Skip, Observed: "requires a newer release than the target",
-			Detail: fmt.Sprintf("requires %s (%s); target release is %s", min, refsSince(t, min), e.TargetRelease)}
+	if why, skip := skipReason(t, e); skip {
+		res = Result{Verdict: Skip, Observed: "requires a newer release than the target", Detail: why}
 	} else {
 		tctx, cancel := context.WithTimeout(ctx, perTest)
 		res = t.Run(tctx, e)
@@ -333,6 +363,58 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	res.MinRelease = min
 	res.Detail = joinDetail(res.Detail, requirementLine(t))
 	return res
+}
+
+// skipReason reports whether a check SKIPs under e's targets, and why. A
+// shall or should reference whose Since is newer than its spec's target
+// (Env.SpecTarget) skips it; a descriptive reference never does, unless the
+// check cites nothing stronger (the same floor ValidateTest uses). A declared
+// MinRelease newer than the run target skips it too. When the run target
+// binds, the reason is the run-target text; when only a pin binds, it names
+// the reference and the pinned target.
+func skipReason(t Test, e Env) (string, bool) {
+	if e.TargetRelease == 0 {
+		return "", false
+	}
+	min := MinRelease(t)
+	runTarget := false
+	if _, ok := t.(minReleaser); ok && min > e.TargetRelease {
+		runTarget = true
+	}
+	refs := requirementRefs(t.SpecRefs())
+	var pinned SpecRef
+	hasPinned := false
+	for _, r := range refs {
+		switch {
+		case r.Since > e.TargetRelease:
+			runTarget = true
+		case r.Since > e.SpecTarget(r.Spec) && !hasPinned:
+			pinned, hasPinned = r, true
+		}
+	}
+	switch {
+	case runTarget:
+		return fmt.Sprintf("requires %s (%s); target release is %s", min, refsSince(t, min), e.TargetRelease), true
+	case hasPinned:
+		return fmt.Sprintf("requires %s (%s %s); target for %s is %s",
+			pinned.Since, pinned.Spec, pinned.Clause, pinned.Spec, e.SpecTarget(pinned.Spec)), true
+	}
+	return "", false
+}
+
+// requirementRefs returns the shall and should references, or every
+// reference when there is none.
+func requirementRefs(refs []SpecRef) []SpecRef {
+	var out []SpecRef
+	for _, r := range refs {
+		if r.Strength == Shall || r.Strength == Should {
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		return refs
+	}
+	return out
 }
 
 // refsSince names, briefly, the references that set a check's minimum
@@ -387,6 +469,28 @@ type Summary struct {
 	// TargetRelease is the release the run was gated on ("unset" when none
 	// was given, in which case every check ran).
 	TargetRelease Release
+	// SpecTargets are the per-specification pins that narrowed the run
+	// (Env.NarrowingSpecTargets), each at its effective release; empty when
+	// TargetRelease is unset.
+	SpecTargets map[string]Release `json:"spec_targets"`
+}
+
+// TargetLine renders the run's targets for the text output: "Rel-18 (TS
+// 29.244 at Rel-16)", "Rel-18" with no narrowing pins, or "unset".
+func (s Summary) TargetLine() string {
+	if s.TargetRelease == 0 || len(s.SpecTargets) == 0 {
+		return s.TargetRelease.String()
+	}
+	specs := make([]string, 0, len(s.SpecTargets))
+	for spec := range s.SpecTargets {
+		specs = append(specs, spec)
+	}
+	sort.Strings(specs)
+	pins := make([]string, len(specs))
+	for i, spec := range specs {
+		pins[i] = fmt.Sprintf("%s at %s", spec, s.SpecTargets[spec])
+	}
+	return fmt.Sprintf("%s (%s)", s.TargetRelease, strings.Join(pins, ", "))
 }
 
 // NetworkIdentity is the PLMN, tracking area and slice a conformance run
@@ -410,7 +514,7 @@ func (e Env) Network() *NetworkIdentity {
 
 // Summarize counts verdicts across results.
 func Summarize(results []Result) Summary {
-	s := Summary{Total: len(results), Results: results}
+	s := Summary{Total: len(results), Results: results, SpecTargets: map[string]Release{}}
 	for _, r := range results {
 		switch r.Verdict {
 		case Pass:
