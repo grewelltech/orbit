@@ -23,17 +23,19 @@ func TestMockNGSetupUnknownPLMN(t *testing.T) {
 	tests := []struct {
 		name       string
 		accept     bool
+		extra      []mockamf.PLMN
 		cfg        gnb.Config
 		wantAccept bool
 	}{
 		{name: "served PLMN", cfg: gnbIn("208", "93"), wantAccept: true},
 		{name: "unserved PLMN", cfg: gnbIn("999", "99")},
 		{name: "unserved PLMN, accepting anyway", accept: true, cfg: gnbIn("999", "99"), wantAccept: true},
+		{name: "an extra served PLMN", extra: []mockamf.PLMN{{MCC: "999", MNC: "99"}}, cfg: gnbIn("999", "99"), wantAccept: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
-				MCC: "208", MNC: "93", SST: 1, AcceptUnknownPLMN: tc.accept})
+				MCC: "208", MNC: "93", SST: 1, AcceptUnknownPLMN: tc.accept, ExtraPLMNs: tc.extra})
 			if err != nil {
 				t.Fatal(err)
 			}

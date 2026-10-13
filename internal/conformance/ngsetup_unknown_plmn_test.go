@@ -6,13 +6,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/free5gc/aper"
 	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
+	"github.com/bgrewell/orbit/internal/ngap"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
+
+// pduNGSetupResponseServing is an NG SETUP RESPONSE whose PLMN Support List
+// names plmn.
+func pduNGSetupResponseServing(plmn [3]byte) *ngapType.NGAPPDU {
+	pdu := pduNGSetupResponse()
+	pdu.SuccessfulOutcome.Value.NGSetupResponse.ProtocolIEs.List = append(
+		pdu.SuccessfulOutcome.Value.NGSetupResponse.ProtocolIEs.List, ngapType.NGSetupResponseIEs{
+			Id: ngapType.ProtocolIEID{Value: ngapType.ProtocolIEIDPLMNSupportList},
+			Value: ngapType.NGSetupResponseIEsValue{Present: ngapType.NGSetupResponseIEsPresentPLMNSupportList,
+				PLMNSupportList: &ngapType.PLMNSupportList{List: []ngapType.PLMNSupportItem{
+					{PLMNIdentity: ngapType.PLMNIdentity{Value: aper.OctetString(plmn[:])}}}}}})
+	return pdu
+}
 
 func pduNGSetupFailureCause(c ngapType.Cause) *ngapType.NGAPPDU {
 	pdu := pduNGSetupFailure(false)
@@ -29,6 +44,8 @@ func pduNGSetupFailureCause(c ngapType.Cause) *ngapType.NGAPPDU {
 func TestClassifyUnknownPLMN(t *testing.T) {
 	unknownPLMN := ngapType.Cause{Present: ngapType.CausePresentMisc, Misc: &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnknownPLMN}}
 	other := ngapType.Cause{Present: ngapType.CausePresentProtocol, Protocol: &ngapType.CauseProtocol{Value: 2}}
+	presented, _ := ngap.EncodePLMN("999", "99")
+	served, _ := ngap.EncodePLMN("208", "93")
 	tests := []struct {
 		name         string
 		resp         *ngapType.NGAPPDU
@@ -46,6 +63,10 @@ func TestClassifyUnknownPLMN(t *testing.T) {
 			wantDetail: "cause absent", wantSurvived: true},
 		{name: "accepted", resp: pduNGSetupResponse(), want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)",
 			wantDetail: unknownPLMNFailText, wantSurvived: true},
+		{name: "accepted, serving another PLMN", resp: pduNGSetupResponseServing(served), want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)",
+			wantDetail: unknownPLMNFailText, wantSurvived: true},
+		{name: "accepted, serving the stimulus PLMN", resp: pduNGSetupResponseServing(presented), want: Error, wantObserved: "AMF serves the stimulus PLMN",
+			wantDetail: "the AMF serves the stimulus PLMN 999/99; this check cannot run against it", wantSurvived: true},
 		{name: "error indication", resp: pduErrorIndication(), want: Fail, wantObserved: "InitiatingMessage(procedure 9)",
 			wantDetail: "1.234s after the NG SETUP REQUEST instead of NG SETUP FAILURE", wantSurvived: true},
 		{name: "silent drop", err: context.DeadlineExceeded, want: Fail, wantObserved: "silently dropped; association survived",
@@ -54,7 +75,7 @@ func TestClassifyUnknownPLMN(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail, survived := classifyUnknownPLMN(tc.resp, tc.err, 1234*time.Millisecond)
+			v, observed, detail, survived := classifyUnknownPLMN(tc.resp, tc.err, 1234*time.Millisecond, presented, "999/99")
 			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
 				t.Errorf("= %s %q %q survived=%v, want %s %q with detail containing %q, survived=%v",
 					v, observed, detail, survived, tc.want, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
@@ -87,17 +108,22 @@ func TestNGSetupUnknownPLMNAgainstMock(t *testing.T) {
 	tests := []struct {
 		name         string
 		accept       bool
+		extra        []mockamf.PLMN
 		want         Verdict
 		wantObserved string
 		wantDetail   string
 	}{
 		{name: "rejects", want: Pass, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "cause Misc unknown-PLMN-or-SNPN"},
 		{name: "accepts anyway", accept: true, want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)", wantDetail: unknownPLMNFailText},
+		// A core that also serves the stimulus PLMN cannot be tested: ERROR,
+		// never a false FAIL.
+		{name: "serves the stimulus PLMN too", extra: []mockamf.PLMN{{MCC: "999", MNC: "99"}}, want: Error,
+			wantObserved: "AMF serves the stimulus PLMN", wantDetail: "the AMF serves the stimulus PLMN 999/99"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
-				MCC: "208", MNC: "93", SST: 1, SD: "010203", AcceptUnknownPLMN: tc.accept})
+				MCC: "208", MNC: "93", SST: 1, SD: "010203", AcceptUnknownPLMN: tc.accept, ExtraPLMNs: tc.extra})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -117,6 +143,33 @@ func TestNGSetupUnknownPLMNAgainstMock(t *testing.T) {
 			}
 			if n := front.Active(); n != 0 {
 				t.Errorf("%d associations still open after the check", n)
+			}
+		})
+	}
+}
+
+// A probe identity the AMF does not serve (a mistyped --mcc/--mnc) is the
+// operator's problem, not a crash: the AMF answers the liveness probe with
+// NG SETUP FAILURE, and both NG Setup checks report ERROR "liveness probe
+// could not run", which gates and cannot be listed, never "AMF
+// unresponsive".
+func TestNGSetupChecksMistypedPLMNIsError(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
+	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := sctpfront.Start(t, amf)
+	env := Env{AMFAddr: front.Addr,
+		GNB: gnb.Config{ID: 0x400, IDBits: 24, Name: "orbit-conf", MCC: "001", MNC: "01", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}}}
+	for _, c := range []Test{ngSetupUnknownPLMN{}, ngSetupMissingMandatoryIE{}} {
+		t.Run(c.ID(), func(t *testing.T) {
+			res := runOne(context.Background(), c, env, 10*time.Second)
+			if res.Verdict != Error || !strings.HasPrefix(res.Observed, ObservedProbeFailed) ||
+				!strings.Contains(res.Detail, "liveness probe rejected by the AMF") || !strings.Contains(res.Detail, "check --mcc/--mnc/--tac/--sd") {
+				t.Errorf("= %s %q (%s), want ERROR from the rejected probe", res.Verdict, res.Observed, res.Detail)
 			}
 		})
 	}

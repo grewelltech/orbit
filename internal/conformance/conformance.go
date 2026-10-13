@@ -221,9 +221,12 @@ func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 // crash-safety primitive: if a negative test leaves the AMF unable to complete
 // a fresh NG Setup, the core did not survive.
 //
-// A non-nil error means the probe itself could not be made (the local dial
-// failed), which says nothing about the core: callers report it as a harness
-// ERROR, never as a FAIL. alive=false with a nil error is the core's doing.
+// A non-nil error means the probe could not show anything about the core's
+// survival: the local dial failed, or the AMF answered with NG SETUP FAILURE.
+// An AMF that answers is alive; a rejection means the probe's identity
+// (--mcc/--mnc/--tac/--sd) is not one the core serves, an operator problem.
+// Callers report either as a harness ERROR, never as a FAIL. alive=false
+// with a nil error is the core's doing: no answer to the probe.
 func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	probe := e.GNB
 	probe.ID = e.GNB.ID + 0x9000
@@ -234,7 +237,13 @@ func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	}
 	defer conn.Close()
 	ng, err := gnb.NGSetup(ctx, conn, probe)
-	return err == nil && ng.Accepted, nil
+	if err != nil {
+		return false, nil
+	}
+	if !ng.Accepted {
+		return false, fmt.Errorf("liveness probe rejected by the AMF: cause %s; check --mcc/--mnc/--tac/--sd", ng.Cause)
+	}
+	return true, nil
 }
 
 // Observed texts the liveness probes write. They are shared with

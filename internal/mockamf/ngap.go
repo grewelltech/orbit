@@ -26,18 +26,21 @@ func bits(v uint64, n int) aper.BitString {
 }
 
 // servesAnyTAPLMN reports whether an NG Setup Request's Supported TA List
-// broadcasts plmn in any tracking area, the PLMN check of TS 38.413 8.7.1.4.
+// broadcasts any of the served PLMNs in any tracking area, the PLMN check of
+// TS 38.413 8.7.1.4.
 // A request without a Supported TA List is not judged here (it reports
 // true), so the mock's answer to a malformed request is unchanged.
-func servesAnyTAPLMN(req *ngapType.NGSetupRequest, plmn [3]byte) bool {
+func servesAnyTAPLMN(req *ngapType.NGSetupRequest, served [][3]byte) bool {
 	for _, ie := range req.ProtocolIEs.List {
 		if ie.Id.Value != ngapType.ProtocolIEIDSupportedTAList || ie.Value.SupportedTAList == nil {
 			continue
 		}
 		for _, ta := range ie.Value.SupportedTAList.List {
 			for _, bp := range ta.BroadcastPLMNList.List {
-				if string(bp.PLMNIdentity.Value) == string(plmn[:]) {
-					return true
+				for _, plmn := range served {
+					if string(bp.PLMNIdentity.Value) == string(plmn[:]) {
+						return true
+					}
 				}
 			}
 		}
@@ -69,9 +72,11 @@ func buildNGSetupFailureUnknownPLMN() ngapType.NGAPPDU {
 }
 
 // buildNGSetupResponse builds a minimal but well-formed NG Setup Response
-// (TS 38.413 §9.2.6.2): AMF name, one served GUAMI, relative capacity, and
-// one PLMN support entry for the served slice.
-func buildNGSetupResponse(plmn [3]byte, sst uint8, sd []byte) (ngapType.NGAPPDU, error) {
+// (TS 38.413 §9.2.6.2): AMF name, one served GUAMI (the first PLMN),
+// relative capacity, and one PLMN support entry per served PLMN for the
+// served slice.
+func buildNGSetupResponse(served [][3]byte, sst uint8, sd []byte) (ngapType.NGAPPDU, error) {
+	plmn := served[0]
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentSuccessfulOutcome
 	pdu.SuccessfulOutcome = new(ngapType.SuccessfulOutcome)
@@ -107,15 +112,17 @@ func buildNGSetupResponse(plmn [3]byte, sst uint8, sd []byte) (ngapType.NGAPPDU,
 	add(ngapType.ProtocolIEIDPLMNSupportList, ngapType.CriticalityPresentReject, func(ie *ngapType.NGSetupResponseIEs) {
 		ie.Value.Present = ngapType.NGSetupResponseIEsPresentPLMNSupportList
 		ie.Value.PLMNSupportList = new(ngapType.PLMNSupportList)
-		item := ngapType.PLMNSupportItem{}
-		item.PLMNIdentity.Value = aper.OctetString(plmn[:])
-		si := ngapType.SliceSupportItem{}
-		si.SNSSAI.SST.Value = aper.OctetString{sst}
-		if len(sd) == 3 {
-			si.SNSSAI.SD = &ngapType.SD{Value: aper.OctetString(sd)}
+		for _, p := range served {
+			item := ngapType.PLMNSupportItem{}
+			item.PLMNIdentity.Value = aper.OctetString(p[:])
+			si := ngapType.SliceSupportItem{}
+			si.SNSSAI.SST.Value = aper.OctetString{sst}
+			if len(sd) == 3 {
+				si.SNSSAI.SD = &ngapType.SD{Value: aper.OctetString(sd)}
+			}
+			item.SliceSupportList.List = append(item.SliceSupportList.List, si)
+			ie.Value.PLMNSupportList.List = append(ie.Value.PLMNSupportList.List, item)
 		}
-		item.SliceSupportList.List = append(item.SliceSupportList.List, si)
-		ie.Value.PLMNSupportList.List = append(ie.Value.PLMNSupportList.List, item)
 	})
 	return pdu, nil
 }

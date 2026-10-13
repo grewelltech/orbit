@@ -9,6 +9,7 @@ import (
 	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/ngap"
 )
 
 func init() {
@@ -78,6 +79,11 @@ func (ngSetupUnknownPLMN) Run(ctx context.Context, env Env) Result {
 	stim := env.GNB
 	stim.MCC, stim.MNC = unservedPLMN(env.GNB)
 	stim.TAC = (env.GNB.TAC + unservedTACOffset) & 0xffffff
+	presented, err := ngap.EncodePLMN(stim.MCC, stim.MNC)
+	if err != nil {
+		r.Verdict, r.Detail = Error, err.Error()
+		return r
+	}
 	pdu, err := gnb.BuildNGSetupRequest(stim)
 	if err != nil {
 		r.Verdict, r.Detail = Error, err.Error()
@@ -93,7 +99,7 @@ func (ngSetupUnknownPLMN) Run(ctx context.Context, env Env) Result {
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
 	var survived bool
-	r.Verdict, r.Observed, r.Detail, survived = classifyUnknownPLMN(resp, err, time.Since(sent))
+	r.Verdict, r.Observed, r.Detail, survived = classifyUnknownPLMN(resp, err, time.Since(sent), presented, stim.MCC+"/"+stim.MNC)
 	r.Detail = joinDetail(fmt.Sprintf("presented PLMN %s/%s, TAC %d (served: %s/%s, TAC %d)",
 		stim.MCC, stim.MNC, stim.TAC, env.GNB.MCC, env.GNB.MNC, env.GNB.TAC), r.Detail)
 
@@ -107,14 +113,20 @@ const unknownPLMNFailText = "AMF accepted NG Setup whose PLMNs it does not serve
 	"Rel-16 V16.9.0: reworded to PLMNs/SNPNs). Likely cause: AMF does not compare the Broadcast PLMN List against its served PLMNs."
 
 // classifyUnknownPLMN maps the AMF's reaction to an NG Setup naming only
-// unserved PLMNs onto a verdict; after is how long after the request the
-// reaction came. NG SETUP FAILURE is PASS with its cause recorded. Anything
-// else misses the 8.7.1.4 shall and is FAIL. survived reports whether the
-// association is still up, so the caller confirms the core.
-func classifyUnknownPLMN(resp *ngapType.NGAPPDU, err error, after time.Duration) (v Verdict, observed, detail string, survived bool) {
+// the presented PLMN (label, e.g. "999/99") onto a verdict; after is how
+// long after the request the reaction came. NG SETUP FAILURE is PASS with
+// its cause recorded. An NG SETUP RESPONSE whose PLMN Support List or Served
+// GUAMI List names the presented PLMN shows the AMF serves it, so the check
+// cannot run: ERROR, not a false FAIL. Anything else misses the 8.7.1.4
+// shall and is FAIL. survived reports whether the association is still up,
+// so the caller confirms the core.
+func classifyUnknownPLMN(resp *ngapType.NGAPPDU, err error, after time.Duration, presented [3]byte, label string) (v Verdict, observed, detail string, survived bool) {
 	switch {
 	case err == nil && isNGSetupFailure(resp):
 		return Pass, "NG SETUP FAILURE (rejected)", "cause " + ngSetupFailureCause(resp) + " (recorded, not asserted)", true
+	case err == nil && isNGSetupResponse(resp) && responseServesPLMN(resp, presented):
+		return Error, "AMF serves the stimulus PLMN",
+			fmt.Sprintf("the AMF serves the stimulus PLMN %s; this check cannot run against it", label), true
 	case err == nil && isNGSetupResponse(resp):
 		return Fail, "NG SETUP RESPONSE (accepted!)", unknownPLMNFailText, true
 	case err == nil:
@@ -126,6 +138,28 @@ func classifyUnknownPLMN(resp *ngapType.NGAPPDU, err error, after time.Duration)
 	default:
 		return Fail, "association reset", err.Error(), false
 	}
+}
+
+// responseServesPLMN reports whether an NG SETUP RESPONSE lists plmn in its
+// PLMN Support List or Served GUAMI List.
+func responseServesPLMN(pdu *ngapType.NGAPPDU, plmn [3]byte) bool {
+	for _, ie := range pdu.SuccessfulOutcome.Value.NGSetupResponse.ProtocolIEs.List {
+		if l := ie.Value.PLMNSupportList; l != nil {
+			for _, item := range l.List {
+				if string(item.PLMNIdentity.Value) == string(plmn[:]) {
+					return true
+				}
+			}
+		}
+		if l := ie.Value.ServedGUAMIList; l != nil {
+			for _, item := range l.List {
+				if string(item.GUAMI.PLMNIdentity.Value) == string(plmn[:]) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ngSetupFailureCause renders an NG SETUP FAILURE's Cause IE, naming the
