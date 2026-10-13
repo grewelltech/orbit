@@ -162,10 +162,13 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   - **FAIL** with the UPF's `enable_end_marker` off, which is the chart and
     OnRamp default. The SMF sets SNDEM on the path switch, and no End Marker
     arrives.
-  - **PASS** with it on: one End Marker on the old TEID, no G-PDU after it,
-    and the End Marker 11.5 ms after the last old-path G-PDU at 100 echoes/s.
+  - **PASS** with it on: one End Marker on the old TEID and no G-PDU after
+    it, with 488 downlink G-PDUs on the old path before the Path Switch
+    Request Acknowledge and 2,470 on the new path after it.
 
-  Evidence is on #126. Under the verdict rule, a lab that runs with it off
+  A separate Xn handover run at 100 echoes/s with the flag on (not the
+  conformance check) delivered 2,913 of 2,913, with the End Marker 11.5 ms
+  after the last old-path G-PDU. Evidence for both runs is on #126. Under the verdict rule, a lab that runs with it off
   lists `no End Marker on the old F-TEID` on its expected-failures list
   ([expected-failures.md](expected-failures.md)).
 
