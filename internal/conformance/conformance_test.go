@@ -7,25 +7,29 @@ import (
 )
 
 type fakeTest struct {
-	id      string
-	cat     Category
-	verdict Verdict
+	id       string
+	cat      Category
+	verdict  Verdict
+	strength Strength // Shall when empty
 }
 
 func (f fakeTest) ID() string         { return f.id }
 func (f fakeTest) Category() Category { return f.cat }
 func (f fakeTest) SpecRefs() []SpecRef {
-	return []SpecRef{{Spec: "TS 00.000", Clause: "0", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true}}
+	s := f.strength
+	if s == "" {
+		s = Shall
+	}
+	return []SpecRef{{Spec: "TS 00.000", Clause: "0", Strength: s, Since: 15, Verified: ts38413Verified, WordingUnchanged: true}}
 }
-func (f fakeTest) VerdictClass() Verdict { return Fail }
 func (f fakeTest) Run(context.Context, Env) Result {
 	return Result{Verdict: f.verdict, Observed: "fake"}
 }
 
 func TestRegistryRunStampsAndOrders(t *testing.T) {
 	r := &Registry{}
-	r.Register(fakeTest{"A", Procedural, Pass})
-	r.Register(fakeTest{"B", NegativeIE, Fail})
+	r.Register(fakeTest{"A", Procedural, Pass, ""})
+	r.Register(fakeTest{"B", NegativeIE, Fail, ""})
 
 	got := r.Run(context.Background(), Env{}, time.Second)
 	if len(got) != 2 {
@@ -41,8 +45,8 @@ func TestRegistryRunStampsAndOrders(t *testing.T) {
 
 func TestRegistryFiltersByCategory(t *testing.T) {
 	r := &Registry{}
-	r.Register(fakeTest{"A", Procedural, Pass})
-	r.Register(fakeTest{"B", NegativeIE, Pass})
+	r.Register(fakeTest{"A", Procedural, Pass, ""})
+	r.Register(fakeTest{"B", NegativeIE, Pass, ""})
 
 	only := r.Run(context.Background(), Env{}, time.Second, NegativeIE)
 	if len(only) != 1 || only[0].ID != "B" {
@@ -58,8 +62,8 @@ func TestBuiltinsRegistered(t *testing.T) {
 
 func TestDeviationDoesNotFailGate(t *testing.T) {
 	r := &Registry{}
-	r.Register(fakeTest{"A", Procedural, Pass})
-	r.Register(fakeTest{"B", GTPU, Deviation})
+	r.Register(fakeTest{"A", Procedural, Pass, ""})
+	r.Register(fakeTest{"B", GTPU, Deviation, Should})
 	sum := Summarize(r.Run(context.Background(), Env{}, time.Second))
 	if sum.Deviation != 1 {
 		t.Errorf("want 1 deviation, got %d", sum.Deviation)
@@ -68,7 +72,7 @@ func TestDeviationDoesNotFailGate(t *testing.T) {
 		t.Error("a DEVIATION must not fail the gate")
 	}
 
-	r.Register(fakeTest{"C", NegativeIE, Fail})
+	r.Register(fakeTest{"C", NegativeIE, Fail, ""})
 	if Summarize(r.Run(context.Background(), Env{}, time.Second)).OK() {
 		t.Error("a FAIL must fail the gate")
 	}

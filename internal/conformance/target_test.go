@@ -101,7 +101,7 @@ func TestRunOneSpecTargets(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ran := false
-			c := provTest{id: "NEW-CHECK", refs: tc.refs, class: Fail, ran: &ran, result: Result{Verdict: Pass}}
+			c := provTest{id: "NEW-CHECK", refs: tc.refs, ran: &ran, result: Result{Verdict: Pass}}
 			res := runOne(context.Background(), c, Env{TargetRelease: tc.target, SpecTargets: pins}, time.Second)
 			if ran != tc.wantRan {
 				t.Fatalf("ran = %v, want %v (verdict %s, detail %q)", ran, tc.wantRan, res.Verdict, res.Detail)
@@ -123,7 +123,7 @@ func TestRunOneSpecTargets(t *testing.T) {
 // text, whatever the pins say.
 func TestRunOneDeclaredMinAboveTarget(t *testing.T) {
 	ref := SpecRef{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, WordingUnchanged: true}
-	c := provTestMin{provTest{id: "GTPU-X", refs: []SpecRef{ref}, class: Fail, min: 17}}
+	c := provTestMin{provTest{id: "GTPU-X", refs: []SpecRef{ref}, min: 17}}
 	res := runOne(context.Background(), c, Env{TargetRelease: 16, SpecTargets: map[string]Release{"TS 29.281": 15}}, time.Second)
 	if res.Verdict != Skip || !strings.Contains(res.Detail, "requires Rel-17 (TS 29.281 7.3.1); target release is Rel-16") {
 		t.Errorf("verdict %s detail %q", res.Verdict, res.Detail)
@@ -217,7 +217,7 @@ func TestRunOneDefaultPFCPPin(t *testing.T) {
 	}{{17, false}, {16, true}} {
 		ran := false
 		ref := SpecRef{Spec: "TS 29.244", Clause: "5.3.2", Strength: Shall, Since: tc.since, WordingUnchanged: true}
-		c := provTest{id: "PFCP-X", refs: []SpecRef{ref}, class: Fail, ran: &ran, result: Result{Verdict: Pass}}
+		c := provTest{id: "PFCP-X", refs: []SpecRef{ref}, ran: &ran, result: Result{Verdict: Pass}}
 		res := runOne(context.Background(), c, e, time.Second)
 		if ran != tc.wantRan {
 			t.Errorf("Since %s: ran = %v, want %v (%q)", tc.since, ran, tc.wantRan, res.Detail)
@@ -237,7 +237,7 @@ func TestMinReleaseRequirementFloor(t *testing.T) {
 		{Spec: "TS 38.413", Clause: "9.2.6.1", Strength: Descriptive, Since: 17, WordingUnchanged: true},
 	}
 	ran := false
-	c := provTest{id: "FLOOR", refs: refs, class: Fail, ran: &ran, result: Result{Verdict: Pass}}
+	c := provTest{id: "FLOOR", refs: refs, ran: &ran, result: Result{Verdict: Pass}}
 	if got := MinRelease(c); got != 15 {
 		t.Errorf("MinRelease = %s, want Rel-15", got)
 	}
@@ -253,7 +253,7 @@ func TestMinReleaseRequirementFloor(t *testing.T) {
 		{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 18, WordingUnchanged: true},
 		{Spec: "TS 38.413", Clause: "9.2.3.4", Strength: Descriptive, Since: 19, WordingUnchanged: true},
 	}
-	res = runOne(context.Background(), provTest{id: "NEWER", refs: newer, class: Fail}, Env{TargetRelease: 17}, time.Second)
+	res = runOne(context.Background(), provTest{id: "NEWER", refs: newer}, Env{TargetRelease: 17}, time.Second)
 	if res.Verdict != Skip || !strings.Contains(res.Detail, "requires Rel-18 (TS 38.413 10.6); target release is Rel-17") {
 		t.Errorf("verdict %s detail %q", res.Verdict, res.Detail)
 	}

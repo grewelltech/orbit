@@ -15,16 +15,14 @@ import (
 type provTest struct {
 	id     string
 	refs   []SpecRef
-	class  Verdict
 	min    Release // 0 = derive from refs
 	result Result
 	ran    *bool
 }
 
-func (p provTest) ID() string            { return p.id }
-func (p provTest) Category() Category    { return Procedural }
-func (p provTest) SpecRefs() []SpecRef   { return p.refs }
-func (p provTest) VerdictClass() Verdict { return p.class }
+func (p provTest) ID() string          { return p.id }
+func (p provTest) Category() Category  { return Procedural }
+func (p provTest) SpecRefs() []SpecRef { return p.refs }
 func (p provTest) Run(context.Context, Env) Result {
 	if p.ran != nil {
 		*p.ran = true
@@ -87,36 +85,35 @@ func TestValidateTestRejects(t *testing.T) {
 		test    Test
 		wantErr string
 	}{
-		{name: "valid", test: provTest{id: "OK", refs: []SpecRef{goodRef()}, class: Fail}},
-		{name: "Since before Rel-15 needs only its own release plus 15..19", test: provTest{id: "OLD", class: Fail,
+		{name: "valid", test: provTest{id: "OK", refs: []SpecRef{goodRef()}}},
+		{name: "Since before Rel-15 needs only its own release plus 15..19", test: provTest{id: "OLD",
 			refs: []SpecRef{{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, Verified: ts29281Verified, WordingUnchanged: true}}}},
-		{name: "no refs", test: provTest{id: "X", class: Fail}, wantErr: "no spec references"},
-		{name: "missing a release in the range", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Verified = without(17) })}, wantErr: "no verified version for Rel-17"},
-		{name: "missing the latest release", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Verified = without(19) })}, wantErr: "no verified version for Rel-19"},
-		{name: "missing the Since release", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Since = 14 })}, wantErr: "from the Since release Rel-14"},
-		{name: "version not V-form", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) {
+		{name: "no refs", test: provTest{id: "X"}, wantErr: "no spec references"},
+		{name: "missing a release in the range", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Verified = without(17) })}, wantErr: "no verified version for Rel-17"},
+		{name: "missing the latest release", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Verified = without(19) })}, wantErr: "no verified version for Rel-19"},
+		{name: "missing the Since release", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Since = 14 })}, wantErr: "from the Since release Rel-14"},
+		{name: "version not V-form", test: provTest{id: "X", refs: mod(func(r *SpecRef) {
 			r.Verified = append([]SpecVersion{{Release: 15, Version: "15.0", Archive: "38413-f00.zip"}}, r.Verified...)
 		})}, wantErr: "is not V<n>.<n>.<n>"},
-		{name: "version from another release", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) {
+		{name: "version from another release", test: provTest{id: "X", refs: mod(func(r *SpecRef) {
 			r.Verified = append([]SpecVersion{{Release: 16, Version: "V15.0.0", Archive: "38413-f00.zip"}}, r.Verified...)
 		})}, wantErr: "belongs to Rel-15"},
-		{name: "archive not a 3GPP file", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) {
+		{name: "archive not a 3GPP file", test: provTest{id: "X", refs: mod(func(r *SpecRef) {
 			r.Verified = append([]SpecVersion{{Release: 15, Version: "V15.0.0", Archive: "https://example.org/x.pdf"}}, r.Verified...)
 		})}, wantErr: "archive"},
-		{name: "empty spec", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Spec = "" })}, wantErr: "empty Spec"},
-		{name: "dagger placeholder", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Clause = "10.3†" })}, wantErr: "exact paragraph"},
-		{name: "section sign", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Clause = "§10.3.5" })}, wantErr: "exact paragraph"},
-		{name: "unknown strength", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Strength = "must" })}, wantErr: "strength"},
-		{name: "neither unchanged nor changed", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.WordingUnchanged = false })}, wantErr: "neither WordingUnchanged"},
-		{name: "change outside the range", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Changed = []SpecChange{{Release: 20, Note: "x"}} })}, wantErr: "change entry"},
-		{name: "FAIL-class without a shall", test: provTest{id: "X", class: Fail, refs: mod(func(r *SpecRef) { r.Strength = Should })}, wantErr: "must cite at least one shall"},
-		{name: "should-only check declared DEVIATION", test: provTest{id: "OK", class: Deviation, refs: mod(func(r *SpecRef) { r.Strength = Should })}},
-		{name: "verdict class neither", test: provTest{id: "X", class: Pass, refs: []SpecRef{goodRef()}}, wantErr: "VerdictClass must be"},
-		{name: "declared MinRelease beyond Latest", test: provTestMin{provTest{id: "X", class: Fail, refs: []SpecRef{goodRef()}, min: 20}}, wantErr: "MinRelease Rel-20"},
-		{name: "declared MinRelease older than a requirement's Since", test: provTestMin{provTest{id: "X", class: Fail, min: 15,
+		{name: "empty spec", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Spec = "" })}, wantErr: "empty Spec"},
+		{name: "dagger placeholder", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Clause = "10.3†" })}, wantErr: "exact paragraph"},
+		{name: "section sign", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Clause = "§10.3.5" })}, wantErr: "exact paragraph"},
+		{name: "unknown strength", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Strength = "must" })}, wantErr: "strength"},
+		{name: "neither unchanged nor changed", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.WordingUnchanged = false })}, wantErr: "neither WordingUnchanged"},
+		{name: "change outside the range", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Changed = []SpecChange{{Release: 20, Note: "x"}} })}, wantErr: "change entry"},
+		{name: "should-only check", test: provTest{id: "OK", refs: mod(func(r *SpecRef) { r.Strength = Should })}},
+		{name: "descriptive only", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Strength = Descriptive })}, wantErr: "cites no shall or should"},
+		{name: "declared MinRelease beyond Latest", test: provTestMin{provTest{id: "X", refs: []SpecRef{goodRef()}, min: 20}}, wantErr: "MinRelease Rel-20"},
+		{name: "declared MinRelease older than a requirement's Since", test: provTestMin{provTest{id: "X", min: 15,
 			refs: []SpecRef{goodRef(), {Spec: "TS 24.501", Clause: "5.4.1.3.7", Strength: Shall, Since: 17, Verified: ts38413Verified[3:], WordingUnchanged: true}}}},
 			wantErr: "MinRelease Rel-15 outside Rel-17..Rel-19"},
-		{name: "declared MinRelease above a descriptive ref's Since is fine", test: provTestMin{provTest{id: "OK", class: Fail, min: 15,
+		{name: "declared MinRelease above a descriptive ref's Since is fine", test: provTestMin{provTest{id: "OK", min: 15,
 			refs: []SpecRef{goodRef(), {Spec: "TS 38.413", Clause: "9.2.6.11", Strength: Descriptive, Since: 15, Verified: ts38413Verified, WordingUnchanged: true}}}}},
 	}
 	for _, tc := range tests {
@@ -204,7 +201,7 @@ func TestRunOneTargetRelease(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ran := false
-			c := provTest{id: "NEW-CHECK", refs: []SpecRef{ref17}, class: Fail, ran: &ran,
+			c := provTest{id: "NEW-CHECK", refs: []SpecRef{ref17}, ran: &ran,
 				result: Result{Verdict: Fail, Observed: "no reject", Detail: "core accepted it"}}
 			res := runOne(context.Background(), c, Env{TargetRelease: tc.target}, time.Second)
 			if ran != tc.wantRan || res.Verdict != tc.wantVerdict {
@@ -224,14 +221,13 @@ func TestRunOneTargetRelease(t *testing.T) {
 	}
 }
 
-// A Deviation-class check can never report FAIL; a declared MinRelease sets
-// the requirement line.
-func TestRunOneVerdictClassAndDeclaredMin(t *testing.T) {
+// A declared MinRelease sets the requirement line and gates on the target.
+func TestRunOneDeclaredMin(t *testing.T) {
 	ref8 := SpecRef{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, WordingUnchanged: true}
-	c := provTestMin{provTest{id: "GTPU-X", refs: []SpecRef{ref8}, class: Deviation, min: 15, result: Result{Verdict: Fail}}}
+	c := provTestMin{provTest{id: "GTPU-X", refs: []SpecRef{ref8}, min: 15, result: Result{Verdict: Fail}}}
 	res := runOne(context.Background(), c, Env{}, time.Second)
-	if res.Verdict != Deviation {
-		t.Errorf("verdict = %s, want DEVIATION for a Deviation-class check", res.Verdict)
+	if res.Verdict != Fail {
+		t.Errorf("verdict = %s, want FAIL", res.Verdict)
 	}
 	if res.MinRelease != 15 || !strings.HasPrefix(res.Detail, "requires Rel-15 or later; TS 29.281 7.3.1 (Rel-8 onward") {
 		t.Errorf("MinRelease %s, detail %q", res.MinRelease, res.Detail)

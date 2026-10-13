@@ -25,7 +25,7 @@ func ChecksMarkdown(tests []Test) string {
 	b.WriteString("|---|---|---|---|---|\n")
 	for _, t := range tests {
 		fmt.Fprintf(&b, "| [%s](provenance/%s.md) | %s | %s | %s | %s |\n",
-			t.ID(), t.ID(), t.Category(), t.VerdictClass(), MinRelease(t), mdEscape(RenderRefs(t.SpecRefs())))
+			t.ID(), t.ID(), t.Category(), WorstVerdict(t), MinRelease(t), mdEscape(RenderRefs(t.SpecRefs())))
 	}
 	b.WriteString("\n## Verified versions\n")
 	for _, t := range tests {

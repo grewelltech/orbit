@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -18,14 +19,18 @@ func init() {
 // unlikely to hit a live tunnel on a shared core.
 const bogusN3TEID = uint32(0x7FABCDEF)
 
+// errIndWait is how long the check waits for the Error Indication; its
+// absence within this bound is what the FAIL detail reports.
+const errIndWait = 4 * time.Second
+
 // gtpuUnknownTEID sends a GTP-U G-PDU carrying a non-zero TEID the UPF has no
 // context for, and asserts the UPF returns a GTP-U Error Indication. Per
 // TS 29.281 §7.3.1 the UPF "shall discard the G-PDU [and] if the TEID ... is
 // different from ... 'all zeros' ... shall also return a GTP error indication",
-// with TEID Data I echoing the offending TEID. This is a genuine "shall", so a
-// FAIL is possible — but Error Indication on an unknown TEID is commonly not
-// implemented in production UPFs, so a missing one is a benign §7.3.1 deviation,
-// not a crash. Runs only when N3 params are set (from the UPF access network).
+// with TEID Data I echoing the offending TEID. A missing Error Indication
+// misses that shall and is FAIL; a core that is known not to send one lists
+// the failure on its expected-failures list. Runs only when N3 params are set
+// (from the UPF access network).
 type gtpuUnknownTEID struct{}
 
 func (gtpuUnknownTEID) ID() string         { return "GTPU-UNKNOWN-TEID-ERRIND" }
@@ -45,11 +50,6 @@ func (gtpuUnknownTEID) SpecRefs() []SpecRef {
 // MinRelease is Rel-15: the requirement dates from Rel-8, but this check
 // asserts it for a PDU Session, wording added in V15.4.0.
 func (gtpuUnknownTEID) MinRelease() Release { return 15 }
-
-// VerdictClass is Deviation by policy: the courtesy Error Indication is a
-// shall many UPFs leave unimplemented, so a missing one is reported without
-// failing the gate.
-func (gtpuUnknownTEID) VerdictClass() Verdict { return Deviation }
 
 func (gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "GTP-U Error Indication (type 26) echoing the unknown TEID"}
@@ -87,7 +87,7 @@ func (gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 		return r
 	}
 
-	deadline := time.Now().Add(4 * time.Second)
+	deadline := time.Now().Add(errIndWait)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
@@ -96,9 +96,9 @@ func (gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 	for {
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			r.Verdict, r.Observed = Deviation, "no Error Indication"
-			r.Detail = "UPF returned no GTP-U Error Indication for the unknown TEID (§7.3.1 'shall'); " +
-				"benign and commonly unimplemented (dropping is safe) — a documented deviation, not a gate failure"
+			r.Verdict, r.Observed = Fail, "no Error Indication"
+			r.Detail = fmt.Sprintf("no GTP-U Error Indication for the unknown TEID 0x%08X within %s (absence inferred within this bound); "+
+				"TS 29.281 7.3.1: the UPF shall discard the G-PDU and, for a non-zero TEID, shall also return an Error Indication", bogusN3TEID, errIndWait)
 			return r
 		}
 		mt, ok := gtpu.MessageType(buf[:n])

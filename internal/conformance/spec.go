@@ -176,6 +176,27 @@ func MinRelease(t Test) Release {
 	return max
 }
 
+// WorstVerdict is the worst verdict a check can give a core, derived from
+// what it cites: FAIL when it cites a shall, DEVIATION when it cites only
+// shoulds. A missed shall is a failure and DEVIATION is reserved for a missed
+// should; runOne enforces this whatever a check's Run returns.
+func WorstVerdict(t Test) Verdict {
+	if cites(t, Shall) {
+		return Fail
+	}
+	return Deviation
+}
+
+// cites reports whether a check cites a reference of strength s.
+func cites(t Test, s Strength) bool {
+	for _, r := range t.SpecRefs() {
+		if r.Strength == s {
+			return true
+		}
+	}
+	return false
+}
+
 // requirementLine is the provenance line every result's detail ends with:
 // the release the check requires and its rendered references.
 func requirementLine(t Test) string {
@@ -195,7 +216,7 @@ func ValidateTest(t Test) error {
 	if len(refs) == 0 {
 		return fmt.Errorf("%s: no spec references", t.ID())
 	}
-	hasShall := false
+	hasRequirement := false
 	// floor is the newest Since among the refs that carry a requirement
 	// (shall or should), or among all refs when none does: a check cannot
 	// apply to a release older than a requirement it asserts.
@@ -205,8 +226,8 @@ func ValidateTest(t Test) error {
 		if err := validateRef(r); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
-		if r.Strength == Shall {
-			hasShall = true
+		if r.Strength == Shall || r.Strength == Should {
+			hasRequirement = true
 		}
 		if r.Since > floorAll {
 			floorAll = r.Since
@@ -218,14 +239,8 @@ func ValidateTest(t Test) error {
 	if floor == 0 {
 		floor = floorAll
 	}
-	switch t.VerdictClass() {
-	case Fail:
-		if !hasShall {
-			return fmt.Errorf("%s: a FAIL-class check must cite at least one shall; declare VerdictClass Deviation", t.ID())
-		}
-	case Deviation:
-	default:
-		return fmt.Errorf("%s: VerdictClass must be FAIL or DEVIATION, got %q", t.ID(), t.VerdictClass())
+	if !hasRequirement {
+		return fmt.Errorf("%s: cites no shall or should; descriptive references alone carry no verdict", t.ID())
 	}
 	if m := MinRelease(t); m < floor || m > LatestRelease {
 		return fmt.Errorf("%s: MinRelease %s outside %s..%s: it must be at least the newest Since among the requirements it asserts", t.ID(), m, floor, LatestRelease)

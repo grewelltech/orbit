@@ -71,25 +71,26 @@ func TestEnvN2Source(t *testing.T) {
 	}
 }
 
-// confirmAlive turns a PASS into a harness ERROR, never a core FAIL, when the
-// liveness probe itself cannot be dialled; non-PASS results pass through.
+// confirmAlive turns a surviving result into a harness ERROR, never a core
+// FAIL, when the liveness probe itself cannot be dialled; a result whose
+// association did not survive passes through.
 func TestConfirmAliveProbeFailureIsError(t *testing.T) {
 	env := Env{AMFAddr: "127.0.0.1:38412", Bind: "10.0.0.1:0:0"} // the probe's dial fails locally
-	got := confirmAlive(context.Background(), env, Result{Verdict: Pass, Observed: "ok"}, "core died")
+	got := confirmAlive(context.Background(), env, Result{Verdict: Pass, Observed: "ok"}, true, "core died")
 	if got.Verdict != Error {
 		t.Fatalf("verdict = %s, want ERROR (the probe, not the core, failed)", got.Verdict)
 	}
 	if !strings.Contains(got.Detail, "liveness probe dial") || !strings.Contains(got.Observed, "ok") {
 		t.Errorf("result does not explain the probe failure: %+v", got)
 	}
-	// DEVIATION is a surviving outcome too, so the probe applies to it.
-	gotDev := confirmAlive(context.Background(), env, Result{Verdict: Deviation, Observed: "silently dropped"}, "core died")
-	if gotDev.Verdict != Error || !strings.Contains(gotDev.Observed, "silently dropped") {
-		t.Errorf("DEVIATION with a failed probe = %+v, want ERROR naming the observation", gotDev)
+	// A FAIL whose association survived (a silent drop) is probed too.
+	gotDrop := confirmAlive(context.Background(), env, Result{Verdict: Fail, Observed: "silently dropped"}, true, "core died")
+	if gotDrop.Verdict != Error || !strings.Contains(gotDrop.Observed, "silently dropped") {
+		t.Errorf("surviving FAIL with a failed probe = %+v, want ERROR naming the observation", gotDrop)
 	}
 	for _, v := range []Verdict{Fail, Error, Skip} {
 		in := Result{Verdict: v, Observed: "x", Detail: "y"}
-		if out := confirmAlive(context.Background(), env, in, "core died"); !reflect.DeepEqual(out, in) {
+		if out := confirmAlive(context.Background(), env, in, false, "core died"); !reflect.DeepEqual(out, in) {
 			t.Errorf("confirmAlive changed a %s result: %+v", v, out)
 		}
 	}

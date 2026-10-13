@@ -57,8 +57,6 @@ func (endMarkerOnPathSwitch) SpecRefs() []SpecRef {
 // TS 23.501 V15.0.0, though SNDEM dates from Rel-14.
 func (endMarkerOnPathSwitch) MinRelease() Release { return 15 }
 
-func (endMarkerOnPathSwitch) VerdictClass() Verdict { return Fail }
-
 func (c endMarkerOnPathSwitch) grace() time.Duration {
 	if c.window > 0 {
 		return c.window
