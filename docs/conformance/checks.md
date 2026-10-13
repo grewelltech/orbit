@@ -12,6 +12,7 @@ Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-rel
 | [GTPU-UNKNOWN-TEID-ERRIND](provenance/GTPU-UNKNOWN-TEID-ERRIND.md) | gtpu | FAIL | Rel-15 | TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without "PDU Session"; Rel-15: "PDU Session" added in V15.4.0) |
 | [NGAP-UNKNOWN-UE-SURVIVES](provenance/NGAP-UNKNOWN-UE-SURVIVES.md) | negative-ie | FAIL | Rel-15 | TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences) |
 | [NGAP-NGSETUP-MISSING-TALIST](provenance/NGAP-NGSETUP-MISSING-TALIST.md) | negative-ie | FAIL | Rel-15 | TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads "GLOBAL reject" in V15.0.0, "YES reject" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-NGSETUP-UNKNOWN-PLMN](provenance/NGAP-NGSETUP-UNKNOWN-PLMN.md) | negative-ie | FAIL | Rel-15 | TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause "Unknown PLMN" renamed "Unknown PLMN or SNPN" in V16.5.0) |
 | [NGAP-NG-RESET-ACK](provenance/NGAP-NG-RESET-ACK.md) | procedural | FAIL | Rel-15 | TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19) |
 
 ## Verified versions
@@ -35,6 +36,11 @@ Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-rel
 
 - TS 38.413 9.2.6.1 Supported TA List (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 - TS 38.413 10.3.5 Reject IE bullet 1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-NGSETUP-UNKNOWN-PLMN
+
+- TS 38.413 8.7.1.4 (shall, since Rel-15): Rel-15 V15.2.0 (`38413-f20.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.9.0 (`38413-g90.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.3.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 
 ### NGAP-NG-RESET-ACK
 

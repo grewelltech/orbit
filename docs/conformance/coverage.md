@@ -80,7 +80,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Interface management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ⬜ bad PLMN / bad TAC | the densest entry point |
+| NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ⬜ bad TAC | the densest entry point |
 | RAN Configuration Update | RAN→AMF | ⬜ | 🎯 malformed IE (high-value set) | |
 | NG Reset | RAN→AMF | ✅ `NGAP-NG-RESET-ACK` (live PASS) | ⬜ | RAN-initiated reset-all → NG RESET ACKNOWLEDGE |
 | Error Indication | both | ✅ (we assert the core *sends* it) | — | |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**5 checks today** (the first four live on the SD-Core testbed):
+**6 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -148,6 +148,13 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 - `NGAP-NGSETUP-MISSING-TALIST` (negative-ie, PASS) — NG Setup with the mandatory
   Supported TA List (id-102) removed → the AMF **rejects with NG SETUP FAILURE**
   (spec-ideal). Confirms the core does not accept a setup missing a mandatory IE.
+- `NGAP-NGSETUP-UNKNOWN-PLMN` (negative-ie, FAIL-class) — NG Setup naming only
+  a PLMN the AMF does not serve (999/99, with a TAC distinct from the served
+  one) → the AMF **shall** reject it (TS 38.413 8.7.1.4); NG SETUP FAILURE is
+  PASS, with the cause recorded ("Unknown PLMN or SNPN" expected). Acceptance,
+  another PDU, a silent drop or a reset is FAIL. It never presents a served
+  PLMN with an unknown TAC, which an AMF rejects with the same cause. Predicted
+  PASS on SD-Core from source; not yet run live.
 - `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, FAIL-class) — G-PDU with a non-zero
   unknown TEID → TS 29.281 §7.3.1 says the UPF **shall** return an Error
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
