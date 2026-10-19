@@ -33,6 +33,28 @@ func SecurityCapability() nasType.UESecurityCapability {
 	return *c
 }
 
+// NewSecurityCapability builds a UE security capability (TS 24.501
+// 9.11.3.54) advertising the 5G-EA algorithms ea and the 5G-IA algorithms
+// ia, each 0 to 7: octet 1 carries 5G-EA0..7 from bit 8 down, octet 2
+// 5G-IA0..7.
+func NewSecurityCapability(ea, ia []uint8) (nasType.UESecurityCapability, error) {
+	c := nasType.NewUESecurityCapability(nasMessage.RegistrationRequestUESecurityCapabilityType)
+	c.SetLen(2)
+	for _, a := range ea {
+		if a > 7 {
+			return nasType.UESecurityCapability{}, fmt.Errorf("5G-EA%d: want 0 to 7", a)
+		}
+		c.Buffer[0] |= 0x80 >> a
+	}
+	for _, a := range ia {
+		if a > 7 {
+			return nasType.UESecurityCapability{}, fmt.Errorf("5G-IA%d: want 0 to 7", a)
+		}
+		c.Buffer[1] |= 0x80 >> a
+	}
+	return *c, nil
+}
+
 // newGmm builds an empty plain 5GMM message with the header set for the
 // given message type.
 func newGmm(msgType uint8) (*f5nas.Message, *f5nas.GmmMessage) {

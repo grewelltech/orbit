@@ -33,8 +33,8 @@ func WithT3560ReleaseAfter(d time.Duration) Option { return func(a *AMF) { a.t35
 // CONTEXT RELEASE COMMAND on the last expiry: the AMF aborts locally.
 func WithT3560NoRelease() Option { return func(a *AMF) { a.t3560NoRelease = true } }
 
-// WithCrashAfterRelease makes the mock crash once WithT3560 has released a
-// UE: from then on any association closes on its next message, so a fresh
+// WithCrashAfterRelease makes the mock crash once it has released a UE
+// (WithT3560's release, or ReleaseNoCommonIntegrity's): from then on any association closes on its next message, so a fresh
 // NG Setup fails at once.
 func WithCrashAfterRelease() Option { return func(a *AMF) { a.crashAfterRelease = true } }
 

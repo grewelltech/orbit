@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	f5nas "github.com/free5gc/nas"
+	"github.com/free5gc/nas/nasType"
 	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/gnb"
@@ -49,6 +50,12 @@ type UEConfig struct {
 	// slice so a slice-aware core routes correctly; if there is no session
 	// either, none is sent and the AMF assigns the subscribed slice.
 	RequestedNSSAI []ue.SNSSAI
+	// SecurityCapabilities, when set, is the UE security capability the
+	// Registration Request advertises (conformance checks; see
+	// ue.NewSecurityCapability). Nil is the default, 5G-EA0 and 128-5G-IA2
+	// (ue.SecurityCapability), the only pair this UE completes an attach
+	// with.
+	SecurityCapabilities *nasType.UESecurityCapability
 	// Probe, when set, withholds chosen UE replies and reports the
 	// downlink (conformance checks only; see AttachProbe). Nil is the
 	// ordinary attach.
@@ -115,7 +122,11 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	if err != nil {
 		return nil, fmt.Errorf("build Requested NSSAI: %w", err)
 	}
-	regReq, err := ue.BuildRegistrationRequest(suci, ue.SecurityCapability(), requested)
+	caps := ue.SecurityCapability()
+	if ueCfg.SecurityCapabilities != nil {
+		caps = *ueCfg.SecurityCapabilities
+	}
+	regReq, err := ue.BuildRegistrationRequest(suci, caps, requested)
 	if err != nil {
 		return nil, fmt.Errorf("build Registration Request: %w", err)
 	}
