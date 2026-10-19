@@ -176,9 +176,11 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Authentication Response; the AMF must retransmit the Authentication
   Request on each T3560 expiry, four times, and on the fifth expiry release
   the N1 NAS signalling connection, a UE Context Release Command on N2
-  (TS 24.501 5.4.1.3.7 b)). The retransmission spacing is recorded against
-  the 6 s default (Table 10.2.2), not asserted. Needs a UE, else SKIP, and
-  about 64 s, so it raises its own per-test timeout. Not yet run on Ref 2;
+  (TS 24.501 5.4.1.3.7 b)). The timer is estimated from the observed gaps
+  (at least the 6 s default; up to 1.5 × 24 s for the first), so a core
+  configured slower still passes; the spacing is recorded, not asserted.
+  Needs a UE, else SKIP, and up to 190 s (about 33 s at the default), so it
+  raises its own per-test timeout. Not yet run on Ref 2;
   the source analyst predicts PASS for the retransmissions and FAIL for the
   release (the AMF removes the UE locally without a release command).
 

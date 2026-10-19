@@ -6,6 +6,7 @@ package sctpfront
 
 import (
 	"context"
+	"log"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -94,6 +95,7 @@ func bridge(c *isctp.SCTPConn, tr gnb.Transport) {
 	// would bunch a mock's timer-driven downlink (T3560 retransmissions at
 	// test-short spacing) into one burst.
 	if err := setNoDelay(c); err != nil {
+		log.Printf("sctpfront: closing the association: SCTP_NODELAY: %v", err)
 		return
 	}
 	go func() {

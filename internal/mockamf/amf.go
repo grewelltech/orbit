@@ -79,6 +79,7 @@ type AMF struct {
 	t3560             time.Duration
 	t3560Retries      int
 	t3560NoRelease    bool
+	t3560ReleaseAfter time.Duration
 	crashAfterRelease bool
 	authReject        bool
 	noAuthRequest     bool
@@ -159,6 +160,11 @@ func (a *AMF) connect(ctx context.Context) gnb.Transport {
 // keyed by RAN-UE-NGAP-ID so a single pipe can carry many UEs.
 func (a *AMF) serve(ctx context.Context, p *pipe) error {
 	states := make(map[int64]*ueState)
+	defer func() {
+		for _, st := range states {
+			st.t3560.stop()
+		}
+	}()
 	buf := make([]byte, 65536)
 	for {
 		if ctx.Err() != nil {
@@ -289,6 +295,7 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 		return err
 	}
 	if a.t3560 > 0 {
+		st.t3560.stop() // a repeated Initial UE Message: never orphan a running timer
 		st.t3560 = a.startT3560(p, st, arBytes)
 	}
 	return nil

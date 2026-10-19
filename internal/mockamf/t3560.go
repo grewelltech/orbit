@@ -22,6 +22,11 @@ func WithT3560(d time.Duration, retries int) Option {
 	return func(a *AMF) { a.t3560, a.t3560Retries = d, retries }
 }
 
+// WithT3560ReleaseAfter sends WithT3560's release d after the last
+// retransmission instead of on the next expiry (one T3560 later): a release
+// that comes late.
+func WithT3560ReleaseAfter(d time.Duration) Option { return func(a *AMF) { a.t3560ReleaseAfter = d } }
+
 // WithT3560NoRelease keeps WithT3560's retransmissions but sends no UE
 // CONTEXT RELEASE COMMAND on the last expiry: the AMF aborts locally.
 func WithT3560NoRelease() Option { return func(a *AMF) { a.t3560NoRelease = true } }
@@ -60,7 +65,11 @@ func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *t3560Timer {
 	amfID, ranID := st.amfID, st.ranID
 	go func() {
 		for expiry := 1; ; expiry++ {
-			timer := time.NewTimer(a.t3560)
+			wait := a.t3560
+			if expiry > a.t3560Retries && a.t3560ReleaseAfter > 0 {
+				wait = a.t3560ReleaseAfter
+			}
+			timer := time.NewTimer(wait)
 			select {
 			case <-t.done:
 				timer.Stop()
@@ -69,6 +78,13 @@ func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *t3560Timer {
 				timer.Stop()
 				return
 			case <-timer.C:
+			}
+			// select picks at random when the stop and the expiry are both
+			// ready; re-check the stop so nothing goes out after it.
+			select {
+			case <-t.done:
+				return
+			default:
 			}
 			if expiry <= a.t3560Retries {
 				if a.send(p, buildDownlinkNASTransport(amfID, ranID, ar)) != nil {

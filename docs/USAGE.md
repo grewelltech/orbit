@@ -466,11 +466,19 @@ The `nas` category also needs the UE flags (`--supi`, the keys and
 UE without a PDU session and withholds its Authentication Response. It passes
 when the AMF retransmits the Authentication Request four times, one T3560 apart,
 and then releases the UE with a UE Context Release Command
-(TS 24.501 5.4.1.3.7 b)). The detail gives each gap between requests. A gap far
-from the 6 s default is noted, not failed, because operators may configure the
-timer. The check needs about 64 s, so it raises its own timeout:
-`--per-test-timeout` is a floor for every check, and a check that needs longer
-says `per-test timeout raised to 1m4s for this check` in its detail.
+(TS 24.501 5.4.1.3.7 b)). Operators may configure the timer, so the check
+does not assume the 6 s default:
+- It waits up to 1.5 × 24 s (the largest value in Table 10.2.2) for the first
+  retransmission.
+- After that it expects each next request, and finally the release, within
+  1.5 × the observed timer.
+
+The detail gives each gap and the estimated timer, and notes a gap far from it
+or from the 6 s default. The check can take up to 190 s, so it raises its own
+timeout. A core at the default finishes in about 33 s, because the release
+ends the wait. `--per-test-timeout` is a floor for every check, and a check
+that needs longer says `per-test timeout raised to 3m10s for this check` in
+its detail.
 
 ```sh
 orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \

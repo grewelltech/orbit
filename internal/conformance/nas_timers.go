@@ -17,9 +17,16 @@ func init() {
 	builtins = append(builtins, nasT3560AuthRetransmit{})
 }
 
-// t3560Default is T3560's normal value in TS 24.501 Table 10.2.2, the same
-// in every release read (V15.0.0 to V19.8.0).
-const t3560Default = 6 * time.Second
+const (
+	// t3560Default is T3560's normal value in TS 24.501 Table 10.2.2, the
+	// same in every release read (V15.0.0 to V19.8.0).
+	t3560Default = 6 * time.Second
+	// t3560Max is the largest value Table 10.2.2 gives T3560: 24 s in
+	// WB-N1/CE mode, added in Rel-16. It bounds the wait for the first
+	// retransmission, so a core configured slower than the default still
+	// gets its retransmissions counted.
+	t3560Max = 24 * time.Second
+)
 
 const (
 	// t3560Retransmissions is how many times 5.4.1.3.7 b) repeats the
@@ -36,12 +43,19 @@ const (
 // fifth expiry abort and release the N1 NAS signalling connection, which on
 // N2 is a UE CONTEXT RELEASE COMMAND for the UE.
 //
-// The spacing of the retransmissions is recorded, not asserted: 6 s is the
-// table's default, and an operator may configure another value.
+// The timer is not assumed to be the 6 s default, since an operator may
+// configure another value. The first retransmission is awaited for 1.5 ×
+// t3560Max. After that the timer is estimated as T_est = max(nominal, the
+// mean gap so far), and each next retransmission, or after the fourth the
+// release, is due 1.5 × T_est after the last request. The spacing itself is
+// recorded, not asserted.
 type nasT3560AuthRetransmit struct {
-	// t3560 is the nominal timer the windows are computed from; zero is
-	// t3560Default (tests inject a short value).
+	// t3560 is the nominal timer; zero is t3560Default (tests inject a
+	// short value).
 	t3560 time.Duration
+	// tmax bounds the wait for the first retransmission; zero is t3560Max
+	// (tests inject a short value).
+	tmax time.Duration
 	// authWait bounds the wait for the first Authentication Request; zero
 	// is authRequestWait (tests inject a short value).
 	authWait time.Duration
@@ -67,6 +81,13 @@ func (c nasT3560AuthRetransmit) timer() time.Duration {
 	return t3560Default
 }
 
+func (c nasT3560AuthRetransmit) maxTimer() time.Duration {
+	if c.tmax > 0 {
+		return c.tmax
+	}
+	return t3560Max
+}
+
 func (c nasT3560AuthRetransmit) authRequestWait() time.Duration {
 	if c.authWait > 0 {
 		return c.authWait
@@ -74,13 +95,13 @@ func (c nasT3560AuthRetransmit) authRequestWait() time.Duration {
 	return authRequestWait
 }
 
-// window is how long after the first Authentication Request the check waits
-// for the release: six T3560 periods with half a period of slack each.
-func (c nasT3560AuthRetransmit) window() time.Duration { return 9 * c.timer() }
-
-// Budget is the window plus the wait for the first Authentication Request
-// and the liveness probe after it.
-func (c nasT3560AuthRetransmit) Budget() time.Duration { return c.window() + c.authRequestWait() }
+// Budget is the wait for the first Authentication Request plus five waits
+// of 1.5 × t3560Max (the first retransmission, three more, and the
+// release): 190 s. A core at the 6 s default ends in about 33 s, since the
+// release closes the window.
+func (c nasT3560AuthRetransmit) Budget() time.Duration {
+	return c.authRequestWait() + 5*(c.maxTimer()+c.maxTimer()/2)
+}
 
 func (c nasT3560AuthRetransmit) Run(ctx context.Context, env Env) Result {
 	t := c.timer()
@@ -100,9 +121,10 @@ func (c nasT3560AuthRetransmit) Run(ctx context.Context, env Env) Result {
 
 	actx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	o := &t3560Observation{cancel: cancel, window: c.window()}
+	o := &retransmitObservation{cancel: cancel, msgType: f5nas.MsgTypeAuthenticationRequest,
+		nominal: t, tmax: c.maxTimer(), retransmissions: t3560Retransmissions, release: true}
 	noRequest := time.AfterFunc(c.authRequestWait(), func() {
-		if !o.sawRequest() {
+		if !o.seen() {
 			cancel()
 		}
 	})
@@ -136,43 +158,76 @@ func (c nasT3560AuthRetransmit) Run(ctx context.Context, env Env) Result {
 	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the T3560 procedure")
 }
 
-// t3560Observation is what the probe saw during the attach. note runs on
-// the attach goroutine, the window timer on its own.
-type t3560Observation struct {
-	cancel context.CancelFunc
-	window time.Duration
+// estimate is T_est: the nominal timer, or the mean gap between the
+// messages in times when that is longer.
+func estimate(times []time.Time, nominal time.Duration) time.Duration {
+	if len(times) < 2 {
+		return nominal
+	}
+	mean := times[len(times)-1].Sub(times[0]) / time.Duration(len(times)-1)
+	if mean > nominal {
+		return mean
+	}
+	return nominal
+}
+
+// retransmitObservation is what the probe saw of one NAS message the AMF
+// retransmits on a timer (msgType), plus any release or reject. note runs
+// on the attach goroutine, the deadline timer on its own.
+//
+// The first message opens a wait of 1.5 × tmax for the first
+// retransmission. Each retransmission sets the next deadline at 1.5 × T_est
+// after it. After the last expected retransmission (retransmissions), a
+// release-expecting procedure (release) keeps listening for 1.5 ×
+// max(T_est, tmax), long enough to see a late release; one more
+// retransmission, or the release, ends the observation at once.
+type retransmitObservation struct {
+	cancel          context.CancelFunc
+	msgType         uint8
+	nominal, tmax   time.Duration
+	retransmissions int
+	release         bool
 
 	mu     sync.Mutex
 	timer  *time.Timer
-	snap   t3560Snapshot
+	snap   retransmitSnapshot
 	closed bool
 }
 
-// t3560Snapshot is the observation once the attach is over.
-type t3560Snapshot struct {
-	requests     []time.Time // each Authentication Request, the first included
+// retransmitSnapshot is the observation once the attach is over.
+type retransmitSnapshot struct {
+	times        []time.Time // each message of the watched type, the first included
 	release      time.Time   // the UE Context Release Command; zero if none
 	reject       string      // a reject that ended the procedure early
-	windowClosed bool        // the window ran out without a release
+	windowClosed bool        // a deadline ran out
 }
 
-func (o *t3560Observation) note(ev engine.DownlinkEvent) {
+func (o *retransmitObservation) note(ev engine.DownlinkEvent) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	switch {
 	case ev.Procedure == "UEContextRelease":
 		o.snap.release = ev.At
-	case ev.NASType == f5nas.MsgTypeAuthenticationRequest:
-		o.snap.requests = append(o.snap.requests, ev.At)
-		if len(o.snap.requests) == 1 {
-			o.timer = time.AfterFunc(o.window, func() {
-				o.mu.Lock()
-				if !o.closed {
-					o.snap.windowClosed = true
-				}
-				o.mu.Unlock()
-				o.cancel()
-			})
+		o.cancel()
+	case ev.NASType == o.msgType:
+		o.snap.times = append(o.snap.times, ev.At)
+		n := len(o.snap.times) - 1 // retransmissions so far
+		est := estimate(o.snap.times, o.nominal)
+		switch {
+		case n == 0:
+			o.arm(o.tmax + o.tmax/2)
+		case n < o.retransmissions:
+			o.arm(est + est/2)
+		case n == o.retransmissions && o.release:
+			wait := est
+			if o.tmax > wait {
+				wait = o.tmax
+			}
+			o.arm(wait + wait/2)
+		case n == o.retransmissions:
+			o.arm(est + est/2) // room to see a retransmission too many
+		default:
+			o.cancel() // a retransmission too many: the count is decided
 		}
 	case ev.NASType == f5nas.MsgTypeAuthenticationReject:
 		o.snap.reject = "Authentication Reject"
@@ -181,14 +236,29 @@ func (o *t3560Observation) note(ev engine.DownlinkEvent) {
 	}
 }
 
-func (o *t3560Observation) sawRequest() bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return len(o.snap.requests) > 0
+// arm (re)starts the deadline timer for d; o.mu is held.
+func (o *retransmitObservation) arm(d time.Duration) {
+	if o.timer != nil {
+		o.timer.Stop()
+	}
+	o.timer = time.AfterFunc(d, func() {
+		o.mu.Lock()
+		if !o.closed {
+			o.snap.windowClosed = true
+		}
+		o.mu.Unlock()
+		o.cancel()
+	})
 }
 
-// stop ends the window timer once the attach has returned.
-func (o *t3560Observation) stop() {
+func (o *retransmitObservation) seen() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return len(o.snap.times) > 0
+}
+
+// stop ends the deadline timer once the attach has returned.
+func (o *retransmitObservation) stop() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.closed = true
@@ -197,77 +267,93 @@ func (o *t3560Observation) stop() {
 	}
 }
 
-func (o *t3560Observation) snapshot() t3560Snapshot {
+func (o *retransmitObservation) snapshot() retransmitSnapshot {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	s := o.snap
-	s.requests = append([]time.Time(nil), o.snap.requests...)
+	s.times = append([]time.Time(nil), o.snap.times...)
 	return s
 }
 
 // classifyT3560 judges a T3560 observation for nominal timer t. ERROR when
-// the procedure never reached an Authentication Request or a reject ended it;
-// otherwise PASS for exactly four retransmissions then a UE Context Release
-// Command no later than 1.5 T3560 after the fourth, and FAIL naming the
-// first part that missed: no retransmission, the wrong count, or no release.
-// The detail gives both parts, each retransmission's gap, and whether the
-// gaps match the default timer.
-func classifyT3560(s t3560Snapshot, t, authWait time.Duration) (Verdict, string, string) {
+// the procedure never reached an Authentication Request or a reject ended
+// it. Otherwise PASS for exactly four retransmissions then a UE Context
+// Release Command no later than 1.5 × T_est after the fourth (0.5 × T_est
+// after the inferred fifth expiry), and FAIL naming the first part that
+// missed: no retransmission, the wrong count, a late release or none. The
+// detail gives both parts, each gap and the estimated timer.
+func classifyT3560(s retransmitSnapshot, t, authWait time.Duration) (Verdict, string, string) {
 	if s.reject != "" {
 		return Error, s.reject + " before the T3560 window",
-			fmt.Sprintf("the AMF sent %s after %d Authentication Request(s); this check needs a subscriber the core authenticates", s.reject, len(s.requests))
+			fmt.Sprintf("the AMF sent %s after %d Authentication Request(s); this check needs a subscriber the core authenticates", s.reject, len(s.times))
 	}
-	if len(s.requests) == 0 {
+	if len(s.times) == 0 {
 		return Error, "registration did not reach Authentication Request",
 			fmt.Sprintf("no Authentication Request within %s of the Initial UE Message", authWait)
 	}
-	n := len(s.requests) - 1
-	last := s.requests[len(s.requests)-1]
-	releaseBy := last.Add(t + t/2)
-	released := !s.release.IsZero() && !s.release.After(releaseBy)
+	n := len(s.times) - 1
+	last := s.times[len(s.times)-1]
+	est := estimate(s.times, t)
+	fifth := last.Add(est)
+	releaseBy := fifth.Add(est / 2)
+	released := !s.release.IsZero()
+	late := released && s.release.After(releaseBy)
 
 	var details []string
 	retransmitOK := n == t3560Retransmissions
 	if !retransmitOK {
 		details = append(details, fmt.Sprintf("AMF did not retransmit Authentication Request on T3560 expiry (observed %d retransmissions, want %d). TS 24.501 5.4.1.3.7 b). Likely cause: T3560 not implemented in the AMF.", n, t3560Retransmissions))
 	}
-	releaseOK := retransmitOK && released
-	if !released {
-		details = append(details, fmt.Sprintf("AMF did not release the N1 NAS signalling connection on the fifth T3560 expiry (no UE Context Release Command within %s, 0.5 x T3560, after the inferred fifth expiry, taken as one T3560 after the last Authentication Request). TS 24.501 5.4.1.3.7 b). Likely cause: the AMF aborts locally without releasing.", t/2))
+	switch {
+	case late:
+		details = append(details, fmt.Sprintf("UE Context Release Command %s s after the inferred fifth expiry, later than 0.5 x T_est (%s s). TS 24.501 5.4.1.3.7 b).",
+			seconds(s.release.Sub(fifth)), seconds(est/2)))
+	case !released:
+		details = append(details, fmt.Sprintf("AMF did not release the N1 NAS signalling connection on the fifth T3560 expiry (no UE Context Release Command within %s, 0.5 x T_est, after the inferred fifth expiry, taken as one T_est after the last Authentication Request). TS 24.501 5.4.1.3.7 b). Likely cause: the AMF aborts locally without releasing.", est/2))
 	}
-	details = append(details, t3560Timing(s, t))
+	details = append(details, retransmitTiming(s, t, est, "Authentication Request", "request", ""))
 
 	switch {
 	case n == 0:
 		return Fail, "no retransmission of Authentication Request", strings.Join(details, "; ")
 	case !retransmitOK:
 		return Fail, fmt.Sprintf("%d retransmissions of Authentication Request, want %d", n, t3560Retransmissions), strings.Join(details, "; ")
-	case !releaseOK:
+	case late:
+		return Fail, "UE Context Release Command late after the fifth T3560 expiry", strings.Join(details, "; ")
+	case !released:
 		return Fail, "no UE Context Release Command after the fifth T3560 expiry", strings.Join(details, "; ")
 	}
 	return Pass, fmt.Sprintf("%d retransmissions of Authentication Request, then UE Context Release Command", n), strings.Join(details, "; ")
 }
 
-// t3560Timing records the gaps between Authentication Requests and when the
-// release came, and notes gaps outside [0.5, 1.5] T3560.
-func t3560Timing(s t3560Snapshot, t time.Duration) string {
+// retransmitTiming records the gaps between the watched messages (what,
+// "last" naming the last one), the estimated timer est, when a release came
+// (with releaseNote after it), and notes gaps outside [0.5, 1.5] × est and
+// a timer that differs from the 6 s default of TS 24.501 Table 10.2.2.
+func retransmitTiming(s retransmitSnapshot, nominal, est time.Duration, what, last, releaseNote string) string {
 	var gaps []string
-	differs := false
-	for i := 1; i < len(s.requests); i++ {
-		g := s.requests[i].Sub(s.requests[i-1])
+	uneven, differs := false, false
+	for i := 1; i < len(s.times); i++ {
+		g := s.times[i].Sub(s.times[i-1])
 		gaps = append(gaps, seconds(g))
-		if g < t/2 || g > t+t/2 {
+		if g < est/2 || g > est+est/2 {
+			uneven = true
+		}
+		if g < nominal/2 || g > nominal+nominal/2 {
 			differs = true
 		}
 	}
 	var b strings.Builder
 	if len(gaps) > 0 {
-		fmt.Fprintf(&b, "gaps %s s", strings.Join(gaps, "/"))
+		fmt.Fprintf(&b, "gaps %s s (estimated timer %s s)", strings.Join(gaps, "/"), seconds(est))
 	} else {
-		b.WriteString("one Authentication Request")
+		b.WriteString("one " + what)
 	}
-	if !s.release.IsZero() {
-		fmt.Fprintf(&b, ", UE Context Release Command %s s after the last request", seconds(s.release.Sub(s.requests[len(s.requests)-1])))
+	if !s.release.IsZero() && len(s.times) > 0 {
+		fmt.Fprintf(&b, ", UE Context Release Command %s s after the last %s%s", seconds(s.release.Sub(s.times[len(s.times)-1])), last, releaseNote)
+	}
+	if uneven {
+		b.WriteString("; gaps uneven: outside [0.5, 1.5] x the estimated timer")
 	}
 	if differs {
 		fmt.Fprintf(&b, "; timer differs from the %s default (TS 24.501 Table 10.2.2)", t3560Default)

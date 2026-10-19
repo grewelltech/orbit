@@ -184,3 +184,40 @@ func testAMFWith(t *testing.T, opts ...mockamf.Option) *mockamf.AMF {
 	})
 	return a
 }
+
+// A second Initial UE Message for the same RAN UE NGAP ID on one association
+// stops the first T3560 rather than orphaning it: the second attach, which
+// answers, completes with nothing stale arriving after it.
+func TestT3560RestartedByNewInitialUE(t *testing.T) {
+	amf := testAMFWith(t, mockamf.WithT3560(t3560, 4))
+	gnbCfg := gnb.Config{ID: 1, Name: "orbit-gnb", MCC: "208", MNC: "93", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}}
+	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
+	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*t3560)
+	defer cancel()
+	conn := amf.Connect(ctx)
+	defer func() { _ = conn.Close() }()
+	if ng, err := gnb.NGSetup(ctx, conn, gnbCfg); err != nil || !ng.Accepted {
+		t.Fatalf("NG Setup: %v", err)
+	}
+	supi := "208930100007500"
+	id, _ := ue.ParseIdentity(supi, "208", "93", "0")
+	cfg := engine.UEConfig{Identity: id, Sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	first, stop := context.WithTimeout(ctx, t3560/2)
+	cfg.Probe = &engine.AttachProbe{Withhold: map[uint8]bool{f5nas.MsgTypeAuthenticationResponse: true}}
+	if _, err := engine.Attach(first, conn, gnbCfg, cfg, log, nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first attach err = %v, want the deadline", err)
+	}
+	stop()
+	cfg.Probe = nil
+	if _, err := engine.Attach(ctx, conn, gnbCfg, cfg, log, nil); err != nil {
+		t.Fatalf("second attach: %v", err)
+	}
+	late, lcancel := context.WithTimeout(ctx, 6*t3560)
+	defer lcancel()
+	if pdu, err := gnb.ReadPDU(late, conn); err == nil {
+		t.Errorf("a stale downlink PDU arrived after the second attach: %+v", pdu.Present)
+	}
+}
