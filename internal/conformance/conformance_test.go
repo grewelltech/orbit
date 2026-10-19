@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,5 +76,61 @@ func TestDeviationDoesNotFailGate(t *testing.T) {
 	r.Register(fakeTest{"C", NegativeIE, Fail, ""})
 	if Summarize(r.Run(context.Background(), Env{}, time.Second)).OK() {
 		t.Error("a FAIL must fail the gate")
+	}
+}
+
+// deadlineTest records how long runOne gave it, and optionally asks for a
+// budget.
+type deadlineTest struct {
+	provTest
+	got *time.Duration
+}
+
+func (d deadlineTest) Run(ctx context.Context, _ Env) Result {
+	if dl, ok := ctx.Deadline(); ok {
+		*d.got = time.Until(dl)
+	}
+	return Result{Verdict: Pass}
+}
+
+type budgetedTest struct {
+	deadlineTest
+	b time.Duration
+}
+
+func (b budgetedTest) Budget() time.Duration { return b.b }
+
+// A check that asks for a budget above the per-test timeout gets it, and the
+// detail says so; one asking for less, or not asking, gets the per-test
+// timeout and no note.
+func TestRunOneBudget(t *testing.T) {
+	const perTest = 200 * time.Millisecond
+	base := provTest{id: "X", refs: []SpecRef{goodRef()}}
+	tests := []struct {
+		name       string
+		budget     time.Duration // 0 = no Budgeter
+		want       time.Duration
+		wantRaised bool
+	}{
+		{name: "no budgeter", want: perTest},
+		{name: "budget below the per-test timeout", budget: 50 * time.Millisecond, want: perTest},
+		{name: "budget above the per-test timeout", budget: 2 * time.Second, want: 2 * time.Second, wantRaised: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got time.Duration
+			var c Test = deadlineTest{provTest: base, got: &got}
+			if tc.budget > 0 {
+				c = budgetedTest{deadlineTest: deadlineTest{provTest: base, got: &got}, b: tc.budget}
+			}
+			res := runOne(context.Background(), c, Env{}, perTest)
+			if got > tc.want || got < tc.want-100*time.Millisecond {
+				t.Errorf("check was given %v, want about %v", got, tc.want)
+			}
+			raised := strings.Contains(res.Detail, "per-test timeout raised to "+tc.want.String()+" for this check")
+			if raised != tc.wantRaised {
+				t.Errorf("detail %q: raised note %v, want %v", res.Detail, raised, tc.wantRaised)
+			}
+		})
 	}
 }

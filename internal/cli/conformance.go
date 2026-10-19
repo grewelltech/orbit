@@ -105,7 +105,7 @@ func newConformanceCmd() *cobra.Command {
 	f.StringVar(&upfN3, "upf-n3", "", "UPF N3 endpoint host:port: the UPF's primary N3 address, which answers GTP-U Echo (enables GTP-U checks; run from the UPF access network)")
 	f.StringVar(&n3Bind, "n3-bind", "", "local N3 source host:port for GTP-U checks (e.g. 172.17.50.12:2152)")
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")
-	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility)")
+	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility, nas)")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", 15*time.Second, "per-check timeout")
 	f.StringVar(&targetRelease, "target-release", "",
