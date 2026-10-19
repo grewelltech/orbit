@@ -15,13 +15,13 @@ import (
 
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasConvert"
+	"github.com/free5gc/nas/nasType"
 	"github.com/free5gc/ngap/ngapType"
 	"github.com/free5gc/util/milenage"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/ngap"
-	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
@@ -83,7 +83,15 @@ type AMF struct {
 	crashAfterRelease bool
 	authReject        bool
 	noAuthRequest     bool
-	crashed           atomic.Bool // set once a crashAfterRelease release went out
+
+	// Security Mode Command options (smc.go).
+	integrityOrder  []uint8
+	noCommon        NoCommonIntegrity
+	forceIntegrity  bool
+	forcedIntegrity uint8
+	tamperCaps      bool
+	skipSMC         bool
+	crashed         atomic.Bool // set once a crashAfterRelease release went out
 }
 
 // errCrashed ends every association of a mock that crashed after a release
@@ -240,8 +248,9 @@ type ueState struct {
 	supi         string
 	sec          *nas.SecurityContext
 	ngksi        uint8
-	sessions     map[uint8]*pduSession // guarded by AMF.mu
-	t3560        *t3560Timer           // running T3560 (WithT3560), nil otherwise
+	sessions     map[uint8]*pduSession        // guarded by AMF.mu
+	t3560        *t3560Timer                  // running T3560 (WithT3560), nil otherwise
+	ueCaps       nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -256,6 +265,7 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 		return err
 	}
 	st.supi = supi
+	st.ueCaps = ueCapsFromRegistration(up.nasPDU)
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
 	var randv [16]byte
@@ -320,15 +330,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	case f5nas.MsgTypeAuthenticationResponse:
 		st.t3560.stop()
 		// Accept without checking RES* (sim only), send Security Mode Command.
-		smc, err := buildSecurityModeCommand(nas.NIA2, nas.NEA0, st.ngksi, ue.SecurityCapability())
-		if err != nil {
-			return false, err
-		}
-		wrapped, err := st.sec.EncodeSecure(smc, nas.SecHdrIntegrityNewContext)
-		if err != nil {
-			return false, err
-		}
-		return false, a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, wrapped))
+		return false, a.onAuthenticated(p, st)
 	case f5nas.MsgTypeSecurityModeComplete:
 		// Send Initial Context Setup Request carrying Registration Accept.
 		acc, err := buildRegistrationAccept()

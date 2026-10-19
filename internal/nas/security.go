@@ -54,9 +54,13 @@ func (s *SecurityContext) rxDir() uint8 {
 // NIA/NEA identities, re-exported.
 const (
 	NIA0 = security.AlgIntegrity128NIA0
+	NIA1 = security.AlgIntegrity128NIA1
 	NIA2 = security.AlgIntegrity128NIA2
+	NIA3 = security.AlgIntegrity128NIA3
 	NEA0 = security.AlgCiphering128NEA0
+	NEA1 = security.AlgCiphering128NEA1
 	NEA2 = security.AlgCiphering128NEA2
+	NEA3 = security.AlgCiphering128NEA3
 )
 
 // epd5GMM is the extended protocol discriminator for 5GMM (TS 24.501 §9.2).
