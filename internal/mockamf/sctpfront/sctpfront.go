@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	isctp "github.com/ishidawataru/sctp"
+	"golang.org/x/sys/unix"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
@@ -88,6 +89,13 @@ func bridge(c *isctp.SCTPConn, tr gnb.Transport) {
 	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
 		return
 	}
+	// Without SCTP_NODELAY the kernel holds a small DATA chunk while an
+	// earlier one is unacknowledged, up to the ~200 ms delayed SACK, which
+	// would bunch a mock's timer-driven downlink (T3560 retransmissions at
+	// test-short spacing) into one burst.
+	if err := setNoDelay(c); err != nil {
+		return
+	}
 	go func() {
 		buf := make([]byte, 65536)
 		for {
@@ -115,4 +123,19 @@ func bridge(c *isctp.SCTPConn, tr gnb.Transport) {
 			return
 		}
 	}
+}
+
+// setNoDelay sets SCTP_NODELAY on the association's socket.
+func setNoDelay(c *isctp.SCTPConn) error {
+	rc, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var serr error
+	if err := rc.Control(func(fd uintptr) {
+		serr = unix.SetsockoptInt(int(fd), isctp.SOL_SCTP, isctp.SCTP_NODELAY, 1)
+	}); err != nil {
+		return err
+	}
+	return serr
 }
