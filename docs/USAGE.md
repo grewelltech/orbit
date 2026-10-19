@@ -475,7 +475,14 @@ does not assume the 6 s default:
 
 The detail gives each gap and the estimated timer, and notes a gap far from it
 or from the 6 s default. The check can take up to 190 s, so it raises its own
-timeout. A core at the default finishes in about 33 s, because the release
+timeout.
+
+`NAS-T3550-ACCEPT-RETRANSMIT` withholds the Registration Complete instead. It
+passes when the AMF retransmits the Registration Accept four times, one T3550
+apart, and then stops (TS 24.501 5.5.1.2.8 c)). A release is recorded but not
+required. It SKIPs if the core's Registration Accept assigns no 5G-GUTI,
+because T3550 then never starts. Its timing is estimated the same way, with
+18 s as the largest T3550, so it can take up to 145 s. A core at the default finishes in about 33 s, because the release
 ends the wait. `--per-test-timeout` is a floor for every check, and a check
 that needs longer says `per-test timeout raised to 3m10s for this check` in
 its detail.

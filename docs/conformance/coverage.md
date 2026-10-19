@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**6 checks today** (the first four live on the SD-Core testbed):
+**7 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -183,6 +183,15 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   raises its own per-test timeout. Not yet run on Ref 2;
   the source analyst predicts PASS for the retransmissions and FAIL for the
   release (the AMF removes the UE locally without a release command).
+- `NAS-T3550-ACCEPT-RETRANSMIT` (nas, FAIL-class) — the UE withholds its
+  Registration Complete after a Registration Accept that assigns a 5G-GUTI;
+  the AMF must retransmit the Registration Accept on each T3550 expiry, four
+  times, and abort on the fifth (TS 24.501 5.5.1.2.8 c), with T3550 started
+  per 5.5.1.2.4). No release is required on the abort, so any release is
+  recorded only. An Accept without a 5G-GUTI starts no T3550, and the check
+  SKIPs. The timer is estimated from the gaps as for T3560 (up to 1.5 × 18 s
+  for the first). Needs a UE and up to 145 s (about 33 s at the default).
+  Not yet run on Ref 2; the source analyst predicts PASS.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
@@ -204,6 +213,6 @@ FAIL in the report but out of the gate. See
 Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
-- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ⬜ T3550 Registration Accept retransmission (#138).
+- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`).
 - **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

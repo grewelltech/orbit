@@ -180,13 +180,15 @@ func estimate(times []time.Time, nominal time.Duration) time.Duration {
 // after it. After the last expected retransmission (retransmissions), a
 // release-expecting procedure (release) keeps listening for 1.5 ×
 // max(T_est, tmax), long enough to see a late release; one more
-// retransmission, or the release, ends the observation at once.
+// retransmission, or the release, ends the observation at once. first, if
+// set, judges the first message: false ends the attach at once (refused).
 type retransmitObservation struct {
 	cancel          context.CancelFunc
 	msgType         uint8
 	nominal, tmax   time.Duration
 	retransmissions int
 	release         bool
+	first           func(engine.DownlinkEvent) bool
 
 	mu     sync.Mutex
 	timer  *time.Timer
@@ -200,6 +202,7 @@ type retransmitSnapshot struct {
 	release      time.Time   // the UE Context Release Command; zero if none
 	reject       string      // a reject that ended the procedure early
 	windowClosed bool        // a deadline ran out
+	refused      bool        // first judged the first message unusable
 }
 
 func (o *retransmitObservation) note(ev engine.DownlinkEvent) {
@@ -214,6 +217,9 @@ func (o *retransmitObservation) note(ev engine.DownlinkEvent) {
 		n := len(o.snap.times) - 1 // retransmissions so far
 		est := estimate(o.snap.times, o.nominal)
 		switch {
+		case n == 0 && o.first != nil && !o.first(ev):
+			o.snap.refused = true
+			o.cancel()
 		case n == 0:
 			o.arm(o.tmax + o.tmax/2)
 		case n < o.retransmissions:
