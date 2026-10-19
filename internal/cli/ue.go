@@ -92,7 +92,8 @@ func newUELatencyCmd(serverURL *string) *cobra.Command {
 // printLatency renders a latency run: replies over the probes sent and the
 // loss among them, the probes that never left and why (only when some did
 // not), the RTT summary, and the elapsed time with the effective probe rate.
-// A run that stopped early says why on a second line.
+// A run that stopped early says why on a second line, unless the reason is
+// the not-sent error already printed (a deregistration mid-run).
 func printLatency(out io.Writer, m *orbitv1.LatencyResponse) {
 	line := fmt.Sprintf("%d/%d replies (%.0f%% loss)", m.GetReceived(), m.GetSent(), m.GetLossPct())
 	if n := m.GetNotSent(); n > 0 {
@@ -104,7 +105,7 @@ func printLatency(out io.Writer, m *orbitv1.LatencyResponse) {
 	_, _ = fmt.Fprintf(out, "%s  rtt min/mean/max %.2f/%.2f/%.2f ms  jitter %.2f ms  over %.1f s, %.1f/s\n",
 		line, m.GetMinMs(), m.GetMeanMs(), m.GetMaxMs(), m.GetJitterMs(),
 		m.GetElapsedMs()/1000, m.GetRatePerS())
-	if r := m.GetStopped(); r != "" {
+	if r := m.GetStopped(); r != "" && r != m.GetNotSentError() {
 		_, _ = fmt.Fprintf(out, "stopped: %s\n", r)
 	}
 }

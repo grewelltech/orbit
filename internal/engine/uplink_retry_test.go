@@ -195,3 +195,52 @@ func TestSendUplinkRetryDoesNotLoop(t *testing.T) {
 		t.Errorf("nil view: err = %v, loads = %d; want the no-data-path error after one load", err, loads)
 	}
 }
+
+// Which send failures mark the session gone: no view, or a closed view whose
+// reload is nil (withdrawn by a teardown) or the same view (closed under it).
+// A closed view replaced by another is a handover rebind: the retried send's
+// error, closed too here, is left unmarked, and a working retry succeeds.
+func TestSendUplinkMarksSessionGone(t *testing.T) {
+	upf := newFakeUPFSocket(t)
+	m := NewManager(testLogger())
+	m.n3.grace = 0
+	open := newDataSession(m, "001010000000001", upf.LocalAddr().String(), freeUDPPort(t), 0x11, 0x100, 1)
+	a := newDataSession(m, "001010000000002", upf.LocalAddr().String(), freeUDPPort(t), 0x21, 0x200, 1)
+	b := newDataSession(m, "001010000000003", upf.LocalAddr().String(), freeUDPPort(t), 0x31, 0x300, 1)
+	for _, s := range []*Session{open, a, b} {
+		if _, _, err := s.dataplane(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live, closedA, closedB := open.ueUp.Load(), a.ueUp.Load(), b.ueUp.Load()
+	a.closeDataPath()
+	b.closeDataPath()
+	t.Cleanup(open.closeDataPath)
+	pkt := []byte{0x45, 0, 0, 4}
+
+	tests := []struct {
+		name     string
+		views    []*datapath.UETunnel // what each load returns
+		wantErr  bool
+		wantGone bool
+	}{
+		{name: "no view", views: []*datapath.UETunnel{nil}, wantErr: true, wantGone: true},
+		{name: "closed view withdrawn", views: []*datapath.UETunnel{closedA, nil}, wantErr: true, wantGone: true},
+		{name: "closed view unchanged", views: []*datapath.UETunnel{closedA, closedA}, wantErr: true, wantGone: true},
+		{name: "closed view replaced, retry closed too", views: []*datapath.UETunnel{closedA, closedB}, wantErr: true},
+		{name: "closed view replaced, retry delivers", views: []*datapath.UETunnel{closedA, live}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			loads := 0
+			err := sendUplinkRetrying(func() *datapath.UETunnel {
+				v := tc.views[loads]
+				loads++
+				return v
+			}, a.SUPI, pkt)
+			if (err != nil) != tc.wantErr || errors.Is(err, loomgtp.ErrSessionGone) != tc.wantGone {
+				t.Errorf("err = %v; want error %v, session gone %v", err, tc.wantErr, tc.wantGone)
+			}
+		})
+	}
+}

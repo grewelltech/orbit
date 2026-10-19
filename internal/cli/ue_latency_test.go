@@ -10,7 +10,7 @@ import (
 // The latency line counts replies over the probes sent, adds the probes that
 // never left and the first send error only when some did not, and always
 // ends with the elapsed time and effective rate; a stopped run says why on
-// its own line.
+// its own line unless that repeats the send error.
 func TestPrintLatency(t *testing.T) {
 	tests := []struct {
 		name string
@@ -26,8 +26,11 @@ func TestPrintLatency(t *testing.T) {
 			NotSent: 87, NotSentError: "UE 208930000000001 has no open N3 data path",
 			Stopped: "UE 208930000000001 has no open N3 data path", ElapsedMs: 37400, RatePerS: 77.89,
 		}, want: "2912/2913 replies (0% loss); 87 not sent: UE 208930000000001 has no open N3 data path" +
-			"  rtt min/mean/max 2.10/2.80/9.40 ms  jitter 0.40 ms  over 37.4 s, 77.9/s\n" +
-			"stopped: UE 208930000000001 has no open N3 data path\n"},
+			"  rtt min/mean/max 2.10/2.80/9.40 ms  jitter 0.40 ms  over 37.4 s, 77.9/s\n"},
+		{name: "stopped for another reason than the send error", m: &orbitv1.LatencyResponse{
+			Sent: 5, Received: 5, NotSent: 995, Stopped: "context canceled", ElapsedMs: 60, RatePerS: 83.3,
+		}, want: "5/5 replies (0% loss); 995 not sent  rtt min/mean/max 0.00/0.00/0.00 ms  jitter 0.00 ms  over 0.1 s, 83.3/s\n" +
+			"stopped: context canceled\n"},
 		{name: "transient send failure, not stopped", m: &orbitv1.LatencyResponse{
 			Sent: 9, Received: 9, NotSent: 1, NotSentError: "sendto: no buffer space available", ElapsedMs: 500, RatePerS: 18,
 		}, want: "9/9 replies (0% loss); 1 not sent: sendto: no buffer space available" +
