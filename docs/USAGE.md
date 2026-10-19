@@ -461,6 +461,30 @@ old and new tunnels indistinguishable. The detail records the old tunnel, the
 End Marker counts, whether the marker carried a QFI (recorded, not asserted),
 and the downlink seen before the switch. It never records the keys.
 
+The `nas` category also needs the UE flags (`--supi`, the keys and
+`--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
+UE without a PDU session and withholds its Authentication Response. It passes
+when the AMF retransmits the Authentication Request four times, one T3560 apart,
+and then releases the UE with a UE Context Release Command
+(TS 24.501 5.4.1.3.7 b)). Operators may configure the timer, so the check
+does not assume the 6 s default:
+- It waits up to 1.5 × 24 s (the largest value in Table 10.2.2) for the first
+  retransmission.
+- After that it expects each next request, and finally the release, within
+  1.5 × the observed timer.
+
+The detail gives each gap and the estimated timer, and notes a gap far from it
+or from the 6 s default. The check can take up to 190 s, so it raises its own
+timeout. A core at the default finishes in about 33 s, because the release
+ends the wait. `--per-test-timeout` is a floor for every check, and a check
+that needs longer says `per-test timeout raised to 3m10s for this check` in
+its detail.
+
+```sh
+orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
+    --category nas --supi 001010100007500 --gnb-n3 172.17.50.12
+```
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the

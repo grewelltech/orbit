@@ -65,3 +65,15 @@ var ts29244Verified = []SpecVersion{
 	{Release: 18, Version: "V18.10.0", Archive: "29244-ia0.zip"},
 	{Release: 19, Version: "V19.6.0", Archive: "29244-j60.zip"},
 }
+
+// ts24501Verified covers TS 24.501 (5GS NAS): V15.0.0, where the T3560
+// expiry rule (5.4.1.3.7 b)) and the timer table first appear, and the
+// latest version of Rel-15 to Rel-19 read.
+var ts24501Verified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "24501-f00.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "24501-f70.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}

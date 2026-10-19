@@ -50,6 +50,7 @@ const (
 	GTPU       Category = "gtpu"        // user-plane error handling
 	Timing     Category = "timing"      // concurrent-procedure timing (flaky-allowed)
 	Mobility   Category = "mobility"    // UE-level procedures over two gNB associations (needs Env.UE)
+	NAS        Category = "nas"         // NAS procedures and timers (needs Env.UE)
 )
 
 // Result is one test's structured outcome. The registry stamps the identity
@@ -85,6 +86,21 @@ type Test interface {
 	SpecRefs() []SpecRef
 	// Run drives the check against env and returns its verdict.
 	Run(ctx context.Context, env Env) Result
+}
+
+// Budgeter is implemented by a check that needs longer than the per-test
+// timeout, such as one that waits out a NAS timer several times. runOne
+// gives it max(per-test timeout, Budget()) and says so in Detail when that
+// raised the timeout; --per-test-timeout stays the floor for every check.
+type Budgeter interface{ Budget() time.Duration }
+
+// budget is the time runOne gives t: perTest, or t's Budget when longer, with
+// whether it was raised.
+func budget(t Test, perTest time.Duration) (time.Duration, bool) {
+	if b, ok := t.(Budgeter); ok && b.Budget() > perTest {
+		return b.Budget(), true
+	}
+	return perTest, false
 }
 
 // Env is what a test needs to reach the core: the AMF N2 endpoint and a gNB
@@ -415,9 +431,13 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	if why, skip := skipReason(t, e); skip {
 		res = Result{Verdict: Skip, Observed: "requires a newer release than the target", Detail: why}
 	} else {
-		tctx, cancel := context.WithTimeout(ctx, perTest)
+		d, raised := budget(t, perTest)
+		tctx, cancel := context.WithTimeout(ctx, d)
 		res = t.Run(tctx, e)
 		cancel()
+		if raised {
+			res.Detail = joinDetail(res.Detail, fmt.Sprintf("per-test timeout raised to %s for this check", d))
+		}
 		switch {
 		case res.Verdict == Fail && WorstVerdict(t) == Deviation && !hasPrefixAny(res.Observed, crashTexts):
 			res.Verdict = Deviation
