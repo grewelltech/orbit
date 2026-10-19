@@ -9,6 +9,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gtpu"
+	"github.com/bgrewell/orbit/internal/loomgtp"
 )
 
 // readGPDU reads one G-PDU from the fake UPF within d and returns the source
@@ -109,7 +110,8 @@ func TestSendUplinkRetriesOnceOnStaleView(t *testing.T) {
 // A torn-down session reports "no open N3 data path"; a stale view held
 // across the teardown returns the closed error with no retry, because the
 // current view is nil: a teardown is the documented no-silent-blackhole
-// outcome, not a handover.
+// outcome, not a handover. Both are marked ErrSessionGone, which stops a
+// latency run.
 func TestSendUplinkTeardownDoesNotRetry(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
@@ -123,8 +125,8 @@ func TestSendUplinkTeardownDoesNotRetry(t *testing.T) {
 	pkt := []byte{0x45, 0, 0, 4}
 
 	err := sess.SendUplink(pkt)
-	if err == nil || !strings.Contains(err.Error(), "has no open N3 data path") {
-		t.Errorf("SendUplink after teardown err = %v, want no open N3 data path", err)
+	if err == nil || !strings.Contains(err.Error(), "has no open N3 data path") || !errors.Is(err, loomgtp.ErrSessionGone) {
+		t.Errorf("SendUplink after teardown err = %v, want no open N3 data path, marked session gone", err)
 	}
 
 	loads := 0
@@ -136,8 +138,8 @@ func TestSendUplinkTeardownDoesNotRetry(t *testing.T) {
 		return sess.ueUp.Load() // nil after the teardown
 	}
 	err = sendUplinkRetrying(load, sess.SUPI, pkt)
-	if !errors.Is(err, net.ErrClosed) {
-		t.Errorf("stale view across a teardown err = %v, want net.ErrClosed", err)
+	if !errors.Is(err, net.ErrClosed) || !errors.Is(err, loomgtp.ErrSessionGone) {
+		t.Errorf("stale view across a teardown err = %v, want net.ErrClosed marked session gone", err)
 	}
 	if loads != 2 {
 		t.Errorf("view loaded %d times, want 2", loads)
@@ -175,8 +177,10 @@ func TestSendUplinkRetryDoesNotLoop(t *testing.T) {
 		return v
 	}
 	err := sendUplinkRetrying(load, a.SUPI, pkt)
-	if !errors.Is(err, net.ErrClosed) {
-		t.Errorf("err = %v, want net.ErrClosed from the second view", err)
+	// The retried send's error is not marked: a closed successor is not
+	// proof the session is gone.
+	if !errors.Is(err, net.ErrClosed) || errors.Is(err, loomgtp.ErrSessionGone) {
+		t.Errorf("err = %v, want net.ErrClosed from the second view, not marked session gone", err)
 	}
 	if loads != 2 {
 		t.Errorf("view loaded %d times, want exactly 2 (one retry, never a loop)", loads)

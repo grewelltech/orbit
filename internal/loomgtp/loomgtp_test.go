@@ -2,6 +2,7 @@ package loomgtp
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -130,5 +131,126 @@ func TestRunLatencyReportsLoss(t *testing.T) {
 	}
 	if res.Lost != 5 || res.LossPct != 50 {
 		t.Fatalf("lost/lossPct = %d/%.0f, want 5/50", res.Lost, res.LossPct)
+	}
+}
+
+// failingUplink answers like echoProbe, but fails the sends for which fail
+// returns an error (call is 1-based).
+type failingUplink struct {
+	*echoProbe
+	calls int
+	fail  func(call int) error
+}
+
+func (u *failingUplink) SendUplink(inner []byte) error {
+	u.calls++
+	if err := u.fail(u.calls); err != nil {
+		return err
+	}
+	return u.echoProbe.SendUplink(inner)
+}
+
+// RunLatency counts what left: a send that fails is not sent, not lost, and
+// loss is over the probes sent. A send failing because the session is gone
+// stops the run there — the rest are not sent, promptly, rather than spent
+// one per spacing — and says why; a transient send failure, or a reply that
+// never comes, does not stop it. The caller cancelling stops it too.
+func TestRunLatencyCountsUnsentProbes(t *testing.T) {
+	gone := SessionGone(errors.New("UE x has no open N3 data path"))
+	transient := errors.New("sendto: no buffer space available")
+	tests := []struct {
+		name                          string
+		probes, dropEvery             int
+		timeout                       time.Duration
+		fail                          func(call int) error
+		cancelAfter                   time.Duration
+		sent, received, lost, notSent uint64
+		lossPct                       float64
+		notSentErr, stopped           string
+		promptly                      bool
+	}{
+		{name: "session gone after 4", probes: 50, fail: func(c int) error {
+			if c > 4 {
+				return gone
+			}
+			return nil
+		}, sent: 4, received: 4, notSent: 46, notSentErr: gone.Error(), stopped: gone.Error(), promptly: true},
+		{name: "transient send errors", probes: 10, fail: func(c int) error {
+			if c == 3 || c == 7 {
+				return transient
+			}
+			return nil
+		}, sent: 8, received: 8, notSent: 2, notSentErr: transient.Error()},
+		{name: "dropped replies are loss", probes: 10, dropEvery: 2, timeout: 60 * time.Millisecond,
+			fail: func(int) error { return nil }, sent: 10, received: 5, lost: 5, lossPct: 50},
+		{name: "loss is over the probes sent", probes: 100, dropEvery: 2, timeout: 60 * time.Millisecond, fail: func(c int) error {
+			if c > 4 {
+				return gone
+			}
+			return nil
+		}, sent: 4, received: 2, lost: 2, lossPct: 50, notSent: 96, notSentErr: gone.Error(), stopped: gone.Error(), promptly: true},
+		{name: "caller cancels", probes: 1000, fail: func(int) error { return nil }, cancelAfter: 50 * time.Millisecond,
+			stopped: context.Canceled.Error(), promptly: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			timeout := tc.timeout
+			if timeout == 0 {
+				timeout = 200 * time.Millisecond
+			}
+			up := &failingUplink{echoProbe: newEchoProbe(tc.dropEvery), fail: tc.fail}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.cancelAfter > 0 {
+				time.AfterFunc(tc.cancelAfter, cancel)
+			}
+			const spacing = 10 * time.Millisecond
+			start := time.Now()
+			res, err := RunLatency(ctx, LatencyConfig{
+				Uplink: up, RX: up.ring, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
+				Probes: tc.probes, Spacing: spacing, Timeout: timeout,
+			})
+			took := time.Since(start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.cancelAfter > 0 {
+				// How many left depends on the clock; the accounting must add up.
+				if res.Sent == 0 || res.Sent+res.NotSent != uint64(tc.probes) || res.Lost != 0 {
+					t.Errorf("sent/notSent/lost = %d/%d/%d, want some sent and the rest not sent", res.Sent, res.NotSent, res.Lost)
+				}
+			} else if res.Sent != tc.sent || res.Received != tc.received || res.Lost != tc.lost || res.NotSent != tc.notSent || res.LossPct != tc.lossPct {
+				t.Errorf("sent/received/lost/notSent/loss%% = %d/%d/%d/%d/%.0f, want %d/%d/%d/%d/%.0f",
+					res.Sent, res.Received, res.Lost, res.NotSent, res.LossPct,
+					tc.sent, tc.received, tc.lost, tc.notSent, tc.lossPct)
+			}
+			if tc.cancelAfter == 0 && res.NotSentErr != tc.notSentErr {
+				t.Errorf("NotSentErr = %q, want %q", res.NotSentErr, tc.notSentErr)
+			}
+			if res.Stopped != tc.stopped {
+				t.Errorf("Stopped = %q, want %q", res.Stopped, tc.stopped)
+			}
+			if tc.promptly && took > time.Duration(tc.probes)*spacing/2 {
+				t.Errorf("took %v: a stopped run spent its remaining probes", took)
+			}
+			if res.Elapsed <= 0 || res.Elapsed > took {
+				t.Errorf("Elapsed = %v, want within the %v the call took", res.Elapsed, took)
+			}
+			if want := float64(res.Sent) / res.Elapsed.Seconds(); res.Rate != want {
+				t.Errorf("Rate = %v, want sent/elapsed %v", res.Rate, want)
+			}
+		})
+	}
+}
+
+// SessionGone keeps the error's text and chain and adds ErrSessionGone; nil
+// stays nil.
+func TestSessionGone(t *testing.T) {
+	if SessionGone(nil) != nil {
+		t.Error("SessionGone(nil) != nil")
+	}
+	err := SessionGone(net.ErrClosed)
+	if !errors.Is(err, ErrSessionGone) || !errors.Is(err, net.ErrClosed) || err.Error() != net.ErrClosed.Error() {
+		t.Errorf("SessionGone(net.ErrClosed) = %v: want both in its chain and the closed text", err)
 	}
 }
