@@ -1303,7 +1303,8 @@ type LatencyRequest struct {
 	Target string `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
 	// Number of echoes (default 20).
 	Probes uint32 `protobuf:"varint,3,opt,name=probes,proto3" json:"probes,omitempty"`
-	// Spacing between echoes, ms (default 50).
+	// Pause after each reply or timeout, ms (default 50): the probe rate is
+	// below 1000/spacing_ms by the round trip.
 	SpacingMs uint32 `protobuf:"varint,4,opt,name=spacing_ms,json=spacingMs,proto3" json:"spacing_ms,omitempty"`
 	// Per-echo timeout, ms (default 1000).
 	TimeoutMs     uint32 `protobuf:"varint,5,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
@@ -1377,15 +1378,28 @@ func (x *LatencyRequest) GetTimeoutMs() uint32 {
 }
 
 type LatencyResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Sent          uint64                 `protobuf:"varint,1,opt,name=sent,proto3" json:"sent,omitempty"`
-	Received      uint64                 `protobuf:"varint,2,opt,name=received,proto3" json:"received,omitempty"`
-	Lost          uint64                 `protobuf:"varint,3,opt,name=lost,proto3" json:"lost,omitempty"`
-	LossPct       float64                `protobuf:"fixed64,4,opt,name=loss_pct,json=lossPct,proto3" json:"loss_pct,omitempty"`
-	MinMs         float64                `protobuf:"fixed64,5,opt,name=min_ms,json=minMs,proto3" json:"min_ms,omitempty"`
-	MeanMs        float64                `protobuf:"fixed64,6,opt,name=mean_ms,json=meanMs,proto3" json:"mean_ms,omitempty"`
-	MaxMs         float64                `protobuf:"fixed64,7,opt,name=max_ms,json=maxMs,proto3" json:"max_ms,omitempty"`
-	JitterMs      float64                `protobuf:"fixed64,8,opt,name=jitter_ms,json=jitterMs,proto3" json:"jitter_ms,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Probes whose uplink send succeeded.
+	Sent     uint64 `protobuf:"varint,1,opt,name=sent,proto3" json:"sent,omitempty"`
+	Received uint64 `protobuf:"varint,2,opt,name=received,proto3" json:"received,omitempty"`
+	// Probes sent but not answered in time.
+	Lost uint64 `protobuf:"varint,3,opt,name=lost,proto3" json:"lost,omitempty"`
+	// lost / sent, percent: probes that never left are not loss.
+	LossPct  float64 `protobuf:"fixed64,4,opt,name=loss_pct,json=lossPct,proto3" json:"loss_pct,omitempty"`
+	MinMs    float64 `protobuf:"fixed64,5,opt,name=min_ms,json=minMs,proto3" json:"min_ms,omitempty"`
+	MeanMs   float64 `protobuf:"fixed64,6,opt,name=mean_ms,json=meanMs,proto3" json:"mean_ms,omitempty"`
+	MaxMs    float64 `protobuf:"fixed64,7,opt,name=max_ms,json=maxMs,proto3" json:"max_ms,omitempty"`
+	JitterMs float64 `protobuf:"fixed64,8,opt,name=jitter_ms,json=jitterMs,proto3" json:"jitter_ms,omitempty"`
+	// Probes that never left: a failed send, or the rest of a stopped run.
+	NotSent uint64 `protobuf:"varint,9,opt,name=not_sent,json=notSent,proto3" json:"not_sent,omitempty"`
+	// The first send error, when a send failed.
+	NotSentError string `protobuf:"bytes,10,opt,name=not_sent_error,json=notSentError,proto3" json:"not_sent_error,omitempty"`
+	// Why the run ended before its probes were spent (the UE's session went,
+	// or the request was cancelled); empty when it ran them all.
+	Stopped string `protobuf:"bytes,11,opt,name=stopped,proto3" json:"stopped,omitempty"`
+	// Wall time of the run, ms, and the probes sent per second over it.
+	ElapsedMs     float64 `protobuf:"fixed64,12,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`
+	RatePerS      float64 `protobuf:"fixed64,13,opt,name=rate_per_s,json=ratePerS,proto3" json:"rate_per_s,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1472,6 +1486,41 @@ func (x *LatencyResponse) GetMaxMs() float64 {
 func (x *LatencyResponse) GetJitterMs() float64 {
 	if x != nil {
 		return x.JitterMs
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetNotSent() uint64 {
+	if x != nil {
+		return x.NotSent
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetNotSentError() string {
+	if x != nil {
+		return x.NotSentError
+	}
+	return ""
+}
+
+func (x *LatencyResponse) GetStopped() string {
+	if x != nil {
+		return x.Stopped
+	}
+	return ""
+}
+
+func (x *LatencyResponse) GetElapsedMs() float64 {
+	if x != nil {
+		return x.ElapsedMs
+	}
+	return 0
+}
+
+func (x *LatencyResponse) GetRatePerS() float64 {
+	if x != nil {
+		return x.RatePerS
 	}
 	return 0
 }
@@ -3035,7 +3084,7 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\n" +
 	"spacing_ms\x18\x04 \x01(\rR\tspacingMs\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x05 \x01(\rR\ttimeoutMs\"\xd4\x01\n" +
+	"timeout_ms\x18\x05 \x01(\rR\ttimeoutMs\"\xec\x02\n" +
 	"\x0fLatencyResponse\x12\x12\n" +
 	"\x04sent\x18\x01 \x01(\x04R\x04sent\x12\x1a\n" +
 	"\breceived\x18\x02 \x01(\x04R\breceived\x12\x12\n" +
@@ -3044,7 +3093,15 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x06min_ms\x18\x05 \x01(\x01R\x05minMs\x12\x17\n" +
 	"\amean_ms\x18\x06 \x01(\x01R\x06meanMs\x12\x15\n" +
 	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\x12\x1b\n" +
-	"\tjitter_ms\x18\b \x01(\x01R\bjitterMs\"&\n" +
+	"\tjitter_ms\x18\b \x01(\x01R\bjitterMs\x12\x19\n" +
+	"\bnot_sent\x18\t \x01(\x04R\anotSent\x12$\n" +
+	"\x0enot_sent_error\x18\n" +
+	" \x01(\tR\fnotSentError\x12\x18\n" +
+	"\astopped\x18\v \x01(\tR\astopped\x12\x1d\n" +
+	"\n" +
+	"elapsed_ms\x18\f \x01(\x01R\telapsedMs\x12\x1c\n" +
+	"\n" +
+	"rate_per_s\x18\r \x01(\x01R\bratePerS\"&\n" +
 	"\x10DataStatsRequest\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\"\xb8\x01\n" +
 	"\bQFIStats\x12\x10\n" +
