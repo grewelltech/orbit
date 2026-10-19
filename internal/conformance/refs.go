@@ -91,3 +91,25 @@ var ts24501Verified = []SpecVersion{
 	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
 	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
 }
+
+// ts33501Verified covers TS 33.501 (5GS security): V15.0.0 and the latest
+// version of Rel-15 to Rel-19 read.
+var ts33501Verified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "33501-f00.zip"},
+	{Release: 15, Version: "V15.20.0", Archive: "33501-fk0.zip"},
+	{Release: 16, Version: "V16.20.0", Archive: "33501-gk0.zip"},
+	{Release: 17, Version: "V17.16.0", Archive: "33501-hg0.zip"},
+	{Release: 18, Version: "V18.12.0", Archive: "33501-ic0.zip"},
+	{Release: 19, Version: "V19.7.0", Archive: "33501-j70.zip"},
+}
+
+// ts33501NIA0Verified covers TS 33.501 5.5.2's NIA-0 exclusion: V15.1.0,
+// where it first appears, and the latest version of Rel-15 to Rel-19.
+var ts33501NIA0Verified = []SpecVersion{
+	{Release: 15, Version: "V15.1.0", Archive: "33501-f10.zip"},
+	{Release: 15, Version: "V15.20.0", Archive: "33501-fk0.zip"},
+	{Release: 16, Version: "V16.20.0", Archive: "33501-gk0.zip"},
+	{Release: 17, Version: "V17.16.0", Archive: "33501-hg0.zip"},
+	{Release: 18, Version: "V18.12.0", Archive: "33501-ic0.zip"},
+	{Release: 19, Version: "V19.7.0", Archive: "33501-j70.zip"},
+}
