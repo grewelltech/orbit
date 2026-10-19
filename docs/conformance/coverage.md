@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**6 checks today** (the first four live on the SD-Core testbed):
+**7 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -183,6 +183,15 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   raises its own per-test timeout. Not yet run on Ref 2;
   the source analyst predicts PASS for the retransmissions and FAIL for the
   release (the AMF removes the UE locally without a release command).
+
+- `NAS-SMC-NO-NIA0-REPLAYED-CAPS` (security, FAIL-class) — two
+  registrations with the Security Mode Complete withheld. A normal UE
+  (5G-EA0/1/2, 5G-IA0/1/2) must get a Security Mode Command that selects no
+  NIA0 (TS 33.501 5.5.2) and replays its capabilities exactly (6.7.2 step
+  1b). A UE offering only NIA0 and NIA3 may get NIA3, a reject or a release,
+  never NIA0 or no command. The selected algorithms are recorded. Needs a UE,
+  else SKIP. Not yet run on Ref 2; the source analyst predicts the
+  capabilities replay PASSes.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure

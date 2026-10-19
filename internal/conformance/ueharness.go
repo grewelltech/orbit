@@ -193,9 +193,14 @@ func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) 
 // only, with no PDU session and no downlink observers, for the NAS checks.
 // The attach error comes back as it is (engine.ErrReleasedByCore, a context
 // error, a reject), and the association is closed when the attach fails.
-func (h *UEHarness) RegisterWithProbe(ctx context.Context, probe *engine.AttachProbe) (*engine.AttachResult, error) {
-	res, err := h.m.Register(ctx, engine.GNBSpec{Config: h.env.GNB, AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind},
-		engine.UEConfig{Identity: h.id, Sub: h.sub, Probe: probe})
+// Each mod adjusts the UE's configuration first (for example its security
+// capabilities).
+func (h *UEHarness) RegisterWithProbe(ctx context.Context, probe *engine.AttachProbe, mods ...func(*engine.UEConfig)) (*engine.AttachResult, error) {
+	cfg := engine.UEConfig{Identity: h.id, Sub: h.sub, Probe: probe}
+	for _, m := range mods {
+		m(&cfg)
+	}
+	res, err := h.m.Register(ctx, engine.GNBSpec{Config: h.env.GNB, AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind}, cfg)
 	if err != nil {
 		return nil, err
 	}
