@@ -216,3 +216,29 @@ func TestT3560CheckTimeoutBeforeWindow(t *testing.T) {
 		t.Errorf("%d associations still open", n)
 	}
 }
+
+// A deadline replaced while its callback is already waiting on the
+// observation's lock does not end the observation: the stale callback finds
+// it is no longer the current timer. Without that, a retransmission landing
+// on its deadline would cut the next window short.
+func TestRetransmitObservationRearmBeatsStaleDeadline(t *testing.T) {
+	cancelled := make(chan struct{}, 1)
+	o := &retransmitObservation{cancel: func() { cancelled <- struct{}{} }}
+	o.mu.Lock()
+	o.arm(10 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond) // the old deadline fires and blocks on mu
+	o.arm(time.Hour)
+	o.mu.Unlock()
+	select {
+	case <-cancelled:
+		t.Fatal("the replaced deadline ended the observation")
+	case <-time.After(100 * time.Millisecond):
+	}
+	o.mu.Lock()
+	closed := o.snap.windowClosed
+	o.mu.Unlock()
+	o.stop()
+	if closed {
+		t.Error("the replaced deadline marked the window closed")
+	}
+}

@@ -236,19 +236,26 @@ func (o *retransmitObservation) note(ev engine.DownlinkEvent) {
 	}
 }
 
-// arm (re)starts the deadline timer for d; o.mu is held.
+// arm (re)starts the deadline timer for d; o.mu is held. A replaced
+// timer's callback may already be running, blocked on o.mu, when Stop is
+// called (Stop then returns false), so each callback acts only while its
+// timer is still the current one.
 func (o *retransmitObservation) arm(d time.Duration) {
 	if o.timer != nil {
 		o.timer.Stop()
 	}
-	o.timer = time.AfterFunc(d, func() {
+	var tm *time.Timer
+	tm = time.AfterFunc(d, func() {
 		o.mu.Lock()
-		if !o.closed {
-			o.snap.windowClosed = true
+		if o.closed || o.timer != tm {
+			o.mu.Unlock()
+			return
 		}
+		o.snap.windowClosed = true
 		o.mu.Unlock()
 		o.cancel()
 	})
+	o.timer = tm
 }
 
 func (o *retransmitObservation) seen() bool {
