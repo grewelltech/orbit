@@ -240,21 +240,35 @@ message LatencyRequest {
   string target = 2;
   // Number of echoes (default 20).
   uint32 probes = 3;
-  // Spacing between echoes, ms (default 50).
+  // Pause after each reply or timeout, ms (default 50): the probe rate is
+  // below 1000/spacing_ms by the round trip.
   uint32 spacing_ms = 4;
   // Per-echo timeout, ms (default 1000).
   uint32 timeout_ms = 5;
 }
 
 message LatencyResponse {
+  // Probes whose uplink send succeeded.
   uint64 sent = 1;
   uint64 received = 2;
+  // Probes sent but not answered in time.
   uint64 lost = 3;
+  // lost / sent, percent: probes that never left are not loss.
   double loss_pct = 4;
   double min_ms = 5;
   double mean_ms = 6;
   double max_ms = 7;
   double jitter_ms = 8;
+  // Probes that never left: a failed send, or the rest of a stopped run.
+  uint64 not_sent = 9;
+  // The first send error, when a send failed.
+  string not_sent_error = 10;
+  // Why the run ended before its probes were spent (the UE's session went,
+  // or the request was cancelled); empty when it ran them all.
+  string stopped = 11;
+  // Wall time of the run, ms, and the probes sent per second over it.
+  double elapsed_ms = 12;
+  double rate_per_s = 13;
 }
 
 message DataStatsRequest {
