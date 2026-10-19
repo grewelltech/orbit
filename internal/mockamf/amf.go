@@ -74,8 +74,9 @@ type AMF struct {
 	encodeErrs atomic.Int64
 	log        *slog.Logger
 
-	// Options (t3560.go): T3560 retransmission and release, a crash
-	// after the release, an Authentication Reject, or no challenge.
+	// Options (nastimers.go): T3560 retransmission and release, a crash
+	// after the release, an Authentication Reject, no challenge, T3550
+	// retransmission, a 5G-GUTI, and a crash after the T3550 abort.
 	t3560             time.Duration
 	t3560Retries      int
 	t3560NoRelease    bool
@@ -83,7 +84,11 @@ type AMF struct {
 	crashAfterRelease bool
 	authReject        bool
 	noAuthRequest     bool
-	crashed           atomic.Bool // set once a crashAfterRelease release went out
+	t3550             time.Duration
+	t3550Retries      int
+	assignGUTI        bool
+	crashAfterT3550   bool
+	crashed           atomic.Bool // set once a crashAfterRelease release or crashAfterT3550 abort happened
 }
 
 // errCrashed ends every association of a mock that crashed after a release
@@ -163,6 +168,7 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 	defer func() {
 		for _, st := range states {
 			st.t3560.stop()
+			st.t3550.stop()
 		}
 	}()
 	buf := make([]byte, 65536)
@@ -241,7 +247,8 @@ type ueState struct {
 	sec          *nas.SecurityContext
 	ngksi        uint8
 	sessions     map[uint8]*pduSession // guarded by AMF.mu
-	t3560        *t3560Timer           // running T3560 (WithT3560), nil otherwise
+	t3560        *retransmitter        // running T3560 (WithT3560), nil otherwise
+	t3550        *retransmitter        // running T3550 (WithT3550), nil otherwise
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -331,7 +338,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return false, a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, wrapped))
 	case f5nas.MsgTypeSecurityModeComplete:
 		// Send Initial Context Setup Request carrying Registration Accept.
-		acc, err := buildRegistrationAccept()
+		acc, err := a.registrationAccept(st)
 		if err != nil {
 			return false, err
 		}
@@ -339,8 +346,18 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		return false, a.send(p, buildInitialContextSetupRequest(st.amfID, st.ranID, wrapped, a.plmn, a.cfg.SST, a.sdBytes))
+		if err := a.send(p, buildInitialContextSetupRequest(st.amfID, st.ranID, wrapped, a.plmn, a.cfg.SST, a.sdBytes)); err != nil {
+			return false, err
+		}
+		if a.t3550 > 0 && a.assignGUTI {
+			st.t3550.stop() // a repeated Security Mode Complete: never orphan a running timer
+			if st.t3550, err = a.startT3550(p, st); err != nil {
+				return false, err
+			}
+		}
+		return false, nil
 	case f5nas.MsgTypeRegistrationComplete:
+		st.t3550.stop()
 		return true, nil // UE is REGISTERED
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
