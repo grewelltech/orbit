@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasConvert"
@@ -71,10 +73,25 @@ type AMF struct {
 	// dropped instead of ending the association.
 	encodeErrs atomic.Int64
 	log        *slog.Logger
+
+	// Options (t3560.go): T3560 retransmission and release, a crash
+	// after the release, an Authentication Reject, or no challenge.
+	t3560             time.Duration
+	t3560Retries      int
+	t3560NoRelease    bool
+	t3560ReleaseAfter time.Duration
+	crashAfterRelease bool
+	authReject        bool
+	noAuthRequest     bool
+	crashed           atomic.Bool // set once a crashAfterRelease release went out
 }
 
-// New validates config and returns a mock AMF.
-func New(cfg Config) (*AMF, error) {
+// errCrashed ends every association of a mock that crashed after a release
+// (WithCrashAfterRelease).
+var errCrashed = errors.New("mockamf: crashed after the T3560 release")
+
+// New validates config and returns a mock AMF, adjusted by opts.
+func New(cfg Config, opts ...Option) (*AMF, error) {
 	if len(cfg.Ki) != 16 || len(cfg.OPc) != 16 {
 		return nil, fmt.Errorf("Ki and OPc must be 16 bytes")
 	}
@@ -102,6 +119,9 @@ func New(cfg Config) (*AMF, error) {
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
 		ues: make(map[int64]*ueState), log: log}
+	for _, o := range opts {
+		o(a)
+	}
 	go func() {
 		id := int64(1)
 		for {
@@ -140,6 +160,11 @@ func (a *AMF) connect(ctx context.Context) gnb.Transport {
 // keyed by RAN-UE-NGAP-ID so a single pipe can carry many UEs.
 func (a *AMF) serve(ctx context.Context, p *pipe) error {
 	states := make(map[int64]*ueState)
+	defer func() {
+		for _, st := range states {
+			st.t3560.stop()
+		}
+	}()
 	buf := make([]byte, 65536)
 	for {
 		if ctx.Err() != nil {
@@ -148,6 +173,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 		raw, _, _, err := p.ReadMsg(buf)
 		if err != nil {
 			return err
+		}
+		if a.crashed.Load() {
+			return errCrashed // WithCrashAfterRelease: the core is gone
 		}
 		pdu, err := ngap.Decode(raw)
 		if err != nil {
@@ -213,6 +241,7 @@ type ueState struct {
 	sec          *nas.SecurityContext
 	ngksi        uint8
 	sessions     map[uint8]*pduSession // guarded by AMF.mu
+	t3560        *t3560Timer           // running T3560 (WithT3560), nil otherwise
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -248,11 +277,28 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 	st.sec = &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true}
 
+	if a.noAuthRequest {
+		return nil
+	}
+	if a.authReject {
+		rej, err := buildAuthenticationReject()
+		if err != nil {
+			return err
+		}
+		return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, rej))
+	}
 	arBytes, err := buildAuthenticationRequest(randv, autn, st.ngksi)
 	if err != nil {
 		return err
 	}
-	return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, arBytes))
+	if err := a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, arBytes)); err != nil {
+		return err
+	}
+	if a.t3560 > 0 {
+		st.t3560.stop() // a repeated Initial UE Message: never orphan a running timer
+		st.t3560 = a.startT3560(p, st, arBytes)
+	}
+	return nil
 }
 
 func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
@@ -272,6 +318,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 
 	switch msg.GmmHeader.GetMessageType() {
 	case f5nas.MsgTypeAuthenticationResponse:
+		st.t3560.stop()
 		// Accept without checking RES* (sim only), send Security Mode Command.
 		smc, err := buildSecurityModeCommand(nas.NIA2, nas.NEA0, st.ngksi, ue.SecurityCapability())
 		if err != nil {

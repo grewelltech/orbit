@@ -189,6 +189,20 @@ func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) 
 	return res, nil
 }
 
+// RegisterWithProbe attaches the UE on gNB A with probe set: registration
+// only, with no PDU session and no downlink observers, for the NAS checks.
+// The attach error comes back as it is (engine.ErrReleasedByCore, a context
+// error, a reject), and the association is closed when the attach fails.
+func (h *UEHarness) RegisterWithProbe(ctx context.Context, probe *engine.AttachProbe) (*engine.AttachResult, error) {
+	res, err := h.m.Register(ctx, engine.GNBSpec{Config: h.env.GNB, AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind},
+		engine.UEConfig{Identity: h.id, Sub: h.sub, Probe: probe})
+	if err != nil {
+		return nil, err
+	}
+	h.registered = true
+	return res, nil
+}
+
 // boundN3 is gNB A's N3 socket as the engine bound it, in canonical form,
 // so the check never compares against the operator's spelling of --gnb-n3.
 func (h *UEHarness) boundN3() (netip.AddrPort, error) {

@@ -49,6 +49,10 @@ type UEConfig struct {
 	// slice so a slice-aware core routes correctly; if there is no session
 	// either, none is sent and the AMF assigns the subscribed slice.
 	RequestedNSSAI []ue.SNSSAI
+	// Probe, when set, withholds chosen UE replies and reports the
+	// downlink (conformance checks only; see AttachProbe). Nil is the
+	// ordinary attach.
+	Probe *AttachProbe
 }
 
 // AttachResult reports the outcome of a control-plane attach.
@@ -92,7 +96,10 @@ type SessionResult struct {
 // security context once Security Mode Command activates it, then (if
 // requested) establishes one PDU session. emit, if non-nil, receives a
 // StateEvent at each transition. The returned Session holds the live
-// association and security context for later Status/Deregister.
+// association and security context for later Status/Deregister. With
+// ueCfg.Probe set, the probe sees every downlink, chosen replies are
+// withheld, and a UE CONTEXT RELEASE COMMAND ends the attach with
+// ErrReleasedByCore (see AttachProbe).
 func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UEConfig, log *slog.Logger, emit func(StateEvent)) (*Session, error) {
 	ranID := ueCfg.RANUENGAPID
 	if ranID == 0 {
@@ -135,6 +142,9 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	for !st.done() {
 		pdu, err := gnb.ReadPDU(ctx, conn)
 		if err != nil {
+			return nil, err
+		}
+		if err := st.observe(pdu); err != nil {
 			return nil, err
 		}
 		if handled, err := st.handlePDUSession(pdu); err != nil {
@@ -387,6 +397,10 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 }
 
 func (s *attachState) onAuthRequest(msg *f5nas.Message) error {
+	if s.withheld(f5nas.MsgTypeAuthenticationResponse) {
+		s.log.InfoContext(s.ctx, "probe: withholding Authentication Response")
+		return nil
+	}
 	ch, err := ue.ParseAuthenticationRequest(msg)
 	if err != nil {
 		return err
@@ -413,6 +427,10 @@ func (s *attachState) onAuthRequest(msg *f5nas.Message) error {
 }
 
 func (s *attachState) onSecurityModeCommand(msg *f5nas.Message) error {
+	if s.withheld(f5nas.MsgTypeSecurityModeComplete) {
+		s.log.InfoContext(s.ctx, "probe: withholding Security Mode Complete")
+		return nil
+	}
 	sel, err := ue.ParseSecurityModeCommand(msg)
 	if err != nil {
 		return err
@@ -442,6 +460,10 @@ func (s *attachState) onSecurityModeCommand(msg *f5nas.Message) error {
 }
 
 func (s *attachState) onRegistrationAccept(msg *f5nas.Message) error {
+	if s.withheld(f5nas.MsgTypeRegistrationComplete) {
+		s.log.InfoContext(s.ctx, "probe: withholding Registration Complete")
+		return nil
+	}
 	if guti, err := ue.ParseRegistrationAccept(msg); err != nil {
 		s.log.WarnContext(s.ctx, "could not parse Registration Accept", "err", err)
 	} else if guti != nil {
