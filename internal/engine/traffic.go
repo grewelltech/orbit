@@ -53,16 +53,22 @@ func (m *Manager) Traffic(ctx context.Context, supi, target, rate string, packet
 	return &TrafficResult{Bytes: res.Bytes, Packets: res.Packets, Mbps: res.Mbps, Duration: res.Duration}, nil
 }
 
-// LatencyStats is loom's RTT/jitter/loss summary over a UE's N3 data path.
+// LatencyStats is loom's RTT/jitter/loss summary over a UE's N3 data path,
+// with the probes that never left counted apart (loomgtp.LatencyResult).
 type LatencyStats struct {
-	Sent, Received, Lost           uint64
+	Sent, Received, Lost, NotSent  uint64
 	LossPct                        float64
 	Min, Max, Mean, StdDev, Jitter time.Duration
+	NotSentErr, Stopped            string
+	Elapsed                        time.Duration
+	Rate                           float64
 }
 
 // Latency probes target ("host", an IPv4) from a registered UE over its N3
 // data path with ICMP echoes and returns loom's RTT/jitter/loss summary.
-// Requires an active PDU session and a gNB N3 address.
+// Requires an active PDU session and a gNB N3 address. A run whose UE is
+// deregistered or loses its data path stops there and returns what it
+// measured, with the rest counted as not sent and Stopped set.
 func (m *Manager) Latency(ctx context.Context, supi, target string, probes int, spacing, timeout time.Duration) (*LatencyStats, error) {
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
@@ -100,5 +106,7 @@ func (m *Manager) Latency(ctx context.Context, supi, target string, probes int, 
 	return &LatencyStats{
 		Sent: res.Sent, Received: res.Received, Lost: res.Lost, LossPct: res.LossPct,
 		Min: res.Min, Max: res.Max, Mean: res.Mean, StdDev: res.StdDev, Jitter: res.Jitter,
+		NotSent: res.NotSent, NotSentErr: res.NotSentErr, Stopped: res.Stopped,
+		Elapsed: res.Elapsed, Rate: res.Rate,
 	}, nil
 }

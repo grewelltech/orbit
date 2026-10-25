@@ -138,16 +138,23 @@ func (s *Session) SendUplink(innerIP []byte) error {
 // is returned, never a third attempt. Errors other than ErrClosed are
 // returned as they are. UETunnel.SendUplink counts only on success, so a
 // retry never double-counts. load is called at most twice and may return nil.
+//
+// A send that fails because the data path is gone — no view, or a closed
+// view that is still current or has been withdrawn — is marked
+// loomgtp.ErrSessionGone, so a latency run stops instead of spending its
+// remaining probes; the retried send's error is left unmarked.
 func sendUplinkRetrying(load func() *datapath.UETunnel, supi string, innerIP []byte) error {
 	t := load()
 	if t == nil {
-		return fmt.Errorf("UE %s has no open N3 data path", supi)
+		return loomgtp.SessionGone(fmt.Errorf("UE %s has no open N3 data path", supi))
 	}
 	err := t.SendUplink(innerIP)
 	if err != nil && errors.Is(err, net.ErrClosed) {
-		if cur := load(); cur != nil && cur != t {
+		cur := load()
+		if cur != nil && cur != t {
 			return cur.SendUplink(innerIP)
 		}
+		return loomgtp.SessionGone(err)
 	}
 	return err
 }

@@ -277,11 +277,19 @@ func (s *ueService) Latency(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
+	return connect.NewResponse(latencyResponse(res)), nil
+}
+
+// latencyResponse maps the engine's latency summary onto the wire, durations
+// in milliseconds.
+func latencyResponse(res *engine.LatencyStats) *orbitv1.LatencyResponse {
 	ms := func(d time.Duration) float64 { return float64(d.Microseconds()) / 1000.0 }
-	return connect.NewResponse(&orbitv1.LatencyResponse{
+	return &orbitv1.LatencyResponse{
 		Sent: res.Sent, Received: res.Received, Lost: res.Lost, LossPct: res.LossPct,
 		MinMs: ms(res.Min), MeanMs: ms(res.Mean), MaxMs: ms(res.Max), JitterMs: ms(res.Jitter),
-	}), nil
+		NotSent: res.NotSent, NotSentError: res.NotSentErr, Stopped: res.Stopped,
+		ElapsedMs: ms(res.Elapsed), RatePerS: res.Rate,
+	}
 }
 
 func (s *ueService) DataStats(

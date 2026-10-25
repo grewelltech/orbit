@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"text/tabwriter"
 	"time"
 
@@ -74,21 +75,39 @@ func newUELatencyCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			m := res.Msg
-			fmt.Fprintf(cmd.OutOrStdout(),
-				"%d/%d replies (%.0f%% loss)  rtt min/mean/max %.2f/%.2f/%.2f ms  jitter %.2f ms\n",
-				m.GetReceived(), m.GetSent(), m.GetLossPct(),
-				m.GetMinMs(), m.GetMeanMs(), m.GetMaxMs(), m.GetJitterMs())
+			printLatency(cmd.OutOrStdout(), res.Msg)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp)
 	cmd.Flags().StringVar(&target, "target", "8.8.8.8", "destination IPv4 to probe")
 	cmd.Flags().Uint32Var(&probes, "probes", 20, "number of echoes")
-	cmd.Flags().Uint32Var(&spacingMs, "spacing-ms", 50, "spacing between echoes (ms)")
+	cmd.Flags().Uint32Var(&spacingMs, "spacing-ms", 50,
+		"pause after each reply or timeout (ms); the probe rate is below 1000/spacing by the round trip")
 	cmd.Flags().Uint32Var(&timeoutMs, "timeout-ms", 1000, "per-echo timeout (ms)")
 	_ = cmd.MarkFlagRequired("supi")
 	return cmd
+}
+
+// printLatency renders a latency run: replies over the probes sent and the
+// loss among them, the probes that never left and why (only when some did
+// not), the RTT summary, and the elapsed time with the effective probe rate.
+// A run that stopped early says why on a second line, unless the reason is
+// the not-sent error already printed (a deregistration mid-run).
+func printLatency(out io.Writer, m *orbitv1.LatencyResponse) {
+	line := fmt.Sprintf("%d/%d replies (%.0f%% loss)", m.GetReceived(), m.GetSent(), m.GetLossPct())
+	if n := m.GetNotSent(); n > 0 {
+		line += fmt.Sprintf("; %d not sent", n)
+		if e := m.GetNotSentError(); e != "" {
+			line += ": " + e
+		}
+	}
+	_, _ = fmt.Fprintf(out, "%s  rtt min/mean/max %.2f/%.2f/%.2f ms  jitter %.2f ms  over %.1f s, %.1f/s\n",
+		line, m.GetMinMs(), m.GetMeanMs(), m.GetMaxMs(), m.GetJitterMs(),
+		m.GetElapsedMs()/1000, m.GetRatePerS())
+	if r := m.GetStopped(); r != "" && r != m.GetNotSentError() {
+		_, _ = fmt.Fprintf(out, "stopped: %s\n", r)
+	}
 }
 
 func newUETrafficCmd(serverURL *string) *cobra.Command {

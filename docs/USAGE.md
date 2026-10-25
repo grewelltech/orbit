@@ -235,8 +235,23 @@ orbit ue stats   --supi <imsi>                                    # per-QFI UL/D
 ```
 
 `traffic` and `latency` embed loom over the UE's GTP-U tunnel: `traffic`
-reports bytes/packets and achieved Mbps; `latency` reports sent/received/lost,
-loss %, and min/mean/max RTT plus jitter. `--rate` empty means unlimited.
+reports bytes/packets and achieved Mbps; `latency` reports replies over the
+probes sent, loss % among them, min/mean/max RTT plus jitter, and the elapsed
+time with the effective probe rate:
+
+```text
+2912/2913 replies (0% loss); 87 not sent: UE <imsi> has no open N3 data path  rtt min/mean/max 2.10/2.80/9.40 ms  jitter 0.40 ms  over 37.4 s, 77.9/s
+stopped: UE <imsi> has no open N3 data path
+```
+
+A probe whose send fails is counted as *not sent* (with the first send
+error), never as loss. If the UE is deregistered or loses its data path
+mid-run, the run stops there and says why (`stopped:`) rather than spending
+its remaining probes; a transient send error does not stop it.
+`--spacing-ms` is the pause after each reply or timeout, so the probe rate is
+below 1000/spacing by the round trip: wait for `latency` to exit before
+deregistering the UE, or size the wait by the measured rate, not
+probes × spacing. `--rate` empty means unlimited.
 `stats` reads the tunnel's per-QFI uplink/downlink packet and byte counters
 (cumulative since the data path opened; empty until the first
 ping/traffic/latency run touches it).
