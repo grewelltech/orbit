@@ -50,15 +50,29 @@ type Config struct {
 	// a new UPF uplink TEID for each switched session, the re-anchoring case
 	// of TS 38.413 §9.3.4.14; by default the uplink tunnel is kept.
 	ReallocateULOnPathSwitch bool
+	// AcceptUnknownPLMN makes the mock accept an NG Setup whose Supported
+	// TA List names none of its PLMN, where by default it rejects it with
+	// NG SETUP FAILURE, cause Misc unknown-PLMN (TS 38.413 8.7.1.4). It
+	// stands in for a core that does not check, so the conformance check's
+	// FAIL path can be exercised.
+	AcceptUnknownPLMN bool
+	// ExtraPLMNs are further PLMNs the mock serves alongside MCC/MNC: NG
+	// Setup accepts them and the NG Setup Response lists them in its PLMN
+	// Support List. UEs still register under MCC/MNC.
+	ExtraPLMNs []PLMN
 	// Log receives the mock's own errors that do not end an association,
 	// such as a downlink PDU that fails to encode. Nil discards them.
 	Log *slog.Logger
 }
 
+// PLMN is a PLMN identity, MCC and MNC as digit strings.
+type PLMN struct{ MCC, MNC string }
+
 // AMF is an in-process mock AMF for sim-capacity measurement.
 type AMF struct {
 	cfg     Config
 	plmn    [3]byte
+	served  [][3]byte // plmn, then ExtraPLMNs
 	sdBytes []byte
 	snn     string
 	amfSeq  chan int64 // hands out AMF-UE-NGAP-IDs
@@ -102,6 +116,14 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 	if err != nil {
 		return nil, err
 	}
+	served := [][3]byte{plmn}
+	for _, p := range cfg.ExtraPLMNs {
+		extra, err := ngap.EncodePLMN(p.MCC, p.MNC)
+		if err != nil {
+			return nil, fmt.Errorf("extra PLMN: %w", err)
+		}
+		served = append(served, extra)
+	}
 	var sd []byte
 	if cfg.SD != "" {
 		if sd, err = hex.DecodeString(cfg.SD); err != nil || len(sd) != 3 {
@@ -117,7 +139,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	a := &AMF{cfg: cfg, plmn: plmn, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
+	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
 		ues: make(map[int64]*ueState), log: log}
 	for _, o := range opts {
 		o(a)
@@ -192,7 +214,10 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
-		resp, err := buildNGSetupResponse(a.plmn, a.cfg.SST, a.sdBytes)
+		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.served) {
+			return a.send(p, buildNGSetupFailureUnknownPLMN())
+		}
+		resp, err := buildNGSetupResponse(a.served, a.cfg.SST, a.sdBytes)
 		if err != nil {
 			return err
 		}
