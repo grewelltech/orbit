@@ -26,6 +26,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -349,6 +350,11 @@ type appSession struct {
 	unsubHub func()
 
 	done chan struct{} // closed when run() has fully wound down
+
+	// inflight counts publish calls that have not yet reached the
+	// correlator. finalize drains it before settling the correlation
+	// window; see publishDrainWait.
+	inflight atomic.Int64
 
 	mu           sync.Mutex
 	started      time.Time
@@ -819,6 +825,11 @@ func (s *appSession) finalize(tdone <-chan struct{}) {
 	// this, flush would settle the window with started > closed and
 	// annotate "stall ongoing … not recovered" while the report's own
 	// StallEvents list shows the stall completed.
+	//
+	// The producers are stopped above, so draining here guarantees every
+	// sample already recorded as an event has also reached the correlation
+	// window before flush settles it (see publishDrainWait).
+	s.drainPublishes()
 	if s.corr != nil {
 		s.mu.Lock()
 		lv := s.localVideo
@@ -1033,7 +1044,46 @@ func (s *appSession) telemetryLoop() {
 // retained sample to the correlator and the Prometheus gauges. The post-hook
 // runs outside s.mu: a correlator emission re-enters publish (annotations
 // are stream samples too), and the correlator ignores its own output.
+// publishDrainWait bounds how long finalize waits for publishes already in
+// flight to reach the correlator. publish records a sample under s.mu and
+// only then feeds s.corr — observe cannot run under s.mu because the
+// correlator's emit callback re-enters publish to publish its annotation —
+// which leaves a window where a sample sits in s.events while the open
+// correlation window has not seen it. flush would then settle the window
+// without it, and observe would drop it against a nil window.
+//
+// The GTP-U End Marker arriving as the session tears down is the case that
+// bit: the marker appears in the report's Events while the annotation never
+// gains its "End Marker @" join.
+//
+// A sync.WaitGroup is the wrong primitive (an Add racing a Wait at zero is
+// undefined) and so is an RWMutex gate (publish re-enters itself through the
+// emit callback, so a waiting writer would deadlock the nested reader). A
+// bounded poll can neither deadlock nor hang teardown.
+const publishDrainWait = 50 * time.Millisecond
+
+// drainPublishes waits for in-flight publish calls to reach the correlator.
+// Callers must stop the producers first — End Marker callback cleared, hub
+// unsubscribed, telemetry stream wound down — or new samples can still
+// arrive after it returns.
+func (s *appSession) drainPublishes() {
+	deadline := time.Now().Add(publishDrainWait)
+	for s.inflight.Load() > 0 {
+		if time.Now().After(deadline) {
+			s.m.log.Warn("app session: publishes still in flight at teardown",
+				"id", s.id, "supi", s.supi, "inflight", s.inflight.Load())
+			return
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
+}
+
 func (s *appSession) publish(a AppSample) {
+	// Held until the sample has reached the correlator, not merely been
+	// recorded: finalize drains this before flush (see publishDrainWait).
+	s.inflight.Add(1)
+	defer s.inflight.Add(-1)
+
 	s.mu.Lock()
 	if s.finalized {
 		s.mu.Unlock()
