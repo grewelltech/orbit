@@ -3,7 +3,7 @@
 #
 # Secrets come from the environment — export them before running:
 #   export ORBIT_KI=... ORBIT_OPC=...
-#   orbit run examples/attach-and-handover.yaml
+#   orbit run examples/attach-and-handover-xn.yaml
 #
 # The user plane and handover need to run where the UPF's N3 is reachable
 # (see docs/USAGE.md "Where things must run").

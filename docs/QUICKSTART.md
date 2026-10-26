@@ -223,13 +223,16 @@ Which control flows each one exercises:
 | fleet-testbed-ramp | ✓ | ✓ | | | | ✓ | | ✓ | | ✓ | ✓ |
 | fleet-testbed-mobility | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | | | ✓ |
 | fleet-testbed-full | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| fleet | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | ✓ | ✓ | |
+| fleet | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | ✓¹ | ✓ | |
 
 - **Data after HO** means the scenario sends traffic after the handover and
   checks it (the Xn scenario pings again). Fleet runs with mobility keep their
   app flows running across handovers, but no step checks continuity.
 - Fleet handovers are Xn only. N2 is covered by the single-UE scenario.
 - Every fleet run deregisters its UEs when it ends.
+- ¹ `fleet.yaml`'s video (and its web traffic) is a synthetic loom
+  constant-rate profile, not a video app cohort; every other app ✓ is a real
+  app cohort.
 
 A minimal one:
 
