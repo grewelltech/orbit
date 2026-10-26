@@ -9,9 +9,7 @@ import (
 // knownBrokenExamples are shipped examples that fail to parse for a reason
 // tracked elsewhere; each entry names its issue so the skip is removed with
 // the fix.
-var knownBrokenExamples = map[string]string{
-	"fleet-testbed-attach-rate.yaml": "#130: xn handover enabled without pdu_session (pre-existing)",
-}
+var knownBrokenExamples = map[string]string{}
 
 // Every scenario shipped under examples/ parses with the parser for its kind
 // (step scenarios through Parse, kind: fleet through ParseFleet), with the
