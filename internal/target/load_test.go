@@ -2,6 +2,7 @@ package target
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -150,6 +151,61 @@ func TestUnquotedStringFieldsKeepTheirText(t *testing.T) {
 	}
 	if tg := files[0].Target; tg.Name != "2024" || tg.Core.DNN != "0123" || tg.Core.TAC != 7 {
 		t.Errorf("target = name %q dnn %q tac %d", tg.Name, tg.Core.DNN, tg.Core.TAC)
+	}
+}
+
+// A number written with a leading zero is an error rather than a guess
+// between octal and decimal; plain decimal, explicit 0x hex and 0 load.
+func TestNumericLeadingZero(t *testing.T) {
+	fields := []struct {
+		name string
+		yaml string // %s is the number
+		get  func(Target) uint32
+		ten  string // a valid value in decimal, with a leading zero, and in hex
+		zero string
+		hex  string
+		want uint32
+	}{
+		{name: "tac", yaml: "core: { tac: %s }", get: func(t Target) uint32 { return t.Core.TAC }},
+		{name: "sst", yaml: "core: { slices: [ { sst: %s } ] }", get: func(t Target) uint32 { return t.Core.Slices[0].SST }},
+		{name: "count", yaml: "subscribers: [ { name: p, count: %s } ]", get: func(t Target) uint32 { return t.Subscribers[0].Count }},
+		{name: "gnb_ids.first", yaml: "ran: { gnb_ids: { first: %s } }", get: func(t Target) uint32 { return t.RAN.GNBIDs.First }},
+		{name: "gnb_ids.count", yaml: "ran: { gnb_ids: { count: %s } }", get: func(t Target) uint32 { return t.RAN.GNBIDs.Count }},
+		{name: "gnb_ids.bits", yaml: "ran: { gnb_ids: { bits: %s } }", get: func(t Target) uint32 { return t.RAN.GNBIDs.Bits },
+			ten: "24", zero: "0024", hex: "0x18", want: 24},
+	}
+	for _, f := range fields {
+		if f.ten == "" {
+			f.ten, f.zero, f.hex, f.want = "10", "0010", "0x0a", 10
+		}
+		rows := []struct {
+			text    string
+			want    uint32
+			wantErr string
+		}{
+			{text: f.zero, wantErr: f.zero + " has a leading zero; write " + f.ten + ", or 0x… for hex"},
+			{text: f.ten, want: f.want},
+			{text: f.hex, want: f.want},
+			{text: "0", want: 0},
+		}
+		for _, r := range rows {
+			t.Run(f.name+" "+r.text, func(t *testing.T) {
+				doc := "version: 1\nkind: target\nname: x\n" + fmt.Sprintf(f.yaml, r.text) + "\n"
+				files, err := Parse("x.yaml", []byte(doc), envOf(nil))
+				if r.wantErr != "" {
+					if err == nil || !strings.Contains(err.Error(), r.wantErr) {
+						t.Fatalf("err = %v, want %q", err, r.wantErr)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := f.get(files[0].Target); got != r.want {
+					t.Errorf("%s = %d, want %d", f.name, got, r.want)
+				}
+			})
+		}
 	}
 }
 

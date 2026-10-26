@@ -82,10 +82,15 @@ type RAN struct {
 	// host) is accepted in v1.
 	Node string `yaml:"node,omitempty"`
 	// GNBName prefixes gNB names; a per-gNB index is appended.
-	GNBName     string   `yaml:"gnb_name,omitempty"`
+	GNBName string `yaml:"gnb_name,omitempty"`
+	// N2SourceIPs are the N2 (SCTP) source addresses runs lease from. Each
+	// entry is an IP, an ip:port (port 0 picks an ephemeral port; any other
+	// port is an exact lease), an IP range (a-b) or a CIDR; ranges and
+	// CIDRs take no port.
 	N2SourceIPs []string `yaml:"n2_source_ips,omitempty"`
-	N3IPs       []string `yaml:"n3_ips,omitempty"`
-	GNBIDs      GNBIDs   `yaml:"gnb_ids"`
+	// N3IPs are the N3 (GTP-U) source addresses: each an IP or ip:port.
+	N3IPs  []string `yaml:"n3_ips,omitempty"`
+	GNBIDs GNBIDs   `yaml:"gnb_ids"`
 }
 
 // GNBIDs is the gNB ID range runs lease from; zero values take the

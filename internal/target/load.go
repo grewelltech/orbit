@@ -244,10 +244,19 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			}
 			return out, nil
 		}
+	case tUint, tFloat:
+		if err := leadingZero(v); err != nil {
+			return nil, err
+		}
 	case tSlices:
 		if v.Kind == yaml.SequenceNode {
 			out := make([]any, 0, len(v.Content))
 			for _, e := range v.Content {
+				if sst := mapNode(e, "sst"); sst != nil {
+					if err := leadingZero(sst); err != nil {
+						return nil, fmt.Errorf("slice sst: %w", err)
+					}
+				}
 				var m map[string]any
 				if err := e.Decode(&m); err != nil {
 					return nil, err
@@ -267,6 +276,23 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 		return nil, err
 	}
 	return val, nil
+}
+
+var leadingZeroRe = regexp.MustCompile(`^0[0-9]+$`)
+
+// leadingZero rejects a number written with a leading zero, such as 0010:
+// YAML reads it as octal, and a reader would take it as decimal, so
+// neither guess is safe. Plain 0 and explicit 0x hex are unambiguous and
+// pass.
+func leadingZero(n *yaml.Node) error {
+	if n.Kind != yaml.ScalarNode || n.Style != 0 || !leadingZeroRe.MatchString(n.Value) {
+		return nil
+	}
+	dec := strings.TrimLeft(n.Value, "0")
+	if dec == "" {
+		dec = "0"
+	}
+	return fmt.Errorf("%s has a leading zero; write %s, or 0x… for hex", n.Value, dec)
 }
 
 // scalarText is a non-null scalar's text as written.
