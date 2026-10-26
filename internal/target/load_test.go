@@ -339,3 +339,20 @@ func TestSelectName(t *testing.T) {
 		}
 	}
 }
+
+// A ${VAR} in a numeric field, quoted or not, is a clear error with the
+// file, line and path: numbers come from a flag or an env-layer binding.
+func TestNumericFieldTakesNoEnvRef(t *testing.T) {
+	const hint = " is not expanded in numeric fields; set it with a flag or an env-layer binding"
+	for _, tc := range []struct{ yaml, want string }{
+		{yaml: "core:\n  tac: ${TAC}", want: "x.yaml:5: core.tac: ${TAC}" + hint},
+		{yaml: `core: { tac: "${TAC}" }`, want: "x.yaml:4: core.tac: ${TAC}" + hint},
+		{yaml: "subscribers: [ { name: p, count: '${N}' } ]", want: "x.yaml:4: subscribers[].count: ${N}" + hint},
+		{yaml: "core:\n  slices:\n    - sst: ${SST}", want: "x.yaml:6: core.slices: slice sst: ${SST}" + hint},
+	} {
+		_, err := Parse("x.yaml", []byte("version: 1\nkind: target\nname: x\n"+tc.yaml+"\n"), envOf(map[string]string{"TAC": "7", "N": "1", "SST": "1"}))
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("%s: err = %v, want %q", tc.yaml, err, tc.want)
+		}
+	}
+}

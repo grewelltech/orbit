@@ -137,3 +137,33 @@ func TestEnvNumberLeadingZero(t *testing.T) {
 		})
 	}
 }
+
+// On ue handover and ue xn-handover the destination gNB's flags are
+// operation arguments: a target never supplies or overrides them. The same
+// flags keep their paths on other commands, and --amf stays bound.
+func TestHandoverTargetFlagsExcluded(t *testing.T) {
+	flags := []string{"bind", "gnb-id", "gnb-bits", "gnb-n3", "gnb-name", "mcc", "mnc", "tac", "sst", "sd"}
+	for _, cmd := range []string{"orbit ue handover", "orbit ue xn-handover"} {
+		for _, f := range flags {
+			if b, ok := FlagBinding(cmd, f); ok {
+				t.Errorf("%s --%s is bound to %s", cmd, f, b.Path)
+			}
+			if e, ok := FlagExclusion(cmd, f); !ok || e.Reason != ReasonOperation {
+				t.Errorf("%s --%s: exclusion %+v, %v; want an operation argument", cmd, f, e, ok)
+			}
+		}
+		if b, ok := FlagBinding(cmd, "amf"); !ok || b.Path != "core.amf" {
+			t.Errorf("%s --amf: %+v, %v; want core.amf", cmd, b, ok)
+		}
+	}
+	for _, c := range []struct{ cmd, flag, path string }{
+		{"orbit ue register", "bind", "ran.n2_source_ips"},
+		{"orbit conformance", "tac", "core.tac"},
+		{"orbit load", "gnb-id", "ran.gnb_ids.first"},
+		{"orbit cell ngsetup", "mcc", "core.plmn.mcc"},
+	} {
+		if b, ok := FlagBinding(c.cmd, c.flag); !ok || b.Path != c.path {
+			t.Errorf("%s --%s: %+v, %v; want %s", c.cmd, c.flag, b, ok, c.path)
+		}
+	}
+}

@@ -22,7 +22,8 @@ import (
 // neither would silently keep its default once the resolver drives the
 // commands. In the other direction, every flag the table names exists.
 func TestEveryFlagIsMappedOrExcluded(t *testing.T) {
-	seen := map[string]bool{}
+	seen := map[string]bool{}  // flag names any command registers
+	onCmd := map[string]bool{} // "command --flag" pairs
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		c.LocalFlags().VisitAll(func(f *pflag.Flag) {
@@ -31,6 +32,7 @@ func TestEveryFlagIsMappedOrExcluded(t *testing.T) {
 			}
 			seen[f.Name] = true
 			cmd := c.CommandPath()
+			onCmd[cmd+" --"+f.Name] = true
 			_, bound := target.FlagBinding(cmd, f.Name)
 			_, excluded := target.FlagExclusion(cmd, f.Name)
 			if !bound && !excluded {
@@ -42,15 +44,31 @@ func TestEveryFlagIsMappedOrExcluded(t *testing.T) {
 		}
 	}
 	walk(New("test"))
+	if len(onCmd) == 0 {
+		t.Fatal("the walk found no flags")
+	}
+	// Reverse: an unscoped entry names a flag some command registers; a
+	// scoped one, a flag each of its commands registers.
+	check := func(kind, flag string, commands []string) {
+		if flag == "" {
+			return
+		}
+		if len(commands) == 0 && !seen[flag] {
+			t.Errorf("%s for --%s, which no command registers", kind, flag)
+		}
+		for _, c := range commands {
+			if !onCmd[c+" --"+flag] {
+				t.Errorf("%s for %s --%s, which that command does not register", kind, c, flag)
+			}
+		}
+	}
 	for _, b := range target.Bindings {
-		if b.Flag != "" && !seen[b.Flag] && b.Flag != "target" {
-			t.Errorf("binding for --%s, which no command registers", b.Flag)
+		if b.Flag != "target" {
+			check("binding", b.Flag, b.Commands)
 		}
 	}
 	for _, e := range target.Exclusions {
-		if e.Flag != "" && !seen[e.Flag] {
-			t.Errorf("exclusion for --%s, which no command registers", e.Flag)
-		}
+		check("exclusion", e.Flag, e.Commands)
 	}
 }
 

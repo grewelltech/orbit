@@ -1,7 +1,9 @@
 package target
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -212,6 +214,10 @@ func Paths() []string {
 
 // convert turns a value from a file, env var or flag into the field's type.
 // Strings convert; values already of the type pass through.
+//
+// Every value an error shows goes through errValue, so a secret field's
+// value never prints, whatever went wrong. tUint fields are 32-bit: a value
+// above 2^32-1 or below zero is a range error, never truncated.
 func convert(f field, v any) (any, error) {
 	switch f.typ {
 	case tString:
@@ -229,16 +235,23 @@ func convert(f field, v any) (any, error) {
 				return nil, err
 			}
 			n, err := strconv.ParseUint(t, 0, 32)
+			if errors.Is(err, strconv.ErrRange) {
+				return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), uint64(math.MaxUint32))
+			}
 			if err != nil {
-				return nil, fmt.Errorf("%q is not a non-negative integer", x)
+				return nil, fmt.Errorf("%s is not a non-negative integer", errValue(f, x))
 			}
 			return n, nil
 		case int:
-			if x >= 0 {
+			if x >= 0 && uint64(x) <= math.MaxUint32 {
 				return uint64(x), nil
 			}
+			return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), uint64(math.MaxUint32))
 		case uint64:
-			return x, nil
+			if x <= math.MaxUint32 {
+				return x, nil
+			}
+			return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), uint64(math.MaxUint32))
 		}
 	case tFloat:
 		switch x := v.(type) {
@@ -249,7 +262,7 @@ func convert(f field, v any) (any, error) {
 			}
 			n, err := strconv.ParseFloat(t, 64)
 			if err != nil {
-				return nil, fmt.Errorf("%q is not a number", x)
+				return nil, fmt.Errorf("%s is not a number", errValue(f, x))
 			}
 			return n, nil
 		case int:
@@ -262,7 +275,7 @@ func convert(f field, v any) (any, error) {
 		case string:
 			b, err := strconv.ParseBool(strings.TrimSpace(x))
 			if err != nil {
-				return nil, fmt.Errorf("%q is not true or false", x)
+				return nil, fmt.Errorf("%s is not true or false", errValue(f, x))
 			}
 			return b, nil
 		case bool:
@@ -279,7 +292,7 @@ func convert(f field, v any) (any, error) {
 			for _, e := range x {
 				s, ok := e.(string)
 				if !ok {
-					return nil, fmt.Errorf("list entry %v is not a string", e)
+					return nil, fmt.Errorf("list entry %s is not a string", errValue(f, e))
 				}
 				out = append(out, s)
 			}
@@ -294,7 +307,7 @@ func convert(f field, v any) (any, error) {
 			for _, e := range x {
 				m, ok := e.(map[string]any)
 				if !ok {
-					return nil, fmt.Errorf("slice entry %v is not a mapping", e)
+					return nil, fmt.Errorf("slice entry %s is not a mapping", errValue(f, e))
 				}
 				var s Slice
 				for k, val := range m {
@@ -308,7 +321,7 @@ func convert(f field, v any) (any, error) {
 					case "sd":
 						sd, ok := val.(string)
 						if !ok {
-							return nil, fmt.Errorf("slice sd %v is not a string (quote it)", val)
+							return nil, fmt.Errorf("slice sd %s is not a string (quote it)", errValue(f, val))
 						}
 						s.SD = sd
 					default:
@@ -320,5 +333,17 @@ func convert(f field, v any) (any, error) {
 			return out, nil
 		}
 	}
-	return nil, fmt.Errorf("%v (%T) is the wrong type", v, v)
+	return nil, fmt.Errorf("%s (%T) is the wrong type", errValue(f, v), v)
+}
+
+// errValue is how an error shows a field's value: masked when the field is
+// secret, quoted when it is a string.
+func errValue(f field, v any) string {
+	if f.secret {
+		return Masked
+	}
+	if s, ok := v.(string); ok {
+		return strconv.Quote(s)
+	}
+	return show(f, v)
 }

@@ -247,6 +247,9 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			return out, nil
 		}
 	case tUint, tFloat:
+		if v.Kind == yaml.ScalarNode && envRef.MatchString(v.Value) {
+			return nil, fmt.Errorf("%s is not expanded in numeric fields; set it with a flag or an env-layer binding", v.Value)
+		}
 		if v.Kind == yaml.ScalarNode && v.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle) != 0 {
 			msg := fmt.Sprintf("%q is quoted; write the number unquoted", v.Value)
 			if err := leadingZeroText(v.Value); err != nil {
