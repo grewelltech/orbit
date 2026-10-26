@@ -3,12 +3,12 @@
 **Open Radio Benchmark and Integration Testbed.**
 
 ORBIT is a PHY-less software gNB and UE for 5G SA, and a test harness built on
-them. It stands in for the radio network and the devices — the **gNBs** (5G
-base stations) and the **UEs** (phones) — so you can **benchmark, conformance-check, and integration-test a real
-5G core** with no radio hardware. It speaks the real 5G protocols on the wire
-(NGAP/N2, NAS/N1, GTP-U/N3); only the radio itself is replaced by software. So
-the core you're testing sees genuine signaling and user traffic, and you can
-scale from a single device to a large fleet.
+them. It stands in for the radio network and the devices — the **gNBs** (5G base
+stations) and the **UEs** (phones) — so you can **benchmark, conformance-check,
+and integration-test a real 5G core** with no radio hardware. It speaks the real
+5G protocols on the wire (NGAP/N2, NAS/N1, GTP-U/N3); only the radio itself is
+replaced by software. So the core you're testing sees genuine signaling and user
+traffic, and you can scale from a single device to a large fleet.
 
 ## What you can do with it
 
