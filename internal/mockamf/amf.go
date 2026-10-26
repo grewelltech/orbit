@@ -111,6 +111,10 @@ type AMF struct {
 	forcedIntegrity uint8
 	tamperCaps      bool
 	skipSMC         bool
+
+	// UE context release options (release.go).
+	releaseOnDereg       bool
+	ignoreReleaseRequest bool
 }
 
 // errCrashed ends every association of a mock that crashed after a release
@@ -262,6 +266,8 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	case ngapType.ProcedureCodeUplinkNASTransport:
 		_, err := a.onUplinkNAS(p, st, up.nasPDU)
 		return err
+	case ngapType.ProcedureCodeUEContextReleaseRequest:
+		return a.onUEContextReleaseRequest(p, st)
 	default:
 		return nil
 	}
@@ -388,6 +394,8 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return true, nil // UE is REGISTERED
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
+	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
+		return false, a.onDeregistration(p, st)
 	default:
 		return false, nil
 	}
