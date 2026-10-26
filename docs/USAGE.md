@@ -444,6 +444,21 @@ orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
     [--target-release Rel-16] [--expected-failures <core-list.yaml>]
 ```
 
+Some checks wait out real NAS timer expiries and take minutes. Before each
+check runs, the suite prints it on stderr with the longest it can take (its
+own budget, or `--per-test-timeout` when that is longer), starting with the
+suite's total, and a check that can take longer than 30 s reports its elapsed
+time every 30 s. stdout carries only the results, so `--json` stays clean.
+`--list` shows the same durations without running anything, and needs no
+`--amf`:
+
+```sh
+orbit conformance --list [--category nas] [--per-test-timeout 15s]
+```
+
+[checks.md](conformance/checks.md) has the same figures in its **Up to**
+column, at the default per-test timeout.
+
 The `mobility` category registers a real UE and hands it over by Xn, so it
 needs a subscriber and a gNB N3 address reachable from the UPF. Without
 `--supi` its checks SKIP with "no UE configured":
