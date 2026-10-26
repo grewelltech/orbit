@@ -508,12 +508,15 @@ orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
 ```
 
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
-flags. It registers the UE twice, each time stopping at the Security Mode
-Command. The first registration offers the usual algorithms, and the AMF must
-not select NIA0 and must replay the UE's capabilities exactly. The second
+flags. It registers the UE three times, each time stopping at the Security
+Mode Command. The first registration offers the usual algorithms, and the AMF
+must not select NIA0 and must replay the UE's capabilities exactly. The second
 offers only NIA0 and NIA3, and the AMF must not select NIA0 or skip the
-command (selecting NIA3, rejecting or releasing all pass). Neither
-registration completes, so the check leaves no UE registered.
+command (selecting NIA3, rejecting or releasing all pass). The last offers
+only NIA0, and only a reject or a release passes. No registration completes.
+If the AMF sends a Registration Accept without NAS security, the check
+deregisters the UE in the clear and, if the core does not release it, sends a
+UE Context Release Request; the detail says what the cleanup achieved.
 
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,

@@ -25,9 +25,15 @@ func init() {
 // reject or a release.
 const smcWait = 10 * time.Second
 
-// nasSMCNoNIA0 registers twice, withholding the Security Mode Complete (and
-// the Registration Complete), and judges the Security Mode Command the AMF
-// sends:
+// cleanupWait bounds each step of the cleanup after a Registration Accept
+// sent without NAS security: the wait for a UE Context Release Command after
+// the Deregistration Request, and again after a UE Context Release Request
+// (engine.AttachProbe.CleanUpPlainAccept).
+const cleanupWait = 2 * time.Second
+
+// nasSMCNoNIA0 registers three times, withholding the Security Mode
+// Complete (and the Registration Complete), and judges the Security Mode
+// Command the AMF sends:
 //
 //   - a normal UE offering 5G-EA0/1/2 and 5G-IA0/1/2: the AMF shall not
 //     select NIA0 (TS 33.501 5.5.2) and shall replay the UE security
@@ -36,14 +42,20 @@ const smcWait = 10 * time.Second
 //   - a UE offering only NIA0 and NIA3 (non-conforming, since a UE shall
 //     support NIA1 and NIA2; a robustness stimulus): the AMF may select
 //     NIA3, reject or release, but shall not select NIA0 or skip the
-//     command.
+//     command;
+//   - last, a UE offering only NIA0 (doubly non-conforming, the same
+//     robustness framing): no non-null algorithm is common, so a reject or
+//     a release is the only conformant answer. After a Registration Accept
+//     without NAS security the UE is cleaned up as far as it can be (a
+//     plain deregistration, then a UE Context Release Request if needed),
+//     and the cleanup is recorded.
 //
 // Which algorithm wins is operator policy (6.7.1.1), so it is recorded, as
 // is one the UE did not offer: no shall before Rel-19 forbids that for this
 // case. The selected ciphering algorithm is recorded; NEA0 is legal.
 type nasSMCNoNIA0 struct {
-	// wait overrides smcWait (tests only).
-	wait time.Duration
+	// wait and cleanup override smcWait and cleanupWait (tests only).
+	wait, cleanup time.Duration
 }
 
 func (nasSMCNoNIA0) ID() string         { return "NAS-SMC-NO-NIA0-REPLAYED-CAPS" }
@@ -70,14 +82,61 @@ func (c nasSMCNoNIA0) smcWait() time.Duration {
 	return smcWait
 }
 
-// Budget covers two registrations' waits and the liveness probe.
-func (c nasSMCNoNIA0) Budget() time.Duration { return 2*c.smcWait() + 5*time.Second }
+func (c nasSMCNoNIA0) cleanupWait() time.Duration {
+	if c.cleanup > 0 {
+		return c.cleanup
+	}
+	return cleanupWait
+}
 
-// The two UEs' security capabilities.
+// probeBound is the most one registration can take: the wait for an answer,
+// then, after a Registration Accept without NAS security, both cleanup
+// steps and a second of slack.
+func (c nasSMCNoNIA0) probeBound() time.Duration {
+	return c.smcWait() + 2*c.cleanupWait() + time.Second
+}
+
+// Budget covers three registrations and the liveness probe.
+func (c nasSMCNoNIA0) Budget() time.Duration { return 3*c.probeBound() + 5*time.Second }
+
+// The three UEs' security capabilities. The NIA0-only UE offers the normal
+// UE's ciphering algorithms, so what the core does with it follows its own
+// ciphering order.
 var (
 	normalUECaps = mustCaps([]uint8{nas.NEA0, nas.NEA1, nas.NEA2}, []uint8{nas.NIA0, nas.NIA1, nas.NIA2})
 	nia0nia3Caps = mustCaps([]uint8{nas.NEA0, nas.NEA3}, []uint8{nas.NIA0, nas.NIA3})
+	nia0OnlyCaps = mustCaps([]uint8{nas.NEA0, nas.NEA1, nas.NEA2}, []uint8{nas.NIA0})
 )
+
+// smcStimulus is one of the check's three UEs.
+type smcStimulus int
+
+const (
+	normalUE smcStimulus = iota
+	nia0nia3UE
+	nia0OnlyUE
+)
+
+func (u smcStimulus) String() string {
+	switch u {
+	case nia0nia3UE:
+		return "NIA0/NIA3 UE"
+	case nia0OnlyUE:
+		return "NIA0-only UE"
+	}
+	return "normal UE"
+}
+
+// caps is the UE's security capability.
+func (u smcStimulus) caps() nasType.UESecurityCapability {
+	switch u {
+	case nia0nia3UE:
+		return nia0nia3Caps
+	case nia0OnlyUE:
+		return nia0OnlyCaps
+	}
+	return normalUECaps
+}
 
 func mustCaps(ea, ia []uint8) nasType.UESecurityCapability {
 	c, err := ue.NewSecurityCapability(ea, ia)
@@ -88,7 +147,7 @@ func mustCaps(ea, ia []uint8) nasType.UESecurityCapability {
 }
 
 func (c nasSMCNoNIA0) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "no NIA0 and the UE security capabilities replayed exactly in the Security Mode Command of a normal registration; for a UE offering only NIA0 and NIA3, NIA3, a reject or a release, never NIA0 or no Security Mode Command (TS 33.501 5.5.2, 6.7.2 step 1b)"}
+	r := Result{Expected: "no NIA0 and the UE security capabilities replayed exactly in the Security Mode Command of a normal registration; for a UE offering only NIA0 and NIA3, NIA3, a reject or a release; for a UE offering only NIA0, a reject or a release; never NIA0 or no Security Mode Command (TS 33.501 5.5.2, 6.7.2 step 1b)"}
 	if !env.UE.Configured() {
 		r.Verdict, r.Observed = Skip, "no UE configured"
 		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks"
@@ -101,12 +160,17 @@ func (c nasSMCNoNIA0) Run(ctx context.Context, env Env) Result {
 	}
 	defer h.Close()
 
-	normal := judgeSMC(c.probeSMC(ctx, h, normalUECaps), normalUECaps, false)
-	odd := subResult{name: "NIA0/NIA3 UE", v: Skip, observed: "not run", detail: "not run: the normal UE's result was not a verdict"}
-	if normal.v != Error {
-		odd = judgeSMC(c.probeSMC(ctx, h, nia0nia3Caps), nia0nia3Caps, true)
+	// The NIA0-only UE runs last: a core that lets it register without NAS
+	// security is the one most likely to be left in a bad state.
+	subs := []subResult{judgeSMC(c.probeSMC(ctx, h, normalUE.caps()), normalUE)}
+	for _, u := range []smcStimulus{nia0nia3UE, nia0OnlyUE} {
+		if subs[0].v == Error {
+			subs = append(subs, subResult{name: u.String(), v: Skip, observed: "not run", detail: "not run: the normal UE's result was not a verdict"})
+			continue
+		}
+		subs = append(subs, judgeSMC(c.probeSMC(ctx, h, u.caps()), u))
 	}
-	r.Verdict, r.Observed, r.Detail = combineSMC(normal, odd)
+	r.Verdict, r.Observed, r.Detail = combineSMC(subs...)
 	if r.Verdict == Error && ctx.Err() != nil {
 		return r
 	}
@@ -117,6 +181,8 @@ func (c nasSMCNoNIA0) Run(ctx context.Context, env Env) Result {
 type smcOutcome struct {
 	smc         []byte // the Security Mode Command's NAS PDU, nil if none
 	acceptFirst bool   // a Registration Accept came with no Security Mode Command
+	plainAccept bool   // that Accept came without NAS security (security header type 0)
+	cleanup     string // what the cleanup after a plain Accept did
 	reject      string // a reject that ended the registration
 	released    bool   // a UE Context Release Command ended it
 	noAnswer    bool   // nothing of the above within the wait
@@ -125,14 +191,26 @@ type smcOutcome struct {
 
 // probeSMC registers the UE with caps, withholding the Security Mode
 // Complete and the Registration Complete, until the command, a reject, a
-// release, an Accept without the command, or the wait.
+// release, an Accept without the command, or the wait. An Accept without NAS
+// security is left to the engine's cleanup, which ends the attach.
 func (c nasSMCNoNIA0) probeSMC(ctx context.Context, h *UEHarness, caps nasType.UESecurityCapability) smcOutcome {
-	actx, cancel := context.WithTimeout(ctx, c.smcWait())
+	actx, cancel := context.WithTimeout(ctx, c.probeBound())
 	defer cancel()
 	var mu sync.Mutex
 	var o smcOutcome
+	timedOut := false
+	answerWait := time.AfterFunc(c.smcWait(), func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if !o.plainAccept {
+			timedOut = true
+			cancel()
+		}
+	})
+	defer answerWait.Stop()
 	_, err := h.RegisterWithProbe(actx, &engine.AttachProbe{
-		Withhold: map[uint8]bool{f5nas.MsgTypeSecurityModeComplete: true, f5nas.MsgTypeRegistrationComplete: true},
+		Withhold:           map[uint8]bool{f5nas.MsgTypeSecurityModeComplete: true, f5nas.MsgTypeRegistrationComplete: true},
+		CleanUpPlainAccept: c.cleanupWait(),
 		OnDownlink: func(ev engine.DownlinkEvent) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -143,9 +221,12 @@ func (c nasSMCNoNIA0) probeSMC(ctx context.Context, h *UEHarness, caps nasType.U
 					cancel()
 				}
 			case f5nas.MsgTypeRegistrationAccept:
-				if o.smc == nil {
+				if o.smc == nil && !o.acceptFirst {
 					o.acceptFirst = true
-					cancel()
+					// A plain Accept is the engine's to clean up.
+					if o.plainAccept = len(ev.NAS) > 1 && ev.NAS[1]&0x0f == nas.SecHdrPlain; !o.plainAccept {
+						cancel()
+					}
 				}
 			case f5nas.MsgTypeRegistrationReject:
 				o.reject = "Registration Reject"
@@ -156,13 +237,16 @@ func (c nasSMCNoNIA0) probeSMC(ctx context.Context, h *UEHarness, caps nasType.U
 	}, func(cfg *engine.UEConfig) { cfg.SecurityCapabilities = &caps })
 	mu.Lock()
 	defer mu.Unlock()
+	var pa *engine.PlainAcceptError
 	switch {
+	case errors.As(err, &pa):
+		o.cleanup = strings.Join(pa.Steps, "; ")
 	case o.smc != nil, o.acceptFirst, o.reject != "":
 	case errors.Is(err, engine.ErrReleasedByCore):
 		o.released = true
 	case err == nil:
 		o.err = errors.New("registration completed with the Security Mode Complete withheld")
-	case errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil:
+	case timedOut && ctx.Err() == nil:
 		o.noAnswer = true
 	default:
 		o.err = err
@@ -209,23 +293,27 @@ type subResult struct {
 	observed, detail string
 }
 
-// judgeSMC turns one registration's outcome into a sub-result. Both UEs
-// FAIL on NIA0, on replayed capabilities that differ from caps, and on a
-// Registration Accept with no Security Mode Command. A reject or a release
-// is PASS for the NIA0/NIA3 UE (odd) and ERROR for the normal one.
-func judgeSMC(o smcOutcome, caps nasType.UESecurityCapability, odd bool) subResult {
-	s := subResult{name: "normal UE"}
-	if odd {
-		s.name = "NIA0/NIA3 UE"
-	}
+// judgeSMC turns one registration's outcome into a sub-result. Every UE
+// FAILs on NIA0, on replayed capabilities that differ from those it sent,
+// and on a Registration Accept with no Security Mode Command. A reject or a
+// release is PASS for the two non-conforming UEs and ERROR for the normal
+// one.
+func judgeSMC(o smcOutcome, u smcStimulus) subResult {
+	s := subResult{name: u.String()}
+	caps := u.caps()
+	odd := u != normalUE
 	offered := capsString(caps)
-	nia0Msg := fmt.Sprintf("AMF selected NIA0 / skipped the Security Mode Command for a normal registration (UE offered %s). TS 33.501 5.5.2. Likely cause: AMF algorithm selection falls back to NIA0.", offered)
+	nia0Msg := fmt.Sprintf("AMF selected NIA0 for a normal registration (UE offered %s). TS 33.501 5.5.2. Likely cause: AMF algorithm selection falls back to NIA0.", offered)
+	skipMsg := fmt.Sprintf("no Security Mode Command before the Registration Accept (UE offered %s). TS 33.501 5.5.2.", offered)
+	if o.plainAccept {
+		skipMsg = fmt.Sprintf("no Security Mode Command; registration proceeded without NAS security (UE offered %s). TS 33.501 5.5.2.", offered)
+	}
 	const capsMsg = "Replayed UE security capabilities differ from those sent. TS 33.501 6.7.2 step 1b. Likely cause: AMF capability echo."
 	switch {
 	case o.err != nil:
 		s.v, s.observed, s.detail = Error, "UE setup failed", o.err.Error()
 	case o.acceptFirst:
-		s.v, s.observed, s.detail = Fail, "Security Mode Command skipped", nia0Msg
+		s.v, s.observed, s.detail = Fail, "Security Mode Command skipped", skipMsg
 	case o.reject != "" && odd:
 		s.v, s.observed, s.detail = Pass, o.reject, fmt.Sprintf("rejected the UE offering %s", offered)
 	case o.released && odd:
@@ -261,27 +349,50 @@ func judgeSMC(o smcOutcome, caps nasType.UESecurityCapability, odd bool) subResu
 		}
 		if len(fails) > 0 {
 			s.v, s.observed, s.detail = Fail, observed, strings.Join(append(fails, notes...), " ")
-			return s
+			break
 		}
 		s.v, s.observed = Pass, fmt.Sprintf("NIA%d selected, capabilities replayed", f.integrity)
 		s.detail = strings.Join(notes, "; ")
 	}
+	if u == nia0OnlyUE && s.v == Fail {
+		s.detail += " " + nia0OnlyOrderNote
+	}
+	if o.cleanup != "" {
+		s.detail += " Cleanup: " + o.cleanup + "."
+	}
 	return s
 }
 
-// combineSMC gives the check's verdict: FAIL if either sub-result failed,
-// else ERROR if either errored, else PASS. Observed names the first
-// sub-result that decided it (both on PASS); Detail gives both.
-func combineSMC(normal, odd subResult) (Verdict, string, string) {
-	detail := fmt.Sprintf("%s: %s %s, %s; %s: %s %s, %s", normal.name, normal.v, normal.observed, normal.detail, odd.name, odd.v, odd.observed, odd.detail)
+// nia0OnlyOrderNote follows a FAIL of the NIA0-only UE: which FAIL a core
+// gives depends on its configuration.
+const nia0OnlyOrderNote = "The outcome on this core depends on its NAS integrity/ciphering order: with only NEA0 configured the AMF skips the SMC; with NEA1/NEA2 it sends an SMC selecting NIA0. Both are FAIL."
+
+// combineSMC gives the check's verdict from the UEs' sub-results, in run
+// order: the worst wins (FAIL, then ERROR, then PASS), and Observed names
+// the first sub-result with that verdict (all of them on PASS). Detail gives
+// every sub-result, and says so when the two non-conforming UEs failed the
+// same way.
+func combineSMC(subs ...subResult) (Verdict, string, string) {
+	parts := make([]string, len(subs))
+	for i, s := range subs {
+		parts[i] = fmt.Sprintf("%s: %s %s, %s", s.name, s.v, s.observed, s.detail)
+	}
+	detail := strings.Join(parts, "; ")
+	if len(subs) == 3 && subs[1].v == Fail && subs[2].v == Fail && subs[1].observed == subs[2].observed {
+		detail += fmt.Sprintf(". The %s and the %s failed the same way (%s).", subs[1].name, subs[2].name, subs[1].observed)
+	}
 	for _, v := range []Verdict{Fail, Error} {
-		for _, s := range []subResult{normal, odd} {
+		for _, s := range subs {
 			if s.v == v {
 				return v, s.name + ": " + s.observed, detail
 			}
 		}
 	}
-	return Pass, fmt.Sprintf("%s: %s; %s: %s", normal.name, normal.observed, odd.name, odd.observed), detail
+	obs := make([]string, len(subs))
+	for i, s := range subs {
+		obs[i] = s.name + ": " + s.observed
+	}
+	return Pass, strings.Join(obs, "; "), detail
 }
 
 // capsString names the algorithms a capability offers, e.g.
