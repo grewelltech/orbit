@@ -205,14 +205,14 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   5G-IA0/1/2) must get a Security Mode Command that selects no NIA0 (TS 33.501
   5.5.2) and replays its capabilities exactly (6.7.2 step 1b). A UE offering
   only NIA0 and NIA3 may get NIA3, a reject or a release, never NIA0 or no
-  command. For a UE offering only NIA0, run last, a reject or a release is
-  PASS; a Security Mode Command selecting a non-null algorithm the UE did not
-  offer is also PASS, with the selection recorded, not scored (no shall
-  requires the selected algorithm to be one the UE offered at initial
-  registration (5.11.2 b) says only 'dependent on'; 6.7.1.2, from V19.4.0,
-  covers AMF change)); NIA0 or no Security Mode Command is FAIL. After a
-  Registration Accept without NAS security the UE is deregistered in the
-  clear, and a UE Context Release is requested if the core sends none; the
+  command. A UE offering only NIA0, run last, expects a reject or a release.
+  For any UE, a Security Mode Command selecting NIA0, or no Security Mode
+  Command, is FAIL (TS 33.501 5.5.2, 6.7.2 step 1b). A non-null algorithm the
+  UE did not offer is PASS, recorded, not scored: no shall requires the
+  selected algorithm to be one the UE offered at initial registration. 5.11.2
+  b) says only 'dependent on', and 6.7.1.2 (from V19.4.0) covers AMF change.
+  After a Registration Accept without NAS security the UE is deregistered in
+  the clear, and a UE Context Release is requested if the core sends none; the
   cleanup is in the detail. Each UE is judged separately and the worst result
   wins. The selected algorithms are recorded. Needs a UE, else SKIP. Not yet
   run on Ref 2; the source analyst predicts the capabilities replay PASSes,

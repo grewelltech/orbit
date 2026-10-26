@@ -149,7 +149,7 @@ func mustCaps(ea, ia []uint8) nasType.UESecurityCapability {
 }
 
 func (c nasSMCNoNIA0) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "no NIA0 and the UE security capabilities replayed exactly in the Security Mode Command of a normal registration; for a UE offering only NIA0 and NIA3, NIA3, a reject or a release; for a UE offering only NIA0, a reject or a release is PASS; a Security Mode Command selecting a non-null algorithm the UE did not offer is also PASS, with the selection recorded, not scored (no shall requires the selected algorithm to be one the UE offered at initial registration (5.11.2 b) says only 'dependent on'; 6.7.1.2, from V19.4.0, covers AMF change)); NIA0 or no Security Mode Command is FAIL; never NIA0 or no Security Mode Command for any UE (TS 33.501 5.5.2, 6.7.2 step 1b)"}
+	r := Result{Expected: "Normal UE (5G-EA0/1/2, 5G-IA0/1/2): a Security Mode Command that selects no NIA0 and replays the UE security capabilities exactly. UE offering only NIA0 and NIA3: NIA3, a reject or a release. UE offering only NIA0: a reject or a release. For any UE, a Security Mode Command selecting NIA0, or no Security Mode Command, is FAIL (TS 33.501 5.5.2, 6.7.2 step 1b). A non-null algorithm the UE did not offer is PASS, recorded, not scored: no shall requires the selected algorithm to be one the UE offered at initial registration. 5.11.2 b) says only 'dependent on', and 6.7.1.2 (from V19.4.0) covers AMF change."}
 	if !env.UE.Configured() {
 		r.Verdict, r.Observed = Skip, "no UE configured"
 		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks"
