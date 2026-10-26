@@ -368,8 +368,8 @@ func judgeSMC(o smcOutcome, u smcStimulus) subResult {
 const noEmergencyNote = "The check never requests an emergency registration, so the emergency exception in 5.5.2 does not apply."
 
 // nia0OnlyOrderNote follows a FAIL of the NIA0-only UE: which FAIL a core
-// gives depends on its configuration.
-const nia0OnlyOrderNote = "The outcome on this core depends on its NAS integrity/ciphering order: with only NEA0 configured the AMF skips the SMC; with NEA1/NEA2 it sends an SMC selecting NIA0. Both are FAIL."
+// gives can depend on its configuration.
+const nia0OnlyOrderNote = "Which of the two FAILs a core gives can depend on its configured NAS algorithm order (for example, a core may skip the Security Mode Command when only NEA0 is configured, and send one selecting NIA0 otherwise). Both are FAIL."
 
 // combineSMC gives the check's verdict from the UEs' sub-results, in run
 // order: the worst wins (FAIL, then ERROR, then PASS), and Observed names
