@@ -1,6 +1,6 @@
 # ADR-0007: ORBIT hosts the loom responder; stock loomd stays supported
 
-- Status: Accepted
+- Status: Accepted; amended by ADR-0009 (install and bootstrap)
 - Date: 2026-08-01
 
 ## Context
