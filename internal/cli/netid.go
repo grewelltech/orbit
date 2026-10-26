@@ -168,7 +168,8 @@ func (id netIdentity) gnbProto(gnbID, idBits uint32, name string) *orbitv1.GnbCo
 
 // String renders the identity for the one-line `network:` report every
 // command prints, e.g. "plmn=001/01 tac=1 snssai=1/010203 dnn=internet".
-// Fields left for the server to inherit are shown as such.
+// It is never used for an inheriting identity: a handover prints the target
+// the server reports (presentedNetwork).
 func (id netIdentity) String() string {
 	snssai := fmt.Sprint(id.SST)
 	if id.SD != "" {
