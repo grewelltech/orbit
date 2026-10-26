@@ -113,3 +113,17 @@ var ts33501NIA0Verified = []SpecVersion{
 	{Release: 18, Version: "V18.12.0", Archive: "33501-ic0.zip"},
 	{Release: 19, Version: "V19.7.0", Archive: "33501-j70.zip"},
 }
+
+// ts24501UnknownDNNVerified covers the TS 24.501 clauses of
+// NAS-PDU-UNKNOWN-DNN: V15.0.0; V15.1.0 and V15.2.0, around the arrival of
+// 5GMM cause #91; and the latest version of Rel-15 to Rel-19 read.
+var ts24501UnknownDNNVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "24501-f00.zip"},
+	{Release: 15, Version: "V15.1.0", Archive: "24501-f10.zip"},
+	{Release: 15, Version: "V15.2.0", Archive: "24501-f20.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "24501-f70.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}
