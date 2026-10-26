@@ -209,9 +209,10 @@ Semantics:
   wrapper: it starts a one-workload plan and streams the run's events as
   `ConformanceUpdate`.
 - **Gates.** `RunReport` gains a `repeated GateResult` and an overall `gates_passed`.
-  `--wait` clients map them to exit codes. The mapping is today's `orbit load`
-  SLO-gate mapping, extended unchanged to conformance (an unexpected FAIL is a
-  gate failure).
+  A new `--wait` flag on the thin clients maps them to exit codes, using the exit
+  codes `orbit load` gives today when its SLO is breached (it runs in-process and
+  exits non-zero). Conformance gets the same mapping unchanged: an unexpected FAIL
+  is a gate failure.
 - **Archive.** `RunArchive` gains the redacted `RunPlan`, the provenance and the
   leases (§5), plus a per-workload `RunReport`. These are additive fields within
   archive version 1.
@@ -410,7 +411,7 @@ later ADR covers `orbit node`.
 
 ## Resolved questions
 
-The maintainer answered these on 2026-10-26, when he accepted this ADR. The decisions above
+The maintainer answered these on 2026-10-26, when accepting this ADR. The decisions above
 already reflect them.
 
 | # | Question | Decision |
@@ -428,7 +429,7 @@ above.
 | # | Question | Owner |
 |---|---|---|
 | 1 | Should N2 source IPs be exclusive per gNB (as proposed) or shareable with ephemeral ports? It depends on how the AMFs we target key NG associations. | architect, with a review of the target AMFs' source (S4) |
-| 5 | Confirm today's `orbit load --wait` exit codes so the gate mapping preserves them exactly. | implementer (R4) |
+| 5 | Confirm the exit codes `orbit load` gives today on an SLO breach, so `--wait`'s gate mapping preserves them exactly. | implementer (R4) |
 | 6 | Conformance needs: a static UE count per check, or a declared maximum per category? | conformance owner, implementer (R3) |
 | 7 | The default gNB ID range, and how many recent IDs rotation avoids. | architect (S4) |
 | 9 | Recurring conformance inside a long run (the roadmap's "every 15m" for R3) isn't expressible with `StartCondition` alone. Add a `repeat_every` to `Workload`, or leave it out of v1? | architect (R3) |

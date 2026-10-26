@@ -7,7 +7,9 @@ supersede it with a new ADR rather than editing it.
 
 Write one when a decision is hard to reverse, shapes multiple packages, or picks
 between real alternatives (not for routine implementation choices). Use
-[`0000-template.md`](0000-template.md). Status is **Proposed**, **Accepted**, or
+[`0000-template.md`](0000-template.md). Status is **Proposed**, **Accepted**,
+**Accepted; amended by ADR-XXXX** (a later ADR changes part of the decision;
+the amended ADR's body is never edited, only its status line), or
 **Superseded by ADR-XXXX**.
 
 ## Log

@@ -120,9 +120,11 @@ The responder dials the server and registers through
 - `orbit responder remove <name>` revokes the credential. Static responders
   (stock `loomd`, with `control`/`token`/`data_ip` in the target) stay fully
   supported.
-- When the RAN host itself has an N6 interface, `orbit serve --responder-bind
-  <addr>` starts the hosted responder (ADR-0007) and registers it as `local`. No
-  join is needed. The operator still states the bind address.
+- When the RAN host itself has an N6 interface, a new `orbit serve
+  --responder-bind <addr>` flag starts the hosted responder in-process and
+  registers it as `local`. No join is needed. This is the explicit opt-in that
+  ADR-0007 left for later instead of auto-starting, and the operator still states
+  the bind address.
 
 ### 4. SSH, on the client only
 
@@ -209,7 +211,7 @@ registration to RAN hosts.
 
 ## Resolved questions
 
-The maintainer answered these on 2026-10-26, when he accepted this ADR.
+The maintainer answered these on 2026-10-26, when accepting this ADR.
 
 | # | Question | Decision |
 |---|---|---|
