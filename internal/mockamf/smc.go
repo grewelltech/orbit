@@ -1,12 +1,15 @@
 package mockamf
 
 import (
+	"fmt"
+
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasMessage"
 	"github.com/free5gc/nas/nasType"
 
 	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/ue"
+	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
 // NoCommonIntegrity is what the mock does when the UE offers none of the
@@ -43,6 +46,40 @@ func WithNoCommonIntegrity(n NoCommonIntegrity) Option { return func(a *AMF) { a
 // UE offers (for example NIA0).
 func WithSMCIntegrity(alg uint8) Option {
 	return func(a *AMF) { a.forceIntegrity, a.forcedIntegrity = true, alg }
+}
+
+// defaultCipheringOrder is the mock's ciphering preference: NEA0 only.
+var defaultCipheringOrder = []uint8{nas.NEA0}
+
+// WithCipheringOrder sets the ciphering algorithms the mock selects from,
+// in preference order (default NEA0 only).
+func WithCipheringOrder(algs ...uint8) Option {
+	return func(a *AMF) { a.cipheringOrder = append([]uint8(nil), algs...) }
+}
+
+// WithSMCCiphering makes the Security Mode Command select alg whatever the
+// UE offers.
+func WithSMCCiphering(alg uint8) Option {
+	return func(a *AMF) { a.forceCiphering, a.forcedCiphering = true, alg }
+}
+
+// selectCiphering picks the ciphering algorithm for the Security Mode
+// Command: the forced one, else the first of the order the UE offers, else
+// the first of the order (an AMF that ignores the UE's capabilities).
+func (a *AMF) selectCiphering(caps nasType.UESecurityCapability) uint8 {
+	if a.forceCiphering {
+		return a.forcedCiphering
+	}
+	order := a.cipheringOrder
+	if len(order) == 0 {
+		order = defaultCipheringOrder
+	}
+	for _, alg := range order {
+		if alg < 8 && len(caps.Buffer) > 0 && caps.Buffer[0]&(0x80>>alg) != 0 {
+			return alg
+		}
+	}
+	return order[0]
 }
 
 // WithSMCTamperCaps makes the Security Mode Command replay UE security
@@ -130,10 +167,19 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 	if a.tamperCaps && len(replayed.Buffer) > 0 {
 		replayed.Buffer[0] ^= 0x01
 	}
-	// The selected algorithm is what the command says; the mock keeps
-	// protecting with 128-NIA2, which only a UE that goes on to complete
-	// the procedure would notice, and such a UE offers 128-NIA2.
-	smc, err := buildSecurityModeCommand(alg, nas.NEA0, st.ngksi, replayed)
+	enc := a.selectCiphering(st.ueCaps)
+	if !a.forceIntegrity && alg != nas.NIA0 {
+		// The new context is the selected pair's, from KAMF (TS 33.501
+		// Annex A.8), and it protects the command itself. A forced or NIA0
+		// selection keeps the 128-NIA2 context from authentication, so
+		// those commands stay as they were on the wire.
+		kInt, kEnc, err := auth.DeriveNASKeys(st.kamf, alg, enc)
+		if err != nil {
+			return fmt.Errorf("mock amf NAS key derivation: %w", err)
+		}
+		st.sec = &nas.SecurityContext{IntegrityAlg: alg, CipheringAlg: enc, KNASint: kInt, KNASenc: kEnc, Network: true}
+	}
+	smc, err := buildSecurityModeCommand(alg, enc, st.ngksi, replayed)
 	if err != nil {
 		return err
 	}
