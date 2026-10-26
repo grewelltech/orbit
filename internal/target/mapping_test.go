@@ -1,0 +1,106 @@
+package target
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/spf13/pflag"
+)
+
+// Every binding names a field the resolver accepts, so a mapped flag or
+// env var can never fail to resolve.
+func TestBindingPathsAreFields(t *testing.T) {
+	for _, b := range Bindings {
+		if _, _, err := lookup(b.Path); err != nil {
+			t.Errorf("binding %+v: %v", b, err)
+		}
+		if (b.Env == "") == (b.Flag == "") {
+			t.Errorf("binding %+v: names exactly one of an env var and a flag", b)
+		}
+	}
+	for _, e := range Exclusions {
+		if (e.Env == "") == (e.Flag == "") || e.Reason == "" {
+			t.Errorf("exclusion %+v: one of an env var and a flag, and a reason", e)
+		}
+	}
+}
+
+// FlagInput takes only the flags the user set, maps each by the command's
+// binding, and makes --sst and --sd one slice.
+func TestFlagInput(t *testing.T) {
+	newFS := func() *pflag.FlagSet {
+		fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+		fs.String("amf", "", "")
+		fs.Uint32("tac", 1, "")
+		fs.Uint32("sst", 1, "")
+		fs.String("sd", "", "")
+		fs.String("ki", "", "")
+		fs.String("supi", "", "")
+		fs.StringSlice("category", nil, "")
+		fs.Bool("json", false, "")
+		return fs
+	}
+	tests := []struct {
+		name string
+		cmd  string
+		args []string
+		want map[string]any
+	}{
+		{name: "nothing set", cmd: "orbit conformance", want: map[string]any{}},
+		{name: "defaults never set a field", cmd: "orbit conformance", args: []string{"--json"}, want: map[string]any{}},
+		{name: "scalars", cmd: "orbit conformance", args: []string{"--amf", "192.0.2.1:38412", "--tac", "7", "--ki", "k"},
+			want: map[string]any{"core.amf": "192.0.2.1:38412", "core.tac": "7", "subscribers[].ki": "k"}},
+		{name: "slice from both", cmd: "orbit load", args: []string{"--sst", "2", "--sd", "abcdef"},
+			want: map[string]any{"core.slices": []Slice{{SST: 2, SD: "abcdef"}}}},
+		{name: "sd alone keeps SST 1", cmd: "orbit load", args: []string{"--sd", "abcdef"},
+			want: map[string]any{"core.slices": []Slice{{SST: 1, SD: "abcdef"}}}},
+		{name: "command scoping: supi on conformance", cmd: "orbit conformance", args: []string{"--supi", "001010000000001"},
+			want: map[string]any{"subscribers[].first_supi": "001010000000001"}},
+		{name: "command scoping: supi on ue ping is an operation argument", cmd: "orbit ue ping", args: []string{"--supi", "001010000000001"},
+			want: map[string]any{}},
+		{name: "slice flag", cmd: "orbit conformance", args: []string{"--category", "nas,security"},
+			want: map[string]any{"workloads[].conformance.categories": []string{"nas", "security"}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := newFS()
+			if err := fs.Parse(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			in, err := FlagInput(tc.cmd, fs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]any{}
+			for _, s := range in.Settings {
+				got[s.Path] = s.Value
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("settings = %v, want %v", got, tc.want)
+			}
+			if _, err := Resolve(in); err != nil {
+				t.Errorf("the flag layer does not resolve: %v", err)
+			}
+		})
+	}
+}
+
+// EnvInput reads the bound ORBIT_* variables that are set, and nothing else.
+func TestEnvInput(t *testing.T) {
+	in := EnvInput(envOf(map[string]string{"ORBIT_MCC": "001", "ORBIT_KI": "k", "ORBIT_SERVER": "http://x", "HOME": "/h"}))
+	got := map[string]string{}
+	for _, s := range in.Settings {
+		got[s.Path] = s.Source.Name + "=" + s.Value.(string)
+	}
+	want := map[string]string{"core.plmn.mcc": "$ORBIT_MCC=001", "subscribers[].ki": "$ORBIT_KI=k"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("env settings = %v, want %v", got, want)
+	}
+	r, err := Resolve(DefaultInput(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := prov(t, r, "subscribers[default].ki"); p.Source.String() != "env $ORBIT_KI" || p.Value != Masked {
+		t.Errorf("ki provenance = %s %q", p.Source, p.Value)
+	}
+}
