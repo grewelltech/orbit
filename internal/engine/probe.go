@@ -145,8 +145,11 @@ type NASEvent struct {
 }
 
 // MessageType is the PDU's 5GMM message type: the decoded message's when it
-// decoded, which works under any cipher, else the header read (Type), 0
-// when that is unreadable too.
+// decoded, which works under any cipher, else the header read (Type). Type
+// is only ever read where the header is plaintext (a plain PDU, or a
+// protected one under NEA0 or before any context; see nasMessageType and
+// readableCipher), so under NEA1-3 an undecodable PDU is 0, never a
+// ciphertext byte.
 func (e NASEvent) MessageType() uint8 {
 	if e.Msg != nil && e.Msg.GmmMessage != nil {
 		return e.Msg.GmmHeader.GetMessageType()

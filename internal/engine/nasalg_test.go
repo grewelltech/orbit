@@ -371,3 +371,44 @@ func TestPreSMCProtectedDownlinkReachesOnNAS(t *testing.T) {
 		t.Errorf("without OnNAS: err = %v, want ErrNoSecurityContext", err)
 	}
 }
+
+// Under NEA2 an undecodable protected downlink has MessageType() 0: the
+// header byte is ciphertext, so the type-only fallback must not read it.
+// Under NEA0 the same fallback reads the plaintext header.
+func TestMessageTypeFallbackOnlyWhenReadable(t *testing.T) {
+	var kInt, kEnc [16]byte
+	for i := range kInt {
+		kInt[i], kEnc[i] = byte(i), byte(0x80+i)
+	}
+	tests := []struct {
+		name string
+		ea   uint8
+		want uint8
+	}{
+		{name: "NEA2", ea: nas.NEA2, want: 0},
+		{name: "NEA0", ea: nas.NEA0, want: f5nas.MsgTypeRegistrationAccept},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amfSec := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: tc.ea, KNASint: kInt, KNASenc: kEnc, Network: true}
+			pdu, err := amfSec.EncodeSecureRaw([]byte{0x7e, 0x00, 0x42, 0x01, 0x01}, nas.SecHdrIntegrityCiphered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pdu[3] ^= 0xff // break the MAC: the PDU does not decode
+			var got []NASEvent
+			s := &attachState{ctx: context.Background(), log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				sec:   &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: tc.ea, KNASint: kInt, KNASenc: kEnc},
+				ueCfg: UEConfig{Probe: &AttachProbe{OnNAS: func(ev NASEvent) { got = append(got, ev) }}}}
+			if err := s.handleNAS(pdu, false); err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1 || got[0].Err == nil {
+				t.Fatalf("OnNAS got %+v, want one undecodable event", got)
+			}
+			if mt := got[0].MessageType(); mt != tc.want {
+				t.Errorf("MessageType() = %#02x, want %#02x", mt, tc.want)
+			}
+		})
+	}
+}
