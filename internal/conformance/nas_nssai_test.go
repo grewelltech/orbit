@@ -55,8 +55,13 @@ func TestRejectIEs(t *testing.T) {
 		{name: "no IEs", pdu: rejectPDU(62), wantCause: 62},
 		{name: "TLV, type 1 and TLV-E", pdu: rejectPDU(62, 0x69, 2, 0x11, 0x01, 0xa0, 0x78, 0x00, 0x01, 0xff), wantCause: 62,
 			wantIEIs: []uint8{0x69, 0xa0, 0x78}},
-		{name: "TLV truncated", pdu: rejectPDU(62, 0x69, 5, 0x11), wantErr: true},
-		{name: "TLV-E truncated", pdu: rejectPDU(62, 0x78, 0x00), wantErr: true},
+		{name: "TLV value shorter than its length", pdu: rejectPDU(62, 0x69, 5, 0x11), wantErr: true},
+		{name: "TLV with no length octet", pdu: rejectPDU(62, 0x69), wantErr: true},
+		{name: "TLV-E with one length octet", pdu: rejectPDU(62, 0x78, 0x00), wantErr: true},
+		{name: "TLV-E with no length octet", pdu: rejectPDU(62, 0x78), wantErr: true},
+		{name: "TLV-E value shorter than its length", pdu: rejectPDU(62, 0x78, 0x00, 0x05, 0x01), wantErr: true},
+		{name: "TLV-E length 1, no value (the reviewer's crash)", pdu: rejectPDU(62, 0x78, 0x00, 0x01), wantErr: true},
+		{name: "TLV-E length 256 over a short value", pdu: rejectPDU(62, 0x78, 0x01, 0x00, 0x01, 0x02), wantErr: true},
 		{name: "not a Reject", pdu: []byte{0x7e, 0x00, 0x42, 0x01}, wantErr: true},
 		{name: "too short", pdu: []byte{0x7e, 0x00}, wantErr: true},
 	}
@@ -93,6 +98,10 @@ func TestDecodeRejectedNSSAI(t *testing.T) {
 		{name: "SST and SD", v: []byte{0x40, 1, 0xee, 0xee, 0xee}, want: []rejectedSNSSAI{{snssai: stim, cause: 0}}},
 		{name: "SST only, cause 1", v: []byte{0x11, 2}, want: []rejectedSNSSAI{{snssai: []byte{2}, cause: 1}}},
 		{name: "two", v: []byte{0x12, 3, 0x40, 1, 0xee, 0xee, 0xee}, want: []rejectedSNSSAI{{snssai: []byte{3}, cause: 2}, {snssai: stim}}},
+		// Built by hand from the 9.11.3.46 figure, not from the mock.
+		{name: "figure: SST 1 SD 010203, cause 0", v: []byte{0x40, 0x01, 0x01, 0x02, 0x03}, want: []rejectedSNSSAI{{snssai: []byte{1, 1, 2, 3}}}},
+		{name: "figure: SST 2 cause 1, then SST 1 SD eeeeee cause 0", v: []byte{0x11, 0x02, 0x40, 0x01, 0xee, 0xee, 0xee},
+			want: []rejectedSNSSAI{{snssai: []byte{2}, cause: 1}, {snssai: stim}}},
 		{name: "length 2", v: []byte{0x20, 1, 2}, wantErr: true},
 		{name: "truncated", v: []byte{0x40, 1, 0xee}, wantErr: true},
 	}
@@ -124,6 +133,11 @@ func TestDecodeExtendedRejectedNSSAI(t *testing.T) {
 		{name: "type 001 with back-off timer", v: []byte{0x10, 0x21, 0x43, 1, 0xee, 0xee, 0xee}, want: []rejectedSNSSAI{{snssai: stim, cause: 3}}},
 		{name: "two elements, mapped octets", v: []byte{0x01, 0x20, 5, 6, 0x81, 1, 0xee, 0xee, 0xee, 9, 9, 9, 9}, want: []rejectedSNSSAI{{snssai: []byte{5}}, {snssai: stim, cause: 1}}},
 		{name: "two partial lists", v: []byte{0x00, 0x10, 4, 0x10, 0x05, 0x40, 1, 0xee, 0xee, 0xee}, want: []rejectedSNSSAI{{snssai: []byte{4}}, {snssai: stim}}},
+		// Built by hand from the 9.11.3.75 figure, not from the mock.
+		{name: "figure: type 000, one element", v: []byte{0x00, 0x40, 0x01, 0x01, 0x02, 0x03}, want: []rejectedSNSSAI{{snssai: []byte{1, 1, 2, 3}}}},
+		{name: "figure: type 001, back-off 0x21, two elements", v: []byte{0x11, 0x21, 0x43, 0x01, 0xee, 0xee, 0xee, 0x50, 0x01, 0x01, 0x02, 0x03, 0x02},
+			want: []rejectedSNSSAI{{snssai: stim, cause: 3}, {snssai: []byte{1, 1, 2, 3}}}},
+		{name: "figure: length 8 keeps SST and SD", v: []byte{0x00, 0x80, 0x01, 0x01, 0x02, 0x03, 0x02, 0x0a, 0x0b, 0x0c}, want: []rejectedSNSSAI{{snssai: []byte{1, 1, 2, 3}}}},
 		{name: "reserved type", v: []byte{0x71}, wantErr: true},
 		{name: "fewer elements than counted", v: []byte{0x01, 0x40, 1, 0xee, 0xee, 0xee}, wantErr: true},
 		{name: "length 3", v: []byte{0x00, 0x30, 1, 2, 3}, wantErr: true},
@@ -190,6 +204,19 @@ func TestJudgeNSSAIReject(t *testing.T) {
 			0x3a, 1, 0, 0x1d, 1, 0, 0x1e, 1, 0, 0x3b, 1, 0, 0x3c, 1, 0, 0x3e, 1, 0, 0x4d, 1, 0, 0x62, 1, 0, 0x63, 1, 0), want: Fail,
 			wantObserved: "Registration Reject #62 without the stimulus S-NSSAI in the Rejected NSSAI IE"},
 		{name: "#62, undecodable Rejected NSSAI IE", pdu: rejectPDU(62, 0x69, 3, 0x20, 1, 2), want: Error, wantDetail: []string{"IEI 0x69"}},
+		{name: "reviewer: bad 0x69 element before the stimulus, stimulus in 0x68", pdu: []byte{0x7e, 0x00, 0x44, 0x3e, 0x69, 0x08, 0x20, 0x01, 0x02, 0x40, 0x01, 0xee, 0xee, 0xee, 0x68, 0x06, 0x00, 0x40, 0x01, 0xee, 0xee, 0xee},
+			want: Error, wantObserved: "Registration Reject #62 with an IE Orbit cannot decode", wantDetail: []string{"IEI 0x69"}},
+		{name: "stimulus in a clean 0x69, malformed 0x68", pdu: rejectPDU(62, append(append([]byte(nil), rejected...), 0x68, 1, 0x71)...), want: Pass,
+			wantDetail: []string{"also present, not decoded: IEI 0x68"}},
+		{name: "stimulus in a clean 0x69, IEI outside 8.2.9.1", pdu: rejectPDU(62, append(append([]byte(nil), rejected...), 0x55, 1, 0)...), want: Pass,
+			wantDetail: []string{"also present, not decoded: IEI 0x55"}},
+		{name: "stimulus in a decoded 0x68 list, then a reserved list type", pdu: rejectPDU(62, 0x68, 7, 0x00, 0x40, 1, 0xee, 0xee, 0xee, 0x71), want: Error,
+			wantObserved: "Registration Reject #62 with an IE Orbit cannot decode", wantDetail: []string{"IEI 0x68"}},
+		{name: "near miss: the stimulus's SST without an SD", pdu: rejectPDU(62, 0x69, 2, 0x10, 1), want: Fail,
+			wantDetail: []string{"an element with the stimulus's SST but no SD was listed; that is a different S-NSSAI (TS 23.003 28.4.2)"}},
+		{name: "TLV-E truncated (the reviewer's crash)", pdu: []byte{0x7e, 0x00, 0x44, 0x3e, 0x78, 0x00, 0x01}, want: Error, wantObserved: "Registration Reject did not decode"},
+		{name: "TLV-E with one length octet", pdu: rejectPDU(62, 0x78, 0x00), want: Error, wantObserved: "Registration Reject did not decode"},
+		{name: "TLV with no length octet", pdu: rejectPDU(62, 0x69), want: Error, wantObserved: "Registration Reject did not decode"},
 		{name: "#111", pdu: rejectPDU(111, rejected...), want: Fail, wantObserved: "Registration Reject, 5GMM cause #111",
 			wantDetail: []string{"not #62 \"No network slices available\". TS 24.501 5.5.1.2.5 (from V16.2.0)"}},
 		{name: "truncated", pdu: rejectPDU(62, 0x69, 9), want: Error, wantObserved: "Registration Reject did not decode"},
@@ -341,4 +368,25 @@ func checkStimulusRequest(t *testing.T, reqs [][]byte) {
 	if c := rr.Capability5GMM; c == nil || c.GetLen() != 3 || !bytes.Equal(c.Octet[:3], []byte{0, 0, 0}) {
 		t.Errorf("5GMM capability = %+v, want octets 3 to 5 zero", c)
 	}
+}
+
+// No Registration Reject, however malformed, makes the judge panic: a core's
+// bad message must never abort the run. The seeds are the table's PDUs.
+func FuzzJudgeNSSAIReject(f *testing.F) {
+	for _, seed := range [][]byte{
+		rejectPDU(62), rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectPDU(62, 0x68, 6, 0x00, 0x40, 1, 0xee, 0xee, 0xee),
+		rejectPDU(62, 0x78, 0x00, 0x01), rejectPDU(62, 0x75, 0x00, 0x02, 0xaa, 0xbb), rejectPDU(62, 0x68, 1, 0x71),
+		rejectPDU(62, 0x10, 0x01, 0x11, 0x21, 0x43, 0x01, 0xee, 0xee, 0xee, 0x50, 0x01, 0x01, 0x02, 0x03, 0x02), rejectPDU(111),
+	} {
+		f.Add(seed[4:])
+	}
+	f.Fuzz(func(t *testing.T, tail []byte) {
+		pdu := append([]byte{0x7e, 0x00, 0x44, 0x3e}, tail...)
+		judgeNSSAIReject(pdu, stim)
+		_, ies, _ := rejectIEs(pdu)
+		for _, ie := range ies {
+			_, _ = decodeRejectedNSSAI(ie.value)
+			_, _ = decodeExtendedRejectedNSSAI(ie.value)
+		}
+	})
 }

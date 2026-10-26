@@ -81,13 +81,23 @@ Formats checked by orbit-conformance-test-writer, 2026-10-26: V18.14.0 for the l
 
 ## Verdicts
 
+A #62 Reject is judged in this order. Both slice IEs are decoded whenever present.
+1. The stimulus is in the decoded part of the Rejected NSSAI IE: PASS. Once the stimulus is in a decoded Rejected NSSAI IE the shall is met; other IE errors are recorded in Detail.
+2. Otherwise, a Rejected NSSAI or Extended rejected NSSAI IE that fails to decode: ERROR, with the IEI and hex.
+3. Otherwise, the stimulus only in a fully decoded Extended rejected NSSAI IE: FAIL.
+4. Otherwise, an IEI not listed in 8.2.9.1 (V20.1.0): ERROR.
+5. Otherwise: FAIL, the stimulus in neither IE.
+
+In more detail:
+
 - **PASS:** a #62 Reject whose Rejected NSSAI IE lists the stimulus. The cause of each rejected S-NSSAI is recorded, not asserted.
 - **FAIL:**
   - a Reject with any other 5GMM cause (5.5.1.2.5 #62, from V16.2.0);
   - the stimulus only in a decoded Extended rejected NSSAI IE (from V17.1.0);
   - a #62 Reject that lists the stimulus in neither IE. The detail says "required from V16.6.0".
 - **ERROR:**
-  - a #62 Reject without the stimulus in the Rejected NSSAI IE but with an IE Orbit cannot decode (IEI and hex in the detail);
+  - a #62 Reject without the stimulus in the decoded Rejected NSSAI IE but with an IE Orbit cannot decode, in the order above (IEI and hex in the detail);
+  - a Registration Accept that does not decode. No deregistration is possible: the engine skips the undecodable Accept, so the attach never reaches REGISTERED and returns no handle. The detail says so;
   - an Accept whose allowed NSSAI contains the stimulus (a harness collision);
   - an Authentication Reject, a release without a Reject, no answer within 10 s, or a Reject that fails the integrity check.
 - **SKIP:**

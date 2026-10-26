@@ -250,10 +250,13 @@ func rejectIEs(plain []byte) (uint8, []nasIE, error) {
 		case iei >= 0x80:
 			ies, rest = append(ies, nasIE{iei: iei}), rest[1:]
 		case iei&0xf0 == 0x70:
-			if len(rest) < 3 || 3+int(rest[1])<<8|int(rest[2]) > len(rest) {
+			if len(rest) < 3 {
 				return cause, ies, fmt.Errorf("IEI %#02x truncated: %x", iei, rest)
 			}
 			n := int(rest[1])<<8 | int(rest[2])
+			if 3+n > len(rest) {
+				return cause, ies, fmt.Errorf("IEI %#02x truncated: %x", iei, rest)
+			}
 			ies, rest = append(ies, nasIE{iei: iei, value: rest[3 : 3+n]}), rest[3+n:]
 		default:
 			if len(rest) < 2 || 2+int(rest[1]) > len(rest) {
@@ -423,7 +426,10 @@ func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, st
 	case o.reject != nil:
 		return judgeNSSAIReject(o.reject, want)
 	case o.acceptErr != nil:
-		return Error, "Registration Accept did not decode", fmt.Sprintf("%v; NAS PDU %x", o.acceptErr, o.acceptRaw)
+		// The engine skips a downlink that does not decode (OnNAS is set),
+		// so the attach never reaches REGISTERED and returns no Session:
+		// the harness has no handle to deregister with.
+		return Error, "Registration Accept did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: Registration Accept did not decode; no deregistration possible: the engine returns no registered-UE handle when the Accept does not decode, and the attach closed its association", o.acceptErr, o.acceptRaw)
 	case o.accept != nil:
 		var allowed [][]byte
 		if o.accept.AllowedNSSAI != nil {
@@ -462,27 +468,30 @@ func judgeNSSAIReject(plain, want []byte) (Verdict, string, string) {
 		return Fail, fmt.Sprintf("Registration Reject, 5GMM cause #%d", cause),
 			fmt.Sprintf("the only requested S-NSSAI was rejected with 5GMM cause #%d, not #62 \"No network slices available\". TS 24.501 5.5.1.2.5 (from V16.2.0). Likely cause: AMF NSSAI handling.", cause)
 	}
+	// Undecodable IEs by kind: a Rejected NSSAI or Extended rejected NSSAI
+	// IE that stopped decoding part-way may hold the stimulus past the
+	// point it stopped; an IEI outside 8.2.9.1 may hold anything.
 	var rejected, extended []rejectedSNSSAI
-	var undecodable []string
+	var badRejected, badExtended, unknown []string
 	for _, ie := range ies {
 		switch ie.iei {
 		case ieiRejectedNSSAI:
 			list, err := decodeRejectedNSSAI(ie.value)
 			rejected = append(rejected, list...)
 			if err != nil {
-				undecodable = append(undecodable, fmt.Sprintf("IEI %#02x (%v): %x", ie.iei, err, ie.value))
+				badRejected = append(badRejected, fmt.Sprintf("IEI %#02x (%v): %x", ie.iei, err, ie.value))
 			}
 		case ieiExtendedRejectedNSSAI:
 			list, err := decodeExtendedRejectedNSSAI(ie.value)
 			extended = append(extended, list...)
 			if err != nil {
-				undecodable = append(undecodable, fmt.Sprintf("IEI %#02x (%v): %x", ie.iei, err, ie.value))
+				badExtended = append(badExtended, fmt.Sprintf("IEI %#02x (%v): %x", ie.iei, err, ie.value))
 			}
 		default:
 			if _, ok := rejectNonNSSAIIEIs[ie.iei]; ok {
 				continue
 			}
-			undecodable = append(undecodable, fmt.Sprintf("IEI %#02x: %x", ie.iei, ie.value))
+			unknown = append(unknown, fmt.Sprintf("IEI %#02x: %x", ie.iei, ie.value))
 		}
 	}
 	const v181 = "from V18.1.0 the Reject must list every requested S-NSSAI; the check requests one, so that rule and this check coincide"
@@ -490,16 +499,35 @@ func judgeNSSAIReject(plain, want []byte) (Verdict, string, string) {
 	if len(extended) > 0 {
 		recorded += fmt.Sprintf("; Extended rejected NSSAI %v", extended)
 	}
+	cannotDecode := func(bad []string) (Verdict, string, string) {
+		return Error, "Registration Reject #62 with an IE Orbit cannot decode",
+			strings.Join(bad, "; ") + ". Orbit's NAS codec covers about Rel-15/16, so this may be Orbit's gap. " + recorded
+	}
+	bad := append(append(badRejected, badExtended...), unknown...)
+	// In order: once the stimulus is in a decoded Rejected NSSAI IE the
+	// shall is met, and other IE errors are recorded in Detail. Otherwise a
+	// slice IE that did not decode is ERROR, since its undecoded part may
+	// hold the stimulus; "only in the Extended IE" needs that IE fully
+	// decoded; and an IEI outside 8.2.9.1, which may hold anything, is
+	// ERROR.
 	switch {
 	case listsSNSSAI(rejected, want):
-		return Pass, "Registration Reject #62, stimulus S-NSSAI in the Rejected NSSAI IE", recorded + "; " + v181
+		detail := recorded + "; " + v181
+		if len(bad) > 0 {
+			detail += "; also present, not decoded: " + strings.Join(bad, "; ")
+		}
+		return Pass, "Registration Reject #62, stimulus S-NSSAI in the Rejected NSSAI IE", detail
+	case len(badRejected) > 0 || len(badExtended) > 0:
+		return cannotDecode(bad)
 	case listsSNSSAI(extended, want):
 		return Fail, "Registration Reject #62, stimulus S-NSSAI only in the Extended rejected NSSAI IE",
 			"the UE did not set ER-NSSAI, so the rejected S-NSSAI shall be in the Rejected NSSAI IE. TS 24.501 5.5.1.2.5 (from V17.1.0). Likely cause: AMF NSSAI handling. " + recorded
-	case len(undecodable) > 0:
-		return Error, "Registration Reject #62 with an IE Orbit cannot decode",
-			"the stimulus S-NSSAI is not in the Rejected NSSAI IE, and " + strings.Join(undecodable, "; ") + ". Orbit's NAS codec covers about Rel-15/16, so this may be Orbit's gap. " + recorded
+	case len(unknown) > 0:
+		return cannotDecode(unknown)
 	}
-	return Fail, "Registration Reject #62 without the stimulus S-NSSAI in the Rejected NSSAI IE",
-		"requested S-NSSAI not allowed but not reported in rejected NSSAI. TS 24.501 5.5.1.2.5; required from V16.6.0 (a core built on V16.2.0 to V16.5.1 may omit it). Likely cause: AMF NSSAI handling. " + recorded + "; " + v181
+	detail := "requested S-NSSAI not allowed but not reported in rejected NSSAI. TS 24.501 5.5.1.2.5; required from V16.6.0 (a core built on V16.2.0 to V16.5.1 may omit it). Likely cause: AMF NSSAI handling. " + recorded + "; " + v181
+	if listsSNSSAI(rejected, want[:1]) {
+		detail += "; an element with the stimulus's SST but no SD was listed; that is a different S-NSSAI (TS 23.003 28.4.2), so it does not report the requested one"
+	}
+	return Fail, "Registration Reject #62 without the stimulus S-NSSAI in the Rejected NSSAI IE", detail
 }
