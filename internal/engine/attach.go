@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasType"
@@ -385,6 +386,7 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		return fmt.Errorf("downlink NAS too short: %d bytes", len(raw))
 	}
 	// The header's message type, read without the key, for the probe.
+	at := time.Now()
 	typ := nasMessageType(raw, s.readableCipher())
 	var msg *f5nas.Message
 	var err error
@@ -396,7 +398,7 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		msg, err = s.securityModeContext(raw)
 		if errors.Is(err, ErrUnsupportedAlgorithms) {
 			if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
-				p.OnNAS(NASEvent{Raw: append([]byte(nil), raw...), Type: typ, Err: err})
+				p.OnNAS(NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Err: err})
 			}
 			return err
 		}
@@ -408,8 +410,8 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		msg, err = s.sec.DecodeSecure(raw)
 	}
 	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
-		p.OnNAS(NASEvent{Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Err: err})
-		if err != nil && typ == f5nas.MsgTypeRegistrationAccept && p.DeregisterUndecodableAccept {
+		p.OnNAS(NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Err: err})
+		if err != nil && p.DeregisterUndecodableAccept && s.mayBeAccept(typ) {
 			return s.deregisterUndecodableAccept(err)
 		}
 		if err != nil {

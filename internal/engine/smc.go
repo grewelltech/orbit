@@ -84,3 +84,15 @@ func advertises(caps nasType.UESecurityCapability, ia, ea uint8) bool {
 func (s *attachState) readableCipher() bool {
 	return s.sec == nil || s.sec.CipheringAlg == nas.NEA0
 }
+
+// mayBeAccept reports whether a downlink that did not decode may be the
+// Registration Accept (AttachProbe.DeregisterUndecodableAccept): its header
+// says so, or, under a cipher other than NEA0, the header is unreadable
+// (typ 0) while the attach is still waiting for the Accept. A best-effort
+// deregistration after a PDU that was something else is harmless.
+func (s *attachState) mayBeAccept(typ uint8) bool {
+	if typ == f5nas.MsgTypeRegistrationAccept {
+		return true
+	}
+	return typ == 0 && !s.readableCipher() && !s.registered
+}
