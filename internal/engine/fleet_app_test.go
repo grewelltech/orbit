@@ -441,3 +441,51 @@ func TestCohortValuesVideoBitrateNeedsASegment(t *testing.T) {
 		t.Errorf("stall pool = %v, want both — zero stalls is a measurement", v.stallTime)
 	}
 }
+
+// Empty interval snapshots must not replace real per-member measurements.
+// Loom scores a no-packet VoIP interval as the ideal 4.37, and video has no
+// bitrate value between segment completions. Neither absence should overwrite
+// the latest quality measurement shown for that member.
+func TestCohortMemberValuesRetainSparseMeasurements(t *testing.T) {
+	voip := &cohortMemberValues{app: "voip"}
+	voip.observe(metrics.VoIP{MOSCQ: 4.37})
+	if voip.hasMOS {
+		t.Fatal("empty VoIP interval became a MOS measurement")
+	}
+	voip.observe(metrics.VoIP{TxPackets: 50, RxPackets: 49, MOSCQ: 4.08})
+	voip.observe(metrics.VoIP{MOSCQ: 4.37})
+	if !voip.hasMOS || voip.mos != 4.08 {
+		t.Errorf("MOS = %v (present %v), want retained 4.08", voip.mos, voip.hasMOS)
+	}
+
+	video := &cohortMemberValues{app: "video"}
+	video.observe(metrics.Video{SegmentsFetched: 1, AvgBitrateKbps: 2500, StartupMs: 70})
+	video.observe(metrics.Video{SegmentsFetched: 0, AvgBitrateKbps: 0, StallTimeMs: 12})
+	if !video.hasBitrate || video.bitrate != 2500 {
+		t.Errorf("bitrate = %v (present %v), want retained 2500", video.bitrate, video.hasBitrate)
+	}
+	if !video.hasStartup || video.startup != 70 {
+		t.Errorf("startup = %v (present %v), want retained 70", video.startup, video.hasStartup)
+	}
+	if video.stallTime != 12 {
+		t.Errorf("stall time = %v, want current-interval 12", video.stallTime)
+	}
+}
+
+func TestFleetVideoStartOffsets(t *testing.T) {
+	if got := fleetAppStartOffset("voip", 5, 10, time.Minute); got != 0 {
+		t.Errorf("voip offset = %v, want 0", got)
+	}
+	if got := fleetAppStartOffset("video", 0, 10, time.Minute); got != 0 {
+		t.Errorf("first video offset = %v, want 0", got)
+	}
+	if got := fleetAppStartOffset("video", 5, 10, time.Minute); got != 2*time.Second {
+		t.Errorf("middle video offset = %v, want 2s", got)
+	}
+	if got := fleetAppStartOffset("video", 9, 10, time.Minute); got != 3600*time.Millisecond {
+		t.Errorf("last video offset = %v, want 3.6s", got)
+	}
+	if got := fleetAppStartOffset("video", 9, 10, 10*time.Second); got != 900*time.Millisecond {
+		t.Errorf("short-run video offset = %v, want 900ms", got)
+	}
+}

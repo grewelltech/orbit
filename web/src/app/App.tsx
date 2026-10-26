@@ -145,6 +145,20 @@ export function App() {
     };
   }, [history, latest]);
 
+  // Cohort cards use the same selected time window as the large charts. Bound
+  // SVG complexity by sampling at most 180 frames; these are shape summaries,
+  // while the adjacent values retain the exact latest percentiles.
+  const cohortHistory = useMemo(() => {
+    // In follow mode a completed run is no longer live, so do not leave its
+    // cohort trends looking active indefinitely. An explicitly selected run
+    // is historical analysis and keeps its archived charts.
+    if (!selectedRun && latest && ["complete", "failed"].includes(latest.run.state)) return [];
+    const cutoff = (latest?.t ?? Date.now()) - windowMs;
+    const frames = history.toArray().filter((f) => f.t >= cutoff);
+    const stride = Math.max(1, Math.ceil(frames.length / 180));
+    return frames.filter((_, i) => i % stride === 0 || i === frames.length - 1);
+  }, [history, latest, selectedRun, windowMs]);
+
   // Peak and average over the WHOLE run, not the visible window: the attach
   // burst is over in seconds, and a shorter span would scroll it out of view
   // and take the headline number with it.
@@ -159,6 +173,7 @@ export function App() {
 
   const dl = bps(latest?.throughput.downlinkBps ?? 0);
   const attachOk = latest ? latest.rates.attachSuccess : 1;
+  const flowsActive = latest?.run.state === "starting" || latest?.run.state === "running" || latest?.run.state === "draining";
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -171,7 +186,7 @@ export function App() {
         onCycleTheme={cycleTheme}
       />
 
-      <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 pb-11">
         {/* Headline numbers */}
         <section className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
           <StatTile
@@ -299,23 +314,24 @@ export function App() {
           meaning. A run with several cohorts of one app widens that slot
           rather than reordering the rest.
         */}
-        <section className="grid min-h-0 grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        <section className="grid min-h-0 shrink-0 grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
           {COHORT_APPS.map((app) => {
             const of = latest?.cohorts.filter((c) => c.app === app) ?? [];
-            if (of.length === 0) return <CohortSlot key={app} app={app} cohort={null} />;
-            return of.map((c) => <CohortSlot key={c.name} app={app} cohort={c} />);
+            if (of.length === 0) return <CohortSlot key={app} app={app} cohort={null} history={cohortHistory} />;
+            return of.map((c) => <CohortSlot key={c.name} app={app} cohort={c} history={cohortHistory} />);
           })}
         </section>
 
         {/* Flows + distribution + events */}
         <section className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[320px_1fr_1fr]">
-          <GnbDistribution frame={latest} className="min-h-[180px]" />
+          <GnbDistribution frame={latest} className="min-h-[540px]" />
           <FlowTable
-            flows={latest?.flows ?? []}
-            total={latest?.flowsTotal ?? 0}
-            className="min-h-[180px]"
+            flows={flowsActive ? (latest?.flows ?? []) : []}
+            total={flowsActive ? (latest?.flowsTotal ?? 0) : 0}
+            active={flowsActive}
+            className="min-h-[540px]"
           />
-          <EventStream events={events} onClear={clearEvents} className="min-h-[180px]" />
+          <EventStream events={events} onClear={clearEvents} className="min-h-[540px]" />
         </section>
       </main>
     </div>

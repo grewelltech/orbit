@@ -76,6 +76,9 @@ type FleetBehaviors struct {
 	Traffic       bool
 	TrafficRate   string
 	TrafficTarget string
+	// Bulk reserves a fixed number of non-mobile UEs for independently paced
+	// uplink and downlink UDP load. Each configured rate applies per UE.
+	Bulk FleetBulkTraffic
 	// Latency, when its Target is set, samples user-plane RTT over the UEs'
 	// own N3 data paths for the duration of the run.
 	Latency FleetLatencyProbe
@@ -176,6 +179,9 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	// dials or attaches — an actionable error now beats per-UE failures
 	// minutes into a soak.
 	if err := validateFleetAppCohorts(beh.Apps); err != nil {
+		return rep, err
+	}
+	if err := validateFleetBulk(beh.Bulk); err != nil {
 		return rep, err
 	}
 	specs := make([]GNBSpec, len(spec.GNBs))
@@ -360,10 +366,15 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	defer cancel()
 	var wg sync.WaitGroup
 
-	// App cohorts take their members from the TAIL of the fleet; mobility
-	// owns the head and the synthetic traffic below skips both populations.
+	// App cohorts take their members from the TAIL of the fleet; mobility owns
+	// the head. Bulk then takes a fixed-size slice from the remaining population
+	// and legacy synthetic traffic uses the rest, so behaviours do not overlap.
 	appMembers, appTotal := carveAppCohorts(ues, min(beh.MobileUEs, len(ues)), beh.Apps, log)
-	trafficUEs := ues[:len(ues)-appTotal]
+	nonAppStart := min(beh.MobileUEs, len(ues)-appTotal)
+	nonApp := ues[nonAppStart : len(ues)-appTotal]
+	bulkCount := max(0, min(beh.Bulk.UEs, len(nonApp)))
+	bulkUEs := nonApp[:bulkCount]
+	trafficUEs := nonApp[bulkCount:]
 
 	// Traffic: one shared N3 socket per gNB N3 ADDRESS (several FleetGNBs may
 	// share one N3 address — the single-node walkthrough shape — and binding
@@ -381,7 +392,7 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 		upfN3 := fleetUPFN3(ues[0].sess.Result.UPFAddress)
 		tuns := map[string]*sharedN3{}
 		for gi := range f.sessions {
-			flowUEs := uesOnGNB(trafficUEs, gi, beh.MobileUEs)
+			flowUEs := uesOnGNB(trafficUEs, gi, 0)
 			if len(flowUEs) == 0 {
 				continue
 			}
@@ -434,6 +445,29 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 			}
 		}
 	}
+	syntheticFlows := rep.TrafficFlows
+
+	// Bulk and app cohorts share one control connection per loomd. Bulk uses a
+	// shared N6 receiver for uplink and one N6 sender per UE for downlink.
+	var agents *fleetAgentPool
+	if len(bulkUEs) > 0 || appTotal > 0 {
+		agents = newFleetAgentPool(appTuning{})
+	}
+	bulkStarted := 0
+	var bulkBytes uint64
+	if len(bulkUEs) > 0 {
+		ev.Traffic(fmt.Sprintf("bulk traffic started: %d UEs → %s%s%s",
+			len(bulkUEs), beh.Bulk.Peer, trafficDirectionNote("UL", beh.Bulk.UplinkRate),
+			trafficDirectionNote("DL", beh.Bulk.DownlinkRate)))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			flows, bytes := runFleetBulk(dctx, log, agents, beh.Bulk, bulkUEs, beh.Duration, live)
+			bulkStarted = flows
+			rep.TrafficFlows += flows
+			bulkBytes = bytes
+		}()
+	}
 
 	// App cohorts (fleet_app.go): real voip/http/video engines on the carved
 	// members, far-end plumbing shared per loomd (one control connection +
@@ -450,7 +484,6 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 					cohortName(c, i), c.App, len(appMembers[i]), c.Peer))
 			}
 		}
-		agents := newFleetAgentPool(appTuning{})
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -526,11 +559,14 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	}
 
 	wg.Wait()
-	rep.TrafficBytes = trafficBytes.Load()
+	rep.TrafficBytes = trafficBytes.Load() + bulkBytes
 	rep.AppCohorts = appReports
 	if beh.Traffic && spec.PDUSession != nil && len(trafficUEs) > 0 {
 		ev.Traffic(fmt.Sprintf("synthetic traffic stopped: %d flows, %s",
-			rep.TrafficFlows, byteSize(rep.TrafficBytes)))
+			syntheticFlows, byteSize(rep.TrafficBytes)))
+	}
+	if len(bulkUEs) > 0 {
+		ev.Traffic(fmt.Sprintf("bulk traffic stopped: %d UEs, %s", bulkStarted, byteSize(bulkBytes)))
 	}
 	for _, r := range appReports {
 		msg := fmt.Sprintf("cohort %s (%s) stopped: %d UEs", r.Name, r.App, r.UEs)
@@ -551,6 +587,13 @@ func trafficRateNote(rate string) string {
 		return ""
 	}
 	return " at " + rate
+}
+
+func trafficDirectionNote(direction, rate string) string {
+	if rate == "" {
+		return ""
+	}
+	return fmt.Sprintf(" %s %s/UE", direction, rate)
 }
 
 // byteSize renders a byte total in the unit that keeps an event line readable.

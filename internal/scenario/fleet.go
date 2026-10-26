@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/bgrewell/loom/core/units"
 	"gopkg.in/yaml.v3"
 )
 
@@ -87,7 +88,21 @@ type MobilityBehavior struct {
 }
 
 type TrafficBehavior struct {
-	Mix []TrafficShare `yaml:"mix"`
+	Mix  []TrafficShare `yaml:"mix"`
+	Bulk *BulkTraffic   `yaml:"bulk"`
+}
+
+// BulkTraffic reserves UEs for constant-rate UDP load in either or both
+// directions. Rates are per UE; Peer is the N6 loomd control address used as
+// the uplink sink and to launch downlink senders.
+type BulkTraffic struct {
+	UEs          int    `yaml:"ues"`
+	UplinkRate   string `yaml:"uplink_rate"`
+	DownlinkRate string `yaml:"downlink_rate"`
+	Peer         string `yaml:"peer"`
+	Token        string `yaml:"token"`
+	PeerDataIP   string `yaml:"peer_data_ip"`
+	PacketSize   int    `yaml:"packet_size"`
 }
 
 // TrafficShare assigns a fraction of the fleet to either a synthetic traffic
@@ -236,6 +251,36 @@ func (f *FleetScenario) validate() error {
 		}
 	}
 	if t := f.Behaviors.Traffic; t != nil {
+		if b := t.Bulk; b != nil {
+			if !f.Fleet.PDUSession {
+				return fmt.Errorf("bulk traffic needs fleet.pdu_session: true")
+			}
+			if b.UEs < 1 {
+				return fmt.Errorf("traffic.bulk.ues must be >= 1")
+			}
+			if b.UEs > f.nonMobilePopulation() {
+				return fmt.Errorf("traffic.bulk.ues is %d but only %d non-mobile UEs are available", b.UEs, f.nonMobilePopulation())
+			}
+			if b.Peer == "" {
+				return fmt.Errorf("traffic.bulk.peer is required (the N6 loomd control address)")
+			}
+			if b.UplinkRate == "" && b.DownlinkRate == "" {
+				return fmt.Errorf("traffic.bulk needs uplink_rate, downlink_rate, or both")
+			}
+			for field, value := range map[string]string{
+				"uplink_rate": b.UplinkRate, "downlink_rate": b.DownlinkRate,
+			} {
+				if value == "" {
+					continue
+				}
+				if rate, err := units.ParseRate(value); err != nil || rate <= 0 {
+					return fmt.Errorf("traffic.bulk.%s %q is not a positive bit rate", field, value)
+				}
+			}
+			if b.PacketSize < 0 || b.PacketSize > 1350 {
+				return fmt.Errorf("traffic.bulk.packet_size must be between 1 and 1350 bytes (or 0 for the 1200-byte default)")
+			}
+		}
 		var sum float64
 		names := map[string]bool{}
 		for _, m := range t.Mix {
@@ -344,13 +389,24 @@ func (f *FleetScenario) GenFleet(gnbs []PlacedGNB) []FleetUE {
 // and the carve clamped the overflow in cohort order: the first cohort got
 // everything, the rest got zero, and a run configured for http+video+voip ran
 // http alone with only a log line saying so.
-func (f *FleetScenario) trafficPopulation() int {
+func (f *FleetScenario) nonMobilePopulation() int {
 	if f.Behaviors.Mobility == nil {
 		return f.Fleet.Count
 	}
 	n := f.Fleet.Count - f.Fleet.Count/2 // engine: MobileUEs = Count/2
 	if n < 1 {
 		n = 1
+	}
+	return n
+}
+
+func (f *FleetScenario) trafficPopulation() int {
+	n := f.nonMobilePopulation()
+	if f.Behaviors.Traffic != nil && f.Behaviors.Traffic.Bulk != nil {
+		n -= f.Behaviors.Traffic.Bulk.UEs
+	}
+	if n < 0 {
+		return 0
 	}
 	return n
 }
@@ -385,17 +441,27 @@ func (f *FleetScenario) mixCounts() []int {
 // cohort name for app entries), allocated per mixCounts. Empty if no mix.
 func (f *FleetScenario) profileAssignment() []string {
 	out := make([]string, f.Fleet.Count)
-	if f.Behaviors.Traffic == nil || len(f.Behaviors.Traffic.Mix) == 0 {
+	if f.Behaviors.Traffic == nil {
 		return out
 	}
-	mix := f.Behaviors.Traffic.Mix
+	t := f.Behaviors.Traffic
+	i := f.Fleet.Count - f.nonMobilePopulation()
+	if t.Bulk != nil {
+		for n := 0; n < t.Bulk.UEs && i < len(out); n++ {
+			out[i] = "bulk"
+			i++
+		}
+	}
+	if len(t.Mix) == 0 {
+		return out
+	}
+	mix := t.Mix
 	label := func(m TrafficShare) string {
 		if m.isApp() {
 			return m.cohortName()
 		}
 		return m.Profile
 	}
-	i := 0
 	for mi, n := range f.mixCounts() {
 		for k := 0; k < n && i < f.Fleet.Count; k++ {
 			out[i] = label(mix[mi])

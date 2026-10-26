@@ -14,6 +14,7 @@ export interface FlowTableProps {
   flows: Flow[];
   /** Flows carrying traffic before truncation. */
   total: number;
+  active?: boolean;
   className?: string;
 }
 
@@ -22,7 +23,7 @@ function rate(v: number): string {
   return `${f.value} ${f.unit}`;
 }
 
-export function FlowTable({ flows, total, className }: FlowTableProps) {
+export function FlowTable({ flows, total, active = true, className }: FlowTableProps) {
   const truncated = total > flows.length;
   return (
     <Panel
@@ -38,7 +39,9 @@ export function FlowTable({ flows, total, className }: FlowTableProps) {
     >
       <div className="h-full min-h-0 overflow-auto">
         {flows.length === 0 ? (
-          <p className="o-label px-3 py-3">no flows carrying traffic</p>
+          <p className="o-label px-3 py-3">
+            {active ? "no flows carrying traffic" : "run ended; no active flows"}
+          </p>
         ) : (
           <table className="w-full border-collapse text-left">
             <thead>

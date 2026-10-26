@@ -588,6 +588,34 @@ model), not on a timer — and **traffic** (one loom flow per non-mobile UE over
 its gNB's shared N3 socket) for `run.duration`, then reports (attach / handovers
 / traffic / deregister).
 
+#### Bulk uplink and downlink
+
+`traffic.bulk` reserves an exact number of non-mobile UEs for constant-rate UDP
+load. The rates are **per UE**, so this example offers 200 Mbps uplink and
+500 Mbps downlink in aggregate:
+
+```yaml
+fleet:
+  count: 80
+  pdu_session: true
+behaviors:
+  traffic:
+    bulk:
+      ues: 10
+      uplink_rate: 20Mbps
+      downlink_rate: 50Mbps
+      peer: 172.17.192.2:9551       # N6 loomd control address
+      token: ${LOOM_TOKEN}          # omit for an unauthenticated loomd
+      # peer_data_ip: 172.17.192.2  # when control and data addresses differ
+      # packet_size: 1200           # UDP payload bytes; default 1200
+```
+
+The N6 loom agent runs one shared uplink receiver and one downlink sender per
+UE. Downlink senders target the UEs' PDU addresses, so the N6 host must have the
+normal route to the UE pool through the UPF. Bulk UEs are reserved before the
+optional percentage-based `mix`; mix shares still sum to 1.0 and divide the
+remaining non-mobile UEs. At least one direction must be configured.
+
 #### App cohorts (real application traffic at fleet scale)
 
 Traffic mix entries with `app:` instead of `profile:` declare **application
