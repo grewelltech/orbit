@@ -192,15 +192,44 @@ Run it on a host in the data network, and pass that address as `--peer`. Stock
 
 ## 8. Writing a scenario
 
-The shipped examples are annotated and are the fastest way in:
+The shipped examples are annotated and are the fastest way in. They are the
+maintained scenario set: CI parses and validates every one of them, so they do
+not drift from what the parser accepts. Addresses match the LXD testbed; edit
+them for another lab.
 
-| File | What it shows |
-|---|---|
-| `examples/fleet-testbed.yaml` | a small fleet with an http cohort and a latency probe |
-| `examples/fleet-testbed-mobility.yaml` | a gNB grid with mobility and handover |
-| `examples/fleet-testbed-heavy.yaml` | a mixed http/video/voip population |
-| `examples/fleet-testbed-staged.yaml` | cohorts joining over time (`start_after`) |
-| `examples/fleet-testbed-ramp.yaml` | load escalating through the run |
+| File | Kind | Intended use |
+|---|---|---|
+| `examples/attach-and-handover-xn.yaml` | scenario, 1 UE | the single-UE Xn path end to end: attach with a session, data, Xn handover, data again, deregister |
+| `examples/attach-and-handover-n2.yaml` | scenario, 1 UE | the same over N2 (AMF-mediated); its header explains why SD-Core's downlink does not follow |
+| `examples/fleet-testbed.yaml` | fleet, 1 gNB, 6 UEs | a small smoke fleet: one http cohort and a latency probe |
+| `examples/fleet-testbed-attach-rate.yaml` | fleet, 10 gNBs, 1000 UEs | control-plane attach rate: registration only, no sessions |
+| `examples/fleet-testbed-heavy.yaml` | fleet, 1 gNB, 100 UEs | a long mixed http/video/voip population |
+| `examples/fleet-testbed-staged.yaml` | fleet, 1 gNB, 100 UEs | cohorts joining over time (`start_after`) |
+| `examples/fleet-testbed-ramp.yaml` | fleet, 1 gNB, 100 UEs | load escalating through a 30-minute run |
+| `examples/fleet-testbed-mobility.yaml` | fleet, 4 gNBs, 20 UEs | a gNB grid with mobility and Xn handover |
+| `examples/fleet-testbed-full.yaml` | fleet, 10 gNBs, 1000 UEs | everything at once: every app, mobility, an uneven cell layout |
+| `examples/fleet.yaml` | fleet, 10 gNBs, 100 UEs | the generic fleet template (ADR-0004) |
+
+Which control flows each one exercises:
+
+| File | Attach | PDU session | Xn HO | N2 HO | Data after HO | Dereg | Mobility model | http | video | voip | Latency probe |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| attach-and-handover-xn | ✓ | ✓ | ✓ | | ✓ | ✓ | | | | | ✓ |
+| attach-and-handover-n2 | ✓ | ✓ | | ✓ | | ✓ | | | | | |
+| fleet-testbed | ✓ | ✓ | | | | ✓ | | ✓ | | | ✓ |
+| fleet-testbed-attach-rate | ✓ | | | | | ✓ | | | | | |
+| fleet-testbed-heavy | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | ✓ | ✓ |
+| fleet-testbed-staged | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | ✓ | ✓ |
+| fleet-testbed-ramp | ✓ | ✓ | | | | ✓ | | ✓ | | ✓ | ✓ |
+| fleet-testbed-mobility | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | | | ✓ |
+| fleet-testbed-full | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| fleet | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | ✓ | ✓ | |
+
+- **Data after HO** means the scenario sends traffic after the handover and
+  checks it (the Xn scenario pings again). Fleet runs with mobility keep their
+  app flows running across handovers, but no step checks continuity.
+- Fleet handovers are Xn only. N2 is covered by the single-UE scenario.
+- Every fleet run deregisters its UEs when it ends.
 
 A minimal one:
 
