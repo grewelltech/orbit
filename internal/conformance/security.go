@@ -303,10 +303,10 @@ func judgeSMC(o smcOutcome, u smcStimulus) subResult {
 	caps := u.caps()
 	odd := u != normalUE
 	offered := capsString(caps)
-	nia0Msg := fmt.Sprintf("AMF selected NIA0 for a normal registration (UE offered %s). TS 33.501 5.5.2. The check never requests an emergency registration, so 5.5.2's emergency exception cannot apply. Likely cause: AMF algorithm selection falls back to NIA0.", offered)
-	skipMsg := fmt.Sprintf("no Security Mode Command before the Registration Accept (UE offered %s). TS 33.501 5.5.2.", offered)
+	nia0Msg := fmt.Sprintf("AMF selected NIA0 for a normal registration (UE offered %s). TS 33.501 5.5.2. %s Likely cause: AMF algorithm selection falls back to NIA0.", offered, noEmergencyNote)
+	skipMsg := fmt.Sprintf("no Security Mode Command before the Registration Accept (UE offered %s). TS 33.501 5.5.2. %s", offered, noEmergencyNote)
 	if o.plainAccept {
-		skipMsg = fmt.Sprintf("no Security Mode Command; registration proceeded without NAS security (UE offered %s). TS 33.501 5.5.2.", offered)
+		skipMsg = fmt.Sprintf("no Security Mode Command; registration proceeded without NAS security (UE offered %s). TS 33.501 5.5.2. %s", offered, noEmergencyNote)
 	}
 	const capsMsg = "Replayed UE security capabilities differ from those sent. TS 33.501 6.7.2 step 1b. Likely cause: AMF capability echo."
 	switch {
@@ -362,6 +362,10 @@ func judgeSMC(o smcOutcome, u smcStimulus) subResult {
 	}
 	return s
 }
+
+// noEmergencyNote follows every NIA0 or no-command FAIL: 5.5.2 excepts
+// emergency calls, and the check's UEs always send an initial registration.
+const noEmergencyNote = "The check never requests an emergency registration, so the emergency exception in 5.5.2 does not apply."
 
 // nia0OnlyOrderNote follows a FAIL of the NIA0-only UE: which FAIL a core
 // gives depends on its configuration.

@@ -170,7 +170,8 @@ func nasMessageType(raw []byte, nea0 bool) uint8 {
 // cleanUpPlainAccept answers a Registration Accept sent without NAS
 // security under AttachProbe.CleanUpPlainAccept (see there) and returns the
 // *PlainAcceptError that ends the attach. With no security context the
-// Deregistration Request goes in the clear and names the UE by the 5G-GUTI
+// Deregistration Request goes in the clear, which TS 24.501 4.4.4.3 allows
+// (item f) and NOTE 2), and names the UE by the 5G-GUTI
 // the Accept assigned, else by its SUCI, with ngKSI "no key is available".
 // The last read of the cleanup ends when the caller closes the association,
 // which it does when the attach fails.
