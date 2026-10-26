@@ -97,7 +97,7 @@ func TestJudgeSMC(t *testing.T) {
 			wantDetail: []string{"rejected the UE offering NEA0/NEA1/NEA2, NIA0"}},
 		{name: "NIA0-only: released", o: smcOutcome{released: true}, u: nia0OnlyUE, want: Pass, wantObserved: "UE Context Release Command"},
 		{name: "NIA0-only: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA2, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: Fail,
-			wantObserved: "NIA0 selected", wantDetail: []string{"AMF selected NIA0", nia0OnlyOrderNote}},
+			wantObserved: "NIA0 selected", wantDetail: []string{"AMF selected NIA0", "The check never requests an emergency registration, so 5.5.2's emergency exception cannot apply.", nia0OnlyOrderNote}},
 		{name: "NIA0-only: plain Accept", o: smcOutcome{acceptFirst: true, plainAccept: true, cleanup: "plain switch-off Deregistration Request sent; the core released the UE context (UE Context Release Complete sent)"},
 			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command; registration proceeded without NAS security (UE offered NEA0/NEA1/NEA2, NIA0). TS 33.501 5.5.2.",

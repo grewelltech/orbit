@@ -303,7 +303,7 @@ func judgeSMC(o smcOutcome, u smcStimulus) subResult {
 	caps := u.caps()
 	odd := u != normalUE
 	offered := capsString(caps)
-	nia0Msg := fmt.Sprintf("AMF selected NIA0 for a normal registration (UE offered %s). TS 33.501 5.5.2. Likely cause: AMF algorithm selection falls back to NIA0.", offered)
+	nia0Msg := fmt.Sprintf("AMF selected NIA0 for a normal registration (UE offered %s). TS 33.501 5.5.2. The check never requests an emergency registration, so 5.5.2's emergency exception cannot apply. Likely cause: AMF algorithm selection falls back to NIA0.", offered)
 	skipMsg := fmt.Sprintf("no Security Mode Command before the Registration Accept (UE offered %s). TS 33.501 5.5.2.", offered)
 	if o.plainAccept {
 		skipMsg = fmt.Sprintf("no Security Mode Command; registration proceeded without NAS security (UE offered %s). TS 33.501 5.5.2.", offered)

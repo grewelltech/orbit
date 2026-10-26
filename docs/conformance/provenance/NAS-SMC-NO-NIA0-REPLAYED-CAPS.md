@@ -41,6 +41,7 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/33_series
 Each UE is judged separately, and the check's verdict is the worst of the three (FAIL, then ERROR, then PASS). The second and third UEs run only when the normal UE's result is a verdict. When the NIA0/NIA3 UE and the NIA0-only UE fail the same way, the detail says so.
 
 - **A Registration Accept with no Security Mode Command:** FAIL for any UE. The detail says "no Security Mode Command; registration proceeded without NAS security" when the Accept is plain (security header type 0), and does not claim NIA0 was selected.
+- **A Security Mode Command selecting NIA0:** FAIL for any UE. The check never requests an emergency registration, so 5.5.2's "except for emergency calls" cannot apply, and the detail says so.
 - **A FAIL of the NIA0-only UE:** the detail adds that the outcome on this core depends on its NAS integrity/ciphering order: with only NEA0 configured the AMF skips the SMC; with NEA1/NEA2 it sends an SMC selecting NIA0. Both are FAIL.
 - **Cleanup after a plain Registration Accept:** the UE has no NAS security context, so it sends a switch-off Deregistration Request in the clear, naming itself by the 5G-GUTI the Accept assigned, else by its SUCI. If no UE Context Release Command arrives within 2 s, the gNB sends a UE Context Release Request and waits 2 s again. A command is answered with UE Context Release Complete. The detail records each step, including a release that never came.
 - The liveness probe after the three registrations is unchanged.
