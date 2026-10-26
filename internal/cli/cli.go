@@ -45,7 +45,7 @@ func New(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "orbit",
 		Short:         "ORBIT — Open Radio Benchmark and Integration Testbed",
-		Long:          "PHY-less 5G SA gNB + UE simulator and test harness.\nSee docs/DESIGN.md for the architecture and phased plan.",
+		Long:          "A PHY-less software gNB and UE for 5G SA, and a test harness built on them.\nSee docs/DESIGN.md for the architecture and phased plan.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

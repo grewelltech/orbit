@@ -11,7 +11,7 @@ testbed](#appendix-no-core-yet) — it builds one.
 ## 1. What you need from the core operator
 
 ORBIT talks to a real core, so it needs the same six things any gNB would, plus
-credentials for the subscribers it will simulate.
+credentials for the subscribers its UEs register as.
 
 | | Flag | Example |
 |---|---|---|
