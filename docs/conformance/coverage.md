@@ -203,9 +203,11 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   for DNN `orbit-unknown-dnn` on the run's slice. A PDU Session
   Establishment Reject with any 5GSM cause passes (TS 24.501 6.4.1.4.1; #27
   is only "typical"), and so does the un-forwarded request returned in a DL
-  NAS Transport with 5GMM cause #90/#91 (5.4.5.2.5 a) 1), 5.4.5.3.2 case
-  e)). #90/#91 with any other payload, another answer, or nothing within
-  10 s is FAIL. A core that accepts the DNN SKIPs. The answer is read
+  NAS Transport with 5GMM cause #90/#91 (5.4.5.2.5 a) 1), required from
+  V15.1.0; 5.4.5.3.2 for case e) of 5.4.5.3.1). #90/#91 with any other
+  payload, another answer, or nothing within 10 s is FAIL. A core that
+  accepts the DNN, or returns the request for congestion (#22/#67/#69,
+  case f), allowed from V16.3.0), SKIPs. The answer is read
   through the UE's NAS security context, and the UE is deregistered after.
   An AMF-built Reject without a 5GMM cause cannot be told from an SMF's.
   Needs a UE. Not yet run on Ref 2; the source analyst predicts FAIL (an

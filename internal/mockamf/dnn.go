@@ -27,6 +27,10 @@ const (
 	// un-forwarded request. The 5GMM cause is #91 DNN not supported or not
 	// subscribed in the slice unless one is given.
 	ReturnDNN
+	// CongestionDNN answers as an AMF applying congestion control (TS 24.501
+	// 5.4.5.3.1 case f)): ReturnDNN with 5GMM cause #22 congestion unless
+	// one is given, and a Back-off timer value IE of 1 minute.
+	CongestionDNN
 	// ReturnWrongPayloadDNN is ReturnDNN with an AMF-built PDU Session
 	// Establishment Reject as the payload instead of the request, its 5GSM
 	// cause set to the 5GMM cause.
@@ -52,8 +56,8 @@ const (
 
 // WithUnknownDNN makes the mock answer a PDU Session Establishment Request
 // for dnn with answer. cause is the 5GSM cause of RejectDNN, BadMACDNN and
-// StatusDNN, or the 5GMM cause of the Return answers; zero takes the
-// default (#27, #96 and #91). Requests for other DNNs are answered as
+// StatusDNN, or the 5GMM cause of the Return and Congestion answers; zero
+// takes the default (#27, #96, #91 and, for CongestionDNN, #22). Requests for other DNNs are answered as
 // before.
 func WithUnknownDNN(dnn string, answer DNNAnswer, cause uint8) Option {
 	return func(a *AMF) { a.unknownDNN, a.dnnAnswer, a.dnnCause = dnn, answer, cause }
@@ -72,6 +76,8 @@ func (a *AMF) answerUnknownDNN(p *pipe, st *ueState, id, pti uint8, request []by
 		payload, err = buildPDUSessionEstablishmentReject(id, pti, causeOr(a.dnnCause, nasMessage.Cause5GSMMissingOrUnknownDNN))
 	case ReturnDNN:
 		payload, mmCause = append([]byte(nil), request...), routing
+	case CongestionDNN:
+		payload, mmCause = append([]byte(nil), request...), causeOr(a.dnnCause, nasMessage.Cause5GMMCongestion)
 	case ReturnWrongPayloadDNN:
 		mmCause = routing
 		payload, err = buildPDUSessionEstablishmentReject(id, pti, mmCause)
@@ -104,6 +110,13 @@ func (a *AMF) answerUnknownDNN(p *pipe, st *ueState, id, pti uint8, request []by
 			c := nasType.NewCause5GMM(nasMessage.DLNASTransportCause5GMMType)
 			c.SetCauseValue(mmCause)
 			dl.DLNASTransport.Cause5GMM = c
+		}
+		if a.dnnAnswer == CongestionDNN {
+			b := nasType.NewBackoffTimerValue(nasMessage.DLNASTransportBackoffTimerValueType)
+			b.SetLen(1)
+			b.SetUnitTimerValue(0x05) // 1 minute (TS 24.008 10.5.7.4a)
+			b.SetTimerValue(1)
+			dl.DLNASTransport.BackoffTimerValue = b
 		}
 		wrapped, err = st.sec.EncodeSecure(dl, nas.SecHdrIntegrityCiphered)
 	}

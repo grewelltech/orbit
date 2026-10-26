@@ -37,10 +37,11 @@ const (
 // 6.4.1.4.1: a PDU SESSION ESTABLISHMENT REJECT, whose 5GSM cause is
 // "typically" #27, so any cause passes) or SMF selection fails at the AMF,
 // which returns the un-forwarded request in a DL NAS TRANSPORT with 5GMM
-// cause #90 or #91 (5.4.5.2.5 a) 1), 5.4.5.3.2 case e)). A #90/#91 answer
+// cause #90 or #91 (5.4.5.2.5 a) 1), 5.4.5.3.2 for case e) of 5.4.5.3.1),
+// or, from V16.3.0, with a congestion cause (case f)). A #90/#91 answer
 // whose payload is not the request, another answer, or nothing within
 // dnnAnswerWait is FAIL. A core that accepts the DNN leaves nothing to
-// judge: SKIP. The answer is read through the UE's NAS security context.
+// judge: SKIP, as does a congestion send-back. The answer is read through the UE's NAS security context.
 // Whenever the registration completed, the UE is deregistered at the end.
 type nasPDUUnknownDNN struct {
 	// registerWait and answerWait override dnnRegisterWait and
@@ -54,16 +55,20 @@ func (nasPDUUnknownDNN) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.4.5.2.5 a) 1)", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified,
 			Changed: []SpecChange{
-				{Release: 15, Note: "V15.0.0 letters the item a) rather than a) 1); the wording is unchanged through V19.8.0"},
+				{Release: 15, Note: "V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure"},
+				{Release: 16, Note: "from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\""},
+				{Release: 18, Note: "\"subclause\" becomes \"clause\""},
 			}},
-		{Spec: "TS 24.501", Clause: "5.4.5.3.2 case e)", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified,
+		{Spec: "TS 24.501", Clause: "5.4.5.3.2 (case e) of 5.4.5.3.1)", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified,
 			Changed: []SpecChange{
-				{Release: 15, Note: "5GMM cause #91 \"DNN not supported or not subscribed in the slice\" first appears in V15.2.0; V15.0.0 and V15.1.0 have #90 only"},
-				{Release: 17, Note: "adds an optional back-off timer value"},
+				{Release: 15, Note: "V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\""},
+				{Release: 17, Note: "V17.3.0 adds an optional Back-off timer value IE with #91"},
 			}},
-		{Spec: "TS 24.501", Clause: "6.4.1.4.1", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified,
+		{Spec: "TS 24.501", Clause: "6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0)", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified,
 			Changed: []SpecChange{
-				{Release: 16, Note: "6.4.1.4 in Rel-15, renumbered 6.4.1.4.1; the SMF's Reject and 5GSM cause shalls and the \"typically\" cause list are unchanged"},
+				{Release: 15, Note: "V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes"},
+				{Release: 16, Note: "6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version"},
+				{Release: 17, Note: "V17.5.0 adds #86 to the typical causes"},
 			}},
 		{Spec: "TS 24.501", Clause: "Annex B.1 #27", Strength: Descriptive, Since: 15, Verified: ts24501UnknownDNNVerified, WordingUnchanged: true},
 	}
@@ -90,7 +95,7 @@ func (c nasPDUUnknownDNN) Budget() time.Duration {
 }
 
 func (c nasPDUUnknownDNN) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "a PDU Session Establishment Reject (any 5GSM cause; #27 is typical), or the un-forwarded request returned in a DL NAS Transport with 5GMM cause #90 or #91 (TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 case e))"}
+	r := Result{Expected: "a PDU Session Establishment Reject (any 5GSM cause; #27 is typical), or the un-forwarded request returned in a DL NAS Transport with 5GMM cause #90 or #91 (TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1)); the send-back is required from V15.1.0 (a may in V15.0.0)"}
 	if !env.UE.Configured() {
 		r.Verdict, r.Observed = Skip, "no UE configured"
 		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run NAS checks"
@@ -225,6 +230,7 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 type dlN1SM struct {
 	payload []byte
 	mmCause uint8 // 0 when the 5GMM cause IE is absent
+	backoff bool  // a Back-off timer value IE is present
 }
 
 // dlN1SMFrom reads a decoded downlink 5GMM message: ok when it is a DL NAS
@@ -245,6 +251,7 @@ func dlN1SMFrom(m *f5nas.Message) (dlN1SM, bool) {
 	if t.Cause5GMM != nil {
 		d.mmCause = t.GetCauseValue()
 	}
+	d.backoff = t.BackoffTimerValue != nil
 	return d, true
 }
 
@@ -328,13 +335,13 @@ func mmCause(c uint8) string {
 	return fmt.Sprintf("#%d", c)
 }
 
-// isRoutingCause reports whether c is 5GMM cause #90 or #91, the causes of
-// 5.4.5.3.2 case e).
+// isRoutingCause reports whether c is 5GMM cause #90 or #91, the causes
+// 5.4.5.3.2 sets for case e) of 5.4.5.3.1.
 func isRoutingCause(c uint8) bool {
 	return c == nasMessage.Cause5GMMPayloadWasNotForwarded || c == nasMessage.Cause5GMMDNNNotSupportedOrNotSubscribedInTheSlice
 }
 
-// isCongestionCause reports whether c is a 5GMM cause of 5.4.5.3.2 case f):
+// isCongestionCause reports whether c is a 5GMM cause of case f) of 5.4.5.3.1:
 // #22 congestion, #67 insufficient resources for specific slice and DNN,
 // #69 insufficient resources for specific slice.
 func isCongestionCause(c uint8) bool { return c == 22 || c == 67 || c == 69 }
@@ -352,10 +359,13 @@ const codecGap = "Orbit's NAS codec covers about Rel-15/16, so this may be a gap
 
 // unknownDNNFail is the FAIL message; got is what came back.
 func unknownDNNFail(got, likely string) string {
-	return fmt.Sprintf("Unknown DNN: neither a PDU Session Establishment Reject nor the un-forwarded 5GSM message with 5GMM cause #90/#91 came back (got %s). TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 case e). Likely cause: %s.", got, likely)
+	return fmt.Sprintf("Unknown DNN: neither a PDU Session Establishment Reject nor the un-forwarded 5GSM message with 5GMM cause #90/#91 came back (got %s). TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1). Likely cause: %s.", got, likely)
 }
 
-const acceptedObserved = "core accepted the stimulus DNN; no rejection to check"
+const (
+	acceptedObserved   = "core accepted the stimulus DNN; no rejection to check"
+	congestionObserved = "AMF applied congestion control (case f)); the unknown-DNN path was not exercised"
+)
 
 // judgeDNN turns the outcome into a verdict, Observed and Detail.
 func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
@@ -402,13 +412,16 @@ func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
 	case sm.kind == smAccept:
 		return Skip, acceptedObserved,
 			fmt.Sprintf("a PDU Session Establishment Accept for DNN %q came in a plain DL NAS Transport (%s) without a PDU Session Resource Setup Request; no shall forbids accepting the DNN", stimulusDNN, cites)
-	case a.mmCause != 0 && returned:
-		why := "not a cause 5.4.5.3.2 assigns to a routing failure"
-		if isCongestionCause(a.mmCause) {
-			why = "5.4.5.3.2 case f) (congestion), which is transient: re-run the check"
+	case isCongestionCause(a.mmCause) && returned:
+		backoff := "no Back-off timer value IE"
+		if a.backoff {
+			backoff = "a Back-off timer value IE"
 		}
+		return Skip, congestionObserved,
+			fmt.Sprintf("the AMF returned the request with %s and %s; 5.4.5.2.5 a) 1) lists this case f) of 5.4.5.3.1 send-back from V16.3.0, so it is conformant, but the DNN was not judged: re-run when the core is not congested", cites, backoff)
+	case a.mmCause != 0 && returned:
 		return Error, fmt.Sprintf("request returned with 5GMM cause %s", mmCause(a.mmCause)),
-			fmt.Sprintf("the AMF returned the request with %s, %s; this check does not judge the DNN then", cites, why)
+			fmt.Sprintf("the AMF returned the request with %s, not a cause 5.4.5.3.2 assigns to a routing failure; this check does not judge the DNN then", cites)
 	}
 	got := fmt.Sprintf("a DL NAS Transport with %s carrying %s", cites, sm.name)
 	if sm.kind == smStatus && pointsAtStimulus(sm.cause) {
