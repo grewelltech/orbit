@@ -207,7 +207,8 @@ func TestWithCapability5GMM(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			c := m.RegistrationRequest.Capability5GMM
+			rr := m.RegistrationRequest
+			c := rr.Capability5GMM
 			if c == nil || int(c.GetLen()) != len(tc.want) || string(c.Octet[:c.GetLen()]) != string(tc.want) {
 				t.Errorf("5GMM capability = %+v, want %x", c, tc.want)
 			}

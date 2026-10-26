@@ -266,15 +266,32 @@ func rejectIEs(plain []byte) (uint8, []nasIE, error) {
 	return cause, ies, nil
 }
 
-// IEIs of the REGISTRATION REJECT (TS 24.501 8.2.9.1) the check knows: the
-// two slice IEs it decodes and those that cannot carry an S-NSSAI.
+// The two slice IEs of the REGISTRATION REJECT (TS 24.501 8.2.9.1) the
+// check decodes.
 const (
 	ieiRejectedNSSAI         = 0x69
 	ieiExtendedRejectedNSSAI = 0x68
-	ieiT3346                 = 0x5f
-	ieiT3502                 = 0x16
-	ieiEAPMessage            = 0x78
 )
+
+// rejectNonNSSAIIEIs are the other REGISTRATION REJECT IEs of TS 24.501
+// 8.2.9.1 (V20.1.0), none of which can carry an S-NSSAI.
+var rejectNonNSSAIIEIs = map[uint8]string{
+	0x5f: "T3346 value",
+	0x16: "T3502 value",
+	0x78: "EAP message",
+	0x75: "CAG information list",
+	0x2c: "Disaster return wait range",
+	0x71: "Extended CAG information list",
+	0x3a: "Lower bound timer value",
+	0x1d: "Forbidden TAI(s) for the list of \"5GS forbidden tracking areas for roaming\"",
+	0x1e: "Forbidden TAI(s) for the list of \"5GS forbidden tracking areas for regional provision of service\"",
+	0x3b: "Forbidden TAI(s), the IEI an AMF compliant with V17.7.0 or V17.8.0 may use",
+	0x3c: "Forbidden TAI(s), the IEI an AMF compliant with V17.7.0 or V17.8.0 may use",
+	0x3e: "N3IWF identifier",
+	0x4d: "TNAN information",
+	0x62: "Extended 5GMM cause",
+	0x63: "Access technology utilization control",
+}
 
 // rejectedSNSSAI is one rejected S-NSSAI: its SST and SD (when sent), and
 // the cause value.
@@ -461,8 +478,10 @@ func judgeNSSAIReject(plain, want []byte) (Verdict, string, string) {
 			if err != nil {
 				undecodable = append(undecodable, fmt.Sprintf("IEI %#02x (%v): %x", ie.iei, err, ie.value))
 			}
-		case ieiT3346, ieiT3502, ieiEAPMessage:
 		default:
+			if _, ok := rejectNonNSSAIIEIs[ie.iei]; ok {
+				continue
+			}
 			undecodable = append(undecodable, fmt.Sprintf("IEI %#02x: %x", ie.iei, ie.value))
 		}
 	}

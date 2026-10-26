@@ -62,10 +62,14 @@ func WithUnservedNSSAI(answer NSSAIAnswer) Option { return func(a *AMF) { a.nssa
 // plain Registration Request, nil when absent.
 func requestedNSSAIFromRegistration(regReq []byte) []byte {
 	m, err := nas.DecodePlain(regReq)
-	if err != nil || m.GmmMessage == nil || m.RegistrationRequest == nil || m.RegistrationRequest.RequestedNSSAI == nil {
+	if err != nil || m.GmmMessage == nil || m.RegistrationRequest == nil {
 		return nil
 	}
-	n := m.RegistrationRequest.RequestedNSSAI
+	rr := m.RegistrationRequest
+	n := rr.RequestedNSSAI
+	if n == nil {
+		return nil
+	}
 	return append([]byte(nil), n.Buffer[:n.GetLen()]...)
 }
 

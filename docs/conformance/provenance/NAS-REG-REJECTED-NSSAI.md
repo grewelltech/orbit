@@ -75,7 +75,8 @@ Formats checked by orbit-conformance-test-writer, 2026-10-26: V18.14.0 for the l
     - each list starts with a [spare | type of list | number of elements minus one] octet;
     - type 001 adds a back-off timer octet;
     - each element is [length | cause], then the SST, an optional SD and an optional mapped HPLMN S-NSSAI (lengths 1, 2, 4, 5 or 8).
-  - Any other IEI, or a slice IE that does not decode, is an IE Orbit cannot decode. The exception is T3346 (0x5F), T3502 (0x16) and EAP message (0x78), which cannot carry an S-NSSAI.
+  - Every other IE listed in 8.2.9.1 (V20.1.0) is known and cannot carry an S-NSSAI. The list is: T3346 value (0x5F), T3502 value (0x16), EAP message (0x78), CAG information list (0x75), Disaster return wait range (0x2C), Extended CAG information list (0x71), Lower bound timer value (0x3A), the two Forbidden TAI(s) IEs (0x1D, 0x1E, and 0x3B/0x3C, which the table's NOTE says AMFs compliant with V17.7.0 or V17.8.0 may have used), N3IWF identifier (0x3E), TNAN information (0x4D), Extended 5GMM cause (0x62) and Access technology utilization control (0x63).
+  - Any IEI not listed in 8.2.9.1 (V20.1.0), or a slice IE that does not decode, is an IE Orbit cannot decode.
 - **Reading the Reject:** it arrives after the Security Mode Command. Its MAC is verified through the UE's NAS security context, and its IEs are read from the plain message under the security header. That works because the engine selects only NEA0 today; #184 removes that dependency.
 
 ## Verdicts

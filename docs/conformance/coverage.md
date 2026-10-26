@@ -221,8 +221,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   ERROR. A core that allows a default S-NSSAI accepts, so the #62 rule did
   not apply: SKIP, likely on a core whose subscriber has a default slice.
   The Accept's rejected NSSAI is a may, recorded only. Not yet run on Ref 2;
-  the source analyst predicts FAIL on EX-1 (a Registration Reject with
-  cause #111).
+  the source analyst predicts FAIL on EX-1.
   Needs a UE. Not yet run on Ref 2; the source analyst predicts FAIL (an
   AMF-built Reject returned with #91).
 
