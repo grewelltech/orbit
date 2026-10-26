@@ -5,6 +5,11 @@ the problem, the constraints that actually bind, the options, and the decisions
 still to make. When the shape settles it becomes an ADR; nothing here should be
 treated as decided.
 
+**Reviewed 2026-10-26.** The topology argument (§5.1) stands unchanged. Added:
+UPF-5 to §3, which currently blocks the collapsed profiles. Rewritten: §5.2 E,
+because the tool it describes was renamed to cleanslate and its clean-by-default
+premise has reversed — the substrate lean is now an open question, not a lean.
+
 **Goal.** A 5G core testbed that CI builds **fresh for every run**, validates
 against, and destroys — so a merge into `main` is gated by integration evidence
 that carries no state from any previous run.
@@ -80,9 +85,9 @@ attractive designs.
    user-plane tests run from the RAN node.
    **That is a property of ATB-01's deployment, not a protocol requirement.**
    SD-Core/Aether developers commonly run a **collapsed** topology with N2, N3
-   and often N6 sharing one network, and it is a supported configuration. CI can
-   therefore choose its topology rather than being forced into a two-network
-   build — see §5.1.
+   and often N6 sharing one network, and it is a supported configuration. CI is
+   therefore not forced into a two-network build by the protocol — but see
+   constraint 7, which currently blocks the collapsed profiles anyway, and §5.1.
 2. **Handover needs a distinct routed source IP per gNB.** The AMF distinguishes
    gNBs by association address.
 3. **The BESS UPF wedges** under sustained load (data plane hangs; pod stays
@@ -102,6 +107,21 @@ attractive designs.
    with NF registration and NRF convergence after that. Bring-up time is the
    single biggest input to whether this is per-merge or nightly, and it is
    **not yet measured** (§8).
+7. **A stock BESS UPF has no downlink to a gNB on its own access subnet**
+   (sdcore-lab triage **UPF-5**, `conf/route_control.py:713-714`, confirmed in
+   code and by test). `route_control` programs only kernel routes that have a
+   gateway, silently skipping connected routes, so BESS `accessRoutes` never
+   learns the on-link subnet and downlink falls through to `accessbad_route`
+   (12 of 12 packets in one test). Uplink works and the application even
+   replies, so **a session comes up looking healthy while the return path is
+   dead** — the failure does not announce itself.
+   **This blocks `collapsed-all` and `collapsed-n2n3` (§5.1):** both place the
+   gNB on the UPF's access subnet, so neither can pass T1's ping over N3 until
+   UPF-5 is fixed. `separated` is unaffected only because its far access subnet
+   is reached via a gateway. Until the fix lands, either the collapsed profiles
+   are expected-fail at T1, or the matrix waits on it. It also distorts N6:
+   `coreRoutes` carries only the default route, so uplink to an on-link N6
+   server hairpins through the site router.
 
 ---
 
@@ -113,14 +133,20 @@ confirmed once §8 Q1 is answered. The matrix is tiers x **topology profiles**
 
 | Tier | Trigger | Needs a core? | Topology (§5.1) | Content |
 |---|---|---|---|---|
-| **T0 unit** | every push | no | n/a | `go test ./...`, `vet`, `gofmt`, `go mod tidy` drift |
+| **T0 unit** | every push | no | n/a | `go test ./...`, `vet`, `gofmt`, build (`go mod tidy` drift is *not* gated today — see note) |
 | **T1 smoke** | every merge to `main` | yes, fresh | **all profiles** | NG Setup, one attach, one PDU session, one ping over N3, teardown |
 | **T2 integration** | every merge to `main` | yes, fresh | **all profiles** (or primary + rotating, full matrix nightly) | Multi-UE fleet, N2 + Xn handover with data continuity, app session (VoIP) |
-| **T3 conformance** | every merge, or nightly | yes, fresh | one per merge, full matrix nightly | The `orbit conformance` suite — the negative tests that need an expendable core |
+| **T3 conformance** | every merge, or nightly | yes, fresh | one per merge, full matrix nightly | The `orbit conformance` suite — the negative tests that need an expendable core. **Runtime is now material:** 9 checks, two of which budget 190 s and 145 s because they wait out real NAS timers (orbit#179) |
 | **T4 performance** | nightly / on demand | yes, fresh + warmed | **pinned to one**; others tracked as separate trends | Attach-rate sweep, soak, handover-under-load. Regression-tracked, not pass/fail on absolute numbers (§7) |
 
-T0 already exists in `.github/workflows/ci.yml`. T1–T4 are what this document is
-about. The existing `integration.yml` documents the contract but has no runner.
+T0 already exists in `.github/workflows/ci.yml` — gofmt, `go vet ./...`,
+`go vet -tags=integration ./...`, `go test ./...` and build, plus a web job
+(typecheck, vitest, build). It does **not** check `go mod tidy` drift; that gap
+is why pflag sat mislabelled as indirect until orbit#177. Adding the check is a
+new gate, not a cleanup, so it is listed here as intended scope rather than
+current behaviour. T1–T4 are what this document is about. The existing
+`integration.yml` documents the contract but has no runner — it is
+`workflow_dispatch` against a self-hosted `lab-core` runner.
 
 ---
 
@@ -182,7 +208,9 @@ selective**:
 - **T1 smoke runs on every profile, every merge.** It is the cheapest tier and
   it is exactly what catches "this configuration does not come up at all", which
   is the most likely topology-specific breakage. Breadth here is the highest
-  value per second of CI time.
+  value per second of CI time. **Blocked today for the collapsed profiles by
+  UPF-5 (§3.7)**, whose ping over N3 cannot pass on a stock UPF — see §8 Q3 for
+  the wait-or-expected-fail decision.
 - **T2 integration runs on every profile, every merge** if bring-up allows;
   otherwise on the primary profile every merge plus a rotating second profile,
   with the full matrix nightly. Handover and data continuity are where
@@ -239,71 +267,87 @@ with capacity for concurrent runs.
 **D — Bare-metal reimage.** Cleanest, far too slow for per-merge. Mentioned only
 to be ruled out except as a periodic baseline.
 
-**E — testbox layered OS** ([bgrewell/testbox](https://github.com/bgrewell/testbox)).
-An mkosi-built Ubuntu 24.04 image on btrfs subvolumes: an immutable `@base`, an
-ephemeral `@runtime` **recreated as a fresh snapshot of `@base` on every boot**,
-a `@hostid` carve-out so SSH identity survives, and named `@<state>` layers that
-can be saved, switched from the bootloader, and chained (a state may snapshot
-another state).
+**E — cleanslate** ([bgrewell/cleanslate](https://github.com/bgrewell/cleanslate),
+formerly `testbox`; the old links redirect). A custom Ubuntu-based distro built
+from a baseline image you produce once and install on as many machines as you
+like. Each machine then runs a **slate**: a named, persistent line of work.
+A checkpoint is taken automatically at every boot, so there is always a way
+back; `fork` branches a slate, `switch` moves between them, `rollback` returns
+to a checkpoint, and `reset` returns a slate to the pristine baseline, which is
+never pruned. Rollback and switch take effect at the **next boot** — a slate is
+the running system and cannot be replaced underneath itself. The boot menu
+carries one entry per slate plus `scratch` (a throwaway copy of the baseline,
+discarded at reboot) and `rescue` (the baseline, read-only).
 
 *For:*
-- **Clean is the default, not a step.** Everything outside a saved layer is
-  discarded on reboot, so a leaked artifact requires someone to have gone out of
-  their way. Compare option A, where cleanliness depends on teardown running and
-  being verified. This inverts §6 from "assert seven things are clean" to "assert
-  nothing was deliberately persisted".
-- **Chained states map onto the topology matrix.** `@base` →
-  `@sdcore-deployed` → `@collapsed-all` / `@collapsed-n2n3` / `@separated`, so
-  each profile is a cheap snapshot off a shared converged core rather than a
-  separate deployment. Adding a profile is a snapshot.
-- **Restore replaces deploy.** Attacks §8 Q1 directly: bring-up becomes reboot +
+- **Named slates map onto the topology matrix.** A converged core can be forked
+  per profile — `sdcore-deployed` → `collapsed-all` / `collapsed-n2n3` /
+  `separated` — so adding a profile is a fork off a shared parent rather than a
+  separate deployment.
+- **Restore replaces deploy.** Attacks §8 Q1 directly: bring-up becomes boot +
   service start + NF reconverge instead of a full SD-Core deploy.
-- **Deterministic starting state**, which is better than either cold or warm
-  (§7) — a fixed point on that curve rather than wherever the previous run left
-  things.
-- **The base is declarative** (mkosi), so the golden image is *derived*, not
+- **Deterministic starting state**, better than either cold or warm (§7) — a
+  fixed point on that curve rather than wherever the previous run left things.
+- **The baseline is declarative**, so the golden image is *derived*, not
   hand-crafted. That is what stops this from recreating §1's drift problem at a
   different level.
-- `bootctl set-oneshot` switching leaves the default target alone, so the box
-  returns to `fresh` on the following boot without an explicit cleanup step.
+- **A disposable mode exists** for the runs that want it:
+  `switch <slate> --scratch --reboot` runs from a copy and throws it away at the
+  next reboot.
 
 *Against / to resolve:*
-- **`state export` / `import` is deferred (roadmap S5).** Named layers are local
-  to a box, so a layer cannot yet be built once and distributed to N runners.
-  **This is the blocking gap for multi-runner CI** — until it exists, either
-  every runner rebuilds its layers (slow, and reintroduces drift) or CI is
-  single-box.
-- **Journals do not survive an ephemeral reboot.** Deliberate, and correct for
-  isolation — but a failing CI run that reboots loses its logs, which is exactly
-  when they are wanted. Logs and artifacts must be shipped off-box *during* the
-  run, or the failure state saved as a layer for post-mortem before reset.
+- **Clean is NOT the default — keeping things is.** This reverses the premise an
+  earlier draft of this section rested on. Persistence is the normal case and
+  disposability is opt-in per run (`--scratch`), so CI gets cleanliness only by
+  deliberately asking for it on every run. That is much closer to option A,
+  where cleanliness depends on a teardown step running and being verified, than
+  the earlier draft claimed. **§6 therefore still has to assert that things are
+  clean; it cannot be reduced to "assert nothing was deliberately persisted".**
+- **Copy-on-write makes databases about 4x slower, and the usual mitigation does
+  not work.** Slates live on a CoW filesystem, and marking a data directory
+  no-copy-on-write is defeated by the checkpoint taken at every boot, which
+  forces the copying anyway. cleanslate's own documentation measures a database
+  at roughly a quarter of its otherwise achievable speed, says so plainly, and
+  advises putting such data on a separate disk — adding that **numbers taken on
+  a slate partly measure the filesystem underneath**. §3 already identifies
+  MongoDB as the first bottleneck found, and T4 is the tier that most depends on
+  trustworthy numbers, so this is a direct argument against pinning T4 to this
+  substrate without a separate disk for Mongo.
+- **A filesystem nested inside a slate cannot be checkpointed.** If something on
+  a slate creates its own filesystem — a container runtime configured to do so,
+  or a hand-made subvolume — a checkpoint cannot capture its contents and a
+  rollback would leave it empty. `status` warns, `list` marks the slate, and
+  `checkpoint` refuses without `--allow-incomplete`. **This bears directly on
+  hosting B inside E**, since an ephemeral k3s/RKE2 whose etcd lives on the
+  slate is exactly that case; it needs verifying before the combination is
+  assumed to work.
 - **Reset costs a reboot**, not a snapshot rollback of a running system, and NF
-  processes restart cold — memory state is not preserved. Real, but far cheaper
-  than redeploying.
-- **MongoDB on btrfs CoW** needs measuring before T4 numbers are trusted (§3.4
-  already flags Mongo as the first bottleneck found). CoW fragmentation under a
-  database is a known hazard; `chattr +C` is the usual mitigation and interacts
-  with snapshotting.
-- UEFI only, and the project has not been touched since 2026-05.
+  processes restart cold. Real, but far cheaper than redeploying.
+- **Layers are local to a box.** A slate cannot yet be built once and
+  distributed to N runners, which is **the blocking gap for multi-runner CI** —
+  until it exists, either every runner builds its own slates (slow, and
+  reintroduces drift) or CI is single-box.
+- **Diagnostics are lost on reset**, which is exactly when they are wanted. Logs
+  and artifacts must be shipped off-box *during* the run, or the failure state
+  checkpointed for post-mortem before reset.
+- UEFI only, and the project has not been pushed since 2026-08-03.
 
-*Filed against testbox* (2026-08-01), so the work has a home rather than living
-only in this document:
-[#1 state export/import](https://github.com/bgrewell/testbox/issues/1) (the
-multi-runner blocker),
-[#2 journals lost on ephemeral reboot](https://github.com/bgrewell/testbox/issues/2),
-[#3 CoW guidance for databases](https://github.com/bgrewell/testbox/issues/3),
-[#4 automation ergonomics for state switching](https://github.com/bgrewell/testbox/issues/4).
+*Filed against the project* (2026-08-01), so the work has a home rather than
+living only in this document — all four were still open at the 2026-10-26 review:
+[#1 state export/import (S5): layers are local to a box, which forces single-box CI](https://github.com/bgrewell/cleanslate/issues/1),
+[#2 Unattended scratch runs discard their diagnostics on reset](https://github.com/bgrewell/cleanslate/issues/2),
+[#3 Automatic checkpoints weaken nodatacow for databases and other CoW-hostile workloads](https://github.com/bgrewell/cleanslate/issues/3),
+[#4 Automation ergonomics: switch, rollback and reset all defer to the next boot](https://github.com/bgrewell/cleanslate/issues/4).
 
-**Current lean, revised again: E (testbox) as the substrate, hosting B or C.**
-The options are not exclusive — testbox supplies the *machine* and its
-clean-by-default guarantee, and the core still has to run on something inside it
-(an ephemeral k3s/RKE2 whose etcd lives on `@runtime`, so a reboot wipes the
-cluster too). That combination gets clean-by-default from E, cluster isolation
-from B, and real interface separation from C for the `separated` profile.
-
-Blocking question for E is roadmap S5 (`state export`/`import`), which decides
-whether CI can be multi-runner or stays single-box. Worth asking whether S5 moves
-up.
+**Substrate choice: OPEN, and needs re-deciding.** An earlier draft leaned on
+E as the substrate hosting B or C, on the strength of a clean-by-default
+guarantee the tool does not provide. With that premise gone, E's remaining case
+is fork-per-profile and restore-instead-of-deploy, both still real and both
+still valuable — but it no longer dominates A, and its CoW cost argues against
+it for T4 specifically. The options were never exclusive, so a split decision
+(E for the profile matrix and T1–T3, something else for T4 benchmarking) is now
+worth considering on its merits rather than assumed away. **Deciding this needs
+a measured Q1 number and the §8 Q2 spike, not another round of reasoning.**
 
 ---
 
@@ -356,45 +400,60 @@ worse than not having one.
 
 ## 8. Open questions
 
-These need answers before this can become an ADR. Q1 and Q2 are on the critical
-path.
+These need answers before this can become an ADR. Q1, Q2 and Q3 are on the
+critical path.
 
 1. **How long does a fresh SD-Core take to be attach-ready?** Not just pods
    Running — NRF converged and an NG Setup accepted. This decides per-merge vs
    nightly for T2–T4. *Measure it: script the deploy and time to first successful
    `orbit cell ngsetup`.*
 2. **Does BESS-UPF work in a nested/ephemeral cluster (option B)?** Needs
-   privileges; a collapsed topology removes the Multus requirement, so this is
-   now the *only* thing standing between B and being the default for T1–T3.
+   privileges. A collapsed topology removes the Multus requirement, so this and
+   UPF-5 (§3.7) are what stand between B and being the default for T1–T3.
    *Spike it — highest-value single experiment in this document.*
-3. **Where does CI run?** ATB-01 has no spare capacity for concurrent ephemeral
-   environments. A dedicated environment is being stood up, mirroring the CI
-   build and supporting both topology profiles. Concurrency limit: 1, or N?
-8. **Can the full matrix run per-merge, or only T1?** Depends entirely on Q1.
+3. **When does UPF-5 land, and what do the collapsed profiles do until then?**
+   §3.7 blocks `collapsed-all` and `collapsed-n2n3` at T1 on a stock UPF. Either
+   the matrix waits on the fix, or those profiles are recorded as expected-fail
+   so the gate stays meaningful. This now gates the central proposal of §5.1, so
+   it ranks with Q1 and Q2.
+4. **Where does CI run?** ATB-01 has no spare capacity for concurrent ephemeral
+   environments. A dedicated environment **now exists** — the Ref 2 LXD testbed
+   in `testing/lxd-testbed` (8 VMs: `rsite`, `wanem`, `rran`, `ctrl`, `core`,
+   `ran-near`, `ran-far`, `app`), stood up 2026-10-24 and verified at 29/29
+   checks with the far site passing 5/5 at 50 Mbps. **It is a `separated`
+   topology only**, so it does not yet supply the collapsed profiles the matrix
+   needs; near-site user plane fails on UPF-5 (§3.7), which is why user-plane
+   work runs from `ran-far`. Concurrency limit: 1, or N?
+5. **Can the full matrix run per-merge, or only T1?** Depends entirely on Q1.
    If bring-up is fast and profiles run in parallel, T2 across all profiles is
    affordable per-merge; if not, T2 falls back to primary-plus-rotating with the
    full matrix nightly. Decide with a measured number, not a guess.
-9. **Does testbox S5 (`state export`/`import`) land?** Decides multi-runner vs
-   single-box CI (§5.2 E). The highest-leverage dependency outside this repo.
-   Tracked as [testbox#1](https://github.com/bgrewell/testbox/issues/1).
-10. **Does MongoDB on btrfs CoW distort T4?** Measure before trusting any number
-    produced on a testbox substrate. Tracked as
-    [testbox#3](https://github.com/bgrewell/testbox/issues/3).
-11. **Which profile is primary** (the T4 pin, and the one T2 always runs)?
-   `collapsed-n2n3` is the likely answer as the common dev shape, but the
-   argument for `separated` is that it is what production looks like.
-4. **Which SD-Core version does CI track** — a pinned release, or `latest`? A
+6. **Which profile is primary** (the T4 pin, and the one T2 always runs)?
+   `collapsed-n2n3` was the likely answer as the common dev shape, but it is
+   currently the least viable of the three under §3.7, while `separated` is both
+   what production looks like and the only profile the existing testbed provides.
+   Revisit once UPF-5 lands rather than deciding around the bug.
+7. **Can a cleanslate slate be distributed to N runners?** Decides multi-runner
+   vs single-box CI (§5.2 E). The highest-leverage dependency outside this repo.
+   Tracked as [cleanslate#1](https://github.com/bgrewell/cleanslate/issues/1),
+   still open at the 2026-10-26 review.
+8. **Does MongoDB on a CoW slate distort T4?** cleanslate's own documentation
+   already answers the general case — about 4x slower, and `nodatacow` is
+   defeated by the per-boot checkpoint (§5.2 E) — so the open part is narrower:
+   whether a separate disk for Mongo restores trustworthy T4 numbers. Tracked as
+   [cleanslate#3](https://github.com/bgrewell/cleanslate/issues/3).
+9. **Which SD-Core version does CI track** — a pinned release, or `latest`? A
    pinned digest makes ORBIT's results reproducible; `latest` makes CI an early
    warning for upstream regressions. Possibly both, on different tiers.
-5. **Do the unreleased patches** (`nrfcache`, UDR race) get baked into the CI
-   core, or does CI track stock? If stock, T4 numbers stay at the stock ceiling
-   and the patched numbers remain unquotable — which is the honest default until
-   those land upstream.
-6. **Credentials.** Ki/OPc must reach the runner without landing in logs or
-   artifacts. Generated per-run alongside provisioning is cleanest, since nothing
-   then needs to be a long-lived secret.
-7. **Self-hosted runner security.** A runner that can build and destroy testbeds
-   is a high-value target; PRs from forks must not reach it.
+10. **Do the unreleased patches** (`nrfcache`, UDR race) get baked into the CI
+    core, or does CI track stock? If stock, T4 numbers stay at the stock ceiling
+    and the patched numbers remain unquotable — which is the honest default until
+    those land upstream.
+11. **Credentials.** Ki/OPc must reach the runner without landing in logs or
+    artifacts. Generated per-run alongside provisioning is cleanest, since
+    nothing then needs to be a long-lived secret.
+12. **Self-hosted runner security.** A runner that can build and destroy
+    testbeds is a high-value target; PRs from forks must not reach it.
 
 ---
 
@@ -406,7 +465,9 @@ This is done when:
   provisions subscribers, runs T1–T3, tears down, and **verifies teardown**.
 - **Every supported network topology is exercised on every merge** at least at
   T1, so no configuration is silently unvalidated, and every result names the
-  profile it ran under.
+  profile it ran under. A profile that cannot pass for a known upstream reason
+  (UPF-5, §3.7) is recorded as expected-fail with that reason named — never
+  quietly dropped from the matrix, which would return it to being unvalidated.
 - Any leftover from a previous run fails the build rather than silently changing
   a result.
 - The run artifact records exactly what was tested: image digests, chart values,
