@@ -198,6 +198,8 @@ func TestAttachSecurityModeCommandAlgorithms(t *testing.T) {
 
 // securityModeContext installs a context only when the command's algorithms
 // are acceptable and its MAC verifies under them; otherwise s.sec stays nil.
+// A withheld Security Mode Complete changes nothing here: the command is
+// verified all the same.
 func TestSecurityModeContextInstallsOnlyVerified(t *testing.T) {
 	kAmf := make([]byte, 32)
 	for i := range kAmf {
@@ -218,7 +220,9 @@ func TestSecurityModeContextInstallsOnlyVerified(t *testing.T) {
 		{name: "NIA3 not advertised", selIA: nas.NIA3, selEA: nas.NEA0, macIA: nas.NIA3, wantErr: ErrUnsupportedAlgorithms},
 		{name: "NEA1 not advertised", selIA: nas.NIA2, selEA: nas.NEA1, macIA: nas.NIA2, wantErr: ErrUnsupportedAlgorithms},
 		{name: "MAC under another algorithm", selIA: nas.NIA1, selEA: nas.NEA0, macIA: nas.NIA2, wantErr: nas.ErrIntegrity},
-		{name: "withheld Security Mode Complete", selIA: nas.NIA1, selEA: nas.NEA0, macIA: nas.NIA2, withheld: true},
+		{name: "withheld Complete, verified", selIA: nas.NIA1, selEA: nas.NEA0, macIA: nas.NIA1, withheld: true, wantInstalled: true},
+		{name: "withheld Complete, MAC wrong", selIA: nas.NIA1, selEA: nas.NEA0, macIA: nas.NIA2, withheld: true, wantErr: nas.ErrIntegrity},
+		{name: "withheld Complete, NIA0", selIA: nas.NIA0, selEA: nas.NEA0, macIA: nas.NIA2, withheld: true, wantErr: ErrUnsupportedAlgorithms},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -338,4 +342,32 @@ func dlNASTransport(amfID, ranID int64, nasPDU []byte) ngapType.NGAPPDU {
 	ies[2].Value.NASPDU = &ngapType.NASPDU{Value: nasPDU}
 	m.ProtocolIEs.List = ies
 	return pdu
+}
+
+// A protected downlink before any Security Mode Command reaches OnNAS with
+// its type-only read and ErrNoSecurityContext, and is then skipped; without
+// OnNAS it ends the attach with that error.
+func TestPreSMCProtectedDownlinkReachesOnNAS(t *testing.T) {
+	var kInt, kEnc [16]byte
+	amfSec := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: kInt, KNASenc: kEnc, Network: true}
+	accept, err := amfSec.EncodeSecureRaw([]byte{0x7e, 0x00, 0x42, 0x01, 0x01}, nas.SecHdrIntegrityCiphered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []NASEvent
+	s := &attachState{ctx: context.Background(), log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ueCfg: UEConfig{Probe: &AttachProbe{OnNAS: func(ev NASEvent) { got = append(got, ev) }}}}
+	if err := s.handleNAS(accept, true); err != nil {
+		t.Fatalf("with OnNAS: %v, want the PDU skipped", err)
+	}
+	if len(got) != 1 || got[0].Type != f5nas.MsgTypeRegistrationAccept || !errors.Is(got[0].Err, ErrNoSecurityContext) || got[0].Msg != nil {
+		t.Fatalf("OnNAS got %+v, want one event with the Accept's type and ErrNoSecurityContext", got)
+	}
+	if s.sec != nil {
+		t.Error("a context was installed")
+	}
+	s.ueCfg.Probe = nil
+	if err := s.handleNAS(accept, true); !errors.Is(err, ErrNoSecurityContext) {
+		t.Errorf("without OnNAS: err = %v, want ErrNoSecurityContext", err)
+	}
 }

@@ -400,10 +400,11 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 			}
 			return err
 		}
+	case s.sec == nil:
+		// Protected, with no context to verify it: the probe still gets
+		// the type-only read (readableCipher) with the error.
+		err = ErrNoSecurityContext
 	default:
-		if s.sec == nil {
-			return fmt.Errorf("received protected NAS before security context established")
-		}
 		msg, err = s.sec.DecodeSecure(raw)
 	}
 	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {

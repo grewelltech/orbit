@@ -12,6 +12,11 @@ import (
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
+// ErrNoSecurityContext is the decode error of a protected downlink that
+// arrives before any Security Mode Command installed a context. AttachProbe.OnNAS
+// receives it with the PDU's type-only read.
+var ErrNoSecurityContext = errors.New("received protected NAS before security context established")
+
 // ErrUnsupportedAlgorithms is the error Attach returns when a Security Mode
 // Command selects NIA0 or an algorithm the UE did not advertise. It ends
 // the attach even with AttachProbe.OnNAS set, since no context can follow.
@@ -25,9 +30,8 @@ var ErrUnsupportedAlgorithms = errors.New("AMF selected NAS algorithms the UE do
 // refused whatever was advertised (the UE never registers for emergency).
 // KNASint and KNASenc are then derived from KAMF for that pair (TS 33.501
 // Annex A.8), and the MAC is verified with the new context, which is
-// installed only then. A withheld Security Mode Complete skips the
-// derivation, as a withheld reply does no other work (AttachProbe): the
-// message is returned as read.
+// installed only then. This holds with the Security Mode Complete withheld
+// too (AttachProbe): only the reply is withheld.
 func (s *attachState) securityModeContext(raw []byte) (*f5nas.Message, error) {
 	if len(raw) < 8 {
 		return nil, fmt.Errorf("security mode command too short: %d bytes", len(raw))
@@ -39,9 +43,6 @@ func (s *attachState) securityModeContext(raw []byte) (*f5nas.Message, error) {
 	sel, err := ue.ParseSecurityModeCommand(m)
 	if err != nil {
 		return nil, err
-	}
-	if s.withheld(f5nas.MsgTypeSecurityModeComplete) {
-		return m, nil
 	}
 	if sel.Integrity == nas.NIA0 || !advertises(s.caps, sel.Integrity, sel.Ciphering) {
 		return nil, fmt.Errorf("%w: 128-NIA%d and NEA%d selected, UE advertised %x", ErrUnsupportedAlgorithms, sel.Integrity, sel.Ciphering, s.caps.Buffer)

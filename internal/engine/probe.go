@@ -23,9 +23,14 @@ var ErrReleasedByCore = errors.New("the core released the UE context during the 
 // downlink NAS messages and watch what the core sends during an attach.
 //
 // A withheld reply is withheld at the reaction: the UE does nothing else in
-// reaction to that downlink either (no state event, no key derivation, no
-// REGISTERED, no PDU session request), so a retransmitted downlink finds the
-// attach where the first one left it and is withheld again.
+// reaction to that downlink either (no state event, no REGISTERED, no PDU
+// session request), so a retransmitted downlink finds the attach where the
+// first one left it and is withheld again. The one exception is the
+// Security Mode Command, which is verified before any reaction: its keys
+// are derived and its MAC checked whether or not the Security Mode Complete
+// is withheld, so a corrupt command is never taken for one. A verified
+// command installs its context either way; a retransmission carries the
+// new-context header and starts it afresh.
 type AttachProbe struct {
 	// Withhold names the uplink NAS message types the UE never sends (for
 	// example f5nas.MsgTypeAuthenticationResponse). Only the replies the
