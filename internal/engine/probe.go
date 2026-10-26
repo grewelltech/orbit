@@ -140,7 +140,7 @@ func (s *attachState) observe(pdu *ngapType.NGAPPDU) error {
 	}
 	if dl, err := gnb.ParseDownlink(pdu); err == nil && len(dl.NASPDU) > 0 {
 		ev.NAS = dl.NASPDU
-		ev.NASType = nasMessageType(dl.NASPDU, s.sec != nil && s.sec.CipheringAlg == nas.NEA0)
+		ev.NASType = nasMessageType(dl.NASPDU, s.readableCipher())
 	}
 	if p.OnDownlink != nil {
 		p.OnDownlink(ev)
@@ -189,7 +189,8 @@ func procedureName(code int64) string {
 // type at offset 9: readable when only integrity-protected (types 1 and 3),
 // or when ciphered (types 2 and 4) with NEA0 selected (nea0). A ciphered
 // message under another algorithm, a short or malformed PDU, or a non-5GMM
-// one is 0.
+// one is 0; a probe that needs the type under another cipher reads
+// NASEvent.Msg, which the security context deciphered.
 func nasMessageType(raw []byte, nea0 bool) uint8 {
 	const epd5GMM = 0x7e
 	if len(raw) < 3 || raw[0] != epd5GMM {

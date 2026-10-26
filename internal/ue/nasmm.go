@@ -17,11 +17,13 @@ import (
 // builders (which attach to this same SD-Core) and the free5gc message
 // tests, cited per message.
 
-// SecurityCapability advertises the NAS algorithms this UE supports
-// (TS 24.501 §9.11.3.54). ORBIT implements ciphering NEA0 and integrity
-// NIA2 only, so it advertises exactly those: advertising an algorithm we
-// cannot perform would let the AMF select it. With the ATB-01 AMF offering
-// integrity NIA1 then NIA2 (D-8), advertising only NIA2 forces NIA2.
+// SecurityCapability is the UE's default advertised NAS algorithms
+// (TS 24.501 §9.11.3.54): ciphering NEA0 and integrity 128-NIA2. The engine
+// completes registration with any advertised 128-NIA1/2/3 and NEA0/1/2/3
+// pair the AMF selects; the default stays NEA0 so the NAS in packet
+// captures stays readable, and 128-NIA2 so existing runs select what they
+// always did (with the ATB-01 AMF offering integrity NIA1 then NIA2 (D-8),
+// advertising only NIA2 forces NIA2). NewSecurityCapability builds others.
 //
 //	octet 1 (5GS enc): bit8=EA0 bit7=EA1 bit6=EA2 bit5=EA3 → 0x80 = EA0
 //	octet 2 (5GS int): bit8=IA0 bit7=IA1 bit6=IA2 bit5=IA3 → 0x20 = IA2
