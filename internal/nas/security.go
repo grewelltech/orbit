@@ -1,6 +1,7 @@
 package nas
 
 import (
+	"errors"
 	"fmt"
 
 	f5nas "github.com/free5gc/nas"
@@ -78,14 +79,24 @@ func (s *SecurityContext) EncodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte
 	if secHdr == SecHdrPlain {
 		return nil, fmt.Errorf("EncodeSecure called with plain header; use EncodePlain")
 	}
+	plain, err := msg.PlainNasEncode()
+	if err != nil {
+		return nil, fmt.Errorf("nas plain encode: %w", err)
+	}
+	return s.EncodeSecureRaw(plain, secHdr)
+}
+
+// EncodeSecureRaw is EncodeSecure for an already-encoded plain NAS message,
+// which need not decode (a mock sending a malformed message uses it). It
+// advances the uplink COUNT as EncodeSecure does.
+func (s *SecurityContext) EncodeSecureRaw(plain []byte, secHdr uint8) ([]byte, error) {
+	if secHdr == SecHdrPlain {
+		return nil, fmt.Errorf("EncodeSecureRaw called with plain header; use EncodePlain")
+	}
 	// A "new 5G NAS security context" header activates the fresh context:
 	// both NAS COUNTs restart at 0 (TS 33.501 §6.4.3.1). Matches gnbsim.
 	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
 		s.txCount, s.rxCount = 0, 0
-	}
-	plain, err := msg.PlainNasEncode()
-	if err != nil {
-		return nil, fmt.Errorf("nas plain encode: %w", err)
 	}
 
 	seq := byte(s.txCount & 0xFF)
@@ -115,6 +126,10 @@ func (s *SecurityContext) EncodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte
 	s.txCount++
 	return out, nil
 }
+
+// ErrIntegrity is the error DecodeSecure wraps when a message's MAC does
+// not verify.
+var ErrIntegrity = errors.New("NAS integrity check failed")
 
 // DecodeSecure verifies and unwraps a security-protected downlink NAS
 // message, returning the decoded plain message. It checks the received MAC
@@ -155,7 +170,7 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 		return nil, fmt.Errorf("nas mac calculate: %w", err)
 	}
 	if !equalMAC(recvMAC, wantMAC) {
-		return nil, fmt.Errorf("NAS integrity check failed: mac %x != %x", recvMAC, wantMAC)
+		return nil, fmt.Errorf("%w: mac %x != %x", ErrIntegrity, recvMAC, wantMAC)
 	}
 
 	ciphered := secHdr == SecHdrIntegrityCiphered || secHdr == SecHdrIntegrityCipheredNewCtx

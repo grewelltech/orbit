@@ -15,6 +15,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -153,3 +154,121 @@ func TestAttachProbe(t *testing.T) {
 		})
 	}
 }
+
+// OnSMRequest sees the PDU Session Establishment Request the UE sends, byte
+// for byte; OnNAS sees each downlink as the security context decoded it, a
+// MAC failure as nas.ErrIntegrity; and Stop ends the attach, returning a
+// REGISTERED UE's session and failing an earlier one with ErrProbeStopped.
+func TestAttachProbeSMAnswer(t *testing.T) {
+	const dnn = "orbit-unknown-dnn"
+	p := ue.PDUSessionParams{PDUSessionID: 1, SST: 1, SD: "010203", DNN: dnn}
+	want, err := ue.BuildPDUSessionEstablishmentRequest(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		answer     mockamf.DNNAnswer
+		noSMHook   bool
+		stopAtAuth bool // close Stop at the Authentication Request, which is withheld
+		wantSMs    int
+		wantErr    error // nil: a registered session comes back
+		wantNASErr bool
+		wantReturn bool // OnNAS saw the request returned
+	}{
+		{name: "returned, stop after the answer", answer: mockamf.ReturnDNN, wantSMs: 1, wantReturn: true},
+		{name: "no OnSMRequest hook", answer: mockamf.ReturnDNN, noSMHook: true, wantReturn: true},
+		{name: "bad MAC", answer: mockamf.BadMACDNN, wantSMs: 1, wantErr: nas.ErrIntegrity, wantNASErr: true},
+		{name: "undecodable", answer: mockamf.UndecodableDNN, wantSMs: 1, wantErr: errAny, wantNASErr: true},
+		{name: "stopped before registration", answer: mockamf.ReturnDNN, stopAtAuth: true, wantErr: ErrProbeStopped},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
+			opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
+			amf, err := mockamf.New(mockamf.Config{
+				Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+				MCC: "208", MNC: "93", SST: 1, SD: "010203",
+			}, mockamf.WithUnknownDNN(dnn, tc.answer, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			conn := amf.Connect(ctx)
+			defer func() { _ = conn.Close() }()
+			cfg := gnb.Config{ID: 1, Name: "orbit-gnb", MCC: "208", MNC: "93", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}}
+			if ng, err := gnb.NGSetup(ctx, conn, cfg); err != nil || !ng.Accepted {
+				t.Fatalf("NG Setup: %v", err)
+			}
+			const supi = "208930100007501"
+			id, err := ue.ParseIdentity(supi, "208", "93", "0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			stop := make(chan struct{})
+			var once sync.Once
+			var mu sync.Mutex
+			var sms [][]byte
+			var nasErr error
+			var returned bool
+			probe := &AttachProbe{Stop: stop, OnNAS: func(ev NASEvent) {
+				mu.Lock()
+				defer mu.Unlock()
+				if ev.Err != nil {
+					nasErr = ev.Err
+					return
+				}
+				if tr := ev.Msg.DLNASTransport; ev.Msg.GmmMessage != nil && tr != nil {
+					returned = slices.Equal(tr.GetPayloadContainerContents(), want)
+					once.Do(func() { close(stop) })
+				}
+			}}
+			if !tc.noSMHook {
+				probe.OnSMRequest = func(sm []byte) {
+					mu.Lock()
+					sms = append(sms, sm)
+					mu.Unlock()
+				}
+			}
+			if tc.stopAtAuth {
+				probe.Withhold = map[uint8]bool{f5nas.MsgTypeAuthenticationResponse: true}
+				probe.OnDownlink = func(ev DownlinkEvent) {
+					if ev.NASType == f5nas.MsgTypeAuthenticationRequest {
+						once.Do(func() { close(stop) })
+					}
+				}
+			}
+			sess, err := Attach(ctx, conn, cfg, UEConfig{Identity: id, Sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}, PDUSession: &p, Probe: probe},
+				slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+			switch {
+			case tc.wantErr == nil:
+				if err != nil || sess == nil || !sess.Result.Registered || sess.Result.SessionActive {
+					t.Fatalf("Attach = %+v, %v; want a registered UE without a session", sess, err)
+				}
+			case tc.wantErr == errAny:
+				if err == nil || errors.Is(err, nas.ErrIntegrity) {
+					t.Fatalf("Attach err = %v, want a decode error that is not an integrity failure", err)
+				}
+			case !errors.Is(err, tc.wantErr):
+				t.Fatalf("Attach err = %v, want %v", err, tc.wantErr)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(sms) != tc.wantSMs {
+				t.Fatalf("OnSMRequest called %d times, want %d", len(sms), tc.wantSMs)
+			}
+			for _, sm := range sms {
+				if !slices.Equal(sm, want) {
+					t.Errorf("OnSMRequest got %x, want %x", sm, want)
+				}
+			}
+			if (nasErr != nil) != tc.wantNASErr || returned != tc.wantReturn {
+				t.Errorf("OnNAS err %v, returned %v; want err %v, returned %v", nasErr, returned, tc.wantNASErr, tc.wantReturn)
+			}
+		})
+	}
+}
+
+// errAny marks a test case that wants some error.
+var errAny = errors.New("any error")

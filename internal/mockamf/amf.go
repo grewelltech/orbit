@@ -111,6 +111,11 @@ type AMF struct {
 	forcedIntegrity uint8
 	tamperCaps      bool
 	skipSMC         bool
+
+	// Unknown-DNN options (dnn.go).
+	unknownDNN string
+	dnnAnswer  DNNAnswer
+	dnnCause   uint8
 }
 
 // errCrashed ends every association of a mock that crashed after a release

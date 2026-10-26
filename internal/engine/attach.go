@@ -150,9 +150,14 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	// The loop runs until the target state: REGISTERED, or (if a PDU session
 	// is requested) session-active. The PDU Session Establishment Request is
 	// triggered once REGISTERED (see onRegistrationAccept).
-	for !st.done() {
-		pdu, err := gnb.ReadPDU(ctx, conn)
+	rctx, stopReads := st.readContext(ctx)
+	defer stopReads()
+	for !st.done() && !st.stopped() {
+		pdu, err := gnb.ReadPDU(rctx, conn)
 		if err != nil {
+			if st.stopped() && ctx.Err() == nil {
+				break
+			}
 			return nil, err
 		}
 		if err := st.observe(pdu); err != nil {
@@ -175,6 +180,9 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		}
 	}
 
+	if !st.registered {
+		return nil, ErrProbeStopped
+	}
 	return &Session{
 		SUPI:   ueCfg.Sub.SUPI,
 		gnbCfg: gnbCfg,
@@ -384,6 +392,9 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		}
 		msg, err = s.sec.DecodeSecure(raw)
 	}
+	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
+		p.OnNAS(NASEvent{Raw: append([]byte(nil), raw...), Msg: msg, Err: err})
+	}
 	if err != nil {
 		return fmt.Errorf("decode downlink NAS: %w", err)
 	}
@@ -521,6 +532,9 @@ func (s *attachState) requestPDUSession(p ue.PDUSessionParams) error {
 	wrapped, err := s.sec.EncodeSecure(transport, nas.SecHdrIntegrityCiphered)
 	if err != nil {
 		return fmt.Errorf("wrap PDU session UL NAS Transport: %w", err)
+	}
+	if p := s.ueCfg.Probe; p != nil && p.OnSMRequest != nil {
+		p.OnSMRequest(append([]byte(nil), sm...))
 	}
 	if err := s.sendUL(wrapped); err != nil {
 		return err
