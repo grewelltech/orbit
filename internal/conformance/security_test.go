@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,9 @@ func TestJudgeSMC(t *testing.T) {
 			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command; registration proceeded without NAS security (UE offered NEA0/NEA1/NEA2, NIA0). TS 33.501 5.5.2.",
 				nia0OnlyOrderNote, "Cleanup: plain switch-off Deregistration Request sent; the core released the UE context (UE Context Release Complete sent)."}},
+		{name: "NIA0-only: plain Accept that did not decode", o: smcOutcome{acceptFirst: true, plainAccept: true, noCleanup: errors.New("decode downlink NAS: bad")},
+			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			wantDetail: []string{"Cleanup: skipped, the plain Registration Accept did not decode (decode downlink NAS: bad)."}},
 		{name: "NIA0-only: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: Pass,
 			wantDetail: []string{"an algorithm the UE did not offer (recorded, not scored)"}},
 		{name: "NIA0-only: nothing", o: smcOutcome{noAnswer: true}, u: nia0OnlyUE, want: Error, wantObserved: "no Security Mode Command, reject or release"},

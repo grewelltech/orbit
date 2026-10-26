@@ -25,8 +25,9 @@ import (
 // engine's cleanup deregisters the UE in the clear, then asks for a release
 // if the core sends none: the mock releases on the request by default, on
 // the deregistration with WithReleaseOnDeregistration, and never with
-// WithIgnoreUEContextReleaseRequest. With 128-NIA2 in common the option
-// changes nothing.
+// WithIgnoreUEContextReleaseRequest. The cleanup runs to its own bound
+// even when the attach's context ends as the Accept arrives. With 128-NIA2
+// in common the option changes nothing.
 func TestSkipNoCommonIntegrity(t *testing.T) {
 	skip := mockamf.WithNoCommonIntegrity(mockamf.SkipNoCommonIntegrity)
 	nia0Only, err := ue.NewSecurityCapability([]uint8{nas.NEA0, nas.NEA1, nas.NEA2}, []uint8{nas.NIA0})
@@ -37,6 +38,7 @@ func TestSkipNoCommonIntegrity(t *testing.T) {
 		name      string
 		opts      []mockamf.Option
 		normal    bool // the default UE, which offers 128-NIA2
+		cancel    bool // the attach's context ends as the plain Accept arrives
 		wantSteps []string
 	}{
 		{name: "released on request", opts: []mockamf.Option{skip, mockamf.WithGUTI()},
@@ -47,6 +49,8 @@ func TestSkipNoCommonIntegrity(t *testing.T) {
 			wantSteps: []string{"plain switch-off Deregistration Request sent", "the core released the UE context (UE Context Release Complete sent)"}},
 		{name: "never released", opts: []mockamf.Option{skip, mockamf.WithIgnoreUEContextReleaseRequest()},
 			wantSteps: []string{"UE Context Release Request sent", "no UE Context Release Command within 100ms; the association is closed with the UE context still held"}},
+		{name: "context ended at the Accept", opts: []mockamf.Option{skip, mockamf.WithGUTI()}, cancel: true,
+			wantSteps: []string{"plain switch-off Deregistration Request sent", "no UE Context Release Command within 100ms", "UE Context Release Request sent", "the core released the UE context (UE Context Release Complete sent)"}},
 		{name: "NIA2 in common", opts: []mockamf.Option{skip}, normal: true},
 	}
 	for _, tc := range tests {
@@ -68,14 +72,25 @@ func TestSkipNoCommonIntegrity(t *testing.T) {
 				t.Fatal(err)
 			}
 			rec := &recorder{}
+			actx, acancel := context.WithCancel(ctx)
+			defer acancel()
+			onDownlink := rec.add
+			if tc.cancel {
+				onDownlink = func(ev engine.DownlinkEvent) {
+					rec.add(ev)
+					if ev.NASType == f5nas.MsgTypeRegistrationAccept {
+						acancel()
+					}
+				}
+			}
 			cfg := engine.UEConfig{
 				Identity: id, Sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc},
-				Probe: &engine.AttachProbe{OnDownlink: rec.add, CleanUpPlainAccept: 100 * time.Millisecond},
+				Probe: &engine.AttachProbe{OnDownlink: onDownlink, CleanUpPlainAccept: 100 * time.Millisecond},
 			}
 			if !tc.normal {
 				cfg.SecurityCapabilities = &nia0Only
 			}
-			_, err = engine.Attach(ctx, conn, gnbCfg, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+			_, err = engine.Attach(actx, conn, gnbCfg, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 			if tc.normal {
 				if err != nil {
 					t.Fatalf("attach with 128-NIA2 in common: %v", err)

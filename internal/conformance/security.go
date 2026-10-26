@@ -44,15 +44,17 @@ const cleanupWait = 2 * time.Second
 //     NIA3, reject or release, but shall not select NIA0 or skip the
 //     command;
 //   - last, a UE offering only NIA0 (doubly non-conforming, the same
-//     robustness framing): no non-null algorithm is common, so a reject or
-//     a release is the only conformant answer. After a Registration Accept
+//     robustness framing): no non-null algorithm is common. A reject or a
+//     release is PASS, and so is a non-null algorithm the UE did not
+//     offer (recorded, see below); NIA0 or no command is FAIL. After a Registration Accept
 //     without NAS security the UE is cleaned up as far as it can be (a
 //     plain deregistration, then a UE Context Release Request if needed),
 //     and the cleanup is recorded.
 //
 // Which algorithm wins is operator policy (6.7.1.1), so it is recorded, as
-// is one the UE did not offer: no shall before Rel-19 forbids that for this
-// case. The selected ciphering algorithm is recorded; NEA0 is legal.
+// is one the UE did not offer: no shall requires the selected algorithm to
+// be one the UE offered at initial registration (5.11.2 b) says only
+// "dependent on"; 6.7.1.2, from V19.4.0, covers AMF change). The selected ciphering algorithm is recorded; NEA0 is legal.
 type nasSMCNoNIA0 struct {
 	// wait and cleanup override smcWait and cleanupWait (tests only).
 	wait, cleanup time.Duration
@@ -147,7 +149,7 @@ func mustCaps(ea, ia []uint8) nasType.UESecurityCapability {
 }
 
 func (c nasSMCNoNIA0) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "no NIA0 and the UE security capabilities replayed exactly in the Security Mode Command of a normal registration; for a UE offering only NIA0 and NIA3, NIA3, a reject or a release; for a UE offering only NIA0, a reject or a release; never NIA0 or no Security Mode Command (TS 33.501 5.5.2, 6.7.2 step 1b)"}
+	r := Result{Expected: "no NIA0 and the UE security capabilities replayed exactly in the Security Mode Command of a normal registration; for a UE offering only NIA0 and NIA3, NIA3, a reject or a release; for a UE offering only NIA0, a reject or a release is PASS; a Security Mode Command selecting a non-null algorithm the UE did not offer is also PASS, with the selection recorded, not scored (no shall requires the selected algorithm to be one the UE offered at initial registration (5.11.2 b) says only 'dependent on'; 6.7.1.2, from V19.4.0, covers AMF change)); NIA0 or no Security Mode Command is FAIL; never NIA0 or no Security Mode Command for any UE (TS 33.501 5.5.2, 6.7.2 step 1b)"}
 	if !env.UE.Configured() {
 		r.Verdict, r.Observed = Skip, "no UE configured"
 		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks"
@@ -183,6 +185,7 @@ type smcOutcome struct {
 	acceptFirst bool   // a Registration Accept came with no Security Mode Command
 	plainAccept bool   // that Accept came without NAS security (security header type 0)
 	cleanup     string // what the cleanup after a plain Accept did
+	noCleanup   error  // why a plain Accept got no cleanup: it did not decode
 	reject      string // a reject that ended the registration
 	released    bool   // a UE Context Release Command ended it
 	noAnswer    bool   // nothing of the above within the wait
@@ -242,6 +245,11 @@ func (c nasSMCNoNIA0) probeSMC(ctx context.Context, h *UEHarness, caps nasType.U
 	case errors.As(err, &pa):
 		o.cleanup = strings.Join(pa.Steps, "; ")
 	case o.smc != nil, o.acceptFirst, o.reject != "":
+		if o.plainAccept && err != nil {
+			// The engine ends the attach before the cleanup when the plain
+			// Accept does not decode.
+			o.noCleanup = err
+		}
 	case errors.Is(err, engine.ErrReleasedByCore):
 		o.released = true
 	case err == nil:
@@ -297,7 +305,9 @@ type subResult struct {
 // FAILs on NIA0, on replayed capabilities that differ from those it sent,
 // and on a Registration Accept with no Security Mode Command. A reject or a
 // release is PASS for the two non-conforming UEs and ERROR for the normal
-// one.
+// one. A non-null algorithm the UE did not offer is PASS for every UE,
+// including the two non-conforming ones, with the selection recorded, not
+// scored.
 func judgeSMC(o smcOutcome, u smcStimulus) subResult {
 	s := subResult{name: u.String()}
 	caps := u.caps()
@@ -357,8 +367,11 @@ func judgeSMC(o smcOutcome, u smcStimulus) subResult {
 	if u == nia0OnlyUE && s.v == Fail {
 		s.detail += " " + nia0OnlyOrderNote
 	}
-	if o.cleanup != "" {
+	switch {
+	case o.cleanup != "":
 		s.detail += " Cleanup: " + o.cleanup + "."
+	case o.plainAccept && o.noCleanup != nil:
+		s.detail += fmt.Sprintf(" Cleanup: skipped, the plain Registration Accept did not decode (%v).", o.noCleanup)
 	}
 	return s
 }

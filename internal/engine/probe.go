@@ -181,6 +181,11 @@ func (s *attachState) cleanUpPlainAccept(acc *f5nas.Message) error {
 	done := make(chan struct{})
 	defer close(done)
 	pdus := s.readPDUs(done)
+	// The cleanup runs to its own bound even if the attach's context ends
+	// as the Accept arrives (a caller's wait running out), so the
+	// deregistration and the release request still go out.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), 2*wait+time.Second)
+	defer cancel()
 	id, err := s.ueCfg.Identity.EncodeNullSUCI()
 	if g, gerr := ue.ParseRegistrationAccept(acc); gerr == nil && g != nil {
 		id, err = g.Raw, nil
@@ -192,7 +197,7 @@ func (s *attachState) cleanUpPlainAccept(acc *f5nas.Message) error {
 		e.Steps = append(e.Steps, "Deregistration Request not sent: "+err.Error())
 	} else {
 		e.Steps = append(e.Steps, "plain switch-off Deregistration Request sent")
-		released, rerr := s.awaitRelease(pdus, wait)
+		released, rerr := s.awaitRelease(ctx, pdus, wait)
 		if rerr != nil {
 			e.Steps = append(e.Steps, rerr.Error())
 			return e
@@ -208,7 +213,7 @@ func (s *attachState) cleanUpPlainAccept(acc *f5nas.Message) error {
 		return e
 	}
 	e.Steps = append(e.Steps, "UE Context Release Request sent")
-	released, err := s.awaitRelease(pdus, wait)
+	released, err := s.awaitRelease(ctx, pdus, wait)
 	switch {
 	case err != nil:
 		e.Steps = append(e.Steps, err.Error())
@@ -272,16 +277,16 @@ func (s *attachState) readPDUs(done <-chan struct{}) <-chan pduResult {
 }
 
 // awaitRelease takes downlink PDUs from pdus, each reported to the probe,
-// for up to wait. It answers a UE CONTEXT RELEASE COMMAND with UE CONTEXT
+// for up to wait, or until ctx ends. It answers a UE CONTEXT RELEASE COMMAND with UE CONTEXT
 // RELEASE COMPLETE and reports true; the wait running out is false with no
 // error.
-func (s *attachState) awaitRelease(pdus <-chan pduResult, wait time.Duration) (bool, error) {
+func (s *attachState) awaitRelease(ctx context.Context, pdus <-chan pduResult, wait time.Duration) (bool, error) {
 	t := time.NewTimer(wait)
 	defer t.Stop()
 	for {
 		select {
-		case <-s.ctx.Done():
-			return false, fmt.Errorf("waiting for a UE Context Release Command: %w", s.ctx.Err())
+		case <-ctx.Done():
+			return false, fmt.Errorf("waiting for a UE Context Release Command: %w", ctx.Err())
 		case <-t.C:
 			return false, nil
 		case r := <-pdus:
