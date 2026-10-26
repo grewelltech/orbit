@@ -202,10 +202,19 @@ func TestT3560CheckTimeoutBeforeWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	front := sctpfront.Start(t, amf)
+	// authWait must stay well above the context so the context is the first
+	// deadline to fire. Run's no-Authentication-Request timer cancels the
+	// attach when authWait expires, and a cancel landing on an in-flight SCTP
+	// read surfaces as "sctp read: EOF" rather than context.Canceled -- which
+	// reaches the "UE setup failed" arm instead of the timed-out one. With
+	// authWait at 100ms that happened whenever NG Setup took longer than
+	// 100ms, which the full package's contention made routine (1 in 4 runs).
+	// The context firing first makes the timed-out arm the only reachable
+	// outcome, whatever phase the procedure has reached.
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
-	r := nasT3560AuthRetransmit{t3560: 100 * time.Millisecond, tmax: 200 * time.Millisecond, authWait: 100 * time.Millisecond}.Run(ctx, ueEnv(front.Addr, "", "127.0.0.1"))
-	if r.Verdict != Error || r.Observed != "timed out before the T3560 window closed" || !strings.Contains(r.Detail, "raise --per-test-timeout to at least 1.6s") {
+	r := nasT3560AuthRetransmit{t3560: 100 * time.Millisecond, tmax: 200 * time.Millisecond, authWait: time.Second}.Run(ctx, ueEnv(front.Addr, "", "127.0.0.1"))
+	if r.Verdict != Error || r.Observed != "timed out before the T3560 window closed" || !strings.Contains(r.Detail, "raise --per-test-timeout to at least 2.5s") {
 		t.Errorf("= %s %q %q, want the timed-out ERROR", r.Verdict, r.Observed, r.Detail)
 	}
 	deadline := time.Now().Add(3 * time.Second)
