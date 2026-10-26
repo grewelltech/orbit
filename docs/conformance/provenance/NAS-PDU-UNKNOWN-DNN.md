@@ -121,6 +121,6 @@ Payload container type is "N1 SM information", and the Payload container carries
   - The request returned with a 5GMM cause other than #90/#91/#22/#67/#69.
 - A core that then stops completing NG Setup is the crash FAIL.
 
-The answer is decoded through the UE's NAS security context, which verifies the MAC and deciphers. Whenever registration completed, the UE is deregistered at the end, on every verdict, including both decode ERRORs: the UE is RM-REGISTERED by then, and switch-off deregistration uses the uplink context, which a downlink failure does not touch. The association is dropped without a deregistration only when the deregistration itself fails or times out, and the detail records it.
+The answer is decoded through the UE's NAS security context, which verifies the MAC and deciphers. Whenever registration completed, the UE is deregistered at the end, on every verdict, including both decode ERRORs: the UE is RM-REGISTERED by then, and switch-off deregistration uses the uplink context, which a downlink failure does not touch. The association is dropped without a deregistration in two cases only: when the deregistration itself fails or times out, and when the attach fails after the request was sent (the check's deadline, an SCTP read error, or a UE Context Release Command, where the core released the UE context itself). The detail records both cases.
 
 Stimulus: DNN `orbit-unknown-dnn`, on the run's slice.
