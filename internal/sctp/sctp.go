@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -213,9 +214,15 @@ func routeSource(remote *net.UDPAddr) (net.IP, error) {
 // resolver, an unspecified or missing address never gets through: that is
 // INADDR_ANY, the multi-homed socket this path exists to avoid, so Dial owns
 // the invariant rather than trusting each resolver. A link-local source keeps
-// the remote's zone, since a link-local pair shares an interface.
+// the remote's zone, since a link-local pair shares an interface. An IPv6
+// link-local remote without a zone cannot be routed at all, so it gets a
+// hint naming the zone rather than the probe's "pass --bind" (#120).
 func probeSource(source func(*net.UDPAddr) (net.IP, error), raddr string, ra *isctp.SCTPAddr) (net.IPAddr, error) {
 	remote := &net.UDPAddr{IP: ra.IPAddrs[0].IP, Port: ra.Port, Zone: ra.IPAddrs[0].Zone}
+	if remote.IP.To4() == nil && remote.IP.IsLinkLocalUnicast() && remote.Zone == "" {
+		example := net.JoinHostPort(remote.IP.String()+"%eth0", strconv.Itoa(remote.Port))
+		return net.IPAddr{}, fmt.Errorf("link-local AMF address %q needs a %%zone, e.g. %s", raddr, example)
+	}
 	ip, err := source(remote)
 	if err != nil {
 		return net.IPAddr{}, fmt.Errorf("cannot determine N2 source for %q: %w; pass --bind", raddr, err)
