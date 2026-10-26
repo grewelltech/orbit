@@ -150,7 +150,7 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 			}
 			v, err := convert(f, s.Value)
 			if err != nil {
-				return nil, fmt.Errorf("%s: %s: %w", s.Source, format(segs), err)
+				return nil, fmt.Errorf("%s: %w (%s)", format(segs), err, s.Source)
 			}
 			path := format(segs)
 			if e, ok := state[path]; ok {

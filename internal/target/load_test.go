@@ -155,7 +155,8 @@ func TestUnquotedStringFieldsKeepTheirText(t *testing.T) {
 }
 
 // A number written with a leading zero is an error rather than a guess
-// between octal and decimal; plain decimal, explicit 0x hex and 0 load.
+// between octal and decimal, and so is a quoted number; plain decimal,
+// explicit 0x hex and 0 load. Errors name the file, line and path.
 func TestNumericLeadingZero(t *testing.T) {
 	fields := []struct {
 		name string
@@ -184,6 +185,9 @@ func TestNumericLeadingZero(t *testing.T) {
 			wantErr string
 		}{
 			{text: f.zero, wantErr: f.zero + " has a leading zero; write " + f.ten + ", or 0x… for hex"},
+			{text: `"` + f.ten + `"`, wantErr: `"` + f.ten + `" is quoted; write the number unquoted`},
+			{text: `'` + f.zero + `'`, wantErr: `"` + f.zero + `" is quoted; write the number unquoted; ` +
+				f.zero + " has a leading zero; write " + f.ten + ", or 0x… for hex"},
 			{text: f.ten, want: f.want},
 			{text: f.hex, want: f.want},
 			{text: "0", want: 0},
@@ -193,8 +197,8 @@ func TestNumericLeadingZero(t *testing.T) {
 				doc := "version: 1\nkind: target\nname: x\n" + fmt.Sprintf(f.yaml, r.text) + "\n"
 				files, err := Parse("x.yaml", []byte(doc), envOf(nil))
 				if r.wantErr != "" {
-					if err == nil || !strings.Contains(err.Error(), r.wantErr) {
-						t.Fatalf("err = %v, want %q", err, r.wantErr)
+					if err == nil || !strings.Contains(err.Error(), r.wantErr) || !strings.HasPrefix(err.Error(), "x.yaml:4: ") {
+						t.Fatalf("err = %v, want x.yaml:4: and %q", err, r.wantErr)
 					}
 					return
 				}

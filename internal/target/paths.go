@@ -224,11 +224,15 @@ func convert(f field, v any) (any, error) {
 	case tUint:
 		switch x := v.(type) {
 		case string:
-			n, err := strconv.ParseUint(strings.TrimSpace(x), 10, 32)
+			t := strings.TrimSpace(x)
+			if err := leadingZeroText(t); err != nil {
+				return nil, err
+			}
+			n, err := strconv.ParseUint(t, 0, 32)
 			if err != nil {
 				return nil, fmt.Errorf("%q is not a non-negative integer", x)
 			}
-			return uint64(n), nil
+			return n, nil
 		case int:
 			if x >= 0 {
 				return uint64(x), nil
@@ -239,7 +243,11 @@ func convert(f field, v any) (any, error) {
 	case tFloat:
 		switch x := v.(type) {
 		case string:
-			n, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
+			t := strings.TrimSpace(x)
+			if err := leadingZeroText(t); err != nil {
+				return nil, err
+			}
+			n, err := strconv.ParseFloat(t, 64)
 			if err != nil {
 				return nil, fmt.Errorf("%q is not a number", x)
 			}

@@ -104,3 +104,36 @@ func TestEnvInput(t *testing.T) {
 		t.Errorf("ki provenance = %s %q", p.Source, p.Value)
 	}
 }
+
+// An env var holds a number by the same rule as a file: a leading zero is
+// an error naming the variable, while 0x, 0o and plain 0 resolve.
+func TestEnvNumberLeadingZero(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    uint64
+		wantErr string
+	}{
+		{value: "0010", wantErr: "workloads[default].attach.seed: 0010 has a leading zero; write 10, or 0x… for hex (env $ORBIT_LOAD_SEED)"},
+		{value: "10", want: 10},
+		{value: "0x0a", want: 10},
+		{value: "0o12", want: 10},
+		{value: "0", want: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.value, func(t *testing.T) {
+			r, err := Resolve(EnvInput(envOf(map[string]string{"ORBIT_LOAD_SEED": tc.value})))
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := r.Run["workloads[default].attach.seed"]; got != tc.want {
+				t.Errorf("seed = %v, want %d", got, tc.want)
+			}
+		})
+	}
+}

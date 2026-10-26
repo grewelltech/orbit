@@ -133,7 +133,13 @@ func parseDoc(name string, d *yaml.Node, env Getenv) (*File, error) {
 	if d.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("%s:%d: a target is a mapping", name, d.Line)
 	}
-	// Strict decode first: unknown keys and wrong types, with their lines.
+	// Flatten first, so a field's own errors (a quoted number, a leading
+	// zero) come with their path and line; then a strict decode catches
+	// unknown keys and wrong types it lets through.
+	f := &File{Input: Input{Layer: LayerTarget}}
+	if err := flatten(name, nil, d, env, &f.Input.Settings); err != nil {
+		return nil, err
+	}
 	var raw bytes.Buffer
 	enc := yaml.NewEncoder(&raw)
 	if err := enc.Encode(d); err != nil {
@@ -144,10 +150,6 @@ func parseDoc(name string, d *yaml.Node, env Getenv) (*File, error) {
 	var t Target
 	if err := dec.Decode(&t); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
-	}
-	f := &File{Input: Input{Layer: LayerTarget}}
-	if err := flatten(name, nil, d, env, &f.Input.Settings); err != nil {
-		return nil, err
 	}
 	// The expanded values are what the document holds.
 	res, err := Resolve(f.Input)
@@ -245,6 +247,13 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			return out, nil
 		}
 	case tUint, tFloat:
+		if v.Kind == yaml.ScalarNode && v.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle) != 0 {
+			msg := fmt.Sprintf("%q is quoted; write the number unquoted", v.Value)
+			if err := leadingZeroText(v.Value); err != nil {
+				msg += "; " + err.Error()
+			}
+			return nil, errors.New(msg)
+		}
 		if err := leadingZero(v); err != nil {
 			return nil, err
 		}
@@ -253,7 +262,7 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			out := make([]any, 0, len(v.Content))
 			for _, e := range v.Content {
 				if sst := mapNode(e, "sst"); sst != nil {
-					if err := leadingZero(sst); err != nil {
+					if _, err := nodeValue(field{typ: tUint}, sst); err != nil {
 						return nil, fmt.Errorf("slice sst: %w", err)
 					}
 				}
@@ -285,14 +294,23 @@ var leadingZeroRe = regexp.MustCompile(`^0[0-9]+$`)
 // neither guess is safe. Plain 0 and explicit 0x hex are unambiguous and
 // pass.
 func leadingZero(n *yaml.Node) error {
-	if n.Kind != yaml.ScalarNode || n.Style != 0 || !leadingZeroRe.MatchString(n.Value) {
+	if n.Kind != yaml.ScalarNode || n.Style != 0 {
 		return nil
 	}
-	dec := strings.TrimLeft(n.Value, "0")
+	return leadingZeroText(n.Value)
+}
+
+// leadingZeroText is leadingZero for a number's text, from a file, an env
+// var or a flag.
+func leadingZeroText(s string) error {
+	if !leadingZeroRe.MatchString(s) {
+		return nil
+	}
+	dec := strings.TrimLeft(s, "0")
 	if dec == "" {
 		dec = "0"
 	}
-	return fmt.Errorf("%s has a leading zero; write %s, or 0x… for hex", n.Value, dec)
+	return fmt.Errorf("%s has a leading zero; write %s, or 0x… for hex", s, dec)
 }
 
 // scalarText is a non-null scalar's text as written.
