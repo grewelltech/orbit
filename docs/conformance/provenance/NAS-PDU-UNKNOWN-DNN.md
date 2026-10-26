@@ -3,10 +3,18 @@
 Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/](https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/).
 
 Versions read:
-- orbit-architect, 2026-10-12 and 2026-10-18 (issue #137): V15.0.0 through V19.8.0.
-- orbit-conformance-test-writer, 2026-10-26: every TS 24.501 version from V15.0.0 to V18.14.0 (`24501-f00.zip` through `24501-hi1.zip`, then `24501-ie0.zip`), plus V19.8.0 (`24501-j80.zip`) and V20.1.0 (`24501-k10.zip`).
+- orbit-architect, 2026-10-12 and 2026-10-18 (issue #137): V15.0.0 (`24501-f00.zip`), V15.7.0 (`24501-f70.zip`), V16.15.0 (`24501-gf0.zip`), V17.18.1 (`24501-hi1.zip`), V18.14.0 (`24501-ie0.zip`) and V19.8.0 (`24501-j80.zip`), with V15.1.0 and V15.2.0 for the step 0 reading.
+- orbit-conformance-test-writer, 2026-10-26, for these clauses:
+  - Rel-15: every version from V15.0.0 to V15.7.0 (`f00` to `f70`), including V15.2.1 (`f21`);
+  - Rel-16: `g00` to `g40`, `g51`, and `g60` to `gf0` (not `g01`, `g02`, `g41` or `g50`);
+  - Rel-17: `h00` to `h21` and `h30` to `hi1` (not `h31`, `h41`, `h61`, `h71`, `ha1` or `hb1`);
+  - then only V18.14.0 (`ie0`), V19.8.0 (`j80`) and V20.1.0 (`k10`). The Rel-18 versions `i00` to `id0` were not bisected.
 
-The versions where the wording below changes are V15.0.0 (`f00`), V15.1.0 (`f10`), V15.2.0 (`f20`), V15.3.0 (`f30`), V15.7.0 (`f70`), V16.0.0 (`g00`), V16.3.0 (`g30`), V16.15.0 (`gf0`), V17.3.0 (`h30`), V17.18.1 (`hi1`), V18.14.0 (`ie0`) and V19.8.0 (`j80`).
+Unread versions sit between read versions with identical wording, except Rel-18 before V18.14.0, where only V18.14.0 was read.
+
+Change points for the wording below: V15.0.0 (`f00`), V15.1.0 (`f10`), V15.2.0 (`f20`), V15.3.0 (`f30`), V16.0.0 (`g00`), V16.1.0 (`g10`), V16.3.0 (`g30`), V16.15.0 (`gf0`), V17.3.0 (`h30`) and V17.5.0 (`h50`).
+
+Latest of each release read: V15.7.0 (`f70`), V16.15.0 (`gf0`), V17.18.1 (`hi1`), V18.14.0 (`ie0`), V19.8.0 (`j80`), and V20.1.0 (`k10`).
 
 The network can catch an unknown DNN in either of two places, and either is conformant:
 - If no SMF is selected, the **AMF** returns the request (5.4.5.2.5, with the DL NAS TRANSPORT built per 5.4.5.3.1 and 5.4.5.3.2).
