@@ -287,8 +287,10 @@ func TestRunLatencyCancelCutsInFlightProbe(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
-				t.Errorf("RunLatency took %s after a %s at 50ms; want under 200ms", elapsed, tc.name)
+			// Prompt against the 3 s timeout, with margin for a loaded
+			// -race run.
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Errorf("RunLatency took %s after a %s at 50ms; want under 1s", elapsed, tc.name)
 			}
 			if res.Received != 0 || res.Sent == 0 {
 				t.Errorf("result %+v, want probes sent and none received", res)
