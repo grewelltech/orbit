@@ -44,7 +44,7 @@ app:
       data_ip: 203.0.113.21
 `
 
-var labEnv = envOf(map[string]string{"ORBIT_KI": "k1", "ORBIT_OPC": "o1", "ORBIT_LOOM_TOKEN": "t1"})
+var labEnv = envOf(map[string]string{"ORBIT_KI": "11111111111111111111111111111111", "ORBIT_OPC": "22222222222222222222222222222222", "ORBIT_LOOM_TOKEN": "t1"})
 
 // ADR-0008 §1's example loads: every field, ${ENV} expanded.
 func TestParseExample(t *testing.T) {
@@ -58,7 +58,7 @@ func TestParseExample(t *testing.T) {
 	got := files[0].Target
 	want := Target{Version: 1, Kind: "target", Name: "lab1",
 		Core:        Core{AMF: "192.0.2.10:38412", PLMN: PLMN{MCC: "001", MNC: "01"}, TAC: 1, Slices: []Slice{{SST: 1, SD: "000001"}}, DNN: "internet", Profile: "sdcore"},
-		Subscribers: []Pool{{Name: "main", FirstSUPI: "001010000000001", Count: 100, Ki: "k1", OPc: "o1"}},
+		Subscribers: []Pool{{Name: "main", FirstSUPI: "001010000000001", Count: 100, Ki: "11111111111111111111111111111111", OPc: "22222222222222222222222222222222"}},
 		RAN:         RAN{N2SourceIPs: []string{"192.0.2.50-192.0.2.59"}, N3IPs: []string{"198.51.100.50"}, GNBIDs: GNBIDs{First: 100, Count: 900, Bits: 24}},
 		App:         App{Responders: []Responder{{Name: "app1"}, {Name: "lab-loomd", Control: "203.0.113.20:9551", Token: "t1", DataIP: "203.0.113.21"}}},
 	}
@@ -123,6 +123,7 @@ func TestParseErrors(t *testing.T) {
 		{name: "unset variable", doc: base + "subscribers: [{name: m, ki: '${NOPE}'}]\n", want: "lab.yaml:4: subscribers[].ki: ${NOPE} is not set"},
 		{name: "pool without a name", doc: base + "subscribers: [{count: 1}]\n", want: "entries need a name"},
 		{name: "duplicate pools", doc: base + "subscribers: [{name: m}, {name: m}]\n", want: "distinct names"},
+		{name: "pool name with a dot", doc: base + "subscribers: [{name: a.b}]\n", want: "may not contain"},
 		{name: "wrong type", doc: base + "core: {tac: one}\n", want: "lab.yaml"},
 		{name: "duplicate targets", doc: "- {version: 1, kind: target, name: a}\n- {version: 1, kind: target, name: a}\n", want: "defined twice"},
 		{name: "not a mapping", doc: "just a string\n", want: "want a target or a list"},

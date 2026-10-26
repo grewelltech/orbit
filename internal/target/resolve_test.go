@@ -125,11 +125,11 @@ func TestMergeRules(t *testing.T) {
 	}
 
 	// No pool in any lower layer: the default element is created.
-	r, err = Resolve(Input{Layer: LayerEnv, Settings: []Setting{set("subscribers[].ki", "k", "$ORBIT_KI")}})
+	r, err = Resolve(Input{Layer: LayerEnv, Settings: []Setting{set("subscribers[].ki", "11111111111111111111111111111111", "$ORBIT_KI")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Target.Subscribers) != 1 || r.Target.Subscribers[0].Name != "default" || r.Target.Subscribers[0].Ki != "k" {
+	if len(r.Target.Subscribers) != 1 || r.Target.Subscribers[0].Name != "default" || r.Target.Subscribers[0].Ki != "11111111111111111111111111111111" {
 		t.Errorf("pools = %+v, want one named default", r.Target.Subscribers)
 	}
 }
@@ -139,11 +139,11 @@ func TestMergeRules(t *testing.T) {
 func TestSecretsMasked(t *testing.T) {
 	r, err := Resolve(
 		Input{Layer: LayerTarget, Settings: []Setting{
-			set("subscribers[main].ki", "aaaa", "t"), set("subscribers[main].opc", "bbbb", "t"),
+			set("subscribers[main].ki", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "t"), set("subscribers[main].opc", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "t"),
 			set("subscribers[main].first_supi", "001010000000001", "t"),
 			set("app.responders[app1].token", "tok", "t"), set("app.responders[app1].control", "203.0.113.20:9551", "t"),
 		}},
-		Input{Layer: LayerFlag, Settings: []Setting{set("subscribers[].ki", "cccc", "--ki")}},
+		Input{Layer: LayerFlag, Settings: []Setting{set("subscribers[].ki", "cccccccccccccccccccccccccccccccc", "--ki")}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -159,14 +159,14 @@ func TestSecretsMasked(t *testing.T) {
 			}
 		}
 	}
-	for _, s := range []string{"aaaa", "bbbb", "cccc", "tok"} {
+	for _, s := range []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccc", "tok"} {
 		for _, p := range r.Provenance {
 			if strings.Contains(p.Value, s) {
 				t.Errorf("provenance leaks %q at %s", s, p.Path)
 			}
 		}
 	}
-	if r.Target.Subscribers[0].Ki != "cccc" {
+	if r.Target.Subscribers[0].Ki != "cccccccccccccccccccccccccccccccc" {
 		t.Error("the resolved target lost the key itself")
 	}
 	if p := prov(t, r, "subscribers[main].first_supi"); p.Value != "001010000000001" {

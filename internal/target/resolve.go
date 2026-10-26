@@ -176,6 +176,18 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 		}
 	}
 
+	paths := make([]string, 0, len(state))
+	for p := range state {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		_, f, _ := lookup(p)
+		if err := validateValue(p, f, state[p].value, state[p].src); err != nil {
+			return nil, err
+		}
+	}
+
 	res := &Resolved{Run: map[string]any{}}
 	for p, e := range state {
 		res.Provenance = append(res.Provenance, *e.prov)

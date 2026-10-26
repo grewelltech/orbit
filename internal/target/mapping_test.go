@@ -48,8 +48,8 @@ func TestFlagInput(t *testing.T) {
 	}{
 		{name: "nothing set", cmd: "orbit conformance", want: map[string]any{}},
 		{name: "defaults never set a field", cmd: "orbit conformance", args: []string{"--json"}, want: map[string]any{}},
-		{name: "scalars", cmd: "orbit conformance", args: []string{"--amf", "192.0.2.1:38412", "--tac", "7", "--ki", "k"},
-			want: map[string]any{"core.amf": "192.0.2.1:38412", "core.tac": "7", "subscribers[].ki": "k"}},
+		{name: "scalars", cmd: "orbit conformance", args: []string{"--amf", "192.0.2.1:38412", "--tac", "7", "--ki", "11111111111111111111111111111111"},
+			want: map[string]any{"core.amf": "192.0.2.1:38412", "core.tac": "7", "subscribers[].ki": "11111111111111111111111111111111"}},
 		{name: "slice from both", cmd: "orbit load", args: []string{"--sst", "2", "--sd", "abcdef"},
 			want: map[string]any{"core.slices": []Slice{{SST: 2, SD: "abcdef"}}}},
 		{name: "sd alone keeps SST 1", cmd: "orbit load", args: []string{"--sd", "abcdef"},
@@ -87,12 +87,12 @@ func TestFlagInput(t *testing.T) {
 
 // EnvInput reads the bound ORBIT_* variables that are set, and nothing else.
 func TestEnvInput(t *testing.T) {
-	in := EnvInput(envOf(map[string]string{"ORBIT_MCC": "001", "ORBIT_KI": "k", "ORBIT_SERVER": "http://x", "HOME": "/h"}))
+	in := EnvInput(envOf(map[string]string{"ORBIT_MCC": "001", "ORBIT_KI": "11111111111111111111111111111111", "ORBIT_SERVER": "http://x", "HOME": "/h"}))
 	got := map[string]string{}
 	for _, s := range in.Settings {
 		got[s.Path] = s.Source.Name + "=" + s.Value.(string)
 	}
-	want := map[string]string{"core.plmn.mcc": "$ORBIT_MCC=001", "subscribers[].ki": "$ORBIT_KI=k"}
+	want := map[string]string{"core.plmn.mcc": "$ORBIT_MCC=001", "subscribers[].ki": "$ORBIT_KI=11111111111111111111111111111111"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("env settings = %v, want %v", got, want)
 	}

@@ -179,6 +179,9 @@ func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, out *[]Set
 				if elName == "" {
 					return fmt.Errorf("%s:%d: %s entries need a name", file, el.Line, pat)
 				}
+				if strings.ContainsAny(elName, ".[]") {
+					return fmt.Errorf("%s:%d: %s name %q may not contain '.', '[' or ']'", file, el.Line, pat, elName)
+				}
 				if names[elName] {
 					return fmt.Errorf("%s:%d: %s entries need distinct names (%q twice)", file, el.Line, pat, elName)
 				}
