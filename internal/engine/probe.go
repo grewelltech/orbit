@@ -43,9 +43,10 @@ type AttachProbe struct {
 	// OnNAS is called for every downlink NAS PDU the attach decodes, with
 	// the message as the UE's NAS security context unwrapped it (MAC
 	// verified, deciphered), or the decode error: errors.Is(err,
-	// nas.ErrIntegrity) for a MAC that does not verify. The attach then
-	// fails with that error as it would without a probe. It runs on the
-	// attach's goroutine and must not block.
+	// nas.ErrIntegrity) for a MAC that does not verify. With OnNAS set, a
+	// PDU that does not decode is skipped instead of failing the attach;
+	// the probe decides whether to close Stop. It runs on the attach's
+	// goroutine and must not block.
 	OnNAS func(NASEvent)
 	// Stop, once closed, ends the attach where it would next wait for the
 	// core. A REGISTERED UE's attach returns its Session without the PDU
@@ -61,6 +62,9 @@ type AttachProbe struct {
 type NASEvent struct {
 	// Raw is the NAS PDU as received.
 	Raw []byte
+	// Type is the 5GMM message type read from the PDU's header without
+	// decoding it (see DownlinkEvent.NASType), 0 when unreadable.
+	Type uint8
 	// Msg is the decoded plain message, nil when Err is set.
 	Msg *f5nas.Message
 	Err error

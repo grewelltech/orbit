@@ -39,10 +39,13 @@ const (
 // which returns the un-forwarded request in a DL NAS TRANSPORT with 5GMM
 // cause #90 or #91 (5.4.5.2.5 a) 1), 5.4.5.3.2 for case e) of 5.4.5.3.1),
 // or, from V16.3.0, with a congestion cause (case f)). A #90/#91 answer
-// whose payload is not the request, another answer, or nothing within
-// dnnAnswerWait is FAIL. A core that accepts the DNN leaves nothing to
-// judge: SKIP, as does a congestion send-back. The answer is read through the UE's NAS security context.
-// Whenever the registration completed, the UE is deregistered at the end.
+// whose payload is not the request, the request returned without a 5GMM
+// cause, another decoded answer, or nothing within dnnAnswerWait is FAIL.
+// A core that accepts the DNN leaves nothing to judge: SKIP, as does a
+// congestion send-back. The request returned with any other 5GMM cause, and
+// a downlink or 5GSM message that does not decode, are ERROR. The answer is
+// read through the UE's NAS security context. Whenever the registration
+// completed, the UE is deregistered at the end.
 type nasPDUUnknownDNN struct {
 	// registerWait and answerWait override dnnRegisterWait and
 	// dnnAnswerWait (tests only).
@@ -120,7 +123,7 @@ func (c nasPDUUnknownDNN) Run(ctx context.Context, env Env) Result {
 			r.Detail = joinDetail(r.Detail, "UE deregistered")
 		}
 	} else if o.sent != nil {
-		r.Detail = joinDetail(r.Detail, "the NAS state was unusable, so the association was dropped without a deregistration")
+		r.Detail = joinDetail(r.Detail, "the attach failed after the request, so its association closed without a deregistration")
 	}
 	if r.Verdict == Error && ctx.Err() != nil {
 		return r
@@ -136,6 +139,7 @@ type dnnOutcome struct {
 	noAnswer   bool    // nothing within the answer wait
 	decodeErr  error   // a downlink after the request that did not decode
 	decodeRaw  []byte  // its NAS PDU
+	decodeType uint8   // its 5GMM message type from the header, 0 if unreadable
 	registered bool    // the attach returned a REGISTERED UE
 	err        error   // registration or harness failure
 }
@@ -185,11 +189,16 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 		OnNAS: func(ev engine.NASEvent) {
 			mu.Lock()
 			defer mu.Unlock()
+			if o.sent == nil && ev.Err != nil && o.err == nil {
+				o.err = fmt.Errorf("a downlink NAS PDU before the PDU Session Establishment Request did not decode: %w", ev.Err)
+				halt()
+				return
+			}
 			if o.sent == nil || decided() {
 				return
 			}
 			if ev.Err != nil {
-				o.decodeErr, o.decodeRaw = ev.Err, ev.Raw
+				o.decodeErr, o.decodeRaw, o.decodeType = ev.Err, ev.Raw, ev.Type
 				halt()
 				return
 			}
@@ -212,6 +221,7 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 	}
 	o.registered = err == nil
 	switch {
+	case o.err != nil:
 	case o.decodeErr != nil:
 	case err == nil && (o.answer != nil || o.noAnswer):
 	case err == nil && res != nil && res.SessionActive:
@@ -362,6 +372,18 @@ func unknownDNNFail(got, likely string) string {
 	return fmt.Sprintf("Unknown DNN: neither a PDU Session Establishment Reject nor the un-forwarded 5GSM message with 5GMM cause #90/#91 came back (got %s). TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1). Likely cause: %s.", got, likely)
 }
 
+// typeNote names a downlink's 5GMM message type for an Observed line, ""
+// when the header was unreadable.
+func typeNote(t uint8) string {
+	switch t {
+	case 0:
+		return ""
+	case f5nas.MsgTypeDLNASTransport:
+		return " (DL NAS Transport)"
+	}
+	return fmt.Sprintf(" (5GMM message type %#x)", t)
+}
+
 const (
 	acceptedObserved   = "core accepted the stimulus DNN; no rejection to check"
 	congestionObserved = "AMF applied congestion control (case f)); the unknown-DNN path was not exercised"
@@ -373,9 +395,9 @@ func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
 	case o.err != nil:
 		return Error, "registration or harness failure", o.err.Error()
 	case o.decodeErr != nil && errors.Is(o.decodeErr, nas.ErrIntegrity):
-		return Error, "DL NAS Transport failed integrity check", fmt.Sprintf("%v; NAS %x", o.decodeErr, o.decodeRaw)
+		return Error, "downlink NAS after the request failed integrity check" + typeNote(o.decodeType), fmt.Sprintf("%v; NAS %x", o.decodeErr, o.decodeRaw)
 	case o.decodeErr != nil:
-		return Error, "answer did not decode", fmt.Sprintf("%v; %s; NAS %x", o.decodeErr, codecGap, o.decodeRaw)
+		return Error, "downlink NAS after the request did not decode" + typeNote(o.decodeType), fmt.Sprintf("%v; %s; NAS %x", o.decodeErr, codecGap, o.decodeRaw)
 	case o.accepted:
 		return Skip, acceptedObserved,
 			fmt.Sprintf("the core established a PDU session for DNN %q (a wildcard DNN subscription, or no DNN check); no shall forbids that", stimulusDNN)
@@ -412,6 +434,9 @@ func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
 	case sm.kind == smAccept:
 		return Skip, acceptedObserved,
 			fmt.Sprintf("a PDU Session Establishment Accept for DNN %q came in a plain DL NAS Transport (%s) without a PDU Session Resource Setup Request; no shall forbids accepting the DNN", stimulusDNN, cites)
+	case a.mmCause == 0 && returned:
+		return Fail, "request returned without a 5GMM cause",
+			unknownDNNFail(fmt.Sprintf("the PDU Session Establishment Request returned in a DL NAS Transport with %s", cites), "AMF returned the request without the 5GMM cause 5.4.5.3.2 requires")
 	case isCongestionCause(a.mmCause) && returned:
 		backoff := "no Back-off timer value IE"
 		if a.backoff {

@@ -157,8 +157,10 @@ func TestAttachProbe(t *testing.T) {
 
 // OnSMRequest sees the PDU Session Establishment Request the UE sends, byte
 // for byte; OnNAS sees each downlink as the security context decoded it, a
-// MAC failure as nas.ErrIntegrity; and Stop ends the attach, returning a
-// REGISTERED UE's session and failing an earlier one with ErrProbeStopped.
+// MAC failure as nas.ErrIntegrity, with the header's message type, and a
+// downlink that does not decode no longer ends the attach; Stop ends it,
+// returning a REGISTERED UE's session and failing an earlier one with
+// ErrProbeStopped.
 func TestAttachProbeSMAnswer(t *testing.T) {
 	const dnn = "orbit-unknown-dnn"
 	p := ue.PDUSessionParams{PDUSessionID: 1, SST: 1, SD: "010203", DNN: dnn}
@@ -167,19 +169,20 @@ func TestAttachProbeSMAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := []struct {
-		name       string
-		answer     mockamf.DNNAnswer
-		noSMHook   bool
-		stopAtAuth bool // close Stop at the Authentication Request, which is withheld
-		wantSMs    int
-		wantErr    error // nil: a registered session comes back
-		wantNASErr bool
-		wantReturn bool // OnNAS saw the request returned
+		name          string
+		answer        mockamf.DNNAnswer
+		noSMHook      bool
+		stopAtAuth    bool // close Stop at the Authentication Request, which is withheld
+		wantSMs       int
+		wantErr       error // nil: a registered session comes back
+		wantNASErr    bool
+		wantIntegrity bool // the decode error is nas.ErrIntegrity
+		wantReturn    bool // OnNAS saw the request returned
 	}{
 		{name: "returned, stop after the answer", answer: mockamf.ReturnDNN, wantSMs: 1, wantReturn: true},
 		{name: "no OnSMRequest hook", answer: mockamf.ReturnDNN, noSMHook: true, wantReturn: true},
-		{name: "bad MAC", answer: mockamf.BadMACDNN, wantSMs: 1, wantErr: nas.ErrIntegrity, wantNASErr: true},
-		{name: "undecodable", answer: mockamf.UndecodableDNN, wantSMs: 1, wantErr: errAny, wantNASErr: true},
+		{name: "bad MAC", answer: mockamf.BadMACDNN, wantSMs: 1, wantNASErr: true, wantIntegrity: true},
+		{name: "undecodable", answer: mockamf.UndecodableDNN, wantSMs: 1, wantNASErr: true},
 		{name: "stopped before registration", answer: mockamf.ReturnDNN, stopAtAuth: true, wantErr: ErrProbeStopped},
 	}
 	for _, tc := range tests {
@@ -211,12 +214,14 @@ func TestAttachProbeSMAnswer(t *testing.T) {
 			var mu sync.Mutex
 			var sms [][]byte
 			var nasErr error
+			var nasErrType uint8
 			var returned bool
 			probe := &AttachProbe{Stop: stop, OnNAS: func(ev NASEvent) {
 				mu.Lock()
 				defer mu.Unlock()
 				if ev.Err != nil {
-					nasErr = ev.Err
+					nasErr, nasErrType = ev.Err, ev.Type
+					once.Do(func() { close(stop) })
 					return
 				}
 				if tr := ev.Msg.DLNASTransport; ev.Msg.GmmMessage != nil && tr != nil {
@@ -246,10 +251,6 @@ func TestAttachProbeSMAnswer(t *testing.T) {
 				if err != nil || sess == nil || !sess.Result.Registered || sess.Result.SessionActive {
 					t.Fatalf("Attach = %+v, %v; want a registered UE without a session", sess, err)
 				}
-			case tc.wantErr == errAny:
-				if err == nil || errors.Is(err, nas.ErrIntegrity) {
-					t.Fatalf("Attach err = %v, want a decode error that is not an integrity failure", err)
-				}
 			case !errors.Is(err, tc.wantErr):
 				t.Fatalf("Attach err = %v, want %v", err, tc.wantErr)
 			}
@@ -266,9 +267,9 @@ func TestAttachProbeSMAnswer(t *testing.T) {
 			if (nasErr != nil) != tc.wantNASErr || returned != tc.wantReturn {
 				t.Errorf("OnNAS err %v, returned %v; want err %v, returned %v", nasErr, returned, tc.wantNASErr, tc.wantReturn)
 			}
+			if nasErr != nil && (errors.Is(nasErr, nas.ErrIntegrity) != tc.wantIntegrity || nasErrType != f5nas.MsgTypeDLNASTransport) {
+				t.Errorf("OnNAS err %v type %#x; want integrity failure %v, type DL NAS Transport", nasErr, nasErrType, tc.wantIntegrity)
+			}
 		})
 	}
 }
-
-// errAny marks a test case that wants some error.
-var errAny = errors.New("any error")

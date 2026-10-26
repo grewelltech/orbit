@@ -99,10 +99,12 @@ func TestJudgeDNN(t *testing.T) {
 	}{
 		{name: "registration failure", o: dnnOutcome{err: errors.New("AMF rejected registration")}, want: Error,
 			wantObserved: "registration or harness failure", wantDetail: []string{"AMF rejected registration"}},
-		{name: "integrity failure", o: dnnOutcome{sent: sent, decodeErr: fmt.Errorf("%w: mac 1 != 2", nas.ErrIntegrity), decodeRaw: []byte{0x7e, 0x02}}, want: Error,
-			wantObserved: "DL NAS Transport failed integrity check", wantDetail: []string{"NAS 7e02"}},
-		{name: "undecodable", o: dnnOutcome{sent: sent, decodeErr: errors.New("nas plain decode"), decodeRaw: []byte{0x7e, 0x02}}, want: Error,
-			wantObserved: "answer did not decode", wantDetail: []string{"NAS 7e02", "codec covers about Rel-15/16"}},
+		{name: "integrity failure", o: dnnOutcome{sent: sent, decodeErr: fmt.Errorf("%w: mac 1 != 2", nas.ErrIntegrity), decodeRaw: []byte{0x7e, 0x02}, decodeType: f5nas.MsgTypeDLNASTransport}, want: Error,
+			wantObserved: "downlink NAS after the request failed integrity check (DL NAS Transport)", wantDetail: []string{"NAS 7e02"}},
+		{name: "integrity failure, header unreadable", o: dnnOutcome{sent: sent, decodeErr: fmt.Errorf("%w: mac 1 != 2", nas.ErrIntegrity), decodeRaw: []byte{0x7e, 0x02}}, want: Error,
+			wantObserved: "downlink NAS after the request failed integrity check"},
+		{name: "undecodable", o: dnnOutcome{sent: sent, decodeErr: errors.New("nas plain decode"), decodeRaw: []byte{0x7e, 0x02}, decodeType: 0x54}, want: Error,
+			wantObserved: "downlink NAS after the request did not decode (5GMM message type 0x54)", wantDetail: []string{"NAS 7e02", "codec covers about Rel-15/16"}},
 		{name: "accepted", o: dnnOutcome{sent: sent, registered: true, accepted: true}, want: Skip, wantObserved: acceptedObserved},
 		{name: "silence", o: dnnOutcome{sent: sent, registered: true, noAnswer: true}, want: Fail, wantObserved: "nothing back within 10s",
 			wantDetail: []string{"(got nothing within 10s)", "#90/#91", "5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1)", "Likely cause: the request is dropped when no SMF is selected"}},
@@ -131,7 +133,8 @@ func TestJudgeDNN(t *testing.T) {
 		{name: "status #96", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 96), 0), want: Fail, wantObserved: "unexpected answer: 5GSM STATUS, 5GSM cause #96",
 			wantDetail: []string{"check the stimulus", "#90/#91"}},
 		{name: "status #26", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 26), 0), want: Fail, notDetail: []string{"check the stimulus"}},
-		{name: "request returned without a cause", o: ans(sent, 0), want: Fail, wantObserved: "unexpected answer: PDU Session Establishment Request"},
+		{name: "request returned without a cause", o: ans(sent, 0), want: Fail, wantObserved: "request returned without a 5GMM cause",
+			wantDetail: []string{"Likely cause: AMF returned the request without the 5GMM cause 5.4.5.3.2 requires.", "5GMM cause absent"}},
 		{name: "not 5GSM", o: ans([]byte{1, 2, 3}, 0), want: Fail, wantObserved: "unexpected answer: no 5GSM message"},
 	}
 	for _, tc := range tests {
@@ -170,15 +173,14 @@ func (nopUPF) PathSwitched(mockamf.PathSwitch) {}
 
 // Every branch against the mock AMF over a real SCTP listener: each answer
 // the mock can give an unknown DNN, an accepting core with a UPF, silence,
-// an Authentication Reject, and no UE. A UE that registered is deregistered
-// and no association stays open; one the mock gave no 5G-GUTI cannot be, and
+// an Authentication Reject, and no UE. A UE that registered is deregistered,
+// on both decode ERRORs too, and no association stays open; one the mock gave no 5G-GUTI cannot be, and
 // the detail says so.
 func TestUnknownDNNCheckAgainstMock(t *testing.T) {
 	dnn := func(a mockamf.DNNAnswer, cause uint8) []mockamf.Option {
 		return []mockamf.Option{mockamf.WithUnknownDNN(stimulusDNN, a, cause)}
 	}
 	const dereg = "UE deregistered"
-	const dropped = "association was dropped without a deregistration"
 	tests := []struct {
 		name         string
 		opts         []mockamf.Option
@@ -216,9 +218,11 @@ func TestUnknownDNNCheckAgainstMock(t *testing.T) {
 		{name: "accepted with a UPF", upf: true, want: Skip, wantObserved: acceptedObserved,
 			wantDetail: []string{"established a PDU session", dereg}},
 		{name: "undecodable answer", opts: dnn(mockamf.UndecodableDNN, 0), want: Error,
-			wantObserved: "answer did not decode", wantDetail: []string{"codec covers about Rel-15/16", dropped}},
+			wantObserved: "downlink NAS after the request did not decode (DL NAS Transport)", wantDetail: []string{"codec covers about Rel-15/16", dereg}},
 		{name: "bad MAC", opts: dnn(mockamf.BadMACDNN, 0), want: Error,
-			wantObserved: "DL NAS Transport failed integrity check", wantDetail: []string{"NAS 7e02", dropped}},
+			wantObserved: "downlink NAS after the request failed integrity check (DL NAS Transport)", wantDetail: []string{"NAS 7e02", dereg}},
+		{name: "returned without a 5GMM cause", opts: dnn(mockamf.ReturnNoCauseDNN, 0), want: Fail,
+			wantObserved: "request returned without a 5GMM cause", wantDetail: []string{"5.4.5.3.2 requires", dereg}},
 		{name: "silence", opts: dnn(mockamf.IgnoreDNN, 0), want: Fail,
 			wantObserved: "nothing back within 300ms", wantDetail: []string{"(got nothing within 300ms)", dereg}},
 		{name: "deregistration fails", opts: dnn(mockamf.RejectDNN, 0), noGUTI: true, want: Pass,

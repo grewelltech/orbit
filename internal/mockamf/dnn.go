@@ -27,6 +27,8 @@ const (
 	// un-forwarded request. The 5GMM cause is #91 DNN not supported or not
 	// subscribed in the slice unless one is given.
 	ReturnDNN
+	// ReturnNoCauseDNN is ReturnDNN without the 5GMM cause IE.
+	ReturnNoCauseDNN
 	// CongestionDNN answers as an AMF applying congestion control (TS 24.501
 	// 5.4.5.3.1 case f)): ReturnDNN with 5GMM cause #22 congestion unless
 	// one is given, and a Back-off timer value IE of 1 minute.
@@ -76,6 +78,8 @@ func (a *AMF) answerUnknownDNN(p *pipe, st *ueState, id, pti uint8, request []by
 		payload, err = buildPDUSessionEstablishmentReject(id, pti, causeOr(a.dnnCause, nasMessage.Cause5GSMMissingOrUnknownDNN))
 	case ReturnDNN:
 		payload, mmCause = append([]byte(nil), request...), routing
+	case ReturnNoCauseDNN:
+		payload = append([]byte(nil), request...)
 	case CongestionDNN:
 		payload, mmCause = append([]byte(nil), request...), causeOr(a.dnnCause, nasMessage.Cause5GMMCongestion)
 	case ReturnWrongPayloadDNN:

@@ -107,6 +107,7 @@ Payload container type is "N1 SM information", and the Payload container carries
 - **PASS (B):** a DL NAS TRANSPORT with #90/#91 whose payload is byte-equal to the request the UE sent.
 - **FAIL:**
   - #90/#91 with another payload. The likely cause depends on the payload. If it is a PDU SESSION ESTABLISHMENT REJECT: "AMF returns its own Reject in the payload container instead of the un-forwarded message". Otherwise: "AMF returns a payload other than the un-forwarded 5GSM message".
+  - The request returned byte-equal with no 5GMM cause: 5.4.5.3.2 requires one. The likely cause is "AMF returned the request without the 5GMM cause 5.4.5.3.2 requires".
   - Nothing back within 10 s. Either the SMF shall reject or the AMF shall return the message, so this FAIL cites both.
   - Any other decoded answer, for example a 5GSM STATUS. Its 5GSM cause is recorded. #43 or a protocol-error cause (#95 to #101, #111) adds "check the stimulus".
 - **SKIP:**
@@ -115,11 +116,11 @@ Payload container type is "N1 SM information", and the Payload container carries
   - No UE configured.
 - **ERROR:**
   - A registration or harness failure.
-  - An answer that fails the integrity check ("DL NAS Transport failed integrity check").
-  - An answer that does not decode. Orbit's codec covers about Rel-15/16, so this may be Orbit's gap; the raw NAS is in the detail.
+  - A downlink after the request that fails the integrity check ("downlink NAS after the request failed integrity check", with its message type when the header is readable).
+  - A downlink after the request that does not decode, or a Reject or 5GSM STATUS payload that does not decode. Orbit's codec covers about Rel-15/16, so this may be Orbit's gap; the raw NAS is in the detail.
   - The request returned with a 5GMM cause other than #90/#91/#22/#67/#69.
 - A core that then stops completing NG Setup is the crash FAIL.
 
-The answer is decoded through the UE's NAS security context, which verifies the MAC and deciphers. Whenever registration completed, the UE is deregistered at the end. Only when the NAS state is unusable is the association dropped without a deregistration, and the detail records it.
+The answer is decoded through the UE's NAS security context, which verifies the MAC and deciphers. Whenever registration completed, the UE is deregistered at the end, on every verdict, including both decode ERRORs: the UE is RM-REGISTERED by then, and switch-off deregistration uses the uplink context, which a downlink failure does not touch. The association is dropped without a deregistration only when the deregistration itself fails or times out, and the detail records it.
 
 Stimulus: DNN `orbit-unknown-dnn`, on the run's slice.

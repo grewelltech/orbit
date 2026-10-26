@@ -382,6 +382,8 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	if len(raw) < 2 {
 		return fmt.Errorf("downlink NAS too short: %d bytes", len(raw))
 	}
+	// The header's message type, read without the key, for the probe.
+	typ := nasMessageType(raw, s.sec != nil && s.sec.CipheringAlg == nas.NEA0)
 	var msg *f5nas.Message
 	var err error
 	if f5nas.GetSecurityHeaderType(raw) == f5nas.SecurityHeaderTypePlainNas {
@@ -393,7 +395,11 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		msg, err = s.sec.DecodeSecure(raw)
 	}
 	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
-		p.OnNAS(NASEvent{Raw: append([]byte(nil), raw...), Msg: msg, Err: err})
+		p.OnNAS(NASEvent{Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Err: err})
+		if err != nil {
+			s.log.WarnContext(s.ctx, "probe: skipping a downlink NAS PDU that did not decode", "err", err)
+			return nil
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("decode downlink NAS: %w", err)
