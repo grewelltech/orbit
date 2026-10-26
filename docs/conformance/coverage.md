@@ -200,6 +200,15 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   for the first). Needs a UE and up to 145 s (about 33 s at the default).
   Not yet run on Ref 2; the source analyst predicts PASS.
 
+- `NAS-SMC-NO-NIA0-REPLAYED-CAPS` (security, FAIL-class) — two
+  registrations with the Security Mode Complete withheld. A normal UE
+  (5G-EA0/1/2, 5G-IA0/1/2) must get a Security Mode Command that selects no
+  NIA0 (TS 33.501 5.5.2) and replays its capabilities exactly (6.7.2 step
+  1b). A UE offering only NIA0 and NIA3 may get NIA3, a reject or a release,
+  never NIA0 or no command. The selected algorithms are recorded. Needs a UE,
+  else SKIP. Not yet run on Ref 2; the source analyst predicts the
+  capabilities replay PASSes.
+
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
 that a lab tolerates goes on that core's expected-failures list, which keeps it
