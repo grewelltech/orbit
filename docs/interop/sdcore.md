@@ -75,7 +75,7 @@ this quirk.
 
 ---
 
-## Finding 2 — N2 handover: SMF mis-decodes the TEID and never pushes the switch (ROOT-CAUSED; fix filed)
+## Finding 2 — N2 handover: SMF mis-decodes the TEID and never pushes the switch (ROOT-CAUSED; fix verified live, not yet upstream)
 
 Once Finding 1 is worked around, a **second, independent** SD-Core bug blocks
 data continuity across an N2 handover. Root-caused from the omec SMF source, its
