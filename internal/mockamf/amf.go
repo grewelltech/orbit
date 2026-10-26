@@ -115,6 +115,10 @@ type AMF struct {
 	forceCiphering  bool
 	forcedCiphering uint8
 
+	// Accept options (accept.go).
+	undecodableAccept bool
+	deregs            atomic.Int64 // Deregistration Requests received
+
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
 	dnnAnswer  DNNAnswer
@@ -376,6 +380,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		// Accept without checking RES* (sim only), send Security Mode Command.
 		return false, a.onAuthenticated(p, st)
 	case f5nas.MsgTypeSecurityModeComplete:
+		if a.undecodableAccept {
+			return false, a.sendUndecodableAccept(p, st)
+		}
 		// Send Initial Context Setup Request carrying Registration Accept.
 		acc, err := a.registrationAccept(st)
 		if err != nil {
@@ -400,6 +407,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return true, nil // UE is REGISTERED
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
+	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
+		a.deregs.Add(1)
+		return false, nil
 	default:
 		return false, nil
 	}

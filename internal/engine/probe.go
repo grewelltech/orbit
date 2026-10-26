@@ -11,6 +11,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
+	"github.com/bgrewell/orbit/internal/ue"
 )
 
 // ErrReleasedByCore is the error Attach returns, with a probe set, when the
@@ -55,7 +56,70 @@ type AttachProbe struct {
 	// closes is abandoned and the PDU it later takes is lost, so the next
 	// step should be the deregistration.
 	Stop <-chan struct{}
+	// DeregisterUndecodableAccept, with OnNAS set, ends the attach at a
+	// Registration Accept that does not decode (or fails the integrity
+	// check) with an *UndecodableAcceptError, after a best-effort
+	// switch-off Deregistration Request. Such an Accept is otherwise
+	// skipped: the attach never reaches REGISTERED and returns no Session,
+	// while the core may hold the UE registered. The request is protected
+	// with the installed context (in the clear without one) and names the
+	// UE by its SUCI, since the Accept's 5G-GUTI could not be read.
+	DeregisterUndecodableAccept bool
 }
+
+// UndecodableAcceptError is the error Attach returns when
+// AttachProbe.DeregisterUndecodableAccept ended it at a Registration Accept
+// that did not decode.
+type UndecodableAcceptError struct {
+	// Err is the Accept's decode error.
+	Err error
+	// Deregistration is nil when the Deregistration Request was sent, else
+	// why it was not.
+	Deregistration error
+}
+
+func (e *UndecodableAcceptError) Error() string {
+	if e.Deregistration != nil {
+		return fmt.Sprintf("registration accept did not decode (%v); deregistration not sent: %v", e.Err, e.Deregistration)
+	}
+	return fmt.Sprintf("registration accept did not decode (%v); deregistration sent", e.Err)
+}
+
+func (e *UndecodableAcceptError) Unwrap() error { return e.Err }
+
+// deregisterUndecodableAccept sends the best-effort deregistration of
+// AttachProbe.DeregisterUndecodableAccept and returns the error that ends
+// the attach.
+func (s *attachState) deregisterUndecodableAccept(decodeErr error) error {
+	e := &UndecodableAcceptError{Err: decodeErr}
+	suci, err := s.ueCfg.Identity.EncodeNullSUCI()
+	if err != nil {
+		e.Deregistration = err
+		return e
+	}
+	m, err := ue.BuildDeregistrationRequest(suci, true)
+	if err != nil {
+		e.Deregistration = err
+		return e
+	}
+	var pdu []byte
+	if s.sec != nil {
+		pdu, err = s.sec.EncodeSecure(m, nas.SecHdrIntegrityCiphered)
+	} else {
+		req := m.DeregistrationRequestUEOriginatingDeregistration
+		req.SetNasKeySetIdentifiler(noKeyAvailable)
+		pdu, err = m.PlainNasEncode()
+	}
+	if err == nil {
+		err = s.sendUL(pdu)
+	}
+	e.Deregistration = err
+	return e
+}
+
+// noKeyAvailable is the ngKSI value "no key is available" (TS 24.501
+// 9.11.3.32).
+const noKeyAvailable = 7
 
 // NASEvent is one downlink NAS PDU the attach decoded (see
 // AttachProbe.OnNAS).

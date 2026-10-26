@@ -408,6 +408,9 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	}
 	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
 		p.OnNAS(NASEvent{Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Err: err})
+		if err != nil && typ == f5nas.MsgTypeRegistrationAccept && p.DeregisterUndecodableAccept {
+			return s.deregisterUndecodableAccept(err)
+		}
 		if err != nil {
 			s.log.WarnContext(s.ctx, "probe: skipping a downlink NAS PDU that did not decode", "err", err)
 			return nil
