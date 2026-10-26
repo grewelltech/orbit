@@ -103,6 +103,9 @@ func TestConformanceNASAlgorithmFlags(t *testing.T) {
 		{name: "one each", flags: ueFlags([]string{"NIA1"}, []string{"NEA2"}), wantIA: 0x40, wantEA: 0x20},
 		{name: "fully featured", flags: ueFlags([]string{"nia1", "NIA2", "Nia3"}, []string{"NEA0", "NEA1", "NEA2", "NEA3"}), wantIA: 0x70, wantEA: 0xf0},
 		{name: "NIA0 refused", flags: ueFlags([]string{"NIA0", "NIA2"}, nil), wantErr: "NIA0 is refused"},
+		{name: "NIA0 refused inside a list", flags: ueFlags([]string{"NIA1", "NIA2", "NIA0"}, nil), wantErr: "NIA0 is refused"},
+		{name: "order does not matter", flags: ueFlags([]string{"NIA3", "NIA1"}, []string{"NEA2", "NEA0"}), wantIA: 0x50, wantEA: 0xa0},
+		{name: "unknown name inside a list", flags: ueFlags([]string{"NIA1", "NIA9"}, nil), wantErr: "--nas-integrity"},
 		{name: "unknown integrity", flags: ueFlags([]string{"NIA4"}, nil), wantErr: "--nas-integrity"},
 		{name: "ciphering name for integrity", flags: ueFlags([]string{"NEA1"}, nil), wantErr: "--nas-integrity"},
 		{name: "unknown ciphering", flags: ueFlags(nil, []string{"AES"}), wantErr: "--nas-ciphering"},
@@ -144,5 +147,11 @@ func TestNASAlgorithmFlagsParse(t *testing.T) {
 	}
 	if ea != nil {
 		t.Errorf("unset --nas-ciphering = %q, want nil", ea)
+	}
+	for _, bad := range []string{"NIA1,,NIA2", "NIA1,", ",NIA1", ""} {
+		var v []string
+		if err := newNilStringSlice(&v).Set(bad); err == nil {
+			t.Errorf("Set(%q) = nil, want an empty-element error", bad)
+		}
 	}
 }

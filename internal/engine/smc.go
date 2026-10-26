@@ -74,6 +74,12 @@ func advertises(caps nasType.UESecurityCapability, ia, ea uint8) bool {
 // without the key: under NEA0, or before any Security Mode Command, when no
 // cipher has been agreed and a "ciphered" PDU can only be NEA0. A probe that
 // needs the type under another cipher uses NASEvent.Msg.
+//
+// Before an SMC the read is type-only and unverified: there is no context,
+// so no MAC is checked, and nothing but the message type may be taken from
+// the PDU. A core that really ciphers before an SMC yields a meaningless
+// type byte. The read never installs or advances a context (the old
+// pre-derived NEA0 context read the same byte the same way).
 func (s *attachState) readableCipher() bool {
 	return s.sec == nil || s.sec.CipheringAlg == nas.NEA0
 }

@@ -13,6 +13,7 @@ import (
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasMessage"
 	"github.com/free5gc/nas/nasType"
+	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
@@ -287,4 +288,54 @@ func smcPlain(t *testing.T, ia, ea uint8, caps nasType.UESecurityCapability) []b
 		t.Fatal(err)
 	}
 	return b
+}
+
+// Before any Security Mode Command, a protected downlink's header is read
+// for its type only: the read installs no context and verifies nothing.
+func TestPreSMCTypeOnlyRead(t *testing.T) {
+	var kInt, kEnc [16]byte
+	amfSec := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: kInt, KNASenc: kEnc, Network: true}
+	accept, err := amfSec.EncodeSecureRaw([]byte{0x7e, 0x00, 0x42, 0x01, 0x01}, nas.SecHdrIntegrityCiphered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdu := dlNASTransport(1, 1, accept)
+	var got DownlinkEvent
+	s := &attachState{ueCfg: UEConfig{Probe: &AttachProbe{OnDownlink: func(ev DownlinkEvent) { got = ev }}}}
+	if err := s.observe(&pdu); err != nil {
+		t.Fatal(err)
+	}
+	if got.NASType != f5nas.MsgTypeRegistrationAccept {
+		t.Errorf("type = %#02x, want the Registration Accept's", got.NASType)
+	}
+	if s.sec != nil {
+		t.Error("a pre-SMC read installed a context")
+	}
+	if !s.readableCipher() {
+		t.Error("readableCipher = false before any SMC")
+	}
+	s.sec = &nas.SecurityContext{CipheringAlg: nas.NEA2}
+	if s.readableCipher() {
+		t.Error("readableCipher = true under NEA2")
+	}
+}
+
+// dlNASTransport is a DOWNLINK NAS TRANSPORT carrying nasPDU.
+func dlNASTransport(amfID, ranID int64, nasPDU []byte) ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
+	pdu.InitiatingMessage = &ngapType.InitiatingMessage{}
+	pdu.InitiatingMessage.ProcedureCode.Value = ngapType.ProcedureCodeDownlinkNASTransport
+	pdu.InitiatingMessage.Value.Present = ngapType.InitiatingMessagePresentDownlinkNASTransport
+	m := &ngapType.DownlinkNASTransport{}
+	pdu.InitiatingMessage.Value.DownlinkNASTransport = m
+	ies := []ngapType.DownlinkNASTransportIEs{{}, {}, {}}
+	ies[0].Id.Value, ies[0].Value.Present = ngapType.ProtocolIEIDAMFUENGAPID, ngapType.DownlinkNASTransportIEsPresentAMFUENGAPID
+	ies[0].Value.AMFUENGAPID = &ngapType.AMFUENGAPID{Value: amfID}
+	ies[1].Id.Value, ies[1].Value.Present = ngapType.ProtocolIEIDRANUENGAPID, ngapType.DownlinkNASTransportIEsPresentRANUENGAPID
+	ies[1].Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranID}
+	ies[2].Id.Value, ies[2].Value.Present = ngapType.ProtocolIEIDNASPDU, ngapType.DownlinkNASTransportIEsPresentNASPDU
+	ies[2].Value.NASPDU = &ngapType.NASPDU{Value: nasPDU}
+	m.ProtocolIEs.List = ies
+	return pdu
 }

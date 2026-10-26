@@ -246,9 +246,11 @@ func (s *nilStringSlice) Set(val string) error {
 		*s.v = []string{}
 	}
 	for _, p := range strings.Split(val, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			*s.v = append(*s.v, p)
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return fmt.Errorf("empty element in %q", val)
 		}
+		*s.v = append(*s.v, p)
 	}
 	return nil
 }
