@@ -255,16 +255,16 @@ func TestSessionGone(t *testing.T) {
 	}
 }
 
-// A caller's cancel or the lane closing ends an in-flight probe's wait
-// promptly, not at its timeout (#169): timeout 3 s, every reply dropped,
-// the cancel or close at 50 ms.
+// A caller's cancel ends an in-flight probe's wait promptly, not at its
+// timeout (#169), and the lane closing, as a deregistration does, still
+// does too: timeout 3 s, every reply dropped, the cancel or close at 50 ms.
 func TestRunLatencyCancelCutsInFlightProbe(t *testing.T) {
 	tests := []struct {
 		name  string
 		close bool // close the lane, as a deregistration does, instead of cancelling
 	}{
 		{name: "caller cancel"},
-		{name: "lane closed"},
+		{name: "lane closed", close: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
