@@ -101,14 +101,14 @@ func supi(v any) string {
 	return ""
 }
 
-// eachAddr checks an address list: IPs, ip:port where a port is allowed
-// (an N3 source), and, for source pools, ranges (a-b) and CIDRs.
+// eachAddr checks an address list: IPs and ip:port (port 0 is ephemeral)
+// and, for source pools, ranges (a-b) and CIDRs, which take no port.
 func eachAddr(v any, pools bool) string {
 	for _, a := range v.([]string) {
 		ok := false
 		if _, err := netip.ParseAddr(a); err == nil {
 			ok = true
-		} else if _, err := netip.ParseAddrPort(a); err == nil && !pools {
+		} else if _, err := netip.ParseAddrPort(a); err == nil {
 			ok = true
 		} else if pools {
 			if _, err := netip.ParsePrefix(a); err == nil {

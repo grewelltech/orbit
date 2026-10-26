@@ -54,9 +54,10 @@ func TestEveryFlagIsMappedOrExcluded(t *testing.T) {
 	}
 }
 
-// Every ORBIT_* variable the shipped code reads is mapped or excluded too.
+// Every ORBIT_* variable the shipped code reads is mapped or excluded too,
+// and every variable the table names is read.
 // The scan reads string literals in non-test Go files under internal/ and
-// cmd/.
+// cmd/, leaving out internal/target, whose table names them all.
 func TestEveryEnvVarIsMappedOrExcluded(t *testing.T) {
 	re := regexp.MustCompile(`^ORBIT_[A-Z0-9_]+$`)
 	found := map[string]string{}
@@ -64,6 +65,10 @@ func TestEveryEnvVarIsMappedOrExcluded(t *testing.T) {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
+			}
+			// The table itself names every variable; it reads none.
+			if d.IsDir() && filepath.ToSlash(path) == "../../internal/target" {
+				return filepath.SkipDir
 			}
 			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return nil
@@ -94,6 +99,18 @@ func TestEveryEnvVarIsMappedOrExcluded(t *testing.T) {
 	for name, path := range found {
 		if !target.Covered(name) {
 			t.Errorf("$%s (read in %s) is neither mapped nor excluded in internal/target/mapping.go", name, path)
+		}
+	}
+	// $ORBIT_TARGET is the resolver's own: it names the target rather than
+	// mapping onto a field, so no command reads it.
+	for _, b := range target.Bindings {
+		if b.Env != "" && found[b.Env] == "" && b.Env != "ORBIT_TARGET" {
+			t.Errorf("binding for $%s, which no code reads", b.Env)
+		}
+	}
+	for _, e := range target.Exclusions {
+		if e.Env != "" && found[e.Env] == "" {
+			t.Errorf("exclusion for $%s, which no code reads", e.Env)
 		}
 	}
 }

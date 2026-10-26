@@ -91,6 +91,77 @@ func TestEnvExpansionAttributedToTarget(t *testing.T) {
 }
 
 // orbit.yaml may hold a list of targets.
+// A string field keeps a plain scalar's text exactly as written, even
+// when YAML would read it as a number: leading zeros, octal- and
+// hex-looking values and long digit strings all survive.
+func TestUnquotedStringFieldsKeepTheirText(t *testing.T) {
+	const digits32 = "01234567890123456789012345678901"
+	tests := []struct {
+		name string
+		yaml string // replaces the core: block of a minimal target
+		path string
+		want any
+	}{
+		{name: "mcc", yaml: "core: { plmn: { mcc: 001, mnc: 01 } }", path: "core.plmn.mcc", want: "001"},
+		{name: "mnc", yaml: "core: { plmn: { mcc: 001, mnc: 01 } }", path: "core.plmn.mnc", want: "01"},
+		{name: "dnn leading zero", yaml: "core: { dnn: 0123 }", path: "core.dnn", want: "0123"},
+		{name: "dnn octal-looking", yaml: "core: { dnn: 0o17 }", path: "core.dnn", want: "0o17"},
+		{name: "dnn hex-looking", yaml: "core: { dnn: 0x1F }", path: "core.dnn", want: "0x1F"},
+		{name: "dnn float-looking", yaml: "core: { dnn: 1.50 }", path: "core.dnn", want: "1.50"},
+		{name: "profile", yaml: "core: { profile: 007 }", path: "core.profile", want: "007"},
+		{name: "sd", yaml: "core: { slices: [ { sst: 1, sd: 010203 } ] }", path: "core.slices", want: []Slice{{SST: 1, SD: "010203"}}},
+		{name: "first_supi", yaml: "subscribers: [ { name: p, first_supi: 001010000000001 } ]", path: "subscribers[p].first_supi", want: "001010000000001"},
+		{name: "ki", yaml: "subscribers: [ { name: p, ki: " + digits32 + " } ]", path: "subscribers[p].ki", want: digits32},
+		{name: "opc", yaml: "subscribers: [ { name: p, opc: " + digits32 + " } ]", path: "subscribers[p].opc", want: digits32},
+		{name: "routing_indicator", yaml: "subscribers: [ { name: p, routing_indicator: 0012 } ]", path: "subscribers[p].routing_indicator", want: "0012"},
+		{name: "pool name", yaml: "subscribers: [ { name: 007, count: 1 } ]", path: "subscribers[007].count", want: uint64(1)},
+		{name: "gnb_name", yaml: "ran: { gnb_name: 0042 }", path: "ran.gnb_name", want: "0042"},
+		{name: "responder token", yaml: "app: { responders: [ { name: r, token: 0123 } ] }", path: "app.responders[r].token", want: "0123"},
+		{name: "kind", yaml: "core: {}", path: "kind", want: "target"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := "version: 1\nkind: target\nname: x\n" + tc.yaml + "\n"
+			files, err := Parse("x.yaml", []byte(doc), envOf(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range files[0].Input.Settings {
+				if s.Path == tc.path {
+					v, err := convert(fields[patternOf(t, s.Path)], s.Value)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(v, tc.want) {
+						t.Errorf("%s = %#v, want %#v", tc.path, v, tc.want)
+					}
+					return
+				}
+			}
+			t.Fatalf("no setting for %s in %+v", tc.path, files[0].Input.Settings)
+		})
+	}
+
+	// The resolved target holds the same text, and a numeric field still
+	// decodes as a number.
+	files, err := Parse("x.yaml", []byte("version: 1\nkind: target\nname: 2024\ncore: { tac: 7, dnn: 0123 }\n"), envOf(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tg := files[0].Target; tg.Name != "2024" || tg.Core.DNN != "0123" || tg.Core.TAC != 7 {
+		t.Errorf("target = name %q dnn %q tac %d", tg.Name, tg.Core.DNN, tg.Core.TAC)
+	}
+}
+
+func patternOf(t *testing.T, path string) string {
+	t.Helper()
+	segs, err := parsePath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pattern(segs)
+}
+
 func TestParseList(t *testing.T) {
 	doc := "- {version: 1, kind: target, name: a, core: {amf: 192.0.2.1:38412}}\n- {version: 1, kind: target, name: b}\n"
 	files, err := Parse("orbit.yaml", []byte(doc), labEnv)

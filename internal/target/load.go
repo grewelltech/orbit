@@ -203,8 +203,8 @@ func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, out *[]Set
 			if !ok || !f.target {
 				return fmt.Errorf("%s:%d: unknown key %s", file, k.Line, pat)
 			}
-			var val any
-			if err := v.Decode(&val); err != nil {
+			val, err := nodeValue(f, v)
+			if err != nil {
 				return fmt.Errorf("%s:%d: %s: %w", file, v.Line, pat, err)
 			}
 			src := Source{Layer: LayerTarget, Name: file, Line: v.Line}
@@ -219,15 +219,81 @@ func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, out *[]Set
 	return nil
 }
 
-// mapValue is the scalar value of key in a mapping node, "" when absent.
-func mapValue(n *yaml.Node, key string) string {
+// nodeValue decodes a field's node. A string field takes a plain scalar's
+// text as written, whatever tag YAML would resolve it to, so 001 stays
+// "001" rather than becoming the number 1; the same holds for the entries
+// of a string list and for a slice's sd. Other fields decode normally.
+func nodeValue(f field, v *yaml.Node) (any, error) {
+	switch f.typ {
+	case tString:
+		if text, ok := scalarText(v); ok {
+			return text, nil
+		}
+	case tStrings:
+		if text, ok := scalarText(v); ok {
+			return text, nil
+		}
+		if v.Kind == yaml.SequenceNode {
+			out := make([]any, 0, len(v.Content))
+			for _, e := range v.Content {
+				text, ok := scalarText(e)
+				if !ok {
+					return nil, fmt.Errorf("list entry on line %d is not a string", e.Line)
+				}
+				out = append(out, text)
+			}
+			return out, nil
+		}
+	case tSlices:
+		if v.Kind == yaml.SequenceNode {
+			out := make([]any, 0, len(v.Content))
+			for _, e := range v.Content {
+				var m map[string]any
+				if err := e.Decode(&m); err != nil {
+					return nil, err
+				}
+				if sd := mapNode(e, "sd"); sd != nil {
+					if text, ok := scalarText(sd); ok {
+						m["sd"] = text
+					}
+				}
+				out = append(out, m)
+			}
+			return out, nil
+		}
+	}
+	var val any
+	if err := v.Decode(&val); err != nil {
+		return nil, err
+	}
+	return val, nil
+}
+
+// scalarText is a non-null scalar's text as written.
+func scalarText(n *yaml.Node) (string, bool) {
+	if n.Kind != yaml.ScalarNode || n.ShortTag() == "!!null" {
+		return "", false
+	}
+	return n.Value, true
+}
+
+// mapNode is the value node of key in a mapping node, nil when absent.
+func mapNode(n *yaml.Node, key string) *yaml.Node {
 	if n.Kind != yaml.MappingNode {
-		return ""
+		return nil
 	}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		if n.Content[i].Value == key {
-			return n.Content[i+1].Value
+			return n.Content[i+1]
 		}
+	}
+	return nil
+}
+
+// mapValue is the scalar value of key in a mapping node, "" when absent.
+func mapValue(n *yaml.Node, key string) string {
+	if v := mapNode(n, key); v != nil {
+		return v.Value
 	}
 	return ""
 }
