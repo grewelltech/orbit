@@ -54,6 +54,17 @@ func (r *recorder) count(mt uint8) (n int, released bool) {
 // if set, runs on the association before it closes.
 func attachWithProbe(t *testing.T, amf *mockamf.AMF, d time.Duration, withhold bool, after func(gnb.Transport)) (*recorder, error) {
 	t.Helper()
+	var w uint8
+	if withhold {
+		w = f5nas.MsgTypeAuthenticationResponse
+	}
+	return attachWithholding(t, amf, d, w, after)
+}
+
+// attachWithholding is attachWithProbe withholding the uplink NAS type w (0
+// withholds nothing).
+func attachWithholding(t *testing.T, amf *mockamf.AMF, d time.Duration, w uint8, after func(gnb.Transport)) (*recorder, error) {
+	t.Helper()
 	gnbCfg := gnb.Config{ID: 1, Name: "orbit-gnb", MCC: "208", MNC: "93", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}}
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
 	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
@@ -71,8 +82,8 @@ func attachWithProbe(t *testing.T, amf *mockamf.AMF, d time.Duration, withhold b
 	}
 	rec := &recorder{}
 	probe := &engine.AttachProbe{OnDownlink: rec.add}
-	if withhold {
-		probe.Withhold = map[uint8]bool{f5nas.MsgTypeAuthenticationResponse: true}
+	if w != 0 {
+		probe.Withhold = map[uint8]bool{w: true}
 	}
 	_, err = engine.Attach(ctx, conn, gnbCfg, engine.UEConfig{
 		Identity: id, Sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}, Probe: probe,
@@ -219,5 +230,58 @@ func TestT3560RestartedByNewInitialUE(t *testing.T) {
 	defer lcancel()
 	if pdu, err := gnb.ReadPDU(late, conn); err == nil {
 		t.Errorf("a stale downlink PDU arrived after the second attach: %+v", pdu.Present)
+	}
+}
+
+// WithT3550 retransmits a Registration Accept that assigned a 5G-GUTI on
+// each expiry, retries times, in DOWNLINK NAS TRANSPORT, and then stops with
+// no release; without WithGUTI, or without the option, it is sent once. A
+// Registration Complete stops the timer.
+func TestT3550Retransmission(t *testing.T) {
+	const t3550 = 50 * time.Millisecond
+	tests := []struct {
+		name        string
+		opts        []mockamf.Option
+		withhold    bool
+		wantAccepts int
+	}{
+		{name: "four retransmissions", opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithT3550(t3550, 4)}, withhold: true, wantAccepts: 5},
+		{name: "two retransmissions", opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithT3550(t3550, 2)}, withhold: true, wantAccepts: 3},
+		{name: "no timer", opts: []mockamf.Option{mockamf.WithGUTI()}, withhold: true, wantAccepts: 1},
+		{name: "no 5G-GUTI, no timer", opts: []mockamf.Option{mockamf.WithT3550(t3550, 4)}, withhold: true, wantAccepts: 1},
+		{name: "registration complete stops it", opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithT3550(t3550, 4)}, wantAccepts: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amf := testAMFWith(t, tc.opts...)
+			var w uint8
+			if tc.withhold {
+				w = f5nas.MsgTypeRegistrationComplete
+			}
+			var late error
+			rec, err := attachWithholding(t, amf, 12*t3550, w, func(conn gnb.Transport) {
+				if tc.withhold {
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 3*t3550)
+				defer cancel()
+				if _, err := gnb.ReadPDU(ctx, conn); err == nil {
+					late = errors.New("a downlink PDU arrived after the attach")
+				}
+			})
+			if tc.withhold && !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("Attach err = %v, want the deadline", err)
+			}
+			if !tc.withhold && err != nil {
+				t.Errorf("Attach: %v", err)
+			}
+			if late != nil {
+				t.Error(late)
+			}
+			n, released := rec.count(f5nas.MsgTypeRegistrationAccept)
+			if n != tc.wantAccepts || released {
+				t.Errorf("saw %d Registration Accepts, released %v; want %d and no release", n, released, tc.wantAccepts)
+			}
+		})
 	}
 }

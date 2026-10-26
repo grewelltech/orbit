@@ -128,7 +128,9 @@ func TestRunConformanceBroadcastsASlice(t *testing.T) {
 	}
 	for stream.Receive() {
 		if r := stream.Msg().GetResult(); r != nil {
-			if strings.Contains(r.GetDetail()+r.GetObserved(), "S-NSSAI") {
+			// The gNB config error itself, not any mention of S-NSSAI: a
+			// check's spec references may name S-NSSAI.
+			if strings.Contains(r.GetDetail()+r.GetObserved(), "supported S-NSSAI is required") {
 				t.Fatalf("test %s still fails on the missing slice: %s", r.GetId(), r.GetObserved()+r.GetDetail())
 			}
 		}

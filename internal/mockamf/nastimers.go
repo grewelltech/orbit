@@ -7,6 +7,8 @@ import (
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasMessage"
 	"github.com/free5gc/ngap/ngapType"
+
+	"github.com/bgrewell/orbit/internal/nas"
 )
 
 // Option adjusts a mock AMF's behaviour beyond Config (New).
@@ -44,30 +46,53 @@ func WithNoAuthenticationRequest() Option { return func(a *AMF) { a.noAuthReques
 // Authentication Reject instead of an Authentication Request.
 func WithAuthenticationReject() Option { return func(a *AMF) { a.authReject = true } }
 
-// t3560Timer is one UE's running T3560; stop ends it when the Authentication
-// Response arrives or the association goes.
-type t3560Timer struct {
+// WithT3550 makes the mock run timer T3550 (TS 24.501 5.5.1.2.8 c)): on
+// each expiry with no Registration Complete it retransmits the Registration
+// Accept in a DOWNLINK NAS TRANSPORT, retries times, and on the expiry after
+// that aborts silently (the AMF enters 5GMM-REGISTERED; no release). A
+// conforming AMF uses retries 4. Only an Accept carrying a 5G-GUTI starts
+// T3550 (5.5.1.2.4), so this needs WithGUTI to have any effect. The default
+// is no timer.
+func WithT3550(d time.Duration, retries int) Option {
+	return func(a *AMF) { a.t3550, a.t3550Retries = d, retries }
+}
+
+// WithGUTI makes the Registration Accept assign a 5G-GUTI, which a UE
+// acknowledges with Registration Complete. The default assigns none.
+func WithGUTI() Option { return func(a *AMF) { a.assignGUTI = true } }
+
+// WithCrashAfterT3550Abort makes the mock crash once WithT3550's last
+// expiry has aborted the procedure: from then on any association closes on
+// its next message, so a fresh NG Setup fails at once.
+func WithCrashAfterT3550Abort() Option { return func(a *AMF) { a.crashAfterT3550 = true } }
+
+// retransmitter is one UE's running NAS retransmission timer (T3560 or
+// T3550); stop ends it when the awaited reply arrives or the association
+// goes.
+type retransmitter struct {
 	once sync.Once
 	done chan struct{}
 }
 
-func (t *t3560Timer) stop() {
+func (t *retransmitter) stop() {
 	if t != nil {
 		t.once.Do(func() { close(t.done) })
 	}
 }
 
-// startT3560 runs T3560 for st on its own goroutine, retransmitting ar (the
-// encoded Authentication Request) on p. Writes to p are safe from any
-// goroutine; a failed write (the association closed) ends the timer.
-func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *t3560Timer {
-	t := &t3560Timer{done: make(chan struct{})}
-	amfID, ranID := st.amfID, st.ranID
+// startRetransmit runs a NAS timer of period d on its own goroutine: on
+// expiry n it sends resend[n-1], and on the expiry after the last (after
+// last instead of d, when last > 0) it calls onLast (if set) and ends.
+// Writes to p are safe from any goroutine; a failed write (the association
+// closed) ends the timer. resend is encoded up front by the caller, on the
+// goroutine that owns the security context.
+func (a *AMF) startRetransmit(p *pipe, d, last time.Duration, resend []ngapType.NGAPPDU, onLast func()) *retransmitter {
+	t := &retransmitter{done: make(chan struct{})}
 	go func() {
 		for expiry := 1; ; expiry++ {
-			wait := a.t3560
-			if expiry > a.t3560Retries && a.t3560ReleaseAfter > 0 {
-				wait = a.t3560ReleaseAfter
+			wait := d
+			if expiry > len(resend) && last > 0 {
+				wait = last
 			}
 			timer := time.NewTimer(wait)
 			select {
@@ -86,25 +111,84 @@ func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *t3560Timer {
 				return
 			default:
 			}
-			if expiry <= a.t3560Retries {
-				if a.send(p, buildDownlinkNASTransport(amfID, ranID, ar)) != nil {
+			if expiry <= len(resend) {
+				if a.send(p, resend[expiry-1]) != nil {
 					return
 				}
 				continue
 			}
-			if !a.t3560NoRelease {
-				_ = a.send(p, buildUEContextReleaseCommand(amfID, ranID))
-				if a.crashAfterRelease {
-					// Not closing p here: a pipe read can pick the close
-					// over the queued release. The next message on any
-					// association ends it (serve).
-					a.crashed.Store(true)
-				}
+			if onLast != nil {
+				onLast()
 			}
 			return
 		}
 	}()
 	return t
+}
+
+// startT3560 runs T3560 for st, retransmitting ar (the encoded plain
+// Authentication Request) and releasing the UE after the last expiry unless
+// WithT3560NoRelease.
+func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *retransmitter {
+	amfID, ranID := st.amfID, st.ranID
+	resend := make([]ngapType.NGAPPDU, a.t3560Retries)
+	for i := range resend {
+		resend[i] = buildDownlinkNASTransport(amfID, ranID, ar)
+	}
+	return a.startRetransmit(p, a.t3560, a.t3560ReleaseAfter, resend, func() {
+		if a.t3560NoRelease {
+			return
+		}
+		_ = a.send(p, buildUEContextReleaseCommand(amfID, ranID))
+		if a.crashAfterRelease {
+			// Not closing p here: a pipe read can pick the close over the
+			// queued release. The next message on any association ends it
+			// (serve).
+			a.crashed.Store(true)
+		}
+	})
+}
+
+// startT3550 runs T3550 for st. Each retransmission is the Registration
+// Accept encoded afresh under st.sec (its own NAS COUNT), done here, before
+// the timer starts, because the serve goroutine owns st.sec; a retransmission
+// left unsent when the Registration Complete arrives only leaves a gap in
+// the COUNT, which the UE resynchronises on.
+func (a *AMF) startT3550(p *pipe, st *ueState) (*retransmitter, error) {
+	resend := make([]ngapType.NGAPPDU, a.t3550Retries)
+	for i := range resend {
+		acc, err := a.registrationAccept(st)
+		if err != nil {
+			return nil, err
+		}
+		wrapped, err := st.sec.EncodeSecure(acc, nas.SecHdrIntegrityCiphered)
+		if err != nil {
+			return nil, err
+		}
+		resend[i] = buildDownlinkNASTransport(st.amfID, st.ranID, wrapped)
+	}
+	return a.startRetransmit(p, a.t3550, 0, resend, func() {
+		if a.crashAfterT3550 {
+			a.crashed.Store(true)
+		}
+	}), nil
+}
+
+// registrationAccept builds st's Registration Accept, with a 5G-GUTI when
+// WithGUTI is set.
+func (a *AMF) registrationAccept(st *ueState) (*f5nas.Message, error) {
+	if !a.assignGUTI {
+		return buildRegistrationAccept(nil)
+	}
+	return buildRegistrationAccept(guti5G(a.plmn, uint32(st.amfID)))
+}
+
+// guti5G is the 5GS mobile identity value of a 5G-GUTI (TS 24.501
+// 9.11.3.4): identity type 5G-GUTI, the PLMN, a fixed AMF Region, Set and
+// Pointer, and tmsi as the 5G-TMSI.
+func guti5G(plmn [3]byte, tmsi uint32) []byte {
+	return []byte{0xf2, plmn[0], plmn[1], plmn[2], 0xca, 0xfe, 0x00,
+		byte(tmsi >> 24), byte(tmsi >> 16), byte(tmsi >> 8), byte(tmsi)}
 }
 
 // buildAuthenticationReject builds a plain Authentication Reject (TS 24.501

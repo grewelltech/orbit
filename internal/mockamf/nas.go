@@ -88,8 +88,9 @@ func buildSecurityModeCommand(intAlg, encAlg, ngksi uint8, replayedCap nasType.U
 }
 
 // buildRegistrationAccept builds a plain Registration Accept (TS 24.501
-// §8.2.7). Returned for the caller to wrap (integrity + ciphered).
-func buildRegistrationAccept() (*f5nas.Message, error) {
+// §8.2.7), assigning guti (an 11-octet 5G-GUTI mobile identity value) when
+// it is non-nil. Returned for the caller to wrap (integrity + ciphered).
+func buildRegistrationAccept(guti []byte) (*f5nas.Message, error) {
 	m, gmm := plainGmm(f5nas.MsgTypeRegistrationAccept)
 	acc := nasMessage.NewRegistrationAccept(f5nas.MsgTypeRegistrationAccept)
 	setPlainHeader(&acc.ExtendedProtocolDiscriminator, &acc.SpareHalfOctetAndSecurityHeaderType,
@@ -97,6 +98,12 @@ func buildRegistrationAccept() (*f5nas.Message, error) {
 
 	acc.RegistrationResult5GS.SetLen(1)
 	acc.RegistrationResult5GS.SetRegistrationResultValue5GS(registrationResult3GPPAccess)
+	if guti != nil {
+		g := nasType.NewGUTI5G(nasMessage.RegistrationAcceptGUTI5GType)
+		g.SetLen(uint16(len(guti)))
+		copy(g.Octet[:], guti)
+		acc.GUTI5G = g
+	}
 
 	gmm.RegistrationAccept = acc
 	return m, nil
