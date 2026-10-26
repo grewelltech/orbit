@@ -123,3 +123,62 @@ func TestEncodeSecureRaw(t *testing.T) {
 		t.Error("EncodeSecureRaw accepted the plain header")
 	}
 }
+
+// A downlink that fails the integrity check leaves the receive COUNT as it
+// was: neither a sequence byte that would wrap the overflow counter nor a
+// new-context header may shift it, so the next valid downlink still
+// verifies. The new-context case runs past COUNT 255 first, so a reset
+// would lose a non-zero overflow.
+func TestBadMACLeavesCountAlone(t *testing.T) {
+	var kInt, kEnc [16]byte
+	for i := range kInt {
+		kInt[i] = byte(0x30 + i)
+		kEnc[i] = byte(0x40 + i)
+	}
+	tests := []struct {
+		name string
+		// before is how many valid downlinks arrive first.
+		before int
+		// bad turns a valid downlink into the bad-MAC PDU.
+		bad func(pdu []byte)
+	}{
+		{name: "sequence byte that would bump the overflow", before: 6, bad: func(pdu []byte) { pdu[6] = 2 }},
+		{name: "new-context header", before: 300, bad: func(pdu []byte) { pdu[1] = nas.SecHdrIntegrityCipheredNewCtx }},
+		{name: "corrupted MAC only", before: 6, bad: func(pdu []byte) {}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ue := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA2, KNASint: kInt, KNASenc: kEnc}
+			amf := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA2, KNASint: kInt, KNASenc: kEnc, Network: true}
+			// Downlink COUNTs 0 to before-1 arrive and verify.
+			for i := 0; i < tc.before; i++ {
+				pdu, err := amf.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := ue.DecodeSecure(pdu); err != nil {
+					t.Fatalf("downlink %d: %v", i, err)
+				}
+			}
+			// A bad-MAC PDU, built from a copy so the AMF's COUNT does not move.
+			shadow := *amf
+			bad, err := shadow.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.bad(bad)
+			bad[2] ^= 0xff
+			if _, err := ue.DecodeSecure(bad); !errors.Is(err, nas.ErrIntegrity) {
+				t.Fatalf("bad PDU: err = %v, want ErrIntegrity", err)
+			}
+			// The next valid downlink still verifies.
+			next, err := amf.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ue.DecodeSecure(next); err != nil {
+				t.Errorf("valid downlink after the bad one: %v", err)
+			}
+		})
+	}
+}
