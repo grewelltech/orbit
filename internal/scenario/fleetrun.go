@@ -89,6 +89,12 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 		}
 	}
 	if t := f.Behaviors.Traffic; t != nil && f.Fleet.PDUSession {
+		if b := t.Bulk; b != nil {
+			beh.Bulk = engine.FleetBulkTraffic{
+				UEs: b.UEs, UplinkRate: b.UplinkRate, DownlinkRate: b.DownlinkRate,
+				Peer: b.Peer, Token: b.Token, PeerDataIP: b.PeerDataIP, PacketSize: b.PacketSize,
+			}
+		}
 		// Synthetic profiles → loom constant-rate flows (first synthetic entry's
 		// rate applies, the preview behaviour).
 		for _, m := range t.Mix {

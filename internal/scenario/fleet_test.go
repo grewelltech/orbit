@@ -131,6 +131,84 @@ func TestBuildFleetRunHonoursTrafficTarget(t *testing.T) {
 	}
 }
 
+func TestBuildFleetRunBulkTraffic(t *testing.T) {
+	f := &FleetScenario{
+		Core:     Core{AMF: "127.0.0.1:38412", PLMN: PLMN{MCC: "001", MNC: "01"}},
+		Fleet:    FleetSpec{Count: 10, SUPIBase: "001010000000001", PDUSession: true},
+		Topology: Topology{GNBs: GNBGen{Count: 1, IDBase: 1, SourceIPs: []string{"10.0.0.1"}}},
+		Behaviors: Behaviors{Traffic: &TrafficBehavior{
+			Bulk: &BulkTraffic{
+				UEs: 2, UplinkRate: "5Mbps", DownlinkRate: "20Mbps",
+				Peer: "10.106.0.30:9551", Token: "secret", PeerDataIP: "10.106.0.31", PacketSize: 1000,
+			},
+			Mix: []TrafficShare{
+				{App: "http", Name: "web", Share: 0.5, Peer: "10.106.0.30:9551"},
+				{App: "video", Name: "video", Share: 0.5, Peer: "10.106.0.30:9551"},
+			},
+		}},
+		Run: RunSpec{Duration: "1m"},
+	}
+	if err := f.validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	_, beh, err := BuildFleetRun(f, make([]byte, 16), make([]byte, 16))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if beh.Bulk.UEs != 2 || beh.Bulk.UplinkRate != "5Mbps" || beh.Bulk.DownlinkRate != "20Mbps" ||
+		beh.Bulk.Peer != "10.106.0.30:9551" || beh.Bulk.PeerDataIP != "10.106.0.31" || beh.Bulk.PacketSize != 1000 {
+		t.Errorf("bulk mapping = %+v", beh.Bulk)
+	}
+	if len(beh.Apps) != 2 || beh.Apps[0].Count != 4 || beh.Apps[1].Count != 4 {
+		t.Errorf("app counts after reserving bulk UEs = %+v, want 4/4", beh.Apps)
+	}
+
+	profiles := f.profileAssignment()
+	if profiles[0] != "bulk" || profiles[1] != "bulk" || profiles[2] != "web" || profiles[6] != "video" {
+		t.Errorf("profile assignment = %v", profiles)
+	}
+}
+
+func TestFleetBulkTrafficValidation(t *testing.T) {
+	base := FleetScenario{
+		Core:     Core{AMF: "127.0.0.1:38412", PLMN: PLMN{MCC: "001", MNC: "01"}},
+		Fleet:    FleetSpec{Count: 4, SUPIBase: "001010000000001", PDUSession: true},
+		Topology: Topology{GNBs: GNBGen{Count: 1, SourceIPs: []string{"10.0.0.1"}}},
+		Behaviors: Behaviors{Traffic: &TrafficBehavior{Bulk: &BulkTraffic{
+			UEs: 2, UplinkRate: "10Mbps", Peer: "10.106.0.30:9551",
+		}}},
+	}
+	if err := base.validate(); err != nil {
+		t.Fatalf("valid bulk config: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		edit func(*BulkTraffic, *FleetScenario)
+	}{
+		{"zero UEs", func(b *BulkTraffic, _ *FleetScenario) { b.UEs = 0 }},
+		{"too many UEs", func(b *BulkTraffic, _ *FleetScenario) { b.UEs = 5 }},
+		{"no peer", func(b *BulkTraffic, _ *FleetScenario) { b.Peer = "" }},
+		{"no direction", func(b *BulkTraffic, _ *FleetScenario) { b.UplinkRate = "" }},
+		{"bad rate", func(b *BulkTraffic, _ *FleetScenario) { b.UplinkRate = "fast" }},
+		{"oversize packet", func(b *BulkTraffic, _ *FleetScenario) { b.PacketSize = 1400 }},
+		{"no PDU session", func(_ *BulkTraffic, f *FleetScenario) { f.Fleet.PDUSession = false }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := base
+			b := *base.Behaviors.Traffic.Bulk
+			tb := *base.Behaviors.Traffic
+			tb.Bulk = &b
+			f.Behaviors.Traffic = &tb
+			tc.edit(&b, &f)
+			if err := f.validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 // n3_ips gives each gNB a data-plane address distinct from its N2 source, which
 // a testbed with separated N2/N3 networks needs — without it the gNB advertises
 // an N3 address the UPF cannot reach.

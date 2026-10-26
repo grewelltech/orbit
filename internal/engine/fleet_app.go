@@ -654,6 +654,7 @@ type cohortRun struct {
 
 	mu      sync.Mutex
 	clients map[loomapp.Client]struct{}
+	members map[loomapp.Client]*cohortMemberValues
 	finals  []metrics.Snapshot
 	failed  int
 }
@@ -661,11 +662,16 @@ type cohortRun struct {
 func (cr *cohortRun) addClient(c loomapp.Client) {
 	cr.mu.Lock()
 	cr.clients[c] = struct{}{}
+	if cr.members == nil {
+		cr.members = make(map[loomapp.Client]*cohortMemberValues)
+	}
+	cr.members[c] = &cohortMemberValues{app: cr.app}
 	cr.mu.Unlock()
 }
 func (cr *cohortRun) removeClient(c loomapp.Client) {
 	cr.mu.Lock()
 	delete(cr.clients, c)
+	delete(cr.members, c)
 	cr.mu.Unlock()
 }
 func (cr *cohortRun) fail() { cr.mu.Lock(); cr.failed++; cr.mu.Unlock() }
@@ -688,6 +694,72 @@ type cohortValues struct {
 	mos, ttfb, goodput  []float64
 	stallTime, rebuffer []float64
 	bitrate, startup    []float64
+}
+
+// cohortMemberValues retains sparse measurements for one member. Metrics()
+// closes an interval: a VoIP interval can contain no packets, and video/HTTP
+// intervals commonly end between segment/request completions. Those empty
+// pools are absence, not an ideal MOS or a reason to make a row disappear.
+// Throughput and impairment values remain current-interval measurements.
+type cohortMemberValues struct {
+	app string
+
+	mos, ttfb, bitrate, startup float64
+	hasMOS, hasTTFB             bool
+	hasBitrate, hasStartup      bool
+
+	goodput, stallTime, rebuffer float64
+}
+
+func (m *cohortMemberValues) observe(s metrics.Snapshot) {
+	switch v := s.(type) {
+	case metrics.VoIP:
+		// Loom's empty VoIP interval has the E-model's ideal default MOS
+		// (4.37). It is not a quality observation until media crossed an end.
+		if v.TxPackets > 0 || v.RxPackets > 0 {
+			m.mos, m.hasMOS = v.MOSCQ, true
+		}
+	case metrics.HTTP:
+		m.goodput = v.GoodputMbps
+		if v.Requests > 0 {
+			m.ttfb, m.hasTTFB = v.TTFBMsP50, true
+		}
+	case metrics.Video:
+		m.stallTime, m.rebuffer = v.StallTimeMs, v.RebufferRatio
+		if v.SegmentsFetched > 0 {
+			m.bitrate, m.hasBitrate = v.AvgBitrateKbps, true
+		}
+		if v.StartupMs > 0 {
+			m.startup, m.hasStartup = v.StartupMs, true
+		}
+	}
+}
+
+func memberValues(members map[loomapp.Client]*cohortMemberValues) cohortValues {
+	var out cohortValues
+	for _, m := range members {
+		switch m.app {
+		case "voip":
+			if m.hasMOS {
+				out.mos = append(out.mos, m.mos)
+			}
+		case "http":
+			out.goodput = append(out.goodput, m.goodput)
+			if m.hasTTFB {
+				out.ttfb = append(out.ttfb, m.ttfb)
+			}
+		case "video":
+			out.stallTime = append(out.stallTime, m.stallTime)
+			out.rebuffer = append(out.rebuffer, m.rebuffer)
+			if m.hasBitrate {
+				out.bitrate = append(out.bitrate, m.bitrate)
+			}
+			if m.hasStartup {
+				out.startup = append(out.startup, m.startup)
+			}
+		}
+	}
+	return out
 }
 
 func (cr *cohortRun) allValues(snaps []metrics.Snapshot) cohortValues {
@@ -735,11 +807,10 @@ func (cr *cohortRun) allValues(snaps []metrics.Snapshot) cohortValues {
 // publishLive folds a cohort's interval snapshots into the run's live stats,
 // the same numbers the gauges get. Kept separate from publish so the telemetry
 // path does not depend on Prometheus being enabled.
-func (cr *cohortRun) publishLive(live *FleetLiveStats, snaps []metrics.Snapshot, ues int, elapsed time.Duration, farEnd FleetFarEnd) {
+func (cr *cohortRun) publishLive(live *FleetLiveStats, v cohortValues, ues int, elapsed time.Duration, farEnd FleetFarEnd) {
 	if live == nil {
 		return
 	}
-	v := cr.allValues(snaps)
 	cr.mu.Lock()
 	failed := cr.failed
 	cr.mu.Unlock()
@@ -757,34 +828,51 @@ func (cr *cohortRun) publishLive(live *FleetLiveStats, snaps []metrics.Snapshot,
 
 // publish sets the cohort's gauges from a snapshot list.
 func (cr *cohortRun) publish(fm *fleetAppMetrics, snaps []metrics.Snapshot) {
+	cr.publishValues(fm, cr.allValues(snaps))
+}
+
+func (cr *cohortRun) publishValues(fm *fleetAppMetrics, v cohortValues) {
 	if fm == nil {
 		return
 	}
-	mos, ttfb, goodput, stallTime, rebuffer := cr.values(snaps)
-	fm.set(fm.mos, cr.name, fleetQuantiles(mos))
-	fm.set(fm.ttfb, cr.name, fleetQuantiles(ttfb))
-	fm.set(fm.goodput, cr.name, fleetQuantiles(goodput))
-	fm.set(fm.stallTime, cr.name, fleetQuantiles(stallTime))
-	fm.set(fm.rebuffer, cr.name, fleetQuantiles(rebuffer))
+	fm.set(fm.mos, cr.name, fleetQuantiles(v.mos))
+	fm.set(fm.ttfb, cr.name, fleetQuantiles(v.ttfb))
+	fm.set(fm.goodput, cr.name, fleetQuantiles(v.goodput))
+	fm.set(fm.stallTime, cr.name, fleetQuantiles(v.stallTime))
+	fm.set(fm.rebuffer, cr.name, fleetQuantiles(v.rebuffer))
 }
 
-// intervalSnapshots reads every live client's interval Metrics() — the
-// sampler is the single Metrics() reader per client, so each read cleanly
-// closes one observation interval (the appsession sampleLoop discipline).
-func (cr *cohortRun) intervalSnapshots() []metrics.Snapshot {
+// intervalValues reads every live client's interval Metrics() and updates its
+// retained sparse measurements. The sampler is the single Metrics() reader per
+// client, so each read cleanly closes one observation interval.
+func (cr *cohortRun) intervalValues() cohortValues {
 	cr.mu.Lock()
 	clients := make([]loomapp.Client, 0, len(cr.clients))
 	for c := range cr.clients {
 		clients = append(clients, c)
 	}
 	cr.mu.Unlock()
-	snaps := make([]metrics.Snapshot, 0, len(clients))
+	type sample struct {
+		client loomapp.Client
+		snap   metrics.Snapshot
+	}
+	samples := make([]sample, 0, len(clients))
 	for _, c := range clients {
 		if src, ok := c.(metrics.Source); ok {
-			snaps = append(snaps, src.Metrics())
+			samples = append(samples, sample{client: c, snap: src.Metrics()})
 		}
 	}
-	return snaps
+
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	for _, s := range samples {
+		// A client can finish while Metrics runs. Do not put a removed member
+		// back into the live distribution.
+		if m := cr.members[s.client]; m != nil {
+			m.observe(s.snap)
+		}
+	}
+	return memberValues(cr.members)
 }
 
 // runFleetApps runs the app cohorts over their carved members for the
@@ -952,7 +1040,7 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 	cr := &cohortRun{name: rep.Name, app: c.App, clients: make(map[loomapp.Client]struct{})}
 
 	var cwg sync.WaitGroup
-	for _, fu := range mem {
+	for i, fu := range mem {
 		flowID, port := "", sharedPort
 		if perUEServer {
 			var cerr error
@@ -974,11 +1062,12 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 		// setup, so a failed voip answerer never inflates it.
 		fm.setUEs(cr.name, rep.UEs)
 		target := net.JoinHostPort(dataIP.String(), fmt.Sprint(port))
+		startOffset := fleetAppStartOffset(c.App, i, len(mem), duration)
 		cwg.Add(1)
-		go func(fu *fleetUE, target, flowID string) {
+		go func(fu *fleetUE, target, flowID string, startOffset time.Duration) {
 			defer cwg.Done()
-			runFleetAppClient(ctx, log, pool, cr, c, agent, fu, target, flowID, duration)
-		}(fu, target, flowID)
+			runFleetAppClient(ctx, log, pool, cr, c, agent, fu, target, flowID, duration, startOffset)
+		}(fu, target, flowID, startOffset)
 	}
 
 	// Interval sampler: while members run, fold their interval snapshots
@@ -1003,9 +1092,9 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					snaps := cr.intervalSnapshots()
-					cr.publish(fm, snaps)
-					cr.publishLive(live, snaps, rep.UEs, time.Since(cohortStart), farEnd.snapshot())
+					v := cr.intervalValues()
+					cr.publishValues(fm, v)
+					cr.publishLive(live, v, rep.UEs, time.Since(cohortStart), farEnd.snapshot())
 				}
 			}
 		}()
@@ -1033,13 +1122,22 @@ func runFleetCohort(ctx context.Context, log *slog.Logger, pool *fleetAgentPool,
 // then the whole-run snapshot folded into the cohort. A per-UE far-end flow
 // (voip) is stopped best-effort on the way out.
 func runFleetAppClient(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, cr *cohortRun,
-	c FleetAppCohort, agent *fleetAgent, fu *fleetUE, target, flowID string, duration time.Duration) {
+	c FleetAppCohort, agent *fleetAgent, fu *fleetUE, target, flowID string, duration, startOffset time.Duration) {
 
 	defer func() {
 		if flowID != "" {
 			pool.stopFlow(agent, flowID)
 		}
 	}()
+	if startOffset > 0 {
+		timer := time.NewTimer(startOffset)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+	}
 	sess := fu.sess
 	ueIP := net.ParseIP(sess.Result.PDUAddress)
 	if ueIP == nil {
@@ -1084,6 +1182,22 @@ func runFleetAppClient(ctx context.Context, log *slog.Logger, pool *fleetAgentPo
 	} else if src, ok := client.(metrics.Source); ok {
 		cr.final(src.Metrics())
 	}
+}
+
+// fleetAppStartOffset spreads video players across one segment cycle. Starting
+// a cohort's players in the same scheduler turn makes every ABR fetch recur in
+// lockstep, creating an artificial four-second N3 burst that can briefly starve
+// voice. The deterministic spacing keeps repeated runs comparable. Short runs
+// cap the spread at one tenth of their duration so every member still runs.
+func fleetAppStartOffset(app string, member, members int, duration time.Duration) time.Duration {
+	if app != "video" || member <= 0 || members <= 1 {
+		return 0
+	}
+	spread := 4 * time.Second
+	if cap := duration / 10; cap > 0 && spread > cap {
+		spread = cap
+	}
+	return time.Duration(int64(spread) * int64(member) / int64(members))
 }
 
 // runFleetClientContained runs the engine with panic containment (the client

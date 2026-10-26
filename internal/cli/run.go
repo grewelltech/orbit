@@ -100,8 +100,18 @@ func runFleet(cmd *cobra.Command, data []byte, metricsListen string) error {
 	if m := f.Behaviors.Mobility; m != nil {
 		fmt.Fprintf(out, "  mobility: %s @ %s, %s handover\n", m.Model, orDefault(m.Speed, "?"), orDefault(m.Handover, "xn"))
 	}
-	if t := f.Behaviors.Traffic; t != nil && len(t.Mix) > 0 {
+	if t := f.Behaviors.Traffic; t != nil {
 		var parts []string
+		if b := t.Bulk; b != nil {
+			s := fmt.Sprintf("%d bulk UEs → %s", b.UEs, b.Peer)
+			if b.UplinkRate != "" {
+				s += " UL " + b.UplinkRate + "/UE"
+			}
+			if b.DownlinkRate != "" {
+				s += " DL " + b.DownlinkRate + "/UE"
+			}
+			parts = append(parts, s)
+		}
 		for _, m := range t.Mix {
 			var s string
 			if m.App != "" {
@@ -114,7 +124,9 @@ func runFleet(cmd *cobra.Command, data []byte, metricsListen string) error {
 			}
 			parts = append(parts, s)
 		}
-		fmt.Fprintf(out, "  traffic:  %s\n", strings.Join(parts, ", "))
+		if len(parts) > 0 {
+			fmt.Fprintf(out, "  traffic:  %s\n", strings.Join(parts, ", "))
+		}
 	}
 	if f.Run.Duration != "" {
 		fmt.Fprintf(out, "  run:      %s\n", f.Run.Duration)
