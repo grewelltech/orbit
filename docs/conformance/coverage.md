@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**10 checks today** (the first four live on the SD-Core testbed):
+**11 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -210,6 +210,19 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   case f), allowed from V16.3.0), SKIPs. The answer is read
   through the UE's NAS security context, and the UE is deregistered after.
   An AMF-built Reject without a 5GMM cause cannot be told from an SMF's.
+- `NAS-REG-REJECTED-NSSAI` (nas, FAIL-class, Rel-16 onward) — the UE
+  registers requesting only a stimulus S-NSSAI the core does not serve (the
+  run's SST with SD EEEEEE), with the NSSAA and ER-NSSAI bits sent as 0.
+  TS 24.501 5.5.1.2.5 (condition b) 2)) then requires a Registration Reject
+  with 5GMM cause #62 (from V16.2.0) whose Rejected NSSAI IE lists the
+  stimulus (from V16.6.0). Another cause, a #62 Reject without the
+  stimulus, or the stimulus only in the Extended rejected NSSAI IE (from
+  V17.1.0) is FAIL; a #62 Reject with an IE Orbit cannot decode instead is
+  ERROR. A core that allows a default S-NSSAI accepts, so the #62 rule did
+  not apply: SKIP, likely on a core whose subscriber has a default slice.
+  The Accept's rejected NSSAI is a may, recorded only. Not yet run on Ref 2;
+  the source analyst predicts FAIL on EX-1 (a Registration Reject with
+  cause #111).
   Needs a UE. Not yet run on Ref 2; the source analyst predicts FAIL (an
   AMF-built Reject returned with #91).
 
@@ -242,6 +255,6 @@ FAIL in the report but out of the gate. See
 Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
-- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`).
+- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`).
 - **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).
