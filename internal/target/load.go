@@ -345,7 +345,10 @@ func mapValue(n *yaml.Node, key string) string {
 var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // expand substitutes ${VAR} in every string of v, returning the variables
-// used. A variable that is not set is an error.
+// used. A variable that is not set is an error. Only string fields expand:
+// a numeric field takes no ${VAR} in v1. A number is overridden by the env
+// layer (an ORBIT_* variable bound to its path, such as ORBIT_LOAD_SEED)
+// or a flag, both with provenance.
 func expand(v any, env Getenv) (any, []string, error) {
 	var via []string
 	var err error
