@@ -182,3 +182,53 @@ func TestBadMACLeavesCountAlone(t *testing.T) {
 		})
 	}
 }
+
+// A downlink whose MAC verifies but whose plain message does not decode
+// still stores its COUNT: the MAC proved it (TS 24.501 4.4.3.1). After 300
+// valid downlinks, a new-context PDU of that kind restarts the stored COUNT
+// at 0, so the next downlink (COUNT 1) verifies; had the COUNT not been
+// stored, the UE would place it at 0x101 and reject it.
+func TestValidMACUndecodableStoresCount(t *testing.T) {
+	var kInt, kEnc [16]byte
+	for i := range kInt {
+		kInt[i] = byte(0x50 + i)
+		kEnc[i] = byte(0x60 + i)
+	}
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "truncated 5GMM message", payload: []byte{0x7e, 0x00, 0x41}},
+		{name: "unknown protocol discriminator", payload: []byte{0x0f, 0x00, 0x41, 0x01}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ue := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA2, KNASint: kInt, KNASenc: kEnc}
+			amf := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA2, KNASint: kInt, KNASenc: kEnc, Network: true}
+			for i := 0; i < 300; i++ {
+				pdu, err := amf.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := ue.DecodeSecure(pdu); err != nil {
+					t.Fatalf("downlink %d: %v", i, err)
+				}
+			}
+			bad, err := amf.EncodeSecureRaw(tc.payload, nas.SecHdrIntegrityCipheredNewCtx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = ue.DecodeSecure(bad)
+			if err == nil || errors.Is(err, nas.ErrIntegrity) {
+				t.Fatalf("undecodable PDU: err = %v, want a decode error with a valid MAC", err)
+			}
+			next, err := amf.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ue.DecodeSecure(next); err != nil {
+				t.Errorf("downlink after the undecodable one: %v", err)
+			}
+		})
+	}
+}
