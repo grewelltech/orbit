@@ -2,7 +2,7 @@ package conformance
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasMessage"
 
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -103,9 +104,13 @@ func TestJudgeSMC(t *testing.T) {
 			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command; registration proceeded without NAS security (UE offered NEA0/NEA1/NEA2, NIA0). TS 33.501 5.5.2.",
 				nia0OnlyOrderNote, "Cleanup: plain switch-off Deregistration Request sent; the core released the UE context (UE Context Release Complete sent)."}},
-		{name: "NIA0-only: plain Accept that did not decode", o: smcOutcome{acceptFirst: true, plainAccept: true, noCleanup: errors.New("decode downlink NAS: bad")},
+		{name: "NIA0-only: plain Accept that did not decode", o: smcOutcome{acceptFirst: true, plainAccept: true,
+			noCleanup: fmt.Errorf("%w: bad", engine.ErrDownlinkNASDecode)},
 			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
-			wantDetail: []string{"Cleanup: skipped, the plain Registration Accept did not decode (decode downlink NAS: bad)."}},
+			wantDetail: []string{"Cleanup: skipped, the plain Registration Accept did not decode: decode downlink NAS: bad."}},
+		{name: "NIA0-only: attach ended before the cleanup", o: smcOutcome{acceptFirst: true, plainAccept: true, noCleanup: context.DeadlineExceeded},
+			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			wantDetail: []string{"Cleanup: skipped, the attach ended before cleanup: context deadline exceeded."}},
 		{name: "NIA0-only: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: Pass,
 			wantDetail: []string{"an algorithm the UE did not offer (recorded, not scored)"}},
 		{name: "NIA0-only: nothing", o: smcOutcome{noAnswer: true}, u: nia0OnlyUE, want: Error, wantObserved: "no Security Mode Command, reject or release"},
@@ -205,21 +210,21 @@ func TestSMCCheckAgainstMock(t *testing.T) {
 			wantObserved: normalPass + "; NIA0/NIA3 UE: UE Context Release Command; NIA0-only UE: UE Context Release Command"},
 		{name: "NIA0 fallback", opts: []mockamf.Option{noNIA3, mockamf.WithNoCommonIntegrity(mockamf.NIA0NoCommonIntegrity)}, want: Fail,
 			wantObserved: "NIA0/NIA3 UE: NIA0 selected",
-			wantDetail:   []string{"The NIA0/NIA3 UE and the NIA0-only UE failed the same way (NIA0 selected).", nia0OnlyOrderNote}},
+			wantDetail:   []string{"The NIA0/NIA3 UE and the NIA0-only UE failed the same way (NIA0 selected)", nia0OnlyOrderNote}},
 		{name: "plain Accept for both non-conforming UEs", opts: []mockamf.Option{noNIA3, skip, mockamf.WithGUTI()}, want: Fail,
 			wantObserved: "NIA0/NIA3 UE: Security Mode Command skipped",
 			wantDetail: []string{
 				"no Security Mode Command; registration proceeded without NAS security (UE offered NEA0/NEA3, NIA0/NIA3)",
 				"no Security Mode Command; registration proceeded without NAS security (UE offered NEA0/NEA1/NEA2, NIA0)",
-				"The NIA0/NIA3 UE and the NIA0-only UE failed the same way (Security Mode Command skipped).", nia0OnlyOrderNote,
+				"The NIA0/NIA3 UE and the NIA0-only UE failed the same way (Security Mode Command skipped)", nia0OnlyOrderNote,
 				"Cleanup: plain switch-off Deregistration Request sent; no UE Context Release Command within 500ms; UE Context Release Request sent; " + released + ".",
 			}},
 		{name: "plain Accept for the NIA0-only UE", opts: []mockamf.Option{skip, mockamf.WithReleaseOnDeregistration()}, want: Fail,
 			wantObserved: "NIA0-only UE: Security Mode Command skipped",
-			wantDetail:   []string{"NIA0/NIA3 UE: PASS NIA3 selected", "Cleanup: plain switch-off Deregistration Request sent; " + released + "."}},
+			wantDetail:   []string{"NIA0/NIA3 UE: PASS NIA3 selected", "Cleanup: plain switch-off Deregistration Request sent; " + released + "; requires Rel-15"}},
 		{name: "plain Accept, release request ignored", opts: []mockamf.Option{skip, mockamf.WithIgnoreUEContextReleaseRequest()}, want: Fail,
 			wantObserved: "NIA0-only UE: Security Mode Command skipped",
-			wantDetail:   []string{"UE Context Release Request sent; no UE Context Release Command within 500ms; the association is closed with the UE context still held."}},
+			wantDetail:   []string{"UE Context Release Request sent; no UE Context Release Command within 500ms; the association is closed with the UE context still held; requires Rel-15"}},
 		{name: "NIA0 always", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Fail, wantObserved: "normal UE: NIA0 selected"},
 		{name: "tampered capabilities", opts: []mockamf.Option{mockamf.WithSMCTamperCaps()}, want: Fail,
 			wantObserved: "normal UE: replayed UE security capabilities differ"},

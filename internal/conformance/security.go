@@ -54,7 +54,8 @@ const cleanupWait = 2 * time.Second
 // Which algorithm wins is operator policy (6.7.1.1), so it is recorded, as
 // is one the UE did not offer: no shall requires the selected algorithm to
 // be one the UE offered at initial registration (5.11.2 b) says only
-// "dependent on"; 6.7.1.2, from V19.4.0, covers AMF change). The selected ciphering algorithm is recorded; NEA0 is legal.
+// "dependent on"; 6.7.1.2, from V19.4.0, covers AMF change). The selected
+// ciphering algorithm is recorded; NEA0 is legal.
 type nasSMCNoNIA0 struct {
 	// wait and cleanup override smcWait and cleanupWait (tests only).
 	wait, cleanup time.Duration
@@ -185,7 +186,7 @@ type smcOutcome struct {
 	acceptFirst bool   // a Registration Accept came with no Security Mode Command
 	plainAccept bool   // that Accept came without NAS security (security header type 0)
 	cleanup     string // what the cleanup after a plain Accept did
-	noCleanup   error  // why a plain Accept got no cleanup: it did not decode
+	noCleanup   error  // why a plain Accept got no cleanup: the attach ended first
 	reject      string // a reject that ended the registration
 	released    bool   // a UE Context Release Command ended it
 	noAnswer    bool   // nothing of the above within the wait
@@ -246,8 +247,8 @@ func (c nasSMCNoNIA0) probeSMC(ctx context.Context, h *UEHarness, caps nasType.U
 		o.cleanup = strings.Join(pa.Steps, "; ")
 	case o.smc != nil, o.acceptFirst, o.reject != "":
 		if o.plainAccept && err != nil {
-			// The engine ends the attach before the cleanup when the plain
-			// Accept does not decode.
+			// The attach ended before the cleanup: the plain Accept did not
+			// decode, or the transport or a context ended it.
 			o.noCleanup = err
 		}
 	case errors.Is(err, engine.ErrReleasedByCore):
@@ -370,8 +371,10 @@ func judgeSMC(o smcOutcome, u smcStimulus) subResult {
 	switch {
 	case o.cleanup != "":
 		s.detail += " Cleanup: " + o.cleanup + "."
+	case o.plainAccept && errors.Is(o.noCleanup, engine.ErrDownlinkNASDecode):
+		s.detail += fmt.Sprintf(" Cleanup: skipped, the plain Registration Accept did not decode: %v.", o.noCleanup)
 	case o.plainAccept && o.noCleanup != nil:
-		s.detail += fmt.Sprintf(" Cleanup: skipped, the plain Registration Accept did not decode (%v).", o.noCleanup)
+		s.detail += fmt.Sprintf(" Cleanup: skipped, the attach ended before cleanup: %v.", o.noCleanup)
 	}
 	return s
 }
@@ -392,11 +395,11 @@ const nia0OnlyOrderNote = "Which of the two FAILs a core gives can depend on its
 func combineSMC(subs ...subResult) (Verdict, string, string) {
 	parts := make([]string, len(subs))
 	for i, s := range subs {
-		parts[i] = fmt.Sprintf("%s: %s %s, %s", s.name, s.v, s.observed, s.detail)
+		parts[i] = fmt.Sprintf("%s: %s %s, %s", s.name, s.v, s.observed, strings.TrimSuffix(s.detail, "."))
 	}
 	detail := strings.Join(parts, "; ")
 	if len(subs) == 3 && subs[1].v == Fail && subs[2].v == Fail && subs[1].observed == subs[2].observed {
-		detail += fmt.Sprintf(". The %s and the %s failed the same way (%s).", subs[1].name, subs[2].name, subs[1].observed)
+		detail += fmt.Sprintf(". The %s and the %s failed the same way (%s)", subs[1].name, subs[2].name, subs[1].observed)
 	}
 	for _, v := range []Verdict{Fail, Error} {
 		for _, s := range subs {

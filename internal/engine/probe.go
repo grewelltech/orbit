@@ -48,6 +48,10 @@ type AttachProbe struct {
 	CleanUpPlainAccept time.Duration
 }
 
+// ErrDownlinkNASDecode wraps the error Attach returns when a downlink NAS
+// PDU does not decode (and no probe asked to skip it).
+var ErrDownlinkNASDecode = errors.New("decode downlink NAS")
+
 // PlainAcceptError is the error Attach returns when
 // AttachProbe.CleanUpPlainAccept ended it at a Registration Accept sent
 // without NAS security.

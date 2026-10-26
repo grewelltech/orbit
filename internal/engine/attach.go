@@ -385,7 +385,7 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		msg, err = s.sec.DecodeSecure(raw)
 	}
 	if err != nil {
-		return fmt.Errorf("decode downlink NAS: %w", err)
+		return fmt.Errorf("%w: %w", ErrDownlinkNASDecode, err)
 	}
 
 	mt := msg.GmmHeader.GetMessageType()

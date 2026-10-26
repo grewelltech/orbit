@@ -216,8 +216,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   cleanup is in the detail. Each UE is judged separately and the worst result
   wins. The selected algorithms are recorded. Needs a UE, else SKIP. Not yet
   run on Ref 2; the source analyst predicts the capabilities replay PASSes,
-  and the NIA0-only UE is predicted to FAIL on EX-1 (no Security Mode Command,
-  then a plain Registration Accept).
+  and the NIA0-only UE is predicted to FAIL on EX-1.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
