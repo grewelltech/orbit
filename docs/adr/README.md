@@ -20,4 +20,6 @@ between real alternatives (not for routine implementation choices). Use
 | [0004](0004-fleet-population-mode.md) | A fleet/population mode for large dynamic scenarios | Accepted |
 | [0005](0005-server-owned-run-execution.md) | The server owns run execution; every client drives it through the API | Accepted |
 | [0006](0006-live-monitoring-surface.md) | Live monitoring: snapshot frames for aggregates, sequenced events for occurrences | Accepted |
-| [0007](0007-orbit-hosted-loom-responder.md) | ORBIT hosts the loom responder; stock loomd stays supported | Accepted |
+| [0007](0007-orbit-hosted-loom-responder.md) | ORBIT hosts the loom responder; stock loomd stays supported | Accepted; amended by ADR-0009 (install and bootstrap) |
+| [0008](0008-targets-and-runs.md) | Targets (where) and one Run (what): client-held targets, layered config with provenance, leasing, TLS + token | Accepted |
+| [0009](0009-responder-join.md) | App-side setup by join: token one-liner, outbound registration, client-side SSH, doctor | Accepted |
