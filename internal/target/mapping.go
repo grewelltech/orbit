@@ -59,7 +59,10 @@ const (
 	cmdResponder    = "orbit responder"
 )
 
-var populationCmds = []string{cmdLoad, cmdStartLoad}
+var (
+	populationCmds = []string{cmdLoad, cmdStartLoad}
+	handoverCmds   = []string{cmdUEHandover, cmdUEXnHandover}
+)
 
 // Bindings is the env var and flag → path table.
 var Bindings = []Binding{
@@ -86,7 +89,7 @@ var Bindings = []Binding{
 	{Flag: "ki", Path: "subscribers[].ki"},
 	{Flag: "opc", Path: "subscribers[].opc"},
 	{Flag: "routing-indicator", Path: "subscribers[].routing_indicator"},
-	{Flag: "bind", Path: "ran.n2_source_ips", Commands: []string{cmdConformance, cmdLoad, cmdStartLoad, cmdUERegister, cmdUEHandover, cmdUEXnHandover, cmdCellNGSetup}},
+	{Flag: "bind", Path: "ran.n2_source_ips", Commands: []string{cmdConformance, cmdLoad, cmdStartLoad, cmdUERegister, cmdCellNGSetup}},
 	{Flag: "gnb-n3", Path: "ran.n3_ips"},
 	{Flag: "n3-bind", Path: "ran.n3_ips", Commands: []string{cmdConformance}},
 	{Flag: "gnb-name", Path: "ran.gnb_name"},
@@ -183,6 +186,20 @@ var Exclusions = []Exclusion{
 	{Flag: "codec", Reason: ReasonOperation},
 	{Flag: "jb", Reason: ReasonOperation},
 	{Flag: "ptime", Reason: ReasonOperation},
+	// A handover's flags describe its destination gNB, with unset fields
+	// inherited from the serving gNB: one operation's argument, which a
+	// target never supplies. --amf stays bound: the destination gNB
+	// connects to the target's core.
+	{Flag: "bind", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "gnb-id", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "gnb-bits", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "gnb-n3", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "gnb-name", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "mcc", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "mnc", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "tac", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "sst", Commands: handoverCmds, Reason: ReasonOperation},
+	{Flag: "sd", Commands: handoverCmds, Reason: ReasonOperation},
 }
 
 // appliesTo reports whether a command-scoped entry covers cmd.

@@ -138,9 +138,5 @@ func validateValue(path string, f field, v any, src Source) error {
 	if reason == "" {
 		return nil
 	}
-	shown := show(f, v)
-	if s, isStr := v.(string); isStr && !f.secret {
-		shown = strconv.Quote(s)
-	}
-	return fmt.Errorf("%s: %s %s (%s)", path, shown, reason, src)
+	return fmt.Errorf("%s: %s %s (%s)", path, errValue(f, v), reason, src)
 }

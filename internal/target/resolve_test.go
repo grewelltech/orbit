@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/spf13/pflag"
 )
 
 var allLayers = []Layer{LayerDefault, LayerTarget, LayerRunFile, LayerEnv, LayerFlag}
@@ -228,6 +230,117 @@ func TestResolveErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.s.Source.Name) && tc.is == nil {
 				t.Errorf("err %v does not name the source %s", err, tc.s.Source.Name)
+			}
+		})
+	}
+}
+
+// A secret's value never prints in an error, whatever the error kind and
+// whichever layer the value came from: a wrong type (list, map, number,
+// bool) or a bad format. Secret fields are strings, so no range error
+// applies to them.
+func TestSecretsNeverInErrors(t *testing.T) {
+	const s = "5ec7e75ec7e75ec7e75ec7e75ec7e7zz" // not hex: a format error
+	const digits = "987654321987"                // a number that is not 32 hex digits
+	var errs []error
+	try := func(name string, wantErr bool, err error) {
+		t.Helper()
+		if wantErr && err == nil {
+			t.Errorf("%s: no error", name)
+		}
+		if err != nil {
+			errs = append(errs, err)
+			for _, b := range []string{s, digits, "5ec7e7"} {
+				if strings.Contains(err.Error(), b) {
+					t.Errorf("%s: error shows the secret: %v", name, err)
+				}
+			}
+		}
+	}
+	values := []struct {
+		name  string
+		v     any
+		wrong bool // a wrong type, an error on every secret field
+	}{
+		{name: "bad format", v: s},
+		{name: "list", v: []any{s}, wrong: true},
+		{name: "map", v: map[string]any{"k": s}, wrong: true},
+		{name: "int", v: 987654321987},
+		{name: "uint64", v: uint64(987654321987)},
+		{name: "float", v: 9.87654321987e11},
+		{name: "bool", v: true},
+	}
+	for _, path := range []string{"subscribers[].ki", "subscribers[].opc", "app.responders[r].token"} {
+		for _, layer := range allLayers {
+			for _, v := range values {
+				_, err := Resolve(Input{Layer: layer, Settings: []Setting{set(path, v.v, "src")}})
+				// ki and opc check their format; a token takes any string.
+				try(path+" "+layer.String()+" "+v.name, v.wrong || (!strings.HasSuffix(path, "token") && v.name != "bool"), err)
+			}
+		}
+	}
+	for _, env := range []string{"ORBIT_KI", "ORBIT_OPC"} {
+		_, err := Resolve(EnvInput(envOf(map[string]string{env: s})))
+		try(env, true, err)
+	}
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	fs.String("ki", "", "")
+	if err := fs.Parse([]string{"--ki", s}); err != nil {
+		t.Fatal(err)
+	}
+	in, err := FlagInput("orbit conformance", fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Resolve(in)
+	try("flag --ki", true, err)
+	for _, doc := range []string{
+		"ki: " + s, "ki: [" + s + "]", "ki: {k: " + s + "}", "ki: " + digits,
+		"opc: " + s, "opc: [" + s + "]",
+	} {
+		_, err := Parse("x.yaml", []byte("version: 1\nkind: target\nname: x\nsubscribers: [ { name: p, "+doc+" } ]\n"), envOf(nil))
+		try("file "+doc, true, err)
+	}
+	_, err = Parse("x.yaml", []byte("version: 1\nkind: target\nname: x\napp: { responders: [ { name: r, token: ["+s+"] } ] }\n"), envOf(nil))
+	try("file token list", true, err)
+	if len(errs) < 50 {
+		t.Errorf("only %d errors were checked", len(errs))
+	}
+}
+
+// Integers are bound-checked against the field's 32-bit width before any
+// cast, from text and from values a run file or an RPC hands over
+// directly: too big or negative is a range error, never truncated.
+func TestIntegerRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		v       any
+		wantErr string
+	}{
+		{name: "count max", path: "subscribers[].count", v: 4294967295},
+		{name: "count 2^32+1", path: "subscribers[].count", v: 4294967297, wantErr: "subscribers[default].count: 4294967297 is out of range (0 to 4294967295) (run file src)"},
+		{name: "gnb first 2^32+5", path: "ran.gnb_ids.first", v: uint64(1<<32 + 5), wantErr: "4294967301 is out of range"},
+		{name: "count negative", path: "subscribers[].count", v: -1, wantErr: "-1 is out of range"},
+		{name: "count text 2^32", path: "subscribers[].count", v: "4294967296", wantErr: `"4294967296" is out of range`},
+		{name: "count text negative", path: "subscribers[].count", v: "-1", wantErr: `"-1" is not a non-negative integer`},
+		{name: "sst 2^32+1", path: "core.slices", v: []any{map[string]any{"sst": 4294967297}}, wantErr: "slice sst: 4294967297 is out of range"},
+		{name: "run seed 2^32", path: "workloads[].attach.seed", v: uint64(1 << 32), wantErr: "out of range"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := Resolve(Input{Layer: LayerRunFile, Settings: []Setting{set(tc.path, tc.v, "src")}})
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if r.Target.Subscribers[0].Count != 4294967295 {
+					t.Errorf("count = %d", r.Target.Subscribers[0].Count)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("err = %v, want %q", err, tc.wantErr)
 			}
 		})
 	}
