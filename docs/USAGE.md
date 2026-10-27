@@ -215,7 +215,7 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   | # | Step | A failure names |
   |---|---|---|
   | 1 | NG Setup | the AMF address and the N2 route, or the PLMN and TAC the AMF doesn't serve |
-  | 2 | register (the pool's first SUPI) | whether the subscriber and its keys are provisioned in the core; no pool at all |
+  | 2 | register (the pool's first SUPI) | whether the subscriber and its keys are provisioned in the core; a target with no `subscribers` |
   | 3 | PDU session | the DNN and slice |
   | 4 | responder | no responder (`orbit join create -t <target>`), one not registered, or one offline; a static responder (`control` and `token` in the target) is used as written |
   | 5 | control | the responder's control port unreachable from the server, or its loom token refused |
@@ -226,7 +226,9 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   one exception: after a failed echo it still runs step 7, which tells the
   two causes apart (UDP that arrives means ICMP is blocked, not the route).
   The receiver flow is removed on every path, and the UE is deregistered.
-  `--core-only` stops after step 3, for a target with no app host yet.
+  `--core-only` covers steps 1–3 only, for a target with no app host yet; a
+  failure there SKIPs the rest of those three. A step 7 that passes after a
+  failed echo still leaves the probe failed (exit 1).
   `--timeout` bounds each step (20s).
 
   It exits 1 when a step failed (a gate failed: fix the core or the app host)
@@ -237,11 +239,14 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   other. The core's reject causes aren't reported yet. `init` uses the
   target range's first gNB ID (or 1) and takes no lease.
 
-  **Behaviour changes** from the three-step probe: it now runs on the server
-  and has seven steps; a target with no responder fails at step 4 (use
-  `--core-only` for the old three steps); a target with no subscriber pool
-  fails at step 2 instead of passing on NG Setup alone; a failure exits 1
-  (it exited 3 before), and a probe that cannot start exits 3.
+  **Behaviour changes** from the three-step probe:
+  - it runs on the server and has seven steps; a target with no responder
+    fails at step 4 (`--core-only` gives the old three steps);
+  - a failure exits 1 (it exited 3 before); a probe that cannot start exits
+    3, and one whose stream breaks exits 2;
+  - a target with no `subscribers` fails at step 2 ("lab1 has no
+    subscribers"), `--core-only` included, where it used to pass on NG Setup
+    alone.
 
   `probe` sends the subscriber keys to `--server`. Until the server has TLS,
   keep it on loopback, or the keys cross the network in plaintext.

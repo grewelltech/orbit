@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -13,7 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/bgrewell/loom/control"
+
+	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
@@ -182,7 +189,7 @@ func TestTargetProbeFailures(t *testing.T) {
 		{name: "no PDU session accept (no UPF behind the mock)", doc: lab.target("lab1", servedPLMN, poolWith(testKi)),
 			want: []string{"✓ 2 register", "✗ 3 PDU session", "no PDU session accept within 2s (DNN internet, slice 1/010203)", "2 of 7 steps passed (4 skipped)"}},
 		{name: "no pool", doc: lab.target("lab1", servedPLMN, ""),
-			want: []string{"✓ 1 NG Setup", "✗ 2 register", "no subscriber pool in lab1", "1 of 7 steps passed (5 skipped)"}},
+			want: []string{"✓ 1 NG Setup", "✗ 2 register", "lab1 has no subscribers", "fix: add subscribers[].first_supi, ki and opc", "1 of 7 steps passed (5 skipped)"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -572,5 +579,68 @@ func TestTargetInitResponder(t *testing.T) {
 	if r := runOrbit(t, loc, append(base[:2], "r2", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50", "--responder", "203.0.113.20:9551")...); r.execErr == nil ||
 		!strings.Contains(r.execErr.Error(), "want name=control[,data_ip]") {
 		t.Errorf("a malformed --responder: %v", r.execErr)
+	}
+}
+
+// stubProbe streams steps, then ends with err.
+type stubProbe struct {
+	orbitv1connect.UnimplementedTargetServiceHandler
+	steps []string // "STATUS" per step, in order
+	err   error
+}
+
+func (s *stubProbe) Probe(_ context.Context, _ *connect.Request[orbitv1.ProbeRequest], stream *connect.ServerStream[orbitv1.ProbeStep]) error {
+	names := []string{"NG Setup", "register", "PDU session", "responder", "control", "UE to N6 echo", "data ports"}
+	for i, st := range s.steps {
+		if err := stream.Send(&orbitv1.ProbeStep{Index: uint32(i + 1), Name: names[i], Status: st, Detail: "d"}); err != nil {
+			return err
+		}
+	}
+	return s.err
+}
+
+// The summary and the exit code from the streamed steps: any FAIL is a
+// failed gate (exit 1), a step 7 that passes after the echo failed
+// included; a stream that breaks mid-way did not complete (exit 2).
+func TestTargetProbeSummary(t *testing.T) {
+	clearOrbitEnv(t)
+	tests := []struct {
+		name     string
+		steps    []string
+		err      error
+		coreOnly bool
+		wantExit int
+		want     string
+	}{
+		{name: "all pass", steps: []string{"OK", "OK", "OK", "OK", "OK", "OK", "OK"}, wantExit: ExitPass, want: "probe lab1: 7 of 7 steps passed (0 skipped)"},
+		{name: "echo FAIL, UDP OK: still a failure", steps: []string{"OK", "OK", "OK", "OK", "OK", "FAIL", "OK"}, wantExit: ExitGateFailed,
+			want: "probe lab1: 6 of 7 steps passed (0 skipped)"},
+		{name: "core only, passing", steps: []string{"OK", "OK", "OK"}, coreOnly: true, wantExit: ExitPass,
+			want: "probe lab1: core OK; user plane not checked (--core-only)"},
+		{name: "core only, failing", steps: []string{"OK", "FAIL", "SKIP"}, coreOnly: true, wantExit: ExitGateFailed,
+			want: "probe lab1: 1 of 3 steps passed (1 skipped)"},
+		{name: "the stream breaks", steps: []string{"OK", "OK"}, err: connect.NewError(connect.CodeUnavailable, errors.New("server going away")),
+			wantExit: ExitDidNotComplete},
+		{name: "refused before a step", err: connect.NewError(connect.CodeFailedPrecondition, errors.New("gNB ID 1 is held by run-7")),
+			wantExit: ExitCouldNotStart},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.Handle(orbitv1connect.NewTargetServiceHandler(&stubProbe{steps: tc.steps, err: tc.err}))
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+			args := []string{"--server", srv.URL, "target", "probe", "lab1"}
+			if tc.coreOnly {
+				args = append(args, "--core-only")
+			}
+			r := runOrbit(t, targetDir(t, lab1), args...)
+			if got := ExitCode(r.execErr); got != tc.wantExit {
+				t.Errorf("exit %d (%v), want %d\n%s", got, r.execErr, tc.wantExit, r.out)
+			}
+			if !strings.Contains(r.out, tc.want) {
+				t.Errorf("output lacks %q:\n%s", tc.want, r.out)
+			}
+		})
 	}
 }

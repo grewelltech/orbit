@@ -161,7 +161,9 @@ func TestProbeSteps(t *testing.T) {
 			},
 			texts: []string{"the AMF rejected NG Setup: misc(4) (unknown PLMN); core.plmn 001/01 or core.tac 1 is not one the AMF serves"}},
 		{name: "no pool", target: func() *orbitv1.ResolvedTarget { t := probeTarget(named); t.Subscribers = nil; return t }(),
-			want: "OK FAIL SKIP SKIP SKIP SKIP SKIP", texts: []string{"no subscriber pool in lab1", "subscribers[].first_supi"}},
+			want: "OK FAIL SKIP SKIP SKIP SKIP SKIP", texts: []string{"lab1 has no subscribers", "add subscribers[].first_supi, ki and opc to the target"}},
+		{name: "no pool, core only: still a FAIL", target: func() *orbitv1.ResolvedTarget { t := probeTarget(nil); t.Subscribers = nil; return t }(),
+			coreOnly: true, want: "OK FAIL SKIP", texts: []string{"lab1 has no subscribers"}},
 		{name: "registration rejected", target: probeTarget(named), want: "OK FAIL SKIP SKIP SKIP SKIP SKIP",
 			change: func(e *probeEnv) {
 				e.register = func(context.Context, *orbitv1.RegisterRequest) (*orbitv1.RegisterResponse, error) {

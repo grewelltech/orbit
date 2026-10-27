@@ -104,6 +104,7 @@ func newTargetService(log *slog.Logger, reg *engine.RunRegistry, mgr *engine.Man
 type probeRun struct {
 	stream *connect.ServerStream[orbitv1.ProbeStep]
 	next   int
+	last   int // the steps this probe covers: 3 with --core-only, else 7
 	failed bool
 }
 
@@ -118,7 +119,7 @@ func (p *probeRun) send(status, detail, fix string) error {
 
 // skipRest marks every remaining step SKIP, after the step that failed.
 func (p *probeRun) skipRest(why string) error {
-	for p.next < len(probeStepNames) {
+	for p.next < p.last {
 		if err := p.send(probeSkip, why, ""); err != nil {
 			return err
 		}
@@ -185,7 +186,10 @@ func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.
 	}
 	defer release()
 
-	p := &probeRun{stream: stream}
+	p := &probeRun{stream: stream, last: len(probeStepNames)}
+	if m.GetCoreOnly() {
+		p.last = 3
+	}
 	ms := uint32(timeout.Milliseconds())
 	gnbFor := func(n uint32) *orbitv1.GnbConfig {
 		g := proto.Clone(gnb).(*orbitv1.GnbConfig)
@@ -212,7 +216,7 @@ func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.
 
 	// 2. Register one UE.
 	if pool == nil {
-		return p.fail("no subscriber pool in "+name, "add one: subscribers[].first_supi, ki and opc")
+		return p.fail(name+" has no subscribers", "add subscribers[].first_supi, ki and opc to the target (orbit target init --first-supi does it)")
 	}
 	if pool.GetKi() == "" || pool.GetOpc() == "" {
 		return p.fail(fmt.Sprintf("subscribers[%s] has no ki/opc", pool.GetName()), "set them, or export ${ORBIT_KI}/${ORBIT_OPC}")
