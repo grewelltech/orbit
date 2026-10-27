@@ -144,8 +144,12 @@ type nssaiOutcome struct {
 	rejectRaw []byte // the Registration Reject as received, for the record
 	rejectErr error  // the security context's error for it, nil when it decoded
 	accept    *nasMessage.RegistrationAccept
-	acceptErr error  // a Registration Accept that did not decode
-	acceptRaw []byte // its NAS PDU
+	acceptErr error  // a Registration Accept (or a PDU of unreadable type) that did not decode
+	acceptRaw []byte // the Accept's NAS PDU, nil when its type was unreadable
+	// unreadableRaw is the last downlink of unreadable type that did not
+	// decode, which DeregisterUndecodableAccept may have taken for the
+	// Accept.
+	unreadableRaw []byte
 	// acceptCleanup is what the engine did about it
 	// (DeregisterUndecodableAccept), "" when nothing was reported.
 	acceptCleanup string
@@ -228,6 +232,10 @@ func (c nasRegRejectedNSSAI) probe(ctx context.Context, h *UEHarness, stim ue.SN
 			case f5nas.MsgTypeAuthenticationReject:
 				o.authReject = true
 				halt()
+			case 0:
+				if ev.Err != nil {
+					o.unreadableRaw = append([]byte(nil), ev.Raw...)
+				}
 			}
 		},
 	}, func(cfg *engine.UEConfig) {
@@ -473,6 +481,11 @@ func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, st
 		cleanup := o.acceptCleanup
 		if cleanup == "" {
 			cleanup = "no deregistration reported"
+		}
+		if o.acceptRaw == nil {
+			// Its type could not be read (a MAC that failed under NEA1-3):
+			// it was taken for the Accept, but may have been anything.
+			return Error, "a protected NAS PDU of unreadable type did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: %s", o.acceptErr, o.unreadableRaw, cleanup)
 		}
 		return Error, "Registration Accept did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: %s", o.acceptErr, o.acceptRaw, cleanup)
 	case o.accept != nil:

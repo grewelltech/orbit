@@ -419,8 +419,11 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		msg, plain, err = s.sec.DecodeSecurePlain(raw)
 	}
 	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
-		p.OnNAS(NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Plain: plain, Err: err})
-		if err != nil && p.DeregisterUndecodableAccept && s.mayBeAccept(typ) {
+		ev := NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Plain: plain, Err: err}
+		p.OnNAS(ev)
+		// The readable type (a deciphered Plain's included): a Reject the
+		// codec refused must not draw a switch-off Deregistration.
+		if err != nil && p.DeregisterUndecodableAccept && s.mayBeAccept(ev.MessageType()) {
 			return s.deregisterUndecodableAccept(err)
 		}
 		if err != nil {

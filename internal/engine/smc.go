@@ -86,10 +86,13 @@ func (s *attachState) readableCipher() bool {
 }
 
 // mayBeAccept reports whether a downlink that did not decode may be the
-// Registration Accept (AttachProbe.DeregisterUndecodableAccept): its header
-// says so, or, under a cipher other than NEA0, the header is unreadable
-// (typ 0) while the attach is still waiting for the Accept. A best-effort
-// deregistration after a PDU that was something else is harmless.
+// Registration Accept (AttachProbe.DeregisterUndecodableAccept). typ is the
+// readable type (NASEvent.MessageType: a deciphered Plain's, else the
+// header's where it is plaintext): an Accept is; any other readable type
+// (a Registration Reject the codec refused, say) is not, since a switch-off
+// Deregistration after it would be a protocol oddity to the core. Only
+// when nothing is readable (typ 0 under a cipher other than NEA0, before
+// REGISTERED) may it be.
 func (s *attachState) mayBeAccept(typ uint8) bool {
 	if typ == f5nas.MsgTypeRegistrationAccept {
 		return true
