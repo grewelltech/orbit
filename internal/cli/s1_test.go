@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -460,6 +461,47 @@ func TestNewHTTPServerProtocols(t *testing.T) {
 			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusOK || resp.ProtoMajor != tc.major {
 				t.Errorf("got %d over %s, want 200 over HTTP/%d", resp.StatusCode, resp.Proto, tc.major)
+			}
+		})
+	}
+}
+
+// The client refuses, before sending, a plan carrying subscriber keys or a
+// secret-named app param over http:// to a host that is not loopback; https
+// and loopback are fine.
+func TestClientRefusesPlaintextPlanSecrets(t *testing.T) {
+	plan := func(p *orbitv1.RunPlan) *orbitv1.StartRunRequest {
+		return &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}
+	}
+	withKi := plan(&orbitv1.RunPlan{Target: &orbitv1.ResolvedTarget{Subscribers: []*orbitv1.SubscriberPool{{Name: "main", Ki: "00112233445566778899aabbccddeeff"}}}})
+	withOpc := plan(&orbitv1.RunPlan{Target: &orbitv1.ResolvedTarget{Subscribers: []*orbitv1.SubscriberPool{{Name: "main", Opc: "000102030405060708090a0b0c0d0e0f"}}}})
+	params := func(p map[string]string) *orbitv1.StartRunRequest {
+		return plan(&orbitv1.RunPlan{Workloads: []*orbitv1.Workload{{Name: "w", Kind: &orbitv1.Workload_Population{Population: &orbitv1.PopulationWorkload{
+			Behaviors: &orbitv1.Behaviors{Traffic: &orbitv1.Traffic{Mix: []*orbitv1.TrafficShare{{Name: "web",
+				Kind: &orbitv1.TrafficShare_App{App: &orbitv1.AppCohort{App: "http", Params: p}}}}}},
+		}}}}})
+	}
+	for _, tc := range []struct {
+		name, url string
+		msg       *orbitv1.StartRunRequest
+		refuse    bool
+	}{
+		{name: "ki, off-host http", url: "http://192.0.2.1:8412", msg: withKi, refuse: true},
+		{name: "opc, off-host http", url: "http://192.0.2.1:8412", msg: withOpc, refuse: true},
+		{name: "apiKey param, off-host http", url: "http://192.0.2.1:8412", msg: params(map[string]string{"apiKey": "v-123456"}), refuse: true},
+		{name: "bearer param, off-host http", url: "http://192.0.2.1:8412", msg: params(map[string]string{"bearer": "v-123456"}), refuse: true},
+		{name: "plain params, off-host http", url: "http://192.0.2.1:8412", msg: params(map[string]string{"object_size": "256KB"})},
+		{name: "ki, off-host https", url: "https://192.0.2.1:8412", msg: withKi},
+		{name: "ki, loopback http", url: "http://127.0.0.1:8412", msg: withKi},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse(tc.url)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = checkOutgoing(u, tc.msg)
+			if (err != nil) != tc.refuse || (err != nil && !strings.Contains(err.Error(), "refusing to send")) {
+				t.Errorf("checkOutgoing = %v, want refused %t", err, tc.refuse)
 			}
 		})
 	}
