@@ -86,6 +86,13 @@ A **conformance** workload runs the suite, its fields under `conformance`:
 [expected-failures list](conformance/expected-failures.md): a path, read
 relative to the run file, or the list inline.
 
+A latency probe (`behaviors.latency.target`) echoes an IPv4 address. The
+`fleet` template of `orbit test` fills it from the target's first
+responder's `data_ip`. A target with no responder, or whose first responder
+has no `data_ip`, runs the fleet idle with a note. A `data_ip` that is a
+host name, not an IPv4 address, fails the run before it starts, as it does
+in a scenario.
+
 `start: {after: <workload>, phase: started | attached | complete}` holds a
 workload back until another reaches that phase.
 

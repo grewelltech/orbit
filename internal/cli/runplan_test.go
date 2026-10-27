@@ -372,7 +372,7 @@ func TestPopulationHoldsUntilTheDeadline(t *testing.T) {
 func TestOrbitTestFleetLatencyProbe(t *testing.T) {
 	clearOrbitEnv(t)
 	withResponder := lab1 + "app:\n  responders:\n    - { name: n6, control: 203.0.113.20:9551, data_ip: 203.0.113.21 }\n"
-	const note = "fleet template: no responder in target lab1; running without the latency probe"
+	const note = "fleet template: no responder with a data_ip in target lab1; running without the latency probe"
 	tests := []struct {
 		name        string
 		doc         string

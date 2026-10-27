@@ -65,7 +65,7 @@ func FillTemplate(name string, rf *target.RunFile, t target.Target) (changed boo
 		ip = rs[0].DataIP
 	}
 	if ip == "" {
-		return false, fmt.Sprintf("fleet template: no responder in target %s; running without the latency probe", t.Name)
+		return false, fmt.Sprintf("fleet template: no responder with a data_ip in target %s; running without the latency probe", t.Name)
 	}
 	for i, s := range rf.Input.Settings {
 		if s.Path == fleetBehaviors {

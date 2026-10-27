@@ -560,7 +560,7 @@ func TestFillTemplate(t *testing.T) {
 		}
 		return tg
 	}
-	const noResponder = "fleet template: no responder in target lab; running without the latency probe"
+	const noResponder = "fleet template: no responder with a data_ip in target lab; running without the latency probe"
 	tests := []struct {
 		name        string
 		template    string
