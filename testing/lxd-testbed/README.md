@@ -456,11 +456,21 @@ the deployed core has them, the core's coordinates and the responder token, and
 on the RAN nodes the server's listen address. The units read it, and so does a
 shell:
 
+Each RAN node also gets an ORBIT **target** named `lxd`, in
+`/root/.config/orbit/targets/lxd.yaml` (mode 600). It holds the core, the
+provisioned subscriber pool, that node's own N2 and N3 addresses (one per
+simulated gNB) and the N6 responder. The keys and the responder token are
+`${ORBIT_KI}`, `${ORBIT_OPC}` and `${ORBIT_RESPONDER_TOKEN}` references to
+`/etc/orbit/env`, so the file holds no secret ([docs/targets.md](../../docs/targets.md)).
+Every command and every example then runs with `-t lxd`:
+
 ```sh
 lxc exec orbit-ran-far -- bash
 set -a; . /etc/orbit/env; set +a
-orbit --server $ORBIT_SERVER cell ngsetup --amf $TESTBED_AMF --mcc $ORBIT_MCC \
-    --mnc $ORBIT_MNC --tac $TESTBED_TAC --sst $TESTBED_SST --sd $TESTBED_SD --gnb-id 42
+orbit --server $ORBIT_SERVER target probe lxd
+orbit --server $ORBIT_SERVER cell ngsetup -t lxd --gnb-id 42
+orbit conformance -t lxd
+orbit --server $ORBIT_SERVER runs start-fleet examples/fleet-testbed.yaml -t lxd
 ```
 
 The API-client commands (`cell`, `ue`, `runs`) default to `127.0.0.1:8412`

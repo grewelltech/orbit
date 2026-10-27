@@ -181,10 +181,11 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	dir := t.TempDir()
 	stepFile := filepath.Join(dir, "step.yaml")
 	fleetFile := filepath.Join(dir, "fleet.yaml")
-	if err := os.WriteFile(stepFile, []byte("steps: []\n"), 0o600); err != nil {
+	// Self-contained files (their own core), so no target is involved.
+	if err := os.WriteFile(stepFile, []byte("core:\n  amf: 192.0.2.1:38412\nsteps: []\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fleetFile, []byte("kind: fleet\n"), 0o600); err != nil {
+	if err := os.WriteFile(fleetFile, []byte("kind: fleet\ncore:\n  amf: 192.0.2.1:38412\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Run("orbit run step", func(t *testing.T) {

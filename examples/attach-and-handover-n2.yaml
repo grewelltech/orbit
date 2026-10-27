@@ -1,8 +1,8 @@
 # Attach a UE with a data session, prove the user plane, then hand it over via
 # N2 (AMF-mediated).
 #
-#   export ORBIT_KI=... ORBIT_OPC=...
-#   orbit run examples/attach-and-handover-n2.yaml
+# The core, keys and addresses come from a target (docs/targets.md):
+#   orbit run examples/attach-and-handover-n2.yaml -t <target>
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # N2 handover on SD-Core: three distinct issues (so this is clear for everyone)
@@ -19,7 +19,8 @@
 #   2. Stale gNB association. The AMF keeps a dead association for a reused gNB
 #      ID / source address, so a later handover fails to deliver ("Ran addr is
 #      nil"). WORKED AROUND by using a fresh gNB ID and a distinct source IP per
-#      run — which is why the target (gnb-2) here has its own id + bind IP.
+#      run — which is why the target gNB (gnb-2) takes the target's next gNB ID
+#      and the next address of its N2 pool: give the pool at least two.
 #
 #   3. TEID-0 bug (Finding 2, OPEN). Even with 1 fixed and 2 avoided, the SMF
 #      builds the target downlink FAR with TEID 0 and never programs it to the
@@ -43,26 +44,15 @@
 name: attach-and-handover-n2
 description: Attach + data + N2 (AMF-mediated) handover
 
-core:
-  amf: 172.17.50.11:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
 gnbs:
-  - { id: 1, name: gnb-1, n3: 172.17.50.12 }
-  - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
+  - { name: gnb-1 }
+  - { name: gnb-2 }
 
 ues:
-  - { supi: "001010100007500", gnb: gnb-1, pdu_session: true }
+  - { name: ue1, gnb: gnb-1, pdu_session: true }
 
 steps:
   - register: all
-  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
-  - handover: { ue: "001010100007500", to: gnb-2, type: n2 }
+  - ping:     { ue: ue1 }
+  - handover: { ue: ue1, to: gnb-2, type: n2 }
   - deregister: all

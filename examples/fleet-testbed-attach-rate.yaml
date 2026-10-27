@@ -28,52 +28,20 @@
 kind: fleet
 name: attach-rate
 
-core:
-  amf: 10.102.0.10:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
-# Ten gNBs, each with its own N2 source address. An AMF keys a gNB's
+#   orbit runs start-fleet examples/fleet-testbed-attach-rate.yaml -t lxd
+#
+# Ten gNBs, each with its own N2 source address from the target's pool. An AMF
+# keys a gNB's
 # association on that address, so distinct IPs are what make ten gNBs ten gNBs
 # rather than one association reused.
 topology:
   gnbs:
     count: 10
-    id_base: 400
     layout: grid
     spacing_m: 1000
-    source_ips:
-      - 10.102.0.20
-      - 10.102.0.21
-      - 10.102.0.22
-      - 10.102.0.23
-      - 10.102.0.24
-      - 10.102.0.25
-      - 10.102.0.26
-      - 10.102.0.27
-      - 10.102.0.28
-      - 10.102.0.29
-    n3_ips:
-      - 10.103.0.20
-      - 10.103.0.21
-      - 10.103.0.22
-      - 10.103.0.23
-      - 10.103.0.24
-      - 10.103.0.25
-      - 10.103.0.26
-      - 10.103.0.27
-      - 10.103.0.28
-      - 10.103.0.29
 
 fleet:
   count: 1000
-  supi_base: "001010100007500"
   distribution: even
   # Offered well above what the core can absorb, so the run measures the core's
   # ceiling rather than this number. Concurrency is the real control: throughput

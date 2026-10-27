@@ -212,6 +212,7 @@ var Exclusions = []Exclusion{
 	{Flag: "no-probe", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "here", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "force", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "responder", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "resolved", Commands: []string{"orbit target show"}, Reason: ReasonOutput},
 	// A handover's flags describe its destination gNB, with unset fields
 	// inherited from the serving gNB: one operation's argument, which a

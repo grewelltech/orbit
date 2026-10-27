@@ -154,6 +154,9 @@ func boundFlags(cmd *cobra.Command) map[string]target.Binding {
 // target values through its flags. With no target named and no --explain,
 // nothing is resolved and the command runs exactly as before.
 func (t *targets) apply(cmd *cobra.Command) error {
+	if cmd.Annotations[targetFileAnnotation] != "" {
+		return nil // the command resolves its scenario file's target itself
+	}
 	path := cmd.CommandPath()
 	fs := cmd.Flags()
 	ours := fs.Lookup("target") == t.flag
@@ -475,9 +478,10 @@ func firstAddress(flag string, list []string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	added := false
+	added, dropped := false, false
 	switch addressShapes[flag] {
 	case "ip":
+		dropped = port != ""
 		if _, err := netip.ParseAddr(host); err != nil {
 			return "", "", errNeedsIP
 		}
@@ -502,6 +506,9 @@ func firstAddress(flag string, list []string) (string, string, error) {
 		}
 		if added {
 			note += ", port " + gtpuPort + " added"
+		}
+		if dropped {
+			note += ", port dropped"
 		}
 	}
 	return text, note, nil
