@@ -3,9 +3,11 @@ package server
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/engine"
 )
 
 // Gate metrics (SLOGate.metric) a population's report answers: the attach
@@ -45,8 +47,8 @@ func validateGates(gates []*orbitv1.Gate, workload string) error {
 		case *orbitv1.Gate_Conformance:
 			return fmt.Errorf("gate %q: a conformance gate %w", label, errR3)
 		case *orbitv1.Gate_Slo:
-			if c.Slo.GetOp() == orbitv1.CompareOp_COMPARE_OP_UNSPECIFIED {
-				return fmt.Errorf("gate %q: give a comparison (op)", label)
+			if _, ok := opText[c.Slo.GetOp()]; !ok {
+				return fmt.Errorf("gate %q: give a comparison (op: le, lt, ge or gt), not %v", label, c.Slo.GetOp())
 			}
 			if err := knownMetric(c.Slo.GetMetric()); err != nil {
 				return fmt.Errorf("gate %q: %w", label, err)
@@ -64,13 +66,19 @@ func knownMetric(m string) error {
 		return nil
 	}
 	proc, q, ok := strings.Cut(m, ".")
-	if ok && proc != "" && strings.HasSuffix(q, "_ms") {
+	if ok && slices.Contains(gateProcedures, proc) && strings.HasSuffix(q, "_ms") {
 		if _, ok := latencyQuantiles[strings.TrimSuffix(q, "_ms")]; ok {
 			return nil
 		}
 	}
-	return fmt.Errorf("unknown metric %q: want %s, %s, or <procedure>.<p50|p90|p99|p999|max>_ms", m, metricSuccessRatio, metricAchievedRate)
+	return fmt.Errorf("unknown metric %q: want %s, %s, or <%s>.<p50|p90|p99|p999|max>_ms",
+		m, metricSuccessRatio, metricAchievedRate, strings.Join(gateProcedures, "|"))
 }
+
+// gateProcedures are the procedures a population's report times, so the
+// ones a latency gate can name: a misspelt one is refused before the run,
+// not failed after it for want of samples.
+var gateProcedures = []string{engine.ProcedureAttach, engine.ProcedureRegistration, engine.ProcedurePDUSession}
 
 // reportFigures is what a gate reads from either report kind.
 type reportFigures struct {
@@ -101,6 +109,10 @@ func (f reportFigures) metric(m string) (float64, error) {
 		}
 		return float64(f.succeeded) / float64(f.attempted), nil
 	case metricAchievedRate:
+		// A run that attempted nothing has no rate to measure, not a rate of 0.
+		if f.attempted == 0 {
+			return 0, errNoSamples
+		}
 		return f.achievedRate, nil
 	}
 	proc, q, _ := strings.Cut(m, ".")

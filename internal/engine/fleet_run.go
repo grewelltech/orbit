@@ -326,11 +326,10 @@ func fleetSUPI(spec FleetRunSpec, i int) string {
 	return supi
 }
 
-// attachFleetUE attaches one UE muxed on its serving gNB's association and
-// returns a persistent handle. The session's data path (opened lazily only
-// when an app cohort uses the UE) rides the run's shared per-gNB pool.
-// attachFleetUE attaches UE i and keeps it, returning its handle and its
-// procedure timings.
+// attachFleetUE attaches UE i, muxed on its serving gNB's association, and
+// keeps it, returning its persistent handle and its procedure timings. The
+// session's data path (opened lazily only when an app cohort uses the UE)
+// rides the run's shared per-gNB pool.
 func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int,
 	ev *RunEvents, live *FleetLiveStats) (*fleetUE, map[string]time.Duration, error) {
 	gi := spec.gnbForUE(i, len(f.sessions))

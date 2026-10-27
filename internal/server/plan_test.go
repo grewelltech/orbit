@@ -104,6 +104,12 @@ func TestPlanShapeRefusals(t *testing.T) {
 		{name: "a gate without a comparison", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "registration.p99_ms"}}}}
 		}, wantErr: "give a comparison"},
+		{name: "a gate on a misspelt procedure", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "regstration.p99_ms", Op: orbitv1.CompareOp_COMPARE_OP_LE}}}}
+		}, wantErr: `gate "g": unknown metric "regstration.p99_ms": want attach.success_ratio, attach.achieved_rate, or <attach|registration|pdu_session>`},
+		{name: "a gate with an unknown comparison", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp(42)}}}}
+		}, wantErr: "give a comparison"},
 		{name: "a conformance gate", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
 		}, wantErr: "until R3"},
@@ -616,6 +622,9 @@ func TestApplyGates(t *testing.T) {
 		{name: "an unmeasured procedure fails", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Load{Load: load}},
 			gates: []*orbitv1.Gate{gate("pdu", "pdu_session.p99_ms", le, 500)},
 			want:  []bool{false}},
+		{name: "an empty run has no achieved rate", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Load{Load: &orbitv1.LoadReport{}}},
+			gates: []*orbitv1.Gate{gate("rate", metricAchievedRate, le, 10)},
+			want:  []bool{false}},
 		{name: "a gate on another workload is not applied", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Load{Load: load}},
 			gates: []*orbitv1.Gate{{Workload: "x", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: ge, Threshold: 1}}}},
 			want:  nil},
@@ -629,7 +638,8 @@ func TestApplyGates(t *testing.T) {
 				got = append(got, r.GetPassed())
 				all = all && r.GetPassed()
 			}
-			if tc.name == "an unmeasured procedure fails" && tc.report.GetGates()[0].GetDetail() != "no samples for pdu_session.p99_ms" {
+			if d := map[string]string{"an unmeasured procedure fails": "no samples for pdu_session.p99_ms",
+				"an empty run has no achieved rate": "no samples for attach.achieved_rate"}[tc.name]; d != "" && tc.report.GetGates()[0].GetDetail() != d {
 				t.Errorf("detail = %q, want it to say no samples, not a breach", tc.report.GetGates()[0].GetDetail())
 			}
 			if !reflect.DeepEqual(got, tc.want) || tc.report.GetGatesPassed() != all {

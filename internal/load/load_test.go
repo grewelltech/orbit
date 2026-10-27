@@ -119,3 +119,41 @@ func TestSoakRunsForDurationWithResourceSamples(t *testing.T) {
 		t.Error("resource sample has no goroutine count")
 	}
 }
+
+// A resource trend stays within MaxResourceSamples however long the run,
+// evenly spaced over all of it.
+func TestResourceTrendBounded(t *testing.T) {
+	tests := []struct {
+		name       string
+		ticks      int
+		wantLen    int
+		wantStride int
+	}{
+		{name: "under the cap", ticks: 10, wantLen: 10, wantStride: 1},
+		{name: "one short of the cap", ticks: MaxResourceSamples - 1, wantLen: MaxResourceSamples - 1, wantStride: 1},
+		{name: "at the cap, halved", ticks: MaxResourceSamples, wantLen: MaxResourceSamples / 2, wantStride: 2},
+		{name: "a forever soak", ticks: 50 * MaxResourceSamples, wantLen: -1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newResourceTrend()
+			for i := 1; i <= tc.ticks; i++ {
+				at := time.Duration(i) * time.Second
+				r.add(func() ResourceSample { return ResourceSample{At: at} })
+			}
+			n := len(r.samples)
+			if n >= MaxResourceSamples || n == 0 {
+				t.Fatalf("%d samples, want 1..%d", n, MaxResourceSamples-1)
+			}
+			if tc.wantLen >= 0 && (n != tc.wantLen || r.stride != tc.wantStride) {
+				t.Errorf("%d samples at stride %d, want %d at %d", n, r.stride, tc.wantLen, tc.wantStride)
+			}
+			// Evenly spaced at the stride, from the run's start.
+			for i, s := range r.samples {
+				if want := time.Duration((i+1)*r.stride) * time.Second; s.At != want {
+					t.Fatalf("sample %d at %v, want %v (stride %d)", i, s.At, want, r.stride)
+				}
+			}
+		})
+	}
+}
