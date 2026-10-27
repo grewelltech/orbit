@@ -2,9 +2,13 @@ package join
 
 import (
 	"bytes"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -21,8 +25,17 @@ var scriptText string
 
 var scriptTmpl = template.Must(template.New("join").Funcs(template.FuncMap{"q": shquote}).Parse(scriptText))
 
+// DefaultBindPort is the port the responder's control plane listens on when
+// the script picks its bind (USAGE's `orbit responder --bind ...:9551`).
+const DefaultBindPort = 9551
+
+// defaultPath is the PATH a join script sets for itself: never the caller's
+// or sudo's.
+const defaultPath = "/usr/sbin:/usr/bin:/sbin:/bin"
+
 // The shapes a script's values must have before they are rendered.
 var (
+	nonceRE  = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	tokenRE  = regexp.MustCompile(`^` + Prefix + `[A-Za-z0-9_-]{22}$`)
 	pinRE    = regexp.MustCompile(`^sha256/[A-Za-z0-9+/]{43}=$`)
 	sha256RE = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -40,6 +53,16 @@ type ScriptData struct {
 	// arch without one is refused by the script.
 	SHA256 map[string]string
 	Spec   Spec
+	// Nonce makes this render's truncation sentinel: 32 lowercase hex
+	// digits. Empty draws a fresh one from crypto/rand, so every render's
+	// differs; tests fix it.
+	Nonce string
+
+	// root prefixes every file the script reads or writes ("" in
+	// production); path replaces its PATH. Only this package's tests set
+	// them, so nothing at run time can point a root script elsewhere.
+	root string
+	path string
 }
 
 // Script renders the join script for d. Every value is checked for its
@@ -53,13 +76,41 @@ func Script(d ScriptData) ([]byte, error) {
 	for _, a := range Arches {
 		sha[a] = d.SHA256[a]
 	}
+	if d.Nonce == "" {
+		var n [16]byte
+		if _, err := rand.Read(n[:]); err != nil {
+			return nil, fmt.Errorf("nonce: %w", err)
+		}
+		d.Nonce = hex.EncodeToString(n[:])
+	}
+	path := d.path
+	if path == "" {
+		path = defaultPath
+	}
+	pools := make([]string, len(d.Spec.UEPools))
+	for i, p := range d.Spec.UEPools {
+		pools[i] = netip.MustParsePrefix(p).Masked().String()
+	}
+	d.Spec.N6Subnet = netip.MustParsePrefix(d.Spec.N6Subnet).Masked().String()
+	host, _, _ := net.SplitHostPort(d.Spec.Management)
+	isIP := "no"
+	if _, err := netip.ParseAddr(host); err == nil {
+		isIP = "yes"
+	}
 	var b bytes.Buffer
 	err := scriptTmpl.Execute(&b, struct {
 		ScriptData
-		CurlPin string
-		UEPools string
-		SHA256  map[string]string
-	}{d, "sha256//" + strings.TrimPrefix(d.Pin, "sha256/"), strings.Join(d.Spec.UEPools, " "), sha})
+		CurlPin  string
+		UEPools  string
+		SHA256   map[string]string
+		End      string
+		Path     string
+		Root     string
+		MgmtHost string
+		MgmtIsIP string
+		BindPort string
+	}{d, "sha256//" + strings.TrimPrefix(d.Pin, "sha256/"), strings.Join(pools, " "), sha,
+		"--orbit-end-" + d.Nonce, path, d.root, host, isIP, fmt.Sprint(DefaultBindPort)})
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +141,9 @@ func (d ScriptData) validate() error {
 	}
 	if len(d.SHA256) == 0 {
 		return errors.New("sha256: no orbit binary to serve")
+	}
+	if d.Nonce != "" && !nonceRE.MatchString(d.Nonce) {
+		return errors.New("nonce: want 32 lowercase hex digits")
 	}
 	return d.Spec.Validate()
 }

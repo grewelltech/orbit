@@ -1,0 +1,8 @@
+orbit join: verified orbit for linux/amd64 (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
+orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
+orbit join: this host does not run systemd; rerun with --no-systemd (the route then lasts until reboot)
+--- exit: 1
+--- changes:
+

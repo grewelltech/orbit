@@ -1,0 +1,6 @@
+orbit join: verified orbit for linux/amd64 (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: this host reaches the UPF's N6 address 198.51.100.1 only through gateway 192.0.2.1 (from 192.0.2.20 on ens4, outside N6 198.51.100.0/24); pass --n6-ip if that is right
+--- exit: 1
+--- changes:
+

@@ -1,0 +1,57 @@
+orbit join: verified orbit for linux/amd64 (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
+orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
+
+Plan:
+  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+  2. route UE pool 10.250.0.0/16 back through the UPF
+       ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
+  3. firewall: allow control traffic (tcp) on ens4 from 192.0.2.10/32 to port 9551
+       nft insert rule inet filter input 'iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"'
+       inserted into inet filter input (your ruleset)
+  4. firewall: allow data traffic (tcp, udp) on ens5 from 10.250.0.0/16 to ports 32768-60999
+       nft insert rule inet filter input 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
+       inserted into inet filter input (your ruleset)
+       (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  5. firewall: allow data traffic (tcp, udp) on ens5 from 198.51.100.0/24 to ports 32768-60999
+       nft insert rule inet filter input 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
+       inserted into inet filter input (your ruleset)
+       (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  6. create the system user orbit, which the responder runs as
+       useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin orbit
+  7. install /usr/local/lib/orbit/join-net.sh (run as root before the responder starts):
+       | #!/bin/sh
+       | # orbit join: re-applies the N6 route and firewall rules for orbit-responder.service.
+       | set -eu
+       | PATH=/usr/sbin:/usr/bin:/sbin:/bin
+       | ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
+       | nft list chain inet filter input | grep -qF 'comment "orbit-join control ens4 192.0.2.10/32 9551"' || nft insert rule inet filter input 'iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"'
+       | nft list chain inet filter input | grep -qF 'comment "orbit-join data ens5 10.250.0.0/16 32768-60999"' || nft insert rule inet filter input 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
+       | nft list chain inet filter input | grep -qF 'comment "orbit-join data ens5 198.51.100.0/24 32768-60999"' || nft insert rule inet filter input 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
+  8. install /etc/systemd/system/orbit-responder.service (not enabled or started):
+       | [Unit]
+       | Description=orbit N6 responder (orbit join)
+       | Wants=network-online.target
+       | After=network-online.target nftables.service iptables.service ip6tables.service netfilter-persistent.service
+       | 
+       | [Service]
+       | User=orbit
+       | Group=orbit
+       | ExecStartPre=+/usr/local/lib/orbit/join-net.sh
+       | ExecStart=/usr/local/lib/orbit/orbit responder --bind 192.0.2.20:9551
+       | Restart=on-failure
+       | NoNewPrivileges=yes
+       | ProtectSystem=strict
+       | ProtectHome=yes
+       | PrivateTmp=yes
+       | CapabilityBoundingSet=
+       | RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+       | 
+       | [Install]
+       | WantedBy=multi-user.target
+
+Apply 8 changes? [y/N] orbit join: not applied: nothing on this host was changed
+--- exit: 0
+--- changes:
+

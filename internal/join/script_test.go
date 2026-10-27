@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -26,7 +27,7 @@ const (
 
 func testData() ScriptData {
 	return ScriptData{ServerURL: "https://192.0.2.10:8412", Pin: testPin, Token: testToken, Name: "app1",
-		SHA256: map[string]string{"amd64": testSHA, "arm64": testSHA}, Spec: testSpec}
+		SHA256: map[string]string{"amd64": testSHA, "arm64": testSHA}, Spec: testSpec, Nonce: testNonce}
 }
 
 // The rendered script matches the golden file (go test -update rewrites
@@ -101,7 +102,8 @@ func TestScriptHardening(t *testing.T) {
 	}{
 		{name: "set -eu first", before: "\tset -eu\n", after: "ORBIT_SERVER="},
 		{name: "umask 077 before anything runs", before: "\tumask 077\n", after: "[ \"$(uname -s)\""},
-		{name: "main checks its call before anything runs", before: "[ \"$ORBIT_LAST\" = --run ] ||", after: "[ \"$(uname -s)\""},
+		{name: "main checks its call before anything runs", before: "[ \"$ORBIT_LAST\" = '--orbit-end-" + testNonce + "' ] ||", after: "[ \"$(uname -s)\""},
+		{name: "its own PATH before anything runs", before: "\tPATH='/usr/sbin:/usr/bin:/sbin:/bin'\n", after: "eval \"ORBIT_LAST"},
 		{name: "sha256sum required before the download", before: "command -v sha256sum >/dev/null 2>&1 || die", after: "curl -fsS"},
 		{name: "a private work directory before the download", before: "WORK=$(mktemp -d)", after: "curl -fsS"},
 		{name: "removed on exit", before: "trap 'rm -rf \"$WORK\"' EXIT", after: "curl -fsS"},
@@ -119,10 +121,10 @@ func TestScriptHardening(t *testing.T) {
 	if at("set -eu") > firstCommand || at("umask 077") > firstCommand {
 		t.Error("strict mode or the umask comes after the first command")
 	}
-	// Everything runs from main, called with --run on the last line only:
-	// outside main there are comments and the call, and nothing else.
+	// Everything runs from main, called with the sentinel on the last line
+	// only: outside main there are comments and the call, and nothing else.
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if last := lines[len(lines)-1]; last != `main "$@" --run` {
+	if last := lines[len(lines)-1]; last != `main "$@" --orbit-end-`+testNonce {
 		t.Errorf("last line = %q, want the call of main", last)
 	}
 	inMain := false
@@ -135,6 +137,24 @@ func TestScriptHardening(t *testing.T) {
 		case !inMain && l != "" && !strings.HasPrefix(l, "#"):
 			t.Errorf("outside main: %q", l)
 		}
+	}
+
+	// Nothing changes the host outside the plan: every command that would
+	// is a plan step's (cmd), a line of the helper, or written to the apply
+	// file, which runs only after the confirmation.
+	changers := regexp.MustCompile(`\b(route replace|nft (insert|delete) rule|tables -[NFAI] |useradd |systemctl |install -)`)
+	for _, l := range strings.Split(s, "\n") {
+		c := strings.TrimSpace(l)
+		if strings.HasPrefix(c, "#") || !changers.MatchString(c) {
+			continue
+		}
+		if !strings.HasPrefix(c, "cmd \"") && !strings.HasPrefix(c, "helper \"") && !strings.Contains(c, `>>"$APPLY"`) &&
+			!strings.HasPrefix(c, "echo \"-A ORBIT-JOIN") && !strings.HasPrefix(c, "while read -r L; do cmd") && !strings.HasPrefix(c, "LINE=\"") {
+			t.Errorf("changes the host outside the plan: %q", c)
+		}
+	}
+	if !strings.Contains(s, ". \"$APPLY\"") || strings.Index(s, ". \"$APPLY\"") < strings.Index(s, "Apply %d changes? [y/N]") {
+		t.Error("the apply file does not run after the confirmation")
 	}
 
 	// Only the work directory's verified orbit is run or made executable.
@@ -194,28 +214,35 @@ func TestShquote(t *testing.T) {
 	}
 }
 
-// The stub run for real: against a TLS server pinned by its key it
-// downloads the binary into a private directory, verifies it and runs it,
-// then removes the directory; a binary whose SHA-256 differs is never made
-// executable or run; with no sha256sum nothing is downloaded.
+// The script against a real TLS server, with the real curl and sha256sum:
+// pinned by the server's key it downloads the binary into a private
+// directory, verifies it and runs it before planning; a binary whose SHA-256
+// differs is never made executable or run; with no sha256sum nothing is
+// downloaded; a wrong pin downloads nothing; and a download cut short runs
+// nothing at all.
 func TestScriptRuns(t *testing.T) {
 	if runtime.GOOS != "linux" || (runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64") {
 		t.Skip("the script runs on linux amd64/arm64")
 	}
-	for _, tool := range []string{"sh", "curl", "sha256sum", "mktemp", "cut", "chmod", "rm", "uname"} {
+	for _, tool := range []string{"sh", "curl", "sha256sum"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("no %s", tool)
 		}
 	}
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran")
-	good := []byte("#!/bin/sh\ntouch '" + marker + "'\n")
-	bad := []byte("#!/bin/sh\ntouch '" + marker + "'\n# tampered\n")
+	sh, _ := exec.LookPath("sh")
+	touch, err := exec.LookPath("touch")
+	if err != nil {
+		t.Skip("no touch")
+	}
+	good := []byte("#!" + sh + "\n" + touch + " '" + marker + "'\n")
+	bad := []byte("#!" + sh + "\n" + touch + " '" + marker + "'\n# tampered\n")
 	sum := sha256.Sum256(good)
 	served := good
 	fetched := 0
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/join/"+testToken+"/bin/"+runtime.GOARCH {
+		if r.URL.Path != "/join/"+testToken+"/bin/amd64" {
 			http.NotFound(w, r)
 			return
 		}
@@ -223,66 +250,71 @@ func TestScriptRuns(t *testing.T) {
 		_, _ = w.Write(served)
 	}))
 	defer srv.Close()
-	d := testData()
-	d.ServerURL = srv.URL
-	d.Pin = tlspin.Fingerprint(srv.Certificate())
-	d.SHA256 = map[string]string{runtime.GOARCH: hex.EncodeToString(sum[:])}
-	script, err := Script(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := func(path string, shell ...string) (string, error) {
-		tmp := t.TempDir()
-		if len(shell) == 0 {
-			shell = []string{"sh"}
-		}
-		cmd := exec.Command(shell[0], append(shell[1:], "-s")...)
-		cmd.Stdin = strings.NewReader(string(script))
-		cmd.Env = []string{"PATH=" + path, "TMPDIR=" + tmp}
-		out, err := cmd.CombinedOutput()
-		if left, _ := os.ReadDir(tmp); len(left) != 0 {
-			t.Errorf("the work directory was left behind: %v", left)
-		}
-		return string(out), err
+	server := &scriptServer{url: srv.URL, pin: tlspin.Fingerprint(srv.Certificate()), sha: hex.EncodeToString(sum[:])}
+	host := func() fakeHost {
+		h := v4Host()
+		h.server = server
+		return h
 	}
 
-	t.Run("verified, then run", func(t *testing.T) {
-		out, err := run(os.Getenv("PATH"))
-		if err != nil || !strings.Contains(out, "verified orbit") || !strings.Contains(out, "nothing on this host was changed") {
-			t.Fatalf("err %v\n%s", err, out)
+	t.Run("verified, run, then planned", func(t *testing.T) {
+		_ = os.Remove(marker)
+		r := runHost(t, "dash", host(), "--dry-run")
+		if r.err != nil || !strings.Contains(r.out, "verified orbit") || !strings.Contains(r.out, "dry run: nothing was changed") {
+			t.Fatalf("err %v\n%s", r.err, r.out)
 		}
 		if _, err := os.Stat(marker); err != nil {
 			t.Error("the verified binary did not run")
 		}
 	})
-	// The same run under each POSIX sh on the host.
-	for _, shell := range [][]string{{"dash"}, {"busybox", "sh"}} {
-		p, err := exec.LookPath(shell[0])
-		if err != nil {
-			continue
+	t.Run("a different binary is refused", func(t *testing.T) {
+		_ = os.Remove(marker)
+		served = bad
+		defer func() { served = good }()
+		r := runHost(t, "dash", host(), "--dry-run")
+		if r.err == nil || !strings.Contains(r.out, "refusing to run it") {
+			t.Fatalf("err %v\n%s", r.err, r.out)
 		}
-		t.Run("verified, then run, under "+strings.Join(shell, " "), func(t *testing.T) {
-			_ = os.Remove(marker)
-			out, err := run(os.Getenv("PATH"), append([]string{p}, shell[1:]...)...)
-			if err != nil || !strings.Contains(out, "verified orbit") {
-				t.Fatalf("err %v\n%s", err, out)
-			}
-			if _, err := os.Stat(marker); err != nil {
-				t.Error("the verified binary did not run")
-			}
-		})
-	}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("an unverified binary ran")
+		}
+	})
+	t.Run("no sha256sum: nothing downloaded", func(t *testing.T) {
+		h := host()
+		h.drop = []string{"sha256sum"}
+		before := fetched
+		r := runHost(t, "dash", h, "--dry-run")
+		if r.err == nil || !strings.Contains(r.out, "sha256sum is required") || fetched != before {
+			t.Fatalf("err %v, %d fetches\n%s", r.err, fetched-before, r.out)
+		}
+	})
+	t.Run("a wrong pin is refused", func(t *testing.T) {
+		h := host()
+		h.server = &scriptServer{url: srv.URL, pin: testPin, sha: server.sha}
+		before := fetched
+		r := runHost(t, "dash", h, "--dry-run")
+		if r.err == nil || fetched != before {
+			t.Fatalf("a wrong pin downloaded: err %v\n%s", r.err, r.out)
+		}
+	})
 	t.Run("a download cut short runs nothing", func(t *testing.T) {
-		// Cut at every line end (and mid-line) of the script, and in
-		// the final call: whatever arrives runs no command of the
-		// script's: no download, no verified line, nothing written.
+		d := testData()
+		d.ServerURL, d.Pin = srv.URL, server.pin
+		d.SHA256 = map[string]string{"amd64": server.sha, "arm64": server.sha}
+		script, err := Script(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Cut at every line end (and mid-line) of the script, and in the
+		// final call: whatever arrives runs no command of the script's: no
+		// download, no verified line, nothing written.
 		var cuts []int
 		for i, c := range script {
 			if c == '\n' && i < len(script)-1 {
 				cuts = append(cuts, i, i-3)
 			}
 		}
-		last := strings.LastIndex(string(script), `main "$@" --run`)
+		last := strings.LastIndex(string(script), `main "$@" --orbit-end-`)
 		for i := last; i < len(script)-1; i++ {
 			cuts = append(cuts, i)
 		}
@@ -293,7 +325,7 @@ func TestScriptRuns(t *testing.T) {
 			_ = os.Remove(marker)
 			before := fetched
 			tmp := t.TempDir()
-			cmd := exec.Command("sh", "-s")
+			cmd := exec.Command("sh", "-s", "--", "--yes")
 			cmd.Stdin = strings.NewReader(string(script[:n]))
 			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "TMPDIR=" + tmp}
 			out, _ := cmd.CombinedOutput()
@@ -308,45 +340,46 @@ func TestScriptRuns(t *testing.T) {
 			}
 		}
 	})
-	t.Run("a different binary is refused", func(t *testing.T) {
-		_ = os.Remove(marker)
-		served = bad
-		defer func() { served = good }()
-		out, err := run(os.Getenv("PATH"))
-		if err == nil || !strings.Contains(out, "refusing to run it") {
-			t.Fatalf("err %v\n%s", err, out)
-		}
-		if _, err := os.Stat(marker); err == nil {
-			t.Error("an unverified binary ran")
-		}
-	})
-	t.Run("no sha256sum: nothing downloaded", func(t *testing.T) {
-		bin := t.TempDir()
-		for _, tool := range []string{"sh", "curl", "mktemp", "cut", "chmod", "rm", "uname"} {
-			p, _ := exec.LookPath(tool)
-			if err := os.Symlink(p, filepath.Join(bin, tool)); err != nil {
-				t.Fatal(err)
+}
+
+// Only the whole call runs main: a call that ends in anything but this
+// render's sentinel, an old fixed --run or another render's nonce among
+// them, is refused before anything runs.
+func TestScriptSentinel(t *testing.T) {
+	b, err := Script(testData())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	end := "--orbit-end-" + testNonce
+	if !strings.HasSuffix(s, "\nmain \"$@\" "+end+"\n") {
+		t.Fatalf("the script does not end with the call of main and its sentinel")
+	}
+	for _, last := range []string{"--run", "--orbit-end-ffeeddccbbaa99887766554433221100", "--orbit-end-" + testNonce[:31], ""} {
+		t.Run("ends "+last, func(t *testing.T) {
+			edited := strings.TrimSuffix(s, end+"\n") + last + "\n"
+			cmd := exec.Command("sh", "-s")
+			cmd.Stdin = strings.NewReader(edited)
+			cmd.Env = []string{"PATH=/nonexistent"}
+			out, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "this script is incomplete") {
+				t.Errorf("err %v\n%s", err, out)
 			}
-		}
-		before := fetched
-		out, err := run(bin)
-		if err == nil || !strings.Contains(out, "sha256sum is required") || fetched != before {
-			t.Fatalf("err %v, %d fetches\n%s", err, fetched-before, out)
-		}
-	})
-	t.Run("a wrong pin is refused", func(t *testing.T) {
-		d := d
-		d.Pin = testPin
-		s, err := Script(d)
-		if err != nil {
-			t.Fatal(err)
-		}
-		before := fetched
-		cmd := exec.Command("sh", "-s")
-		cmd.Stdin = strings.NewReader(string(s))
-		out, err := cmd.CombinedOutput()
-		if err == nil || fetched != before {
-			t.Fatalf("a wrong pin downloaded: err %v\n%s", err, out)
-		}
-	})
+		})
+	}
+	// A nonce of its own for every render.
+	d := testData()
+	d.Nonce = ""
+	x, err := Script(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := Script(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`--orbit-end-[0-9a-f]{32}`)
+	if a, b := re.FindString(string(x)), re.FindString(string(y)); a == "" || a == b {
+		t.Errorf("two renders' sentinels: %q and %q", a, b)
+	}
 }
