@@ -80,11 +80,30 @@ func setGmmHeader(epd interface {
 	msgID.SetMessageType(msgType)
 }
 
+// RegistrationOption adjusts the Registration Request BuildRegistrationRequest
+// builds.
+type RegistrationOption func(*nasMessage.RegistrationRequest) error
+
+// WithCapability5GMM sets the 5GMM capability IE's value (TS 24.501
+// 9.11.3.1, octet 3 onward, 1 to 13 octets) in place of the default single
+// zero octet 3.
+func WithCapability5GMM(value []byte) RegistrationOption {
+	return func(req *nasMessage.RegistrationRequest) error {
+		if len(value) < 1 || len(value) > len(req.Capability5GMM.Octet) {
+			return fmt.Errorf("5GMM capability value must be 1 to %d octets, got %d", len(req.Capability5GMM.Octet), len(value))
+		}
+		req.Capability5GMM.SetLen(uint8(len(value)))
+		copy(req.Capability5GMM.Octet[:], value)
+		return nil
+	}
+}
+
 // BuildRegistrationRequest builds an initial Registration Request carrying
 // the UE's SUCI (TS 24.501 §8.2.6). ngKSI is set to "no key available" (7)
 // on the first registration. Mandatory IEs plus the UE security capability
-// (so the AMF can run Security Mode Command) and requested NSSAI.
-func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, requestedNSSAI *nasType.RequestedNSSAI) ([]byte, error) {
+// (so the AMF can run Security Mode Command) and requested NSSAI; each opt
+// adjusts the result.
+func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, requestedNSSAI *nasType.RequestedNSSAI, opts ...RegistrationOption) ([]byte, error) {
 	m, gmm := newGmm(f5nas.MsgTypeRegistrationRequest)
 	req := nasMessage.NewRegistrationRequest(f5nas.MsgTypeRegistrationRequest)
 	setGmmHeader(&req.ExtendedProtocolDiscriminator, &req.SpareHalfOctetAndSecurityHeaderType,
@@ -112,6 +131,11 @@ func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, 
 
 	if requestedNSSAI != nil {
 		req.RequestedNSSAI = requestedNSSAI
+	}
+	for _, o := range opts {
+		if err := o(req); err != nil {
+			return nil, err
+		}
 	}
 
 	gmm.RegistrationRequest = req

@@ -56,6 +56,10 @@ type UEConfig struct {
 	// (ue.SecurityCapability), the only pair this UE completes an attach
 	// with.
 	SecurityCapabilities *nasType.UESecurityCapability
+	// Capability5GMM, when set, is the 5GMM capability IE's value the
+	// Registration Request carries (octet 3 onward; conformance checks).
+	// Nil is the default single zero octet.
+	Capability5GMM []byte
 	// Probe, when set, withholds chosen UE replies and reports the
 	// downlink (conformance checks only; see AttachProbe). Nil is the
 	// ordinary attach.
@@ -126,7 +130,11 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	if ueCfg.SecurityCapabilities != nil {
 		caps = *ueCfg.SecurityCapabilities
 	}
-	regReq, err := ue.BuildRegistrationRequest(suci, caps, requested)
+	var regOpts []ue.RegistrationOption
+	if ueCfg.Capability5GMM != nil {
+		regOpts = append(regOpts, ue.WithCapability5GMM(ueCfg.Capability5GMM))
+	}
+	regReq, err := ue.BuildRegistrationRequest(suci, caps, requested, regOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("build Registration Request: %w", err)
 	}
@@ -422,7 +430,7 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	case f5nas.MsgTypeAuthenticationReject:
 		return fmt.Errorf("AMF rejected authentication")
 	case f5nas.MsgTypeRegistrationReject:
-		return fmt.Errorf("AMF rejected registration")
+		return ErrRegistrationRejected
 	default:
 		s.log.WarnContext(s.ctx, "unhandled downlink NAS message", "type", mt)
 		return nil

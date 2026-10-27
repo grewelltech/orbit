@@ -643,6 +643,15 @@ with a different payload, on another answer, or on nothing within 10 s. It
 SKIPs when the core accepts the DNN, or when the AMF returns the request for
 congestion (#22, #67 or #69). The UE is deregistered at the end.
 
+`NAS-REG-REJECTED-NSSAI` applies from Rel-16. It registers the UE requesting
+only an S-NSSAI the core does not serve: the run's SST with SD `EEEEEE`
+(`DDDDDD` if the run's SD is `EEEEEE`). It passes on a Registration Reject
+with 5GMM cause #62 whose Rejected NSSAI IE lists that S-NSSAI. It fails on
+another cause, on a #62 Reject that leaves the S-NSSAI out, or when the
+S-NSSAI appears only in the Extended rejected NSSAI IE. A core that falls
+back to a default slice accepts the UE; the check then SKIPs and deregisters
+the UE.
+
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
 flags. It registers the UE three times, each time stopping at the Security
 Mode Command. The first registration offers the usual algorithms, and the AMF
