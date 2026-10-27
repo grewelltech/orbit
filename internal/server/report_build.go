@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/report"
 )
@@ -343,6 +345,14 @@ func addConfig(d *report.Data, a *orbitv1.RunArchive) {
 	case *orbitv1.RunArchive_LoadSpec:
 		d.ConfigLabel = "Load specification"
 		d.Config = loadSpecSummary(spec.LoadSpec)
+	}
+	// A plan run (every run the CLI starts since R4) records its plan,
+	// masked as the archive holds it.
+	if d.Config == "" && a.GetPlan() != nil {
+		if b, err := (protojson.MarshalOptions{Multiline: true, Indent: "  "}).Marshal(a.GetPlan()); err == nil {
+			d.ConfigLabel = "Plan"
+			d.Config = string(b)
+		}
 	}
 	if d.Config == "" {
 		d.Notes = append(d.Notes,
