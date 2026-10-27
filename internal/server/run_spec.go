@@ -97,4 +97,3 @@ func redactArchive(a *orbitv1.RunArchive, requestSecrets []string) {
 	values := append(secrets.Mask(a), requestSecrets...)
 	secrets.Scrub(a, values)
 }
-
