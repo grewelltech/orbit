@@ -64,6 +64,10 @@ type RunOptions struct {
 	Name string
 	// Verbosity selects the event-emission policy and the ring size.
 	Verbosity EventVerbosity
+	// Needs are the resources the run leases while active (LoadNeeds,
+	// FleetNeeds). A run is refused with ErrLeaseConflict when another
+	// active run holds any of them.
+	Needs Needs
 }
 
 // LoadRunFunc executes a load run to completion, reporting each attempt to
@@ -111,9 +115,10 @@ type RunRegistry struct {
 	log        *slog.Logger
 	maxHistory int
 
-	mu    sync.Mutex
-	runs  map[string]*run
-	order []string // insertion order, for stable listing and history eviction
+	mu     sync.Mutex
+	runs   map[string]*run
+	order  []string    // insertion order, for stable listing and history eviction
+	leases *leaseTable // what each active run holds (ADR-0008 §5)
 }
 
 // DefaultRunHistory is how many terminal runs the registry keeps. Active runs
@@ -129,6 +134,7 @@ func NewRunRegistry(log *slog.Logger, maxHistory int) *RunRegistry {
 		log:        log,
 		maxHistory: maxHistory,
 		runs:       make(map[string]*run),
+		leases:     newLeaseTable(),
 	}
 }
 
@@ -141,9 +147,10 @@ func newRunID() string {
 
 // StartLoad registers and launches a load run. name is a caller-supplied label.
 //
-// Policy (ADR-0005, initial): one active run per kind. A second is rejected
-// with ErrRunActive rather than queued — whether concurrent runs against a
-// single core are meaningful is a question about the core, revisited later.
+// Policy (ADR-0008 §5): runs lease what they use (opts.Needs). A run whose
+// leases overlap an active run's is rejected with ErrLeaseConflict, naming
+// the resource and the holder, rather than queued; runs that share nothing
+// run concurrently, whatever their kind.
 func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error) {
 	live := load.NewLiveStats()
 	return r.start(RunKindLoad, opts, live, nil, func(emit RunEventFunc) runFunc {
@@ -157,9 +164,9 @@ func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error
 	})
 }
 
-// StartFleet registers and launches a fleet run. Like StartLoad it enforces one
-// active run per kind, and publishes live aggregates for RunTelemetry as the
-// run proceeds.
+// StartFleet registers and launches a fleet run. Like StartLoad it takes the
+// run's leases, and publishes live aggregates for RunTelemetry as the run
+// proceeds.
 func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, error) {
 	live := NewFleetLiveStats()
 	return r.start(RunKindFleet, opts, nil, live, func(emit RunEventFunc) runFunc {
@@ -177,13 +184,16 @@ func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, err
 // goroutine. Each kind supplies at most one live-aggregate holder (the other
 // is nil). mkExec builds the launcher once the run's event emitter exists.
 func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats, fleetLive *FleetLiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
+	// Canonicalising may resolve AMF names, so it happens before the lock:
+	// a slow resolver must not stall every other call on the registry.
+	want := r.leases.canonical(opts.Needs)
 	r.mu.Lock()
-	if active := r.activeOfKindLocked(kind); active != "" {
+	id := r.freshIDLocked()
+	if err := r.leases.acquire(id, want); err != nil {
 		r.mu.Unlock()
-		return RunInfo{}, &ErrRunActive{Kind: kind, ActiveID: active}
+		return RunInfo{}, err
 	}
 
-	id := r.freshIDLocked()
 	ctx, cancel := context.WithCancel(context.Background())
 	// Verbosity sizes the ring: a verbose run emits every UE transition, and
 	// keeping the default capacity would let that volume evict its own detail.
@@ -203,8 +213,40 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 	info := rec.info
 	r.mu.Unlock()
 
-	go r.exec(ctx, id, ring, mkExec(ring.emit))
+	fn, err := r.launcher(id, cancel, ring, mkExec)
+	if err != nil {
+		return RunInfo{}, err
+	}
+	go r.exec(ctx, id, ring, fn)
 	return info, nil
+}
+
+// launcher builds a registered run's launcher. If building it panics, the
+// run never starts: its record and leases are dropped and StartRun fails,
+// rather than leaving resources held by a run that will never release
+// them.
+func (r *RunRegistry) launcher(id string, cancel context.CancelFunc, ring *eventRing, mkExec func(emit RunEventFunc) runFunc) (fn runFunc, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			cancel()
+			r.mu.Lock()
+			r.leases.release(id)
+			delete(r.runs, id)
+			kept := r.order[:0]
+			for _, o := range r.order {
+				if o != id {
+					kept = append(kept, o)
+				}
+			}
+			r.order = kept
+			r.mu.Unlock()
+			if r.log != nil {
+				r.log.Error("run launcher setup panicked", "run", id, "panic", p, "stack", string(debug.Stack()))
+			}
+			fn, err = nil, fmt.Errorf("run setup panicked: %v", p)
+		}
+	}()
+	return mkExec(ring.emit), nil
 }
 
 // exec runs the launcher and records the outcome. It runs on its own goroutine;
@@ -241,6 +283,11 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// The launcher has returned, its drain with it (UEs deregistered,
+	// associations closed), so its leases go now: before the state reads
+	// terminal, so a client that sees it terminal can start a run on the
+	// same resources. A launcher that panicked reaches here too (guard).
+	r.leases.release(id)
 	rec := r.runs[id]
 	if rec == nil {
 		return // evicted — impossible while terminal-eviction skips this run, but defensive
@@ -259,8 +306,8 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 
 // guard runs the launcher, converting a panic into an error so a bug in the
 // run cannot crash the daemon and take every other run down with it — and so
-// the run still reaches a terminal state rather than sticking in RUNNING and
-// blocking all future runs of its kind.
+// the run still reaches a terminal state, and releases its leases, rather
+// than sticking in RUNNING and holding them forever.
 func (r *RunRegistry) guard(ctx context.Context, id string, fn runFunc) (report any, err error) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -389,17 +436,6 @@ func (r *RunRegistry) StopAll() {
 	}
 }
 
-// activeOfKindLocked returns the id of an active run of the given kind, or "".
-func (r *RunRegistry) activeOfKindLocked(kind RunKind) string {
-	for _, id := range r.order {
-		rec := r.runs[id]
-		if rec != nil && rec.info.Kind == kind && !rec.info.State.Terminal() {
-			return id
-		}
-	}
-	return ""
-}
-
 // freshIDLocked returns an id not currently in use.
 func (r *RunRegistry) freshIDLocked() string {
 	for {
@@ -486,16 +522,6 @@ func (r *RunRegistry) evictLocked() {
 		}
 	}
 	r.order = kept
-}
-
-// ErrRunActive is returned when a run of the same kind is already active.
-type ErrRunActive struct {
-	Kind     RunKind
-	ActiveID string
-}
-
-func (e *ErrRunActive) Error() string {
-	return fmt.Sprintf("a %s run is already active (%s)", e.Kind, e.ActiveID)
 }
 
 // ErrRunNotFound is returned for an unknown run id.

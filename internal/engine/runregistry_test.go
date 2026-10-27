@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -120,32 +121,36 @@ func TestRunRegistryStopBeatsCleanReturn(t *testing.T) {
 	}
 }
 
-// Only one run of a kind may be active; a second is rejected while the first runs.
-func TestRunRegistryOneActivePerKind(t *testing.T) {
+// Runs that share no resource run concurrently, whatever their kind; a
+// run whose leases overlap an active run's is refused, naming the holder,
+// and accepted once that run is terminal.
+func TestRunRegistryLeasesGateConcurrency(t *testing.T) {
 	r := quietRegistry(0)
 	block := make(chan struct{})
-	first, _ := r.StartLoad(RunOptions{Name: "first"}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
+	first, err := r.StartLoad(RunOptions{Name: "first", Needs: testNeeds("208930000000001", 10, 1, "10.0.0.11")}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		<-block
 		return load.Report{}, nil
 	})
-
-	_, err := r.StartLoad(RunOptions{Name: "second"}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
-		return load.Report{}, nil
-	})
-	var active *ErrRunActive
-	if !errors.As(err, &active) {
-		t.Fatalf("second StartLoad error = %v, want ErrRunActive", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if active.ActiveID != first.ID {
-		t.Errorf("ErrRunActive names %s, want the running %s", active.ActiveID, first.ID)
+	ok := func(context.Context, *load.LiveStats, RunEventFunc) (load.Report, error) { return load.Report{}, nil }
+
+	// No overlap: a second load run starts alongside.
+	if _, err := r.StartLoad(RunOptions{Name: "apart", Needs: testNeeds("208930000000011", 10, 2, "10.0.0.12")}, ok); err != nil {
+		t.Errorf("a non-overlapping run was refused: %v", err)
+	}
+	// Overlap: refused, naming the holder.
+	_, err = r.StartLoad(RunOptions{Name: "second", Needs: testNeeds("208930000000005", 1, 9, "10.0.0.19")}, ok)
+	var held *ErrLeaseConflict
+	if !errors.As(err, &held) || held.Holder != first.ID || held.Resource != "SUPIs" {
+		t.Fatalf("overlapping StartLoad error = %v, want ErrLeaseConflict on SUPIs held by %s", err, first.ID)
 	}
 
-	// Once the first finishes, a new run is allowed.
+	// Once the first finishes, the same resources are free.
 	close(block)
 	waitState(t, r, first.ID, RunComplete)
-	if _, err := r.StartLoad(RunOptions{Name: "third"}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
-		return load.Report{}, nil
-	}); err != nil {
+	if _, err := r.StartLoad(RunOptions{Name: "third", Needs: testNeeds("208930000000001", 10, 1, "10.0.0.11")}, ok); err != nil {
 		t.Errorf("StartLoad after the first completed: %v", err)
 	}
 }
@@ -298,11 +303,11 @@ func TestRunRegistryConcurrent(t *testing.T) {
 }
 
 // A launcher that panics must fail the run — not crash the process — and must
-// leave the run terminal so it stops blocking future runs of its kind. That
+// leave the run terminal with its leases released. That
 // this test's process survives at all is half the assertion.
 func TestRunRegistryPanicBecomesFailed(t *testing.T) {
 	r := quietRegistry(0)
-	info, err := r.StartLoad(RunOptions{Name: "boom"}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
+	info, err := r.StartLoad(RunOptions{Name: "boom", Needs: testNeeds("208930000000001", 1, 1, "10.0.0.11")}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		panic("nil map write deep in RunLoad")
 	})
 	if err != nil {
@@ -315,11 +320,11 @@ func TestRunRegistryPanicBecomesFailed(t *testing.T) {
 		t.Errorf("failed run error = %q, want it to mention the panic", got.Err)
 	}
 
-	// The kind is no longer active, so a new load run is accepted.
-	if _, err := r.StartLoad(RunOptions{Name: "after"}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
+	// Its leases were released, so a run on the same resources is accepted.
+	if _, err := r.StartLoad(RunOptions{Name: "after", Needs: testNeeds("208930000000001", 1, 1, "10.0.0.11")}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		return load.Report{}, nil
 	}); err != nil {
-		t.Errorf("panicked run left the kind stuck active: %v", err)
+		t.Errorf("panicked run kept its leases: %v", err)
 	}
 }
 
@@ -380,30 +385,45 @@ func TestRunRegistryFleetCompletes(t *testing.T) {
 	}
 }
 
-// Load and fleet are independent kinds: one of each may be active at once.
-func TestRunRegistryLoadAndFleetAreIndependentKinds(t *testing.T) {
+// A fleet and a load run conflict on what they share, not on their kinds:
+// two fleets apart run together, a fleet reusing a load run's gNB ID does
+// not.
+func TestRunRegistryLeasesAcrossKinds(t *testing.T) {
 	r := quietRegistry(0)
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
-
-	if _, err := r.StartLoad(RunOptions{Name: "l"}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
+	wait := func(ctx context.Context, _ *FleetLiveStats, _ RunEventFunc) (FleetReport, error) {
+		<-block
+		return FleetReport{}, nil
+	}
+	l, err := r.StartLoad(RunOptions{Name: "l", Needs: testNeeds("208930000000001", 10, 1, "10.0.0.11")}, func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
 		<-block
 		return load.Report{}, nil
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("StartLoad: %v", err)
 	}
-	// A fleet run is allowed while a load run is active (different kind).
-	if _, err := r.StartFleet(RunOptions{Name: "f"}, func(ctx context.Context, _ *FleetLiveStats, _ RunEventFunc) (FleetReport, error) {
-		<-block
-		return FleetReport{}, nil
-	}); err != nil {
-		t.Errorf("StartFleet rejected while only a load run was active: %v", err)
+	if _, err := r.StartFleet(RunOptions{Name: "f", Needs: testNeeds("208930000000100", 10, 2, "10.0.0.12")}, wait); err != nil {
+		t.Errorf("a fleet apart from the load run was refused: %v", err)
 	}
-	// But a second fleet run is not.
-	if _, err := r.StartFleet(RunOptions{Name: "f2"}, func(ctx context.Context, _ *FleetLiveStats, _ RunEventFunc) (FleetReport, error) {
-		return FleetReport{}, nil
-	}); err == nil {
-		t.Error("a second concurrent fleet run was allowed")
+	if _, err := r.StartFleet(RunOptions{Name: "f2", Needs: testNeeds("208930000000200", 10, 3, "10.0.0.13")}, wait); err != nil {
+		t.Errorf("a second fleet apart from both was refused: %v", err)
+	}
+	_, err = r.StartFleet(RunOptions{Name: "f3", Needs: testNeeds("208930000000300", 10, 1, "10.0.0.14")}, wait)
+	var held *ErrLeaseConflict
+	if !errors.As(err, &held) || held.Resource != "gNB ID" || held.Holder != l.ID {
+		t.Errorf("a fleet reusing the load run's gNB ID: err = %v, want a gNB ID conflict with %s", err, l.ID)
+	}
+}
+
+// testNeeds is count SUPIs from first in PLMN 208/93, gNB id at one AMF,
+// and an N2 source address.
+func testNeeds(first string, count int, id uint32, n2 string) Needs {
+	f, _ := strconv.ParseUint(first, 10, 64)
+	return Needs{
+		SUPIs: []SUPIBlock{{PLMN: "208/93", First: f, Last: f + uint64(count) - 1}},
+		GNBs:  []GNBKey{{AMF: "127.0.0.1:38412", PLMN: "208/93", ID: id}},
+		N2IPs: []string{n2},
 	}
 }
 

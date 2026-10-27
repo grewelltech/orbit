@@ -13,7 +13,7 @@ import (
 )
 
 func newUECmd(serverURL *string) *cobra.Command {
-	cmd := &cobra.Command{Use: "ue", Short: "Register and manage simulated UEs"}
+	cmd := &cobra.Command{Use: "ue", Short: "Register and manage software UEs"}
 	cmd.AddCommand(newUERegisterCmd(serverURL))
 	cmd.AddCommand(newUEStatusCmd(serverURL))
 	cmd.AddCommand(newUEDeregisterCmd(serverURL))
@@ -186,7 +186,7 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 			// pass/fail — the number an N2-vs-Xn comparison actually turns on.
 			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s in %.1f ms (now on gNB %#x)\n",
 				res.Msg.GetSupi(), res.Msg.GetState(), res.Msg.GetElapsedMs(), res.Msg.GetGnbId())
-			fmt.Fprintf(cmd.OutOrStdout(), "  network: %s\n", id)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  network: %s\n", presentedNetwork(res.Msg.GetTarget()))
 			return nil
 		},
 	}
