@@ -79,7 +79,11 @@ func BuildPathSwitchRequest(cfg Config, sourceAMFUENGAPID, targetRANID int64, se
 // flows.
 func encodePathSwitchTransfer(tun GNBTunnel, qfis []int64) (aper.OctetString, error) {
 	var t ngapType.PathSwitchRequestTransfer
-	t.DLNGUUPTNLInformation = gtpTunnelUP(tun)
+	up, err := gtpTunnelUP(tun)
+	if err != nil {
+		return nil, err
+	}
+	t.DLNGUUPTNLInformation = up
 	if len(qfis) == 0 {
 		qfis = []int64{1}
 	}

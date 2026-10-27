@@ -146,10 +146,14 @@ func encodeSetupResponseTransfer(tun GNBTunnel, qfis []int64) (aper.OctetString,
 	up := &t.DLQosFlowPerTNLInformation.UPTransportLayerInformation
 	up.Present = ngapType.UPTransportLayerInformationPresentGTPTunnel
 	up.GTPTunnel = new(ngapType.GTPTunnel)
+	addr, err := tunnelAddress(tun.Address)
+	if err != nil {
+		return nil, err
+	}
 	teid := make([]byte, 4)
 	binary.BigEndian.PutUint32(teid, tun.TEID)
 	up.GTPTunnel.GTPTEID.Value = teid
-	up.GTPTunnel.TransportLayerAddress = ngapConvert.IPAddressToNgap(tun.Address, "")
+	up.GTPTunnel.TransportLayerAddress = addr
 	for _, qfi := range qfis {
 		item := ngapType.AssociatedQosFlowItem{}
 		item.QosFlowIdentifier.Value = qfi

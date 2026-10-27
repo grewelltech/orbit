@@ -2,7 +2,7 @@
 # provisioned subscriber pool carrying a realistic mix of real application
 # traffic for ten minutes.
 #
-#   orbit runs start-fleet examples/fleet-testbed-heavy.yaml --name heavy
+#   orbit runs start-fleet examples/fleet-testbed-heavy.yaml -t lxd --name heavy
 #   orbit runs watch                       # live line
 #   orbit runs events                      # milestones and failures
 #   orbit runs get <run-id>                # cohorts, flows, N6 witness
@@ -31,36 +31,18 @@
 kind: fleet
 name: testbed-heavy-mix
 
-core:
-  amf: 10.102.0.10:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
 topology:
   gnbs:
     count: 1
-    id_base: 300
     layout: grid
-    # N2 SCTP source and the N3 data-plane address are different networks on
-    # this testbed, so both are named explicitly.
-    source_ips:
-      - 10.102.0.20
-    n3_ips:
-      - 10.103.0.20
 
 fleet:
-  # The whole provisioned pool: testbed.conf provisions 100 subscribers from
-  # 001010100007500. Going past it does not fail loudly at setup — the extra
-  # UEs simply get "AMF rejected registration" one by one, which reads like a
-  # broken core rather than an exhausted subscriber list.
+  # The whole provisioned pool: the testbed's target holds the 100 subscribers
+  # testbed.conf provisions. A count past the pool's is refused before the run
+  # starts; without that check the extra UEs would get "AMF rejected
+  # registration" one by one, which reads like a broken core rather than an
+  # exhausted subscriber list.
   count: 100
-  supi_base: "001010100007500"
   distribution: even
   # Well under SD-Core's measured ~10 attach/s ceiling, so the attach phase
   # (~20s) tests the traffic mix rather than the signalling ceiling. Raise it
@@ -72,21 +54,20 @@ behaviors:
   traffic:
     mix:
       # Bulk transfer with no think time — each member fetches back to back.
-      - { app: http, name: web-bulk, share: 0.5, peer: 10.106.0.30:9551,
+      - { app: http, name: web-bulk, share: 0.5,
           params: { object_size: 256KB, think: "0" } }
       # ABR streaming against its own origin (different params, so it does not
       # share the bulk cohort's).
-      - { app: video, name: video-vod, share: 0.3, peer: 10.106.0.30:9551 }
+      - { app: video, name: video-vod, share: 0.3 }
       # voip LAST so it absorbs the share rounding. Each call needs its own
       # far-end answerer port — the server latches a single source — so the
       # range must cover the cohort: 20 members here, 101 ports available.
-      - { app: voip, name: voip-calls, share: 0.2, peer: 10.106.0.30:9551,
+      - { app: voip, name: voip-calls, share: 0.2,
           params: { codec: pcmu, port_min: "40000", port_max: "40100" } }
 
   # User-plane RTT over the UEs' own data paths, sampled rather than swept.
   # Under this much traffic it is the clearest early sign of contention.
   latency:
-    target: 10.106.0.30
     interval: 2s
     ues: 6
     timeout: 1s

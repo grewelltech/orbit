@@ -142,6 +142,134 @@ orbit ue register  --amf <host:port> --supi <imsi> --sd 010203 --gnb-id 1
 orbit ue xn-handover --supi <imsi> --amf <host:port> --gnb-id 2 --bind <ip> --gnb-n3 <ip>  # inherits
 ```
 
+### Targets (`-t`/`--target`, `--explain`)
+
+([targets.md](targets.md) is the full reference.) A target is a YAML file that
+describes *where* tests run: the core, the
+subscriber pool, the RAN address pools and the N6 responder (ADR-0008 §1 has
+the schema). `-t <name>` (or `$ORBIT_TARGET`) loads it from `./orbit.yaml`,
+which may hold one target or a list of them, or else from
+`~/.config/orbit/targets/<name>.yaml`. Each command then takes its flags'
+values from the target:
+
+```yaml
+version: 1
+kind: target
+name: lab1
+core:
+  amf: 192.0.2.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slices:
+    - { sst: 1, sd: "010203" }
+subscribers:
+  - name: main
+    first_supi: "001010000000001"
+    ki:  ${ORBIT_KI}     # expanded when the file loads
+    opc: ${ORBIT_OPC}
+ran:
+  n2_source_ips: [192.0.2.50-192.0.2.59]
+  n3_ips: [198.51.100.50]
+  gnb_ids: { first: 100, bits: 24 }
+```
+
+```sh
+orbit conformance -t lab1                      # no other flags needed
+orbit cell ngsetup -t lab1 --tac 9             # a flag still overrides one field
+orbit conformance -t lab1 --supi ""            # an empty flag clears a field: here, no mobility UE
+```
+
+Four commands manage targets:
+
+```sh
+orbit target init lab1 --amf <host:port> --mcc 001 --mnc 01 --sd 010203 --first-supi 001010000000001
+orbit target list                 # ./orbit.yaml and ~/.config/orbit/targets, with any load errors
+orbit target show lab1            # as loaded, keys <redacted>
+orbit target show lab1 --resolved # each field's value after default < target < $ORBIT_*, and where it came from
+orbit target probe lab1           # NG Setup, one registration, one PDU session, through the server
+```
+
+- **`init`** runs one NG Setup through the orbit server, so from the host runs
+  execute on. It records the N2 source that NG Setup used as the target's
+  `n2_source_ips` (and `n3_ips`, unless `--gnb-n3`). `--bind` picks the
+  source instead, and `--no-probe --bind <ip>` skips the NG Setup.
+  - It writes `~/.config/orbit/targets/<name>.yaml` with mode 0600. `--here`
+    writes `./orbit.yaml` only when that file doesn't exist yet.
+  - Keys are written as `${ORBIT_KI}`/`${ORBIT_OPC}` unless `--write-keys`.
+  - A rejected NG Setup writes nothing, and an existing file is not
+    overwritten; `--force` overrides both.
+  - Without `--first-supi` there is no subscriber pool, and `probe` stops
+    after NG Setup.
+  - On a terminal, `init` asks for the AMF, PLMN and first SUPI when the flags
+    leave them out.
+- **`list`** shows every target with its file and line, and the error of any
+  that doesn't load. One bad entry in an `./orbit.yaml` list never stops the
+  others. A target in the config directory with the same name as one in
+  `./orbit.yaml` is marked shadowed.
+- **`probe`** stops at the first failing step and names what to check. It
+  exits non-zero on a failure. With no subscriber pool, the UE steps are
+  SKIPped and it passes on NG Setup alone.
+  - NG Setup: the AMF address and the N2 route, or the PLMN and TAC the AMF
+    doesn't serve.
+  - Registration: whether the subscriber and its keys are provisioned in the
+    core.
+  - PDU session: the DNN and slice.
+
+  The core's reject causes aren't reported yet. Until leasing, `init` uses
+  the target range's first gNB ID (or 1), and `probe` uses the first three,
+  one per association, plus the pool's first SUPI. A run using the same ones
+  at the same time collides.
+
+  `probe` sends the subscriber keys to `--server`. Until the server has TLS,
+  keep it on loopback, or the keys cross the network in plaintext.
+- `init` never writes through a symlink: a link at `./orbit.yaml` or at
+  `targets/<name>.yaml` is refused. A `--force` overwrite replaces the file
+  through a temp file and a rename.
+
+- **Precedence**, lowest first: built-in default < target < `$ORBIT_*` < flag,
+  field by field. A target therefore never overrides a flag you typed or an
+  `$ORBIT_MCC` exported in your shell.
+- **One address from a pool.** A flag that takes one address takes the first
+  entry of the target's list until the server leases from the pool (a later
+  step). A range gives its low end, and a CIDR its first host address.
+  `--bind` keeps the port if the entry has one; `--gnb-n3` drops it;
+  `--n3-bind` adds GTP-U's 2152 when the entry has none.
+- **Host names** are accepted wherever the commands accept them: in
+  `ran.n2_source_ips` (`--bind`), `ran.n3_ips` (`--n3-bind`; a pool like the
+  N2 one, ranges and CIDRs included) and a responder's
+  `data_ip`, with or without a port. They pass unresolved, as a typed
+  `--bind lab-n2` does. Ranges and CIDRs are IP-only.
+- **Slices.** `--sst` and `--sd` set the first slice's fields
+  (`core.slices[0].sst`, `.sd`), not the whole list. So `-t lab1 --sd 000005`
+  keeps the target's SST, and its other slices stay in the target.
+- **Lists of pools or responders** use the first: `--supi`/`--base-imsi` come
+  from the first pool's `first_supi`, and `--peer`/`--token`/`--peer-data-ip`
+  from the first responder.
+- **`--explain`** prints, to stderr, each field the command uses: its value,
+  the layer and source that set it (`target orbit.yaml:7`, `env $ORBIT_MCC`,
+  `flag --tac`), what it overrode, and which flag took it. It also lists the
+  target's fields the command does not use. Keys and tokens show as
+  `<redacted>`. The command then runs as usual. `--explain` works without a
+  target as well, and then it only reports: a value the resolver would
+  reject shows as a row marked `⚠`, and the command runs exactly as without
+  `--explain`. With a target named, such a value is an error.
+- **A stale `$ORBIT_TARGET`** naming a target that no longer exists fails
+  every command that takes target fields with `target not found`, even when
+  every flag is typed: run `unset ORBIT_TARGET`.
+- **Commands that take no target field** (`version`, `runs list`, …) refuse
+  `-t` and `--explain`, and ignore `$ORBIT_TARGET`, so exporting it never
+  breaks them.
+- **Handover's destination gNB is not the target.** On `ue handover` and
+  `ue xn-handover`, `--bind`, `--gnb-*`, `--mcc`, `--mnc`, `--tac`, `--sst` and
+  `--sd` describe the gNB the UE moves to, and they keep inheriting from the
+  serving gNB. Only `--amf` comes from the target.
+- **`ue latency` and `ue traffic`** already have a `--target` flag: the echo
+  destination, unchanged. `-t` is refused there with an error that says so.
+- **A number with a leading zero is an error** in every numeric flag that maps
+  to a target or run field (`--tac 0010`, `--count 007`): write `10`, or `0x…`
+  for hex. Before, `--tac 0010` was read as octal 8. `0x`, `0o` and plain `0`
+  are accepted, as in a target file.
+
 ## The server
 
 Most commands are Connect API clients; start the server first:
@@ -548,36 +676,31 @@ in YAML and run it: `orbit run scenario.yaml`. The runner is an ordinary API
 client (it drives the same operations as the `ue` commands), so it needs a
 running server (`orbit serve`).
 
-A scenario declares the **core**, **gNBs**, and **UEs** once, then an ordered
-**steps** list references them. Secrets use `${ENV}` references so they stay out
-of the file:
+A scenario holds the workload: its **gNBs**, **UEs** and an ordered **steps**
+list. The core, keys and addresses come from a target: `-t`, `$ORBIT_TARGET`,
+or a `target:` line in the file ([targets.md](targets.md#scenario-files)):
 
 ```yaml
 name: attach-and-handover
-core:
-  amf: 172.17.50.11:38412
-  plmn: { mcc: "001", mnc: "01" }      # quoted, so "01" stays "01"
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-credentials:
-  ki:  ${ORBIT_KI}          # export ORBIT_KI / ORBIT_OPC before running
-  opc: ${ORBIT_OPC}
+target: lab1                 # or -t lab1 on the command line
 gnbs:
-  - { id: 1, name: gnb-1, n3: 172.17.50.12 }
-  - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
+  - { name: gnb-1 }          # gNB IDs and N2/N3 addresses come from the target
+  - { name: gnb-2 }
 ues:
-  - { supi: "001010100007500", gnb: gnb-1, pdu_session: true }
-  - range: { base: "001010100007501", count: 3 }   # 501, 502, 503
-    gnb: gnb-1
+  - { name: ue1, gnb: gnb-1, pdu_session: true }   # SUPIs come from the target's pool
+  - { gnb: gnb-1, range: { count: 3 } }            # the next three
 steps:
-  - register: all                                            # or a single SUPI
-  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
-  - latency:  { ue: "001010100007500", target: 8.8.8.8, probes: 20 }
-  - traffic:  { ue: "001010100007500", target: 8.8.8.8:9999, rate: 20Mbps, duration: 5s }
-  - handover: { ue: "001010100007500", to: gnb-2, type: xn }  # or type: n2
+  - register: all                                  # or one UE by name
+  - ping:     { ue: ue1 }                          # echoes the target's responder
+  - latency:  { ue: ue1, probes: 20 }
+  - traffic:  { ue: ue1, target: 203.0.113.21:9999, rate: 20Mbps, duration: 5s }
+  - handover: { ue: ue1, to: gnb-2, type: xn }     # or type: n2
   - deregister: all
 ```
+
+A file may instead set its own `core`, `credentials`, `gnbs[].id`/`bind`/`n3`
+and `ues[].supi`/`range.base`. It is then self-contained, as before: `-t` on it
+is an error and `$ORBIT_TARGET` is ignored. A file can't do both.
 
 Steps run in order and stop at the first failure (a step fails on an RPC error,
 or on a natural assertion like a ping with zero replies). `wait: 5s` pauses
@@ -595,7 +718,8 @@ A `kind: fleet` scenario ([`examples/fleet.yaml`](../examples/fleet.yaml))
 (mobility + a traffic mix) for a duration, rather than listing explicit steps —
 for scale / soak / mass-mobility runs (design in
 [docs/adr/0004-fleet-population-mode.md](adr/0004-fleet-population-mode.md)).
-`source_ips` are addresses the host owns, one per gNB. `orbit run` on a fleet
+Its core, keys, gNB IDs and per-gNB N2/N3 addresses come from the target, whose
+`ran.n2_source_ips` must be addresses the host owns, one per gNB. `orbit run` on a fleet
 file prints the plan, **attaches the population** across the gNBs, then runs
 **mobility** — each mobile UE moves along a track across the gNB grid and hands
 over (Xn) when a neighbour cell becomes stronger by the a3-offset (RSRP/A3

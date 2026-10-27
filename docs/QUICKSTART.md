@@ -10,33 +10,36 @@ testbed](#appendix-no-core-yet) — it builds one.
 
 ## 1. What you need from the core operator
 
-ORBIT talks to a real core, so it needs the same six things any gNB would, plus
-credentials for the subscribers its UEs register as.
+ORBIT talks to a real core, so it needs the same things any gNB would, plus
+credentials for the subscribers its UEs register as. You write them down once,
+as a **target** (§5), and every command and scenario takes them from there
+with `-t <name>` ([targets.md](targets.md) is the reference):
 
-| | Flag | Example |
+| | Target field | Example |
 |---|---|---|
-| AMF N2 endpoint (SCTP) | `--amf` | `10.102.0.10:38412` |
-| PLMN | `--mcc` / `--mnc` | `001` / `01` |
-| TAC | `--tac` | `1` |
-| Slice (S-NSSAI) | `--sst` / `--sd` | `1` / `010203` |
-| DNN | `--dnn` | `internet` |
-| Test SUPI range | `--supi` / `--base-imsi` | `001010100007500`… |
-| Subscriber keys | `--ki` / `--opc` | 32 hex digits each |
+| AMF N2 endpoint (SCTP) | `core.amf` | `<amf-host>:38412` |
+| PLMN | `core.plmn` | `001` / `01` |
+| TAC | `core.tac` | `1` |
+| Slice (S-NSSAI) | `core.slices` | `1` / `010203` |
+| DNN | `core.dnn` | `internet` |
+| Test SUPI range | `subscribers[].first_supi`, `count` | `001010100007500`, 100 |
+| Subscriber keys | `subscribers[].ki` / `opc` | 32 hex digits each |
+| Your N2 / N3 addresses | `ran.n2_source_ips` / `ran.n3_ips` | one per software gNB |
+| The N6 far end (§7) | `app.responders` | `<n6-host>:9551` |
 
-Keys come from `$ORBIT_KI` / `$ORBIT_OPC` when the flags are omitted, which is
-how to keep them out of shell history and scenario files, and the PLMN comes
-from `$ORBIT_MCC` / `$ORBIT_MNC` the same way (ORBIT has no default PLMN: a
-wrong one fails NG Setup in a way that looks like a core problem):
+Keep the keys out of the file: `orbit target init` writes `${ORBIT_KI}` and
+`${ORBIT_OPC}` in their place, and they expand from your shell when the target
+loads.
 
 ```sh
 export ORBIT_KI=... ORBIT_OPC=...
-export ORBIT_MCC=001 ORBIT_MNC=01
 # export ORBIT_SERVER=http://<host>:8412   # only when serve is not on loopback
 ```
 
-TAC, SST and DNN default to `1`, `1` and `internet`; SD has no default, so pass
-`--sd 010203` for SD-Core. Every command prints the identity it used as
-`network: plmn=001/01 tac=1 snssai=1/010203`.
+TAC, SST and DNN default to `1`, `1` and `internet`; SD has no default, so give
+`--sd 010203` for SD-Core. ORBIT has no default PLMN: a wrong one fails NG
+Setup in a way that looks like a core problem. Every command prints the
+identity it used as `network: plmn=001/01 tac=1 snssai=1/010203`.
 
 **The SUPIs must already be provisioned in the core.** An unprovisioned one
 fails with `AMF rejected registration`, which reads like a broken core rather
@@ -54,7 +57,7 @@ This trips people up more than anything else, so it is worth reading once.
   network, and run those commands from the host that owns it.
 - **Handover** additionally needs a **distinct source IP per gNB**, since the
   AMF keys a gNB's association on its address — `--bind` on `orbit ue handover`,
-  or `topology.gnbs.source_ips` in a fleet scenario.
+  or one address per gNB in the target's `ran.n2_source_ips`.
 
 See [interop/sdcore.md](interop/sdcore.md) for the core-side quirks behind
 these rules.
@@ -91,45 +94,50 @@ alias orbit='orbit --server http://<host>:8412'   # if you are driving it remote
 > **Warning:** the API is unauthenticated and carries subscriber credentials.
 > Bind it to loopback unless the network is private to your lab.
 
-## 5. Smoke test, in order
+## 5. Describe the core, then smoke-test it
 
-Each step proves one layer. Do them in order — if step 2 fails, step 3 cannot
-work.
-
-**Is the core there?** One NGAP exchange over SCTP:
+**Write the target.** `init` runs one NG Setup through the server, so from the
+host runs execute on, and records the N2 source address it used:
 
 ```sh
-orbit cell ngsetup --amf 10.102.0.10:38412 --sd 010203 --gnb-id 1
-# NG Setup accepted by AMF "AMF"
-# network: plmn=001/01 tac=1 snssai=1/010203
+orbit target init lab1 --amf <amf-host>:38412 --mcc 001 --mnc 01 --sd 010203 \
+    --first-supi 001010100007500 --count 100 --gnb-n3 <your-n3-ip> \
+    --responder n6=<n6-host>:9551,<n6-host>
+# NG Setup accepted by AMF "AMF" from <your-n2-ip>:… (gNB ID 1, the first of the default range)
+# wrote target lab1 to ~/.config/orbit/targets/lab1.yaml
 ```
 
-**Attach one UE.** Real 5G-AKA, NAS security, registration, then a PDU session:
+**Probe it.** NG Setup, one registration, one PDU session, through the server;
+it stops at the first failure and names what to check:
 
 ```sh
-orbit ue register --amf 10.102.0.10:38412 --supi 001010100007500 --sd 010203 \
-    --gnb-id 2 --pdu-session --gnb-n3 10.103.0.20
-# UE 001010100007500 registered=true (AMF-UE-NGAP-ID …)
-#   PDU session: UE IP 192.168.100.x via UPF 10.103.0.100
+orbit target probe lab1
+# ✓ NG Setup     ok  accepted by AMF "AMF" from …
+# ✓ register     ok  001010100007500 registered in …
+# ✓ PDU session  ok  UE IP 192.168.100.x via UPF …
 ```
 
-`--gnb-n3` is **not optional** if you want to send traffic: without it you get
-`registered without a gNB N3 address; data path disabled`.
-
-**Does data move?** This is genuine GTP-U through the UPF, not a loopback:
+**Run against it.** Every command takes the target with `-t`, and a flag you
+type still overrides one field:
 
 ```sh
+orbit conformance -t lab1
+orbit ue register -t lab1 --pdu-session
 orbit ue ping    --supi 001010100007500 --dst 8.8.8.8 --count 3
 orbit ue latency --supi 001010100007500 --target 8.8.8.8 --probes 10
 orbit ue stats   --supi 001010100007500
 ```
 
-**Real application traffic** against an N6 far end (see §7):
+`--gnb-n3` (in the target, `ran.n3_ips`) is **not optional** if you want to send
+traffic: without it you get `registered without a gNB N3 address; data path
+disabled`. `--explain` on any of these prints where each value came from.
+
+**Real application traffic** against the N6 far end (see §7):
 
 ```sh
-orbit ue app http  --supi 001010100007500 --peer 10.106.0.30:9551 --duration 10s
-orbit ue app voip  --supi 001010100007500 --peer 10.106.0.30:9551 --duration 10s
-orbit ue app video --supi 001010100007500 --peer 10.106.0.30:9551 --duration 10s
+orbit ue app http  -t lab1 --supi 001010100007500 --duration 10s
+orbit ue app voip  -t lab1 --supi 001010100007500 --duration 10s
+orbit ue app video -t lab1 --supi 001010100007500 --duration 10s
 ```
 
 ## 6. Runs — and why the dashboard is empty until you start one
@@ -141,8 +149,7 @@ list` returning an empty table is the tell.
 **A load run** — a rate-controlled attach storm:
 
 ```sh
-orbit runs start-load --amf 10.102.0.10:38412 --sd 010203 \
-    --base-imsi 001010100007500 --count 100 --rate 10 --gnb-id 10
+orbit runs start-load -t lab1 --count 100 --rate 10
 ```
 
 For **CI**, `orbit load` runs the same storm in the foreground and gates on an
@@ -151,8 +158,7 @@ step. The gate lives here rather than on `runs start-load`, because a run that
 outlives its client has nobody to return an exit status to:
 
 ```sh
-orbit load --amf 10.102.0.10:38412 --sd 010203 \
-    --base-imsi 001010100007500 --count 100 --rate 10 --gnb-id 11 \
+orbit load -t lab1 --count 100 --rate 10 \
     --slo-min-success 0.99 --slo-reg-p99 500ms --slo-attach-p99 1s
 ```
 
@@ -160,7 +166,7 @@ orbit load --amf 10.102.0.10:38412 --sd 010203 \
 file:
 
 ```sh
-orbit runs start-fleet examples/fleet-testbed.yaml
+orbit runs start-fleet examples/fleet-testbed.yaml -t lab1
 ```
 
 **Watch it**, from the terminal or the browser:
@@ -184,18 +190,25 @@ count has fallen to zero by then, because every UE deregistered.
 ORBIT ships one:
 
 ```sh
-orbit responder --bind 10.106.0.30:9551
+orbit responder --bind <n6-host>:9551
 ```
 
-Run it on a host in the data network, and pass that address as `--peer`. Stock
-`loomd` works too and is interchangeable.
+Run it on a host in the data network, and add it to the target
+(`--responder` on `target init`, or `app.responders` in the file); commands and
+scenarios then use it without `--peer`. Stock `loomd` works too and is
+interchangeable.
 
 ## 8. Writing a scenario
 
 The shipped examples are annotated and are the fastest way in. They are the
 maintained scenario set: CI parses and validates every one of them, so they do
-not drift from what the parser accepts. Addresses match the LXD testbed; edit
-them for another lab.
+not drift from what the parser accepts. They hold no addresses or keys; each
+takes the core, keys and addresses from a target, so any of them runs against
+your lab as is:
+
+```sh
+orbit run examples/<file> -t <target>
+```
 
 | File | Kind | Intended use |
 |---|---|---|
@@ -230,58 +243,45 @@ Which control flows each one exercises:
   app flows running across handovers, but no step checks continuity.
 - Fleet handovers are Xn only. N2 is covered by the single-UE scenario.
 - Every fleet run deregisters its UEs when it ends.
-- ¹ `fleet.yaml`'s video (and its web traffic) is a synthetic loom
-  constant-rate profile, not a video app cohort; every other app ✓ is a real
-  app cohort.
+- ¹ `fleet.yaml`'s video (and its synthetic web profile) is a loom
+  constant-rate profile, not an app cohort; its http ✓ is the real app cohort,
+  as is every other app ✓.
 
-A minimal one:
+A minimal one. It holds only the workload; the core, keys, gNB IDs, addresses
+and the far end come from the target (`-t lab1`, or a `target: lab1` line):
 
 ```yaml
 kind: fleet
 name: first-fleet
 
-core:
-  amf: 10.102.0.10:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-# Used by the local `orbit run <file>` path, which expands ${ENV} itself.
-# `orbit runs start-fleet` ignores this block and takes credentials from
-# --ki/--opc or $ORBIT_KI/$ORBIT_OPC instead: the server never expands a
-# client's ${ENV}, or it would leak its own environment back.
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
 topology:
   gnbs:
     count: 1
-    id_base: 100
-    source_ips: [10.102.0.20]     # N2 source, one per gNB
-    n3_ips:     [10.103.0.20]     # N3 data plane; omit if the same interface
 
 fleet:
   count: 20
-  supi_base: "001010100007500"
   attach_rate: 5/s
   pdu_session: true
 
 behaviors:
   traffic:
     mix:
-      - { app: http, name: web, share: 1.0, peer: 10.106.0.30:9551,
+      - { app: http, name: web, share: 1.0,
           params: { object_size: 256KB, think: "200ms" } }
 
 run:
   duration: 120s
 ```
 
+```sh
+orbit run first-fleet.yaml -t lab1
+```
+
 ## 9. Things that will bite you
 
-- **Use a fresh `--gnb-id` per run.** The AMF does not cleanly re-key a reused
-  gNB ID from a new association.
+- **Use a fresh gNB ID per run.** The AMF does not cleanly re-key a reused gNB
+  ID from a new association. Until the server leases IDs from the target's
+  range, commands use its first ID; pass `--gnb-id` to pick another.
 - **Stay inside the provisioned SUPI range**, or attach fails with what looks
   like a core problem.
 - **One active run per kind.** Starting a second fleet run is refused; stop the
@@ -302,6 +302,6 @@ cd testing/lxd-testbed
 ./testbed.sh all            # ~20 minutes from nothing
 ```
 
-It prints the coordinates to use, and its
-[README](../testing/lxd-testbed/README.md) documents the layout. Everything
-above works against it unchanged.
+It writes a target named `lxd` on its RAN nodes, so everything above works
+there with `-t lxd` (start with `orbit target probe lxd`). Its
+[README](../testing/lxd-testbed/README.md) documents the layout.

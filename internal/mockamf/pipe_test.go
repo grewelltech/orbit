@@ -49,3 +49,26 @@ func TestPipeCloseWakesReader(t *testing.T) {
 		t.Error("expected an error after close")
 	}
 }
+
+// Messages written before the pipe closed are read before the close is
+// reported, every time.
+func TestPipeDeliversQueuedMessagesBeforeClose(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		ue, amf := newPipePair()
+		for j := 0; j < 3; j++ {
+			if err := ue.WriteNGAP(1, []byte{byte(j)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_ = ue.Close()
+		for j := 0; j < 3; j++ {
+			b, _, _, err := amf.ReadMsg(nil)
+			if err != nil || len(b) != 1 || b[0] != byte(j) {
+				t.Fatalf("run %d: message %d = %v, %v", i, j, b, err)
+			}
+		}
+		if _, _, _, err := amf.ReadMsg(nil); err != errPipeClosed {
+			t.Fatalf("run %d: after the queue, err = %v, want errPipeClosed", i, err)
+		}
+	}
+}

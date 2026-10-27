@@ -114,6 +114,7 @@ func (r *Runner) register(ctx context.Context, step Step) (string, error) {
 	for _, u := range ues {
 		req := &orbitv1.RegisterRequest{
 			AmfAddress:  r.sc.Core.AMF,
+			BindAddress: u.GNB.Bind, // the gNB's N2 source, as handover uses it
 			Supi:        u.SUPI,
 			Gnb:         r.gnbProto(u.GNB),
 			Credentials: &orbitv1.Credentials{Ki: r.sc.Credentials.Ki, Opc: r.sc.Credentials.OPc},
