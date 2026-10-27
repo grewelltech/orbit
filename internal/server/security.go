@@ -18,13 +18,24 @@ import (
 	"github.com/bgrewell/orbit/internal/secrets"
 )
 
-// Auth failure limits: a peer with authFailLimit failed authentications
-// within authFailWindow is refused for authLockout (ADR-0008 §4: a token
-// is not to be guessed at line rate).
+// Auth failure limits: a peer presenting authFailLimit wrong tokens within
+// authFailWindow has its wrong attempts refused for authLockout (ADR-0008
+// §4: a token is not to be guessed at line rate). The right token always
+// passes, so a misconfigured client cannot lock its operator out. At most
+// authMaxPeers peers are tracked, so rotating addresses cannot grow the
+// tables without bound.
 const (
 	authFailLimit  = 10
 	authFailWindow = 10 * time.Second
 	authLockout    = 30 * time.Second
+	authMaxPeers   = 4096
+)
+
+// Refusal messages: a request without a token, and one with the wrong one.
+const (
+	msgTokenRequired = "a bearer token is required: set $ORBIT_TOKEN, or add it to ~/.config/orbit/servers.yaml (orbit server trust)"
+	msgTokenInvalid  = "invalid bearer token"
+	msgLockedOut     = "too many invalid bearer tokens from this address; try again shortly"
 )
 
 // connState is what the transport knew about a request's connection, kept
@@ -60,8 +71,8 @@ type security struct {
 	now      func() time.Time
 
 	mu       sync.Mutex
-	failures map[string][]time.Time // by peer IP, within the window
-	locked   map[string]time.Time   // peer IP → refused until
+	failures map[string][]time.Time // by peerKey, within the window
+	locked   map[string]time.Time   // peerKey → wrong tokens refused until
 }
 
 func newSecurity(log *slog.Logger, token string) *security {
@@ -75,15 +86,30 @@ func protected(path string) bool {
 	return strings.HasPrefix(path, "/orbit.v1.") || path == "/metrics"
 }
 
-func peerIP(remote string) string {
-	if host, _, err := net.SplitHostPort(remote); err == nil {
+// peerKey is what the failure limit counts by: the peer's IPv4 address, or
+// its IPv6 /64, since one host can rotate through a whole /64.
+func peerKey(remote string) string {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	a, err := netip.ParseAddr(host)
+	if err != nil {
 		return host
 	}
-	return remote
+	a = a.Unmap()
+	if a.Is4() {
+		return a.String()
+	}
+	p, err := a.WithZone("").Prefix(64)
+	if err != nil {
+		return a.String()
+	}
+	return p.String()
 }
 
 // middleware wraps the mux: it records the connection's state and, when a
-// token is set, refuses a protected request without it.
+// token is set, refuses a protected request without the right one.
 func (s *security) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cs := connState{tls: r.TLS != nil, loopback: s.loopback(r.RemoteAddr)}
@@ -92,19 +118,20 @@ func (s *security) middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		ip := peerIP(r.RemoteAddr)
-		if s.lockedOut(ip) {
-			s.refuse(w, r, connect.CodeResourceExhausted, http.StatusTooManyRequests,
-				"too many failed authentications from this address; try again shortly")
-			return
+		header := r.Header.Get("Authorization")
+		switch {
+		case header == "":
+			// No guess was made, so nothing is counted: a dashboard polling
+			// before its token is entered is not an attack.
+			s.refuse(w, r, connect.CodeUnauthenticated, http.StatusUnauthorized, msgTokenRequired)
+		case s.authorized(header):
+			next.ServeHTTP(w, r)
+		case s.lockedOut(peerKey(r.RemoteAddr)):
+			s.refuse(w, r, connect.CodeResourceExhausted, http.StatusTooManyRequests, msgLockedOut)
+		default:
+			s.fail(peerKey(r.RemoteAddr), r.URL.Path)
+			s.refuse(w, r, connect.CodeUnauthenticated, http.StatusUnauthorized, msgTokenInvalid)
 		}
-		if !s.authorized(r.Header.Get("Authorization")) {
-			s.fail(ip, r.URL.Path)
-			s.refuse(w, r, connect.CodeUnauthenticated, http.StatusUnauthorized,
-				"a bearer token is required: set $ORBIT_TOKEN, or add it to ~/.config/orbit/servers.yaml (orbit server trust)")
-			return
-		}
-		next.ServeHTTP(w, r)
 	})
 }
 
@@ -119,37 +146,70 @@ func (s *security) authorized(header string) bool {
 	return subtle.ConstantTimeCompare(got, []byte(s.token)) == 1
 }
 
-// fail records a failed authentication, logged without what was presented,
-// and locks the peer out once it reaches the limit within the window.
-func (s *security) fail(ip, path string) {
+// fail records a wrong token, logged without what was presented, and locks
+// the peer's wrong attempts out once it reaches the limit within the window.
+func (s *security) fail(peer, path string) {
 	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	recent := s.failures[ip][:0]
-	for _, t := range s.failures[ip] {
+	s.sweep(now)
+	recent := s.failures[peer][:0]
+	for _, t := range s.failures[peer] {
 		if now.Sub(t) < authFailWindow {
 			recent = append(recent, t)
 		}
 	}
 	recent = append(recent, now)
-	s.failures[ip] = recent
-	s.log.Warn("unauthenticated request", "peer", ip, "path", path, "recent_failures", len(recent))
+	s.failures[peer] = recent
+	s.log.Warn("invalid bearer token", "peer", peer, "path", path, "recent_failures", len(recent))
 	if len(recent) >= authFailLimit {
-		s.locked[ip] = now.Add(authLockout)
-		delete(s.failures, ip)
-		s.log.Warn("peer locked out after repeated failed authentications", "peer", ip, "for", authLockout)
+		s.locked[peer] = now.Add(authLockout)
+		delete(s.failures, peer)
+		s.log.Warn("peer locked out after repeated invalid bearer tokens", "peer", peer, "for", authLockout)
 	}
 }
 
-func (s *security) lockedOut(ip string) bool {
+// sweep drops expired entries once a table reaches authMaxPeers, and then,
+// if it is still full, arbitrary ones: under an address-rotation flood the
+// limit degrades, but memory stays bounded. Called with s.mu held.
+func (s *security) sweep(now time.Time) {
+	if len(s.failures) >= authMaxPeers {
+		for k, ts := range s.failures {
+			if len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= authFailWindow {
+				delete(s.failures, k)
+			}
+		}
+		for k := range s.failures {
+			if len(s.failures) < authMaxPeers {
+				break
+			}
+			delete(s.failures, k)
+		}
+	}
+	if len(s.locked) >= authMaxPeers {
+		for k, until := range s.locked {
+			if now.After(until) {
+				delete(s.locked, k)
+			}
+		}
+		for k := range s.locked {
+			if len(s.locked) < authMaxPeers {
+				break
+			}
+			delete(s.locked, k)
+		}
+	}
+}
+
+func (s *security) lockedOut(peer string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	until, ok := s.locked[ip]
+	until, ok := s.locked[peer]
 	if !ok {
 		return false
 	}
 	if s.now().After(until) {
-		delete(s.locked, ip)
+		delete(s.locked, peer)
 		return false
 	}
 	return true

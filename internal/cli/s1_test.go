@@ -5,16 +5,20 @@ import (
 	"crypto/tls"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
 	"github.com/bgrewell/orbit/internal/tlspin"
@@ -44,7 +48,7 @@ func TestServeSecurityMatrix(t *testing.T) {
 	state := t.TempDir()
 	// A certificate and key in files, for --tls-cert/--tls-key.
 	pairDir := filepath.Join(t.TempDir(), "pair")
-	if _, _, err := tlspin.SelfSigned(pairDir, []string{"localhost"}); err != nil {
+	if _, err := tlspin.SelfSigned(pairDir, []string{"localhost"}); err != nil {
 		t.Fatal(err)
 	}
 	cert, key := filepath.Join(pairDir, "cert.pem"), filepath.Join(pairDir, "key.pem")
@@ -108,11 +112,12 @@ func TestServeSecurityMatrix(t *testing.T) {
 // with token (may be ""), and returns its https URL and pin.
 func tlsServer(t *testing.T, token string) (string, string) {
 	t.Helper()
-	pair, leaf, err := tlspin.SelfSigned(t.TempDir(), []string{"127.0.0.1"})
+	p, err := tlspin.SelfSigned(t.TempDir(), []string{"127.0.0.1"})
+	pair, leaf := p.Cert, p.Leaf
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := server.New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", observability.NewRegistry(), server.Options{Token: token, TLS: true})
+	h := server.New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", observability.NewRegistry(), server.Options{Token: token})
 	srv := httptest.NewUnstartedServer(h)
 	srv.EnableHTTP2 = true
 	srv.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
@@ -256,6 +261,20 @@ func TestServerTrust(t *testing.T) {
 	if r.execErr != nil || !strings.Contains(r.out, "fingerprint: "+pin) {
 		t.Fatalf("trust: %v\n%s", r.execErr, r.out)
 	}
+	if !strings.Contains(r.out, "token: from --token-file "+tok) {
+		t.Errorf("trust does not say where the token came from:\n%s", r.out)
+	}
+	// Re-pinning without a token keeps the old one, and says so; with
+	// $ORBIT_TOKEN set, that is the token kept, and it says so.
+	_ = os.Unsetenv("ORBIT_TOKEN")
+	if r := runOrbit(t, loc, "server", "trust", url, "--fingerprint", pin); !strings.Contains(r.out, "token: kept from the previous pin") {
+		t.Errorf("re-pin: %v\n%s", r.execErr, r.out)
+	}
+	t.Setenv("ORBIT_TOKEN", s1Token)
+	if r := runOrbit(t, loc, "server", "trust", url, "--fingerprint", pin); !strings.Contains(r.out, "token: from $ORBIT_TOKEN") {
+		t.Errorf("trust with $ORBIT_TOKEN: %v\n%s", r.execErr, r.out)
+	}
+	_ = os.Unsetenv("ORBIT_TOKEN")
 	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
 		t.Errorf("servers.yaml: %v %v", err, st)
 	}
@@ -295,5 +314,149 @@ func TestServerTrust(t *testing.T) {
 	}
 	if r := runOrbit(t, loc, "--server", url, "system", "info"); r.execErr == nil || !strings.Contains(r.execErr.Error(), "readable by others") {
 		t.Errorf("a loose servers.yaml: %v", r.execErr)
+	}
+}
+
+// The API client follows no redirect, same-origin or not, so neither the
+// request (keys included) nor the token goes anywhere but the configured
+// server; and the transport sends the token only to that server's origin.
+func TestClientFollowsNoRedirect(t *testing.T) {
+	clientConfig(t)
+	t.Setenv("ORBIT_TOKEN", s1Token)
+	type hit struct{ path, auth string }
+	record := func(hits *[]hit, mu *sync.Mutex, next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			*hits = append(*hits, hit{r.URL.Path, r.Header.Get("Authorization")})
+			mu.Unlock()
+			next.ServeHTTP(w, r)
+		})
+	}
+	var mu sync.Mutex
+	var otherHits, selfHits []hit
+	api := server.New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", observability.NewRegistry(), server.Options{Token: s1Token})
+	other := httptest.NewServer(record(&otherHits, &mu, api))
+	t.Cleanup(other.Close)
+	var self *httptest.Server
+	self = httptest.NewServer(record(&selfHits, &mu, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("to") {
+		case "other":
+			http.Redirect(w, r, other.URL+r.URL.Path, http.StatusTemporaryRedirect)
+		case "self":
+			http.Redirect(w, r, self.URL+"/moved"+r.URL.Path, http.StatusTemporaryRedirect)
+		default:
+			api.ServeHTTP(w, r)
+		}
+	})))
+	t.Cleanup(self.Close)
+
+	for _, tc := range []struct {
+		name, base  string
+		wantErr     string
+		wantSelf    int // requests the configured server sees
+		wantOther   int
+		wantSelfTok bool
+	}{
+		{name: "cross-origin 307", base: self.URL + "?to=other", wantErr: "server redirected to " + other.URL + "; refusing", wantSelf: 1, wantSelfTok: true},
+		{name: "same-origin 307", base: self.URL + "?to=self", wantErr: "server redirected to " + self.URL + "; refusing", wantSelf: 1, wantSelfTok: true},
+		{name: "loopback to loopback, no redirect", base: self.URL, wantSelf: 1, wantSelfTok: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mu.Lock()
+			otherHits, selfHits = nil, nil
+			mu.Unlock()
+			// The query rides on every procedure URL Connect builds from base.
+			h, guard := apiClient(strings.SplitN(tc.base, "?", 2)[0])
+			cl := orbitv1connect.NewSystemServiceClient(&http.Client{Transport: queryTransport{h, tc.base}, CheckRedirect: h.CheckRedirect}, strings.SplitN(tc.base, "?", 2)[0], guard)
+			_, err := cl.GetInfo(context.Background(), connect.NewRequest(&orbitv1.GetInfoRequest{}))
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("err = %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(selfHits) != tc.wantSelf || len(otherHits) != tc.wantOther {
+				t.Fatalf("requests: configured server %v, other %v; want %d and %d", selfHits, otherHits, tc.wantSelf, tc.wantOther)
+			}
+			if got := selfHits[0].auth == "Bearer "+s1Token; got != tc.wantSelfTok {
+				t.Errorf("configured server got Authorization %q", selfHits[0].auth)
+			}
+		})
+	}
+
+	// The transport itself: a request to any origin but the configured one
+	// carries no token.
+	h, _ := apiClient(self.URL)
+	for _, u := range []string{other.URL + "/healthz", strings.Replace(self.URL, "127.0.0.1", "localhost", 1) + "/healthz"} {
+		mu.Lock()
+		otherHits, selfHits = nil, nil
+		mu.Unlock()
+		resp, err := h.Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		mu.Lock()
+		for _, x := range append(otherHits, selfHits...) {
+			if x.auth != "" {
+				t.Errorf("GET %s carried Authorization %q", u, x.auth)
+			}
+		}
+		mu.Unlock()
+	}
+}
+
+// queryTransport adds the base URL's query to each request, so one test
+// server can be told what to answer.
+type queryTransport struct {
+	c    *http.Client
+	base string
+}
+
+func (q queryTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if i := strings.Index(q.base, "?"); i >= 0 && r.URL.RawQuery == "" {
+		r = r.Clone(r.Context())
+		r.URL.RawQuery = q.base[i+1:]
+	}
+	return q.c.Transport.RoundTrip(r)
+}
+
+// A plaintext serve speaks HTTP/1.1 and unencrypted HTTP/2 (prior
+// knowledge, as gRPC clients use); a TLS one leaves HTTP/2 to ALPN.
+func TestNewHTTPServerProtocols(t *testing.T) {
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	if srv := newHTTPServer("127.0.0.1:0", ok, &tls.Config{MinVersion: tls.VersionTLS12}); srv.Protocols != nil {
+		t.Errorf("a TLS server sets Protocols %v", srv.Protocols)
+	}
+	srv := newHTTPServer("127.0.0.1:0", ok, nil)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	for _, tc := range []struct {
+		name  string
+		set   func(*http.Protocols)
+		major int
+	}{
+		{name: "HTTP/1.1", set: func(p *http.Protocols) { p.SetHTTP1(true) }, major: 1},
+		{name: "unencrypted HTTP/2", set: func(p *http.Protocols) { p.SetUnencryptedHTTP2(true) }, major: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var p http.Protocols
+			tc.set(&p)
+			c := &http.Client{Transport: &http.Transport{Protocols: &p}}
+			resp, err := c.Get("http://" + ln.Addr().String() + "/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK || resp.ProtoMajor != tc.major {
+				t.Errorf("got %d over %s, want 200 over HTTP/%d", resp.StatusCode, resp.Proto, tc.major)
+			}
+		})
 	}
 }

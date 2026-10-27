@@ -112,6 +112,7 @@ func hostLoopback(u *url.URL) bool {
 // token over plaintext off the host (ADR-0008 §4).
 type apiTransport struct {
 	base    string // the server URL
+	origin  string // serverKey(base): the only origin the token goes to
 	once    sync.Once
 	rt      http.RoundTripper
 	token   string
@@ -153,7 +154,7 @@ func (t *apiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.loadErr != nil {
 		return nil, t.loadErr
 	}
-	if t.token != "" {
+	if t.token != "" && serverKey(req.URL.String()) == t.origin {
 		if req.URL.Scheme == "http" && !hostLoopback(req.URL) {
 			return nil, errPlaintext(req.URL, "the bearer token")
 		}
@@ -164,7 +165,8 @@ func (t *apiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // apiClient is the HTTP client and Connect options for the API server at
-// base: the transport above, and an interceptor that refuses, before
+// base: the transport above, sending the token only to base's origin and
+// following no redirect, and an interceptor that refuses, before
 // anything is sent, a request carrying subscriber keys or tokens
 // (secrets.Find) over http:// to a host that is not loopback. There is no
 // override; the server refuses the same as a second line of defence.
@@ -173,7 +175,15 @@ func apiClient(base string) (*http.Client, connect.ClientOption) {
 	if err != nil {
 		u = &url.URL{Scheme: "http", Host: base}
 	}
-	return &http.Client{Transport: &apiTransport{base: base}}, connect.WithInterceptors(secretsGuard{base: u})
+	return &http.Client{Transport: &apiTransport{base: base, origin: serverKey(base)}, CheckRedirect: refuseRedirect},
+		connect.WithInterceptors(secretsGuard{base: u})
+}
+
+// refuseRedirect is the API client's redirect policy: none. A Connect call
+// never legitimately redirects, and following one would carry the request
+// (keys included) and the token's origin check somewhere else.
+func refuseRedirect(req *http.Request, _ []*http.Request) error {
+	return fmt.Errorf("server redirected to %s://%s; refusing", req.URL.Scheme, req.URL.Host)
 }
 
 // secretsGuard is the client-side plaintext refusal for request messages,

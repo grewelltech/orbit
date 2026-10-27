@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -26,7 +27,7 @@ func secureServer(t *testing.T, token string, loopback, tls bool) (*httptest.Ser
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sec := newSecurity(log, token)
 	sec.loopback = func(string) bool { return loopback }
-	h := newHandler(log, "test", prometheus.NewRegistry(), Options{TLS: tls}, sec)
+	h := newHandler(log, "test", prometheus.NewRegistry(), Options{}, sec)
 	srv := httptest.NewUnstartedServer(h)
 	if tls {
 		srv.EnableHTTP2 = true
@@ -102,34 +103,117 @@ func TestAuth(t *testing.T) {
 	}
 }
 
-// After authFailLimit failures within the window a peer is refused, the
-// right token included, until the lockout ends.
+// After authFailLimit wrong tokens within the window a peer's wrong tokens
+// are refused until the lockout ends; the right token always passes, and a
+// request with no token is never counted.
 func TestAuthLockout(t *testing.T) {
 	srv, sec := secureServer(t, testToken, true, false)
 	now := time.Unix(1000, 0)
 	sec.now = func() time.Time { return now }
 	bad := orbitv1connect.NewSystemServiceClient(srv.Client(), srv.URL, bearer("Bearer nope"))
 	good := orbitv1connect.NewSystemServiceClient(srv.Client(), srv.URL, bearer("Bearer "+testToken))
-	for i := 0; i < authFailLimit; i++ {
-		if _, err := bad.GetInfo(context.Background(), connect.NewRequest(&orbitv1.GetInfoRequest{})); connect.CodeOf(err) != connect.CodeUnauthenticated {
-			t.Fatalf("failure %d: %v", i+1, err)
+	none := orbitv1connect.NewSystemServiceClient(srv.Client(), srv.URL)
+	call := func(c orbitv1connect.SystemServiceClient) error {
+		_, err := c.GetInfo(context.Background(), connect.NewRequest(&orbitv1.GetInfoRequest{}))
+		return err
+	}
+	wantCode := func(step string, err error, code connect.Code, msg string) {
+		t.Helper()
+		if connect.CodeOf(err) != code || (msg != "" && !strings.Contains(err.Error(), msg)) {
+			t.Errorf("%s: err = %v, want %v %q", step, err, code, msg)
 		}
 	}
-	if _, err := good.GetInfo(context.Background(), connect.NewRequest(&orbitv1.GetInfoRequest{})); connect.CodeOf(err) != connect.CodeResourceExhausted {
-		t.Errorf("locked out: err = %v, want resource_exhausted", err)
+
+	// A dashboard polling before its token is entered: no header, never
+	// counted, however often.
+	for i := 0; i < 5*authFailLimit; i++ {
+		wantCode("no token", call(none), connect.CodeUnauthenticated, msgTokenRequired)
 	}
+	for i := 0; i < authFailLimit; i++ {
+		wantCode("wrong token", call(bad), connect.CodeUnauthenticated, msgTokenInvalid)
+	}
+	wantCode("wrong token, locked out", call(bad), connect.CodeResourceExhausted, "")
+	if err := call(good); err != nil {
+		t.Errorf("the right token during the lockout: %v", err)
+	}
+	wantCode("no token during the lockout", call(none), connect.CodeUnauthenticated, msgTokenRequired)
+
 	now = now.Add(authLockout + time.Second)
-	if _, err := good.GetInfo(context.Background(), connect.NewRequest(&orbitv1.GetInfoRequest{})); err != nil {
-		t.Errorf("after the lockout: %v", err)
-	}
-	// Failures spread out beyond the window never lock a peer out.
+	wantCode("wrong token after the lockout", call(bad), connect.CodeUnauthenticated, msgTokenInvalid)
+
+	// Wrong tokens spread out beyond the window never lock a peer out.
 	for i := 0; i < 2*authFailLimit; i++ {
-		now = now.Add(authFailWindow / 2)
-		_, _ = bad.GetInfo(context.Background(), connect.NewRequest(&orbitv1.GetInfoRequest{}))
-		now = now.Add(authFailWindow)
+		now = now.Add(authFailWindow + time.Second)
+		_ = call(bad)
 	}
-	if _, err := good.GetInfo(context.Background(), connect.NewRequest(&orbitv1.GetInfoRequest{})); err != nil {
-		t.Errorf("slow failures locked the peer out: %v", err)
+	wantCode("slow wrong tokens", call(bad), connect.CodeUnauthenticated, msgTokenInvalid)
+}
+
+// A peer is counted by its IPv4 address, or by its IPv6 /64, so rotating
+// through a /64 does not sidestep the lockout.
+func TestPeerKey(t *testing.T) {
+	tests := []struct{ remote, want string }{
+		{"192.0.2.7:4000", "192.0.2.7"},
+		{"[::ffff:192.0.2.7]:4000", "192.0.2.7"},
+		{"[2001:db8:1:2:aaaa::1]:4000", "2001:db8:1:2::/64"},
+		{"[2001:db8:1:2:bbbb::9]:4001", "2001:db8:1:2::/64"},
+		{"[2001:db8:1:3::1]:4000", "2001:db8:1:3::/64"},
+		{"[fe80::1%eth0]:4000", "fe80::/64"},
+		{"not-an-address", "not-an-address"},
+	}
+	for _, tc := range tests {
+		if got := peerKey(tc.remote); got != tc.want {
+			t.Errorf("peerKey(%q) = %q, want %q", tc.remote, got, tc.want)
+		}
+	}
+
+	sec := newSecurity(slog.New(slog.NewTextHandler(io.Discard, nil)), testToken)
+	h := sec.middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	try := func(remote, auth string) int {
+		r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		r.RemoteAddr = remote
+		r.Header.Set("Authorization", auth)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for i := 0; i < authFailLimit; i++ {
+		try(fmt.Sprintf("[2001:db8:1:2::%x]:4000", i+1), "Bearer wrong")
+	}
+	if c := try("[2001:db8:1:2::ffff]:4000", "Bearer wrong"); c != http.StatusTooManyRequests {
+		t.Errorf("a fresh address in the locked /64 = %d, want 429", c)
+	}
+	if c := try("[2001:db8:1:3::1]:4000", "Bearer wrong"); c != http.StatusUnauthorized {
+		t.Errorf("another /64 = %d, want 401", c)
+	}
+	if c := try("[2001:db8:1:2::ffff]:4000", "Bearer "+testToken); c != http.StatusOK {
+		t.Errorf("the right token from the locked /64 = %d, want 200", c)
+	}
+}
+
+// The failure and lockout tables stay bounded under address rotation.
+func TestAuthTablesBounded(t *testing.T) {
+	sec := newSecurity(slog.New(slog.NewTextHandler(io.Discard, nil)), testToken)
+	now := time.Unix(1000, 0)
+	sec.now = func() time.Time { return now }
+	for i := 0; i < 3*authMaxPeers; i++ {
+		peer := fmt.Sprintf("198.18.%d.%d", i/256, i%256)
+		for j := 0; j < authFailLimit; j++ {
+			sec.fail(peer, "/x")
+		}
+		sec.fail(fmt.Sprintf("10.%d.%d.1", i/256, i%256), "/x") // below the limit
+	}
+	if n, m := len(sec.failures), len(sec.locked); n > authMaxPeers || m > authMaxPeers {
+		t.Errorf("tables grew to %d failures and %d lockouts, cap %d", n, m, authMaxPeers)
+	}
+	// Expired entries go first.
+	now = now.Add(authLockout + authFailWindow + time.Second)
+	sec.fail("192.0.2.1", "/x")
+	sec.mu.Lock()
+	sec.sweep(now)
+	sec.mu.Unlock()
+	if _, ok := sec.failures["192.0.2.1"]; !ok {
+		t.Error("the sweep dropped a live entry")
 	}
 }
 
@@ -194,5 +278,56 @@ func TestIsLoopbackAddr(t *testing.T) {
 		if got := isLoopbackAddr(addr); got != want {
 			t.Errorf("isLoopbackAddr(%s) = %t", addr, got)
 		}
+	}
+}
+
+// The keys check covers streamed requests too (checkedConn.Receive). No
+// streaming RPC's request carries a marked field today, so a synthetic
+// server-stream procedure taking Credentials stands in for a future one.
+func TestSecretsOverPlaintextStreaming(t *testing.T) {
+	const procedure = "/orbit.v1.TestService/Stream"
+	for _, tc := range []struct {
+		name         string
+		loopback     bool
+		creds        *orbitv1.Credentials
+		wantRefusal  bool
+		wantMessages int
+	}{
+		{name: "non-loopback plaintext, keys", creds: &orbitv1.Credentials{Ki: "00112233445566778899aabbccddeeff"}, wantRefusal: true},
+		{name: "non-loopback plaintext, no keys", creds: &orbitv1.Credentials{}, wantMessages: 1},
+		{name: "loopback plaintext, keys", loopback: true, creds: &orbitv1.Credentials{Ki: "00112233445566778899aabbccddeeff"}, wantMessages: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sec := newSecurity(slog.New(slog.NewTextHandler(io.Discard, nil)), "")
+			sec.loopback = func(string) bool { return tc.loopback }
+			mux := http.NewServeMux()
+			mux.Handle(procedure, connect.NewServerStreamHandler(procedure,
+				func(_ context.Context, _ *connect.Request[orbitv1.Credentials], s *connect.ServerStream[orbitv1.GetInfoResponse]) error {
+					return s.Send(&orbitv1.GetInfoResponse{Version: "streamed"})
+				}, connect.WithInterceptors(keysInterceptor{})))
+			srv := httptest.NewServer(sec.middleware(mux))
+			t.Cleanup(srv.Close)
+
+			c := connect.NewClient[orbitv1.Credentials, orbitv1.GetInfoResponse](srv.Client(), srv.URL+procedure)
+			stream, err := c.CallServerStream(context.Background(), connect.NewRequest(tc.creds))
+			if err != nil {
+				t.Fatal(err)
+			}
+			n := 0
+			for stream.Receive() {
+				n++
+			}
+			err = stream.Err()
+			if tc.wantRefusal {
+				if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "plaintext") {
+					t.Fatalf("err = %v, want failed_precondition naming plaintext", err)
+				}
+			} else if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			if n != tc.wantMessages {
+				t.Errorf("received %d messages, want %d", n, tc.wantMessages)
+			}
+		})
 	}
 }

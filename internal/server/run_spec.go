@@ -79,9 +79,9 @@ func redactLoadSpec(in *orbitv1.LoadRunSpec) *orbitv1.LoadRunSpec {
 //
 // The server ignores the scenario's own credentials block (it takes keys from
 // the request instead), but nothing stops a document from carrying a literal
-// key, and storing it verbatim would persist it. Masking is textual so the
-// document survives as written — comments, ordering and formatting intact,
-// which is the point of keeping it verbatim at all.
+// key, and storing it verbatim would persist it. Masking works on the parsed
+// document (secrets.RedactYAML), so a key in any YAML style or behind an
+// alias is masked; comments survive, the document's own formatting does not.
 func redactFleetSpec(in *orbitv1.FleetRunSpec) *orbitv1.FleetRunSpec {
 	if in == nil {
 		return nil
@@ -93,7 +93,6 @@ func redactFleetSpec(in *orbitv1.FleetRunSpec) *orbitv1.FleetRunSpec {
 
 const redacted = secrets.Masked
 
-// redactSecretsInYAML masks every secret key's value in a scenario
-// document, with the detector the plaintext-keys refusal uses
-// (secrets.RedactYAML: block, list-item and flow style).
+// redactSecretsInYAML masks every secret in a scenario document, with the
+// detector the plaintext-keys refusal uses (secrets.RedactYAML).
 func redactSecretsInYAML(doc string) string { return secrets.RedactYAML(doc) }

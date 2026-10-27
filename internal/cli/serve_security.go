@@ -23,6 +23,9 @@ type serveSecurity struct {
 	tls   *tls.Config // nil = plaintext
 	leaf  *x509.Certificate
 	token string
+	// repaired is why --tls auto replaced a half-written pair ("" = it did
+	// not), for serve to log.
+	repaired string
 }
 
 // listenLoopback reports whether every address listen binds is loopback.
@@ -124,9 +127,11 @@ func resolveServeSecurity(listen, tlsMode, certFile, keyFile, tokenFile, stateDi
 		if stateDir == "" {
 			return out, errors.New("--tls auto keeps its certificate in --state-dir; give one (not \"none\")")
 		}
-		if pair, out.leaf, err = tlspin.SelfSigned(filepath.Join(stateDir, "tls"), certHosts(listen)); err != nil {
+		p, err := tlspin.SelfSigned(filepath.Join(stateDir, "tls"), certHosts(listen))
+		if err != nil {
 			return out, err
 		}
+		pair, out.leaf, out.repaired = p.Cert, p.Leaf, p.Repaired
 	case certFile != "":
 		if pair, err = tls.LoadX509KeyPair(certFile, keyFile); err != nil {
 			return out, fmt.Errorf("--tls-cert/--tls-key: %w", err)

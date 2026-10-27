@@ -5,18 +5,23 @@
  * token is saved carries it; nothing needs reloading.
  */
 import { useEffect, useState, type FormEvent } from "react";
-import { authRequired, loadToken, saveToken } from "@/data/transport";
+import { authRequired, saveToken, type AuthRefusal } from "@/data/transport";
+
+const TITLES: Record<AuthRefusal, string> = {
+  missing: "this server needs a token",
+  invalid: "the server rejected this token",
+  locked: "too many wrong tokens from this address: the right one still works",
+};
 
 export function TokenPrompt() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
-  // A token was stored when the refusal came: it is the wrong one, not missing.
-  const [rejected, setRejected] = useState(false);
+  const [why, setWhy] = useState<AuthRefusal>("missing");
 
   useEffect(
     () =>
-      authRequired.subscribe(() => {
-        setRejected(loadToken() !== "");
+      authRequired.subscribe((w) => {
+        setWhy(w);
         setOpen(true);
       }),
     [],
@@ -50,7 +55,7 @@ export function TokenPrompt() {
         }}
       >
         <span id="orbit-token-title" className="o-label" style={{ color: "var(--o-ink)" }}>
-          {rejected ? "the server refused this token" : "this server needs a token"}
+          {TITLES[why]}
         </span>
         <span className="text-sm" style={{ color: "var(--o-ink-3)" }}>
           Paste the bearer token orbit serve was started with (the first line of its --token-file). It is kept

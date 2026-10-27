@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -121,6 +122,9 @@ func newServeCmd(version string) *cobra.Command {
 				return err
 			}
 			if sec.leaf != nil {
+				if sec.repaired != "" {
+					log.Warn("TLS certificate regenerated", "reason", sec.repaired)
+				}
 				log.Info("TLS", "spki", tlspin.Fingerprint(sec.leaf), "subject", sec.leaf.Subject.String(),
 					"pin_with", "orbit server trust https://"+listen)
 			}
@@ -156,7 +160,6 @@ func newServeCmd(version string) *cobra.Command {
 			reg := observability.NewRegistry()
 			handler := server.New(log, version, reg, server.Options{
 				Token:       sec.token,
-				TLS:         sec.tls != nil,
 				CoreProfile: coreProfile,
 				LoomAgent:   loomAgent,
 				LoomToken:   loomToken,
@@ -166,12 +169,7 @@ func newServeCmd(version string) *cobra.Command {
 				ConformanceExpected: expected,
 			})
 
-			srv := &http.Server{
-				Addr:              listen,
-				Handler:           handler,
-				ReadHeaderTimeout: 10 * time.Second,
-				TLSConfig:         sec.tls,
-			}
+			srv := newHTTPServer(listen, handler, sec.tls)
 			log.Info("orbit API listening", "addr", listen, "version", version, "tls", sec.tls != nil, "auth", sec.token != "")
 			serve := srv.ListenAndServe
 			if sec.tls != nil {
@@ -217,6 +215,25 @@ func cellClient(url *string) orbitv1connect.CellServiceClient {
 func ueClient(url *string) orbitv1connect.UEServiceClient {
 	h, guard := apiClient(*url)
 	return orbitv1connect.NewUEServiceClient(h, *url, guard)
+}
+
+// newHTTPServer is serve's http.Server: TLS when tlsConf is set (HTTP/2 by
+// ALPN), else plaintext HTTP/1.1 and unencrypted HTTP/2 (prior knowledge),
+// so gRPC clients connect to a loopback server without TLS.
+func newHTTPServer(listen string, h http.Handler, tlsConf *tls.Config) *http.Server {
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsConf,
+	}
+	if tlsConf == nil {
+		var p http.Protocols
+		p.SetHTTP1(true)
+		p.SetUnencryptedHTTP2(true)
+		srv.Protocols = &p
+	}
+	return srv
 }
 
 // resolveStateDir turns the --state-dir flag into a path.

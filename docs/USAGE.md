@@ -322,12 +322,20 @@ orbit ue list
   (`--tls auto`, or `--tls-cert`/`--tls-key` for a certificate you already
   have) unless you pass `--insecure-listen`, and without a token unless you pass
   `--no-auth`, which logs a warning. `0.0.0.0` and `:8412` count as non-loopback.
+  A host name is resolved once, at startup: if its address later changes to a
+  non-loopback one, restart `serve` so the rule is applied again.
 - **The token** (`--token-file`, mode 600 or tighter) is required on every API
   call and on `/metrics`; `/healthz` and the dashboard's page itself stay open.
-  A wrong or missing token gets `unauthenticated`; ten failures from one
-  address within 10 s lock it out for 30 s.
+  A missing token gets `unauthenticated` ("a bearer token is required"), a
+  wrong one `unauthenticated` ("invalid bearer token"). Ten wrong tokens from
+  one address (an IPv6 /64 counts as one) within 10 s get its further wrong
+  tokens refused for 30 s (`resource_exhausted`); the right token always
+  passes, and a request without one is never counted.
 - **Clients** send `$ORBIT_TOKEN`, else the token `orbit server trust` kept in
-  `~/.config/orbit/servers.yaml` for that server. They verify a pinned server
+  `~/.config/orbit/servers.yaml` for that server. `$ORBIT_TOKEN` wins for
+  every server, so unset it before switching `--server` to one with another
+  token. `orbit server trust` says which token it kept (`--token-file`,
+  `$ORBIT_TOKEN`, or the previous pin's). They verify a pinned server
   by its key alone. `orbit server list` shows the pins (tokens masked) and
   `orbit server forget <url>` removes one. A script that cannot answer the
   prompt pins with `--fingerprint sha256/...`, and it pins only when the

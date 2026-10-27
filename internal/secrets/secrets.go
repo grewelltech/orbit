@@ -8,6 +8,8 @@
 package secrets
 
 import (
+	"errors"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -115,24 +117,113 @@ func nonEmpty(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 	return true
 }
 
-// YAMLSecrets returns the keys of a YAML document that hold a secret: a
-// secret-named key (IsSecretName) with a non-empty scalar value that is not
-// an unexpanded ${VAR} reference, in block or flow style. A document that
-// does not parse is scanned with the redaction pattern instead, so an odd
-// document is never taken to hold none.
+// YAMLSecrets returns the paths of a YAML document's secrets (eachSecret),
+// in document order. Text that does not parse fails closed: every
+// secret-like key name in it is reported, so a request carrying it is
+// refused over plaintext rather than guessed to hold none.
 func YAMLSecrets(doc string) []string {
 	if strings.TrimSpace(doc) == "" {
 		return nil
 	}
-	var root yaml.Node
-	if err := yaml.Unmarshal([]byte(doc), &root); err != nil {
+	docs, err := parseYAML(doc)
+	if err != nil {
 		var out []string
-		for _, m := range secretKeyLine.FindAllStringSubmatch(doc, -1) {
-			out = append(out, strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(m[2]), ":")))
+		for _, m := range keyName.FindAllStringSubmatch(doc, -1) {
+			if IsSecretName(m[1]) {
+				out = append(out, "(unparsed) "+m[1])
+			}
 		}
 		return out
 	}
 	var out []string
+	for _, d := range docs {
+		eachSecret(d, func(path string, _ *yaml.Node) { out = append(out, path) })
+	}
+	return out
+}
+
+// Masked is what a redacted value shows as.
+const Masked = "<redacted>"
+
+// Unparsed is what RedactYAML stores for text that does not parse: nothing
+// of it is kept, since a secret in it cannot be located.
+const Unparsed = "<redacted: scenario YAML did not parse>"
+
+// keyName finds candidate key names in text that does not parse.
+var keyName = regexp.MustCompile(`["']?([A-Za-z0-9_-]+)["']?[ \t]*:`)
+
+// placeholder is an unexpanded ${VAR} reference, which is no secret.
+var placeholder = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}$`)
+
+// RedactYAML masks every secret in a YAML document (eachSecret) and
+// re-encodes it, comments kept. An anchored secret is masked at its
+// anchor, so every alias to it reads as masked. Text that does not parse
+// is replaced whole by Unparsed.
+func RedactYAML(doc string) string {
+	if strings.TrimSpace(doc) == "" {
+		return doc
+	}
+	docs, err := parseYAML(doc)
+	if err != nil {
+		return Unparsed
+	}
+	for _, d := range docs {
+		eachSecret(d, func(_ string, v *yaml.Node) {
+			*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: Masked, Anchor: v.Anchor,
+				HeadComment: v.HeadComment, LineComment: v.LineComment, FootComment: v.FootComment}
+		})
+	}
+	var b strings.Builder
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	for _, d := range docs {
+		if err := enc.Encode(d); err != nil {
+			return Unparsed
+		}
+	}
+	if err := enc.Close(); err != nil {
+		return Unparsed
+	}
+	return b.String()
+}
+
+// parseYAML parses every document in doc.
+func parseYAML(doc string) ([]*yaml.Node, error) {
+	dec := yaml.NewDecoder(strings.NewReader(doc))
+	var out []*yaml.Node
+	for {
+		var n yaml.Node
+		err := dec.Decode(&n)
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, &n)
+	}
+}
+
+// maxAliasDepth bounds alias resolution.
+const maxAliasDepth = 16
+
+// resolve follows an alias to the node its anchor names.
+func resolve(n *yaml.Node) *yaml.Node {
+	for i := 0; n != nil && n.Kind == yaml.AliasNode && i < maxAliasDepth; i++ {
+		n = n.Alias
+	}
+	return n
+}
+
+// eachSecret calls fn with the path and value node of every secret in a
+// parsed document: the value of a secret-named key (IsSecretName), in any
+// style (plain, quoted, block | and >, flow), with an alias resolved to its
+// anchor's node, so fn gets the node that holds the secret. A scalar that
+// is empty, null or a lone ${VAR} placeholder is no secret; a mapping or
+// list under a secret-named key is a secret as a whole. Aliases are not
+// descended into elsewhere: their anchors are visited where they are
+// defined.
+func eachSecret(root *yaml.Node, fn func(path string, value *yaml.Node)) {
 	var visit func(n *yaml.Node, path string)
 	visit = func(n *yaml.Node, path string) {
 		switch n.Kind {
@@ -142,36 +233,33 @@ func YAMLSecrets(doc string) []string {
 			}
 		case yaml.MappingNode:
 			for i := 0; i+1 < len(n.Content); i += 2 {
-				k, v := n.Content[i], n.Content[i+1]
+				k, v := resolve(n.Content[i]), n.Content[i+1]
+				if k == nil {
+					continue
+				}
 				p := k.Value
 				if path != "" {
 					p = path + "." + k.Value
 				}
-				if IsSecretName(k.Value) && v.Kind == yaml.ScalarNode && v.Value != "" && !strings.HasPrefix(v.Value, "${") {
-					out = append(out, p)
+				if IsSecretName(k.Value) {
+					if rv := resolve(v); rv != nil && secretValue(rv) {
+						fn(p, rv)
+						continue
+					}
 				}
 				visit(v, p)
 			}
 		}
 	}
-	visit(&root, "")
-	return out
+	visit(root, "")
 }
 
-// Masked is what a redacted value shows as.
-const Masked = "<redacted>"
-
-// secretKeyLine matches a secret key's value in YAML text, in block style
-// (`ki: …`, `- token: …`) or flow style (`{ ki: …, opc: … }`), capturing the
-// key so only the value is replaced. Deliberately broad: over-masking a
-// value that merely looks like a key costs nothing, while under-masking
-// persists a secret.
-var secretKeyLine = regexp.MustCompile(`(?mi)((?:^|[\s{,\-])((?:ki|opc|k|key|secret|token|password|[a-z_]*_token|[a-z_]*_key|[a-z_]*_password|[a-z_]*_secret)\s*:)[ \t]*)([^\s,}\]#][^,}\]\n]*)`)
-
-// RedactYAML masks every secret key's value in a YAML document's text.
-func RedactYAML(doc string) string {
-	if doc == "" {
-		return ""
+func secretValue(n *yaml.Node) bool {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		return n.Value != "" && n.Tag != "!!null" && !placeholder.MatchString(n.Value)
+	case yaml.MappingNode, yaml.SequenceNode:
+		return len(n.Content) > 0
 	}
-	return secretKeyLine.ReplaceAllString(doc, "${1}"+Masked)
+	return false
 }

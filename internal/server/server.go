@@ -16,8 +16,6 @@ import (
 	"github.com/free5gc/ngap/ngapType"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
@@ -53,14 +51,12 @@ type Options struct {
 	// require ("" = none). /healthz and the dashboard's static files stay
 	// open.
 	Token string
-	// TLS says the handler is served over TLS, where HTTP/2 comes from
-	// ALPN; without it the handler speaks h2c for plaintext gRPC clients.
-	TLS bool
 }
 
-// New builds the ORBIT HTTP handler. Served plaintext (opts.TLS false), it
-// wraps the mux in h2c so gRPC clients connect without TLS; `orbit serve`
-// allows plaintext only on loopback unless --insecure-listen (ADR-0008 §4).
+// New builds the ORBIT HTTP handler. The http.Server serving it enables
+// unencrypted HTTP/2 when plaintext (cli's newHTTPServer), so gRPC clients
+// connect without TLS; `orbit serve` allows plaintext only on loopback
+// unless --insecure-listen (ADR-0008 §4).
 // Every procedure refuses subscriber keys and tokens over plaintext from a
 // non-loopback peer, and opts.Token, when set, guards the API.
 func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Options) http.Handler {
@@ -121,11 +117,7 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 	if !webui.Available() {
 		log.Warn("dashboard assets not embedded; run `make ui` to build them")
 	}
-	h := sec.middleware(mux)
-	if opts.TLS {
-		return h
-	}
-	return h2c.NewHandler(h, &http2.Server{})
+	return sec.middleware(mux)
 }
 
 type systemService struct {

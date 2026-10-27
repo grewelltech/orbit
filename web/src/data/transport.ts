@@ -49,22 +49,36 @@ export function saveToken(token: string, store: TokenStore | undefined = browser
   }
 }
 
-/** Fires when the server refuses a call for a missing or wrong token. */
-export const authRequired = new Emitter<void>();
+/**
+ * Why the server refused a call: no token was sent, the one sent is wrong,
+ * or this address sent too many wrong ones and must wait (the right token
+ * still passes).
+ */
+export type AuthRefusal = "missing" | "invalid" | "locked";
 
-function refused(err: unknown): boolean {
-  return ConnectError.from(err).code === Code.Unauthenticated;
+/** Fires when the server refuses a call for its token. */
+export const authRequired = new Emitter<AuthRefusal>();
+
+function refusal(err: unknown, sent: boolean): AuthRefusal | null {
+  const code = ConnectError.from(err).code;
+  if (code === Code.ResourceExhausted) return "locked"; // only the auth layer answers this
+  if (code === Code.Unauthenticated) return sent ? "invalid" : "missing";
+  return null;
 }
 
 /**
- * The interceptor: sets Authorization from the token getter, and reports an
- * Unauthenticated refusal to onRefused — whether it arrives as the response
+ * The interceptor: sets Authorization from the token getter, and reports a
+ * refusal for the token to onRefused — whether it arrives as the response
  * (unary, or a stream refused before it starts) or from inside a stream.
  */
-export function authInterceptor(token: () => string, onRefused: () => void): Interceptor {
+export function authInterceptor(token: () => string, onRefused: (why: AuthRefusal) => void): Interceptor {
   return (next) => async (req) => {
     const t = token();
     if (t) req.header.set("Authorization", `Bearer ${t}`);
+    const report = (err: unknown) => {
+      const why = refusal(err, t !== "");
+      if (why) onRefused(why);
+    };
     try {
       const res = await next(req);
       if (!res.stream) return res;
@@ -75,13 +89,13 @@ export function authInterceptor(token: () => string, onRefused: () => void): Int
           try {
             yield* messages;
           } catch (err) {
-            if (refused(err)) onRefused();
+            report(err);
             throw err;
           }
         })(),
       };
     } catch (err) {
-      if (refused(err)) onRefused();
+      report(err);
       throw err;
     }
   };
@@ -91,6 +105,6 @@ export function authInterceptor(token: () => string, onRefused: () => void): Int
 export function orbitTransport(baseUrl?: string): Transport {
   return createConnectTransport({
     baseUrl: baseUrl ?? window.location.origin,
-    interceptors: [authInterceptor(() => loadToken(), () => authRequired.emit())],
+    interceptors: [authInterceptor(() => loadToken(), (why) => authRequired.emit(why))],
   });
 }

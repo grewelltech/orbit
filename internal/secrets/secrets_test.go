@@ -1,12 +1,17 @@
 package secrets
 
 import (
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
+
+	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 )
@@ -77,19 +82,40 @@ func TestFind(t *testing.T) {
 	}
 }
 
+// shapes are YAML documents holding the secret KEYVAL under a secret key,
+// in each style the reviewer found the text redactor missing.
+var shapes = []struct {
+	name, doc string
+	want      []string
+}{
+	{name: "block", doc: "credentials:\n  ki: KEYVAL\n  opc: KEYVAL2\n", want: []string{"credentials.ki", "credentials.opc"}},
+	{name: "flow map", doc: "credentials: { ki: KEYVAL, opc: KEYVAL2 }\n", want: []string{"credentials.ki", "credentials.opc"}},
+	{name: "flow list of maps", doc: "mix: [{ token: KEYVAL, app: http }]\n", want: []string{"mix.token"}},
+	{name: "a list item's first key", doc: "mix:\n  - token: KEYVAL\n    app: http\n", want: []string{"mix.token"}},
+	{name: "a *_token key", doc: "loom_token: KEYVAL\n", want: []string{"loom_token"}},
+	{name: "literal block scalar", doc: "credentials:\n  ki: |\n    KEYVAL\n  supi: imsi-001\n", want: []string{"credentials.ki"}},
+	{name: "folded block scalar", doc: "credentials:\n  ki: >-\n    KEYVAL\n    KEYVAL2\n", want: []string{"credentials.ki"}},
+	{name: "double quoted with a comma and braces", doc: "loom:\n  token: \"KEYVAL,{x}]KEYVAL2\"\n", want: []string{"loom.token"}},
+	{name: "single quoted with a comma", doc: "password: 'KEYVAL, KEYVAL2'\n", want: []string{"password"}},
+	{name: "quoted in a flow map", doc: "credentials: {ki: \"KEYVAL,}\", opc: 'KEYVAL2'}\n", want: []string{"credentials.ki", "credentials.opc"}},
+	{name: "an alias to an anchored key", doc: "shared: &k KEYVAL\ncredentials: {ki: *k}\n", want: []string{"credentials.ki"}},
+	{name: "an anchored secret, aliased elsewhere", doc: "credentials:\n  ki: &k KEYVAL\nother: *k\n", want: []string{"credentials.ki"}},
+	{name: "a merge key", doc: "base: &c {ki: KEYVAL}\ncredentials:\n  <<: *c\n", want: []string{"base.ki"}},
+	{name: "a list under a secret key", doc: "token: [KEYVAL, KEYVAL2]\n", want: []string{"token"}},
+	{name: "a second document", doc: "kind: fleet\n---\ncredentials:\n  ki: KEYVAL\n", want: []string{"credentials.ki"}},
+}
+
 func TestYAMLSecrets(t *testing.T) {
-	tests := []struct {
+	tests := append([]struct {
 		name, doc string
 		want      []string
 	}{
-		{name: "block", doc: "credentials:\n  ki: abc\n  opc: def\n", want: []string{"credentials.ki", "credentials.opc"}},
-		{name: "flow", doc: "credentials: { ki: abc, opc: def }\n", want: []string{"credentials.ki", "credentials.opc"}},
-		{name: "a list item's first key", doc: "mix:\n  - token: abc\n    app: http\n", want: []string{"mix.token"}},
-		{name: "a *_token key", doc: "loom_token: abc\n", want: []string{"loom_token"}},
-		{name: "placeholders and empties", doc: "ki: ${ORBIT_KI}\nopc: \"\"\ntoken:\n"},
+		{name: "placeholders, empties and nulls", doc: "ki: ${ORBIT_KI}\nopc: \"${ORBIT_OPC}\"\ntoken:\npassword: ~\nsecret: \"\"\n"},
+		{name: "a placeholder with more after it is a secret", doc: "ki: ${ORBIT_KI}00\n", want: []string{"ki"}},
 		{name: "a fleet's echo target is no secret", doc: "behaviors:\n  latency: { target: 192.0.2.30 }\n"},
-		{name: "unparsable falls back to the pattern", doc: "credentials: { ki: abc\n  token: x: y: [\n", want: []string{"ki", "token"}},
-	}
+		{name: "unparsable fails closed on any secret-like key", doc: "credentials: { ki: abc\n  \"token\": x: y: [\n", want: []string{"(unparsed) ki", "(unparsed) token"}},
+		{name: "unparsable without one", doc: "name: x: y: [\n"},
+	}, shapes...)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := YAMLSecrets(tc.doc)
@@ -100,17 +126,144 @@ func TestYAMLSecrets(t *testing.T) {
 	}
 }
 
-// RedactYAML masks secret values in block, list-item and flow style, and
-// leaves other text alone.
-func TestRedactYAML(t *testing.T) {
-	doc := "credentials:\n  ki: aaaa\n  opc: bbbb\nflow: { ki: cccc, opc: dddd }\nmix:\n  - token: eeee\n    app: http\nloom_token: ffff\ntrack: keepme\nname: keepme\n"
-	got := RedactYAML(doc)
-	for _, s := range []string{"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"} {
-		if strings.Contains(got, s) {
-			t.Errorf("%q survived redaction:\n%s", s, got)
+// scalars returns every scalar value in a document.
+func scalars(t *testing.T, doc string) []string {
+	t.Helper()
+	docs, err := parseYAML(doc)
+	if err != nil {
+		t.Fatalf("redacted output does not parse: %v\n%s", err, doc)
+	}
+	var out []string
+	var visit func(n *yaml.Node)
+	visit = func(n *yaml.Node) {
+		if n.Kind == yaml.ScalarNode {
+			out = append(out, n.Value)
+		}
+		for _, c := range n.Content {
+			visit(c)
 		}
 	}
-	if strings.Count(got, "keepme") != 2 || strings.Count(got, Masked) != 6 {
-		t.Errorf("redaction over- or under-masked:\n%s", got)
+	for _, d := range docs {
+		visit(d)
 	}
+	return out
+}
+
+// RedactYAML masks the secret in every shape, at its anchor when aliased,
+// and the result still parses.
+func TestRedactYAML(t *testing.T) {
+	for _, tc := range shapes {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RedactYAML(tc.doc)
+			if strings.Contains(got, "KEYVAL") {
+				t.Errorf("the key survived redaction:\n%s", got)
+			}
+			for _, v := range scalars(t, got) {
+				if strings.Contains(v, "KEYVAL") {
+					t.Errorf("a scalar still holds the key: %q", v)
+				}
+			}
+			if YAMLSecrets(got) != nil && !strings.Contains(got, Masked) {
+				t.Errorf("nothing was masked:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestRedactYAMLKeepsTheRest(t *testing.T) {
+	doc := "# nightly fleet\nkind: fleet\ncredentials:\n  ki: aaaa # the lab key\n  supi: imsi-001010000000001\nshared: &k bbbb\nloom: {token: *k, agent: 192.0.2.30:9551}\nplaceholder: ${ORBIT_OPC}\nopc: ${ORBIT_OPC}\n"
+	got := RedactYAML(doc)
+	for _, keep := range []string{"# nightly fleet", "kind: fleet", "imsi-001010000000001", "192.0.2.30:9551", "# the lab key", "opc: ${ORBIT_OPC}"} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("redaction removed %q:\n%s", keep, got)
+		}
+	}
+	for _, secret := range []string{"aaaa", "bbbb"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("%q survived:\n%s", secret, got)
+		}
+	}
+	// The alias to the masked anchor stays an alias, so the structure holds.
+	if !strings.Contains(got, "*k") {
+		t.Errorf("the alias was lost:\n%s", got)
+	}
+}
+
+func TestRedactYAMLUnparsable(t *testing.T) {
+	for _, doc := range []string{"credentials: { ki: abc\n", "ki: \"unterminated\n", "\t- : :\n  ki: x"} {
+		if got := RedactYAML(doc); got != Unparsed {
+			t.Errorf("RedactYAML(%q) = %q, want %q", doc, got, Unparsed)
+		}
+	}
+	if got := RedactYAML(""); got != "" {
+		t.Errorf("RedactYAML(\"\") = %q", got)
+	}
+}
+
+// FuzzRedactYAML: a key value placed in any of the shapes never survives
+// RedactYAML, in the text or in any scalar of the re-parsed result.
+func FuzzRedactYAML(f *testing.F) {
+	for _, seed := range []string{"00112233445566778899aabbccddeeff", "a,b}c]d", "line1\nline2", "'quoted'\"x\"", "  padded  ", "#hash", "&anchor *alias"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, key string) {
+		if len(strings.TrimSpace(key)) < 4 || !utf8.ValidString(key) {
+			t.Skip()
+		}
+		// The value is embedded as a JSON string, which is valid
+		// double-quoted YAML for any input; the other shapes take it as is
+		// and are kept only when they parse back to exactly the key.
+		q, err := json.Marshal(key)
+		if err != nil {
+			t.Skip()
+		}
+		docs := []string{
+			"credentials:\n  ki: " + string(q) + "\n",
+			"credentials: {ki: " + string(q) + ", supi: imsi-001}\n",
+			"shared: &k " + string(q) + "\ncredentials: {ki: *k}\n",
+			"token: " + key + "\n",
+			"credentials:\n  opc: |\n    " + key + "\n",
+			"loom: {token: '" + key + "'}\n",
+		}
+		for _, doc := range docs {
+			var probe yaml.Node
+			if yaml.Unmarshal([]byte(doc), &probe) != nil || !strings.Contains(fmt.Sprint(scalarsOf(&probe)), key) {
+				continue
+			}
+			if strings.Contains(strings.Join(scalarsOf(&probe), "\x00"), Masked) {
+				continue
+			}
+			got := RedactYAML(doc)
+			if got == Unparsed {
+				continue
+			}
+			for _, v := range scalars(t, got) {
+				if strings.Contains(v, strings.TrimSpace(key)) && strings.TrimSpace(key) != "" && !strings.Contains(Masked, strings.TrimSpace(key)) && !inTemplate(strings.TrimSpace(key)) {
+					t.Fatalf("key %q survived in scalar %q of\n%s", key, v, got)
+				}
+			}
+		}
+	})
+}
+
+func scalarsOf(n *yaml.Node) []string {
+	var out []string
+	if n.Kind == yaml.ScalarNode {
+		out = append(out, n.Value)
+	}
+	for _, c := range n.Content {
+		out = append(out, scalarsOf(c)...)
+	}
+	return out
+}
+
+// inTemplate reports whether s occurs in the fuzz documents' own text, so
+// finding it after redaction is no leak.
+func inTemplate(s string) bool {
+	for _, t := range []string{"credentials", "imsi-001", "shared", "token", "loom", "supi", "opc", "ki"} {
+		if strings.Contains(t, s) {
+			return true
+		}
+	}
+	return false
 }

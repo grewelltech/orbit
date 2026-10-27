@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 )
 
@@ -63,12 +65,19 @@ loom:
 	}
 }
 
-func TestRedactSecretsPreservesIndentation(t *testing.T) {
-	// YAML is whitespace-significant; a redactor that reflows it produces a
-	// document that no longer parses.
-	got := redactSecretsInYAML("credentials:\n    ki: abc\n")
-	if !strings.Contains(got, "    ki: ") {
-		t.Errorf("indentation lost: %q", got)
+func TestRedactedScenarioStillParses(t *testing.T) {
+	// YAML is whitespace-significant; a redactor that breaks it produces a
+	// document that no longer parses. The redactor re-encodes the parsed
+	// document, so the result keeps its structure, not its indentation.
+	got := redactSecretsInYAML("credentials:\n    ki: abc\n    supi: imsi-001010000000001\n")
+	var m struct {
+		Credentials map[string]string `yaml:"credentials"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &m); err != nil {
+		t.Fatalf("redacted document does not parse: %v\n%s", err, got)
+	}
+	if m.Credentials["ki"] != redacted || m.Credentials["supi"] != "imsi-001010000000001" {
+		t.Errorf("redacted document = %+v, want ki masked and supi kept", m.Credentials)
 	}
 }
 

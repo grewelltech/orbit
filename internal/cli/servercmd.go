@@ -77,13 +77,14 @@ func newServerTrustCmd() *cobra.Command {
 			default:
 				return fmt.Errorf("no terminal to confirm on: compare the fingerprint above with the one orbit serve logged, then pass --fingerprint %s", got)
 			}
-			token := ""
+			token, source := "", "none"
 			if tokenFile != "" {
 				if token, err = readTokenFile(tokenFile); err != nil {
 					return err
 				}
+				source = "from --token-file " + tokenFile
 			} else if v := strings.TrimSpace(os.Getenv("ORBIT_TOKEN")); v != "" {
-				token = v
+				token, source = v, "from $ORBIT_TOKEN"
 			}
 			path, err := serversPath()
 			if err != nil {
@@ -94,15 +95,16 @@ func newServerTrustCmd() *cobra.Command {
 				return err
 			}
 			entry := serverEntry{URL: args[0], Pin: got, Token: token}
-			if old, ok := f.lookup(args[0]); ok && token == "" {
+			if old, ok := f.lookup(args[0]); ok && token == "" && old.Token != "" {
 				entry.Token = old.Token // re-pinning keeps the token
+				source = "kept from the previous pin"
 			}
 			f = f.without(args[0])
 			f.Servers = append(f.Servers, entry)
 			if err := writeServers(path, f); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(out, "trusted %s (pinned in %s)\n", args[0], shortPath(path))
+			_, _ = fmt.Fprintf(out, "trusted %s (pinned in %s); token: %s\n", args[0], shortPath(path), source)
 			return nil
 		},
 	}
