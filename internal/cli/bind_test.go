@@ -173,7 +173,7 @@ func TestLoadBindCountValidation(t *testing.T) {
 			var out bytes.Buffer
 			root.SetOut(&out)
 			root.SetErr(&out)
-			args := append([]string{"load", "--amf", "127.0.0.1:1", "--base-imsi", "208930100000000",
+			args := append([]string{"load", "--local", "--amf", "127.0.0.1:1", "--base-imsi", "208930100000000",
 				"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f",
 				"--mcc", "208", "--mnc", "93", "--gnb-count", tc.gnbCount, "--progress-every", "0"}, tc.binds...)
 			root.SetArgs(args)
@@ -305,7 +305,7 @@ func TestLoadUnboundSharedSourceNote(t *testing.T) {
 			var out, errOut bytes.Buffer
 			root.SetOut(&out)
 			root.SetErr(&errOut)
-			root.SetArgs([]string{"load", "--amf", "127.0.0.1:1", "--base-imsi", "208930100000000",
+			root.SetArgs([]string{"load", "--local", "--amf", "127.0.0.1:1", "--base-imsi", "208930100000000",
 				"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f",
 				"--mcc", "208", "--mnc", "93", "--gnb-count", tc.gnbCount, "--count", "1", "--progress-every", "0"})
 			if err := root.Execute(); err == nil {
@@ -335,7 +335,7 @@ func TestConformanceBindRejectsFixedPort(t *testing.T) {
 			var out bytes.Buffer
 			root.SetOut(&out)
 			root.SetErr(&out)
-			root.SetArgs([]string{"conformance", "--amf", "127.0.0.1:1", "--bind", tc.bind, "--per-test-timeout", "1s"})
+			root.SetArgs([]string{"conformance", "--local", "--amf", "127.0.0.1:1", "--bind", tc.bind, "--per-test-timeout", "1s"})
 			err := root.Execute()
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) || !strings.HasPrefix(err.Error(), "--bind:") {
 				t.Fatalf("err = %v, want --bind: ... %q", err, tc.wantErr)

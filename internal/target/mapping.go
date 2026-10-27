@@ -152,7 +152,9 @@ var Exclusions = []Exclusion{
 	{Flag: "from-seq", Reason: ReasonOutput},
 	{Flag: "wait", Reason: ReasonOutput}, // follow the run to its end and exit with its result
 	{Flag: "finish", Commands: []string{"orbit runs stop"}, Reason: ReasonOperation},
-	{Flag: "detach", Commands: []string{"orbit run"}, Reason: ReasonOutput}, // start, print the run ID, return
+	{Flag: "detach", Commands: []string{"orbit run", cmdLoad, cmdConformance}, Reason: ReasonOutput}, // start, print the run ID, return
+	// --local runs in this process instead of on the server.
+	{Flag: "local", Commands: []string{"orbit run", cmdLoad, cmdConformance}, Reason: ReasonConnection},
 	{Flag: "list", Commands: []string{cmdTest}, Reason: ReasonOutput},
 	{Flag: "gate", Reason: ReasonFieldSetter},
 	{Flag: "set", Commands: []string{"orbit run", cmdTest}, Reason: ReasonFieldSetter},
@@ -375,6 +377,46 @@ func FlagInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 			val = uint64(max(d, 0).Milliseconds())
 		}
 		in.Settings = append(in.Settings, Setting{Path: b.Path, Value: val, Source: src})
+	})
+	if err != nil {
+		return Input{}, err
+	}
+	return in, nil
+}
+
+// DefaultsInput is command cmd's own flag defaults as a default layer:
+// each bound flag the user did not set whose default says something (not
+// empty, zero or false), so a run built from the layers (a thin client's
+// plan) does what the command did with the flag left alone, where no
+// target or environment says otherwise.
+func DefaultsInput(cmd string, fs *pflag.FlagSet) (Input, error) {
+	in := Input{Layer: LayerDefault}
+	var err error
+	fs.VisitAll(func(f *pflag.Flag) {
+		if err != nil || f.Changed || f.Deprecated != "" {
+			return
+		}
+		switch f.DefValue {
+		case "", "0", "false", "[]", "0s":
+			return
+		}
+		b, ok := FlagBinding(cmd, f.Name)
+		if !ok {
+			return
+		}
+		if _, isSlice := f.Value.(pflag.SliceValue); isSlice {
+			return // no bound list flag has a default
+		}
+		val := any(f.DefValue)
+		if f.Value.Type() == "duration" && strings.HasSuffix(b.Path, "_ms") {
+			d, perr := time.ParseDuration(f.DefValue)
+			if perr != nil {
+				err = fmt.Errorf("--%s default %q is not a duration", f.Name, f.DefValue)
+				return
+			}
+			val = uint64(max(d, 0).Milliseconds())
+		}
+		in.Settings = append(in.Settings, Setting{Path: b.Path, Value: val, Source: Source{Name: "--" + f.Name + " default"}})
 	})
 	if err != nil {
 		return Input{}, err

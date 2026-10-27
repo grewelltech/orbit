@@ -346,7 +346,7 @@ func TestConformancePassesIdentityThrough(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--tac", "7", "--sst", "2", "--sd", "abcdef",
+	root.SetArgs([]string{"conformance", "--local", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--tac", "7", "--sst", "2", "--sd", "abcdef",
 		"--json", "--per-test-timeout", "1s", "--category", "procedural"})
 	_ = root.Execute() // the AMF is unroutable, so the gate fails; the summary is still printed
 	var sum struct {
@@ -369,7 +369,7 @@ func TestConformanceRequiresPLMN(t *testing.T) {
 	t.Setenv("ORBIT_MNC", "")
 	root := New("test")
 	root.SetOut(&bytes.Buffer{})
-	root.SetArgs([]string{"conformance", "--amf", "127.0.0.1:1", "--per-test-timeout", "1s"})
+	root.SetArgs([]string{"conformance", "--local", "--amf", "127.0.0.1:1", "--per-test-timeout", "1s"})
 	err := root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "$ORBIT_MCC/$ORBIT_MNC") {
 		t.Fatalf("err = %v, want the PLMN-required message", err)

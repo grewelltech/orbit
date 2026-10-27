@@ -14,7 +14,7 @@ func runConformance(t *testing.T, args ...string) (string, error) {
 	var out, errOut bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&errOut)
-	root.SetArgs(append([]string{"conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--per-test-timeout", "2s"}, args...))
+	root.SetArgs(append([]string{"conformance", "--local", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--per-test-timeout", "2s"}, args...))
 	err := root.Execute()
 	return out.String(), err
 }

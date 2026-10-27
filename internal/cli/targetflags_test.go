@@ -122,7 +122,7 @@ func clearOrbitEnv(t *testing.T) {
 // conformance with --target-release Rel-14 SKIPs every check without
 // dialling and prints the network it would present, so a target's values
 // can be read off the output.
-var skipAll = []string{"conformance", "--target-release", "Rel-14"}
+var skipAll = []string{"conformance", "--local", "--target-release", "Rel-14"}
 
 // -t fills every flag the target sets and the command binds, and a
 // required flag (--amf) is satisfied by the target.
@@ -146,8 +146,8 @@ func TestTargetFillsFlags(t *testing.T) {
 			t.Errorf("--%s = %q, want %q", name, got, v)
 		}
 	}
-	if r.err != "" {
-		t.Errorf("stderr without --explain: %q", r.err)
+	if stderr := strings.TrimPrefix(r.err, localDeprecated+"\n"); stderr != "" {
+		t.Errorf("stderr without --explain: %q", stderr)
 	}
 }
 
@@ -156,11 +156,11 @@ func TestTargetFillsFlags(t *testing.T) {
 func TestNoTargetChangesNothing(t *testing.T) {
 	clearOrbitEnv(t)
 	loc := targetDir(t, lab1)
-	r := runOrbit(t, loc, "conformance", "--target-release", "Rel-14", "--mcc", "001", "--mnc", "01")
+	r := runOrbit(t, loc, "conformance", "--local", "--target-release", "Rel-14", "--mcc", "001", "--mnc", "01")
 	if r.execErr == nil || !strings.Contains(r.execErr.Error(), `required flag(s) "amf" not set`) {
 		t.Fatalf("err = %v, want the required --amf error", r.execErr)
 	}
-	r = runOrbit(t, loc, "conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01")
+	r = runOrbit(t, loc, "conformance", "--local", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01")
 	if r.execErr != nil || r.flag(t, "tac") != "1" || r.flag(t, "bind") != "" {
 		t.Fatalf("err = %v, tac %s, bind %q", r.execErr, r.flag(t, "tac"), r.flag(t, "bind"))
 	}
@@ -360,7 +360,7 @@ func TestNGSetupLocalBeatsTarget(t *testing.T) {
 func TestNumericFlagsLeadingZero(t *testing.T) {
 	clearOrbitEnv(t)
 	loc := targetDir(t, lab1)
-	base := []string{"conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01"}
+	base := []string{"conformance", "--local", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01"}
 	tests := []struct {
 		args    []string
 		wantErr string
@@ -385,7 +385,7 @@ func TestNumericFlagsLeadingZero(t *testing.T) {
 			t.Errorf("%v: err = %v, want %q", tc.args, r.execErr, tc.wantErr)
 		}
 	}
-	r := runOrbit(t, loc, "load", "--count", "0010")
+	r := runOrbit(t, loc, "load", "--local", "--count", "0010")
 	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "0010 has a leading zero") {
 		t.Errorf("load --count 0010: %v", r.execErr)
 	}
@@ -479,7 +479,7 @@ ran:
 `
 	loc := targetDir(t, doc)
 
-	common := []string{"conformance", "--json", "--category", "procedural", "--per-test-timeout", "5s"}
+	common := []string{"conformance", "--local", "--json", "--category", "procedural", "--per-test-timeout", "5s"}
 	long := runOrbit(t, loc, append(common, "--amf", front.Addr, "--mcc", "208", "--mnc", "93", "--tac", "1",
 		"--sst", "1", "--sd", "010203", "--dnn", "internet", "--bind", "127.0.0.1", "--gnb-base", "100")...)
 	short := runOrbit(t, loc, append(common, "-t", "lab1")...)
@@ -655,7 +655,7 @@ func TestFlagsSharingAFieldFillEachOther(t *testing.T) {
 	// --explain alone only reports: with no target, a typed --n3-bind does
 	// not fill --gnb-n3.
 	clearOrbitEnv(t)
-	r := runOrbit(t, targetDir(t, lab1), "conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1",
+	r := runOrbit(t, targetDir(t, lab1), "conformance", "--local", "--target-release", "Rel-14", "--amf", "127.0.0.1:1",
 		"--mcc", "001", "--mnc", "01", "--n3-bind", "192.0.2.7:2152", "--explain")
 	if r.execErr != nil || r.flag(t, "gnb-n3") != "" {
 		t.Errorf("--explain without a target filled --gnb-n3 = %q (err %v)", r.flag(t, "gnb-n3"), r.execErr)
@@ -684,7 +684,7 @@ func TestLoadTargetRangePoolOnePerGNB(t *testing.T) {
 		t.Fatal(err)
 	}
 	front := sctpfront.Start(t, amf)
-	r := runOrbit(t, targetDir(t, loadTarget(front.Addr, "127.0.0.2-127.0.0.9")), "load", "-t", "lab1", "--count", "2", "--gnb-count", "2", "--explain")
+	r := runOrbit(t, targetDir(t, loadTarget(front.Addr, "127.0.0.2-127.0.0.9")), "load", "--local", "-t", "lab1", "--count", "2", "--gnb-count", "2", "--explain")
 	if r.execErr != nil {
 		t.Fatalf("load -t: %v\n%s\n%s", r.execErr, r.out, r.err)
 	}
@@ -775,7 +775,7 @@ func TestHostnameBind(t *testing.T) {
 func TestExplainChangesNothing(t *testing.T) {
 	clearOrbitEnv(t)
 	loc := targetDir(t, lab1)
-	conf := []string{"conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01"}
+	conf := []string{"conformance", "--local", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01"}
 	tests := []struct {
 		name string
 		args []string
@@ -788,7 +788,7 @@ func TestExplainChangesNothing(t *testing.T) {
 		{name: "register: empty bind", args: append(append([]string{}, ueRegisterArgs...), "--bind", "")},
 		{name: "conformance: host name binds", args: append(append([]string{}, conf...), "--bind", "localhost", "--n3-bind", "localhost:2152", "--upf-n3", "upf.example:2152")},
 		{name: "conformance: categories and timeout", args: append(append([]string{}, conf...), "--category", "nas,security", "--per-test-timeout", "1500ms")},
-		{name: "load: binds and counts", args: []string{"load", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--base-imsi", "001010000000001",
+		{name: "load: binds and counts", args: []string{"load", "--local", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--base-imsi", "001010000000001",
 			"--ki", testKi, "--opc", testOPc, "--bind", "localhost,127.0.0.2:0", "--gnb-count", "2", "--count", "1", "--rate", "2.5"}},
 		{name: "cell ngsetup: deprecated --local", args: []string{"--server", "http://127.0.0.1:1", "cell", "ngsetup", "--amf", "192.0.2.10:38412",
 			"--mcc", "001", "--mnc", "01", "--local", "localhost:0"}},
@@ -848,14 +848,14 @@ func TestLoneSDKeepsTargetSST(t *testing.T) {
 func TestNegativeDurationAccepted(t *testing.T) {
 	clearOrbitEnv(t)
 	loc := targetDir(t, lab1)
-	conf := []string{"conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--per-test-timeout=-1s"}
+	conf := []string{"conformance", "--local", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--per-test-timeout=-1s"}
 	for _, extra := range [][]string{nil, {"--explain"}, {"-t", "lab1", "--supi", ""}, {"-t", "lab1", "--supi", "", "--explain"}} {
 		r := runOrbit(t, loc, append(append([]string{}, conf...), extra...)...)
 		if r.execErr != nil {
 			t.Errorf("--per-test-timeout=-1s %v: %v", extra, r.execErr)
 		}
 	}
-	r := runOrbit(t, loc, "load", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--base-imsi", "001010000000001",
+	r := runOrbit(t, loc, "load", "--local", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--base-imsi", "001010000000001",
 		"--ki", testKi, "--opc", testOPc, "--count", "1", "--duration=-1s", "--explain")
 	if r.execErr != nil && strings.Contains(r.execErr.Error(), "duration") {
 		t.Errorf("load --duration=-1s --explain: %v", r.execErr)
