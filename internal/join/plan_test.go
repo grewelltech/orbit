@@ -40,6 +40,8 @@ type fakeHost struct {
 	probe string
 	// curlVersion is what `curl --version` says; "" = curl 7.88.1.
 	curlVersion string
+	// home is root's HOME (and CURL_HOME); "" = none set.
+	home string
 }
 
 // scriptServer is a real TLS server the script downloads from with the real
@@ -293,7 +295,7 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 			if cv == "" {
 				cv = "curl 7.88.1 (x86_64-pc-linux-gnu)"
 			}
-			fmt.Fprintf(&b, "'curl --version') echo %s; exit 0 ;;\n", shquote(cv))
+			fmt.Fprintf(&b, "'curl -q --version') echo %s; exit 0 ;;\n", shquote(cv))
 			// The heartbeat probe: the row's answer, as an HTTP code and headers.
 			code, hdr := h.probe, ""
 			if code == "removed" {
@@ -348,6 +350,9 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 	cmd := exec.Command(p, append(append(shell[1:], "-s", "--"), args...)...)
 	cmd.Stdin = strings.NewReader(string(script))
 	cmd.Env = []string{"TMPDIR=" + tmp}
+	if h.home != "" {
+		cmd.Env = append(cmd.Env, "HOME="+h.home, "CURL_HOME="+h.home, "XDG_CONFIG_HOME="+h.home)
+	}
 	cmd.Dir = dir
 	before := snapshot(t, root)
 	out, err := cmd.CombinedOutput()

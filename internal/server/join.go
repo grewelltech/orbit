@@ -127,7 +127,7 @@ func (j *joinService) CreateJoinToken(ctx context.Context, req *connect.Request[
 	j.log.Info("join token created", "id", tok.ID, "name", tok.Name, "expires", tok.Expires)
 	return connect.NewResponse(&orbitv1.CreateJoinTokenResponse{
 		Issued: joinTokenProto(tok), Secret: secret, Url: url, Pin: j.pin,
-		OneLiner: fmt.Sprintf("curl -fsS --proto '=https' -k --pinnedpubkey '%s' '%s' | sudo sh", curlPin, url),
+		OneLiner: fmt.Sprintf("curl -q -fsS --proto '=https' -k --pinnedpubkey '%s' '%s' | sudo sh", curlPin, url),
 	}), nil
 }
 

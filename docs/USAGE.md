@@ -404,7 +404,7 @@ token and prints that line:
 ```sh
 orbit join create -t lab1 --name app1
 # join token jt-… for responder app1, expires … (in 10m0s).
-curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/join/oj1_…' | sudo sh
+curl -q -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/join/oj1_…' | sudo sh
 ```
 
 - **Server needs TLS.** The script runs as root, so `orbit serve` offers join
@@ -432,7 +432,7 @@ curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/jo
   only if that worked:
 
   ```sh
-  curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh --yes
+  curl -q -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh --yes
   ```
 - **Limits.** The join endpoints take the token only as the exact path
   `/join/<token>` (or `/join/<token>/bin/<arch>`), unencoded. Anything else,
@@ -489,6 +489,18 @@ nothing about the host. On the app host it:
 3. after you confirm (or with `--yes`), runs it with `--yes`, through `sudo`
    unless you log in as root, with a terminal for sudo's password;
 4. removes the file, whether it succeeded, failed or you pressed Ctrl-C.
+
+The apply in step 3 checks the host again and prints its own plan before it
+changes anything, so if the host changed after the dry run, the plan you see
+there is the one applied. If no registration came of it (you declined, the
+plan or the apply failed, ssh failed, or you pressed Ctrl-C), the command
+revokes the unused token itself and says so; if that revoke fails, it prints
+the token ID to revoke by hand.
+
+Each remote command is one `sh -c '…'`, so the ssh user's login shell only
+has to pass a single-quoted argument to `sh`, which sh, bash, zsh, fish and
+csh all do. The script runs from a file the ssh user owns, as root: that
+gives nothing beyond the sudo the user already has.
 
 The target's UE pools, UPF and subnet are used as for `orbit join create`.
 

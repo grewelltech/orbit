@@ -104,9 +104,9 @@ func TestScriptHardening(t *testing.T) {
 		{name: "umask 077 before anything runs", before: "\tumask 077\n", after: "[ \"$(uname -s)\""},
 		{name: "main checks its call before anything runs", before: "[ \"$ORBIT_LAST\" = '--orbit-end-" + testNonce + "' ] ||", after: "[ \"$(uname -s)\""},
 		{name: "its own PATH before anything runs", before: "\tPATH='/usr/sbin:/usr/bin:/sbin:/bin'\n", after: "eval \"ORBIT_LAST"},
-		{name: "sha256sum required before the download", before: "command -v sha256sum >/dev/null 2>&1 || die", after: "curl -fsS"},
-		{name: "a private work directory before the download", before: "WORK=$(mktemp -d)", after: "curl -fsS"},
-		{name: "removed on exit", before: "trap 'rm -rf \"$WORK\"' EXIT", after: "curl -fsS"},
+		{name: "sha256sum required before the download", before: "command -v sha256sum >/dev/null 2>&1 || die", after: "curl -q -fsS"},
+		{name: "a private work directory before the download", before: "WORK=$(mktemp -d)", after: "curl -q -fsS"},
+		{name: "removed on exit", before: "trap 'rm -rf \"$WORK\"' EXIT", after: "curl -q -fsS"},
 		{name: "the check before chmod", before: "[ \"$GOT\" = \"$WANT\" ] || die", after: "chmod 0700"},
 		{name: "the check before running it", before: "[ \"$GOT\" = \"$WANT\" ] || die", after: "\"$WORK/orbit\" version"},
 		{name: "the binary first runs after the confirmation", before: "Apply %d changes? [y/N]", after: "\"$WORK/orbit\" version"},
@@ -297,6 +297,20 @@ func TestScriptRuns(t *testing.T) {
 		before := fetched
 		r := runHost(t, "dash", h, "--dry-run")
 		if r.err == nil || !strings.Contains(r.out, "sha256sum is required") || fetched != before {
+			t.Fatalf("err %v, %d fetches\n%s", r.err, fetched-before, r.out)
+		}
+	})
+	t.Run("root's curlrc is not read", func(t *testing.T) {
+		// A curlrc that would send every request to a dead proxy: read, it
+		// fails the download.
+		h := host()
+		h.home = t.TempDir()
+		if err := os.WriteFile(filepath.Join(h.home, ".curlrc"), []byte("proxy = \"http://127.0.0.1:9\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before := fetched
+		r := runHost(t, "dash", h, "--dry-run")
+		if r.err != nil || fetched != before+1 || !strings.Contains(r.out, "verified orbit") {
 			t.Fatalf("err %v, %d fetches\n%s", r.err, fetched-before, r.out)
 		}
 	})

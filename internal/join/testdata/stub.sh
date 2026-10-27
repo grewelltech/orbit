@@ -145,7 +145,8 @@ main() {
 	# The URL holds the token: curl reads it from a 0600 file in the work
 	# directory, never its argv (which ps shows to every user).
 	printf 'url = "%s"\n' "$ORBIT_SERVER/join/$ORBIT_TOKEN/bin/$ARCH" >"$WORK/fetch"
-	curl -fsS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/orbit" -K "$WORK/fetch" ||
+	# -q, first, keeps root's ~/.curlrc out of every curl here.
+	curl -q -fsS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/orbit" -K "$WORK/fetch" ||
 		die "downloading orbit for linux/$ARCH failed"
 	# Checked before anything else touches it. It is made executable and
 	# run (`orbit version`) only after the plan is confirmed: nothing
@@ -675,7 +676,7 @@ main() {
 		esac
 		# curl reads a header from a file (-H @file) from 7.55 on; an older
 		# one cannot ask without the credential on its argv, so it does not.
-		CV=$(curl --version 2>/dev/null | awk 'NR == 1 { print $2 }') || CV=''
+		CV=$(curl -q --version 2>/dev/null | awk 'NR == 1 { print $2 }') || CV=''
 		CMAJ=${CV%%.*} CMIN=${CV#*.}
 		CMIN=${CMIN%%.*}
 		if [ -z "$CRED" ]; then
@@ -685,7 +686,7 @@ main() {
 		else
 			# The credential reaches curl in a header file, never its argv.
 			printf 'Authorization: Responder %s\n' "$CRED" >"$WORK/auth"
-			CODE=$(curl -sS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/probe" -D "$WORK/probe.h" -w '%{http_code}' \
+			CODE=$(curl -q -sS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/probe" -D "$WORK/probe.h" -w '%{http_code}' \
 				-H 'Content-Type: application/json' -H "@$WORK/auth" --data '{"probe":true}' \
 				"$ORBIT_SERVER/orbit.v1.JoinService/Heartbeat" 2>/dev/null) || CODE=''
 			case $CODE in

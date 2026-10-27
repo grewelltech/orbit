@@ -38,6 +38,10 @@ func remoteSudo(path, args string) string {
 	return `if [ "$(id -u)" = 0 ]; then sh ` + shellQuote(path) + " " + args + "; else sudo sh " + shellQuote(path) + " " + args + "; fi"
 }
 
+// remoteSh is body as the one command ssh hands the login shell: sh -c and
+// body single-quoted, so a fish or csh login shell runs it under sh too.
+func remoteSh(body string) string { return "sh -c " + shellQuote(body) }
+
 // shellQuote is s as one single-quoted POSIX shell word.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
@@ -79,7 +83,8 @@ func newTargetAddResponderCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return errors.New("ssh is not on PATH: --ssh runs your own ssh client")
 			}
-			res, err := joinClient(serverURL).CreateJoinToken(cmd.Context(), connect.NewRequest(&orbitv1.CreateJoinTokenRequest{
+			client := joinClient(serverURL)
+			res, err := client.CreateJoinToken(cmd.Context(), connect.NewRequest(&orbitv1.CreateJoinTokenRequest{
 				Name: name, TtlSeconds: uint32(ttl / time.Second),
 				Spec: &orbitv1.JoinSpec{UePools: uePools, UpfN6: upfN6, N6Subnet: n6Subnet, ManagementAddress: mgmt},
 			}))
@@ -87,12 +92,21 @@ func newTargetAddResponderCmd(serverURL *string) *cobra.Command {
 				return err
 			}
 			tokenID := res.Msg.GetIssued().GetId()
+			// A token no registration used is revoked on the way out, a
+			// failure or a Ctrl-C included, rather than left live for its TTL.
+			applied := false
+			defer func() {
+				if !applied {
+					revokeUnused(client, tokenID, cmd.ErrOrStderr())
+				}
+			}()
 			script, err := fetchJoinScript(cmd.Context(), res.Msg.GetUrl(), res.Msg.GetPin())
 			if err != nil {
-				return fmt.Errorf("fetching the join script: %w; revoke the token with orbit join revoke %s", err, tokenID)
+				return fmt.Errorf("fetching the join script: %w", err)
 			}
 			s := &sshSession{ssh: sshPath, host: host, tty: interactive(in), out: cmd.OutOrStdout(), errOut: cmd.ErrOrStderr()}
-			return s.run(cmd.Context(), script, yes, in, tokenID)
+			applied, err = s.run(cmd.Context(), script, yes, in)
+			return err
 		},
 	}
 	f := cmd.Flags()
@@ -106,6 +120,38 @@ func newTargetAddResponderCmd(serverURL *string) *cobra.Command {
 	f.BoolVar(&yes, "yes", false, "apply without asking here (required without a terminal)")
 	_ = cmd.MarkFlagRequired("ssh")
 	return cmd
+}
+
+// joinTokenRevoker is the part of JoinService revokeUnused uses.
+type joinTokenRevoker interface {
+	ListJoinTokens(context.Context, *connect.Request[orbitv1.ListJoinTokensRequest]) (*connect.Response[orbitv1.ListJoinTokensResponse], error)
+	RevokeJoinToken(context.Context, *connect.Request[orbitv1.RevokeJoinTokenRequest]) (*connect.Response[orbitv1.RevokeJoinTokenResponse], error)
+}
+
+// revokeUnused revokes join token id if it is still pending, best effort,
+// on a context of its own: the command's may be cancelled. A token a
+// registration used (an apply that registered, then failed) is not pending
+// and is left alone. A failure is told, with the ID, and changes nothing
+// else: the error that brought us here is the one returned.
+func revokeUnused(client joinTokenRevoker, id string, errOut io.Writer) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	list, err := client.ListJoinTokens(ctx, connect.NewRequest(&orbitv1.ListJoinTokensRequest{}))
+	if err == nil {
+		pending := false
+		for _, t := range list.Msg.GetTokens() {
+			pending = pending || t.GetId() == id
+		}
+		if !pending {
+			return
+		}
+		_, err = client.RevokeJoinToken(ctx, connect.NewRequest(&orbitv1.RevokeJoinTokenRequest{Id: id}))
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "orbit: could not revoke the unused join token %s: %v; revoke it with orbit join revoke %s\n", id, err, id)
+		return
+	}
+	_, _ = fmt.Fprintf(errOut, "orbit: revoked the unused join token %s\n", id)
 }
 
 // fetchJoinScript fetches the join script from url, pinned to the server's
@@ -157,31 +203,32 @@ func (s *sshSession) remote(ctx context.Context, tty bool, command string, stdin
 
 // run is the whole exchange: a private file, the script copied into it on
 // stdin, its plan shown, the confirmation here, the apply. The file goes
-// on every path, a failure or a Ctrl-C included.
-func (s *sshSession) run(parent context.Context, script []byte, yes bool, in io.Reader, tokenID string) error {
+// on every path, a failure or a Ctrl-C included. applied is whether the
+// apply ran to success.
+func (s *sshSession) run(parent context.Context, script []byte, yes bool, in io.Reader) (applied bool, err error) {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var out bytes.Buffer
-	if err := s.remote(ctx, false, "umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX", nil, &out); err != nil {
-		return fmt.Errorf("ssh %s: mktemp: %w; revoke the unused token with orbit join revoke %s", s.host, err, tokenID)
+	if err := s.remote(ctx, false, remoteSh("umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX"), nil, &out); err != nil {
+		return false, fmt.Errorf("ssh %s: mktemp: %w", s.host, err)
 	}
 	path := strings.TrimSpace(out.String())
 	if !remotePathRE.MatchString(path) {
-		return fmt.Errorf("ssh %s: mktemp answered %q, not a /tmp/orbit-join.* path; revoke the unused token with orbit join revoke %s", s.host, path, tokenID)
+		return false, fmt.Errorf("ssh %s: mktemp answered %q, not a /tmp/orbit-join.* path", s.host, path)
 	}
 	defer func() {
 		// One more ssh, on a context of its own: the run's may be cancelled.
 		cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := s.remote(cctx, false, "rm -f "+shellQuote(path), nil, io.Discard); err != nil {
+		if err := s.remote(cctx, false, remoteSh("rm -f "+shellQuote(path)), nil, io.Discard); err != nil {
 			_, _ = fmt.Fprintf(s.errOut, "orbit: could not remove %s on %s: %v; remove it by hand\n", path, s.host, err)
 		}
 	}()
-	if err := s.remote(ctx, false, "cat > "+shellQuote(path), bytes.NewReader(script), io.Discard); err != nil {
-		return fmt.Errorf("ssh %s: copying the script: %w", s.host, err)
+	if err := s.remote(ctx, false, remoteSh("cat > "+shellQuote(path)), bytes.NewReader(script), io.Discard); err != nil {
+		return false, fmt.Errorf("ssh %s: copying the script: %w", s.host, err)
 	}
-	if err := s.remote(ctx, s.tty, remoteSudo(path, "--dry-run"), nil, s.out); err != nil {
-		return fmt.Errorf("ssh %s: the plan (--dry-run) failed: %w", s.host, err)
+	if err := s.remote(ctx, s.tty, remoteSh(remoteSudo(path, "--dry-run")), nil, s.out); err != nil {
+		return false, fmt.Errorf("ssh %s: the plan (--dry-run) failed: %w", s.host, err)
 	}
 	if !yes {
 		_, _ = fmt.Fprintf(s.errOut, "Apply this plan on %s? [y/N] ", s.host)
@@ -189,13 +236,15 @@ func (s *sshSession) run(parent context.Context, script []byte, yes bool, in io.
 		switch strings.TrimSpace(ans) {
 		case "y", "Y", "yes", "YES":
 		default:
-			_, _ = fmt.Fprintf(s.errOut, "not applied: nothing on %s was changed; revoke the unused token with orbit join revoke %s\n", s.host, tokenID)
-			return nil
+			_, _ = fmt.Fprintf(s.errOut, "not applied: nothing on %s was changed\n", s.host)
+			return false, nil
 		}
 	}
+	// The apply plans again on the host and prints that plan before it
+	// changes anything.
 	apply := remoteSudo(path, "--yes") + "; rc=$?; rm -f " + shellQuote(path) + "; exit $rc"
-	if err := s.remote(ctx, s.tty, apply, nil, s.out); err != nil {
-		return fmt.Errorf("ssh %s: the join script failed: %w", s.host, err)
+	if err := s.remote(ctx, s.tty, remoteSh(apply), nil, s.out); err != nil {
+		return false, fmt.Errorf("ssh %s: the join script failed: %w", s.host, err)
 	}
-	return nil
+	return true, nil
 }
