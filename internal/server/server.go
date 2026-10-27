@@ -37,9 +37,9 @@ type Options struct {
 	// per-call values override them.
 	LoomAgent, LoomToken string
 	// Responders are the responders registered by join (ADR-0009 §3), as
-	// orbit serve opened them from StateDir, refusing to start on a file it
-	// cannot read. Nil opens StateDir's here, and New panics on one it
-	// cannot read: starting empty would orphan every registered app host.
+	// orbit serve loaded them from StateDir, refusing to start on a file it
+	// cannot read. New never reads that file: it needs Responders whenever
+	// StateDir is set; with neither, responders are kept in memory.
 	Responders *join.Registry
 	// RunHistory bounds how many terminal runs the registry retains (0 = the
 	// engine default). It bounds the on-disk archive equally, so the two do
@@ -74,6 +74,9 @@ type Options struct {
 // unless --insecure-listen (ADR-0008 §4).
 // Every procedure refuses subscriber keys and tokens over plaintext from a
 // non-loopback peer, and opts.Token, when set, guards the API.
+//
+// New panics if Options.Responders is nil when a state dir is set: a
+// programming error; orbit serve loads the registry first.
 func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Options) http.Handler {
 	return newHandler(log, version, reg, opts, newSecurity(log, opts.Token))
 }
@@ -121,12 +124,13 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 	// Responders registered by join (ADR-0009 §3), persisted with the run
 	// history.
 	responders := opts.Responders
-	if responders == nil {
-		r, err := join.OpenRegistry(opts.StateDir)
-		if err != nil {
-			panic(fmt.Sprintf("registered responders: %v", err))
-		}
-		responders = r
+	switch {
+	case responders != nil:
+	case opts.StateDir != "":
+		panic("server: Options.Responders is nil with a state dir set: a programming error; orbit serve loads the registry first")
+	default:
+		// No state dir: an in-memory registry, which reads nothing.
+		responders, _ = join.OpenRegistry("")
 	}
 	if !responders.Persistent() {
 		log.Warn("registered responders are in memory only: after a restart every app host must join again (serve with --state-dir)")

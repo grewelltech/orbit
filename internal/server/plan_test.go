@@ -271,7 +271,7 @@ func TestPlanAssignsGNBIDs(t *testing.T) {
 // included) and the leases.
 func TestPlanArchiveHoldsNoSecrets(t *testing.T) {
 	dir := t.TempDir()
-	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir, Responders: openResponders(t, dir)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
@@ -489,7 +489,7 @@ func idleAMF(t *testing.T) string {
 func TestPlanStoppedRunArchivesProvenance(t *testing.T) {
 	amf := idleAMF(t)
 	dir := t.TempDir()
-	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir, Responders: openResponders(t, dir)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
@@ -704,7 +704,7 @@ func TestPlanGatesSurviveArchiving(t *testing.T) {
 	}
 	addr := sctpfront.Listen(t, amf)
 	dir := t.TempDir()
-	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir, Responders: openResponders(t, dir)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
@@ -768,7 +768,7 @@ func TestPlanJudgementNotRedactedInPlace(t *testing.T) {
 	}
 	addr := sctpfront.Listen(t, amf)
 	dir := t.TempDir()
-	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir, Responders: openResponders(t, dir)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)

@@ -290,7 +290,7 @@ func TestJudgeSuite(t *testing.T) {
 func suiteServer(t *testing.T) (string, orbitv1connect.RunServiceClient, orbitv1connect.ConformanceServiceClient) {
 	t.Helper()
 	dir := t.TempDir()
-	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir, Responders: openResponders(t, dir)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return dir, orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL), orbitv1connect.NewConformanceServiceClient(srv.Client(), srv.URL)

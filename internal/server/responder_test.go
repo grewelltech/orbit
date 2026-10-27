@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -314,4 +316,25 @@ func TestLatencyProbeNeedsATarget(t *testing.T) {
 			}
 		})
 	}
+}
+
+// openResponders loads dir's registry, as orbit serve does before New.
+func openResponders(t *testing.T, dir string) *join.Registry {
+	t.Helper()
+	r, err := join.OpenRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// New never reads the registry file: a state dir with no registry handed
+// in is a programming error.
+func TestNewNeedsTheRegistryWithAStateDir(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "Options.Responders is nil") {
+			t.Errorf("recovered %v", r)
+		}
+	}()
+	New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: t.TempDir()})
 }

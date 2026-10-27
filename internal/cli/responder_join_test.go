@@ -111,3 +111,19 @@ func TestResponderSecretFiles(t *testing.T) {
 		})
 	}
 }
+
+// A responders.json serve cannot read stops it with an error naming the
+// file, before anything listens: never a panic, never an empty registry.
+func TestServeRefusesAnUnreadableRegistry(t *testing.T) {
+	clearOrbitEnv(t)
+	for _, bad := range []string{"{not json", `{"version": 2, "responders": []}`} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "responders.json"), []byte(bad), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r := runOrbit(t, targetDir(t, lab1), "serve", "--state-dir", dir, "--listen", "127.0.0.1:0")
+		if r.execErr == nil || !strings.Contains(r.execErr.Error(), "responders.json") || !strings.Contains(r.execErr.Error(), "serve will not start") {
+			t.Errorf("%q: err = %v", bad, r.execErr)
+		}
+	}
+}
