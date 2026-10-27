@@ -93,6 +93,10 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 	return rtt, err
 }
 
+// readSlice bounds each wait for a reply, so a cancel ends a probe within
+// about this long rather than at its timeout.
+const readSlice = 50 * time.Millisecond
+
 func (p *tunnelPinger) ping(ctx context.Context, seq uint64) (time.Duration, error) {
 	s := uint16(seq)
 	req, err := datapath.BuildICMPEchoRequest(p.ueIP, p.dst, p.id, s, []byte("orbit-lat"))
@@ -108,13 +112,21 @@ func (p *tunnelPinger) ping(ctx context.Context, seq uint64) (time.Duration, err
 		deadline = d
 	}
 	for {
+		// The caller's cancel cuts the wait (#169): the read runs in slices
+		// of at most readSlice, and ctx is checked between them.
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return 0, context.DeadlineExceeded
 		}
-		f, err := p.rx.Read(remaining)
+		f, err := p.rx.Read(min(remaining, readSlice))
+		if errors.Is(err, context.DeadlineExceeded) {
+			continue // this slice ran out; the loop checks ctx and the deadline
+		}
 		if err != nil {
-			return 0, err // timeout/closed after a successful send → loss
+			return 0, err // closed after a successful send → loss
 		}
 		if _, ok := datapath.MatchICMPEchoReply(f.Payload, p.id, s); ok {
 			// Time the reply at the demux reader's socket-read stamp, not at

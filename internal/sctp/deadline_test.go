@@ -316,3 +316,25 @@ func TestDialBlackHoleBounded(t *testing.T) {
 	}
 	t.Errorf("file descriptors did not return to the baseline of %d within 6 s of the dial returning", baseline)
 }
+
+// The bound in error text is rounded to 10 ms, so one derived from a
+// deadline a moment old reads as requested (#122).
+func TestPrintedBound(t *testing.T) {
+	tests := []struct {
+		bound time.Duration
+		want  string
+	}{
+		{9999 * time.Millisecond, "10s"},
+		{9994 * time.Millisecond, "9.99s"},
+		{20 * time.Second, "20s"},
+		{19*time.Second + 999*time.Millisecond + 400*time.Microsecond, "20s"},
+		{50 * time.Millisecond, "50ms"},
+		{49996 * time.Microsecond, "50ms"},
+		{3 * time.Millisecond, "3ms"},
+	}
+	for _, tc := range tests {
+		if got := printedBound(tc.bound).String(); got != tc.want {
+			t.Errorf("printedBound(%s) = %s, want %s", tc.bound, got, tc.want)
+		}
+	}
+}

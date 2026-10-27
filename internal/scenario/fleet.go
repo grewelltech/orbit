@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue"
 
 	"fmt"
@@ -176,7 +177,34 @@ func PeekKind(data []byte) (string, error) {
 // process environment — the CLI convention for keeping secrets like Ki/OPc out
 // of the file. Use only for input the local operator controls.
 func ParseFleet(data []byte) (*FleetScenario, error) {
-	return parseFleet(expandEnv(data))
+	return ParseFleetWithTarget(data, nil)
+}
+
+// ParseFleetWithTarget is ParseFleet with the scenario's core, credentials
+// and addresses filled from t (ApplyTarget) before validation. With t nil
+// the file must be self-contained: one that names a target (target:) is an
+// error, since resolving it is the caller's (the CLI's) job.
+func ParseFleetWithTarget(data []byte, t *target.Target) (*FleetScenario, error) {
+	ref, err := ReadTargetRef(data)
+	if err != nil {
+		return nil, err
+	}
+	f, err := decodeFleet(expandEnv(data))
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case t != nil:
+		if err := f.ApplyTarget(*t); err != nil {
+			return nil, err
+		}
+	case ref.Set():
+		return nil, fmt.Errorf("the scenario names a target, which the caller must resolve (orbit run and runs start-fleet do)")
+	}
+	if err := f.validate(); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // ParseFleetNoEnv parses a fleet scenario WITHOUT ${ENV} expansion. Use it for
@@ -184,17 +212,33 @@ func ParseFleet(data []byte) (*FleetScenario, error) {
 // the server's environment would substitute the server's own variables into the
 // run and leak their values back to the client (e.g. via a dial error). A
 // ${VAR} in such input is left literal.
+//
+// A scenario that still names a target (target:) is refused: the server
+// stores no targets (ADR-0008), so the client resolves it and sends the
+// scenario with the target applied.
 func ParseFleetNoEnv(data []byte) (*FleetScenario, error) {
-	return parseFleet(data)
-}
-
-func parseFleet(data []byte) (*FleetScenario, error) {
-	var f FleetScenario
-	if err := yaml.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parse fleet scenario: %w", err)
+	ref, err := ReadTargetRef(data)
+	if err != nil {
+		return nil, err
+	}
+	if ref.Set() {
+		return nil, fmt.Errorf("a scenario sent to the server cannot name a target: the client resolves it (runs start-fleet does) and sends the scenario with it applied")
+	}
+	f, err := decodeFleet(data)
+	if err != nil {
+		return nil, err
 	}
 	if err := f.validate(); err != nil {
 		return nil, err
+	}
+	return f, nil
+}
+
+// decodeFleet decodes a fleet scenario without validating it.
+func decodeFleet(data []byte) (*FleetScenario, error) {
+	var f FleetScenario
+	if err := yaml.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("parse fleet scenario: %w", err)
 	}
 	return &f, nil
 }

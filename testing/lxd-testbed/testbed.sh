@@ -1350,6 +1350,67 @@ EOF
     esac
 }
 
+# target_for <ran-node> -> the ORBIT target "lxd" for that node (ADR-0008,
+# docs/targets.md): the core, the provisioned subscriber pool, the node's own
+# N2/N3 address ranges (one address per simulated gNB) and the N6 responder.
+# The keys and the responder token stay ${VAR} references to /etc/orbit/env,
+# so the file holds no secret. Written directly rather than through
+# `orbit target init`, whose --bind records one address, not a range.
+target_for() {
+    local node=$1 n2 n3 last
+    case "$node" in
+        "$NODE_RANF") n2=$TESTBED_NET_FAR_N2; n3=$TESTBED_NET_FAR_N3 ;;
+        *)            n2=$TESTBED_NET_N2;     n3=$TESTBED_NET_N3 ;;
+    esac
+    last=$((TESTBED_HOST_RAN + TESTBED_RAN_GNBS - 1))
+    cat <<TARGET
+# ORBIT target for the LXD testbed, written by testbed.sh for $node.
+#   orbit target probe lxd
+#   orbit conformance -t lxd
+version: 1
+kind: target
+name: lxd
+core:
+  amf: $AMF_N2
+  plmn: { mcc: "$TESTBED_MCC", mnc: "$TESTBED_MNC" }
+  tac: $TESTBED_TAC
+  slices:
+    - sst: $TESTBED_SST
+      sd: "$TESTBED_SD"
+  dnn: $TESTBED_DNN
+  upf_n3: $UPF_N3:2152
+subscribers:
+  - name: main
+    first_supi: "$TESTBED_SUB_START"
+    count: $TESTBED_SUB_COUNT
+    ki: \${ORBIT_KI}
+    opc: \${ORBIT_OPC}
+ran:
+  n2_source_ips: [$(ip_in "$n2" "$TESTBED_HOST_RAN")-$(ip_in "$n2" "$last")]
+  n3_ips: [$(ip_in "$n3" "$TESTBED_HOST_RAN")-$(ip_in "$n3" "$last")]
+  gnb_ids: { first: 100, count: 900, bits: 24 }
+app:
+  responders:
+    - name: n6
+      control: $RESPONDER
+      token: \${ORBIT_RESPONDER_TOKEN}
+      data_ip: $APP_N6
+TARGET
+}
+
+# install_orbit_target <ran-node> writes the target as root's
+# ~/.config/orbit/targets/lxd.yaml (0600) and checks that it loads.
+install_orbit_target() {
+    local node=$1
+    target_for "$node" > "$TESTBED_CACHE_DIR/target.$node"
+    lxc_do exec "$node" -- mkdir -p -m 700 /root/.config/orbit/targets
+    push_file "$node" "$TESTBED_CACHE_DIR/target.$node" /root/.config/orbit/targets/lxd.yaml 600
+    rm -f "$TESTBED_CACHE_DIR/target.$node"
+    lxc_do exec "$node" -- bash -c 'set -a; . /etc/orbit/env; orbit target show lxd >/dev/null' \
+        || die "the lxd target on $node does not load; see 'orbit target show lxd' there"
+    info "target lxd written on $node (orbit target probe lxd)"
+}
+
 install_orbit_env() {
     local node=$1
     orbit_env_for "$node" > "$TESTBED_CACHE_DIR/env.$node"
@@ -1405,6 +1466,7 @@ cmd_ran() {
         exists_instance "$node" || die "$node not found — run '$PROG up' first"
         push_orbit "$node" "$bin"
         install_orbit_env "$node"
+        install_orbit_target "$node"
 
         # The API server listens on the node's management address: the
         # dashboard it serves on the same port is worth reaching from a browser
