@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -178,7 +179,7 @@ func (t *targets) apply(cmd *cobra.Command) error {
 	}
 	// Filling from another flag needs a target named: --explain alone only
 	// reports, and never changes what the command does.
-	applied, err := setFromTarget(fs, bound, r, name != "")
+	applied, err := setFromTarget(path, fs, bound, r, name != "")
 	if err != nil {
 		return err
 	}
@@ -220,7 +221,7 @@ func withoutTarget(in target.Input) target.Input {
 // own $ORBIT_* fallback, which gives the same answer, and defaults to the
 // flags' own. It returns, by flag name, the text set and, when the value
 // had to be narrowed to fit the flag, how.
-func setFromTarget(fs *pflag.FlagSet, bound map[string]target.Binding, r *target.Resolved, fromFlags bool) (map[string]appliedFlag, error) {
+func setFromTarget(cmd string, fs *pflag.FlagSet, bound map[string]target.Binding, r *target.Resolved, fromFlags bool) (map[string]appliedFlag, error) {
 	names := make([]string, 0, len(bound))
 	typed := map[string]bool{}
 	for n := range bound {
@@ -248,7 +249,7 @@ func setFromTarget(fs *pflag.FlagSet, bound map[string]target.Binding, r *target
 		if fl.Deprecated != "" {
 			continue // its replacement, bound to the same path, takes the value
 		}
-		a, ok, err := flagText(n, b, f.Value, fl.Value)
+		a, ok, err := flagText(cmd, f.Path, n, b, f.Value, fl.Value, gnbCount(fs))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s for --%s: %w", f.Source, f.Path, n, err)
 		}
@@ -309,9 +310,11 @@ type appliedFlag struct {
 }
 
 // flagText renders a resolved value as the text a flag takes. A list goes
-// whole to a list flag; a single-address flag takes the list's first
-// entry, narrowed to the form the flag wants (see firstAddress).
-func flagText(name string, b target.Binding, v any, fv pflag.Value) (appliedFlag, bool, error) {
+// whole to a list flag, except an address list flag (load's --bind, one
+// source per gNB), which takes gnbs concrete addresses from the pool (see
+// poolAddresses); a single-address flag takes the list's first entry,
+// narrowed to the form the flag wants (see firstAddress).
+func flagText(cmd, path, name string, b target.Binding, v any, fv pflag.Value, gnbs int) (appliedFlag, bool, error) {
 	switch x := v.(type) {
 	case string:
 		return appliedFlag{text: x}, true, nil
@@ -338,6 +341,9 @@ func flagText(name string, b target.Binding, v any, fv pflag.Value) (appliedFlag
 		return appliedFlag{}, false, fmt.Errorf("a slice list needs --sst/--sd")
 	case []string:
 		if _, isSlice := fv.(pflag.SliceValue); isSlice {
+			if _, isAddr := addressShapes[name]; isAddr {
+				return poolForGNBs(cmd, path, x, gnbs)
+			}
 			return appliedFlag{list: x, text: strings.Join(x, ",")}, true, nil
 		}
 		if len(x) == 0 {
@@ -347,6 +353,40 @@ func flagText(name string, b target.Binding, v any, fv pflag.Value) (appliedFlag
 		return appliedFlag{text: text, note: note}, err == nil, err
 	}
 	return appliedFlag{}, false, fmt.Errorf("unsupported value type %T", v)
+}
+
+// gnbCount is how many gNBs the command runs, for an address list flag
+// (--bind on load: one N2 source per gNB): its --gnb-count, or 1.
+func gnbCount(fs *pflag.FlagSet) int {
+	if f := fs.Lookup("gnb-count"); f != nil {
+		if n, err := strconv.Atoi(f.Value.String()); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 1
+}
+
+// poolForGNBs gives an address list flag (load's --bind: one N2 source per
+// gNB) the first gnbs addresses of the pool, until leasing (S4) allocates
+// from it. A pool of exactly one address passes as is, for the command's
+// own rule to share among its gNBs; a longer pool with fewer addresses than
+// gNBs is an error naming both.
+func poolForGNBs(cmd, path string, pool []string, gnbs int) (appliedFlag, bool, error) {
+	addrs, err := target.ExpandPool(pool, gnbs)
+	if err != nil {
+		return appliedFlag{}, false, err
+	}
+	if one, _ := target.ExpandPool(pool, 2); len(one) == 1 {
+		return appliedFlag{list: one, text: one[0]}, true, nil
+	}
+	if len(addrs) < gnbs {
+		return appliedFlag{}, false, fmt.Errorf("%s has %d addresses, %s needs %d (one per gNB)", path, len(addrs), cmd, gnbs)
+	}
+	a := appliedFlag{list: addrs, text: strings.Join(addrs, ",")}
+	if !reflect.DeepEqual(addrs, pool) {
+		a.note = fmt.Sprintf("first %d of %s", gnbs, strings.Join(pool, ", "))
+	}
+	return a, true, nil
 }
 
 // addressShapes are the single-address flags an address list maps to, and
@@ -361,26 +401,13 @@ var addressShapes = map[string]string{"bind": "ip[:port]", "local": "ip[:port]",
 // done, "" when the list was the one plain entry used as is.
 func firstAddress(flag string, list []string) (string, string, error) {
 	entry := list[0]
-	var addr netip.Addr
+	addr, p, narrowed, err := target.PoolFirst(entry)
+	if err != nil {
+		return "", "", err
+	}
 	port := ""
-	narrowed := false
-	if a, err := netip.ParseAddr(entry); err == nil {
-		addr = a
-	} else if ap, err := netip.ParseAddrPort(entry); err == nil {
-		addr, port = ap.Addr(), strconv.Itoa(int(ap.Port()))
-	} else if lo, _, found := strings.Cut(entry, "-"); found {
-		a, err := netip.ParseAddr(lo)
-		if err != nil {
-			return "", "", fmt.Errorf("entry %q is not an address", entry)
-		}
-		addr, narrowed = a, true
-	} else if p, err := netip.ParsePrefix(entry); err == nil {
-		addr, narrowed = p.Masked().Addr(), true
-		if addr.Is4() && p.Bits() < 31 {
-			addr = addr.Next() // skip the network address
-		}
-	} else {
-		return "", "", fmt.Errorf("entry %q is not an address", entry)
+	if _, err := netip.ParseAddr(entry); err != nil && !narrowed {
+		port = strconv.Itoa(int(p)) // an ip:port entry keeps its port, 0 included
 	}
 	added := false
 	switch addressShapes[flag] {

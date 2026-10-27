@@ -656,3 +656,75 @@ func TestFlagsSharingAFieldFillEachOther(t *testing.T) {
 		t.Errorf("--explain without a target filled --gnb-n3 = %q (err %v)", r.flag(t, "gnb-n3"), r.execErr)
 	}
 }
+
+// loadTarget is a target for load against front, with pool as its N2
+// source pool.
+func loadTarget(amf, pool string) string {
+	return "version: 1\nkind: target\nname: lab1\ncore:\n  amf: " + amf + "\n  plmn: { mcc: \"208\", mnc: \"93\" }\n" +
+		"  slices:\n    - { sst: 1, sd: \"010203\" }\nsubscribers:\n  - name: main\n    first_supi: \"208930000000001\"\n" +
+		"    ki: " + testKi + "\n    opc: " + testOPc + "\nran:\n  n2_source_ips: [" + pool + "]\n"
+}
+
+// A range pool on load's per-gNB --bind list gives one address per gNB,
+// in order; the tester's live reproduction, which had dialled from the
+// literal "127.0.0.2-127.0.0.9", end to end against the mock AMF over real
+// SCTP.
+func TestLoadTargetRangePoolOnePerGNB(t *testing.T) {
+	clearOrbitEnv(t)
+	ki, _ := auth.ParseHexKey("Ki", testKi)
+	opc, _ := auth.ParseHexKey("OPc", testOPc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := sctpfront.Start(t, amf)
+	r := runOrbit(t, targetDir(t, loadTarget(front.Addr, "127.0.0.2-127.0.0.9")), "load", "-t", "lab1", "--count", "2", "--gnb-count", "2", "--explain")
+	if r.execErr != nil {
+		t.Fatalf("load -t: %v\n%s\n%s", r.execErr, r.out, r.err)
+	}
+	if !regexp.MustCompile(`n2-source: 127\.0\.0\.2:\d+ 127\.0\.0\.3:\d+`).MatchString(r.out) || !strings.Contains(r.out, "2/2 attached") {
+		t.Errorf("load output:\n%s", r.out)
+	}
+	if !strings.Contains(r.err, "--bind=127.0.0.2,127.0.0.3 (first 2 of 127.0.0.2-127.0.0.9)") {
+		t.Errorf("explain:\n%s", r.err)
+	}
+}
+
+// The pool rule on load's and runs start-load's --bind: first N for N
+// gNBs; one address shared; too few is an error naming both counts.
+func TestPoolBindListFlags(t *testing.T) {
+	tests := []struct {
+		name, pool string
+		gnbs       string
+		want       string
+		wantErr    string
+	}{
+		{name: "range, one gNB", pool: "127.0.0.2-127.0.0.9", gnbs: "1", want: "[127.0.0.2]"},
+		{name: "cidr, three gNBs", pool: "192.0.2.0/29", gnbs: "3", want: "[192.0.2.1,192.0.2.2,192.0.2.3]"},
+		{name: "mixed list", pool: "192.0.2.50, 192.0.2.60-192.0.2.61", gnbs: "3", want: "[192.0.2.50,192.0.2.60,192.0.2.61]"},
+		{name: "one address is shared", pool: "192.0.2.50", gnbs: "4", want: "[192.0.2.50]"},
+		{name: "too short", pool: "127.0.0.2-127.0.0.4", gnbs: "4", wantErr: "ran.n2_source_ips has 3 addresses, orbit %s needs 4 (one per gNB)"},
+		{name: "past the cap", pool: "10.0.0.0/8", gnbs: "65537", wantErr: "65537 addresses is more than a pool expands to (65536)"},
+	}
+	for _, cmd := range [][]string{{"load"}, {"runs", "start-load"}} {
+		for _, tc := range tests {
+			t.Run(strings.Join(cmd, " ")+" "+tc.name, func(t *testing.T) {
+				clearOrbitEnv(t)
+				// The AMF and server are unreachable: only the flags matter.
+				args := append(append([]string{}, cmd...), "-t", "lab1", "--gnb-count", tc.gnbs, "--count", "1", "--server", "http://127.0.0.1:1")
+				r := runOrbit(t, targetDir(t, loadTarget("127.0.0.1:1", tc.pool)), args...)
+				if tc.wantErr != "" {
+					want := strings.Replace(tc.wantErr, "%s", strings.Join(cmd, " "), 1)
+					if r.execErr == nil || !strings.Contains(r.execErr.Error(), want) {
+						t.Fatalf("err = %v, want %q", r.execErr, want)
+					}
+					return
+				}
+				if got := r.flag(t, "bind"); got != tc.want {
+					t.Errorf("--bind = %s, want %s (err %v)", got, tc.want, r.execErr)
+				}
+			})
+		}
+	}
+}
