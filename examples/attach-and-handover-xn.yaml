@@ -1,9 +1,11 @@
 # Attach a UE with a data session, prove the user plane, hand it over via Xn,
 # prove it still works, then deregister.
 #
-# Secrets come from the environment — export them before running:
-#   export ORBIT_KI=... ORBIT_OPC=...
-#   orbit run examples/attach-and-handover.yaml
+# The core, keys and addresses come from a target (docs/targets.md):
+#   orbit run examples/attach-and-handover-xn.yaml -t <target>
+# Each gNB takes the target's next gNB ID and the next N2/N3 address from its
+# pools, so give it at least two of each. The ping and latency echo the
+# target's first responder.
 #
 # The user plane and handover need to run where the UPF's N3 is reachable
 # (see docs/USAGE.md "Where things must run").
@@ -11,28 +13,17 @@
 name: attach-and-handover
 description: Attach + data + Xn handover + data continuity
 
-core:
-  amf: 172.17.50.11:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
 gnbs:
-  - { id: 1, name: gnb-1, n3: 172.17.50.12 }
-  - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
+  - { name: gnb-1 }
+  - { name: gnb-2 }
 
 ues:
-  - { supi: "001010100007500", gnb: gnb-1, pdu_session: true }
+  - { name: ue1, gnb: gnb-1, pdu_session: true }
 
 steps:
   - register: all
-  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
-  - latency:  { ue: "001010100007500", target: 8.8.8.8, probes: 20 }
-  - handover: { ue: "001010100007500", to: gnb-2, type: xn }
-  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
+  - ping:     { ue: ue1 }
+  - latency:  { ue: ue1, probes: 20 }
+  - handover: { ue: ue1, to: gnb-2, type: xn }
+  - ping:     { ue: ue1 }
   - deregister: all
