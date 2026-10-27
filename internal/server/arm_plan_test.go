@@ -1,16 +1,24 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/target"
@@ -308,5 +316,63 @@ func TestFleetArmOffThePlan(t *testing.T) {
 				t.Errorf("fleetArmPlan err = %v, want errNoPlan", err)
 			}
 		})
+	}
+}
+
+// An old fleet arm without behaviours runs as a plan but stays a FLEET run
+// everywhere a client sees its kind: StartRun, GetRun, ListRuns' filter and
+// the archive (a plan's own population without behaviours is LOAD).
+func TestFleetArmWithoutBehavioursIsFleet(t *testing.T) {
+	dir := t.TempDir()
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
+
+	if arm, err := planService(t).fleetArm(fleetSpec(), engine.EventsNormal); err != nil || !arm.viaPlan {
+		t.Fatalf("the behaviour-less fleet arm: viaPlan %t, %v; want the plan's path", arm.viaPlan, err)
+	}
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: fleetSpec()},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	fleet := orbitv1.RunKind_RUN_KIND_FLEET
+	if k := resp.Msg.GetRun().GetKind(); k != fleet {
+		t.Errorf("StartRun kind = %v, want FLEET", k)
+	}
+	final := waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_FAILED)
+	if final.GetKind() != fleet {
+		t.Errorf("GetRun kind = %v, want FLEET", final.GetKind())
+	}
+	listed := func(k orbitv1.RunKind) bool {
+		l, err := c.ListRuns(context.Background(), connect.NewRequest(&orbitv1.ListRunsRequest{Kind: k}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range l.Msg.GetRuns() {
+			if r.GetRunId() == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !listed(fleet) || listed(orbitv1.RunKind_RUN_KIND_LOAD) {
+		t.Errorf("ListRuns: under FLEET %t, under LOAD %t; want FLEET only", listed(fleet), listed(orbitv1.RunKind_RUN_KIND_LOAD))
+	}
+	path := filepath.Join(dir, id+archiveExt)
+	var a *orbitv1.RunArchive
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline) && a == nil; time.Sleep(25 * time.Millisecond) {
+		if got, err := readArchive(path); err == nil {
+			a = got
+		}
+	}
+	if a == nil {
+		t.Fatal("the run was never archived")
+	}
+	if k := a.GetRun().GetKind(); k != fleet {
+		t.Errorf("archived kind = %v, want FLEET", k)
 	}
 }

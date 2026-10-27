@@ -629,6 +629,9 @@ func TestApplyGates(t *testing.T) {
 				got = append(got, r.GetPassed())
 				all = all && r.GetPassed()
 			}
+			if tc.name == "an unmeasured procedure fails" && tc.report.GetGates()[0].GetDetail() != "no samples for pdu_session.p99_ms" {
+				t.Errorf("detail = %q, want it to say no samples, not a breach", tc.report.GetGates()[0].GetDetail())
+			}
 			if !reflect.DeepEqual(got, tc.want) || tc.report.GetGatesPassed() != all {
 				t.Errorf("results = %v (passed %t), want %v", got, tc.report.GetGatesPassed(), tc.want)
 			}

@@ -148,7 +148,7 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 		case !ok:
 			res.Detail = "no report to judge"
 		case err != nil:
-			res.Detail = fmt.Sprintf("%s: %v", slo.GetMetric(), err)
+			res.Detail = fmt.Sprintf("%v for %s", err, slo.GetMetric())
 		default:
 			res.Observed = v
 			res.Passed = compare(slo.GetOp(), v, slo.GetThreshold())
