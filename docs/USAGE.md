@@ -127,7 +127,9 @@ network: plmn=001/01 tac=1 snssai=1/010203 dnn=internet
   from the UE's serving gNB (`$ORBIT_MCC`/`$ORBIT_MNC` are ignored here, since
   the target is in the serving PLMN by definition), so a same-network handover
   needs only `--gnb-id`, `--bind` and `--gnb-n3`. A field given explicitly
-  overrides the inherited one.
+  overrides the inherited one. The handover's `network:` line shows the
+  identity actually presented to the core, inherited fields filled in, as
+  the server reports it.
 - **Scenario files** need `core.plmn.mcc` and `core.plmn.mnc` (quote them, so
   `"01"` is read as the string it is; `${ORBIT_MCC}`/`${ORBIT_MNC}` expand);
   `core.tac`, `core.slice.sst` and `core.dnn` take the defaults above when

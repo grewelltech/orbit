@@ -1084,7 +1084,11 @@ type HandoverResponse struct {
 	// How long the procedure took. A single-UE handover is then a measurement
 	// rather than a pass/fail, which is what comparing N2 against Xn on a given
 	// core needs. Zero on failure — there is no completed procedure to time.
-	ElapsedMs     float64 `protobuf:"fixed64,4,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`
+	ElapsedMs float64 `protobuf:"fixed64,4,opt,name=elapsed_ms,json=elapsedMs,proto3" json:"elapsed_ms,omitempty"`
+	// The target identity actually presented to the core: the request's
+	// target with every unset field (PLMN, TAC, slices) inherited from the
+	// UE's serving gNB, after validation.
+	Target        *GnbConfig `protobuf:"bytes,5,opt,name=target,proto3" json:"target,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1145,6 +1149,13 @@ func (x *HandoverResponse) GetElapsedMs() float64 {
 		return x.ElapsedMs
 	}
 	return 0
+}
+
+func (x *HandoverResponse) GetTarget() *GnbConfig {
+	if x != nil {
+		return x.Target
+	}
+	return nil
 }
 
 type TrafficRequest struct {
@@ -3056,13 +3067,14 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\fbind_address\x18\x04 \x01(\tR\vbindAddress\x12\x1e\n" +
 	"\vgnb_n3_addr\x18\x05 \x01(\tR\tgnbN3Addr\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x06 \x01(\rR\ttimeoutMs\"r\n" +
+	"timeout_ms\x18\x06 \x01(\rR\ttimeoutMs\"\x9f\x01\n" +
 	"\x10HandoverResponse\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x15\n" +
 	"\x06gnb_id\x18\x02 \x01(\rR\x05gnbId\x12\x14\n" +
 	"\x05state\x18\x03 \x01(\tR\x05state\x12\x1d\n" +
 	"\n" +
-	"elapsed_ms\x18\x04 \x01(\x01R\telapsedMs\"\x92\x01\n" +
+	"elapsed_ms\x18\x04 \x01(\x01R\telapsedMs\x12+\n" +
+	"\x06target\x18\x05 \x01(\v2\x13.orbit.v1.GnbConfigR\x06target\"\x92\x01\n" +
 	"\x0eTrafficRequest\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x12\n" +
@@ -3325,56 +3337,57 @@ var file_orbit_v1_ue_proto_depIdxs = []int32{
 	7,  // 3: orbit.v1.StatusResponse.status:type_name -> orbit.v1.UEStatus
 	7,  // 4: orbit.v1.ListResponse.ues:type_name -> orbit.v1.UEStatus
 	38, // 5: orbit.v1.HandoverRequest.target_gnb:type_name -> orbit.v1.GnbConfig
-	22, // 6: orbit.v1.DataStatsResponse.flows:type_name -> orbit.v1.QFIStats
-	37, // 7: orbit.v1.StartAppRequest.params:type_name -> orbit.v1.StartAppRequest.ParamsEntry
-	27, // 8: orbit.v1.VoipMetrics.emodel:type_name -> orbit.v1.EModelBreakdown
-	28, // 9: orbit.v1.VoipMetrics.media_gaps:type_name -> orbit.v1.MediaGap
-	28, // 10: orbit.v1.VideoMetrics.stall_events:type_name -> orbit.v1.MediaGap
-	26, // 11: orbit.v1.AppSample.local:type_name -> orbit.v1.VoipMetrics
-	26, // 12: orbit.v1.AppSample.remote:type_name -> orbit.v1.VoipMetrics
-	32, // 13: orbit.v1.AppSample.events:type_name -> orbit.v1.CorrelationEvent
-	29, // 14: orbit.v1.AppSample.local_http:type_name -> orbit.v1.HttpMetrics
-	29, // 15: orbit.v1.AppSample.remote_http:type_name -> orbit.v1.HttpMetrics
-	30, // 16: orbit.v1.AppSample.local_video:type_name -> orbit.v1.VideoMetrics
-	26, // 17: orbit.v1.AppReport.local:type_name -> orbit.v1.VoipMetrics
-	26, // 18: orbit.v1.AppReport.remote:type_name -> orbit.v1.VoipMetrics
-	36, // 19: orbit.v1.AppReport.media_gaps:type_name -> orbit.v1.MediaGapSummary
-	29, // 20: orbit.v1.AppReport.local_http:type_name -> orbit.v1.HttpMetrics
-	29, // 21: orbit.v1.AppReport.remote_http:type_name -> orbit.v1.HttpMetrics
-	30, // 22: orbit.v1.AppReport.local_video:type_name -> orbit.v1.VideoMetrics
-	2,  // 23: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
-	4,  // 24: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
-	6,  // 25: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
-	9,  // 26: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
-	13, // 27: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
-	11, // 28: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
-	15, // 29: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
-	15, // 30: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
-	17, // 31: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
-	19, // 32: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
-	21, // 33: orbit.v1.UEService.DataStats:input_type -> orbit.v1.DataStatsRequest
-	24, // 34: orbit.v1.UEService.StartApp:input_type -> orbit.v1.StartAppRequest
-	31, // 35: orbit.v1.UEService.AppStream:input_type -> orbit.v1.AppStreamRequest
-	34, // 36: orbit.v1.UEService.StopApp:input_type -> orbit.v1.StopAppRequest
-	3,  // 37: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
-	5,  // 38: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
-	8,  // 39: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
-	10, // 40: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
-	14, // 41: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
-	12, // 42: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
-	16, // 43: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
-	16, // 44: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
-	18, // 45: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
-	20, // 46: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
-	23, // 47: orbit.v1.UEService.DataStats:output_type -> orbit.v1.DataStatsResponse
-	25, // 48: orbit.v1.UEService.StartApp:output_type -> orbit.v1.StartAppResponse
-	33, // 49: orbit.v1.UEService.AppStream:output_type -> orbit.v1.AppSample
-	35, // 50: orbit.v1.UEService.StopApp:output_type -> orbit.v1.AppReport
-	37, // [37:51] is the sub-list for method output_type
-	23, // [23:37] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	38, // 6: orbit.v1.HandoverResponse.target:type_name -> orbit.v1.GnbConfig
+	22, // 7: orbit.v1.DataStatsResponse.flows:type_name -> orbit.v1.QFIStats
+	37, // 8: orbit.v1.StartAppRequest.params:type_name -> orbit.v1.StartAppRequest.ParamsEntry
+	27, // 9: orbit.v1.VoipMetrics.emodel:type_name -> orbit.v1.EModelBreakdown
+	28, // 10: orbit.v1.VoipMetrics.media_gaps:type_name -> orbit.v1.MediaGap
+	28, // 11: orbit.v1.VideoMetrics.stall_events:type_name -> orbit.v1.MediaGap
+	26, // 12: orbit.v1.AppSample.local:type_name -> orbit.v1.VoipMetrics
+	26, // 13: orbit.v1.AppSample.remote:type_name -> orbit.v1.VoipMetrics
+	32, // 14: orbit.v1.AppSample.events:type_name -> orbit.v1.CorrelationEvent
+	29, // 15: orbit.v1.AppSample.local_http:type_name -> orbit.v1.HttpMetrics
+	29, // 16: orbit.v1.AppSample.remote_http:type_name -> orbit.v1.HttpMetrics
+	30, // 17: orbit.v1.AppSample.local_video:type_name -> orbit.v1.VideoMetrics
+	26, // 18: orbit.v1.AppReport.local:type_name -> orbit.v1.VoipMetrics
+	26, // 19: orbit.v1.AppReport.remote:type_name -> orbit.v1.VoipMetrics
+	36, // 20: orbit.v1.AppReport.media_gaps:type_name -> orbit.v1.MediaGapSummary
+	29, // 21: orbit.v1.AppReport.local_http:type_name -> orbit.v1.HttpMetrics
+	29, // 22: orbit.v1.AppReport.remote_http:type_name -> orbit.v1.HttpMetrics
+	30, // 23: orbit.v1.AppReport.local_video:type_name -> orbit.v1.VideoMetrics
+	2,  // 24: orbit.v1.UEService.Register:input_type -> orbit.v1.RegisterRequest
+	4,  // 25: orbit.v1.UEService.Deregister:input_type -> orbit.v1.DeregisterRequest
+	6,  // 26: orbit.v1.UEService.Status:input_type -> orbit.v1.StatusRequest
+	9,  // 27: orbit.v1.UEService.List:input_type -> orbit.v1.ListRequest
+	13, // 28: orbit.v1.UEService.Ping:input_type -> orbit.v1.PingRequest
+	11, // 29: orbit.v1.UEService.StateStream:input_type -> orbit.v1.StateStreamRequest
+	15, // 30: orbit.v1.UEService.Handover:input_type -> orbit.v1.HandoverRequest
+	15, // 31: orbit.v1.UEService.XnHandover:input_type -> orbit.v1.HandoverRequest
+	17, // 32: orbit.v1.UEService.Traffic:input_type -> orbit.v1.TrafficRequest
+	19, // 33: orbit.v1.UEService.Latency:input_type -> orbit.v1.LatencyRequest
+	21, // 34: orbit.v1.UEService.DataStats:input_type -> orbit.v1.DataStatsRequest
+	24, // 35: orbit.v1.UEService.StartApp:input_type -> orbit.v1.StartAppRequest
+	31, // 36: orbit.v1.UEService.AppStream:input_type -> orbit.v1.AppStreamRequest
+	34, // 37: orbit.v1.UEService.StopApp:input_type -> orbit.v1.StopAppRequest
+	3,  // 38: orbit.v1.UEService.Register:output_type -> orbit.v1.RegisterResponse
+	5,  // 39: orbit.v1.UEService.Deregister:output_type -> orbit.v1.DeregisterResponse
+	8,  // 40: orbit.v1.UEService.Status:output_type -> orbit.v1.StatusResponse
+	10, // 41: orbit.v1.UEService.List:output_type -> orbit.v1.ListResponse
+	14, // 42: orbit.v1.UEService.Ping:output_type -> orbit.v1.PingResponse
+	12, // 43: orbit.v1.UEService.StateStream:output_type -> orbit.v1.StateEvent
+	16, // 44: orbit.v1.UEService.Handover:output_type -> orbit.v1.HandoverResponse
+	16, // 45: orbit.v1.UEService.XnHandover:output_type -> orbit.v1.HandoverResponse
+	18, // 46: orbit.v1.UEService.Traffic:output_type -> orbit.v1.TrafficResponse
+	20, // 47: orbit.v1.UEService.Latency:output_type -> orbit.v1.LatencyResponse
+	23, // 48: orbit.v1.UEService.DataStats:output_type -> orbit.v1.DataStatsResponse
+	25, // 49: orbit.v1.UEService.StartApp:output_type -> orbit.v1.StartAppResponse
+	33, // 50: orbit.v1.UEService.AppStream:output_type -> orbit.v1.AppSample
+	35, // 51: orbit.v1.UEService.StopApp:output_type -> orbit.v1.AppReport
+	38, // [38:52] is the sub-list for method output_type
+	24, // [24:38] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_ue_proto_init() }

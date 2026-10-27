@@ -291,6 +291,16 @@ func gnbConfigFromProto(p *orbitv1.GnbConfig) (gnb.Config, error) {
 	return cfg, nil
 }
 
+// gnbConfigToProto maps a gNB config to the API message, the inverse of
+// gnbTargetFromProto.
+func gnbConfigToProto(c gnb.Config) *orbitv1.GnbConfig {
+	p := &orbitv1.GnbConfig{Id: c.ID, IdBits: uint32(c.IDBits), Name: c.Name, Mcc: c.MCC, Mnc: c.MNC, Tac: c.TAC}
+	for _, s := range c.Slices {
+		p.Slices = append(p.Slices, &orbitv1.Snssai{Sst: uint32(s.SST), Sd: s.SD})
+	}
+	return p
+}
+
 // gnbTargetFromProto maps a gNB config WITHOUT validating its network
 // identity, for a handover target whose unset fields the engine fills from
 // the UE's serving gNB before validating (engine.GNBEndpoint).

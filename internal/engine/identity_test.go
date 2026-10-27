@@ -76,7 +76,7 @@ func TestHandoverInheritsFromServingGNB(t *testing.T) {
 
 	for _, ho := range []struct {
 		name string
-		call func(ctx context.Context, supi string, t GNBEndpoint) (time.Duration, error)
+		call func(ctx context.Context, supi string, t GNBEndpoint) (HandoverResult, error)
 	}{{"n2", m.Handover}, {"xn", m.XnHandover}} {
 		t.Run(ho.name+" invalid target", func(t *testing.T) {
 			_, err := ho.call(ctx, supi, GNBEndpoint{Config: gnb.Config{ID: 2, Name: "tgt", MCC: "001", MNC: "1"}, AMFAddr: "127.0.0.1:1"})
