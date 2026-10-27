@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-web";
+import { orbitTransport } from "./transport";
 import { RunKind, RunService, RunState, type Run as PbRun } from "@/gen/orbit/v1/run_pb";
 
 /** One selectable run. */
@@ -86,7 +86,7 @@ export function useRuns(baseUrl?: string): RunSummary[] {
     () =>
       createClient(
         RunService,
-        createConnectTransport({ baseUrl: baseUrl ?? window.location.origin }),
+        orbitTransport(baseUrl),
       ),
     [baseUrl],
   );

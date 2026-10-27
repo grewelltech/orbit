@@ -9,7 +9,7 @@
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { createClient } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-web";
+import { orbitTransport } from "./transport";
 import {
   ConformanceService,
   type ConformanceResult,
@@ -179,7 +179,7 @@ export function useConformance(baseUrl?: string) {
     () =>
       createClient(
         ConformanceService,
-        createConnectTransport({ baseUrl: baseUrl ?? window.location.origin }),
+        orbitTransport(baseUrl),
       ),
     [baseUrl],
   );

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { Conformance } from "./app/Conformance";
+import { TokenPrompt } from "./app/TokenPrompt";
 import { registerOrbitTheme } from "./theme/echarts";
 import "./styles/global.css";
 
@@ -19,5 +20,8 @@ if (!host) throw new Error("#root not found");
 const conformance = new URLSearchParams(window.location.search).has("conformance");
 
 createRoot(host).render(
-  <StrictMode>{conformance ? <Conformance /> : <App />}</StrictMode>,
+  <StrictMode>
+    {conformance ? <Conformance /> : <App />}
+    <TokenPrompt />
+  </StrictMode>,
 );
