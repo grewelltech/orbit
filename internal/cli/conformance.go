@@ -151,6 +151,13 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 // GTP-U checks' source (conformance.n3_bind), as the request's n3_bind
 // was, not the UE's gNB N3 (ran.n3_ips).
 func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []string, detach, jsonOut bool, expectedPath string) error {
+	// The list is checked as --local checks it, before anything is built
+	// or sent: a bad file is the same error, exit 3.
+	if expectedPath != "" {
+		if _, err := conformance.LoadExpectedFailures(expectedPath); err != nil {
+			return exitWith(ExitCouldNotStart, fmt.Errorf("--expected-failures: %w", err))
+		}
+	}
 	src := target.CommandDefaults(cmd.CommandPath())
 	base := []target.Setting{
 		{Path: "workloads[conformance].name", Value: "conformance", Source: src},

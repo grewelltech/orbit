@@ -111,11 +111,21 @@ func TestSuiteLeases(t *testing.T) {
 		mut      func(*orbitv1.RunPlan, *orbitv1.ConformanceWorkload)
 		cats     []conformance.Category
 		wantSUPI bool
+		noUE     bool // the suite has no UE (its UE checks SKIP)
 	}{
 		{name: "every check", wantSUPI: true},
 		{name: "procedural only: no UE", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"procedural"} },
 			cats: []conformance.Category{conformance.Procedural}},
-		{name: "no pool: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers = nil }},
+		{name: "no pool: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers = nil }, noUE: true},
+		// Keys with no SUPI ($ORBIT_KI exported) name no UE: the UE checks
+		// SKIP, as with no pool, and nothing is refused.
+		{name: "a pool with no first_supi: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+			p.Target.Subscribers[0].FirstSupi = ""
+		}, noUE: true},
+		{name: "a pool with no first_supi, no UE check: no UE", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Subscribers[0].FirstSupi = ""
+			cw.Categories = []string{"procedural"}
+		}, cats: []conformance.Category{conformance.Procedural}, noUE: true},
 	}
 	s := planService(t)
 	for _, tc := range tests {
@@ -142,7 +152,7 @@ func TestSuiteLeases(t *testing.T) {
 					t.Errorf("SUPI block = %+v, want the pool's first SUPI alone", b)
 				}
 			}
-			if pr.suiteLive.spec.env.UE.Configured() == (tc.name == "no pool: no UE") {
+			if pr.suiteLive.spec.env.UE.Configured() == tc.noUE {
 				t.Errorf("UE configured = %t", pr.suiteLive.spec.env.UE.Configured())
 			}
 		})

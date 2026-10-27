@@ -5,6 +5,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -332,5 +334,75 @@ func TestThinLoadGNBsMatchLocal(t *testing.T) {
 				t.Errorf("first gNB ID %d, want --gnb-id's default 1", local[0].GNBID)
 			}
 		})
+	}
+}
+
+// A suite needs no subscriber: with no --supi (and keys exported, which
+// name no UE) the server runs it as --local does, the UE checks SKIPping.
+func TestThinConformanceWithoutSUPIMatchesLocal(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cats []string
+	}{
+		{name: "negative-ie", cats: []string{"--category", "negative-ie"}},
+		{name: "the full suite", cats: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearOrbitEnv(t)
+			t.Setenv("ORBIT_KI", testKi)
+			t.Setenv("ORBIT_OPC", testOPc)
+			type result struct{ ID, Category, Verdict string }
+			run := func(local bool) ([]result, orbitRun) {
+				lab := newThinLab(t)
+				args := append([]string{"--server", lab.url, "conformance", "--amf", lab.amf, "--mcc", "208", "--mnc", "93",
+					"--sd", "010203", "--per-test-timeout", "1s", "--json"}, tc.cats...)
+				if local {
+					args = append(args, "--local")
+				}
+				r := runOrbit(t, targetDir(t, lab1), args...)
+				var sum struct{ Results []result }
+				if err := json.Unmarshal([]byte(r.out), &sum); err != nil {
+					t.Fatalf("local %t: JSON: %v (err %v)\n%s", local, err, r.execErr, r.err)
+				}
+				return sum.Results, r
+			}
+			lr, local := run(true)
+			tr, thin := run(false)
+			if len(lr) == 0 || !reflect.DeepEqual(lr, tr) {
+				t.Errorf("the server's suite differs from --local's:\nlocal %+v\nthin  %+v", lr, tr)
+			}
+			if ExitCode(local.execErr) != ExitCode(thin.execErr) {
+				t.Errorf("exit differs: --local %v, thin %v", local.execErr, thin.execErr)
+			}
+			for _, r := range tr {
+				if r.Category == "mobility" && r.Verdict != "SKIP" {
+					t.Errorf("%s with no UE: %s, want SKIP", r.ID, r.Verdict)
+				}
+			}
+		})
+	}
+}
+
+// The expected-failures file is checked as --local checks it, before
+// anything is sent: a list with no version is refused, exit 3, with the
+// same message.
+func TestThinConformanceBadExpectedFile(t *testing.T) {
+	clearOrbitEnv(t)
+	bad := filepath.Join(t.TempDir(), "bad.yaml")
+	if err := os.WriteFile(bad, []byte("core: x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub := &stubRunService{startRunID: "run-x"}
+	url := stubRunServer(t, stub)
+	args := []string{"--server", *url, "conformance", "--amf", "192.0.2.1:38412", "--mcc", "001", "--mnc", "01", "--expected-failures", bad}
+	thin := runOrbit(t, targetDir(t, lab1), args...)
+	local := runOrbit(t, targetDir(t, lab1), append(args, "--local")...)
+	if ExitCode(thin.execErr) != ExitCouldNotStart || thin.execErr == nil || local.execErr == nil ||
+		thin.execErr.Error() != local.execErr.Error() || !strings.Contains(thin.execErr.Error(), "version is required") {
+		t.Errorf("thin %v (exit %d), --local %v; want the same version-required refusal, exit 3",
+			thin.execErr, ExitCode(thin.execErr), local.execErr)
+	}
+	if stub.startReq != nil {
+		t.Error("a bad list was sent")
 	}
 }

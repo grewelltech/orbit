@@ -381,11 +381,25 @@ func selectedChecks(reg *conformance.Registry, cats []conformance.Category) []co
 // the SUPIs it leases: as many as the most any selected check registers
 // at once, none when no selected check needs a UE.
 func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.Config, dnn string, ues int) (conformance.UESpec, *engine.SUPIBlock, error) {
-	if len(t.GetSubscribers()) == 0 {
+	noUE := func() (conformance.UESpec, *engine.SUPIBlock, error) {
 		if cw.GetTraffic() != "" {
-			return conformance.UESpec{}, nil, errors.New("traffic describes the UE checks' UE and needs a subscriber pool")
+			return conformance.UESpec{}, nil, errors.New("traffic describes the UE checks' UE and needs a subscriber pool with a first_supi")
 		}
 		return conformance.UESpec{}, nil, nil
+	}
+	if ues == 0 {
+		// No UE check selected needs a subscriber: a pool that names a
+		// valid one still gives the suite its UE, and anything else is no
+		// UE and no error.
+		if spec, _, err := suiteUE(t, cw, g, dnn, 1); err == nil {
+			return spec, nil, nil
+		}
+		return conformance.UESpec{}, nil, nil
+	}
+	if len(t.GetSubscribers()) == 0 {
+		// The UE checks SKIP ("no UE configured"), as the CLI's --local
+		// does with no --supi.
+		return noUE()
 	}
 	sp, err := subscriberPool(t, cw.GetSubscriberPool())
 	if err != nil {
@@ -393,7 +407,9 @@ func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.C
 	}
 	supi := sp.GetFirstSupi()
 	if supi == "" {
-		return conformance.UESpec{}, nil, fmt.Errorf("subscriber pool %q has no first_supi", sp.GetName())
+		// Keys with no SUPI (say $ORBIT_KI exported) name no UE: the UE
+		// checks SKIP, as with no pool.
+		return noUE()
 	}
 	if _, err := ue.ParseIdentity(supi, g.MCC, g.MNC, "0"); err != nil {
 		return conformance.UESpec{}, nil, fmt.Errorf("subscriber pool %q: %w", sp.GetName(), err)
@@ -427,9 +443,6 @@ func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.C
 		return conformance.UESpec{}, nil, fmt.Errorf("the selected checks register %d UEs at once; subscriber pool %q holds %d", ues, sp.GetName(), sp.GetCount())
 	}
 	spec := conformance.UESpec{SUPI: supi, Ki: sp.GetKi(), OPc: sp.GetOpc(), DNN: dnn, GNBN3: gnbN3, Traffic: cw.GetTraffic()}
-	if ues == 0 {
-		return spec, nil, nil
-	}
 	norm, err := ue.NormalizeSUPI(supi)
 	if err != nil {
 		return conformance.UESpec{}, nil, fmt.Errorf("subscriber pool %q: %w", sp.GetName(), err)

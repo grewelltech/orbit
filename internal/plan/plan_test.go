@@ -163,6 +163,8 @@ workloads:
     conformance:
       expected: {core: c, entries: [{check: NOPE, observed: x, finding: EX-1, added: 2026-10-27, reason: r}]}
 `, wantErr: `unknown check "NOPE"`},
+		{name: "an expected list file with no version", run: "kind: run\nworkloads:\n  - name: s\n    conformance: {expected: x.yaml}\n",
+			files: map[string]string{"x.yaml": "core: x\n"}, wantErr: "version is required"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
