@@ -3,6 +3,7 @@ package target
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -38,6 +39,7 @@ func TestFlagInput(t *testing.T) {
 		fs.String("supi", "", "")
 		fs.StringSlice("category", nil, "")
 		fs.Bool("json", false, "")
+		fs.Duration("per-test-timeout", 15*time.Second, "")
 		return fs
 	}
 	tests := []struct {
@@ -51,13 +53,15 @@ func TestFlagInput(t *testing.T) {
 		{name: "scalars", cmd: "orbit conformance", args: []string{"--amf", "192.0.2.1:38412", "--tac", "7", "--ki", "11111111111111111111111111111111"},
 			want: map[string]any{"core.amf": "192.0.2.1:38412", "core.tac": "7", "subscribers[].ki": "11111111111111111111111111111111"}},
 		{name: "slice from both", cmd: "orbit load", args: []string{"--sst", "2", "--sd", "abcdef"},
-			want: map[string]any{"core.slices": []Slice{{SST: 2, SD: "abcdef"}}}},
-		{name: "sd alone keeps SST 1", cmd: "orbit load", args: []string{"--sd", "abcdef"},
-			want: map[string]any{"core.slices": []Slice{{SST: 1, SD: "abcdef"}}}},
+			want: map[string]any{"core.slices[0].sst": "2", "core.slices[0].sd": "abcdef"}},
+		{name: "sd alone sets only the first slice's SD", cmd: "orbit load", args: []string{"--sd", "abcdef"},
+			want: map[string]any{"core.slices[0].sd": "abcdef"}},
 		{name: "command scoping: supi on conformance", cmd: "orbit conformance", args: []string{"--supi", "001010000000001"},
 			want: map[string]any{"subscribers[].first_supi": "001010000000001"}},
 		{name: "command scoping: supi on ue ping is an operation argument", cmd: "orbit ue ping", args: []string{"--supi", "001010000000001"},
 			want: map[string]any{}},
+		{name: "duration flag to a millisecond field", cmd: "orbit conformance", args: []string{"--per-test-timeout", "2.5s"},
+			want: map[string]any{"workloads[].conformance.per_test_timeout_ms": uint64(2500)}},
 		{name: "slice flag", cmd: "orbit conformance", args: []string{"--category", "nas,security"},
 			want: map[string]any{"workloads[].conformance.categories": []string{"nas", "security"}}},
 	}

@@ -3,6 +3,7 @@ package target
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -15,9 +16,13 @@ type Binding struct {
 	Env      string // ORBIT_* name, without $
 	Flag     string // flag name, without dashes
 	Commands []string
-	// Part is set for the flags that together form one list value:
-	// --sst and --sd make up the single slice of core.slices.
-	Part string
+}
+
+// Numeric reports whether the binding's value is a number: its path is an
+// integer or float field.
+func (b Binding) Numeric() bool {
+	_, f, err := lookup(b.Path)
+	return err == nil && (f.typ == tUint || f.typ == tFloat)
 }
 
 // Reason is why an env var or flag is not configuration.
@@ -80,8 +85,8 @@ var Bindings = []Binding{
 	{Flag: "mcc", Path: "core.plmn.mcc"},
 	{Flag: "mnc", Path: "core.plmn.mnc"},
 	{Flag: "tac", Path: "core.tac"},
-	{Flag: "sst", Path: "core.slices", Part: "sst"},
-	{Flag: "sd", Path: "core.slices", Part: "sd"},
+	{Flag: "sst", Path: "core.slices[0].sst"},
+	{Flag: "sd", Path: "core.slices[0].sd"},
 	{Flag: "dnn", Path: "core.dnn"},
 	{Flag: "upf-n3", Path: "core.upf_n3", Commands: []string{cmdConformance}},
 	{Flag: "supi", Path: "subscribers[].first_supi", Commands: []string{cmdConformance, cmdUERegister}},
@@ -90,6 +95,7 @@ var Bindings = []Binding{
 	{Flag: "opc", Path: "subscribers[].opc"},
 	{Flag: "routing-indicator", Path: "subscribers[].routing_indicator"},
 	{Flag: "bind", Path: "ran.n2_source_ips", Commands: []string{cmdConformance, cmdLoad, cmdStartLoad, cmdUERegister, cmdCellNGSetup}},
+	{Flag: "local", Path: "ran.n2_source_ips", Commands: []string{cmdCellNGSetup}}, // deprecated alias of --bind
 	{Flag: "gnb-n3", Path: "ran.n3_ips"},
 	{Flag: "n3-bind", Path: "ran.n3_ips", Commands: []string{cmdConformance}},
 	{Flag: "gnb-name", Path: "ran.gnb_name"},
@@ -129,6 +135,7 @@ var Exclusions = []Exclusion{
 	{Flag: "server", Reason: ReasonConnection},
 
 	{Flag: "json", Reason: ReasonOutput},
+	{Flag: "explain", Reason: ReasonOutput},
 	{Flag: "out", Reason: ReasonOutput},
 	{Flag: "progress-every", Reason: ReasonOutput},
 	{Flag: "from-seq", Reason: ReasonOutput},
@@ -151,7 +158,6 @@ var Exclusions = []Exclusion{
 	{Flag: "supi", Reason: ReasonOperation},
 	{Flag: "pdu-session-id", Reason: ReasonOperation},
 	{Flag: "hold", Reason: ReasonOperation},
-	{Flag: "local", Reason: ReasonOperation},
 	{Flag: "timeout", Reason: ReasonOperation},
 	{Flag: "name", Commands: []string{cmdCellNGSetup}, Reason: ReasonOperation},
 	{Flag: "count", Commands: []string{"orbit ue ping"}, Reason: ReasonOperation},
@@ -291,12 +297,10 @@ func EnvInput(env Getenv) Input {
 
 // FlagInput is the flag layer for command cmd: every bound flag the user
 // set (pflag's Changed), so a flag's default never outranks a lower layer;
-// the defaults are the default layer's. --sst and --sd together make up the
-// one slice of core.slices.
+// the defaults are the default layer's. --sst and --sd set the first
+// slice's fields, core.slices[0].sst and .sd, on top of the merged list.
 func FlagInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 	in := Input{Layer: LayerFlag}
-	var slice *Slice
-	var sliceSrc []string
 	var err error
 	fs.Visit(func(f *pflag.Flag) {
 		if err != nil {
@@ -307,39 +311,27 @@ func FlagInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 			return
 		}
 		src := Source{Name: "--" + f.Name}
-		if b.Part != "" {
-			if slice == nil {
-				slice = &Slice{}
-			}
-			sliceSrc = append(sliceSrc, "--"+f.Name)
-			switch b.Part {
-			case "sst":
-				n, cerr := convert(field{typ: tUint}, f.Value.String())
-				if cerr != nil {
-					err = fmt.Errorf("--%s: %w", f.Name, cerr)
-					return
-				}
-				slice.SST = uint32(n.(uint64))
-			case "sd":
-				slice.SD = f.Value.String()
-			}
-			return
-		}
 		val := any(f.Value.String())
 		if sv, ok := f.Value.(pflag.SliceValue); ok {
 			val = sv.GetSlice()
+		}
+		if f.Value.Type() == "duration" && strings.HasSuffix(b.Path, "_ms") {
+			// A duration flag (--per-test-timeout 15s) sets a millisecond
+			// field.
+			// field. The commands treat a duration of zero or less as unset,
+			// so a negative one is 0 here: the resolver never refuses what a
+			// command accepts.
+			d, perr := time.ParseDuration(f.Value.String())
+			if perr != nil {
+				err = fmt.Errorf("--%s: %q is not a duration", f.Name, f.Value.String())
+				return
+			}
+			val = uint64(max(d, 0).Milliseconds())
 		}
 		in.Settings = append(in.Settings, Setting{Path: b.Path, Value: val, Source: src})
 	})
 	if err != nil {
 		return Input{}, err
-	}
-	if slice != nil {
-		if !fs.Changed("sst") {
-			slice.SST = 1 // --sd alone keeps the default SST, as the CLI does
-		}
-		in.Settings = append(in.Settings, Setting{Path: "core.slices", Value: []Slice{*slice},
-			Source: Source{Name: strings.Join(sliceSrc, " ")}})
 	}
 	return in, nil
 }

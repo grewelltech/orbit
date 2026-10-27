@@ -325,7 +325,8 @@ func TestIntegerRange(t *testing.T) {
 		{name: "count text 2^32", path: "subscribers[].count", v: "4294967296", wantErr: `"4294967296" is out of range`},
 		{name: "count text negative", path: "subscribers[].count", v: "-1", wantErr: `"-1" is not a non-negative integer`},
 		{name: "sst 2^32+1", path: "core.slices", v: []any{map[string]any{"sst": 4294967297}}, wantErr: "slice sst: 4294967297 is out of range"},
-		{name: "run seed 2^32", path: "workloads[].attach.seed", v: uint64(1 << 32), wantErr: "out of range"},
+		{name: "seed is 64-bit", path: "workloads[].attach.seed", v: uint64(1 << 40)},
+		{name: "seed text above 64 bits", path: "workloads[].attach.seed", v: "18446744073709551616", wantErr: `"18446744073709551616" is out of range (0 to 18446744073709551615)`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,6 +334,9 @@ func TestIntegerRange(t *testing.T) {
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatal(err)
+				}
+				if tc.path != "subscribers[].count" {
+					return
 				}
 				if r.Target.Subscribers[0].Count != 4294967295 {
 					t.Errorf("count = %d", r.Target.Subscribers[0].Count)
@@ -343,5 +347,100 @@ func TestIntegerRange(t *testing.T) {
 				t.Errorf("err = %v, want %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// --sst and --sd set the first slice's fields on top of the merged list: a
+// lone --sd keeps the target's SST and its other slices, and provenance is
+// per field.
+func TestFirstSliceFields(t *testing.T) {
+	two := Input{Layer: LayerTarget, Settings: []Setting{{Path: "core.slices",
+		Value: []any{map[string]any{"sst": 2, "sd": "000002"}, map[string]any{"sst": 1}}, Source: Source{Name: "lab1.yaml", Line: 7}}}}
+	tests := []struct {
+		name       string
+		flags      []Setting
+		want       []Slice
+		wantSST    string // provenance source of core.slices[0].sst
+		wantSD     string
+		wantSDOver string // what --sd replaced, "" when nothing
+	}{
+		{name: "neither", want: []Slice{{2, "000002"}, {1, ""}}, wantSST: "target lab1.yaml:7", wantSD: "target lab1.yaml:7"},
+		{name: "lone --sd", flags: []Setting{set("core.slices[0].sd", "000005", "--sd")},
+			want: []Slice{{2, "000005"}, {1, ""}}, wantSST: "target lab1.yaml:7", wantSD: "flag --sd", wantSDOver: "target lab1.yaml:7=000002"},
+		{name: "lone --sst", flags: []Setting{set("core.slices[0].sst", "3", "--sst")},
+			want: []Slice{{3, "000002"}, {1, ""}}, wantSST: "flag --sst", wantSD: "target lab1.yaml:7"},
+		{name: "both", flags: []Setting{set("core.slices[0].sst", "3", "--sst"), set("core.slices[0].sd", "", "--sd")},
+			want: []Slice{{3, ""}, {1, ""}}, wantSST: "flag --sst", wantSD: "flag --sd", wantSDOver: "target lab1.yaml:7=000002"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := Resolve(DefaultInput(), two, Input{Layer: LayerFlag, Settings: tc.flags})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(r.Target.Core.Slices, tc.want) {
+				t.Errorf("slices = %v, want %v", r.Target.Core.Slices, tc.want)
+			}
+			if p := prov(t, r, "core.slices[0].sst"); p.Source.String() != tc.wantSST {
+				t.Errorf("sst set by %s, want %s", p.Source, tc.wantSST)
+			}
+			p := prov(t, r, "core.slices[0].sd")
+			if p.Source.String() != tc.wantSD {
+				t.Errorf("sd set by %s, want %s", p.Source, tc.wantSD)
+			}
+			var over []string
+			for _, o := range p.Overridden {
+				if o.Source.Layer == LayerTarget {
+					over = append(over, o.Source.String()+"="+o.Value)
+				}
+			}
+			if got := strings.Join(over, ";"); got != tc.wantSDOver {
+				t.Errorf("sd overrode %q, want %q", got, tc.wantSDOver)
+			}
+		})
+	}
+	// With no target, a lone --sd takes the built-in SST, as the CLI does.
+	r, err := Resolve(DefaultInput(), Input{Layer: LayerFlag, Settings: []Setting{set("core.slices[0].sd", "abcdef", "--sd")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(r.Target.Core.Slices, []Slice{{1, "abcdef"}}) {
+		t.Errorf("slices = %v", r.Target.Core.Slices)
+	}
+	// Only the first slice has paths of its own.
+	if _, err := Resolve(Input{Layer: LayerFlag, Settings: []Setting{set("core.slices[1].sd", "abcdef", "f")}}); err == nil {
+		t.Error("core.slices[1].sd resolved")
+	}
+	for _, v := range []struct{ path, value, want string }{
+		{"core.slices[0].sst", "256", "SST 256 is more than 255"},
+		{"core.slices[0].sd", "00000x", `"00000x" is not 6 hex digits`},
+	} {
+		if _, err := Resolve(Input{Layer: LayerFlag, Settings: []Setting{set(v.path, v.value, "f")}}); err == nil || !strings.Contains(err.Error(), v.want) {
+			t.Errorf("%s=%s: err = %v, want %q", v.path, v.value, err, v.want)
+		}
+	}
+}
+
+// Report records a bad value instead of failing: a format failure keeps the
+// value, a conversion failure leaves the field to the lower layers.
+func TestReport(t *testing.T) {
+	r, err := Report(DefaultInput(), Input{Layer: LayerFlag, Settings: []Setting{
+		set("subscribers[].first_supi", "abc", "--supi"), set("core.tac", "one", "--tac"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range r.Problems {
+		got = append(got, p.Path)
+	}
+	if !reflect.DeepEqual(got, []string{"core.tac", "subscribers[default].first_supi"}) {
+		t.Errorf("problems = %+v", r.Problems)
+	}
+	if r.Target.Core.TAC != 1 || r.Target.Subscribers[0].FirstSUPI != "abc" {
+		t.Errorf("tac %d (want the default's 1), supi %q (kept)", r.Target.Core.TAC, r.Target.Subscribers[0].FirstSUPI)
+	}
+	if _, err := Resolve(DefaultInput(), Input{Layer: LayerFlag, Settings: []Setting{set("core.tac", "one", "--tac")}}); err == nil {
+		t.Error("Resolve did not fail")
 	}
 }
