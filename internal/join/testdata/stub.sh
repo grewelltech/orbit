@@ -45,5 +45,5 @@ chmod 0700 "$WORK/orbit"
 "$WORK/orbit" version >/dev/null || die "the downloaded orbit does not run on this host"
 
 echo "orbit join: verified orbit for linux/$ARCH (sha256 $WANT)"
-echo "orbit join: responder ${ORBIT_NAME:-(this host's name)}; UE pools $UE_POOLS via $UPF_N6, N6 $N6_SUBNET"
+echo "orbit join: responder ${ORBIT_NAME:-named after this host}; UE pools $UE_POOLS via $UPF_N6, N6 $N6_SUBNET"
 echo "orbit join: this server does not set up the responder yet; nothing on this host was changed"
