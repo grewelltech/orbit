@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package orbit.v1;
 
+import "orbit/v1/options.proto";
+
 import "orbit/v1/cell.proto";
 
 option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
@@ -61,9 +63,9 @@ service UEService {
 // secrets — the server redacts them in logs and TLS is expected off-host.
 message Credentials {
   // Subscriber key K, 32 hex digits.
-  string ki = 1;
+  string ki = 1 [(orbit.v1.secret) = true];
   // Operator variant key OPc, 32 hex digits.
-  string opc = 2;
+  string opc = 2 [(orbit.v1.secret) = true];
 }
 
 // PDUSession requests one data session during attach.
@@ -304,7 +306,7 @@ message StartAppRequest {
   // network. Empty falls back to the server-level default, if configured.
   string peer = 3;
   // loomd control-plane bearer token (empty = server default / no auth).
-  string token = 4;
+  string token = 4 [(orbit.v1.secret) = true];
   // Media address override: by default RTP is aimed at peer's host, but
   // the management and N6 data addresses may differ.
   string peer_data_ip = 5;

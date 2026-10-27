@@ -1,12 +1,12 @@
 package server
 
 import (
-	"regexp"
 	"sync"
 
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/secrets"
 )
 
 // specStore remembers what each run was asked to do, from StartRun until the
@@ -91,17 +91,9 @@ func redactFleetSpec(in *orbitv1.FleetRunSpec) *orbitv1.FleetRunSpec {
 	return out
 }
 
-// secretKeyLine matches a `ki:`/`opc:` mapping entry and captures everything up
-// to and including the colon, so only the VALUE is replaced. Deliberately broad
-// — over-masking a field that merely looks like a key costs nothing, while
-// under-masking persists a secret.
-var secretKeyLine = regexp.MustCompile(`(?mi)^(\s*(?:ki|opc|key|secret|token|password)\s*:\s*)\S.*$`)
+const redacted = secrets.Masked
 
-const redacted = "<redacted>"
-
-func redactSecretsInYAML(doc string) string {
-	if doc == "" {
-		return ""
-	}
-	return secretKeyLine.ReplaceAllString(doc, "${1}"+redacted)
-}
+// redactSecretsInYAML masks every secret key's value in a scenario
+// document, with the detector the plaintext-keys refusal uses
+// (secrets.RedactYAML: block, list-item and flow style).
+func redactSecretsInYAML(doc string) string { return secrets.RedactYAML(doc) }
