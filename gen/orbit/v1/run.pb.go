@@ -260,8 +260,11 @@ type Run struct {
 	StartedUnixNano int64                  `protobuf:"varint,5,opt,name=started_unix_nano,json=startedUnixNano,proto3" json:"started_unix_nano,omitempty"`
 	EndedUnixNano   int64                  `protobuf:"varint,6,opt,name=ended_unix_nano,json=endedUnixNano,proto3" json:"ended_unix_nano,omitempty"` // 0 while not terminal
 	Error           string                 `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`                                         // set when state == RUN_STATE_FAILED
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// A MIXED run's workloads' kinds, in plan order; ListRuns' kind filter
+	// matches a run when any of them is the kind. Empty for one workload.
+	WorkloadKinds []RunKind `protobuf:"varint,8,rep,packed,name=workload_kinds,json=workloadKinds,proto3,enum=orbit.v1.RunKind" json:"workload_kinds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Run) Reset() {
@@ -341,6 +344,13 @@ func (x *Run) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *Run) GetWorkloadKinds() []RunKind {
+	if x != nil {
+		return x.WorkloadKinds
+	}
+	return nil
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
@@ -1928,8 +1938,10 @@ type GetRunResponse struct {
 	Leases []*Lease `protobuf:"bytes,5,rep,name=leases,proto3" json:"leases,omitempty"`
 	// Populated for a CONFORMANCE run: the suite so far.
 	ConformanceProgress *ConformanceProgress `protobuf:"bytes,6,opt,name=conformance_progress,json=conformanceProgress,proto3" json:"conformance_progress,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Populated for a MIXED run: each workload as it stands, in plan order.
+	Workloads     []*WorkloadProgress `protobuf:"bytes,7,rep,name=workloads,proto3" json:"workloads,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetRunResponse) Reset() {
@@ -2004,6 +2016,144 @@ func (x *GetRunResponse) GetConformanceProgress() *ConformanceProgress {
 	return nil
 }
 
+func (x *GetRunResponse) GetWorkloads() []*WorkloadProgress {
+	if x != nil {
+		return x.Workloads
+	}
+	return nil
+}
+
+// WorkloadProgress is one workload of a MIXED run as it stands.
+type WorkloadProgress struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Name   string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Kind   RunKind                `protobuf:"varint,2,opt,name=kind,proto3,enum=orbit.v1.RunKind" json:"kind,omitempty"`
+	State  string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`   // waiting | running | done | failed | skipped
+	Detail string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"` // why it failed or was skipped
+	// Types that are valid to be assigned to Progress:
+	//
+	//	*WorkloadProgress_Load
+	//	*WorkloadProgress_Fleet
+	//	*WorkloadProgress_Conformance
+	Progress      isWorkloadProgress_Progress `protobuf_oneof:"progress"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkloadProgress) Reset() {
+	*x = WorkloadProgress{}
+	mi := &file_orbit_v1_run_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkloadProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkloadProgress) ProtoMessage() {}
+
+func (x *WorkloadProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_run_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkloadProgress.ProtoReflect.Descriptor instead.
+func (*WorkloadProgress) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *WorkloadProgress) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *WorkloadProgress) GetKind() RunKind {
+	if x != nil {
+		return x.Kind
+	}
+	return RunKind_RUN_KIND_UNSPECIFIED
+}
+
+func (x *WorkloadProgress) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *WorkloadProgress) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *WorkloadProgress) GetProgress() isWorkloadProgress_Progress {
+	if x != nil {
+		return x.Progress
+	}
+	return nil
+}
+
+func (x *WorkloadProgress) GetLoad() *LoadProgress {
+	if x != nil {
+		if x, ok := x.Progress.(*WorkloadProgress_Load); ok {
+			return x.Load
+		}
+	}
+	return nil
+}
+
+func (x *WorkloadProgress) GetFleet() *FleetProgress {
+	if x != nil {
+		if x, ok := x.Progress.(*WorkloadProgress_Fleet); ok {
+			return x.Fleet
+		}
+	}
+	return nil
+}
+
+func (x *WorkloadProgress) GetConformance() *ConformanceProgress {
+	if x != nil {
+		if x, ok := x.Progress.(*WorkloadProgress_Conformance); ok {
+			return x.Conformance
+		}
+	}
+	return nil
+}
+
+type isWorkloadProgress_Progress interface {
+	isWorkloadProgress_Progress()
+}
+
+type WorkloadProgress_Load struct {
+	Load *LoadProgress `protobuf:"bytes,5,opt,name=load,proto3,oneof"`
+}
+
+type WorkloadProgress_Fleet struct {
+	Fleet *FleetProgress `protobuf:"bytes,6,opt,name=fleet,proto3,oneof"`
+}
+
+type WorkloadProgress_Conformance struct {
+	Conformance *ConformanceProgress `protobuf:"bytes,7,opt,name=conformance,proto3,oneof"`
+}
+
+func (*WorkloadProgress_Load) isWorkloadProgress_Progress() {}
+
+func (*WorkloadProgress_Fleet) isWorkloadProgress_Progress() {}
+
+func (*WorkloadProgress_Conformance) isWorkloadProgress_Progress() {}
+
 // ConformanceProgress is a conformance run's suite so far.
 type ConformanceProgress struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2017,7 +2167,7 @@ type ConformanceProgress struct {
 
 func (x *ConformanceProgress) Reset() {
 	*x = ConformanceProgress{}
-	mi := &file_orbit_v1_run_proto_msgTypes[19]
+	mi := &file_orbit_v1_run_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2029,7 +2179,7 @@ func (x *ConformanceProgress) String() string {
 func (*ConformanceProgress) ProtoMessage() {}
 
 func (x *ConformanceProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[19]
+	mi := &file_orbit_v1_run_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2042,7 +2192,7 @@ func (x *ConformanceProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConformanceProgress.ProtoReflect.Descriptor instead.
 func (*ConformanceProgress) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{19}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ConformanceProgress) GetTally() *ConformanceTally {
@@ -2092,7 +2242,7 @@ type RunTelemetryRequest struct {
 
 func (x *RunTelemetryRequest) Reset() {
 	*x = RunTelemetryRequest{}
-	mi := &file_orbit_v1_run_proto_msgTypes[20]
+	mi := &file_orbit_v1_run_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2104,7 +2254,7 @@ func (x *RunTelemetryRequest) String() string {
 func (*RunTelemetryRequest) ProtoMessage() {}
 
 func (x *RunTelemetryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[20]
+	mi := &file_orbit_v1_run_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2117,7 +2267,7 @@ func (x *RunTelemetryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunTelemetryRequest.ProtoReflect.Descriptor instead.
 func (*RunTelemetryRequest) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{20}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RunTelemetryRequest) GetRunId() string {
@@ -2166,14 +2316,16 @@ type TelemetryFrame struct {
 	//	*TelemetryFrame_Load
 	//	*TelemetryFrame_Fleet
 	//	*TelemetryFrame_Conformance
-	Progress      isTelemetryFrame_Progress `protobuf_oneof:"progress"`
+	Progress isTelemetryFrame_Progress `protobuf_oneof:"progress"`
+	// A MIXED run's workloads, in plan order (progress above is empty).
+	Workloads     []*WorkloadProgress `protobuf:"bytes,10,rep,name=workloads,proto3" json:"workloads,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TelemetryFrame) Reset() {
 	*x = TelemetryFrame{}
-	mi := &file_orbit_v1_run_proto_msgTypes[21]
+	mi := &file_orbit_v1_run_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2185,7 +2337,7 @@ func (x *TelemetryFrame) String() string {
 func (*TelemetryFrame) ProtoMessage() {}
 
 func (x *TelemetryFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[21]
+	mi := &file_orbit_v1_run_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2198,7 +2350,7 @@ func (x *TelemetryFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryFrame.ProtoReflect.Descriptor instead.
 func (*TelemetryFrame) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{21}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *TelemetryFrame) GetRunId() string {
@@ -2284,6 +2436,13 @@ func (x *TelemetryFrame) GetConformance() *ConformanceProgress {
 	return nil
 }
 
+func (x *TelemetryFrame) GetWorkloads() []*WorkloadProgress {
+	if x != nil {
+		return x.Workloads
+	}
+	return nil
+}
+
 type isTelemetryFrame_Progress interface {
 	isTelemetryFrame_Progress()
 }
@@ -2318,7 +2477,7 @@ type RunEventsRequest struct {
 
 func (x *RunEventsRequest) Reset() {
 	*x = RunEventsRequest{}
-	mi := &file_orbit_v1_run_proto_msgTypes[22]
+	mi := &file_orbit_v1_run_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2330,7 +2489,7 @@ func (x *RunEventsRequest) String() string {
 func (*RunEventsRequest) ProtoMessage() {}
 
 func (x *RunEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[22]
+	mi := &file_orbit_v1_run_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2343,7 +2502,7 @@ func (x *RunEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunEventsRequest.ProtoReflect.Descriptor instead.
 func (*RunEventsRequest) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{22}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *RunEventsRequest) GetRunId() string {
@@ -2378,7 +2537,7 @@ type RunEvent struct {
 
 func (x *RunEvent) Reset() {
 	*x = RunEvent{}
-	mi := &file_orbit_v1_run_proto_msgTypes[23]
+	mi := &file_orbit_v1_run_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2390,7 +2549,7 @@ func (x *RunEvent) String() string {
 func (*RunEvent) ProtoMessage() {}
 
 func (x *RunEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[23]
+	mi := &file_orbit_v1_run_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2403,7 +2562,7 @@ func (x *RunEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunEvent.ProtoReflect.Descriptor instead.
 func (*RunEvent) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{23}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *RunEvent) GetSeq() uint64 {
@@ -2465,7 +2624,7 @@ type RenderRunReportRequest struct {
 
 func (x *RenderRunReportRequest) Reset() {
 	*x = RenderRunReportRequest{}
-	mi := &file_orbit_v1_run_proto_msgTypes[24]
+	mi := &file_orbit_v1_run_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2477,7 +2636,7 @@ func (x *RenderRunReportRequest) String() string {
 func (*RenderRunReportRequest) ProtoMessage() {}
 
 func (x *RenderRunReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[24]
+	mi := &file_orbit_v1_run_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2490,7 +2649,7 @@ func (x *RenderRunReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenderRunReportRequest.ProtoReflect.Descriptor instead.
 func (*RenderRunReportRequest) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{24}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RenderRunReportRequest) GetRunId() string {
@@ -2514,7 +2673,7 @@ type RenderRunReportResponse struct {
 
 func (x *RenderRunReportResponse) Reset() {
 	*x = RenderRunReportResponse{}
-	mi := &file_orbit_v1_run_proto_msgTypes[25]
+	mi := &file_orbit_v1_run_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2526,7 +2685,7 @@ func (x *RenderRunReportResponse) String() string {
 func (*RenderRunReportResponse) ProtoMessage() {}
 
 func (x *RenderRunReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[25]
+	mi := &file_orbit_v1_run_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2539,7 +2698,7 @@ func (x *RenderRunReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenderRunReportResponse.ProtoReflect.Descriptor instead.
 func (*RenderRunReportResponse) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{25}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RenderRunReportResponse) GetHtml() []byte {
@@ -2565,7 +2724,7 @@ type GetRunReportRequest struct {
 
 func (x *GetRunReportRequest) Reset() {
 	*x = GetRunReportRequest{}
-	mi := &file_orbit_v1_run_proto_msgTypes[26]
+	mi := &file_orbit_v1_run_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2577,7 +2736,7 @@ func (x *GetRunReportRequest) String() string {
 func (*GetRunReportRequest) ProtoMessage() {}
 
 func (x *GetRunReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[26]
+	mi := &file_orbit_v1_run_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2590,7 +2749,7 @@ func (x *GetRunReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunReportRequest.ProtoReflect.Descriptor instead.
 func (*GetRunReportRequest) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{26}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetRunReportRequest) GetRunId() string {
@@ -2617,7 +2776,7 @@ type LoadReport struct {
 
 func (x *LoadReport) Reset() {
 	*x = LoadReport{}
-	mi := &file_orbit_v1_run_proto_msgTypes[27]
+	mi := &file_orbit_v1_run_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2629,7 +2788,7 @@ func (x *LoadReport) String() string {
 func (*LoadReport) ProtoMessage() {}
 
 func (x *LoadReport) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[27]
+	mi := &file_orbit_v1_run_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2642,7 +2801,7 @@ func (x *LoadReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoadReport.ProtoReflect.Descriptor instead.
 func (*LoadReport) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{27}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *LoadReport) GetAttempted() uint32 {
@@ -2706,7 +2865,7 @@ type ResourceSample struct {
 
 func (x *ResourceSample) Reset() {
 	*x = ResourceSample{}
-	mi := &file_orbit_v1_run_proto_msgTypes[28]
+	mi := &file_orbit_v1_run_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2718,7 +2877,7 @@ func (x *ResourceSample) String() string {
 func (*ResourceSample) ProtoMessage() {}
 
 func (x *ResourceSample) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[28]
+	mi := &file_orbit_v1_run_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2731,7 +2890,7 @@ func (x *ResourceSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceSample.ProtoReflect.Descriptor instead.
 func (*ResourceSample) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{28}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ResourceSample) GetAtMs() int64 {
@@ -2781,7 +2940,7 @@ type FleetReport struct {
 
 func (x *FleetReport) Reset() {
 	*x = FleetReport{}
-	mi := &file_orbit_v1_run_proto_msgTypes[29]
+	mi := &file_orbit_v1_run_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2793,7 +2952,7 @@ func (x *FleetReport) String() string {
 func (*FleetReport) ProtoMessage() {}
 
 func (x *FleetReport) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[29]
+	mi := &file_orbit_v1_run_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2806,7 +2965,7 @@ func (x *FleetReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FleetReport.ProtoReflect.Descriptor instead.
 func (*FleetReport) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{29}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *FleetReport) GetAttached() uint32 {
@@ -2914,7 +3073,7 @@ type GetRunReportResponse struct {
 
 func (x *GetRunReportResponse) Reset() {
 	*x = GetRunReportResponse{}
-	mi := &file_orbit_v1_run_proto_msgTypes[30]
+	mi := &file_orbit_v1_run_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2926,7 +3085,7 @@ func (x *GetRunReportResponse) String() string {
 func (*GetRunReportResponse) ProtoMessage() {}
 
 func (x *GetRunReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[30]
+	mi := &file_orbit_v1_run_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2939,7 +3098,7 @@ func (x *GetRunReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunReportResponse.ProtoReflect.Descriptor instead.
 func (*GetRunReportResponse) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{30}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *GetRunReportResponse) GetRun() *Run {
@@ -3046,7 +3205,7 @@ type RunReport struct {
 
 func (x *RunReport) Reset() {
 	*x = RunReport{}
-	mi := &file_orbit_v1_run_proto_msgTypes[31]
+	mi := &file_orbit_v1_run_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3058,7 +3217,7 @@ func (x *RunReport) String() string {
 func (*RunReport) ProtoMessage() {}
 
 func (x *RunReport) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[31]
+	mi := &file_orbit_v1_run_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3071,7 +3230,7 @@ func (x *RunReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunReport.ProtoReflect.Descriptor instead.
 func (*RunReport) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{31}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *RunReport) GetWorkload() string {
@@ -3180,7 +3339,7 @@ type ConformanceSummary struct {
 
 func (x *ConformanceSummary) Reset() {
 	*x = ConformanceSummary{}
-	mi := &file_orbit_v1_run_proto_msgTypes[32]
+	mi := &file_orbit_v1_run_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3192,7 +3351,7 @@ func (x *ConformanceSummary) String() string {
 func (*ConformanceSummary) ProtoMessage() {}
 
 func (x *ConformanceSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_run_proto_msgTypes[32]
+	mi := &file_orbit_v1_run_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3205,7 +3364,7 @@ func (x *ConformanceSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConformanceSummary.ProtoReflect.Descriptor instead.
 func (*ConformanceSummary) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_run_proto_rawDescGZIP(), []int{32}
+	return file_orbit_v1_run_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ConformanceSummary) GetTally() *ConformanceTally {
@@ -3261,7 +3420,7 @@ var File_orbit_v1_run_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
-	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\x1a\x1aorbit/v1/conformance.proto\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xeb\x01\n" +
+	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\x1a\x1aorbit/v1/conformance.proto\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xa5\x02\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12%\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x11.orbit.v1.RunKindR\x04kind\x12\x12\n" +
@@ -3269,7 +3428,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x05state\x18\x04 \x01(\x0e2\x12.orbit.v1.RunStateR\x05state\x12*\n" +
 	"\x11started_unix_nano\x18\x05 \x01(\x03R\x0fstartedUnixNano\x12&\n" +
 	"\x0fended_unix_nano\x18\x06 \x01(\x03R\rendedUnixNano\x12\x14\n" +
-	"\x05error\x18\a \x01(\tR\x05error\"\xa3\x04\n" +
+	"\x05error\x18\a \x01(\tR\x05error\x128\n" +
+	"\x0eworkload_kinds\x18\b \x03(\x0e2\x11.orbit.v1.RunKindR\rworkloadKinds\"\xa3\x04\n" +
 	"\vLoadRunSpec\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12'\n" +
@@ -3410,14 +3570,25 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x06p90_ms\x18\x04 \x01(\x01R\x05p90Ms\x12\x15\n" +
 	"\x06p99_ms\x18\x05 \x01(\x01R\x05p99Ms\x12\x17\n" +
 	"\ap999_ms\x18\x06 \x01(\x01R\x06p999Ms\x12\x15\n" +
-	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\"\xe3\x02\n" +
+	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\"\x9d\x03\n" +
 	"\x0eGetRunResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12;\n" +
 	"\rload_progress\x18\x02 \x01(\v2\x16.orbit.v1.LoadProgressR\floadProgress\x12>\n" +
 	"\x0efleet_progress\x18\x03 \x01(\v2\x17.orbit.v1.FleetProgressR\rfleetProgress\x128\n" +
 	"\ffleet_report\x18\x04 \x01(\v2\x15.orbit.v1.FleetReportR\vfleetReport\x12'\n" +
 	"\x06leases\x18\x05 \x03(\v2\x0f.orbit.v1.LeaseR\x06leases\x12P\n" +
-	"\x14conformance_progress\x18\x06 \x01(\v2\x1d.orbit.v1.ConformanceProgressR\x13conformanceProgress\"\x8e\x01\n" +
+	"\x14conformance_progress\x18\x06 \x01(\v2\x1d.orbit.v1.ConformanceProgressR\x13conformanceProgress\x128\n" +
+	"\tworkloads\x18\a \x03(\v2\x1a.orbit.v1.WorkloadProgressR\tworkloads\"\xa9\x02\n" +
+	"\x10WorkloadProgress\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x11.orbit.v1.RunKindR\x04kind\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\x12,\n" +
+	"\x04load\x18\x05 \x01(\v2\x16.orbit.v1.LoadProgressH\x00R\x04load\x12/\n" +
+	"\x05fleet\x18\x06 \x01(\v2\x17.orbit.v1.FleetProgressH\x00R\x05fleet\x12A\n" +
+	"\vconformance\x18\a \x01(\v2\x1d.orbit.v1.ConformanceProgressH\x00R\vconformanceB\n" +
+	"\n" +
+	"\bprogress\"\x8e\x01\n" +
 	"\x13ConformanceProgress\x120\n" +
 	"\x05tally\x18\x01 \x01(\v2\x1a.orbit.v1.ConformanceTallyR\x05tally\x12\x10\n" +
 	"\x03ran\x18\x02 \x01(\rR\x03ran\x12\x14\n" +
@@ -3428,7 +3599,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1f\n" +
 	"\vinterval_ms\x18\x02 \x01(\rR\n" +
 	"intervalMs\x12\x19\n" +
-	"\bfrom_seq\x18\x03 \x01(\x04R\afromSeq\"\xa0\x03\n" +
+	"\bfrom_seq\x18\x03 \x01(\x04R\afromSeq\"\xda\x03\n" +
 	"\x0eTelemetryFrame\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1b\n" +
 	"\tunix_nano\x18\x02 \x01(\x03R\bunixNano\x12\x1f\n" +
@@ -3441,7 +3612,9 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x0edropped_before\x18\x19 \x01(\x04R\rdroppedBefore\x12,\n" +
 	"\x04load\x18\a \x01(\v2\x16.orbit.v1.LoadProgressH\x00R\x04load\x12/\n" +
 	"\x05fleet\x18\b \x01(\v2\x17.orbit.v1.FleetProgressH\x00R\x05fleet\x12A\n" +
-	"\vconformance\x18\t \x01(\v2\x1d.orbit.v1.ConformanceProgressH\x00R\vconformanceB\n" +
+	"\vconformance\x18\t \x01(\v2\x1d.orbit.v1.ConformanceProgressH\x00R\vconformance\x128\n" +
+	"\tworkloads\x18\n" +
+	" \x03(\v2\x1a.orbit.v1.WorkloadProgressR\tworkloadsB\n" +
 	"\n" +
 	"\bprogress\"D\n" +
 	"\x10RunEventsRequest\x12\x15\n" +
@@ -3568,7 +3741,7 @@ func file_orbit_v1_run_proto_rawDescGZIP() []byte {
 }
 
 var file_orbit_v1_run_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_orbit_v1_run_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_orbit_v1_run_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_orbit_v1_run_proto_goTypes = []any{
 	(RunKind)(0),                    // 0: orbit.v1.RunKind
 	(RunState)(0),                   // 1: orbit.v1.RunState
@@ -3593,112 +3766,120 @@ var file_orbit_v1_run_proto_goTypes = []any{
 	(*GnbProgress)(nil),             // 20: orbit.v1.GnbProgress
 	(*ProcedureLatency)(nil),        // 21: orbit.v1.ProcedureLatency
 	(*GetRunResponse)(nil),          // 22: orbit.v1.GetRunResponse
-	(*ConformanceProgress)(nil),     // 23: orbit.v1.ConformanceProgress
-	(*RunTelemetryRequest)(nil),     // 24: orbit.v1.RunTelemetryRequest
-	(*TelemetryFrame)(nil),          // 25: orbit.v1.TelemetryFrame
-	(*RunEventsRequest)(nil),        // 26: orbit.v1.RunEventsRequest
-	(*RunEvent)(nil),                // 27: orbit.v1.RunEvent
-	(*RenderRunReportRequest)(nil),  // 28: orbit.v1.RenderRunReportRequest
-	(*RenderRunReportResponse)(nil), // 29: orbit.v1.RenderRunReportResponse
-	(*GetRunReportRequest)(nil),     // 30: orbit.v1.GetRunReportRequest
-	(*LoadReport)(nil),              // 31: orbit.v1.LoadReport
-	(*ResourceSample)(nil),          // 32: orbit.v1.ResourceSample
-	(*FleetReport)(nil),             // 33: orbit.v1.FleetReport
-	(*GetRunReportResponse)(nil),    // 34: orbit.v1.GetRunReportResponse
-	(*RunReport)(nil),               // 35: orbit.v1.RunReport
-	(*ConformanceSummary)(nil),      // 36: orbit.v1.ConformanceSummary
-	(*GnbConfig)(nil),               // 37: orbit.v1.GnbConfig
-	(*Credentials)(nil),             // 38: orbit.v1.Credentials
-	(*PDUSession)(nil),              // 39: orbit.v1.PDUSession
-	(*RunPlan)(nil),                 // 40: orbit.v1.RunPlan
-	(*Lease)(nil),                   // 41: orbit.v1.Lease
-	(*ConformanceTally)(nil),        // 42: orbit.v1.ConformanceTally
-	(*GateResult)(nil),              // 43: orbit.v1.GateResult
-	(*ConformanceResult)(nil),       // 44: orbit.v1.ConformanceResult
-	(*StaleExpectation)(nil),        // 45: orbit.v1.StaleExpectation
+	(*WorkloadProgress)(nil),        // 23: orbit.v1.WorkloadProgress
+	(*ConformanceProgress)(nil),     // 24: orbit.v1.ConformanceProgress
+	(*RunTelemetryRequest)(nil),     // 25: orbit.v1.RunTelemetryRequest
+	(*TelemetryFrame)(nil),          // 26: orbit.v1.TelemetryFrame
+	(*RunEventsRequest)(nil),        // 27: orbit.v1.RunEventsRequest
+	(*RunEvent)(nil),                // 28: orbit.v1.RunEvent
+	(*RenderRunReportRequest)(nil),  // 29: orbit.v1.RenderRunReportRequest
+	(*RenderRunReportResponse)(nil), // 30: orbit.v1.RenderRunReportResponse
+	(*GetRunReportRequest)(nil),     // 31: orbit.v1.GetRunReportRequest
+	(*LoadReport)(nil),              // 32: orbit.v1.LoadReport
+	(*ResourceSample)(nil),          // 33: orbit.v1.ResourceSample
+	(*FleetReport)(nil),             // 34: orbit.v1.FleetReport
+	(*GetRunReportResponse)(nil),    // 35: orbit.v1.GetRunReportResponse
+	(*RunReport)(nil),               // 36: orbit.v1.RunReport
+	(*ConformanceSummary)(nil),      // 37: orbit.v1.ConformanceSummary
+	(*GnbConfig)(nil),               // 38: orbit.v1.GnbConfig
+	(*Credentials)(nil),             // 39: orbit.v1.Credentials
+	(*PDUSession)(nil),              // 40: orbit.v1.PDUSession
+	(*RunPlan)(nil),                 // 41: orbit.v1.RunPlan
+	(*Lease)(nil),                   // 42: orbit.v1.Lease
+	(*ConformanceTally)(nil),        // 43: orbit.v1.ConformanceTally
+	(*GateResult)(nil),              // 44: orbit.v1.GateResult
+	(*ConformanceResult)(nil),       // 45: orbit.v1.ConformanceResult
+	(*StaleExpectation)(nil),        // 46: orbit.v1.StaleExpectation
 }
 var file_orbit_v1_run_proto_depIdxs = []int32{
 	0,  // 0: orbit.v1.Run.kind:type_name -> orbit.v1.RunKind
 	1,  // 1: orbit.v1.Run.state:type_name -> orbit.v1.RunState
-	37, // 2: orbit.v1.LoadRunSpec.gnbs:type_name -> orbit.v1.GnbConfig
-	38, // 3: orbit.v1.LoadRunSpec.credentials:type_name -> orbit.v1.Credentials
-	39, // 4: orbit.v1.LoadRunSpec.pdu_session:type_name -> orbit.v1.PDUSession
-	38, // 5: orbit.v1.FleetRunSpec.credentials:type_name -> orbit.v1.Credentials
-	5,  // 6: orbit.v1.StartRunRequest.load:type_name -> orbit.v1.LoadRunSpec
-	6,  // 7: orbit.v1.StartRunRequest.fleet:type_name -> orbit.v1.FleetRunSpec
-	40, // 8: orbit.v1.StartRunRequest.plan:type_name -> orbit.v1.RunPlan
-	2,  // 9: orbit.v1.StartRunRequest.event_verbosity:type_name -> orbit.v1.EventVerbosity
-	4,  // 10: orbit.v1.StartRunResponse.run:type_name -> orbit.v1.Run
-	4,  // 11: orbit.v1.StopRunResponse.run:type_name -> orbit.v1.Run
-	0,  // 12: orbit.v1.ListRunsRequest.kind:type_name -> orbit.v1.RunKind
-	4,  // 13: orbit.v1.ListRunsResponse.runs:type_name -> orbit.v1.Run
-	21, // 14: orbit.v1.LoadProgress.latency:type_name -> orbit.v1.ProcedureLatency
-	20, // 15: orbit.v1.LoadProgress.per_gnb:type_name -> orbit.v1.GnbProgress
-	20, // 16: orbit.v1.FleetProgress.per_gnb:type_name -> orbit.v1.GnbProgress
-	21, // 17: orbit.v1.FleetProgress.latency:type_name -> orbit.v1.ProcedureLatency
-	17, // 18: orbit.v1.FleetProgress.cohorts:type_name -> orbit.v1.CohortProgress
-	19, // 19: orbit.v1.FleetProgress.flows:type_name -> orbit.v1.FlowRow
-	21, // 20: orbit.v1.FleetProgress.up_latency:type_name -> orbit.v1.ProcedureLatency
-	16, // 21: orbit.v1.CohortProgress.mos:type_name -> orbit.v1.Quantiles
-	16, // 22: orbit.v1.CohortProgress.ttfb_ms:type_name -> orbit.v1.Quantiles
-	16, // 23: orbit.v1.CohortProgress.goodput_mbps:type_name -> orbit.v1.Quantiles
-	16, // 24: orbit.v1.CohortProgress.stall_time_ms:type_name -> orbit.v1.Quantiles
-	16, // 25: orbit.v1.CohortProgress.rebuffer_ratio:type_name -> orbit.v1.Quantiles
-	16, // 26: orbit.v1.CohortProgress.bitrate_kbps:type_name -> orbit.v1.Quantiles
-	16, // 27: orbit.v1.CohortProgress.startup_ms:type_name -> orbit.v1.Quantiles
-	18, // 28: orbit.v1.CohortProgress.far_end:type_name -> orbit.v1.FarEndView
-	4,  // 29: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
-	14, // 30: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
-	15, // 31: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
-	33, // 32: orbit.v1.GetRunResponse.fleet_report:type_name -> orbit.v1.FleetReport
-	41, // 33: orbit.v1.GetRunResponse.leases:type_name -> orbit.v1.Lease
-	23, // 34: orbit.v1.GetRunResponse.conformance_progress:type_name -> orbit.v1.ConformanceProgress
-	42, // 35: orbit.v1.ConformanceProgress.tally:type_name -> orbit.v1.ConformanceTally
-	1,  // 36: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
-	14, // 37: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
-	15, // 38: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
-	23, // 39: orbit.v1.TelemetryFrame.conformance:type_name -> orbit.v1.ConformanceProgress
-	3,  // 40: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
-	21, // 41: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
-	32, // 42: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
-	20, // 43: orbit.v1.FleetReport.per_gnb:type_name -> orbit.v1.GnbProgress
-	21, // 44: orbit.v1.FleetReport.latency:type_name -> orbit.v1.ProcedureLatency
-	32, // 45: orbit.v1.FleetReport.resources:type_name -> orbit.v1.ResourceSample
-	4,  // 46: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
-	31, // 47: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
-	33, // 48: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
-	36, // 49: orbit.v1.GetRunReportResponse.conformance:type_name -> orbit.v1.ConformanceSummary
-	43, // 50: orbit.v1.GetRunReportResponse.gates:type_name -> orbit.v1.GateResult
-	35, // 51: orbit.v1.GetRunReportResponse.workloads:type_name -> orbit.v1.RunReport
-	0,  // 52: orbit.v1.RunReport.kind:type_name -> orbit.v1.RunKind
-	31, // 53: orbit.v1.RunReport.load:type_name -> orbit.v1.LoadReport
-	33, // 54: orbit.v1.RunReport.fleet:type_name -> orbit.v1.FleetReport
-	36, // 55: orbit.v1.RunReport.conformance:type_name -> orbit.v1.ConformanceSummary
-	43, // 56: orbit.v1.RunReport.gates:type_name -> orbit.v1.GateResult
-	42, // 57: orbit.v1.ConformanceSummary.tally:type_name -> orbit.v1.ConformanceTally
-	44, // 58: orbit.v1.ConformanceSummary.results:type_name -> orbit.v1.ConformanceResult
-	45, // 59: orbit.v1.ConformanceSummary.stale:type_name -> orbit.v1.StaleExpectation
-	7,  // 60: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
-	9,  // 61: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
-	11, // 62: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
-	13, // 63: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
-	30, // 64: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
-	28, // 65: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
-	24, // 66: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
-	26, // 67: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
-	8,  // 68: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
-	10, // 69: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
-	12, // 70: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
-	22, // 71: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
-	34, // 72: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
-	29, // 73: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
-	25, // 74: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
-	27, // 75: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
-	68, // [68:76] is the sub-list for method output_type
-	60, // [60:68] is the sub-list for method input_type
-	60, // [60:60] is the sub-list for extension type_name
-	60, // [60:60] is the sub-list for extension extendee
-	0,  // [0:60] is the sub-list for field type_name
+	0,  // 2: orbit.v1.Run.workload_kinds:type_name -> orbit.v1.RunKind
+	38, // 3: orbit.v1.LoadRunSpec.gnbs:type_name -> orbit.v1.GnbConfig
+	39, // 4: orbit.v1.LoadRunSpec.credentials:type_name -> orbit.v1.Credentials
+	40, // 5: orbit.v1.LoadRunSpec.pdu_session:type_name -> orbit.v1.PDUSession
+	39, // 6: orbit.v1.FleetRunSpec.credentials:type_name -> orbit.v1.Credentials
+	5,  // 7: orbit.v1.StartRunRequest.load:type_name -> orbit.v1.LoadRunSpec
+	6,  // 8: orbit.v1.StartRunRequest.fleet:type_name -> orbit.v1.FleetRunSpec
+	41, // 9: orbit.v1.StartRunRequest.plan:type_name -> orbit.v1.RunPlan
+	2,  // 10: orbit.v1.StartRunRequest.event_verbosity:type_name -> orbit.v1.EventVerbosity
+	4,  // 11: orbit.v1.StartRunResponse.run:type_name -> orbit.v1.Run
+	4,  // 12: orbit.v1.StopRunResponse.run:type_name -> orbit.v1.Run
+	0,  // 13: orbit.v1.ListRunsRequest.kind:type_name -> orbit.v1.RunKind
+	4,  // 14: orbit.v1.ListRunsResponse.runs:type_name -> orbit.v1.Run
+	21, // 15: orbit.v1.LoadProgress.latency:type_name -> orbit.v1.ProcedureLatency
+	20, // 16: orbit.v1.LoadProgress.per_gnb:type_name -> orbit.v1.GnbProgress
+	20, // 17: orbit.v1.FleetProgress.per_gnb:type_name -> orbit.v1.GnbProgress
+	21, // 18: orbit.v1.FleetProgress.latency:type_name -> orbit.v1.ProcedureLatency
+	17, // 19: orbit.v1.FleetProgress.cohorts:type_name -> orbit.v1.CohortProgress
+	19, // 20: orbit.v1.FleetProgress.flows:type_name -> orbit.v1.FlowRow
+	21, // 21: orbit.v1.FleetProgress.up_latency:type_name -> orbit.v1.ProcedureLatency
+	16, // 22: orbit.v1.CohortProgress.mos:type_name -> orbit.v1.Quantiles
+	16, // 23: orbit.v1.CohortProgress.ttfb_ms:type_name -> orbit.v1.Quantiles
+	16, // 24: orbit.v1.CohortProgress.goodput_mbps:type_name -> orbit.v1.Quantiles
+	16, // 25: orbit.v1.CohortProgress.stall_time_ms:type_name -> orbit.v1.Quantiles
+	16, // 26: orbit.v1.CohortProgress.rebuffer_ratio:type_name -> orbit.v1.Quantiles
+	16, // 27: orbit.v1.CohortProgress.bitrate_kbps:type_name -> orbit.v1.Quantiles
+	16, // 28: orbit.v1.CohortProgress.startup_ms:type_name -> orbit.v1.Quantiles
+	18, // 29: orbit.v1.CohortProgress.far_end:type_name -> orbit.v1.FarEndView
+	4,  // 30: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
+	14, // 31: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
+	15, // 32: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
+	34, // 33: orbit.v1.GetRunResponse.fleet_report:type_name -> orbit.v1.FleetReport
+	42, // 34: orbit.v1.GetRunResponse.leases:type_name -> orbit.v1.Lease
+	24, // 35: orbit.v1.GetRunResponse.conformance_progress:type_name -> orbit.v1.ConformanceProgress
+	23, // 36: orbit.v1.GetRunResponse.workloads:type_name -> orbit.v1.WorkloadProgress
+	0,  // 37: orbit.v1.WorkloadProgress.kind:type_name -> orbit.v1.RunKind
+	14, // 38: orbit.v1.WorkloadProgress.load:type_name -> orbit.v1.LoadProgress
+	15, // 39: orbit.v1.WorkloadProgress.fleet:type_name -> orbit.v1.FleetProgress
+	24, // 40: orbit.v1.WorkloadProgress.conformance:type_name -> orbit.v1.ConformanceProgress
+	43, // 41: orbit.v1.ConformanceProgress.tally:type_name -> orbit.v1.ConformanceTally
+	1,  // 42: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
+	14, // 43: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
+	15, // 44: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
+	24, // 45: orbit.v1.TelemetryFrame.conformance:type_name -> orbit.v1.ConformanceProgress
+	23, // 46: orbit.v1.TelemetryFrame.workloads:type_name -> orbit.v1.WorkloadProgress
+	3,  // 47: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
+	21, // 48: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
+	33, // 49: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
+	20, // 50: orbit.v1.FleetReport.per_gnb:type_name -> orbit.v1.GnbProgress
+	21, // 51: orbit.v1.FleetReport.latency:type_name -> orbit.v1.ProcedureLatency
+	33, // 52: orbit.v1.FleetReport.resources:type_name -> orbit.v1.ResourceSample
+	4,  // 53: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
+	32, // 54: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
+	34, // 55: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
+	37, // 56: orbit.v1.GetRunReportResponse.conformance:type_name -> orbit.v1.ConformanceSummary
+	44, // 57: orbit.v1.GetRunReportResponse.gates:type_name -> orbit.v1.GateResult
+	36, // 58: orbit.v1.GetRunReportResponse.workloads:type_name -> orbit.v1.RunReport
+	0,  // 59: orbit.v1.RunReport.kind:type_name -> orbit.v1.RunKind
+	32, // 60: orbit.v1.RunReport.load:type_name -> orbit.v1.LoadReport
+	34, // 61: orbit.v1.RunReport.fleet:type_name -> orbit.v1.FleetReport
+	37, // 62: orbit.v1.RunReport.conformance:type_name -> orbit.v1.ConformanceSummary
+	44, // 63: orbit.v1.RunReport.gates:type_name -> orbit.v1.GateResult
+	43, // 64: orbit.v1.ConformanceSummary.tally:type_name -> orbit.v1.ConformanceTally
+	45, // 65: orbit.v1.ConformanceSummary.results:type_name -> orbit.v1.ConformanceResult
+	46, // 66: orbit.v1.ConformanceSummary.stale:type_name -> orbit.v1.StaleExpectation
+	7,  // 67: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
+	9,  // 68: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
+	11, // 69: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
+	13, // 70: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
+	31, // 71: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
+	29, // 72: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
+	25, // 73: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
+	27, // 74: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
+	8,  // 75: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
+	10, // 76: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
+	12, // 77: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
+	22, // 78: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
+	35, // 79: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
+	30, // 80: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
+	26, // 81: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
+	28, // 82: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
+	75, // [75:83] is the sub-list for method output_type
+	67, // [67:75] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_run_proto_init() }
@@ -3716,17 +3897,22 @@ func file_orbit_v1_run_proto_init() {
 		(*StartRunRequest_Fleet)(nil),
 		(*StartRunRequest_Plan)(nil),
 	}
-	file_orbit_v1_run_proto_msgTypes[21].OneofWrappers = []any{
+	file_orbit_v1_run_proto_msgTypes[19].OneofWrappers = []any{
+		(*WorkloadProgress_Load)(nil),
+		(*WorkloadProgress_Fleet)(nil),
+		(*WorkloadProgress_Conformance)(nil),
+	}
+	file_orbit_v1_run_proto_msgTypes[22].OneofWrappers = []any{
 		(*TelemetryFrame_Load)(nil),
 		(*TelemetryFrame_Fleet)(nil),
 		(*TelemetryFrame_Conformance)(nil),
 	}
-	file_orbit_v1_run_proto_msgTypes[30].OneofWrappers = []any{
+	file_orbit_v1_run_proto_msgTypes[31].OneofWrappers = []any{
 		(*GetRunReportResponse_Load)(nil),
 		(*GetRunReportResponse_Fleet)(nil),
 		(*GetRunReportResponse_Conformance)(nil),
 	}
-	file_orbit_v1_run_proto_msgTypes[31].OneofWrappers = []any{
+	file_orbit_v1_run_proto_msgTypes[32].OneofWrappers = []any{
 		(*RunReport_Load)(nil),
 		(*RunReport_Fleet)(nil),
 		(*RunReport_Conformance)(nil),
@@ -3737,7 +3923,7 @@ func file_orbit_v1_run_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_run_proto_rawDesc), len(file_orbit_v1_run_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   33,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

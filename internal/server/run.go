@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -135,6 +136,9 @@ func (s *runService) startPlan(m *orbitv1.StartRunRequest, opts engine.RunOption
 	}
 	var info engine.RunInfo
 	switch {
+	case pr.mixed != nil:
+		opts.WorkloadKinds = pr.kinds
+		info, err = s.reg.StartMixed(opts, pr.mixed)
 	case pr.suite != nil:
 		info, err = s.reg.StartConformance(opts, pr.suiteLive, pr.suite)
 	case pr.fleet != nil:
@@ -171,7 +175,7 @@ func (s *runService) ListRuns(
 	live := make(map[string]bool)
 	for _, info := range s.reg.List() {
 		live[info.ID] = true
-		if filter != "" && info.Kind != filter {
+		if filter != "" && info.Kind != filter && !slices.Contains(info.WorkloadKinds, filter) {
 			continue
 		}
 		out = append(out, runProto(info))
@@ -185,7 +189,7 @@ func (s *runService) ListRuns(
 		if live[r.GetRunId()] {
 			continue
 		}
-		if filter != "" && runKindFromProto(r.GetKind()) != filter {
+		if k := req.Msg.GetKind(); filter != "" && r.GetKind() != k && !slices.Contains(r.GetWorkloadKinds(), k) {
 			continue
 		}
 		out = append(out, r)
@@ -243,6 +247,8 @@ func (s *runService) GetRun(
 		if live := s.suiteLive(id); live != nil {
 			resp.ConformanceProgress = live.progress()
 		}
+	case engine.RunKindMixed:
+		resp.Workloads = workloadsProto(s.reg.MixedProgress(id), time.Now())
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -280,9 +286,9 @@ func (s *runService) GetRunReport(
 	}
 	// A plan's gates, judged as the run completed and kept with its report;
 	// the archive as a second line.
-	if rr := s.planVerdict(id); rr != nil {
-		resp.Gates, resp.GatesPassed = rr.GetGates(), rr.GetGatesPassed()
-		resp.Workloads = []*orbitv1.RunReport{rr}
+	if rs := s.planVerdict(id); len(rs) > 0 {
+		resp.Gates, resp.GatesPassed = gatesOf(rs)
+		resp.Workloads = rs
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -574,6 +580,8 @@ func (s *runService) telemetryFrame(id string, info engine.RunInfo, intervalMs u
 		if live := s.suiteLive(id); live != nil {
 			frame.Progress = &orbitv1.TelemetryFrame_Conformance{Conformance: live.progress()}
 		}
+	case engine.RunKindMixed:
+		frame.Workloads = workloadsProto(s.reg.MixedProgress(id), now)
 	}
 	return frame
 }
@@ -1035,6 +1043,9 @@ func runProto(info engine.RunInfo) *orbitv1.Run {
 	if !info.EndedAt.IsZero() {
 		r.EndedUnixNano = info.EndedAt.UnixNano()
 	}
+	for _, k := range info.WorkloadKinds {
+		r.WorkloadKinds = append(r.WorkloadKinds, runKindProto(k))
+	}
 	return r
 }
 
@@ -1046,6 +1057,8 @@ func runKindProto(k engine.RunKind) orbitv1.RunKind {
 		return orbitv1.RunKind_RUN_KIND_FLEET
 	case engine.RunKindConformance:
 		return orbitv1.RunKind_RUN_KIND_CONFORMANCE
+	case engine.RunKindMixed:
+		return orbitv1.RunKind_RUN_KIND_MIXED
 	default:
 		return orbitv1.RunKind_RUN_KIND_UNSPECIFIED
 	}
@@ -1059,6 +1072,8 @@ func runKindFromProto(k orbitv1.RunKind) engine.RunKind {
 		return engine.RunKindFleet
 	case orbitv1.RunKind_RUN_KIND_CONFORMANCE:
 		return engine.RunKindConformance
+	case orbitv1.RunKind_RUN_KIND_MIXED:
+		return engine.RunKindMixed
 	default:
 		return "" // unspecified = no filter
 	}

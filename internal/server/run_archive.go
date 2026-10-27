@@ -86,15 +86,20 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 	// A plan's per-workload report, with its gates as judged on completion.
 	// A conformance run that did not complete (stopped) keeps its partial
 	// results, judged here: its gates fail, as an incomplete suite's do.
-	rr := judgedReport(s.reg, id)
-	if live := s.suiteLive(id); rr == nil && live != nil {
-		if v, ok := planJudge(held.archive.GetPlan())(live).(*orbitv1.RunReport); ok {
-			rr = v
+	// So is a stopped mixed run's, from what each workload has so far.
+	rs := judgedReports(s.reg, id)
+	if len(rs) == 0 {
+		var partial any
+		if live := s.suiteLive(id); live != nil {
+			partial = live
+		} else if ps := s.reg.MixedProgress(id); len(ps) > 0 {
+			partial = partialMixed(ps)
+		}
+		if partial != nil {
+			rs, _ = planJudge(held.archive.GetPlan())(partial).([]*orbitv1.RunReport)
 		}
 	}
-	if rr != nil {
-		a.Reports = []*orbitv1.RunReport{rr}
-	}
+	a.Reports = rs
 	redactArchive(a, held.secrets)
 	if err := s.archive.save(a); err != nil {
 		// The run itself succeeded; failing to archive it does not change that,
@@ -161,10 +166,10 @@ func archivedReportResponse(id string, a *orbitv1.RunArchive) (*connect.Response
 	case *orbitv1.RunArchive_FleetReport:
 		resp.Report = &orbitv1.GetRunReportResponse_Fleet{Fleet: r.FleetReport}
 	}
-	if rs := a.GetReports(); len(rs) == 1 {
-		resp.Gates, resp.GatesPassed = rs[0].GetGates(), rs[0].GetGatesPassed()
+	if rs := a.GetReports(); len(rs) > 0 {
+		resp.Gates, resp.GatesPassed = gatesOf(rs)
 		resp.Workloads = rs
-		if c := rs[0].GetConformance(); c != nil && resp.Report == nil {
+		if c := rs[0].GetConformance(); len(rs) == 1 && c != nil && resp.Report == nil {
 			resp.Report = &orbitv1.GetRunReportResponse_Conformance{Conformance: c}
 		}
 	}

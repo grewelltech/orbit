@@ -160,6 +160,12 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 		if w := g.GetWorkload(); w != "" && w != r.GetWorkload() {
 			continue
 		}
+		// A run-wide gate judges the workloads its check fits: an SLO the
+		// populations, a conformance gate the suites.
+		suite := r.GetKind() == orbitv1.RunKind_RUN_KIND_CONFORMANCE
+		if g.GetWorkload() == "" && (g.GetSlo() != nil && suite || g.GetConformance() != nil && !suite) {
+			continue
+		}
 		res := &orbitv1.GateResult{Gate: g}
 		if g.GetConformance() != nil {
 			res.Passed, res.Observed, res.Detail = judgeSuite(r.GetConformance())
