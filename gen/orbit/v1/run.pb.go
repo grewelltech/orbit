@@ -2028,7 +2028,7 @@ type WorkloadProgress struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Name   string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Kind   RunKind                `protobuf:"varint,2,opt,name=kind,proto3,enum=orbit.v1.RunKind" json:"kind,omitempty"`
-	State  string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`   // waiting | running | done | failed | skipped
+	State  string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`   // waiting | running | done | failed | stopped (the run stopped under it) | skipped (never started)
 	Detail string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"` // why it failed or was skipped
 	// Types that are valid to be assigned to Progress:
 	//

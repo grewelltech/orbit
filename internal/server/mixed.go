@@ -376,3 +376,39 @@ func workloadsProto(ps []engine.MixedProgress, now time.Time) []*orbitv1.Workloa
 	}
 	return out
 }
+
+// partialPopulation is a one-population plan run that did not complete, as
+// a one-workload mixed report for the archive: its figures so far, from
+// its live aggregates, and how it ended. nil for any other run.
+func (s *runService) partialPopulation(id string, info engine.RunInfo, plan *orbitv1.RunPlan) *engine.MixedReport {
+	ws := plan.GetWorkloads()
+	if len(ws) != 1 || ws[0].GetPopulation() == nil {
+		return nil
+	}
+	res := engine.MixedResult{Name: ws[0].GetName(), Kind: info.Kind}
+	switch info.Kind {
+	case engine.RunKindLoad:
+		snap, ok := s.reg.Snapshot(id)
+		if !ok {
+			return nil
+		}
+		res.Report = engine.PartialLoadReport(snap)
+	case engine.RunKindFleet:
+		snap, ok := s.reg.FleetSnapshot(id)
+		if !ok {
+			return nil
+		}
+		res.Report = engine.PartialFleetReport(snap)
+	default:
+		return nil
+	}
+	switch info.State {
+	case engine.RunCancelled:
+		res.State, res.Detail = engine.WorkloadStopped, "the run was stopped"
+	case engine.RunFailed:
+		res.State, res.Detail = engine.WorkloadFailed, info.Err
+	default:
+		return nil
+	}
+	return &engine.MixedReport{Workloads: []engine.MixedResult{res}}
+}

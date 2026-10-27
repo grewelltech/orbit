@@ -79,7 +79,8 @@ const (
 	WorkloadRunning = "running"
 	WorkloadDone    = "done"
 	WorkloadFailed  = "failed"
-	WorkloadSkipped = "skipped"
+	WorkloadSkipped = "skipped" // never started: what it waited on did not come
+	WorkloadStopped = "stopped" // started, and the run was stopped under it
 )
 
 // MixedProgress is one workload of a mixed run, as it stands: its state
@@ -108,7 +109,7 @@ type MixedReport struct {
 type MixedResult struct {
 	Name   string
 	Kind   RunKind
-	State  string // WorkloadDone, WorkloadFailed or WorkloadSkipped
+	State  string // WorkloadDone, WorkloadFailed, WorkloadStopped or WorkloadSkipped
 	Detail string
 	Report any
 }
@@ -194,16 +195,26 @@ func (s *mixedState) attached() bool {
 func (s *mixedState) partial() any {
 	switch {
 	case s.live != nil:
-		snap := s.live.Snapshot()
-		return &load.Report{Attempted: snap.Attempted, Succeeded: snap.Succeeded, Failed: snap.Failed,
-			Duration: snap.Elapsed, AchievedRate: snap.AchievedRate, Latencies: snap.Latencies}
+		return PartialLoadReport(s.live.Snapshot())
 	case s.fleet != nil:
-		snap := s.fleet.Snapshot()
-		return &FleetReport{Attached: snap.Attached, AttachFailed: snap.AttachFailed,
-			Handovers: snap.Handovers, HandoverErr: snap.HandoverErrors, TrafficFlows: snap.TrafficFlows,
-			TrafficBytes: snap.UplinkBytes + snap.DownlinkBytes}
+		return PartialFleetReport(s.fleet.Snapshot())
 	}
 	return nil
+}
+
+// PartialLoadReport is a load run's figures so far, from its live
+// aggregates, for a run that stopped before its report.
+func PartialLoadReport(snap load.Snapshot) *load.Report {
+	return &load.Report{Attempted: snap.Attempted, Succeeded: snap.Succeeded, Failed: snap.Failed,
+		Duration: snap.Elapsed, AchievedRate: snap.AchievedRate, Latencies: snap.Latencies}
+}
+
+// PartialFleetReport is a fleet run's figures so far, from its live
+// aggregates, for a run that stopped before its report.
+func PartialFleetReport(snap FleetSnapshot) *FleetReport {
+	return &FleetReport{Attached: snap.Attached, AttachFailed: snap.AttachFailed,
+		Handovers: snap.Handovers, HandoverErr: snap.HandoverErrors, TrafficFlows: snap.TrafficFlows,
+		TrafficBytes: snap.UplinkBytes + snap.DownlinkBytes}
 }
 
 // attachedBy reports whether a population's final report shows its attach
@@ -397,7 +408,7 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 	// stopped: stopped it is, its figures partial. A suite reports a stop
 	// as an error, and returns cleanly only once every check ran.
 	case ctx.Err() != nil && (err != nil || w.Conformance == nil):
-		res.State, res.Detail = WorkloadSkipped, "stopped"
+		res.State, res.Detail = WorkloadStopped, "the run was stopped"
 	case err != nil:
 		res.State, res.Detail = WorkloadFailed, err.Error()
 	default:

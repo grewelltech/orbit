@@ -388,7 +388,7 @@ message GetRunResponse {
 message WorkloadProgress {
   string name = 1;
   RunKind kind = 2;
-  string state = 3;               // waiting | running | done | failed | skipped
+  string state = 3;               // waiting | running | done | failed | stopped (the run stopped under it) | skipped (never started)
   string detail = 4;              // why it failed or was skipped
   oneof progress {
     LoadProgress load = 5;

@@ -1076,7 +1076,7 @@ export type WorkloadProgress = Message<"orbit.v1.WorkloadProgress"> & {
   kind: RunKind;
 
   /**
-   * waiting | running | done | failed | skipped
+   * waiting | running | done | failed | stopped (the run stopped under it) | skipped (never started)
    *
    * @generated from field: string state = 3;
    */

@@ -86,17 +86,21 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 	// A plan's per-workload report, with its gates as judged on completion.
 	// A conformance run that did not complete (stopped) keeps its partial
 	// results, judged here: its gates fail, as an incomplete suite's do.
-	// So is a stopped mixed run's, from what each workload has so far.
+	// So is a stopped mixed run's, from what each workload has so far,
+	// and a stopped population's, from its live figures: every gate on a
+	// workload that did not complete fails.
 	rs := judgedReports(s.reg, id)
-	if len(rs) == 0 {
+	if plan := held.archive.GetPlan(); len(rs) == 0 && plan != nil {
 		var partial any
 		if live := s.suiteLive(id); live != nil {
 			partial = live
 		} else if ps := s.reg.MixedProgress(id); len(ps) > 0 {
 			partial = partialMixed(ps)
+		} else if p := s.partialPopulation(id, info, plan); p != nil {
+			partial = p
 		}
 		if partial != nil {
-			rs, _ = planJudge(held.archive.GetPlan())(partial).([]*orbitv1.RunReport)
+			rs, _ = planJudge(plan)(partial).([]*orbitv1.RunReport)
 		}
 	}
 	a.Reports = rs

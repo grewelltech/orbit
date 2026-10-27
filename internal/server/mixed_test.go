@@ -396,11 +396,11 @@ func TestMixedStoppedWorkloadFailsItsGates(t *testing.T) {
 		wantPass bool
 	}{
 		{name: "done", state: engine.WorkloadDone, wantPass: true},
-		{name: "stopped", state: engine.WorkloadSkipped, wantPass: false},
+		{name: "stopped", state: engine.WorkloadStopped, wantPass: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rr := mixedRunReport(engine.MixedResult{Name: "pop", Kind: engine.RunKindLoad, State: tc.state, Detail: "stopped", Report: partial},
+			rr := mixedRunReport(engine.MixedResult{Name: "pop", Kind: engine.RunKindLoad, State: tc.state, Detail: "the run was stopped", Report: partial},
 				[]*orbitv1.Gate{gate})
 			if rr.GetLoad() == nil {
 				t.Fatal("the report was dropped")
@@ -408,7 +408,7 @@ func TestMixedStoppedWorkloadFailsItsGates(t *testing.T) {
 			if len(rr.GetGates()) != 1 || rr.GetGates()[0].GetPassed() != tc.wantPass || rr.GetGatesPassed() != tc.wantPass {
 				t.Errorf("gates = %v, passed %t; want %t", rr.GetGates(), rr.GetGatesPassed(), tc.wantPass)
 			}
-			if !tc.wantPass && rr.GetGates()[0].GetDetail() != "workload pop did not complete (skipped): stopped" {
+			if !tc.wantPass && rr.GetGates()[0].GetDetail() != "workload pop did not complete (stopped): the run was stopped" {
 				t.Errorf("detail = %q", rr.GetGates()[0].GetDetail())
 			}
 		})
@@ -472,10 +472,62 @@ func TestMixedStopFailsPassingPartials(t *testing.T) {
 		t.Fatalf("the population's partial report = %v", pop.GetLoad())
 	}
 	if len(pop.GetGates()) != 1 || pop.GetGates()[0].GetPassed() || pop.GetGatesPassed() ||
-		!strings.HasPrefix(pop.GetGates()[0].GetDetail(), "workload pop did not complete (skipped)") {
+		pop.GetGates()[0].GetDetail() != "workload pop did not complete (stopped): the run was stopped" {
 		t.Errorf("population gates = %v, passed %t", pop.GetGates(), pop.GetGatesPassed())
 	}
 	if _, passed := gatesOf(a.GetReports()); passed {
 		t.Error("the run's gates read passed on a stopped run")
+	}
+}
+
+// A one-population plan stopped mid-run archives a judged partial report
+// from its live figures, its gates failed as did-not-complete, though the
+// partial ratio would pass; GetRunReport still refuses a CANCELLED run.
+func TestPopulationStopArchivesJudgedPartial(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := sctpfront.Listen(t, amf)
+	dir, runs, _ := suiteServer(t)
+	p := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Target.Core.Amf = addr
+		p.Target.Subscribers[0].Count = 1000
+		pop(p).Attach = &orbitv1.AttachProfile{Count: 900, Rate: 20, Concurrency: 2}
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}}
+		p.Gates = []*orbitv1.Gate{{Name: "attach", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{
+			Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.5}}}}
+	})
+	resp, err := runs.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		g, err := runs.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
+		if err == nil && g.Msg.GetLoadProgress().GetSucceeded() >= 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the population never attached: %v, %v", g, err)
+		}
+	}
+	if _, err := runs.StopRun(context.Background(), connect.NewRequest(&orbitv1.StopRunRequest{RunId: id})); err != nil {
+		t.Fatal(err)
+	}
+	a := waitArchive(t, dir, id)
+	if len(a.GetReports()) != 1 {
+		t.Fatalf("archived reports = %v, want the population's partial", a.GetReports())
+	}
+	rr := a.GetReports()[0]
+	if rr.GetLoad().GetSucceeded() < 3 || rr.GetGatesPassed() || len(rr.GetGates()) != 1 ||
+		rr.GetGates()[0].GetDetail() != "workload pop did not complete (stopped): the run was stopped" {
+		t.Errorf("report = %v", rr)
+	}
+	if _, err := runs.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("GetRunReport on a CANCELLED run = %v, want FAILED_PRECONDITION", err)
 	}
 }
