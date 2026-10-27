@@ -520,9 +520,23 @@ nothing about the host. On the app host it:
 The apply in step 3 checks the host again and prints its own plan before it
 changes anything, so if the host changed after the dry run, the plan you see
 there is the one applied. If no registration came of it (you declined, the
-plan or the apply failed, ssh failed, or you pressed Ctrl-C), the command
-revokes the unused token itself and says so; if that revoke fails, it prints
-the token ID to revoke by hand.
+plan or the apply failed, ssh failed, you pressed Ctrl-C at any point after
+the token was issued, or the apply had nothing to register because the host
+was already joined), the command revokes the unused token itself and says
+so; if that revoke fails, it prints the token ID to revoke by hand.
+
+The join script's own options pass through, checked here and quoted for the
+remote shell, to both the dry run and the apply:
+
+```sh
+orbit target add-responder --ssh app1.lab -t lab1 --n6-ip 198.51.100.20 --bind 192.0.2.20:9551
+orbit target add-responder --ssh app1.lab -t lab1 --no-firewall   # rules added by hand (ufw, firewalld)
+```
+
+`--n6-ip IP` and `--bind IP:port` (`[addr]:port` for IPv6) choose the
+addresses the script would otherwise take from the routes; `--no-firewall`,
+`--no-route` and `--no-systemd` skip those parts of the plan. The script
+checks the addresses again against the host's own.
 
 Each remote command is one `sh -c '…'`, so the ssh user's login shell only
 has to pass a single-quoted argument to `sh`, which sh, bash, zsh, fish and
@@ -571,7 +585,10 @@ The plan's steps:
      not get past another table's drop.)
    - **ufw or firewalld:** the script does not edit them. It prints the
      `ufw allow …` or `firewall-cmd --add-rich-rule …` lines to run and
-     stops; rerun with `--no-firewall` once they are in.
+     stops; rerun with `--no-firewall` once they are in. With firewalld, an
+     icmp-block on `echo-request` in the zone wins over the rich-rule accept
+     (`firewall-cmd --zone=<zone> --query-icmp-block=echo-request`; remove it
+     with `--remove-icmp-block=echo-request`).
    - **Several filtering chains, or a listing it cannot read:** the script
      stops and lists the rules to add where they belong.
 
