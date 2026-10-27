@@ -20,8 +20,9 @@ import (
 type RunKind string
 
 const (
-	RunKindLoad  RunKind = "load"
-	RunKindFleet RunKind = "fleet"
+	RunKindLoad        RunKind = "load"
+	RunKindFleet       RunKind = "fleet"
+	RunKindConformance RunKind = "conformance"
 )
 
 // RunState is a run's lifecycle position.
@@ -95,6 +96,7 @@ type run struct {
 	info      RunInfo
 	live      *load.LiveStats // live aggregates while running (load kind; nil otherwise)
 	fleetLive *FleetLiveStats // live aggregates while running (fleet kind; nil otherwise)
+	suiteLive any             // the caller's live progress (conformance kind; nil otherwise)
 	events    *eventRing      // per-run discrete-event log
 	report    any             // *load.Report or *FleetReport, set on COMPLETE
 	cancel    context.CancelFunc
@@ -169,7 +171,7 @@ func newRunID() string {
 // run concurrently, whatever their kind.
 func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error) {
 	live := load.NewLiveStats()
-	return r.start(RunKindLoad, opts, live, nil, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindLoad, opts, live, nil, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
 			if err != nil {
@@ -185,7 +187,7 @@ func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error
 // proceeds.
 func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, error) {
 	live := NewFleetLiveStats()
-	return r.start(RunKindFleet, opts, nil, live, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindFleet, opts, nil, live, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
 			if err != nil {
@@ -196,10 +198,48 @@ func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, err
 	})
 }
 
+// ConformanceRunFunc runs a conformance suite to completion. The suite's
+// results are the caller's types (the engine does not import the suite):
+// it publishes them as they come into the live holder it passed to
+// StartConformance, and returns its report, kept on COMPLETE
+// (ConformanceResult).
+type ConformanceRunFunc func(ctx context.Context, emit RunEventFunc) (any, error)
+
+// StartConformance registers and launches a conformance run, taking its
+// leases as every kind does. live is the caller's progress holder, kept
+// with the run for as long as the registry keeps it (ConformanceLive), so
+// a reader can follow results without the launcher's help.
+func (r *RunRegistry) StartConformance(opts RunOptions, live any, fn ConformanceRunFunc) (RunInfo, error) {
+	return r.start(RunKindConformance, opts, nil, nil, live, func(emit RunEventFunc) runFunc {
+		return func(ctx context.Context) (any, error) { return fn(ctx, emit) }
+	})
+}
+
+// ConformanceLive is a conformance run's live progress holder, as passed
+// to StartConformance; it outlives the run's end, for its partial results.
+func (r *RunRegistry) ConformanceLive(id string) (any, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rec := r.runs[id]; rec != nil && rec.suiteLive != nil {
+		return rec.suiteLive, true
+	}
+	return nil, false
+}
+
+// ConformanceResult is a completed conformance run's report.
+func (r *RunRegistry) ConformanceResult(id string) (any, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rec := r.runs[id]; rec != nil && rec.info.Kind == RunKindConformance && rec.report != nil {
+		return rec.report, true
+	}
+	return nil, false
+}
+
 // start registers a run of the given kind and launches exec on its own
 // goroutine. Each kind supplies at most one live-aggregate holder (the other
 // is nil). mkExec builds the launcher once the run's event emitter exists.
-func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats, fleetLive *FleetLiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
+func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats, fleetLive *FleetLiveStats, suiteLive any, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
 	// Canonicalising may resolve AMF names, so it happens before the lock:
 	// a slow resolver must not stall every other call on the registry.
 	want := r.leases.canonical(opts.Needs)
@@ -221,6 +261,7 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 		},
 		live:      live,
 		fleetLive: fleetLive,
+		suiteLive: suiteLive,
 		events:    ring,
 		cancel:    cancel,
 		leases:    want.describe(),
