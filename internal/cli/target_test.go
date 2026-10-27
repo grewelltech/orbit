@@ -80,7 +80,7 @@ func TestTargetProbePasses(t *testing.T) {
 		t.Fatalf("probe: %v\n%s", r.execErr, r.out)
 	}
 	for _, want := range []string{
-		"probe lab1 through " + lab.server + " (gNB ID 0x64, SUPI 208930000000001; until leasing",
+		"probe lab1 through " + lab.server + " (gNB IDs 0x64, 0x65, 0x66, one per association, SUPI 208930000000001; until leasing",
 		`✓ NG Setup`, `accepted by AMF`, "from " + lab.net + "11:",
 		`✓ register`, "208930000000001 registered in",
 		`✓ PDU session`, "via UPF " + lab.net + "10",
@@ -399,5 +399,101 @@ func TestTargetListNameFileMismatch(t *testing.T) {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("list lacks %q:\n%s", want, r.out)
 		}
+	}
+}
+
+// init never writes through a link: a dangling ./orbit.yaml link with
+// --here and a targets/<name>.yaml link to an existing file with --force
+// are refused, naming the link, and the link's target is untouched. A
+// normal --force overwrite replaces the file (mode 0600, no temp left).
+func TestTargetInitRefusesSymlinks(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1)
+	if err := os.Remove(filepath.Join(loc.Dir, "orbit.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := filepath.Join(t.TempDir(), "planted.yaml")
+	if err := os.Symlink(elsewhere, filepath.Join(loc.Dir, "orbit.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"target", "init", "lab2", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50",
+		"--first-supi", "001010000000001", "--write-keys", "--ki", testKi, "--opc", testOPc}
+	r := runOrbit(t, loc, append(base, "--here")...)
+	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "orbit.yaml is a symlink (to "+elsewhere+")") {
+		t.Errorf("--here over a dangling link: %v", r.execErr)
+	}
+	if _, err := os.Stat(elsewhere); err == nil {
+		t.Error("the link's target was created")
+	}
+
+	dir := filepath.Join(loc.ConfigDir, "targets")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(t.TempDir(), "shared.yaml")
+	if err := os.WriteFile(shared, []byte("shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(dir, "lab2.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	r = runOrbit(t, loc, append(base, "--force")...)
+	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "lab2.yaml is a symlink (to "+shared+")") {
+		t.Errorf("--force over a link: %v", r.execErr)
+	}
+	if b, _ := os.ReadFile(shared); string(b) != "shared\n" {
+		t.Errorf("the link's target was written: %q", b)
+	}
+	if st, _ := os.Stat(shared); st.Mode().Perm() != 0o644 {
+		t.Errorf("the link's target mode changed to %v", st.Mode().Perm())
+	}
+
+	// A regular file: --force replaces it.
+	if err := os.Remove(filepath.Join(dir, "lab2.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lab2.yaml"), []byte("old\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if r := runOrbit(t, loc, append(base, "--force")...); r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "lab2.yaml"))
+	st, _ := os.Stat(filepath.Join(dir, "lab2.yaml"))
+	if !strings.Contains(string(b), "name: lab2") || st.Mode().Perm() != 0o600 {
+		t.Errorf("overwrite: mode %v, content:\n%s", st.Mode().Perm(), b)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".*.tmp")); len(left) != 0 {
+		t.Errorf("temp files left: %v", left)
+	}
+}
+
+// Each probe association takes its own gNB ID: the range's first, first+1
+// and first+2.
+func TestProbeGNBIDs(t *testing.T) {
+	plan, err := planProbe(target.Target{RAN: target.RAN{GNBIDs: target.GNBIDs{First: 100}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, b, c := plan.gnbFor(0).GetId(), plan.gnbFor(1).GetId(), plan.gnbFor(2).GetId(); a != 100 || b != 101 || c != 102 || plan.gnb.GetId() != 100 {
+		t.Errorf("IDs = %d %d %d (base %d)", a, b, c, plan.gnb.GetId())
+	}
+	plan, _ = planProbe(target.Target{})
+	if plan.gnbFor(0).GetId() != target.DefaultGNBID {
+		t.Errorf("default first ID = %d", plan.gnbFor(0).GetId())
+	}
+}
+
+// show --json uses the YAML key names.
+func TestTargetShowJSONKeys(t *testing.T) {
+	clearOrbitEnv(t)
+	r := runOrbit(t, targetDir(t, lab1), "target", "show", "lab1", "--json")
+	for _, want := range []string{`"first_supi"`, `"n2_source_ips"`, `"plmn"`, `"mcc"`} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("show --json lacks %s:\n%s", want, r.out)
+		}
+	}
+	if strings.Contains(r.out, `"FirstSUPI"`) {
+		t.Error("show --json uses Go field names")
 	}
 }

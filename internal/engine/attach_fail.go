@@ -17,9 +17,11 @@ const failDeregisterTimeout = 2 * time.Second
 // deregister it, and the core would keep a registered UE with no handle.
 //
 // A probe-driven attach (ueCfg.Probe, the conformance checks) is left
-// alone: its check owns the cleanup, and some stop on purpose after
-// Registration Accept to watch what the core does next (T3550), which an
-// automatic switch-off would cut short.
+// alone: its check owns the cleanup. Some end the attach on purpose after
+// Registration Accept and then deregister the UE themselves (the unknown-
+// DNN check, #183), which an automatic switch-off here would duplicate. The
+// probe guard also covers a UE the core released: ErrReleasedByCore only
+// arises with a probe set (observe, probe.go).
 func (s *attachState) fail(err error) error {
 	if !s.registered || s.ueCfg.Probe != nil {
 		return err

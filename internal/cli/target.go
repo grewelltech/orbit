@@ -18,6 +18,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -204,20 +205,10 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 			path := filepath.Join(l.ConfigDir, "targets", name+".yaml")
 			if here {
 				path = filepath.Join(l.Dir, "orbit.yaml")
-				if _, err := os.Stat(path); err == nil {
-					return fmt.Errorf("%s exists: add target %q to it by hand, or leave out --here to write %s",
-						path, name, filepath.Join(l.ConfigDir, "targets", name+".yaml"))
-				}
-			} else if _, err := os.Stat(path); err == nil && !force {
-				return fmt.Errorf("%s exists: --force overwrites it", path)
-			}
-			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			} else if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				return err
 			}
-			if err := os.WriteFile(path, b, 0o600); err != nil {
-				return err
-			}
-			if err := os.Chmod(path, 0o600); err != nil {
+			if err := writeTargetFile(path, b, here, force, name, l); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(out, "wrote target %s to %s\n", name, path)
@@ -248,6 +239,82 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 		f.Lookup(n).Value = strictNumber{f.Lookup(n).Value}
 	}
 	return cmd
+}
+
+// writeTargetFile writes a target file without ever following a link: a
+// symlink (dangling or not) or any other non-regular file at path is
+// refused, naming it. A new file is created O_EXCL at 0600, so a link
+// planted after the check is refused too. With force an existing regular
+// file is replaced by renaming a 0600 temp file from the same directory
+// over it, which replaces the name, never a link's target, and never
+// changes the mode of a file init did not create. With here, path must not
+// exist at all: editing an existing YAML list would lose its comments.
+func writeTargetFile(path string, b []byte, here, force bool, name string, l target.Locations) error {
+	st, err := os.Lstat(path)
+	switch {
+	case err == nil && st.Mode()&os.ModeSymlink != 0:
+		dest, _ := os.Readlink(path)
+		return fmt.Errorf("%s is a symlink (to %s): init writes only regular files; remove the link or write elsewhere", path, dest)
+	case err == nil && !st.Mode().IsRegular():
+		return fmt.Errorf("%s is not a regular file", path)
+	case err == nil && here:
+		return fmt.Errorf("%s exists: add target %q to it by hand, or leave out --here to write %s",
+			path, name, filepath.Join(l.ConfigDir, "targets", name+".yaml"))
+	case err == nil && !force:
+		return fmt.Errorf("%s exists: --force overwrites it", path)
+	case err == nil:
+		return replaceFile(path, b)
+	case !errors.Is(err, os.ErrNotExist):
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// replaceFile replaces the regular file at path with b through a 0600 temp
+// file in the same directory, synced, then renamed over it.
+func replaceFile(path string, b []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	done := false
+	defer func() {
+		if !done {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	done = true
+	return nil
 }
 
 // interactive reports whether r is a terminal, so init may ask. /dev/null,
@@ -466,7 +533,9 @@ func newTargetProbeCmd(serverURL *string, loc targetLocations) *cobra.Command {
 			"control-plane steps of the doctor (ADR-0009 §5): NG Setup, then registering\n" +
 			"the pool's first SUPI, then a PDU session. It stops at the first failure,\n" +
 			"naming what to check, and exits non-zero. Until leasing, it uses the target's\n" +
-			"first gNB ID and SUPI, so a run using them at the same time collides.",
+			"first three gNB IDs (one per association) and first SUPI, so a run using them\n" +
+			"at the same time collides. The keys go to --server: until it has TLS, keep it\n" +
+			"on loopback, or the keys cross the network in plaintext.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l, err := loc()
@@ -518,7 +587,7 @@ func planProbe(t target.Target) (probePlan, error) {
 	if name == "" {
 		name = "orbit-probe"
 	}
-	p.gnbIDShown = fmt.Sprintf("%#x", id)
+	p.gnbIDShown = fmt.Sprintf("%#x, %#x, %#x", id, id+1, id+2)
 	p.gnb = &orbitv1.GnbConfig{Id: id, IdBits: bits, Name: name, Mcc: t.Core.PLMN.MCC, Mnc: t.Core.PLMN.MNC, Tac: t.Core.TAC,
 		Slices: []*orbitv1.Snssai{{Sst: p.sst, Sd: p.sd}}}
 	if len(t.RAN.N2SourceIPs) > 0 {
@@ -539,6 +608,15 @@ func planProbe(t target.Target) (probePlan, error) {
 	return p, nil
 }
 
+// gnbFor is the plan's gNB with the ID for association n (0, 1, 2): each
+// association takes its own, since a core may not cleanly re-key a gNB ID
+// reused from a new association (SD-Core; see conformance.go).
+func (p probePlan) gnbFor(n uint32) *orbitv1.GnbConfig {
+	g := proto.Clone(p.gnb).(*orbitv1.GnbConfig)
+	g.Id += n
+	return g
+}
+
 func runProbe(cmd *cobra.Command, serverURL *string, name string, t target.Target, timeout time.Duration) error {
 	out := cmd.OutOrStdout()
 	plan, err := planProbe(t)
@@ -553,7 +631,7 @@ func runProbe(cmd *cobra.Command, serverURL *string, name string, t target.Targe
 		printProbe(out, name, steps)
 		return fmt.Errorf("probe %s failed at %s", name, step)
 	}
-	_, _ = fmt.Fprintf(out, "probe %s through %s (gNB ID %s", name, *serverURL, plan.gnbIDShown)
+	_, _ = fmt.Fprintf(out, "probe %s through %s (gNB IDs %s, one per association", name, *serverURL, plan.gnbIDShown)
 	if plan.pool != nil {
 		_, _ = fmt.Fprintf(out, ", SUPI %s", plan.pool.FirstSUPI)
 	}
@@ -562,7 +640,7 @@ func runProbe(cmd *cobra.Command, serverURL *string, name string, t target.Targe
 	// 1. NG Setup.
 	start := time.Now()
 	ng, err := cellClient(serverURL).RunNGSetup(ctx, connect.NewRequest(&orbitv1.RunNGSetupRequest{
-		AmfAddress: t.Core.AMF, LocalAddress: plan.bind, Gnb: plan.gnb, TimeoutMs: ms,
+		AmfAddress: t.Core.AMF, LocalAddress: plan.bind, Gnb: plan.gnbFor(0), TimeoutMs: ms,
 	}))
 	switch {
 	case err != nil && connect.CodeOf(err) == connect.CodeUnavailable:
@@ -588,8 +666,12 @@ func runProbe(cmd *cobra.Command, serverURL *string, name string, t target.Targe
 		return fail("register", fmt.Sprintf("subscribers[%s] has no ki/opc; set them, or ${ORBIT_KI}/${ORBIT_OPC} with the variables exported", pool.Name))
 	}
 	register := func(withPDU bool) (*orbitv1.RegisterResponse, error) {
+		assoc := uint32(1)
+		if withPDU {
+			assoc = 2
+		}
 		req := &orbitv1.RegisterRequest{
-			AmfAddress: t.Core.AMF, BindAddress: plan.bind, Supi: pool.FirstSUPI, Gnb: plan.gnb,
+			AmfAddress: t.Core.AMF, BindAddress: plan.bind, Supi: pool.FirstSUPI, Gnb: plan.gnbFor(assoc),
 			Credentials: &orbitv1.Credentials{Ki: pool.Ki, Opc: pool.OPc}, RoutingIndicator: pool.RoutingIndicator,
 			TimeoutMs: ms,
 		}

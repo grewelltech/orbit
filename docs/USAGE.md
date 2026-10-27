@@ -214,9 +214,16 @@ orbit target probe lab1           # NG Setup, one registration, one PDU session,
     core.
   - PDU session: the DNN and slice.
 
-  The core's reject causes aren't reported yet. Until leasing, `init` and
-  `probe` use the target's first gNB ID (or 1) and first SUPI: a run using the
-  same ones at the same time collides.
+  The core's reject causes aren't reported yet. Until leasing, `init` uses
+  the target range's first gNB ID (or 1), and `probe` uses the first three,
+  one per association, plus the pool's first SUPI. A run using the same ones
+  at the same time collides.
+
+  `probe` sends the subscriber keys to `--server`. Until the server has TLS,
+  keep it on loopback, or the keys cross the network in plaintext.
+- `init` never writes through a symlink: a link at `./orbit.yaml` or at
+  `targets/<name>.yaml` is refused. A `--force` overwrite replaces the file
+  through a temp file and a rename.
 
 - **Precedence**, lowest first: built-in default < target < `$ORBIT_*` < flag,
   field by field. A target therefore never overrides a flag you typed or an
