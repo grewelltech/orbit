@@ -99,6 +99,20 @@ func TestCreateJoinToken(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+	t.Run("refused over a plaintext connection to a TLS server", func(t *testing.T) {
+		// TLS configured, but this request arrives in the clear (a second,
+		// plaintext listener, or a TLS-terminating proxy): its response
+		// would carry the token.
+		l := newJoinLab(t, false, "192.0.2.10:8412")
+		l.j.tls = true
+		_, err := l.join.CreateJoinToken(context.Background(), connect.NewRequest(&orbitv1.CreateJoinTokenRequest{Spec: joinSpec}))
+		if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), msgJoinNeedsTLS) {
+			t.Fatalf("err = %v", err)
+		}
+		if len(l.j.store.List()) != 0 {
+			t.Error("a token was issued")
+		}
+	})
 	l := newJoinLab(t, true, "192.0.2.10:8412")
 	res := l.create(t, "app1", "")
 	curlPin := "sha256//" + strings.TrimPrefix(l.j.pin, "sha256/")
@@ -265,6 +279,25 @@ func TestJoinEndpoints(t *testing.T) {
 		t.Errorf("after ten misses: %d, want 429", r.StatusCode)
 	}
 
+	// Percent-encoding anywhere under /join/: the path as sent must be the
+	// path as decoded, so an encoded '/', '.' or token character is the
+	// same 404, the token's own path included (a fresh lab: own misses).
+	l4 := newJoinLab(t, true, "192.0.2.10:8412")
+	sec4 := l4.create(t, "", "").GetSecret()
+	first := sec4[len(join.Prefix) : len(join.Prefix)+1]
+	for _, path := range []string{
+		"/join/" + sec4 + "%2Fbin%2Famd64",
+		"/join/" + sec4 + "%2E",
+		"/join/" + join.Prefix + "%" + strings.ToUpper(hex.EncodeToString([]byte(first))) + sec4[len(join.Prefix)+1:],
+	} {
+		if r, body := l4.get(t, http.MethodGet, path); r.StatusCode != http.StatusNotFound || body != wantBody {
+			t.Errorf("%s: %d %q, want the uniform 404", strings.ReplaceAll(path, sec4, "<token>"), r.StatusCode, body)
+		}
+	}
+	if r, _ := l4.get(t, http.MethodGet, "/join/"+sec4); r.StatusCode != http.StatusOK {
+		t.Errorf("the token's own path after the encoded ones: %d", r.StatusCode)
+	}
+
 	// Expired: the same 404.
 	l3 := newJoinLab(t, true, "192.0.2.10:8412")
 	now := time.Now()
@@ -276,8 +309,8 @@ func TestJoinEndpoints(t *testing.T) {
 	}
 
 	// The token never reaches the log: only its ID.
-	for _, lab := range []*joinLab{l, l2, l3} {
-		for _, s := range []string{secret, sec2, sec3} {
+	for _, lab := range []*joinLab{l, l2, l3, l4} {
+		for _, s := range []string{secret, sec2, sec3, sec4} {
 			if strings.Contains(lab.log.String(), strings.TrimPrefix(s, join.Prefix)) {
 				t.Errorf("the log holds a token:\n%s", lab.log.String())
 			}

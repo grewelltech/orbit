@@ -101,8 +101,10 @@ func hashBinary(path string) (joinBinary, error) {
 
 // --- JoinService ---
 
-func (j *joinService) CreateJoinToken(_ context.Context, req *connect.Request[orbitv1.CreateJoinTokenRequest]) (*connect.Response[orbitv1.CreateJoinTokenResponse], error) {
-	if !j.tls {
+func (j *joinService) CreateJoinToken(ctx context.Context, req *connect.Request[orbitv1.CreateJoinTokenRequest]) (*connect.Response[orbitv1.CreateJoinTokenResponse], error) {
+	// The server's TLS, and this request's own connection: the response
+	// carries the token.
+	if cs, _ := ctx.Value(connStateKey{}).(connState); !j.tls || !cs.tls {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(msgJoinNeedsTLS))
 	}
 	m := req.Msg
@@ -193,9 +195,12 @@ func (j *joinService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, msgJoinBusy, http.StatusTooManyRequests)
 		return
 	}
+	// The path as sent must be the path as decoded: any percent-encoding
+	// (an encoded '/', '.', or token character) is the uniform 404.
 	segs := strings.Split(strings.TrimPrefix(r.URL.Path, "/join/"), "/")
 	var tok join.Token
-	ok := r.URL.RawQuery == "" && (len(segs) == 1 || (len(segs) == 3 && segs[1] == "bin"))
+	ok := r.URL.RawQuery == "" && r.URL.RawPath == "" && !strings.Contains(r.URL.EscapedPath(), "%") &&
+		(len(segs) == 1 || (len(segs) == 3 && segs[1] == "bin"))
 	if ok {
 		tok, ok = j.store.Lookup(segs[0])
 	}

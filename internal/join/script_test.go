@@ -49,14 +49,30 @@ func TestScriptGolden(t *testing.T) {
 	if string(got) != string(want) {
 		t.Errorf("script differs from %s (go test -update to accept):\n%s", golden, got)
 	}
-	if sh, err := exec.LookPath("sh"); err == nil {
-		if out, err := exec.Command(sh, "-n", golden).CombinedOutput(); err != nil {
-			t.Errorf("sh -n: %v\n%s", err, out)
-		}
-	}
-	if sc, err := exec.LookPath("shellcheck"); err == nil {
+	// shellcheck is required in CI ($CI set), so CI cannot lose the check
+	// silently; elsewhere it runs when installed.
+	switch sc, err := exec.LookPath("shellcheck"); {
+	case err == nil:
 		if out, err := exec.Command(sc, "-s", "sh", golden).CombinedOutput(); err != nil {
 			t.Errorf("shellcheck: %v\n%s", err, out)
+		}
+	case os.Getenv("CI") != "":
+		t.Error("shellcheck is not installed; CI must run it")
+	default:
+		t.Log("shellcheck is not installed: the script was not linted")
+	}
+	// Every POSIX sh on the host parses it.
+	for _, shell := range []string{"sh", "dash", "busybox"} {
+		p, err := exec.LookPath(shell)
+		if err != nil {
+			continue
+		}
+		args := []string{"-n", golden}
+		if shell == "busybox" {
+			args = append([]string{"sh"}, args...)
+		}
+		if out, err := exec.Command(p, args...).CombinedOutput(); err != nil {
+			t.Errorf("%s -n: %v\n%s", shell, err, out)
 		}
 	}
 }
@@ -196,9 +212,12 @@ func TestScriptRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := func(path string) (string, error) {
+	run := func(path string, shell ...string) (string, error) {
 		tmp := t.TempDir()
-		cmd := exec.Command("sh", "-s")
+		if len(shell) == 0 {
+			shell = []string{"sh"}
+		}
+		cmd := exec.Command(shell[0], append(shell[1:], "-s")...)
 		cmd.Stdin = strings.NewReader(string(script))
 		cmd.Env = []string{"PATH=" + path, "TMPDIR=" + tmp}
 		out, err := cmd.CombinedOutput()
@@ -217,6 +236,23 @@ func TestScriptRuns(t *testing.T) {
 			t.Error("the verified binary did not run")
 		}
 	})
+	// The same run under each POSIX sh on the host.
+	for _, shell := range [][]string{{"dash"}, {"busybox", "sh"}} {
+		p, err := exec.LookPath(shell[0])
+		if err != nil {
+			continue
+		}
+		t.Run("verified, then run, under "+strings.Join(shell, " "), func(t *testing.T) {
+			_ = os.Remove(marker)
+			out, err := run(os.Getenv("PATH"), append([]string{p}, shell[1:]...)...)
+			if err != nil || !strings.Contains(out, "verified orbit") {
+				t.Fatalf("err %v\n%s", err, out)
+			}
+			if _, err := os.Stat(marker); err != nil {
+				t.Error("the verified binary did not run")
+			}
+		})
+	}
 	t.Run("a different binary is refused", func(t *testing.T) {
 		_ = os.Remove(marker)
 		served = bad
