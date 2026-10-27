@@ -41,6 +41,7 @@ func newTargetCmd(serverURL *string, o options) *cobra.Command {
 	cmd.AddCommand(newTargetListCmd(loc))
 	cmd.AddCommand(newTargetShowCmd(loc))
 	cmd.AddCommand(newTargetProbeCmd(serverURL, loc))
+	cmd.AddCommand(withServerURL(newTargetAddResponderCmd(serverURL), serverURL))
 	return cmd
 }
 

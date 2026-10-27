@@ -40,6 +40,8 @@ type fakeHost struct {
 	probe string
 	// curlVersion is what `curl --version` says; "" = curl 7.88.1.
 	curlVersion string
+	// home is root's HOME (and CURL_HOME); "" = none set.
+	home string
 }
 
 // scriptServer is a real TLS server the script downloads from with the real
@@ -125,6 +127,8 @@ func applied(t *testing.T, sh string) fakeHost {
 			"\t\tiifname \"ens4\" ip saddr 192.0.2.10 tcp dport 9551 accept comment \"orbit-join control ens4 192.0.2.10/32 9551\" # handle 7\n"+
 			"\t\tiifname \"ens5\" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment \"orbit-join data ens5 10.250.0.0/16 32768-60999\" # handle 8\n"+
 			"\t\tiifname \"ens5\" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment \"orbit-join data ens5 198.51.100.0/24 32768-60999\" # handle 9\n"+
+			"\t\tiifname \"ens5\" ip saddr 10.250.0.0/16 icmp type echo-request accept comment \"orbit-join icmp ens5 10.250.0.0/16 echo\" # handle 10\n"+
+			"\t\tiifname \"ens5\" ip saddr 198.51.100.0/24 icmp type echo-request accept comment \"orbit-join icmp ens5 198.51.100.0/24 echo\" # handle 11\n"+
 			"\t}\n}",
 		"getent passwd orbit", "orbit:x:998:998::/nonexistent:/usr/sbin/nologin",
 		"systemctl is-enabled orbit-responder", "enabled",
@@ -291,7 +295,7 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 			if cv == "" {
 				cv = "curl 7.88.1 (x86_64-pc-linux-gnu)"
 			}
-			fmt.Fprintf(&b, "'curl --version') echo %s; exit 0 ;;\n", shquote(cv))
+			fmt.Fprintf(&b, "'curl -q --version') echo %s; exit 0 ;;\n", shquote(cv))
 			// The heartbeat probe: the row's answer, as an HTTP code and headers.
 			code, hdr := h.probe, ""
 			if code == "removed" {
@@ -346,6 +350,9 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 	cmd := exec.Command(p, append(append(shell[1:], "-s", "--"), args...)...)
 	cmd.Stdin = strings.NewReader(string(script))
 	cmd.Env = []string{"TMPDIR=" + tmp}
+	if h.home != "" {
+		cmd.Env = append(cmd.Env, "HOME="+h.home, "CURL_HOME="+h.home, "XDG_CONFIG_HOME="+h.home)
+	}
 	cmd.Dir = dir
 	before := snapshot(t, root)
 	out, err := cmd.CombinedOutput()
@@ -551,6 +558,19 @@ func planRows() []planRow {
 				"\t}\n}", 1)
 			return h.with("nft -a list chain inet filter input", chain)
 		}, args: []string{"--yes"}, wantNoChange: true},
+		// A host joined before the ICMP rule (J3): a rerun adds only the
+		// two ICMP rules (and the helper that re-applies them).
+		{name: "upgrade-adds-icmp", host: func(t *testing.T, sh string) fakeHost {
+			h := applied(t, sh)
+			chain := h.answers["nft -a list chain inet filter input"]
+			var keep []string
+			for _, l := range strings.Split(chain, "\n") {
+				if !strings.Contains(l, "orbit-join icmp") {
+					keep = append(keep, l)
+				}
+			}
+			return h.with("nft -a list chain inet filter input", strings.Join(keep, "\n"))
+		}, args: []string{"--yes"}},
 		{name: "stale-rule", host: func(t *testing.T, sh string) fakeHost {
 			h := applied(t, sh)
 			h.ports = "40000\t50000"
@@ -612,6 +632,9 @@ func TestJoinPlan(t *testing.T) {
 				}
 				if strings.Contains(r.log, testCredential) {
 					t.Errorf("a command line carried the responder credential:\n%s", r.log)
+				}
+				if strings.Contains(r.log, testToken) {
+					t.Errorf("a command line carried the join token:\n%s", r.log)
 				}
 				got := r.out + "--- exit: " + exitOf(r.err) + "\n--- changes:\n" + strings.Join(r.calls, "\n") + "\n"
 				golden := filepath.Join("testdata", "plan", row.name+".txt")

@@ -404,7 +404,7 @@ token and prints that line:
 ```sh
 orbit join create -t lab1 --name app1
 # join token jt-… for responder app1, expires … (in 10m0s).
-curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/join/oj1_…' | sudo sh
+curl -q -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/join/oj1_…' | sudo sh
 ```
 
 - **Server needs TLS.** The script runs as root, so `orbit serve` offers join
@@ -432,7 +432,7 @@ curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/jo
   only if that worked:
 
   ```sh
-  curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh --yes
+  curl -q -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh --yes
   ```
 - **Limits.** The join endpoints take the token only as the exact path
   `/join/<token>` (or `/join/<token>/bin/<arch>`), unencoded. Anything else,
@@ -468,6 +468,41 @@ The server keeps only each token's hash, in memory, so restarting it revokes
 every pending token. A token stays valid until it expires or is revoked:
 fetching the script does not use it up, so a script that fails partway can be
 run again.
+
+### Over ssh: `orbit target add-responder`
+
+With ssh access to the app host, one command does the join from here:
+
+```sh
+orbit target add-responder --ssh app1.lab -t lab1             # shows the plan, asks, applies
+orbit target add-responder --ssh ops@10.0.0.9 -t lab1 --yes   # no question (needed without a terminal)
+```
+
+It issues the token, fetches the script from the server (pinned to its key)
+and runs it on the app host through your own `ssh`. Your `~/.ssh/config`,
+agent and known_hosts apply as they are; ORBIT reads no key and stores
+nothing about the host. On the app host it:
+
+1. makes a private file (`mktemp`, mode 0600) and copies the script into it
+   over ssh's stdin, so the token is on no command line, here or there;
+2. runs it with `--dry-run` and shows you the plan;
+3. after you confirm (or with `--yes`), runs it with `--yes`, through `sudo`
+   unless you log in as root, with a terminal for sudo's password;
+4. removes the file, whether it succeeded, failed or you pressed Ctrl-C.
+
+The apply in step 3 checks the host again and prints its own plan before it
+changes anything, so if the host changed after the dry run, the plan you see
+there is the one applied. If no registration came of it (you declined, the
+plan or the apply failed, ssh failed, or you pressed Ctrl-C), the command
+revokes the unused token itself and says so; if that revoke fails, it prints
+the token ID to revoke by hand.
+
+Each remote command is one `sh -c '…'`, so the ssh user's login shell only
+has to pass a single-quoted argument to `sh`, which sh, bash, zsh, fish and
+csh all do. The script runs from a file the ssh user owns, as root: that
+gives nothing beyond the sudo the user already has.
+
+The target's UE pools, UPF and subnet are used as for `orbit join create`.
 
 ### The join script's plan
 
@@ -587,6 +622,13 @@ command line or in the journal.
   log says so); only a removal stops it.
 - **Names.** A responder takes the token's `--name`, else the host's short
   name. A name another responder holds is refused, before the token is used.
+
+- **Issue join tokens only to the app host's operator.** A registration
+  states its own control address and data IP, and the server takes them as
+  given: it later dials that control address with the responder's loom
+  token. So whoever holds a join token chooses where that token goes.
+  `orbit responder list -o wide` marks with `!` a responder that registered
+  from a different address than its control address (NAT does that too).
 
 ```sh
 orbit responder list               # name, ID, state, last seen, control, data IP, version, token ID

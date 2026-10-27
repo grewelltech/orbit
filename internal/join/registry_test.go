@@ -1,7 +1,9 @@
 package join
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -394,5 +396,34 @@ func TestRejoinSameNameAfterRemove(t *testing.T) {
 	}
 	if st := l.reg.List(); len(st) != 1 || st[0].ID != rs.ID {
 		t.Errorf("registered: %+v", st)
+	}
+}
+
+// A token revoked between the save and the burn puts the disk back; if that
+// save fails too, the orphaned entry is logged by ID with the fix.
+func TestRegisterOrphanLogged(t *testing.T) {
+	l := newRegLab(t, t.TempDir())
+	var logs bytes.Buffer
+	l.reg.log = slog.New(slog.NewTextHandler(&logs, nil))
+	tok := l.token(t)
+	tk, _ := l.store.Lookup(tok)
+	saves := 0
+	l.reg.failSave = func() bool {
+		saves++
+		if saves == 1 {
+			// The registration's save goes through; then the token is
+			// revoked before its burn.
+			if err := l.store.Revoke(tk.ID); err != nil {
+				t.Fatal(err)
+			}
+			return false
+		}
+		return true // the put-back fails
+	}
+	if _, err := l.reg.Register(l.store, regReq(tok, cred(t), "app1")); err == nil || !strings.Contains(err.Error(), "did not persist") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(logs.String(), "registry: orphan entry rs-") || !strings.Contains(logs.String(), "remove it with orbit responder remove") {
+		t.Errorf("logs:\n%s", logs.String())
 	}
 }

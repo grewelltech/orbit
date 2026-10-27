@@ -124,7 +124,7 @@ func TestCreateJoinToken(t *testing.T) {
 		res.GetPin() != l.j.pin || res.GetIssued().GetSpec().GetManagementAddress() != "192.0.2.10:8412" {
 		t.Errorf("response = %v", res)
 	}
-	want := "curl -fsS --proto '=https' -k --pinnedpubkey '" + curlPin + "' '" + res.GetUrl() + "' | sudo sh"
+	want := "curl -q -fsS --proto '=https' -k --pinnedpubkey '" + curlPin + "' '" + res.GetUrl() + "' | sudo sh"
 	if res.GetOneLiner() != want {
 		t.Errorf("one-liner = %q, want %q", res.GetOneLiner(), want)
 	}

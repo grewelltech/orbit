@@ -91,14 +91,19 @@ main() {
 		case $1 in '' | *[!0-9]*) return 1 ;; esac
 	}
 	# stale_id_ok ID: whether ID is exactly an orbit-join rule ID of the
-	# form this script writes: orbit-join control|data DEV CIDR PORT[-PORT].
+	# form this script writes: orbit-join control|data DEV CIDR PORT[-PORT],
+	# or orbit-join icmp DEV CIDR echo.
 	stale_id_ok() {
 		case $1 in '' | *[!A-Za-z0-9\ ./:_-]*) return 1 ;; esac
 		# shellcheck disable=SC2086 # the five words, split (no globbing: checked above)
 		set -- $1
 		if [ $# != 5 ] || [ "$1" != orbit-join ]; then return 1; fi
-		case $2 in control | data) ;; *) return 1 ;; esac
+		case $2 in control | data | icmp) ;; *) return 1 ;; esac
 		if ! is_dev "$3" || ! is_cidr "$4"; then return 1; fi
+		if [ "$2" = icmp ]; then
+			[ "$5" = echo ]
+			return
+		fi
 		case $5 in
 		*-*) is_port "${5%-*}" && is_port "${5#*-}" ;;
 		*) is_port "$5" ;;
@@ -137,8 +142,12 @@ main() {
 	trap 'rm -rf "$WORK"' EXIT
 	trap 'exit 1' HUP INT TERM
 
-	curl -fsS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/orbit" \
-		"$ORBIT_SERVER/join/$ORBIT_TOKEN/bin/$ARCH" || die "downloading orbit for linux/$ARCH failed"
+	# The URL holds the token: curl reads it from a 0600 file in the work
+	# directory, never its argv (which ps shows to every user).
+	printf 'url = "%s"\n' "$ORBIT_SERVER/join/$ORBIT_TOKEN/bin/$ARCH" >"$WORK/fetch"
+	# -q, first, keeps root's ~/.curlrc out of every curl here.
+	curl -q -fsS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/orbit" -K "$WORK/fetch" ||
+		die "downloading orbit for linux/$ARCH failed"
 	# Checked before anything else touches it. It is made executable and
 	# run (`orbit version`) only after the plan is confirmed: nothing
 	# downloaded runs before then.
@@ -393,15 +402,19 @@ main() {
 		die "cannot read this host's ephemeral port range (net.ipv4.ip_local_port_range)"
 	fi
 	RANGE_WHY="data ports $LO-$HI: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports"
-	# rules FAMILY: "control DEV SRC PORT" and "data DEV SRC LO-HI" for the
-	# sources of FAMILY.
+	# rules FAMILY: "control DEV SRC PORT", "data DEV SRC LO-HI" and
+	# "icmp DEV SRC echo" for the sources of FAMILY. The ICMP echo is what
+	# orbit target probe's UE-to-N6 echo needs.
 	rules() {
 		if [ "$(fam "$MGMT_IP")" = "$1" ]; then
 			case $1 in 4) S=$MGMT_IP/32 ;; *) S=$MGMT_IP/128 ;; esac
 			echo "control $CTL_DEV $S $CTL_PORT"
 		fi
 		for S in $UE_POOLS $N6_SUBNET; do
-			[ "$(fam "$S")" != "$1" ] || echo "data $N6_DEV $S $LO-$HI"
+			if [ "$(fam "$S")" = "$1" ]; then
+				echo "data $N6_DEV $S $LO-$HI"
+				echo "icmp $N6_DEV $S echo"
+			fi
 		done
 	}
 	if [ -n "$NO_FW" ]; then
@@ -414,6 +427,8 @@ main() {
 			rules $F | while read -r KIND DEV S PORT; do
 				if [ "$KIND" = control ]; then
 					echo "  ufw allow in on $DEV from $S to any port $PORT proto tcp" >&2
+				elif [ "$KIND" = icmp ]; then
+					echo "  (ICMP echo-request from $S on $DEV: ufw allows it by default, in /etc/ufw/before.rules; keep that)" >&2
 				else
 					echo "  ufw allow in on $DEV from $S to any port $(echo "$PORT" | tr - :) proto udp" >&2
 					echo "  ufw allow in on $DEV from $S to any port $(echo "$PORT" | tr - :) proto tcp" >&2
@@ -429,6 +444,8 @@ main() {
 				case $F in 4) RF=ipv4 ;; *) RF=ipv6 ;; esac
 				if [ "$KIND" = control ]; then
 					echo "  firewall-cmd --permanent --add-rich-rule='rule family=\"$RF\" source address=\"$S\" port port=\"$PORT\" protocol=\"tcp\" accept'" >&2
+				elif [ "$KIND" = icmp ]; then
+					echo "  firewall-cmd --permanent --add-rich-rule='rule family=\"$RF\" source address=\"$S\" icmp-type name=\"echo-request\" accept'" >&2
 				else
 					for PR in udp tcp; do
 						echo "  firewall-cmd --permanent --add-rich-rule='rule family=\"$RF\" source address=\"$S\" port port=\"$PORT\" protocol=\"$PR\" accept'" >&2
@@ -498,6 +515,8 @@ main() {
 			rules "$1" | while read -r KIND DEV S PORT; do
 				if [ "$KIND" = control ]; then
 					echo "  tcp to port $PORT, in on $DEV, from $S" >&2
+				elif [ "$KIND" = icmp ]; then
+					echo "  icmp echo-request, in on $DEV, from $S" >&2
 				else
 					echo "  tcp and udp to ports $PORT, in on $DEV, from $S" >&2
 				fi
@@ -543,6 +562,9 @@ main() {
 					ID="orbit-join $KIND $DEV $S $PORT"
 					if [ "$KIND" = control ]; then
 						RULE="iifname \"$DEV\" $NF saddr $S tcp dport $PORT accept comment \"$ID\""
+					elif [ "$KIND" = icmp ]; then
+						if [ "$F" = 4 ]; then ICMPT="icmp type echo-request"; else ICMPT="icmpv6 type echo-request"; fi
+						RULE="iifname \"$DEV\" $NF saddr $S $ICMPT accept comment \"$ID\""
 					else
 						RULE="iifname \"$DEV\" $NF saddr $S meta l4proto { tcp, udp } th dport $PORT accept comment \"$ID\""
 					fi
@@ -552,12 +574,14 @@ main() {
 					else
 						if [ "$KIND" = control ]; then
 							step "firewall: allow control traffic (tcp) on $DEV from $S to port $PORT"
+						elif [ "$KIND" = icmp ]; then
+							step "firewall: allow ICMP echo on $DEV from $S (for orbit target probe)"
 						else
 							step "firewall: allow data traffic (tcp, udp) on $DEV from $S to ports $PORT"
 						fi
 						cmd "nft insert rule $CHAIN $(q "$RULE")"
 						show "inserted into $CF $CT $CC (your ruleset)"
-						[ "$KIND" = control ] || show "($RANGE_WHY)"
+						[ "$KIND" != data ] || show "($RANGE_WHY)"
 					fi
 				done
 				# orbit-join rules from an earlier join that this plan no longer
@@ -587,6 +611,10 @@ main() {
 					if [ "$KIND" = control ]; then
 						printf '%s\t%s\n' "-A ORBIT-JOIN -s $S -i $DEV -p tcp -m tcp --dport $PORT -j ACCEPT" \
 							"-s $(q "$S") -i $(q "$DEV") -p tcp -m tcp --dport $(q "$PORT") -j ACCEPT"
+					elif [ "$KIND" = icmp ]; then
+						# As -S prints them: the echo request is type 8 (ICMPv6: 128).
+						if [ "$F" = 4 ]; then MI="-p icmp -m icmp --icmp-type 8"; else MI="-p ipv6-icmp -m icmp6 --icmpv6-type 128"; fi
+						printf '%s\t%s\n' "-A ORBIT-JOIN -s $S -i $DEV $MI -j ACCEPT" "-s $(q "$S") -i $(q "$DEV") $MI -j ACCEPT"
 					else
 						P2=$(echo "$PORT" | tr - :)
 						for PR in udp tcp; do
@@ -648,7 +676,7 @@ main() {
 		esac
 		# curl reads a header from a file (-H @file) from 7.55 on; an older
 		# one cannot ask without the credential on its argv, so it does not.
-		CV=$(curl --version 2>/dev/null | awk 'NR == 1 { print $2 }') || CV=''
+		CV=$(curl -q --version 2>/dev/null | awk 'NR == 1 { print $2 }') || CV=''
 		CMAJ=${CV%%.*} CMIN=${CV#*.}
 		CMIN=${CMIN%%.*}
 		if [ -z "$CRED" ]; then
@@ -658,7 +686,7 @@ main() {
 		else
 			# The credential reaches curl in a header file, never its argv.
 			printf 'Authorization: Responder %s\n' "$CRED" >"$WORK/auth"
-			CODE=$(curl -sS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/probe" -D "$WORK/probe.h" -w '%{http_code}' \
+			CODE=$(curl -q -sS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/probe" -D "$WORK/probe.h" -w '%{http_code}' \
 				-H 'Content-Type: application/json' -H "@$WORK/auth" --data '{"probe":true}' \
 				"$ORBIT_SERVER/orbit.v1.JoinService/Heartbeat" 2>/dev/null) || CODE=''
 			case $CODE in

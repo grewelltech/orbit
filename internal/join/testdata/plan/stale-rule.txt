@@ -11,10 +11,12 @@ Plan:
        nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 40000-50000 accept comment "orbit-join data ens5 10.250.0.0/16 40000-50000"'
        inserted into inet filter input (your ruleset)
        (data ports 40000-50000: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  ok: firewall: orbit-join icmp ens5 10.250.0.0/16 echo (in inet filter input)
   2. firewall: allow data traffic (tcp, udp) on ens5 from 198.51.100.0/24 to ports 40000-50000
        nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 40000-50000 accept comment "orbit-join data ens5 198.51.100.0/24 40000-50000"'
        inserted into inet filter input (your ruleset)
        (data ports 40000-50000: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  ok: firewall: orbit-join icmp ens5 198.51.100.0/24 echo (in inet filter input)
   3. firewall: remove the earlier rule "orbit-join data ens5 10.250.0.0/16 32768-60999" from inet filter input
        nft delete rule 'inet' 'filter' 'input' handle '8'
   4. firewall: remove the earlier rule "orbit-join data ens5 198.51.100.0/24 32768-60999" from inet filter input
@@ -28,7 +30,9 @@ Plan:
        | ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join control ens4 192.0.2.10/32 9551"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 10.250.0.0/16 40000-50000"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 40000-50000 accept comment "orbit-join data ens5 10.250.0.0/16 40000-50000"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join icmp ens5 10.250.0.0/16 echo"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 198.51.100.0/24 40000-50000"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 40000-50000 accept comment "orbit-join data ens5 198.51.100.0/24 40000-50000"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join icmp ens5 198.51.100.0/24 echo"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"'
   ok: /etc/systemd/system/orbit-responder.service is up to date
   ok: registered: /etc/orbit/responder.yaml is there, known to the server (--reregister rotates its credential and loom token)
   ok: orbit-responder is enabled and running

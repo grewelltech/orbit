@@ -167,7 +167,7 @@ func newServeCmd(version string) *cobra.Command {
 			}
 			// A responder registry that cannot be read stops serve: starting
 			// empty would orphan every registered app host.
-			responders, err := join.OpenRegistry(dir)
+			responders, err := join.OpenRegistry(dir, join.WithRegistryLog(log))
 			if err != nil {
 				return fmt.Errorf("registered responders: %w (fix or move the file; serve will not start without it)", err)
 			}

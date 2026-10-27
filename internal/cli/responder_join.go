@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os/user"
 	"strconv"
 	"strings"
@@ -157,6 +158,7 @@ func newResponderListCmd(serverURL *string) *cobra.Command {
 			}
 			_, _ = fmt.Fprintln(tw, head)
 			now := time.Now()
+			marked := false
 			for _, r := range res.Msg.GetResponders() {
 				seen := "-"
 				if n := r.GetLastSeenUnixNano(); n > 0 {
@@ -166,11 +168,22 @@ func newResponderListCmd(serverURL *string) *cobra.Command {
 					r.GetControlAddress(), r.GetDataIp(), dash(r.GetVersion()), r.GetJoinTokenId(),
 					time.Unix(0, r.GetRegisteredUnixNano()).UTC().Format(time.RFC3339))
 				if output == "wide" {
-					line += "\t" + dash(r.GetSource()) + "\t" + dash(r.GetRegisteredFrom())
+					from := dash(r.GetRegisteredFrom())
+					if registeredElsewhere(r.GetRegisteredFrom(), r.GetControlAddress()) {
+						from += " !"
+						marked = true
+					}
+					line += "\t" + dash(r.GetSource()) + "\t" + from
 				}
 				_, _ = fmt.Fprintln(tw, line)
 			}
-			return tw.Flush()
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+			if marked {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "! registered from a different address than its control address (NAT is fine; otherwise check who used the join token)")
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "", "wide adds the source addresses")
@@ -191,4 +204,13 @@ func newResponderRemoveCmd(serverURL *string) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// registeredElsewhere reports whether a responder registered from a host
+// other than its control address's: a hint, since NAT does it too, and a
+// join token lets its holder name any control address.
+func registeredElsewhere(from, control string) bool {
+	fh, _, err1 := net.SplitHostPort(from)
+	ch, _, err2 := net.SplitHostPort(control)
+	return err1 == nil && err2 == nil && fh != ch
 }
