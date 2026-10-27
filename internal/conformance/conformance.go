@@ -245,7 +245,7 @@ func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 // with a nil error is the core's doing: no answer to the probe.
 func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	probe := e.GNB
-	probe.ID = e.GNB.ID + 0x9000
+	probe.ID = e.GNB.ID + aliveGNBOffset
 	probe.Name = "orbit-conf-probe"
 	conn, err := e.Dial(ctx)
 	if err != nil {
@@ -400,18 +400,9 @@ func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration
 	if perTest <= 0 {
 		perTest = 15 * time.Second
 	}
-	want := map[Category]bool{}
-	for _, c := range cats {
-		want[c] = true
-	}
 	// The selected set, so `total` and `index` count only what will run rather
 	// than every registered test.
-	var selected []Test
-	for _, t := range r.tests {
-		if len(want) == 0 || want[t.Category()] {
-			selected = append(selected, t)
-		}
-	}
+	selected := r.selected(cats)
 	for i, t := range selected {
 		if err := ctx.Err(); err != nil {
 			return // client went away; stop rather than keep dialling the core
@@ -543,6 +534,22 @@ func joinDetail(detail, more string) string {
 		return more
 	}
 	return detail + "; " + more
+}
+
+// selected is the registered tests in cats (every test when cats is
+// empty), in registration order.
+func (r *Registry) selected(cats []Category) []Test {
+	want := map[Category]bool{}
+	for _, c := range cats {
+		want[c] = true
+	}
+	var out []Test
+	for _, t := range r.tests {
+		if len(want) == 0 || want[t.Category()] {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // indexOf returns a test's position in the full registry, used for a stable

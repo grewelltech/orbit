@@ -49,7 +49,10 @@ func (s UESpec) Configured() bool { return s.SUPI != "" }
 // check's handover target at check ID + 0x8000 (here), and the liveness
 // probe at check ID + 0x9000 (Env.Alive). A new check needing another gNB
 // must pick an offset clear of all three.
-const targetGNBOffset = 0x8000
+const (
+	targetGNBOffset = 0x8000
+	aliveGNBOffset  = 0x9000 // Env.Alive's probe
+)
 
 // trafficRate and trafficPacketSize shape the optional echo flow: enough
 // downlink to show the old path in use, little enough for any testbed.
