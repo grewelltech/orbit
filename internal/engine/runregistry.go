@@ -790,3 +790,24 @@ func (r *RunRegistry) GNBInUse(amf, plmn string) func(id uint32) bool {
 		return false
 	}
 }
+
+// Hold takes needs' leases for holder, something that is not a run (a
+// target probe), until release; a run that wants them meanwhile is refused
+// with ErrLeaseConflict naming holder, and Hold is refused likewise while a
+// run holds them. release is idempotent.
+func (r *RunRegistry) Hold(holder string, needs Needs) (release func(), err error) {
+	want := r.leases.canonical(needs)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.leases.acquire(holder, want); err != nil {
+		return nil, err
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.mu.Lock()
+			r.leases.release(holder)
+			r.mu.Unlock()
+		})
+	}, nil
+}

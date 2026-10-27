@@ -2,8 +2,8 @@
 // @generated from file orbit/v1/target.proto (package orbit.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Snssai } from "./cell_pb";
 import { file_orbit_v1_cell } from "./cell_pb";
 import { file_orbit_v1_options } from "./options_pb";
@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/target.proto.
  */
 export const file_orbit_v1_target: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcmJpdC92MS90YXJnZXQucHJvdG8SCG9yYml0LnYxIrUBCg5SZXNvbHZlZFRhcmdldBIMCgRuYW1lGAEgASgJEiIKBGNvcmUYAiABKAsyFC5vcmJpdC52MS5UYXJnZXRDb3JlEi0KC3N1YnNjcmliZXJzGAMgAygLMhgub3JiaXQudjEuU3Vic2NyaWJlclBvb2wSIAoDcmFuGAQgASgLMhMub3JiaXQudjEuVGFyZ2V0UkFOEiAKA2FwcBgFIAEoCzITLm9yYml0LnYxLlRhcmdldEFwcCLJAQoKVGFyZ2V0Q29yZRILCgNhbWYYASABKAkSHAoEcGxtbhgCIAEoCzIOLm9yYml0LnYxLlBsbW4SCwoDdGFjGAMgASgNEiAKBnNsaWNlcxgEIAMoCzIQLm9yYml0LnYxLlNuc3NhaRILCgNkbm4YBSABKAkSDwoHcHJvZmlsZRgGIAEoCRIOCgZ1cGZfbjMYByABKAkSEAoIdWVfcG9vbHMYCCADKAkSDgoGdXBmX242GAkgASgJEhEKCW42X3N1Ym5ldBgKIAEoCSIgCgRQbG1uEgsKA21jYxgBIAEoCRILCgNtbmMYAiABKAkigQEKDlN1YnNjcmliZXJQb29sEgwKBG5hbWUYASABKAkSEgoKZmlyc3Rfc3VwaRgCIAEoCRINCgVjb3VudBgDIAEoDRIQCgJraRgEIAEoCUIEiLUYARIRCgNvcGMYBSABKAlCBIi1GAESGQoRcm91dGluZ19pbmRpY2F0b3IYBiABKAkieQoJVGFyZ2V0UkFOEgwKBG5vZGUYASABKAkSEAoIZ25iX25hbWUYAiABKAkSFQoNbjJfc291cmNlX2lwcxgDIAMoCRIOCgZuM19pcHMYBCADKAkSJQoHZ25iX2lkcxgFIAEoCzIULm9yYml0LnYxLkdOQklEUmFuZ2UiOAoKR05CSURSYW5nZRINCgVmaXJzdBgBIAEoDRINCgVjb3VudBgCIAEoDRIMCgRiaXRzGAMgASgNIjQKCVRhcmdldEFwcBInCgpyZXNwb25kZXJzGAEgAygLMhMub3JiaXQudjEuUmVzcG9uZGVyIlAKCVJlc3BvbmRlchIMCgRuYW1lGAEgASgJEg8KB2NvbnRyb2wYAiABKAkSEwoFdG9rZW4YAyABKAlCBIi1GAESDwoHZGF0YV9pcBgEIAEoCSKMAQoPRmllbGRQcm92ZW5hbmNlEgwKBHBhdGgYASABKAkSKgoGc291cmNlGAIgASgLMhoub3JiaXQudjEuUHJvdmVuYW5jZVNvdXJjZRINCgV2YWx1ZRgDIAEoCRIwCgpvdmVycmlkZGVuGAQgAygLMhwub3JiaXQudjEuUHJvdmVuYW5jZU92ZXJyaWRlIkwKEFByb3ZlbmFuY2VTb3VyY2USKAoFbGF5ZXIYASABKA4yGS5vcmJpdC52MS5Qcm92ZW5hbmNlTGF5ZXISDgoGZGV0YWlsGAIgASgJIk8KElByb3ZlbmFuY2VPdmVycmlkZRIqCgZzb3VyY2UYASABKAsyGi5vcmJpdC52MS5Qcm92ZW5hbmNlU291cmNlEg0KBXZhbHVlGAIgASgJKt4BCg9Qcm92ZW5hbmNlTGF5ZXISIAocUFJPVkVOQU5DRV9MQVlFUl9VTlNQRUNJRklFRBAAEhwKGFBST1ZFTkFOQ0VfTEFZRVJfREVGQVVMVBABEhsKF1BST1ZFTkFOQ0VfTEFZRVJfVEFSR0VUEAISHQoZUFJPVkVOQU5DRV9MQVlFUl9SVU5fRklMRRADEhgKFFBST1ZFTkFOQ0VfTEFZRVJfRU5WEAQSGQoVUFJPVkVOQU5DRV9MQVlFUl9GTEFHEAUSGgoWUFJPVkVOQU5DRV9MQVlFUl9MRUFTRRAGQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_cell, file_orbit_v1_options]);
+  fileDesc("ChVvcmJpdC92MS90YXJnZXQucHJvdG8SCG9yYml0LnYxIrUBCg5SZXNvbHZlZFRhcmdldBIMCgRuYW1lGAEgASgJEiIKBGNvcmUYAiABKAsyFC5vcmJpdC52MS5UYXJnZXRDb3JlEi0KC3N1YnNjcmliZXJzGAMgAygLMhgub3JiaXQudjEuU3Vic2NyaWJlclBvb2wSIAoDcmFuGAQgASgLMhMub3JiaXQudjEuVGFyZ2V0UkFOEiAKA2FwcBgFIAEoCzITLm9yYml0LnYxLlRhcmdldEFwcCLJAQoKVGFyZ2V0Q29yZRILCgNhbWYYASABKAkSHAoEcGxtbhgCIAEoCzIOLm9yYml0LnYxLlBsbW4SCwoDdGFjGAMgASgNEiAKBnNsaWNlcxgEIAMoCzIQLm9yYml0LnYxLlNuc3NhaRILCgNkbm4YBSABKAkSDwoHcHJvZmlsZRgGIAEoCRIOCgZ1cGZfbjMYByABKAkSEAoIdWVfcG9vbHMYCCADKAkSDgoGdXBmX242GAkgASgJEhEKCW42X3N1Ym5ldBgKIAEoCSIgCgRQbG1uEgsKA21jYxgBIAEoCRILCgNtbmMYAiABKAkigQEKDlN1YnNjcmliZXJQb29sEgwKBG5hbWUYASABKAkSEgoKZmlyc3Rfc3VwaRgCIAEoCRINCgVjb3VudBgDIAEoDRIQCgJraRgEIAEoCUIEiLUYARIRCgNvcGMYBSABKAlCBIi1GAESGQoRcm91dGluZ19pbmRpY2F0b3IYBiABKAkieQoJVGFyZ2V0UkFOEgwKBG5vZGUYASABKAkSEAoIZ25iX25hbWUYAiABKAkSFQoNbjJfc291cmNlX2lwcxgDIAMoCRIOCgZuM19pcHMYBCADKAkSJQoHZ25iX2lkcxgFIAEoCzIULm9yYml0LnYxLkdOQklEUmFuZ2UiOAoKR05CSURSYW5nZRINCgVmaXJzdBgBIAEoDRINCgVjb3VudBgCIAEoDRIMCgRiaXRzGAMgASgNIjQKCVRhcmdldEFwcBInCgpyZXNwb25kZXJzGAEgAygLMhMub3JiaXQudjEuUmVzcG9uZGVyIlAKCVJlc3BvbmRlchIMCgRuYW1lGAEgASgJEg8KB2NvbnRyb2wYAiABKAkSEwoFdG9rZW4YAyABKAlCBIi1GAESDwoHZGF0YV9pcBgEIAEoCSKMAQoPRmllbGRQcm92ZW5hbmNlEgwKBHBhdGgYASABKAkSKgoGc291cmNlGAIgASgLMhoub3JiaXQudjEuUHJvdmVuYW5jZVNvdXJjZRINCgV2YWx1ZRgDIAEoCRIwCgpvdmVycmlkZGVuGAQgAygLMhwub3JiaXQudjEuUHJvdmVuYW5jZU92ZXJyaWRlIkwKEFByb3ZlbmFuY2VTb3VyY2USKAoFbGF5ZXIYASABKA4yGS5vcmJpdC52MS5Qcm92ZW5hbmNlTGF5ZXISDgoGZGV0YWlsGAIgASgJIk8KElByb3ZlbmFuY2VPdmVycmlkZRIqCgZzb3VyY2UYASABKAsyGi5vcmJpdC52MS5Qcm92ZW5hbmNlU291cmNlEg0KBXZhbHVlGAIgASgJInkKDFByb2JlUmVxdWVzdBIoCgZ0YXJnZXQYASABKAsyGC5vcmJpdC52MS5SZXNvbHZlZFRhcmdldBITCgt0YXJnZXRfbmFtZRgCIAEoCRIRCgljb3JlX29ubHkYAyABKAgSFwoPc3RlcF90aW1lb3V0X21zGAQgASgNIlUKCVByb2JlU3RlcBINCgVpbmRleBgBIAEoDRIMCgRuYW1lGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIOCgZkZXRhaWwYBCABKAkSCwoDZml4GAUgASgJKt4BCg9Qcm92ZW5hbmNlTGF5ZXISIAocUFJPVkVOQU5DRV9MQVlFUl9VTlNQRUNJRklFRBAAEhwKGFBST1ZFTkFOQ0VfTEFZRVJfREVGQVVMVBABEhsKF1BST1ZFTkFOQ0VfTEFZRVJfVEFSR0VUEAISHQoZUFJPVkVOQU5DRV9MQVlFUl9SVU5fRklMRRADEhgKFFBST1ZFTkFOQ0VfTEFZRVJfRU5WEAQSGQoVUFJPVkVOQU5DRV9MQVlFUl9GTEFHEAUSGgoWUFJPVkVOQU5DRV9MQVlFUl9MRUFTRRAGMkkKDVRhcmdldFNlcnZpY2USOAoFUHJvYmUSFi5vcmJpdC52MS5Qcm9iZVJlcXVlc3QaEy5vcmJpdC52MS5Qcm9iZVN0ZXAiADABQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_cell, file_orbit_v1_options]);
 
 /**
  * ResolvedTarget is a target after layering (ADR-0008 §1, §3): the core,
@@ -427,6 +427,89 @@ export const ProvenanceOverrideSchema: GenMessage<ProvenanceOverride> = /*@__PUR
   messageDesc(file_orbit_v1_target, 10);
 
 /**
+ * @generated from message orbit.v1.ProbeRequest
+ */
+export type ProbeRequest = Message<"orbit.v1.ProbeRequest"> & {
+  /**
+   * @generated from field: orbit.v1.ResolvedTarget target = 1;
+   */
+  target?: ResolvedTarget | undefined;
+
+  /**
+   * for the messages
+   *
+   * @generated from field: string target_name = 2;
+   */
+  targetName: string;
+
+  /**
+   * steps 1-3 only
+   *
+   * @generated from field: bool core_only = 3;
+   */
+  coreOnly: boolean;
+
+  /**
+   * 0 = 20 s
+   *
+   * @generated from field: uint32 step_timeout_ms = 4;
+   */
+  stepTimeoutMs: number;
+};
+
+/**
+ * Describes the message orbit.v1.ProbeRequest.
+ * Use `create(ProbeRequestSchema)` to create a new message.
+ */
+export const ProbeRequestSchema: GenMessage<ProbeRequest> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_target, 11);
+
+/**
+ * @generated from message orbit.v1.ProbeStep
+ */
+export type ProbeStep = Message<"orbit.v1.ProbeStep"> & {
+  /**
+   * 1-7
+   *
+   * @generated from field: uint32 index = 1;
+   */
+  index: number;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * "OK", "FAIL" or "SKIP"
+   *
+   * @generated from field: string status = 3;
+   */
+  status: string;
+
+  /**
+   * what was seen
+   *
+   * @generated from field: string detail = 4;
+   */
+  detail: string;
+
+  /**
+   * what to change, on a FAIL
+   *
+   * @generated from field: string fix = 5;
+   */
+  fix: string;
+};
+
+/**
+ * Describes the message orbit.v1.ProbeStep.
+ * Use `create(ProbeStepSchema)` to create a new message.
+ */
+export const ProbeStepSchema: GenMessage<ProbeStep> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_target, 12);
+
+/**
  * ProvenanceLayer is a resolution layer, lowest first.
  *
  * @generated from enum orbit.v1.ProvenanceLayer
@@ -475,4 +558,27 @@ export enum ProvenanceLayer {
  */
 export const ProvenanceLayerSchema: GenEnum<ProvenanceLayer> = /*@__PURE__*/
   enumDesc(file_orbit_v1_target, 0);
+
+/**
+ * TargetService checks a target from the server (ADR-0009 §5).
+ *
+ * @generated from service orbit.v1.TargetService
+ */
+export const TargetService: GenService<{
+  /**
+   * Probe runs the doctor against a resolved target: NG Setup, a UE's
+   * registration and PDU session, then (unless core_only) the N6 responder:
+   * registered and online, its control port, an echo and a UDP flow from the
+   * UE. It takes its gNB IDs and SUPI as leases, as a run does, streams one
+   * step per message, and stops at the first failure (the rest SKIP).
+   *
+   * @generated from rpc orbit.v1.TargetService.Probe
+   */
+  probe: {
+    methodKind: "server_streaming";
+    input: typeof ProbeRequestSchema;
+    output: typeof ProbeStepSchema;
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_orbit_v1_target, 0);
 

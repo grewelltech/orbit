@@ -108,14 +108,20 @@ orbit target init lab1 --amf <amf-host>:38412 --mcc 001 --mnc 01 --sd 010203 \
 ```
 
 **Probe it.** NG Setup, one registration, one PDU session, through the server;
-it stops at the first failure and names what to check:
+it stops at the first failure and names what to fix. Before an app host has
+joined, check the core alone:
 
 ```sh
-orbit target probe lab1
-# ✓ NG Setup     ok  accepted by AMF "AMF" from …
-# ✓ register     ok  001010100007500 registered in …
-# ✓ PDU session  ok  UE IP 192.168.100.x via UPF …
+orbit target probe lab1 --core-only
+# ✓ 1 NG Setup        OK    accepted by AMF "AMF" from … in …
+# ✓ 2 register        OK    001010100007500 registered in …
+# ✓ 3 PDU session     OK    UE IP 192.168.100.x via UPF … in …
+# probe lab1: core OK; user plane not checked (--core-only)
 ```
+
+Once a responder has joined (`orbit join create -t lab1`), plain
+`orbit target probe lab1` goes on to check it: the responder, its control
+port, an echo from the UE and a UDP flow to it.
 
 **Run against it.** Every command takes the target with `-t`, and a flag you
 type still overrides one field:
@@ -298,7 +304,7 @@ orbit run first-fleet.yaml -t lab1
   with the resource and the run holding it (stop that one with
   `orbit runs stop <run-id>`, or give the second other values). Runs that share
   nothing run side by side. Conformance runs, single-UE commands (`ue
-  register`, `target probe`) and step scenarios take no leases yet, so keep
+  register`) and step scenarios take no leases yet (`target probe` does), so keep
   them off a running fleet's SUPIs and gNB IDs.
 - **Ad-hoc `ue` commands never appear on the dashboard.** They create no run.
 - **`make ui` before `make build`** if you want the dashboard embedded.

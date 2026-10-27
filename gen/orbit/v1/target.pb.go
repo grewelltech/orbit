@@ -849,6 +849,150 @@ func (x *ProvenanceOverride) GetValue() string {
 	return ""
 }
 
+type ProbeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Target        *ResolvedTarget        `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	TargetName    string                 `protobuf:"bytes,2,opt,name=target_name,json=targetName,proto3" json:"target_name,omitempty"`             // for the messages
+	CoreOnly      bool                   `protobuf:"varint,3,opt,name=core_only,json=coreOnly,proto3" json:"core_only,omitempty"`                  // steps 1-3 only
+	StepTimeoutMs uint32                 `protobuf:"varint,4,opt,name=step_timeout_ms,json=stepTimeoutMs,proto3" json:"step_timeout_ms,omitempty"` // 0 = 20 s
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProbeRequest) Reset() {
+	*x = ProbeRequest{}
+	mi := &file_orbit_v1_target_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeRequest) ProtoMessage() {}
+
+func (x *ProbeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_target_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeRequest.ProtoReflect.Descriptor instead.
+func (*ProbeRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_target_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ProbeRequest) GetTarget() *ResolvedTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *ProbeRequest) GetTargetName() string {
+	if x != nil {
+		return x.TargetName
+	}
+	return ""
+}
+
+func (x *ProbeRequest) GetCoreOnly() bool {
+	if x != nil {
+		return x.CoreOnly
+	}
+	return false
+}
+
+func (x *ProbeRequest) GetStepTimeoutMs() uint32 {
+	if x != nil {
+		return x.StepTimeoutMs
+	}
+	return 0
+}
+
+type ProbeStep struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Index         uint32                 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"` // 1-7
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"` // "OK", "FAIL" or "SKIP"
+	Detail        string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"` // what was seen
+	Fix           string                 `protobuf:"bytes,5,opt,name=fix,proto3" json:"fix,omitempty"`       // what to change, on a FAIL
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProbeStep) Reset() {
+	*x = ProbeStep{}
+	mi := &file_orbit_v1_target_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeStep) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeStep) ProtoMessage() {}
+
+func (x *ProbeStep) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_target_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeStep.ProtoReflect.Descriptor instead.
+func (*ProbeStep) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_target_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ProbeStep) GetIndex() uint32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *ProbeStep) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ProbeStep) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ProbeStep) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
+func (x *ProbeStep) GetFix() string {
+	if x != nil {
+		return x.Fix
+	}
+	return ""
+}
+
 var File_orbit_v1_target_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_target_proto_rawDesc = "" +
@@ -916,7 +1060,19 @@ const file_orbit_v1_target_proto_rawDesc = "" +
 	"\x06detail\x18\x02 \x01(\tR\x06detail\"^\n" +
 	"\x12ProvenanceOverride\x122\n" +
 	"\x06source\x18\x01 \x01(\v2\x1a.orbit.v1.ProvenanceSourceR\x06source\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value*\xde\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xa6\x01\n" +
+	"\fProbeRequest\x120\n" +
+	"\x06target\x18\x01 \x01(\v2\x18.orbit.v1.ResolvedTargetR\x06target\x12\x1f\n" +
+	"\vtarget_name\x18\x02 \x01(\tR\n" +
+	"targetName\x12\x1b\n" +
+	"\tcore_only\x18\x03 \x01(\bR\bcoreOnly\x12&\n" +
+	"\x0fstep_timeout_ms\x18\x04 \x01(\rR\rstepTimeoutMs\"w\n" +
+	"\tProbeStep\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\rR\x05index\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x10\n" +
+	"\x03fix\x18\x05 \x01(\tR\x03fix*\xde\x01\n" +
 	"\x0fProvenanceLayer\x12 \n" +
 	"\x1cPROVENANCE_LAYER_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18PROVENANCE_LAYER_DEFAULT\x10\x01\x12\x1b\n" +
@@ -924,7 +1080,9 @@ const file_orbit_v1_target_proto_rawDesc = "" +
 	"\x19PROVENANCE_LAYER_RUN_FILE\x10\x03\x12\x18\n" +
 	"\x14PROVENANCE_LAYER_ENV\x10\x04\x12\x19\n" +
 	"\x15PROVENANCE_LAYER_FLAG\x10\x05\x12\x1a\n" +
-	"\x16PROVENANCE_LAYER_LEASE\x10\x06B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\x16PROVENANCE_LAYER_LEASE\x10\x062I\n" +
+	"\rTargetService\x128\n" +
+	"\x05Probe\x12\x16.orbit.v1.ProbeRequest\x1a\x13.orbit.v1.ProbeStep\"\x000\x01B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_target_proto_rawDescOnce sync.Once
@@ -939,7 +1097,7 @@ func file_orbit_v1_target_proto_rawDescGZIP() []byte {
 }
 
 var file_orbit_v1_target_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_orbit_v1_target_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_orbit_v1_target_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_orbit_v1_target_proto_goTypes = []any{
 	(ProvenanceLayer)(0),       // 0: orbit.v1.ProvenanceLayer
 	(*ResolvedTarget)(nil),     // 1: orbit.v1.ResolvedTarget
@@ -953,7 +1111,9 @@ var file_orbit_v1_target_proto_goTypes = []any{
 	(*FieldProvenance)(nil),    // 9: orbit.v1.FieldProvenance
 	(*ProvenanceSource)(nil),   // 10: orbit.v1.ProvenanceSource
 	(*ProvenanceOverride)(nil), // 11: orbit.v1.ProvenanceOverride
-	(*Snssai)(nil),             // 12: orbit.v1.Snssai
+	(*ProbeRequest)(nil),       // 12: orbit.v1.ProbeRequest
+	(*ProbeStep)(nil),          // 13: orbit.v1.ProbeStep
+	(*Snssai)(nil),             // 14: orbit.v1.Snssai
 }
 var file_orbit_v1_target_proto_depIdxs = []int32{
 	2,  // 0: orbit.v1.ResolvedTarget.core:type_name -> orbit.v1.TargetCore
@@ -961,18 +1121,21 @@ var file_orbit_v1_target_proto_depIdxs = []int32{
 	5,  // 2: orbit.v1.ResolvedTarget.ran:type_name -> orbit.v1.TargetRAN
 	7,  // 3: orbit.v1.ResolvedTarget.app:type_name -> orbit.v1.TargetApp
 	3,  // 4: orbit.v1.TargetCore.plmn:type_name -> orbit.v1.Plmn
-	12, // 5: orbit.v1.TargetCore.slices:type_name -> orbit.v1.Snssai
+	14, // 5: orbit.v1.TargetCore.slices:type_name -> orbit.v1.Snssai
 	6,  // 6: orbit.v1.TargetRAN.gnb_ids:type_name -> orbit.v1.GNBIDRange
 	8,  // 7: orbit.v1.TargetApp.responders:type_name -> orbit.v1.Responder
 	10, // 8: orbit.v1.FieldProvenance.source:type_name -> orbit.v1.ProvenanceSource
 	11, // 9: orbit.v1.FieldProvenance.overridden:type_name -> orbit.v1.ProvenanceOverride
 	0,  // 10: orbit.v1.ProvenanceSource.layer:type_name -> orbit.v1.ProvenanceLayer
 	10, // 11: orbit.v1.ProvenanceOverride.source:type_name -> orbit.v1.ProvenanceSource
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	1,  // 12: orbit.v1.ProbeRequest.target:type_name -> orbit.v1.ResolvedTarget
+	12, // 13: orbit.v1.TargetService.Probe:input_type -> orbit.v1.ProbeRequest
+	13, // 14: orbit.v1.TargetService.Probe:output_type -> orbit.v1.ProbeStep
+	14, // [14:15] is the sub-list for method output_type
+	13, // [13:14] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_target_proto_init() }
@@ -988,9 +1151,9 @@ func file_orbit_v1_target_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_target_proto_rawDesc), len(file_orbit_v1_target_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
-			NumServices:   0,
+			NumServices:   1,
 		},
 		GoTypes:           file_orbit_v1_target_proto_goTypes,
 		DependencyIndexes: file_orbit_v1_target_proto_depIdxs,

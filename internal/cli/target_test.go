@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bgrewell/loom/control"
 
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
@@ -71,21 +74,36 @@ func poolWith(ki string) string {
 	return "subscribers:\n  - name: main\n    first_supi: \"208930000000001\"\n    ki: " + ki + "\n    opc: " + testOPc + "\n"
 }
 
-// The roadmap's done-when for T3: probe passes against the mock AMF over
-// real SCTP, NG Setup through a PDU session.
+// startProbeLoom runs a real loom agent in-process on the lab's loopback
+// net, with token.
+func startProbeLoom(t *testing.T, host, token string) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", host+":0")
+	if err != nil {
+		t.Skipf("cannot listen on %s: %v", host, err)
+	}
+	gs := control.NewGRPCServer(control.NewServer("test", control.WithAuthToken(token)))
+	go func() { _ = gs.Serve(lis) }()
+	t.Cleanup(gs.Stop)
+	return lis.Addr().String()
+}
+
+// The roadmap's done-when for T3, through the server's probe: the core
+// steps pass against the mock AMF over real SCTP, NG Setup through a PDU
+// session; --core-only ends there, passing.
 func TestTargetProbePasses(t *testing.T) {
 	clearOrbitEnv(t)
 	lab := newProbeLab(t, 83, true)
-	r := runOrbit(t, targetDir(t, lab.target("lab1", servedPLMN, poolWith(testKi))), "--server", lab.server, "target", "probe", "lab1")
+	r := runOrbit(t, targetDir(t, lab.target("lab1", servedPLMN, poolWith(testKi))), "--server", lab.server, "target", "probe", "lab1", "--core-only")
 	if r.execErr != nil {
 		t.Fatalf("probe: %v\n%s", r.execErr, r.out)
 	}
 	for _, want := range []string{
-		"probe lab1 through " + lab.server + " (gNB IDs 0x64, 0x65, 0x66, one per association, SUPI 208930000000001; until leasing",
-		`✓ NG Setup`, `accepted by AMF`, "from " + lab.net + "11:",
-		`✓ register`, "208930000000001 registered in",
-		`✓ PDU session`, "via UPF " + lab.net + "10",
-		"probe lab1: 3 of 3 steps passed",
+		"probe lab1 through " + lab.server + "\n",
+		`✓ 1 NG Setup`, `accepted by AMF`, "from " + lab.net + "11:",
+		`✓ 2 register`, "208930000000001 registered in",
+		`✓ 3 PDU session`, "via UPF " + lab.net + "10",
+		"probe lab1: core OK; user plane not checked (--core-only)",
 	} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("output lacks %q:\n%s", want, r.out)
@@ -96,36 +114,81 @@ func TestTargetProbePasses(t *testing.T) {
 	}
 }
 
+// All seven steps against the mock pair and a real loom agent: the core
+// and the responder's control port pass, and the mock UPF, which has no
+// N6, gets no echo or datagram to the responder: steps 6 and 7 fail with
+// what to check, the probe exits 1 (a gate failed), and the loom token is
+// in no output.
+func TestTargetProbeUserPlane(t *testing.T) {
+	clearOrbitEnv(t)
+	lab := newProbeLab(t, 85, true)
+	const tok = "orl1_CLIPROBESECRETCLIPROBE"
+	ctl := startProbeLoom(t, lab.net+"20", tok)
+	app := func(token string) string {
+		return "app:\n  responders:\n    - { name: app1, control: \"" + ctl + "\", token: " + token + ", data_ip: " + lab.net + "20 }\n"
+	}
+	tests := []struct {
+		name string
+		app  string
+		want []string
+	}{
+		{name: "no N6 behind the mock UPF", app: app(tok), want: []string{
+			"✓ 4 responder", "static responder app1 (not registered)", "✓ 5 control", "loom agent at " + ctl + " answered",
+			"✗ 6 UE to N6 echo", "no echo from " + lab.net + "20 (3 sent)", "fix: on the app host, the return route",
+			"✗ 7 data ports", "no UDP datagram arrived at " + lab.net + "20:",
+			"probe lab1: 5 of 7 steps passed (0 skipped)"}},
+		{name: "a wrong loom token", app: app("orl1_WRONGWRONGWRONG"), want: []string{
+			"✗ 5 control", "the responder refused its loom token", "- 6 UE to N6 echo", "SKIP",
+			"probe lab1: 4 of 7 steps passed (2 skipped)"}},
+		{name: "no responder", app: "", want: []string{
+			"✗ 4 responder", "no responder in lab1", "fix: join an app host: orbit join create -t lab1",
+			"probe lab1: 3 of 7 steps passed (3 skipped)"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := lab.target("lab1", servedPLMN, poolWith(testKi)) + tc.app
+			r := runOrbit(t, targetDir(t, doc), "--server", lab.server, "target", "probe", "lab1", "--timeout", "3s")
+			if ExitCode(r.execErr) != ExitGateFailed || !strings.Contains(r.execErr.Error(), "probe lab1 failed at") {
+				t.Errorf("err = %v (exit %d), want a failed gate", r.execErr, ExitCode(r.execErr))
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(r.out, w) {
+					t.Errorf("output lacks %q:\n%s", w, r.out)
+				}
+			}
+			if strings.Contains(r.out+r.err, "orl1_") {
+				t.Error("probe output shows a loom token")
+			}
+		})
+	}
+}
+
 // Each step stops the probe with what to check: an unreachable AMF, a PLMN
-// the AMF does not serve, a key the core does not hold; a target with no
-// pool SKIPs the UE steps and passes on NG Setup alone.
+// the AMF does not serve, a key the core does not hold, no PDU session, no
+// pool; each exits 1. A probe that cannot start exits 3.
 func TestTargetProbeFailures(t *testing.T) {
 	clearOrbitEnv(t)
 	lab := newProbeLab(t, 84, false)
 	tests := []struct {
 		name, doc string
-		wantErr   bool
 		want      []string
 	}{
-		{name: "unreachable AMF", doc: strings.Replace(lab.target("lab1", servedPLMN, ""), lab.amf, "127.0.0.1:1", 1), wantErr: true,
-			want: []string{"✗ NG Setup", "AMF 127.0.0.1:1 is not reachable over SCTP from the orbit server", "check core.amf and the N2 route", "0 of 3 steps passed"}},
-		{name: "wrong PLMN", doc: lab.target("lab1", `{ mcc: "001", mnc: "01" }`, ""), wantErr: true,
-			want: []string{"✗ NG Setup", "AMF rejected NG Setup: misc(4) (unknown PLMN); core.plmn 001/01 or core.tac 1 is not one the AMF serves"}},
-		{name: "wrong key", doc: lab.target("lab1", servedPLMN, poolWith(strings.Repeat("a", 32))), wantErr: true,
-			want: []string{"✓ NG Setup", "✗ register", "registering 208930000000001 failed:", "(reject cause not reported yet); check that subscribers[main] (first_supi, ki, opc) is provisioned in the core", "1 of 3 steps passed"}},
-		{name: "no PDU session accept (no UPF behind the mock)", doc: lab.target("lab1", servedPLMN, poolWith(testKi)), wantErr: true,
-			want: []string{"✓ register", "✗ PDU session", "no PDU session accept within 2s (DNN internet, slice 1/010203)", "2 of 3 steps passed"}},
+		{name: "unreachable AMF", doc: strings.Replace(lab.target("lab1", servedPLMN, ""), lab.amf, "127.0.0.1:1", 1),
+			want: []string{"✗ 1 NG Setup", "AMF 127.0.0.1:1 is not reachable over SCTP from the orbit server", "fix: check core.amf and the N2 route", "0 of 7 steps passed (6 skipped)"}},
+		{name: "wrong PLMN", doc: lab.target("lab1", `{ mcc: "001", mnc: "01" }`, ""),
+			want: []string{"✗ 1 NG Setup", "the AMF rejected NG Setup: misc(4) (unknown PLMN); core.plmn 001/01 or core.tac 1 is not one the AMF serves"}},
+		{name: "wrong key", doc: lab.target("lab1", servedPLMN, poolWith(strings.Repeat("a", 32))),
+			want: []string{"✓ 1 NG Setup", "✗ 2 register", "registering 208930000000001 failed:", "(reject cause not reported yet)", "fix: check that subscribers[main] (first_supi, ki, opc) is provisioned in the core", "1 of 7 steps passed (5 skipped)"}},
+		{name: "no PDU session accept (no UPF behind the mock)", doc: lab.target("lab1", servedPLMN, poolWith(testKi)),
+			want: []string{"✓ 2 register", "✗ 3 PDU session", "no PDU session accept within 2s (DNN internet, slice 1/010203)", "2 of 7 steps passed (4 skipped)"}},
 		{name: "no pool", doc: lab.target("lab1", servedPLMN, ""),
-			want: []string{"✓ NG Setup", "- register", "SKIP", "no subscribers in target lab1; add one with first_supi/ki/opc", "1 of 3 steps passed"}},
+			want: []string{"✓ 1 NG Setup", "✗ 2 register", "no subscriber pool in lab1", "1 of 7 steps passed (5 skipped)"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r := runOrbit(t, targetDir(t, tc.doc), "--server", lab.server, "target", "probe", "lab1", "--timeout", "2s")
-			if (r.execErr != nil) != tc.wantErr {
-				t.Errorf("err = %v, want an error: %t", r.execErr, tc.wantErr)
-			}
-			if tc.wantErr && (r.execErr == nil || !strings.Contains(r.execErr.Error(), "probe lab1 failed at")) {
-				t.Errorf("err = %v", r.execErr)
+			if ExitCode(r.execErr) != ExitGateFailed || !strings.Contains(r.execErr.Error(), "probe lab1 failed at") {
+				t.Errorf("err = %v (exit %d), want a failed gate", r.execErr, ExitCode(r.execErr))
 			}
 			for _, w := range tc.want {
 				if !strings.Contains(r.out, w) {
@@ -144,6 +207,12 @@ func TestTargetProbeFailures(t *testing.T) {
 	}
 	if n := lab.mock.Deregistrations(); n < 2 {
 		t.Errorf("the AMF saw %d Deregistration Requests across the probes, want the register step's and the failed PDU step's", n)
+	}
+
+	// No server: could not start.
+	r := runOrbit(t, targetDir(t, lab.target("lab1", servedPLMN, "")), "--server", "http://127.0.0.1:1", "target", "probe", "lab1")
+	if ExitCode(r.execErr) != ExitCouldNotStart || !strings.Contains(r.execErr.Error(), "probe lab1 could not start") {
+		t.Errorf("no server: err = %v (exit %d), want could not start", r.execErr, ExitCode(r.execErr))
 	}
 }
 
@@ -201,7 +270,7 @@ func TestTargetInit(t *testing.T) {
 	}
 	// --here writes ./orbit.yaml, but never over an existing one.
 	here := []string{"target", "init", "lab4", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50", "--here"}
-	if r := runOrbit(t, loc, here...); r.execErr != nil || !strings.Contains(r.out, "no subscriber pool: `orbit target probe lab4` stops after NG Setup") {
+	if r := runOrbit(t, loc, here...); r.execErr != nil || !strings.Contains(r.out, "no subscriber pool: `orbit target probe lab4` fails at register") {
 		t.Fatalf("init --here: %v\n%s", r.execErr, r.out)
 	}
 	if r := runOrbit(t, loc, here...); r.execErr == nil || !strings.Contains(r.execErr.Error(), "orbit.yaml exists: add target") {
@@ -466,22 +535,6 @@ func TestTargetInitRefusesSymlinks(t *testing.T) {
 	}
 	if left, _ := filepath.Glob(filepath.Join(dir, ".*.tmp")); len(left) != 0 {
 		t.Errorf("temp files left: %v", left)
-	}
-}
-
-// Each probe association takes its own gNB ID: the range's first, first+1
-// and first+2.
-func TestProbeGNBIDs(t *testing.T) {
-	plan, err := planProbe(target.Target{RAN: target.RAN{GNBIDs: target.GNBIDs{First: 100}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a, b, c := plan.gnbFor(0).GetId(), plan.gnbFor(1).GetId(), plan.gnbFor(2).GetId(); a != 100 || b != 101 || c != 102 || plan.gnb.GetId() != 100 {
-		t.Errorf("IDs = %d %d %d (base %d)", a, b, c, plan.gnb.GetId())
-	}
-	plan, _ = planProbe(target.Target{})
-	if plan.gnbFor(0).GetId() != target.DefaultGNBID {
-		t.Errorf("default first ID = %d", plan.gnbFor(0).GetId())
 	}
 }
 

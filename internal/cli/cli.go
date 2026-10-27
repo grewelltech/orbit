@@ -233,6 +233,11 @@ func cellClient(url *string) orbitv1connect.CellServiceClient {
 	return orbitv1connect.NewCellServiceClient(h, *url, guard)
 }
 
+func targetClient(url *string) orbitv1connect.TargetServiceClient {
+	h, guard := apiClient(*url)
+	return orbitv1connect.NewTargetServiceClient(h, *url, guard)
+}
+
 func ueClient(url *string) orbitv1connect.UEServiceClient {
 	h, guard := apiClient(*url)
 	return orbitv1connect.NewUEServiceClient(h, *url, guard)
