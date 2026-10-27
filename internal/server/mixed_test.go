@@ -384,3 +384,33 @@ func TestSuiteStoppedAfterTheLastCheckIsDone(t *testing.T) {
 		t.Fatalf("suite = %v, %v; want done", rep, err)
 	}
 }
+
+// A stopped workload's partial report is kept, but its gates fail: it
+// measured a run cut short, whatever its figures say.
+func TestMixedStoppedWorkloadFailsItsGates(t *testing.T) {
+	gate := &orbitv1.Gate{Name: "reg", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "registration.p99_ms", Op: orbitv1.CompareOp_COMPARE_OP_LE, Threshold: 500}}}
+	partial := &load.Report{Attempted: 10, Succeeded: 10, Latencies: map[string]load.Stats{"registration": {Count: 10, P99: time.Millisecond}}}
+	tests := []struct {
+		name     string
+		state    string
+		wantPass bool
+	}{
+		{name: "done", state: engine.WorkloadDone, wantPass: true},
+		{name: "stopped", state: engine.WorkloadSkipped, wantPass: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := mixedRunReport(engine.MixedResult{Name: "pop", Kind: engine.RunKindLoad, State: tc.state, Detail: "stopped", Report: partial},
+				[]*orbitv1.Gate{gate})
+			if rr.GetLoad() == nil {
+				t.Fatal("the report was dropped")
+			}
+			if len(rr.GetGates()) != 1 || rr.GetGates()[0].GetPassed() != tc.wantPass || rr.GetGatesPassed() != tc.wantPass {
+				t.Errorf("gates = %v, passed %t; want %t", rr.GetGates(), rr.GetGatesPassed(), tc.wantPass)
+			}
+			if !tc.wantPass && rr.GetGates()[0].GetDetail() != "workload skipped: stopped" {
+				t.Errorf("detail = %q", rr.GetGates()[0].GetDetail())
+			}
+		})
+	}
+}

@@ -2,7 +2,6 @@ package conformance
 
 import (
 	"context"
-	"github.com/bgrewell/orbit/internal/gnb"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -13,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 // usesOf maps each type with a method that calls name to true, walking the

@@ -686,10 +686,20 @@ func mixedRunReport(w engine.MixedResult, gates []*orbitv1.Gate) *orbitv1.RunRep
 		rr.Report = &orbitv1.RunReport_Conformance{Conformance: rep.summary()}
 	}
 	applyGates(rr, gates)
-	if rr.Report == nil {
+	switch {
+	case rr.Report == nil:
 		for _, g := range rr.Gates {
 			g.Detail = fmt.Sprintf("no report to judge: workload %s %s", w.State, w.Detail)
 		}
+	case w.State != engine.WorkloadDone:
+		// A stopped workload's partial report is kept for the record, but
+		// it measured a run cut short: its gates fail, as an incomplete
+		// suite's do, rather than pass on what little it saw.
+		for _, g := range rr.Gates {
+			g.Passed = false
+			g.Detail = fmt.Sprintf("workload %s: %s", w.State, w.Detail)
+		}
+		rr.GatesPassed = len(rr.Gates) == 0
 	}
 	return rr
 }
