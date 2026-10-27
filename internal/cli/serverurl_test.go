@@ -86,6 +86,10 @@ const runCommand = "run"
 // (TestTargetCommandsServerURL).
 const targetCommand = "target"
 
+// testCommand resolves --server in RunE too: --list and --explain never
+// talk to the server.
+const testCommand = "test"
+
 // localCommands are the top-level commands that never talk to the API server
 // and so never read $ORBIT_SERVER. With hookedGroups and runCommand this is
 // the whole top level: a new command must be classified in one of them, so a
@@ -116,7 +120,7 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	for _, g := range hookedGroups {
 		isClient[g] = true
 	}
-	known := map[string]bool{runCommand: true, targetCommand: true}
+	known := map[string]bool{runCommand: true, targetCommand: true, testCommand: true}
 	for _, name := range append(append([]string{}, hookedGroups...), localCommands...) {
 		known[name] = true
 	}
@@ -127,7 +131,7 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	}
 	var clientLeaves []string
 	for _, top := range root.Commands() {
-		if top.Name() == runCommand || top.Name() == targetCommand {
+		if top.Name() == runCommand || top.Name() == targetCommand || top.Name() == testCommand {
 			if top.PersistentPreRunE != nil || top.PersistentPreRun != nil {
 				t.Errorf("orbit %s: has a hook; it must resolve --server in RunE, only where it talks to the server", top.Name())
 			}

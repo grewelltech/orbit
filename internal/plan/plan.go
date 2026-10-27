@@ -62,14 +62,25 @@ func Build(res *target.Resolved, opts ...Option) (*orbitv1.RunPlan, []*orbitv1.F
 		}
 		p.Workloads = append(p.Workloads, w)
 	}
+	if p.Gates, err = Gates(res); err != nil {
+		return nil, nil, err
+	}
+	return p, ProvenanceProto(res.Provenance), nil
+}
+
+// Gates is the plan's gates alone, for a command that builds the rest of
+// its plan another way (start-load, start-fleet).
+func Gates(res *target.Resolved) ([]*orbitv1.Gate, error) {
+	b := builder{res: res}
+	var out []*orbitv1.Gate
 	for _, n := range res.Names("gates") {
 		g, err := b.gate(n)
 		if err != nil {
-			return nil, nil, fmt.Errorf("gates[%s]: %w", n, err)
+			return nil, fmt.Errorf("gates[%s]: %w", n, err)
 		}
-		p.Gates = append(p.Gates, g)
+		out = append(out, g)
 	}
-	return p, ProvenanceProto(res.Provenance), nil
+	return out, nil
 }
 
 // RunName and EventVerbosity are the run's own settings, which travel in

@@ -2,6 +2,7 @@ package plan
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -483,5 +484,65 @@ func TestTemplatesBuild(t *testing.T) {
 	}
 	if _, err := Template("nope"); err == nil || !strings.Contains(err.Error(), "want one of conformance, fleet, load") {
 		t.Errorf("unknown template: %v", err)
+	}
+}
+
+// Gates builds the gates alone, from gate settings with no workloads (the
+// start-load and start-fleet flags), and refuses a gate it cannot build.
+func TestGates(t *testing.T) {
+	gate := func(specs ...string) []target.Setting {
+		var out []target.Setting
+		for _, s := range specs {
+			set, err := ParseGate(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, set...)
+		}
+		return out
+	}
+	tests := []struct {
+		name     string
+		settings []target.Setting
+		want     []string // name op threshold
+		wantErr  string
+	}{
+		{name: "none", want: nil},
+		{name: "slo", settings: gate("registration.p99_ms<=500ms"), want: []string{"registration_p99_ms COMPARE_OP_LE 500"}},
+		{name: "--slo-* alias: threshold only", settings: []target.Setting{
+			{Path: "gates[" + target.GateName("", target.MetricSuccessRatio) + "].slo.threshold", Value: "0.95"}},
+			want: []string{"attach_success_ratio COMPARE_OP_GE 0.95"}},
+		{name: "conformance", settings: gate("conformance"), want: []string{"conformance conformance"}},
+		{name: "a name that says no metric", settings: []target.Setting{{Path: "gates[x].slo.threshold", Value: "1"}},
+			wantErr: "give slo.metric"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := target.Resolve(target.Input{Layer: target.LayerFlag, Settings: tc.settings})
+			if err != nil {
+				t.Fatal(err)
+			}
+			gates, err := Gates(res)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, g := range gates {
+				if s := g.GetSlo(); s != nil {
+					got = append(got, fmt.Sprintf("%s %s %g", g.GetName(), s.GetOp(), s.GetThreshold()))
+					continue
+				}
+				got = append(got, g.GetName()+" conformance")
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("gates = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

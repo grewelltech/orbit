@@ -147,18 +147,22 @@ func TestRunsStartLoadBuildsSpec(t *testing.T) {
 	if !strings.Contains(errOut.String(), "network: plmn=208/93 tac=1 snssai=1/010203 dnn=internet") {
 		t.Errorf("start-load stderr lacks the network line:\n%s", errOut.String())
 	}
-	spec := s.startReq.GetLoad() //nolint:staticcheck // the deprecated arm, kept for API clients
-	if spec == nil {
-		t.Fatal("StartRun did not carry a load spec")
+	p := s.startReq.GetPlan()
+	if p == nil {
+		t.Fatal("StartRun did not carry a plan")
 	}
-	if spec.GetAmfAddress() != "10.0.0.1:38412" || spec.GetCount() != 250 || spec.GetRate() != 12 {
-		t.Errorf("spec basics wrong: %+v", spec)
+	tgt, pop := p.GetTarget(), p.GetWorkloads()[0].GetPopulation()
+	if tgt.GetCore().GetAmf() != "10.0.0.1:38412" || pop.GetAttach().GetCount() != 250 || pop.GetAttach().GetRate() != 12 {
+		t.Errorf("plan basics wrong: %+v", p)
 	}
-	if len(spec.GetGnbs()) != 2 {
-		t.Errorf("gnb-count 2 produced %d gnbs", len(spec.GetGnbs()))
+	if pop.GetTopology().GetGnbCount() != 2 || tgt.GetRan().GetGnbName() != "orbit-gnb" {
+		t.Errorf("gnb-count 2 gave %d gNBs named from %q, want 2 named orbit-gnb-1, -2", pop.GetTopology().GetGnbCount(), tgt.GetRan().GetGnbName())
 	}
-	if spec.GetCredentials().GetKi() == "" || spec.GetGnbs()[0].GetMcc() != "208" {
-		t.Errorf("credentials/plmn not threaded: %+v", spec)
+	if tgt.GetSubscribers()[0].GetKi() == "" || tgt.GetCore().GetPlmn().GetMcc() != "208" {
+		t.Errorf("credentials/plmn not threaded: %+v", tgt)
+	}
+	if len(p.GetGates()) != 0 {
+		t.Errorf("gates = %v, want none without gate flags", p.GetGates())
 	}
 	if s.startReq.GetName() != "storm" {
 		t.Errorf("name = %q, want storm", s.startReq.GetName())

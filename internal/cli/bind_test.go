@@ -214,8 +214,8 @@ func TestSharedBindNote(t *testing.T) {
 	}
 }
 
-// `runs start-load --bind` travels to the server as the repeated
-// bind_addresses field, in order; the server applies the count rule.
+// `runs start-load --bind` travels to the server as the plan's N2 source
+// pool, in order; the server applies the count rule.
 func TestRunsStartLoadSendsBindAddresses(t *testing.T) {
 	stub := &stubRunService{startRunID: "run-1"}
 	mux := http.NewServeMux()
@@ -233,7 +233,7 @@ func TestRunsStartLoadSendsBindAddresses(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	got := stub.startReq.GetLoad().GetBindAddresses() //nolint:staticcheck // the deprecated arm, kept for API clients
+	got := stub.startReq.GetPlan().GetTarget().GetRan().GetN2SourceIps()
 	if strings.Join(got, ",") != "10.0.0.21,10.0.0.22:0" {
 		t.Errorf("bind_addresses = %q", got)
 	}

@@ -40,6 +40,10 @@ const (
 	// ReasonOperation: an argument to an operation on an existing UE or a
 	// one-off cell procedure.
 	ReasonOperation Reason = "operation argument"
+	// ReasonFieldSetter: a flag that names the fields it sets (--gate's
+	// gate, --set's path), so no one path is its; each field's provenance
+	// names the flag.
+	ReasonFieldSetter Reason = "sets the fields it names"
 )
 
 // Exclusion is an env var or flag that is not configuration, with why.
@@ -63,6 +67,7 @@ const (
 	cmdServe        = "orbit serve"
 	cmdTargetInit   = "orbit target init"
 	cmdResponder    = "orbit responder"
+	cmdTest         = "orbit test"
 )
 
 var (
@@ -112,6 +117,7 @@ var Bindings = []Binding{
 	{Flag: "name", Path: "run.name", Commands: []string{cmdStartLoad, cmdStartFleet}},
 	{Flag: "events", Path: "run.event_verbosity"},
 	{Flag: "duration", Path: "until.duration_ms", Commands: populationCmds},
+	{Flag: "for", Path: "until.duration_ms", Commands: []string{cmdTest}},
 	{Flag: "count", Path: "workloads[].attach.count", Commands: populationCmds},
 	{Flag: "rate", Path: "workloads[].attach.rate", Commands: populationCmds},
 	{Flag: "ramp", Path: "workloads[].attach.ramp"},
@@ -146,6 +152,10 @@ var Exclusions = []Exclusion{
 	{Flag: "from-seq", Reason: ReasonOutput},
 	{Flag: "wait", Reason: ReasonOutput}, // follow the run to its end and exit with its result
 	{Flag: "finish", Commands: []string{"orbit runs stop"}, Reason: ReasonOperation},
+	{Flag: "detach", Commands: []string{"orbit run"}, Reason: ReasonOutput}, // start, print the run ID, return
+	{Flag: "list", Commands: []string{cmdTest}, Reason: ReasonOutput},
+	{Flag: "gate", Reason: ReasonFieldSetter},
+	{Flag: "set", Commands: []string{"orbit run", cmdTest}, Reason: ReasonFieldSetter},
 
 	{Flag: "listen", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "tls", Commands: []string{cmdServe}, Reason: ReasonProcess},

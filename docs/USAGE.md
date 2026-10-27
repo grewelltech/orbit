@@ -395,14 +395,19 @@ they find the service without `--server` on every call.
 
 ## Server runs (`orbit runs`)
 
-A run started with `orbit runs start-load` or `start-fleet` executes on the
-server and outlives the command, which prints the run ID on stdout. The CLI
-sends it as a one-workload plan (ADR-0008 §2). A load with several gNBs is the
-exception: start-load names them `<name>-0..`, which no plan can express, so
-it is sent as the old load spec, which the server still runs.
+A run started with `orbit run <plan.yaml>`, `orbit test`, `orbit runs
+start-load` or `start-fleet` executes on the server and outlives the command,
+which prints the run ID on stdout. The CLI sends it as a plan (ADR-0008 §2).
+start-load names one gNB `--gnb-name` and several `<name>-1` .. `<name>-n`, as
+a plan does. A fleet scenario a plan cannot carry exactly is still sent as the
+old fleet spec, which the server still runs; that spec carries no gates.
+
+Every command that starts a run takes `--gate` and the `--slo-*` aliases
+([run-files.md](run-files.md#gates-from-the-command-line)):
 
 ```sh
 orbit runs start-load ... --wait     # follow the run, exit with its result
+orbit runs start-load ... --gate 'registration.p99_ms<=500ms' --slo-min-success 0.99
 orbit runs list | get <id> | watch [<id>] | events [<id>] | report <id>
 orbit runs stop <id>                 # cancel: gates fail as did-not-complete
 orbit runs stop <id> --finish        # finish: gates judged on the results so far
@@ -421,6 +426,8 @@ commands, `orbit load` and `orbit conformance` included, use the same codes.
 | 3 | the run could not start | fix the lab: an invalid plan, a lease another run holds, no server, a usage error |
 
 The meaning is also printed on stderr at exit: `exit 1: a gate failed`.
+
+A suite cut short by its deadline or a finish exits 2: it did not complete.
 
 Without gates, exit 0 means the run completed, not that the core passed:
 add gates to judge it. An error once the run has an ID leaves its outcome
@@ -797,6 +804,44 @@ the structured `spec_refs` (clause, strength, since, verified versions,
 changes), `min_release` and, on a listed FAIL, `expected_failure`. The full table is
 [docs/conformance/checks.md](conformance/checks.md), with the quoted normative
 text per check in [docs/conformance/provenance/](conformance/provenance/).
+
+## Run files (`orbit run`, `kind: run`)
+
+A run file says what to run (workloads, when to stop, gates) and nothing
+about the lab, whose core, keys and addresses come from the target. The
+format is in [run-files.md](run-files.md).
+
+```sh
+orbit run soak.yaml -t lab1                  # wait for the end; exit with the result
+orbit run soak.yaml -t lab1 --detach         # start it and return; prints the run ID
+orbit run soak.yaml -t lab1 --explain        # where each field came from; starts nothing
+orbit run soak.yaml -t lab1 --gate 'attach.p99_ms<=1s' --set workloads[pop].attach.count=1000
+```
+
+## Built-in tests (`orbit test`)
+
+`orbit test <template> -t <target>` starts a built-in run file against a
+target and returns once the run has started:
+
+```
+$ orbit test load -t lab1
+run-4f2a…
+started run-4f2a…; follow with `orbit runs watch run-4f2a…` or pass --wait
+```
+
+With `--wait` it follows the run to its end and exits with its result
+([exit codes](#exit-codes)).
+
+| Template | Runs | Stops | Gated on |
+|---|---|---|---|
+| `load` | an attach storm: 100 UEs at 20/s | when the storm completes | attach success ≥ 0.99 |
+| `fleet` | 100 UEs attached at 10/s and kept | after 5m | attach success ≥ 0.99 |
+| `conformance` | the conformance suite, every category | when the suite completes | no FAIL outside the expected list, no ERROR |
+
+`--for 10m` runs for that long instead of the template's stop. `--gate` adds
+a gate, `--set` changes any field (`--set workloads[load].attach.count=1000`),
+`--explain` shows the plan without starting it, and `--list` lists the
+templates (`--list load` prints one, a starting point for your own run file).
 
 ## Scenarios (`orbit run`)
 
