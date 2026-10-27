@@ -58,6 +58,7 @@ func TestScenarioTargetPrecedence(t *testing.T) {
 		wantAMF  string // in the YAML the server was sent
 		wantErr  string
 		wantNote string
+		noNote   bool
 	}{
 		{name: "file target: name", doc: "target: lab1\n" + fleetFile, wantAMF: "192.0.2.10:38412"},
 		{name: "-t", doc: fleetFile, args: []string{"-t", "lab2"}, wantAMF: "192.0.2.99:38412"},
@@ -68,6 +69,7 @@ func TestScenarioTargetPrecedence(t *testing.T) {
 		{name: "$ORBIT_TARGET overrides the file's target", doc: "target: lab1\n" + fleetFile, env: "lab2", wantAMF: "192.0.2.99:38412",
 			wantNote: "target lab2 ($ORBIT_TARGET) overrides the file's target: lab1"},
 		{name: "inline target", doc: inline + fleetFile, wantAMF: "192.0.2.77:38412"},
+		{name: "-t naming the file's own target is no override", doc: "target: lab1\n" + fleetFile, args: []string{"-t", "lab1"}, wantAMF: "192.0.2.10:38412", noNote: true},
 		{name: "names no target", doc: fleetFile, wantErr: "x.yaml names no target: add target: <name> or pass -t"},
 		{name: "self-contained", doc: self, wantAMF: "192.0.2.5:38412"},
 		{name: "self-contained with -t", doc: self, args: []string{"-t", "lab1"}, wantErr: "-t lab1: x.yaml sets its own core.amf, core.plmn, topology.gnbs.source_ips, fleet.supi_base"},
@@ -98,6 +100,9 @@ func TestScenarioTargetPrecedence(t *testing.T) {
 			}
 			if tc.wantNote != "" && !strings.Contains(r.err, tc.wantNote) {
 				t.Errorf("stderr lacks %q:\n%s", tc.wantNote, r.err)
+			}
+			if tc.noNote && strings.Contains(r.err, "overrides") {
+				t.Errorf("stderr has an override notice:\n%s", r.err)
 			}
 		})
 	}
@@ -181,12 +186,21 @@ func TestScenariosRunWithTarget(t *testing.T) {
 ues:
   - { name: first, gnb: g1 }
   - { gnb: g2, range: { count: 2 } }
+  - { name: last, gnb: g1 }
 steps:
   - register: all
-  - deregister: first
+  - deregister: last
 `)
 	r = runOrbit(t, loc, "--server", lab.server, "run", steps, "-t", "lab1")
-	if r.execErr != nil || !strings.Contains(r.out, "3 UE(s) registered") || !strings.Contains(r.out, "1 UE(s) deregistered") {
+	if r.execErr != nil || !strings.Contains(r.out, "4 UE(s) registered") || !strings.Contains(r.out, "1 UE(s) deregistered") {
 		t.Errorf("steps: %v\n%s", r.execErr, r.out)
+	}
+	// Each gNB registers from its own address of the pool: g1's UE from the
+	// pool's first address, g2's two from its second.
+	for supi, src := range map[string]string{"208930000000001": "127.0.85.1", "208930000000002": "127.0.85.2", "208930000000003": "127.0.85.2"} {
+		r = runOrbit(t, loc, "--server", lab.server, "ue", "status", "--supi", supi)
+		if r.execErr != nil || !strings.Contains(r.out, "n2-source="+src+":") {
+			t.Errorf("ue status %s, want n2-source %s (its gNB's pool address):\n%s (err %v)", supi, src, r.out, r.execErr)
+		}
 	}
 }

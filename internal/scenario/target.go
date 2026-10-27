@@ -40,7 +40,7 @@ func ReadTargetRef(data []byte) (TargetRef, error) {
 			return TargetRef{}, fmt.Errorf("parse scenario: %w", err)
 		}
 		if head.Target.Kind == yaml.MappingNode {
-			return TargetRef{}, fmt.Errorf("the scenario is not valid YAML as written (%v), so its inline target cannot be read before ${VAR} expansion; write ${VAR} values in block style", rawErr)
+			return TargetRef{}, fmt.Errorf("the scenario is not valid YAML as written (%v), so its inline target cannot be read before ${VAR} expansion; write ${VAR} values in block style, or quote them", rawErr)
 		}
 	}
 	n := head.Target

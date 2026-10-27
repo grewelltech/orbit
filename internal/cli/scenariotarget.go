@@ -77,7 +77,7 @@ func scenarioTarget(cmd *cobra.Command, path string, data []byte, o options) (*t
 	default:
 		return nil, fmt.Errorf("%s names no target: add target: <name> or pass -t", file)
 	}
-	if (from == "flag -t" || from == "$ORBIT_TARGET") && ref.Set() {
+	if (from == "flag -t" || from == "$ORBIT_TARGET") && ref.Set() && name != ref.Name {
 		_, _ = fmt.Fprintf(errOut, "target %s (%s) overrides the file's target: %s\n", name, from, fileTarget)
 	}
 
