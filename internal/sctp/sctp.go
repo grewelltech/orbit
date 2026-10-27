@@ -32,6 +32,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strconv"
@@ -40,6 +41,7 @@ import (
 	"time"
 
 	isctp "github.com/ishidawataru/sctp"
+	"golang.org/x/sys/unix"
 )
 
 // PPIDNGAP is the NGAP payload protocol identifier in host byte order, as
@@ -128,6 +130,16 @@ const maxInitTimeout = 65535
 // lost INIT now gets three retransmits inside the bound instead of eight.
 const initAttempts = 3
 
+// maxConnectRetries is how many fresh sockets an ephemeral-port dial tries
+// after the first connect fails with a retryable error, connectRetryGap
+// apart. Two make a stale-association collision (about 1 in 2,400 dials on
+// a busy loopback) vanishingly rare without delaying a real refusal by more
+// than about 20 ms.
+const (
+	maxConnectRetries = 2
+	connectRetryGap   = 10 * time.Millisecond
+)
+
 // DialOption configures Dial. Options exist for tests and for callers that
 // need to bound or steer the dial; the defaults are right for every command.
 type DialOption func(*dialConfig)
@@ -141,6 +153,13 @@ type dialConfig struct {
 	timeout time.Duration
 	// raw performs the blocking connect. Defaults to kernelDial.
 	raw rawDialer
+	// noRetry turns off the fresh-socket retry (WithoutRetry).
+	noRetry bool
+	// retryGap is the pause before a retry. Defaults to connectRetryGap.
+	retryGap time.Duration
+	// log takes the debug line a retried dial leaves. Defaults to
+	// slog.Default().
+	log *slog.Logger
 }
 
 // WithSourceResolver replaces how an unbound dial picks its local address.
@@ -158,6 +177,29 @@ func WithDialTimeout(d time.Duration) DialOption {
 			c.timeout = d
 		}
 	}
+}
+
+// WithoutRetry turns off the fresh-socket retry of an ephemeral-port dial
+// (see Dial), so one Dial is exactly one connect: for a caller that counts
+// INITs or associations, or that dials expecting the AMF to refuse.
+func WithoutRetry() DialOption {
+	return func(c *dialConfig) { c.noRetry = true }
+}
+
+// WithLogger sets the logger that takes the debug line a retried dial
+// leaves, in place of slog.Default(). A nil l is ignored.
+func WithLogger(l *slog.Logger) DialOption {
+	return func(c *dialConfig) {
+		if l != nil {
+			c.log = l
+		}
+	}
+}
+
+// withRetryGap replaces the pause before a retry; tests use it to place a
+// bound between attempts.
+func withRetryGap(d time.Duration) DialOption {
+	return func(c *dialConfig) { c.retryGap = d }
 }
 
 // withRawDialer replaces the blocking connect; tests use it to stand in for
@@ -299,13 +341,23 @@ func (e *DialError) Unwrap() error { return e.Err }
 // produce after an early return is closed when it arrives. Nothing leaks, and
 // nothing keeps retransmitting for the sysctl default of minutes.
 //
+// An ephemeral-port dial (laddr "", a bare IP, or ip:0) whose connect fails
+// with EISCONN, EALREADY or ECONNREFUSED is retried on a fresh socket, up to
+// maxConnectRetries times connectRetryGap apart, inside the same bound: the
+// port the kernel drew may still belong to a closing association with the
+// same AMF (see retryable). No retry starts once the bound leaves no time
+// for it. A dial that fails after retries names every attempt's error; one
+// that succeeds after a retry leaves one debug line. A pinned port is never
+// retried, and its collision error says why; WithoutRetry turns the retry
+// off.
+//
 // Every failure after the local address is normalised and resolved is a
 // *DialError (see there); a malformed or unresolvable local address is a
 // plain error, as is a failure to subscribe events on an open association.
 //
 // Data-IO events are subscribed so reads return per-message stream/PPID info.
 func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, error) {
-	cfg := dialConfig{source: routeSource, timeout: DefaultDialTimeout, raw: kernelDial}
+	cfg := dialConfig{source: routeSource, timeout: DefaultDialTimeout, raw: kernelDial, retryGap: connectRetryGap, log: slog.Default()}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -368,53 +420,135 @@ func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, 
 	}
 	elapsed := func() time.Duration { return time.Since(start).Round(100 * time.Millisecond) }
 
-	type dialResult struct {
-		c   rawConn
-		err error
+	// tried names each failed connect, in order, for the error and the
+	// debug line; only an unpinned port is retried (see retryable).
+	pinned := la.Port != 0
+	retry := !cfg.noRetry && !pinned
+	var tried []string
+	fail := func(err error) error {
+		if len(tried) > 1 {
+			err = fmt.Errorf("%w (%d attempts: %s)", err, len(tried), strings.Join(tried, ", "))
+		}
+		return dialErr(err)
 	}
-	done := make(chan dialResult, 1)
-	go func() {
-		c, err := cfg.raw(la, ra, init)
-		done <- dialResult{c: c, err: err}
-	}()
-
 	var c rawConn
-	select {
-	case r := <-done:
-		if r.err != nil {
-			if errors.Is(r.err, syscall.ETIMEDOUT) {
-				// The kernel abandoned the INIT exchange: nothing answered.
-				return nil, dialErr(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
-					raddr, source, elapsed(), printedBound(bound), r.err))
-			}
-			// Name the source too: "cannot assign requested address" is
-			// about the bind, not the AMF, and the operator needs to see
-			// which address the host does not own (or which one the route
-			// picked).
-			return nil, dialErr(fmt.Errorf("sctp dial %q from %q: %w", raddr, source, r.err))
+	for {
+		conn, cut, err := connect(ctx, cfg.raw, la, ra, init)
+		if err == nil {
+			c = conn
+			break
 		}
-		c = r.c
-	case <-ctx.Done():
-		// The kernel may still be trying, for about the bound. Whatever it
-		// eventually produces belongs to nobody: close it on arrival.
-		go func() {
-			if r := <-done; r.c != nil {
-				_ = r.c.Close()
+		if cut {
+			if len(tried) > 0 {
+				// A retry the bound cut short still counts in the list.
+				tried = append(tried, "no answer in the bound")
 			}
-		}()
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			// Same fact as the kernel branch, nothing answered the INIT, so
-			// the operator reads the same hint whichever bound fired first.
-			return nil, dialErr(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
-				raddr, source, elapsed(), printedBound(bound), ctx.Err()))
+			if errors.Is(err, context.DeadlineExceeded) {
+				// Same fact as the kernel branch, nothing answered the INIT,
+				// so the operator reads the same hint whichever bound fired
+				// first.
+				return nil, fail(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
+					raddr, source, elapsed(), printedBound(bound), err))
+			}
+			return nil, fail(fmt.Errorf("sctp dial %q from %q: cancelled after %s: %w", raddr, source, elapsed(), err))
 		}
-		return nil, dialErr(fmt.Errorf("sctp dial %q from %q: cancelled after %s: %w", raddr, source, elapsed(), ctx.Err()))
+		tried = append(tried, errnoName(err))
+		if errors.Is(err, syscall.ETIMEDOUT) {
+			// The kernel abandoned the INIT exchange: nothing answered.
+			return nil, fail(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
+				raddr, source, elapsed(), printedBound(bound), err))
+		}
+		// Name the source too: "cannot assign requested address" is about
+		// the bind, not the AMF, and the operator needs to see which
+		// address the host does not own (or which one the route picked).
+		final := fmt.Errorf("sctp dial %q from %q: %w", raddr, source, err)
+		if !retryable(err) {
+			return nil, fail(final)
+		}
+		if pinned && !errors.Is(err, syscall.ECONNREFUSED) {
+			// A refusal is the AMF's answer either way; a local collision
+			// on a port the caller fixed is the earlier dial's leftover.
+			return nil, fail(fmt.Errorf("%w; source port %d may still hold an association to this AMF from an earlier dial: let it close, or bind port 0",
+				final, la.Port))
+		}
+		if !retry || len(tried) > maxConnectRetries {
+			return nil, fail(final)
+		}
+		// A retry never starts after the bound: one that would has no time
+		// left to answer in, so the connect error stands.
+		if deadline, _ := ctx.Deadline(); time.Until(deadline) <= cfg.retryGap {
+			return nil, fail(fmt.Errorf("%w; no time left in the bound (%s) to retry", final, printedBound(bound)))
+		}
+		gap := time.NewTimer(cfg.retryGap)
+		select {
+		case <-gap.C:
+		case <-ctx.Done():
+			gap.Stop()
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, fail(fmt.Errorf("%w; cancelled before a retry", final))
+			}
+			return nil, fail(fmt.Errorf("%w; no time left in the bound (%s) to retry", final, printedBound(bound)))
+		}
+	}
+	if len(tried) > 0 {
+		cfg.log.Debug("sctp dial retried on a fresh socket", "remote", raddr, "source", source,
+			"attempts", len(tried)+1, "errors", strings.Join(tried, ","))
 	}
 	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
 		_ = c.Close()
 		return nil, fmt.Errorf("subscribe data-io events: %w", err)
 	}
 	return &Conn{c: c}, nil
+}
+
+// connect runs one blocking connect on a fresh socket and waits for it or
+// for ctx, whichever comes first. cut reports that ctx did, and err is then
+// ctx's: the connection the kernel may still produce, for about the bound,
+// belongs to nobody and is closed on arrival.
+func connect(ctx context.Context, raw rawDialer, la, ra *isctp.SCTPAddr, init isctp.InitMsg) (c rawConn, cut bool, err error) {
+	type dialResult struct {
+		c   rawConn
+		err error
+	}
+	done := make(chan dialResult, 1)
+	go func() {
+		c, err := raw(la, ra, init)
+		done <- dialResult{c: c, err: err}
+	}()
+	select {
+	case r := <-done:
+		return r.c, false, r.err
+	case <-ctx.Done():
+		go func() {
+			if r := <-done; r.c != nil {
+				_ = r.c.Close()
+			}
+		}()
+		return nil, true, ctx.Err()
+	}
+}
+
+// retryable reports whether a connect error on an ephemeral port is worth a
+// fresh socket. Linux frees a closed socket's port at once while its
+// association lingers (SHUTDOWN-SENT, SHUTDOWN-ACK-SENT, COOKIE-ECHOED), so
+// a new socket can draw the same port and collide with it at the same AMF:
+// EISCONN or EALREADY locally, or the peer's ABORT for the stale association
+// (RFC 4960 §9.2), read as ECONNREFUSED. A fresh socket draws another port.
+// A real refusal fails every attempt and the error names them all.
+func retryable(err error) bool {
+	return errors.Is(err, syscall.EISCONN) || errors.Is(err, syscall.EALREADY) || errors.Is(err, syscall.ECONNREFUSED)
+}
+
+// errnoName names a connect error for the attempt list: the errno's symbol
+// (EISCONN) when it is one, else its text.
+func errnoName(err error) string {
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		if name := unix.ErrnoName(errno); name != "" {
+			return name
+		}
+	}
+	return err.Error()
 }
 
 // WriteNGAP sends one NGAP PDU on the given stream with PPID 60.

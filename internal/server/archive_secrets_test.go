@@ -84,12 +84,18 @@ func TestArchivesHoldNoSecrets(t *testing.T) {
 		"load":  {Name: "load-secrets", Spec: &orbitv1.StartRunRequest_Load{Load: load}},                                                                        //nolint:staticcheck // the deprecated arm, kept for API clients
 	}
 	ids := map[string]string{}
-	for kind, req := range reqs {
-		resp, err := c.StartRun(context.Background(), connect.NewRequest(req))
+	// The runs share SUPIs and a gNB ID, and each holds them until its
+	// refused dial gives up, so the load run starts once the fleet run's
+	// archive is written.
+	for _, kind := range []string{"fleet", "load"} {
+		resp, err := c.StartRun(context.Background(), connect.NewRequest(reqs[kind]))
 		if err != nil {
 			t.Fatalf("StartRun(%s): %v", kind, err)
 		}
 		ids[kind] = resp.Msg.GetRun().GetRunId()
+		if kind == "fleet" {
+			waitArchive(t, dir, ids[kind])
+		}
 	}
 
 	secretsIn := func(what string, b []byte) {
