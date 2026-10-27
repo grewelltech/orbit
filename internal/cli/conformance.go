@@ -49,7 +49,7 @@ func newConformanceCmd() *cobra.Command {
 			if err := id.resolve(true); err != nil {
 				return err
 			}
-			ueSpec, err := ueFlags.spec(id.DNN, id.MCC, id.MNC)
+			ueSpec, err := ueFlags.spec(id.DNN, id.MCC, id.MNC, func(n string) bool { return userGave(cmd.Flags(), n) })
 			if err != nil {
 				return err
 			}
@@ -159,12 +159,14 @@ type conformanceUEFlags struct {
 
 // spec builds the suite's UE section. With no --supi there is no UE (the
 // mobility checks SKIP), and the other UE flags are refused rather than
-// silently ignored. With one, the keys come from --ki/--opc or
+// silently ignored when the user gave them (given); values a target
+// supplied are the environment's and are simply unused. With one, the keys come from --ki/--opc or
 // $ORBIT_KI/$ORBIT_OPC, the SUPI must be in the PLMN and --gnb-n3 must be
 // an IPv4 address (canonicalised; see gnb.CanonicalN3).
-func (u conformanceUEFlags) spec(dnn, mcc, mnc string) (conformance.UESpec, error) {
+func (u conformanceUEFlags) spec(dnn, mcc, mnc string, given func(flag string) bool) (conformance.UESpec, error) {
 	if u.supi == "" {
-		if u.gnbN3 != "" || u.traffic != "" || u.ki != "" || u.opc != "" {
+		if (u.gnbN3 != "" && given("gnb-n3")) || (u.traffic != "" && given("traffic")) ||
+			(u.ki != "" && given("ki")) || (u.opc != "" && given("opc")) {
 			return conformance.UESpec{}, fmt.Errorf("--gnb-n3, --traffic, --ki and --opc describe the mobility checks' UE and need --supi")
 		}
 		return conformance.UESpec{}, nil

@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue"
 )
 
@@ -28,6 +29,12 @@ type Scenario struct {
 	GNBs        []GNB       `yaml:"gnbs"`
 	UEs         []UESpec    `yaml:"ues"`
 	Steps       []Step      `yaml:"steps"`
+
+	// targetName and echo are set by ApplyTarget: the target in use, and
+	// its first responder's data_ip, which an omitted ping.dst or
+	// latency.target takes.
+	targetName string
+	echo       string
 }
 
 // Core is the target and the defaults inherited by every gNB and UE.
@@ -129,6 +136,9 @@ type GNB struct {
 
 // UESpec declares one UE (supi) or a contiguous range, attached through a gNB.
 type UESpec struct {
+	// Name lets a step refer to this UE (ue: <name>); a single-UE entry
+	// only. With a target the SUPIs are allocated, so steps use names.
+	Name       string `yaml:"name"`
 	SUPI       string `yaml:"supi"`
 	Range      *Range `yaml:"range"`
 	GNB        string `yaml:"gnb"`
@@ -186,12 +196,41 @@ func expandEnv(data []byte) []byte {
 
 // Parse decodes a scenario from YAML, expanding ${ENV} references first.
 func Parse(data []byte) (*Scenario, error) {
-	var s Scenario
-	if err := yaml.Unmarshal(expandEnv(data), &s); err != nil {
-		return nil, fmt.Errorf("parse scenario: %w", err)
+	return ParseWithTarget(data, nil)
+}
+
+// ParseWithTarget is Parse with the scenario's core, credentials, gNB
+// addresses and UE SUPIs filled from t (ApplyTarget) before validation.
+// With t nil the file must be self-contained: one that names a target
+// (target:) is an error, since resolving it is the caller's (the CLI's).
+func ParseWithTarget(data []byte, t *target.Target) (*Scenario, error) {
+	ref, err := ReadTargetRef(data)
+	if err != nil {
+		return nil, err
+	}
+	s, err := decodeSteps(expandEnv(data))
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case t != nil:
+		if err := s.ApplyTarget(*t); err != nil {
+			return nil, err
+		}
+	case ref.Set():
+		return nil, fmt.Errorf("the scenario names a target, which the caller must resolve (orbit run does)")
 	}
 	if err := s.validate(); err != nil {
 		return nil, err
+	}
+	return s, nil
+}
+
+// decodeSteps decodes a step scenario without validating it.
+func decodeSteps(data []byte) (*Scenario, error) {
+	var s Scenario
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return nil, fmt.Errorf("parse scenario: %w", err)
 	}
 	return &s, nil
 }
@@ -226,6 +265,9 @@ func (s *Scenario) validate() error {
 	}
 	ues, err := s.ResolveUEs()
 	if err != nil {
+		return err
+	}
+	if err := s.resolveSteps(); err != nil {
 		return err
 	}
 	// Every UE's SUPI must parse under core.plmn, so a supi or range from

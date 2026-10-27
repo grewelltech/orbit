@@ -39,7 +39,11 @@ const baseIMSIFlagHelp = "first " + supiFlagHelp + "; each UE increments it"
 const DefaultListen = "127.0.0.1:8412"
 
 // New builds the root command. version is stamped at build time.
-func New(version string) *cobra.Command {
+func New(version string, opts ...Option) *cobra.Command {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	var serverURL string
 
 	root := &cobra.Command{
@@ -60,11 +64,13 @@ func New(version string) *cobra.Command {
 	root.AddCommand(withServerURL(newSystemCmd(&serverURL), &serverURL))
 	root.AddCommand(withServerURL(newCellCmd(&serverURL), &serverURL))
 	root.AddCommand(withServerURL(newUECmd(&serverURL), &serverURL))
-	root.AddCommand(newRunCmd(&serverURL))
-	root.AddCommand(withServerURL(newRunsCmd(&serverURL), &serverURL))
+	root.AddCommand(newRunCmd(&serverURL, o))
+	root.AddCommand(withServerURL(newRunsCmd(&serverURL, o), &serverURL))
 	root.AddCommand(newLoadCmd())
 	root.AddCommand(newConformanceCmd())
 	root.AddCommand(newResponderCmd(version))
+	root.AddCommand(newTargetCmd(&serverURL, o)) // resolves --server in RunE (init, probe)
+	installTargets(root, o)
 	return root
 }
 

@@ -3,6 +3,8 @@
 # cell layout — 15 minutes of everything the testbed can exercise at the same
 # time.
 #
+#   orbit runs start-fleet examples/fleet-testbed-full.yaml -t lxd --name full
+#
 # How the fleet divides. Half the fleet is mobile (the engine's split), so 500
 # UEs walk the grid and hand over between cells while the other 500 carry the
 # application mix below — shares apply to the traffic-carrying half, so
@@ -23,49 +25,14 @@
 kind: fleet
 name: full-population
 
-core:
-  amf: 10.102.0.10:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
 topology:
   gnbs:
     count: 10
-    id_base: 500
     layout: grid
     spacing_m: 1000
-    source_ips:
-      - 10.102.0.20
-      - 10.102.0.21
-      - 10.102.0.22
-      - 10.102.0.23
-      - 10.102.0.24
-      - 10.102.0.25
-      - 10.102.0.26
-      - 10.102.0.27
-      - 10.102.0.28
-      - 10.102.0.29
-    n3_ips:
-      - 10.103.0.20
-      - 10.103.0.21
-      - 10.103.0.22
-      - 10.103.0.23
-      - 10.103.0.24
-      - 10.103.0.25
-      - 10.103.0.26
-      - 10.103.0.27
-      - 10.103.0.28
-      - 10.103.0.29
 
 fleet:
   count: 1000
-  supi_base: "001010100007500"
   distribution: uneven
   attach_rate: 100/s
   concurrency: 32
@@ -79,16 +46,15 @@ behaviors:
       # 2-3 Mbps, so the cohort offers several hundred Mbps in aggregate —
       # heavy enough to matter without turning the run into a pure bandwidth
       # saturation test that starves the other cohorts.
-      - { app: http, name: web, share: 0.5, peer: 10.106.0.30:9551,
+      - { app: http, name: web, share: 0.5,
           params: { object_size: 128KB, think: "250ms" } }
       # ~150 members at the default 2.5 Mbps ABR ladder.
-      - { app: video, name: video, share: 0.3, peer: 10.106.0.30:9551 }
+      - { app: video, name: video, share: 0.3 }
       # ~100 members; the far-end answerer latches one source per port, so the
       # range must cover the cohort with headroom.
-      - { app: voip, name: voip, share: 0.2, peer: 10.106.0.30:9551,
+      - { app: voip, name: voip, share: 0.2,
           params: { codec: pcmu, port_min: "40000", port_max: "40150" } }
   latency:
-    target: 10.106.0.30
     interval: 2s
     ues: 10
     timeout: 1s

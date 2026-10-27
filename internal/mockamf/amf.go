@@ -86,7 +86,9 @@ type AMF struct {
 	// encodeErrs counts downlink PDUs that failed to encode and were
 	// dropped instead of ending the association.
 	encodeErrs atomic.Int64
-	log        *slog.Logger
+	// deregs counts UE-originating Deregistration Requests received.
+	deregs atomic.Int64
+	log    *slog.Logger
 
 	// Options (nastimers.go): T3560 retransmission and release, a crash
 	// after the release, an Authentication Reject, no challenge, T3550
@@ -408,6 +410,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return true, nil // UE is REGISTERED
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
+	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
+		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
+		return false, nil
 	default:
 		return false, nil
 	}
@@ -426,6 +431,10 @@ func (a *AMF) send(p *pipe, pdu ngapType.NGAPPDU) error {
 	}
 	return p.WriteNGAP(1, b)
 }
+
+// Deregistrations reports how many UE-originating Deregistration Requests
+// the mock has received.
+func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
 
 // EncodeErrors reports how many downlink PDUs failed to encode and were
 // dropped; tests use it to assert the mock never produced one.

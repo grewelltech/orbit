@@ -254,3 +254,47 @@ func TestSessionGone(t *testing.T) {
 		t.Errorf("SessionGone(net.ErrClosed) = %v: want both in its chain and the closed text", err)
 	}
 }
+
+// A caller's cancel ends an in-flight probe's wait promptly, not at its
+// timeout (#169), and the lane closing, as a deregistration does, still
+// does too: timeout 3 s, every reply dropped, the cancel or close at 50 ms.
+func TestRunLatencyCancelCutsInFlightProbe(t *testing.T) {
+	tests := []struct {
+		name  string
+		close bool // close the lane, as a deregistration does, instead of cancelling
+	}{
+		{name: "caller cancel"},
+		{name: "lane closed", close: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newEchoProbe(1) // drops every probe
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			timer := time.AfterFunc(50*time.Millisecond, func() {
+				if tc.close {
+					p.ring.Close()
+				} else {
+					cancel()
+				}
+			})
+			defer timer.Stop()
+			start := time.Now()
+			res, err := RunLatency(ctx, LatencyConfig{
+				Uplink: p, RX: p.ring, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
+				Probes: 100, Spacing: time.Millisecond, Timeout: 3 * time.Second,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Prompt against the 3 s timeout, with margin for a loaded
+			// -race run.
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Errorf("RunLatency took %s after a %s at 50ms; want under 1s", elapsed, tc.name)
+			}
+			if res.Received != 0 || res.Sent == 0 {
+				t.Errorf("result %+v, want probes sent and none received", res)
+			}
+		})
+	}
+}

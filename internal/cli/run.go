@@ -15,6 +15,7 @@ import (
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/scenario"
+	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
@@ -22,7 +23,7 @@ import (
 // step runner is an ordinary API client, so a scenario drives exactly the same
 // operations as the individual `ue` commands, without the flag repetition.
 // A `kind: fleet` file selects the population mode (ADR-0004) instead.
-func newRunCmd(serverURL *string) *cobra.Command {
+func newRunCmd(serverURL *string, o options) *cobra.Command {
 	var metricsListen string
 	cmd := &cobra.Command{
 		Use:   "run <scenario.yaml>",
@@ -30,8 +31,10 @@ func newRunCmd(serverURL *string) *cobra.Command {
 		Long: "Run a declarative YAML scenario. A step scenario declares the core, gNBs,\n" +
 			"and UEs, then an ordered `steps` list (register, ping, traffic, latency,\n" +
 			"handover, deregister, wait). A `kind: fleet` scenario generates a topology and\n" +
-			"a UE population running continuous behaviours. ${ENV} references expand from the\n" +
-			"environment, so secrets like Ki/OPc stay out of the file. See docs/USAGE.md.",
+			"a UE population running continuous behaviours. The core, keys and addresses\n" +
+			"come from a target: -t, $ORBIT_TARGET, or the file's target: (docs/targets.md);\n" +
+			"a file may instead set its own core/credentials. ${ENV} references expand from\n" +
+			"the environment. See docs/USAGE.md.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			data, err := os.ReadFile(args[0])
@@ -42,16 +45,20 @@ func newRunCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			t, err := scenarioTarget(cmd, args[0], data, o)
+			if err != nil {
+				return err
+			}
 			if kind == "fleet" {
 				// Fleet mode drives the engine in-process and never builds a
 				// client, so it must not read or report --server/$ORBIT_SERVER.
-				return runFleet(cmd, data, metricsListen)
+				return runFleet(cmd, data, metricsListen, t)
 			}
 			if err := applyServerURL(cmd, serverURL); err != nil {
 				return err
 			}
 
-			sc, err := scenario.Parse(data)
+			sc, err := scenario.ParseWithTarget(data, t)
 			if err != nil {
 				return err
 			}
@@ -62,6 +69,7 @@ func newRunCmd(serverURL *string) *cobra.Command {
 			return runner.Run(cmd.Context())
 		},
 	}
+	consumesTarget(cmd)
 	cmd.Flags().StringVar(&metricsListen, "metrics-listen", "",
 		"serve Prometheus /metrics on this address during a fleet run (live orbit_fleet_app_* cohort gauges; empty = disabled)")
 	return cmd
@@ -71,8 +79,8 @@ func newRunCmd(serverURL *string) *cobra.Command {
 // population, and runs the attach phase (bringing up one association per gNB and
 // attaching the fleet across them at the offered rate). Continuous mobility and
 // traffic behaviours run on the attached fleet — added by later chunks.
-func runFleet(cmd *cobra.Command, data []byte, metricsListen string) error {
-	f, err := scenario.ParseFleet(data)
+func runFleet(cmd *cobra.Command, data []byte, metricsListen string, t *target.Target) error {
+	f, err := scenario.ParseFleetWithTarget(data, t)
 	if err != nil {
 		return err
 	}
