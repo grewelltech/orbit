@@ -26,8 +26,11 @@ import (
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/load"
+	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/secrets"
+	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
 // planTarget is a target whose AMF fails fast (nothing listens), carrying
@@ -679,5 +682,68 @@ func TestPlanReportGates(t *testing.T) {
 	}
 	if len(resp.Msg.GetGates()) != 1 || resp.Msg.GetGatesPassed() {
 		t.Errorf("archived GetRunReport gates = %v, passed %t", resp.Msg.GetGates(), resp.Msg.GetGatesPassed())
+	}
+}
+
+// A plan's gates are judged as its run completes and kept with the report:
+// GetRunReport gives the same gates just after completion and again once
+// the run is archived and its spec let go (a window where they vanished).
+func TestPlanGatesSurviveArchiving(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := sctpfront.Listen(t, amf)
+	dir := t.TempDir()
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
+	p := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Target.Core.Amf = addr
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}}
+		p.Gates = []*orbitv1.Gate{
+			{Name: "ok", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.99}}},
+			{Name: "reg", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "registration.p99_ms", Op: orbitv1.CompareOp_COMPARE_OP_LE, Threshold: 10_000}}},
+		}
+	})
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
+	report := func() *orbitv1.GetRunReportResponse {
+		t.Helper()
+		r, err := c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Msg
+	}
+	first := report()
+	if len(first.GetGates()) != 2 || !first.GetGatesPassed() {
+		t.Fatalf("just after completion: gates %v, passed %t; want both passed", first.GetGates(), first.GetGatesPassed())
+	}
+	path := filepath.Join(dir, id+archiveExt)
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+		if _, err := os.Stat(path); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run was never archived")
+		}
+	}
+	second := report()
+	if second.GetGatesPassed() != first.GetGatesPassed() || len(second.GetGates()) != len(first.GetGates()) {
+		t.Fatalf("after archiving: gates %v, passed %t; want %v, %t", second.GetGates(), second.GetGatesPassed(), first.GetGates(), first.GetGatesPassed())
+	}
+	for i := range first.GetGates() {
+		if !proto.Equal(first.GetGates()[i], second.GetGates()[i]) {
+			t.Errorf("gate %d: %v after archiving, %v before", i, second.GetGates()[i], first.GetGates()[i])
+		}
 	}
 }

@@ -99,6 +99,7 @@ func (s *runService) StartRun(
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		opts.Needs = pr.needs
+		opts.Judge = planJudge(spec.Plan)
 		// Read before the run starts: a run that fails fast releases its
 		// leases (and its IDs) while StartRun is still here.
 		prov := pr.provenance()
@@ -248,10 +249,10 @@ func (s *runService) GetRunReport(
 			resp.Report = &orbitv1.GetRunReportResponse_Fleet{Fleet: fleetReportProto(report)}
 		}
 	}
-	if held, ok := s.specs.peek(id); ok && held.archive != nil {
-		if rr := planReport(held.archive.GetPlan(), resp.GetLoad(), resp.GetFleet()); rr != nil {
-			resp.Gates, resp.GatesPassed = rr.GetGates(), rr.GetGatesPassed()
-		}
+	// A plan's gates, judged as the run completed and kept with its report;
+	// the archive as a second line.
+	if rr := s.planVerdict(id); rr != nil {
+		resp.Gates, resp.GatesPassed = rr.GetGates(), rr.GetGatesPassed()
 	}
 	return connect.NewResponse(resp), nil
 }

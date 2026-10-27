@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"math"
 	"strconv"
 	"strings"
@@ -613,4 +614,54 @@ func planReport(plan *orbitv1.RunPlan, load *orbitv1.LoadReport, fleet *orbitv1.
 	}
 	applyGates(r, plan.GetGates())
 	return r
+}
+
+// planJudge judges a plan run's report as it completes (RunOptions.Judge):
+// its workload's RunReport with the plan's gates applied. It keeps only
+// the workload's name and the gates, none of the plan's secrets.
+func planJudge(plan *orbitv1.RunPlan) func(any) any {
+	var gates []*orbitv1.Gate
+	for _, g := range plan.GetGates() {
+		gates = append(gates, proto.Clone(g).(*orbitv1.Gate))
+	}
+	held := &orbitv1.RunPlan{Gates: gates}
+	for _, w := range plan.GetWorkloads() {
+		held.Workloads = append(held.Workloads, &orbitv1.Workload{Name: w.GetName()})
+	}
+	return func(report any) any {
+		var rr *orbitv1.RunReport
+		switch r := report.(type) {
+		case *load.Report:
+			rr = planReport(held, loadReportProto(*r), nil)
+		case *engine.FleetReport:
+			rr = planReport(held, nil, fleetReportProto(*r))
+		}
+		if rr == nil {
+			return nil // not a typed nil, which would read as a judgement
+		}
+		return rr
+	}
+}
+
+// judgedReport is a completed plan run's judged report, while the registry
+// keeps the run; nil otherwise.
+func judgedReport(reg *engine.RunRegistry, id string) *orbitv1.RunReport {
+	if v, ok := reg.Judgement(id); ok {
+		if rr, ok := v.(*orbitv1.RunReport); ok {
+			return rr
+		}
+	}
+	return nil
+}
+
+// planVerdict is a plan run's judged report: from the registry, else from
+// the run's archive.
+func (s *runService) planVerdict(id string) *orbitv1.RunReport {
+	if rr := judgedReport(s.reg, id); rr != nil {
+		return rr
+	}
+	if a, ok := s.archive.get(id); ok && len(a.GetReports()) == 1 {
+		return a.GetReports()[0]
+	}
+	return nil
 }

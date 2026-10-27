@@ -83,11 +83,9 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 		}
 	}
 
-	// A plan's per-workload report, with its gates judged.
-	if held.archive != nil {
-		if rr := planReport(held.archive.GetPlan(), a.GetLoadReport(), a.GetFleetReport()); rr != nil {
-			a.Reports = []*orbitv1.RunReport{rr}
-		}
+	// A plan's per-workload report, with its gates as judged on completion.
+	if rr := judgedReport(s.reg, id); rr != nil {
+		a.Reports = []*orbitv1.RunReport{rr}
 	}
 	redactArchive(a, held.secrets)
 	if err := s.archive.save(a); err != nil {
