@@ -28,6 +28,16 @@ const (
 // range: every one is held by a run or leased.
 var ErrGNBRangeExhausted = errors.New("gNB ID range exhausted")
 
+// ErrRotationPersist is an Assign whose choice could not be saved: nothing
+// was assigned, so the caller can retry once the state directory is
+// writable again.
+var ErrRotationPersist = errors.New("could not persist gNB-ID rotation")
+
+// rotationMaxEntries caps the use records kept per (AMF member, PLMN):
+// past it the oldest go first, so a long run of fresh IDs cannot grow the
+// file without bound.
+const rotationMaxEntries = 65536
+
 // GNBRotation assigns gNB IDs so a new run never reuses an ID the AMF may
 // still hold from an earlier one (ADR-0008 §5, QUICKSTART §9): within the
 // range a choice asks for, IDs never used come first, in order, then the
@@ -41,9 +51,10 @@ type GNBRotation struct {
 	log  *slog.Logger
 	now  func() time.Time
 
-	mu    sync.Mutex
-	state rotationState
-	held  map[string]map[uint32]bool // key → IDs handed out, not yet released
+	mu         sync.Mutex
+	state      rotationState
+	held       map[string]map[uint32]bool // key → IDs handed out, not yet released
+	maxEntries int                        // rotationMaxEntries; tests lower it
 }
 
 type rotationState struct {
@@ -65,8 +76,9 @@ const rotationVersion = 2
 // an ID sooner than ideal.
 func OpenGNBRotation(dir string, log *slog.Logger) (*GNBRotation, error) {
 	g := &GNBRotation{log: log, now: time.Now,
-		state: rotationState{Version: rotationVersion, Keys: map[string]*rotationKey{}},
-		held:  map[string]map[uint32]bool{}}
+		state:      rotationState{Version: rotationVersion, Keys: map[string]*rotationKey{}},
+		held:       map[string]map[uint32]bool{},
+		maxEntries: rotationMaxEntries}
 	if dir == "" {
 		return g, nil
 	}
@@ -82,9 +94,15 @@ func OpenGNBRotation(dir string, log *slog.Logger) (*GNBRotation, error) {
 		return nil, err
 	}
 	var st rotationState
-	if err := json.Unmarshal(b, &st); err != nil || st.Version != rotationVersion || st.Keys == nil {
+	switch err := json.Unmarshal(b, &st); {
+	case err != nil:
 		if log != nil {
-			log.Warn("gNB ID rotation file unreadable or from an older version; starting a fresh rotation", "path", g.path, "err", err)
+			log.Warn("gNB ID rotation file unreadable; starting a fresh rotation", "path", g.path, "err", err)
+		}
+		return g, nil
+	case st.Version != rotationVersion || st.Keys == nil:
+		if log != nil {
+			log.Warn(fmt.Sprintf("gNB ID rotation file version %d replaced by a fresh v%d rotation", st.Version, rotationVersion), "path", g.path)
 		}
 		return g, nil
 	}
@@ -162,22 +180,101 @@ func (g *GNBRotation) Assign(amfs []string, plmn string, first, last uint32, n i
 	if len(out) < n {
 		return nil, fmt.Errorf("%w: %d..%d at AMF %s (PLMN %s) has %d free, %d wanted", ErrGNBRangeExhausted, first, last, amfs[0], plmn, len(out), n)
 	}
+	// Transactional: the choice is written to a copy of the state, saved,
+	// and only then applied, so a failed save holds nothing.
 	at := g.now().UnixNano()
+	next := g.state.clone()
 	for _, a := range amfs {
-		k := g.keyLocked(a, plmn)
+		k := next.key(a, plmn)
+		for _, id := range out {
+			k.Used[id] = at
+		}
+		g.prune(k, rotationKeyOf(a, plmn), first, last, out)
+	}
+	if err := g.save(next); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRotationPersist, err)
+	}
+	g.state = next
+	for _, a := range amfs {
 		key := rotationKeyOf(a, plmn)
 		if g.held[key] == nil {
 			g.held[key] = map[uint32]bool{}
 		}
 		for _, id := range out {
-			k.Used[id] = at
 			g.held[key][id] = true
 		}
 	}
-	if err := g.saveLocked(); err != nil {
-		return nil, err
-	}
 	return out, nil
+}
+
+// clone copies the state deeply enough to change use records on it.
+func (st rotationState) clone() rotationState {
+	out := rotationState{Version: st.Version, Keys: make(map[string]*rotationKey, len(st.Keys))}
+	for k, v := range st.Keys {
+		used := make(map[uint32]int64, len(v.Used))
+		for id, at := range v.Used {
+			used[id] = at
+		}
+		out.Keys[k] = &rotationKey{Used: used}
+	}
+	return out
+}
+
+// key is st's record for (amf, plmn), created empty.
+func (st rotationState) key(amf, plmn string) *rotationKey {
+	key := rotationKeyOf(amf, plmn)
+	k := st.Keys[key]
+	if k == nil {
+		k = &rotationKey{}
+		st.Keys[key] = k
+	}
+	if k.Used == nil {
+		k.Used = map[uint32]int64{}
+	}
+	return k
+}
+
+// prune keeps a key's use records to the range being assigned from, then
+// to maxEntries, oldest dropped first. IDs held by a run, or being assigned
+// now, are always kept.
+func (g *GNBRotation) prune(k *rotationKey, key string, first, last uint32, assigning []uint32) {
+	keep := map[uint32]bool{}
+	for id := range g.held[key] {
+		keep[id] = true
+	}
+	for _, id := range assigning {
+		keep[id] = true
+	}
+	for id := range k.Used {
+		if (id < first || id > last) && !keep[id] {
+			delete(k.Used, id)
+		}
+	}
+	if len(k.Used) <= g.maxEntries {
+		return
+	}
+	type rec struct {
+		id uint32
+		at int64
+	}
+	recs := make([]rec, 0, len(k.Used))
+	for id, at := range k.Used {
+		if !keep[id] {
+			recs = append(recs, rec{id, at})
+		}
+	}
+	sort.Slice(recs, func(i, j int) bool {
+		if recs[i].at != recs[j].at {
+			return recs[i].at < recs[j].at
+		}
+		return recs[i].id < recs[j].id
+	})
+	for _, r := range recs {
+		if len(k.Used) <= g.maxEntries {
+			break
+		}
+		delete(k.Used, r.id)
+	}
 }
 
 // Released records that a run's IDs at an AMF (its identity set, as for
@@ -194,29 +291,28 @@ func (g *GNBRotation) Released(amfs []string, plmn string, ids []uint32) error {
 			delete(g.held[rotationKeyOf(a, plmn)], id)
 		}
 	}
-	return g.saveLocked()
+	g.persistLocked()
+	return nil
 }
 
-func (g *GNBRotation) keyLocked(amf, plmn string) *rotationKey {
-	key := rotationKeyOf(amf, plmn)
-	k := g.state.Keys[key]
-	if k == nil {
-		k = &rotationKey{}
-		g.state.Keys[key] = k
+// persistLocked saves the state for a Released, best effort: the IDs are
+// already free in memory for live runs, and the next write catches the
+// file up.
+func (g *GNBRotation) persistLocked() {
+	if err := g.save(g.state); err != nil && g.log != nil {
+		g.log.Warn("gNB ID rotation not saved; it will be retried on the next change", "path", g.path, "err", err)
 	}
-	if k.Used == nil {
-		k.Used = map[uint32]int64{}
-	}
-	return k
 }
 
-// saveLocked writes the state atomically: a temp file in the same
-// directory, fsynced, renamed over the file, and the directory fsynced.
-func (g *GNBRotation) saveLocked() error {
+func (g *GNBRotation) keyLocked(amf, plmn string) *rotationKey { return g.state.key(amf, plmn) }
+
+// save writes st atomically: a temp file in the same directory, fsynced,
+// renamed over the file, and the directory fsynced. Callers hold g.mu.
+func (g *GNBRotation) save(st rotationState) error {
 	if g.path == "" {
 		return nil
 	}
-	b, err := json.Marshal(g.state)
+	b, err := json.Marshal(st)
 	if err != nil {
 		return err
 	}

@@ -527,3 +527,25 @@ func TestPlanStoppedRunArchivesProvenance(t *testing.T) {
 		t.Errorf("archive run %v, leases %v", a.GetRun(), a.GetLeases())
 	}
 }
+
+// A gNB-ID assignment that cannot be saved assigns nothing and StartRun
+// answers UNAVAILABLE, so the client can retry.
+func TestPlanAssignSaveFailureIsUnavailable(t *testing.T) {
+	s := planService(t)
+	dir := filepath.Join(t.TempDir(), "state")
+	rot, err := engine.OpenGNBRotation(dir, s.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.rotation = rot
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	p := loadPlan(func(p *orbitv1.RunPlan) {
+		pop(p).Topology = &orbitv1.Topology{GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}}
+	})
+	_, err = s.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "could not persist gNB-ID rotation") {
+		t.Fatalf("StartRun = %v, want UNAVAILABLE naming the rotation", err)
+	}
+}

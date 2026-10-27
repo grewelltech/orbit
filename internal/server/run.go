@@ -92,6 +92,9 @@ func (s *runService) StartRun(
 		if errors.Is(err, engine.ErrGNBRangeExhausted) {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		}
+		if errors.Is(err, engine.ErrRotationPersist) {
+			return nil, connect.NewError(connect.CodeUnavailable, err)
+		}
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}

@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -214,5 +216,102 @@ func TestGNBRotationRanges(t *testing.T) {
 	// Leased by another run (inUse) counts as unavailable too.
 	if _, err := g.Assign(amf, plmn, 6000, 6000, 1, func(id uint32) bool { return id == 6000 }); !errors.Is(err, ErrGNBRangeExhausted) {
 		t.Errorf("a one-ID range already leased: err = %v", err)
+	}
+}
+
+// Assign is transactional: a save that fails (the state directory gone, a
+// full disk) assigns nothing, so nothing is held and a retry gets the same
+// IDs. Released on a failed save still frees the IDs in memory, logs it,
+// and the next write catches the file up.
+func TestGNBRotationSaveFailure(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	now := time.Unix(1000, 0)
+	var logged bytes.Buffer
+	g, err := OpenGNBRotation(dir, slog.New(slog.NewTextHandler(&logged, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.now = func() time.Time { return now }
+	amf := []string{"10.0.0.1:38412"}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := g.Assign(amf, "p", 1, 2, 2, nil); !errors.Is(err, ErrRotationPersist) || ids != nil {
+		t.Fatalf("Assign with no state dir = %v, %v; want ErrRotationPersist and no IDs", ids, err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := g.Assign(amf, "p", 1, 2, 2, nil)
+	if err != nil || !reflect.DeepEqual(ids, []uint32{1, 2}) {
+		t.Fatalf("Assign once saving works = %v, %v; want [1 2], nothing held by the failed one", ids, err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	if err := g.Released(amf, "p", ids); err != nil {
+		t.Fatalf("Released with no state dir: %v", err)
+	}
+	if !strings.Contains(logged.String(), "gNB ID rotation not saved") {
+		t.Errorf("the failed save was not logged: %s", logged.String())
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := g.Assign(amf, "p", 1, 2, 2, nil); err != nil || len(got) != 2 {
+		t.Fatalf("Assign after a released-but-unsaved run = %v, %v; want both IDs free", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, GNBRotationFile)); err != nil {
+		t.Errorf("the next save did not write the file: %v", err)
+	}
+}
+
+// The use records are pruned to the range being assigned from and capped,
+// oldest first; held IDs are kept.
+func TestGNBRotationPrune(t *testing.T) {
+	now := time.Unix(1000, 0)
+	g := smallRotation(t, "", &now)
+	g.maxEntries = 3
+	amf := []string{"a"}
+	assign := func(first, last uint32, n int) []uint32 {
+		t.Helper()
+		now = now.Add(time.Second)
+		ids, err := g.Assign(amf, "p", first, last, n, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ids
+	}
+	release := func(ids []uint32) {
+		t.Helper()
+		now = now.Add(time.Second)
+		if err := g.Released(amf, "p", ids); err != nil {
+			t.Fatal(err)
+		}
+	}
+	release(assign(100, 199, 2)) // 100, 101
+	release(assign(100, 199, 2)) // 102, 103: four records, over the cap of 3
+	used := func() []uint32 {
+		var out []uint32
+		for id := range g.state.Keys[rotationKeyOf("a", "p")].Used {
+			out = append(out, id)
+		}
+		slices.Sort(out)
+		return out
+	}
+	// The cap dropped the oldest record (100): with none left it counts as
+	// never used, which is right, since it was the least recently used.
+	held := assign(100, 199, 1)
+	if held[0] != 100 {
+		t.Errorf("after the cap: assigned %v, want [100]", held)
+	}
+	if got := used(); !reflect.DeepEqual(got, []uint32{100, 102, 103}) {
+		t.Errorf("records after the cap: %v, want [100 102 103] (101 dropped as the oldest)", got)
+	}
+	// A different range drops records outside it, but never a held ID.
+	assign(500, 599, 1)
+	if got := used(); !reflect.DeepEqual(got, []uint32{held[0], 500}) {
+		t.Errorf("after assigning from 500..599: %v, want [%d 500]", got, held[0])
 	}
 }
