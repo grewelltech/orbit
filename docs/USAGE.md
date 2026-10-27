@@ -635,6 +635,14 @@ orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
     --category nas --supi 001010100007500 --gnb-n3 172.17.50.12
 ```
 
+`NAS-PDU-UNKNOWN-DNN` registers the UE and requests a PDU session for the DNN
+`orbit-unknown-dnn` on the run's slice. It passes on a PDU Session
+Establishment Reject with any 5GSM cause, or when the AMF returns the request
+unchanged in a DL NAS Transport with 5GMM cause #90 or #91. It fails on #90/#91
+with a different payload, on another answer, or on nothing within 10 s. It
+SKIPs when the core accepts the DNN, or when the AMF returns the request for
+congestion (#22, #67 or #69). The UE is deregistered at the end.
+
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
 flags. It registers the UE three times, each time stopping at the Security
 Mode Command. The first registration offers the usual algorithms, and the AMF
