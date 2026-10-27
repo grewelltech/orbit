@@ -61,6 +61,7 @@ const (
 	cmdUEXnHandover = "orbit ue xn-handover"
 	cmdCellNGSetup  = "orbit cell ngsetup"
 	cmdServe        = "orbit serve"
+	cmdTargetInit   = "orbit target init"
 	cmdResponder    = "orbit responder"
 )
 
@@ -192,6 +193,26 @@ var Exclusions = []Exclusion{
 	{Flag: "codec", Reason: ReasonOperation},
 	{Flag: "jb", Reason: ReasonOperation},
 	{Flag: "ptime", Reason: ReasonOperation},
+	// target init's flags are the new target document's fields, not
+	// settings a target supplies; show --resolved chooses what to print.
+	{Flag: "amf", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "mcc", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "mnc", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "tac", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "sst", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "sd", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "dnn", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "ki", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "opc", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "count", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "first-supi", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "write-keys", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "bind", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "gnb-n3", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "no-probe", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "here", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "force", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
+	{Flag: "resolved", Commands: []string{"orbit target show"}, Reason: ReasonOutput},
 	// A handover's flags describe its destination gNB, with unset fields
 	// inherited from the serving gNB: one operation's argument, which a
 	// target never supplies. --amf stays bound: the destination gNB

@@ -153,25 +153,25 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	for !st.done() {
 		pdu, err := gnb.ReadPDU(ctx, conn)
 		if err != nil {
-			return nil, err
+			return nil, st.fail(err)
 		}
 		if err := st.observe(pdu); err != nil {
-			return nil, err
+			return nil, st.fail(err)
 		}
 		if handled, err := st.handlePDUSession(pdu); err != nil {
-			return nil, err
+			return nil, st.fail(err)
 		} else if handled {
 			continue
 		}
 		dl, err := gnb.ParseDownlink(pdu)
 		if err != nil {
-			return nil, err
+			return nil, st.fail(err)
 		}
 		if dl.HasAMFID {
 			st.amfID = dl.AMFUENGAPID
 		}
 		if err := st.handle(dl); err != nil {
-			return nil, err
+			return nil, st.fail(err)
 		}
 	}
 
