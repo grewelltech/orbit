@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package orbit.v1;
+
+import "orbit/v1/options.proto";
+
+option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
+
+// JoinService issues the join tokens an app host's one-liner presents
+// (ADR-0009 §1). A token is single-purpose and short-lived: the server keeps
+// only its hash, for at most an hour, with the addresses the join script
+// needs. Every procedure needs the server's TLS: a token is a credential and
+// the script it unlocks runs as root.
+service JoinService {
+  // CreateJoinToken issues a token and returns its secret, once.
+  rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse) {}
+  // ListJoinTokens shows the pending tokens, never their secrets.
+  rpc ListJoinTokens(ListJoinTokensRequest) returns (ListJoinTokensResponse) {}
+  // RevokeJoinToken cancels a pending token by its ID.
+  rpc RevokeJoinToken(RevokeJoinTokenRequest) returns (RevokeJoinTokenResponse) {}
+}
+
+// JoinSpec is what the join script needs from the target, kept with the
+// token until it expires (not a target store).
+message JoinSpec {
+  repeated string ue_pools = 1;     // CIDRs routed back through the UPF
+  string upf_n6 = 2;                // the UPF's N6 address, the return route's next hop
+  string n6_subnet = 3;             // the UPF's N6 network (CIDR), which the firewall opens to
+  // The address the app host reaches this server at, host[:port]; the
+  // port defaults to the server's.
+  string management_address = 4;
+}
+
+// JoinToken is a pending token as list shows it: never its secret.
+message JoinToken {
+  string id = 1;                    // the token's handle for list and revoke
+  string name = 2;                  // the responder's name; "" is the app host's hostname, at registration
+  int64 created_unix_nano = 3;
+  int64 expires_unix_nano = 4;
+  JoinSpec spec = 5;
+}
+
+message CreateJoinTokenRequest {
+  string name = 1;                  // optional; the target name charset
+  uint32 ttl_seconds = 2;           // 0 = 600 (10 min); at most 3600
+  JoinSpec spec = 3;
+}
+
+message CreateJoinTokenResponse {
+  JoinToken token = 1;
+  // The token itself: shown once, kept by the server only as a hash.
+  string secret = 2 [(orbit.v1.secret) = true];
+  string url = 3 [(orbit.v1.secret) = true];        // https://<mgmt>/join/<secret>
+  string pin = 4;                                   // the server's key, sha256/<base64>
+  string one_liner = 5 [(orbit.v1.secret) = true];  // the curl | sudo sh line to paste on the app host
+}
+
+message ListJoinTokensRequest {}
+
+message ListJoinTokensResponse {
+  repeated JoinToken tokens = 1;
+}
+
+message RevokeJoinTokenRequest {
+  string id = 1;
+}
+
+message RevokeJoinTokenResponse {}

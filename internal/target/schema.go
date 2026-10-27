@@ -12,6 +12,7 @@ package target
 import (
 	"errors"
 	"fmt"
+	"regexp"
 )
 
 // Version is the target schema version this package reads.
@@ -161,3 +162,11 @@ func (t *Target) Validate() error {
 	}
 	return nil
 }
+
+// validName is the name charset: a target's name becomes a file name, and
+// a responder's a target's reference to it.
+var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$`)
+
+// ValidName reports whether s is a valid target or responder name: a
+// letter or digit, then up to 62 letters, digits, '-' or '_'.
+func ValidName(s string) bool { return validName.MatchString(s) }
