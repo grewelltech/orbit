@@ -356,3 +356,33 @@ func TestNumericFieldTakesNoEnvRef(t *testing.T) {
 		}
 	}
 }
+
+// In a list, one bad document fails only when it is selected: the good one
+// still loads. A YAML syntax error fails the whole file, and a single
+// document's error fails it as before.
+func TestListWithOneBadDocument(t *testing.T) {
+	dir := t.TempDir()
+	list := "- {version: 1, kind: target, name: good, core: {amf: 192.0.2.1:38412}}\n" +
+		"- {version: 1, kind: target, name: bad, core: {tac: 0010}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "orbit.yaml"), []byte(list), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loc := Locations{Dir: dir, ConfigDir: filepath.Join(dir, "cfg")}
+	f, err := Find("good", loc, labEnv)
+	if err != nil || f.Target.Core.AMF != "192.0.2.1:38412" {
+		t.Fatalf("good: %v %+v", err, f)
+	}
+	if _, err := Find("bad", loc, labEnv); err == nil || !strings.Contains(err.Error(), "0010 has a leading zero") {
+		t.Errorf("bad: err = %v, want its own error", err)
+	}
+	files, err := Parse("orbit.yaml", []byte(list), labEnv)
+	if err != nil || len(files) != 2 || files[0].Err != nil || files[1].Err == nil || files[1].Target.Name != "bad" {
+		t.Errorf("Parse = %+v, %v; want the bad document with its Err", files, err)
+	}
+	if _, err := Parse("orbit.yaml", []byte(list+"- {name: [\n"), labEnv); err == nil {
+		t.Error("a YAML syntax error did not fail the file")
+	}
+	if _, err := Parse("lab1.yaml", []byte("version: 1\nkind: target\nname: x\ncore: {tac: 0010}\n"), labEnv); err == nil {
+		t.Error("a single bad document did not fail")
+	}
+}

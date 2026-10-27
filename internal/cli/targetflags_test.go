@@ -897,3 +897,59 @@ func TestExplainEmptyValues(t *testing.T) {
 		t.Errorf("--bind \"\": %q", row)
 	}
 }
+
+// No target, no $ORBIT_TARGET and no --explain means nothing resolves, by
+// structure: over every command that binds a field, the hook returns
+// before it builds any layer. --explain does start resolving.
+func TestNoTargetNeverResolves(t *testing.T) {
+	clearOrbitEnv(t)
+	var walk func(c *cobra.Command, f func(*cobra.Command))
+	walk = func(c *cobra.Command, f func(*cobra.Command)) {
+		if c.Runnable() && len(boundFlags(c)) > 0 {
+			f(c)
+		}
+		for _, s := range c.Commands() {
+			walk(s, f)
+		}
+	}
+	n := 0
+	root := New("test", withResolving(func(cmd string) { t.Errorf("%s resolved with no target and no --explain", cmd) }))
+	walk(root, func(c *cobra.Command) {
+		n++
+		if err := c.ParseFlags(nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.PreRunE(c, nil); err != nil {
+			t.Errorf("%s: %v", c.CommandPath(), err)
+		}
+	})
+	if n < 8 {
+		t.Fatalf("only %d bound commands walked", n)
+	}
+	// The control: --explain resolves, on every one of them.
+	resolved := map[string]bool{}
+	walk(New("test", withResolving(func(cmd string) { resolved[cmd] = true })), func(c *cobra.Command) {
+		if err := c.ParseFlags([]string{"--explain"}); err != nil {
+			t.Fatal(err)
+		}
+		_ = c.PreRunE(c, nil) // the run itself may fail; only resolving matters
+		if !resolved[c.CommandPath()] {
+			t.Errorf("%s --explain did not resolve", c.CommandPath())
+		}
+	})
+}
+
+// When a command fails for want of a flag the target could not fill
+// (--gnb-n3 takes an IP; the target's N3 entry is a host name), its error
+// says why, without --explain.
+func TestUnfilledFlagReasonInError(t *testing.T) {
+	clearOrbitEnv(t)
+	doc := strings.Replace(lab1, "n3_ips: [198.51.100.50]", "n3_ips: [gnb1.lab]", 1)
+	r := runOrbit(t, targetDir(t, doc), append(skipAll, "-t", "lab1")...)
+	// The file is shown relative to the working directory, absolute here.
+	want := regexp.MustCompile(`^--gnb-n3: the mobility checks need the gNB N3 IP with --supi ` +
+		`\(ran\.n3_ips\[0\] "gnb1\.lab" is a host name; --gnb-n3 needs an IP, target lab1, \S*orbit\.yaml:18\)$`)
+	if r.execErr == nil || !want.MatchString(r.execErr.Error()) {
+		t.Errorf("err = %v\nwant  %s", r.execErr, want)
+	}
+}

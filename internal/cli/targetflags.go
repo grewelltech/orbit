@@ -26,12 +26,20 @@ type Option func(*options)
 
 type options struct {
 	locations *target.Locations
+	// resolving, when set, is called each time a command starts resolving
+	// its layers (tests: proving no-target runs never do).
+	resolving func(cmd string)
 }
 
 // WithTargetLocations sets where -t/--target looks for target files, in
 // place of ./orbit.yaml and ~/.config/orbit/targets (tests).
 func WithTargetLocations(loc target.Locations) Option {
 	return func(o *options) { o.locations = &loc }
+}
+
+// withResolving calls f each time a command starts resolving (tests).
+func withResolving(f func(cmd string)) Option {
+	return func(o *options) { o.resolving = f }
 }
 
 const (
@@ -65,6 +73,12 @@ func installTargets(root *cobra.Command, o options) {
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		strictNumbers(c)
+		if c.RunE != nil {
+			run := c.RunE
+			c.RunE = func(cmd *cobra.Command, args []string) error {
+				return explainUnfilled(cmd.Flags(), run(cmd, args))
+			}
+		}
 		if c.Runnable() {
 			prev := c.PreRunE
 			c.PreRunE = func(cmd *cobra.Command, args []string) error {
@@ -169,6 +183,9 @@ func (t *targets) apply(cmd *cobra.Command) error {
 	if name == "" && !t.explain {
 		return nil
 	}
+	if t.opts.resolving != nil {
+		t.opts.resolving(path)
+	}
 	flagIn, err := target.FlagInput(path, fs)
 	if err != nil {
 		return err
@@ -198,7 +215,7 @@ func (t *targets) apply(cmd *cobra.Command) error {
 	}
 	// Filling from another flag needs a target named: --explain alone only
 	// reports, and never changes what the command does.
-	applied, err := setFromTarget(path, fs, bound, r, name != "")
+	applied, err := setFromTarget(path, name, fs, bound, r, name != "")
 	if err != nil {
 		return err
 	}
@@ -240,7 +257,7 @@ func withoutTarget(in target.Input) target.Input {
 // own $ORBIT_* fallback, which gives the same answer, and defaults to the
 // flags' own. It returns, by flag name, the text set and, when the value
 // had to be narrowed to fit the flag, how.
-func setFromTarget(cmd string, fs *pflag.FlagSet, bound map[string]target.Binding, r *target.Resolved, fromFlags bool) (map[string]appliedFlag, error) {
+func setFromTarget(cmd, targetName string, fs *pflag.FlagSet, bound map[string]target.Binding, r *target.Resolved, fromFlags bool) (map[string]appliedFlag, error) {
 	names := make([]string, 0, len(bound))
 	typed := map[string]bool{}
 	for n := range bound {
@@ -271,7 +288,20 @@ func setFromTarget(cmd string, fs *pflag.FlagSet, bound map[string]target.Bindin
 		a, ok, err := flagText(cmd, f.Path, n, b, f.Value, fl.Value, gnbCount(fs))
 		if errors.Is(err, errNeedsIP) {
 			// --gnb-n3 cannot take a host name that --n3-bind can: leave it
-			// to the command, which says so if it needs one.
+			// unfilled, and give the command's own error, if it needs the
+			// flag, the reason (notFilled).
+			from := shortSource(f.Source)
+			if f.Source.Layer == target.LayerTarget {
+				from = "target " + targetName + ", " + strings.TrimPrefix(from, "target ")
+			}
+			entry := ""
+			if l, ok := f.Value.([]string); ok && len(l) > 0 {
+				entry = l[0]
+			}
+			if fl.Annotations == nil {
+				fl.Annotations = map[string][]string{}
+			}
+			fl.Annotations[notFilledAnnotation] = []string{fmt.Sprintf("%s[0] %q is a host name; --%s needs an IP, %s", f.Path, entry, n, from)}
 			out[n] = appliedFlag{path: f.Path, note: "not filled: " + err.Error(), skipped: true}
 			continue
 		}
@@ -305,6 +335,30 @@ func setFromTarget(cmd string, fs *pflag.FlagSet, bound map[string]target.Bindin
 		out[n] = a
 	}
 	return out, nil
+}
+
+// notFilledAnnotation holds why setFromTarget left a flag unfilled, for
+// an error that names the flag (explainUnfilled).
+const notFilledAnnotation = "orbit/not-filled"
+
+// explainUnfilled adds to a command's error the reason a flag it names was
+// left unfilled from the target, so the user need not run --explain to see
+// why (--gnb-n3 is required with --supi; the target's N3 entry is a host
+// name).
+func explainUnfilled(fs *pflag.FlagSet, err error) error {
+	if err == nil {
+		return nil
+	}
+	var reasons []string
+	fs.VisitAll(func(f *pflag.Flag) {
+		if r, ok := f.Annotations[notFilledAnnotation]; ok && strings.Contains(err.Error(), "--"+f.Name) {
+			reasons = append(reasons, r...)
+		}
+	})
+	if len(reasons) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w (%s)", err, strings.Join(reasons, "; "))
 }
 
 // fromTargetAnnotation marks a flag setFromTarget filled: its value came

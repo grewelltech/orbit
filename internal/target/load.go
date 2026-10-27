@@ -19,6 +19,10 @@ type File struct {
 	// Input is the target layer: every field the file sets, with the file
 	// path and line, and the ${ENV} variables a value came from.
 	Input Input
+	// Err is set for a document in a list that does not load (its Target
+	// holds only its name): selecting it fails with Err, while the other
+	// documents in the file still load.
+	Err error
 }
 
 // Getenv looks up an environment variable; os.LookupEnv in production.
@@ -63,6 +67,9 @@ func Find(name string, loc Locations, env Getenv) (*File, error) {
 		}
 		for _, f := range files {
 			if f.Target.Name == name {
+				if f.Err != nil {
+					return nil, f.Err
+				}
 				return f, nil
 			}
 		}
@@ -80,12 +87,17 @@ func Find(name string, loc Locations, env Getenv) (*File, error) {
 	if len(files) != 1 || files[0].Target.Name != name {
 		return nil, fmt.Errorf("%s: want the one target %q", p, name)
 	}
+	if files[0].Err != nil {
+		return nil, files[0].Err
+	}
 	return files[0], nil
 }
 
 // LoadFile reads a target file: one target document, or a list of them.
 // Unknown keys are errors, as are a version other than 1, a kind other
-// than target, a ran.node other than "", and a ${VAR} that is not set.
+// than target, a ran.node other than "", and a ${VAR} that is not set. A
+// YAML syntax error fails the whole file; in a list, a document with any
+// other error is returned with File.Err set, so the rest still load.
 func LoadFile(path string, env Getenv) ([]*File, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -118,9 +130,13 @@ func Parse(name string, b []byte, env Getenv) ([]*File, error) {
 	for _, d := range docs {
 		f, err := parseDoc(name, d, env)
 		if err != nil {
-			return nil, err
+			if doc.Kind == yaml.MappingNode {
+				return nil, err
+			}
+			// In a list, a bad document fails only when it is selected.
+			f = &File{Target: Target{Name: mapValue(d, "name")}, Err: err}
 		}
-		if seen[f.Target.Name] {
+		if f.Target.Name != "" && seen[f.Target.Name] {
 			return nil, fmt.Errorf("%s:%d: target %q is defined twice", name, d.Line, f.Target.Name)
 		}
 		seen[f.Target.Name] = true
