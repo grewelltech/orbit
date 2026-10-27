@@ -113,3 +113,51 @@ var ts33501NIA0Verified = []SpecVersion{
 	{Release: 18, Version: "V18.12.0", Archive: "33501-ic0.zip"},
 	{Release: 19, Version: "V19.7.0", Archive: "33501-j70.zip"},
 }
+
+// ts24501UnknownDNNVerified covers the TS 24.501 clauses of
+// NAS-PDU-UNKNOWN-DNN: every version where their wording changes and the
+// latest version of Rel-15 to Rel-19 read.
+var ts24501UnknownDNNVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "24501-f00.zip"},
+	{Release: 15, Version: "V15.1.0", Archive: "24501-f10.zip"},
+	{Release: 15, Version: "V15.2.0", Archive: "24501-f20.zip"},
+	{Release: 15, Version: "V15.3.0", Archive: "24501-f30.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "24501-f70.zip"},
+	{Release: 16, Version: "V16.0.0", Archive: "24501-g00.zip"},
+	{Release: 16, Version: "V16.1.0", Archive: "24501-g10.zip"},
+	{Release: 16, Version: "V16.3.0", Archive: "24501-g30.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.3.0", Archive: "24501-h30.zip"},
+	{Release: 17, Version: "V17.5.0", Archive: "24501-h50.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}
+
+// ts24501NSSAI62Verified covers TS 24.501 5.5.1.2.5's #62 rule: V16.2.0,
+// where it first appears; V16.5.1, with the a)/b) conditions; V18.0.0,
+// which voids b) 1) i) and b) 2) i); and the latest version of Rel-16 to
+// Rel-19.
+var ts24501NSSAI62Verified = []SpecVersion{
+	{Release: 16, Version: "V16.2.0", Archive: "24501-g20.zip"},
+	{Release: 16, Version: "V16.5.1", Archive: "24501-g51.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.0.0", Archive: "24501-i00.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}
+
+// ts24501RejectedNSSAIVerified covers TS 24.501 5.5.1.2.5's rejected
+// S-NSSAI in REGISTRATION REJECT: V16.6.0, where the shall first appears;
+// V17.1.0, which splits it by the ER-NSSAI bit; V18.1.0, which requires
+// every requested S-NSSAI; and the latest version of Rel-16 to Rel-19.
+var ts24501RejectedNSSAIVerified = []SpecVersion{
+	{Release: 16, Version: "V16.6.0", Archive: "24501-g60.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.1.0", Archive: "24501-h10.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.1.0", Archive: "24501-i10.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}

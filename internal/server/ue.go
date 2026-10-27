@@ -352,7 +352,7 @@ func (s *ueService) Handover(
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
-	elapsed, err := s.mgr.Handover(ctx, supi, engine.GNBEndpoint{
+	res, err := s.mgr.Handover(ctx, supi, engine.GNBEndpoint{
 		Config:   target,
 		AMFAddr:  m.GetAmfAddress(),
 		BindAddr: m.GetBindAddress(),
@@ -361,10 +361,7 @@ func (s *ueService) Handover(
 	if err != nil {
 		return nil, n2Error(err)
 	}
-	return connect.NewResponse(&orbitv1.HandoverResponse{
-		Supi: supi, GnbId: target.ID, State: engine.StateHandoverComplete,
-		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
-	}), nil
+	return connect.NewResponse(handoverResponse(supi, res)), nil
 }
 
 func (s *ueService) XnHandover(
@@ -390,16 +387,23 @@ func (s *ueService) XnHandover(
 	ctx, cancel := withTimeout(ctx, m.GetTimeoutMs(), 30000)
 	defer cancel()
 
-	elapsed, err := s.mgr.XnHandover(ctx, supi, engine.GNBEndpoint{
+	res, err := s.mgr.XnHandover(ctx, supi, engine.GNBEndpoint{
 		Config: target, AMFAddr: m.GetAmfAddress(), BindAddr: m.GetBindAddress(), N3Addr: n3,
 	})
 	if err != nil {
 		return nil, n2Error(err)
 	}
-	return connect.NewResponse(&orbitv1.HandoverResponse{
-		Supi: supi, GnbId: target.ID, State: engine.StateHandoverComplete,
-		ElapsedMs: float64(elapsed) / float64(time.Millisecond),
-	}), nil
+	return connect.NewResponse(handoverResponse(supi, res)), nil
+}
+
+// handoverResponse reports a completed handover: the target the engine
+// actually presented (inherited fields filled in), and how long it took.
+func handoverResponse(supi string, res engine.HandoverResult) *orbitv1.HandoverResponse {
+	return &orbitv1.HandoverResponse{
+		Supi: supi, GnbId: res.Target.ID, State: engine.StateHandoverComplete,
+		ElapsedMs: float64(res.Elapsed) / float64(time.Millisecond),
+		Target:    gnbConfigToProto(res.Target),
+	}
 }
 
 func (s *ueService) StartApp(

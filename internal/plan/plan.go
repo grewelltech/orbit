@@ -300,10 +300,15 @@ func (b builder) conformance(base string) (*orbitv1.ConformanceWorkload, error) 
 		return nil, err
 	}
 	cw.GnbIds = sel
-	if v, ok := b.get(base + "nas"); ok {
+	integrity, hasIA := b.get(base + "nas.integrity")
+	ciphering, hasEA := b.get(base + "nas.ciphering")
+	if hasIA || hasEA {
 		cw.Nas = &orbitv1.NASAlgorithms{}
-		if err := subtree(v, cw.Nas); err != nil {
-			return nil, fmt.Errorf("conformance.nas: %w", err)
+		if hasIA {
+			cw.Nas.Integrity = integrity.([]string)
+		}
+		if hasEA {
+			cw.Nas.Ciphering = ciphering.([]string)
 		}
 	}
 	if v, ok := b.get(base + "expected"); ok {

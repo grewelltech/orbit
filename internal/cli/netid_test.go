@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,9 +104,6 @@ func TestNetIdentityString(t *testing.T) {
 	}{
 		{name: "full with dnn", args: []string{"--mcc", "001", "--mnc", "01", "--sd", "010203"}, opts: []netIDOption{withDNN()}, want: "plmn=001/01 tac=1 snssai=1/010203 dnn=internet"},
 		{name: "no sd, no dnn", args: []string{"--mcc", "001", "--mnc", "01"}, want: "plmn=001/01 tac=1 snssai=1"},
-		{name: "inherit everything", opts: []netIDOption{withInherit()}, want: "plmn=(inherited) tac=(inherited) snssai=(inherited)"},
-		{name: "inherit plmn, explicit slice", args: []string{"--sst", "2", "--sd", "abcdef"}, opts: []netIDOption{withInherit()}, want: "plmn=(inherited) tac=(inherited) snssai=2/abcdef"},
-		{name: "inherit plmn, explicit sst only", args: []string{"--sst", "2"}, opts: []netIDOption{withInherit()}, want: "plmn=(inherited) tac=(inherited) snssai=2"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -192,9 +192,23 @@ type stubUEHandover struct {
 	req *orbitv1.HandoverRequest
 }
 
+// Handover answers as the server does: the target it reports is the
+// request's, with unset fields filled from a serving gNB of 208/93, TAC 1
+// and slices 1/010203 and 2.
 func (s *stubUEHandover) Handover(_ context.Context, req *connect.Request[orbitv1.HandoverRequest]) (*connect.Response[orbitv1.HandoverResponse], error) {
 	s.req = req.Msg
-	return connect.NewResponse(&orbitv1.HandoverResponse{Supi: req.Msg.GetSupi(), GnbId: req.Msg.GetTargetGnb().GetId(), State: "HANDED_OVER"}), nil
+	t := &orbitv1.GnbConfig{Id: req.Msg.GetTargetGnb().GetId(), Mcc: req.Msg.GetTargetGnb().GetMcc(), Mnc: req.Msg.GetTargetGnb().GetMnc(),
+		Tac: req.Msg.GetTargetGnb().GetTac(), Slices: req.Msg.GetTargetGnb().GetSlices()}
+	if t.Mcc == "" && t.Mnc == "" {
+		t.Mcc, t.Mnc = "208", "93"
+	}
+	if t.Tac == 0 {
+		t.Tac = 1
+	}
+	if len(t.Slices) == 0 {
+		t.Slices = []*orbitv1.Snssai{{Sst: 1, Sd: "010203"}, {Sst: 2}}
+	}
+	return connect.NewResponse(&orbitv1.HandoverResponse{Supi: req.Msg.GetSupi(), GnbId: t.Id, State: "HANDED_OVER", Target: t}), nil
 }
 
 func (s *stubUEHandover) XnHandover(ctx context.Context, req *connect.Request[orbitv1.HandoverRequest]) (*connect.Response[orbitv1.HandoverResponse], error) {
@@ -213,13 +227,17 @@ func TestUEHandoverSendsIdentityForInherit(t *testing.T) {
 		wantSliceSent bool
 		wantSST       uint32
 		wantSD        string
+		wantNetwork   string // the printed line, from the server's reported target
 	}{
-		{name: "n2 inherits everything", cmd: "handover"},
-		{name: "xn inherits everything", cmd: "xn-handover"},
-		{name: "explicit plmn", cmd: "handover", flags: []string{"--mcc", "001", "--mnc", "01"}, wantMCC: "001"},
-		{name: "explicit tac only", cmd: "handover", flags: []string{"--tac", "7"}, wantTAC: 7},
-		{name: "explicit slice", cmd: "xn-handover", flags: []string{"--sst", "2", "--sd", "abcdef"}, wantSliceSent: true, wantSST: 2, wantSD: "abcdef"},
-		{name: "explicit sst alone", cmd: "handover", flags: []string{"--sst", "2"}, wantSliceSent: true, wantSST: 2, wantSD: ""},
+		{name: "n2 inherits everything", cmd: "handover", wantNetwork: "network: plmn=208/93 tac=1 snssai=1/010203,2"},
+		{name: "xn inherits everything", cmd: "xn-handover", wantNetwork: "network: plmn=208/93 tac=1 snssai=1/010203,2"},
+		{name: "explicit plmn", cmd: "handover", flags: []string{"--mcc", "001", "--mnc", "01"}, wantMCC: "001",
+			wantNetwork: "network: plmn=001/01 tac=1 snssai=1/010203,2"},
+		{name: "explicit tac only", cmd: "handover", flags: []string{"--tac", "7"}, wantTAC: 7, wantNetwork: "network: plmn=208/93 tac=7 snssai=1/010203,2"},
+		{name: "explicit slice", cmd: "xn-handover", flags: []string{"--sst", "2", "--sd", "abcdef"}, wantSliceSent: true, wantSST: 2, wantSD: "abcdef",
+			wantNetwork: "network: plmn=208/93 tac=1 snssai=2/abcdef"},
+		{name: "explicit sst alone", cmd: "handover", flags: []string{"--sst", "2"}, wantSliceSent: true, wantSST: 2, wantSD: "",
+			wantNetwork: "network: plmn=208/93 tac=1 snssai=2"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,8 +271,8 @@ func TestUEHandoverSendsIdentityForInherit(t *testing.T) {
 			} else if len(g.GetSlices()) != 0 {
 				t.Errorf("slices sent = %v, want none (inherit)", g.GetSlices())
 			}
-			if !strings.Contains(out.String(), "network: ") {
-				t.Errorf("no network line in output:\n%s", out.String())
+			if !strings.Contains(out.String(), tc.wantNetwork+"\n") {
+				t.Errorf("output lacks %q:\n%s", tc.wantNetwork, out.String())
 			}
 		})
 	}
@@ -373,5 +391,53 @@ func TestConformanceRequiresPLMN(t *testing.T) {
 	err := root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "$ORBIT_MCC/$ORBIT_MNC") {
 		t.Fatalf("err = %v, want the PLMN-required message", err)
+	}
+}
+
+// presentedNetwork prints the reported target with every slice, and a
+// placeholder when the server reports none.
+func TestPresentedNetwork(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *orbitv1.GnbConfig
+		want string
+	}{
+		{name: "not reported", want: "(not reported by the server)"},
+		{name: "one slice", in: &orbitv1.GnbConfig{Mcc: "001", Mnc: "01", Tac: 1, Slices: []*orbitv1.Snssai{{Sst: 1, Sd: "010203"}}},
+			want: "plmn=001/01 tac=1 snssai=1/010203"},
+		{name: "two slices", in: &orbitv1.GnbConfig{Mcc: "208", Mnc: "093", Tac: 7, Slices: []*orbitv1.Snssai{{Sst: 1}, {Sst: 2, Sd: "abcdef"}}},
+			want: "plmn=208/093 tac=7 snssai=1,2/abcdef"},
+	}
+	for _, tc := range tests {
+		if got := presentedNetwork(tc.in); got != tc.want {
+			t.Errorf("%s: presentedNetwork = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// No "(inherited)" placeholder is left in the code: a handover prints what
+// the server reports it presented (#108).
+func TestNoInheritedPlaceholder(t *testing.T) {
+	err := filepath.WalkDir("../..", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".git" || strings.HasPrefix(d.Name(), ".wt-")) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), "(inherited)") {
+			t.Errorf("%s still prints the (inherited) placeholder", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

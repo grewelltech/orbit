@@ -282,6 +282,12 @@ func parseUplink(pdu *ngapType.NGAPPDU) (*uplinkMessage, error) {
 				out.nasPDU = ie.Value.NASPDU.Value
 			}
 		}
+	case ngapType.InitiatingMessagePresentUEContextReleaseRequest:
+		for _, ie := range im.Value.UEContextReleaseRequest.ProtocolIEs.List {
+			if ie.Id.Value == ngapType.ProtocolIEIDRANUENGAPID {
+				out.ranID = ie.Value.RANUENGAPID.Value
+			}
+		}
 	case ngapType.InitiatingMessagePresentUplinkNASTransport:
 		for _, ie := range im.Value.UplinkNASTransport.ProtocolIEs.List {
 			switch ie.Id.Value {

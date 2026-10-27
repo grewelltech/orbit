@@ -1,6 +1,7 @@
 package nas
 
 import (
+	"errors"
 	"fmt"
 
 	f5nas "github.com/free5gc/nas"
@@ -78,14 +79,24 @@ func (s *SecurityContext) EncodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte
 	if secHdr == SecHdrPlain {
 		return nil, fmt.Errorf("EncodeSecure called with plain header; use EncodePlain")
 	}
+	plain, err := msg.PlainNasEncode()
+	if err != nil {
+		return nil, fmt.Errorf("nas plain encode: %w", err)
+	}
+	return s.EncodeSecureRaw(plain, secHdr)
+}
+
+// EncodeSecureRaw is EncodeSecure for an already-encoded plain NAS message,
+// which need not decode (a mock sending a malformed message uses it). It
+// advances the uplink COUNT as EncodeSecure does.
+func (s *SecurityContext) EncodeSecureRaw(plain []byte, secHdr uint8) ([]byte, error) {
+	if secHdr == SecHdrPlain {
+		return nil, fmt.Errorf("EncodeSecureRaw called with plain header; use EncodePlain")
+	}
 	// A "new 5G NAS security context" header activates the fresh context:
 	// both NAS COUNTs restart at 0 (TS 33.501 §6.4.3.1). Matches gnbsim.
 	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
 		s.txCount, s.rxCount = 0, 0
-	}
-	plain, err := msg.PlainNasEncode()
-	if err != nil {
-		return nil, fmt.Errorf("nas plain encode: %w", err)
 	}
 
 	seq := byte(s.txCount & 0xFF)
@@ -116,6 +127,10 @@ func (s *SecurityContext) EncodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte
 	return out, nil
 }
 
+// ErrIntegrity is the error DecodeSecure wraps when a message's MAC does
+// not verify.
+var ErrIntegrity = errors.New("NAS integrity check failed")
+
 // DecodeSecure verifies and unwraps a security-protected downlink NAS
 // message, returning the decoded plain message. It checks the received MAC
 // against a recomputation over seq‖payload with the downlink NAS COUNT,
@@ -125,11 +140,21 @@ func (s *SecurityContext) EncodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte
 // (with the tracked overflow) rather than blindly from local state, matching
 // how the NAS layer resynchronises on the sequence byte (TS 24.501 §4.4.3.1).
 func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
+	m, _, err := s.DecodeSecurePlain(data)
+	return m, err
+}
+
+// DecodeSecurePlain is DecodeSecure that also returns the plain NAS message
+// inside the security header: set once the MAC verified and deciphering
+// succeeded, even when the codec then refuses the message, so a caller
+// can read IEs the codec does not know. It is nil when the PDU did not
+// verify or decipher.
+func (s *SecurityContext) DecodeSecurePlain(data []byte) (*f5nas.Message, []byte, error) {
 	if len(data) < 7 {
-		return nil, fmt.Errorf("secured NAS too short: %d bytes", len(data))
+		return nil, nil, fmt.Errorf("secured NAS too short: %d bytes", len(data))
 	}
 	if data[0] != epd5GMM {
-		return nil, fmt.Errorf("unexpected EPD %#x", data[0])
+		return nil, nil, fmt.Errorf("unexpected EPD %#x", data[0])
 	}
 	secHdr := data[1]
 	recvMAC := data[2:6]
@@ -139,41 +164,49 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 	// A "new context" downlink message restarts the downlink COUNT
 	// (TS 33.501 §6.4.3.1). Otherwise, recover the 24-bit COUNT from the
 	// received sequence byte, bumping the overflow counter on wrap
-	// (TS 24.501 §4.4.3.1). Matches gnbsim.
+	// (TS 24.501 §4.4.3.1). Matches gnbsim. The estimate is a candidate
+	// until the MAC verifies, and only then is stored, since "The value of
+	// the downlink NAS COUNT that is stored or read out of the USIM or
+	// non-volatile memory as described in annex C, is the largest downlink
+	// NAS COUNT used in a successfully integrity checked NAS message."
+	// (TS 24.501 4.4.3.1, V15.0.0 onward). A message that fails the check
+	// leaves the stored COUNT as it was.
+	est := s.rxCount
 	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
-		s.rxCount = 0
+		est = 0
 	}
-	if byte(s.rxCount&0xFF) > seq {
-		s.rxCount += 1 << 8 // overflow++
+	if byte(est&0xFF) > seq {
+		est += 1 << 8 // overflow++
 	}
-	count := s.rxCount&0xFFFFFF00 | uint32(seq)
+	count := est&0xFFFFFF00 | uint32(seq)
 
 	macInput := append([]byte{seq}, payload...)
 	wantMAC, err := security.NASMacCalculate(s.IntegrityAlg, s.KNASint, count,
 		security.Bearer3GPP, s.rxDir(), macInput)
 	if err != nil {
-		return nil, fmt.Errorf("nas mac calculate: %w", err)
+		return nil, nil, fmt.Errorf("nas mac calculate: %w", err)
 	}
 	if !equalMAC(recvMAC, wantMAC) {
-		return nil, fmt.Errorf("NAS integrity check failed: mac %x != %x", recvMAC, wantMAC)
+		return nil, nil, fmt.Errorf("%w: mac %x != %x", ErrIntegrity, recvMAC, wantMAC)
 	}
+	// The MAC proved the COUNT: track the last-received sequence number as
+	// the rx COUNT state, even if deciphering or decoding fails below.
+	s.rxCount = count
 
 	ciphered := secHdr == SecHdrIntegrityCiphered || secHdr == SecHdrIntegrityCipheredNewCtx
 	if ciphered {
 		if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, count,
 			security.Bearer3GPP, s.rxDir(), payload); err != nil {
-			return nil, fmt.Errorf("nas decrypt: %w", err)
+			return nil, nil, fmt.Errorf("nas decrypt: %w", err)
 		}
 	}
 
-	// Track the last-received sequence number as the rx COUNT state.
-	s.rxCount = count
-
+	plain := append([]byte(nil), payload...)
 	m := f5nas.NewMessage()
 	if err := m.PlainNasDecode(&payload); err != nil {
-		return nil, fmt.Errorf("nas plain decode of unwrapped payload: %w", err)
+		return nil, plain, fmt.Errorf("nas plain decode of unwrapped payload: %w", err)
 	}
-	return m, nil
+	return m, plain, nil
 }
 
 // ResetCounts zeroes the NAS COUNTs, as when a fresh security context is

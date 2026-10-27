@@ -21,11 +21,13 @@ func ChecksMarkdown(tests []Test) string {
 	b.WriteString("A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. ")
 	b.WriteString("The quoted normative text for each check is in [provenance/](provenance/).\n\n")
 	fmt.Fprintf(&b, "Default target: %s; see [target-release.md](target-release.md).\n\n", defaultTargetLine())
-	b.WriteString("| Check | Category | Verdict class | Requires | Clauses |\n")
-	b.WriteString("|---|---|---|---|---|\n")
+	fmt.Fprintf(&b, "**Up to** is the longest a check can take at the default `--per-test-timeout` (%s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.\n\n", DefaultPerTestTimeout)
+	b.WriteString("| Check | Category | Verdict class | Requires | Up to | Clauses |\n")
+	b.WriteString("|---|---|---|---|---|---|\n")
 	for _, t := range tests {
-		fmt.Fprintf(&b, "| [%s](provenance/%s.md) | %s | %s | %s | %s |\n",
-			t.ID(), t.ID(), t.Category(), WorstVerdict(t), MinRelease(t), mdEscape(RenderRefs(t.SpecRefs())))
+		fmt.Fprintf(&b, "| [%s](provenance/%s.md) | %s | %s | %s | %s | %s |\n",
+			t.ID(), t.ID(), t.Category(), WorstVerdict(t), MinRelease(t), ExpectedDuration(t, DefaultPerTestTimeout),
+			mdEscape(RenderRefs(t.SpecRefs())))
 	}
 	b.WriteString("\n## Verified versions\n")
 	for _, t := range tests {

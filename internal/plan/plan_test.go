@@ -226,7 +226,8 @@ var samples = map[string]string{
 	"workloads[].conformance.target_release":      "Rel-17",
 	"workloads[].conformance.expected":            "{core: c, entries: []}",
 	"workloads[].conformance.per_test_timeout_ms": "2000",
-	"workloads[].conformance.nas":                 "{integrity: [NIA2]}",
+	"workloads[].conformance.nas.integrity":       "NIA2",
+	"workloads[].conformance.nas.ciphering":       "NEA0",
 	"workloads[].conformance.responder":           "n6",
 	"workloads[].conformance.traffic":             "192.0.2.1:9",
 	"workloads[].conformance.gnb_ids.first":       "700",
@@ -260,7 +261,7 @@ func concrete(p string) string { return strings.ReplaceAll(p, "[]", "[w]") }
 // Both ways: every run-file path reaches a RunPlan field through Build,
 // and every RunPlan field below the target is reached by a run-file path
 // or is listed in notFromRunFile. A whole-value subtree (behaviors, start,
-// expected, nas) counts as one field.
+// expected) counts as one field.
 func TestEveryRunPathReachesThePlan(t *testing.T) {
 	base, _, err := Build(resolve(t, "kind: run\n"))
 	if err != nil {
@@ -319,7 +320,7 @@ func TestEveryRunPathReachesThePlan(t *testing.T) {
 // one field of the plan.
 var wholeValue = map[protoreflect.FullName]bool{
 	"orbit.v1.Behaviors": true, "orbit.v1.StartCondition": true, "orbit.v1.ExpectedFailures": true,
-	"orbit.v1.NASAlgorithms": true, "orbit.v1.ConformanceGate": true,
+	"orbit.v1.ConformanceGate": true,
 }
 
 // leaves are a message's field paths down to scalars, lists and

@@ -21,25 +21,25 @@ import (
 // HANDOVER_* states with an "Xn" detail.
 // The elapsed time is returned for the same reason as the N2 path: comparing
 // Xn against N2 on a given core is a question about numbers, not outcomes.
-func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoint) (time.Duration, error) {
+func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoint) (HandoverResult, error) {
 	start := time.Now()
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
 	m.mu.Unlock()
 	if !ok {
-		return 0, fmt.Errorf("UE %s is not registered", supi)
+		return HandoverResult{}, fmt.Errorf("UE %s is not registered", supi)
 	}
 
 	// Serialise against another handover or a deregistration on this UE: they
 	// rewrite the association and the serving cell together.
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
-		return 0, err
+		return HandoverResult{}, err
 	}
 	defer release()
 
 	if target.Config, err = inheritIdentity(target.Config, sess.ServingGNB()); err != nil {
-		return 0, err
+		return HandoverResult{}, err
 	}
 
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
@@ -49,7 +49,7 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 	if err := m.runXnHandover(ctx, sess, target); err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: "Xn: " + err.Error()},
 			"type", "xn", "target_gnb", target.Config.Name)
-		return 0, err
+		return HandoverResult{}, err
 	}
 
 	elapsed := time.Since(start)
@@ -58,7 +58,7 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 			elapsed.Round(time.Millisecond))},
 		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID,
 		"elapsed_ms", elapsed.Milliseconds())
-	return elapsed, nil
+	return HandoverResult{Elapsed: elapsed, Target: target.Config}, nil
 }
 
 func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEndpoint) error {
