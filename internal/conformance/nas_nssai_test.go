@@ -286,7 +286,10 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 		want         Verdict
 		wantObserved string
 		wantDetail   []string
+		wantDeregs   int64 // Deregistration Requests the mock must see
 	}{
+		{name: "an undecodable Accept is deregistered", opts: []mockamf.Option{mockamf.WithUndecodableAccept()}, want: Error,
+			wantObserved: "Registration Accept did not decode", wantDetail: []string{"Cleanup: switch-off Deregistration Request sent"}, wantDeregs: 1},
 		{name: "#62 with Rejected NSSAI", opts: nssai(mockamf.Reject62NSSAI), want: Pass,
 			wantObserved: "Registration Reject #62, stimulus S-NSSAI in the Rejected NSSAI IE",
 			wantDetail:   []string{"Rejected NSSAI [01eeeeee (cause 0)]", "NSSAA and ER-NSSAI bits sent as 0 (not supported)", "b) 2)"}},
@@ -333,6 +336,15 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(r.Detail, w) {
 					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			if tc.wantDeregs > 0 {
+				deadline := time.Now().Add(3 * time.Second)
+				for amf.Deregistrations() < tc.wantDeregs && time.Now().Before(deadline) {
+					time.Sleep(10 * time.Millisecond)
+				}
+				if n := amf.Deregistrations(); n != tc.wantDeregs {
+					t.Errorf("mock saw %d Deregistration Requests, want %d", n, tc.wantDeregs)
 				}
 			}
 			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {

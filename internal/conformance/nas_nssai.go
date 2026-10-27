@@ -140,17 +140,20 @@ func (c nasRegRejectedNSSAI) Run(ctx context.Context, env Env) Result {
 
 // nssaiOutcome is what the probing registration saw.
 type nssaiOutcome struct {
-	reject     []byte // the Registration Reject's plain message, nil when unreadable
-	rejectRaw  []byte // the Registration Reject as received, for the record
-	rejectErr  error  // the security context's error for it, nil when it decoded
-	accept     *nasMessage.RegistrationAccept
-	acceptErr  error  // a Registration Accept that did not decode
-	acceptRaw  []byte // its NAS PDU
-	authReject bool   // an Authentication Reject ended the registration
-	released   bool   // a UE Context Release Command ended it
-	noAnswer   bool   // nothing of the above within the wait
-	registered bool   // the attach returned a REGISTERED UE
-	err        error  // another failure
+	reject    []byte // the Registration Reject's plain message, nil when unreadable
+	rejectRaw []byte // the Registration Reject as received, for the record
+	rejectErr error  // the security context's error for it, nil when it decoded
+	accept    *nasMessage.RegistrationAccept
+	acceptErr error  // a Registration Accept that did not decode
+	acceptRaw []byte // its NAS PDU
+	// acceptCleanup is what the engine did about it
+	// (DeregisterUndecodableAccept), "" when nothing was reported.
+	acceptCleanup string
+	authReject    bool  // an Authentication Reject ended the registration
+	released      bool  // a UE Context Release Command ended it
+	noAnswer      bool  // nothing of the above within the wait
+	registered    bool  // the attach returned a REGISTERED UE
+	err           error // another failure
 }
 
 // sawReject reports whether a Registration Reject arrived, readable or not.
@@ -198,6 +201,9 @@ func (c nasRegRejectedNSSAI) probe(ctx context.Context, h *UEHarness, stim ue.SN
 	defer timer.Stop()
 	_, err := h.RegisterWithProbe(ctx, &engine.AttachProbe{
 		Stop: stop,
+		// An undecodable Accept ends the attach after a switch-off
+		// Deregistration, so the core is not left holding the UE.
+		DeregisterUndecodableAccept: true,
 		OnNAS: func(ev engine.NASEvent) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -214,8 +220,8 @@ func (c nasRegRejectedNSSAI) probe(ctx context.Context, h *UEHarness, stim ue.SN
 				halt()
 			case f5nas.MsgTypeRegistrationAccept:
 				if ev.Err != nil {
+					// The engine ends the attach itself (DeregisterUndecodableAccept).
 					o.acceptErr, o.acceptRaw = ev.Err, append([]byte(nil), ev.Raw...)
-					halt()
 				} else if ev.Msg != nil && ev.Msg.GmmMessage != nil {
 					o.accept = ev.Msg.RegistrationAccept
 				}
@@ -230,6 +236,17 @@ func (c nasRegRejectedNSSAI) probe(ctx context.Context, h *UEHarness, stim ue.SN
 	})
 	mu.Lock()
 	defer mu.Unlock()
+	var undecodable *engine.UndecodableAcceptError
+	if errors.As(err, &undecodable) {
+		if undecodable.Deregistration == nil {
+			o.acceptCleanup = "switch-off Deregistration Request sent (UE named by SUCI, since the Accept's 5G-GUTI could not be read)"
+		} else {
+			o.acceptCleanup = fmt.Sprintf("Deregistration Request not sent: %v", undecodable.Deregistration)
+		}
+		if o.acceptErr == nil { // a PDU whose type could not be read
+			o.acceptErr = undecodable.Err
+		}
+	}
 	switch {
 	case err == nil:
 		o.registered = true
@@ -451,10 +468,13 @@ func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, st
 	case o.reject != nil:
 		return judgeNSSAIReject(o.reject, want)
 	case o.acceptErr != nil:
-		// The engine skips a downlink that does not decode (OnNAS is set),
-		// so the attach never reaches REGISTERED and returns no Session:
-		// the harness has no handle to deregister with.
-		return Error, "Registration Accept did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: Registration Accept did not decode; no deregistration possible: the engine returns no registered-UE handle when the Accept does not decode, and the attach closed its association", o.acceptErr, o.acceptRaw)
+		// The engine ended the attach at it with a best-effort switch-off
+		// Deregistration (DeregisterUndecodableAccept).
+		cleanup := o.acceptCleanup
+		if cleanup == "" {
+			cleanup = "no deregistration reported"
+		}
+		return Error, "Registration Accept did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: %s", o.acceptErr, o.acceptRaw, cleanup)
 	case o.accept != nil:
 		var allowed [][]byte
 		if o.accept.AllowedNSSAI != nil {
