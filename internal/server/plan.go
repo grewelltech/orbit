@@ -538,6 +538,11 @@ func planBehaviors(t *orbitv1.ResolvedTarget, b *orbitv1.Behaviors) (scenario.Be
 		out.Traffic = tb
 	}
 	if l := b.GetLatency(); l != nil {
+		// Registered responders have filled theirs by now (withRegistered):
+		// one still empty would aim the probe at nothing.
+		if l.GetTarget() == "" {
+			return out, errors.New("latency probe has no target: give behaviors.latency.target, or a target whose first responder has a data_ip or is registered with this server")
+		}
 		lb := &scenario.LatencyBehavior{Target: l.GetTarget(), UEs: int(l.GetUes())}
 		if l.GetIntervalMs() > 0 {
 			lb.Interval = strconv.FormatUint(l.GetIntervalMs(), 10) + "ms"

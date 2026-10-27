@@ -280,3 +280,27 @@ func TestWithRegisteredLatency(t *testing.T) {
 		t.Errorf("explicit target: %v, %v, %v", got, prov, err)
 	}
 }
+
+// After resolution, a latency probe still without a target is refused: a
+// plan never aims a probe at "".
+func TestLatencyProbeNeedsATarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		latency *orbitv1.LatencyProbe
+		wantErr string
+	}{
+		{name: "no target", latency: &orbitv1.LatencyProbe{}, wantErr: "latency probe has no target"},
+		{name: "a target", latency: &orbitv1.LatencyProbe{Target: "198.51.100.21"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := planBehaviors(&orbitv1.ResolvedTarget{}, &orbitv1.Behaviors{Latency: tc.latency})
+			switch {
+			case tc.wantErr == "" && (err != nil || b.Latency == nil || b.Latency.Target != tc.latency.GetTarget()):
+				t.Errorf("err %v, latency %+v", err, b.Latency)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}
