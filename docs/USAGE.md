@@ -421,10 +421,22 @@ curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/jo
 - **What the script does now.** It checks for Linux amd64/arm64, downloads
   `orbit` into a private directory and refuses it unless its SHA-256
   matches. The route, firewall and responder setup steps are being added;
-  this server's script changes nothing on the host yet.
+  this server's script changes nothing on the host yet. The whole script is
+  one function, called on its last line, so a download cut short runs
+  nothing.
+- **How to tell it worked.** `curl … | sudo sh` exits with sh's status, not
+  curl's: a failed download (a key that does not match the pin, an expired
+  token) still exits 0, with only curl's error on stderr. Success is the
+  line `orbit join: verified orbit for linux/<arch> …`, not `$?`. In a
+  script or automation, download first and run it only if that worked:
+
+  ```sh
+  curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh
+  ```
 - **Limits.** The join endpoints take the token only as the exact path
   `/join/<token>` (or `/join/<token>/bin/<arch>`), unencoded. Anything else,
-  including an unknown, expired or revoked token, gets the same 404.
+  including an unknown, expired or revoked token and an arch the server has
+  no binary for, gets the same 404 and counts as a miss.
   - **Misses:** 10 in 10 s lock the client's address out for 30 s.
   - **Per address:** at most 30 requests a minute.
   - **Server-wide:** at most 16 scripts render and 4 binaries download at

@@ -246,9 +246,7 @@ func TestJoinEndpoints(t *testing.T) {
 	if r, body := l.get(t, http.MethodHead, "/join/"+secret+"/bin/amd64"); r.StatusCode != http.StatusOK || body != "" {
 		t.Errorf("HEAD binary: %d, %d bytes", r.StatusCode, len(body))
 	}
-	if r, _ := l.get(t, http.MethodGet, "/join/"+secret+"/bin/arm64"); r.StatusCode != http.StatusNotFound {
-		t.Errorf("an arch with no binary: %d", r.StatusCode)
-	}
+
 	if r, _ := l.get(t, http.MethodPost, "/join/"+secret); r.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("POST: %d", r.StatusCode)
 	}
@@ -277,6 +275,24 @@ func TestJoinEndpoints(t *testing.T) {
 	l2.get(t, http.MethodGet, "/join/nope")
 	if r, _ := l2.get(t, http.MethodGet, "/join/"+sec2); r.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("after ten misses: %d, want 429", r.StatusCode)
+	}
+
+	// A valid token with an arch the server has no binary for: the body
+	// of an unknown token's 404, byte for byte, and a miss toward the
+	// same lockout, after the same number of tries (a fresh lab).
+	l5 := newJoinLab(t, true, "192.0.2.10:8412")
+	sec5 := l5.create(t, "", "").GetSecret()
+	for i := 0; i < authFailLimit; i++ {
+		arch := []string{"mips", "arm64", "riscv64", ""}[i%4]
+		if r, body := l5.get(t, http.MethodGet, "/join/"+sec5+"/bin/"+arch); r.StatusCode != http.StatusNotFound || body != wantBody {
+			t.Fatalf("bad arch %q (try %d): %d %q, want the uniform 404 %q", arch, i+1, r.StatusCode, body, wantBody)
+		}
+	}
+	if r, _ := l5.get(t, http.MethodGet, "/join/"+sec5); r.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("after %d bad-arch fetches: %d, want the lockout's 429, as after %d unknown tokens", authFailLimit, r.StatusCode, authFailLimit)
+	}
+	if !strings.Contains(l5.log.String(), "arch=mips") {
+		t.Errorf("the log does not say which arch:\n%s", l5.log.String())
 	}
 
 	// Percent-encoding anywhere under /join/: the path as sent must be the
@@ -309,8 +325,8 @@ func TestJoinEndpoints(t *testing.T) {
 	}
 
 	// The token never reaches the log: only its ID.
-	for _, lab := range []*joinLab{l, l2, l3, l4} {
-		for _, s := range []string{secret, sec2, sec3, sec4} {
+	for _, lab := range []*joinLab{l, l2, l3, l4, l5} {
+		for _, s := range []string{secret, sec2, sec3, sec4, sec5} {
 			if strings.Contains(lab.log.String(), strings.TrimPrefix(s, join.Prefix)) {
 				t.Errorf("the log holds a token:\n%s", lab.log.String())
 			}

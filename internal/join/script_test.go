@@ -99,8 +99,9 @@ func TestScriptHardening(t *testing.T) {
 		before string
 		after  string
 	}{
-		{name: "set -eu first", before: "\nset -eu\n", after: "ORBIT_SERVER="},
-		{name: "umask 077 before anything runs", before: "\numask 077\n", after: "[ \"$(uname -s)\""},
+		{name: "set -eu first", before: "\tset -eu\n", after: "ORBIT_SERVER="},
+		{name: "umask 077 before anything runs", before: "\tumask 077\n", after: "[ \"$(uname -s)\""},
+		{name: "main checks its call before anything runs", before: "[ \"$ORBIT_LAST\" = --run ] ||", after: "[ \"$(uname -s)\""},
 		{name: "sha256sum required before the download", before: "command -v sha256sum >/dev/null 2>&1 || die", after: "curl -fsS"},
 		{name: "a private work directory before the download", before: "WORK=$(mktemp -d)", after: "curl -fsS"},
 		{name: "removed on exit", before: "trap 'rm -rf \"$WORK\"' EXIT", after: "curl -fsS"},
@@ -118,6 +119,24 @@ func TestScriptHardening(t *testing.T) {
 	if at("set -eu") > firstCommand || at("umask 077") > firstCommand {
 		t.Error("strict mode or the umask comes after the first command")
 	}
+	// Everything runs from main, called with --run on the last line only:
+	// outside main there are comments and the call, and nothing else.
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if last := lines[len(lines)-1]; last != `main "$@" --run` {
+		t.Errorf("last line = %q, want the call of main", last)
+	}
+	inMain := false
+	for _, l := range lines[:len(lines)-1] {
+		switch {
+		case l == "main() {":
+			inMain = true
+		case l == "}" && inMain:
+			inMain = false
+		case !inMain && l != "" && !strings.HasPrefix(l, "#"):
+			t.Errorf("outside main: %q", l)
+		}
+	}
+
 	// Only the work directory's verified orbit is run or made executable.
 	for _, l := range strings.Split(s, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(l), "#") {
@@ -253,6 +272,42 @@ func TestScriptRuns(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a download cut short runs nothing", func(t *testing.T) {
+		// Cut at every line end (and mid-line) of the script, and in
+		// the final call: whatever arrives runs no command of the
+		// script's: no download, no verified line, nothing written.
+		var cuts []int
+		for i, c := range script {
+			if c == '\n' && i < len(script)-1 {
+				cuts = append(cuts, i, i-3)
+			}
+		}
+		last := strings.LastIndex(string(script), `main "$@" --run`)
+		for i := last; i < len(script)-1; i++ {
+			cuts = append(cuts, i)
+		}
+		for _, n := range cuts {
+			if n <= 0 {
+				continue
+			}
+			_ = os.Remove(marker)
+			before := fetched
+			tmp := t.TempDir()
+			cmd := exec.Command("sh", "-s")
+			cmd.Stdin = strings.NewReader(string(script[:n]))
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "TMPDIR=" + tmp}
+			out, _ := cmd.CombinedOutput()
+			if fetched != before || strings.Contains(string(out), "verified orbit") {
+				t.Fatalf("cut at %d of %d ran the script (%d fetches):\n%s", n, len(script), fetched-before, out)
+			}
+			if _, err := os.Stat(marker); err == nil {
+				t.Fatalf("cut at %d of %d ran the binary", n, len(script))
+			}
+			if left, _ := os.ReadDir(tmp); len(left) != 0 {
+				t.Fatalf("cut at %d of %d wrote %v", n, len(script), left)
+			}
+		}
+	})
 	t.Run("a different binary is refused", func(t *testing.T) {
 		_ = os.Remove(marker)
 		served = bad

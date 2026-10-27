@@ -213,7 +213,7 @@ func (j *joinService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		j.serveScript(w, r, tok, segs[0])
 		return
 	}
-	j.serveBinary(w, r, tok, segs[2])
+	j.serveBinary(w, r, tok, segs[2], peer)
 }
 
 // admit counts a request against its peer's per-minute limit.
@@ -278,10 +278,15 @@ func (j *joinService) serveScript(w http.ResponseWriter, r *http.Request, tok jo
 	_, _ = w.Write(script)
 }
 
-func (j *joinService) serveBinary(w http.ResponseWriter, r *http.Request, tok join.Token, arch string) {
+func (j *joinService) serveBinary(w http.ResponseWriter, r *http.Request, tok join.Token, arch, peer string) {
 	b, ok := j.bins[arch]
 	if !ok {
-		http.Error(w, fmt.Sprintf("no orbit binary for linux/%s on this server (orbit serve --join-binaries)", arch), http.StatusNotFound)
+		// The uniform 404, and a miss toward the peer's lockout, as for an
+		// unknown token: neither the answer nor the lockout may tell a valid
+		// token from a guess. The server's log says why (the script itself
+		// refuses an arch it has no SHA-256 for, before downloading).
+		j.sec.failWith(peer, "join binary for an arch this server does not serve", "id", tok.ID, "arch", arch)
+		http.Error(w, msgJoinNotFound, http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
