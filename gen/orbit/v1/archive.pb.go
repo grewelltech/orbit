@@ -77,7 +77,16 @@ type RunArchive struct {
 	//
 	//	*RunArchive_LoadSpec
 	//	*RunArchive_FleetSpec
-	Spec          isRunArchive_Spec `protobuf_oneof:"spec"`
+	Spec isRunArchive_Spec `protobuf_oneof:"spec"`
+	// ADR-0008 §2 additions, within archive version 1. The plan, masked
+	// like every stored spec (keys and tokens never stored).
+	Plan *RunPlan `protobuf:"bytes,12,opt,name=plan,proto3" json:"plan,omitempty"`
+	// Where each resolved field came from, the server's leases included.
+	Provenance []*FieldProvenance `protobuf:"bytes,13,rep,name=provenance,proto3" json:"provenance,omitempty"`
+	// What the run leased (§5).
+	Leases []*Lease `protobuf:"bytes,14,rep,name=leases,proto3" json:"leases,omitempty"`
+	// One report per workload.
+	Reports       []*RunReport `protobuf:"bytes,15,rep,name=reports,proto3" json:"reports,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -211,6 +220,34 @@ func (x *RunArchive) GetFleetSpec() *FleetRunSpec {
 	return nil
 }
 
+func (x *RunArchive) GetPlan() *RunPlan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
+}
+
+func (x *RunArchive) GetProvenance() []*FieldProvenance {
+	if x != nil {
+		return x.Provenance
+	}
+	return nil
+}
+
+func (x *RunArchive) GetLeases() []*Lease {
+	if x != nil {
+		return x.Leases
+	}
+	return nil
+}
+
+func (x *RunArchive) GetReports() []*RunReport {
+	if x != nil {
+		return x.Reports
+	}
+	return nil
+}
+
 type isRunArchive_Report interface {
 	isRunArchive_Report()
 }
@@ -247,7 +284,7 @@ var File_orbit_v1_archive_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_archive_proto_rawDesc = "" +
 	"\n" +
-	"\x16orbit/v1/archive.proto\x12\borbit.v1\x1a\x12orbit/v1/run.proto\"\xcc\x04\n" +
+	"\x16orbit/v1/archive.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x15orbit/v1/report.proto\x1a\x12orbit/v1/run.proto\x1a\x15orbit/v1/target.proto\"\x86\x06\n" +
 	"\n" +
 	"RunArchive\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\x1f\n" +
@@ -263,7 +300,13 @@ const file_orbit_v1_archive_proto_rawDesc = "" +
 	"\tload_spec\x18\n" +
 	" \x01(\v2\x15.orbit.v1.LoadRunSpecH\x01R\bloadSpec\x127\n" +
 	"\n" +
-	"fleet_spec\x18\v \x01(\v2\x16.orbit.v1.FleetRunSpecH\x01R\tfleetSpecB\b\n" +
+	"fleet_spec\x18\v \x01(\v2\x16.orbit.v1.FleetRunSpecH\x01R\tfleetSpec\x12%\n" +
+	"\x04plan\x18\f \x01(\v2\x11.orbit.v1.RunPlanR\x04plan\x129\n" +
+	"\n" +
+	"provenance\x18\r \x03(\v2\x19.orbit.v1.FieldProvenanceR\n" +
+	"provenance\x12'\n" +
+	"\x06leases\x18\x0e \x03(\v2\x0f.orbit.v1.LeaseR\x06leases\x12-\n" +
+	"\areports\x18\x0f \x03(\v2\x13.orbit.v1.RunReportR\areportsB\b\n" +
 	"\x06reportB\x06\n" +
 	"\x04specB0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
@@ -281,32 +324,40 @@ func file_orbit_v1_archive_proto_rawDescGZIP() []byte {
 
 var file_orbit_v1_archive_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_orbit_v1_archive_proto_goTypes = []any{
-	(*RunArchive)(nil),     // 0: orbit.v1.RunArchive
-	(*Run)(nil),            // 1: orbit.v1.Run
-	(*LoadProgress)(nil),   // 2: orbit.v1.LoadProgress
-	(*FleetProgress)(nil),  // 3: orbit.v1.FleetProgress
-	(*LoadReport)(nil),     // 4: orbit.v1.LoadReport
-	(*FleetReport)(nil),    // 5: orbit.v1.FleetReport
-	(*RunEvent)(nil),       // 6: orbit.v1.RunEvent
-	(*TelemetryFrame)(nil), // 7: orbit.v1.TelemetryFrame
-	(*LoadRunSpec)(nil),    // 8: orbit.v1.LoadRunSpec
-	(*FleetRunSpec)(nil),   // 9: orbit.v1.FleetRunSpec
+	(*RunArchive)(nil),      // 0: orbit.v1.RunArchive
+	(*Run)(nil),             // 1: orbit.v1.Run
+	(*LoadProgress)(nil),    // 2: orbit.v1.LoadProgress
+	(*FleetProgress)(nil),   // 3: orbit.v1.FleetProgress
+	(*LoadReport)(nil),      // 4: orbit.v1.LoadReport
+	(*FleetReport)(nil),     // 5: orbit.v1.FleetReport
+	(*RunEvent)(nil),        // 6: orbit.v1.RunEvent
+	(*TelemetryFrame)(nil),  // 7: orbit.v1.TelemetryFrame
+	(*LoadRunSpec)(nil),     // 8: orbit.v1.LoadRunSpec
+	(*FleetRunSpec)(nil),    // 9: orbit.v1.FleetRunSpec
+	(*RunPlan)(nil),         // 10: orbit.v1.RunPlan
+	(*FieldProvenance)(nil), // 11: orbit.v1.FieldProvenance
+	(*Lease)(nil),           // 12: orbit.v1.Lease
+	(*RunReport)(nil),       // 13: orbit.v1.RunReport
 }
 var file_orbit_v1_archive_proto_depIdxs = []int32{
-	1, // 0: orbit.v1.RunArchive.run:type_name -> orbit.v1.Run
-	2, // 1: orbit.v1.RunArchive.load_progress:type_name -> orbit.v1.LoadProgress
-	3, // 2: orbit.v1.RunArchive.fleet_progress:type_name -> orbit.v1.FleetProgress
-	4, // 3: orbit.v1.RunArchive.load_report:type_name -> orbit.v1.LoadReport
-	5, // 4: orbit.v1.RunArchive.fleet_report:type_name -> orbit.v1.FleetReport
-	6, // 5: orbit.v1.RunArchive.events:type_name -> orbit.v1.RunEvent
-	7, // 6: orbit.v1.RunArchive.frames:type_name -> orbit.v1.TelemetryFrame
-	8, // 7: orbit.v1.RunArchive.load_spec:type_name -> orbit.v1.LoadRunSpec
-	9, // 8: orbit.v1.RunArchive.fleet_spec:type_name -> orbit.v1.FleetRunSpec
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	1,  // 0: orbit.v1.RunArchive.run:type_name -> orbit.v1.Run
+	2,  // 1: orbit.v1.RunArchive.load_progress:type_name -> orbit.v1.LoadProgress
+	3,  // 2: orbit.v1.RunArchive.fleet_progress:type_name -> orbit.v1.FleetProgress
+	4,  // 3: orbit.v1.RunArchive.load_report:type_name -> orbit.v1.LoadReport
+	5,  // 4: orbit.v1.RunArchive.fleet_report:type_name -> orbit.v1.FleetReport
+	6,  // 5: orbit.v1.RunArchive.events:type_name -> orbit.v1.RunEvent
+	7,  // 6: orbit.v1.RunArchive.frames:type_name -> orbit.v1.TelemetryFrame
+	8,  // 7: orbit.v1.RunArchive.load_spec:type_name -> orbit.v1.LoadRunSpec
+	9,  // 8: orbit.v1.RunArchive.fleet_spec:type_name -> orbit.v1.FleetRunSpec
+	10, // 9: orbit.v1.RunArchive.plan:type_name -> orbit.v1.RunPlan
+	11, // 10: orbit.v1.RunArchive.provenance:type_name -> orbit.v1.FieldProvenance
+	12, // 11: orbit.v1.RunArchive.leases:type_name -> orbit.v1.Lease
+	13, // 12: orbit.v1.RunArchive.reports:type_name -> orbit.v1.RunReport
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_archive_proto_init() }
@@ -314,7 +365,10 @@ func file_orbit_v1_archive_proto_init() {
 	if File_orbit_v1_archive_proto != nil {
 		return
 	}
+	file_orbit_v1_plan_proto_init()
+	file_orbit_v1_report_proto_init()
 	file_orbit_v1_run_proto_init()
+	file_orbit_v1_target_proto_init()
 	file_orbit_v1_archive_proto_msgTypes[0].OneofWrappers = []any{
 		(*RunArchive_LoadReport)(nil),
 		(*RunArchive_FleetReport)(nil),

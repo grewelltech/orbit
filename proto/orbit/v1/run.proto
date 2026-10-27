@@ -5,6 +5,7 @@ package orbit.v1;
 import "orbit/v1/options.proto";
 
 import "orbit/v1/cell.proto";
+import "orbit/v1/plan.proto";
 import "orbit/v1/ue.proto";
 
 option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
@@ -60,6 +61,7 @@ enum RunKind {
   RUN_KIND_FLEET = 2;
   RUN_KIND_SCENARIO = 3;
   RUN_KIND_CONFORMANCE = 4;
+  RUN_KIND_MIXED = 5;             // a plan with more than one workload (ADR-0008 §2)
 }
 
 // RunState is a run's lifecycle position:
@@ -141,8 +143,13 @@ enum EventVerbosity {
 message StartRunRequest {
   string name = 1;                // optional label; server names it if empty
   oneof spec {
+    // load and fleet are superseded by plan; kept for compatibility
+    // (ADR-0008 §2). The server translates them into a one-workload plan.
     LoadRunSpec load = 2;
     FleetRunSpec fleet = 3;
+    // plan is the general spec (ADR-0008 §2). Until R2 the server answers
+    // it with UNIMPLEMENTED.
+    RunPlan plan = 5;
   }
   EventVerbosity event_verbosity = 4;
 }
@@ -364,6 +371,9 @@ message GetRunResponse {
   // not complete. A finished run's fleet_progress is its torn-down live
   // snapshot (UEs currently attached: none), so read totals from here.
   FleetReport fleet_report = 4;
+  // The resources the run leases while active (ADR-0008 §5); empty once
+  // it is terminal.
+  repeated Lease leases = 5;
 }
 
 message RunTelemetryRequest {
