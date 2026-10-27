@@ -29,7 +29,7 @@ Plan:
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join control ens4 192.0.2.10/32 9551"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 10.250.0.0/16 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 198.51.100.0/24 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
-  8. install /etc/systemd/system/orbit-responder.service (not enabled or started):
+  8. install /etc/systemd/system/orbit-responder.service:
        | [Unit]
        | Description=orbit N6 responder (orbit join)
        | Wants=network-online.target
@@ -38,9 +38,11 @@ Plan:
        | [Service]
        | User=orbit
        | Group=orbit
+       | LoadCredential=responder.yaml:/etc/orbit/responder.yaml
        | ExecStartPre=+/usr/local/lib/orbit/join-net.sh
-       | ExecStart=/usr/local/lib/orbit/orbit responder --bind 192.0.2.20:9551
+       | ExecStart=/usr/local/lib/orbit/orbit responder --config ${CREDENTIALS_DIRECTORY}/responder.yaml
        | Restart=on-failure
+       | RestartPreventExitStatus=78
        | NoNewPrivileges=yes
        | ProtectSystem=strict
        | ProtectHome=yes
@@ -50,6 +52,13 @@ Plan:
        | 
        | [Install]
        | WantedBy=multi-user.target
+  9. register the responder on this host with the server as app1 (credential: new)
+       '/usr/local/lib/orbit/orbit' responder register --server 'https://192.0.2.10:8412' --pin 'sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' --token-file '<work>/token' --name 'app1' --control '192.0.2.20:9551' --data-ip '198.51.100.20' --data-ports '32768-60999' --config '/etc/orbit/responder.yaml'
+       (the join token is read from a file in this run's private directory, mode 0600)
+  10. enable and (re)start orbit-responder, then wait for the server to see it online
+       systemctl enable orbit-responder
+       systemctl restart orbit-responder
+       '/usr/local/lib/orbit/orbit' responder check --config '/etc/orbit/responder.yaml' --wait 20s
 
 orbit join: no terminal to confirm on: nothing was changed. To apply, rerun with --yes (… | sudo sh -s -- --yes)
 --- exit: 0

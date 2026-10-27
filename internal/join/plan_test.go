@@ -33,6 +33,8 @@ type fakeHost struct {
 	// unvalidated renders the spec without Validate, to show the script
 	// refuses on its own what validation stops.
 	unvalidated bool
+	// extraStep is the render's test-only extra command (see ScriptData).
+	extraStep string
 }
 
 // scriptServer is a real TLS server the script downloads from with the real
@@ -61,7 +63,7 @@ var readOnly = map[string][]string{
 	"getent":       {"getent *"},
 	"ufw":          {"ufw status"},
 	"firewall-cmd": {"firewall-cmd --state"},
-	"systemctl":    {"systemctl is-active *", "systemctl is-enabled *", "systemctl cat *"},
+	"systemctl":    {"systemctl is-active *", "systemctl is-enabled *", "systemctl cat *", "systemctl --version"},
 }
 
 // fakeOrbit is the binary the fake server serves: it runs and does nothing.
@@ -85,6 +87,7 @@ func v4Host() fakeHost {
 			"nft list ruleset":              "",
 			"iptables -S INPUT":             "-P INPUT ACCEPT",
 			"ip6tables -S INPUT":            "-P INPUT ACCEPT",
+			"systemctl --version":           "systemd 252 (252.22-1~deb12u1)\n+PAM +AUDIT",
 		},
 	}
 }
@@ -119,6 +122,8 @@ func applied(t *testing.T, sh string) fakeHost {
 			"\t\tiifname \"ens5\" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment \"orbit-join data ens5 198.51.100.0/24 32768-60999\" # handle 9\n"+
 			"\t}\n}",
 		"getent passwd orbit", "orbit:x:998:998::/nonexistent:/usr/sbin/nologin",
+		"systemctl is-enabled orbit-responder", "enabled",
+		"systemctl is-active orbit-responder", "active",
 	)
 	// The files the first run installed, read back from its own root.
 	first := runHost(t, sh, v4Host().with("nft list ruleset", nftDrop,
@@ -131,6 +136,8 @@ func applied(t *testing.T, sh string) fakeHost {
 		}
 		h.files[f] = string(b)
 	}
+	// The fake orbit registers nothing: the config the real one writes.
+	h.files["etc/orbit/responder.yaml"] = "registered\n"
 	return h
 }
 
@@ -209,7 +216,11 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte(v), 0o644); err != nil {
+		mode := os.FileMode(0o644)
+		if strings.HasPrefix(k, "usr/local/lib/orbit/") {
+			mode = 0o755 // installed executables
+		}
+		if err := os.WriteFile(p, []byte(v), mode); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -290,7 +301,7 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 	d := testData()
 	d.Nonce = testNonce
 	d.SHA256 = map[string]string{"amd64": hex.EncodeToString(sum[:]), "arm64": hex.EncodeToString(sum[:])}
-	d.root, d.path = root, bin
+	d.root, d.path, d.extraStep = root, bin, h.extraStep
 	if h.server != nil {
 		d.ServerURL, d.Pin = h.server.url, h.server.pin
 		d.SHA256 = map[string]string{"amd64": h.server.sha, "arm64": h.server.sha}
@@ -321,7 +332,8 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 	if left, _ := os.ReadDir(tmp); len(left) != 0 {
 		t.Errorf("the work directory was left behind: %v", left)
 	}
-	r := hostRun{out: strings.ReplaceAll(string(out), root, ""), err: err, root: root, dir: dir}
+	shown := strings.ReplaceAll(strings.ReplaceAll(string(out), root, ""), dir, "<tmp>")
+	r := hostRun{out: workRE.ReplaceAllString(shown, "<work>"), err: err, root: root, dir: dir}
 	r.rootChanged = !reflect.DeepEqual(before, snapshot(t, root))
 	if b, rerr := os.ReadFile(log); rerr == nil {
 		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
@@ -388,6 +400,7 @@ func planRows() []planRow {
 		"nft list ruleset":                      nftDrop,
 		"nft -a list chain inet filter input":   "table inet filter {\n}",
 		"ip6tables -S INPUT":                    "-P INPUT ACCEPT",
+		"systemctl --version":                   "systemd 252 (252.22-1~deb12u1)",
 	}}
 	// A server named by a host name: one IPv4 and one IPv6 address picks
 	// the IPv4 one; two IPv4 addresses is a refusal.
@@ -453,6 +466,33 @@ func planRows() []planRow {
 			h.spec = &Spec{UEPools: []string{"10.250.0.0/16;touch pwned"}, UPFN6: testSpec.UPFN6, N6Subnet: testSpec.N6Subnet, Management: testSpec.Management}
 			return h
 		}()), args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		// An input chain at policy drop with no rules filters everything.
+		{name: "nft-empty-drop-chain", host: hostFn(nft.with("nft list ruleset", "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy drop;\n\t}\n}")),
+			args: []string{"--yes"}},
+		// A multi-line set inside a rule: the chain is read to its own
+		// closing brace (filtered, one rule), and the table after it too.
+		{name: "nft-multiline-set", host: hostFn(nft.with("nft list ruleset", "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n"+
+			"\t\tip saddr {\n\t\t\t203.0.113.1,\n\t\t\t203.0.113.2\n\t\t} drop\n\t}\n}\ntable ip nat {\n\tchain post {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n\t}\n}")),
+			args: []string{"--yes"}},
+		// The control and N6 interfaces are one: named once.
+		{name: "firewalld-one-interface", host: hostFn(firewalld.with("ip -o -4 route get 192.0.2.10", "192.0.2.10 via 198.51.100.254 dev ens5 src 198.51.100.20 uid 0")),
+			args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		// A command only inert() stops: with inert() a no-op it would run.
+		{name: "inert-stops-a-command", host: hostFn(func() fakeHost { h := nft; h.extraStep = "true $(touch pwned)"; return h }()),
+			args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		// Registration: an existing config is left alone unless --reregister;
+		// a pending one is resumed.
+		{name: "reregister", host: applied, args: []string{"--yes", "--reregister"}},
+		{name: "resume-pending", host: func(t *testing.T, sh string) fakeHost {
+			h := applied(t, sh)
+			delete(h.files, "etc/orbit/responder.yaml")
+			h.files["etc/orbit/responder.yaml.pending"] = "pending\n"
+			return h
+		}, args: []string{"--yes"}},
+		// systemd older than 247: no LoadCredential, the config is orbit's.
+		{name: "systemd-245", host: hostFn(nft.with("systemctl --version", "systemd 245 (245.4-4ubuntu3)")), args: []string{"--yes"}},
+		// The service does not come up: the hints, and the registration stands.
+		{name: "start-fails", host: hostFn(fail(nft, "systemctl restart orbit-responder")), args: []string{"--yes"}, wantFail: true},
 		{name: "skips", host: hostFn(nft), args: []string{"--yes", "--no-firewall", "--no-route"}},
 		// Idempotency: a second run changes nothing; a partial state plans
 		// only what is missing; an earlier join's rule is removed.

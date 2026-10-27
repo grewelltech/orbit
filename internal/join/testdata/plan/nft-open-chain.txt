@@ -16,7 +16,7 @@ Plan:
        | set -eu
        | PATH=/usr/sbin:/usr/bin:/sbin:/bin
        | ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
-  5. install /etc/systemd/system/orbit-responder.service (not enabled or started):
+  5. install /etc/systemd/system/orbit-responder.service:
        | [Unit]
        | Description=orbit N6 responder (orbit join)
        | Wants=network-online.target
@@ -25,9 +25,11 @@ Plan:
        | [Service]
        | User=orbit
        | Group=orbit
+       | LoadCredential=responder.yaml:/etc/orbit/responder.yaml
        | ExecStartPre=+/usr/local/lib/orbit/join-net.sh
-       | ExecStart=/usr/local/lib/orbit/orbit responder --bind 192.0.2.20:9551
+       | ExecStart=/usr/local/lib/orbit/orbit responder --config ${CREDENTIALS_DIRECTORY}/responder.yaml
        | Restart=on-failure
+       | RestartPreventExitStatus=78
        | NoNewPrivileges=yes
        | ProtectSystem=strict
        | ProtectHome=yes
@@ -37,10 +39,18 @@ Plan:
        | 
        | [Install]
        | WantedBy=multi-user.target
+  6. register the responder on this host with the server as app1 (credential: new)
+       '/usr/local/lib/orbit/orbit' responder register --server 'https://192.0.2.10:8412' --pin 'sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' --token-file '<work>/token' --name 'app1' --control '192.0.2.20:9551' --data-ip '198.51.100.20' --data-ports '32768-60999' --config '/etc/orbit/responder.yaml'
+       (the join token is read from a file in this run's private directory, mode 0600)
+  7. enable and (re)start orbit-responder, then wait for the server to see it online
+       systemctl enable orbit-responder
+       systemctl restart orbit-responder
+       '/usr/local/lib/orbit/orbit' responder check --config '/etc/orbit/responder.yaml' --wait 20s
 
 fake orbit ran: version
-orbit join: applied 5 changes.
-orbit join: The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server.
+fake orbit ran: responder register --server https://192.0.2.10:8412 --pin sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU= --token-file <work>/token --name app1 --control 192.0.2.20:9551 --data-ip 198.51.100.20 --data-ports 32768-60999 --config /etc/orbit/responder.yaml
+fake orbit ran: responder check --config /etc/orbit/responder.yaml --wait 20s
+orbit join: applied 7 changes.
 --- exit: 0
 --- changes:
 install -d -m 0755 <tmp>/root/usr/local/lib/orbit
@@ -51,3 +61,5 @@ install -d -m 0755 <tmp>/root/usr/local/lib/orbit
 install -m 0755 <work>/join-net.sh <tmp>/root/usr/local/lib/orbit/join-net.sh
 install -m 0644 <work>/unit <tmp>/root/etc/systemd/system/orbit-responder.service
 systemctl daemon-reload
+systemctl enable orbit-responder
+systemctl restart orbit-responder

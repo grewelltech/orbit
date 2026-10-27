@@ -9,10 +9,14 @@ Plan:
        ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
   ok: firewall: IPv4 input is not filtered on this host (no input rules, policy accept); nothing to open
   ok: systemd unit: skipped (--no-systemd)
+  3. register the responder on this host with the server as app1 (credential: new)
+       '/usr/local/lib/orbit/orbit' responder register --server 'https://192.0.2.10:8412' --pin 'sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' --token-file '<work>/token' --name 'app1' --control '192.0.2.20:9551' --data-ip '198.51.100.20' --data-ports '32768-60999' --config '/etc/orbit/responder.yaml'
+       (the join token is read from a file in this run's private directory, mode 0600)
 
 fake orbit ran: version
-orbit join: applied 2 changes.
-orbit join: The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server.
+fake orbit ran: responder register --server https://192.0.2.10:8412 --pin sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU= --token-file <work>/token --name app1 --control 192.0.2.20:9551 --data-ip 198.51.100.20 --data-ports 32768-60999 --config /etc/orbit/responder.yaml
+orbit join: applied 3 changes.
+orbit join: no systemd unit (--no-systemd): run the responder yourself, as an unprivileged user that can read /etc/orbit/responder.yaml: orbit responder --config /etc/orbit/responder.yaml
 --- exit: 0
 --- changes:
 install -d -m 0755 <tmp>/root/usr/local/lib/orbit

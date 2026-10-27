@@ -15,9 +15,10 @@ Plan:
   ok: user orbit exists
   ok: /usr/local/lib/orbit/join-net.sh is up to date
   ok: /etc/systemd/system/orbit-responder.service is up to date
+  ok: registered: /etc/orbit/responder.yaml is there (--reregister rotates its credential and loom token)
+  ok: orbit-responder is enabled and running
 
 orbit join: nothing to change
-orbit join: The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server.
 --- exit: 0
 --- changes:
 

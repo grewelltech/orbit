@@ -144,10 +144,10 @@ func TestScriptHardening(t *testing.T) {
 	// Nothing changes the host outside the plan: every command that would
 	// is a plan step's (cmd), a line of the helper, or written to the apply
 	// file, which runs only after the confirmation.
-	changers := regexp.MustCompile(`\b(route replace|nft (insert|delete) rule|tables -[NFAI] |useradd |systemctl |install -)`)
+	changers := regexp.MustCompile(`\b(route replace|nft (insert|delete) rule|tables -[NFAI] |useradd |systemctl (enable|disable|start|restart|stop|daemon-reload)|install -)`)
 	for _, l := range strings.Split(s, "\n") {
 		c := strings.TrimSpace(l)
-		if strings.HasPrefix(c, "#") || !changers.MatchString(c) {
+		if strings.HasPrefix(c, "#") || strings.HasPrefix(c, "echo \"orbit join: ") || !changers.MatchString(c) {
 			continue
 		}
 		if !strings.HasPrefix(c, "cmd \"") && !strings.HasPrefix(c, "helper \"") && !strings.Contains(c, `>>"$APPLY"`) &&
