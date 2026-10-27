@@ -154,6 +154,9 @@ func boundFlags(cmd *cobra.Command) map[string]target.Binding {
 // target values through its flags. With no target named and no --explain,
 // nothing is resolved and the command runs exactly as before.
 func (t *targets) apply(cmd *cobra.Command) error {
+	if cmd.Annotations[targetFileAnnotation] != "" {
+		return nil // the command resolves its scenario file's target itself
+	}
 	path := cmd.CommandPath()
 	fs := cmd.Flags()
 	ours := fs.Lookup("target") == t.flag

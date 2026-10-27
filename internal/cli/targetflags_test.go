@@ -905,7 +905,9 @@ func TestNoTargetNeverResolves(t *testing.T) {
 	clearOrbitEnv(t)
 	var walk func(c *cobra.Command, f func(*cobra.Command))
 	walk = func(c *cobra.Command, f func(*cobra.Command)) {
-		if c.Runnable() && len(boundFlags(c)) > 0 {
+		// Commands that take a scenario file resolve its target themselves
+		// (scenarioTarget), outside the flag hook.
+		if c.Runnable() && len(boundFlags(c)) > 0 && c.Annotations[targetFileAnnotation] == "" {
 			f(c)
 		}
 		for _, s := range c.Commands() {

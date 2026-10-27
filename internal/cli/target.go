@@ -65,6 +65,19 @@ type initDoc struct {
 	Core        target.Core   `yaml:"core"`
 	Subscribers []target.Pool `yaml:"subscribers,omitempty"`
 	RAN         initRAN       `yaml:"ran,omitempty"`
+	App         *target.App   `yaml:"app,omitempty"`
+}
+
+// parseResponder reads one --responder: name=control[,data_ip], e.g.
+// n6=203.0.113.20:9551,203.0.113.21. A token is not taken on the command
+// line; add it to the file as ${VAR}.
+func parseResponder(v string) (target.Responder, error) {
+	name, rest, ok := strings.Cut(v, "=")
+	if !ok || name == "" || rest == "" {
+		return target.Responder{}, fmt.Errorf("--responder %q: want name=control[,data_ip], e.g. n6=203.0.113.20:9551,203.0.113.21", v)
+	}
+	control, dataIP, _ := strings.Cut(rest, ",")
+	return target.Responder{Name: name, Control: control, DataIP: dataIP}, nil
 }
 
 type initRAN struct {
@@ -77,6 +90,7 @@ type targetLocations func() (target.Locations, error)
 func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 	var (
 		amf, firstSUPI, ki, opc, n2, n3 string
+		responders                      []string
 		id                              netIdentity
 		count                           uint32
 		writeKeys, noProbe, here, force bool
@@ -184,6 +198,17 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 				doc.RAN.N3IPs = []string{n3}
 			}
 
+			for _, v := range responders {
+				r, err := parseResponder(v)
+				if err != nil {
+					return err
+				}
+				if doc.App == nil {
+					doc.App = &target.App{}
+				}
+				doc.App.Responders = append(doc.App.Responders, r)
+			}
+
 			b, err := yaml.Marshal(doc)
 			if err != nil {
 				return err
@@ -232,6 +257,7 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 	f.StringVar(&n2, "bind", "", bindFlagHelp+"; recorded as the target's N2 source (default: the one the server's NG Setup used)")
 	f.StringVar(&n3, "gnb-n3", "", "gNB N3 IP to record (default: the N2 source)")
 	f.BoolVar(&noProbe, "no-probe", false, "skip the NG Setup (needs --bind)")
+	f.StringArrayVar(&responders, "responder", nil, "an N6 responder, name=control[,data_ip] (repeatable), e.g. n6=203.0.113.20:9551,203.0.113.21")
 	f.BoolVar(&here, "here", false, "write ./orbit.yaml instead (only when it does not exist)")
 	f.BoolVar(&force, "force", false, "overwrite an existing file, and write even when the NG Setup fails")
 	f.DurationVar(&timeout, "timeout", 10*time.Second, "bound on the NG Setup")
@@ -476,20 +502,7 @@ func newTargetShowCmd(loc targetLocations) *cobra.Command {
 				return nil
 			}
 			_, _ = fmt.Fprintf(out, "target %s, resolved: default < target %s < env\n", f.Target.Name, shortPath(f.Path))
-			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "FIELD\tVALUE\tSET BY\tOVERRODE")
-			for _, p := range rows {
-				var over []string
-				for _, o := range p.Overridden {
-					over = append(over, shortSource(o.Source)+"="+o.Value)
-				}
-				v := p.Value
-				if v == "" || v == "[]" {
-					v = "(none)"
-				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Path, v, shortSource(p.Source), dash(strings.Join(over, "; ")))
-			}
-			return tw.Flush()
+			return printProvenance(out, rows)
 		},
 	}
 	cmd.Flags().BoolVar(&resolved, "resolved", false, "show each field's value after layering, with its source")
@@ -758,4 +771,23 @@ func printProbe(w io.Writer, name string, steps []probeStep) {
 	}
 	_ = tw.Flush()
 	_, _ = fmt.Fprintf(w, "probe %s: %d of 3 steps passed\n", name, passed)
+}
+
+// printProvenance prints provenance rows: each field's value (masked when
+// secret), the source that set it and what it overrode.
+func printProvenance(w io.Writer, rows []target.FieldProvenance) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE\tSET BY\tOVERRODE")
+	for _, p := range rows {
+		var over []string
+		for _, o := range p.Overridden {
+			over = append(over, shortSource(o.Source)+"="+o.Value)
+		}
+		v := p.Value
+		if v == "" || v == "[]" {
+			v = "(none)"
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", p.Path, v, shortSource(p.Source), dash(strings.Join(over, "; ")))
+	}
+	return tw.Flush()
 }
