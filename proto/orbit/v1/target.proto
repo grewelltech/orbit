@@ -29,6 +29,9 @@ message TargetCore {
   string dnn = 5;
   string profile = 6;             // core-compatibility profile, e.g. "sdcore"
   string upf_n3 = 7;              // UPF N3 endpoint, host:port
+  repeated string ue_pools = 8;   // CIDRs the core gives UEs their addresses from
+  string upf_n6 = 9;              // the UPF's N6 address: the return route's next hop
+  string n6_subnet = 10;          // the N6 network (CIDR) the UPF sits on
 }
 
 // Plmn is a PLMN ID as typed: leading zeros are significant.

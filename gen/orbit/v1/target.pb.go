@@ -172,8 +172,11 @@ type TargetCore struct {
 	Tac           uint32                 `protobuf:"varint,3,opt,name=tac,proto3" json:"tac,omitempty"`
 	Slices        []*Snssai              `protobuf:"bytes,4,rep,name=slices,proto3" json:"slices,omitempty"`
 	Dnn           string                 `protobuf:"bytes,5,opt,name=dnn,proto3" json:"dnn,omitempty"`
-	Profile       string                 `protobuf:"bytes,6,opt,name=profile,proto3" json:"profile,omitempty"`          // core-compatibility profile, e.g. "sdcore"
-	UpfN3         string                 `protobuf:"bytes,7,opt,name=upf_n3,json=upfN3,proto3" json:"upf_n3,omitempty"` // UPF N3 endpoint, host:port
+	Profile       string                 `protobuf:"bytes,6,opt,name=profile,proto3" json:"profile,omitempty"`                    // core-compatibility profile, e.g. "sdcore"
+	UpfN3         string                 `protobuf:"bytes,7,opt,name=upf_n3,json=upfN3,proto3" json:"upf_n3,omitempty"`           // UPF N3 endpoint, host:port
+	UePools       []string               `protobuf:"bytes,8,rep,name=ue_pools,json=uePools,proto3" json:"ue_pools,omitempty"`     // CIDRs the core gives UEs their addresses from
+	UpfN6         string                 `protobuf:"bytes,9,opt,name=upf_n6,json=upfN6,proto3" json:"upf_n6,omitempty"`           // the UPF's N6 address: the return route's next hop
+	N6Subnet      string                 `protobuf:"bytes,10,opt,name=n6_subnet,json=n6Subnet,proto3" json:"n6_subnet,omitempty"` // the N6 network (CIDR) the UPF sits on
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -253,6 +256,27 @@ func (x *TargetCore) GetProfile() string {
 func (x *TargetCore) GetUpfN3() string {
 	if x != nil {
 		return x.UpfN3
+	}
+	return ""
+}
+
+func (x *TargetCore) GetUePools() []string {
+	if x != nil {
+		return x.UePools
+	}
+	return nil
+}
+
+func (x *TargetCore) GetUpfN6() string {
+	if x != nil {
+		return x.UpfN6
+	}
+	return ""
+}
+
+func (x *TargetCore) GetN6Subnet() string {
+	if x != nil {
+		return x.N6Subnet
 	}
 	return ""
 }
@@ -835,7 +859,7 @@ const file_orbit_v1_target_proto_rawDesc = "" +
 	"\x04core\x18\x02 \x01(\v2\x14.orbit.v1.TargetCoreR\x04core\x12:\n" +
 	"\vsubscribers\x18\x03 \x03(\v2\x18.orbit.v1.SubscriberPoolR\vsubscribers\x12%\n" +
 	"\x03ran\x18\x04 \x01(\v2\x13.orbit.v1.TargetRANR\x03ran\x12%\n" +
-	"\x03app\x18\x05 \x01(\v2\x13.orbit.v1.TargetAppR\x03app\"\xc1\x01\n" +
+	"\x03app\x18\x05 \x01(\v2\x13.orbit.v1.TargetAppR\x03app\"\x90\x02\n" +
 	"\n" +
 	"TargetCore\x12\x10\n" +
 	"\x03amf\x18\x01 \x01(\tR\x03amf\x12\"\n" +
@@ -844,7 +868,11 @@ const file_orbit_v1_target_proto_rawDesc = "" +
 	"\x06slices\x18\x04 \x03(\v2\x10.orbit.v1.SnssaiR\x06slices\x12\x10\n" +
 	"\x03dnn\x18\x05 \x01(\tR\x03dnn\x12\x18\n" +
 	"\aprofile\x18\x06 \x01(\tR\aprofile\x12\x15\n" +
-	"\x06upf_n3\x18\a \x01(\tR\x05upfN3\"*\n" +
+	"\x06upf_n3\x18\a \x01(\tR\x05upfN3\x12\x19\n" +
+	"\bue_pools\x18\b \x03(\tR\auePools\x12\x15\n" +
+	"\x06upf_n6\x18\t \x01(\tR\x05upfN6\x12\x1b\n" +
+	"\tn6_subnet\x18\n" +
+	" \x01(\tR\bn6Subnet\"*\n" +
 	"\x04Plmn\x12\x10\n" +
 	"\x03mcc\x18\x01 \x01(\tR\x03mcc\x12\x10\n" +
 	"\x03mnc\x18\x02 \x01(\tR\x03mnc\"\xb4\x01\n" +
