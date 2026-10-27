@@ -299,6 +299,9 @@ func convert(f field, v any) (any, error) {
 	case tStrings:
 		switch x := v.(type) {
 		case string:
+			if x == "" {
+				return []string{}, nil // an empty flag clears the list
+			}
 			return []string{x}, nil
 		case []string:
 			return append([]string(nil), x...), nil

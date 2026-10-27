@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/bgrewell/orbit/internal/gtpu"
 	"github.com/bgrewell/orbit/internal/target"
 )
 
@@ -35,8 +36,11 @@ const (
 	targetFlagHelp = "target to run against, from ./orbit.yaml or ~/.config/orbit/targets/<name>.yaml " +
 		"(default $ORBIT_TARGET); flags and $ORBIT_* still override its fields"
 	explainFlagHelp = "print where each setting came from (default, target, env or flag) and what it overrode, then run"
-	gtpuPort        = "2152"
 )
+
+// gtpuPort is what --n3-bind takes when a target's N3 entry has no port:
+// the GTP-U port, as the flag's own example (172.17.50.12:2152) has it.
+var gtpuPort = strconv.Itoa(gtpu.Port)
 
 // targets wires ADR-0008's resolver into the command tree: the persistent
 // -t/--target and --explain flags, a PreRunE on every runnable command, and
@@ -421,7 +425,12 @@ func explain(w io.Writer, cmd, name string, bound map[string]target.Binding, r *
 			}
 			flags = append(flags, s)
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p, dash(pv.Value), shortSource(pv.Source), dash(strings.Join(over, "; ")), strings.Join(flags, " "))
+		value, setBy := pv.Value, shortSource(pv.Source)
+		if value == "" || value == "[]" {
+			// An empty value from a layer clears the field (--bind "").
+			value, setBy = "(cleared)", "cleared by "+setBy
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p, value, setBy, dash(strings.Join(over, "; ")), strings.Join(flags, " "))
 	}
 	_ = tw.Flush()
 	var unused []string

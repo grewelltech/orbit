@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -15,6 +19,8 @@ import (
 
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
+	"github.com/bgrewell/orbit/internal/observability"
+	"github.com/bgrewell/orbit/internal/server"
 	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -508,5 +514,84 @@ func TestConformanceUEFlagsFromTargetAreNotRefused(t *testing.T) {
 	r = runOrbit(t, loc, append(skipAll, "-t", "lab1", "--supi", "", "--ki", testKi)...)
 	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "need --supi") {
 		t.Errorf("a user's --ki without --supi: err = %v, want the refusal", r.execErr)
+	}
+}
+
+// An explicit empty --bind clears the field and wins over the target: the
+// N2 source is route-selected, not the target's first source IP, and
+// --explain says it was cleared.
+func TestEmptyBindClearsTarget(t *testing.T) {
+	clearOrbitEnv(t)
+	r := runOrbit(t, targetDir(t, lab1), append(skipAll, "-t", "lab1", "--bind", "", "--explain")...)
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	if got := r.flag(t, "bind"); got != "" {
+		t.Errorf("--bind = %q, want route-selected (empty)", got)
+	}
+	if strings.Contains(r.out, "n2-source=192.0.2.50") {
+		t.Errorf("the target's source was used:\n%s", r.out)
+	}
+	row := lineWith(r.err, "ran.n2_source_ips ")
+	if !strings.Contains(row, "(cleared)") || !strings.Contains(row, "cleared by flag --bind") || !strings.Contains(row, "192.0.2.50-192.0.2.59") {
+		t.Errorf("explain row %q, want cleared by flag --bind over the target pool", row)
+	}
+}
+
+// ue register, the most-used path, gives the same result with -t and no
+// other flags as with today's explicit flag line: a real server, the mock
+// AMF behind a real SCTP listener, a fresh pair for each run.
+func TestUERegisterTargetMatchesLongCommandLine(t *testing.T) {
+	clearOrbitEnv(t)
+	register := func(name string, args ...string) (string, error) {
+		ki, _ := auth.ParseHexKey("Ki", testKi)
+		opc, _ := auth.ParseHexKey("OPc", testOPc)
+		amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+			MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		front := sctpfront.Start(t, amf)
+		srv := httptest.NewServer(server.New(observability.NewLogger(io.Discard, slog.LevelError), "test",
+			observability.NewRegistry(), server.Options{StateDir: ""}))
+		t.Cleanup(srv.Close)
+		doc := `version: 1
+kind: target
+name: lab1
+core:
+  amf: ` + front.Addr + `
+  plmn: { mcc: "208", mnc: "93" }
+  slices:
+    - { sst: 1, sd: "010203" }
+subscribers:
+  - name: main
+    first_supi: "208930000000001"
+    ki: ` + testKi + `
+    opc: ` + testOPc + `
+ran:
+  n2_source_ips: [127.0.0.1-127.0.0.9]
+  gnb_ids: { first: 7 }
+`
+		args = append([]string{"--server", srv.URL, "ue", "register"}, args...)
+		for i, a := range args {
+			args[i] = strings.ReplaceAll(a, "$AMF", front.Addr)
+		}
+		r := runOrbit(t, targetDir(t, doc), args...)
+		// The AMF-UE-NGAP-ID and the ephemeral source port vary run to run.
+		out := regexp.MustCompile(`AMF-UE-NGAP-ID \d+`).ReplaceAllString(r.out, "AMF-UE-NGAP-ID N")
+		out = regexp.MustCompile(`(n2-source=[0-9.]+):\d+`).ReplaceAllString(out, "$1:P")
+		return out, r.execErr
+	}
+	long, lerr := register("long", "--amf", "$AMF", "--mcc", "208", "--mnc", "93", "--sst", "1", "--sd", "010203",
+		"--supi", "208930000000001", "--ki", testKi, "--opc", testOPc, "--bind", "127.0.0.1", "--gnb-id", "7")
+	short, serr := register("-t", "-t", "lab1")
+	if lerr != nil {
+		t.Fatalf("long command line: %v\n%s", lerr, long)
+	}
+	if !strings.Contains(long, "registered=true") || !strings.Contains(long, "n2-source=127.0.0.1:P") {
+		t.Fatalf("long command line did not register through 127.0.0.1:\n%s", long)
+	}
+	if serr != nil || short != long {
+		t.Errorf("-t differs from the long command line (err %v):\nlong:\n%s\n-t:\n%s", serr, long, short)
 	}
 }
