@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -21,29 +22,117 @@ import (
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 )
 
-// Names are the field and YAML key names that hold secrets. A proto field
-// with one of these names must carry the secret option (TestEverySecret
-// NamedFieldIsMarked), and a YAML key with one holds a secret.
-var Names = map[string]bool{"ki": true, "opc": true, "k": true, "key": true, "token": true, "password": true, "secret": true}
+// Names are the field and YAML key names that hold secrets, normalised
+// (lower-case, no '-' or '_'). A proto field with one of these names must
+// carry the secret option (TestEverySecretNamedFieldIsMarked), and a YAML
+// or map key with one holds a secret.
+var Names = map[string]bool{
+	"ki": true, "opc": true, "k": true, "key": true, "token": true, "password": true, "secret": true,
+	"apikey": true, "accesskey": true, "bearer": true, "auth": true, "authorization": true,
+	"credential": true, "passwd": true, "passphrase": true, "privatekey": true,
+}
 
-// IsSecretName reports whether a field or key name names a secret: one of
-// Names, or ending in _token, _key, _password or _secret.
+// IsSecretName reports whether a field or key name names a secret. The
+// name is split into words at '-', '_' and lower-to-upper case changes
+// ("X-Api-Key" and "x_api_key" are x, api, key; "apiKey" is api, key), and
+// it names a secret when its last words, joined and lower-cased, are one of
+// Names: the whole name ("bearer", "API_KEY") or a word-aligned suffix
+// ("loom_token", "apiKey", "my-bearer"). A suffix inside a word does not
+// count ("monkey" is not a key).
 func IsSecretName(name string) bool {
-	n := strings.ToLower(name)
-	if Names[n] {
-		return true
-	}
-	for _, suffix := range []string{"_token", "_key", "_password", "_secret"} {
-		if strings.HasSuffix(n, suffix) {
+	words := splitWords(name)
+	for i := range words {
+		if Names[strings.Join(words[i:], "")] {
 			return true
 		}
 	}
 	return false
 }
 
+// splitWords splits a name into lower-case words at '-', '_', and a
+// lower-case letter or digit followed by an upper-case one.
+func splitWords(name string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	rs := []rune(name)
+	for i, r := range rs {
+		switch {
+		case r == '-' || r == '_' || r == '.' || r == ' ':
+			flush()
+		case unicode.IsUpper(r) && i > 0 && (unicode.IsLower(rs[i-1]) || unicode.IsDigit(rs[i-1])):
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+	}
+	flush()
+	return words
+}
+
 // Marked reports whether fd carries the secret option.
 func Marked(fd protoreflect.FieldDescriptor) bool {
 	return optionSet(fd, orbitv1.E_Secret)
+}
+
+// secretMapEntry reports whether a map<string, string> entry holds a
+// secret: its key names one (IsSecretName) and its value is set. Free-form
+// maps (app params) cannot carry the secret option on their entries, so
+// the key is the mark.
+func secretMapEntry(fd protoreflect.FieldDescriptor, k protoreflect.MapKey, v protoreflect.Value) bool {
+	if fd.MapKey().Kind() != protoreflect.StringKind || fd.MapValue().Kind() != protoreflect.StringKind {
+		return false
+	}
+	return IsSecretName(k.String()) && v.String() != "" && v.String() != Masked
+}
+
+// provenanceMessage is the provenance entry whose values are guarded by
+// path: a value carries no static mark, so an entry whose path names a
+// secret field is a secret.
+const provenanceMessage protoreflect.FullName = "orbit.v1.FieldProvenance"
+
+// provenanceSecret reports whether m is a FieldProvenance entry, and, when
+// its path names a secret field (its last segment, list keys removed,
+// IsSecretName) with a value or overridden value still unmasked, that path.
+func provenanceSecret(m protoreflect.Message) (path string, isProvenance bool) {
+	d := m.Descriptor()
+	if d.FullName() != provenanceMessage {
+		return "", false
+	}
+	path = m.Get(d.Fields().ByName("path")).String()
+	if !secretPath(path) {
+		return "", true
+	}
+	if v := m.Get(d.Fields().ByName("value")).String(); v != "" && v != Masked {
+		return path, true
+	}
+	over := m.Get(d.Fields().ByName("overridden")).List()
+	for i := 0; i < over.Len(); i++ {
+		o := over.Get(i).Message()
+		if v := o.Get(o.Descriptor().Fields().ByName("value")).String(); v != "" && v != Masked {
+			return path, true
+		}
+	}
+	return "", true
+}
+
+// secretPath reports whether a canonical field path (e.g.
+// "subscribers[main].ki") names a secret field.
+func secretPath(path string) bool {
+	last := path
+	if i := strings.LastIndex(path, "."); i >= 0 {
+		last = path[i+1:]
+	}
+	if i := strings.Index(last, "["); i >= 0 {
+		last = last[:i]
+	}
+	return IsSecretName(last)
 }
 
 // MarkedYAML reports whether fd carries the secret_yaml option.
@@ -74,6 +163,12 @@ func Find(m proto.Message) []string {
 }
 
 func walk(m protoreflect.Message, prefix string, out *[]string) {
+	if p, ok := provenanceSecret(m); ok {
+		if p != "" {
+			*out = append(*out, prefix+"value ("+p+")")
+		}
+		return
+	}
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		path := prefix + string(fd.Name())
 		switch {
@@ -83,7 +178,11 @@ func walk(m protoreflect.Message, prefix string, out *[]string) {
 				item(fd, l.Get(i), path, out)
 			}
 		case fd.IsMap():
-			v.Map().Range(func(_ protoreflect.MapKey, mv protoreflect.Value) bool {
+			v.Map().Range(func(k protoreflect.MapKey, mv protoreflect.Value) bool {
+				if secretMapEntry(fd, k, mv) {
+					*out = append(*out, path+"["+k.String()+"]")
+					return true
+				}
 				item(fd.MapValue(), mv, path, out)
 				return true
 			})
@@ -294,6 +393,10 @@ func Mask(m proto.Message) []string {
 }
 
 func mask(m protoreflect.Message, add func(string)) {
+	if _, ok := provenanceSecret(m); ok {
+		maskProvenance(m, add)
+		return
+	}
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
 		case fd.IsList():
@@ -306,6 +409,11 @@ func mask(m protoreflect.Message, add func(string)) {
 		case fd.IsMap():
 			mp := v.Map()
 			mp.Range(func(k protoreflect.MapKey, mv protoreflect.Value) bool {
+				if secretMapEntry(fd, k, mv) {
+					add(mv.String())
+					mp.Set(k, protoreflect.ValueOfString(Masked))
+					return true
+				}
 				if nv, ok := maskValue(fd.MapValue(), mv, add); ok {
 					mp.Set(k, nv)
 				}
@@ -318,6 +426,29 @@ func mask(m protoreflect.Message, add func(string)) {
 		}
 		return true
 	})
+}
+
+// maskProvenance masks a provenance entry's value and overridden values
+// when its path names a secret field.
+func maskProvenance(m protoreflect.Message, add func(string)) {
+	d := m.Descriptor()
+	if !secretPath(m.Get(d.Fields().ByName("path")).String()) {
+		return
+	}
+	vf := d.Fields().ByName("value")
+	if v := m.Get(vf).String(); v != "" && v != Masked {
+		add(v)
+		m.Set(vf, protoreflect.ValueOfString(Masked))
+	}
+	over := m.Get(d.Fields().ByName("overridden")).List()
+	for i := 0; i < over.Len(); i++ {
+		o := over.Get(i).Message()
+		ovf := o.Descriptor().Fields().ByName("value")
+		if v := o.Get(ovf).String(); v != "" && v != Masked {
+			add(v)
+			o.Set(ovf, protoreflect.ValueOfString(Masked))
+		}
+	}
 }
 
 // maskValue masks one value of field fd, reporting whether it changed.

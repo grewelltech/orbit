@@ -82,6 +82,10 @@ func (s *runService) StartRun(
 		s.specs.put(info.ID, m)
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
+	case *orbitv1.StartRunRequest_Plan:
+		// RunPlan execution is R2 (ADR-0008 §2); the message exists so
+		// clients and the UI can be built against it.
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RunPlan runs are not implemented yet; send a load or fleet spec"))
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("a run spec is required (load or fleet)"))
 	}

@@ -1,0 +1,267 @@
+syntax = "proto3";
+
+package orbit.v1;
+
+import "orbit/v1/conformance.proto";
+import "orbit/v1/options.proto";
+import "orbit/v1/target.proto";
+
+option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
+
+// RunPlan is what a run is asked to do (ADR-0008 §2): a resolved target, one
+// or more workloads, when the run stops, and the gates its report applies.
+// (`Run` is the identity and lifecycle message; this is the spec.)
+//
+// Field paths in run files and in provenance follow this message:
+// workloads[].attach.count is workloads[i].population.attach.count — a
+// workload path may leave out its kind when the field exists in only one.
+message RunPlan {
+  ResolvedTarget target = 1;      // inline, keys included (on the wire only)
+  repeated Workload workloads = 2;  // at least one; names unique
+  Until until = 3;
+  repeated Gate gates = 4;
+  repeated FieldProvenance provenance = 5;  // from the client's resolver; informational
+}
+
+// Workload is one thing a run does.
+message Workload {
+  string name = 1;
+  StartCondition start = 2;       // default: when the run starts
+  oneof kind {
+    PopulationWorkload population = 10;
+    ConformanceWorkload conformance = 11;
+    StepsWorkload steps = 12;
+  }
+}
+
+// PopulationWorkload is a UE population: today's load and fleet runs,
+// merged. With no behaviours it is a load test.
+message PopulationWorkload {
+  AttachProfile attach = 1;
+  Topology topology = 2;
+  bool pdu_session = 3;
+  Behaviors behaviors = 4;        // empty = a load test
+  string subscriber_pool = 5;     // pool name; default the first
+  uint32 sample_interval_ms = 6;  // resource-sample cadence of a long run
+}
+
+// AttachProfile is how the population attaches.
+message AttachProfile {
+  uint32 count = 1;
+  double rate = 2;                // attaches per second; 0 = concurrency-bound
+  Ramp ramp = 3;                  // a linear ramp, overriding rate when set
+  Arrival arrival = 4;
+  uint32 concurrency = 5;
+  string distribution = 6;        // UEs across gNBs: "even" (default) | "random"
+  int64 distribution_seed = 7;
+  uint64 seed = 8;                // arrival-process seed ($ORBIT_LOAD_SEED); 0 = random
+}
+
+// Ramp is a linear attach-rate ramp from start to end over seconds.
+message Ramp {
+  double start = 1;
+  double end = 2;
+  uint32 seconds = 3;
+}
+
+// Arrival is the attach arrival process.
+enum Arrival {
+  ARRIVAL_UNSPECIFIED = 0;        // uniform
+  ARRIVAL_UNIFORM = 1;
+  ARRIVAL_POISSON = 2;
+}
+
+// Topology is the population's gNBs. Their addresses come from the target.
+message Topology {
+  uint32 gnb_count = 1;
+  string layout = 2;              // "grid" (default)
+  double spacing_m = 3;
+  GNBIDSelection gnb_ids = 4;
+}
+
+// GNBIDSelection is how the population's gNBs get their IDs. Unset: the
+// target's ran.gnb_ids.first onward, pinned (today's behaviour).
+message GNBIDSelection {
+  oneof select {
+    // first..first+gnb_count-1, pinned: refused if another run leases one.
+    uint32 first = 1;
+    // The server assigns them from its rotation (least recently used,
+    // ADR-0008 §5), within the target's ran.gnb_ids or the default range.
+    bool assign = 2;
+  }
+}
+
+// Behaviors run concurrently for the run's duration. Typed rather than YAML
+// so the UI can build them; the fleet YAML parser produces this form.
+message Behaviors {
+  Mobility mobility = 1;
+  Traffic traffic = 2;
+  LatencyProbe latency = 3;
+}
+
+message Mobility {
+  string model = 1;               // "random_walk"
+  double speed_mps = 2;
+  HandoverKind handover = 3;
+}
+
+enum HandoverKind {
+  HANDOVER_KIND_UNSPECIFIED = 0;
+  HANDOVER_KIND_XN = 1;
+  HANDOVER_KIND_N2 = 2;
+}
+
+message Traffic {
+  repeated TrafficShare mix = 1;
+  BulkTraffic bulk = 2;
+}
+
+// TrafficShare assigns a fraction of the population to a synthetic profile
+// or a real application cohort.
+message TrafficShare {
+  string name = 1;
+  double share = 2;
+  oneof kind {
+    SyntheticProfile synthetic = 3;
+    AppCohort app = 4;
+  }
+}
+
+// SyntheticProfile is a loom constant-rate flow.
+message SyntheticProfile {
+  string profile = 1;             // web | video | voip | full-buffer
+  uint64 rate_bps = 2;
+  string target = 3;              // echo IP
+}
+
+// AppCohort runs a real loom application engine against an N6 responder.
+message AppCohort {
+  string app = 1;                 // voip | http | video
+  uint64 start_after_ms = 2;
+  string responder = 3;           // the target's responder, by name
+  string peer = 4;                // or an explicit control address
+  string token = 5 [(orbit.v1.secret) = true];
+  string peer_data_ip = 6;
+  // App knobs, passed verbatim. Put secrets in the responder, not here; an
+  // entry whose key names a secret is still treated as one (detected,
+  // masked and scrubbed).
+  map<string, string> params = 7;
+}
+
+// BulkTraffic is constant-rate UDP load in either or both directions.
+message BulkTraffic {
+  uint32 ues = 1;
+  uint64 uplink_bps = 2;
+  uint64 downlink_bps = 3;
+  string responder = 4;
+  string peer = 5;
+  string token = 6 [(orbit.v1.secret) = true];
+  string peer_data_ip = 7;
+  uint32 packet_size = 8;
+}
+
+// LatencyProbe echoes from a sample of UEs through their sessions.
+message LatencyProbe {
+  string target = 1;              // IPv4 to echo
+  uint64 interval_ms = 2;
+  uint32 ues = 3;
+  uint64 timeout_ms = 4;
+}
+
+// ConformanceWorkload is the conformance suite as a workload.
+message ConformanceWorkload {
+  repeated string categories = 1;   // empty runs everything
+  string target_release = 2;
+  ExpectedFailures expected = 3;
+  uint32 per_test_timeout_ms = 4;
+  NASAlgorithms nas = 5;
+  string responder = 6;             // for checks that need traffic
+  string traffic = 7;               // echo peer host:port the mobility checks' UE sends to
+}
+
+// ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).
+message ExpectedFailures {
+  repeated ExpectedFailure entries = 1;
+  string core = 2;
+}
+
+// NASAlgorithms are the NAS security algorithms the UE offers, as
+// --nas-integrity and --nas-ciphering take them.
+message NASAlgorithms {
+  repeated string integrity = 1;  // NIA1..NIA3; NIA0 is refused
+  repeated string ciphering = 2;  // NEA0..NEA3
+}
+
+// StepsWorkload is an ADR-0003 step scenario, minus core and credentials.
+message StepsWorkload {
+  string scenario_yaml = 1 [(orbit.v1.secret_yaml) = true];
+}
+
+// StartCondition starts a workload relative to another (e.g. conformance
+// once a population has attached).
+message StartCondition {
+  string after = 1;               // workload name
+  WorkloadPhase phase = 2;
+}
+
+enum WorkloadPhase {
+  WORKLOAD_PHASE_UNSPECIFIED = 0;
+  WORKLOAD_PHASE_STARTED = 1;
+  WORKLOAD_PHASE_ATTACHED = 2;
+  WORKLOAD_PHASE_COMPLETE = 3;
+}
+
+// Until is when the run stops.
+message Until {
+  oneof stop {
+    uint64 duration_ms = 1;
+    bool complete = 2;            // every workload has finished
+    bool forever = 3;             // only an explicit StopRun ends it
+  }
+}
+
+// Gate is a pass/fail rule the report applies, evaluated server-side.
+message Gate {
+  string workload = 1;            // "" = the whole run
+  oneof check {
+    SLOGate slo = 2;
+    ConformanceGate conformance = 3;
+  }
+  string name = 4;                // unique in the plan; run files key gates by it (gates[<name>])
+}
+
+// SLOGate compares a report metric with a threshold.
+message SLOGate {
+  string metric = 1;              // e.g. "registration.p99_ms", "attach.success_ratio"
+  CompareOp op = 2;
+  double threshold = 3;
+}
+
+enum CompareOp {
+  COMPARE_OP_UNSPECIFIED = 0;
+  COMPARE_OP_LE = 1;
+  COMPARE_OP_LT = 2;
+  COMPARE_OP_GE = 3;
+  COMPARE_OP_GT = 4;
+}
+
+// ConformanceGate passes when no FAIL falls outside the expected-failures list.
+message ConformanceGate {}
+
+// Lease is one resource an active run holds (ADR-0008 §5).
+message Lease {
+  LeaseResource resource = 1;
+  string plmn = 2;                // "mcc/mnc" (SUPI block, gNB ID)
+  string first_supi = 3;          // SUPI block
+  string last_supi = 4;
+  string amf = 5;                 // gNB ID: the AMF, as IP:port
+  uint32 gnb_id = 6;
+  string n2_ip = 7;               // N2 source IP
+}
+
+enum LeaseResource {
+  LEASE_RESOURCE_UNSPECIFIED = 0;
+  LEASE_RESOURCE_SUPI_BLOCK = 1;
+  LEASE_RESOURCE_GNB_ID = 2;
+  LEASE_RESOURCE_N2_IP = 3;
+}

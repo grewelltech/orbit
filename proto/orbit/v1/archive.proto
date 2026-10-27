@@ -2,7 +2,10 @@ syntax = "proto3";
 
 package orbit.v1;
 
+import "orbit/v1/plan.proto";
+import "orbit/v1/report.proto";
 import "orbit/v1/run.proto";
+import "orbit/v1/target.proto";
 
 option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
 
@@ -64,4 +67,14 @@ message RunArchive {
     LoadRunSpec load_spec = 10;
     FleetRunSpec fleet_spec = 11;
   }
+
+  // ADR-0008 §2 additions, within archive version 1. The plan, masked
+  // like every stored spec (keys and tokens never stored).
+  RunPlan plan = 12;
+  // Where each resolved field came from, the server's leases included.
+  repeated FieldProvenance provenance = 13;
+  // What the run leased (§5).
+  repeated Lease leases = 14;
+  // One report per workload.
+  repeated RunReport reports = 15;
 }

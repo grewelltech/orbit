@@ -249,6 +249,18 @@ func TestSecretsOverPlaintext(t *testing.T) {
 			_, err := orbitv1connect.NewUEServiceClient(h, url).StartApp(ctx, connect.NewRequest(&orbitv1.StartAppRequest{Supi: "001010000000001", Token: "t"}))
 			return err
 		}},
+		{name: "a plan carrying subscribers[].ki", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			return startPlan(ctx, h, url, &orbitv1.RunPlan{Target: &orbitv1.ResolvedTarget{Subscribers: []*orbitv1.SubscriberPool{{Name: "main", Ki: creds.Ki}}}})
+		}},
+		{name: "a plan carrying subscribers[].opc", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			return startPlan(ctx, h, url, &orbitv1.RunPlan{Target: &orbitv1.ResolvedTarget{Subscribers: []*orbitv1.SubscriberPool{{Name: "main", Opc: creds.Opc}}}})
+		}},
+		{name: "a plan with a secret-named app param", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			return startPlan(ctx, h, url, planWithParams(map[string]string{"X-Api-Key": "k-123456"}))
+		}},
+		{name: "a plan without secrets", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			return startPlan(ctx, h, url, planWithParams(map[string]string{"object_size": "256KB"}))
+		}},
 		{name: "no secrets", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
 			_, err := orbitv1connect.NewUEServiceClient(h, url).Register(ctx, connect.NewRequest(&orbitv1.RegisterRequest{Supi: "001010000000001"}))
 			return err
@@ -334,4 +346,20 @@ func TestSecretsOverPlaintextStreaming(t *testing.T) {
 			}
 		})
 	}
+}
+
+// startPlan sends a StartRun with plan; until R2 an accepted one answers
+// UNIMPLEMENTED, which the caller reads as "not refused".
+func startPlan(ctx context.Context, h connect.HTTPClient, url string, p *orbitv1.RunPlan) error {
+	_, err := orbitv1connect.NewRunServiceClient(h, url).StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{
+		Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	return err
+}
+
+// planWithParams is a one-workload plan whose app cohort has params.
+func planWithParams(params map[string]string) *orbitv1.RunPlan {
+	return &orbitv1.RunPlan{Workloads: []*orbitv1.Workload{{Name: "w", Kind: &orbitv1.Workload_Population{Population: &orbitv1.PopulationWorkload{
+		Behaviors: &orbitv1.Behaviors{Traffic: &orbitv1.Traffic{Mix: []*orbitv1.TrafficShare{{Name: "web",
+			Kind: &orbitv1.TrafficShare_App{App: &orbitv1.AppCohort{App: "http", Params: params}}}}}},
+	}}}}}
 }

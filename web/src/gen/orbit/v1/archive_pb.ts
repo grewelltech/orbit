@@ -4,15 +4,21 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Lease, RunPlan } from "./plan_pb";
+import { file_orbit_v1_plan } from "./plan_pb";
+import type { RunReport } from "./report_pb";
+import { file_orbit_v1_report } from "./report_pb";
 import type { FleetProgress, FleetReport, FleetRunSpec, LoadProgress, LoadReport, LoadRunSpec, Run, RunEvent, TelemetryFrame } from "./run_pb";
 import { file_orbit_v1_run } from "./run_pb";
+import type { FieldProvenance } from "./target_pb";
+import { file_orbit_v1_target } from "./target_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file orbit/v1/archive.proto.
  */
 export const file_orbit_v1_archive: GenFile = /*@__PURE__*/
-  fileDesc("ChZvcmJpdC92MS9hcmNoaXZlLnByb3RvEghvcmJpdC52MSLOAwoKUnVuQXJjaGl2ZRIPCgd2ZXJzaW9uGAEgASgNEhoKA3J1bhgCIAEoCzINLm9yYml0LnYxLlJ1bhItCg1sb2FkX3Byb2dyZXNzGAMgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzEi8KDmZsZWV0X3Byb2dyZXNzGAQgASgLMhcub3JiaXQudjEuRmxlZXRQcm9ncmVzcxIrCgtsb2FkX3JlcG9ydBgFIAEoCzIULm9yYml0LnYxLkxvYWRSZXBvcnRIABItCgxmbGVldF9yZXBvcnQYBiABKAsyFS5vcmJpdC52MS5GbGVldFJlcG9ydEgAEiIKBmV2ZW50cxgHIAMoCzISLm9yYml0LnYxLlJ1bkV2ZW50Eh0KFWV2ZW50c19kcm9wcGVkX2JlZm9yZRgIIAEoBBIoCgZmcmFtZXMYCSADKAsyGC5vcmJpdC52MS5UZWxlbWV0cnlGcmFtZRIqCglsb2FkX3NwZWMYCiABKAsyFS5vcmJpdC52MS5Mb2FkUnVuU3BlY0gBEiwKCmZsZWV0X3NwZWMYCyABKAsyFi5vcmJpdC52MS5GbGVldFJ1blNwZWNIAUIICgZyZXBvcnRCBgoEc3BlY0IwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM", [file_orbit_v1_run]);
+  fileDesc("ChZvcmJpdC92MS9hcmNoaXZlLnByb3RvEghvcmJpdC52MSLlBAoKUnVuQXJjaGl2ZRIPCgd2ZXJzaW9uGAEgASgNEhoKA3J1bhgCIAEoCzINLm9yYml0LnYxLlJ1bhItCg1sb2FkX3Byb2dyZXNzGAMgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzEi8KDmZsZWV0X3Byb2dyZXNzGAQgASgLMhcub3JiaXQudjEuRmxlZXRQcm9ncmVzcxIrCgtsb2FkX3JlcG9ydBgFIAEoCzIULm9yYml0LnYxLkxvYWRSZXBvcnRIABItCgxmbGVldF9yZXBvcnQYBiABKAsyFS5vcmJpdC52MS5GbGVldFJlcG9ydEgAEiIKBmV2ZW50cxgHIAMoCzISLm9yYml0LnYxLlJ1bkV2ZW50Eh0KFWV2ZW50c19kcm9wcGVkX2JlZm9yZRgIIAEoBBIoCgZmcmFtZXMYCSADKAsyGC5vcmJpdC52MS5UZWxlbWV0cnlGcmFtZRIqCglsb2FkX3NwZWMYCiABKAsyFS5vcmJpdC52MS5Mb2FkUnVuU3BlY0gBEiwKCmZsZWV0X3NwZWMYCyABKAsyFi5vcmJpdC52MS5GbGVldFJ1blNwZWNIARIfCgRwbGFuGAwgASgLMhEub3JiaXQudjEuUnVuUGxhbhItCgpwcm92ZW5hbmNlGA0gAygLMhkub3JiaXQudjEuRmllbGRQcm92ZW5hbmNlEh8KBmxlYXNlcxgOIAMoCzIPLm9yYml0LnYxLkxlYXNlEiQKB3JlcG9ydHMYDyADKAsyEy5vcmJpdC52MS5SdW5SZXBvcnRCCAoGcmVwb3J0QgYKBHNwZWNCMFouZ2l0aHViLmNvbS9iZ3Jld2VsbC9vcmJpdC9nZW4vb3JiaXQvdjE7b3JiaXR2MWIGcHJvdG8z", [file_orbit_v1_plan, file_orbit_v1_report, file_orbit_v1_run, file_orbit_v1_target]);
 
 /**
  * RunArchive is one terminal run written to disk so it survives a restart.
@@ -131,6 +137,35 @@ export type RunArchive = Message<"orbit.v1.RunArchive"> & {
     value: FleetRunSpec;
     case: "fleetSpec";
   } | { case: undefined; value?: undefined };
+
+  /**
+   * ADR-0008 §2 additions, within archive version 1. The plan, masked
+   * like every stored spec (keys and tokens never stored).
+   *
+   * @generated from field: orbit.v1.RunPlan plan = 12;
+   */
+  plan?: RunPlan | undefined;
+
+  /**
+   * Where each resolved field came from, the server's leases included.
+   *
+   * @generated from field: repeated orbit.v1.FieldProvenance provenance = 13;
+   */
+  provenance: FieldProvenance[];
+
+  /**
+   * What the run leased (§5).
+   *
+   * @generated from field: repeated orbit.v1.Lease leases = 14;
+   */
+  leases: Lease[];
+
+  /**
+   * One report per workload.
+   *
+   * @generated from field: repeated orbit.v1.RunReport reports = 15;
+   */
+  reports: RunReport[];
 };
 
 /**

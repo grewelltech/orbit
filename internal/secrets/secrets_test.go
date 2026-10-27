@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -39,6 +40,14 @@ func TestEverySecretNamedFieldIsMarked(t *testing.T) {
 					// scans it only when it is marked.
 					if strings.HasSuffix(string(f.Name()), "_yaml") && !MarkedYAML(f) {
 						t.Errorf("%s holds a YAML document but is not marked [(orbit.v1.secret_yaml) = true]", f.FullName())
+					}
+					// A map's entries cannot carry the option: the walk treats
+					// a secret-named key as the mark, which it can only do
+					// for map<string, string> (or a map of messages, walked).
+					// Numeric values hold no secret.
+					if f.IsMap() && (f.MapValue().Kind() == protoreflect.BytesKind ||
+						(f.MapValue().Kind() == protoreflect.StringKind && f.MapKey().Kind() != protoreflect.StringKind)) {
+						t.Errorf("%s is a map the secrets walk cannot check; use map<string, string> or a message value", f.FullName())
 					}
 				}
 				visit(md.Messages())
@@ -291,5 +300,73 @@ func TestScrub(t *testing.T) {
 				t.Errorf("Scrub(%q) = %q, want %q", tc.in, m.GetError(), tc.want)
 			}
 		})
+	}
+}
+
+// A map<string, string> entry keyed by a secret name is a secret (app
+// params), and a provenance entry whose path names a secret field is one
+// too: detected, masked and scrubbed like a marked field.
+func TestMapAndProvenanceSecrets(t *testing.T) {
+	const tok = "params-token-0123456789"
+	const ki = "00112233445566778899aabbccddeeff"
+	plan := &orbitv1.RunPlan{
+		Workloads: []*orbitv1.Workload{{Name: "web", Kind: &orbitv1.Workload_Population{Population: &orbitv1.PopulationWorkload{
+			Behaviors: &orbitv1.Behaviors{Traffic: &orbitv1.Traffic{Mix: []*orbitv1.TrafficShare{{Name: "web",
+				Kind: &orbitv1.TrafficShare_App{App: &orbitv1.AppCohort{App: "http", Params: map[string]string{
+					"token": tok, "object_size": "256KB",
+					"apiKey": "apikey-value-1", "api-key": "apikey-value-2", "X-Api-Key": "apikey-value-3", "bearer": "bearer-value-4",
+				}}}}}}},
+		}}}},
+		Provenance: []*orbitv1.FieldProvenance{
+			{Path: "subscribers[main].ki", Value: ki, Overridden: []*orbitv1.ProvenanceOverride{{Value: "ffeeddccbbaa99887766554433221100"}}},
+			{Path: "core.plmn.mcc", Value: "001"},
+		},
+	}
+	got := Find(plan)
+	want := []string{
+		"provenance.value (subscribers[main].ki)",
+		"workloads.population.behaviors.traffic.mix.app.params[X-Api-Key]",
+		"workloads.population.behaviors.traffic.mix.app.params[api-key]",
+		"workloads.population.behaviors.traffic.mix.app.params[apiKey]",
+		"workloads.population.behaviors.traffic.mix.app.params[bearer]",
+		"workloads.population.behaviors.traffic.mix.app.params[token]",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Find = %q, want %q", got, want)
+	}
+	values := Mask(plan)
+	for _, v := range []string{tok, ki, "ffeeddccbbaa99887766554433221100", "apikey-value-1", "apikey-value-2", "apikey-value-3", "bearer-value-4"} {
+		if !slices.Contains(values, v) {
+			t.Errorf("Mask did not return %q among %q", v, values)
+		}
+	}
+	params := plan.GetWorkloads()[0].GetPopulation().GetBehaviors().GetTraffic().GetMix()[0].GetApp().GetParams()
+	if params["token"] != Masked || params["apiKey"] != Masked || params["api-key"] != Masked || params["X-Api-Key"] != Masked ||
+		params["bearer"] != Masked || params["object_size"] != "256KB" {
+		t.Errorf("params after Mask = %v", params)
+	}
+	p := plan.GetProvenance()
+	if p[0].GetValue() != Masked || p[0].GetOverridden()[0].GetValue() != Masked || p[1].GetValue() != "001" {
+		t.Errorf("provenance after Mask = %v", p)
+	}
+	if got := Find(plan); len(got) != 0 {
+		t.Errorf("Find after Mask = %q", got)
+	}
+}
+
+// Secret names match on words, case and separators aside: a name, or a
+// word-aligned suffix, that is one of Names.
+func TestIsSecretName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"ki": true, "opc": true, "k": true, "token": true, "Password": true, "secret": true,
+		"apiKey": true, "api-key": true, "X-Api-Key": true, "x_api_key": true, "API_KEY": true,
+		"bearer": true, "my-bearer": true, "Authorization": true, "auth_token": true, "authToken": true,
+		"passwd": true, "passphrase": true, "privateKey": true, "access_key": true, "credential": true,
+		"loom_token": true, "routing_indicator": false, "supi": false, "monkey": false, "keyboard": false,
+		"tokens_per_s": false, "object_size": false, "oauth": false, "name": false, "": false,
+	} {
+		if got := IsSecretName(name); got != want {
+			t.Errorf("IsSecretName(%q) = %t, want %t", name, got, want)
+		}
 	}
 }

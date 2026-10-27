@@ -31,6 +31,7 @@ const (
 	RunKind_RUN_KIND_FLEET       RunKind = 2
 	RunKind_RUN_KIND_SCENARIO    RunKind = 3
 	RunKind_RUN_KIND_CONFORMANCE RunKind = 4
+	RunKind_RUN_KIND_MIXED       RunKind = 5 // a plan with more than one workload (ADR-0008 §2)
 )
 
 // Enum value maps for RunKind.
@@ -41,6 +42,7 @@ var (
 		2: "RUN_KIND_FLEET",
 		3: "RUN_KIND_SCENARIO",
 		4: "RUN_KIND_CONFORMANCE",
+		5: "RUN_KIND_MIXED",
 	}
 	RunKind_value = map[string]int32{
 		"RUN_KIND_UNSPECIFIED": 0,
@@ -48,6 +50,7 @@ var (
 		"RUN_KIND_FLEET":       2,
 		"RUN_KIND_SCENARIO":    3,
 		"RUN_KIND_CONFORMANCE": 4,
+		"RUN_KIND_MIXED":       5,
 	}
 )
 
@@ -574,6 +577,7 @@ type StartRunRequest struct {
 	//
 	//	*StartRunRequest_Load
 	//	*StartRunRequest_Fleet
+	//	*StartRunRequest_Plan
 	Spec           isStartRunRequest_Spec `protobuf_oneof:"spec"`
 	EventVerbosity EventVerbosity         `protobuf:"varint,4,opt,name=event_verbosity,json=eventVerbosity,proto3,enum=orbit.v1.EventVerbosity" json:"event_verbosity,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -642,6 +646,15 @@ func (x *StartRunRequest) GetFleet() *FleetRunSpec {
 	return nil
 }
 
+func (x *StartRunRequest) GetPlan() *RunPlan {
+	if x != nil {
+		if x, ok := x.Spec.(*StartRunRequest_Plan); ok {
+			return x.Plan
+		}
+	}
+	return nil
+}
+
 func (x *StartRunRequest) GetEventVerbosity() EventVerbosity {
 	if x != nil {
 		return x.EventVerbosity
@@ -654,6 +667,8 @@ type isStartRunRequest_Spec interface {
 }
 
 type StartRunRequest_Load struct {
+	// load and fleet are superseded by plan; kept for compatibility
+	// (ADR-0008 §2). The server translates them into a one-workload plan.
 	Load *LoadRunSpec `protobuf:"bytes,2,opt,name=load,proto3,oneof"`
 }
 
@@ -661,9 +676,17 @@ type StartRunRequest_Fleet struct {
 	Fleet *FleetRunSpec `protobuf:"bytes,3,opt,name=fleet,proto3,oneof"`
 }
 
+type StartRunRequest_Plan struct {
+	// plan is the general spec (ADR-0008 §2). Until R2 the server answers
+	// it with UNIMPLEMENTED.
+	Plan *RunPlan `protobuf:"bytes,5,opt,name=plan,proto3,oneof"`
+}
+
 func (*StartRunRequest_Load) isStartRunRequest_Spec() {}
 
 func (*StartRunRequest_Fleet) isStartRunRequest_Spec() {}
+
+func (*StartRunRequest_Plan) isStartRunRequest_Spec() {}
 
 type StartRunResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1899,7 +1922,10 @@ type GetRunResponse struct {
 	// GetRunReport returns; absent while the run is in flight or when it did
 	// not complete. A finished run's fleet_progress is its torn-down live
 	// snapshot (UEs currently attached: none), so read totals from here.
-	FleetReport   *FleetReport `protobuf:"bytes,4,opt,name=fleet_report,json=fleetReport,proto3" json:"fleet_report,omitempty"`
+	FleetReport *FleetReport `protobuf:"bytes,4,opt,name=fleet_report,json=fleetReport,proto3" json:"fleet_report,omitempty"`
+	// The resources the run leases while active (ADR-0008 §5); empty once
+	// it is terminal.
+	Leases        []*Lease `protobuf:"bytes,5,rep,name=leases,proto3" json:"leases,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1958,6 +1984,13 @@ func (x *GetRunResponse) GetFleetProgress() *FleetProgress {
 func (x *GetRunResponse) GetFleetReport() *FleetReport {
 	if x != nil {
 		return x.FleetReport
+	}
+	return nil
+}
+
+func (x *GetRunResponse) GetLeases() []*Lease {
+	if x != nil {
+		return x.Leases
 	}
 	return nil
 }
@@ -2834,7 +2867,7 @@ var File_orbit_v1_run_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
-	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\x1a\x11orbit/v1/ue.proto\"\xeb\x01\n" +
+	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xeb\x01\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12%\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x11.orbit.v1.RunKindR\x04kind\x12\x12\n" +
@@ -2866,11 +2899,12 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x0ebind_addresses\x18\x0f \x03(\tR\rbindAddresses\"r\n" +
 	"\fFleetRunSpec\x12)\n" +
 	"\rscenario_yaml\x18\x01 \x01(\tB\x04\x90\xb5\x18\x01R\fscenarioYaml\x127\n" +
-	"\vcredentials\x18\x02 \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\"\xcd\x01\n" +
+	"\vcredentials\x18\x02 \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\"\xf6\x01\n" +
 	"\x0fStartRunRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04load\x18\x02 \x01(\v2\x15.orbit.v1.LoadRunSpecH\x00R\x04load\x12.\n" +
-	"\x05fleet\x18\x03 \x01(\v2\x16.orbit.v1.FleetRunSpecH\x00R\x05fleet\x12A\n" +
+	"\x05fleet\x18\x03 \x01(\v2\x16.orbit.v1.FleetRunSpecH\x00R\x05fleet\x12'\n" +
+	"\x04plan\x18\x05 \x01(\v2\x11.orbit.v1.RunPlanH\x00R\x04plan\x12A\n" +
 	"\x0fevent_verbosity\x18\x04 \x01(\x0e2\x18.orbit.v1.EventVerbosityR\x0eeventVerbosityB\x06\n" +
 	"\x04spec\"3\n" +
 	"\x10StartRunResponse\x12\x1f\n" +
@@ -2982,12 +3016,13 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x06p90_ms\x18\x04 \x01(\x01R\x05p90Ms\x12\x15\n" +
 	"\x06p99_ms\x18\x05 \x01(\x01R\x05p99Ms\x12\x17\n" +
 	"\ap999_ms\x18\x06 \x01(\x01R\x06p999Ms\x12\x15\n" +
-	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\"\xe8\x01\n" +
+	"\x06max_ms\x18\a \x01(\x01R\x05maxMs\"\x91\x02\n" +
 	"\x0eGetRunResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12;\n" +
 	"\rload_progress\x18\x02 \x01(\v2\x16.orbit.v1.LoadProgressR\floadProgress\x12>\n" +
 	"\x0efleet_progress\x18\x03 \x01(\v2\x17.orbit.v1.FleetProgressR\rfleetProgress\x128\n" +
-	"\ffleet_report\x18\x04 \x01(\v2\x15.orbit.v1.FleetReportR\vfleetReport\"h\n" +
+	"\ffleet_report\x18\x04 \x01(\v2\x15.orbit.v1.FleetReportR\vfleetReport\x12'\n" +
+	"\x06leases\x18\x05 \x03(\v2\x0f.orbit.v1.LeaseR\x06leases\"h\n" +
 	"\x13RunTelemetryRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1f\n" +
 	"\vinterval_ms\x18\x02 \x01(\rR\n" +
@@ -3055,13 +3090,14 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12*\n" +
 	"\x04load\x18\x02 \x01(\v2\x14.orbit.v1.LoadReportH\x00R\x04load\x12-\n" +
 	"\x05fleet\x18\x03 \x01(\v2\x15.orbit.v1.FleetReportH\x00R\x05fleetB\b\n" +
-	"\x06report*{\n" +
+	"\x06report*\x8f\x01\n" +
 	"\aRunKind\x12\x18\n" +
 	"\x14RUN_KIND_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rRUN_KIND_LOAD\x10\x01\x12\x12\n" +
 	"\x0eRUN_KIND_FLEET\x10\x02\x12\x15\n" +
 	"\x11RUN_KIND_SCENARIO\x10\x03\x12\x18\n" +
-	"\x14RUN_KIND_CONFORMANCE\x10\x04*\xb2\x01\n" +
+	"\x14RUN_KIND_CONFORMANCE\x10\x04\x12\x12\n" +
+	"\x0eRUN_KIND_MIXED\x10\x05*\xb2\x01\n" +
 	"\bRunState\x12\x19\n" +
 	"\x15RUN_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11RUN_STATE_PENDING\x10\x01\x12\x15\n" +
@@ -3142,6 +3178,8 @@ var file_orbit_v1_run_proto_goTypes = []any{
 	(*GnbConfig)(nil),               // 34: orbit.v1.GnbConfig
 	(*Credentials)(nil),             // 35: orbit.v1.Credentials
 	(*PDUSession)(nil),              // 36: orbit.v1.PDUSession
+	(*RunPlan)(nil),                 // 37: orbit.v1.RunPlan
+	(*Lease)(nil),                   // 38: orbit.v1.Lease
 }
 var file_orbit_v1_run_proto_depIdxs = []int32{
 	0,  // 0: orbit.v1.Run.kind:type_name -> orbit.v1.RunKind
@@ -3152,61 +3190,63 @@ var file_orbit_v1_run_proto_depIdxs = []int32{
 	35, // 5: orbit.v1.FleetRunSpec.credentials:type_name -> orbit.v1.Credentials
 	5,  // 6: orbit.v1.StartRunRequest.load:type_name -> orbit.v1.LoadRunSpec
 	6,  // 7: orbit.v1.StartRunRequest.fleet:type_name -> orbit.v1.FleetRunSpec
-	2,  // 8: orbit.v1.StartRunRequest.event_verbosity:type_name -> orbit.v1.EventVerbosity
-	4,  // 9: orbit.v1.StartRunResponse.run:type_name -> orbit.v1.Run
-	4,  // 10: orbit.v1.StopRunResponse.run:type_name -> orbit.v1.Run
-	0,  // 11: orbit.v1.ListRunsRequest.kind:type_name -> orbit.v1.RunKind
-	4,  // 12: orbit.v1.ListRunsResponse.runs:type_name -> orbit.v1.Run
-	21, // 13: orbit.v1.LoadProgress.latency:type_name -> orbit.v1.ProcedureLatency
-	20, // 14: orbit.v1.LoadProgress.per_gnb:type_name -> orbit.v1.GnbProgress
-	20, // 15: orbit.v1.FleetProgress.per_gnb:type_name -> orbit.v1.GnbProgress
-	21, // 16: orbit.v1.FleetProgress.latency:type_name -> orbit.v1.ProcedureLatency
-	17, // 17: orbit.v1.FleetProgress.cohorts:type_name -> orbit.v1.CohortProgress
-	19, // 18: orbit.v1.FleetProgress.flows:type_name -> orbit.v1.FlowRow
-	21, // 19: orbit.v1.FleetProgress.up_latency:type_name -> orbit.v1.ProcedureLatency
-	16, // 20: orbit.v1.CohortProgress.mos:type_name -> orbit.v1.Quantiles
-	16, // 21: orbit.v1.CohortProgress.ttfb_ms:type_name -> orbit.v1.Quantiles
-	16, // 22: orbit.v1.CohortProgress.goodput_mbps:type_name -> orbit.v1.Quantiles
-	16, // 23: orbit.v1.CohortProgress.stall_time_ms:type_name -> orbit.v1.Quantiles
-	16, // 24: orbit.v1.CohortProgress.rebuffer_ratio:type_name -> orbit.v1.Quantiles
-	16, // 25: orbit.v1.CohortProgress.bitrate_kbps:type_name -> orbit.v1.Quantiles
-	16, // 26: orbit.v1.CohortProgress.startup_ms:type_name -> orbit.v1.Quantiles
-	18, // 27: orbit.v1.CohortProgress.far_end:type_name -> orbit.v1.FarEndView
-	4,  // 28: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
-	14, // 29: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
-	15, // 30: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
-	32, // 31: orbit.v1.GetRunResponse.fleet_report:type_name -> orbit.v1.FleetReport
-	1,  // 32: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
-	14, // 33: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
-	15, // 34: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
-	3,  // 35: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
-	21, // 36: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
-	31, // 37: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
-	20, // 38: orbit.v1.FleetReport.per_gnb:type_name -> orbit.v1.GnbProgress
-	4,  // 39: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
-	30, // 40: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
-	32, // 41: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
-	7,  // 42: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
-	9,  // 43: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
-	11, // 44: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
-	13, // 45: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
-	29, // 46: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
-	27, // 47: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
-	23, // 48: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
-	25, // 49: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
-	8,  // 50: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
-	10, // 51: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
-	12, // 52: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
-	22, // 53: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
-	33, // 54: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
-	28, // 55: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
-	24, // 56: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
-	26, // 57: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
-	50, // [50:58] is the sub-list for method output_type
-	42, // [42:50] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	37, // 8: orbit.v1.StartRunRequest.plan:type_name -> orbit.v1.RunPlan
+	2,  // 9: orbit.v1.StartRunRequest.event_verbosity:type_name -> orbit.v1.EventVerbosity
+	4,  // 10: orbit.v1.StartRunResponse.run:type_name -> orbit.v1.Run
+	4,  // 11: orbit.v1.StopRunResponse.run:type_name -> orbit.v1.Run
+	0,  // 12: orbit.v1.ListRunsRequest.kind:type_name -> orbit.v1.RunKind
+	4,  // 13: orbit.v1.ListRunsResponse.runs:type_name -> orbit.v1.Run
+	21, // 14: orbit.v1.LoadProgress.latency:type_name -> orbit.v1.ProcedureLatency
+	20, // 15: orbit.v1.LoadProgress.per_gnb:type_name -> orbit.v1.GnbProgress
+	20, // 16: orbit.v1.FleetProgress.per_gnb:type_name -> orbit.v1.GnbProgress
+	21, // 17: orbit.v1.FleetProgress.latency:type_name -> orbit.v1.ProcedureLatency
+	17, // 18: orbit.v1.FleetProgress.cohorts:type_name -> orbit.v1.CohortProgress
+	19, // 19: orbit.v1.FleetProgress.flows:type_name -> orbit.v1.FlowRow
+	21, // 20: orbit.v1.FleetProgress.up_latency:type_name -> orbit.v1.ProcedureLatency
+	16, // 21: orbit.v1.CohortProgress.mos:type_name -> orbit.v1.Quantiles
+	16, // 22: orbit.v1.CohortProgress.ttfb_ms:type_name -> orbit.v1.Quantiles
+	16, // 23: orbit.v1.CohortProgress.goodput_mbps:type_name -> orbit.v1.Quantiles
+	16, // 24: orbit.v1.CohortProgress.stall_time_ms:type_name -> orbit.v1.Quantiles
+	16, // 25: orbit.v1.CohortProgress.rebuffer_ratio:type_name -> orbit.v1.Quantiles
+	16, // 26: orbit.v1.CohortProgress.bitrate_kbps:type_name -> orbit.v1.Quantiles
+	16, // 27: orbit.v1.CohortProgress.startup_ms:type_name -> orbit.v1.Quantiles
+	18, // 28: orbit.v1.CohortProgress.far_end:type_name -> orbit.v1.FarEndView
+	4,  // 29: orbit.v1.GetRunResponse.run:type_name -> orbit.v1.Run
+	14, // 30: orbit.v1.GetRunResponse.load_progress:type_name -> orbit.v1.LoadProgress
+	15, // 31: orbit.v1.GetRunResponse.fleet_progress:type_name -> orbit.v1.FleetProgress
+	32, // 32: orbit.v1.GetRunResponse.fleet_report:type_name -> orbit.v1.FleetReport
+	38, // 33: orbit.v1.GetRunResponse.leases:type_name -> orbit.v1.Lease
+	1,  // 34: orbit.v1.TelemetryFrame.state:type_name -> orbit.v1.RunState
+	14, // 35: orbit.v1.TelemetryFrame.load:type_name -> orbit.v1.LoadProgress
+	15, // 36: orbit.v1.TelemetryFrame.fleet:type_name -> orbit.v1.FleetProgress
+	3,  // 37: orbit.v1.RunEvent.severity:type_name -> orbit.v1.EventSeverity
+	21, // 38: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
+	31, // 39: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
+	20, // 40: orbit.v1.FleetReport.per_gnb:type_name -> orbit.v1.GnbProgress
+	4,  // 41: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
+	30, // 42: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
+	32, // 43: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
+	7,  // 44: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
+	9,  // 45: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
+	11, // 46: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
+	13, // 47: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
+	29, // 48: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
+	27, // 49: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
+	23, // 50: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
+	25, // 51: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
+	8,  // 52: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
+	10, // 53: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
+	12, // 54: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
+	22, // 55: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
+	33, // 56: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
+	28, // 57: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
+	24, // 58: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
+	26, // 59: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
+	52, // [52:60] is the sub-list for method output_type
+	44, // [44:52] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_run_proto_init() }
@@ -3216,10 +3256,12 @@ func file_orbit_v1_run_proto_init() {
 	}
 	file_orbit_v1_options_proto_init()
 	file_orbit_v1_cell_proto_init()
+	file_orbit_v1_plan_proto_init()
 	file_orbit_v1_ue_proto_init()
 	file_orbit_v1_run_proto_msgTypes[3].OneofWrappers = []any{
 		(*StartRunRequest_Load)(nil),
 		(*StartRunRequest_Fleet)(nil),
+		(*StartRunRequest_Plan)(nil),
 	}
 	file_orbit_v1_run_proto_msgTypes[20].OneofWrappers = []any{
 		(*TelemetryFrame_Load)(nil),
