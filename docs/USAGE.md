@@ -796,9 +796,10 @@ by line:
 ```
   registration  n 50     P50 12.3ms   P90 20.1ms   P99 31.4ms   P99.9 40ms     max 41.2ms
 ```
- The `--slo-*` flags and `--gate`
-turn a run into a CI gate ([exit codes](#exit-codes)). With `--local`, gate
-with `--slo-*` only, which the CLI judges itself.
+
+The `--slo-*` flags and `--gate` turn a run into a CI gate
+([exit codes](#exit-codes)). With `--local`, gate with `--slo-*` only, which
+the CLI judges itself.
 
 ## Conformance / regression
 
