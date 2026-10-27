@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -117,6 +118,8 @@ func newConformanceCmd() *cobra.Command {
 	f.StringVar(&ueFlags.opc, "opc", "", opcFlagHelp)
 	f.StringVar(&ueFlags.gnbN3, "gnb-n3", "", "gNB N3 IP for the mobility checks' data path (reachable from the UPF; both gNBs use it)")
 	f.StringVar(&ueFlags.traffic, "traffic", "", "optional echo peer host:port the mobility checks' UE sends to across the handover")
+	f.Var(newNilStringSlice(&ueFlags.nasIntegrity), "nas-integrity", "NAS integrity algorithms the UE advertises: NIA1, NIA2, NIA3, comma-separated (default NIA2; NIA0 is refused)")
+	f.Var(newNilStringSlice(&ueFlags.nasCiphering), "nas-ciphering", "NAS ciphering algorithms the UE advertises: NEA0, NEA1, NEA2, NEA3, comma-separated (default NEA0; another cipher makes the NAS in pcaps unreadable)")
 	_ = cmd.MarkFlagRequired("amf")
 	return cmd
 }
@@ -155,6 +158,9 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 // mobility checks register.
 type conformanceUEFlags struct {
 	supi, ki, opc, gnbN3, traffic string
+	// nasIntegrity and nasCiphering are --nas-integrity and
+	// --nas-ciphering; nil is the default (NIA2, NEA0).
+	nasIntegrity, nasCiphering []string
 }
 
 // spec builds the suite's UE section. With no --supi there is no UE (the
@@ -165,9 +171,11 @@ type conformanceUEFlags struct {
 // an IPv4 address (canonicalised; see gnb.CanonicalN3).
 func (u conformanceUEFlags) spec(dnn, mcc, mnc string, given func(flag string) bool) (conformance.UESpec, error) {
 	if u.supi == "" {
+		// The NAS algorithm lists are nil unless their flags were given.
 		if (u.gnbN3 != "" && given("gnb-n3")) || (u.traffic != "" && given("traffic")) ||
-			(u.ki != "" && given("ki")) || (u.opc != "" && given("opc")) {
-			return conformance.UESpec{}, fmt.Errorf("--gnb-n3, --traffic, --ki and --opc describe the mobility checks' UE and need --supi")
+			(u.ki != "" && given("ki")) || (u.opc != "" && given("opc")) ||
+			u.nasIntegrity != nil || u.nasCiphering != nil {
+			return conformance.UESpec{}, fmt.Errorf("--gnb-n3, --traffic, --ki, --opc, --nas-integrity and --nas-ciphering describe the mobility checks' UE and need --supi")
 		}
 		return conformance.UESpec{}, nil
 	}
@@ -190,5 +198,65 @@ func (u conformanceUEFlags) spec(dnn, mcc, mnc string, given func(flag string) b
 			return conformance.UESpec{}, fmt.Errorf("--traffic: want host:port: %w", err)
 		}
 	}
-	return conformance.UESpec{SUPI: u.supi, Ki: ki, OPc: opc, DNN: dnn, GNBN3: n3, Traffic: u.traffic}, nil
+	ia, err := nasAlgorithms("--nas-integrity", "NIA", u.nasIntegrity, 1)
+	if err != nil {
+		return conformance.UESpec{}, err
+	}
+	ea, err := nasAlgorithms("--nas-ciphering", "NEA", u.nasCiphering, 0)
+	if err != nil {
+		return conformance.UESpec{}, err
+	}
+	return conformance.UESpec{SUPI: u.supi, Ki: ki, OPc: opc, DNN: dnn, GNBN3: n3, Traffic: u.traffic,
+		NASIntegrity: ia, NASCiphering: ea}, nil
 }
+
+// nasAlgorithms turns a list of algorithm names (prefix followed by a
+// digit, case-insensitive) into the UE security capability bitmap, bit 8
+// for algorithm 0 (TS 24.501 9.11.3.54). Algorithms 0 to 3 exist; min is
+// the lowest one the flag accepts (1 for integrity: NIA0 is refused, since
+// the UE never registers for emergency). nil is the default, 0.
+func nasAlgorithms(flag, prefix string, names []string, min int) (uint8, error) {
+	if names == nil {
+		return 0, nil
+	}
+	if len(names) == 0 {
+		return 0, fmt.Errorf("%s: name at least one algorithm", flag)
+	}
+	var bits uint8
+	for _, n := range names {
+		up := strings.ToUpper(strings.TrimSpace(n))
+		if len(up) != len(prefix)+1 || !strings.HasPrefix(up, prefix) || up[len(prefix)] < '0' || up[len(prefix)] > '3' {
+			return 0, fmt.Errorf("%s: %q is not one of %s%d to %s3", flag, n, prefix, min, prefix)
+		}
+		a := int(up[len(prefix)] - '0')
+		if a < min {
+			return 0, fmt.Errorf("%s: %s is refused: the UE never registers for emergency, so it does not offer NIA0", flag, up)
+		}
+		bits |= 0x80 >> a
+	}
+	return bits, nil
+}
+
+// nilStringSlice is a comma-separated, repeatable string list flag that
+// stays nil until given, so "not set" differs from an empty list.
+type nilStringSlice struct{ v *[]string }
+
+func newNilStringSlice(v *[]string) *nilStringSlice { return &nilStringSlice{v: v} }
+
+func (s *nilStringSlice) String() string { return strings.Join(*s.v, ",") }
+
+func (s *nilStringSlice) Set(val string) error {
+	if *s.v == nil {
+		*s.v = []string{}
+	}
+	for _, p := range strings.Split(val, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return fmt.Errorf("empty element in %q", val)
+		}
+		*s.v = append(*s.v, p)
+	}
+	return nil
+}
+
+func (s *nilStringSlice) Type() string { return "strings" }

@@ -28,9 +28,14 @@ var ErrRegistrationRejected = errors.New("AMF rejected registration")
 // downlink NAS messages and watch what the core sends during an attach.
 //
 // A withheld reply is withheld at the reaction: the UE does nothing else in
-// reaction to that downlink either (no state event, no key derivation, no
-// REGISTERED, no PDU session request), so a retransmitted downlink finds the
-// attach where the first one left it and is withheld again.
+// reaction to that downlink either (no state event, no REGISTERED, no PDU
+// session request), so a retransmitted downlink finds the attach where the
+// first one left it and is withheld again. The one exception is the
+// Security Mode Command, which is verified before any reaction: its keys
+// are derived and its MAC checked whether or not the Security Mode Complete
+// is withheld, so a corrupt command is never taken for one. A verified
+// command installs its context either way; a retransmission carries the
+// new-context header and starts it afresh.
 type AttachProbe struct {
 	// Withhold names the uplink NAS message types the UE never sends (for
 	// example f5nas.MsgTypeAuthenticationResponse). Only the replies the
@@ -70,7 +75,73 @@ type AttachProbe struct {
 	// closes is abandoned and the PDU it later takes is lost, so the next
 	// step should be the deregistration.
 	Stop <-chan struct{}
+	// DeregisterUndecodableAccept, with OnNAS set, ends the attach at a
+	// Registration Accept that does not decode (or fails the integrity
+	// check) with an *UndecodableAcceptError, after a best-effort
+	// switch-off Deregistration Request. Such an Accept is otherwise
+	// skipped: the attach never reaches REGISTERED and returns no Session,
+	// while the core may hold the UE registered. The request is protected
+	// with the installed context (in the clear without one) and names the
+	// UE by its SUCI, since the Accept's 5G-GUTI could not be read. Under a
+	// cipher other than NEA0 the header's type cannot be read, so while the
+	// attach waits for the Accept any downlink that does not decode counts;
+	// one whose MAC fails cannot be identified at all.
+	DeregisterUndecodableAccept bool
 }
+
+// UndecodableAcceptError is the error Attach returns when
+// AttachProbe.DeregisterUndecodableAccept ended it at a Registration Accept
+// that did not decode.
+type UndecodableAcceptError struct {
+	// Err is the Accept's decode error.
+	Err error
+	// Deregistration is nil when the Deregistration Request was sent, else
+	// why it was not.
+	Deregistration error
+}
+
+func (e *UndecodableAcceptError) Error() string {
+	if e.Deregistration != nil {
+		return fmt.Sprintf("registration accept did not decode (%v); deregistration not sent: %v", e.Err, e.Deregistration)
+	}
+	return fmt.Sprintf("registration accept did not decode (%v); deregistration sent", e.Err)
+}
+
+func (e *UndecodableAcceptError) Unwrap() error { return e.Err }
+
+// deregisterUndecodableAccept sends the best-effort deregistration of
+// AttachProbe.DeregisterUndecodableAccept and returns the error that ends
+// the attach.
+func (s *attachState) deregisterUndecodableAccept(decodeErr error) error {
+	e := &UndecodableAcceptError{Err: decodeErr}
+	suci, err := s.ueCfg.Identity.EncodeNullSUCI()
+	if err != nil {
+		e.Deregistration = err
+		return e
+	}
+	m, err := ue.BuildDeregistrationRequest(suci, true)
+	if err != nil {
+		e.Deregistration = err
+		return e
+	}
+	var pdu []byte
+	if s.sec != nil {
+		pdu, err = s.sec.EncodeSecure(m, nas.SecHdrIntegrityCiphered)
+	} else {
+		req := m.DeregistrationRequestUEOriginatingDeregistration
+		req.SetNasKeySetIdentifiler(noKeyAvailable)
+		pdu, err = m.PlainNasEncode()
+	}
+	if err == nil {
+		err = s.sendUL(pdu)
+	}
+	e.Deregistration = err
+	return e
+}
+
+// noKeyAvailable is the ngKSI value "no key is available" (TS 24.501
+// 9.11.3.32).
+const noKeyAvailable = 7
 
 // ErrDownlinkNASDecode wraps the error Attach returns when a downlink NAS
 // PDU does not decode (and no probe asked to skip it).
@@ -92,6 +163,8 @@ func (e *PlainAcceptError) Error() string {
 // NASEvent is one downlink NAS PDU the attach decoded (see
 // AttachProbe.OnNAS).
 type NASEvent struct {
+	// At is when the attach took the PDU up for decoding.
+	At time.Time
 	// Raw is the NAS PDU as received.
 	Raw []byte
 	// Type is the 5GMM message type read from the PDU's header without
@@ -99,7 +172,32 @@ type NASEvent struct {
 	Type uint8
 	// Msg is the decoded plain message, nil when Err is set.
 	Msg *f5nas.Message
-	Err error
+	// Plain is a protected PDU's plain NAS message (the bytes inside the
+	// security header), set only when its MAC verified and it deciphered,
+	// even if the codec then refused it (Err set), so a probe can read
+	// IEs the codec does not know. It is nil for a plain-NAS PDU, whose
+	// Raw is already plain, and for a PDU that did not verify or
+	// decipher. Never read a protected PDU's Raw past its header instead:
+	// under NEA1-3 that is ciphertext.
+	Plain []byte
+	Err   error
+}
+
+// MessageType is the PDU's 5GMM message type: the decoded message's when it
+// decoded, which works under any cipher; else the deciphered Plain's; else
+// the header read (Type). Type
+// is only ever read where the header is plaintext (a plain PDU, or a
+// protected one under NEA0 or before any context; see nasMessageType and
+// readableCipher), so under NEA1-3 an undecodable PDU is 0, never a
+// ciphertext byte.
+func (e NASEvent) MessageType() uint8 {
+	if e.Msg != nil && e.Msg.GmmMessage != nil {
+		return e.Msg.GmmHeader.GetMessageType()
+	}
+	if len(e.Plain) >= 3 { // EPD, security header, message type
+		return e.Plain[2]
+	}
+	return e.Type
 }
 
 // ErrProbeStopped is the error Attach returns when AttachProbe.Stop ends
@@ -172,7 +270,7 @@ func (s *attachState) observe(pdu *ngapType.NGAPPDU) error {
 	}
 	if dl, err := gnb.ParseDownlink(pdu); err == nil && len(dl.NASPDU) > 0 {
 		ev.NAS = dl.NASPDU
-		ev.NASType = nasMessageType(dl.NASPDU, s.sec != nil && s.sec.CipheringAlg == nas.NEA0)
+		ev.NASType = nasMessageType(dl.NASPDU, s.readableCipher())
 	}
 	if p.OnDownlink != nil {
 		p.OnDownlink(ev)
@@ -221,7 +319,8 @@ func procedureName(code int64) string {
 // type at offset 9: readable when only integrity-protected (types 1 and 3),
 // or when ciphered (types 2 and 4) with NEA0 selected (nea0). A ciphered
 // message under another algorithm, a short or malformed PDU, or a non-5GMM
-// one is 0.
+// one is 0; a probe that needs the type under another cipher reads
+// NASEvent.Msg, which the security context deciphered.
 func nasMessageType(raw []byte, nea0 bool) uint8 {
 	const epd5GMM = 0x7e
 	if len(raw) < 3 || raw[0] != epd5GMM {
@@ -321,10 +420,6 @@ func (s *attachState) sendPlainDeregistration(id []byte) error {
 	}
 	return gnb.SendPDU(s.conn, ueStream, pdu)
 }
-
-// noKeyAvailable is the ngKSI value "no key is available" (TS 24.501
-// 9.11.3.32).
-const noKeyAvailable = 7
 
 // pduResult is one read from the association.
 type pduResult struct {

@@ -121,6 +121,8 @@ var fields = map[string]field{
 	"workloads[].conformance.expected":            {},
 	"workloads[].conformance.per_test_timeout_ms": {typ: tUint},
 	"workloads[].conformance.traffic":             {},
+	"workloads[].conformance.nas.integrity":       {typ: tStrings},
+	"workloads[].conformance.nas.ciphering":       {typ: tStrings},
 	"gates[].name":                                {},
 	"gates[].slo.threshold":                       {},
 }

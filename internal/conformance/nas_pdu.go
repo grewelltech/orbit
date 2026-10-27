@@ -139,7 +139,7 @@ type dnnOutcome struct {
 	noAnswer   bool    // nothing within the answer wait
 	decodeErr  error   // a downlink after the request that did not decode
 	decodeRaw  []byte  // its NAS PDU
-	decodeType uint8   // its 5GMM message type from the header, 0 if unreadable
+	decodeType uint8   // its 5GMM message type (NASEvent.MessageType), 0 if unreadable
 	registered bool    // the attach returned a REGISTERED UE
 	err        error   // registration or harness failure
 }
@@ -198,7 +198,7 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 				return
 			}
 			if ev.Err != nil {
-				o.decodeErr, o.decodeRaw, o.decodeType = ev.Err, ev.Raw, ev.Type
+				o.decodeErr, o.decodeRaw, o.decodeType = ev.Err, ev.Raw, ev.MessageType()
 				halt()
 				return
 			}

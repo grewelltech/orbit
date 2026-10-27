@@ -635,6 +635,17 @@ orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
     --category nas --supi 001010100007500 --gnb-n3 172.17.50.12
 ```
 
+The UE advertises NEA0 and 128-NIA2 by default and completes registration with
+whichever advertised pair the AMF selects. `--nas-integrity` (NIA1, NIA2,
+NIA3; default NIA2) and `--nas-ciphering` (NEA0 to NEA3; default NEA0) change
+what it advertises, as comma-separated lists, for example
+`--nas-integrity NIA1,NIA2,NIA3 --nas-ciphering NEA0,NEA1,NEA2` for a fully
+featured UE. NIA0 is refused: the UE never registers for emergency. They need
+`--supi`. A check that sets its own capabilities as its stimulus, such as
+`NAS-SMC-NO-NIA0-REPLAYED-CAPS`, keeps them. Once the AMF selects a cipher
+other than NEA0, the NAS in packet captures is ciphered and unreadable without
+the keys.
+
 `NAS-PDU-UNKNOWN-DNN` registers the UE and requests a PDU session for the DNN
 `orbit-unknown-dnn` on the run's slice. It passes on a PDU Session
 Establishment Reject with any 5GSM cause, or when the AMF returns the request

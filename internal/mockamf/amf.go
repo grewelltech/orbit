@@ -113,6 +113,12 @@ type AMF struct {
 	forcedIntegrity uint8
 	tamperCaps      bool
 	skipSMC         bool
+	cipheringOrder  []uint8
+	forceCiphering  bool
+	forcedCiphering uint8
+
+	// Accept options (accept.go).
+	undecodableAccept bool
 
 	// UE context release options (release.go).
 	releaseOnDereg       bool
@@ -303,6 +309,7 @@ type ueState struct {
 	t3560        *retransmitter               // running T3560 (WithT3560), nil otherwise
 	t3550        *retransmitter               // running T3550 (WithT3550), nil otherwise
 	ueCaps       nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
+	kamf         []byte                       // KAMF from authentication, for the SMC's keys
 	requested    []byte                       // the Requested NSSAI IE's value, nil when absent
 }
 
@@ -342,7 +349,10 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	if err != nil {
 		return fmt.Errorf("mock amf key derivation: %w", err)
 	}
+	// The 128-NIA2/NEA0 context protects what precedes or replaces the
+	// Security Mode Command; the command derives the selected pair's.
 	st.sec = &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true}
+	st.kamf = vec.KAmf
 
 	if a.noAuthRequest {
 		return nil
@@ -391,6 +401,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	case f5nas.MsgTypeSecurityModeComplete:
 		if a.nssaiAnswer != AcceptAnyNSSAI && !a.servesRequested(st) {
 			return false, a.answerUnservedNSSAI(p, st)
+		}
+		if a.undecodableAccept {
+			return false, a.sendUndecodableAccept(p, st)
 		}
 		// Send Initial Context Setup Request carrying Registration Accept.
 		acc, err := a.registrationAccept(st)
