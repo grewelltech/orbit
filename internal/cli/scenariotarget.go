@@ -47,10 +47,15 @@ func scenarioTarget(cmd *cobra.Command, path string, data []byte, o options) (*t
 	errOut := cmd.ErrOrStderr()
 
 	flag := ""
+	env := strings.TrimSpace(os.Getenv("ORBIT_TARGET"))
 	if f := cmd.Flags().Lookup("target"); f != nil && f.Changed {
 		flag = strings.TrimSpace(f.Value.String())
+		if flag == "" {
+			// An explicit -t "" clears target selection at the flag and
+			// env layers; the file's own target: still applies.
+			env = ""
+		}
 	}
-	env := strings.TrimSpace(os.Getenv("ORBIT_TARGET"))
 	fileTarget := ref.Name
 	if ref.Inline != nil {
 		fileTarget = "(inline)"

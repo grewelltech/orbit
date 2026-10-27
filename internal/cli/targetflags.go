@@ -478,9 +478,10 @@ func firstAddress(flag string, list []string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	added := false
+	added, dropped := false, false
 	switch addressShapes[flag] {
 	case "ip":
+		dropped = port != ""
 		if _, err := netip.ParseAddr(host); err != nil {
 			return "", "", errNeedsIP
 		}
@@ -505,6 +506,9 @@ func firstAddress(flag string, list []string) (string, string, error) {
 		}
 		if added {
 			note += ", port " + gtpuPort + " added"
+		}
+		if dropped {
+			note += ", port dropped"
 		}
 	}
 	return text, note, nil

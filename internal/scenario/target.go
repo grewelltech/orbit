@@ -245,17 +245,40 @@ func addresses(field string, pool []string, n int) ([]string, error) {
 	return nil, fmt.Errorf("%s has %d addresses, the scenario needs %d (one per gNB)", field, len(addrs), n)
 }
 
-// supiAt is the SUPI off places after first, kept to first's width.
-func supiAt(first string, off uint64) (string, error) {
-	digits, err := ue.NormalizeSUPI(first)
+// supiAt is the SUPI off places after the pool's first.
+func supiAt(p target.Pool, off uint64) (string, error) {
+	digits, err := ue.NormalizeSUPI(p.FirstSUPI)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("subscribers[%s].first_supi: %w", p.Name, err)
 	}
 	n, err := strconv.ParseUint(digits, 10, 64)
 	if err != nil {
-		return "", fmt.Errorf("first_supi %q is not numeric", first)
+		return "", fmt.Errorf("subscribers[%s].first_supi %q is not numeric", p.Name, p.FirstSUPI)
 	}
 	return fmt.Sprintf("%0*d", len(digits), n+off), nil
+}
+
+// checkSUPIRange is the error when count SUPIs from the pool's first would
+// not all keep its digit width and its PLMN prefix (the target's
+// core.plmn): first_supi + count - 1 must not carry into the MNC or past
+// the SUPI's length, or the UEs would register under another network.
+func checkSUPIRange(p target.Pool, plmn target.PLMN, count uint64) error {
+	if count == 0 {
+		return nil
+	}
+	first, err := ue.NormalizeSUPI(p.FirstSUPI)
+	if err != nil {
+		return fmt.Errorf("subscribers[%s].first_supi: %w", p.Name, err)
+	}
+	last, err := supiAt(p, count-1)
+	if err != nil {
+		return err
+	}
+	prefix := plmn.MCC + plmn.MNC
+	if len(last) != len(first) || !strings.HasPrefix(last, prefix) {
+		return fmt.Errorf("subscribers[%s]: %s + %d UEs leaves PLMN %s/%s", p.Name, first, count, plmn.MCC, plmn.MNC)
+	}
+	return nil
 }
 
 // checkPoolSize is the error when the pool holds fewer subscribers than
@@ -283,6 +306,11 @@ func (f *FleetScenario) ApplyTarget(t target.Target) error {
 	if err := checkPoolSize(p, f.Fleet.Count); err != nil {
 		return err
 	}
+	if f.Fleet.Count > 0 {
+		if err := checkSUPIRange(p, t.Core.PLMN, uint64(f.Fleet.Count)); err != nil {
+			return err
+		}
+	}
 	applyCore(&f.Core, &f.Credentials, t, p)
 	f.Fleet.SUPIBase = p.FirstSUPI
 	g := &f.Topology.GNBs
@@ -300,12 +328,28 @@ func (f *FleetScenario) ApplyTarget(t target.Target) error {
 	if g.SourceIPs, err = addresses("ran.n2_source_ips", t.RAN.N2SourceIPs, n); err != nil {
 		return err
 	}
+	// topology.gnbs.source_ips takes an IP (a gNB binds an ephemeral port
+	// from it, and uses it as its N3 address when there is no N3 pool), so
+	// a fixed N2 port is an error rather than a silent strip: it may be
+	// deliberate. ip:0 is the IP with an ephemeral port, the same thing.
 	for i, a := range g.SourceIPs {
-		g.SourceIPs[i] = strings.TrimSuffix(a, ":0")
+		host, port, err := net.SplitHostPort(a)
+		switch {
+		case err != nil:
+		case port == "0":
+			g.SourceIPs[i] = host
+		default:
+			return fmt.Errorf("fleet gNB sources take an IP; remove :%s from ran.n2_source_ips[%d] (%s)", port, i, a)
+		}
 	}
 	if len(t.RAN.N3IPs) > 0 {
 		if g.N3IPs, err = addresses("ran.n3_ips", t.RAN.N3IPs, n); err != nil {
 			return err
+		}
+		for i, a := range g.N3IPs {
+			if host, _, err := net.SplitHostPort(a); err == nil {
+				g.N3IPs[i] = host // a gNB's N3 address is an IP; GTP-U's port is fixed
+			}
 		}
 	}
 	responder := func(what string) (*target.Responder, error) {
@@ -400,9 +444,9 @@ func (s *Scenario) ApplyTarget(t target.Target) error {
 		if u.Range != nil {
 			count = u.Range.Count
 		}
-		base, err := supiAt(p.FirstSUPI, off)
+		base, err := supiAt(p, off)
 		if err != nil {
-			return fmt.Errorf("subscribers[%s]: %w", p.Name, err)
+			return err
 		}
 		if u.Range != nil {
 			u.Range.Base = base
@@ -410,6 +454,9 @@ func (s *Scenario) ApplyTarget(t target.Target) error {
 			u.SUPI = base
 		}
 		off += uint64(count)
+	}
+	if err := checkSUPIRange(p, t.Core.PLMN, off); err != nil {
+		return err
 	}
 	return checkPoolSize(p, int(off))
 }

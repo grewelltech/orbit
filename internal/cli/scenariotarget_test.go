@@ -69,6 +69,8 @@ func TestScenarioTargetPrecedence(t *testing.T) {
 		{name: "$ORBIT_TARGET overrides the file's target", doc: "target: lab1\n" + fleetFile, env: "lab2", wantAMF: "192.0.2.99:38412",
 			wantNote: "target lab2 ($ORBIT_TARGET) overrides the file's target: lab1"},
 		{name: "inline target", doc: inline + fleetFile, wantAMF: "192.0.2.77:38412"},
+		{name: "-t \"\" clears $ORBIT_TARGET, the file's target: applies", doc: "target: lab1\n" + fleetFile, env: "lab2", args: []string{"-t", ""}, wantAMF: "192.0.2.10:38412", noNote: true},
+		{name: "-t \"\" with no file target: names no target", doc: fleetFile, env: "lab2", args: []string{"-t", ""}, wantErr: "names no target"},
 		{name: "-t naming the file's own target is no override", doc: "target: lab1\n" + fleetFile, args: []string{"-t", "lab1"}, wantAMF: "192.0.2.10:38412", noNote: true},
 		{name: "names no target", doc: fleetFile, wantErr: "x.yaml names no target: add target: <name> or pass -t"},
 		{name: "self-contained", doc: self, wantAMF: "192.0.2.5:38412"},
@@ -146,14 +148,14 @@ func TestStartFleetSendsAppliedScenario(t *testing.T) {
 // from, and its fields with their sources, keys masked.
 func TestScenarioExplain(t *testing.T) {
 	clearOrbitEnv(t)
-	t.Setenv("ORBIT_MCC", "999")
+	t.Setenv("ORBIT_KI", strings.Repeat("5", 32))
 	_, r := startFleet(t, lab1, writeScenario(t, "target: lab1\n"+fleetFile), "--explain")
-	for _, want := range []string{"x.yaml: target lab1 (the file's target:)", "core.amf", "core.plmn.mcc", "env $ORBIT_MCC", "subscribers[main].ki", "<redacted>"} {
+	for _, want := range []string{"x.yaml: target lab1 (the file's target:)", "core.amf", "core.plmn.mcc", "env $ORBIT_KI", "subscribers[main].ki", "<redacted>"} {
 		if !strings.Contains(r.err, want) {
 			t.Errorf("explain lacks %q:\n%s", want, r.err)
 		}
 	}
-	if strings.Contains(r.err, testKi) {
+	if strings.Contains(r.err, testKi) || strings.Contains(r.err, strings.Repeat("5", 32)) {
 		t.Error("explain shows a key")
 	}
 }

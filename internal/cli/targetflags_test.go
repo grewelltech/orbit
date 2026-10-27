@@ -429,7 +429,7 @@ func TestFirstAddress(t *testing.T) {
 		{flag: "bind", list: []string{"192.0.2.7/32"}, want: "192.0.2.7", wantNote: `from "192.0.2.7/32"`},
 		{flag: "bind", list: []string{"2001:db8::/64"}, want: "2001:db8::", wantNote: `from "2001:db8::/64"`},
 		{flag: "bind", list: []string{"[fe80::1%eth0]:0"}, want: "[fe80::1%eth0]:0"},
-		{flag: "gnb-n3", list: []string{"198.51.100.50:2152"}, want: "198.51.100.50", wantNote: `from "198.51.100.50:2152"`},
+		{flag: "gnb-n3", list: []string{"198.51.100.50:2152"}, want: "198.51.100.50", wantNote: `from "198.51.100.50:2152", port dropped`},
 		{flag: "n3-bind", list: []string{"198.51.100.50"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", port 2152 added`},
 		{flag: "n3-bind", list: []string{"198.51.100.50", "198.51.100.51"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", the first of 2, port 2152 added`},
 		{flag: "n3-bind", list: []string{"198.51.100.50:3000"}, want: "198.51.100.50:3000"},
@@ -955,5 +955,16 @@ func TestUnfilledFlagReasonInError(t *testing.T) {
 		`\(ran\.n3_ips\[0\] "gnb1\.lab" is a host name; --gnb-n3 needs an IP, target lab1, \S*orbit\.yaml:18\)$`)
 	if r.execErr == nil || !want.MatchString(r.execErr.Error()) {
 		t.Errorf("err = %v\nwant  %s", r.execErr, want)
+	}
+}
+
+// An explicit -t "" clears target selection, so $ORBIT_TARGET is ignored
+// and a command with no file layer runs with no target.
+func TestEmptyTargetFlagIgnoresEnv(t *testing.T) {
+	clearOrbitEnv(t)
+	t.Setenv("ORBIT_TARGET", "lab1")
+	r := runOrbit(t, targetDir(t, lab1), append(skipAll, "-t", "")...)
+	if r.execErr == nil || !strings.Contains(r.execErr.Error(), `required flag(s) "amf" not set`) {
+		t.Errorf("-t \"\" under $ORBIT_TARGET: err = %v, want no target (the required --amf)", r.execErr)
 	}
 }

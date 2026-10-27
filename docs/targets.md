@@ -143,6 +143,11 @@ one you typed fills the other.
     row marked `⚠`, and the command runs as it would without `--explain`.
 - **An explicit empty flag clears a field**: `--bind ""` is the route-selected
   source, and `--supi ""` turns a conformance target's UE off.
+- **A pool's `first_supi` must be in the target's PLMN** (its leading MCC+MNC
+  digits), or the target doesn't resolve.
+- **An explicit `-t ""`** clears target selection: `$ORBIT_TARGET` is ignored,
+  and a command runs with no target. A scenario file's own `target:` still
+  applies.
 - **`$ORBIT_TARGET`** names the target when `-t` doesn't. Commands that take no
   target field ignore it, so an export never breaks `orbit runs list`.
   - A stale `$ORBIT_TARGET` naming a missing target fails every command that
@@ -176,8 +181,17 @@ behaviours. It takes its core, keys and addresses from a target.
   - a fleet's first SUPI and `id_base`, and one N2 and N3 address per gNB;
   - a step file's gNBs, which take the range's first ID, then +1 and so on, and
     the pools' addresses in order;
+  - ports in the pools: a gNB's N3 address is an IP, so an N3 ip:port entry
+    gives the IP alone, on fleets and step files alike, and `--explain` notes
+    "port dropped". A fleet's gNB sources take an IP too: an N2 `ip:0` is the
+    IP, and a fixed port is an error naming the entry ("fleet gNB sources take
+    an IP; remove :38412 from ran.n2_source_ips[2]"), since it may be
+    deliberate;
   - step UEs' SUPIs, allocated from the pool's first in file order, so no two
-    entries overlap. A scenario larger than the pool's `count` is an error;
+    entries overlap. A scenario larger than the pool's `count` (when set) is an
+    error. Whatever the count, the SUPIs keep the first one's width and its
+    PLMN prefix: `subscribers[main]: 001019999999999 + 4 UEs leaves PLMN
+    001/01` is an error, on fleets too;
   - app cohorts and bulk traffic, which take the first responder.
 - **Echo destinations:** a fleet's `latency.target`, and a step's `ping.dst` and
   `latency.target`, take the first responder's `data_ip` when the file omits

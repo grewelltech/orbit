@@ -274,3 +274,55 @@ func TestTargetMustBeResolvedByTheClient(t *testing.T) {
 		t.Error("Parse accepted a file naming a target")
 	}
 }
+
+// A SUPI allocation keeps its digit width and its PLMN prefix: an offset
+// that would carry into the MNC, or past the SUPI's length, is an error
+// naming the pool, the start, the count and the PLMN, on the step and the
+// fleet paths alike.
+func TestSUPIAllocationStaysInPLMN(t *testing.T) {
+	nearEnd := fixtureWith(t, `first_supi: "001010100007500"`, `first_supi: "001019999999998"`)
+	top := loadTarget(t, strings.NewReplacer(`plmn: { mcc: "001", mnc: "01" }`, `plmn: { mcc: "999", mnc: "99" }`,
+		`first_supi: "001010100007500"`, `first_supi: "999999999999998"`).Replace(exampleTargetYAML))
+	// stepDoc allocates 5 SUPIs (ue1, a range of 3, ue2).
+	if _, err := ParseWithTarget([]byte(stepDoc), &nearEnd); err == nil || !strings.Contains(err.Error(), "subscribers[main]: 001019999999998 + 5 UEs leaves PLMN 001/01") {
+		t.Errorf("step, into the MNC: %v", err)
+	}
+	if _, err := ParseWithTarget([]byte(stepDoc), &top); err == nil || !strings.Contains(err.Error(), "subscribers[main]: 999999999999998 + 5 UEs leaves PLMN 999/99") {
+		t.Errorf("step, past 15 digits: %v", err)
+	}
+	// fleetDoc has 10 UEs.
+	if _, err := ParseFleetWithTarget([]byte(fleetDoc), &nearEnd); err == nil || !strings.Contains(err.Error(), "subscribers[main]: 001019999999998 + 10 UEs leaves PLMN 001/01") {
+		t.Errorf("fleet, into the MNC: %v", err)
+	}
+	// Exactly to the end of the range is fine.
+	two := fixtureWith(t, `first_supi: "001010100007500"`, `first_supi: "001019999999998"`)
+	if _, err := ParseFleetWithTarget([]byte(strings.Replace(fleetDoc, "count: 10", "count: 2", 1)), &two); err != nil {
+		t.Errorf("fleet, up to the last SUPI: %v", err)
+	}
+}
+
+// Ports in a fleet's pools: an N3 ip:port gives the IP alone, as on the
+// step path; an N2 ip:0 is the IP, and a fixed N2 port is an error naming
+// the entry, not a silent strip.
+func TestFleetPoolPorts(t *testing.T) {
+	n3port := fixtureWith(t, "n3_ips: [198.51.100.20-198.51.100.29]", "n3_ips: [198.51.100.20:2152, 198.51.100.21:2152, 198.51.100.22:2152]")
+	f, err := ParseFleetWithTarget([]byte(fleetDoc), &n3port)
+	if err != nil || !reflect.DeepEqual(f.Topology.GNBs.N3IPs, []string{"198.51.100.20", "198.51.100.21", "198.51.100.22"}) {
+		t.Errorf("N3 ip:port: %v %v", err, f)
+	}
+	n2zero := fixtureWith(t, "n2_source_ips: [192.0.2.20-192.0.2.29]", "n2_source_ips: [192.0.2.20:0, 192.0.2.21:0, 192.0.2.22:0]")
+	f, err = ParseFleetWithTarget([]byte(fleetDoc), &n2zero)
+	if err != nil || f.Topology.GNBs.SourceIPs[2] != "192.0.2.22" {
+		t.Errorf("N2 ip:0: %v %v", err, f)
+	}
+	n2fixed := fixtureWith(t, "n2_source_ips: [192.0.2.20-192.0.2.29]", "n2_source_ips: [192.0.2.20, 192.0.2.21, 192.0.2.22:38412]")
+	if _, err := ParseFleetWithTarget([]byte(fleetDoc), &n2fixed); err == nil ||
+		!strings.Contains(err.Error(), "fleet gNB sources take an IP; remove :38412 from ran.n2_source_ips[2]") {
+		t.Errorf("N2 fixed port: %v", err)
+	}
+	// The step path strips an N3 port the same way.
+	s, err := ParseWithTarget([]byte(stepDoc), &n3port)
+	if err != nil || s.GNBs[1].N3 != "198.51.100.21" {
+		t.Errorf("step N3 ip:port: %v", err)
+	}
+}
