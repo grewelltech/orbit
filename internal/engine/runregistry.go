@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"runtime/debug"
 	"sort"
 	"sync"
@@ -68,6 +69,11 @@ type RunOptions struct {
 	// FleetNeeds). A run is refused with ErrLeaseConflict when another
 	// active run holds any of them.
 	Needs Needs
+	// OnRelease, when set, runs once the run's leases are released (the
+	// launcher returned, or the run never started after registering), off
+	// the registry's lock: a caller returns what it allocated for the run,
+	// such as gNB IDs from a GNBRotation.
+	OnRelease func()
 }
 
 // LoadRunFunc executes a load run to completion, reporting each attempt to
@@ -86,6 +92,8 @@ type run struct {
 	events    *eventRing      // per-run discrete-event log
 	report    any             // *load.Report or *FleetReport, set on COMPLETE
 	cancel    context.CancelFunc
+	leases    []LeaseInfo // what the run leased, kept after release for the archive
+	onRelease func()
 }
 
 // FleetRunFunc executes a fleet run to completion, publishing its aggregates
@@ -207,6 +215,8 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 		fleetLive: fleetLive,
 		events:    ring,
 		cancel:    cancel,
+		leases:    want.describe(),
+		onRelease: opts.OnRelease,
 	}
 	r.runs[id] = rec
 	r.order = append(r.order, id)
@@ -230,6 +240,15 @@ func (r *RunRegistry) launcher(id string, cancel context.CancelFunc, ring *event
 		if p := recover(); p != nil {
 			cancel()
 			r.mu.Lock()
+			var hook func()
+			if rec := r.runs[id]; rec != nil {
+				hook = rec.onRelease
+			}
+			defer func() {
+				if hook != nil {
+					hook()
+				}
+			}()
 			r.leases.release(id)
 			delete(r.runs, id)
 			kept := r.order[:0]
@@ -281,6 +300,12 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 	}
 	ring.emit(sev, "RUN", "", msg)
 
+	var hook func()
+	defer func() {
+		if hook != nil {
+			hook() // after the unlock below: hooks must not run under r.mu
+		}
+	}()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// The launcher has returned, its drain with it (UEs deregistered,
@@ -289,6 +314,9 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 	// same resources. A launcher that panicked reaches here too (guard).
 	r.leases.release(id)
 	rec := r.runs[id]
+	if rec != nil {
+		hook = rec.onRelease
+	}
 	if rec == nil {
 		return // evicted — impossible while terminal-eviction skips this run, but defensive
 	}
@@ -528,3 +556,34 @@ func (r *RunRegistry) evictLocked() {
 type ErrRunNotFound struct{ ID string }
 
 func (e *ErrRunNotFound) Error() string { return fmt.Sprintf("run %s not found", e.ID) }
+
+// Leases is what run id leased: while it is active, and after (for its
+// archive). Unknown ids have none.
+func (r *RunRegistry) Leases(id string) []LeaseInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rec := r.runs[id]; rec != nil {
+		return append([]LeaseInfo(nil), rec.leases...)
+	}
+	return nil
+}
+
+// GNBInUse returns a check of whether a gNB ID at amf (any of its names or
+// addresses, as leases compare them) in plmn is leased by an active run, for
+// a GNBRotation's Assign. amf is resolved once, here, outside the lock.
+func (r *RunRegistry) GNBInUse(amf, plmn string) func(id uint32) bool {
+	res := &resolver{t: r.leases, seen: map[string][]netip.Addr{}}
+	ident := res.amfIdentity(amf)
+	return func(id uint32) bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for _, l := range r.leases.held {
+			for _, g := range l.gnbs {
+				if g.plmn == plmn && g.id == id && g.amf.intersects(ident) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -297,5 +298,54 @@ func TestLauncherPanicReleasesLeases(t *testing.T) {
 		return load.Report{}, nil
 	}); err != nil {
 		t.Errorf("the same resources after a setup panic: %v", err)
+	}
+}
+
+// OnRelease runs once a run's leases are released, and the run's leases
+// stay readable (for its archive) after; GNBInUse sees an active run's
+// gNB IDs by any name of their AMF.
+func TestReleaseHookAndLeases(t *testing.T) {
+	r := quietRegistry(0)
+	r.leases.resolveHost = fakeResolve
+	released := make(chan struct{})
+	block := make(chan struct{})
+	needs := Needs{
+		SUPIs: []SUPIBlock{{PLMN: "001/01", First: 1, Last: 10}},
+		GNBs:  []GNBKey{{AMF: "amf.lab:38412", PLMN: "001/01", ID: 7}},
+		N2IPs: []string{"10.0.1.5"},
+	}
+	info, err := r.StartLoad(RunOptions{Needs: needs, OnRelease: func() { close(released) }}, func(context.Context, *load.LiveStats, RunEventFunc) (load.Report, error) {
+		<-block
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inUse := r.GNBInUse("10.0.0.1:38412", "001/01") // amf.lab by its address
+	if !inUse(7) || inUse(8) {
+		t.Errorf("GNBInUse(7) = %t, (8) = %t; want true, false", inUse(7), inUse(8))
+	}
+	select {
+	case <-released:
+		t.Fatal("OnRelease ran while the run was active")
+	default:
+	}
+	close(block)
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnRelease never ran")
+	}
+	if inUse(7) {
+		t.Error("the gNB ID is still in use after the run ended")
+	}
+	got := r.Leases(info.ID)
+	want := []LeaseInfo{
+		{Resource: "supi_block", PLMN: "001/01", FirstSUPI: "000000000000001", LastSUPI: "000000000000010"},
+		{Resource: "gnb_id", PLMN: "001/01", AMF: "amf.lab:38412", GNBID: 7},
+		{Resource: "n2_ip", N2IP: "10.0.1.5"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Leases = %+v, want %+v", got, want)
 	}
 }
