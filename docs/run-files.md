@@ -83,7 +83,8 @@ A **conformance** workload runs the suite, its fields under `conformance`:
 `categories`, `target_release`, `per_test_timeout_ms`, `traffic`,
 `responder`, `subscriber_pool`, `n3_bind`, `gnb_ids` (as above),
 `nas.integrity` and `nas.ciphering` (the UE's NAS algorithms, as
-`--nas-integrity` and `--nas-ciphering` give them), and
+`--nas-integrity` and `--nas-ciphering` give them; a list left out, or
+empty, is the default, NIA2 or NEA0), and
 `expected`. `expected` is the
 [expected-failures list](conformance/expected-failures.md): a path, read
 relative to the run file, or the list inline.

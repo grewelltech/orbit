@@ -451,10 +451,10 @@ func TestThinConformanceNASMatchesLocal(t *testing.T) {
 		var caps [][]byte
 		for _, rr := range lab.mock.RegistrationRequests() {
 			m, err := nas.DecodePlain(rr)
-			if err != nil || m.RegistrationRequest == nil || m.RegistrationRequest.UESecurityCapability == nil {
+			if err != nil || m.RegistrationRequest == nil || m.UESecurityCapability == nil {
 				t.Fatalf("local %t: a Registration Request without a UE security capability: %v", local, err)
 			}
-			caps = append(caps, m.RegistrationRequest.UESecurityCapability.Buffer[:2])
+			caps = append(caps, m.UESecurityCapability.Buffer[:2])
 		}
 		return sum.Results, caps, r
 	}
