@@ -93,13 +93,6 @@ func hostPort(v any) string {
 	return ""
 }
 
-func ip(s string) string {
-	if _, err := netip.ParseAddr(s); err != nil {
-		return "is not an IP address"
-	}
-	return ""
-}
-
 func supi(v any) string {
 	s := strings.TrimPrefix(v.(string), "imsi-")
 	if !imsiDigits.MatchString(s) {
@@ -129,6 +122,11 @@ func addrEntry(a string, pools bool) bool {
 	}
 	if _, err := parseIP(a); err == nil {
 		return true
+	}
+	if lo, _, found := strings.Cut(a, "-"); found {
+		if _, err := netip.ParseAddr(lo); err == nil {
+			return false // meant as a range (10.0.0.1-10.0.0.x), and not a valid one
+		}
 	}
 	if _, err := netip.ParseAddrPort(a); err == nil {
 		return true

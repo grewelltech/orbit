@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -267,6 +269,12 @@ func setFromTarget(cmd string, fs *pflag.FlagSet, bound map[string]target.Bindin
 			continue // its replacement, bound to the same path, takes the value
 		}
 		a, ok, err := flagText(cmd, f.Path, n, b, f.Value, fl.Value, gnbCount(fs))
+		if errors.Is(err, errNeedsIP) {
+			// --gnb-n3 cannot take a host name that --n3-bind can: leave it
+			// to the command, which says so if it needs one.
+			out[n] = appliedFlag{path: f.Path, note: "not filled: " + err.Error(), skipped: true}
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s for --%s: %w", f.Source, f.Path, n, err)
 		}
@@ -324,6 +332,8 @@ type appliedFlag struct {
 	text string
 	list []string
 	note string // how a pool was narrowed, "" when it was not
+	// skipped is set when the flag was left unfilled; note says why.
+	skipped bool
 }
 
 // flagText renders a resolved value as the text a flag takes. A list goes
@@ -391,6 +401,10 @@ func poolForGNBs(cmd, path string, pool []string, gnbs int) (appliedFlag, bool, 
 	return a, true, nil
 }
 
+// errNeedsIP is firstAddress's answer when a flag that takes only an IP
+// (--gnb-n3) would get a host name: the flag is left unfilled.
+var errNeedsIP = errors.New("takes an IP address; the field holds a host name")
+
 // addressShapes are the single-address flags an address list maps to, and
 // the form each takes: --bind ip[:port] (N2 source), --gnb-n3 an IP,
 // --n3-bind ip:port (GTP-U source, port 2152 when the entry has none).
@@ -410,6 +424,9 @@ func firstAddress(flag string, list []string) (string, string, error) {
 	added := false
 	switch addressShapes[flag] {
 	case "ip":
+		if _, err := netip.ParseAddr(host); err != nil {
+			return "", "", errNeedsIP
+		}
 		port = ""
 	case "ip:port":
 		if port == "" {
@@ -481,7 +498,7 @@ func explain(w io.Writer, cmd, name string, bound map[string]target.Binding, r *
 		for _, n := range flagsOf[p] {
 			s := "--" + n
 			if a, ok := applied[n]; ok && a.note != "" {
-				if target.IsSecret(p) {
+				if target.IsSecret(p) || a.skipped {
 					s += " (" + a.note + ")"
 				} else {
 					s += "=" + a.text + " (" + a.note + ")"
@@ -490,9 +507,12 @@ func explain(w io.Writer, cmd, name string, bound map[string]target.Binding, r *
 			flags = append(flags, s)
 		}
 		value, setBy := pv.Value, shortSource(pv.Source)
-		if value == "" || value == "[]" {
-			// An empty value from a layer clears the field (--bind "").
+		switch {
+		case (value == "" || value == "[]") && pv.Source.Layer >= target.LayerEnv:
+			// An explicit empty value clears the field (--bind "").
 			value, setBy = "(cleared)", "cleared by "+setBy
+		case value == "" || value == "[]":
+			value = "(none)" // the default's, or a target slice with no SD
 		}
 		if _, set := byPath[p]; !set {
 			value, setBy = "-", "-"

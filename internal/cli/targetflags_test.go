@@ -859,3 +859,41 @@ func TestNegativeDurationAccepted(t *testing.T) {
 		t.Errorf("load --duration=-1s --explain: %v", r.execErr)
 	}
 }
+
+// A host name in ran.n3_ips fills --n3-bind, which takes one, and leaves
+// --gnb-n3 (an IP only) unfilled with a note, so a run that does not need
+// it is not failed by it.
+func TestN3HostNameLeavesGNBN3Unfilled(t *testing.T) {
+	clearOrbitEnv(t)
+	doc := strings.Replace(lab1, "n3_ips: [198.51.100.50]", "n3_ips: [ran-n3.example.net]", 1)
+	r := runOrbit(t, targetDir(t, doc), append(skipAll, "-t", "lab1", "--supi", "", "--explain")...)
+	if r.execErr != nil {
+		t.Fatalf("%v\n%s", r.execErr, r.err)
+	}
+	if got := r.flag(t, "n3-bind"); got != "ran-n3.example.net:2152" {
+		t.Errorf("--n3-bind = %q", got)
+	}
+	if got := r.flag(t, "gnb-n3"); got != "" {
+		t.Errorf("--gnb-n3 = %q, want it unfilled", got)
+	}
+	if !strings.Contains(r.err, "--gnb-n3 (not filled: takes an IP address; the field holds a host name)") {
+		t.Errorf("explain lacks the unfilled note:\n%s", r.err)
+	}
+}
+
+// An empty value only reads as cleared when a flag or env var cleared it:
+// a target slice with no SD, or an empty default, is (none).
+func TestExplainEmptyValues(t *testing.T) {
+	clearOrbitEnv(t)
+	doc := strings.Replace(lab1NoUE, `- { sst: 1, sd: "010203" }`, `- { sst: 1 }`, 1)
+	r := runOrbit(t, targetDir(t, doc), append(skipAll, "-t", "lab1", "--bind", "", "--explain")...)
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	if row := lineWith(r.err, "core.slices[0].sd "); !strings.Contains(row, "(none)") || strings.Contains(row, "cleared") {
+		t.Errorf("target slice without SD: %q", row)
+	}
+	if row := lineWith(r.err, "ran.n2_source_ips "); !strings.Contains(row, "cleared by flag --bind") {
+		t.Errorf("--bind \"\": %q", row)
+	}
+}
