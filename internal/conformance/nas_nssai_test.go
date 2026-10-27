@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -249,6 +251,8 @@ func TestJudgeNSSAI(t *testing.T) {
 		{name: "authentication reject", o: nssaiOutcome{authReject: true}, want: Error, wantObserved: "Authentication Reject"},
 		{name: "reject failed integrity", o: nssaiOutcome{reject: rejectPDU(62), rejectErr: nas.ErrIntegrity}, want: Error,
 			wantObserved: "Registration Reject failed integrity check"},
+		{name: "reject protected before any security context", o: nssaiOutcome{reject: rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectErr: fmt.Errorf("wrapped: %w", engine.ErrNoSecurityContext)}, want: Error,
+			wantObserved: "Registration Reject protected before a NAS security context"},
 		{name: "reject the codec refused", o: nssaiOutcome{reject: rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectErr: errors.New("codec")}, want: Pass},
 		{name: "accept that did not decode", o: nssaiOutcome{acceptErr: errors.New("x")}, want: Error, wantObserved: "Registration Accept did not decode"},
 		{name: "released", o: nssaiOutcome{released: true}, want: Error, wantObserved: "released without a Registration Reject or Accept"},

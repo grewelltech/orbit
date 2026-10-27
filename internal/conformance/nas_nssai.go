@@ -423,6 +423,10 @@ func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, st
 		return Error, "Authentication Reject", "this check needs a subscriber the core authenticates"
 	case o.reject != nil && errors.Is(o.rejectErr, nas.ErrIntegrity):
 		return Error, "Registration Reject failed integrity check", fmt.Sprintf("NAS PDU %x", o.reject)
+	case o.reject != nil && errors.Is(o.rejectErr, engine.ErrNoSecurityContext):
+		// Protected before any NAS security context: the UE cannot verify
+		// it, so its bytes are not judged (#187 review).
+		return Error, "Registration Reject protected before a NAS security context", fmt.Sprintf("its integrity cannot be verified, so the rejected NSSAI is not judged; NAS PDU %x", o.reject)
 	case o.reject != nil:
 		return judgeNSSAIReject(o.reject, want)
 	case o.acceptErr != nil:
