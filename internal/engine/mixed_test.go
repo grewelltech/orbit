@@ -199,3 +199,85 @@ func TestValidateMixed(t *testing.T) {
 		})
 	}
 }
+
+// A panicking workload fails itself and the run, not the server: the
+// panic is its error, a workload waiting on it is skipped, and the run's
+// leases are released.
+func TestRunMixedPanicBecomesFailed(t *testing.T) {
+	boom := func(context.Context, *load.LiveStats, RunEventFunc) (load.Report, error) { panic("boom") }
+	tests := []struct {
+		name      string
+		ws        func(c *clock) []MixedWorkload
+		panicked  int // index of the panicking workload
+		wantOther string
+	}{
+		{name: "a panicking population", panicked: 0, wantOther: WorkloadSkipped, ws: func(c *clock) []MixedWorkload {
+			return []MixedWorkload{{Name: "pop", Load: boom, Count: 1}, {Name: "suite", Conformance: suite(c), After: "pop", Phase: PhaseAttached}}
+		}},
+		{name: "a panicking suite", panicked: 1, wantOther: WorkloadDone, ws: func(c *clock) []MixedWorkload {
+			return []MixedWorkload{{Name: "pop", Load: population(c, 1, closed(), nil), Count: 1},
+				{Name: "suite", Conformance: func(context.Context, RunEventFunc) (any, error) { panic("suite boom") }}}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := quietRegistry(0)
+			needs := Needs{N2IPs: []string{"10.9.9.9"}}
+			info, err := r.StartMixed(RunOptions{Needs: needs}, tc.ws(&clock{}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitState(t, r, info.ID, RunFailed)
+			got, _ := r.Get(info.ID)
+			if !strings.Contains(got.Err, "workload panicked:") {
+				t.Errorf("run error = %q", got.Err)
+			}
+			ps := r.MixedProgress(info.ID)
+			if ps[tc.panicked].State != WorkloadFailed || !strings.HasPrefix(ps[tc.panicked].Detail, "workload panicked: ") {
+				t.Errorf("panicked workload = %+v", ps[tc.panicked])
+			}
+			if other := ps[1-tc.panicked]; other.State != tc.wantOther {
+				t.Errorf("other workload = %+v, want %s", other, tc.wantOther)
+			}
+			// The leases went: another run can take them.
+			again, err := r.StartLoad(RunOptions{Needs: needs}, func(context.Context, *load.LiveStats, RunEventFunc) (load.Report, error) {
+				return load.Report{}, nil
+			})
+			if err != nil {
+				t.Fatalf("the leases were kept: %v", err)
+			}
+			waitState(t, r, again.ID, RunComplete)
+		})
+	}
+}
+
+func closed() chan struct{} { c := make(chan struct{}); close(c); return c }
+
+// A stopped population keeps what it had, for the archive.
+func TestRunMixedStopKeepsPartials(t *testing.T) {
+	r := quietRegistry(0)
+	c := &clock{}
+	info, err := r.StartMixed(RunOptions{}, []MixedWorkload{
+		{Name: "pop", Load: func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
+			for i := 0; i < 3; i++ {
+				s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+			}
+			<-ctx.Done()
+			return load.Report{}, ctx.Err()
+		}, Count: 5},
+		{Name: "suite", Conformance: suite(c)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, r, info.ID, RunRunning)
+	time.Sleep(20 * time.Millisecond)
+	if _, err := r.Stop(info.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, r, info.ID, RunCancelled)
+	rep, ok := r.MixedProgress(info.ID)[0].Report.(*load.Report)
+	if !ok || rep.Attempted != 3 {
+		t.Errorf("stopped population's report = %+v, want its 3 attempts", r.MixedProgress(info.ID)[0].Report)
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -90,6 +92,9 @@ type MixedProgress struct {
 	Load   *load.LiveStats
 	Fleet  *FleetLiveStats
 	Suite  any
+	// Report is the workload's report once it ended done, so a run that
+	// ends otherwise still has each finished workload's.
+	Report any
 }
 
 // MixedReport is a mixed run's outcome per workload, in plan order: its
@@ -118,6 +123,7 @@ type mixedState struct {
 	mu      sync.Mutex
 	state   string
 	detail  string
+	report  any                     // the workload's report once it ends done
 	reached map[Phase]chan struct{} // closed when the phase is reached
 	ended   chan struct{}           // closed when the workload is over, however
 }
@@ -145,8 +151,8 @@ func (s *mixedState) reach(p Phase) {
 	}
 }
 
-// end records the workload's final state, once.
-func (s *mixedState) end(state, detail string) {
+// end records the workload's final state and report, once.
+func (s *mixedState) end(state, detail string, report any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	select {
@@ -154,7 +160,7 @@ func (s *mixedState) end(state, detail string) {
 		return
 	default:
 	}
-	s.state, s.detail = state, detail
+	s.state, s.detail, s.report = state, detail, report
 	close(s.ended)
 }
 
@@ -168,7 +174,7 @@ func (s *mixedState) progress() MixedProgress {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return MixedProgress{Name: s.w.Name, Kind: s.w.Kind(), State: s.state, Detail: s.detail,
-		Load: s.live, Fleet: s.fleet, Suite: s.w.SuiteLive}
+		Load: s.live, Fleet: s.fleet, Suite: s.w.SuiteLive, Report: s.report}
 }
 
 // attached reports whether a population has finished its attach phase.
@@ -181,6 +187,23 @@ func (s *mixedState) attached() bool {
 		return s.w.Count > 0 && snap.Attached+snap.AttachFailed >= s.w.Count
 	}
 	return false
+}
+
+// partial is a stopped population's report from its live aggregates, the
+// figures it had when it stopped; nil for a suite (its holder has them).
+func (s *mixedState) partial() any {
+	switch {
+	case s.live != nil:
+		snap := s.live.Snapshot()
+		return &load.Report{Attempted: snap.Attempted, Succeeded: snap.Succeeded, Failed: snap.Failed,
+			Duration: snap.Elapsed, AchievedRate: snap.AchievedRate, Latencies: snap.Latencies}
+	case s.fleet != nil:
+		snap := s.fleet.Snapshot()
+		return &FleetReport{Attached: snap.Attached, AttachFailed: snap.AttachFailed,
+			Handovers: snap.Handovers, HandoverErr: snap.HandoverErrors, TrafficFlows: snap.TrafficFlows,
+			TrafficBytes: snap.UplinkBytes + snap.DownlinkBytes}
+	}
+	return nil
 }
 
 // attachPoll is how often a population is checked for PhaseAttached.
@@ -245,19 +268,35 @@ func (r *RunRegistry) StartMixed(opts RunOptions, ws []MixedWorkload) (RunInfo, 
 		byName[w.Name] = states[i]
 	}
 	return r.start(RunKindMixed, opts, nil, nil, nil, states, func(emit RunEventFunc) runFunc {
-		return func(ctx context.Context) (any, error) { return runMixed(ctx, states, byName, emit) }
+		return func(ctx context.Context) (any, error) { return runMixed(ctx, states, byName, emit, r.log) }
 	})
 }
 
 // runMixed runs each workload on its own goroutine behind its start
 // condition and gathers their outcomes.
-func runMixed(ctx context.Context, states []*mixedState, byName map[string]*mixedState, emit RunEventFunc) (any, error) {
+func runMixed(ctx context.Context, states []*mixedState, byName map[string]*mixedState, emit RunEventFunc, log *slog.Logger) (any, error) {
 	var wg sync.WaitGroup
 	results := make([]MixedResult, len(states))
 	for i, s := range states {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// The registry's guard covers only the run's own goroutine: a
+			// workload's panic is caught here, so it fails its workload
+			// (and skips those waiting on it) rather than the server.
+			defer func() {
+				if p := recover(); p != nil {
+					detail := fmt.Sprintf("workload panicked: %v", p)
+					if log != nil {
+						log.Error("run workload panicked", "workload", s.w.Name, "panic", p, "stack", string(debug.Stack()))
+					}
+					if emit != nil {
+						emit("error", "WORKLOAD", "", "["+s.w.Name+"] "+detail)
+					}
+					results[i] = MixedResult{Name: s.w.Name, Kind: s.w.Kind(), State: WorkloadFailed, Detail: detail}
+					s.end(WorkloadFailed, detail, nil)
+				}
+			}()
 			results[i] = runWorkload(ctx, s, byName, emit)
 		}()
 	}
@@ -294,13 +333,13 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 			case <-dep.reached[w.Phase]:
 			default:
 				res.State, res.Detail = WorkloadSkipped, fmt.Sprintf("%s ended without reaching %s", w.After, w.Phase)
-				s.end(res.State, res.Detail)
+				s.end(res.State, res.Detail, nil)
 				tag("warn", "WORKLOAD", "", "skipped: "+res.Detail)
 				return res
 			}
 		case <-ctx.Done():
 			res.State, res.Detail = WorkloadSkipped, "the run stopped before "+w.After+" reached "+w.Phase.String()
-			s.end(res.State, res.Detail)
+			s.end(res.State, res.Detail, nil)
 			return res
 		}
 	}
@@ -310,6 +349,7 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 
 	// A population latches PhaseAttached as its attach phase completes.
 	stop := make(chan struct{})
+	defer close(stop) // also on a panic, which runMixed recovers
 	if s.live != nil || s.fleet != nil {
 		go func() {
 			t := time.NewTicker(attachPoll)
@@ -340,7 +380,6 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 	default:
 		res.Report, err = w.Conformance(ctx, tag)
 	}
-	close(stop)
 	switch {
 	case err != nil && ctx.Err() != nil:
 		res.State, res.Detail = WorkloadSkipped, "stopped"
@@ -353,10 +392,13 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 		}
 		s.reach(PhaseComplete)
 	}
+	kept := res.Report
 	if res.State != WorkloadDone {
 		res.Report = nil
+		// Stopped: what the population had so far, for the archive.
+		kept = s.partial()
 	}
-	s.end(res.State, res.Detail)
+	s.end(res.State, res.Detail, kept)
 	tag("info", "WORKLOAD", "", res.State)
 	return res
 }

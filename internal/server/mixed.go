@@ -125,7 +125,11 @@ func (s *runService) buildMixed(p *orbitv1.RunPlan, verbosity engine.EventVerbos
 	if pop.fleet != nil {
 		popWork.Load = nil
 	}
-	suite.suiteLive.spec.env.Load = trackLoad(&popWork)
+	var started func() time.Time
+	suite.suiteLive.spec.env.Load, started = trackLoad(&popWork)
+	// The run's deadline counts from its start, which is the population's
+	// (it never waits): a suite that waited gets only the time left.
+	suite.suiteLive.spec.runStart = started
 	suiteWork := engine.MixedWorkload{Name: suiteW.GetName(), Conformance: suite.suite, SuiteLive: suite.suiteLive}
 	if phase != 0 {
 		suiteWork.After, suiteWork.Phase = popName, phase
@@ -151,32 +155,44 @@ func (s *runService) buildMixed(p *orbitv1.RunPlan, verbosity engine.EventVerbos
 	return out, nil
 }
 
-// trackLoad wraps a population's launcher so the returned func names it
-// while the launcher runs, and "" before and after: the suite's view of
-// whether the core is under load.
-func trackLoad(w *engine.MixedWorkload) func() string {
+// trackLoad wraps a population's launcher so loaded names it while the
+// launcher runs, and "" before and after: the suite's view of whether the
+// core is under load. started is when the launcher was first called (the
+// zero time before).
+func trackLoad(w *engine.MixedWorkload) (loaded func() string, started func() time.Time) {
 	var active atomic.Bool
+	var at atomic.Pointer[time.Time]
+	begin := func() {
+		now := time.Now()
+		at.CompareAndSwap(nil, &now)
+		active.Store(true)
+	}
 	if fn := w.Fleet; fn != nil {
 		w.Fleet = func(ctx context.Context, st *engine.FleetLiveStats, emit engine.RunEventFunc) (engine.FleetReport, error) {
-			active.Store(true)
+			begin()
 			defer active.Store(false)
 			return fn(ctx, st, emit)
 		}
 	}
 	if fn := w.Load; fn != nil {
 		w.Load = func(ctx context.Context, st *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
-			active.Store(true)
+			begin()
 			defer active.Store(false)
 			return fn(ctx, st, emit)
 		}
 	}
 	name := w.Name
 	return func() string {
-		if active.Load() {
-			return name
+			if active.Load() {
+				return name
+			}
+			return ""
+		}, func() time.Time {
+			if t := at.Load(); t != nil {
+				return *t
+			}
+			return time.Now() // not started: the deadline counts from now
 		}
-		return ""
-	}
 }
 
 // popCount is how many UEs a built population attaches.
@@ -324,14 +340,15 @@ func validateMixedGates(gates []*orbitv1.Gate, popName, suiteName string) error 
 	return nil
 }
 
-// partialMixed is a stopped mixed run's workloads as a report, for the
-// archive: the suite's results so far, and no report for the rest.
+// partialMixed is a mixed run that did not complete, as a report for the
+// archive: each finished workload's report, the suite's results so far,
+// and no report for the rest.
 func partialMixed(ps []engine.MixedProgress) *engine.MixedReport {
 	rep := &engine.MixedReport{}
 	for _, p := range ps {
-		res := engine.MixedResult{Name: p.Name, Kind: p.Kind, State: p.State, Detail: p.Detail}
-		if l, ok := p.Suite.(*suiteLive); ok {
-			res.Report = l
+		res := engine.MixedResult{Name: p.Name, Kind: p.Kind, State: p.State, Detail: p.Detail, Report: p.Report}
+		if l, ok := p.Suite.(*suiteLive); ok && res.Report == nil {
+			res.Report = l // its results so far
 		}
 		rep.Workloads = append(rep.Workloads, res)
 	}

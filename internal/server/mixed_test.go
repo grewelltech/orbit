@@ -168,7 +168,7 @@ func TestTrackLoad(t *testing.T) {
 		during = loaded()
 		return load.Report{}, nil
 	}}
-	loaded = trackLoad(&w)
+	loaded, _ = trackLoad(&w)
 	if loaded() != "" {
 		t.Error("loaded before the population started")
 	}
@@ -275,6 +275,9 @@ func TestMixedStoppedArchivesPartials(t *testing.T) {
 	if len(a.GetReports()) != 2 {
 		t.Fatalf("archived reports = %v", a.GetReports())
 	}
+	if a.GetReports()[0].GetLoad() == nil {
+		t.Errorf("the population's partial report is missing: %v", a.GetReports()[0])
+	}
 	suite := a.GetReports()[1]
 	if !suite.GetConformance().GetIncomplete() || suite.GetGatesPassed() {
 		t.Errorf("suite report = incomplete %t, gates passed %t", suite.GetConformance().GetIncomplete(), suite.GetGatesPassed())
@@ -305,5 +308,36 @@ func TestDisjoint(t *testing.T) {
 				t.Errorf("err = %v, want %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// The run's deadline counts from the run's start: a suite that waited on a
+// slow attach gets only the time left, and is cut off incomplete.
+func TestSuiteDeadlineFromRunStart(t *testing.T) {
+	s := planService(t)
+	pr, err := s.buildPlan(mixedPlan(func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
+		p.Target.Core.Amf = "127.0.0.1:1"
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_DurationMs{DurationMs: 1000}}
+		cw.Categories = nil
+	}), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := pr.mixed[1].SuiteLive.(*suiteLive)
+	if live.spec.runStart == nil || live.spec.deadline != time.Second {
+		t.Fatalf("suite deadline %v, runStart set %t; want the run's 1s from its start", live.spec.deadline, live.spec.runStart != nil)
+	}
+	// The population started 10s ago (a slow attach the suite waited
+	// out): the run's deadline has passed before the suite begins.
+	live.spec.runStart = func() time.Time { return time.Now().Add(-10 * time.Second) }
+	start := time.Now()
+	if _, err := pr.mixed[1].Conformance(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("the suite ran %v past the run's deadline", took)
+	}
+	if c := live.summary(); !c.GetIncomplete() || len(c.GetResults()) >= int(c.GetTotal()) {
+		t.Errorf("summary: %d of %d, incomplete %t", len(c.GetResults()), c.GetTotal(), c.GetIncomplete())
 	}
 }
