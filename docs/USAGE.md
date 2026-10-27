@@ -144,7 +144,8 @@ orbit ue xn-handover --supi <imsi> --amf <host:port> --gnb-id 2 --bind <ip> --gn
 
 ### Targets (`-t`/`--target`, `--explain`)
 
-A target is a YAML file that describes *where* tests run: the core, the
+([targets.md](targets.md) is the full reference.) A target is a YAML file that
+describes *where* tests run: the core, the
 subscriber pool, the RAN address pools and the N6 responder (ADR-0008 §1 has
 the schema). `-t <name>` (or `$ORBIT_TARGET`) loads it from `./orbit.yaml`,
 which may hold one target or a list of them, or else from
@@ -234,7 +235,8 @@ orbit target probe lab1           # NG Setup, one registration, one PDU session,
   `--bind` keeps the port if the entry has one; `--gnb-n3` drops it;
   `--n3-bind` adds GTP-U's 2152 when the entry has none.
 - **Host names** are accepted wherever the commands accept them: in
-  `ran.n2_source_ips` (`--bind`), `ran.n3_ips` (`--n3-bind`) and a responder's
+  `ran.n2_source_ips` (`--bind`), `ran.n3_ips` (`--n3-bind`; a pool like the
+  N2 one, ranges and CIDRs included) and a responder's
   `data_ip`, with or without a port. They pass unresolved, as a typed
   `--bind lab-n2` does. Ranges and CIDRs are IP-only.
 - **Slices.** `--sst` and `--sd` set the first slice's fields
@@ -737,36 +739,31 @@ in YAML and run it: `orbit run scenario.yaml`. The runner is an ordinary API
 client (it drives the same operations as the `ue` commands), so it needs a
 running server (`orbit serve`).
 
-A scenario declares the **core**, **gNBs**, and **UEs** once, then an ordered
-**steps** list references them. Secrets use `${ENV}` references so they stay out
-of the file:
+A scenario holds the workload: its **gNBs**, **UEs** and an ordered **steps**
+list. The core, keys and addresses come from a target: `-t`, `$ORBIT_TARGET`,
+or a `target:` line in the file ([targets.md](targets.md#scenario-files)):
 
 ```yaml
 name: attach-and-handover
-core:
-  amf: 172.17.50.11:38412
-  plmn: { mcc: "001", mnc: "01" }      # quoted, so "01" stays "01"
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-credentials:
-  ki:  ${ORBIT_KI}          # export ORBIT_KI / ORBIT_OPC before running
-  opc: ${ORBIT_OPC}
+target: lab1                 # or -t lab1 on the command line
 gnbs:
-  - { id: 1, name: gnb-1, n3: 172.17.50.12 }
-  - { id: 2, name: gnb-2, n3: 172.17.50.13, bind: 172.17.50.13:0 }
+  - { name: gnb-1 }          # gNB IDs and N2/N3 addresses come from the target
+  - { name: gnb-2 }
 ues:
-  - { supi: "001010100007500", gnb: gnb-1, pdu_session: true }
-  - range: { base: "001010100007501", count: 3 }   # 501, 502, 503
-    gnb: gnb-1
+  - { name: ue1, gnb: gnb-1, pdu_session: true }   # SUPIs come from the target's pool
+  - { gnb: gnb-1, range: { count: 3 } }            # the next three
 steps:
-  - register: all                                            # or a single SUPI
-  - ping:     { ue: "001010100007500", dst: 8.8.8.8 }
-  - latency:  { ue: "001010100007500", target: 8.8.8.8, probes: 20 }
-  - traffic:  { ue: "001010100007500", target: 8.8.8.8:9999, rate: 20Mbps, duration: 5s }
-  - handover: { ue: "001010100007500", to: gnb-2, type: xn }  # or type: n2
+  - register: all                                  # or one UE by name
+  - ping:     { ue: ue1 }                          # echoes the target's responder
+  - latency:  { ue: ue1, probes: 20 }
+  - traffic:  { ue: ue1, target: 203.0.113.21:9999, rate: 20Mbps, duration: 5s }
+  - handover: { ue: ue1, to: gnb-2, type: xn }     # or type: n2
   - deregister: all
 ```
+
+A file may instead set its own `core`, `credentials`, `gnbs[].id`/`bind`/`n3`
+and `ues[].supi`/`range.base`. It is then self-contained, as before: `-t` on it
+is an error and `$ORBIT_TARGET` is ignored. A file can't do both.
 
 Steps run in order and stop at the first failure (a step fails on an RPC error,
 or on a natural assertion like a ping with zero replies). `wait: 5s` pauses
@@ -784,7 +781,8 @@ A `kind: fleet` scenario ([`examples/fleet.yaml`](../examples/fleet.yaml))
 (mobility + a traffic mix) for a duration, rather than listing explicit steps —
 for scale / soak / mass-mobility runs (design in
 [docs/adr/0004-fleet-population-mode.md](adr/0004-fleet-population-mode.md)).
-`source_ips` are addresses the host owns, one per gNB. `orbit run` on a fleet
+Its core, keys, gNB IDs and per-gNB N2/N3 addresses come from the target, whose
+`ran.n2_source_ips` must be addresses the host owns, one per gNB. `orbit run` on a fleet
 file prints the plan, **attaches the population** across the gNBs, then runs
 **mobility** — each mobile UE moves along a track across the gNB grid and hands
 over (Xn) when a neighbour cell becomes stronger by the a3-offset (RSRP/A3

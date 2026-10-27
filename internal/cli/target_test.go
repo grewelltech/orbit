@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -302,13 +303,13 @@ func TestTargetShow(t *testing.T) {
 			t.Errorf("show lacks %q:\n%s", want, r.out)
 		}
 	}
-	t.Setenv("ORBIT_MCC", "999")
+	t.Setenv("ORBIT_KI", strings.Repeat("5", 32))
 	r = runOrbit(t, loc, "target", "show", "lab1", "--resolved")
 	if r.execErr != nil {
 		t.Fatal(r.execErr)
 	}
-	if row := lineWith(r.out, "core.plmn.mcc "); !strings.Contains(row, "999") || !strings.Contains(row, "env $ORBIT_MCC") || !strings.Contains(row, "=001") {
-		t.Errorf("mcc row %q", row)
+	if row := lineWith(r.out, "subscribers[main].ki "); !strings.Contains(row, "env $ORBIT_KI") || !strings.Contains(row, "<redacted>") || strings.Contains(row, "5555") {
+		t.Errorf("ki row %q: env over the target, masked", row)
 	}
 	for _, want := range []string{"default < target", "core.dnn", "default built-in", "core.slices[0].sd", "subscribers[main].ki", target.Masked} {
 		if !strings.Contains(r.out, want) {
@@ -495,5 +496,28 @@ func TestTargetShowJSONKeys(t *testing.T) {
 	}
 	if strings.Contains(r.out, `"FirstSUPI"`) {
 		t.Error("show --json uses Go field names")
+	}
+}
+
+// --responder adds a static N6 responder to the target init writes.
+func TestTargetInitResponder(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1)
+	base := []string{"target", "init", "r1", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50"}
+	r := runOrbit(t, loc, append(base, "--responder", "n6=203.0.113.20:9551,203.0.113.21", "--responder", "n6b=203.0.113.40:9551")...)
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	f, err := target.Find("r1", loc, os.LookupEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []target.Responder{{Name: "n6", Control: "203.0.113.20:9551", DataIP: "203.0.113.21"}, {Name: "n6b", Control: "203.0.113.40:9551"}}
+	if !reflect.DeepEqual(f.Target.App.Responders, want) {
+		t.Errorf("responders = %+v", f.Target.App.Responders)
+	}
+	if r := runOrbit(t, loc, append(base[:2], "r2", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50", "--responder", "203.0.113.20:9551")...); r.execErr == nil ||
+		!strings.Contains(r.execErr.Error(), "want name=control[,data_ip]") {
+		t.Errorf("a malformed --responder: %v", r.execErr)
 	}
 }

@@ -1,6 +1,7 @@
 package target
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -258,6 +259,14 @@ func resolve(lenient bool, inputs []Input) (*Resolved, error) {
 		}
 	}
 
+	// A pool's first SUPI must be in the target's own PLMN: a mismatch fails
+	// every registration whatever the count.
+	if pr := supiInPLMN(state, order); pr != nil {
+		if !lenient {
+			return nil, errors.New(pr.Err)
+		}
+		problems = append(problems, *pr)
+	}
 	res := &Resolved{Run: map[string]any{}, state: state, order: order, Problems: problems}
 	for p, e := range state {
 		res.Provenance = append(res.Provenance, *e.prov)
@@ -312,6 +321,33 @@ func firstSlice(state map[string]*entry) {
 			e.prov.Overridden = append([]Override{{Source: list.src, Value: show(f, listVal)}}, e.prov.Overridden...)
 		}
 	}
+}
+
+// supiInPLMN checks each pool's first_supi against core.plmn: its leading
+// MCC+MNC digits must be the PLMN's. Unset fields are not checked.
+func supiInPLMN(state map[string]*entry, order map[string][]string) *Problem {
+	str := func(p string) string {
+		if e, ok := state[p]; ok {
+			if v, ok := e.value.(string); ok {
+				return v
+			}
+		}
+		return ""
+	}
+	mcc, mnc := str("core.plmn.mcc"), str("core.plmn.mnc")
+	if mcc == "" || mnc == "" {
+		return nil
+	}
+	for _, n := range order["subscribers"] {
+		p := "subscribers[" + n + "].first_supi"
+		supi := strings.TrimPrefix(str(p), "imsi-")
+		if supi == "" || strings.HasPrefix(supi, mcc+mnc) {
+			continue
+		}
+		return &Problem{Path: p, Source: state[p].src,
+			Err: fmt.Sprintf("%s: %s is not in PLMN %s/%s (%s)", p, supi, mcc, mnc, state[p].src)}
+	}
+	return nil
 }
 
 // isTargetPath reports whether p is a field of the target document.

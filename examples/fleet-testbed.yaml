@@ -2,38 +2,22 @@
 # live-telemetry path: an app cohort (bidirectional, so downlink is real), a
 # user-plane latency probe, and separated N2/N3 addressing.
 #
-#   orbit runs start-fleet examples/fleet-testbed.yaml --ki ... --opc ...
+#   orbit runs start-fleet examples/fleet-testbed.yaml -t lxd
 #   orbit runs watch          # or the dashboard at http://<ran>:8412/
 #
-# Addresses match the LXD testbed's networks; edit them for another lab.
+# The core, keys, addresses and the N6 responder come from the target; the
+# testbed writes one named lxd (testing/lxd-testbed). Its N2 and N3 pools are
+# on separate networks.
 kind: fleet
 name: telemetry-full-check
-
-core:
-  amf: 10.102.0.10:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
 
 topology:
   gnbs:
     count: 1
-    id_base: 130
     layout: grid
-    # N2 SCTP source, and the N3 data-plane address separately.
-    source_ips:
-      - 10.102.0.20
-    n3_ips:
-      - 10.103.0.20
 
 fleet:
   count: 6
-  supi_base: "001010100007580"
   distribution: even
   attach_rate: 4/s
   pdu_session: true
@@ -41,10 +25,9 @@ fleet:
 behaviors:
   traffic:
     mix:
-      - { app: http, name: web-real, share: 1.0, peer: 10.106.0.30:9551,
+      - { app: http, name: web-real, share: 1.0,
           params: { object_size: 256KB, think: "0" } }
   latency:
-    target: 10.106.0.30
     interval: 1s
     ues: 3
     timeout: 1s

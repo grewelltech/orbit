@@ -88,7 +88,8 @@ type RAN struct {
 	// port is an exact lease), an IP range (a-b) or a CIDR; ranges and
 	// CIDRs take no port.
 	N2SourceIPs []string `yaml:"n2_source_ips,omitempty" json:"n2_source_ips,omitempty"`
-	// N3IPs are the N3 (GTP-U) source addresses: each an IP or ip:port.
+	// N3IPs are the gNBs' N3 (GTP-U) addresses, a pool in the same forms as
+	// N2SourceIPs: an IP, ip:port or host name, or an IP-only range or CIDR.
 	N3IPs  []string `yaml:"n3_ips,omitempty" json:"n3_ips,omitempty"`
 	GNBIDs GNBIDs   `yaml:"gnb_ids" json:"gnb_ids"`
 }

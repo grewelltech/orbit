@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/free5gc/aper"
-	"github.com/free5gc/ngap/ngapConvert"
 	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/coreprofile"
@@ -130,13 +129,20 @@ func BuildHandoverRequestAcknowledge(amfID, targetRANID int64, admitted []Admitt
 	return pdu, nil
 }
 
-func gtpTunnelUP(tun GNBTunnel) ngapType.UPTransportLayerInformation {
+// gtpTunnelUP is the UP transport layer information of tun. A tunnel
+// address that is not IPv4 is ErrIPv6N3 (or not an IP), never a panic in
+// the NGAP converter (#156).
+func gtpTunnelUP(tun GNBTunnel) (ngapType.UPTransportLayerInformation, error) {
 	up := ngapType.UPTransportLayerInformation{Present: ngapType.UPTransportLayerInformationPresentGTPTunnel, GTPTunnel: new(ngapType.GTPTunnel)}
+	addr, err := tunnelAddress(tun.Address)
+	if err != nil {
+		return up, err
+	}
 	teid := make([]byte, 4)
 	binary.BigEndian.PutUint32(teid, tun.TEID)
 	up.GTPTunnel.GTPTEID.Value = teid
-	up.GTPTunnel.TransportLayerAddress = ngapConvert.IPAddressToNgap(tun.Address, "")
-	return up
+	up.GTPTunnel.TransportLayerAddress = addr
+	return up, nil
 }
 
 func qosFlowSetupResponseList(qfis []int64) ngapType.QosFlowListWithDataForwarding {
@@ -173,16 +179,20 @@ type sdcoreHOAckTransfer struct {
 // dLForwardingUP-TNLInformation (as the same tunnel) so omec's decoder, which
 // wrongly requires it, accepts the message.
 func encodeHandoverAckTransfer(tun GNBTunnel, qfis []int64, forwardingMandatory bool) (aper.OctetString, error) {
+	up, err := gtpTunnelUP(tun)
+	if err != nil {
+		return nil, err
+	}
 	if forwardingMandatory {
 		t := sdcoreHOAckTransfer{
-			DLNGUUPTNLInformation:        gtpTunnelUP(tun),
-			DLForwardingUPTNLInformation: gtpTunnelUP(tun),
+			DLNGUUPTNLInformation:        up,
+			DLForwardingUPTNLInformation: up,
 			QosFlowSetupResponseList:     qosFlowSetupResponseList(qfis),
 		}
 		return aper.MarshalWithParams(t, "valueExt")
 	}
 	t := ngapType.HandoverRequestAcknowledgeTransfer{
-		DLNGUUPTNLInformation:    gtpTunnelUP(tun),
+		DLNGUUPTNLInformation:    up,
 		QosFlowSetupResponseList: qosFlowSetupResponseList(qfis),
 	}
 	return aper.MarshalWithParams(t, "valueExt")

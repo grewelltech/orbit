@@ -89,9 +89,11 @@ func TestMergeRules(t *testing.T) {
 		set("core.plmn.mcc", "001", "t"),
 		set("core.plmn.mnc", "01", "t"),
 		set("ran.n2_source_ips", []any{"192.0.2.50", "192.0.2.51"}, "t"),
-		set("subscribers[main].first_supi", "001010000000001", "t"),
+		// In the PLMN the run layer ends on (001/02): a first SUPI outside
+		// the resolved PLMN is an error.
+		set("subscribers[main].first_supi", "001020000000001", "t"),
 		set("subscribers[main].count", 100, "t"),
-		set("subscribers[extra].first_supi", "001010000000500", "t"),
+		set("subscribers[extra].first_supi", "001020000000500", "t"),
 		set("subscribers[extra].count", 10, "t"),
 	}}
 	run := Input{Layer: LayerRunFile, Settings: []Setting{
@@ -442,5 +444,31 @@ func TestReport(t *testing.T) {
 	}
 	if _, err := Resolve(DefaultInput(), Input{Layer: LayerFlag, Settings: []Setting{set("core.tac", "one", "--tac")}}); err == nil {
 		t.Error("Resolve did not fail")
+	}
+}
+
+// A pool's first SUPI must be in the resolved PLMN: Resolve refuses a
+// mismatch, naming the field and the source; Report records it.
+func TestFirstSUPIInPLMN(t *testing.T) {
+	in := []Input{{Layer: LayerTarget, Settings: []Setting{
+		set("core.plmn.mcc", "001", "t"), set("core.plmn.mnc", "01", "t"),
+		set("subscribers[main].first_supi", "208930000000001", "lab1.yaml"),
+	}}}
+	_, err := Resolve(in...)
+	if err == nil || !strings.Contains(err.Error(), "subscribers[main].first_supi: 208930000000001 is not in PLMN 001/01 (target lab1.yaml)") {
+		t.Errorf("Resolve: %v", err)
+	}
+	r, err := Report(in...)
+	if err != nil || len(r.Problems) != 1 || r.Problems[0].Path != "subscribers[main].first_supi" {
+		t.Errorf("Report: %v %+v", err, r)
+	}
+	// imsi- prefixed and in the PLMN: fine; no PLMN set: not checked.
+	if _, err := Resolve(Input{Layer: LayerTarget, Settings: []Setting{
+		set("core.plmn.mcc", "001", "t"), set("core.plmn.mnc", "01", "t"),
+		set("subscribers[main].first_supi", "imsi-001010000000001", "t")}}); err != nil {
+		t.Error(err)
+	}
+	if _, err := Resolve(Input{Layer: LayerTarget, Settings: []Setting{set("subscribers[main].first_supi", "208930000000001", "t")}}); err != nil {
+		t.Error(err)
 	}
 }
