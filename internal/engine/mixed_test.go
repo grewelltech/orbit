@@ -73,8 +73,12 @@ func TestRunMixedStartConditions(t *testing.T) {
 		// after one it must start after.
 		before, after string
 	}{
-		{name: "after started", phase: PhaseStarted, after: "pop start", before: "pop end"},
-		{name: "after attached", phase: PhaseAttached, after: "pop attached", before: "pop end"},
+		// STARTED is latched as the launcher is called, so the suite may
+		// start before the population's first line: only the end orders.
+		{name: "after started", phase: PhaseStarted, before: "pop end"},
+		// ATTACHED is latched once the population's attempts are counted,
+		// which follows its start (the mark after them may come later).
+		{name: "after attached", phase: PhaseAttached, after: "pop start", before: "pop end"},
 		{name: "after complete", phase: PhaseComplete, after: "pop end"},
 	}
 	for _, tc := range tests {
@@ -98,7 +102,7 @@ func TestRunMixedStartConditions(t *testing.T) {
 			}
 			close(release)
 			waitState(t, r, info.ID, RunComplete)
-			if s, a := c.index("suite start"), c.index(tc.after); s < 0 || s < a {
+			if s, a := c.index("suite start"), c.index(tc.after); s < 0 || tc.after != "" && s < a {
 				t.Errorf("suite started at %d, %s at %d: %v", s, tc.after, a, c.log)
 			}
 			if tc.before != "" && c.index("suite start") > c.index(tc.before) {
