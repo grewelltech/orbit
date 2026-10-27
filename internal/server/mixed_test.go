@@ -408,9 +408,74 @@ func TestMixedStoppedWorkloadFailsItsGates(t *testing.T) {
 			if len(rr.GetGates()) != 1 || rr.GetGates()[0].GetPassed() != tc.wantPass || rr.GetGatesPassed() != tc.wantPass {
 				t.Errorf("gates = %v, passed %t; want %t", rr.GetGates(), rr.GetGatesPassed(), tc.wantPass)
 			}
-			if !tc.wantPass && rr.GetGates()[0].GetDetail() != "workload skipped: stopped" {
+			if !tc.wantPass && rr.GetGates()[0].GetDetail() != "workload pop did not complete (skipped): stopped" {
 				t.Errorf("detail = %q", rr.GetGates()[0].GetDetail())
 			}
 		})
+	}
+}
+
+// A suite skipped because its population ended first has no report, and
+// its conformance gate fails naming why.
+func TestMixedSkippedSuiteFailsItsGate(t *testing.T) {
+	gate := &orbitv1.Gate{Name: "suite", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}
+	rr := mixedRunReport(engine.MixedResult{Name: "suite", Kind: engine.RunKindConformance, State: engine.WorkloadSkipped,
+		Detail: "pop ended without reaching attached"}, []*orbitv1.Gate{gate})
+	if len(rr.GetGates()) != 1 || rr.GetGatesPassed() || rr.GetGates()[0].GetPassed() ||
+		rr.GetGates()[0].GetDetail() != "workload suite did not complete (skipped): pop ended without reaching attached" {
+		t.Errorf("gates = %v, passed %t", rr.GetGates(), rr.GetGatesPassed())
+	}
+}
+
+// StopRun on a MIXED run whose population's partial figures would pass its
+// SLO: the archived gate fails, and so do the run's gates.
+func TestMixedStopFailsPassingPartials(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := sctpfront.Listen(t, amf)
+	dir, runs, _ := suiteServer(t)
+	p := mixedPlan(func(p *orbitv1.RunPlan, pop *orbitv1.PopulationWorkload, _ *orbitv1.ConformanceWorkload) {
+		p.Target.Core.Amf = addr
+		p.Target.Ran.N2SourceIps = nil
+		p.Target.Subscribers[0].Count = 1000
+		pop.Attach = &orbitv1.AttachProfile{Count: 900, Rate: 20, Concurrency: 2} // still attaching at the stop
+		p.Workloads[1].Start.Phase = orbitv1.WorkloadPhase_WORKLOAD_PHASE_COMPLETE
+		p.Gates = []*orbitv1.Gate{{Name: "attach", Workload: "pop", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{
+			Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.5}}}}
+	})
+	resp, err := runs.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	// Let some attaches succeed, so the partial ratio would pass.
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		g, err := runs.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
+		if err == nil && len(g.Msg.GetWorkloads()) == 2 && g.Msg.GetWorkloads()[0].GetLoad().GetSucceeded() >= 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the population never attached: %v, %v", g, err)
+		}
+	}
+	if _, err := runs.StopRun(context.Background(), connect.NewRequest(&orbitv1.StopRunRequest{RunId: id})); err != nil {
+		t.Fatal(err)
+	}
+	a := waitArchive(t, dir, id)
+	pop := a.GetReports()[0]
+	if pop.GetLoad() == nil || pop.GetLoad().GetSucceeded() < 3 {
+		t.Fatalf("the population's partial report = %v", pop.GetLoad())
+	}
+	if len(pop.GetGates()) != 1 || pop.GetGates()[0].GetPassed() || pop.GetGatesPassed() ||
+		!strings.HasPrefix(pop.GetGates()[0].GetDetail(), "workload pop did not complete (skipped)") {
+		t.Errorf("population gates = %v, passed %t", pop.GetGates(), pop.GetGatesPassed())
+	}
+	if _, passed := gatesOf(a.GetReports()); passed {
+		t.Error("the run's gates read passed on a stopped run")
 	}
 }

@@ -393,7 +393,10 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 		res.Report, err = w.Conformance(ctx, tag)
 	}
 	switch {
-	case err != nil && ctx.Err() != nil:
+	// A population returns its report, error or not, when the run is
+	// stopped: stopped it is, its figures partial. A suite reports a stop
+	// as an error, and returns cleanly only once every check ran.
+	case ctx.Err() != nil && (err != nil || w.Conformance == nil):
 		res.State, res.Detail = WorkloadSkipped, "stopped"
 	case err != nil:
 		res.State, res.Detail = WorkloadFailed, err.Error()
@@ -408,9 +411,12 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 	}
 	kept := res.Report
 	if res.State != WorkloadDone {
+		// Stopped: what the population had so far, for the archive (its
+		// own report when it returned one, else its live aggregates).
+		if kept == nil || err != nil {
+			kept = s.partial()
+		}
 		res.Report = nil
-		// Stopped: what the population had so far, for the archive.
-		kept = s.partial()
 	}
 	s.end(res.State, res.Detail, kept)
 	tag("info", "WORKLOAD", "", res.State)
