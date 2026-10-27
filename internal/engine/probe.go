@@ -18,6 +18,10 @@ import (
 // No UE CONTEXT RELEASE COMPLETE is sent: the caller closes the association.
 var ErrReleasedByCore = errors.New("the core released the UE context during the attach")
 
+// ErrRegistrationRejected is the error Attach returns when the core answers
+// with a REGISTRATION REJECT that decoded (and, when protected, verified).
+var ErrRegistrationRejected = errors.New("AMF rejected registration")
+
 // AttachProbe lets a conformance check withhold the UE's reply to chosen
 // downlink NAS messages and watch what the core sends during an attach.
 //
