@@ -337,7 +337,8 @@ orbit ue list
   there is no override. Behind `--insecure-listen` the server refuses such a
   request too (`failed_precondition`), for clients other than the CLI.
 - **The dashboard** asks for the token the first time the server refuses it
-  and keeps it for that browser tab only. With `--tls auto`, accept the
+  and keeps it for that browser tab only (sessionStorage): a new tab, or the
+  same one after it is closed, asks again. With `--tls auto`, accept the
   self-signed certificate once in the browser.
 - **Terminate TLS in `orbit serve`, not in a proxy on the same host.** Behind a
   TLS-terminating reverse proxy on the same machine every request reaches orbit

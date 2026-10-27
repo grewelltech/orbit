@@ -30,6 +30,11 @@ func TestEverySecretNamedFieldIsMarked(t *testing.T) {
 					if IsSecretName(string(f.Name())) && !Marked(f) && !MarkedYAML(f) {
 						t.Errorf("%s is named like a secret but not marked [(orbit.v1.secret) = true]", f.FullName())
 					}
+					// A YAML document in a request can embed keys; the walk
+					// scans it only when it is marked.
+					if strings.HasSuffix(string(f.Name()), "_yaml") && !MarkedYAML(f) {
+						t.Errorf("%s holds a YAML document but is not marked [(orbit.v1.secret_yaml) = true]", f.FullName())
+					}
 				}
 				visit(md.Messages())
 			}

@@ -171,7 +171,19 @@ either tunnel through the same jump (`ssh -J ubuntu@<rsite-uplink> -L
 8412:10.130.0.21:8412 ubuntu@10.130.0.21`) or add a host route to
 `10.130.0.0/21` via the site router's uplink address. The ORBIT dashboard is
 `https://` with a self-signed certificate (accept it once in the browser) and
-asks for the API token: it is `ORBIT_TOKEN` in a RAN node's `/etc/orbit/env`.
+asks for the API token. The token is generated on the host once per testbed,
+kept at mode 600 in `~/.cache/orbit-lxd-testbed/$TESTBED_PREFIX.api-token` (outside
+the repository) and on each RAN node in `/etc/orbit/api-token` (600) and
+`/etc/orbit/env`. To use the API from your own machine, through the tunnel or
+route above:
+
+```sh
+mkdir -p ~/.config/orbit; install -m 600 /dev/null ~/.config/orbit/testbed-token
+lxc exec orbit-ran-near -- cat /etc/orbit/api-token > ~/.config/orbit/testbed-token
+orbit server trust https://10.130.0.21:8412 --token-file ~/.config/orbit/testbed-token
+#   compare the fingerprint with: lxc exec orbit-ran-near -- journalctl -u orbit | grep spki
+export ORBIT_SERVER=https://10.130.0.21:8412
+```
 
 ## From nothing to ready
 
