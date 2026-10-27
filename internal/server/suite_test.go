@@ -387,10 +387,16 @@ func TestRunConformanceClientGoneCancels(t *testing.T) {
 // conformance gate fails as unmeasured; a plan's own expected list is the
 // one recorded.
 func TestSuiteDeadlineFailsTheGate(t *testing.T) {
+	// An AMF that never answers, so each check waits out its timeout and
+	// the deadline, not the suite's speed, decides where it stops: against
+	// a dead address every check ERRORs at once and a fast host can finish
+	// the suite inside any short deadline.
+	amf := idleAMF(t)
 	_, runs, _ := suiteServer(t)
 	p := suitePlan(func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-		p.Target.Core.Amf = "127.0.0.1:1"
-		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_DurationMs{DurationMs: 1}}
+		p.Target.Core.Amf = amf
+		cw.PerTestTimeoutMs = 1000
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_DurationMs{DurationMs: 300}}
 		p.Gates = []*orbitv1.Gate{{Name: "suite", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
 		cw.Expected = &orbitv1.ExpectedFailures{Core: "lab A", Entries: []*orbitv1.ExpectedFailure{
 			{Check: "NGAP-UNKNOWN-UE-SURVIVES", Observed: "silently dropped; association survived", Finding: "EX-1", Added: "2026-10-27", Reason: "example"}}}
