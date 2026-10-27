@@ -1,10 +1,10 @@
-orbit join: verified orbit for linux/amd64 (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+orbit join: verified orbit for linux/amd64 (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
 orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
 orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
 orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
 
 Plan:
-  ok: orbit is installed as /usr/local/lib/orbit/orbit (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+  ok: orbit is installed as /usr/local/lib/orbit/orbit (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
   ok: route 10.250.0.0/16 via 198.51.100.1 dev ens5
   1. firewall: allow control traffic (tcp) on ens4 from 192.0.2.10/32 to port 9551
        nft insert rule inet filter input 'iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"'

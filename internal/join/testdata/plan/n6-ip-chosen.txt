@@ -1,10 +1,10 @@
-orbit join: verified orbit for linux/amd64 (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+orbit join: verified orbit for linux/amd64 (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
 orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
 orbit join: N6 IP 198.51.100.21 on ens5 (from --n6-ip)
 orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
 
 Plan:
-  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 24a377d362083c6616f94f693392277826f71c998c1984177fa99dc022315b66)
+  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
   2. route UE pool 10.250.0.0/16 back through the UPF
        ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
   3. firewall: allow control traffic (tcp) on ens4 from 192.0.2.10/32 to port 9551

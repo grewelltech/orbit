@@ -57,7 +57,8 @@ var mutating = map[string][]string{
 }
 
 // fakeOrbit is the binary the fake server serves: it runs and does nothing.
-func fakeOrbit(sh string) []byte { return []byte("#!" + sh + "\nexit 0\n") }
+// Its bytes (and so the SHA-256 in every golden) are the same on every host.
+var fakeOrbit = []byte("#!/bin/sh\nexit 0\n")
 
 // v4Host is an app host with N6 on ens5 (198.51.100.20/24) and its route
 // to the server (192.0.2.10) on ens4, nothing set up yet, and no firewall.
@@ -147,7 +148,7 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 	if err != nil {
 		t.Skip("no sh")
 	}
-	orbit := fakeOrbit(realSh)
+	orbit := fakeOrbit
 	if err := os.WriteFile(filepath.Join(dir, "orbit"), orbit, 0o755); err != nil {
 		t.Fatal(err)
 	}
