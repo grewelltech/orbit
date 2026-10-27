@@ -388,9 +388,9 @@ func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.C
 		return conformance.UESpec{}, nil, nil
 	}
 	if ues == 0 {
-		// No UE check selected needs a subscriber: a pool that names a
-		// valid one still gives the suite its UE, and anything else is no
-		// UE and no error.
+		// No UE check selected needs a subscriber, so none is leased (no
+		// block). A pool that names a valid one still gives the suite its
+		// UE spec; anything else is no UE and no error.
 		if spec, _, err := suiteUE(t, cw, g, dnn, 1); err == nil {
 			return spec, nil, nil
 		}

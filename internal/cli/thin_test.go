@@ -406,3 +406,23 @@ func TestThinConformanceBadExpectedFile(t *testing.T) {
 		t.Error("a bad list was sent")
 	}
 }
+
+// --explain shows a command's own flag defaults as their own default
+// layer, "default (orbit load)", apart from the built-in defaults.
+func TestExplainShowsCommandDefaults(t *testing.T) {
+	clearOrbitEnv(t)
+	stub := &stubRunService{startRunID: "run-e"}
+	url := stubRunServer(t, stub)
+	r := runOrbit(t, targetDir(t, lab1), "--server", *url, "load", "-t", "lab1", "--explain", "--detach")
+	if r.execErr != nil {
+		t.Fatalf("%v\n%s", r.execErr, r.err)
+	}
+	for _, w := range []string{"default (orbit load)", "default built-in"} {
+		if !strings.Contains(r.err, w) {
+			t.Errorf("--explain lacks %q:\n%s", w, r.err)
+		}
+	}
+	if line := lineWith(r.err, "workloads[default].attach.concurrency"); !strings.Contains(line, "default (orbit load)") {
+		t.Errorf("concurrency row = %q, want orbit load's own default", line)
+	}
+}

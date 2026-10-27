@@ -114,7 +114,7 @@ func TestSuiteLeases(t *testing.T) {
 		noUE     bool // the suite has no UE (its UE checks SKIP)
 	}{
 		{name: "every check", wantSUPI: true},
-		{name: "procedural only: no UE", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"procedural"} },
+		{name: "procedural only, a valid pool: no SUPI lease", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"procedural"} },
 			cats: []conformance.Category{conformance.Procedural}},
 		{name: "no pool: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers = nil }, noUE: true},
 		// Keys with no SUPI ($ORBIT_KI exported) name no UE: the UE checks
@@ -144,8 +144,15 @@ func TestSuiteLeases(t *testing.T) {
 			if !slices.Equal(pr.needs.N2IPs, []string{"127.0.0.1"}) {
 				t.Errorf("N2 = %v", pr.needs.N2IPs)
 			}
-			if tc.wantSUPI != (len(pr.needs.SUPIs) == 1) {
-				t.Fatalf("SUPIs = %v, want one: %t", pr.needs.SUPIs, tc.wantSUPI)
+			// A selection with no UE check leases no SUPI, even from a
+			// valid pool: leases follow the checks' needs, and an unused
+			// one could refuse a concurrent run for nothing.
+			want := 0
+			if tc.wantSUPI {
+				want = 1
+			}
+			if len(pr.needs.SUPIs) != want {
+				t.Fatalf("SUPIs = %v, want %d", pr.needs.SUPIs, want)
 			}
 			if tc.wantSUPI {
 				if b := pr.needs.SUPIs[0]; b.First != 208930100007500 || b.Last != b.First || b.PLMN != "208/93" {
