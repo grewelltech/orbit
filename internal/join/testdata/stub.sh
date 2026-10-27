@@ -193,7 +193,9 @@ main() {
 		R=$(ip -o "$(ipf "$UPF_N6")" route get "$UPF_N6" 2>/dev/null) ||
 			die "no route to the UPF's N6 address $UPF_N6; route it, or pass --n6-ip"
 		N6_DEV=$(field "$R" dev) N6_IP=$(field "$R" src) VIA=$(field "$R" via)
-		[ -n "$N6_DEV" ] && [ -n "$N6_IP" ] || die "the route to $UPF_N6 names no interface or source: $R; pass --n6-ip"
+		if [ -z "$N6_DEV" ] || [ -z "$N6_IP" ]; then
+			die "the route to $UPF_N6 names no interface or source: $R; pass --n6-ip"
+		fi
 		if [ -n "$VIA" ] && ! innet "$N6_IP" "$N6_SUBNET"; then
 			die "this host reaches the UPF's N6 address $UPF_N6 only through gateway $VIA (from $N6_IP on $N6_DEV, outside N6 $N6_SUBNET); pass --n6-ip if that is right"
 		fi
@@ -242,7 +244,9 @@ main() {
 		R=$(ip -o "$(ipf "$MGMT_IP")" route get "$MGMT_IP" 2>/dev/null) ||
 			die "no route to the server at $MGMT_IP; pass --bind"
 		CTL_IP=$(field "$R" src) CTL_DEV=$(field "$R" dev) CTL_PORT=$BIND_PORT
-		[ -n "$CTL_IP" ] && [ -n "$CTL_DEV" ] || die "the route to $MGMT_IP names no interface or source: $R; pass --bind"
+		if [ -z "$CTL_IP" ] || [ -z "$CTL_DEV" ]; then
+			die "the route to $MGMT_IP names no interface or source: $R; pass --bind"
+		fi
 		BIND_WHY="from the route to the server at $MGMT_IP; override with --bind"
 	else
 		case $BIND in
