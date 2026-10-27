@@ -143,6 +143,9 @@ type Registration struct {
 	// UID and GID own the config (-1: leave them), for a unit that reads it
 	// as its own user rather than through LoadCredential.
 	UID, GID int
+	// Fresh registers anew even over an existing config, whose credential
+	// the server no longer knows (or removed): it is not presented.
+	Fresh bool
 }
 
 // CredentialState says whether a registration uses a new credential or
@@ -168,8 +171,13 @@ func Register(ctx context.Context, client orbitv1connect.JoinServiceClient, join
 		if err := yaml.Unmarshal(b, &p); err != nil || !ValidCredential(p.Credential) {
 			return Config{}, fmt.Errorf("%s is not a pending registration; remove it to start again", pendingPath)
 		}
+		if r.Fresh {
+			p.ExistingCredential = ""
+		}
 	} else if errors.Is(err, os.ErrNotExist) {
-		if old, err := LoadConfig(configPath); err == nil {
+		if r.Fresh {
+			// The existing config's credential is not presented.
+		} else if old, err := LoadConfig(configPath); err == nil {
 			p.ExistingCredential = old.Credential
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return Config{}, err

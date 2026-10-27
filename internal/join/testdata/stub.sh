@@ -629,6 +629,7 @@ main() {
 	# The responder's config: none yet (a new registration), one already
 	# (registered; --reregister rotates its secrets), or one in flight from
 	# an earlier run that did not finish (resumed with the same credential).
+	FRESH='' PROBED=''
 	if [ -f "$ROOT$CONF.pending" ]; then
 		REGISTER="new (resuming the unfinished registration in $CONF.pending)"
 	elif [ ! -f "$ROOT$CONF" ]; then
@@ -636,7 +637,42 @@ main() {
 	elif [ -n "$REREGISTER" ]; then
 		REGISTER="existing (re-registration: rotates the credential and the loom token)"
 	else
+		# Registered already: ask the server whether it still knows this
+		# responder, with a heartbeat probe (which records nothing), by curl
+		# as for the download: nothing downloaded runs before confirmation.
 		REGISTER=''
+		CRED=$(awk '/^credential:/ { sub(/^credential: */, ""); print; exit }' "$ROOT$CONF" 2>/dev/null) || CRED=''
+		case $CRED in
+		orc1_*) case ${CRED#orc1_} in *[!A-Za-z0-9_-]* | '') CRED='' ;; esac ;;
+		*) CRED='' ;;
+		esac
+		# curl reads a header from a file (-H @file) from 7.55 on; an older
+		# one cannot ask without the credential on its argv, so it does not.
+		CV=$(curl --version 2>/dev/null | awk 'NR == 1 { print $2 }') || CV=''
+		CMAJ=${CV%%.*} CMIN=${CV#*.}
+		CMIN=${CMIN%%.*}
+		if [ -z "$CRED" ]; then
+			REGISTER="new ($CONF holds no credential: register again)" FRESH=1
+		elif ! is_digits "$CMAJ" || ! is_digits "$CMIN" || [ "$CMAJ" -lt 7 ] || { [ "$CMAJ" = 7 ] && [ "$CMIN" -lt 55 ]; }; then
+			PROBED="the server could not be asked (curl ${CV:-?} is older than 7.55)"
+		else
+			# The credential reaches curl in a header file, never its argv.
+			printf 'Authorization: Responder %s\n' "$CRED" >"$WORK/auth"
+			CODE=$(curl -sS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/probe" -D "$WORK/probe.h" -w '%{http_code}' \
+				-H 'Content-Type: application/json' -H "@$WORK/auth" --data '{"probe":true}' \
+				"$ORBIT_SERVER/orbit.v1.JoinService/Heartbeat" 2>/dev/null) || CODE=''
+			case $CODE in
+			200) PROBED="known to the server" ;;
+			401)
+				if grep -qi '^orbit-responder-state: *removed' "$WORK/probe.h" 2>/dev/null; then
+					REGISTER="new (credential removed by the server: register again)" FRESH=1
+				else
+					REGISTER="new (existing credential unknown to the server: register again)" FRESH=1
+				fi
+				;;
+			*) PROBED="the server could not be asked (HTTP ${CODE:-none}): left as is" ;;
+			esac
+		fi
 	fi
 
 	# The systemd unit, its user and its helper. systemd 247 and later hand
@@ -721,12 +757,16 @@ EOF
 	# The registration (ADR-0009 §3), by the installed orbit, as root.
 	OWNERFLAG=''
 	[ -z "$OWNER" ] || OWNERFLAG=" --owner $OWNER"
+	[ -z "$FRESH" ] || OWNERFLAG="$OWNERFLAG --fresh"
 	if [ -n "$REGISTER" ]; then
 		step "register the responder on this host with the server as $NAME (credential: $REGISTER)"
 		cmd "'$ROOT$LIB/orbit' responder register --server '$ORBIT_SERVER' --pin '$ORBIT_PIN_RAW' --token-file '$WORK/token' --name '$NAME' --control '$LISTEN' --data-ip '$N6_IP' --data-ports '$LO-$HI' --config '$ROOT$CONF'$OWNERFLAG"
 		show "(the join token is read from a file in this run's private directory, mode 0600)"
+		if [ -n "$FRESH" ]; then
+			show "(replaces $CONF and any $CONF.pending; an entry the server still holds for the old credential is left alone, and shows offline)"
+		fi
 	else
-		ok "registered: $CONF is there (--reregister rotates its credential and loom token)"
+		ok "registered: $CONF is there, $PROBED (--reregister rotates its credential and loom token)"
 	fi
 
 	# Start it, and wait for the server to see it online.

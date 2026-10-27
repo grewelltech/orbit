@@ -205,6 +205,7 @@ var Exclusions = []Exclusion{
 	{Flag: "data-ip", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
 	{Flag: "data-ports", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
 	{Flag: "owner", Commands: []string{"orbit responder register"}, Reason: ReasonProcess},
+	{Flag: "fresh", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
 	{Flag: "wait", Commands: []string{"orbit responder check"}, Reason: ReasonOutput},
 	{Flag: "output", Commands: []string{"orbit responder list"}, Reason: ReasonOutput},
 	{Flag: "metrics-listen", Commands: []string{"orbit run"}, Reason: ReasonProcess},

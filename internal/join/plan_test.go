@@ -35,6 +35,11 @@ type fakeHost struct {
 	unvalidated bool
 	// extraStep is the render's test-only extra command (see ScriptData).
 	extraStep string
+	// probe is the server's answer to the script's heartbeat probe: an HTTP
+	// code, "removed" (401 with the removed header), or "" (no answer).
+	probe string
+	// curlVersion is what `curl --version` says; "" = curl 7.88.1.
+	curlVersion string
 }
 
 // scriptServer is a real TLS server the script downloads from with the real
@@ -137,7 +142,8 @@ func applied(t *testing.T, sh string) fakeHost {
 		h.files[f] = string(b)
 	}
 	// The fake orbit registers nothing: the config the real one writes.
-	h.files["etc/orbit/responder.yaml"] = "registered\n"
+	h.files["etc/orbit/responder.yaml"] = "server: https://192.0.2.10:8412\ncredential: " + testCredential + "\n"
+	h.probe = "200"
 	return h
 }
 
@@ -150,6 +156,8 @@ type hostRun struct {
 	dir   string // the run's working directory
 	// rootChanged: a file under the root was added, removed or changed.
 	rootChanged bool
+	// log is every stubbed call, as invoked.
+	log string
 }
 
 // snapshot is every file and directory under root, with its mode and a
@@ -279,6 +287,18 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 		case "uname":
 			b.WriteString("'uname -s') echo Linux; exit 0 ;;\n'uname -m') echo x86_64; exit 0 ;;\n'uname -n') echo apphost; exit 0 ;;\n")
 		case "curl":
+			cv := h.curlVersion
+			if cv == "" {
+				cv = "curl 7.88.1 (x86_64-pc-linux-gnu)"
+			}
+			fmt.Fprintf(&b, "'curl --version') echo %s; exit 0 ;;\n", shquote(cv))
+			// The heartbeat probe: the row's answer, as an HTTP code and headers.
+			code, hdr := h.probe, ""
+			if code == "removed" {
+				code, hdr = "401", "Orbit-Responder-State: removed"
+			}
+			fmt.Fprintf(&b, "*/orbit.v1.JoinService/Heartbeat) while [ $# -gt 0 ]; do [ \"$1\" = -D ] && printf '%%s\\r\\n' 'HTTP/1.1 %s' %s > \"$2\"; shift; done; [ -n %s ] || { printf 000; exit 7; }; printf %%s %s; exit 0 ;;\n",
+				code, shquote(hdr), shquote(code), shquote(code))
 			// The download: the fake orbit, to curl's -o path.
 			fmt.Fprintf(&b, "*) while [ $# -gt 0 ]; do [ \"$1\" = -o ] && cp %s \"$2\"; shift; done; exit 0 ;;\n", shquote(filepath.Join(dir, "orbit")))
 		}
@@ -336,6 +356,7 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 	r := hostRun{out: workRE.ReplaceAllString(shown, "<work>"), err: err, root: root, dir: dir}
 	r.rootChanged = !reflect.DeepEqual(before, snapshot(t, root))
 	if b, rerr := os.ReadFile(log); rerr == nil {
+		r.log = string(b)
 		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 			if strings.HasPrefix(l, "MUT ") {
 				l = strings.ReplaceAll(strings.TrimPrefix(l, "MUT "), dir, "<tmp>")
@@ -357,6 +378,9 @@ func contains(xs []string, x string) bool {
 
 // workRE matches the script's mktemp work directory.
 var workRE = regexp.MustCompile(`<tmp>/tmp/tmp\.[A-Za-z0-9]+`)
+
+// testCredential is the registered responder's credential in the fixtures.
+const testCredential = "orc1_CREDCREDCREDCREDCREDCR"
 
 const testNonce = "00112233445566778899aabbccddeeff"
 
@@ -490,6 +514,18 @@ func planRows() []planRow {
 			return h
 		}, args: []string{"--yes"}},
 		// systemd older than 247: no LoadCredential, the config is orbit's.
+		// A registered host asks its server first: known (nothing to
+		// change), unknown or removed (register again, fresh), or no answer
+		// (left as is). The credential never reaches curl's argv.
+		{name: "registered-unknown", host: func(t *testing.T, sh string) fakeHost { h := applied(t, sh); h.probe = "401"; return h }, args: []string{"--yes"}},
+		{name: "registered-removed", host: func(t *testing.T, sh string) fakeHost { h := applied(t, sh); h.probe = "removed"; return h }, args: []string{"--yes"}},
+		{name: "registered-locked-out", host: func(t *testing.T, sh string) fakeHost { h := applied(t, sh); h.probe = "429"; return h }, args: []string{"--yes"}, wantNoChange: true},
+		{name: "registered-unreachable", host: func(t *testing.T, sh string) fakeHost { h := applied(t, sh); h.probe = ""; return h }, args: []string{"--yes"}, wantNoChange: true},
+		{name: "registered-old-curl", host: func(t *testing.T, sh string) fakeHost {
+			h := applied(t, sh)
+			h.probe, h.curlVersion = "401", "curl 7.29.0 (x86_64-redhat-linux-gnu)"
+			return h
+		}, args: []string{"--yes"}, wantNoChange: true},
 		{name: "systemd-245", host: hostFn(nft.with("systemctl --version", "systemd 245 (245.4-4ubuntu3)")), args: []string{"--yes"}},
 		// The service does not come up: the hints, and the registration stands.
 		{name: "start-fails", host: hostFn(fail(nft, "systemctl restart orbit-responder")), args: []string{"--yes"}, wantFail: true},
@@ -573,6 +609,9 @@ func TestJoinPlan(t *testing.T) {
 				}
 				if _, err := os.Stat(filepath.Join(r.dir, "pwned")); err == nil {
 					t.Errorf("a value from the host ran as a command")
+				}
+				if strings.Contains(r.log, testCredential) {
+					t.Errorf("a command line carried the responder credential:\n%s", r.log)
 				}
 				got := r.out + "--- exit: " + exitOf(r.err) + "\n--- changes:\n" + strings.Join(r.calls, "\n") + "\n"
 				golden := filepath.Join("testdata", "plan", row.name+".txt")

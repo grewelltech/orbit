@@ -31,6 +31,7 @@ const defaultResponderConfig = "/etc/orbit/responder.yaml"
 func newResponderRegisterCmd(version string) *cobra.Command {
 	var (
 		server, pin, tokenFile, name, control, dataIP, ports, config, owner string
+		fresh                                                               bool
 	)
 	cmd := &cobra.Command{
 		Use:   "register",
@@ -69,7 +70,7 @@ func newResponderRegisterCmd(version string) *cobra.Command {
 			}
 			c, err := join.Register(cmd.Context(), client, strings.TrimSpace(string(b)), config, join.Registration{
 				Server: server, Pin: pin, Name: name, Control: control, DataIP: dataIP, PortLow: lo, PortHigh: hi,
-				Version: version, UID: uid, GID: gid})
+				Version: version, UID: uid, GID: gid, Fresh: fresh})
 			if err != nil {
 				return err
 			}
@@ -87,6 +88,7 @@ func newResponderRegisterCmd(version string) *cobra.Command {
 	f.StringVar(&ports, "data-ports", "", "the responder's data port range, LO-HI")
 	f.StringVar(&config, "config", defaultResponderConfig, "where to write the responder's config")
 	f.StringVar(&owner, "owner", "", "the user to own the config (default: root, for systemd LoadCredential)")
+	f.BoolVar(&fresh, "fresh", false, "register anew over an existing config whose credential the server no longer knows or removed")
 	for _, n := range []string{"server", "pin", "token-file", "name", "control", "data-ip", "data-ports"} {
 		_ = cmd.MarkFlagRequired(n)
 	}

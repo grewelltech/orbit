@@ -17,6 +17,7 @@ import (
 
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/conformance"
+	"github.com/bgrewell/orbit/internal/join"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
 	"github.com/bgrewell/orbit/internal/tlspin"
@@ -163,6 +164,11 @@ func newServeCmd(version string) *cobra.Command {
 			bins, err := joinBinaries(joinBinariesDir)
 			if err != nil {
 				return err
+			}
+			// A responder registry that cannot be read stops serve: starting
+			// empty would orphan every registered app host.
+			if _, err := join.OpenRegistry(dir); err != nil {
+				return fmt.Errorf("registered responders: %w (fix or move the file; serve will not start without it)", err)
 			}
 			pin := ""
 			if sec.leaf != nil {
