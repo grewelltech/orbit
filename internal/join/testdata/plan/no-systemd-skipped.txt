@@ -1,15 +1,16 @@
-orbit join: verified orbit for linux/amd64 (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
 orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
 orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
 orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
 
 Plan:
-  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
+  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
   2. route UE pool 10.250.0.0/16 back through the UPF
-       ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
-  ok: firewall: IPv4 input is not filtered on this host; nothing to open
+       ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
+  ok: firewall: IPv4 input is not filtered on this host (no input rules, policy accept); nothing to open
   ok: systemd unit: skipped (--no-systemd)
 
+fake orbit ran: version
 orbit join: applied 2 changes.
 orbit join: The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server.
 --- exit: 0

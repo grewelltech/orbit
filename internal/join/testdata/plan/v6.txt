@@ -1,21 +1,21 @@
-orbit join: verified orbit for linux/amd64 (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
 orbit join: responder app1; UE pools 2001:db8:a::/48 via 2001:db8:6::1, N6 2001:db8:6::/64
 orbit join: N6 IP 2001:db8:6::20 on ens5 (from the route to the UPF's N6 address 2001:db8:6::1; override with --n6-ip)
 orbit join: control bind [2001:db8:c::20]:9551 on ens4 (from the route to the server at 2001:db8:c::10; override with --bind)
 
 Plan:
-  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
+  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
   2. route UE pool 2001:db8:a::/48 back through the UPF
-       ip -6 route replace 2001:db8:a::/48 via 2001:db8:6::1 dev ens5
+       ip -6 route replace '2001:db8:a::/48' via '2001:db8:6::1' dev 'ens5'
   3. firewall: allow control traffic (tcp) on ens4 from 2001:db8:c::10/128 to port 9551
-       nft insert rule inet filter input 'iifname "ens4" ip6 saddr 2001:db8:c::10/128 tcp dport 9551 accept comment "orbit-join control ens4 2001:db8:c::10/128 9551"'
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens4" ip6 saddr 2001:db8:c::10/128 tcp dport 9551 accept comment "orbit-join control ens4 2001:db8:c::10/128 9551"'
        inserted into inet filter input (your ruleset)
   4. firewall: allow data traffic (tcp, udp) on ens5 from 2001:db8:a::/48 to ports 32768-60999
-       nft insert rule inet filter input 'iifname "ens5" ip6 saddr 2001:db8:a::/48 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:a::/48 32768-60999"'
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip6 saddr 2001:db8:a::/48 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:a::/48 32768-60999"'
        inserted into inet filter input (your ruleset)
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
   5. firewall: allow data traffic (tcp, udp) on ens5 from 2001:db8:6::/64 to ports 32768-60999
-       nft insert rule inet filter input 'iifname "ens5" ip6 saddr 2001:db8:6::/64 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:6::/64 32768-60999"'
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip6 saddr 2001:db8:6::/64 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:6::/64 32768-60999"'
        inserted into inet filter input (your ruleset)
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
   6. create the system user orbit, which the responder runs as
@@ -25,10 +25,10 @@ Plan:
        | # orbit join: re-applies the N6 route and firewall rules for orbit-responder.service.
        | set -eu
        | PATH=/usr/sbin:/usr/bin:/sbin:/bin
-       | ip -6 route replace 2001:db8:a::/48 via 2001:db8:6::1 dev ens5
-       | nft list chain inet filter input | grep -qF 'comment "orbit-join control ens4 2001:db8:c::10/128 9551"' || nft insert rule inet filter input 'iifname "ens4" ip6 saddr 2001:db8:c::10/128 tcp dport 9551 accept comment "orbit-join control ens4 2001:db8:c::10/128 9551"'
-       | nft list chain inet filter input | grep -qF 'comment "orbit-join data ens5 2001:db8:a::/48 32768-60999"' || nft insert rule inet filter input 'iifname "ens5" ip6 saddr 2001:db8:a::/48 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:a::/48 32768-60999"'
-       | nft list chain inet filter input | grep -qF 'comment "orbit-join data ens5 2001:db8:6::/64 32768-60999"' || nft insert rule inet filter input 'iifname "ens5" ip6 saddr 2001:db8:6::/64 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:6::/64 32768-60999"'
+       | ip -6 route replace '2001:db8:a::/48' via '2001:db8:6::1' dev 'ens5'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join control ens4 2001:db8:c::10/128 9551"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens4" ip6 saddr 2001:db8:c::10/128 tcp dport 9551 accept comment "orbit-join control ens4 2001:db8:c::10/128 9551"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 2001:db8:a::/48 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip6 saddr 2001:db8:a::/48 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:a::/48 32768-60999"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 2001:db8:6::/64 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip6 saddr 2001:db8:6::/64 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 2001:db8:6::/64 32768-60999"'
   8. install /etc/systemd/system/orbit-responder.service (not enabled or started):
        | [Unit]
        | Description=orbit N6 responder (orbit join)
@@ -51,6 +51,7 @@ Plan:
        | [Install]
        | WantedBy=multi-user.target
 
+fake orbit ran: version
 orbit join: applied 8 changes.
 orbit join: The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server.
 --- exit: 0

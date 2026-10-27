@@ -494,7 +494,12 @@ The plan's steps:
 1. **The binary**, as `/usr/local/lib/orbit/orbit`.
 2. **The return routes:** `ip route replace <ue_pool> via <upf_n6> dev <n6
    interface>` for each UE pool.
-3. **The firewall**, only where input is filtered:
+3. **The firewall**, only where input is filtered. Input counts as not
+   filtered only when every nftables input filter chain has policy accept and
+   no rules, and iptables' `INPUT` has policy `ACCEPT` and no rules. Any rule
+   at all (a jump, a goto or a verdict map included) counts as filtering, and
+   so does a listing the script cannot read, which stops it with the rules to
+   add by hand.
    - **iptables** (legacy or iptables-nft): its own chain `ORBIT-JOIN`,
      jumped to first from `INPUT` (`-m comment --comment orbit-join`).
    - **nftables** with one filtering input chain: rules inserted at the head
@@ -504,8 +509,8 @@ The plan's steps:
    - **ufw or firewalld:** the script does not edit them. It prints the
      `ufw allow …` or `firewall-cmd --add-rich-rule …` lines to run and
      stops; rerun with `--no-firewall` once they are in.
-   - **Several filtering chains:** the script stops and lists the rules to
-     add where they belong.
+   - **Several filtering chains, or a listing it cannot read:** the script
+     stops and lists the rules to add where they belong.
 
    The rules allow tcp to the control port from the server's address on the
    interface toward the server, and tcp and udp to the data ports from the
@@ -518,6 +523,10 @@ The plan's steps:
    `/usr/local/lib/orbit/join-net.sh` as root, which re-applies the routes
    and firewall rules, so they come back at boot. The plan shows the helper
    and the unit in full.
+
+Nothing on the host changes, and nothing downloaded runs, before the plan is
+confirmed: the downloaded `orbit` first runs (`orbit version`) after the
+confirmation, before the first step.
 
 Every step is checked first, and a step already in place is listed as `ok`,
 so a second run prints `nothing to change`. A rule from an earlier join that

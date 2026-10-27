@@ -72,6 +72,13 @@ func Script(d ScriptData) ([]byte, error) {
 	if err := d.validate(); err != nil {
 		return nil, err
 	}
+	return render(d)
+}
+
+// render renders d without validating it. Script validates first; tests
+// call render directly to show the script itself refuses what validation
+// would have stopped.
+func render(d ScriptData) ([]byte, error) {
 	sha := map[string]string{}
 	for _, a := range Arches {
 		sha[a] = d.SHA256[a]
@@ -89,16 +96,22 @@ func Script(d ScriptData) ([]byte, error) {
 	}
 	pools := make([]string, len(d.Spec.UEPools))
 	for i, p := range d.Spec.UEPools {
-		pools[i] = netip.MustParsePrefix(p).Masked().String()
+		pools[i] = masked(p)
 	}
-	d.Spec.N6Subnet = netip.MustParsePrefix(d.Spec.N6Subnet).Masked().String()
-	host, _, _ := net.SplitHostPort(d.Spec.Management)
+	d.Spec.N6Subnet = masked(d.Spec.N6Subnet)
+	if a, err := netip.ParseAddr(d.Spec.UPFN6); err == nil {
+		d.Spec.UPFN6 = a.String()
+	}
+	host, _, err := net.SplitHostPort(d.Spec.Management)
+	if err != nil {
+		host = d.Spec.Management
+	}
 	isIP := "no"
 	if _, err := netip.ParseAddr(host); err == nil {
 		isIP = "yes"
 	}
 	var b bytes.Buffer
-	err := scriptTmpl.Execute(&b, struct {
+	err = scriptTmpl.Execute(&b, struct {
 		ScriptData
 		CurlPin  string
 		UEPools  string
@@ -115,6 +128,15 @@ func Script(d ScriptData) ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
+}
+
+// masked is the CIDR p with its host bits cleared, or p as given when it
+// does not parse (only render, unvalidated, sees one).
+func masked(p string) string {
+	if pr, err := netip.ParsePrefix(p); err == nil {
+		return pr.Masked().String()
+	}
+	return p
 }
 
 func (d ScriptData) validate() error {

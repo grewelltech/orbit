@@ -1,19 +1,19 @@
-orbit join: verified orbit for linux/amd64 (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
 orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
 orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
 orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
 
 Plan:
-  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb)
+  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
   2. route UE pool 10.250.0.0/16 back through the UPF
-       ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
+       ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
   3. firewall: iptables chain ORBIT-JOIN with the control and data rules
        iptables -N ORBIT-JOIN
-       iptables -A ORBIT-JOIN -s 192.0.2.10/32 -i ens4 -p tcp -m tcp --dport 9551 -j ACCEPT
-       iptables -A ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT
-       iptables -A ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT
-       iptables -A ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT
-       iptables -A ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT
+       iptables -A ORBIT-JOIN -s '192.0.2.10/32' -i 'ens4' -p tcp -m tcp --dport '9551' -j ACCEPT
+       iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
+       iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
+       iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
+       iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
   4. firewall: iptables INPUT jumps to ORBIT-JOIN first
        iptables -I INPUT 1 -m comment --comment orbit-join -j ORBIT-JOIN
@@ -24,13 +24,13 @@ Plan:
        | # orbit join: re-applies the N6 route and firewall rules for orbit-responder.service.
        | set -eu
        | PATH=/usr/sbin:/usr/bin:/sbin:/bin
-       | ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
+       | ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
        | iptables -N ORBIT-JOIN 2>/dev/null || true
-       | iptables -C ORBIT-JOIN -s 192.0.2.10/32 -i ens4 -p tcp -m tcp --dport 9551 -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s 192.0.2.10/32 -i ens4 -p tcp -m tcp --dport 9551 -j ACCEPT
-       | iptables -C ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT
-       | iptables -C ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT
-       | iptables -C ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT
-       | iptables -C ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT
+       | iptables -C ORBIT-JOIN -s '192.0.2.10/32' -i 'ens4' -p tcp -m tcp --dport '9551' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '192.0.2.10/32' -i 'ens4' -p tcp -m tcp --dport '9551' -j ACCEPT
+       | iptables -C ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
+       | iptables -C ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
+       | iptables -C ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
+       | iptables -C ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
        | iptables -C INPUT -m comment --comment orbit-join -j ORBIT-JOIN 2>/dev/null || iptables -I INPUT 1 -m comment --comment orbit-join -j ORBIT-JOIN
   7. install /etc/systemd/system/orbit-responder.service (not enabled or started):
        | [Unit]
@@ -54,6 +54,7 @@ Plan:
        | [Install]
        | WantedBy=multi-user.target
 
+fake orbit ran: version
 orbit join: applied 7 changes.
 orbit join: The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server.
 --- exit: 0

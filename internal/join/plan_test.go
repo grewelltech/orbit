@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -29,6 +30,9 @@ type fakeHost struct {
 	spec    *Spec             // the token's spec; nil = testSpec
 	server  *scriptServer     // a real server for real curl; nil = a stub curl
 	drop    []string          // real tools this host lacks
+	// unvalidated renders the spec without Validate, to show the script
+	// refuses on its own what validation stops.
+	unvalidated bool
 }
 
 // scriptServer is a real TLS server the script downloads from with the real
@@ -45,20 +49,25 @@ var stubbed = []string{"id", "uname", "curl", "ip", "getent", "nft", "iptables",
 // realTools are the plain tools a script uses, linked in as they are.
 var realTools = []string{"awk", "sed", "grep", "cut", "tr", "sort", "cat", "cmp", "rm", "mktemp", "chmod", "sha256sum", "cp", "mkdir", "dirname"}
 
-// mutating are the calls that change the host, as case patterns.
-var mutating = map[string][]string{
-	"ip":        {"ip -4 route replace *", "ip -6 route replace *"},
-	"nft":       {"nft insert rule *", "nft delete rule *"},
-	"iptables":  {"iptables -N *", "iptables -F *", "iptables -A *", "iptables -I *"},
-	"ip6tables": {"ip6tables -N *", "ip6tables -F *", "ip6tables -A *", "ip6tables -I *"},
-	"useradd":   {"useradd *"},
-	"systemctl": {"systemctl *"},
-	"install":   {"install *"},
+// readOnly are the stubbed calls that only inspect the host, as case
+// patterns. Every other call of a stubbed command counts as a change
+// (default deny): a test sees any new way the script changes the host.
+var readOnly = map[string][]string{
+	"ip": {"ip -o -4 route get *", "ip -o -6 route get *", "ip -o addr show", "ip -o addr show *",
+		"ip -4 route show exact *", "ip -6 route show exact *"},
+	"nft":          {"nft list ruleset", "nft list chain *", "nft -a list chain *"},
+	"iptables":     {"iptables -S *", "iptables -C *"},
+	"ip6tables":    {"ip6tables -S *", "ip6tables -C *"},
+	"getent":       {"getent *"},
+	"ufw":          {"ufw status"},
+	"firewall-cmd": {"firewall-cmd --state"},
+	"systemctl":    {"systemctl is-active *", "systemctl is-enabled *", "systemctl cat *"},
 }
 
 // fakeOrbit is the binary the fake server serves: it runs and does nothing.
 // Its bytes (and so the SHA-256 in every golden) are the same on every host.
-var fakeOrbit = []byte("#!/bin/sh\nexit 0\n")
+// It says on stderr that it ran, so a transcript shows every run of it.
+var fakeOrbit = []byte("#!/bin/sh\necho \"fake orbit ran: $*\" >&2\n")
 
 // v4Host is an app host with N6 on ens5 (198.51.100.20/24) and its route
 // to the server (192.0.2.10) on ens4, nothing set up yet, and no firewall.
@@ -74,6 +83,8 @@ func v4Host() fakeHost {
 				"3: ens5    inet 198.51.100.21/24 brd 198.51.100.255 scope global secondary ens5",
 			"ip -o -4 route get 192.0.2.10": "192.0.2.10 dev ens4 src 192.0.2.20 uid 0 \\    cache ",
 			"nft list ruleset":              "",
+			"iptables -S INPUT":             "-P INPUT ACCEPT",
+			"ip6tables -S INPUT":            "-P INPUT ACCEPT",
 		},
 	}
 }
@@ -129,6 +140,36 @@ type hostRun struct {
 	calls []string // the mutating calls, in order
 	err   error
 	root  string
+	dir   string // the run's working directory
+	// rootChanged: a file under the root was added, removed or changed.
+	rootChanged bool
+}
+
+// snapshot is every file and directory under root, with its mode and a
+// hash of its content.
+func snapshot(t *testing.T, root string) map[string]string {
+	t.Helper()
+	m := map[string]string{}
+	err := filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		v := fi.Mode().String()
+		if fi.Mode().IsRegular() {
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			sum := sha256.Sum256(b)
+			v += " " + hex.EncodeToString(sum[:])
+		}
+		m[p] = v
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 // runHost renders the script for the fake host and runs it under sh (a
@@ -230,15 +271,17 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 			// The download: the fake orbit, to curl's -o path.
 			fmt.Fprintf(&b, "*) while [ $# -gt 0 ]; do [ \"$1\" = -o ] && cp %s \"$2\"; shift; done; exit 0 ;;\n", shquote(filepath.Join(dir, "orbit")))
 		}
-		for _, m := range mutating[tool] {
-			fmt.Fprintf(&b, "%s) printf 'MUT %%s\\n' %s\" $*\" >>%s\n", strings.ReplaceAll(shquote(m), "*'", "'*"), shquote(tool), shquote(log))
-			if tool == "install" {
-				// install [-d] [-m MODE] SRC DST: the copy, under the root.
-				b.WriteString("\tfor a; do :; done; if [ \"$2\" = -d ] || [ \"$1\" = -d ]; then mkdir -p \"$a\"; else n=$#; eval \"s=\\${$((n-1))}\"; mkdir -p \"$(dirname \"$a\" 2>/dev/null || echo .)\"; cp \"$s\" \"$a\"; fi\n")
-			}
-			b.WriteString("\texit 0 ;;\n")
+		// A read the row did not answer: nothing there.
+		for _, m := range readOnly[tool] {
+			fmt.Fprintf(&b, "%s) exit 1 ;;\n", strings.ReplaceAll(shquote(m), "*'", "'*"))
 		}
-		b.WriteString("esac\nexit 1\n")
+		// Anything else changes the host.
+		fmt.Fprintf(&b, "*) printf 'MUT %%s\\n' %s\" $*\" >>%s\n", shquote(tool), shquote(log))
+		if tool == "install" {
+			// install [-d] [-m MODE] SRC DST: the copy, under the root.
+			b.WriteString("\tfor a; do :; done; if [ \"$2\" = -d ] || [ \"$1\" = -d ]; then mkdir -p \"$a\"; else n=$#; eval \"s=\\${$((n-1))}\"; mkdir -p \"$(dirname \"$a\" 2>/dev/null || echo .)\"; cp \"$s\" \"$a\"; fi\n")
+		}
+		b.WriteString("\texit 0 ;;\nesac\n")
 		if err := os.WriteFile(filepath.Join(bin, tool), []byte(b.String()), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -256,7 +299,12 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 		d.Spec = *h.spec
 		d.ServerURL = "https://" + h.spec.Management
 	}
-	script, err := Script(d)
+	var script []byte
+	if h.unvalidated {
+		script, err = render(d)
+	} else {
+		script, err = Script(d)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,11 +315,14 @@ func runHost(t *testing.T, sh string, h fakeHost, args ...string) hostRun {
 	cmd := exec.Command(p, append(append(shell[1:], "-s", "--"), args...)...)
 	cmd.Stdin = strings.NewReader(string(script))
 	cmd.Env = []string{"TMPDIR=" + tmp}
+	cmd.Dir = dir
+	before := snapshot(t, root)
 	out, err := cmd.CombinedOutput()
 	if left, _ := os.ReadDir(tmp); len(left) != 0 {
 		t.Errorf("the work directory was left behind: %v", left)
 	}
-	r := hostRun{out: strings.ReplaceAll(string(out), root, ""), err: err, root: root}
+	r := hostRun{out: strings.ReplaceAll(string(out), root, ""), err: err, root: root, dir: dir}
+	r.rootChanged = !reflect.DeepEqual(before, snapshot(t, root))
 	if b, rerr := os.ReadFile(log); rerr == nil {
 		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 			if strings.HasPrefix(l, "MUT ") {
@@ -336,6 +387,7 @@ func planRows() []planRow {
 		"ip -o -6 route get 2001:db8:c::10":     "2001:db8:c::10 from :: via fe80::1 dev ens4 proto ra src 2001:db8:c::20 metric 1024 pref medium",
 		"nft list ruleset":                      nftDrop,
 		"nft -a list chain inet filter input":   "table inet filter {\n}",
+		"ip6tables -S INPUT":                    "-P INPUT ACCEPT",
 	}}
 	// A server named by a host name: one IPv4 and one IPv6 address picks
 	// the IPv4 one; two IPv4 addresses is a refusal.
@@ -360,6 +412,47 @@ func planRows() []planRow {
 		{name: "v6", host: hostFn(v6), args: []string{"--yes"}},
 		{name: "server-by-name", host: hostFn(byName), args: []string{"--yes"}},
 		{name: "server-name-two-v4", host: hostFn(twoV4), args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		// Filtered however it is written: a jump or goto to a chain that
+		// drops, a verdict map, a custom iptables target. Each gets the rules
+		// at the head of the one filtering chain.
+		{name: "nft-jump", host: hostFn(nft.with("nft list ruleset", "table inet filter {\n\tchain guard {\n\t\tip saddr != 10.0.0.0/8 drop\n\t}\n"+
+			"\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tjump guard\n\t}\n}")), args: []string{"--yes"}},
+		{name: "nft-goto", host: hostFn(nft.with("nft list ruleset", "table inet filter {\n\tchain dropall {\n\t\tdrop\n\t}\n"+
+			"\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n\t\tiifname != \"lo\" goto dropall\n\t}\n}")), args: []string{"--yes"}},
+		{name: "nft-vmap", host: hostFn(nft.with("nft list ruleset", "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n"+
+			"\t\tct state vmap { invalid : drop, established : accept, related : accept }\n\t}\n}")), args: []string{"--yes"}},
+		{name: "iptables-custom-target", host: hostFn(func() fakeHost {
+			h := v4.with("iptables -S INPUT", "-P INPUT ACCEPT\n-A INPUT -j LOGDROP")
+			h.absent = []string{"nft"}
+			return h
+		}()), args: []string{"--yes"}},
+		// An input chain with no rules and policy accept filters nothing.
+		{name: "nft-open-chain", host: hostFn(nft.with("nft list ruleset", "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n}")),
+			args: []string{"--yes"}},
+		// Output that cannot be read is a refusal with the rules to add.
+		{name: "nft-unparsed", host: hostFn(nft.with("nft list ruleset", "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n")),
+			args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		{name: "iptables-unreadable", host: hostFn(v4.with("iptables -S INPUT", "!")), args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		// Values that validation would stop, sent straight into the script:
+		// it refuses them itself, and nothing runs.
+		{name: "hostile-upf-n6", host: hostFn(func() fakeHost {
+			h := nft
+			h.unvalidated = true
+			h.spec = &Spec{UEPools: testSpec.UEPools, UPFN6: "fe80::1%x;touch${IFS}pwned", N6Subnet: testSpec.N6Subnet, Management: testSpec.Management}
+			return h
+		}()), args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		{name: "hostile-mgmt-name", host: hostFn(func() fakeHost {
+			h := nft
+			h.unvalidated = true
+			h.spec = &Spec{UEPools: testSpec.UEPools, UPFN6: testSpec.UPFN6, N6Subnet: testSpec.N6Subnet, Management: "a$(touch pwned):8412"}
+			return h
+		}()), args: []string{"--yes"}, wantNoChange: true, wantFail: true},
+		{name: "hostile-pool", host: hostFn(func() fakeHost {
+			h := nft
+			h.unvalidated = true
+			h.spec = &Spec{UEPools: []string{"10.250.0.0/16;touch pwned"}, UPFN6: testSpec.UPFN6, N6Subnet: testSpec.N6Subnet, Management: testSpec.Management}
+			return h
+		}()), args: []string{"--yes"}, wantNoChange: true, wantFail: true},
 		{name: "skips", host: hostFn(nft), args: []string{"--yes", "--no-firewall", "--no-route"}},
 		// Idempotency: a second run changes nothing; a partial state plans
 		// only what is missing; an earlier join's rule is removed.
@@ -368,6 +461,20 @@ func planRows() []planRow {
 			h := applied(t, sh)
 			return h.with("nft -a list chain inet filter input", "table inet filter {\n}")
 		}, args: []string{"--yes"}},
+		// Comments this script did not write, hostile ones among them, are
+		// left alone and shown inert; nothing in them runs.
+		{name: "hostile-comments", host: func(t *testing.T, sh string) fakeHost {
+			h := applied(t, sh)
+			chain := h.answers["nft -a list chain inet filter input"]
+			chain = strings.Replace(chain, "\t}\n}", ""+
+				"\t\tiifname \"ens5\" accept comment \"orbit-join data ens5 10.250.0.0/16 $(touch pwned)\" # handle 20\n"+
+				"\t\tiifname \"ens5\" accept comment \"orbit-join data ens5 10.0.0.0/8 1;touch pwned\" # handle 21\n"+
+				"\t\tiifname \"ens5\" accept comment \"orbit-join it's `touch pwned`\" # handle 22\n"+
+				"\t\tiifname \"ens5\" accept comment \"orbit-join data ens5 10.1.0.0/16 1-2\" # handle 23;touch pwned\n"+
+				"\t\tiifname \"ens5\" accept comment \"orbit-join data ens5\n10.2.0.0/16 1-2\" # handle 24\n"+
+				"\t}\n}", 1)
+			return h.with("nft -a list chain inet filter input", chain)
+		}, args: []string{"--yes"}, wantNoChange: true},
 		{name: "stale-rule", host: func(t *testing.T, sh string) fakeHost {
 			h := applied(t, sh)
 			h.ports = "40000\t50000"
@@ -417,8 +524,15 @@ func TestJoinPlan(t *testing.T) {
 				if (r.err != nil) != row.wantFail {
 					t.Errorf("err = %v, want failure %v\n%s", r.err, row.wantFail, r.out)
 				}
-				if row.wantNoChange && len(r.calls) != 0 {
-					t.Errorf("changed the host: %q", r.calls)
+				if row.wantNoChange && (len(r.calls) != 0 || r.rootChanged) {
+					t.Errorf("changed the host: %q (files changed: %v)", r.calls, r.rootChanged)
+				}
+				// Nothing downloaded runs before the plan is confirmed.
+				if row.wantNoChange && strings.Contains(r.out, "fake orbit ran") {
+					t.Errorf("the downloaded orbit ran without a confirmed plan:\n%s", r.out)
+				}
+				if _, err := os.Stat(filepath.Join(r.dir, "pwned")); err == nil {
+					t.Errorf("a value from the host ran as a command")
 				}
 				got := r.out + "--- exit: " + exitOf(r.err) + "\n--- changes:\n" + strings.Join(r.calls, "\n") + "\n"
 				golden := filepath.Join("testdata", "plan", row.name+".txt")
@@ -436,6 +550,28 @@ func TestJoinPlan(t *testing.T) {
 				}
 				if got != string(want) {
 					t.Errorf("transcript differs from %s (go test -update to accept):\n%s", golden, got)
+				}
+
+				// The same host without --yes and with no terminal: everything
+				// before the confirmation, which must change nothing and run
+				// nothing downloaded.
+				if sh != shells[0] || !contains(row.args, "--yes") {
+					return
+				}
+				h := row.host(t, sh)
+				h.tty = ""
+				var args []string
+				for _, a := range row.args {
+					if a != "--yes" {
+						args = append(args, a)
+					}
+				}
+				r = runHost(t, sh, h, args...)
+				if len(r.calls) != 0 || r.rootChanged || strings.Contains(r.out, "fake orbit ran") {
+					t.Errorf("without a confirmation: changes %q, files changed %v\n%s", r.calls, r.rootChanged, r.out)
+				}
+				if _, err := os.Stat(filepath.Join(r.dir, "pwned")); err == nil {
+					t.Errorf("without a confirmation, a value from the host ran as a command")
 				}
 			})
 		}

@@ -84,7 +84,32 @@ main() {
 		case $1 in '' | *[!0-9]*) return 1 ;; esac
 		[ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 	}
+	is_digits() {
+		case $1 in '' | *[!0-9]*) return 1 ;; esac
+	}
+	# stale_id_ok ID: whether ID is exactly an orbit-join rule ID of the
+	# form this script writes: orbit-join control|data DEV CIDR PORT[-PORT].
+	stale_id_ok() {
+		case $1 in '' | *[!A-Za-z0-9\ ./:_-]*) return 1 ;; esac
+		# shellcheck disable=SC2086 # the five words, split (no globbing: checked above)
+		set -- $1
+		if [ $# != 5 ] || [ "$1" != orbit-join ]; then return 1; fi
+		case $2 in control | data) ;; *) return 1 ;; esac
+		if ! is_dev "$3" || ! is_cidr "$4"; then return 1; fi
+		case $5 in
+		*-*) is_port "${5%-*}" && is_port "${5#*-}" ;;
+		*) is_port "$5" ;;
+		esac
+	}
 	[ -z "$N6_IP" ] || is_addr "$N6_IP" || die "--n6-ip $N6_IP: want an IP address"
+	# The values the server rendered, checked here too before first use.
+	is_addr "$UPF_N6" || die "the UPF's N6 address $(printf '%s' "$UPF_N6") is not an IP address"
+	is_port "$BIND_PORT" || die "the responder port $(printf '%s' "$BIND_PORT") is not a port"
+	if [ "$MGMT_IS_IP" = yes ]; then
+		is_addr "$MGMT_HOST" || die "the server's address $(printf '%s' "$MGMT_HOST") is not an IP address"
+	else
+		case $MGMT_HOST in '' | *[!A-Za-z0-9.-]*) die "the server's name $(printf '%s' "$MGMT_HOST") is not a host name" ;; esac
+	fi
 	for P in $UE_POOLS $N6_SUBNET; do
 		is_cidr "$P" || die "$P: not a CIDR"
 	done
@@ -111,12 +136,11 @@ main() {
 
 	curl -fsS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/orbit" \
 		"$ORBIT_SERVER/join/$ORBIT_TOKEN/bin/$ARCH" || die "downloading orbit for linux/$ARCH failed"
-	# Checked before anything else touches it: never chmod or run an
-	# unverified file.
+	# Checked before anything else touches it. It is made executable and
+	# run (`orbit version`) only after the plan is confirmed: nothing
+	# downloaded runs before then.
 	GOT=$(sha256sum "$WORK/orbit" | cut -d ' ' -f 1)
 	[ "$GOT" = "$WANT" ] || die "the downloaded orbit's SHA-256 is $GOT, want $WANT; refusing to run it"
-	chmod 0700 "$WORK/orbit"
-	"$WORK/orbit" version >/dev/null || die "the downloaded orbit does not run on this host"
 
 	# The responder's name: the token's, else this host's.
 	NAME=$ORBIT_NAME
@@ -165,6 +189,11 @@ main() {
 	}'
 	innet() {
 		awk -v ip="$1" -v net="$2" "$INNET"' BEGIN { exit !innet(ip, net) }'
+	}
+	# q VALUE: VALUE as one single-quoted shell word. Every value written
+	# into the apply file or the helper goes through it.
+	q() {
+		printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 	}
 	# oneline TEXT: TEXT's lines joined by spaces.
 	oneline() {
@@ -277,13 +306,24 @@ main() {
 	: >"$APPLY"
 	: >"$HELPER"
 	N=0
+	# inert TEXT: refuses TEXT unless it holds no shell syntax beyond the
+	# quotes and braces the plan's own commands use. Every step title and
+	# command passes it before it is written to the apply file.
+	inert() {
+		case $1 in
+		*[\$\`\;\&\|\<\>\\]* | *"
+"*) die "refusing a plan line that is not inert: $(printf '%s' "$1" | tr -c '[:print:]' '?')" ;;
+		esac
+	}
 	step() {
+		inert "$1"
 		N=$((N + 1))
 		printf '  %d. %s\n' "$N" "$1" >>"$PLAN"
 		printf "begin %d '%s'\n" "$N" "$1" >>"$APPLY"
 	}
 	# cmd LINE: a command of the current step, shown and run as given.
 	cmd() {
+		inert "$1"
 		printf '       %s\n' "$1" >>"$PLAN"
 		printf '%s || fail\n' "$1" >>"$APPLY"
 	}
@@ -313,7 +353,7 @@ main() {
 	else
 		for P in $UE_POOLS; do
 			[ "$(fam "$P")" = "$(fam "$UPF_N6")" ] || die "UE pool $P and the UPF's N6 address $UPF_N6 are different families"
-			LINE="ip $(ipf "$P") route replace $P via $UPF_N6 dev $N6_DEV"
+			LINE="ip $(ipf "$P") route replace $(q "$P") via $(q "$UPF_N6") dev $(q "$N6_DEV")"
 			helper "$LINE"
 			NOW=$(ip "$(ipf "$P")" route show exact "$P" 2>/dev/null) || NOW=''
 			case " $NOW " in
@@ -388,50 +428,87 @@ main() {
 		echo "  (firewalld binds interfaces through zones: put $CTL_DEV and $N6_DEV in the zone these rules go in. $RANGE_WHY)" >&2
 		exit 1
 	else
-		# The filtering input chains: native nft ones (not iptables-nft's own
-		# ip/ip6 filter INPUT), and iptables' INPUT, per family.
+		# Whether input is filtered, per family. It is provably not only when
+		# every nft input filter base chain (other than iptables-nft's own
+		# ip/ip6 filter INPUT) has policy accept and no rules, and iptables'
+		# INPUT has policy ACCEPT and no rules. Anything else, jumps, gotos
+		# and vmaps among it, counts as filtered: nothing here tries to work
+		# out whether a rule drops. Output this cannot read is a refusal.
 		CHAINS=''
 		if command -v nft >/dev/null 2>&1; then
 			RS=$(nft list ruleset 2>/dev/null) || die "nft list ruleset failed"
 			CHAINS=$(printf '%s\n' "$RS" | awk '
-				/^table / { fam = $2; tbl = $3 }
-				/^[ \t]*chain / { ch = $2; base = 0; filt = 0; in_ch = 1; next }
-				in_ch && /type filter hook input/ { base = 1; if ($0 ~ /policy drop/) filt = 1; next }
-				in_ch && /(^|[ \t])(drop|reject)([ \t]|$)/ { filt = 1 }
+				/^table / { if (NF < 3 || in_ch) bad = 1; fam = $2; tbl = $3; next }
+				/^[ \t]*chain / { if (in_ch) bad = 1; ch = $2; base = 0; acc = 1; nrules = 0; in_ch = 1; next }
+				in_ch && /type filter hook input/ { base = 1; if ($0 ~ /policy/ && $0 !~ /policy accept/) acc = 0; next }
 				in_ch && /^[ \t]*}/ {
-					if (base && filt && !((fam == "ip" || fam == "ip6") && tbl == "filter" && ch == "INPUT")) print fam, tbl, ch
-					in_ch = 0
-				}')
+					if (base && !((fam == "ip" || fam == "ip6") && tbl == "filter" && ch == "INPUT"))
+						print fam, tbl, ch, (acc && nrules == 0) ? "open" : "filtered"
+					in_ch = 0; next
+				}
+				in_ch && NF && $1 !~ /^#/ { nrules++ }
+				!in_ch && /hook input/ { bad = 1 }
+				END { if (in_ch) bad = 1; if (bad) print "unparsed" }')
 		fi
-		ipt_filters() {
-			command -v "$1" >/dev/null 2>&1 || return 1
-			"$1" -S INPUT 2>/dev/null | grep -qE '^-P INPUT (DROP|REJECT)|-j (DROP|REJECT)'
+		# ipt_state CMD: none (no CMD), open, filtered or unparsed, for INPUT.
+		ipt_state() {
+			if ! command -v "$1" >/dev/null 2>&1; then
+				echo none
+				return
+			fi
+			OUT=$("$1" -S INPUT 2>/dev/null) || OUT=''
+			case $OUT in
+			"-P INPUT ACCEPT") echo open ;;
+			"-P INPUT "*) echo filtered ;;
+			*) echo unparsed ;;
+			esac
+		}
+		# manual F WHY: the refusal that prints the rules to add by hand.
+		manual() {
+			echo "orbit join: $2; this script does not choose for you. Allow these where they belong, then rerun with --no-firewall:" >&2
+			rules "$1" | while read -r KIND DEV S PORT; do
+				if [ "$KIND" = control ]; then
+					echo "  tcp to port $PORT, in on $DEV, from $S" >&2
+				else
+					echo "  tcp and udp to ports $PORT, in on $DEV, from $S" >&2
+				fi
+			done
+			echo "  ($RANGE_WHY)" >&2
+			exit 1
 		}
 		WANTIDS=$(for F in 4 6; do rules $F; done | while read -r KIND DEV S PORT; do printf '|orbit-join %s %s %s %s|' "$KIND" "$DEV" "$S" "$PORT"; done)
 		SWEPT=''
 		for F in 4 6; do
 			[ -n "$(rules $F)" ] || continue
 			case $F in 4) IPT=iptables NF=ip ;; *) IPT=ip6tables NF=ip6 ;; esac
-			MINE=$(printf '%s\n' "$CHAINS" | awk -v nf="$NF" '$1 == "inet" || $1 == nf')
+			IS=$(ipt_state $IPT)
+			if printf '%s\n' "$CHAINS" | grep -qx unparsed || [ "$IS" = unparsed ]; then
+				manual $F "cannot read this host's IPv$F input firewall (nft list ruleset, $IPT -S INPUT)"
+			fi
+			MINE=$(printf '%s\n' "$CHAINS" | awk -v nf="$NF" '($1 == "inet" || $1 == nf) && $4 == "filtered" { print $1, $2, $3 }')
 			NC=$(printf '%s\n' "$MINE" | grep -c . || true)
-			if [ "$NC" -gt 1 ] || { [ "$NC" = 1 ] && ipt_filters $IPT; }; then
+			TOTAL=$NC
+			[ "$IS" != filtered ] || TOTAL=$((TOTAL + 1))
+			if [ "$TOTAL" -gt 1 ]; then
 				WHO=$(printf '%s\n' "$MINE" | awk 'NF { printf "%s%s %s %s", sep, $1, $2, $3; sep = "; " }')
-				if ipt_filters $IPT; then WHO="$WHO; $IPT INPUT"; fi
-				echo "orbit join: several firewall chains filter IPv$F input on this host ($WHO); this script does not pick one. Allow these where they belong, then rerun with --no-firewall:" >&2
-				rules $F | while read -r KIND DEV S PORT; do
-					if [ "$KIND" = control ]; then
-						echo "  tcp to port $PORT, in on $DEV, from $S" >&2
-					else
-						echo "  tcp and udp to ports $PORT, in on $DEV, from $S" >&2
-					fi
-				done
-				echo "  ($RANGE_WHY)" >&2
-				exit 1
+				[ "$IS" != filtered ] || WHO="${WHO:+$WHO; }$IPT INPUT"
+				manual $F "several chains filter IPv$F input on this host ($WHO)"
 			elif [ "$NC" = 1 ]; then
 				# shellcheck disable=SC2086 # family, table, chain
 				set -- $MINE
 				CF=$1 CT=$2 CC=$3
+				# The names come from the host's ruleset and reach commands and
+				# the helper: plain nft identifiers only.
+				case $CF in inet | ip | ip6) ;; *) die "unexpected nft family in: $(printf '%s' "$MINE")" ;; esac
+				for X in "$CT" "$CC"; do
+					case $X in
+					[A-Za-z_]*) ;;
+					*) die "nft table or chain name not supported: $(printf '%s' "$X")" ;;
+					esac
+					case $X in *[!A-Za-z0-9_.-]*) die "nft table or chain name not supported: $(printf '%s' "$X")" ;; esac
+				done
 				HAVE=$(nft -a list chain "$CF" "$CT" "$CC" 2>/dev/null) || die "nft list chain $CF $CT $CC failed"
+				CHAIN="$(q "$CF") $(q "$CT") $(q "$CC")"
 				for R in $(rules $F | tr ' ' '|'); do
 					KIND=${R%%|*} R=${R#*|} DEV=${R%%|*} R=${R#*|} S=${R%%|*} PORT=${R#*|}
 					ID="orbit-join $KIND $DEV $S $PORT"
@@ -440,7 +517,7 @@ main() {
 					else
 						RULE="iifname \"$DEV\" $NF saddr $S meta l4proto { tcp, udp } th dport $PORT accept comment \"$ID\""
 					fi
-					helper "nft list chain $CF $CT $CC | grep -qF 'comment \"$ID\"' || nft insert rule $CF $CT $CC '$RULE'"
+					helper "nft list chain $CHAIN | grep -qF $(q "comment \"$ID\"") || nft insert rule $CHAIN $(q "$RULE")"
 					if printf '%s\n' "$HAVE" | grep -qF "comment \"$ID\""; then
 						ok "firewall: $ID (in $CF $CT $CC)"
 					else
@@ -449,7 +526,7 @@ main() {
 						else
 							step "firewall: allow data traffic (tcp, udp) on $DEV from $S to ports $PORT"
 						fi
-						cmd "nft insert rule $CF $CT $CC '$RULE'"
+						cmd "nft insert rule $CHAIN $(q "$RULE")"
 						show "inserted into $CF $CT $CC (your ruleset)"
 						[ "$KIND" = control ] || show "($RANGE_WHY)"
 					fi
@@ -458,37 +535,50 @@ main() {
 				# has, swept once per chain.
 				case $SWEPT in *"|$CF $CT $CC|"*) continue ;; esac
 				SWEPT="$SWEPT|$CF $CT $CC|"
-				printf '%s\n' "$HAVE" | sed -n 's/.*comment "\(orbit-join [^"]*\)".*# handle \([0-9][0-9]*\).*/\2|\1/p' |
+				printf '%s\n' "$HAVE" | sed -n 's/.*comment "\(orbit-join [^"]*\)".*# handle \([0-9][0-9]*\)$/\2|\1/p' |
 					while IFS='|' read -r H ID; do
 						case $WANTIDS in *"|$ID|"*) ;; *) echo "$H|$ID" ;; esac
 					done >"$WORK/stale"
 				while IFS='|' read -r H ID; do
-					step "firewall: remove the earlier rule \"$ID\" from $CF $CT $CC"
-					cmd "nft delete rule $CF $CT $CC handle $H"
-				done <"$WORK/stale"
-			elif ipt_filters $IPT; then
-				WANTRULES=$(rules $F | while read -r KIND DEV S PORT; do
-					if [ "$KIND" = control ]; then
-						echo "-A ORBIT-JOIN -s $S -i $DEV -p tcp -m tcp --dport $PORT -j ACCEPT"
+					# Only an ID of the exact form this script writes, and a
+					# numeric handle, becomes a step; anything else is left alone
+					# and shown, inert.
+					if stale_id_ok "$ID" && is_digits "$H"; then
+						step "firewall: remove the earlier rule \"$ID\" from $CF $CT $CC"
+						cmd "nft delete rule $CHAIN handle $(q "$H")"
 					else
+						printf '  note: left alone, a rule in %s %s %s whose orbit-join comment this script did not write: %s\n' \
+							"$CF" "$CT" "$CC" "$ID" >>"$PLAN"
+					fi
+				done <"$WORK/stale"
+			elif [ "$IS" = filtered ]; then
+				# Each rule as -S prints it (to compare) and as the command adds
+				# it (every value quoted).
+				rules $F | while read -r KIND DEV S PORT; do
+					if [ "$KIND" = control ]; then
+						printf '%s\t%s\n' "-A ORBIT-JOIN -s $S -i $DEV -p tcp -m tcp --dport $PORT -j ACCEPT" \
+							"-s $(q "$S") -i $(q "$DEV") -p tcp -m tcp --dport $(q "$PORT") -j ACCEPT"
+					else
+						P2=$(echo "$PORT" | tr - :)
 						for PR in udp tcp; do
-							echo "-A ORBIT-JOIN -s $S -i $DEV -p $PR -m $PR --dport $(echo "$PORT" | tr - :) -j ACCEPT"
+							printf '%s\t%s\n' "-A ORBIT-JOIN -s $S -i $DEV -p $PR -m $PR --dport $P2 -j ACCEPT" \
+								"-s $(q "$S") -i $(q "$DEV") -p $PR -m $PR --dport $(q "$P2") -j ACCEPT"
 						done
 					fi
-				done)
+				done >"$WORK/ipt"
+				WANTRULES=$(cut -f 1 "$WORK/ipt")
 				HAVE=$($IPT -S ORBIT-JOIN 2>/dev/null) || HAVE=''
 				helper "$IPT -N ORBIT-JOIN 2>/dev/null || true"
-				printf '%s\n' "$WANTRULES" | while read -r L; do
-					helper "$IPT -C ${L#-A } 2>/dev/null || $IPT $L"
-				done
+				while IFS="$(printf '\t')" read -r _ A; do
+					helper "$IPT -C ORBIT-JOIN $A 2>/dev/null || $IPT -A ORBIT-JOIN $A"
+				done <"$WORK/ipt"
 				helper "$IPT -C INPUT -m comment --comment orbit-join -j ORBIT-JOIN 2>/dev/null || $IPT -I INPUT 1 -m comment --comment orbit-join -j ORBIT-JOIN"
 				if [ "$HAVE" = "$(printf '%s\n%s' "-N ORBIT-JOIN" "$WANTRULES")" ]; then
 					ok "firewall: $IPT chain ORBIT-JOIN holds this plan's rules"
 				else
 					step "firewall: $IPT chain ORBIT-JOIN with the control and data rules"
 					if [ -z "$HAVE" ]; then cmd "$IPT -N ORBIT-JOIN"; else cmd "$IPT -F ORBIT-JOIN"; fi
-					printf '%s\n' "$WANTRULES" >"$WORK/ipt"
-					while read -r L; do cmd "$IPT $L"; done <"$WORK/ipt"
+					while IFS="$(printf '\t')" read -r _ A; do cmd "$IPT -A ORBIT-JOIN $A"; done <"$WORK/ipt"
 					show "($RANGE_WHY)"
 				fi
 				if $IPT -C INPUT -m comment --comment orbit-join -j ORBIT-JOIN 2>/dev/null; then
@@ -498,7 +588,7 @@ main() {
 					cmd "$IPT -I INPUT 1 -m comment --comment orbit-join -j ORBIT-JOIN"
 				fi
 			else
-				ok "firewall: IPv$F input is not filtered on this host; nothing to open"
+				ok "firewall: IPv$F input is not filtered on this host (no input rules, policy accept); nothing to open"
 			fi
 		done
 	fi
@@ -593,6 +683,10 @@ EOF
 			exit 0
 		fi
 	fi
+
+	# The verified orbit runs for the first time only now, confirmed.
+	chmod 0700 "$WORK/orbit"
+	"$WORK/orbit" version >/dev/null || die "the downloaded orbit does not run on this host; nothing was changed"
 
 	# Apply, step by step; a failure names the steps done and the one that
 	# failed.

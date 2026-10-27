@@ -109,6 +109,8 @@ func TestScriptHardening(t *testing.T) {
 		{name: "removed on exit", before: "trap 'rm -rf \"$WORK\"' EXIT", after: "curl -fsS"},
 		{name: "the check before chmod", before: "[ \"$GOT\" = \"$WANT\" ] || die", after: "chmod 0700"},
 		{name: "the check before running it", before: "[ \"$GOT\" = \"$WANT\" ] || die", after: "\"$WORK/orbit\" version"},
+		{name: "the binary first runs after the confirmation", before: "Apply %d changes? [y/N]", after: "\"$WORK/orbit\" version"},
+		{name: "made executable after the confirmation", before: "Apply %d changes? [y/N]", after: "chmod 0700"},
 		{name: "downloaded into the work directory", before: "-o \"$WORK/orbit\"", after: "sha256sum \"$WORK/orbit\""},
 	}
 	for _, tc := range tests {
@@ -257,10 +259,20 @@ func TestScriptRuns(t *testing.T) {
 		return h
 	}
 
-	t.Run("verified, run, then planned", func(t *testing.T) {
+	t.Run("verified and planned; a dry run never runs it", func(t *testing.T) {
 		_ = os.Remove(marker)
 		r := runHost(t, "dash", host(), "--dry-run")
 		if r.err != nil || !strings.Contains(r.out, "verified orbit") || !strings.Contains(r.out, "dry run: nothing was changed") {
+			t.Fatalf("err %v\n%s", r.err, r.out)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("the downloaded binary ran in a dry run")
+		}
+	})
+	t.Run("run once the plan is confirmed", func(t *testing.T) {
+		_ = os.Remove(marker)
+		r := runHost(t, "dash", host(), "--yes")
+		if r.err != nil || !strings.Contains(r.out, "applied") {
 			t.Fatalf("err %v\n%s", r.err, r.out)
 		}
 		if _, err := os.Stat(marker); err != nil {
