@@ -13,7 +13,7 @@ import (
 )
 
 func newUECmd(serverURL *string) *cobra.Command {
-	cmd := &cobra.Command{Use: "ue", Short: "Register and manage simulated UEs"}
+	cmd := &cobra.Command{Use: "ue", Short: "Register and manage software UEs"}
 	cmd.AddCommand(newUERegisterCmd(serverURL))
 	cmd.AddCommand(newUEStatusCmd(serverURL))
 	cmd.AddCommand(newUEDeregisterCmd(serverURL))

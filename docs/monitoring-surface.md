@@ -229,9 +229,8 @@ on it.
 
 ## Open questions
 
-- **Concurrent runs.** Initial policy is one active run per kind. Whether
-  multiple concurrent load runs are ever meaningful against a single core is a
-  question about the core, not about ORBIT.
+- **Concurrent runs.** Settled by ADR-0008 §5: runs lease their SUPIs, gNB
+  IDs and N2 source addresses, and run concurrently when they share none.
 - **History retention.** How many completed runs the daemon keeps, and whether
   reports persist across restarts. Sketch assumes in-memory and bounded.
 - **HDR concurrency.** `hdrhistogram` is not safe for concurrent read/write;
