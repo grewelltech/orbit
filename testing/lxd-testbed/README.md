@@ -169,7 +169,9 @@ TESTBED_SSH_PUBKEY=~/.ssh/id_ed25519.pub ./testbed.sh up
 For the dashboards (`orbit serve` on each RAN node, aether-ops on `ctrl`),
 either tunnel through the same jump (`ssh -J ubuntu@<rsite-uplink> -L
 8412:10.130.0.21:8412 ubuntu@10.130.0.21`) or add a host route to
-`10.130.0.0/21` via the site router's uplink address.
+`10.130.0.0/21` via the site router's uplink address. The ORBIT dashboard is
+`https://` with a self-signed certificate (accept it once in the browser) and
+asks for the API token: it is `ORBIT_TOKEN` in a RAN node's `/etc/orbit/env`.
 
 ## From nothing to ready
 
@@ -453,8 +455,8 @@ working tree as-is, which is what you want mid-change.
 
 Every ORBIT node gets `/etc/orbit/env` (mode 600): PLMN, the subscriber keys as
 the deployed core has them, the core's coordinates and the responder token, and
-on the RAN nodes the server's listen address. The units read it, and so does a
-shell:
+on the RAN nodes the server's listen address, `https://` URL and API token
+(`ORBIT_TOKEN`). The units read it, and so does a shell:
 
 ```sh
 lxc exec orbit-ran-far -- bash
@@ -465,24 +467,29 @@ orbit --server $ORBIT_SERVER cell ngsetup --amf $TESTBED_AMF --mcc $ORBIT_MCC \
 
 The API-client commands (`cell`, `ue`, `runs`) default to `127.0.0.1:8412`
 and the server listens on the node's OAM address, so pass
-`--server $ORBIT_SERVER` (the env carries it).
+`--server $ORBIT_SERVER` (the env carries it). `ran` pins the server's
+certificate for root on the node (`orbit server trust`, with the fingerprint
+computed from the certificate on the node), so the client verifies it.
 
 | Node | Unit | Listens on |
 |---|---|---|
 | `orbit-ctrl` | `aether-ops` | `0.0.0.0:8186` — API **and** UI |
 | `orbit-app` | `orbit-responder` | `10.133.0.30:9551` — **N6 only**, bearer token |
-| `orbit-ran-near` | `orbit` | `10.130.0.21:8412` — API **and** dashboard, OAM only |
-| `orbit-ran-far` | `orbit` | `10.137.0.21:8412` — API **and** dashboard, far OAM only |
+| `orbit-ran-near` | `orbit` | `10.130.0.21:8412` — API **and** dashboard, OAM only, TLS + bearer token |
+| `orbit-ran-far` | `orbit` | `10.137.0.21:8412` — API **and** dashboard, far OAM only, TLS + bearer token |
 
 The responder binds its N6 address specifically and requires a token: it is a
 remotely-aimable traffic generator and has no business answering on the
 management network or for anyone. The API server binds the node's OAM address
 rather than `0.0.0.0`: the same port serves the monitoring dashboard, worth
-reaching from a browser inside the site, but the API is unauthenticated and
-carries subscriber credentials (Ki / OPc), so it has no business on N2 or N3.
-The token is generated once per testbed and kept on the app node (and in the
-host cache), so reinstalling a RAN node keeps working against a running
-responder.
+reaching from a browser inside the site, but the API carries subscriber
+credentials (Ki / OPc), so it has no business on N2 or N3. Off loopback
+`orbit serve` refuses to start without TLS and a token, so the unit runs it
+with `--tls auto` (a self-signed certificate kept in `/var/lib/orbit/runs/tls`)
+and `--token-file /etc/orbit/api-token`. The responder token is generated once
+per testbed and kept on the app node (and in the host cache), so reinstalling a
+RAN node keeps working against a running responder; the API token likewise,
+kept on the RAN nodes and in the host cache.
 
 Return routing for the UE pool is in the app node's **netplan** (via r-site),
 not in a unit: the app knows nothing about the UPF, as on a real site.

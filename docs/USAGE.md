@@ -296,6 +296,55 @@ orbit serve --listen 127.0.0.1:8412 [--log-level info] [--core-profile strict-3g
   in-process; the step form of `run` is an API client and does), and
   `serve --listen` keeps its loopback default.
 
+### TLS and tokens
+
+On loopback (the default `127.0.0.1:8412`) the server is plaintext and needs no
+token. Subscriber keys (Ki/OPc) and app tokens travel in API requests, so
+anything else needs a protected channel (ADR-0008 §4):
+
+```sh
+# A token: 32 characters or more, first line of a file only you can read.
+mkdir -p ~/.config/orbit; (umask 077; openssl rand -hex 32 > ~/.config/orbit/api-token)
+
+# Off loopback: TLS and the token. --tls auto makes a self-signed certificate
+# once, keeps it in --state-dir/tls, and logs its fingerprint at startup.
+orbit serve --listen 10.0.0.5:8412 --tls auto --token-file ~/.config/orbit/api-token
+#   ... msg=TLS spki=sha256/LnPV5keF...
+
+# On each client: pin that certificate (it shows the fingerprint and asks
+# before trusting it; compare with the line serve logged) and keep the token.
+orbit server trust https://10.0.0.5:8412 --token-file ~/.config/orbit/api-token
+export ORBIT_SERVER=https://10.0.0.5:8412
+orbit ue list
+```
+
+- **`serve` refuses to start** on a non-loopback `--listen` without TLS
+  (`--tls auto`, or `--tls-cert`/`--tls-key` for a certificate you already
+  have) unless you pass `--insecure-listen`, and without a token unless you pass
+  `--no-auth`, which logs a warning. `0.0.0.0` and `:8412` count as non-loopback.
+- **The token** (`--token-file`, mode 600 or tighter) is required on every API
+  call and on `/metrics`; `/healthz` and the dashboard's page itself stay open.
+  A wrong or missing token gets `unauthenticated`; ten failures from one
+  address within 10 s lock it out for 30 s.
+- **Clients** send `$ORBIT_TOKEN`, else the token `orbit server trust` kept in
+  `~/.config/orbit/servers.yaml` for that server. They verify a pinned server
+  by its key alone. `orbit server list` shows the pins (tokens masked) and
+  `orbit server forget <url>` removes one. A script that cannot answer the
+  prompt pins with `--fingerprint sha256/...`, and it pins only when the
+  fingerprint matches: nothing is trusted on first use.
+- **Keys never go in the clear off the host.** The CLI refuses to send keys, app
+  tokens or the bearer token over `http://` to a host that is not loopback;
+  there is no override. Behind `--insecure-listen` the server refuses such a
+  request too (`failed_precondition`), for clients other than the CLI.
+- **The dashboard** asks for the token the first time the server refuses it
+  and keeps it for that browser tab only. With `--tls auto`, accept the
+  self-signed certificate once in the browser.
+- **Terminate TLS in `orbit serve`, not in a proxy on the same host.** Behind a
+  TLS-terminating reverse proxy on the same machine every request reaches orbit
+  from `127.0.0.1`, so it looks like loopback, plaintext requests are allowed
+  through, and the keys check above can no longer tell where they came from.
+  Use `--tls auto` or `--tls-cert`/`--tls-key` instead.
+
 ### Run as a service
 
 To avoid backgrounding `orbit serve`, install it as a systemd service. One
@@ -312,13 +361,15 @@ sudo bash scripts/orbit.sh status
 
 It installs the `orbit` binary to `/usr/local/bin`, a unit at
 `/etc/systemd/system/orbit.service`, and config at `/etc/orbit/orbit.env` — set
-`ORBIT_ARGS` there (e.g. `--listen 0.0.0.0:8412 --core-profile sdcore`), then
+`ORBIT_ARGS` there (e.g. `--core-profile sdcore`), then
 `systemctl restart orbit`. Manage it with `systemctl {status,restart,stop}
 orbit` and follow logs with `journalctl -u orbit -f`. (`make install-service` /
 `upgrade-service` / `uninstall-service` wrap the script.) Install needs Go to
-build, or set `VERSION=` to download a release. When `--listen` is not
-loopback, export `ORBIT_SERVER=http://<listen>` in the shell you run client
-commands from, so they find the service without `--server` on every call.
+build, or set `VERSION=` to download a release. The unit as installed serves
+loopback only: a non-loopback `--listen` needs TLS and a token (see "TLS and
+tokens" above), which the unit does not yet provision. When it does, export
+`ORBIT_SERVER=https://<listen>` in the shell you run client commands from, so
+they find the service without `--server` on every call.
 
 ## UE lifecycle
 
@@ -806,6 +857,11 @@ over JSON:
 curl -s http://127.0.0.1:8412/orbit.v1.UEService/List \
     -H 'Content-Type: application/json' -d '{}'
 ```
+
+With a token (see "TLS and tokens"), add `-H "Authorization: Bearer $ORBIT_TOKEN"`;
+for a `--tls auto` server, `curl -k --pinnedpubkey 'sha256//<base64>' https://...`
+pins the same key: the fingerprint `orbit serve` logs, with `sha256//` for
+`sha256/`.
 
 Services: `UEService` (Register, Deregister, Status, List, Ping, Traffic,
 Latency, Handover, XnHandover, StateStream, DataStats, StartApp, AppStream,
