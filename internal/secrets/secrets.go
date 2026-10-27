@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -21,24 +22,58 @@ import (
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 )
 
-// Names are the field and YAML key names that hold secrets. A proto field
-// with one of these names must carry the secret option (TestEverySecret
-// NamedFieldIsMarked), and a YAML key with one holds a secret.
-var Names = map[string]bool{"ki": true, "opc": true, "k": true, "key": true, "token": true, "password": true, "secret": true}
+// Names are the field and YAML key names that hold secrets, normalised
+// (lower-case, no '-' or '_'). A proto field with one of these names must
+// carry the secret option (TestEverySecretNamedFieldIsMarked), and a YAML
+// or map key with one holds a secret.
+var Names = map[string]bool{
+	"ki": true, "opc": true, "k": true, "key": true, "token": true, "password": true, "secret": true,
+	"apikey": true, "accesskey": true, "bearer": true, "auth": true, "authorization": true,
+	"credential": true, "passwd": true, "passphrase": true, "privatekey": true,
+}
 
-// IsSecretName reports whether a field or key name names a secret: one of
-// Names, or ending in _token, _key, _password or _secret.
+// IsSecretName reports whether a field or key name names a secret. The
+// name is split into words at '-', '_' and lower-to-upper case changes
+// ("X-Api-Key" and "x_api_key" are x, api, key; "apiKey" is api, key), and
+// it names a secret when its last words, joined and lower-cased, are one of
+// Names: the whole name ("bearer", "API_KEY") or a word-aligned suffix
+// ("loom_token", "apiKey", "my-bearer"). A suffix inside a word does not
+// count ("monkey" is not a key).
 func IsSecretName(name string) bool {
-	n := strings.ToLower(name)
-	if Names[n] {
-		return true
-	}
-	for _, suffix := range []string{"_token", "_key", "_password", "_secret"} {
-		if strings.HasSuffix(n, suffix) {
+	words := splitWords(name)
+	for i := range words {
+		if Names[strings.Join(words[i:], "")] {
 			return true
 		}
 	}
 	return false
+}
+
+// splitWords splits a name into lower-case words at '-', '_', and a
+// lower-case letter or digit followed by an upper-case one.
+func splitWords(name string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	rs := []rune(name)
+	for i, r := range rs {
+		switch {
+		case r == '-' || r == '_' || r == '.' || r == ' ':
+			flush()
+		case unicode.IsUpper(r) && i > 0 && (unicode.IsLower(rs[i-1]) || unicode.IsDigit(rs[i-1])):
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+	}
+	flush()
+	return words
 }
 
 // Marked reports whether fd carries the secret option.
