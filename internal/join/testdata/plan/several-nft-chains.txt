@@ -1,0 +1,12 @@
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
+orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
+orbit join: several chains filter IPv4 input on this host (inet filter input; ip extra in); this script does not choose for you. Allow these where they belong, then rerun with --no-firewall:
+  tcp to port 9551, in on ens4, from 192.0.2.10/32
+  tcp and udp to ports 32768-60999, in on ens5, from 10.250.0.0/16
+  tcp and udp to ports 32768-60999, in on ens5, from 198.51.100.0/24
+  (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+--- exit: 1
+--- changes:
+

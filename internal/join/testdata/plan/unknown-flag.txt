@@ -1,0 +1,4 @@
+orbit join: unknown option --force (options: --yes --dry-run --n6-ip IP --bind HOST:PORT --no-firewall --no-route --no-systemd)
+--- exit: 1
+--- changes:
+

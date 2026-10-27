@@ -35,6 +35,12 @@ func TestStoreCreate(t *testing.T) {
 		{name: "a pool with shell", spec: func() Spec { s := testSpec; s.UEPools = []string{"10.0.0.0/8;id"}; return s }(), wantErr: "not a CIDR"},
 		{name: "upf n6 a name", spec: func() Spec { s := testSpec; s.UPFN6 = "upf"; return s }(), wantErr: "upf_n6"},
 		{name: "subnet an address", spec: func() Spec { s := testSpec; s.N6Subnet = "198.51.100.1"; return s }(), wantErr: "n6_subnet"},
+		// A zone is free text to netip: "fe80::1%x;touch${IFS}/tmp/pwn" parses.
+		{name: "upf n6 with a zone carrying shell", spec: func() Spec { s := testSpec; s.UPFN6 = "fe80::1%x;touch${IFS}/tmp/pwn"; return s }(), wantErr: "upf_n6"},
+		{name: "upf n6 with a zone carrying a substitution", spec: func() Spec { s := testSpec; s.UPFN6 = "fe80::1%x $(id)"; return s }(), wantErr: "upf_n6"},
+		{name: "upf n6 with a plain zone", spec: func() Spec { s := testSpec; s.UPFN6 = "fe80::1%eth0"; return s }(), wantErr: "zone"},
+		{name: "management with a zone", spec: func() Spec { s := testSpec; s.Management = "[fe80::1%eth0]:8412"; return s }(), wantErr: "zone"},
+		{name: "a pool with a zone", spec: func() Spec { s := testSpec; s.UEPools = []string{"fe80::%x/64"}; return s }(), wantErr: "not a CIDR"},
 		{name: "management with no port", spec: func() Spec { s := testSpec; s.Management = "ran1"; return s }(), wantErr: "management_address"},
 		{name: "management with shell", spec: func() Spec { s := testSpec; s.Management = "$(id):8412"; return s }(), wantErr: "management_address"},
 		{name: "management port 0", spec: func() Spec { s := testSpec; s.Management = "ran1:0"; return s }(), wantErr: "no valid port"},

@@ -418,20 +418,21 @@ curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/jo
   address the app host reaches the server at. That address is `--mgmt`, by
   default the server's `--listen` address, which must then be neither a
   wildcard nor loopback.
-- **What the script does now.** It checks for Linux amd64/arm64, downloads
+- **What the script does.** It checks for Linux amd64/arm64, downloads
   `orbit` into a private directory and refuses it unless its SHA-256
-  matches. The route, firewall and responder setup steps are being added;
-  this server's script changes nothing on the host yet. The whole script is
-  one function, called on its last line, so a download cut short runs
-  nothing.
+  matches. Then it **prints a plan and changes nothing until you confirm
+  it** (see [The join script's plan](#the-join-scripts-plan)). The whole
+  script is one function, called on its last line with a sentinel unique to
+  that download, so a download cut short runs nothing.
 - **How to tell it worked.** `curl … | sudo sh` exits with sh's status, not
   curl's: a failed download (a key that does not match the pin, an expired
   token) still exits 0, with only curl's error on stderr. Success is the
-  line `orbit join: verified orbit for linux/<arch> …`, not `$?`. In a
-  script or automation, download first and run it only if that worked:
+  line `orbit join: applied N changes.` (or `orbit join: nothing to
+  change`), not `$?`. In a script or automation, download first and run it
+  only if that worked:
 
   ```sh
-  curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh
+  curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh --yes
   ```
 - **Limits.** The join endpoints take the token only as the exact path
   `/join/<token>` (or `/join/<token>/bin/<arch>`), unencoded. Anything else,
@@ -467,6 +468,82 @@ The server keeps only each token's hash, in memory, so restarting it revokes
 every pending token. A token stays valid until it expires or is revoked:
 fetching the script does not use it up, so a script that fails partway can be
 run again.
+
+### The join script's plan
+
+The script works out every change first and prints it: each command exactly
+as it will run, and each file in full. It then asks `Apply N changes? [y/N]`
+on `/dev/tty`. With no terminal it applies only with `--yes` (`… | sudo sh -s
+-- --yes`); otherwise it prints the plan and exits 0 with nothing changed.
+`--dry-run` prints the plan and changes nothing, even with `--yes`, and is
+the only way to run it without root (it then cannot inspect the firewall,
+and says so). Pass options after `sh -s --`:
+
+| Option | Effect |
+|---|---|
+| `--yes` | apply without asking |
+| `--dry-run` | print the plan only |
+| `--n6-ip IP` | the N6 address, instead of the source of this host's route to the UPF's N6 address |
+| `--bind HOST:PORT` | the responder's control address, instead of the source of the route to the server, port 9551 |
+| `--no-route` | leave the UE-pool routes alone |
+| `--no-firewall` | leave the firewall alone |
+| `--no-systemd` | install no unit (required on a host without systemd) |
+
+The plan's steps:
+
+1. **The binary**, as `/usr/local/lib/orbit/orbit`.
+2. **The return routes:** `ip route replace <ue_pool> via <upf_n6> dev <n6
+   interface>` for each UE pool.
+3. **The firewall**, only where input is filtered. Input counts as not
+   filtered only when every nftables input filter chain has policy accept and
+   no rules, and iptables' `INPUT` has policy `ACCEPT` and no rules. Any rule
+   at all (a jump, a goto or a verdict map included) counts as filtering, and
+   so does a listing the script cannot read, which stops it with the rules to
+   add by hand.
+   - **iptables** (legacy or iptables-nft): its own chain `ORBIT-JOIN`,
+     jumped to first from `INPUT` (`-m comment --comment orbit-join`).
+   - **nftables** with one filtering input chain: rules inserted at the head
+     of that chain, each with a `comment "orbit-join …"`, and the plan says
+     "inserted into … (your ruleset)". (An accept in a separate table would
+     not get past another table's drop.)
+   - **ufw or firewalld:** the script does not edit them. It prints the
+     `ufw allow …` or `firewall-cmd --add-rich-rule …` lines to run and
+     stops; rerun with `--no-firewall` once they are in.
+   - **Several filtering chains, or a listing it cannot read:** the script
+     stops and lists the rules to add where they belong.
+
+   The rules allow tcp to the control port from the server's address on the
+   interface toward the server, and tcp and udp to the data ports from the
+   UE pools and the N6 subnet on the N6 interface. The data ports are the
+   host's ephemeral range (`net.ipv4.ip_local_port_range`), because the
+   responder's receivers bind ephemeral ports.
+4. **The unit**, `orbit-responder.service`, runs `orbit responder --bind
+   <control address>` as the system user `orbit` (created if absent), with
+   systemd's sandboxing on. Its `ExecStartPre` runs
+   `/usr/local/lib/orbit/join-net.sh` as root, which re-applies the routes
+   and firewall rules, so they come back at boot. The plan shows the helper
+   and the unit in full.
+
+Nothing on the host changes, and nothing downloaded runs, before the plan is
+confirmed: the downloaded `orbit` first runs (`orbit version`) after the
+confirmation, before the first step.
+
+Every step is checked first, and a step already in place is listed as `ok`,
+so a second run prints `nothing to change`. A rule from an earlier join that
+this plan no longer has (say, after the port range changed) is removed. A
+step that fails stops the run, naming the steps already applied.
+
+The script never picks an address silently: it prints the N6 address and the
+control bind it chose, and where they came from. It refuses, rather than
+guesses, when there is no route to the UPF's N6 address, when the route goes
+through a gateway from outside the N6 subnet, when the N6 interface has
+several addresses in the N6 subnet, or when the server's name has several
+addresses in one family.
+
+**Not yet:** the unit is installed but not enabled or started, and the
+responder is not registered with the server. The responder gets its control
+token at registration, which this server does not do yet (ADR-0009 J3). The
+script says so when it finishes, and the token is not used up.
 
 ## Server runs (`orbit runs`)
 

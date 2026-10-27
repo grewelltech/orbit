@@ -53,21 +53,27 @@ func (s Spec) Validate() error {
 		return errors.New("ue_pools: give at least one UE pool CIDR (core.ue_pools, or --ue-pool)")
 	}
 	for _, p := range s.UEPools {
-		if _, err := netip.ParsePrefix(p); err != nil {
+		if pr, err := netip.ParsePrefix(p); err != nil || pr.Addr().Zone() != "" {
 			return fmt.Errorf("ue_pools: %q is not a CIDR", p)
 		}
 	}
-	if _, err := netip.ParseAddr(s.UPFN6); err != nil {
-		return fmt.Errorf("upf_n6: %q is not an IP address (core.upf_n6, or --upf-n6)", s.UPFN6)
+	// No address may carry an IPv6 zone: a zone is free text (netip takes
+	// any), and none of these is link-local to the app host.
+	if a, err := netip.ParseAddr(s.UPFN6); err != nil || a.Zone() != "" {
+		return fmt.Errorf("upf_n6: %q is not an IP address without a zone (core.upf_n6, or --upf-n6)", s.UPFN6)
 	}
-	if _, err := netip.ParsePrefix(s.N6Subnet); err != nil {
+	if pr, err := netip.ParsePrefix(s.N6Subnet); err != nil || pr.Addr().Zone() != "" {
 		return fmt.Errorf("n6_subnet: %q is not a CIDR (core.n6_subnet, or --n6-subnet)", s.N6Subnet)
 	}
 	host, port, err := net.SplitHostPort(s.Management)
 	if err != nil || host == "" {
 		return fmt.Errorf("management_address: %q is not host:port", s.Management)
 	}
-	if _, err := netip.ParseAddr(host); err != nil && !validHost(host) {
+	if a, err := netip.ParseAddr(host); err == nil {
+		if a.Zone() != "" {
+			return fmt.Errorf("management_address: %q has an IPv6 zone", host)
+		}
+	} else if !validHost(host) {
 		return fmt.Errorf("management_address: %q is not an IP address or host name", host)
 	}
 	if p, err := netip.ParseAddrPort("0.0.0.0:" + port); err != nil || p.Port() == 0 {
