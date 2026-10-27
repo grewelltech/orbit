@@ -469,6 +469,29 @@ every pending token. A token stays valid until it expires or is revoked:
 fetching the script does not use it up, so a script that fails partway can be
 run again.
 
+### Over ssh: `orbit target add-responder`
+
+With ssh access to the app host, one command does the join from here:
+
+```sh
+orbit target add-responder --ssh app1.lab -t lab1             # shows the plan, asks, applies
+orbit target add-responder --ssh ops@10.0.0.9 -t lab1 --yes   # no question (needed without a terminal)
+```
+
+It issues the token, fetches the script from the server (pinned to its key)
+and runs it on the app host through your own `ssh`. Your `~/.ssh/config`,
+agent and known_hosts apply as they are; ORBIT reads no key and stores
+nothing about the host. On the app host it:
+
+1. makes a private file (`mktemp`, mode 0600) and copies the script into it
+   over ssh's stdin, so the token is on no command line, here or there;
+2. runs it with `--dry-run` and shows you the plan;
+3. after you confirm (or with `--yes`), runs it with `--yes`, through `sudo`
+   unless you log in as root, with a terminal for sudo's password;
+4. removes the file, whether it succeeded, failed or you pressed Ctrl-C.
+
+The target's UE pools, UPF and subnet are used as for `orbit join create`.
+
 ### The join script's plan
 
 The script works out every change first and prints it: each command exactly

@@ -69,6 +69,7 @@ const (
 	cmdResponder    = "orbit responder"
 	cmdTest         = "orbit test"
 	cmdJoinCreate   = "orbit join create"
+	cmdAddResponder = "orbit target add-responder"
 )
 
 var (
@@ -96,9 +97,9 @@ var Bindings = []Binding{
 	{Flag: "sd", Path: "core.slices[0].sd"},
 	{Flag: "dnn", Path: "core.dnn"},
 	{Flag: "upf-n3", Path: "core.upf_n3", Commands: []string{cmdConformance}},
-	{Flag: "ue-pool", Path: "core.ue_pools", Commands: []string{cmdJoinCreate}},
-	{Flag: "upf-n6", Path: "core.upf_n6", Commands: []string{cmdJoinCreate}},
-	{Flag: "n6-subnet", Path: "core.n6_subnet", Commands: []string{cmdJoinCreate}},
+	{Flag: "ue-pool", Path: "core.ue_pools", Commands: []string{cmdJoinCreate, cmdAddResponder}},
+	{Flag: "upf-n6", Path: "core.upf_n6", Commands: []string{cmdJoinCreate, cmdAddResponder}},
+	{Flag: "n6-subnet", Path: "core.n6_subnet", Commands: []string{cmdJoinCreate, cmdAddResponder}},
 	{Flag: "supi", Path: "subscribers[].first_supi", Commands: []string{cmdConformance, cmdUERegister}},
 	{Flag: "base-imsi", Path: "subscribers[].first_supi"},
 	{Flag: "ki", Path: "subscribers[].ki"},
@@ -166,9 +167,13 @@ var Exclusions = []Exclusion{
 	// A join token's own settings (ADR-0009 §1): the responder's name, how
 	// long the token lasts, and the address the app host reaches the
 	// server at.
-	{Flag: "name", Commands: []string{cmdJoinCreate}, Reason: ReasonOperation},
-	{Flag: "ttl", Commands: []string{cmdJoinCreate}, Reason: ReasonOperation},
-	{Flag: "mgmt", Commands: []string{cmdJoinCreate}, Reason: ReasonConnection},
+	{Flag: "name", Commands: []string{cmdJoinCreate, cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "ttl", Commands: []string{cmdJoinCreate, cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "mgmt", Commands: []string{cmdJoinCreate, cmdAddResponder}, Reason: ReasonConnection},
+	// The app host to reach, through the user's own ssh: never part of a
+	// target (ADR-0009 §4).
+	{Flag: "ssh", Commands: []string{cmdAddResponder}, Reason: ReasonConnection},
+	{Flag: "yes", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
 	{Flag: "gate", Reason: ReasonFieldSetter},
 	{Flag: "set", Commands: []string{"orbit run", cmdTest}, Reason: ReasonFieldSetter},
 
