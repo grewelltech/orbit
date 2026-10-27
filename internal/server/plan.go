@@ -3,12 +3,12 @@ package server
 import (
 	"errors"
 	"fmt"
-	"google.golang.org/protobuf/proto"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -65,6 +65,11 @@ func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkl
 	}
 	if err := validateGates(p.GetGates(), w.GetName()); err != nil {
 		return nil, nil, err
+	}
+	if len(p.GetGates()) > 0 && p.GetUntil().GetForever() {
+		// Gates judge a completed run; a forever run only ends by StopRun,
+		// cancelled, with no report to judge.
+		return nil, nil, errors.New("gates need a run that completes; use until.duration or until.complete")
 	}
 	return w, pop, nil
 }
@@ -643,12 +648,13 @@ func planJudge(plan *orbitv1.RunPlan) func(any) any {
 	}
 }
 
-// judgedReport is a completed plan run's judged report, while the registry
-// keeps the run; nil otherwise.
+// judgedReport is a copy of a completed plan run's judged report, while
+// the registry keeps the run; nil otherwise. A copy, since callers marshal
+// it or redact it in place while the registry's stays shared.
 func judgedReport(reg *engine.RunRegistry, id string) *orbitv1.RunReport {
 	if v, ok := reg.Judgement(id); ok {
 		if rr, ok := v.(*orbitv1.RunReport); ok {
-			return rr
+			return proto.Clone(rr).(*orbitv1.RunReport)
 		}
 	}
 	return nil

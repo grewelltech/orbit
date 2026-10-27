@@ -48,7 +48,7 @@ func validateGates(gates []*orbitv1.Gate, workload string) error {
 			return fmt.Errorf("gate %q: a conformance gate %w", label, errR3)
 		case *orbitv1.Gate_Slo:
 			if _, ok := opText[c.Slo.GetOp()]; !ok {
-				return fmt.Errorf("gate %q: give a comparison (op: le, lt, ge or gt), not %v", label, c.Slo.GetOp())
+				return fmt.Errorf("gate %q: give a comparison (op: le, lt, ge or gt), not op %d", label, int32(c.Slo.GetOp()))
 			}
 			if err := knownMetric(c.Slo.GetMetric()); err != nil {
 				return fmt.Errorf("gate %q: %w", label, err)

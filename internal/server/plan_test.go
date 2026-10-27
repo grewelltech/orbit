@@ -112,7 +112,11 @@ func TestPlanShapeRefusals(t *testing.T) {
 		}, wantErr: `gate "g": unknown metric "regstration.p99_ms": want attach.success_ratio, attach.achieved_rate, or <attach|registration|pdu_session>`},
 		{name: "a gate with an unknown comparison", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp(42)}}}}
-		}, wantErr: "give a comparison"},
+		}, wantErr: "not op 42"},
+		{name: "gates on a run that never completes", mut: func(p *orbitv1.RunPlan) {
+			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
+		}, wantErr: "gates need a run that completes"},
 		{name: "a conformance gate", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
 		}, wantErr: "until R3"},
@@ -745,5 +749,81 @@ func TestPlanGatesSurviveArchiving(t *testing.T) {
 		if !proto.Equal(first.GetGates()[i], second.GetGates()[i]) {
 			t.Errorf("gate %d: %v after archiving, %v before", i, second.GetGates()[i], first.GetGates()[i])
 		}
+	}
+}
+
+// The archive redacts a copy of the judged report: GetRunReport, reading
+// the registry's judgement while the run is archived, races nothing, and
+// the judgement keeps what the archive masks (a gate named after a
+// responder token, which the by-value scrub masks there).
+func TestPlanJudgementNotRedactedInPlace(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := sctpfront.Listen(t, amf)
+	dir := t.TempDir()
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
+	p := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Target.Core.Amf = addr
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}}
+		p.Gates = []*orbitv1.Gate{{Name: archToken, Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{
+			Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.5}}}}
+	})
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	path := filepath.Join(dir, id+archiveExt)
+	// Readers poll GetRunReport from before completion until after the
+	// archive is written, so their reads overlap the redaction.
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				_, _ = c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+			}
+		}()
+	}
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(path); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			close(done)
+			wg.Wait()
+			t.Fatal("the run was never archived")
+		}
+	}
+	close(done)
+	wg.Wait()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(archToken)) {
+		t.Error("the archive holds the token")
+	}
+	r, err := c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := r.Msg.GetGates(); len(g) != 1 || g[0].GetGate().GetName() != archToken {
+		t.Errorf("live gates after archiving = %v; the registry's judgement was redacted in place", g)
 	}
 }
