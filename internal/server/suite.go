@@ -192,8 +192,10 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if cw.GetResponder() != "" {
 		return nil, errors.New("conformance responder is not supported yet: give traffic (an echo peer host:port)")
 	}
-	if len(cw.GetNas().GetIntegrity()) > 0 || len(cw.GetNas().GetCiphering()) > 0 {
-		return nil, errors.New("conformance nas algorithms are not supported on this server yet")
+	// The NAS algorithms the UE advertises, checked as the CLI's
+	// --nas-integrity and --nas-ciphering are (suiteNAS).
+	if _, _, err := suiteNAS(cw); err != nil {
+		return nil, err
 	}
 	t := p.GetTarget()
 	core := t.GetCore()
@@ -381,11 +383,31 @@ func selectedChecks(reg *conformance.Registry, cats []conformance.Category) []co
 // the SUPIs it leases: as many as the most any selected check registers
 // at once, none when no selected check needs a UE.
 func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.Config, dnn string, ues int) (conformance.UESpec, *engine.SUPIBlock, error) {
-	if len(t.GetSubscribers()) == 0 {
-		if cw.GetTraffic() != "" {
-			return conformance.UESpec{}, nil, errors.New("traffic describes the UE checks' UE and needs a subscriber pool")
+	// traffic and nas describe the UE: with none, they are refused, as
+	// the CLI's --local refuses --traffic and --nas-* without --supi.
+	if cw.GetTraffic() != "" || len(cw.GetNas().GetIntegrity()) > 0 || len(cw.GetNas().GetCiphering()) > 0 {
+		hasUE := false
+		if sp, err := subscriberPool(t, cw.GetSubscriberPool()); err == nil && len(t.GetSubscribers()) > 0 && sp.GetFirstSupi() != "" {
+			hasUE = true
+		}
+		if !hasUE {
+			return conformance.UESpec{}, nil, errors.New("traffic and nas describe the UE checks' UE and need a subscriber pool with a first_supi")
+		}
+	}
+	noUE := func() (conformance.UESpec, *engine.SUPIBlock, error) { return conformance.UESpec{}, nil, nil }
+	if ues == 0 {
+		// No UE check selected needs a subscriber, so none is leased (no
+		// block). A pool that names a valid one still gives the suite its
+		// UE spec; anything else is no UE and no error.
+		if spec, _, err := suiteUE(t, cw, g, dnn, 1); err == nil {
+			return spec, nil, nil
 		}
 		return conformance.UESpec{}, nil, nil
+	}
+	if len(t.GetSubscribers()) == 0 {
+		// The UE checks SKIP ("no UE configured"), as the CLI's --local
+		// does with no --supi.
+		return noUE()
 	}
 	sp, err := subscriberPool(t, cw.GetSubscriberPool())
 	if err != nil {
@@ -393,7 +415,9 @@ func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.C
 	}
 	supi := sp.GetFirstSupi()
 	if supi == "" {
-		return conformance.UESpec{}, nil, fmt.Errorf("subscriber pool %q has no first_supi", sp.GetName())
+		// Keys with no SUPI (say $ORBIT_KI exported) name no UE: the UE
+		// checks SKIP, as with no pool.
+		return noUE()
 	}
 	if _, err := ue.ParseIdentity(supi, g.MCC, g.MNC, "0"); err != nil {
 		return conformance.UESpec{}, nil, fmt.Errorf("subscriber pool %q: %w", sp.GetName(), err)
@@ -426,10 +450,12 @@ func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.C
 	if ues > 0 && sp.GetCount() > 0 && uint32(ues) > sp.GetCount() {
 		return conformance.UESpec{}, nil, fmt.Errorf("the selected checks register %d UEs at once; subscriber pool %q holds %d", ues, sp.GetName(), sp.GetCount())
 	}
-	spec := conformance.UESpec{SUPI: supi, Ki: sp.GetKi(), OPc: sp.GetOpc(), DNN: dnn, GNBN3: gnbN3, Traffic: cw.GetTraffic()}
-	if ues == 0 {
-		return spec, nil, nil
+	ia, ea, err := suiteNAS(cw)
+	if err != nil {
+		return conformance.UESpec{}, nil, err
 	}
+	spec := conformance.UESpec{SUPI: supi, Ki: sp.GetKi(), OPc: sp.GetOpc(), DNN: dnn, GNBN3: gnbN3, Traffic: cw.GetTraffic(),
+		NASIntegrity: ia, NASCiphering: ea}
 	norm, err := ue.NormalizeSUPI(supi)
 	if err != nil {
 		return conformance.UESpec{}, nil, fmt.Errorf("subscriber pool %q: %w", sp.GetName(), err)
@@ -460,4 +486,25 @@ func (s *runService) suiteLive(id string) *suiteLive {
 		}
 	}
 	return nil
+}
+
+// suiteNAS is a conformance workload's NAS algorithms as the UE security
+// capability's bitmaps, checked as the CLI's --nas-integrity and
+// --nas-ciphering are (conformance.ParseNASAlgorithms: NIA0 and unknown
+// names refused). Unset lists are the defaults, 128-NIA2 and NEA0.
+func suiteNAS(cw *orbitv1.ConformanceWorkload) (ia, ea uint8, err error) {
+	var integrity, ciphering []string
+	if l := cw.GetNas().GetIntegrity(); len(l) > 0 {
+		integrity = l
+	}
+	if l := cw.GetNas().GetCiphering(); len(l) > 0 {
+		ciphering = l
+	}
+	if ia, err = conformance.ParseNASAlgorithms("conformance.nas.integrity", "NIA", integrity, 1); err != nil {
+		return 0, 0, err
+	}
+	if ea, err = conformance.ParseNASAlgorithms("conformance.nas.ciphering", "NEA", ciphering, 0); err != nil {
+		return 0, 0, err
+	}
+	return ia, ea, nil
 }

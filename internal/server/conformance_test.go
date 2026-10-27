@@ -328,3 +328,72 @@ func TestRunConformanceCarriesExpectedFailuresCore(t *testing.T) {
 		t.Errorf("final update = %+v", last)
 	}
 }
+
+// RunConformance takes the suite as a plan (RunConformanceRequest.plan):
+// the same stream as the legacy fields give, for the same suite. A plan
+// beside any legacy field, or one that is not a single conformance
+// workload, is refused.
+func TestRunConformancePlan(t *testing.T) {
+	legacy := &orbitv1.RunConformanceRequest{AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01",
+		PerTestSeconds: 2, Categories: []string{"procedural"}}
+	suite := func(mut ...func(p *orbitv1.RunPlan)) *orbitv1.RunPlan {
+		p := conformancePlan(legacy)
+		for _, m := range mut {
+			m(p)
+		}
+		return p
+	}
+	tests := []struct {
+		name    string
+		req     *orbitv1.RunConformanceRequest
+		wantErr string
+	}{
+		{name: "a conformance plan", req: &orbitv1.RunConformanceRequest{Plan: suite()}},
+		{name: "a plan and a legacy field", req: &orbitv1.RunConformanceRequest{Plan: suite(), Mcc: "001"},
+			wantErr: "leave the request's other fields unset"},
+		{name: "a population", req: &orbitv1.RunConformanceRequest{Plan: loadPlan()},
+			wantErr: "runs one conformance workload"},
+		{name: "two workloads", req: &orbitv1.RunConformanceRequest{Plan: mixedPlan()},
+			wantErr: "runs one conformance workload"},
+		{name: "a plan the build refuses", req: &orbitv1.RunConformanceRequest{Plan: suite(func(p *orbitv1.RunPlan) {
+			p.GetWorkloads()[0].GetConformance().Categories = []string{"bogus"}
+		})}, wantErr: "bogus"},
+	}
+	count := func(t *testing.T, req *orbitv1.RunConformanceRequest) (int, *orbitv1.ConformanceUpdate, error) {
+		stream, err := newConformanceClient(t).RunConformance(context.Background(), connect.NewRequest(req))
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		var last *orbitv1.ConformanceUpdate
+		for stream.Receive() {
+			if stream.Msg().GetResult() != nil {
+				n++
+			}
+			last = stream.Msg()
+		}
+		return n, last, stream.Err()
+	}
+	want, _, err := count(t, legacy)
+	if err != nil || want == 0 {
+		t.Fatalf("legacy run: %d results, %v", want, err)
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			n, last, err := count(t, tc.req)
+			if tc.wantErr != "" {
+				var ce *connect.Error
+				if !connectErrorAs(err, &ce) || ce.Code() != connect.CodeInvalidArgument || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want INVALID_ARGUMENT with %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n != want || !last.GetDone() || last.GetRunId() == "" {
+				t.Errorf("%d results (want %d, as the legacy request gives), last = %v", n, want, last)
+			}
+		})
+	}
+}

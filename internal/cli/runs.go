@@ -19,6 +19,7 @@ import (
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/armplan"
 	"github.com/bgrewell/orbit/internal/scenario"
+	"github.com/bgrewell/orbit/internal/target"
 )
 
 // msDuration converts a duration to milliseconds for a uint32 proto field,
@@ -627,58 +628,13 @@ func newRunsStartFleetCmd(serverURL *string, o options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if t != nil {
-				// The server stores no targets: apply it here and send the
-				// scenario with it applied. The keys travel in the request,
-				// not the YAML; a typed --ki/--opc still wins over the
-				// target's (which already carry $ORBIT_KI/$ORBIT_OPC).
-				f, err := scenario.ParseFleetWithTarget(data, t)
-				if err != nil {
-					return err
-				}
-				if ki == "" {
-					ki = f.Credentials.Ki
-				}
-				if opc == "" {
-					opc = f.Credentials.OPc
-				}
-				f.Credentials = scenario.Credentials{}
-				if data, err = yaml.Marshal(f); err != nil {
-					return err
-				}
-			}
-			// Credentials come from flags or $ORBIT_KI/$ORBIT_OPC (or the
-			// target), validated locally; never the scenario's ${ENV}, which
-			// the server does not expand (secret safety).
-			ki, opc, err = resolveCreds(ki, opc)
-			if err != nil {
-				return err
-			}
-			verbosity, err := eventVerbosityFlag(events)
-			if err != nil {
-				return err
-			}
 			gates, err := gf.gates(cmd)
 			if err != nil {
 				return err
 			}
-			req := &orbitv1.StartRunRequest{Name: name, EventVerbosity: verbosity}
-			plan, err := fleetPlan(data, ki, opc)
-			if err == nil {
-				plan.Gates = gates
-				req.Spec = &orbitv1.StartRunRequest_Plan{Plan: plan}
-			} else if len(gates) > 0 {
-				// The deprecated arm carries no gates.
-				return exitWith(ExitCouldNotStart, fmt.Errorf("gates need the scenario as a run plan, which cannot carry it (%v): "+
-					"drop the gate flags, or write it as a run file (orbit run, docs/run-files.md)", err))
-			} else {
-				// A plan cannot carry the file's text exactly (a rate it
-				// would rewrite, say): the deprecated arm, which the
-				// server still runs.
-				req.Spec = &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
-					ScenarioYaml: string(data),
-					Credentials:  &orbitv1.Credentials{Ki: ki, Opc: opc},
-				}}
+			req, err := fleetRequest(data, t, ki, opc, name, events, gates)
+			if err != nil {
+				return err
 			}
 			return startAndWait(cmd, runsClient(serverURL), req, wait)
 		},
@@ -691,6 +647,65 @@ func newRunsStartFleetCmd(serverURL *string, o options) *cobra.Command {
 	cmd.Flags().StringVar(&ki, "ki", "", kiFlagHelp)
 	cmd.Flags().StringVar(&opc, "opc", "", opcFlagHelp)
 	return cmd
+}
+
+// fleetRequest is a fleet scenario's StartRun request, as start-fleet and
+// orbit run send it: the target t applied (nil for a self-contained file),
+// the keys from ki/opc, else the target's, else $ORBIT_KI/$ORBIT_OPC, and
+// gates in the plan. A scenario a plan cannot carry exactly goes as the
+// deprecated fleet arm, which carries no gates.
+func fleetRequest(data []byte, t *target.Target, ki, opc, name, events string, gates []*orbitv1.Gate) (*orbitv1.StartRunRequest, error) {
+	if t != nil {
+		// The server stores no targets: apply it here and send the
+		// scenario with it applied. The keys travel in the request,
+		// not the YAML; a typed --ki/--opc still wins over the
+		// target's (which already carry $ORBIT_KI/$ORBIT_OPC).
+		f, err := scenario.ParseFleetWithTarget(data, t)
+		if err != nil {
+			return nil, err
+		}
+		if ki == "" {
+			ki = f.Credentials.Ki
+		}
+		if opc == "" {
+			opc = f.Credentials.OPc
+		}
+		f.Credentials = scenario.Credentials{}
+		if data, err = yaml.Marshal(f); err != nil {
+			return nil, err
+		}
+	}
+	// Credentials come from flags or $ORBIT_KI/$ORBIT_OPC (or the
+	// target), validated locally; never the scenario's ${ENV}, which
+	// the server does not expand (secret safety).
+	ki, opc, err := resolveCreds(ki, opc)
+	if err != nil {
+		return nil, err
+	}
+	verbosity, err := eventVerbosityFlag(events)
+	if err != nil {
+		return nil, err
+	}
+	req := &orbitv1.StartRunRequest{Name: name, EventVerbosity: verbosity}
+	plan, err := fleetPlan(data, ki, opc)
+	switch {
+	case err == nil:
+		plan.Gates = gates
+		req.Spec = &orbitv1.StartRunRequest_Plan{Plan: plan}
+	case len(gates) > 0:
+		// The deprecated arm carries no gates.
+		return nil, exitWith(ExitCouldNotStart, fmt.Errorf("gates need the scenario as a run plan, which cannot carry it (%v): "+
+			"drop the gate flags, or write it as a run file (orbit run, docs/run-files.md)", err))
+	default:
+		// A plan cannot carry the file's text exactly (a rate it
+		// would rewrite, say): the deprecated arm, which the
+		// server still runs.
+		req.Spec = &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
+			ScenarioYaml: string(data),
+			Credentials:  &orbitv1.Credentials{Ki: ki, Opc: opc},
+		}}
+	}
+	return req, nil
 }
 
 // fleetPlan is a fleet scenario (with its target applied) as a one-workload

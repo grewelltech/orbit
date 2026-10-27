@@ -397,9 +397,29 @@ they find the service without `--server` on every call.
 
 ## Server runs (`orbit runs`)
 
-A run started with `orbit run <plan.yaml>`, `orbit test`, `orbit runs
-start-load` or `start-fleet` executes on the server and outlives the command,
-which prints the run ID on stdout. The CLI sends it as a plan (ADR-0008 §2).
+A run started with `orbit run <plan.yaml>`, `orbit run <fleet.yaml>`, `orbit
+test`, `orbit load`, `orbit conformance`, `orbit runs start-load` or
+`start-fleet` executes on the server and outlives the command. The CLI sends
+it as a plan (ADR-0008 §2), built from its flags, target and environment as a
+run file's is, so `--explain` shows where each field came from.
+
+`orbit run`, `orbit load` and `orbit conformance` wait for the run's end and
+exit with its result. `--detach` starts the run, prints its ID on stdout and
+returns. `orbit test` and `orbit runs start-*` return at start unless
+`--wait`. With no server at the URL (`--server`, `$ORBIT_SERVER`, else
+`http://127.0.0.1:8412`), they stop with exit 3:
+
+```
+no orbit server at http://127.0.0.1:8412: start one with `orbit serve`, or pass --local
+```
+
+`--local` runs `orbit load`, `orbit conformance` and `orbit run <fleet.yaml>`
+in the CLI process instead, with no server, as they all ran before. It is
+deprecated on `conformance` and `run`, and goes after this release, except
+on `run`: a fleet's cohort gauges (`--metrics-listen`, `orbit_fleet_app_*`)
+need `--local` until `orbit serve`'s `/metrics` serves them, so `run --local`
+stays until then. `orbit load --local` stays: it is the capacity bench with
+no server.
 start-load names one gNB `--gnb-name` and several `<name>-1` .. `<name>-n`, as
 a plan does. A fleet scenario a plan cannot carry exactly is still sent as the
 old fleet spec, which the server still runs; that spec carries no gates.
@@ -658,8 +678,10 @@ issues; see also [interop/sdcore.md](interop/sdcore.md).
 
 ## Load / performance
 
-`orbit load` is a direct-drive benchmark (it does not go through the API
-server). It reports **sim** vs **integration** capability separately — run it
+`orbit load` runs a rate-controlled attach storm on the server and waits for
+it, printing live progress on stderr and the report at the end. `orbit load
+--local` drives the storm from the CLI process with no server, as a capacity
+bench. Either reports **sim** vs **integration** capability separately: run it
 against a mock for the former and the real core for the latter.
 
 ```sh
@@ -694,13 +716,19 @@ orbit load ... --duration 10m --sample-interval 15s
 ```
 
 Output is per-procedure latency (P50/P99/P99.9), achieved rate, success/failure
-counts, and (for soak) a goroutine/RSS trend. The `--slo-*` flags turn a run
-into a CI gate.
+counts, and (for soak) a goroutine/RSS trend. The `--slo-*` flags and `--gate`
+turn a run into a CI gate ([exit codes](#exit-codes)). With `--local`, gate
+with `--slo-*` only, which the CLI judges itself.
 
 ## Conformance / regression
 
-`orbit conformance` runs the spec-cited regression suite in-process against a
-live core and exits non-zero on any failure — an integration-CI gate.
+`orbit conformance` runs the spec-cited regression suite on the server against
+a live core, streaming each check's verdict, and exits 1 on a FAIL outside the
+expected-failures list or an ERROR: an integration-CI gate ([exit
+codes](#exit-codes)). The suite runs as a plan with the conformance gate.
+`--expected-failures` is read by the CLI and sent in the plan, so the file
+need not be on the server's host. `--local` (deprecated) runs the suite in the
+CLI process.
 
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
@@ -947,8 +975,12 @@ A `kind: fleet` scenario ([`examples/fleet.yaml`](../examples/fleet.yaml))
 for scale / soak / mass-mobility runs (design in
 [docs/adr/0004-fleet-population-mode.md](adr/0004-fleet-population-mode.md)).
 Its core, keys, gNB IDs and per-gNB N2/N3 addresses come from the target, whose
-`ran.n2_source_ips` must be addresses the host owns, one per gNB. `orbit run` on a fleet
-file prints the plan, **attaches the population** across the gNBs, then runs
+`ran.n2_source_ips` must be addresses the server's host owns, one per gNB.
+`orbit run` on a fleet file runs it on the server and waits, printing the
+fleet's report and gates (`--slo-*` and `--gate` add gates; `--detach` returns
+at start). With `--local` (deprecated) it runs in the CLI process, on the
+CLI's host's addresses, and prints the plan first. The fleet **attaches the
+population** across the gNBs, then runs
 **mobility** — each mobile UE moves along a track across the gNB grid and hands
 over (Xn) when a neighbour cell becomes stronger by the a3-offset (RSRP/A3
 model), not on a timer — and **traffic** (one loom flow per non-mobile UE over
@@ -1018,9 +1050,10 @@ of concurrent calls do not synchronise into report storms.
 
 Cohort results are **distributions** (p5/p50/p95 across members): MOS for
 voip, TTFB and goodput for http, stall time and rebuffer ratio for video —
-printed in the fleet report and, with `orbit run --metrics-listen host:port`,
-served live on `/metrics` as `orbit_fleet_app_*` gauges labeled
-`{cohort, q}` (cohort names, never SUPIs — bounded cardinality).
+printed in the fleet report and, with `orbit run --local --metrics-listen
+host:port` (an in-process fleet only, for now), served live on `/metrics` as
+`orbit_fleet_app_*` gauges labeled `{cohort, q}` (cohort names, never SUPIs —
+bounded cardinality).
 
 ## The API
 

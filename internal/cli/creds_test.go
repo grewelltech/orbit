@@ -203,7 +203,7 @@ func TestLoadCredsFromEnv(t *testing.T) {
 			var out bytes.Buffer
 			root.SetOut(&out)
 			root.SetErr(&out)
-			args := append([]string{"load", "--amf", "127.0.0.1:1", "--base-imsi", "208930100000000",
+			args := append([]string{"load", "--local", "--amf", "127.0.0.1:1", "--base-imsi", "208930100000000",
 				"--mcc", "208", "--mnc", "93", "--gnb-count", "3", "--bind", "10.0.0.1,10.0.0.2", "--progress-every", "0"}, tc.flags...)
 			root.SetArgs(args)
 			err := root.Execute()

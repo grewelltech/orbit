@@ -55,9 +55,16 @@ func TestSuiteShapeRefusals(t *testing.T) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
 		}, wantErr: `an slo gate judges a population; "suite" is a conformance workload`},
 		{name: "a responder", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Responder = "n6" }, wantErr: "responder is not supported yet"},
-		{name: "nas algorithms", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-			cw.Nas = &orbitv1.NASAlgorithms{Integrity: []string{"NIA2"}}
-		}, wantErr: "nas algorithms are not supported"},
+		{name: "nas NIA0", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Nas = &orbitv1.NASAlgorithms{Integrity: []string{"NIA0"}}
+		}, wantErr: "conformance.nas.integrity: NIA0 is refused"},
+		{name: "nas an unknown name", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Nas = &orbitv1.NASAlgorithms{Ciphering: []string{"NEA9"}}
+		}, wantErr: `conformance.nas.ciphering: "NEA9" is not one of NEA0 to NEA3`},
+		{name: "nas without a pool", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Subscribers = nil
+			cw.Nas = &orbitv1.NASAlgorithms{Integrity: []string{"NIA1"}}
+		}, wantErr: "need a subscriber pool with a first_supi"},
 		{name: "a bad release", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.TargetRelease = "Rel-x" }, wantErr: "target_release"},
 		{name: "IDs past the ID length", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{Bits: 22}
@@ -78,7 +85,7 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		{name: "traffic without a pool", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Subscribers = nil
 			cw.Traffic = "127.0.0.1:9"
-		}, wantErr: "needs a subscriber pool"},
+		}, wantErr: "need a subscriber pool with a first_supi"},
 		{name: "an unknown category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Categories = []string{"negative-ie", "bogus"}
 		},
@@ -113,11 +120,21 @@ func TestSuiteLeases(t *testing.T) {
 		mut      func(*orbitv1.RunPlan, *orbitv1.ConformanceWorkload)
 		cats     []conformance.Category
 		wantSUPI bool
+		noUE     bool // the suite has no UE (its UE checks SKIP)
 	}{
 		{name: "every check", wantSUPI: true},
-		{name: "procedural only: no UE", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"procedural"} },
+		{name: "procedural only, a valid pool: no SUPI lease", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"procedural"} },
 			cats: []conformance.Category{conformance.Procedural}},
-		{name: "no pool: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers = nil }},
+		{name: "no pool: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers = nil }, noUE: true},
+		// Keys with no SUPI ($ORBIT_KI exported) name no UE: the UE checks
+		// SKIP, as with no pool, and nothing is refused.
+		{name: "a pool with no first_supi: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+			p.Target.Subscribers[0].FirstSupi = ""
+		}, noUE: true},
+		{name: "a pool with no first_supi, no UE check: no UE", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Subscribers[0].FirstSupi = ""
+			cw.Categories = []string{"procedural"}
+		}, cats: []conformance.Category{conformance.Procedural}, noUE: true},
 	}
 	s := planService(t)
 	for _, tc := range tests {
@@ -136,15 +153,22 @@ func TestSuiteLeases(t *testing.T) {
 			if !slices.Equal(pr.needs.N2IPs, []string{"127.0.0.1"}) {
 				t.Errorf("N2 = %v", pr.needs.N2IPs)
 			}
-			if tc.wantSUPI != (len(pr.needs.SUPIs) == 1) {
-				t.Fatalf("SUPIs = %v, want one: %t", pr.needs.SUPIs, tc.wantSUPI)
+			// A selection with no UE check leases no SUPI, even from a
+			// valid pool: leases follow the checks' needs, and an unused
+			// one could refuse a concurrent run for nothing.
+			want := 0
+			if tc.wantSUPI {
+				want = 1
+			}
+			if len(pr.needs.SUPIs) != want {
+				t.Fatalf("SUPIs = %v, want %d", pr.needs.SUPIs, want)
 			}
 			if tc.wantSUPI {
 				if b := pr.needs.SUPIs[0]; b.First != 208930100007500 || b.Last != b.First || b.PLMN != "208/93" {
 					t.Errorf("SUPI block = %+v, want the pool's first SUPI alone", b)
 				}
 			}
-			if pr.suiteLive.spec.env.UE.Configured() == (tc.name == "no pool: no UE") {
+			if pr.suiteLive.spec.env.UE.Configured() == tc.noUE {
 				t.Errorf("UE configured = %t", pr.suiteLive.spec.env.UE.Configured())
 			}
 		})
@@ -553,5 +577,34 @@ func TestSuiteInABoundedBlock(t *testing.T) {
 	}
 	if c := r.Msg.GetConformance(); c.GetIncomplete() || len(c.GetResults()) != len(reg.Tests()) {
 		t.Errorf("summary: %d of %d results, incomplete %t", len(c.GetResults()), c.GetTotal(), c.GetIncomplete())
+	}
+}
+
+// A conformance workload's NAS algorithms reach the suite's UE as the UE
+// security capability's bitmaps (bit 8 is algorithm 0), as --local's
+// --nas-integrity and --nas-ciphering give them; unset is the default.
+func TestSuiteNASAlgorithms(t *testing.T) {
+	tests := []struct {
+		name   string
+		nas    *orbitv1.NASAlgorithms
+		ia, ea uint8
+	}{
+		{name: "the default", nas: nil},
+		{name: "NIA1,NIA2 and NEA0,NEA2", nas: &orbitv1.NASAlgorithms{Integrity: []string{"NIA1", "NIA2"}, Ciphering: []string{"NEA0", "NEA2"}},
+			ia: 0x40 | 0x20, ea: 0x80 | 0x20},
+		{name: "integrity only, any case", nas: &orbitv1.NASAlgorithms{Integrity: []string{"nia3"}}, ia: 0x10},
+	}
+	s := planService(t)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pr, err := s.buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Nas = tc.nas }), engine.EventsNormal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			u := pr.suiteLive.spec.env.UE
+			if u.NASIntegrity != tc.ia || u.NASCiphering != tc.ea {
+				t.Errorf("UE NAS = %#02x/%#02x, want %#02x/%#02x", u.NASIntegrity, u.NASCiphering, tc.ia, tc.ea)
+			}
+		})
 	}
 }

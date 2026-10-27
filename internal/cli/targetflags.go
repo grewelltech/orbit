@@ -197,7 +197,14 @@ func (t *targets) apply(cmd *cobra.Command) error {
 	if !ours {
 		envIn = withoutTarget(envIn)
 	}
-	inputs := []target.Input{target.DefaultInput()}
+	// The command's own flag defaults are a default layer of their own
+	// (shown as "default (orbit load)"): --explain shows where a field
+	// would come from, and setFromTarget never fills from a default.
+	defaults, err := target.DefaultsInput(path, fs)
+	if err != nil {
+		return err
+	}
+	inputs := []target.Input{target.DefaultInput(), defaults}
 	if name != "" {
 		f, err := t.find(name)
 		if err != nil {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -75,26 +76,22 @@ func TestResolveServerURL(t *testing.T) {
 // server; exactly these carry the --server resolution hook.
 var hookedGroups = []string{"system", "cell", "ue", "runs"}
 
-// runCommand is the one dual-mode client command: a step scenario is an API
-// client and resolves --server in RunE, a `kind: fleet` scenario drives the
-// engine in-process and never reads $ORBIT_SERVER. It has no hook.
-const runCommand = "run"
-
-// targetCommand is a mixed group: target init (unless --no-probe) and probe
-// talk to the server and resolve --server in RunE; list and show only read
-// files and never read $ORBIT_SERVER. It has no hook either
-// (TestTargetCommandsServerURL).
-const targetCommand = "target"
-
-// testCommand resolves --server in RunE too: --list and --explain never
-// talk to the server.
-const testCommand = "test"
+// inRunE are the commands that resolve --server in RunE, only where they
+// talk to the server, and so have no hook:
+//   - run: a step scenario, a run file and a fleet scenario are API
+//     clients; a fleet with --local drives the engine in-process.
+//   - target: init (unless --no-probe) and probe talk to the server; list
+//     and show only read files (TestTargetCommandsServerURL).
+//   - test: --list and --explain never talk to the server.
+//   - load and conformance: they run on the server; --local runs in this
+//     process and never reads $ORBIT_SERVER.
+var inRunE = []string{"run", "target", "test", "load", "conformance"}
 
 // localCommands are the top-level commands that never talk to the API server
-// and so never read $ORBIT_SERVER. With hookedGroups and runCommand this is
-// the whole top level: a new command must be classified in one of them, so a
+// and so never read $ORBIT_SERVER. With hookedGroups and inRunE this is the
+// whole top level: a new command must be classified in one of them, so a
 // client group added without withServerURL cannot pass as "local".
-var localCommands = []string{"version", "serve", "load", "conformance", "responder", "server"}
+var localCommands = []string{"version", "serve", "responder", "server"}
 
 // leaves returns every runnable leaf below c with its full path.
 func leaves(c *cobra.Command, path string) []string {
@@ -120,7 +117,10 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	for _, g := range hookedGroups {
 		isClient[g] = true
 	}
-	known := map[string]bool{runCommand: true, targetCommand: true, testCommand: true}
+	known := map[string]bool{}
+	for _, name := range inRunE {
+		known[name] = true
+	}
 	for _, name := range append(append([]string{}, hookedGroups...), localCommands...) {
 		known[name] = true
 	}
@@ -131,7 +131,7 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	}
 	var clientLeaves []string
 	for _, top := range root.Commands() {
-		if top.Name() == runCommand || top.Name() == targetCommand || top.Name() == testCommand {
+		if slices.Contains(inRunE, top.Name()) {
 			if top.PersistentPreRunE != nil || top.PersistentPreRun != nil {
 				t.Errorf("orbit %s: has a hook; it must resolve --server in RunE, only where it talks to the server", top.Name())
 			}
@@ -201,8 +201,8 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 			t.Errorf("stderr = %q, want empty", stderr)
 		}
 	})
-	t.Run("orbit run fleet", func(t *testing.T) {
-		_, stderr, err := executeCapture(t, "run", fleetFile)
+	t.Run("orbit run fleet --local", func(t *testing.T) {
+		_, stderr, err := executeCapture(t, "run", fleetFile, "--local")
 		if err == nil {
 			t.Fatal("a bare fleet file ran; expected it to fail validation")
 		}
@@ -213,9 +213,9 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 			t.Errorf("fleet mode printed the server line: %q", stderr)
 		}
 	})
-	t.Run("orbit run fleet with valid env prints nothing", func(t *testing.T) {
+	t.Run("orbit run fleet --local with valid env prints nothing", func(t *testing.T) {
 		t.Setenv("ORBIT_SERVER", "http://192.0.2.1:8412")
-		_, stderr, err := executeCapture(t, "run", fleetFile)
+		_, stderr, err := executeCapture(t, "run", fleetFile, "--local")
 		if err == nil {
 			t.Fatal("a bare fleet file ran; expected it to fail validation")
 		}
@@ -223,6 +223,32 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 			t.Errorf("fleet mode printed the server line: %q", stderr)
 		}
 	})
+
+	// On the server (no --local), load and conformance read the URL, and
+	// the commands' --local never does.
+	for _, args := range [][]string{
+		{"load", "--amf", "192.0.2.1:38412", "--base-imsi", "001010000000001", "--mcc", "001", "--mnc", "01",
+			"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f"},
+		{"conformance", "--amf", "192.0.2.1:38412", "--mcc", "001", "--mnc", "01"},
+	} {
+		t.Run("orbit "+args[0], func(t *testing.T) {
+			if err := execute(t, args...); err == nil || !strings.Contains(err.Error(), wantURLErr) {
+				t.Errorf("err = %v, want containing %q", err, wantURLErr)
+			}
+		})
+		t.Run("orbit "+args[0]+" --local", func(t *testing.T) {
+			// --target-release Rel-14 SKIPs every check without dialling;
+			// a load with --count 0 is refused before it dials.
+			extra := []string{"--local", "--count", "0"}
+			if args[0] == "conformance" {
+				extra = []string{"--local", "--target-release", "Rel-14"}
+			}
+			err := execute(t, append(append([]string{}, args...), extra...)...)
+			if err != nil && strings.Contains(err.Error(), "invalid server URL") {
+				t.Errorf("--local read $ORBIT_SERVER: %v", err)
+			}
+		})
+	}
 
 	// `version` runs to completion under a malformed $ORBIT_SERVER; the
 	// other non-client commands fail on an unknown flag, never on the URL.

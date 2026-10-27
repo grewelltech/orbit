@@ -59,7 +59,7 @@ func TestLoadBaseIMSIValidatedBeforeDialing(t *testing.T) {
 			var out, errOut bytes.Buffer
 			root.SetOut(&out)
 			root.SetErr(&errOut)
-			root.SetArgs([]string{"load", "--amf", "127.0.0.1:1", "--base-imsi", tc.baseIMSI,
+			root.SetArgs([]string{"load", "--local", "--amf", "127.0.0.1:1", "--base-imsi", tc.baseIMSI,
 				"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f",
 				"--mcc", "208", "--mnc", "93", "--gnb-count", "1", "--count", "1", "--progress-every", "0"})
 			err := root.Execute()

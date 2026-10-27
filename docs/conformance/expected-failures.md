@@ -121,8 +121,10 @@ orbit conformance --amf 10.0.0.1:38412 --mcc 001 --mnc 01 \
     --expected-failures lab-a.yaml
 ```
 
-The file is loaded before any check runs, so a bad file fails the command
-before anything is dialled. The text output names the list, marks each
+The CLI reads and checks the file before the run starts, so a bad file fails
+the command (exit 3) before anything is dialled. It sends the list in the
+run's plan (`ConformanceWorkload.expected`), so the file need not be on the
+server's host, and for that run it takes the place of the server's own list. The text output names the list, marks each
 tolerated FAIL, warns about stale entries and counts the expected FAILs:
 
 ```text
@@ -142,7 +144,10 @@ stale expected failure: GTPU-UNKNOWN-TEID-ERRIND EX-2: now PASS "Error Indicatio
 - `ExpectedFailures`: the list's `core` line.
 - `expected_failure` on each matched result.
 
-The gate error reads `conformance gate failed: F fail (E expected), R error`.
+The run's conformance gate fails on a FAIL outside the list or an ERROR,
+printing `gate conformance: FAIL …` and exiting 1. With `--local`
+(deprecated), the error reads `conformance gate failed: F fail (E expected),
+R error`.
 
 For the server, `orbit serve --conformance-expected-failures lab-a.yaml` loads
 a list at startup, and a bad file stops the server from starting. Dashboard and

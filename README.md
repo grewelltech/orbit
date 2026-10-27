@@ -117,6 +117,8 @@ orbit ue stats   --supi 001010100007500   # per-QFI UL/DL counters
 orbit ue xn-handover --supi 001010100007500 --amf 172.17.50.11:38412 \
     --gnb-id 2 --bind 172.17.50.13:0 --gnb-n3 172.17.50.13   # or: ue handover (N2)
 
+# load and conformance run on the server too, and wait for the result
+# (orbit load --local runs the storm with no server, as a capacity bench):
 orbit load --amf 172.17.50.11:38412 --base-imsi 001010100007500 --count 100 \
     --ki <hex> --opc <hex> --mcc 001 --mnc 01 --sd 010203 --rate 20 --slo-min-success 0.99
 orbit conformance --amf 172.17.50.11:38412 --json

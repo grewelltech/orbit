@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
+	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/scenario"
@@ -27,7 +29,7 @@ func newRunCmd(serverURL *string, o options) *cobra.Command {
 	var (
 		metricsListen string
 		pf            planFlags
-		detach        bool
+		detach, local bool
 	)
 	cmd := &cobra.Command{
 		Use:   "run <plan-or-scenario.yaml>",
@@ -35,7 +37,9 @@ func newRunCmd(serverURL *string, o options) *cobra.Command {
 		Long: "Run a declarative YAML scenario. A step scenario declares the core, gNBs,\n" +
 			"and UEs, then an ordered `steps` list (register, ping, traffic, latency,\n" +
 			"handover, deregister, wait). A `kind: fleet` scenario generates a topology and\n" +
-			"a UE population running continuous behaviours. The core, keys and addresses\n" +
+			"a UE population running continuous behaviours, on the server: orbit run waits\n" +
+			"for its end and exits with its result (--detach returns at start; --local,\n" +
+			"deprecated, runs it in this process). The core, keys and addresses\n" +
 			"come from a target: -t, $ORBIT_TARGET, or the file's target: (docs/targets.md);\n" +
 			"a file may instead set its own core/credentials. ${ENV} references expand from\n" +
 			"the environment.\n\n" +
@@ -56,21 +60,46 @@ func newRunCmd(serverURL *string, o options) *cobra.Command {
 				return err
 			}
 			if kind == "run" {
+				if local {
+					return errors.New("--local applies to a fleet scenario; a run file runs on the server")
+				}
 				return runPlanFile(cmd, serverURL, o, args[0], data, pf, detach)
 			}
-			for _, f := range []string{"gate", "set", "detach"} {
+			refused := []string{"set"} // a run file's
+			if kind != "fleet" {
+				refused = append(refused, "gate", "slo-reg-p99", "slo-attach-p99", "slo-min-success", "detach", "local")
+			} else if local {
+				refused = append(refused, "gate", "slo-reg-p99", "slo-attach-p99", "slo-min-success", "detach")
+			}
+			with := ""
+			if local {
+				with = " with --local"
+			}
+			for _, f := range refused {
 				if cmd.Flags().Changed(f) {
-					return fmt.Errorf("--%s applies to a run file (kind: run), not a %s scenario", f, orDefault(kind, "step"))
+					what := "a run file (kind: run)"
+					if f != "set" {
+						what = "a run file or a fleet scenario on the server"
+					}
+					return fmt.Errorf("--%s applies to %s, not a %s scenario%s", f, what, orDefault(kind, "step"), with)
 				}
+			}
+			if cmd.Flags().Changed("metrics-listen") && !local {
+				return errors.New("--metrics-listen serves an in-process fleet's cohort gauges and needs --local; a fleet on the server does not serve them yet")
 			}
 			t, err := scenarioTarget(cmd, args[0], data, o)
 			if err != nil {
 				return err
 			}
-			if kind == "fleet" {
-				// Fleet mode drives the engine in-process and never builds a
-				// client, so it must not read or report --server/$ORBIT_SERVER.
+			if kind == "fleet" && local {
+				// The in-process fleet drives the engine here and never
+				// builds a client, so it must not read or report
+				// --server/$ORBIT_SERVER.
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), localFleetDeprecated)
 				return runFleet(cmd, data, metricsListen, t)
+			}
+			if kind == "fleet" {
+				return thinFleet(cmd, serverURL, data, t, pf.gateFlags, detach)
 			}
 			if err := applyServerURL(cmd, serverURL); err != nil {
 				return err
@@ -89,9 +118,10 @@ func newRunCmd(serverURL *string, o options) *cobra.Command {
 	}
 	consumesTarget(cmd)
 	cmd.Flags().StringVar(&metricsListen, "metrics-listen", "",
-		"serve Prometheus /metrics on this address during a fleet run (live orbit_fleet_app_* cohort gauges; empty = disabled)")
+		"with --local: serve Prometheus /metrics on this address during the fleet run (live orbit_fleet_app_* cohort gauges; empty = disabled)")
 	pf.add(cmd.Flags())
-	cmd.Flags().BoolVar(&detach, "detach", false, "run file: start the run, print its ID and return instead of waiting for its end")
+	cmd.Flags().BoolVar(&detach, "detach", false, "run file or fleet: "+detachHelp)
+	cmd.Flags().BoolVar(&local, "local", false, "fleet: run it in this process, not on the server (deprecated: goes after this release)")
 	return cmd
 }
 
@@ -278,4 +308,42 @@ func orDefault(s, d string) string {
 		return d
 	}
 	return s
+}
+
+// thinFleet runs a fleet scenario on the server, as start-fleet sends it
+// (fleetRequest) with the gate flags' gates, waiting for its end unless
+// detach and printing the fleet's report.
+func thinFleet(cmd *cobra.Command, serverURL *string, data []byte, t *target.Target, gf gateFlags, detach bool) error {
+	gates, err := gf.gates(cmd)
+	if err != nil {
+		return err
+	}
+	req, err := fleetRequest(data, t, "", "", "", "normal", gates)
+	if err != nil {
+		return exitWith(ExitCouldNotStart, err)
+	}
+	if err := applyServerURL(cmd, serverURL); err != nil {
+		return err
+	}
+	return thinRun(cmd, *serverURL, req, detach, waitOpts{
+		render: func(w io.Writer, r *orbitv1.GetRunReportResponse) {
+			if f := runFleetReport(r); f != nil {
+				printFleetRunReport(w, f)
+			}
+		},
+	})
+}
+
+// runFleetReport is a finished run's fleet report: the run's own, or its
+// one workload's; nil when it has none.
+func runFleetReport(r *orbitv1.GetRunReportResponse) *orbitv1.FleetReport {
+	if f := r.GetFleet(); f != nil {
+		return f
+	}
+	for _, w := range r.GetWorkloads() {
+		if f := w.GetFleet(); f != nil {
+			return f
+		}
+	}
+	return nil
 }

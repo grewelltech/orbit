@@ -351,8 +351,8 @@ func (b builder) expected(v any) (*orbitv1.ExpectedFailures, error) {
 	if err := dec.Decode(&list); err != nil {
 		return nil, fmt.Errorf("%s: %w", where, err)
 	}
-	if list.Version == "" {
-		list.Version = "plan" // inline lists need not say; the server checks the rest
+	if list.Version == "" && where == "inline" {
+		list.Version = "plan" // an inline list need not say; a file must, as everywhere
 	}
 	checked, err := conformance.NewExpectedFailures(where, list)
 	if err != nil {

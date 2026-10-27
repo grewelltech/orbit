@@ -39,10 +39,28 @@ func waitSignals() (sigs <-chan os.Signal, stop func()) {
 // finishes the run, judging its gates on the results so far; a second, or
 // a SIGTERM (what CI sends), cancels it.
 func waitRun(ctx context.Context, out, errOut io.Writer, c orbitv1connect.RunServiceClient, id string, sigs <-chan os.Signal) error {
+	return waitRunWith(ctx, out, errOut, c, id, sigs, waitOpts{})
+}
+
+// waitOpts are what a command adds to waitRun's following: progress, given
+// the run as it stands every progressEvery while it goes, and render,
+// given the finished run's report before its gates are printed.
+type waitOpts struct {
+	progress      func(*orbitv1.GetRunResponse)
+	progressEvery time.Duration
+	render        func(io.Writer, *orbitv1.GetRunReportResponse)
+	// started is called once the run has started (thinRun), before it is
+	// followed.
+	started func()
+}
+
+// waitRunWith is waitRun with opts.
+func waitRunWith(ctx context.Context, out, errOut io.Writer, c orbitv1connect.RunServiceClient, id string, sigs <-chan os.Signal, opts waitOpts) error {
 	tick := time.NewTicker(waitPoll)
 	defer tick.Stop()
 	interrupted := false
 	var run *orbitv1.Run
+	lastProgress := time.Now()
 	for {
 		g, err := c.GetRun(ctx, connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
 		if err != nil {
@@ -51,6 +69,10 @@ func waitRun(ctx context.Context, out, errOut io.Writer, c orbitv1connect.RunSer
 		run = g.Msg.GetRun()
 		if runTerminal(run.GetState()) {
 			break
+		}
+		if opts.progress != nil && opts.progressEvery > 0 && time.Since(lastProgress) >= opts.progressEvery {
+			opts.progress(g.Msg)
+			lastProgress = time.Now()
 		}
 		select {
 		case <-ctx.Done():
@@ -79,6 +101,9 @@ func waitRun(ctx context.Context, out, errOut io.Writer, c orbitv1connect.RunSer
 	r, err := c.GetRunReport(ctx, connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
 	if err != nil {
 		return exitWith(ExitDidNotComplete, fmt.Errorf("run %s has no report: %w", id, err))
+	}
+	if opts.render != nil {
+		opts.render(out, r.Msg)
 	}
 	printWaitReport(out, run, r.Msg)
 	if w := incompleteWorkload(r.Msg); w != "" {

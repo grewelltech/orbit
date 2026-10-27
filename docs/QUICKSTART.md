@@ -152,15 +152,24 @@ list` returning an empty table is the tell.
 orbit runs start-load -t lab1 --count 100 --rate 10
 ```
 
-For **CI**, `orbit load` runs the same storm in the foreground and gates on an
-SLO, exiting non-zero on breach — which is what makes it usable as a build
-step. The gate lives here rather than on `runs start-load`, because a run that
-outlives its client has nobody to return an exit status to:
+For **CI**, `orbit load` starts the same storm on the server and waits for its
+end, exiting with its result: 0 passed, 1 a gate failed, 2 did not complete, 3
+could not start. That is what makes it usable as a build step. Gates come from
+`--gate` or the `--slo-*` flags:
 
 ```sh
 orbit load -t lab1 --count 100 --rate 10 \
     --slo-min-success 0.99 --slo-reg-p99 500ms --slo-attach-p99 1s
 ```
+
+`orbit load`, `orbit conformance` and `orbit run <fleet.yaml>` need the server
+from §4. Without one they stop with `no orbit server at <url>: start one with
+\`orbit serve\`, or pass --local`. `orbit load --local` runs the storm in the
+CLI process with no server at all, as a capacity bench. `--local` on
+`conformance` and `run` does the same but is deprecated. On `run` it stays
+until the server serves a fleet's cohort gauges (`--metrics-listen` needs it
+until then). `orbit test load -t lab1 --wait` runs a ready-made storm with a
+default gate (attach success ≥ 0.99).
 
 **A fleet run** — a population with continuous behaviours, from a scenario
 file:

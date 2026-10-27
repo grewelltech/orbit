@@ -135,7 +135,8 @@ func TestConformanceNASAlgorithmFlags(t *testing.T) {
 // and a repeated flag combine, and an unset flag stays nil (the default).
 func TestNASAlgorithmFlagsParse(t *testing.T) {
 	var ia, ea []string
-	cmd := newConformanceCmd()
+	var url string
+	cmd := newConformanceCmd(&url, options{})
 	f := cmd.Flags()
 	f.Lookup("nas-integrity").Value = newNilStringSlice(&ia)
 	f.Lookup("nas-ciphering").Value = newNilStringSlice(&ea)

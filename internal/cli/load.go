@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,17 +12,21 @@ import (
 
 	"github.com/spf13/cobra"
 
+	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/load"
+	"github.com/bgrewell/orbit/internal/plan"
+	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
-// newLoadCmd is a direct-drive load generator: it runs the attach storm
-// in-process against the core (not through the API server), reporting
-// per-procedure latency KPIs. Numbers here are integration-capacity, bounded
-// by the core under test.
-func newLoadCmd() *cobra.Command {
+// newLoadCmd is the attach storm with per-procedure latency KPIs. It runs on
+// the API server by default, as a plan built from its flags and target
+// (ADR-0008 §6), waiting for the end unless --detach. --local drives the
+// storm in this process instead, with no server: the capacity bench, whose
+// numbers are integration capacity, bounded by the core under test.
+func newLoadCmd(serverURL *string, o options) *cobra.Command {
 	var (
 		amf, baseIMSI, ki, opc   string
 		gnbName, gnbN3, rampSpec string
@@ -35,11 +40,27 @@ func newLoadCmd() *cobra.Command {
 		duration, sampleInterval time.Duration
 		progressEvery            time.Duration
 		withPDU                  bool
+		tf                       thinFlags
+		gates                    []string
 	)
 	cmd := &cobra.Command{
 		Use:   "load",
 		Short: "Rate-controlled attach storm against the core with latency KPIs",
+		Long: "Run a rate-controlled attach storm against the core and report per-procedure latency.\n" +
+			"It runs on the orbit server (`orbit serve`) and waits for the end, exiting with the\n" +
+			"result: 0 passed, 1 a gate failed, 2 did not complete, 3 could not start. --detach\n" +
+			"starts it and returns. --local runs it in this process with no server: the capacity\n" +
+			"bench. The core, keys and addresses come from the flags or a target (-t).",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !tf.local {
+				if cmd.Flags().Changed("progress-every") && tf.detach {
+					return exitWith(ExitCouldNotStart, errors.New("--progress-every follows the run; --detach does not"))
+				}
+				return thinLoad(cmd, serverURL, o, gates, tf.detach, progressEvery)
+			}
+			if tf.detach || len(gates) > 0 {
+				return exitWith(ExitCouldNotStart, errors.New("--detach and --gate run on the server; with --local, gate with --slo-*"))
+			}
 			// Flags or $ORBIT_KI/$ORBIT_OPC, validated before anything else
 			// is parsed so a credentials problem is the first thing reported.
 			ki, opc, err := resolveCreds(ki, opc)
@@ -71,12 +92,18 @@ func newLoadCmd() *cobra.Command {
 			if note := sharedBindNote(binds, gnbCount); note != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), note)
 			}
+			// Named as a plan names them (and the server's load): one gNB
+			// by --gnb-name itself, several <name>-1 .. <name>-n.
 			var gnbs []engine.GNBSpec
 			for n := 0; n < gnbCount; n++ {
+				name := gnbName
+				if gnbCount > 1 {
+					name = fmt.Sprintf("%s-%d", gnbName, n+1)
+				}
 				gnbs = append(gnbs, engine.GNBSpec{
 					AMFAddr:  amf,
 					BindAddr: bindAddrs[n],
-					Config:   id.gnbConfig(gnbID+uint32(n), int(gnbBits), fmt.Sprintf("%s-%d", gnbName, n)),
+					Config:   id.gnbConfig(gnbID+uint32(n), int(gnbBits), name),
 				})
 			}
 			n3, err := gnbN3Flag(gnbN3)
@@ -156,6 +183,8 @@ func newLoadCmd() *cobra.Command {
 	f.DurationVar(&duration, "duration", 0, "soak: run for this long (e.g. 5m), cycling --count's SUPIs (attempts can outnumber --count)")
 	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence (e.g. 10s)")
 	f.DurationVar(&progressEvery, "progress-every", 5*time.Second, "print live progress to stderr at this cadence (0 = off)")
+	tf.add(f, "run the storm in this process against the core, with no server: the capacity bench")
+	f.StringArrayVar(&gates, "gate", nil, gateFlagHelp)
 	// Ki/OPc and the PLMN are not marked required: they may come from the
 	// environment ($ORBIT_KI/$ORBIT_OPC, $ORBIT_MCC/$ORBIT_MNC).
 	for _, r := range []string{"amf", "base-imsi"} {
@@ -341,6 +370,124 @@ func formatLoadProgress(s, prev load.Snapshot) string {
 		s.Elapsed.Round(time.Second), s.Succeeded, s.Attempted, s.Failed, now, s.AchievedRate)
 	if a, ok := s.Latencies["attach"]; ok {
 		line += fmt.Sprintf("  attach P50 %s P99 %s", round(a.P50), round(a.P99))
+	}
+	return line
+}
+
+// thinLoad runs the storm the flags describe on the server: the flags'
+// plan (thinPlan), one population named load, with --gate's gates beside
+// the --slo-* ones. It prints the network, progress on stderr while it
+// waits, and the report with its gates.
+func thinLoad(cmd *cobra.Command, serverURL *string, o options, gates []string, detach bool, progressEvery time.Duration) error {
+	var extra []target.Setting
+	for _, g := range gates {
+		s, err := plan.ParseGate(g)
+		if err != nil {
+			return exitWith(ExitCouldNotStart, err)
+		}
+		extra = append(extra, s...)
+	}
+	base := []target.Setting{{Path: "workloads[load].name", Value: "load", Source: target.CommandDefaults(cmd.CommandPath())}}
+	req, err := thinPlan(cmd, o, base, extra)
+	if err != nil {
+		return exitWith(ExitCouldNotStart, err)
+	}
+	if err := applyServerURL(cmd, serverURL); err != nil {
+		return err
+	}
+	var prev *orbitv1.LoadProgress
+	return thinRun(cmd, *serverURL, req, detach, waitOpts{
+		started: func() {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "network: %s\n", planNetwork(req.GetPlan().GetTarget()))
+		},
+		progressEvery: progressEvery,
+		progress: func(g *orbitv1.GetRunResponse) {
+			if p := g.GetLoadProgress(); p != nil {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), formatLoadProgressProto(p, prev))
+				prev = p
+			}
+		},
+		render: func(w io.Writer, r *orbitv1.GetRunReportResponse) {
+			if l := runLoadReport(r); l != nil {
+				printLoadReportProto(w, l)
+			}
+		},
+	})
+}
+
+// planNetwork is a plan target's identity as the network line prints it.
+func planNetwork(t *orbitv1.ResolvedTarget) string {
+	core := t.GetCore()
+	snssai := "1"
+	if sl := core.GetSlices(); len(sl) > 0 {
+		snssai = fmt.Sprint(sl[0].GetSst())
+		if sl[0].GetSd() != "" {
+			snssai += "/" + sl[0].GetSd()
+		}
+	}
+	s := fmt.Sprintf("plmn=%s/%s tac=%d snssai=%s", core.GetPlmn().GetMcc(), core.GetPlmn().GetMnc(), core.GetTac(), snssai)
+	if core.GetDnn() != "" {
+		s += " dnn=" + core.GetDnn()
+	}
+	return s
+}
+
+// runLoadReport is a finished run's population report: the run's own, or
+// its one workload's; nil when it has none.
+func runLoadReport(r *orbitv1.GetRunReportResponse) *orbitv1.LoadReport {
+	if l := r.GetLoad(); l != nil {
+		return l
+	}
+	for _, w := range r.GetWorkloads() {
+		if l := w.GetLoad(); l != nil {
+			return l
+		}
+	}
+	return nil
+}
+
+// printLoadReportProto is printLoadReport for a server run's report.
+func printLoadReportProto(w io.Writer, rep *orbitv1.LoadReport) {
+	_, _ = fmt.Fprintf(w, "load: %d/%d attached in %s (%.1f attach/s)\n", rep.GetSucceeded(), rep.GetAttempted(),
+		(time.Duration(rep.GetDurationMs()) * time.Millisecond).String(), rep.GetAchievedRate())
+	byName := map[string]*orbitv1.ProcedureLatency{}
+	for _, l := range rep.GetLatency() {
+		byName[l.GetProcedure()] = l
+	}
+	for _, name := range []string{"registration", "pdu_session", "attach"} {
+		l, ok := byName[name]
+		if !ok {
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "  %-13s P50 %-8s P99 %-8s P99.9 %-8s max %s\n", name,
+			msDuration64(l.GetP50Ms()), msDuration64(l.GetP99Ms()), msDuration64(l.GetP999Ms()), msDuration64(l.GetMaxMs()))
+	}
+	if rs := rep.GetResources(); len(rs) > 0 {
+		first, last := rs[0], rs[len(rs)-1]
+		_, _ = fmt.Fprintf(w, "  resources: goroutines %d→%d, RSS %dMB→%dMB over %d samples\n",
+			first.GetGoroutines(), last.GetGoroutines(), first.GetRssBytes()>>20, last.GetRssBytes()>>20, len(rs))
+	}
+}
+
+// msDuration64 is a latency in milliseconds as printLoadReport rounds it.
+func msDuration64(ms float64) string {
+	return round(time.Duration(ms * float64(time.Millisecond)))
+}
+
+// formatLoadProgressProto is formatLoadProgress for a server run's
+// progress, the interval rate from the previous line's (nil: none).
+func formatLoadProgressProto(s, prev *orbitv1.LoadProgress) string {
+	var now float64
+	if d := s.GetElapsedMs() - prev.GetElapsedMs(); d > 0 {
+		now = float64(s.GetSucceeded()-prev.GetSucceeded()) / (float64(d) / 1000)
+	}
+	line := fmt.Sprintf("load: %s  %d ok / %d attempted  %d failed  %.1f attach/s (avg %.1f)",
+		(time.Duration(s.GetElapsedMs()) * time.Millisecond).Round(time.Second), s.GetSucceeded(), s.GetAttempted(),
+		s.GetFailed(), now, s.GetAchievedRate())
+	for _, l := range s.GetLatency() {
+		if l.GetProcedure() == "attach" {
+			line += fmt.Sprintf("  attach P50 %s P99 %s", msDuration64(l.GetP50Ms()), msDuration64(l.GetP99Ms()))
+		}
 	}
 	return line
 }

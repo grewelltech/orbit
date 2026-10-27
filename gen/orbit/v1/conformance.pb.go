@@ -64,11 +64,15 @@ type RunConformanceRequest struct {
 	// Xn path switch to a second). Empty supi: no UE, and the mobility checks
 	// report SKIP. With a supi, credentials and gnb_n3 are required; the
 	// server keeps the keys out of results and logs.
-	Supi          string       `protobuf:"bytes,14,opt,name=supi,proto3" json:"supi,omitempty"` // digits or imsi-<digits>, in the request's PLMN
-	Credentials   *Credentials `protobuf:"bytes,15,opt,name=credentials,proto3" json:"credentials,omitempty"`
-	Dnn           string       `protobuf:"bytes,16,opt,name=dnn,proto3" json:"dnn,omitempty"`                  // PDU session DNN; default "internet"
-	GnbN3         string       `protobuf:"bytes,17,opt,name=gnb_n3,json=gnbN3,proto3" json:"gnb_n3,omitempty"` // gNB N3 IP, reachable from the UPF; both gNBs use it
-	Traffic       string       `protobuf:"bytes,18,opt,name=traffic,proto3" json:"traffic,omitempty"`          // optional echo peer host:port for traffic across the handover
+	Supi        string       `protobuf:"bytes,14,opt,name=supi,proto3" json:"supi,omitempty"` // digits or imsi-<digits>, in the request's PLMN
+	Credentials *Credentials `protobuf:"bytes,15,opt,name=credentials,proto3" json:"credentials,omitempty"`
+	Dnn         string       `protobuf:"bytes,16,opt,name=dnn,proto3" json:"dnn,omitempty"`                  // PDU session DNN; default "internet"
+	GnbN3       string       `protobuf:"bytes,17,opt,name=gnb_n3,json=gnbN3,proto3" json:"gnb_n3,omitempty"` // gNB N3 IP, reachable from the UPF; both gNBs use it
+	Traffic     string       `protobuf:"bytes,18,opt,name=traffic,proto3" json:"traffic,omitempty"`          // optional echo peer host:port for traffic across the handover
+	// The suite as a plan (ADR-0008 §2): one conformance workload with its
+	// target, expected-failures list and gates, as `orbit conformance` builds
+	// it. When set, every field above must be unset; the plan says it all.
+	Plan          *RunPlan `protobuf:"bytes,19,opt,name=plan,proto3" json:"plan,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -227,6 +231,13 @@ func (x *RunConformanceRequest) GetTraffic() string {
 		return x.Traffic
 	}
 	return ""
+}
+
+func (x *RunConformanceRequest) GetPlan() *RunPlan {
+	if x != nil {
+		return x.Plan
+	}
+	return nil
 }
 
 // ConformanceUpdate is one test's outcome, or (with done=true) the summary.
@@ -477,87 +488,6 @@ func (x *ConformanceResult) GetExpectedFailure() *ExpectedFailure {
 	return nil
 }
 
-// ExpectedFailure is the expected-failures entry that tolerates a FAIL
-// (docs/conformance/expected-failures.md).
-type ExpectedFailure struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Finding string                 `protobuf:"bytes,1,opt,name=finding,proto3" json:"finding,omitempty"`
-	Added   string                 `protobuf:"bytes,2,opt,name=added,proto3" json:"added,omitempty"` // YYYY-MM-DD
-	Reason  string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
-	// The FAIL the entry tolerates, in a plan's own list
-	// (ConformanceWorkload.expected): the check's ID and its exact observed
-	// text. Unset on a result's matched entry.
-	Check         string `protobuf:"bytes,4,opt,name=check,proto3" json:"check,omitempty"`
-	Observed      string `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExpectedFailure) Reset() {
-	*x = ExpectedFailure{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExpectedFailure) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExpectedFailure) ProtoMessage() {}
-
-func (x *ExpectedFailure) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExpectedFailure.ProtoReflect.Descriptor instead.
-func (*ExpectedFailure) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *ExpectedFailure) GetFinding() string {
-	if x != nil {
-		return x.Finding
-	}
-	return ""
-}
-
-func (x *ExpectedFailure) GetAdded() string {
-	if x != nil {
-		return x.Added
-	}
-	return ""
-}
-
-func (x *ExpectedFailure) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
-}
-
-func (x *ExpectedFailure) GetCheck() string {
-	if x != nil {
-		return x.Check
-	}
-	return ""
-}
-
-func (x *ExpectedFailure) GetObserved() string {
-	if x != nil {
-		return x.Observed
-	}
-	return ""
-}
-
 // StaleExpectation is an expected-failures entry whose check ran without the
 // FAIL it tolerates, with what the check gave instead.
 type StaleExpectation struct {
@@ -573,7 +503,7 @@ type StaleExpectation struct {
 
 func (x *StaleExpectation) Reset() {
 	*x = StaleExpectation{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[4]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -585,7 +515,7 @@ func (x *StaleExpectation) String() string {
 func (*StaleExpectation) ProtoMessage() {}
 
 func (x *StaleExpectation) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[4]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -598,7 +528,7 @@ func (x *StaleExpectation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StaleExpectation.ProtoReflect.Descriptor instead.
 func (*StaleExpectation) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{4}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *StaleExpectation) GetCheck() string {
@@ -654,7 +584,7 @@ type SpecRef struct {
 
 func (x *SpecRef) Reset() {
 	*x = SpecRef{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[5]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +596,7 @@ func (x *SpecRef) String() string {
 func (*SpecRef) ProtoMessage() {}
 
 func (x *SpecRef) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[5]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +609,7 @@ func (x *SpecRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpecRef.ProtoReflect.Descriptor instead.
 func (*SpecRef) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{5}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SpecRef) GetSpec() string {
@@ -750,7 +680,7 @@ type SpecVersion struct {
 
 func (x *SpecVersion) Reset() {
 	*x = SpecVersion{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[6]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -762,7 +692,7 @@ func (x *SpecVersion) String() string {
 func (*SpecVersion) ProtoMessage() {}
 
 func (x *SpecVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[6]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -775,7 +705,7 @@ func (x *SpecVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpecVersion.ProtoReflect.Descriptor instead.
 func (*SpecVersion) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{6}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SpecVersion) GetRelease() uint32 {
@@ -811,7 +741,7 @@ type SpecChange struct {
 
 func (x *SpecChange) Reset() {
 	*x = SpecChange{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[7]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -823,7 +753,7 @@ func (x *SpecChange) String() string {
 func (*SpecChange) ProtoMessage() {}
 
 func (x *SpecChange) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[7]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -836,7 +766,7 @@ func (x *SpecChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpecChange.ProtoReflect.Descriptor instead.
 func (*SpecChange) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{7}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SpecChange) GetRelease() uint32 {
@@ -868,7 +798,7 @@ type ConformanceTally struct {
 
 func (x *ConformanceTally) Reset() {
 	*x = ConformanceTally{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[8]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -880,7 +810,7 @@ func (x *ConformanceTally) String() string {
 func (*ConformanceTally) ProtoMessage() {}
 
 func (x *ConformanceTally) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[8]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -893,7 +823,7 @@ func (x *ConformanceTally) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConformanceTally.ProtoReflect.Descriptor instead.
 func (*ConformanceTally) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{8}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ConformanceTally) GetPassed() uint32 {
@@ -946,7 +876,7 @@ type ListConformanceTestsRequest struct {
 
 func (x *ListConformanceTestsRequest) Reset() {
 	*x = ListConformanceTestsRequest{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[9]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -958,7 +888,7 @@ func (x *ListConformanceTestsRequest) String() string {
 func (*ListConformanceTestsRequest) ProtoMessage() {}
 
 func (x *ListConformanceTestsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[9]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -971,7 +901,7 @@ func (x *ListConformanceTestsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConformanceTestsRequest.ProtoReflect.Descriptor instead.
 func (*ListConformanceTestsRequest) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{9}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{8}
 }
 
 type ConformanceTestInfo struct {
@@ -987,7 +917,7 @@ type ConformanceTestInfo struct {
 
 func (x *ConformanceTestInfo) Reset() {
 	*x = ConformanceTestInfo{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[10]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -999,7 +929,7 @@ func (x *ConformanceTestInfo) String() string {
 func (*ConformanceTestInfo) ProtoMessage() {}
 
 func (x *ConformanceTestInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[10]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1012,7 +942,7 @@ func (x *ConformanceTestInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConformanceTestInfo.ProtoReflect.Descriptor instead.
 func (*ConformanceTestInfo) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{10}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ConformanceTestInfo) GetId() string {
@@ -1059,7 +989,7 @@ type ListConformanceTestsResponse struct {
 
 func (x *ListConformanceTestsResponse) Reset() {
 	*x = ListConformanceTestsResponse{}
-	mi := &file_orbit_v1_conformance_proto_msgTypes[11]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1071,7 +1001,7 @@ func (x *ListConformanceTestsResponse) String() string {
 func (*ListConformanceTestsResponse) ProtoMessage() {}
 
 func (x *ListConformanceTestsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_conformance_proto_msgTypes[11]
+	mi := &file_orbit_v1_conformance_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1084,7 +1014,7 @@ func (x *ListConformanceTestsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConformanceTestsResponse.ProtoReflect.Descriptor instead.
 func (*ListConformanceTestsResponse) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{11}
+	return file_orbit_v1_conformance_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListConformanceTestsResponse) GetTests() []*ConformanceTestInfo {
@@ -1098,7 +1028,7 @@ var File_orbit_v1_conformance_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
-	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\x1a\x11orbit/v1/ue.proto\"\x84\x04\n" +
+	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xab\x04\n" +
 	"\x15RunConformanceRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12\x10\n" +
@@ -1121,7 +1051,8 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\vcredentials\x18\x0f \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\x12\x10\n" +
 	"\x03dnn\x18\x10 \x01(\tR\x03dnn\x12\x15\n" +
 	"\x06gnb_n3\x18\x11 \x01(\tR\x05gnbN3\x12\x18\n" +
-	"\atraffic\x18\x12 \x01(\tR\atraffic\"\x8e\x04\n" +
+	"\atraffic\x18\x12 \x01(\tR\atraffic\x12%\n" +
+	"\x04plan\x18\x13 \x01(\v2\x11.orbit.v1.RunPlanR\x04plan\"\x8e\x04\n" +
 	"\x11ConformanceUpdate\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.orbit.v1.ConformanceResultR\x06result\x12\x12\n" +
 	"\x04done\x18\x02 \x01(\bR\x04done\x120\n" +
@@ -1149,13 +1080,7 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\vmin_release\x18\t \x01(\rR\n" +
 	"minRelease\x12D\n" +
 	"\x10expected_failure\x18\n" +
-	" \x01(\v2\x19.orbit.v1.ExpectedFailureR\x0fexpectedFailure\"\x8b\x01\n" +
-	"\x0fExpectedFailure\x12\x18\n" +
-	"\afinding\x18\x01 \x01(\tR\afinding\x12\x14\n" +
-	"\x05added\x18\x02 \x01(\tR\x05added\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x14\n" +
-	"\x05check\x18\x04 \x01(\tR\x05check\x12\x1a\n" +
-	"\bobserved\x18\x05 \x01(\tR\bobserved\"\xa5\x01\n" +
+	" \x01(\v2\x19.orbit.v1.ExpectedFailureR\x0fexpectedFailure\"\xa5\x01\n" +
 	"\x10StaleExpectation\x12\x14\n" +
 	"\x05check\x18\x01 \x01(\tR\x05check\x12\x18\n" +
 	"\afinding\x18\x02 \x01(\tR\afinding\x12+\n" +
@@ -1214,44 +1139,46 @@ func file_orbit_v1_conformance_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_conformance_proto_rawDescData
 }
 
-var file_orbit_v1_conformance_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_orbit_v1_conformance_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_orbit_v1_conformance_proto_goTypes = []any{
 	(*RunConformanceRequest)(nil),        // 0: orbit.v1.RunConformanceRequest
 	(*ConformanceUpdate)(nil),            // 1: orbit.v1.ConformanceUpdate
 	(*ConformanceResult)(nil),            // 2: orbit.v1.ConformanceResult
-	(*ExpectedFailure)(nil),              // 3: orbit.v1.ExpectedFailure
-	(*StaleExpectation)(nil),             // 4: orbit.v1.StaleExpectation
-	(*SpecRef)(nil),                      // 5: orbit.v1.SpecRef
-	(*SpecVersion)(nil),                  // 6: orbit.v1.SpecVersion
-	(*SpecChange)(nil),                   // 7: orbit.v1.SpecChange
-	(*ConformanceTally)(nil),             // 8: orbit.v1.ConformanceTally
-	(*ListConformanceTestsRequest)(nil),  // 9: orbit.v1.ListConformanceTestsRequest
-	(*ConformanceTestInfo)(nil),          // 10: orbit.v1.ConformanceTestInfo
-	(*ListConformanceTestsResponse)(nil), // 11: orbit.v1.ListConformanceTestsResponse
-	nil,                                  // 12: orbit.v1.ConformanceUpdate.SpecTargetReleasesEntry
-	(*Credentials)(nil),                  // 13: orbit.v1.Credentials
+	(*StaleExpectation)(nil),             // 3: orbit.v1.StaleExpectation
+	(*SpecRef)(nil),                      // 4: orbit.v1.SpecRef
+	(*SpecVersion)(nil),                  // 5: orbit.v1.SpecVersion
+	(*SpecChange)(nil),                   // 6: orbit.v1.SpecChange
+	(*ConformanceTally)(nil),             // 7: orbit.v1.ConformanceTally
+	(*ListConformanceTestsRequest)(nil),  // 8: orbit.v1.ListConformanceTestsRequest
+	(*ConformanceTestInfo)(nil),          // 9: orbit.v1.ConformanceTestInfo
+	(*ListConformanceTestsResponse)(nil), // 10: orbit.v1.ListConformanceTestsResponse
+	nil,                                  // 11: orbit.v1.ConformanceUpdate.SpecTargetReleasesEntry
+	(*Credentials)(nil),                  // 12: orbit.v1.Credentials
+	(*RunPlan)(nil),                      // 13: orbit.v1.RunPlan
+	(*ExpectedFailure)(nil),              // 14: orbit.v1.ExpectedFailure
 }
 var file_orbit_v1_conformance_proto_depIdxs = []int32{
-	13, // 0: orbit.v1.RunConformanceRequest.credentials:type_name -> orbit.v1.Credentials
-	2,  // 1: orbit.v1.ConformanceUpdate.result:type_name -> orbit.v1.ConformanceResult
-	8,  // 2: orbit.v1.ConformanceUpdate.tally:type_name -> orbit.v1.ConformanceTally
-	12, // 3: orbit.v1.ConformanceUpdate.spec_target_releases:type_name -> orbit.v1.ConformanceUpdate.SpecTargetReleasesEntry
-	4,  // 4: orbit.v1.ConformanceUpdate.stale:type_name -> orbit.v1.StaleExpectation
-	5,  // 5: orbit.v1.ConformanceResult.spec_refs:type_name -> orbit.v1.SpecRef
-	3,  // 6: orbit.v1.ConformanceResult.expected_failure:type_name -> orbit.v1.ExpectedFailure
-	6,  // 7: orbit.v1.SpecRef.verified:type_name -> orbit.v1.SpecVersion
-	7,  // 8: orbit.v1.SpecRef.changed:type_name -> orbit.v1.SpecChange
-	5,  // 9: orbit.v1.ConformanceTestInfo.spec_refs:type_name -> orbit.v1.SpecRef
-	10, // 10: orbit.v1.ListConformanceTestsResponse.tests:type_name -> orbit.v1.ConformanceTestInfo
-	0,  // 11: orbit.v1.ConformanceService.RunConformance:input_type -> orbit.v1.RunConformanceRequest
-	9,  // 12: orbit.v1.ConformanceService.ListConformanceTests:input_type -> orbit.v1.ListConformanceTestsRequest
-	1,  // 13: orbit.v1.ConformanceService.RunConformance:output_type -> orbit.v1.ConformanceUpdate
-	11, // 14: orbit.v1.ConformanceService.ListConformanceTests:output_type -> orbit.v1.ListConformanceTestsResponse
-	13, // [13:15] is the sub-list for method output_type
-	11, // [11:13] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	12, // 0: orbit.v1.RunConformanceRequest.credentials:type_name -> orbit.v1.Credentials
+	13, // 1: orbit.v1.RunConformanceRequest.plan:type_name -> orbit.v1.RunPlan
+	2,  // 2: orbit.v1.ConformanceUpdate.result:type_name -> orbit.v1.ConformanceResult
+	7,  // 3: orbit.v1.ConformanceUpdate.tally:type_name -> orbit.v1.ConformanceTally
+	11, // 4: orbit.v1.ConformanceUpdate.spec_target_releases:type_name -> orbit.v1.ConformanceUpdate.SpecTargetReleasesEntry
+	3,  // 5: orbit.v1.ConformanceUpdate.stale:type_name -> orbit.v1.StaleExpectation
+	4,  // 6: orbit.v1.ConformanceResult.spec_refs:type_name -> orbit.v1.SpecRef
+	14, // 7: orbit.v1.ConformanceResult.expected_failure:type_name -> orbit.v1.ExpectedFailure
+	5,  // 8: orbit.v1.SpecRef.verified:type_name -> orbit.v1.SpecVersion
+	6,  // 9: orbit.v1.SpecRef.changed:type_name -> orbit.v1.SpecChange
+	4,  // 10: orbit.v1.ConformanceTestInfo.spec_refs:type_name -> orbit.v1.SpecRef
+	9,  // 11: orbit.v1.ListConformanceTestsResponse.tests:type_name -> orbit.v1.ConformanceTestInfo
+	0,  // 12: orbit.v1.ConformanceService.RunConformance:input_type -> orbit.v1.RunConformanceRequest
+	8,  // 13: orbit.v1.ConformanceService.ListConformanceTests:input_type -> orbit.v1.ListConformanceTestsRequest
+	1,  // 14: orbit.v1.ConformanceService.RunConformance:output_type -> orbit.v1.ConformanceUpdate
+	10, // 15: orbit.v1.ConformanceService.ListConformanceTests:output_type -> orbit.v1.ListConformanceTestsResponse
+	14, // [14:16] is the sub-list for method output_type
+	12, // [12:14] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_conformance_proto_init() }
@@ -1259,6 +1186,7 @@ func file_orbit_v1_conformance_proto_init() {
 	if File_orbit_v1_conformance_proto != nil {
 		return
 	}
+	file_orbit_v1_plan_proto_init()
 	file_orbit_v1_ue_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1266,7 +1194,7 @@ func file_orbit_v1_conformance_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_conformance_proto_rawDesc), len(file_orbit_v1_conformance_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

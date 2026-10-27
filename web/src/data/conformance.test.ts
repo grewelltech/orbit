@@ -4,9 +4,9 @@ import {
   ConformanceResultSchema,
   ConformanceTallySchema,
   ConformanceUpdateSchema,
-  ExpectedFailureSchema,
   StaleExpectationSchema,
 } from "@/gen/orbit/v1/conformance_pb";
+import { ExpectedFailureSchema } from "@/gen/orbit/v1/plan_pb";
 import {
   applyUpdate,
   buildRequest,

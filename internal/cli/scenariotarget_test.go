@@ -173,9 +173,12 @@ func TestScenariosRunWithTarget(t *testing.T) {
 	loc := targetDir(t, doc)
 
 	fleet := writeScenario(t, "kind: fleet\nname: f\ntopology:\n  gnbs: { count: 2 }\nfleet: { count: 4, attach_rate: 50/s }\n")
-	r := runOrbit(t, loc, "run", fleet, "-t", "lab1")
+	r := runOrbit(t, loc, "run", fleet, "-t", "lab1", "--local")
 	if r.execErr != nil {
 		t.Fatalf("fleet: %v\n%s", r.execErr, r.out)
+	}
+	if !strings.Contains(r.err, localFleetDeprecated) {
+		t.Errorf("--local without its deprecation note:\n%s", r.err)
 	}
 	for _, want := range []string{"core:     " + lab.amf + "  PLMN 208/93", "2 gNBs (ids 300–301)", "attach:       4/4"} {
 		if !strings.Contains(r.out, want) {
