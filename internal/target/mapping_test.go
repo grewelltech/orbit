@@ -2,7 +2,6 @@ package target
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -200,7 +199,7 @@ func TestDefaultsInput(t *testing.T) {
 	got := map[string]any{}
 	for _, s := range in.Settings {
 		got[s.Path] = s.Value
-		if !strings.HasSuffix(s.Source.Name, " default") {
+		if s.Source.String() != "default (orbit load)" {
 			t.Errorf("%s source = %q", s.Path, s.Source.Name)
 		}
 	}

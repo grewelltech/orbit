@@ -151,7 +151,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 // GTP-U checks' source (conformance.n3_bind), as the request's n3_bind
 // was, not the UE's gNB N3 (ran.n3_ips).
 func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []string, detach, jsonOut bool, expectedPath string) error {
-	src := target.Source{Name: "orbit conformance"}
+	src := target.CommandDefaults(cmd.CommandPath())
 	base := []target.Setting{
 		{Path: "workloads[conformance].name", Value: "conformance", Source: src},
 		{Path: "gates[conformance].conformance", Value: "true", Source: src},

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -22,6 +23,7 @@ import (
 type thinLab struct {
 	url, amf string
 	doc      string
+	mock     *mockamf.AMF
 }
 
 func newThinLab(t *testing.T) thinLab {
@@ -37,7 +39,7 @@ func newThinLab(t *testing.T) thinLab {
 	srv := httptest.NewServer(server.New(observability.NewLogger(io.Discard, slog.LevelError), "test",
 		observability.NewRegistry(), server.Options{StateDir: ""}))
 	t.Cleanup(srv.Close)
-	return thinLab{url: srv.URL, amf: front.Addr, doc: loadTarget(front.Addr, "127.0.0.1-127.0.0.9")}
+	return thinLab{url: srv.URL, amf: front.Addr, doc: loadTarget(front.Addr, "127.0.0.1-127.0.0.9"), mock: amf}
 }
 
 // `orbit load` runs on the server by default and waits: the same storm,
@@ -121,8 +123,11 @@ func TestThinLoadPlan(t *testing.T) {
 	if s := src["core.amf"]; !strings.Contains(s, "TARGET") {
 		t.Errorf("core.amf provenance = %q, want the target", s)
 	}
-	if s := src["workloads[load].attach.concurrency"]; !strings.Contains(s, "--concurrency default") {
-		t.Errorf("concurrency provenance = %q, want the flag's default", s)
+	if s := src["workloads[load].attach.concurrency"]; s != "PROVENANCE_LAYER_DEFAULT default (orbit load)" {
+		t.Errorf("concurrency provenance = %q, want orbit load's own default", s)
+	}
+	if s := src["core.profile"]; s != "PROVENANCE_LAYER_DEFAULT default built-in" {
+		t.Errorf("core.profile provenance = %q, want the built-in default, apart from the command's", s)
 	}
 	if s := src["workloads[load].attach.count"]; !strings.Contains(s, "--count") {
 		t.Errorf("count provenance = %q, want --count", s)
@@ -294,5 +299,38 @@ func TestThinPlanKeysMasked(t *testing.T) {
 	}
 	if sp := stub.startReq.GetPlan().GetTarget().GetSubscribers(); len(sp) == 0 || sp[0].GetKi() != testKi {
 		t.Errorf("the plan's target lost its key: %v", sp)
+	}
+}
+
+// A bare thin `orbit load` presents the same gNB IDs and names as the
+// in-process one (--local): the command's defaults (--gnb-id 1, --gnb-name
+// orbit-gnb) reach the plan, and both name one gNB by the name itself and
+// several <name>-1 .. <name>-n.
+func TestThinLoadGNBsMatchLocal(t *testing.T) {
+	clearOrbitEnv(t)
+	for _, gnbs := range []string{"1", "3"} {
+		t.Run(gnbs+" gNBs", func(t *testing.T) {
+			setups := func(local bool) []mockamf.Setup {
+				lab := newThinLab(t)
+				args := []string{"--server", lab.url, "load", "--amf", lab.amf, "--mcc", "208", "--mnc", "93", "--sst", "1", "--sd", "010203",
+					"--base-imsi", "208930000000001", "--ki", testKi, "--opc", testOPc, "--count", "3", "--gnb-count", gnbs}
+				if local {
+					args = append(args, "--local")
+				}
+				if r := runOrbit(t, targetDir(t, lab1), args...); r.execErr != nil {
+					t.Fatalf("local %t: %v\n%s", local, r.execErr, r.err)
+				}
+				got := lab.mock.Setups()
+				sort.Slice(got, func(i, j int) bool { return got[i].GNBID < got[j].GNBID })
+				return got
+			}
+			local, thin := setups(true), setups(false)
+			if len(local) == 0 || !reflect.DeepEqual(local, thin) {
+				t.Errorf("NG Setups differ:\nlocal %+v\nthin  %+v", local, thin)
+			}
+			if local[0].GNBID != 1 {
+				t.Errorf("first gNB ID %d, want --gnb-id's default 1", local[0].GNBID)
+			}
+		})
 	}
 }

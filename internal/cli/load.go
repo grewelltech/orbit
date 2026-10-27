@@ -92,12 +92,18 @@ func newLoadCmd(serverURL *string, o options) *cobra.Command {
 			if note := sharedBindNote(binds, gnbCount); note != "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), note)
 			}
+			// Named as a plan names them (and the server's load): one gNB
+			// by --gnb-name itself, several <name>-1 .. <name>-n.
 			var gnbs []engine.GNBSpec
 			for n := 0; n < gnbCount; n++ {
+				name := gnbName
+				if gnbCount > 1 {
+					name = fmt.Sprintf("%s-%d", gnbName, n+1)
+				}
 				gnbs = append(gnbs, engine.GNBSpec{
 					AMFAddr:  amf,
 					BindAddr: bindAddrs[n],
-					Config:   id.gnbConfig(gnbID+uint32(n), int(gnbBits), fmt.Sprintf("%s-%d", gnbName, n)),
+					Config:   id.gnbConfig(gnbID+uint32(n), int(gnbBits), name),
 				})
 			}
 			n3, err := gnbN3Flag(gnbN3)
@@ -381,7 +387,7 @@ func thinLoad(cmd *cobra.Command, serverURL *string, o options, gates []string, 
 		}
 		extra = append(extra, s...)
 	}
-	base := []target.Setting{{Path: "workloads[load].name", Value: "load", Source: target.Source{Name: "orbit load"}}}
+	base := []target.Setting{{Path: "workloads[load].name", Value: "load", Source: target.CommandDefaults(cmd.CommandPath())}}
 	req, err := thinPlan(cmd, o, base, extra)
 	if err != nil {
 		return exitWith(ExitCouldNotStart, err)

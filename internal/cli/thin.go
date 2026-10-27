@@ -35,6 +35,13 @@ func (t *thinFlags) add(fs *pflag.FlagSet, localHelp string) {
 // localDeprecated is the notice a deprecated --local prints.
 const localDeprecated = "--local is deprecated and goes after this release: run `orbit serve` and drop --local"
 
+// localFleetDeprecated is orbit run's: a fleet's cohort gauges
+// (--metrics-listen) need --local until orbit serve's /metrics serves them
+// (the follow-up "serve fleet app metrics from orbit serve's /metrics"),
+// so --local stays until then.
+const localFleetDeprecated = "--local is deprecated: run `orbit serve` and drop --local. A fleet's cohort gauges " +
+	"(--metrics-listen) need --local until orbit serve's /metrics serves them, and --local stays until then"
+
 // noServer turns a failure to reach the server into the error that says
 // what to do; any other error is returned as is.
 func noServer(err error, url string) error {

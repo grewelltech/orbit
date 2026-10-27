@@ -95,7 +95,7 @@ func newRunCmd(serverURL *string, o options) *cobra.Command {
 				// The in-process fleet drives the engine here and never
 				// builds a client, so it must not read or report
 				// --server/$ORBIT_SERVER.
-				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), localDeprecated)
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), localFleetDeprecated)
 				return runFleet(cmd, data, metricsListen, t)
 			}
 			if kind == "fleet" {

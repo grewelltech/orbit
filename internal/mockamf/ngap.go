@@ -49,6 +49,30 @@ func servesAnyTAPLMN(req *ngapType.NGSetupRequest, served [][3]byte) bool {
 	return true
 }
 
+// setupOf is an NG Setup Request's gNB ID and RAN node name; zero values
+// for what it lacks.
+func setupOf(req *ngapType.NGSetupRequest) Setup {
+	var out Setup
+	for _, ie := range req.ProtocolIEs.List {
+		switch ie.Id.Value {
+		case ngapType.ProtocolIEIDGlobalRANNodeID:
+			if g := ie.Value.GlobalRANNodeID; g != nil && g.GlobalGNBID != nil && g.GlobalGNBID.GNBID.GNBID != nil {
+				bs := g.GlobalGNBID.GNBID.GNBID
+				var id uint64
+				for _, b := range bs.Bytes {
+					id = id<<8 | uint64(b)
+				}
+				out.GNBID = uint32(id >> (uint64(len(bs.Bytes))*8 - bs.BitLength))
+			}
+		case ngapType.ProtocolIEIDRANNodeName:
+			if n := ie.Value.RANNodeName; n != nil {
+				out.Name = string(n.Value)
+			}
+		}
+	}
+	return out
+}
+
 // buildNGSetupFailureUnknownPLMN builds the NG SETUP FAILURE an AMF sends
 // when it identifies none of the gNB's PLMNs (TS 38.413 8.7.1.4), with cause
 // Misc unknown-PLMN (9.3.1.2).

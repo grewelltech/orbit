@@ -388,7 +388,9 @@ func FlagInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 // each bound flag the user did not set whose default says something (not
 // empty, zero or false), so a run built from the layers (a thin client's
 // plan) does what the command did with the flag left alone, where no
-// target or environment says otherwise.
+// target or environment says otherwise. Its source is the command
+// (CommandDefaults), which --explain and provenance show as
+// "default (orbit load)", apart from the built-in defaults.
 func DefaultsInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 	in := Input{Layer: LayerDefault}
 	var err error
@@ -416,12 +418,19 @@ func DefaultsInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 			}
 			val = uint64(max(d, 0).Milliseconds())
 		}
-		in.Settings = append(in.Settings, Setting{Path: b.Path, Value: val, Source: Source{Name: "--" + f.Name + " default"}})
+		in.Settings = append(in.Settings, Setting{Path: b.Path, Value: val, Source: CommandDefaults(cmd)})
 	})
 	if err != nil {
 		return Input{}, err
 	}
 	return in, nil
+}
+
+// CommandDefaults is the source of command cmd's own defaults: its flag
+// defaults (DefaultsInput) and what it always sets, such as its workload's
+// name.
+func CommandDefaults(cmd string) Source {
+	return Source{Layer: LayerDefault, Name: "(" + cmd + ")"}
 }
 
 // DefaultInput is the built-in default layer: the CLI's defaults for the

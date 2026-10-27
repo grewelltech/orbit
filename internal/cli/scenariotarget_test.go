@@ -177,6 +177,9 @@ func TestScenariosRunWithTarget(t *testing.T) {
 	if r.execErr != nil {
 		t.Fatalf("fleet: %v\n%s", r.execErr, r.out)
 	}
+	if !strings.Contains(r.err, localFleetDeprecated) {
+		t.Errorf("--local without its deprecation note:\n%s", r.err)
+	}
 	for _, want := range []string{"core:     " + lab.amf + "  PLMN 208/93", "2 gNBs (ids 300–301)", "attach:       4/4"} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("fleet output lacks %q:\n%s", want, r.out)

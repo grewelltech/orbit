@@ -88,6 +88,8 @@ type AMF struct {
 	encodeErrs atomic.Int64
 	// deregs counts UE-originating Deregistration Requests received.
 	deregs atomic.Int64
+	// setups are the gNBs that sent an NG Setup Request, in order (Setups).
+	setups []Setup
 	log    *slog.Logger
 
 	// Options (nastimers.go): T3560 retransmission and release, a crash
@@ -230,6 +232,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
+		a.mu.Lock()
+		a.setups = append(a.setups, setupOf(pdu.InitiatingMessage.Value.NGSetupRequest))
+		a.mu.Unlock()
 		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.served) {
 			return a.send(p, buildNGSetupFailureUnknownPLMN())
 		}
@@ -415,6 +420,19 @@ func (a *AMF) send(p *pipe, pdu ngapType.NGAPPDU) error {
 // Deregistrations reports how many UE-originating Deregistration Requests
 // the mock has received.
 func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
+
+// Setup is a gNB's NG Setup Request: its gNB ID and RAN node name.
+type Setup struct {
+	GNBID uint32
+	Name  string
+}
+
+// Setups are the NG Setup Requests received, in order.
+func (a *AMF) Setups() []Setup {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]Setup(nil), a.setups...)
+}
 
 // EncodeErrors reports how many downlink PDUs failed to encode and were
 // dropped; tests use it to assert the mock never produced one.

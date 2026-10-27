@@ -413,8 +413,11 @@ no orbit server at http://127.0.0.1:8412: start one with `orbit serve`, or pass 
 
 `--local` runs `orbit load`, `orbit conformance` and `orbit run <fleet.yaml>`
 in the CLI process instead, with no server, as they all ran before. It is
-deprecated on `conformance` and `run` and goes after this release. `orbit
-load --local` stays: it is the capacity bench with no server.
+deprecated on `conformance` and `run`, and goes after this release, except
+on `run`: a fleet's cohort gauges (`--metrics-listen`, `orbit_fleet_app_*`)
+need `--local` until `orbit serve`'s `/metrics` serves them, so `run --local`
+stays until then. `orbit load --local` stays: it is the capacity bench with
+no server.
 start-load names one gNB `--gnb-name` and several `<name>-1` .. `<name>-n`, as
 a plan does. A fleet scenario a plan cannot carry exactly is still sent as the
 old fleet spec, which the server still runs; that spec carries no gates.

@@ -166,8 +166,9 @@ orbit load -t lab1 --count 100 --rate 10 \
 from §4. Without one they stop with `no orbit server at <url>: start one with
 \`orbit serve\`, or pass --local`. `orbit load --local` runs the storm in the
 CLI process with no server at all, as a capacity bench. `--local` on
-`conformance` and `run` does the same but is deprecated and goes after this
-release. `orbit test load -t lab1 --wait` runs a ready-made storm with a
+`conformance` and `run` does the same but is deprecated. On `run` it stays
+until the server serves a fleet's cohort gauges (`--metrics-listen` needs it
+until then). `orbit test load -t lab1 --wait` runs a ready-made storm with a
 default gate (attach success ≥ 0.99).
 
 **A fleet run** — a population with continuous behaviours, from a scenario
