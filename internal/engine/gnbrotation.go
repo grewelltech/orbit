@@ -189,7 +189,7 @@ func (g *GNBRotation) Assign(amfs []string, plmn string, first, last uint32, n i
 		for _, id := range out {
 			k.Used[id] = at
 		}
-		g.prune(k, rotationKeyOf(a, plmn), first, last, out)
+		g.prune(k, rotationKeyOf(a, plmn), out)
 	}
 	if err := g.save(next); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrRotationPersist, err)
@@ -234,21 +234,17 @@ func (st rotationState) key(amf, plmn string) *rotationKey {
 	return k
 }
 
-// prune keeps a key's use records to the range being assigned from, then
-// to maxEntries, oldest dropped first. IDs held by a run, or being assigned
-// now, are always kept.
-func (g *GNBRotation) prune(k *rotationKey, key string, first, last uint32, assigning []uint32) {
+// prune caps a key's use records at maxEntries, oldest dropped first; IDs
+// held by a run, or being assigned now, are always kept. It never prunes by
+// range: a key is an AMF, and other targets' blocks on the same AMF share
+// it, so their history must survive this one's assignments.
+func (g *GNBRotation) prune(k *rotationKey, key string, assigning []uint32) {
 	keep := map[uint32]bool{}
 	for id := range g.held[key] {
 		keep[id] = true
 	}
 	for _, id := range assigning {
 		keep[id] = true
-	}
-	for id := range k.Used {
-		if (id < first || id > last) && !keep[id] {
-			delete(k.Used, id)
-		}
 	}
 	if len(k.Used) <= g.maxEntries {
 		return

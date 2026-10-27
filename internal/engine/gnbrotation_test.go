@@ -309,9 +309,37 @@ func TestGNBRotationPrune(t *testing.T) {
 	if got := used(); !reflect.DeepEqual(got, []uint32{100, 102, 103}) {
 		t.Errorf("records after the cap: %v, want [100 102 103] (101 dropped as the oldest)", got)
 	}
-	// A different range drops records outside it, but never a held ID.
+	// Another range on the same AMF prunes nothing: the cap is the only
+	// bound, and held IDs survive it.
 	assign(500, 599, 1)
-	if got := used(); !reflect.DeepEqual(got, []uint32{held[0], 500}) {
-		t.Errorf("after assigning from 500..599: %v, want [%d 500]", got, held[0])
+	if got := used(); len(got) != 3 || !slices.Contains(got, held[0]) || !slices.Contains(got, 500) {
+		t.Errorf("after assigning from 500..599: %v, want three records keeping %d and 500", got, held[0])
+	}
+}
+
+// Two targets with different blocks on one AMF share its rotation: A's
+// assignments leave B's history alone, so B does not get back the ID it
+// just released while unused IDs remain in its block.
+func TestGNBRotationBlocksShareHistory(t *testing.T) {
+	now := time.Unix(1000, 0)
+	g := smallRotation(t, "", &now)
+	amf := []string{"10.0.0.1:38412"}
+	step := func() { now = now.Add(time.Second) }
+	b, err := g.Assign(amf, "p", 1, 10, 1, nil)
+	if err != nil || b[0] != 1 {
+		t.Fatalf("B: %v, %v", b, err)
+	}
+	step()
+	if err := g.Released(amf, "p", b); err != nil {
+		t.Fatal(err)
+	}
+	step()
+	if a, err := g.Assign(amf, "p", 100, 103, 1, nil); err != nil || a[0] != 100 {
+		t.Fatalf("A: %v, %v", a, err)
+	}
+	step()
+	b2, err := g.Assign(amf, "p", 1, 10, 1, nil)
+	if err != nil || b2[0] == 1 {
+		t.Fatalf("B again: %v, %v; want an ID other than the 1 it just released", b2, err)
 	}
 }
