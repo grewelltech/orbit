@@ -10,9 +10,9 @@ func WithUndecodableAccept() Option { return func(a *AMF) { a.undecodableAccept 
 // sendUndecodableAccept sends WithUndecodableAccept's Accept in an Initial
 // Context Setup Request.
 func (a *AMF) sendUndecodableAccept(p *pipe, st *ueState) error {
-	wrapped, err := st.sec.EncodeSecureRaw([]byte{0x7e, 0x00, 0x42}, nas.SecHdrIntegrityCiphered)
+	wrapped, err := st.encodeSecureRaw([]byte{0x7e, 0x00, 0x42}, nas.SecHdrIntegrityCiphered)
 	if err != nil {
 		return err
 	}
-	return a.send(p, buildInitialContextSetupRequest(st.amfID, st.ranID, wrapped, a.plmn, a.cfg.SST, a.sdBytes))
+	return a.send(p, buildInitialContextSetupRequest(st.amfID, a.ranIDOf(st), wrapped, a.plmn, a.cfg.SST, a.sdBytes))
 }

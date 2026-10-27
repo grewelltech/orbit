@@ -104,7 +104,7 @@ func (a *AMF) answerUnknownDNN(p *pipe, st *ueState, id, pti uint8, request []by
 	var wrapped []byte
 	if a.dnnAnswer == UndecodableDNN {
 		// A DL NAS Transport header with no payload container.
-		wrapped, err = st.sec.EncodeSecureRaw([]byte{nasMessage.Epd5GSMobilityManagementMessage, 0x00, f5nas.MsgTypeDLNASTransport}, nas.SecHdrIntegrityCiphered)
+		wrapped, err = st.encodeSecureRaw([]byte{nasMessage.Epd5GSMobilityManagementMessage, 0x00, f5nas.MsgTypeDLNASTransport}, nas.SecHdrIntegrityCiphered)
 	} else {
 		var dl *f5nas.Message
 		if dl, err = buildDLNASTransportN1SM(payload, id); err != nil {
@@ -122,7 +122,7 @@ func (a *AMF) answerUnknownDNN(p *pipe, st *ueState, id, pti uint8, request []by
 			b.SetTimerValue(1)
 			dl.DLNASTransport.BackoffTimerValue = b
 		}
-		wrapped, err = st.sec.EncodeSecure(dl, nas.SecHdrIntegrityCiphered)
+		wrapped, err = st.encodeSecure(dl, nas.SecHdrIntegrityCiphered)
 	}
 	if err != nil {
 		return err

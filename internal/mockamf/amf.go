@@ -301,8 +301,16 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 // after it asks for the switch), so sec is never used from two goroutines at
 // once; a change that lets both associations send NAS must guard it.
 type ueState struct {
+	// amfID and supi are set before the UE is published in AMF.ues, and
+	// never change. ranID is guarded by AMF.mu: a path switch moves the
+	// UE to its target's association while the source's goroutine may
+	// still answer for it (AMF.ranIDOf).
 	ranID, amfID int64
 	supi         string
+	// sec is the NAS security context; secMu guards it and its counts,
+	// since after a path switch two associations hold the UE. Never held
+	// across a send.
+	secMu        sync.Mutex
 	sec          *nas.SecurityContext
 	ngksi        uint8
 	sessions     map[uint8]*pduSession        // guarded by AMF.mu
@@ -314,20 +322,19 @@ type ueState struct {
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
-	st.ranID = up.ranID
-	st.amfID = <-a.amfSeq
-	a.mu.Lock()
-	a.ues[st.amfID] = st
-	a.mu.Unlock()
-
 	supi, err := supiFromRegistration(up.nasPDU)
 	if err != nil {
 		return err
 	}
+	// Every field another association reads is set before the UE is
+	// published in a.ues.
+	st.ranID = up.ranID
+	st.amfID = <-a.amfSeq
 	st.supi = supi
 	st.ueCaps = ueCapsFromRegistration(up.nasPDU)
 	st.requested = requestedNSSAIFromRegistration(up.nasPDU)
 	a.mu.Lock()
+	a.ues[st.amfID] = st
 	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
 	a.mu.Unlock()
 
@@ -351,7 +358,7 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 	// The 128-NIA2/NEA0 context protects what precedes or replaces the
 	// Security Mode Command; the command derives the selected pair's.
-	st.sec = &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true}
+	st.setSec(&nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true})
 	st.kamf = vec.KAmf
 
 	if a.noAuthRequest {
@@ -362,13 +369,13 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 		if err != nil {
 			return err
 		}
-		return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, rej))
+		return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), rej))
 	}
 	arBytes, err := buildAuthenticationRequest(randv, autn, st.ngksi)
 	if err != nil {
 		return err
 	}
-	if err := a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, arBytes)); err != nil {
+	if err := a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), arBytes)); err != nil {
 		return err
 	}
 	if a.t3560 > 0 {
@@ -387,7 +394,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	if f5nas.GetSecurityHeaderType(nasPDU) == f5nas.SecurityHeaderTypePlainNas {
 		msg, err = nas.DecodePlain(nasPDU)
 	} else {
-		msg, err = st.sec.DecodeSecure(nasPDU)
+		msg, err = st.decodeSecure(nasPDU)
 	}
 	if err != nil {
 		return false, fmt.Errorf("mock amf uplink NAS decode: %w", err)
@@ -410,11 +417,11 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		wrapped, err := st.sec.EncodeSecure(acc, nas.SecHdrIntegrityCiphered)
+		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
 		if err != nil {
 			return false, err
 		}
-		if err := a.send(p, buildInitialContextSetupRequest(st.amfID, st.ranID, wrapped, a.plmn, a.cfg.SST, a.sdBytes)); err != nil {
+		if err := a.send(p, buildInitialContextSetupRequest(st.amfID, a.ranIDOf(st), wrapped, a.plmn, a.cfg.SST, a.sdBytes)); err != nil {
 			return false, err
 		}
 		if a.t3550 > 0 && a.assignGUTI {
@@ -479,4 +486,38 @@ func supiFromRegistration(regReq []byte) (string, error) {
 		return "", fmt.Errorf("unexpected SUCI form %q", suci)
 	}
 	return plmnID + parts[len(parts)-1], nil
+}
+
+// ranIDOf is st's RAN-UE-NGAP-ID now: a path switch may change it from
+// another association.
+func (a *AMF) ranIDOf(st *ueState) int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return st.ranID
+}
+
+// setSec, encodeSecure, encodeSecureRaw and decodeSecure use st's NAS
+// security context under secMu, held only for the call.
+func (st *ueState) setSec(sec *nas.SecurityContext) {
+	st.secMu.Lock()
+	defer st.secMu.Unlock()
+	st.sec = sec
+}
+
+func (st *ueState) encodeSecure(msg *f5nas.Message, secHdr uint8) ([]byte, error) {
+	st.secMu.Lock()
+	defer st.secMu.Unlock()
+	return st.sec.EncodeSecure(msg, secHdr)
+}
+
+func (st *ueState) encodeSecureRaw(plain []byte, secHdr uint8) ([]byte, error) {
+	st.secMu.Lock()
+	defer st.secMu.Unlock()
+	return st.sec.EncodeSecureRaw(plain, secHdr)
+}
+
+func (st *ueState) decodeSecure(data []byte) (*f5nas.Message, error) {
+	st.secMu.Lock()
+	defer st.secMu.Unlock()
+	return st.sec.DecodeSecure(data)
 }
