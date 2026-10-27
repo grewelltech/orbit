@@ -206,75 +206,6 @@ func (x *ConformanceSummary) GetResults() []*ConformanceResult {
 	return nil
 }
 
-// GateResult is one gate as the report applied it.
-type GateResult struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Gate          *Gate                  `protobuf:"bytes,1,opt,name=gate,proto3" json:"gate,omitempty"`
-	Passed        bool                   `protobuf:"varint,2,opt,name=passed,proto3" json:"passed,omitempty"`
-	Observed      float64                `protobuf:"fixed64,3,opt,name=observed,proto3" json:"observed,omitempty"` // the metric's value (SLO gates)
-	Detail        string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`       // why it failed, in words
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GateResult) Reset() {
-	*x = GateResult{}
-	mi := &file_orbit_v1_report_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GateResult) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GateResult) ProtoMessage() {}
-
-func (x *GateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_report_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GateResult.ProtoReflect.Descriptor instead.
-func (*GateResult) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_report_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *GateResult) GetGate() *Gate {
-	if x != nil {
-		return x.Gate
-	}
-	return nil
-}
-
-func (x *GateResult) GetPassed() bool {
-	if x != nil {
-		return x.Passed
-	}
-	return false
-}
-
-func (x *GateResult) GetObserved() float64 {
-	if x != nil {
-		return x.Observed
-	}
-	return 0
-}
-
-func (x *GateResult) GetDetail() string {
-	if x != nil {
-		return x.Detail
-	}
-	return ""
-}
-
 var File_orbit_v1_report_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_report_proto_rawDesc = "" +
@@ -291,13 +222,7 @@ const file_orbit_v1_report_proto_rawDesc = "" +
 	"\x06report\"}\n" +
 	"\x12ConformanceSummary\x120\n" +
 	"\x05tally\x18\x01 \x01(\v2\x1a.orbit.v1.ConformanceTallyR\x05tally\x125\n" +
-	"\aresults\x18\x02 \x03(\v2\x1b.orbit.v1.ConformanceResultR\aresults\"|\n" +
-	"\n" +
-	"GateResult\x12\"\n" +
-	"\x04gate\x18\x01 \x01(\v2\x0e.orbit.v1.GateR\x04gate\x12\x16\n" +
-	"\x06passed\x18\x02 \x01(\bR\x06passed\x12\x1a\n" +
-	"\bobserved\x18\x03 \x01(\x01R\bobserved\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detailB0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\aresults\x18\x02 \x03(\v2\x1b.orbit.v1.ConformanceResultR\aresultsB0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_report_proto_rawDescOnce sync.Once
@@ -311,32 +236,30 @@ func file_orbit_v1_report_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_report_proto_rawDescData
 }
 
-var file_orbit_v1_report_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_orbit_v1_report_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_orbit_v1_report_proto_goTypes = []any{
 	(*RunReport)(nil),          // 0: orbit.v1.RunReport
 	(*ConformanceSummary)(nil), // 1: orbit.v1.ConformanceSummary
-	(*GateResult)(nil),         // 2: orbit.v1.GateResult
-	(RunKind)(0),               // 3: orbit.v1.RunKind
-	(*LoadReport)(nil),         // 4: orbit.v1.LoadReport
-	(*FleetReport)(nil),        // 5: orbit.v1.FleetReport
+	(RunKind)(0),               // 2: orbit.v1.RunKind
+	(*LoadReport)(nil),         // 3: orbit.v1.LoadReport
+	(*FleetReport)(nil),        // 4: orbit.v1.FleetReport
+	(*GateResult)(nil),         // 5: orbit.v1.GateResult
 	(*ConformanceTally)(nil),   // 6: orbit.v1.ConformanceTally
 	(*ConformanceResult)(nil),  // 7: orbit.v1.ConformanceResult
-	(*Gate)(nil),               // 8: orbit.v1.Gate
 }
 var file_orbit_v1_report_proto_depIdxs = []int32{
-	3, // 0: orbit.v1.RunReport.kind:type_name -> orbit.v1.RunKind
-	4, // 1: orbit.v1.RunReport.load:type_name -> orbit.v1.LoadReport
-	5, // 2: orbit.v1.RunReport.fleet:type_name -> orbit.v1.FleetReport
+	2, // 0: orbit.v1.RunReport.kind:type_name -> orbit.v1.RunKind
+	3, // 1: orbit.v1.RunReport.load:type_name -> orbit.v1.LoadReport
+	4, // 2: orbit.v1.RunReport.fleet:type_name -> orbit.v1.FleetReport
 	1, // 3: orbit.v1.RunReport.conformance:type_name -> orbit.v1.ConformanceSummary
-	2, // 4: orbit.v1.RunReport.gates:type_name -> orbit.v1.GateResult
+	5, // 4: orbit.v1.RunReport.gates:type_name -> orbit.v1.GateResult
 	6, // 5: orbit.v1.ConformanceSummary.tally:type_name -> orbit.v1.ConformanceTally
 	7, // 6: orbit.v1.ConformanceSummary.results:type_name -> orbit.v1.ConformanceResult
-	8, // 7: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_report_proto_init() }
@@ -358,7 +281,7 @@ func file_orbit_v1_report_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_report_proto_rawDesc), len(file_orbit_v1_report_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -83,6 +83,12 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 		}
 	}
 
+	// A plan's per-workload report, with its gates judged.
+	if held.archive != nil {
+		if rr := planReport(held.archive.GetPlan(), a.GetLoadReport(), a.GetFleetReport()); rr != nil {
+			a.Reports = []*orbitv1.RunReport{rr}
+		}
+	}
 	redactArchive(a, held.secrets)
 	if err := s.archive.save(a); err != nil {
 		// The run itself succeeded; failing to archive it does not change that,
@@ -148,6 +154,9 @@ func archivedReportResponse(id string, a *orbitv1.RunArchive) (*connect.Response
 		resp.Report = &orbitv1.GetRunReportResponse_Load{Load: r.LoadReport}
 	case *orbitv1.RunArchive_FleetReport:
 		resp.Report = &orbitv1.GetRunReportResponse_Fleet{Fleet: r.FleetReport}
+	}
+	if rs := a.GetReports(); len(rs) == 1 {
+		resp.Gates, resp.GatesPassed = rs[0].GetGates(), rs[0].GetGatesPassed()
 	}
 	return connect.NewResponse(resp), nil
 }

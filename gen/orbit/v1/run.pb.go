@@ -2806,7 +2806,11 @@ type GetRunReportResponse struct {
 	//
 	//	*GetRunReportResponse_Load
 	//	*GetRunReportResponse_Fleet
-	Report        isGetRunReportResponse_Report `protobuf_oneof:"report"`
+	Report isGetRunReportResponse_Report `protobuf_oneof:"report"`
+	// A plan's gates, as this report judged them (ADR-0008 §2); empty for a
+	// run without gates. gates_passed is true when every gate passed.
+	Gates         []*GateResult `protobuf:"bytes,4,rep,name=gates,proto3" json:"gates,omitempty"`
+	GatesPassed   bool          `protobuf:"varint,5,opt,name=gates_passed,json=gatesPassed,proto3" json:"gates_passed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2871,6 +2875,20 @@ func (x *GetRunReportResponse) GetFleet() *FleetReport {
 		}
 	}
 	return nil
+}
+
+func (x *GetRunReportResponse) GetGates() []*GateResult {
+	if x != nil {
+		return x.Gates
+	}
+	return nil
+}
+
+func (x *GetRunReportResponse) GetGatesPassed() bool {
+	if x != nil {
+		return x.GatesPassed
+	}
+	return false
 }
 
 type isGetRunReportResponse_Report interface {
@@ -3115,11 +3133,13 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\alatency\x18\n" +
 	" \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x12#\n" +
 	"\rachieved_rate\x18\v \x01(\x01R\fachievedRate\x126\n" +
-	"\tresources\x18\f \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\"\x9c\x01\n" +
+	"\tresources\x18\f \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\"\xeb\x01\n" +
 	"\x14GetRunReportResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12*\n" +
 	"\x04load\x18\x02 \x01(\v2\x14.orbit.v1.LoadReportH\x00R\x04load\x12-\n" +
-	"\x05fleet\x18\x03 \x01(\v2\x15.orbit.v1.FleetReportH\x00R\x05fleetB\b\n" +
+	"\x05fleet\x18\x03 \x01(\v2\x15.orbit.v1.FleetReportH\x00R\x05fleet\x12*\n" +
+	"\x05gates\x18\x04 \x03(\v2\x14.orbit.v1.GateResultR\x05gates\x12!\n" +
+	"\fgates_passed\x18\x05 \x01(\bR\vgatesPassedB\b\n" +
 	"\x06report*\x8f\x01\n" +
 	"\aRunKind\x12\x18\n" +
 	"\x14RUN_KIND_UNSPECIFIED\x10\x00\x12\x11\n" +
@@ -3210,6 +3230,7 @@ var file_orbit_v1_run_proto_goTypes = []any{
 	(*PDUSession)(nil),              // 36: orbit.v1.PDUSession
 	(*RunPlan)(nil),                 // 37: orbit.v1.RunPlan
 	(*Lease)(nil),                   // 38: orbit.v1.Lease
+	(*GateResult)(nil),              // 39: orbit.v1.GateResult
 }
 var file_orbit_v1_run_proto_depIdxs = []int32{
 	0,  // 0: orbit.v1.Run.kind:type_name -> orbit.v1.RunKind
@@ -3258,27 +3279,28 @@ var file_orbit_v1_run_proto_depIdxs = []int32{
 	4,  // 43: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
 	30, // 44: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
 	32, // 45: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
-	7,  // 46: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
-	9,  // 47: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
-	11, // 48: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
-	13, // 49: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
-	29, // 50: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
-	27, // 51: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
-	23, // 52: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
-	25, // 53: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
-	8,  // 54: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
-	10, // 55: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
-	12, // 56: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
-	22, // 57: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
-	33, // 58: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
-	28, // 59: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
-	24, // 60: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
-	26, // 61: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
-	54, // [54:62] is the sub-list for method output_type
-	46, // [46:54] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	39, // 46: orbit.v1.GetRunReportResponse.gates:type_name -> orbit.v1.GateResult
+	7,  // 47: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
+	9,  // 48: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
+	11, // 49: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
+	13, // 50: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
+	29, // 51: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
+	27, // 52: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
+	23, // 53: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
+	25, // 54: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
+	8,  // 55: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
+	10, // 56: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
+	12, // 57: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
+	22, // 58: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
+	33, // 59: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
+	28, // 60: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
+	24, // 61: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
+	26, // 62: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
+	55, // [55:63] is the sub-list for method output_type
+	47, // [47:55] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_run_proto_init() }

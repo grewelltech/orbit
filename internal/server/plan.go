@@ -6,11 +6,13 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -35,7 +37,8 @@ const defaultGNBIDBits = 24
 type planRun struct {
 	load     engine.LoadRunFunc
 	fleet    engine.FleetRunFunc
-	built    engine.FleetRunSpec // the fleet path's engine spec, as run
+	storm    engine.LoadSpec     // the storm path's engine spec, as run
+	built    engine.FleetRunSpec // the persistent path's engine spec, as run
 	needs    engine.Needs
 	workload string
 	amf      string   // the gNB IDs' AMF, as given
@@ -61,8 +64,8 @@ func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkl
 	if pop == nil {
 		return nil, nil, fmt.Errorf("workload %q: a conformance or steps workload %w; give a population", w.GetName(), errR3)
 	}
-	if len(p.GetGates()) > 0 {
-		return nil, nil, fmt.Errorf("gates %w", errR2)
+	if err := validateGates(p.GetGates(), w.GetName()); err != nil {
+		return nil, nil, err
 	}
 	return w, pop, nil
 }
@@ -218,14 +221,12 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		return nil, fmt.Errorf("subscriber pool %q: %w", sp.GetName(), err)
 	}
 	until := p.GetUntil()
-	if until.GetForever() {
-		return nil, fmt.Errorf("until.forever %w", errR2)
-	}
 	att := pop.GetAttach()
-	if att.GetArrival() == orbitv1.Arrival_ARRIVAL_POISSON || att.GetSeed() != 0 {
-		return nil, fmt.Errorf("attach.arrival poisson and attach.seed %w", errR2)
+	curve, err := planRate(att)
+	if err != nil {
+		return nil, err
 	}
-	count, err := planCount(pop, sp, until.GetDurationMs() > 0)
+	count, err := planCount(pop, sp, until.GetDurationMs() > 0 || until.GetForever())
 	if err != nil {
 		return nil, err
 	}
@@ -260,22 +261,30 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 	}
 	creds := &orbitv1.Credentials{Ki: sp.GetKi(), Opc: sp.GetOpc()}
 	if pop.GetBehaviors() == nil {
-		spec, err := planLoadSpec(t, pop, sp, creds, count, ids, n2, n3, until)
+		// Storm: today's load run, through the load arm's own translation.
+		lspec, err := planLoadSpec(t, pop, sp, creds, count, ids, n2, n3, until)
 		if err != nil {
 			return fail(err)
 		}
-		fn, needs, err := loadRun(s.log, spec)
+		spec, err := loadSpecFrom(lspec)
 		if err != nil {
 			return fail(err)
 		}
-		out.load, out.needs = fn, needs
+		if curve != nil {
+			spec.Rate = curve // Poisson arrival, which a load arm cannot carry
+		}
+		if until.GetForever() {
+			spec.Duration = forever
+		}
+		fn, needs, err := loadRunFrom(s.log, spec)
+		if err != nil {
+			return fail(err)
+		}
+		out.load, out.needs, out.storm = fn, needs, spec
 		return out, nil
 	}
 	if until.GetComplete() {
 		return fail(errors.New("until.complete with behaviours never finishes: behaviours run until the run's duration"))
-	}
-	if att.GetConcurrency() != 0 || att.GetRamp() != nil {
-		return fail(fmt.Errorf("attach.concurrency and attach.ramp for a population with behaviours %w", errR2))
 	}
 	fs, err := planFleetScenario(w, t, pop, sp, count, ids[0], n2, n3, until)
 	if err != nil {
@@ -303,6 +312,15 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		spec.GNBs[i].Config.ID = ids[i]
 		spec.GNBs[i].Config.IDBits = int(gnbBits(t))
 		spec.GNBs[i].Config.Name = gnbName(t, i, len(spec.GNBs))
+	}
+	// The attach controller's knobs a scenario file has no words for.
+	if curve != nil {
+		spec.Rate = curve
+	}
+	spec.Concurrency = int(att.GetConcurrency())
+	spec.SampleEvery = time.Duration(pop.GetSampleIntervalMs()) * time.Millisecond
+	if until.GetForever() {
+		beh.Duration = forever
 	}
 	fn, needs, err := fleetRunFrom(s.log, s.mgr, spec, beh, verbosity)
 	if err != nil {
@@ -536,4 +554,55 @@ func (r *planRun) provenance() []*orbitv1.FieldProvenance {
 		Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_LEASE, Detail: "gNB ID rotation (least recently used) at " + r.amf},
 		Value:  "[" + strings.Join(ids, ",") + "]",
 	}}
+}
+
+// forever is how long an until.forever run's attaching (storm) or
+// behaviours (persistent) last: until StopRun, in practice.
+const forever = 100 * 365 * 24 * time.Hour
+
+// planRate is the attach-rate curve a population asks for: a constant rate
+// or a linear ramp, with Poisson arrival around it when asked (seeded by
+// attach.seed for a reproducible run). nil: concurrency-bound.
+func planRate(a *orbitv1.AttachProfile) (load.Rate, error) {
+	var base load.Rate
+	switch {
+	case a.GetRamp() != nil:
+		r := a.GetRamp()
+		base = load.LinearRamp{Start: r.GetStart(), End: r.GetEnd(), Over: time.Duration(r.GetSeconds()) * time.Second}
+	case a.GetRate() > 0:
+		base = load.Constant{RPS: a.GetRate()}
+	}
+	switch a.GetArrival() {
+	case orbitv1.Arrival_ARRIVAL_POISSON:
+		if base == nil {
+			return nil, errors.New("attach.arrival poisson needs attach.rate or attach.ramp")
+		}
+		return load.NewPoisson(base, a.GetSeed()), nil
+	case orbitv1.Arrival_ARRIVAL_UNSPECIFIED, orbitv1.Arrival_ARRIVAL_UNIFORM:
+		if a.GetSeed() != 0 {
+			return nil, errors.New("attach.seed seeds Poisson arrival; set attach.arrival poisson")
+		}
+		return base, nil
+	}
+	return nil, fmt.Errorf("attach.arrival %v is not supported", a.GetArrival())
+}
+
+// planReport is a completed plan run's report for its one workload, with
+// the plan's gates applied: from the engine's report while the run is in
+// the registry. nil when the run was not a plan.
+func planReport(plan *orbitv1.RunPlan, load *orbitv1.LoadReport, fleet *orbitv1.FleetReport) *orbitv1.RunReport {
+	if plan == nil || len(plan.GetWorkloads()) != 1 {
+		return nil
+	}
+	r := &orbitv1.RunReport{Workload: plan.GetWorkloads()[0].GetName()}
+	switch {
+	case load != nil:
+		r.Kind, r.Report = orbitv1.RunKind_RUN_KIND_LOAD, &orbitv1.RunReport_Load{Load: load}
+	case fleet != nil:
+		r.Kind, r.Report = orbitv1.RunKind_RUN_KIND_FLEET, &orbitv1.RunReport_Fleet{Fleet: fleet}
+	default:
+		return nil
+	}
+	applyGates(r, plan.GetGates())
+	return r
 }

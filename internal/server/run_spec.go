@@ -97,3 +97,15 @@ func redactArchive(a *orbitv1.RunArchive, requestSecrets []string) {
 	values := append(secrets.Mask(a), requestSecrets...)
 	secrets.Scrub(a, values)
 }
+
+// peek returns a run's held spec without forgetting it (a report asked for
+// before the run is archived).
+func (s *specStore) peek(id string) (heldSpec, bool) {
+	if s == nil {
+		return heldSpec{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h, ok := s.specs[id]
+	return h, ok
+}

@@ -2077,6 +2077,75 @@ func (*ConformanceGate) Descriptor() ([]byte, []int) {
 	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{23}
 }
 
+// GateResult is one gate as the report applied it.
+type GateResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Gate          *Gate                  `protobuf:"bytes,1,opt,name=gate,proto3" json:"gate,omitempty"`
+	Passed        bool                   `protobuf:"varint,2,opt,name=passed,proto3" json:"passed,omitempty"`
+	Observed      float64                `protobuf:"fixed64,3,opt,name=observed,proto3" json:"observed,omitempty"` // the metric's value (SLO gates)
+	Detail        string                 `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`       // why it failed, in words
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GateResult) Reset() {
+	*x = GateResult{}
+	mi := &file_orbit_v1_plan_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GateResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GateResult) ProtoMessage() {}
+
+func (x *GateResult) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_plan_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GateResult.ProtoReflect.Descriptor instead.
+func (*GateResult) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *GateResult) GetGate() *Gate {
+	if x != nil {
+		return x.Gate
+	}
+	return nil
+}
+
+func (x *GateResult) GetPassed() bool {
+	if x != nil {
+		return x.Passed
+	}
+	return false
+}
+
+func (x *GateResult) GetObserved() float64 {
+	if x != nil {
+		return x.Observed
+	}
+	return 0
+}
+
+func (x *GateResult) GetDetail() string {
+	if x != nil {
+		return x.Detail
+	}
+	return ""
+}
+
 // Lease is one resource an active run holds (ADR-0008 §5).
 type Lease struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2093,7 +2162,7 @@ type Lease struct {
 
 func (x *Lease) Reset() {
 	*x = Lease{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[24]
+	mi := &file_orbit_v1_plan_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2105,7 +2174,7 @@ func (x *Lease) String() string {
 func (*Lease) ProtoMessage() {}
 
 func (x *Lease) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[24]
+	mi := &file_orbit_v1_plan_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2118,7 +2187,7 @@ func (x *Lease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Lease.ProtoReflect.Descriptor instead.
 func (*Lease) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{24}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Lease) GetResource() LeaseResource {
@@ -2312,7 +2381,13 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\x06metric\x18\x01 \x01(\tR\x06metric\x12#\n" +
 	"\x02op\x18\x02 \x01(\x0e2\x13.orbit.v1.CompareOpR\x02op\x12\x1c\n" +
 	"\tthreshold\x18\x03 \x01(\x01R\tthreshold\"\x11\n" +
-	"\x0fConformanceGate\"\xca\x01\n" +
+	"\x0fConformanceGate\"|\n" +
+	"\n" +
+	"GateResult\x12\"\n" +
+	"\x04gate\x18\x01 \x01(\v2\x0e.orbit.v1.GateR\x04gate\x12\x16\n" +
+	"\x06passed\x18\x02 \x01(\bR\x06passed\x12\x1a\n" +
+	"\bobserved\x18\x03 \x01(\x01R\bobserved\x12\x16\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\"\xca\x01\n" +
 	"\x05Lease\x123\n" +
 	"\bresource\x18\x01 \x01(\x0e2\x17.orbit.v1.LeaseResourceR\bresource\x12\x12\n" +
 	"\x04plmn\x18\x02 \x01(\tR\x04plmn\x12\x1d\n" +
@@ -2360,7 +2435,7 @@ func file_orbit_v1_plan_proto_rawDescGZIP() []byte {
 }
 
 var file_orbit_v1_plan_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_orbit_v1_plan_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_orbit_v1_plan_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_orbit_v1_plan_proto_goTypes = []any{
 	(Arrival)(0),                // 0: orbit.v1.Arrival
 	(HandoverKind)(0),           // 1: orbit.v1.HandoverKind
@@ -2391,18 +2466,19 @@ var file_orbit_v1_plan_proto_goTypes = []any{
 	(*Gate)(nil),                // 26: orbit.v1.Gate
 	(*SLOGate)(nil),             // 27: orbit.v1.SLOGate
 	(*ConformanceGate)(nil),     // 28: orbit.v1.ConformanceGate
-	(*Lease)(nil),               // 29: orbit.v1.Lease
-	nil,                         // 30: orbit.v1.AppCohort.ParamsEntry
-	(*ResolvedTarget)(nil),      // 31: orbit.v1.ResolvedTarget
-	(*FieldProvenance)(nil),     // 32: orbit.v1.FieldProvenance
-	(*ExpectedFailure)(nil),     // 33: orbit.v1.ExpectedFailure
+	(*GateResult)(nil),          // 29: orbit.v1.GateResult
+	(*Lease)(nil),               // 30: orbit.v1.Lease
+	nil,                         // 31: orbit.v1.AppCohort.ParamsEntry
+	(*ResolvedTarget)(nil),      // 32: orbit.v1.ResolvedTarget
+	(*FieldProvenance)(nil),     // 33: orbit.v1.FieldProvenance
+	(*ExpectedFailure)(nil),     // 34: orbit.v1.ExpectedFailure
 }
 var file_orbit_v1_plan_proto_depIdxs = []int32{
-	31, // 0: orbit.v1.RunPlan.target:type_name -> orbit.v1.ResolvedTarget
+	32, // 0: orbit.v1.RunPlan.target:type_name -> orbit.v1.ResolvedTarget
 	6,  // 1: orbit.v1.RunPlan.workloads:type_name -> orbit.v1.Workload
 	25, // 2: orbit.v1.RunPlan.until:type_name -> orbit.v1.Until
 	26, // 3: orbit.v1.RunPlan.gates:type_name -> orbit.v1.Gate
-	32, // 4: orbit.v1.RunPlan.provenance:type_name -> orbit.v1.FieldProvenance
+	33, // 4: orbit.v1.RunPlan.provenance:type_name -> orbit.v1.FieldProvenance
 	24, // 5: orbit.v1.Workload.start:type_name -> orbit.v1.StartCondition
 	7,  // 6: orbit.v1.Workload.population:type_name -> orbit.v1.PopulationWorkload
 	20, // 7: orbit.v1.Workload.conformance:type_name -> orbit.v1.ConformanceWorkload
@@ -2421,20 +2497,21 @@ var file_orbit_v1_plan_proto_depIdxs = []int32{
 	18, // 20: orbit.v1.Traffic.bulk:type_name -> orbit.v1.BulkTraffic
 	16, // 21: orbit.v1.TrafficShare.synthetic:type_name -> orbit.v1.SyntheticProfile
 	17, // 22: orbit.v1.TrafficShare.app:type_name -> orbit.v1.AppCohort
-	30, // 23: orbit.v1.AppCohort.params:type_name -> orbit.v1.AppCohort.ParamsEntry
+	31, // 23: orbit.v1.AppCohort.params:type_name -> orbit.v1.AppCohort.ParamsEntry
 	21, // 24: orbit.v1.ConformanceWorkload.expected:type_name -> orbit.v1.ExpectedFailures
 	22, // 25: orbit.v1.ConformanceWorkload.nas:type_name -> orbit.v1.NASAlgorithms
-	33, // 26: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
+	34, // 26: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
 	2,  // 27: orbit.v1.StartCondition.phase:type_name -> orbit.v1.WorkloadPhase
 	27, // 28: orbit.v1.Gate.slo:type_name -> orbit.v1.SLOGate
 	28, // 29: orbit.v1.Gate.conformance:type_name -> orbit.v1.ConformanceGate
 	3,  // 30: orbit.v1.SLOGate.op:type_name -> orbit.v1.CompareOp
-	4,  // 31: orbit.v1.Lease.resource:type_name -> orbit.v1.LeaseResource
-	32, // [32:32] is the sub-list for method output_type
-	32, // [32:32] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	26, // 31: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
+	4,  // 32: orbit.v1.Lease.resource:type_name -> orbit.v1.LeaseResource
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_plan_proto_init() }
@@ -2473,7 +2550,7 @@ func file_orbit_v1_plan_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_plan_proto_rawDesc), len(file_orbit_v1_plan_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

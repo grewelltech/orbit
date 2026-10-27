@@ -27,11 +27,3 @@ message ConformanceSummary {
   ConformanceTally tally = 1;
   repeated ConformanceResult results = 2;
 }
-
-// GateResult is one gate as the report applied it.
-message GateResult {
-  Gate gate = 1;
-  bool passed = 2;
-  double observed = 3;            // the metric's value (SLO gates)
-  string detail = 4;              // why it failed, in words
-}
