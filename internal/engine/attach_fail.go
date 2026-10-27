@@ -15,8 +15,13 @@ const failDeregisterTimeout = 2 * time.Second
 // sends a switch-off Deregistration under the attach's security context:
 // the caller gets no Session for a failed attach, so nobody else could
 // deregister it, and the core would keep a registered UE with no handle.
+//
+// A probe-driven attach (ueCfg.Probe, the conformance checks) is left
+// alone: its check owns the cleanup, and some stop on purpose after
+// Registration Accept to watch what the core does next (T3550), which an
+// automatic switch-off would cut short.
 func (s *attachState) fail(err error) error {
-	if !s.registered {
+	if !s.registered || s.ueCfg.Probe != nil {
 		return err
 	}
 	sess := &Session{SUPI: s.ueCfg.Sub.SUPI, gnbCfg: s.gnbCfg, conn: s.conn, sec: s.sec,
