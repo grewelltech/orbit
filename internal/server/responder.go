@@ -161,27 +161,42 @@ func referencedResponders(p *orbitv1.RunPlan) map[string]bool {
 
 // withRegistered fills in the responders a plan uses that its target names
 // only (`{name: app1}`, no control or token): each from the registry, as
-// its control address, loom token and data IP. It works on a copy: the plan
-// a client sent, and so GetRun and the archive, never hold the token. A
-// name no responder registered is an error naming orbit responder list; a
-// registered one that is not online wraps errResponderOffline.
-func (s *runService) withRegistered(p *orbitv1.RunPlan) (*orbitv1.RunPlan, error) {
+// its control address, loom token and data IP. A population's latency probe
+// with no target echoes the target's first responder, as a scenario's
+// omitted latency.target does; when that responder is a registered one its
+// data IP comes from the registry here, recorded in the provenance returned
+// as "responder <name> (registry)". It works on a copy: the plan a client
+// sent, and so GetRun and the archive, never hold the token. A name no
+// responder registered is an error naming orbit responder list; a
+// registered one that is not online wraps errResponderOffline, before
+// anything else is built.
+func (s *runService) withRegistered(p *orbitv1.RunPlan) (*orbitv1.RunPlan, []*orbitv1.FieldProvenance, error) {
 	used := referencedResponders(p)
+	responders := p.GetTarget().GetApp().GetResponders()
+	// A latency probe with no target echoes the first responder.
+	latencyFrom := ""
+	for _, w := range p.GetWorkloads() {
+		if l := w.GetPopulation().GetBehaviors().GetLatency(); l != nil && l.GetTarget() == "" && len(responders) > 0 {
+			latencyFrom = responders[0].GetName()
+			used[latencyFrom] = true
+		}
+	}
 	var out *orbitv1.RunPlan
-	for i, r := range p.GetTarget().GetApp().GetResponders() {
+	resolved := map[string]join.Responder{}
+	for i, r := range responders {
 		if !used[r.GetName()] || r.GetControl() != "" || r.GetToken() != "" {
 			continue
 		}
 		if s.responders == nil {
-			return nil, fmt.Errorf("no responder named %q is registered (orbit responder list)", r.GetName())
+			return nil, nil, fmt.Errorf("no responder named %q is registered (orbit responder list)", r.GetName())
 		}
 		rs, err := s.responders.Resolve(r.GetName())
 		var off *join.OfflineError
 		switch {
 		case errors.As(err, &off):
-			return nil, offlineError{err}
+			return nil, nil, offlineError{err}
 		case err != nil:
-			return nil, fmt.Errorf("no responder named %q is registered (orbit responder list)", r.GetName())
+			return nil, nil, fmt.Errorf("no responder named %q is registered (orbit responder list)", r.GetName())
 		}
 		if out == nil {
 			out = proto.Clone(p).(*orbitv1.RunPlan)
@@ -191,9 +206,23 @@ func (s *runService) withRegistered(p *orbitv1.RunPlan) (*orbitv1.RunPlan, error
 		if got.GetDataIp() == "" {
 			got.DataIp = rs.DataIP
 		}
+		resolved[r.GetName()] = rs
+	}
+	var prov []*orbitv1.FieldProvenance
+	if rs, ok := resolved[latencyFrom]; ok && latencyFrom != "" {
+		for _, w := range out.GetWorkloads() {
+			if l := w.GetPopulation().GetBehaviors().GetLatency(); l != nil && l.GetTarget() == "" {
+				l.Target = rs.DataIP
+				prov = append(prov, &orbitv1.FieldProvenance{
+					Path:   "workloads[" + w.GetName() + "].behaviors.latency.target",
+					Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_LEASE, Detail: "responder " + latencyFrom + " (registry)"},
+					Value:  rs.DataIP,
+				})
+			}
+		}
 	}
 	if out == nil {
-		return p, nil
+		return p, nil, nil
 	}
-	return out, nil
+	return out, prov, nil
 }

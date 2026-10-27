@@ -196,17 +196,17 @@ func TestWithRegistered(t *testing.T) {
 			Behaviors: &orbitv1.Behaviors{Traffic: &orbitv1.Traffic{Bulk: &orbitv1.BulkTraffic{Responder: names[0]}}}}}}}
 		return p
 	}
-	if _, err := s.withRegistered(plan("nope")); err == nil || !strings.Contains(err.Error(), "orbit responder list") {
+	if _, err := s.withRegisteredPlan(plan("nope")); err == nil || !strings.Contains(err.Error(), "orbit responder list") {
 		t.Errorf("unknown: %v", err)
 	}
-	if _, err := s.withRegistered(plan("app1")); !errors.Is(err, errResponderOffline) || !strings.Contains(err.Error(), "responder app1 is offline") {
+	if _, err := s.withRegisteredPlan(plan("app1")); !errors.Is(err, errResponderOffline) || !strings.Contains(err.Error(), "responder app1 is offline") {
 		t.Errorf("never seen: %v", err)
 	}
 	if _, _, err := reg.Heartbeat(cred, "198.51.100.20:1", "", true, false); err != nil {
 		t.Fatal(err)
 	}
 	sent := plan("app1", "unused")
-	got, err := s.withRegistered(sent)
+	got, err := s.withRegisteredPlan(sent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,65 @@ func TestWithRegistered(t *testing.T) {
 		t.Error("the plan as sent now holds the loom token")
 	}
 	clk = clk.Add(31 * time.Second)
-	if _, err := s.withRegistered(plan("app1")); !errors.Is(err, errResponderOffline) || !strings.Contains(err.Error(), "last heartbeat 31s ago") {
+	if _, err := s.withRegisteredPlan(plan("app1")); !errors.Is(err, errResponderOffline) || !strings.Contains(err.Error(), "last heartbeat 31s ago") {
 		t.Errorf("offline: %v", err)
+	}
+}
+
+// withRegisteredPlan is withRegistered without its provenance.
+func (s *runService) withRegisteredPlan(p *orbitv1.RunPlan) (*orbitv1.RunPlan, error) {
+	out, _, err := s.withRegistered(p)
+	return out, err
+}
+
+// A population's latency probe with no target echoes the first responder:
+// a registered one's data IP comes from the registry, recorded in the
+// provenance; an explicit target is kept; an offline responder is refused
+// before anything is filled.
+func TestWithRegisteredLatency(t *testing.T) {
+	clk := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	reg, err := join.OpenRegistry("", join.WithRegistryClock(func() time.Time { return clk }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := join.NewStore(join.WithClock(func() time.Time { return clk }))
+	_, secret, err := store.Create("", 0, join.Spec{UEPools: []string{"10.250.0.0/16"}, UPFN6: "198.51.100.1", N6Subnet: "198.51.100.0/24", Management: "192.0.2.10:8412"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cred := newCred(t)
+	if _, err := reg.Register(store, join.RegisterRequest{JoinToken: secret, Credential: cred, Name: "app1", Control: "198.51.100.20:9551",
+		DataIP: "198.51.100.21", PortLow: 32768, PortHigh: 60999}); err != nil {
+		t.Fatal(err)
+	}
+	s := &runService{responders: reg}
+	plan := func(latencyTarget string) *orbitv1.RunPlan {
+		return &orbitv1.RunPlan{Target: &orbitv1.ResolvedTarget{App: &orbitv1.TargetApp{Responders: []*orbitv1.Responder{{Name: "app1"}}}},
+			Workloads: []*orbitv1.Workload{{Name: "fleet", Kind: &orbitv1.Workload_Population{Population: &orbitv1.PopulationWorkload{
+				Behaviors: &orbitv1.Behaviors{Latency: &orbitv1.LatencyProbe{Target: latencyTarget}}}}}}}
+	}
+	if _, _, err := s.withRegistered(plan("")); !errors.Is(err, errResponderOffline) {
+		t.Errorf("offline: %v", err)
+	}
+	if _, _, err := reg.Heartbeat(cred, "x", "", true, false); err != nil {
+		t.Fatal(err)
+	}
+	sent := plan("")
+	got, prov, err := s.withRegistered(sent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tgt := got.GetWorkloads()[0].GetPopulation().GetBehaviors().GetLatency().GetTarget(); tgt != "198.51.100.21" {
+		t.Errorf("latency target = %q", tgt)
+	}
+	if len(prov) != 1 || prov[0].GetPath() != "workloads[fleet].behaviors.latency.target" || prov[0].GetSource().GetDetail() != "responder app1 (registry)" || prov[0].GetValue() != "198.51.100.21" {
+		t.Errorf("provenance: %v", prov)
+	}
+	if sent.GetWorkloads()[0].GetPopulation().GetBehaviors().GetLatency().GetTarget() != "" {
+		t.Error("the plan as sent changed")
+	}
+	got, prov, err = s.withRegistered(plan("203.0.113.9"))
+	if err != nil || len(prov) != 0 || got.GetWorkloads()[0].GetPopulation().GetBehaviors().GetLatency().GetTarget() != "203.0.113.9" {
+		t.Errorf("explicit target: %v, %v, %v", got, prov, err)
 	}
 }

@@ -48,6 +48,9 @@ type planRun struct {
 	amfKeys   []string // its identity set, which the rotation keys on
 	plmn      string
 	assigned  []uint32
+	// registered is what the registry filled in that a run's provenance
+	// records (a latency target from a registered responder).
+	registered []*orbitv1.FieldProvenance
 }
 
 // population checks a plan's shape for S2 and returns its one population
@@ -208,7 +211,7 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 // strategy even without behaviours: an old fleet arm's plan, since a fleet
 // always kept its UEs.
 func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbosity, persistent bool) (*planRun, error) {
-	p, err := s.withRegistered(p)
+	p, registered, err := s.withRegistered(p)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +274,7 @@ func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbo
 	if err != nil {
 		return nil, err
 	}
-	out := &planRun{workload: w.GetName(), amf: core.GetAmf(), amfKeys: amfKeys, plmn: plmn}
+	out := &planRun{workload: w.GetName(), amf: core.GetAmf(), amfKeys: amfKeys, plmn: plmn, registered: registered}
 	if assigned {
 		out.assigned = ids
 	}
@@ -570,18 +573,19 @@ func bitRate(bps uint64) string {
 // provenance is the server's own provenance for a plan: the gNB IDs it
 // assigned from the rotation (layer LEASE).
 func (r *planRun) provenance() []*orbitv1.FieldProvenance {
+	out := append([]*orbitv1.FieldProvenance(nil), r.registered...)
 	if len(r.assigned) == 0 {
-		return nil
+		return out
 	}
 	ids := make([]string, len(r.assigned))
 	for i, id := range r.assigned {
 		ids[i] = strconv.FormatUint(uint64(id), 10)
 	}
-	return []*orbitv1.FieldProvenance{{
+	return append(out, &orbitv1.FieldProvenance{
 		Path:   "workloads[" + r.workload + "].topology.gnb_ids",
 		Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_LEASE, Detail: "gNB ID rotation (least recently used) at " + r.amf},
 		Value:  "[" + strings.Join(ids, ",") + "]",
-	}}
+	})
 }
 
 // forever is how long an until.forever run's attaching (storm) or
