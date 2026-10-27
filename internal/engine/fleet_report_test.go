@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -66,3 +68,50 @@ func TestFleetReportNotePerGNB(t *testing.T) {
 		t.Errorf("b = %+v", got)
 	}
 }
+
+// A fleet's attach phase runs on the load controller: a Poisson curve with
+// a seed paces it, concurrency bounds it, and the report carries the same
+// attach figures a load run does (latency distribution, achieved rate).
+func TestRunFleetAttachOnLoadController(t *testing.T) {
+	amf, cfg, ki, opc := newBindTestAMF(t)
+	addr := sctpFront(t, amf)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	seen := 0
+	var mu sync.Mutex
+	rep, err := RunFleet(ctx, testLogger(), FleetRunSpec{
+		AMFAddr: addr, GNBs: []FleetGNB{{Config: cfg}},
+		BaseIMSI: "208930100007500", Count: 6, MCC: "208", MNC: "93", Ki: ki, OPc: opc,
+		Rate:        load.NewPoisson(load.Constant{RPS: 200}, 7),
+		Concurrency: 2,
+		Observer:    observerFunc(func(load.Sample) { mu.Lock(); seen++; mu.Unlock() }),
+	}, FleetBehaviors{}, FleetDeps{Stats: NewFleetLiveStats()})
+	if err != nil {
+		t.Fatalf("RunFleet: %v", err)
+	}
+	if rep.Attached != 6 || rep.AttachFailed != 0 {
+		t.Fatalf("report = %+v, want 6 attached", rep)
+	}
+	if rep.AchievedRate <= 0 || rep.Latencies["registration"].Count != 6 {
+		t.Errorf("attach figures: rate %v, latencies %+v; want a rate and 6 registrations", rep.AchievedRate, rep.Latencies)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if seen != 6 {
+		t.Errorf("the observer saw %d attaches, want 6", seen)
+	}
+}
+
+// A fleet whose SUPI pool leaves the PLMN fails before any gNB dials.
+func TestRunFleetValidatesSUPIRange(t *testing.T) {
+	_, err := RunFleet(context.Background(), testLogger(), FleetRunSpec{
+		AMFAddr: "127.0.0.1:1", GNBs: []FleetGNB{{}}, BaseIMSI: "001010000000001", Count: 2, MCC: "208", MNC: "93",
+	}, FleetBehaviors{}, FleetDeps{})
+	if err == nil || !strings.Contains(err.Error(), "base IMSI") {
+		t.Fatalf("err = %v, want the SUPI range refused up front", err)
+	}
+}
+
+type observerFunc func(load.Sample)
+
+func (f observerFunc) Observe(s load.Sample) { f(s) }

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/time/rate"
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gnb"
@@ -35,14 +34,22 @@ type FleetGNB struct {
 // FleetRunSpec parameterises a fleet run (ADR-0004). UEs spread round-robin
 // across the gNBs (even distribution): UE i is served by GNBs[i % len(GNBs)].
 type FleetRunSpec struct {
-	AMFAddr     string
-	GNBs        []FleetGNB
-	BaseIMSI    string
-	Count       int
-	MCC, MNC    string
-	Ki, OPc     []byte
-	RateRPS     float64 // offered attach rate (attaches/sec; 0 = concurrency-bound)
+	AMFAddr  string
+	GNBs     []FleetGNB
+	BaseIMSI string
+	Count    int
+	MCC, MNC string
+	Ki, OPc  []byte
+	RateRPS  float64 // offered attach rate (attaches/sec; 0 = concurrency-bound)
+	// Rate is the attach-rate curve (ramp, step, Poisson with its seed),
+	// overriding RateRPS when set: the same controller a load run uses.
+	Rate        load.Rate
 	Concurrency int
+	// SampleEvery, when set, samples goroutines and RSS through the attach
+	// phase (the load run's resource trend).
+	SampleEvery time.Duration
+	// Observer, if set, receives each attach as it completes.
+	Observer load.Observer
 	// GNBAssign maps UE index to serving gNB index. nil means round-robin,
 	// which is what every caller did before distributions existed and what a
 	// spec built without a scenario still wants.
@@ -110,6 +117,12 @@ type FleetReport struct {
 	// AppCohorts are the app-traffic cohort outcomes, index-aligned with
 	// FleetBehaviors.Apps.
 	AppCohorts []FleetAppCohortReport
+	// The attach phase's figures, as a load run reports them: the
+	// per-procedure latency distribution, the achieved attach rate, and the
+	// resource trend when sampled. The same SLO gates apply to both.
+	Latencies    map[string]load.Stats
+	AchievedRate float64
+	Resources    []load.ResourceSample
 }
 
 // notePerGNB counts one attach attempt on the gNB labelled gnb.
@@ -184,6 +197,11 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	if err := validateFleetBulk(beh.Bulk); err != nil {
 		return rep, err
 	}
+	// The load run's up-front check: the first and last SUPIs parse in the
+	// PLMN, so a pool outside it fails here, not as N per-UE failures.
+	if err := (&LoadSpec{BaseIMSI: spec.BaseIMSI, Count: spec.Count, MCC: spec.MCC, MNC: spec.MNC}).Validate(); err != nil {
+		return rep, err
+	}
 	specs := make([]GNBSpec, len(spec.GNBs))
 	for i, g := range spec.GNBs {
 		specs[i] = GNBSpec{AMFAddr: spec.AMFAddr, Config: g.Config, BindAddr: g.BindAddr}
@@ -208,42 +226,36 @@ func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh Flee
 	start := time.Now()
 	ues := make([]*fleetUE, 0, spec.Count)
 	var amu sync.Mutex
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, orDefaultInt(spec.Concurrency, 64))
-	var lim *rate.Limiter
-	if spec.RateRPS > 0 {
-		lim = rate.NewLimiter(rate.Limit(spec.RateRPS), 1)
+	// The load run's controller paces the attaches: the rate curve (or the
+	// constant RateRPS), concurrency, and the latency recorder, so a fleet
+	// reports the same attach figures a load run does.
+	attachRate := spec.Rate
+	if attachRate == nil && spec.RateRPS > 0 {
+		attachRate = load.Constant{RPS: spec.RateRPS}
 	}
-	for i := 0; i < spec.Count; i++ {
-		if err := ctx.Err(); err != nil {
-			break
+	lrep := load.Run(ctx, load.Config{
+		Total: spec.Count, Concurrency: orDefaultInt(spec.Concurrency, 64), Rate: attachRate,
+		SampleInterval: spec.SampleEvery, Observer: spec.Observer,
+	}, func(ctx context.Context, i int) load.Sample {
+		fu, metrics, err := attachFleetUE(ctx, f, spec, pool, i, ev, live)
+		gnbLabel := gnbAttributionLabel(f.gnbConfigFor(spec.gnbForUE(i, len(f.sessions))))
+		amu.Lock()
+		defer amu.Unlock()
+		rep.notePerGNB(gnbLabel, err == nil)
+		if err != nil {
+			rep.AttachFailed++
+			live.AttachFailed()
+			// Per UE, at every verbosity: attach failures are rare and are
+			// the reason to be watching. supi is derived rather than taken
+			// from the (nil) handle.
+			ev.Failure(EventKindAttach, fleetSUPI(spec, i), err.Error())
+			return load.Sample{Err: err, SUPI: fleetSUPI(spec, i), GNB: gnbLabel}
 		}
-		if lim != nil {
-			_ = lim.Wait(ctx)
-		}
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(i int) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			fu, err := attachFleetUE(ctx, f, spec, pool, i, ev, live)
-			amu.Lock()
-			defer amu.Unlock()
-			rep.notePerGNB(gnbAttributionLabel(f.gnbConfigFor(spec.gnbForUE(i, len(f.sessions)))), err == nil)
-			if err != nil {
-				rep.AttachFailed++
-				live.AttachFailed()
-				// Per UE, at every verbosity: attach failures are rare and are
-				// the reason to be watching. supi is derived rather than taken
-				// from the (nil) handle.
-				ev.Failure(EventKindAttach, fleetSUPI(spec, i), err.Error())
-				return
-			}
-			ues = append(ues, fu)
-			live.AttachOK(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess.SUPI, fu.sess)
-		}(i)
-	}
-	wg.Wait()
+		ues = append(ues, fu)
+		live.AttachOK(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess.SUPI, fu.sess)
+		return load.Sample{Metrics: metrics, SUPI: fu.sess.SUPI, GNB: gnbLabel}
+	})
+	rep.Latencies, rep.AchievedRate, rep.Resources = lrep.Latencies, lrep.AchievedRate, lrep.Resources
 	rep.Attached = len(ues)
 	rep.AttachElapsed = time.Since(start)
 	// The aggregated stand-in for the per-UE successes normal verbosity does
@@ -304,16 +316,18 @@ func fleetSUPI(spec FleetRunSpec, i int) string {
 // attachFleetUE attaches one UE muxed on its serving gNB's association and
 // returns a persistent handle. The session's data path (opened lazily only
 // when an app cohort uses the UE) rides the run's shared per-gNB pool.
+// attachFleetUE attaches UE i and keeps it, returning its handle and its
+// procedure timings.
 func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Pool, i int,
-	ev *RunEvents, live *FleetLiveStats) (*fleetUE, error) {
+	ev *RunEvents, live *FleetLiveStats) (*fleetUE, map[string]time.Duration, error) {
 	gi := spec.gnbForUE(i, len(f.sessions))
 	supi, err := incIMSI(spec.BaseIMSI, i)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	id, err := ue.ParseIdentity(supi, spec.MCC, spec.MNC, "0")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cfg := UEConfig{Identity: id, Sub: auth.Subscription{SUPI: supi, Ki: spec.Ki, OPc: spec.OPc}}
 	uet, ranID := f.sessions[gi].NewUE()
@@ -344,18 +358,19 @@ func attachFleetUE(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n3Poo
 	}
 	sess, err := Attach(ctx, uet, f.gnbConfigFor(gi), cfg, f.log, emit)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !sess.Result.Registered {
-		return nil, fmt.Errorf("UE %s not registered", supi)
+		return nil, nil, fmt.Errorf("UE %s not registered", supi)
 	}
 	sess.gnbN3 = spec.GNBs[gi].N3Addr
 	sess.n3 = pool
 	sess.setN2Source(f.n2SourceFor(gi))
-	for name, d := range attachProcedureDurations(time.Since(start), regDur, sess.Result.SessionActive) {
+	metrics := attachProcedureDurations(time.Since(start), regDur, sess.Result.SessionActive)
+	for name, d := range metrics {
 		live.RecordProcedure(name, d)
 	}
-	return &fleetUE{sess: sess, gnbIdx: gi}, nil
+	return &fleetUE{sess: sess, gnbIdx: gi}, metrics, nil
 }
 
 // runFleetBehaviors runs mobility + traffic + app cohorts concurrently until
