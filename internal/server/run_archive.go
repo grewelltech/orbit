@@ -39,7 +39,10 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 	held, _ := s.specs.take(id)
 	if held.archive != nil {
 		a.Spec = held.archive.GetSpec()
+		a.Plan = held.archive.GetPlan()
+		a.Provenance = held.archive.GetProvenance()
 	}
+	a.Leases = leasesProto(s.reg.Leases(id))
 
 	// The final progress snapshot, exactly as GetRun would have returned it.
 	switch info.Kind {

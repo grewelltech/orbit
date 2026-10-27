@@ -46,6 +46,10 @@ type runService struct {
 	// N3 socket pool so an ad-hoc `orbit ue` session and a run cannot fight
 	// over one gNB's UDP bind — see engine.FleetDeps.
 	mgr *engine.Manager
+	// rotation assigns gNB IDs to plans that ask for them (gnb_ids.assign),
+	// least recently used first, persisted in the state directory. Nil: a
+	// plan cannot ask.
+	rotation *engine.GNBRotation
 }
 
 func (s *runService) StartRun(
@@ -83,9 +87,43 @@ func (s *runService) StartRun(
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Plan:
-		// RunPlan execution is R2 (ADR-0008 §2); the message exists so
-		// clients and the UI can be built against it.
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RunPlan runs are not implemented yet; send a load or fleet spec"))
+		// S2: one population workload, run on today's engines.
+		pr, err := s.buildPlan(spec.Plan, verbosity)
+		if errors.Is(err, engine.ErrGNBRangeExhausted) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		if errors.Is(err, engine.ErrRotationPersist) {
+			return nil, connect.NewError(connect.CodeUnavailable, err)
+		}
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		opts.Needs = pr.needs
+		// Read before the run starts: a run that fails fast releases its
+		// leases (and its IDs) while StartRun is still here.
+		prov := pr.provenance()
+		// The IDs go back once: from the run's release, or below if it
+		// never starts (a launcher that panicked does both).
+		var once sync.Once
+		release := func() {}
+		if ids := pr.assigned; len(ids) > 0 {
+			keys, plmn := pr.amfKeys, pr.plmn
+			release = func() { once.Do(func() { s.releaseIDs(keys, plmn, ids) }) }
+			opts.OnRelease = release
+		}
+		var info engine.RunInfo
+		if pr.fleet != nil {
+			info, err = s.reg.StartFleet(opts, pr.fleet)
+		} else {
+			info, err = s.reg.StartLoad(opts, pr.load)
+		}
+		if err != nil {
+			release()
+			return nil, runStartError(err)
+		}
+		s.specs.put(info.ID, m, prov...)
+		s.startSampler(info.ID)
+		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("a run spec is required (load or fleet)"))
 	}
@@ -156,6 +194,9 @@ func (s *runService) GetRun(
 		return nil, runLookupError(err)
 	}
 	resp := &orbitv1.GetRunResponse{Run: runProto(info)}
+	if !info.State.Terminal() {
+		resp.Leases = leasesProto(s.reg.Leases(id))
+	}
 	switch info.Kind {
 	case engine.RunKindLoad:
 		if snap, ok := s.reg.Snapshot(id); ok {
@@ -875,6 +916,11 @@ func fleetRun(log *slog.Logger, mgr *engine.Manager, p *orbitv1.FleetRunSpec, ve
 	if err != nil {
 		return nil, engine.Needs{}, err
 	}
+	return fleetRunFrom(log, mgr, spec, beh, verbosity)
+}
+
+// fleetRunFrom is a built fleet spec's leases and launcher.
+func fleetRunFrom(log *slog.Logger, mgr *engine.Manager, spec engine.FleetRunSpec, beh engine.FleetBehaviors, verbosity engine.EventVerbosity) (engine.FleetRunFunc, engine.Needs, error) {
 	needs, err := engine.FleetNeeds(spec)
 	if err != nil {
 		return nil, engine.Needs{}, err
@@ -1111,6 +1157,24 @@ func procedureLatencies(stats map[string]load.Stats) []*orbitv1.ProcedureLatency
 		if !seen[name] {
 			add(name, st)
 		}
+	}
+	return out
+}
+
+// leasesProto is a run's leases on the wire.
+func leasesProto(ls []engine.LeaseInfo) []*orbitv1.Lease {
+	out := make([]*orbitv1.Lease, 0, len(ls))
+	for _, l := range ls {
+		pl := &orbitv1.Lease{Plmn: l.PLMN, FirstSupi: l.FirstSUPI, LastSupi: l.LastSUPI, Amf: l.AMF, GnbId: l.GNBID, N2Ip: l.N2IP}
+		switch l.Resource {
+		case "supi_block":
+			pl.Resource = orbitv1.LeaseResource_LEASE_RESOURCE_SUPI_BLOCK
+		case "gnb_id":
+			pl.Resource = orbitv1.LeaseResource_LEASE_RESOURCE_GNB_ID
+		case "n2_ip":
+			pl.Resource = orbitv1.LeaseResource_LEASE_RESOURCE_N2_IP
+		}
+		out = append(out, pl)
 	}
 	return out
 }

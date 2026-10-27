@@ -42,7 +42,12 @@ func newSpecStore() *specStore {
 // are the subscriber's long-term secrets and have no business in one — and an
 // archive on disk is exactly the artefact someone would copy around without
 // thinking about what is inside it.
-func (s *specStore) put(id string, m *orbitv1.StartRunRequest) {
+//
+// A plan is kept whole, with its provenance (the client's, plus extra: the
+// server's own entries, such as the gNB IDs it assigned), and masked by the
+// same walk: the resolved target's keys and tokens, and any provenance
+// entry whose path names a secret.
+func (s *specStore) put(id string, m *orbitv1.StartRunRequest, extra ...*orbitv1.FieldProvenance) {
 	if s == nil || id == "" {
 		return
 	}
@@ -52,6 +57,13 @@ func (s *specStore) put(id string, m *orbitv1.StartRunRequest) {
 		holder.Spec = &orbitv1.RunArchive_LoadSpec{LoadSpec: proto.Clone(spec.Load).(*orbitv1.LoadRunSpec)}
 	case *orbitv1.StartRunRequest_Fleet:
 		holder.Spec = &orbitv1.RunArchive_FleetSpec{FleetSpec: proto.Clone(spec.Fleet).(*orbitv1.FleetRunSpec)}
+	case *orbitv1.StartRunRequest_Plan:
+		plan := proto.Clone(spec.Plan).(*orbitv1.RunPlan)
+		holder.Plan = plan
+		for _, p := range plan.GetProvenance() {
+			holder.Provenance = append(holder.Provenance, proto.Clone(p).(*orbitv1.FieldProvenance))
+		}
+		holder.Provenance = append(holder.Provenance, extra...)
 	default:
 		return
 	}

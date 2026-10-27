@@ -355,3 +355,32 @@ func supiRange(lo, hi uint64) string {
 	}
 	return fmt.Sprintf("%015d-%015d", lo, hi)
 }
+
+// LeaseInfo is one resource a run leases, for display and archiving.
+type LeaseInfo struct {
+	Resource  string // "supi_block", "gnb_id", "n2_ip"
+	PLMN      string // SUPI block, gNB ID
+	FirstSUPI string // SUPI block, 15 digits
+	LastSUPI  string
+	AMF       string // gNB ID: the AMF as the run gave it
+	GNBID     uint32
+	N2IP      string
+}
+
+// describe lists a run's leases, in a stable order.
+func (l *leases) describe() []LeaseInfo {
+	if l == nil {
+		return nil
+	}
+	var out []LeaseInfo
+	for _, b := range l.supis {
+		out = append(out, LeaseInfo{Resource: "supi_block", PLMN: b.PLMN, FirstSUPI: fmt.Sprintf("%015d", b.First), LastSUPI: fmt.Sprintf("%015d", b.Last)})
+	}
+	for _, g := range l.gnbs {
+		out = append(out, LeaseInfo{Resource: "gnb_id", PLMN: g.plmn, AMF: g.written, GNBID: g.id})
+	}
+	for _, n := range l.n2 {
+		out = append(out, LeaseInfo{Resource: "n2_ip", N2IP: firstKey(n)})
+	}
+	return out
+}
