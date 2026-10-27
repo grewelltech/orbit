@@ -357,12 +357,16 @@ func firstAddress(flag string, list []string) (string, string, error) {
 	} else {
 		return "", "", fmt.Errorf("entry %q is not an address", entry)
 	}
+	added := false
 	switch addressShapes[flag] {
 	case "ip":
 		port = ""
 	case "ip:port":
 		if port == "" {
-			port = gtpuPort
+			// TS 29.281 fixes the GTP-U port, so this is derived, not
+			// guessed. Only a target-filled value gets it: a bare IP typed
+			// as --n3-bind is passed on as today.
+			port, added = gtpuPort, true
 		}
 	}
 	text := addr.String()
@@ -374,6 +378,9 @@ func firstAddress(flag string, list []string) (string, string, error) {
 		note = "from " + strconv.Quote(entry)
 		if len(list) > 1 {
 			note += ", the first of " + strconv.Itoa(len(list))
+		}
+		if added {
+			note += ", port " + gtpuPort + " added"
 		}
 	}
 	return text, note, nil

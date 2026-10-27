@@ -263,7 +263,7 @@ func TestExplain(t *testing.T) {
 		"FIELD", "SET BY", "OVERRODE",
 		"core.tac", "flag --tac", "default built-in=1; target",
 		`--bind=192.0.2.50 (from "192.0.2.50-192.0.2.59")`,
-		`--n3-bind=198.51.100.50:2152 (from "198.51.100.50")`,
+		`--n3-bind=198.51.100.50:2152 (from "198.51.100.50", port 2152 added)`,
 		"subscribers[main].ki", target.Masked,
 		"not used by orbit conformance: app.responders[r1].control, app.responders[r1].token",
 	} {
@@ -429,7 +429,8 @@ func TestFirstAddress(t *testing.T) {
 		{flag: "bind", list: []string{"2001:db8::/64"}, want: "2001:db8::", wantNote: `from "2001:db8::/64"`},
 		{flag: "bind", list: []string{"[fe80::1%eth0]:0"}, want: "[fe80::1%eth0]:0"},
 		{flag: "gnb-n3", list: []string{"198.51.100.50:2152"}, want: "198.51.100.50", wantNote: `from "198.51.100.50:2152"`},
-		{flag: "n3-bind", list: []string{"198.51.100.50"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50"`},
+		{flag: "n3-bind", list: []string{"198.51.100.50"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", port 2152 added`},
+		{flag: "n3-bind", list: []string{"198.51.100.50", "198.51.100.51"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", the first of 2, port 2152 added`},
 		{flag: "n3-bind", list: []string{"198.51.100.50:3000"}, want: "198.51.100.50:3000"},
 	}
 	for _, tc := range tests {
@@ -593,5 +594,18 @@ ran:
 	}
 	if serr != nil || short != long {
 		t.Errorf("-t differs from the long command line (err %v):\nlong:\n%s\n-t:\n%s", serr, long, short)
+	}
+}
+
+// Only a target-filled --n3-bind gets the GTP-U port: one typed bare is
+// passed on exactly as given, and the GTP-U checks report it as today.
+func TestTypedN3BindIsNotRewritten(t *testing.T) {
+	clearOrbitEnv(t)
+	r := runOrbit(t, targetDir(t, lab1), append(skipAll, "-t", "lab1", "--supi", "", "--n3-bind", "198.51.100.77")...)
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	if got := r.flag(t, "n3-bind"); got != "198.51.100.77" {
+		t.Errorf("--n3-bind = %q, want it as typed", got)
 	}
 }
