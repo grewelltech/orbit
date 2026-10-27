@@ -274,6 +274,7 @@ var Exclusions = []Exclusion{
 	{Flag: "force", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "responder", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "resolved", Commands: []string{"orbit target show"}, Reason: ReasonOutput},
+	{Flag: "core-only", Commands: []string{"orbit target probe"}, Reason: ReasonOperation},
 	// A handover's flags describe its destination gNB, with unset fields
 	// inherited from the serving gNB: one operation's argument, which a
 	// target never supplies. --amf stays bound: the destination gNB

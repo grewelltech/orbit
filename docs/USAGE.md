@@ -188,7 +188,8 @@ orbit target init lab1 --amf <host:port> --mcc 001 --mnc 01 --sd 010203 --first-
 orbit target list                 # ./orbit.yaml and ~/.config/orbit/targets, with any load errors
 orbit target show lab1            # as loaded, keys <redacted>
 orbit target show lab1 --resolved # each field's value after default < target < $ORBIT_*, and where it came from
-orbit target probe lab1           # NG Setup, one registration, one PDU session, through the server
+orbit target probe lab1           # the doctor, on the server: the core, then the user plane to the responder
+orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU session only
 ```
 
 - **`init`** runs one NG Setup through the orbit server, so from the host runs
@@ -200,27 +201,53 @@ orbit target probe lab1           # NG Setup, one registration, one PDU session,
   - Keys are written as `${ORBIT_KI}`/`${ORBIT_OPC}` unless `--write-keys`.
   - A rejected NG Setup writes nothing, and an existing file is not
     overwritten; `--force` overrides both.
-  - Without `--first-supi` there is no subscriber pool, and `probe` stops
-    after NG Setup.
+  - Without `--first-supi` there is no subscriber pool, and `probe` fails at
+    register.
   - On a terminal, `init` asks for the AMF, PLMN and first SUPI when the flags
     leave them out.
 - **`list`** shows every target with its file and line, and the error of any
   that doesn't load. One bad entry in an `./orbit.yaml` list never stops the
   others. A target in the config directory with the same name as one in
   `./orbit.yaml` is marked shadowed.
-- **`probe`** stops at the first failing step and names what to check. It
-  exits non-zero on a failure. With no subscriber pool, the UE steps are
-  SKIPped and it passes on NG Setup alone.
-  - NG Setup: the AMF address and the N2 route, or the PLMN and TAC the AMF
-    doesn't serve.
-  - Registration: whether the subscriber and its keys are provisioned in the
-    core.
-  - PDU session: the DNN and slice.
+- **`probe`** is the doctor (ADR-0009 §5). The server runs it, from the host
+  runs execute on, and the CLI prints each step as it finishes:
 
-  The core's reject causes aren't reported yet. Until leasing, `init` uses
-  the target range's first gNB ID (or 1), and `probe` uses the first three,
-  one per association, plus the pool's first SUPI. A run using the same ones
-  at the same time collides.
+  | # | Step | A failure names |
+  |---|---|---|
+  | 1 | NG Setup | the AMF address and the N2 route, or the PLMN and TAC the AMF doesn't serve |
+  | 2 | register (the pool's first SUPI) | whether the subscriber and its keys are provisioned in the core; a target with no `subscribers` |
+  | 3 | PDU session | the DNN and slice |
+  | 4 | responder | no responder (`orbit join create -t <target>`), one not registered, or one offline; a static responder (`control` and `token` in the target) is used as written |
+  | 5 | control | the responder's control port unreachable from the server, or its loom token refused |
+  | 6 | UE to N6 echo | three ICMP echoes from the UE to the responder's data IP: the return route on the app host (`ip route replace <ue pool> via <upf n6> dev <n6 if>`) or ICMP blocked |
+  | 7 | data ports | a short UDP flow from the UE to a receiver on the responder: the data ports blocked, or the route |
+
+  It stops at the first failing step, names the fix, and SKIPs the rest. The
+  one exception: after a failed echo it still runs step 7, which tells the
+  two causes apart (UDP that arrives means ICMP is blocked, not the route).
+  The receiver flow is removed on every path, and the UE is deregistered.
+  `--core-only` covers steps 1–3 only, for a target with no app host yet; a
+  failure there SKIPs the rest of those three. A step 7 that passes after a
+  failed echo still leaves the probe failed (exit 1).
+  `--timeout` bounds each step (20s; at most 2m, since the probe holds its
+  leases while a step runs).
+
+  It exits 1 when a step failed (a gate failed: fix the core or the app host)
+  and 3 when it could not start (no server, or a lease another run holds).
+  While it runs it leases the target's first three gNB IDs (one per
+  association), the pool's first SUPI and the N2 source, like a run, so a
+  run and a probe never collide; one that needs them is refused, naming the
+  other. The core's reject causes aren't reported yet. `init` uses the
+  target range's first gNB ID (or 1) and takes no lease.
+
+  **Behaviour changes** from the three-step probe:
+  - it runs on the server and has seven steps; a target with no responder
+    fails at step 4 (`--core-only` gives the old three steps);
+  - a failure exits 1 (it exited 3 before); a probe that cannot start exits
+    3, and one whose stream breaks exits 2;
+  - a target with no `subscribers` fails at step 2 ("lab1 has no
+    subscribers"), `--core-only` included, where it used to pass on NG Setup
+    alone.
 
   `probe` sends the subscriber keys to `--server`. Until the server has TLS,
   keep it on loopback, or the keys cross the network in plaintext.

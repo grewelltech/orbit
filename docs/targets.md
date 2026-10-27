@@ -236,7 +236,10 @@ behaviours. It takes its core, keys and addresses from a target.
 - **`orbit target show <name>`** prints the target as loaded, keys masked.
   `--resolved` shows each field after default < target < env, with its source,
   and `--json` gives the same as JSON.
-- **`orbit target probe <name>`** runs, through the server, NG Setup, one
-  registration and one PDU session, using the range's first three gNB IDs and
-  the pool's first SUPI. It stops at the first failure and names what to check.
+- **`orbit target probe <name>`** runs the doctor on the server: NG Setup, one
+  registration, one PDU session, then the responder, its control port, an
+  echo and a UDP flow from the UE to it (`--core-only` stops after the PDU
+  session). It leases the range's first three gNB IDs and the pool's first
+  SUPI while it runs, stops at the first failure, names what to fix, and
+  exits 1.
   - The keys go to `--server`: keep it on loopback until it has TLS.

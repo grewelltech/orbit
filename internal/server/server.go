@@ -141,8 +141,11 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}, ic))
-	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}, ic))
-	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}, ic))
+	cells := &cellService{log: log}
+	ues := &ueService{log: log, mgr: mgr, apps: mgr}
+	mux.Handle(orbitv1connect.NewCellServiceHandler(cells, ic))
+	mux.Handle(orbitv1connect.NewUEServiceHandler(ues, ic))
+	mux.Handle(orbitv1connect.NewTargetServiceHandler(newTargetService(log, runReg, mgr, cells, ues, responders), ic))
 	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc, ic))
 	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected, runs: runSvc}, ic))
 	joinSvc := newJoinService(log, sec, opts, responders)

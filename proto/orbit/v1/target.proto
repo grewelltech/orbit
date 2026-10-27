@@ -112,3 +112,28 @@ message ProvenanceOverride {
   ProvenanceSource source = 1;
   string value = 2;
 }
+
+// TargetService checks a target from the server (ADR-0009 §5).
+service TargetService {
+  // Probe runs the doctor against a resolved target: NG Setup, a UE's
+  // registration and PDU session, then (unless core_only) the N6 responder:
+  // registered and online, its control port, an echo and a UDP flow from the
+  // UE. It takes its gNB IDs and SUPI as leases, as a run does, streams one
+  // step per message, and stops at the first failure (the rest SKIP).
+  rpc Probe(ProbeRequest) returns (stream ProbeStep) {}
+}
+
+message ProbeRequest {
+  ResolvedTarget target = 1;
+  string target_name = 2;      // for the messages
+  bool core_only = 3;          // steps 1-3 only
+  uint32 step_timeout_ms = 4;  // 0 = 20 s
+}
+
+message ProbeStep {
+  uint32 index = 1;   // 1-7
+  string name = 2;
+  string status = 3;  // "OK", "FAIL" or "SKIP"
+  string detail = 4;  // what was seen
+  string fix = 5;     // what to change, on a FAIL
+}

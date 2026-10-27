@@ -258,6 +258,15 @@ func TestSecretsOverPlaintext(t *testing.T) {
 		{name: "a plan with a secret-named app param", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
 			return startPlan(ctx, h, url, planWithParams(map[string]string{"X-Api-Key": "k-123456"}))
 		}},
+		{name: "a probe carrying keys (a stream)", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			return drainProbe(ctx, h, url, &orbitv1.ResolvedTarget{Subscribers: []*orbitv1.SubscriberPool{{Name: "main", Ki: creds.Ki}}})
+		}},
+		{name: "a probe carrying a responder token (a stream)", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			return drainProbe(ctx, h, url, &orbitv1.ResolvedTarget{App: &orbitv1.TargetApp{Responders: []*orbitv1.Responder{{Name: "app1", Token: "t"}}}})
+		}},
+		{name: "a probe without secrets (a stream)", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			return drainProbe(ctx, h, url, &orbitv1.ResolvedTarget{Name: "lab1"})
+		}},
 		{name: "a plan without secrets", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
 			return startPlan(ctx, h, url, planWithParams(map[string]string{"object_size": "256KB"}))
 		}},
@@ -362,4 +371,17 @@ func planWithParams(params map[string]string) *orbitv1.RunPlan {
 		Behaviors: &orbitv1.Behaviors{Traffic: &orbitv1.Traffic{Mix: []*orbitv1.TrafficShare{{Name: "web",
 			Kind: &orbitv1.TrafficShare_App{App: &orbitv1.AppCohort{App: "http", Params: params}}}}}},
 	}}}}}
+}
+
+// drainProbe runs a probe of t and reads it to the end: its error, or the
+// stream's.
+func drainProbe(ctx context.Context, h connect.HTTPClient, url string, t *orbitv1.ResolvedTarget) error {
+	stream, err := orbitv1connect.NewTargetServiceClient(h, url).Probe(ctx, connect.NewRequest(&orbitv1.ProbeRequest{Target: t}))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stream.Close() }()
+	for stream.Receive() {
+	}
+	return stream.Err()
 }
