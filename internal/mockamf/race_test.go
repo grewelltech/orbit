@@ -106,3 +106,95 @@ func TestSessionStateAcrossAssociations(t *testing.T) {
 		t.Errorf("mock dropped %d PDUs that did not encode", n)
 	}
 }
+
+// A UE's RAN-UE-NGAP-ID raced across its associations: the source sends
+// UE Context Release Requests for the UE (each answer reads the ID,
+// AMF.ranIDOf) while path switches on the target write it. Run under
+// -race (-count=50), it fails if the ID is read outside AMF.mu.
+func TestRANIDAcrossAssociations(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
+	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203", UPF: nopUPF{}, UPFAddress: "127.0.0.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	srcCfg := gnb.Config{ID: 1, Name: "orbit-gnb", MCC: "208", MNC: "93", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}}
+	src := amf.Connect(ctx)
+	defer func() { _ = src.Close() }()
+	if ng, err := gnb.NGSetup(ctx, src, srcCfg); err != nil || !ng.Accepted {
+		t.Fatalf("NG Setup: %v", err)
+	}
+	tgt := amf.Connect(ctx)
+	defer func() { _ = tgt.Close() }()
+	tgtCfg := srcCfg
+	tgtCfg.ID, tgtCfg.Name = 2, "orbit-gnb-2"
+	if ng, err := gnb.NGSetup(ctx, tgt, tgtCfg); err != nil || !ng.Accepted {
+		t.Fatalf("target NG Setup: %v", err)
+	}
+	id, err := ue.ParseIdentity("208930100007500", "208", "93", "0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := engine.Attach(ctx, src, srcCfg, engine.UEConfig{Identity: id,
+		Sub:        auth.Subscription{SUPI: "208930100007500", Ki: ki, OPc: opc},
+		PDUSession: &ue.PDUSessionParams{PDUSessionID: 1, SST: 1, SD: "010203", DNN: "internet"}},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	if err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	amfID := sess.Result.AMFUENGAPID
+
+	const rounds = 20
+	ps, err := gnb.BuildPathSwitchRequest(tgtCfg, amfID, 7, []gnb.AdmittedSession{
+		{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: "127.0.0.2", TEID: 0x99}, QFIs: []int64{1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		// The source: release requests for the UE, under its first RAN ID.
+		defer wg.Done()
+		for i := 0; i < rounds && ctx.Err() == nil; i++ {
+			if err := gnb.SendPDU(src, 1, gnb.BuildUEContextReleaseRequest(amfID, 1)); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	go func() {
+		// The source's answers, drained so the mock never blocks on them.
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			if _, err := gnb.ReadPDU(ctx, src); err != nil {
+				t.Errorf("answer %d to a release request: %v", i, err)
+				return
+			}
+		}
+	}()
+	go func() {
+		// The target: path switches for the UE's session, each rewriting
+		// its RAN ID.
+		defer wg.Done()
+		for i := 0; i < rounds && ctx.Err() == nil; i++ {
+			if err := gnb.SendPDU(tgt, 1, ps); err != nil {
+				t.Error(err)
+				return
+			}
+			reply, err := gnb.ReadPDU(ctx, tgt)
+			if err != nil {
+				t.Errorf("no answer to path switch %d: %v", i, err)
+				return
+			}
+			if gnb.ClassifyPathSwitch(reply) != gnb.PathSwitchAcknowledged {
+				t.Errorf("path switch %d was not acknowledged", i)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+}

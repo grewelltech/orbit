@@ -68,7 +68,6 @@ type UPF interface {
 // defaultQFI is the one QoS flow the mock sets up per session.
 const defaultQFI = 1
 
-// pduSession is the mock's record of one UE's PDU session.
 // pduSession is a UE's PDU session. id and ueIP are set before it is
 // published in ueState.sessions and never change; ul and dl are guarded by
 // AMF.mu, since a path switch on another association moves them.

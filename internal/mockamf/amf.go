@@ -298,13 +298,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	}
 }
 
-// ueState is one UE's state. ranID and sessions are guarded by AMF.mu, since
-// a path switch reaches them from the target association's goroutine. sec,
-// the NAS security context, is owned by whichever association currently
-// carries the UE's NAS: the source until the path switch, the target after
-// it. The hand-over is ordered through the gNB (the source sends no NAS
-// after it asks for the switch), so sec is never used from two goroutines at
-// once; a change that lets both associations send NAS must guard it.
+// ueState is one UE's state, reached from the source association's
+// goroutine and, after a path switch, the target's. ranID and sessions are
+// guarded by AMF.mu, sec by secMu (see the fields).
 type ueState struct {
 	// amfID and supi are set before the UE is published in AMF.ues, and
 	// never change. ranID is guarded by AMF.mu: a path switch moves the
