@@ -310,15 +310,15 @@ type ueState struct {
 	// sec is the NAS security context; secMu guards it and its counts,
 	// since after a path switch two associations hold the UE. Never held
 	// across a send.
-	secMu        sync.Mutex
-	sec          *nas.SecurityContext
-	ngksi        uint8
-	sessions     map[uint8]*pduSession        // guarded by AMF.mu
-	t3560        *retransmitter               // running T3560 (WithT3560), nil otherwise
-	t3550        *retransmitter               // running T3550 (WithT3550), nil otherwise
-	ueCaps       nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
-	kamf         []byte                       // KAMF from authentication, for the SMC's keys
-	requested    []byte                       // the Requested NSSAI IE's value, nil when absent
+	secMu     sync.Mutex
+	sec       *nas.SecurityContext
+	ngksi     uint8
+	sessions  map[uint8]*pduSession        // guarded by AMF.mu
+	t3560     *retransmitter               // running T3560 (WithT3560), nil otherwise
+	t3550     *retransmitter               // running T3550 (WithT3550), nil otherwise
+	ueCaps    nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
+	kamf      []byte                       // KAMF from authentication, for the SMC's keys
+	requested []byte                       // the Requested NSSAI IE's value, nil when absent
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {

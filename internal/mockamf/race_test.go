@@ -18,7 +18,7 @@ import (
 // nopUPF is a UPF that records nothing.
 type nopUPF struct{}
 
-func (nopUPF) SessionUp(mockamf.SessionInfo)  {}
+func (nopUPF) SessionUp(mockamf.SessionInfo)   {}
 func (nopUPF) PathSwitched(mockamf.PathSwitch) {}
 
 // One UE's PDU session set up on its source association while a path
