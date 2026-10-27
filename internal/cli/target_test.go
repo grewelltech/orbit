@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
@@ -24,6 +25,7 @@ import (
 type probeLab struct {
 	server, amf string
 	net         string // "127.0.N."
+	mock        *mockamf.AMF
 }
 
 func newProbeLab(t *testing.T, net int, withUPF bool) probeLab {
@@ -41,7 +43,7 @@ func newProbeLab(t *testing.T, net int, withUPF bool) probeLab {
 		t.Cleanup(func() { _ = upf.Close() })
 		cfg.UPF, cfg.UPFAddress = upf, base+"10"
 	}
-	amf, err := mockamf.New(cfg)
+	amf, err := mockamf.New(cfg, mockamf.WithGUTI())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +51,7 @@ func newProbeLab(t *testing.T, net int, withUPF bool) probeLab {
 	srv := httptest.NewServer(server.New(observability.NewLogger(io.Discard, slog.LevelError), "test",
 		observability.NewRegistry(), server.Options{}))
 	t.Cleanup(srv.Close)
-	return probeLab{server: srv.URL, amf: front.Addr, net: base}
+	return probeLab{server: srv.URL, amf: front.Addr, net: base, mock: amf}
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
@@ -130,6 +132,17 @@ func TestTargetProbeFailures(t *testing.T) {
 				}
 			}
 		})
+	}
+	// The PDU step failed after registration: the probe leaves no UE
+	// registered at the core. Its register step deregistered once, and the
+	// failed attach deregistered once more.
+	// The mock reads them asynchronously.
+	deadline := time.Now().Add(3 * time.Second)
+	for lab.mock.Deregistrations() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := lab.mock.Deregistrations(); n < 2 {
+		t.Errorf("the AMF saw %d Deregistration Requests across the probes, want the register step's and the failed PDU step's", n)
 	}
 }
 
@@ -326,5 +339,65 @@ func TestNoTargetNeverResolvesWithTypedFlags(t *testing.T) {
 	}
 	if err := c.PreRunE(c, nil); err != nil {
 		t.Errorf("PreRunE: %v", err)
+	}
+}
+
+// Only a terminal is interactive: /dev/null (cron, CI, nohup), a pipe and
+// a file are not, so init never prompts on them, and a missing value is an
+// error naming its flag.
+func TestTargetInitNeverPromptsWithoutATerminal(t *testing.T) {
+	clearOrbitEnv(t)
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = devnull.Close() }()
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pr.Close() }()
+	_ = pw.Close()
+	file, err := os.CreateTemp(t.TempDir(), "in")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = file.Close() }()
+	for name, in := range map[string]*os.File{"/dev/null": devnull, "a pipe": pr, "a file": file} {
+		if interactive(in) {
+			t.Errorf("%s counts as a terminal", name)
+		}
+		loc := targetDir(t, lab1)
+		root := New("test", WithTargetLocations(loc))
+		var out strings.Builder
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetIn(in)
+		root.SetArgs([]string{"target", "init", "x1", "--no-probe", "--bind", "127.0.0.2", "--mcc", "208", "--mnc", "93"})
+		err := root.Execute()
+		if err == nil || err.Error() != "target init needs --amf" || strings.Contains(out.String(), "(host:port): ") {
+			t.Errorf("%s: err = %v, output %q; want the --amf error and no prompt", name, err, out.String())
+		}
+	}
+}
+
+// A config-dir file whose target name differs from its file name can be
+// selected by neither, so list shows it as an error, not ok.
+func TestTargetListNameFileMismatch(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1)
+	if err := os.MkdirAll(filepath.Join(loc.ConfigDir, "targets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for file, doc := range map[string]string{"x2.yaml": "{version: 1, kind: target, name: x}\n", "shadow.yaml": "{version: 1, kind: target, name: lab1}\n"} {
+		if err := os.WriteFile(filepath.Join(loc.ConfigDir, "targets", file), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := runOrbit(t, loc, "target", "list")
+	for _, want := range []string{`name "x" does not match file x2.yaml; rename one of them`, `name "lab1" does not match file shadow.yaml`} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("list lacks %q:\n%s", want, r.out)
+		}
 	}
 }

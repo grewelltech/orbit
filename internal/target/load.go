@@ -56,6 +56,12 @@ func List(loc Locations, env Getenv) ([]Entry, error) {
 			return
 		}
 		for _, f := range files {
+			if stem := strings.TrimSuffix(filepath.Base(path), ".yaml"); fromDir && f.Err == nil && f.Target.Name != stem {
+				// Find looks a config-dir target up by its file name, so this
+				// one could not be selected by either name.
+				f = &File{Target: f.Target, Path: f.Path, Line: f.Line,
+					Err: fmt.Errorf("name %q does not match file %s; rename one of them", f.Target.Name, filepath.Base(path))}
+			}
 			out = append(out, Entry{File: f, Shadowed: fromDir && f.Target.Name != "" && local[f.Target.Name]})
 			if !fromDir {
 				local[f.Target.Name] = true

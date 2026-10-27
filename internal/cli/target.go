@@ -17,6 +17,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -249,14 +250,12 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 	return cmd
 }
 
-// interactive reports whether r is a terminal, so init may ask.
+// interactive reports whether r is a terminal, so init may ask. /dev/null,
+// a pipe or a file is not one (cron, CI, nohup): then a missing value is an
+// error naming its flag.
 func interactive(r io.Reader) bool {
 	f, ok := r.(*os.File)
-	if !ok {
-		return false
-	}
-	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 func ask(w io.Writer, in *bufio.Reader, prompt string) (string, error) {
