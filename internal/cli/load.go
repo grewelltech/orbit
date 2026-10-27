@@ -93,6 +93,11 @@ func newLoadCmd() *cobra.Command {
 				spec.GNBN3Addr = n3
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "network: %s\n", id)
+			// Bad input is refused before the run (exit 3), not reported as
+			// a run that did not complete.
+			if err := spec.Validate(); err != nil {
+				return err
+			}
 
 			// Live progress: a load run is silent for minutes otherwise, and
 			// an operator watching a soak needs to see it degrade as it happens
@@ -106,7 +111,7 @@ func newLoadCmd() *cobra.Command {
 			rep, err := engine.RunLoad(cmd.Context(), log, spec)
 			stopProgress()
 			if err != nil {
-				return err
+				return exitWith(ExitDidNotComplete, err)
 			}
 			printLoadReport(cmd.OutOrStdout(), rep)
 
@@ -121,7 +126,7 @@ func newLoadCmd() *cobra.Command {
 				v := slo.Evaluate(rep)
 				printVerdict(cmd.OutOrStdout(), v)
 				if !v.Pass {
-					return fmt.Errorf("SLO breached")
+					return gateFailed("SLO breached")
 				}
 			}
 			return nil
@@ -148,7 +153,7 @@ func newLoadCmd() *cobra.Command {
 	f.Float64Var(&sloSuccess, "slo-min-success", 0, "SLO: minimum success rate (0-1); breach exits non-zero")
 	f.DurationVar(&sloRegP99, "slo-reg-p99", 0, "SLO: max registration P99 (e.g. 500ms)")
 	f.DurationVar(&sloAttachP99, "slo-attach-p99", 0, "SLO: max attach P99")
-	f.DurationVar(&duration, "duration", 0, "soak: run for this long instead of --count (e.g. 5m)")
+	f.DurationVar(&duration, "duration", 0, "soak: run for this long (e.g. 5m), cycling --count's SUPIs (attempts can outnumber --count)")
 	f.DurationVar(&sampleInterval, "sample-interval", 0, "soak: resource-sample cadence (e.g. 10s)")
 	f.DurationVar(&progressEvery, "progress-every", 5*time.Second, "print live progress to stderr at this cadence (0 = off)")
 	// Ki/OPc and the PLMN are not marked required: they may come from the
@@ -250,6 +255,9 @@ func parseFloatInto(s string, dst *float64) error {
 // printLoadReport writes the report. Every N2 source is one ip:port, bound
 // or route-selected, so the sources are printed as the kernel reported them.
 func printLoadReport(w io.Writer, rep load.Report) {
+	if line := soakLine(uint32(rep.Attempted), uint32(rep.DistinctSUPIs)); line != "" {
+		defer func() { _, _ = fmt.Fprintln(w, line) }()
+	}
 	fmt.Fprintf(w, "load: %d/%d attached in %s (%.1f attach/s)\n",
 		rep.Succeeded, rep.Attempted, rep.Duration.Round(time.Millisecond), rep.AchievedRate)
 	if len(rep.N2Sources) > 0 {

@@ -53,6 +53,15 @@ type Config struct {
 	SampleInterval time.Duration
 	// Observer, if set, is called once per completed attempt (live metrics).
 	Observer Observer
+	// AttemptContext, if set, is the context attempts run under instead of
+	// Run's own, which then only stops the dispatch: a run finished rather
+	// than cancelled lets the attempts already in flight complete.
+	AttemptContext context.Context
+	// Abandoning, if set, reports whether an attempt cut off by its
+	// context now was abandoned (a finish's bound ran out) rather than
+	// failed (a cancel, counted as today). Abandoned attempts are neither
+	// successes nor failures, and not in Attempted.
+	Abandoning func() bool
 }
 
 // ResourceSample is a point-in-time process resource reading during a run.
@@ -72,14 +81,21 @@ type Stats struct {
 // Report is the aggregate result of a load run.
 type Report struct {
 	Attempted, Succeeded, Failed int
-	Duration                     time.Duration
-	AchievedRate                 float64          // succeeded per second over the run
-	Latencies                    map[string]Stats // per procedure name
-	Resources                    []ResourceSample // soak resource trend (if sampled)
+	// Abandoned are attempts a finish cut off (Config.Abandoning):
+	// neither successes nor failures, and not in Attempted.
+	Abandoned    int
+	Duration     time.Duration
+	AchievedRate float64          // succeeded per second over the run
+	Latencies    map[string]Stats // per procedure name
+	Resources    []ResourceSample // soak resource trend (if sampled)
 	// N2Sources is the local N2 address each gNB's association actually
 	// bound, in gNB order; filled by the engine, which owns the
 	// associations, so a report records which addresses the load came from.
 	N2Sources []string
+	// DistinctSUPIs is how many subscribers the attempts used: a soak
+	// cycles its Count, so it can make more attempts than that. Filled by
+	// the engine, which owns the SUPI sequence; 0 when unknown.
+	DistinctSUPIs int
 }
 
 // hist accumulates latencies for one procedure. hdrhistogram is not
@@ -137,7 +153,11 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 
 	rec := newRecorder()
 	var mu sync.Mutex
-	succeeded, failed := 0, 0
+	succeeded, failed, abandoned := 0, 0, 0
+	actx := ctx
+	if cfg.AttemptContext != nil {
+		actx = cfg.AttemptContext
+	}
 
 	// Offered-rate metering. A Rate that paces itself (Poisson) meters its own
 	// arrivals; everything else rides the smooth limiter, which spaces arrivals
@@ -219,11 +239,17 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		go func(idx int) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s := fn(ctx, idx)
+			s := fn(actx, idx)
 			mu.Lock()
-			if s.Err != nil {
+			switch {
+			case s.Err != nil && actx.Err() != nil && cfg.Abandoning != nil && cfg.Abandoning():
+				// Cut off at the end of a finish, not failed by the core.
+				abandoned++
+				mu.Unlock()
+				return
+			case s.Err != nil:
 				failed++
-			} else {
+			default:
 				succeeded++
 			}
 			mu.Unlock()
@@ -250,6 +276,7 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		Attempted:    succeeded + failed,
 		Succeeded:    succeeded,
 		Failed:       failed,
+		Abandoned:    abandoned,
 		Duration:     dur,
 		AchievedRate: rate,
 		Latencies:    rec.stats(),

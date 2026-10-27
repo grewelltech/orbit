@@ -147,7 +147,7 @@ func TestRunsStartLoadBuildsSpec(t *testing.T) {
 	if !strings.Contains(errOut.String(), "network: plmn=208/93 tac=1 snssai=1/010203 dnn=internet") {
 		t.Errorf("start-load stderr lacks the network line:\n%s", errOut.String())
 	}
-	spec := s.startReq.GetLoad()
+	spec := s.startReq.GetLoad() //nolint:staticcheck // the deprecated arm, kept for API clients
 	if spec == nil {
 		t.Fatal("StartRun did not carry a load spec")
 	}
@@ -177,7 +177,7 @@ func TestRunsStartFleetSendsYAMLAndCreds(t *testing.T) {
 	s := &stubRunService{startRunID: "run-fleet"}
 	runRunsCmd(t, stubRunServer(t, s), "start-fleet", path,
 		"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f")
-	spec := s.startReq.GetFleet()
+	spec := s.startReq.GetFleet() //nolint:staticcheck // the deprecated arm, kept for API clients
 	if spec == nil {
 		t.Fatal("StartRun did not carry a fleet spec")
 	}
@@ -218,15 +218,17 @@ func TestRunsStartLoadMapsRampSoakPDU(t *testing.T) {
 		"--mcc", "208", "--mnc", "93",
 		"--ramp", "5:50:30", "--duration", "5m", "--sample-interval", "10s",
 		"--pdu-session", "--dnn", "internet", "--gnb-n3", "172.17.50.12", "--sd", "010203")
-	spec := s.startReq.GetLoad()
-	if spec.GetRampStart() != 5 || spec.GetRampEnd() != 50 || spec.GetRampSeconds() != 30 {
-		t.Errorf("ramp = %v/%v/%v, want 5/50/30", spec.GetRampStart(), spec.GetRampEnd(), spec.GetRampSeconds())
+	// One gNB: sent as a one-workload plan (armplan.Load).
+	plan := s.startReq.GetPlan()
+	pop := plan.GetWorkloads()[0].GetPopulation()
+	if r := pop.GetAttach().GetRamp(); r.GetStart() != 5 || r.GetEnd() != 50 || r.GetSeconds() != 30 {
+		t.Errorf("ramp = %v, want 5/50/30", r)
 	}
-	if spec.GetDurationMs() != 300000 || spec.GetSampleIntervalMs() != 10000 {
-		t.Errorf("soak ms = %d / %d, want 300000 / 10000", spec.GetDurationMs(), spec.GetSampleIntervalMs())
+	if plan.GetUntil().GetDurationMs() != 300000 || pop.GetSampleIntervalMs() != 10000 {
+		t.Errorf("soak ms = %d / %d, want 300000 / 10000", plan.GetUntil().GetDurationMs(), pop.GetSampleIntervalMs())
 	}
-	if spec.GetPduSession() == nil || spec.GetPduSession().GetDnn() != "internet" || spec.GetGnbN3Addr() != "172.17.50.12" {
-		t.Errorf("pdu session not mapped: %+v", spec.GetPduSession())
+	if !pop.GetPduSession() || plan.GetTarget().GetCore().GetDnn() != "internet" || plan.GetTarget().GetRan().GetN3Ips()[0] != "172.17.50.12" {
+		t.Errorf("pdu session not mapped: %v", plan)
 	}
 }
 
@@ -251,7 +253,7 @@ func TestRunsCredsFromEnv(t *testing.T) {
 	s := &stubRunService{startRunID: "run-x"}
 	runRunsCmd(t, stubRunServer(t, s),
 		"start-load", "--amf", "a:1", "--base-imsi", "1", "--mcc", "208", "--mnc", "93")
-	if s.startReq.GetLoad().GetCredentials().GetKi() == "" {
+	if s.startReq.GetPlan().GetTarget().GetSubscribers()[0].GetKi() == "" {
 		t.Error("Ki not taken from the environment")
 	}
 }

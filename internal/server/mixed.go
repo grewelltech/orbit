@@ -74,9 +74,6 @@ func (s *runService) buildMixed(p *orbitv1.RunPlan, verbosity engine.EventVerbos
 	if err := validateMixedGates(p.GetGates(), popW.GetName(), suiteW.GetName()); err != nil {
 		return nil, err
 	}
-	if len(p.GetGates()) > 0 && p.GetUntil().GetForever() {
-		return nil, errors.New("gates need a run that completes; use until.duration or until.complete")
-	}
 
 	// The population, on its own: as a one-workload plan would run.
 	popPlan := &orbitv1.RunPlan{Target: p.GetTarget(), Workloads: []*orbitv1.Workload{popW}, Until: p.GetUntil()}

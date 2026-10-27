@@ -70,11 +70,6 @@ func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkl
 	if err := validateGates(p.GetGates(), w.GetName(), false); err != nil {
 		return nil, nil, err
 	}
-	if len(p.GetGates()) > 0 && p.GetUntil().GetForever() {
-		// Gates judge a completed run; a forever run only ends by StopRun,
-		// cancelled, with no report to judge.
-		return nil, nil, errors.New("gates need a run that completes; use until.duration or until.complete")
-	}
 	return w, pop, nil
 }
 
@@ -376,13 +371,13 @@ func (s *runService) releaseIDs(amfKeys []string, plmn string, ids []uint32) {
 
 // planLoadSpec is a population without behaviours as today's load spec.
 func planLoadSpec(t *orbitv1.ResolvedTarget, pop *orbitv1.PopulationWorkload, sp *orbitv1.SubscriberPool,
-	creds *orbitv1.Credentials, count uint32, ids []uint32, n2, n3 []string, until *orbitv1.Until) (*orbitv1.LoadRunSpec, error) {
+	creds *orbitv1.Credentials, count uint32, ids []uint32, n2, n3 []string, until *orbitv1.Until) (*orbitv1.LoadRunSpec, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	core := t.GetCore()
 	if until.GetDurationMs() > math.MaxUint32 {
 		return nil, fmt.Errorf("until.duration_ms %d is longer than a load run takes (%d)", until.GetDurationMs(), uint64(math.MaxUint32))
 	}
 	bits := gnbBits(t)
-	spec := &orbitv1.LoadRunSpec{
+	spec := &orbitv1.LoadRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 		AmfAddress:       core.GetAmf(),
 		BaseImsi:         sp.GetFirstSupi(),
 		Count:            count,
@@ -729,6 +724,14 @@ func (s *runService) planVerdict(id string) []*orbitv1.RunReport {
 		return a.GetReports()
 	}
 	return nil
+}
+
+// markStoppedEarly marks reports judged on a run finished early
+// (StopRun{finish}), so a reader knows the results were cut short.
+func markStoppedEarly(rs []*orbitv1.RunReport, early bool) {
+	for _, rr := range rs {
+		rr.StoppedEarly = early
+	}
 }
 
 // gatesOf is reports' gate results together, and whether all passed.

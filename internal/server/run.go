@@ -67,7 +67,7 @@ func (s *runService) StartRun(
 	opts := engine.RunOptions{Name: m.GetName(), Verbosity: verbosity}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
-		arm, err := s.loadArm(spec.Load, verbosity)
+		arm, err := s.loadArm(spec.Load, verbosity) //nolint:staticcheck // the deprecated arm, kept for API clients
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -80,7 +80,7 @@ func (s *runService) StartRun(
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
-		arm, err := s.fleetArm(spec.Fleet, verbosity)
+		arm, err := s.fleetArm(spec.Fleet, verbosity) //nolint:staticcheck // the deprecated arm, kept for API clients
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -159,7 +159,11 @@ func (s *runService) StopRun(
 	ctx context.Context,
 	req *connect.Request[orbitv1.StopRunRequest],
 ) (*connect.Response[orbitv1.StopRunResponse], error) {
-	info, err := s.reg.Stop(req.Msg.GetRunId())
+	stop := s.reg.Stop
+	if req.Msg.GetFinish() {
+		stop = s.reg.Finish // judged on its results so far, not cancelled
+	}
+	info, err := stop(req.Msg.GetRunId())
 	if err != nil {
 		return nil, runLookupError(err)
 	}
@@ -287,6 +291,7 @@ func (s *runService) GetRunReport(
 	// A plan's gates, judged as the run completed and kept with its report;
 	// the archive as a second line.
 	if rs := s.planVerdict(id); len(rs) > 0 {
+		markStoppedEarly(rs, info.StoppedEarly)
 		resp.Gates, resp.GatesPassed = gatesOf(rs)
 		resp.Workloads = rs
 	}
@@ -821,7 +826,7 @@ func sortedGNBs(m map[string]int) []string {
 // front (so a bad request fails synchronously at StartRun) and closes over
 // engine.RunLoad, wiring the run's LiveStats in as the load Observer.
 // loadSpecFrom is a load arm as the storm engine's spec.
-func loadSpecFrom(p *orbitv1.LoadRunSpec) (engine.LoadSpec, error) {
+func loadSpecFrom(p *orbitv1.LoadRunSpec) (engine.LoadSpec, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if p.GetAmfAddress() == "" {
 		return engine.LoadSpec{}, fmt.Errorf("amf_address is required")
 	}
@@ -911,7 +916,7 @@ func loadSpecFrom(p *orbitv1.LoadRunSpec) (engine.LoadSpec, error) {
 }
 
 // loadRun is a load arm's launcher and leases.
-func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engine.Needs, error) {
+func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engine.Needs, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	spec, err := loadSpecFrom(p)
 	if err != nil {
 		return nil, engine.Needs{}, err
@@ -936,7 +941,7 @@ func loadRunFrom(log *slog.Logger, spec engine.LoadSpec) (engine.LoadRunFunc, en
 }
 
 // loadRunFunc is loadRun without the leases.
-func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, error) {
+func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	fn, _, err := loadRun(log, p)
 	return fn, err
 }
@@ -983,7 +988,7 @@ func fleetRunFrom(log *slog.Logger, mgr *engine.Manager, spec engine.FleetRunSpe
 }
 
 // loadRate turns the ramp/rate fields into a load.Rate (nil = concurrency-bound).
-func loadRate(p *orbitv1.LoadRunSpec) (load.Rate, error) {
+func loadRate(p *orbitv1.LoadRunSpec) (load.Rate, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if p.GetRampSeconds() > 0 || p.GetRampStart() > 0 || p.GetRampEnd() > 0 {
 		if p.GetRampSeconds() == 0 {
 			return nil, fmt.Errorf("ramp_seconds must be > 0 when a ramp is set")
@@ -1046,6 +1051,7 @@ func runProto(info engine.RunInfo) *orbitv1.Run {
 	for _, k := range info.WorkloadKinds {
 		r.WorkloadKinds = append(r.WorkloadKinds, runKindProto(k))
 	}
+	r.StoppedEarly = info.StoppedEarly
 	return r
 }
 
@@ -1156,13 +1162,15 @@ func gnbProgressProtos(m map[string]load.GNBProgress) []*orbitv1.GnbProgress {
 
 func loadReportProto(r load.Report) *orbitv1.LoadReport {
 	return &orbitv1.LoadReport{
-		Attempted:    uint32(r.Attempted),
-		Succeeded:    uint32(r.Succeeded),
-		Failed:       uint32(r.Failed),
-		DurationMs:   r.Duration.Milliseconds(),
-		AchievedRate: r.AchievedRate,
-		Latency:      procedureLatencies(r.Latencies),
-		Resources:    resourceSamples(r.Resources),
+		Attempted:     uint32(r.Attempted),
+		Succeeded:     uint32(r.Succeeded),
+		Failed:        uint32(r.Failed),
+		DurationMs:    r.Duration.Milliseconds(),
+		AchievedRate:  r.AchievedRate,
+		Latency:       procedureLatencies(r.Latencies),
+		Resources:     resourceSamples(r.Resources),
+		DistinctSupis: uint32(r.DistinctSUPIs),
+		Abandoned:     uint32(r.Abandoned),
 	}
 }
 
@@ -1182,6 +1190,7 @@ func fleetReportProto(r engine.FleetReport) *orbitv1.FleetReport {
 	return &orbitv1.FleetReport{
 		Attached:        uint32(r.Attached),
 		AttachFailed:    uint32(r.AttachFailed),
+		Abandoned:       uint32(r.Abandoned),
 		AttachElapsedMs: r.AttachElapsed.Milliseconds(),
 		Handovers:       uint32(r.Handovers),
 		HandoverErrors:  uint32(r.HandoverErr),

@@ -113,7 +113,7 @@ func newConformanceCmd() *cobra.Command {
 				printConformanceText(out, id.String(), sum, expectedPath)
 			}
 			if !sum.OK() {
-				return fmt.Errorf("conformance gate failed: %d fail (%d expected), %d error", sum.Fail, sum.ExpectedFail, sum.Error)
+				return gateFailed("conformance gate failed: %d fail (%d expected), %d error", sum.Fail, sum.ExpectedFail, sum.Error)
 			}
 			return nil
 		},

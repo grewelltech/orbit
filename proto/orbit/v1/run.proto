@@ -89,12 +89,16 @@ message Run {
   // A MIXED run's workloads' kinds, in plan order; ListRuns' kind filter
   // matches a run when any of them is the kind. Empty for one workload.
   repeated RunKind workload_kinds = 8;
+  // A run ended by StopRun{finish}: COMPLETE, its reports judged on the
+  // results so far.
+  bool stopped_early = 9;
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
 // `orbit load` flags; credentials travel in the request because the server
 // owns execution (ADR-0005) and the listener is lab-internal.
 message LoadRunSpec {
+  option deprecated = true; // StartRunRequest.plan instead; the server still translates it
   string amf_address = 1;
   // gNBs to mux UEs across. UE i attaches through gNBs[i % len].
   repeated GnbConfig gnbs = 2;
@@ -129,6 +133,7 @@ message LoadRunSpec {
 // it; credentials travel separately because the server owns execution and
 // cannot expand the YAML's ${ENV} against the client's secrets.
 message FleetRunSpec {
+  option deprecated = true; // StartRunRequest.plan instead; the server still translates it
   string scenario_yaml = 1 [(orbit.v1.secret_yaml) = true]; // a `kind: fleet` scenario document
   Credentials credentials = 2;
 }
@@ -149,8 +154,8 @@ message StartRunRequest {
   oneof spec {
     // load and fleet are superseded by plan; kept for compatibility
     // (ADR-0008 §2). The server translates them into a one-workload plan.
-    LoadRunSpec load = 2;
-    FleetRunSpec fleet = 3;
+    LoadRunSpec load = 2 [deprecated = true];   // a one-workload RunPlan instead (ADR-0008 §2)
+    FleetRunSpec fleet = 3 [deprecated = true]; // a one-workload RunPlan instead (ADR-0008 §2)
     // plan is the general spec (ADR-0008 §2). Until R2 the server answers
     // it with UNIMPLEMENTED.
     RunPlan plan = 5;
@@ -164,6 +169,11 @@ message StartRunResponse {
 
 message StopRunRequest {
   string run_id = 1;
+  // finish stops the run as a finish, not a cancel: its workloads stop
+  // and report what they have, and the run ends COMPLETE (Run.stopped_early)
+  // with its gates judged on those results — a soak's natural end. Without
+  // it the run is CANCELLED, and its gates fail as did-not-complete.
+  bool finish = 2;
 }
 
 message StopRunResponse {
@@ -501,6 +511,13 @@ message LoadReport {
   double achieved_rate = 5;
   repeated ProcedureLatency latency = 6;
   repeated ResourceSample resources = 7;
+  // The distinct SUPIs the attempts used. A timed storm (a soak) cycles
+  // its attach.count SUPIs for the whole duration, so attempted can exceed
+  // the count: this says across how many subscribers.
+  uint32 distinct_supis = 8;
+  // Attempts a finish (StopRun{finish}) cut off after its grace: neither
+  // successes nor failures, and not in attempted or the success ratio.
+  uint32 abandoned = 9;
 }
 
 // ResourceSample is a point-in-time process reading during a soak.
@@ -529,6 +546,9 @@ message FleetReport {
   repeated ProcedureLatency latency = 10;
   double achieved_rate = 11;
   repeated ResourceSample resources = 12;
+  // Attaches a finish cut off: neither attached nor failed, and not in
+  // the success ratio.
+  uint32 abandoned = 13;
 }
 
 message GetRunReportResponse {
@@ -558,6 +578,7 @@ message RunReport {
   }
   repeated GateResult gates = 6;
   bool gates_passed = 7;          // every gate passed (true when there are none)
+  bool stopped_early = 8;         // judged on a run finished early (StopRun{finish})
 }
 
 // ConformanceSummary is a conformance workload's results.

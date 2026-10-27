@@ -237,12 +237,12 @@ func TestSecretsOverPlaintext(t *testing.T) {
 		}},
 		{name: "a load run with keys", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
 			_, err := orbitv1connect.NewRunServiceClient(h, url).StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{
-				Spec: &orbitv1.StartRunRequest_Load{Load: &orbitv1.LoadRunSpec{Credentials: creds}}}))
+				Spec: &orbitv1.StartRunRequest_Load{Load: &orbitv1.LoadRunSpec{Credentials: creds}}})) //nolint:staticcheck // the deprecated arm, kept for API clients
 			return err
 		}},
 		{name: "keys inside a fleet scenario", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
 			_, err := orbitv1connect.NewRunServiceClient(h, url).StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{
-				Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ScenarioYaml: "kind: fleet\ncredentials: { ki: 00112233445566778899aabbccddeeff }\n"}}}))
+				Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ScenarioYaml: "kind: fleet\ncredentials: { ki: 00112233445566778899aabbccddeeff }\n"}}})) //nolint:staticcheck // the deprecated arm, kept for API clients
 			return err
 		}},
 		{name: "a responder token", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {

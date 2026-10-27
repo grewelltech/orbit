@@ -168,8 +168,17 @@ func runStorm(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report
 		return cfg, nil
 	}
 
-	rep := load.Run(ctx, loadConfig(spec), f.LoadFunc(makeUE))
+	actx, done := attemptContext(ctx)
+	defer done()
+	cfg := loadConfig(spec)
+	cfg.AttemptContext = actx
+	cfg.Abandoning = func() bool { return Finishing(ctx) }
+	rep := load.Run(ctx, cfg, f.LoadFunc(makeUE))
 	rep.N2Sources = f.N2Sources()
+	rep.DistinctSUPIs = rep.Attempted
+	if spec.Duration > 0 && spec.Count > 0 {
+		rep.DistinctSUPIs = min(rep.Attempted, spec.Count) // cycled modulo Count
+	}
 	return rep, nil
 }
 

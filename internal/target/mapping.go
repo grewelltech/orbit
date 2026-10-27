@@ -144,6 +144,8 @@ var Exclusions = []Exclusion{
 	{Flag: "out", Reason: ReasonOutput},
 	{Flag: "progress-every", Reason: ReasonOutput},
 	{Flag: "from-seq", Reason: ReasonOutput},
+	{Flag: "wait", Reason: ReasonOutput}, // follow the run to its end and exit with its result
+	{Flag: "finish", Commands: []string{"orbit runs stop"}, Reason: ReasonOperation},
 
 	{Flag: "listen", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "tls", Commands: []string{cmdServe}, Reason: ReasonProcess},

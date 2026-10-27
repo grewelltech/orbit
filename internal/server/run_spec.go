@@ -54,9 +54,9 @@ func (s *specStore) put(id string, m *orbitv1.StartRunRequest, extra ...*orbitv1
 	holder := &orbitv1.RunArchive{}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
-		holder.Spec = &orbitv1.RunArchive_LoadSpec{LoadSpec: proto.Clone(spec.Load).(*orbitv1.LoadRunSpec)}
+		holder.Spec = &orbitv1.RunArchive_LoadSpec{LoadSpec: proto.Clone(spec.Load).(*orbitv1.LoadRunSpec)} //nolint:staticcheck // the deprecated arm, kept for API clients
 	case *orbitv1.StartRunRequest_Fleet:
-		holder.Spec = &orbitv1.RunArchive_FleetSpec{FleetSpec: proto.Clone(spec.Fleet).(*orbitv1.FleetRunSpec)}
+		holder.Spec = &orbitv1.RunArchive_FleetSpec{FleetSpec: proto.Clone(spec.Fleet).(*orbitv1.FleetRunSpec)} //nolint:staticcheck // the deprecated arm, kept for API clients
 	case *orbitv1.StartRunRequest_Plan:
 		plan := proto.Clone(spec.Plan).(*orbitv1.RunPlan)
 		holder.Plan = plan

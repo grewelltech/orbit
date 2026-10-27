@@ -19,6 +19,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/armplan"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/target"
@@ -30,8 +31,8 @@ func armGNB(id uint32, name string) *orbitv1.GnbConfig {
 }
 
 // armLoad is a load arm with one gNB, changed by each mut.
-func armLoad(mut ...func(*orbitv1.LoadRunSpec)) *orbitv1.LoadRunSpec {
-	p := &orbitv1.LoadRunSpec{
+func armLoad(mut ...func(*orbitv1.LoadRunSpec)) *orbitv1.LoadRunSpec { //nolint:staticcheck // the deprecated arm, kept for API clients
+	p := &orbitv1.LoadRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 		AmfAddress: "127.0.0.1:38412", Gnbs: []*orbitv1.GnbConfig{armGNB(7, "orbit-gnb")},
 		BaseImsi: "208930100007500", Count: 4, Credentials: &orbitv1.Credentials{Ki: archKi, Opc: archOpc},
 		Rate: 5, Concurrency: 2,
@@ -43,7 +44,7 @@ func armLoad(mut ...func(*orbitv1.LoadRunSpec)) *orbitv1.LoadRunSpec {
 }
 
 // threeGNBs gives an arm three gNBs, numbered from one base name.
-func threeGNBs(p *orbitv1.LoadRunSpec) {
+func threeGNBs(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	p.Gnbs = []*orbitv1.GnbConfig{armGNB(7, "lab-1"), armGNB(8, "lab-2"), armGNB(9, "lab-3")}
 }
 
@@ -64,37 +65,37 @@ func normGNBBits(gnbs []engine.GNBSpec) {
 func TestLoadArmGolden(t *testing.T) {
 	tests := []struct {
 		name    string
-		arm     *orbitv1.LoadRunSpec
+		arm     *orbitv1.LoadRunSpec //nolint:staticcheck // the deprecated arm, kept for API clients
 		viaPlan bool
 	}{
 		{name: "one gNB", arm: armLoad(), viaPlan: true},
-		{name: "three gNBs, one bind address each", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) {
+		{name: "three gNBs, one bind address each", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 			p.BindAddresses = []string{"127.0.0.10", "127.0.0.11", "127.0.0.12"}
 		}), viaPlan: true},
-		{name: "three gNBs, a shared bind address", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) {
+		{name: "three gNBs, a shared bind address", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 			p.BindAddresses = []string{"127.0.0.10"}
 		}), viaPlan: true},
-		{name: "a ramped soak with resource samples", arm: armLoad(func(p *orbitv1.LoadRunSpec) {
+		{name: "a ramped soak with resource samples", arm: armLoad(func(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 			p.RampStart, p.RampEnd, p.RampSeconds = 1, 10, 30
 			p.DurationMs, p.SampleIntervalMs = 60000, 500
 		}), viaPlan: true},
-		{name: "a PDU session", arm: armLoad(func(p *orbitv1.LoadRunSpec) {
+		{name: "a PDU session", arm: armLoad(func(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 			p.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: 1, Sd: "010203", Dnn: "internet"}
 			p.GnbN3Addr = "127.0.0.1"
 		}), viaPlan: true},
-		{name: "a 22-bit gNB ID", arm: armLoad(func(p *orbitv1.LoadRunSpec) { p.Gnbs[0].IdBits = 22 }), viaPlan: true},
+		{name: "a 22-bit gNB ID", arm: armLoad(func(p *orbitv1.LoadRunSpec) { p.Gnbs[0].IdBits = 22 }), viaPlan: true}, //nolint:staticcheck // the deprecated arm, kept for API clients
 		// Heterogeneous: today's spec, from the arm itself.
-		{name: "gNBs in different TACs", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { p.Gnbs[1].Tac = 2 })},
-		{name: "gNBs with different slices", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) {
+		{name: "gNBs in different TACs", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { p.Gnbs[1].Tac = 2 })}, //nolint:staticcheck // the deprecated arm, kept for API clients
+		{name: "gNBs with different slices", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 			p.Gnbs[2].Slices = []*orbitv1.Snssai{{Sst: 1}}
 		})},
-		{name: "gNB IDs not consecutive", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { p.Gnbs[2].Id = 20 })},
-		{name: "gNB names not one base", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { p.Gnbs[1].Name = "other-2" })},
-		{name: "a second PDU session ID", arm: armLoad(func(p *orbitv1.LoadRunSpec) {
+		{name: "gNB IDs not consecutive", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { p.Gnbs[2].Id = 20 })},         //nolint:staticcheck // the deprecated arm, kept for API clients
+		{name: "gNB names not one base", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { p.Gnbs[1].Name = "other-2" })}, //nolint:staticcheck // the deprecated arm, kept for API clients
+		{name: "a second PDU session ID", arm: armLoad(func(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 			p.PduSession = &orbitv1.PDUSession{PduSessionId: 2, Sst: 1, Sd: "010203", Dnn: "internet"}
 			p.GnbN3Addr = "127.0.0.1"
 		})},
-		{name: "a bind address range", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) {
+		{name: "a bind address range", arm: armLoad(threeGNBs, func(p *orbitv1.LoadRunSpec) { //nolint:staticcheck // the deprecated arm, kept for API clients
 			p.BindAddresses = []string{"127.0.0.10", "127.0.0.11", "127.0.0.12-127.0.0.13"}
 		})},
 	}
@@ -117,8 +118,8 @@ func TestLoadArmGolden(t *testing.T) {
 			if !reflect.DeepEqual(got.storm, want) {
 				t.Errorf("engine spec =\n%+v\nwant today's\n%+v", got.storm, want)
 			}
-			if _, err := loadArmPlan(tc.arm); (err == nil) != tc.viaPlan || err != nil && !errors.Is(err, errNoPlan) {
-				t.Errorf("loadArmPlan err = %v, want errNoPlan only off the plan", err)
+			if _, err := armplan.Load(tc.arm); (err == nil) != tc.viaPlan || err != nil && !errors.Is(err, armplan.ErrNoPlan) {
+				t.Errorf("loadArmPlan err = %v, want armplan.ErrNoPlan only off the plan", err)
 			}
 		})
 	}
@@ -152,7 +153,7 @@ func TestLoadArmPlanRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(back.storm, direct.storm) {
 		t.Errorf("round trip spec =\n%+v\nwant\n%+v", back.storm, direct.storm)
 	}
-	again, err := loadArmPlan(arm)
+	again, err := armplan.Load(arm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestFleetArmGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			plan, err := fleetArmPlan(f, creds.GetKi(), creds.GetOpc())
+			plan, err := armplan.Fleet(f, creds.GetKi(), creds.GetOpc())
 			if err != nil {
 				t.Fatalf("fleetArmPlan: %v", err)
 			}
@@ -289,7 +290,7 @@ func TestFleetArmGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			arm, err := s.fleetArm(&orbitv1.FleetRunSpec{ScenarioYaml: string(doc), Credentials: creds}, engine.EventsNormal)
+			arm, err := s.fleetArm(&orbitv1.FleetRunSpec{ScenarioYaml: string(doc), Credentials: creds}, engine.EventsNormal) //nolint:staticcheck // the deprecated arm, kept for API clients
 			if err != nil || !arm.viaPlan {
 				t.Errorf("fleetArm: viaPlan %t, %v", arm.viaPlan, err)
 			}
@@ -312,8 +313,8 @@ func TestFleetArmOffThePlan(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := fleetArmPlan(f, archKi, archOpc); !errors.Is(err, errNoPlan) {
-				t.Errorf("fleetArmPlan err = %v, want errNoPlan", err)
+			if _, err := armplan.Fleet(f, archKi, archOpc); !errors.Is(err, armplan.ErrNoPlan) {
+				t.Errorf("fleetArmPlan err = %v, want armplan.ErrNoPlan", err)
 			}
 		})
 	}
@@ -333,7 +334,7 @@ func TestFleetArmWithoutBehavioursIsFleet(t *testing.T) {
 		t.Fatalf("the behaviour-less fleet arm: viaPlan %t, %v; want the plan's path", arm.viaPlan, err)
 	}
 	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: fleetSpec()},
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: fleetSpec()}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err != nil {
 		t.Fatal(err)

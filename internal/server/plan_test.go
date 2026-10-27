@@ -114,10 +114,6 @@ func TestPlanShapeRefusals(t *testing.T) {
 		{name: "a gate with an unknown comparison", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp(42)}}}}
 		}, wantErr: "not op 42"},
-		{name: "gates on a run that never completes", mut: func(p *orbitv1.RunPlan) {
-			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
-			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
-		}, wantErr: "gates need a run that completes"},
 		{name: "a conformance gate on a population", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
 		}, wantErr: `a conformance gate judges a conformance workload; "pop" is a population`},
@@ -171,7 +167,7 @@ func TestPlanLoadTranslation(t *testing.T) {
 	gnb := func(id uint32, name string) *orbitv1.GnbConfig {
 		return &orbitv1.GnbConfig{Id: id, IdBits: 24, Name: name, Mcc: "208", Mnc: "93", Tac: 1, Slices: []*orbitv1.Snssai{{Sst: 1, Sd: "010203"}}}
 	}
-	want := &orbitv1.LoadRunSpec{
+	want := &orbitv1.LoadRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 		AmfAddress: "127.0.0.1:1", Gnbs: []*orbitv1.GnbConfig{gnb(7, "orbit-gnb-1"), gnb(8, "orbit-gnb-2")},
 		BaseImsi: "208930100007500", Count: 2, Credentials: &orbitv1.Credentials{Ki: archKi, Opc: archOpc},
 		Rate: 5, RampStart: 1, RampEnd: 10, RampSeconds: 30, Concurrency: 2, DurationMs: 60000, SampleIntervalMs: 500,
@@ -360,9 +356,14 @@ func TestPlanArchiveHoldsNoSecrets(t *testing.T) {
 	}
 	// The assigned gNB ID went back to the rotation when the run ended:
 	// the one-ID block can be assigned again.
-	if _, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}})); err != nil {
+	second, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
 		t.Errorf("the block's only ID after the first run ended: %v", err)
+		return
 	}
+	// Let the second run end and be archived before the state directory is
+	// removed: its late writes raced the cleanup.
+	waitArchive(t, dir, second.Msg.GetRun().GetRunId())
 }
 
 // Assigned and pinned gNB IDs both come from the target's ran.gnb_ids

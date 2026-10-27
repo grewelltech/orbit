@@ -45,10 +45,13 @@ func TestLoadBaseIMSIValidatedBeforeDialing(t *testing.T) {
 		baseIMSI string
 		want     string
 		wantNot  string
+		wantCode int
 	}{
-		{name: "too short refused", baseIMSI: "2089", want: `base IMSI: invalid SUPI "2089": want 5-15 digits or imsi-<digits>`, wantNot: "sctp dial"},
-		{name: "upper-case prefix refused", baseIMSI: "IMSI-208930100000000", want: `invalid SUPI "IMSI-208930100000000"`, wantNot: "sctp dial"},
-		{name: "nai accepted, fails at the dial", baseIMSI: "imsi-208930100000000", want: "sctp dial", wantNot: "invalid SUPI"},
+		// Bad input is refused before the run: could not start (3).
+		{name: "too short refused", baseIMSI: "2089", want: `base IMSI: invalid SUPI "2089": want 5-15 digits or imsi-<digits>`, wantNot: "sctp dial", wantCode: ExitCouldNotStart},
+		{name: "upper-case prefix refused", baseIMSI: "IMSI-208930100000000", want: `invalid SUPI "IMSI-208930100000000"`, wantNot: "sctp dial", wantCode: ExitCouldNotStart},
+		// A run that started and failed did not complete (2).
+		{name: "nai accepted, fails at the dial", baseIMSI: "imsi-208930100000000", want: "sctp dial", wantNot: "invalid SUPI", wantCode: ExitDidNotComplete},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,6 +71,9 @@ func TestLoadBaseIMSIValidatedBeforeDialing(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), tc.wantNot) {
 				t.Errorf("err = %v, must not contain %q", err, tc.wantNot)
+			}
+			if got := ExitCode(err); got != tc.wantCode {
+				t.Errorf("exit %d, want %d", got, tc.wantCode)
 			}
 		})
 	}

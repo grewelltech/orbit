@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/report"
 )
@@ -344,6 +346,14 @@ func addConfig(d *report.Data, a *orbitv1.RunArchive) {
 		d.ConfigLabel = "Load specification"
 		d.Config = loadSpecSummary(spec.LoadSpec)
 	}
+	// A plan run (every run the CLI starts since R4) records its plan,
+	// masked as the archive holds it.
+	if d.Config == "" && a.GetPlan() != nil {
+		if b, err := (protojson.MarshalOptions{Multiline: true, Indent: "  "}).Marshal(a.GetPlan()); err == nil {
+			d.ConfigLabel = "Plan"
+			d.Config = string(b)
+		}
+	}
 	if d.Config == "" {
 		d.Notes = append(d.Notes,
 			"The configuration for this run was not recorded — it predates configuration capture, "+
@@ -354,7 +364,7 @@ func addConfig(d *report.Data, a *orbitv1.RunArchive) {
 // loadSpecSummary renders a load spec as YAML-ish text. Hand-rolled rather than
 // marshalled so the field order is the order someone would read them in, and so
 // nothing new is exposed by accident when the proto grows a field.
-func loadSpecSummary(s *orbitv1.LoadRunSpec) string {
+func loadSpecSummary(s *orbitv1.LoadRunSpec) string { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if s == nil {
 		return ""
 	}

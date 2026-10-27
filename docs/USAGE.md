@@ -395,6 +395,62 @@ tokens" above), which the unit does not yet provision. When it does, export
 `ORBIT_SERVER=https://<listen>` in the shell you run client commands from, so
 they find the service without `--server` on every call.
 
+## Server runs (`orbit runs`)
+
+A run started with `orbit runs start-load` or `start-fleet` executes on the
+server and outlives the command, which prints the run ID on stdout. The CLI
+sends it as a one-workload plan (ADR-0008 §2). A load with several gNBs is the
+exception: start-load names them `<name>-0..`, which no plan can express, so
+it is sent as the old load spec, which the server still runs.
+
+```sh
+orbit runs start-load ... --wait     # follow the run, exit with its result
+orbit runs list | get <id> | watch [<id>] | events [<id>] | report <id>
+orbit runs stop <id>                 # cancel: gates fail as did-not-complete
+orbit runs stop <id> --finish        # finish: gates judged on the results so far
+```
+
+### Exit codes
+
+`--wait` follows the run to its end and exits with its result. The other
+commands, `orbit load` and `orbit conformance` included, use the same codes.
+
+| Code | Meaning | Typically |
+|---|---|---|
+| 0 | the run completed and every gate passed (or it had none) | |
+| 1 | a gate failed | fix the core: an SLO breached, or a conformance check failed outside the expected list. This is the code `orbit load --slo-*` and `orbit conformance` have always used |
+| 2 | the run did not complete | it failed or was cancelled, or a workload did not complete (it failed, never ran, or a suite was cut short) |
+| 3 | the run could not start | fix the lab: an invalid plan, a lease another run holds, no server, a usage error |
+
+The meaning is also printed on stderr at exit: `exit 1: a gate failed`.
+
+Without gates, exit 0 means the run completed, not that the core passed:
+add gates to judge it. An error once the run has an ID leaves its outcome
+unknown and exits 2. A refused request (an invalid argument, a run ID that
+does not exist) is bad input and exits 3, whenever it happens.
+
+### Finishing a run, and soaks
+
+`StopRun` either cancels a run or finishes it. A cancelled run ends CANCELLED,
+and its gates fail as did-not-complete. A finished run ends COMPLETE and is
+marked *stopped early*: its workloads stop and report what they have, and its
+gates are judged on that. A conformance suite finished early is incomplete, so
+its gate fails either way.
+
+- Under `--wait`, the first Ctrl-C finishes the run (`finishing: judging gates
+  on results so far; press Ctrl-C again to cancel`), and a second cancels it.
+  SIGTERM, which CI sends, cancels at once.
+- `orbit runs stop --finish` finishes a run from elsewhere.
+- A soak (`until.forever`) may carry gates, judged only when it is finished.
+  A plain cancel fails them as did-not-complete.
+
+A timed storm (`until.duration`, or `--duration`) keeps attaching for the
+whole duration, cycling its count's SUPIs. Its attempts can therefore
+outnumber its count: a 30-UE soak at 3/s for 14 s makes about 43 attempts
+across its 30 SUPIs. The report says so (`distinct_supis`), and so does the
+summary: `soak: 43 attempts across 30 SUPIs`. The SUPIs it leases are still
+bounded by the count.
+
 ## UE lifecycle
 
 ```sh

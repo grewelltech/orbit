@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bgrewell/orbit/internal/scenario"
 )
 
 // fleetFile is a target-based fleet scenario: workload only.
@@ -96,7 +94,11 @@ func TestScenarioTargetPrecedence(t *testing.T) {
 			if r.execErr != nil {
 				t.Fatalf("%v\n%s", r.execErr, r.err)
 			}
-			y := s.startReq.GetFleet().GetScenarioYaml()
+			// Sent as a plan when one carries the file, else as the arm.
+			y := s.startReq.GetFleet().GetScenarioYaml() //nolint:staticcheck // the deprecated arm, kept for API clients
+			if amf := s.startReq.GetPlan().GetTarget().GetCore().GetAmf(); amf != "" {
+				y = "amf: " + amf
+			}
 			if !strings.Contains(y, tc.wantAMF) {
 				t.Errorf("sent YAML lacks AMF %s:\n%s", tc.wantAMF, y)
 			}
@@ -119,28 +121,27 @@ func TestStartFleetSendsAppliedScenario(t *testing.T) {
 	if r.execErr != nil {
 		t.Fatal(r.execErr)
 	}
-	spec := s.startReq.GetFleet()
-	y := spec.GetScenarioYaml()
-	for _, bad := range []string{"\ntarget:", testKi, testOPc} {
-		if strings.Contains(y, bad) {
-			t.Errorf("sent YAML contains %q:\n%s", bad, y)
-		}
+	// Sent as a one-workload plan (armplan.Fleet): the target applied
+	// into the plan's own target, the keys in its subscriber pool, which
+	// the server masks in what it records.
+	plan := s.startReq.GetPlan()
+	if plan == nil {
+		t.Fatalf("start-fleet did not send a plan: %v", s.startReq)
 	}
-	if spec.GetCredentials().GetKi() != testKi || spec.GetCredentials().GetOpc() != testOPc {
-		t.Errorf("credentials = %v, want the target's", spec.GetCredentials())
+	tg := plan.GetTarget()
+	if tg.GetCore().GetAmf() != "192.0.2.10:38412" || tg.GetRan().GetN2SourceIps()[0] != "192.0.2.50" ||
+		tg.GetSubscribers()[0].GetFirstSupi() != "001010000000001" ||
+		plan.GetWorkloads()[0].GetPopulation().GetTopology().GetGnbIds().GetFirst() != 100 {
+		t.Errorf("plan target = %v", tg)
 	}
-	f, err := scenario.ParseFleetNoEnv([]byte(y))
-	if err != nil {
-		t.Fatalf("the server would refuse the sent YAML: %v\n%s", err, y)
-	}
-	if f.Core.AMF != "192.0.2.10:38412" || f.Topology.GNBs.SourceIPs[0] != "192.0.2.50" || f.Fleet.SUPIBase != "001010000000001" || f.Topology.GNBs.IDBase != 100 {
-		t.Errorf("parsed back: core %+v topo %+v supi %s", f.Core, f.Topology.GNBs, f.Fleet.SUPIBase)
+	if sp := tg.GetSubscribers()[0]; sp.GetKi() != testKi || sp.GetOpc() != testOPc {
+		t.Errorf("keys = %s/%s, want the target's", sp.GetKi(), sp.GetOpc())
 	}
 	// A typed --ki beats the target's.
 	other := strings.Repeat("4", 32)
 	s, r = startFleet(t, lab1, writeScenario(t, "target: lab1\n"+fleetFile), "--ki", other)
-	if r.execErr != nil || s.startReq.GetFleet().GetCredentials().GetKi() != other {
-		t.Errorf("--ki: %v %v", r.execErr, s.startReq.GetFleet().GetCredentials())
+	if r.execErr != nil || s.startReq.GetPlan().GetTarget().GetSubscribers()[0].GetKi() != other {
+		t.Errorf("--ki: %v %v", r.execErr, s.startReq.GetPlan().GetTarget().GetSubscribers())
 	}
 }
 
