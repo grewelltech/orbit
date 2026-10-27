@@ -74,6 +74,11 @@ A **population** attaches the target's subscribers:
 | `subscriber_pool` | which of the target's `subscribers` pools to use, by name |
 | `sample_interval_ms` | the resource-sample cadence of a soak |
 
+Whether `behaviors` is there decides what happens to the UEs. A population
+without it is a storm: each UE attaches and is released. One with
+`behaviors`, even `behaviors: {}`, keeps its UEs and holds them until
+`until.duration`.
+
 A **conformance** workload runs the suite, its fields under `conformance`:
 `categories`, `target_release`, `per_test_timeout_ms`, `traffic`,
 `responder`, `subscriber_pool`, `n3_bind`, `gnb_ids` (as above), `nas`, and
