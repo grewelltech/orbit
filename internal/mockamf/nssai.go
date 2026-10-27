@@ -158,11 +158,11 @@ func (a *AMF) answerUnservedNSSAI(p *pipe, st *ueState) error {
 		}
 		plain = rej
 	}
-	wrapped, err := st.sec.EncodeSecureRaw(plain, nas.SecHdrIntegrityCiphered)
+	wrapped, err := st.encodeSecureRaw(plain, nas.SecHdrIntegrityCiphered)
 	if err != nil {
 		return err
 	}
-	return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, wrapped))
+	return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), wrapped))
 }
 
 // acceptWithNSSAI accepts st with the allowed and rejected NSSAI of the
@@ -185,11 +185,11 @@ func (a *AMF) acceptWithNSSAI(p *pipe, st *ueState) error {
 	ra.AllowedNSSAI = nasType.NewAllowedNSSAI(nasMessage.RegistrationAcceptAllowedNSSAIType)
 	ra.AllowedNSSAI.SetLen(uint8(len(allowed)))
 	ra.AllowedNSSAI.Buffer = append([]byte(nil), allowed...)
-	wrapped, err := st.sec.EncodeSecure(acc, nas.SecHdrIntegrityCiphered)
+	wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
 	if err != nil {
 		return err
 	}
-	return a.send(p, buildInitialContextSetupRequest(st.amfID, st.ranID, wrapped, a.plmn, a.cfg.SST, a.sdBytes))
+	return a.send(p, buildInitialContextSetupRequest(st.amfID, a.ranIDOf(st), wrapped, a.plmn, a.cfg.SST, a.sdBytes))
 }
 
 // RegistrationRequests returns the plain Registration Requests the mock has

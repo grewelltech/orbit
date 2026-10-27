@@ -69,6 +69,9 @@ type UPF interface {
 const defaultQFI = 1
 
 // pduSession is the mock's record of one UE's PDU session.
+// pduSession is a UE's PDU session. id and ueIP are set before it is
+// published in ueState.sessions and never change; ul and dl are guarded by
+// AMF.mu, since a path switch on another association moves them.
 type pduSession struct {
 	id   uint8
 	ueIP net.IP
@@ -119,7 +122,9 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 		st.sessions = map[uint8]*pduSession{}
 	}
 	st.sessions[id] = s
-	amfID, ranID := st.amfID, st.ranID
+	// Copied under the lock: a path switch on another association may
+	// move the session's tunnels (and the UE's RAN ID) at any time.
+	amfID, ranID, ul := st.amfID, st.ranID, s.ul
 	a.mu.Unlock()
 
 	acc, err := buildPDUSessionEstablishmentAccept(id, pti, s.ueIP, a.cfg.SST, a.sdBytes, dnn)
@@ -130,11 +135,11 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 	if err != nil {
 		return err
 	}
-	wrapped, err := st.sec.EncodeSecure(dl, nas.SecHdrIntegrityCiphered)
+	wrapped, err := st.encodeSecure(dl, nas.SecHdrIntegrityCiphered)
 	if err != nil {
 		return err
 	}
-	setup, err := buildPDUSessionResourceSetupRequest(amfID, ranID, id, wrapped, s.ul, a.cfg.SST, a.sdBytes)
+	setup, err := buildPDUSessionResourceSetupRequest(amfID, ranID, id, wrapped, ul, a.cfg.SST, a.sdBytes)
 	if err != nil {
 		return err
 	}

@@ -131,7 +131,7 @@ func (a *AMF) startRetransmit(p *pipe, d, last time.Duration, resend []ngapType.
 // Authentication Request) and releasing the UE after the last expiry unless
 // WithT3560NoRelease.
 func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *retransmitter {
-	amfID, ranID := st.amfID, st.ranID
+	amfID, ranID := st.amfID, a.ranIDOf(st)
 	resend := make([]ngapType.NGAPPDU, a.t3560Retries)
 	for i := range resend {
 		resend[i] = buildDownlinkNASTransport(amfID, ranID, ar)
@@ -162,11 +162,11 @@ func (a *AMF) startT3550(p *pipe, st *ueState) (*retransmitter, error) {
 		if err != nil {
 			return nil, err
 		}
-		wrapped, err := st.sec.EncodeSecure(acc, nas.SecHdrIntegrityCiphered)
+		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
 		if err != nil {
 			return nil, err
 		}
-		resend[i] = buildDownlinkNASTransport(st.amfID, st.ranID, wrapped)
+		resend[i] = buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), wrapped)
 	}
 	return a.startRetransmit(p, a.t3550, 0, resend, func() {
 		if a.crashAfterT3550 {

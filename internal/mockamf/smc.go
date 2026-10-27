@@ -142,17 +142,17 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 		if err != nil {
 			return err
 		}
-		wrapped, err := st.sec.EncodeSecure(acc, nas.SecHdrIntegrityCiphered)
+		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
 		if err != nil {
 			return err
 		}
-		return a.send(p, buildInitialContextSetupRequest(st.amfID, st.ranID, wrapped, a.plmn, a.cfg.SST, a.sdBytes))
+		return a.send(p, buildInitialContextSetupRequest(st.amfID, a.ranIDOf(st), wrapped, a.plmn, a.cfg.SST, a.sdBytes))
 	}
 	alg, ok := a.selectIntegrity(st.ueCaps)
 	if !ok {
 		switch a.noCommon {
 		case ReleaseNoCommonIntegrity:
-			err := a.send(p, buildUEContextReleaseCommand(st.amfID, st.ranID))
+			err := a.send(p, buildUEContextReleaseCommand(st.amfID, a.ranIDOf(st)))
 			if a.crashAfterRelease {
 				a.crashed.Store(true) // WithCrashAfterRelease covers this release too
 			}
@@ -168,13 +168,13 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 			if err != nil {
 				return err
 			}
-			return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, plain))
+			return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), plain))
 		default:
 			rej, err := buildRegistrationReject(nasMessage.Cause5GMMUESecurityCapabilitiesMismatch)
 			if err != nil {
 				return err
 			}
-			return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, rej))
+			return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), rej))
 		}
 	}
 	replayed := st.ueCaps
@@ -192,17 +192,17 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 		if err != nil {
 			return fmt.Errorf("mock amf NAS key derivation: %w", err)
 		}
-		st.sec = &nas.SecurityContext{IntegrityAlg: alg, CipheringAlg: enc, KNASint: kInt, KNASenc: kEnc, Network: true}
+		st.setSec(&nas.SecurityContext{IntegrityAlg: alg, CipheringAlg: enc, KNASint: kInt, KNASenc: kEnc, Network: true})
 	}
 	smc, err := buildSecurityModeCommand(alg, enc, st.ngksi, replayed)
 	if err != nil {
 		return err
 	}
-	wrapped, err := st.sec.EncodeSecure(smc, nas.SecHdrIntegrityNewContext)
+	wrapped, err := st.encodeSecure(smc, nas.SecHdrIntegrityNewContext)
 	if err != nil {
 		return err
 	}
-	return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, wrapped))
+	return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), wrapped))
 }
 
 // buildRegistrationReject builds a plain Registration Reject with 5GMM
