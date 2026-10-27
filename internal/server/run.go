@@ -67,7 +67,7 @@ func (s *runService) StartRun(
 	opts := engine.RunOptions{Name: m.GetName(), Verbosity: verbosity}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
-		arm, err := s.loadArm(spec.Load, verbosity)
+		arm, err := s.loadArm(spec.Load, verbosity) //nolint:staticcheck // the deprecated arm, kept for API clients
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -80,7 +80,7 @@ func (s *runService) StartRun(
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
-		arm, err := s.fleetArm(spec.Fleet, verbosity)
+		arm, err := s.fleetArm(spec.Fleet, verbosity) //nolint:staticcheck // the deprecated arm, kept for API clients
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -826,7 +826,7 @@ func sortedGNBs(m map[string]int) []string {
 // front (so a bad request fails synchronously at StartRun) and closes over
 // engine.RunLoad, wiring the run's LiveStats in as the load Observer.
 // loadSpecFrom is a load arm as the storm engine's spec.
-func loadSpecFrom(p *orbitv1.LoadRunSpec) (engine.LoadSpec, error) {
+func loadSpecFrom(p *orbitv1.LoadRunSpec) (engine.LoadSpec, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if p.GetAmfAddress() == "" {
 		return engine.LoadSpec{}, fmt.Errorf("amf_address is required")
 	}
@@ -916,7 +916,7 @@ func loadSpecFrom(p *orbitv1.LoadRunSpec) (engine.LoadSpec, error) {
 }
 
 // loadRun is a load arm's launcher and leases.
-func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engine.Needs, error) {
+func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engine.Needs, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	spec, err := loadSpecFrom(p)
 	if err != nil {
 		return nil, engine.Needs{}, err
@@ -941,7 +941,7 @@ func loadRunFrom(log *slog.Logger, spec engine.LoadSpec) (engine.LoadRunFunc, en
 }
 
 // loadRunFunc is loadRun without the leases.
-func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, error) {
+func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	fn, _, err := loadRun(log, p)
 	return fn, err
 }
@@ -988,7 +988,7 @@ func fleetRunFrom(log *slog.Logger, mgr *engine.Manager, spec engine.FleetRunSpe
 }
 
 // loadRate turns the ramp/rate fields into a load.Rate (nil = concurrency-bound).
-func loadRate(p *orbitv1.LoadRunSpec) (load.Rate, error) {
+func loadRate(p *orbitv1.LoadRunSpec) (load.Rate, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if p.GetRampSeconds() > 0 || p.GetRampStart() > 0 || p.GetRampEnd() > 0 {
 		if p.GetRampSeconds() == 0 {
 			return nil, fmt.Errorf("ramp_seconds must be > 0 when a ramp is set")

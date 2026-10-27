@@ -39,8 +39,8 @@ func newRunRPCClient(t *testing.T) (orbitv1connect.RunServiceClient, *engine.Run
 // RunLoad returns an error quickly and the run reaches a terminal state without
 // needing a live core. This exercises the full StartRun → registry → RunLoad
 // path over the wire.
-func failFastLoadSpec() *orbitv1.LoadRunSpec {
-	return &orbitv1.LoadRunSpec{
+func failFastLoadSpec() *orbitv1.LoadRunSpec { //nolint:staticcheck // the deprecated arm, kept for API clients
+	return &orbitv1.LoadRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 		AmfAddress: "127.0.0.1:1", // nothing listens here
 		BaseImsi:   "208930100007500",
 		Count:      1,
@@ -60,7 +60,7 @@ func startLoad(t *testing.T, c orbitv1connect.RunServiceClient, name string) *or
 	t.Helper()
 	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
 		Name: name,
-		Spec: &orbitv1.StartRunRequest_Load{Load: failFastLoadSpec()},
+		Spec: &orbitv1.StartRunRequest_Load{Load: failFastLoadSpec()}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
@@ -136,23 +136,23 @@ func TestRunServiceLeaseConflicts(t *testing.T) {
 		t.Fatalf("seed run: %v", err)
 	}
 
-	start := func(spec *orbitv1.LoadRunSpec) error {
+	start := func(spec *orbitv1.LoadRunSpec) error { //nolint:staticcheck // the deprecated arm, kept for API clients
 		_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-			Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+			Spec: &orbitv1.StartRunRequest_Load{Load: spec}, //nolint:staticcheck // the deprecated arm, kept for API clients
 		}))
 		return err
 	}
-	otherSUPIs := func(s *orbitv1.LoadRunSpec) { s.BaseImsi = "208930100009000" }
-	otherGNB := func(s *orbitv1.LoadRunSpec) { s.Gnbs[0].Id = 99 }
+	otherSUPIs := func(s *orbitv1.LoadRunSpec) { s.BaseImsi = "208930100009000" } //nolint:staticcheck // the deprecated arm, kept for API clients
+	otherGNB := func(s *orbitv1.LoadRunSpec) { s.Gnbs[0].Id = 99 }                //nolint:staticcheck // the deprecated arm, kept for API clients
 	for _, tc := range []struct {
 		name    string
-		mutate  []func(*orbitv1.LoadRunSpec)
-		wantErr string // "" = starts
+		mutate  []func(*orbitv1.LoadRunSpec) //nolint:staticcheck // the deprecated arm, kept for API clients
+		wantErr string                       // "" = starts
 	}{
 		{name: "the same spec", wantErr: "SUPIs 208930100007500 (PLMN 208/93) is held by " + seed.ID},
-		{name: "other SUPIs, same gNB", mutate: []func(*orbitv1.LoadRunSpec){otherSUPIs},
+		{name: "other SUPIs, same gNB", mutate: []func(*orbitv1.LoadRunSpec){otherSUPIs}, //nolint:staticcheck // the deprecated arm, kept for API clients
 			wantErr: "gNB ID 1 on AMF 127.0.0.1:1 (PLMN 208/93) is held by " + seed.ID},
-		{name: "other SUPIs and gNB", mutate: []func(*orbitv1.LoadRunSpec){otherSUPIs, otherGNB}},
+		{name: "other SUPIs and gNB", mutate: []func(*orbitv1.LoadRunSpec){otherSUPIs, otherGNB}}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := failFastLoadSpec()
@@ -217,7 +217,7 @@ func TestRunServiceStartValidatesSpec(t *testing.T) {
 	spec := failFastLoadSpec()
 	spec.AmfAddress = "" // required
 	_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+		Spec: &orbitv1.StartRunRequest_Load{Load: spec}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err == nil {
 		t.Fatal("StartRun with an empty amf_address succeeded")
@@ -393,7 +393,7 @@ func TestRunServiceRejectsMixedPLMN(t *testing.T) {
 		Slices: []*orbitv1.Snssai{{Sst: 1, Sd: "010203"}},
 	})
 	_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+		Spec: &orbitv1.StartRunRequest_Load{Load: spec}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err == nil {
 		t.Fatal("StartRun accepted gnbs with divergent PLMNs")
@@ -459,8 +459,8 @@ fleet:
   attach_rate: 10/s
 `
 
-func fleetSpec() *orbitv1.FleetRunSpec {
-	return &orbitv1.FleetRunSpec{
+func fleetSpec() *orbitv1.FleetRunSpec { //nolint:staticcheck // the deprecated arm, kept for API clients
+	return &orbitv1.FleetRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 		ScenarioYaml: failFastFleetYAML,
 		Credentials: &orbitv1.Credentials{
 			Ki:  "00112233445566778899aabbccddeeff",
@@ -475,7 +475,7 @@ func TestRunServiceStartFleet(t *testing.T) {
 	c, _ := newRunRPCClient(t)
 	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
 		Name: "fleet-smoke",
-		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: fleetSpec()},
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: fleetSpec()}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err != nil {
 		t.Fatalf("StartRun(fleet): %v", err)
@@ -507,7 +507,7 @@ func TestRunServiceFleetValidatesYAML(t *testing.T) {
 	spec := fleetSpec()
 	spec.ScenarioYaml = "kind: fleet\nthis is: not valid: yaml: ["
 	_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: spec},
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: spec}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err == nil {
 		t.Fatal("StartRun accepted a malformed fleet YAML")
@@ -572,7 +572,7 @@ func TestRunServiceFleetDoesNotExpandServerEnv(t *testing.T) {
 	spec.ScenarioYaml = strings.Replace(spec.ScenarioYaml, "amf: 127.0.0.1:1", "amf: ${ORBIT_TEST_SECRET}", 1)
 
 	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: spec},
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: spec}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err != nil {
 		// A literal "${ORBIT_TEST_SECRET}" is an invalid AMF address, so it may

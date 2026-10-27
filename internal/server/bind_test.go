@@ -180,7 +180,7 @@ func TestStartLoadRejectsBadBinds(t *testing.T) {
 			// Over the wire it is InvalidArgument and registers nothing.
 			c, _ := newRunRPCClient(t)
 			_, err = c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-				Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+				Spec: &orbitv1.StartRunRequest_Load{Load: spec}, //nolint:staticcheck // the deprecated arm, kept for API clients
 			}))
 			if connect.CodeOf(err) != connect.CodeInvalidArgument {
 				t.Errorf("StartRun code = %v, want InvalidArgument", connect.CodeOf(err))

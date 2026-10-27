@@ -32,7 +32,7 @@ const Subscribers = "arm"
 // Load is a load arm as a plan whose storm build is the arm's own
 // engine spec: one gNB, or gNBs that share everything but their IDs
 // (consecutive), names (numbered from one base) and addresses.
-func Load(p *orbitv1.LoadRunSpec) (*orbitv1.RunPlan, error) {
+func Load(p *orbitv1.LoadRunSpec) (*orbitv1.RunPlan, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	gnbs := p.GetGnbs()
 	if len(gnbs) == 0 || p.GetCount() == 0 {
 		return nil, ErrNoPlan

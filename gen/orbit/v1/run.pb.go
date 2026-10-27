@@ -366,6 +366,8 @@ func (x *Run) GetStoppedEarly() bool {
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
 // `orbit load` flags; credentials travel in the request because the server
 // owns execution (ADR-0005) and the listener is lab-internal.
+//
+// Deprecated: Marked as deprecated in orbit/v1/run.proto.
 type LoadRunSpec struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	AmfAddress string                 `protobuf:"bytes,1,opt,name=amf_address,json=amfAddress,proto3" json:"amf_address,omitempty"`
@@ -538,6 +540,8 @@ func (x *LoadRunSpec) GetBindAddresses() []string {
 // so the RPC reuses the existing, proven fleet schema rather than re-modelling
 // it; credentials travel separately because the server owns execution and
 // cannot expand the YAML's ${ENV} against the client's secrets.
+//
+// Deprecated: Marked as deprecated in orbit/v1/run.proto.
 type FleetRunSpec struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ScenarioYaml  string                 `protobuf:"bytes,1,opt,name=scenario_yaml,json=scenarioYaml,proto3" json:"scenario_yaml,omitempty"` // a `kind: fleet` scenario document
@@ -648,6 +652,7 @@ func (x *StartRunRequest) GetSpec() isStartRunRequest_Spec {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/run.proto.
 func (x *StartRunRequest) GetLoad() *LoadRunSpec {
 	if x != nil {
 		if x, ok := x.Spec.(*StartRunRequest_Load); ok {
@@ -657,6 +662,7 @@ func (x *StartRunRequest) GetLoad() *LoadRunSpec {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/run.proto.
 func (x *StartRunRequest) GetFleet() *FleetRunSpec {
 	if x != nil {
 		if x, ok := x.Spec.(*StartRunRequest_Fleet); ok {
@@ -689,11 +695,14 @@ type isStartRunRequest_Spec interface {
 type StartRunRequest_Load struct {
 	// load and fleet are superseded by plan; kept for compatibility
 	// (ADR-0008 §2). The server translates them into a one-workload plan.
-	Load *LoadRunSpec `protobuf:"bytes,2,opt,name=load,proto3,oneof"`
+	//
+	// Deprecated: Marked as deprecated in orbit/v1/run.proto.
+	Load *LoadRunSpec `protobuf:"bytes,2,opt,name=load,proto3,oneof"` // a one-workload RunPlan instead (ADR-0008 §2)
 }
 
 type StartRunRequest_Fleet struct {
-	Fleet *FleetRunSpec `protobuf:"bytes,3,opt,name=fleet,proto3,oneof"`
+	// Deprecated: Marked as deprecated in orbit/v1/run.proto.
+	Fleet *FleetRunSpec `protobuf:"bytes,3,opt,name=fleet,proto3,oneof"` // a one-workload RunPlan instead (ADR-0008 §2)
 }
 
 type StartRunRequest_Plan struct {
@@ -3471,7 +3480,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x0fended_unix_nano\x18\x06 \x01(\x03R\rendedUnixNano\x12\x14\n" +
 	"\x05error\x18\a \x01(\tR\x05error\x128\n" +
 	"\x0eworkload_kinds\x18\b \x03(\x0e2\x11.orbit.v1.RunKindR\rworkloadKinds\x12#\n" +
-	"\rstopped_early\x18\t \x01(\bR\fstoppedEarly\"\xa3\x04\n" +
+	"\rstopped_early\x18\t \x01(\bR\fstoppedEarly\"\xa7\x04\n" +
 	"\vLoadRunSpec\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12'\n" +
@@ -3492,14 +3501,14 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\vpdu_session\x18\r \x01(\v2\x14.orbit.v1.PDUSessionR\n" +
 	"pduSession\x12\x1e\n" +
 	"\vgnb_n3_addr\x18\x0e \x01(\tR\tgnbN3Addr\x12%\n" +
-	"\x0ebind_addresses\x18\x0f \x03(\tR\rbindAddresses\"r\n" +
+	"\x0ebind_addresses\x18\x0f \x03(\tR\rbindAddresses:\x02\x18\x01\"v\n" +
 	"\fFleetRunSpec\x12)\n" +
 	"\rscenario_yaml\x18\x01 \x01(\tB\x04\x90\xb5\x18\x01R\fscenarioYaml\x127\n" +
-	"\vcredentials\x18\x02 \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\"\xf6\x01\n" +
+	"\vcredentials\x18\x02 \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials:\x02\x18\x01\"\xfe\x01\n" +
 	"\x0fStartRunRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
-	"\x04load\x18\x02 \x01(\v2\x15.orbit.v1.LoadRunSpecH\x00R\x04load\x12.\n" +
-	"\x05fleet\x18\x03 \x01(\v2\x16.orbit.v1.FleetRunSpecH\x00R\x05fleet\x12'\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12/\n" +
+	"\x04load\x18\x02 \x01(\v2\x15.orbit.v1.LoadRunSpecB\x02\x18\x01H\x00R\x04load\x122\n" +
+	"\x05fleet\x18\x03 \x01(\v2\x16.orbit.v1.FleetRunSpecB\x02\x18\x01H\x00R\x05fleet\x12'\n" +
 	"\x04plan\x18\x05 \x01(\v2\x11.orbit.v1.RunPlanH\x00R\x04plan\x12A\n" +
 	"\x0fevent_verbosity\x18\x04 \x01(\x0e2\x18.orbit.v1.EventVerbosityR\x0eeventVerbosityB\x06\n" +
 	"\x04spec\"3\n" +

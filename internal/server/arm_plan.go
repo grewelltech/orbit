@@ -30,7 +30,7 @@ type armRun struct {
 // loadArm builds a load arm: as its plan when a plan expresses it, else
 // from its own spec. A plan that will not build falls back too, so the
 // arm's own errors are the ones its client sees.
-func (s *runService) loadArm(p *orbitv1.LoadRunSpec, verbosity engine.EventVerbosity) (armRun, error) {
+func (s *runService) loadArm(p *orbitv1.LoadRunSpec, verbosity engine.EventVerbosity) (armRun, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if plan, err := armplan.Load(p); err == nil {
 		pr, err := s.buildPlan(plan, verbosity)
 		if err == nil {
@@ -54,7 +54,7 @@ func (s *runService) loadArm(p *orbitv1.LoadRunSpec, verbosity engine.EventVerbo
 // fleetArm builds a fleet arm: as its plan when a plan expresses it, else
 // from its scenario. It is persistent with or without behaviours, as a
 // fleet always was.
-func (s *runService) fleetArm(p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (armRun, error) {
+func (s *runService) fleetArm(p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (armRun, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if p.GetScenarioYaml() == "" {
 		return armRun{}, fmt.Errorf("scenario_yaml is required")
 	}

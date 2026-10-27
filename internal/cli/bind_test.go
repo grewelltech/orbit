@@ -233,7 +233,7 @@ func TestRunsStartLoadSendsBindAddresses(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	got := stub.startReq.GetLoad().GetBindAddresses()
+	got := stub.startReq.GetLoad().GetBindAddresses() //nolint:staticcheck // the deprecated arm, kept for API clients
 	if strings.Join(got, ",") != "10.0.0.21,10.0.0.22:0" {
 		t.Errorf("bind_addresses = %q", got)
 	}

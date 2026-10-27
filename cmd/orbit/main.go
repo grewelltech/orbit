@@ -16,7 +16,9 @@ var version = "dev"
 
 func main() {
 	if err := cli.New(version).Execute(); err != nil {
+		code := cli.ExitCode(err)
 		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "exit %d: %s\n", code, cli.ExitMeaning(code))
+		os.Exit(code)
 	}
 }

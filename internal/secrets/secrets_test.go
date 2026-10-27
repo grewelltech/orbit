@@ -72,13 +72,13 @@ func TestFind(t *testing.T) {
 		{name: "register with keys", m: &orbitv1.RegisterRequest{Supi: "x", Credentials: &orbitv1.Credentials{Ki: "k", Opc: "o"}},
 			want: []string{"credentials.ki", "credentials.opc"}},
 		{name: "register, empty keys", m: &orbitv1.RegisterRequest{Supi: "x", Credentials: &orbitv1.Credentials{}}},
-		{name: "a run's load spec", m: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Load{Load: &orbitv1.LoadRunSpec{Credentials: &orbitv1.Credentials{Ki: "k"}}}},
+		{name: "a run's load spec", m: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Load{Load: &orbitv1.LoadRunSpec{Credentials: &orbitv1.Credentials{Ki: "k"}}}}, //nolint:staticcheck // the deprecated arm, kept for API clients
 			want: []string{"load.credentials.ki"}},
 		{name: "a responder token", m: &orbitv1.StartAppRequest{Supi: "x", Token: "t"}, want: []string{"token"}},
-		{name: "keys in a fleet scenario", m: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{
+		{name: "keys in a fleet scenario", m: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 			ScenarioYaml: "kind: fleet\ncredentials: { ki: 00112233445566778899aabbccddeeff, opc: x }\n"}}},
 			want: []string{"fleet.scenario_yaml: credentials.ki", "fleet.scenario_yaml: credentials.opc"}},
-		{name: "a fleet scenario with placeholders only", m: &orbitv1.FleetRunSpec{ScenarioYaml: "credentials:\n  ki: ${ORBIT_KI}\n"}},
+		{name: "a fleet scenario with placeholders only", m: &orbitv1.FleetRunSpec{ScenarioYaml: "credentials:\n  ki: ${ORBIT_KI}\n"}}, //nolint:staticcheck // the deprecated arm, kept for API clients
 		{name: "nothing", m: &orbitv1.ListRequest{}},
 	}
 	for _, tc := range tests {

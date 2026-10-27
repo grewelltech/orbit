@@ -185,7 +185,7 @@ func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error
 	return r.start(RunKindLoad, opts, live, nil, nil, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
-			if err != nil && !(Finishing(ctx) && ctx.Err() != nil) {
+			if err != nil && (!Finishing(ctx) || ctx.Err() == nil) {
 				return nil, err
 			}
 			return &rep, nil // finished: its results so far
@@ -201,7 +201,7 @@ func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, err
 	return r.start(RunKindFleet, opts, nil, live, nil, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
-			if err != nil && !(Finishing(ctx) && ctx.Err() != nil) {
+			if err != nil && (!Finishing(ctx) || ctx.Err() == nil) {
 				return nil, err
 			}
 			return &rep, nil // finished: its results so far

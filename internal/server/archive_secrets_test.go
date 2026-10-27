@@ -80,8 +80,8 @@ func TestArchivesHoldNoSecrets(t *testing.T) {
 	load := failFastLoadSpec()
 	load.Credentials = creds()
 	reqs := map[string]*orbitv1.StartRunRequest{
-		"fleet": {Name: "fleet-secrets", Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ScenarioYaml: archFleetYAML, Credentials: creds()}}},
-		"load":  {Name: "load-secrets", Spec: &orbitv1.StartRunRequest_Load{Load: load}},
+		"fleet": {Name: "fleet-secrets", Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ScenarioYaml: archFleetYAML, Credentials: creds()}}}, //nolint:staticcheck // the deprecated arm, kept for API clients
+		"load":  {Name: "load-secrets", Spec: &orbitv1.StartRunRequest_Load{Load: load}},                                                                        //nolint:staticcheck // the deprecated arm, kept for API clients
 	}
 	ids := map[string]string{}
 	for kind, req := range reqs {
@@ -169,7 +169,7 @@ func TestOldArchiveIsMaskedOnLoad(t *testing.T) {
 	a := &orbitv1.RunArchive{
 		Version: archiveVersion,
 		Run:     &orbitv1.Run{RunId: "run-0ld", State: orbitv1.RunState_RUN_STATE_FAILED},
-		Spec: &orbitv1.RunArchive_FleetSpec{FleetSpec: &orbitv1.FleetRunSpec{
+		Spec: &orbitv1.RunArchive_FleetSpec{FleetSpec: &orbitv1.FleetRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 			ScenarioYaml: "credentials: {ki: " + archKi + "}\n",
 			Credentials:  &orbitv1.Credentials{Ki: archKi, Opc: archOpc},
 		}},

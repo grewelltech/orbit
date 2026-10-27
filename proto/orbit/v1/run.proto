@@ -98,6 +98,7 @@ message Run {
 // `orbit load` flags; credentials travel in the request because the server
 // owns execution (ADR-0005) and the listener is lab-internal.
 message LoadRunSpec {
+  option deprecated = true; // StartRunRequest.plan instead; the server still translates it
   string amf_address = 1;
   // gNBs to mux UEs across. UE i attaches through gNBs[i % len].
   repeated GnbConfig gnbs = 2;
@@ -132,6 +133,7 @@ message LoadRunSpec {
 // it; credentials travel separately because the server owns execution and
 // cannot expand the YAML's ${ENV} against the client's secrets.
 message FleetRunSpec {
+  option deprecated = true; // StartRunRequest.plan instead; the server still translates it
   string scenario_yaml = 1 [(orbit.v1.secret_yaml) = true]; // a `kind: fleet` scenario document
   Credentials credentials = 2;
 }
@@ -152,8 +154,8 @@ message StartRunRequest {
   oneof spec {
     // load and fleet are superseded by plan; kept for compatibility
     // (ADR-0008 §2). The server translates them into a one-workload plan.
-    LoadRunSpec load = 2;
-    FleetRunSpec fleet = 3;
+    LoadRunSpec load = 2 [deprecated = true];   // a one-workload RunPlan instead (ADR-0008 §2)
+    FleetRunSpec fleet = 3 [deprecated = true]; // a one-workload RunPlan instead (ADR-0008 §2)
     // plan is the general spec (ADR-0008 §2). Until R2 the server answers
     // it with UNIMPLEMENTED.
     RunPlan plan = 5;

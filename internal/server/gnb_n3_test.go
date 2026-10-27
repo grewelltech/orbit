@@ -73,7 +73,7 @@ func TestRPCsRefuseIPv6GNBN3(t *testing.T) {
 			spec := failFastLoadSpec()
 			spec.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: 1}
 			spec.GnbN3Addr = v6
-			_, err := rc.StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Load{Load: spec}}))
+			_, err := rc.StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Load{Load: spec}})) //nolint:staticcheck // the deprecated arm, kept for API clients
 			return err
 		}},
 	}

@@ -371,13 +371,13 @@ func (s *runService) releaseIDs(amfKeys []string, plmn string, ids []uint32) {
 
 // planLoadSpec is a population without behaviours as today's load spec.
 func planLoadSpec(t *orbitv1.ResolvedTarget, pop *orbitv1.PopulationWorkload, sp *orbitv1.SubscriberPool,
-	creds *orbitv1.Credentials, count uint32, ids []uint32, n2, n3 []string, until *orbitv1.Until) (*orbitv1.LoadRunSpec, error) {
+	creds *orbitv1.Credentials, count uint32, ids []uint32, n2, n3 []string, until *orbitv1.Until) (*orbitv1.LoadRunSpec, error) { //nolint:staticcheck // the deprecated arm, kept for API clients
 	core := t.GetCore()
 	if until.GetDurationMs() > math.MaxUint32 {
 		return nil, fmt.Errorf("until.duration_ms %d is longer than a load run takes (%d)", until.GetDurationMs(), uint64(math.MaxUint32))
 	}
 	bits := gnbBits(t)
-	spec := &orbitv1.LoadRunSpec{
+	spec := &orbitv1.LoadRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 		AmfAddress:       core.GetAmf(),
 		BaseImsi:         sp.GetFirstSupi(),
 		Count:            count,

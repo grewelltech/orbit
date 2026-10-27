@@ -167,7 +167,7 @@ func TestPlanLoadTranslation(t *testing.T) {
 	gnb := func(id uint32, name string) *orbitv1.GnbConfig {
 		return &orbitv1.GnbConfig{Id: id, IdBits: 24, Name: name, Mcc: "208", Mnc: "93", Tac: 1, Slices: []*orbitv1.Snssai{{Sst: 1, Sd: "010203"}}}
 	}
-	want := &orbitv1.LoadRunSpec{
+	want := &orbitv1.LoadRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 		AmfAddress: "127.0.0.1:1", Gnbs: []*orbitv1.GnbConfig{gnb(7, "orbit-gnb-1"), gnb(8, "orbit-gnb-2")},
 		BaseImsi: "208930100007500", Count: 2, Credentials: &orbitv1.Credentials{Ki: archKi, Opc: archOpc},
 		Rate: 5, RampStart: 1, RampEnd: 10, RampSeconds: 30, Concurrency: 2, DurationMs: 60000, SampleIntervalMs: 500,

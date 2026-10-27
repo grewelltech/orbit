@@ -354,7 +354,7 @@ func addConfig(d *report.Data, a *orbitv1.RunArchive) {
 // loadSpecSummary renders a load spec as YAML-ish text. Hand-rolled rather than
 // marshalled so the field order is the order someone would read them in, and so
 // nothing new is exposed by accident when the proto grows a field.
-func loadSpecSummary(s *orbitv1.LoadRunSpec) string {
+func loadSpecSummary(s *orbitv1.LoadRunSpec) string { //nolint:staticcheck // the deprecated arm, kept for API clients
 	if s == nil {
 		return ""
 	}

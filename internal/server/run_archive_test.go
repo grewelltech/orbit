@@ -49,7 +49,7 @@ func runUntilArchived(t *testing.T, c orbitv1connect.RunServiceClient, dir, name
 	t.Helper()
 	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
 		Name: name,
-		Spec: &orbitv1.StartRunRequest_Load{Load: failFastLoadSpec()},
+		Spec: &orbitv1.StartRunRequest_Load{Load: failFastLoadSpec()}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	}))
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)

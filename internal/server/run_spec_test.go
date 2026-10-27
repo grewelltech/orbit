@@ -27,14 +27,14 @@ func TestSpecStoreMasksEveryMarkedField(t *testing.T) {
 	}{
 		{
 			name: "load",
-			req: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Load{Load: &orbitv1.LoadRunSpec{
+			req: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Load{Load: &orbitv1.LoadRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 				AmfAddress: "10.0.0.1:38412", Credentials: &orbitv1.Credentials{Ki: ki, Opc: opc}}}},
 			creds: func(a *orbitv1.RunArchive) *orbitv1.Credentials { return a.GetLoadSpec().GetCredentials() },
 			want:  []string{opc, ki},
 		},
 		{
 			name: "fleet: request credentials and the scenario's",
-			req: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{
+			req: &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 				ScenarioYaml: "kind: fleet\nloom: {token: s3cret-bearer}\n",
 				Credentials:  &orbitv1.Credentials{Ki: ki, Opc: opc}}}},
 			creds: func(a *orbitv1.RunArchive) *orbitv1.Credentials { return a.GetFleetSpec().GetCredentials() },
@@ -79,7 +79,7 @@ func TestRedactArchiveScrubsByValue(t *testing.T) {
 	a := &orbitv1.RunArchive{
 		Run:    &orbitv1.Run{RunId: "run-1", Error: "auth failed for key " + ki},
 		Events: []*orbitv1.RunEvent{{Message: "ki=" + ki}},
-		Spec: &orbitv1.RunArchive_FleetSpec{FleetSpec: &orbitv1.FleetRunSpec{
+		Spec: &orbitv1.RunArchive_FleetSpec{FleetSpec: &orbitv1.FleetRunSpec{ //nolint:staticcheck // the deprecated arm, kept for API clients
 			// The key again, upper-cased, as a copy from another tool would
 			// have it: hex values are scrubbed in any case.
 			ScenarioYaml: "kind: fleet # lab key " + ki + "\n# from the sheet: " + strings.ToUpper(ki) + "\n",
@@ -157,7 +157,7 @@ func TestSpecStoreForgetsAfterTake(t *testing.T) {
 	// the life of the process.
 	s := newSpecStore()
 	s.put("run-1", &orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ScenarioYaml: "kind: fleet"}},
+		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ScenarioYaml: "kind: fleet"}}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	})
 	if _, ok := s.take("run-1"); !ok {
 		t.Fatal("spec not stored")
