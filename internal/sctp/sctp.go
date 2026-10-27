@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -213,9 +214,15 @@ func routeSource(remote *net.UDPAddr) (net.IP, error) {
 // resolver, an unspecified or missing address never gets through: that is
 // INADDR_ANY, the multi-homed socket this path exists to avoid, so Dial owns
 // the invariant rather than trusting each resolver. A link-local source keeps
-// the remote's zone, since a link-local pair shares an interface.
+// the remote's zone, since a link-local pair shares an interface. An IPv6
+// link-local remote without a zone cannot be routed at all, so it gets a
+// hint naming the zone rather than the probe's "pass --bind" (#120).
 func probeSource(source func(*net.UDPAddr) (net.IP, error), raddr string, ra *isctp.SCTPAddr) (net.IPAddr, error) {
 	remote := &net.UDPAddr{IP: ra.IPAddrs[0].IP, Port: ra.Port, Zone: ra.IPAddrs[0].Zone}
+	if remote.IP.To4() == nil && remote.IP.IsLinkLocalUnicast() && remote.Zone == "" {
+		example := net.JoinHostPort(remote.IP.String()+"%eth0", strconv.Itoa(remote.Port))
+		return net.IPAddr{}, fmt.Errorf("link-local AMF address %q needs a %%zone, e.g. %s", raddr, example)
+	}
 	ip, err := source(remote)
 	if err != nil {
 		return net.IPAddr{}, fmt.Errorf("cannot determine N2 source for %q: %w; pass --bind", raddr, err)
@@ -378,7 +385,7 @@ func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, 
 			if errors.Is(r.err, syscall.ETIMEDOUT) {
 				// The kernel abandoned the INIT exchange: nothing answered.
 				return nil, dialErr(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
-					raddr, source, elapsed(), bound.Round(time.Millisecond), r.err))
+					raddr, source, elapsed(), printedBound(bound), r.err))
 			}
 			// Name the source too: "cannot assign requested address" is
 			// about the bind, not the AMF, and the operator needs to see
@@ -399,7 +406,7 @@ func Dial(ctx context.Context, laddr, raddr string, opts ...DialOption) (*Conn, 
 			// Same fact as the kernel branch, nothing answered the INIT, so
 			// the operator reads the same hint whichever bound fired first.
 			return nil, dialErr(fmt.Errorf("sctp dial %q from %q: no INIT-ACK after %s (bound %s; AMF unreachable or black-holed): %w",
-				raddr, source, elapsed(), bound.Round(time.Millisecond), ctx.Err()))
+				raddr, source, elapsed(), printedBound(bound), ctx.Err()))
 		}
 		return nil, dialErr(fmt.Errorf("sctp dial %q from %q: cancelled after %s: %w", raddr, source, elapsed(), ctx.Err()))
 	}
@@ -533,4 +540,15 @@ func resolve(hostport string) (*isctp.SCTPAddr, error) {
 		return nil, err
 	}
 	return &isctp.SCTPAddr{IPAddrs: []net.IPAddr{*ip}, Port: p}, nil
+}
+
+// printedBound is a dial bound as error text shows it: rounded to 10 ms, so a
+// bound derived from a deadline a moment old (9.999s for --timeout 10s) reads
+// as requested (#122). A bound under 5 ms keeps millisecond precision rather
+// than reading 0s.
+func printedBound(bound time.Duration) time.Duration {
+	if r := bound.Round(10 * time.Millisecond); r > 0 {
+		return r
+	}
+	return bound.Round(time.Millisecond)
 }
