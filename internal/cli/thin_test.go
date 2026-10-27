@@ -15,6 +15,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
+	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -424,5 +425,55 @@ func TestExplainShowsCommandDefaults(t *testing.T) {
 	}
 	if line := lineWith(r.err, "workloads[default].attach.concurrency"); !strings.Contains(line, "default (orbit load)") {
 		t.Errorf("concurrency row = %q, want orbit load's own default", line)
+	}
+}
+
+// --nas-integrity and --nas-ciphering on the server work as with --local:
+// the same verdicts, and the same UE security capability in the
+// Registration Requests the mock AMF receives.
+func TestThinConformanceNASMatchesLocal(t *testing.T) {
+	clearOrbitEnv(t)
+	type result struct{ ID, Verdict string }
+	run := func(local bool) ([]result, [][]byte, orbitRun) {
+		lab := newThinLab(t)
+		args := []string{"--server", lab.url, "conformance", "--amf", lab.amf, "--mcc", "208", "--mnc", "93", "--sd", "010203",
+			"--supi", "208930000000001", "--ki", testKi, "--opc", testOPc, "--gnb-n3", "127.0.0.1",
+			"--nas-integrity", "NIA1,NIA2", "--nas-ciphering", "NEA0,NEA2",
+			"--category", "mobility", "--per-test-timeout", "2s", "--json"}
+		if local {
+			args = append(args, "--local")
+		}
+		r := runOrbit(t, targetDir(t, lab1), args...)
+		var sum struct{ Results []result }
+		if err := json.Unmarshal([]byte(r.out), &sum); err != nil {
+			t.Fatalf("local %t: JSON: %v (err %v)\n%s", local, err, r.execErr, r.err)
+		}
+		var caps [][]byte
+		for _, rr := range lab.mock.RegistrationRequests() {
+			m, err := nas.DecodePlain(rr)
+			if err != nil || m.RegistrationRequest == nil || m.RegistrationRequest.UESecurityCapability == nil {
+				t.Fatalf("local %t: a Registration Request without a UE security capability: %v", local, err)
+			}
+			caps = append(caps, m.RegistrationRequest.UESecurityCapability.Buffer[:2])
+		}
+		return sum.Results, caps, r
+	}
+	lr, lcaps, local := run(true)
+	tr, tcaps, thin := run(false)
+	if len(lr) == 0 || !reflect.DeepEqual(lr, tr) {
+		t.Errorf("verdicts differ:\nlocal %+v\nthin  %+v", lr, tr)
+	}
+	if ExitCode(local.execErr) != ExitCode(thin.execErr) {
+		t.Errorf("exit differs: --local %v, thin %v", local.execErr, thin.execErr)
+	}
+	// NEA0|NEA2 and NIA1|NIA2 (bit 8 is algorithm 0).
+	want := []byte{0x80 | 0x20, 0x40 | 0x20}
+	if len(lcaps) == 0 || len(tcaps) == 0 {
+		t.Fatalf("no Registration Request reached the mock: local %d, thin %d", len(lcaps), len(tcaps))
+	}
+	for _, c := range append(lcaps, tcaps...) {
+		if !reflect.DeepEqual(c, want) {
+			t.Errorf("UE security capability %#x, want %#x", c, want)
+		}
 	}
 }

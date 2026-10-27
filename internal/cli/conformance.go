@@ -13,6 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/conformance"
@@ -446,43 +447,16 @@ func (u conformanceUEFlags) spec(dnn, mcc, mnc string, given func(flag string) b
 			return conformance.UESpec{}, fmt.Errorf("--traffic: want host:port: %w", err)
 		}
 	}
-	ia, err := nasAlgorithms("--nas-integrity", "NIA", u.nasIntegrity, 1)
+	ia, err := conformance.ParseNASAlgorithms("--nas-integrity", "NIA", u.nasIntegrity, 1)
 	if err != nil {
 		return conformance.UESpec{}, err
 	}
-	ea, err := nasAlgorithms("--nas-ciphering", "NEA", u.nasCiphering, 0)
+	ea, err := conformance.ParseNASAlgorithms("--nas-ciphering", "NEA", u.nasCiphering, 0)
 	if err != nil {
 		return conformance.UESpec{}, err
 	}
 	return conformance.UESpec{SUPI: u.supi, Ki: ki, OPc: opc, DNN: dnn, GNBN3: n3, Traffic: u.traffic,
 		NASIntegrity: ia, NASCiphering: ea}, nil
-}
-
-// nasAlgorithms turns a list of algorithm names (prefix followed by a
-// digit, case-insensitive) into the UE security capability bitmap, bit 8
-// for algorithm 0 (TS 24.501 9.11.3.54). Algorithms 0 to 3 exist; min is
-// the lowest one the flag accepts (1 for integrity: NIA0 is refused, since
-// the UE never registers for emergency). nil is the default, 0.
-func nasAlgorithms(flag, prefix string, names []string, min int) (uint8, error) {
-	if names == nil {
-		return 0, nil
-	}
-	if len(names) == 0 {
-		return 0, fmt.Errorf("%s: name at least one algorithm", flag)
-	}
-	var bits uint8
-	for _, n := range names {
-		up := strings.ToUpper(strings.TrimSpace(n))
-		if len(up) != len(prefix)+1 || !strings.HasPrefix(up, prefix) || up[len(prefix)] < '0' || up[len(prefix)] > '3' {
-			return 0, fmt.Errorf("%s: %q is not one of %s%d to %s3", flag, n, prefix, min, prefix)
-		}
-		a := int(up[len(prefix)] - '0')
-		if a < min {
-			return 0, fmt.Errorf("%s: %s is refused: the UE never registers for emergency, so it does not offer NIA0", flag, up)
-		}
-		bits |= 0x80 >> a
-	}
-	return bits, nil
 }
 
 // nilStringSlice is a comma-separated, repeatable string list flag that
@@ -508,3 +482,25 @@ func (s *nilStringSlice) Set(val string) error {
 }
 
 func (s *nilStringSlice) Type() string { return "strings" }
+
+// GetSlice, Append and Replace make it a pflag.SliceValue, so the
+// resolver (target.FlagInput) reads it as the list it is, not as its
+// comma-joined text.
+func (s *nilStringSlice) GetSlice() []string { return append([]string(nil), *s.v...) }
+
+func (s *nilStringSlice) Append(val string) error { return s.Set(val) }
+
+func (s *nilStringSlice) Replace(vals []string) error {
+	*s.v = nil
+	for _, v := range vals {
+		if err := s.Set(v); err != nil {
+			return err
+		}
+	}
+	if *s.v == nil {
+		*s.v = []string{}
+	}
+	return nil
+}
+
+var _ pflag.SliceValue = (*nilStringSlice)(nil)

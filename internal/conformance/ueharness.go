@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -373,4 +374,32 @@ func (h *UEHarness) Deregister(ctx context.Context) error {
 	}
 	h.registered = false
 	return h.m.Deregister(ctx, h.supi)
+}
+
+// ParseNASAlgorithms turns a list of algorithm names (prefix followed by a
+// digit, case-insensitive) into the UE security capability bitmap, bit 8
+// for algorithm 0 (TS 24.501 9.11.3.54). Algorithms 0 to 3 exist; min is
+// the lowest one the flag accepts (1 for integrity: NIA0 is refused, since
+// the UE never registers for emergency). nil is the default, 0; an empty
+// list is refused. flag names the input in errors (a flag or a plan path).
+func ParseNASAlgorithms(flag, prefix string, names []string, min int) (uint8, error) {
+	if names == nil {
+		return 0, nil
+	}
+	if len(names) == 0 {
+		return 0, fmt.Errorf("%s: name at least one algorithm", flag)
+	}
+	var bits uint8
+	for _, n := range names {
+		up := strings.ToUpper(strings.TrimSpace(n))
+		if len(up) != len(prefix)+1 || !strings.HasPrefix(up, prefix) || up[len(prefix)] < '0' || up[len(prefix)] > '3' {
+			return 0, fmt.Errorf("%s: %q is not one of %s%d to %s3", flag, n, prefix, min, prefix)
+		}
+		a := int(up[len(prefix)] - '0')
+		if a < min {
+			return 0, fmt.Errorf("%s: %s is refused: the UE never registers for emergency, so it does not offer NIA0", flag, up)
+		}
+		bits |= 0x80 >> a
+	}
+	return bits, nil
 }
