@@ -26,6 +26,11 @@ const (
 	// NIA0NoCommonIntegrity selects NIA0 anyway: an AMF whose selection
 	// falls back to the null algorithm.
 	NIA0NoCommonIntegrity
+	// SkipNoCommonIntegrity sends no Security Mode Command: a plain
+	// Registration Accept (security header type 0) follows the
+	// Authentication Response, so registration proceeds without NAS
+	// security.
+	SkipNoCommonIntegrity
 )
 
 // defaultIntegrityOrder is the mock's integrity preference: 128-NIA2, then
@@ -154,6 +159,16 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 			return err
 		case NIA0NoCommonIntegrity:
 			alg = nas.NIA0
+		case SkipNoCommonIntegrity:
+			acc, err := a.registrationAccept(st)
+			if err != nil {
+				return err
+			}
+			plain, err := acc.PlainNasEncode()
+			if err != nil {
+				return err
+			}
+			return a.send(p, buildDownlinkNASTransport(st.amfID, st.ranID, plain))
 		default:
 			rej, err := buildRegistrationReject(nasMessage.Cause5GMMUESecurityCapabilitiesMismatch)
 			if err != nil {

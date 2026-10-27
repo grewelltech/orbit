@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**10 checks today** (the first four live on the SD-Core testbed):
+**11 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -210,17 +210,38 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   case f), allowed from V16.3.0), SKIPs. The answer is read
   through the UE's NAS security context, and the UE is deregistered after.
   An AMF-built Reject without a 5GMM cause cannot be told from an SMF's.
+- `NAS-REG-REJECTED-NSSAI` (nas, FAIL-class, Rel-16 onward) — the UE
+  registers requesting only a stimulus S-NSSAI the core does not serve (the
+  run's SST with SD EEEEEE), with the NSSAA and ER-NSSAI bits sent as 0.
+  TS 24.501 5.5.1.2.5 (condition b) 2)) then requires a Registration Reject
+  with 5GMM cause #62 (from V16.2.0) whose Rejected NSSAI IE lists the
+  stimulus (from V16.6.0). Another cause, a #62 Reject without the
+  stimulus, or the stimulus only in the Extended rejected NSSAI IE (from
+  V17.1.0) is FAIL; a #62 Reject with an IE Orbit cannot decode instead is
+  ERROR. A core that allows a default S-NSSAI accepts, so the #62 rule did
+  not apply: SKIP, likely on a core whose subscriber has a default slice.
+  The Accept's rejected NSSAI is a may, recorded only. Not yet run on Ref 2;
+  the source analyst predicts FAIL on EX-1.
   Needs a UE. Not yet run on Ref 2; the source analyst predicts FAIL (an
   AMF-built Reject returned with #91).
 
-- `NAS-SMC-NO-NIA0-REPLAYED-CAPS` (security, FAIL-class) — two
-  registrations with the Security Mode Complete withheld. A normal UE
-  (5G-EA0/1/2, 5G-IA0/1/2) must get a Security Mode Command that selects no
-  NIA0 (TS 33.501 5.5.2) and replays its capabilities exactly (6.7.2 step
-  1b). A UE offering only NIA0 and NIA3 may get NIA3, a reject or a release,
-  never NIA0 or no command. The selected algorithms are recorded. Needs a UE,
-  else SKIP. Not yet run on Ref 2; the source analyst predicts the
-  capabilities replay PASSes.
+- `NAS-SMC-NO-NIA0-REPLAYED-CAPS` (security, FAIL-class) — three registrations
+  with the Security Mode Complete withheld. A normal UE (5G-EA0/1/2,
+  5G-IA0/1/2) must get a Security Mode Command that selects no NIA0 (TS 33.501
+  5.5.2) and replays its capabilities exactly (6.7.2 step 1b). A UE offering
+  only NIA0 and NIA3 may get NIA3, a reject or a release, never NIA0 or no
+  command. A UE offering only NIA0, run last, expects a reject or a release.
+  For any UE, a Security Mode Command selecting NIA0, or no Security Mode
+  Command, is FAIL (TS 33.501 5.5.2, 6.7.2 step 1b). A non-null algorithm the
+  UE did not offer is PASS, recorded, not scored: no shall requires the
+  selected algorithm to be one the UE offered at initial registration. 5.11.2
+  b) says only 'dependent on', and 6.7.1.2 (from V19.4.0) covers AMF change.
+  After a Registration Accept without NAS security the UE is deregistered in
+  the clear, and a UE Context Release is requested if the core sends none; the
+  cleanup is in the detail. Each UE is judged separately and the worst result
+  wins. The selected algorithms are recorded. Needs a UE, else SKIP. Not yet
+  run on Ref 2; the source analyst predicts the capabilities replay PASSes,
+  and the NIA0-only UE is predicted to FAIL on EX-1.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
@@ -242,6 +263,6 @@ FAIL in the report but out of the gate. See
 Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
-- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`).
+- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`).
 - **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

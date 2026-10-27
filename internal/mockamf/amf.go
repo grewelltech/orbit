@@ -120,10 +120,21 @@ type AMF struct {
 	// Accept options (accept.go).
 	undecodableAccept bool
 
+	// UE context release options (release.go).
+	releaseOnDereg       bool
+	ignoreReleaseRequest bool
+
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
 	dnnAnswer  DNNAnswer
 	dnnCause   uint8
+
+	// Unserved-NSSAI answer (nssai.go).
+	nssaiAnswer NSSAIAnswer
+
+	// regReqs records every Registration Request received, guarded by mu
+	// (RegistrationRequests).
+	regReqs [][]byte
 }
 
 // errCrashed ends every association of a mock that crashed after a release
@@ -275,6 +286,8 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	case ngapType.ProcedureCodeUplinkNASTransport:
 		_, err := a.onUplinkNAS(p, st, up.nasPDU)
 		return err
+	case ngapType.ProcedureCodeUEContextReleaseRequest:
+		return a.onUEContextReleaseRequest(p, st)
 	default:
 		return nil
 	}
@@ -297,6 +310,7 @@ type ueState struct {
 	t3550        *retransmitter               // running T3550 (WithT3550), nil otherwise
 	ueCaps       nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
 	kamf         []byte                       // KAMF from authentication, for the SMC's keys
+	requested    []byte                       // the Requested NSSAI IE's value, nil when absent
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -312,6 +326,10 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 	st.supi = supi
 	st.ueCaps = ueCapsFromRegistration(up.nasPDU)
+	st.requested = requestedNSSAIFromRegistration(up.nasPDU)
+	a.mu.Lock()
+	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
+	a.mu.Unlock()
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
 	var randv [16]byte
@@ -381,6 +399,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		// Accept without checking RES* (sim only), send Security Mode Command.
 		return false, a.onAuthenticated(p, st)
 	case f5nas.MsgTypeSecurityModeComplete:
+		if a.nssaiAnswer != AcceptAnyNSSAI && !a.servesRequested(st) {
+			return false, a.answerUnservedNSSAI(p, st)
+		}
 		if a.undecodableAccept {
 			return false, a.sendUndecodableAccept(p, st)
 		}
@@ -410,7 +431,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return false, a.onPDUSessionRequest(p, st, msg)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
 		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
-		return false, nil
+		return false, a.onDeregistration(p, st)
 	default:
 		return false, nil
 	}

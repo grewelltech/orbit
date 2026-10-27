@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	f5nas "github.com/free5gc/nas"
@@ -18,6 +19,10 @@ import (
 // core sends a UE CONTEXT RELEASE COMMAND for the UE during the attach.
 // No UE CONTEXT RELEASE COMPLETE is sent: the caller closes the association.
 var ErrReleasedByCore = errors.New("the core released the UE context during the attach")
+
+// ErrRegistrationRejected is the error Attach returns when the core answers
+// with a REGISTRATION REJECT that decoded (and, when protected, verified).
+var ErrRegistrationRejected = errors.New("AMF rejected registration")
 
 // AttachProbe lets a conformance check withhold the UE's reply to chosen
 // downlink NAS messages and watch what the core sends during an attach.
@@ -41,6 +46,15 @@ type AttachProbe struct {
 	// the NAS message type when it carries one. It runs on the attach's
 	// goroutine and must not block.
 	OnDownlink func(DownlinkEvent)
+	// CleanUpPlainAccept, when positive, ends the attach at a Registration
+	// Accept sent without NAS security (security header type 0) with a
+	// *PlainAcceptError, after cleaning up what it can: the UE sends a
+	// plain switch-off Deregistration Request, waits up to
+	// CleanUpPlainAccept for a UE CONTEXT RELEASE COMMAND, and without one
+	// sends a UE CONTEXT RELEASE REQUEST and waits as long again. A command
+	// is answered with UE CONTEXT RELEASE COMPLETE. Zero leaves a plain
+	// Registration Accept to the attach.
+	CleanUpPlainAccept time.Duration
 	// OnSMRequest is called with each PDU Session Establishment Request
 	// the UE sends, as the plain 5GSM message that goes in the UL NAS
 	// Transport's payload container, just before it is sent. It runs on
@@ -128,6 +142,23 @@ func (s *attachState) deregisterUndecodableAccept(decodeErr error) error {
 // noKeyAvailable is the ngKSI value "no key is available" (TS 24.501
 // 9.11.3.32).
 const noKeyAvailable = 7
+
+// ErrDownlinkNASDecode wraps the error Attach returns when a downlink NAS
+// PDU does not decode (and no probe asked to skip it).
+var ErrDownlinkNASDecode = errors.New("decode downlink NAS")
+
+// PlainAcceptError is the error Attach returns when
+// AttachProbe.CleanUpPlainAccept ended it at a Registration Accept sent
+// without NAS security.
+type PlainAcceptError struct {
+	// Steps is what the cleanup did, in order, for example "plain
+	// switch-off Deregistration Request sent".
+	Steps []string
+}
+
+func (e *PlainAcceptError) Error() string {
+	return "Registration Accept without NAS security; cleanup: " + strings.Join(e.Steps, "; ")
+}
 
 // NASEvent is one downlink NAS PDU the attach decoded (see
 // AttachProbe.OnNAS).
@@ -298,4 +329,137 @@ func nasMessageType(raw []byte, nea0 bool) uint8 {
 		return 0
 	}
 	return raw[9]
+}
+
+// cleanUpPlainAccept answers a Registration Accept sent without NAS
+// security under AttachProbe.CleanUpPlainAccept (see there) and returns the
+// *PlainAcceptError that ends the attach. With no security context the
+// Deregistration Request goes in the clear, which TS 24.501 4.4.4.3 allows
+// (item f) and NOTE 2), and names the UE by the 5G-GUTI
+// the Accept assigned, else by its SUCI, with ngKSI "no key is available".
+// The last read of the cleanup ends when the caller closes the association,
+// which it does when the attach fails.
+func (s *attachState) cleanUpPlainAccept(acc *f5nas.Message) error {
+	e := &PlainAcceptError{}
+	wait := s.ueCfg.Probe.CleanUpPlainAccept
+	done := make(chan struct{})
+	defer close(done)
+	pdus := s.readPDUs(done)
+	// The cleanup runs to its own bound even if the attach's context ends
+	// as the Accept arrives (a caller's wait running out), so the
+	// deregistration and the release request still go out.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), 2*wait+time.Second)
+	defer cancel()
+	id, err := s.ueCfg.Identity.EncodeNullSUCI()
+	if g, gerr := ue.ParseRegistrationAccept(acc); gerr == nil && g != nil {
+		id, err = g.Raw, nil
+	}
+	if err == nil {
+		err = s.sendPlainDeregistration(id)
+	}
+	if err != nil {
+		e.Steps = append(e.Steps, "Deregistration Request not sent: "+err.Error())
+	} else {
+		e.Steps = append(e.Steps, "plain switch-off Deregistration Request sent")
+		released, rerr := s.awaitRelease(ctx, pdus, wait)
+		if rerr != nil {
+			e.Steps = append(e.Steps, rerr.Error())
+			return e
+		}
+		if released {
+			e.Steps = append(e.Steps, "the core released the UE context (UE Context Release Complete sent)")
+			return e
+		}
+		e.Steps = append(e.Steps, fmt.Sprintf("no UE Context Release Command within %s", wait))
+	}
+	if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseRequest(s.amfID, s.ranID)); err != nil {
+		e.Steps = append(e.Steps, "UE Context Release Request not sent: "+err.Error())
+		return e
+	}
+	e.Steps = append(e.Steps, "UE Context Release Request sent")
+	released, err := s.awaitRelease(ctx, pdus, wait)
+	switch {
+	case err != nil:
+		e.Steps = append(e.Steps, err.Error())
+	case released:
+		e.Steps = append(e.Steps, "the core released the UE context (UE Context Release Complete sent)")
+	default:
+		e.Steps = append(e.Steps, fmt.Sprintf("no UE Context Release Command within %s; the association is closed with the UE context still held", wait))
+	}
+	return e
+}
+
+// sendPlainDeregistration sends a switch-off Deregistration Request without
+// NAS security, naming the UE by id (a 5GS mobile identity).
+func (s *attachState) sendPlainDeregistration(id []byte) error {
+	m, err := ue.BuildDeregistrationRequest(id, true)
+	if err != nil {
+		return err
+	}
+	req := m.DeregistrationRequestUEOriginatingDeregistration
+	req.SetNasKeySetIdentifiler(noKeyAvailable)
+	raw, err := m.PlainNasEncode()
+	if err != nil {
+		return err
+	}
+	pdu, err := gnb.BuildUplinkNASTransport(s.gnbCfg, s.amfID, s.ranID, raw)
+	if err != nil {
+		return err
+	}
+	return gnb.SendPDU(s.conn, ueStream, pdu)
+}
+
+// pduResult is one read from the association.
+type pduResult struct {
+	pdu *ngapType.NGAPPDU
+	err error
+}
+
+// readPDUs reads downlink PDUs on one goroutine until a read fails or done
+// closes, so a wait that runs out never leaves a read behind to swallow the
+// next PDU.
+func (s *attachState) readPDUs(done <-chan struct{}) <-chan pduResult {
+	ch := make(chan pduResult)
+	go func() {
+		for {
+			pdu, err := gnb.ReadPDU(context.Background(), s.conn)
+			select {
+			case ch <- pduResult{pdu, err}:
+			case <-done:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return ch
+}
+
+// awaitRelease takes downlink PDUs from pdus, each reported to the probe,
+// for up to wait, or until ctx ends. It answers a UE CONTEXT RELEASE COMMAND with UE CONTEXT
+// RELEASE COMPLETE and reports true; the wait running out is false with no
+// error.
+func (s *attachState) awaitRelease(ctx context.Context, pdus <-chan pduResult, wait time.Duration) (bool, error) {
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false, fmt.Errorf("waiting for a UE Context Release Command: %w", ctx.Err())
+		case <-t.C:
+			return false, nil
+		case r := <-pdus:
+			if r.err != nil {
+				return false, fmt.Errorf("reading for a UE Context Release Command: %w", r.err)
+			}
+			if !errors.Is(s.observe(r.pdu), ErrReleasedByCore) {
+				continue
+			}
+			if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(s.amfID, s.ranID)); err != nil {
+				return true, fmt.Errorf("UE Context Release Complete not sent: %w", err)
+			}
+			return true, nil
+		}
+	}
 }
