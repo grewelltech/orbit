@@ -86,6 +86,9 @@ message Run {
   int64 started_unix_nano = 5;
   int64 ended_unix_nano = 6;      // 0 while not terminal
   string error = 7;               // set when state == RUN_STATE_FAILED
+  // A MIXED run's workloads' kinds, in plan order; ListRuns' kind filter
+  // matches a run when any of them is the kind. Empty for one workload.
+  repeated RunKind workload_kinds = 8;
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
@@ -377,6 +380,21 @@ message GetRunResponse {
   repeated Lease leases = 5;
   // Populated for a CONFORMANCE run: the suite so far.
   ConformanceProgress conformance_progress = 6;
+  // Populated for a MIXED run: each workload as it stands, in plan order.
+  repeated WorkloadProgress workloads = 7;
+}
+
+// WorkloadProgress is one workload of a MIXED run as it stands.
+message WorkloadProgress {
+  string name = 1;
+  RunKind kind = 2;
+  string state = 3;               // waiting | running | done | failed | stopped (the run stopped under it) | skipped (never started)
+  string detail = 4;              // why it failed or was skipped
+  oneof progress {
+    LoadProgress load = 5;
+    FleetProgress fleet = 6;
+    ConformanceProgress conformance = 7;
+  }
 }
 
 // ConformanceProgress is a conformance run's suite so far.
@@ -424,6 +442,8 @@ message TelemetryFrame {
     FleetProgress fleet = 8;
     ConformanceProgress conformance = 9;
   }
+  // A MIXED run's workloads, in plan order (progress above is empty).
+  repeated WorkloadProgress workloads = 10;
 }
 
 message RunEventsRequest {

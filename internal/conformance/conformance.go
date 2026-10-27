@@ -161,6 +161,21 @@ type Env struct {
 	// target that bounds its gNB IDs (see Registry.gnbIDsOf); unset, the
 	// legacy layout applies.
 	PackedGNBIDs bool
+	// Load, when set, names a population that is putting load on the core
+	// right now ("" when none is active): a run with conformance under
+	// load (ADR-0008 §2). A liveness miss under load is not attributable
+	// to the check, and checks that need an idle core SKIP. It is asked as
+	// each check starts and again at a liveness miss, so a population that
+	// ends partway through the suite stops counting from the next check.
+	Load func() string
+}
+
+// loadedBy is the population loading the core now, "" for none.
+func (e Env) loadedBy() string {
+	if e.Load == nil {
+		return ""
+	}
+	return e.Load()
 }
 
 // SpecTarget is the release a reference to spec is gated on: the pin for
@@ -293,6 +308,9 @@ const (
 	// ObservedAMFUnresponsive prefixes a FAIL whose fresh NG Setup no longer
 	// completes after the stimulus (confirmAlive).
 	ObservedAMFUnresponsive = "AMF unresponsive after the message"
+	// ObservedAMFUnresponsiveUnderLoad prefixes the ERROR for the same
+	// silence while a population loaded the core.
+	ObservedAMFUnresponsiveUnderLoad = "AMF unresponsive under load"
 	// ObservedProbeFailed prefixes an ERROR whose liveness probe could not
 	// be made (confirmAlive).
 	ObservedProbeFailed = "liveness probe could not run"
@@ -331,7 +349,7 @@ func cutShortResult(r Result, needs string) Result {
 // livenessTexts are the Observed prefixes no expected-failures entry may
 // name; crashTexts are those that report a core that stopped answering.
 var (
-	livenessTexts = []string{ObservedAMFUnresponsive, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho, ObservedProbeCutShort}
+	livenessTexts = []string{ObservedAMFUnresponsive, ObservedAMFUnresponsiveUnderLoad, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho, ObservedProbeCutShort}
 	crashTexts    = []string{ObservedAMFUnresponsive, ObservedUPFUnresponsive}
 )
 
@@ -368,6 +386,12 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 		// The probe ran out of the check's time: that is the harness, not
 		// a dead core.
 		r = cutShortResult(r, "its wait plus a fresh NG Setup")
+	case !alive && env.loadedBy() != "":
+		// A population loads the same AMF: its silence may be the
+		// population's doing, so it is not this check's finding.
+		r.Verdict = Error
+		r.Observed = ObservedAMFUnresponsiveUnderLoad + " (" + r.Observed + ")"
+		r.Detail = fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy())
 	case !alive:
 		r.Verdict = Fail
 		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
@@ -479,8 +503,12 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	min := MinRelease(t)
 	var res Result
+	n := NeedsOf(t)
 	if why, skip := skipReason(t, e); skip {
 		res = Result{Verdict: Skip, Observed: "requires a newer release than the target", Detail: why}
+	} else if pop := e.loadedBy(); n.RequiresIdleCore && pop != "" {
+		res = Result{Verdict: Skip, Observed: ObservedNeedsIdleCore,
+			Detail: fmt.Sprintf("%s; population %s is active", n.IdleCoreReason, pop)}
 	} else {
 		d, raised := budget(t, perTest)
 		tctx, cancel := context.WithTimeout(ctx, d)

@@ -2,7 +2,6 @@ package conformance
 
 import (
 	"context"
-	"github.com/bgrewell/orbit/internal/gnb"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,8 +9,11 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 // usesOf maps each type with a method that calls name to true, walking the
@@ -203,4 +205,83 @@ func (envProbe) SpecRefs() []SpecRef { return nil }
 func (p envProbe) Run(_ context.Context, e Env) Result {
 	p.seen[p.id] = e
 	return Result{Verdict: Pass}
+}
+
+// Under a concurrent population, each check that needs an idle core SKIPs
+// with its reason, without running; with no population it runs. Every
+// other check runs either way.
+func TestIdleCoreChecksSkipUnderLoad(t *testing.T) {
+	idle := map[string]string{
+		nasT3550AcceptRetransmit{}.ID(): timerWindowsReason,
+		nasT3560AuthRetransmit{}.ID():   timerWindowsReason,
+	}
+	for _, c := range NewRegistry().Tests() {
+		n := NeedsOf(c)
+		want, ok := idle[c.ID()]
+		if n.RequiresIdleCore != ok || n.IdleCoreReason != want {
+			t.Errorf("%s: RequiresIdleCore %t (%q), want %t (%q)", c.ID(), n.RequiresIdleCore, n.IdleCoreReason, ok, want)
+		}
+	}
+	for id, reason := range idle {
+		t.Run(id, func(t *testing.T) {
+			var c Test
+			for _, x := range NewRegistry().Tests() {
+				if x.ID() == id {
+					c = x
+				}
+			}
+			env := Env{Load: func() string { return "fleet" }}
+			r := runOne(context.Background(), c, env, time.Second)
+			if r.Verdict != Skip || r.Observed != ObservedNeedsIdleCore || !strings.HasPrefix(r.Detail, reason+"; population fleet is active") {
+				t.Errorf("under load = %s %q %q, want SKIP for an idle core", r.Verdict, r.Observed, r.Detail)
+			}
+			// No population: it runs (and, with no UE configured, SKIPs
+			// for that reason instead).
+			r = runOne(context.Background(), c, Env{Load: func() string { return "" }}, time.Second)
+			if r.Observed == ObservedNeedsIdleCore {
+				t.Errorf("with no population active it still skipped for an idle core: %+v", r)
+			}
+		})
+	}
+}
+
+// Load is decided per check, as each starts: a storm that ends partway
+// through the suite leaves an early idle-core check SKIPped and lets a
+// later one run.
+func TestIdleCoreDecidedPerCheck(t *testing.T) {
+	var loaded atomic.Bool
+	loaded.Store(true)
+	env := Env{Load: func() string {
+		if loaded.Load() {
+			return "storm"
+		}
+		return ""
+	}}
+	var idle []Result
+	NewRegistry().RunStream(context.Background(), env, time.Second, func(r Result, _, _ int) {
+		if NeedsOf(testByID(t, r.ID)).RequiresIdleCore {
+			idle = append(idle, r)
+			loaded.Store(false) // the storm ends after the first one
+		}
+	}, NAS)
+	if len(idle) != 2 {
+		t.Fatalf("%d idle-core checks ran, want 2", len(idle))
+	}
+	if idle[0].Observed != ObservedNeedsIdleCore {
+		t.Errorf("first, under the storm: %s %q, want SKIP for an idle core", idle[0].Verdict, idle[0].Observed)
+	}
+	if idle[1].Observed == ObservedNeedsIdleCore {
+		t.Errorf("second, after the storm: still skipped for an idle core: %+v", idle[1])
+	}
+}
+
+func testByID(t *testing.T, id string) Test {
+	t.Helper()
+	for _, c := range NewRegistry().Tests() {
+		if c.ID() == id {
+			return c
+		}
+	}
+	t.Fatalf("no check %s", id)
+	return nil
 }

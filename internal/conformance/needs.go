@@ -12,6 +12,11 @@ type CheckNeeds struct {
 	// GNBRoles are the gNBs it presents: its own, a handover target, the
 	// liveness probe.
 	GNBRoles []GNBRole
+	// RequiresIdleCore marks a check whose verdict a loaded core would
+	// distort: under a concurrent population it SKIPs, IdleCoreReason
+	// saying why, rather than run and blame the core for the load.
+	RequiresIdleCore bool
+	IdleCoreReason   string
 }
 
 // GNBRole is a gNB a check presents.
@@ -72,6 +77,13 @@ func (e Env) livenessGNBID() uint32 {
 	return e.GNB.ID + legacyLivenessOffset
 }
 
+// ObservedNeedsIdleCore is a check SKIPped because a population loads
+// the core.
+const ObservedNeedsIdleCore = "needs an idle core"
+
+// timerWindowsReason is why the NAS timer checks need an idle core.
+const timerWindowsReason = "measures timer windows; needs an idle core"
+
 // Needer is a check that declares its needs. A check that does not needs
 // no UE, and presents its own gNB ID and the liveness probe's.
 type Needer interface {
@@ -125,8 +137,13 @@ func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds 
 func (endMarkerOnPathSwitch) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
-func (nasSMCNoNIA0) Needs() CheckNeeds             { return ueNeeds }
-func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return ueNeeds }
-func (nasT3550AcceptRetransmit) Needs() CheckNeeds { return ueNeeds }
-func (nasPDUUnknownDNN) Needs() CheckNeeds         { return ueNeeds }
-func (nasRegRejectedNSSAI) Needs() CheckNeeds      { return ueNeeds }
+func (nasSMCNoNIA0) Needs() CheckNeeds        { return ueNeeds }
+func (nasPDUUnknownDNN) Needs() CheckNeeds    { return ueNeeds }
+func (nasRegRejectedNSSAI) Needs() CheckNeeds { return ueNeeds }
+
+// The NAS timer checks measure retransmissions against tmax windows, which
+// a loaded AMF's scheduling jitter would push out.
+func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return timerNeeds }
+func (nasT3550AcceptRetransmit) Needs() CheckNeeds { return timerNeeds }
+
+var timerNeeds = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, RequiresIdleCore: true, IdleCoreReason: timerWindowsReason}

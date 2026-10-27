@@ -91,11 +91,12 @@ func TestPlanShapeRefusals(t *testing.T) {
 		wantErr string
 	}{
 		{name: "no workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = nil }, wantErr: "a plan needs at least one workload"},
-		{name: "two workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = append(p.Workloads, p.Workloads[0]) }, wantErr: "until R3b"},
+		{name: "two workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = append(p.Workloads, p.Workloads[0]) }, wantErr: "give one population and one conformance workload"},
+		{name: "three workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = append(p.Workloads, p.Workloads[0], p.Workloads[0]) }, wantErr: "a plan with 3 workloads is not supported yet"},
 		{name: "a steps workload", mut: func(p *orbitv1.RunPlan) {
 			p.Workloads[0].Kind = &orbitv1.Workload_Steps{Steps: &orbitv1.StepsWorkload{}}
 		}, wantErr: "a steps workload is not supported yet"},
-		{name: "a start condition", mut: func(p *orbitv1.RunPlan) { p.Workloads[0].Start = &orbitv1.StartCondition{After: "x"} }, wantErr: "until R3b"},
+		{name: "a start condition", mut: func(p *orbitv1.RunPlan) { p.Workloads[0].Start = &orbitv1.StartCondition{After: "x"} }, wantErr: "a start condition needs another workload to wait on"},
 		{name: "a seed without poisson arrival", mut: func(p *orbitv1.RunPlan) { pop(p).Attach.Seed = 7 }, wantErr: "set attach.arrival poisson"},
 		{name: "poisson without a rate", mut: func(p *orbitv1.RunPlan) {
 			pop(p).Attach.Rate = 0

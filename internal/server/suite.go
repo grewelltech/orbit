@@ -38,6 +38,10 @@ type suiteSpec struct {
 	perTest  time.Duration
 	cats     []conformance.Category
 	deadline time.Duration // until.duration_ms; 0 = none
+	// runStart, when set, is when the run began, which the deadline counts
+	// from: in a mixed run a suite that waited gets only the time left.
+	// Unset, it counts from the suite's own start.
+	runStart func() time.Time
 	// expected is the list results are judged against: the workload's own
 	// when it gives one (source "plan"), else the server's ("server").
 	expected *conformance.ExpectedFailures
@@ -142,8 +146,12 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 		defer live.finish()
 		suiteCtx := ctx
 		if spec.deadline > 0 {
+			at := time.Now().Add(spec.deadline)
+			if spec.runStart != nil {
+				at = spec.runStart().Add(spec.deadline)
+			}
 			var cancel context.CancelFunc
-			suiteCtx, cancel = context.WithTimeout(ctx, spec.deadline)
+			suiteCtx, cancel = context.WithDeadline(ctx, at)
 			defer cancel()
 		}
 		conformance.NewRegistry().RunStream(suiteCtx, spec.env, spec.perTest, func(r conformance.Result, _, _ int) {
@@ -158,9 +166,11 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 				emit(sev, "CONFORMANCE", "", fmt.Sprintf("%s %s", one[0].ID, one[0].Verdict))
 			}
 		}, spec.cats...)
-		if err := ctx.Err(); err != nil {
-			return nil, err // stopped: CANCELLED, partial results in live
+		if rs, _ := live.snapshot(); ctx.Err() != nil && len(rs) < spec.total {
+			return nil, ctx.Err() // stopped: CANCELLED, partial results in live
 		}
+		// Every check ran, even if a stop came after the last: the suite
+		// is done, not stopped.
 		return live, nil
 	}
 }

@@ -19,13 +19,9 @@ import (
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
-// errR3b names the roadmap step that lifts a plan restriction, so a client
-// knows the refusal is "not yet", not "never" (ADR-0008 §2); errNotYet is
-// one no step has been scheduled for.
-var (
-	errR3b    = errors.New("is not supported until R3b")
-	errNotYet = errors.New("is not supported yet")
-)
+// errNotYet is a plan restriction a later step may lift, so a client knows
+// the refusal is "not yet", not "never" (ADR-0008 §2).
+var errNotYet = errors.New("is not supported yet")
 
 // defaultGNBIDBits is the gNB ID length when the target gives none, as on
 // the CLI (--gnb-id-bits).
@@ -44,6 +40,8 @@ type planRun struct {
 	beh       engine.FleetBehaviors
 	suite     engine.ConformanceRunFunc // a conformance workload's launcher
 	suiteLive *suiteLive
+	mixed     []engine.MixedWorkload // a mixed plan's workloads
+	kinds     []engine.RunKind       // and their kinds
 	needs     engine.Needs
 	workload  string
 	amf       string   // the gNB IDs' AMF, as given
@@ -59,11 +57,11 @@ func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkl
 	case n == 0:
 		return nil, nil, errors.New("a plan needs at least one workload")
 	case n > 1:
-		return nil, nil, fmt.Errorf("a plan with %d workloads %w: give exactly one population or conformance workload", n, errR3b)
+		return nil, nil, fmt.Errorf("a plan with %d workloads %w: give one workload, or one population and one conformance workload", n, errNotYet)
 	}
 	w := p.GetWorkloads()[0]
 	if w.GetStart() != nil {
-		return nil, nil, fmt.Errorf("workload %q: a start condition %w", w.GetName(), errR3b)
+		return nil, nil, fmt.Errorf("workload %q: a start condition needs another workload to wait on", w.GetName())
 	}
 	pop := w.GetPopulation()
 	if pop == nil {
@@ -215,8 +213,11 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 // strategy even without behaviours: an old fleet arm's plan, since a fleet
 // always kept its UEs.
 func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbosity, persistent bool) (*planRun, error) {
-	if ws := p.GetWorkloads(); len(ws) == 1 && ws[0].GetConformance() != nil && ws[0].GetStart() == nil {
+	switch ws := p.GetWorkloads(); {
+	case len(ws) == 1 && ws[0].GetConformance() != nil && ws[0].GetStart() == nil:
 		return s.buildSuite(p, ws[0])
+	case len(ws) == 2:
+		return s.buildMixed(p, verbosity)
 	}
 	w, pop, err := population(p)
 	if err != nil {
@@ -633,8 +634,9 @@ func planReport(plan *orbitv1.RunPlan, load *orbitv1.LoadReport, fleet *orbitv1.
 }
 
 // planJudge judges a plan run's report as it completes (RunOptions.Judge):
-// its workload's RunReport with the plan's gates applied. It keeps only
-// the workload's name and the gates, none of the plan's secrets.
+// each workload's RunReport with the plan's gates applied, in plan order.
+// It keeps only the workload names and the gates, none of the plan's
+// secrets.
 func planJudge(plan *orbitv1.RunPlan) func(any) any {
 	var gates []*orbitv1.Gate
 	for _, g := range plan.GetGates() {
@@ -645,42 +647,97 @@ func planJudge(plan *orbitv1.RunPlan) func(any) any {
 		held.Workloads = append(held.Workloads, &orbitv1.Workload{Name: w.GetName()})
 	}
 	return func(report any) any {
-		var rr *orbitv1.RunReport
+		var out []*orbitv1.RunReport
+		add := func(rr *orbitv1.RunReport) {
+			if rr != nil {
+				out = append(out, rr)
+			}
+		}
 		switch r := report.(type) {
 		case *load.Report:
-			rr = planReport(held, loadReportProto(*r), nil, nil)
+			add(planReport(held, loadReportProto(*r), nil, nil))
 		case *engine.FleetReport:
-			rr = planReport(held, nil, fleetReportProto(*r), nil)
+			add(planReport(held, nil, fleetReportProto(*r), nil))
 		case *suiteLive:
-			rr = planReport(held, nil, nil, r.summary())
+			add(planReport(held, nil, nil, r.summary()))
+		case *engine.MixedReport:
+			for _, w := range r.Workloads {
+				add(mixedRunReport(w, gates))
+			}
 		}
-		if rr == nil {
+		if len(out) == 0 {
 			return nil // not a typed nil, which would read as a judgement
 		}
-		return rr
+		return out
 	}
 }
 
-// judgedReport is a copy of a completed plan run's judged report, while
-// the registry keeps the run; nil otherwise. A copy, since callers marshal
-// it or redact it in place while the registry's stays shared.
-func judgedReport(reg *engine.RunRegistry, id string) *orbitv1.RunReport {
-	if v, ok := reg.Judgement(id); ok {
-		if rr, ok := v.(*orbitv1.RunReport); ok {
-			return proto.Clone(rr).(*orbitv1.RunReport)
+// mixedRunReport is one workload of a mixed run as a RunReport, with the
+// gates that judge it applied. A workload that failed or was skipped has
+// no report, and its gates fail saying why.
+func mixedRunReport(w engine.MixedResult, gates []*orbitv1.Gate) *orbitv1.RunReport {
+	rr := &orbitv1.RunReport{Workload: w.Name, Kind: runKindProto(w.Kind)}
+	switch rep := w.Report.(type) {
+	case *load.Report:
+		rr.Report = &orbitv1.RunReport_Load{Load: loadReportProto(*rep)}
+	case *engine.FleetReport:
+		rr.Report = &orbitv1.RunReport_Fleet{Fleet: fleetReportProto(*rep)}
+	case *suiteLive:
+		rr.Report = &orbitv1.RunReport_Conformance{Conformance: rep.summary()}
+	}
+	applyGates(rr, gates)
+	if w.State != engine.WorkloadDone {
+		// A workload that did not complete (failed, skipped, stopped)
+		// measured nothing a gate can pass: any partial report is kept for
+		// the record, and every gate on it fails, as an incomplete suite's
+		// do.
+		for _, g := range rr.Gates {
+			g.Passed = false
+			g.Detail = fmt.Sprintf("workload %s did not complete (%s)", w.Name, w.State)
+			if w.Detail != "" {
+				g.Detail += ": " + w.Detail
+			}
 		}
+		rr.GatesPassed = len(rr.Gates) == 0
+	}
+	return rr
+}
+
+// judgedReports is a copy of a completed plan run's judged reports, while
+// the registry keeps the run; nil otherwise. A copy, since callers marshal
+// them or redact them in place while the registry's stay shared.
+func judgedReports(reg *engine.RunRegistry, id string) []*orbitv1.RunReport {
+	v, ok := reg.Judgement(id)
+	if !ok {
+		return nil
+	}
+	rs, _ := v.([]*orbitv1.RunReport)
+	out := make([]*orbitv1.RunReport, 0, len(rs))
+	for _, rr := range rs {
+		out = append(out, proto.Clone(rr).(*orbitv1.RunReport))
+	}
+	return out
+}
+
+// planVerdict is a plan run's judged reports: from the registry, else from
+// the run's archive.
+func (s *runService) planVerdict(id string) []*orbitv1.RunReport {
+	if rs := judgedReports(s.reg, id); len(rs) > 0 {
+		return rs
+	}
+	if a, ok := s.archive.get(id); ok {
+		return a.GetReports()
 	}
 	return nil
 }
 
-// planVerdict is a plan run's judged report: from the registry, else from
-// the run's archive.
-func (s *runService) planVerdict(id string) *orbitv1.RunReport {
-	if rr := judgedReport(s.reg, id); rr != nil {
-		return rr
+// gatesOf is reports' gate results together, and whether all passed.
+func gatesOf(rs []*orbitv1.RunReport) ([]*orbitv1.GateResult, bool) {
+	var out []*orbitv1.GateResult
+	passed := true
+	for _, rr := range rs {
+		out = append(out, rr.GetGates()...)
+		passed = passed && rr.GetGatesPassed()
 	}
-	if a, ok := s.archive.get(id); ok && len(a.GetReports()) == 1 {
-		return a.GetReports()[0]
-	}
-	return nil
+	return out, passed
 }
