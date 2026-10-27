@@ -1096,19 +1096,24 @@ func gnbProgressProtos(m map[string]load.GNBProgress) []*orbitv1.GnbProgress {
 }
 
 func loadReportProto(r load.Report) *orbitv1.LoadReport {
-	out := &orbitv1.LoadReport{
+	return &orbitv1.LoadReport{
 		Attempted:    uint32(r.Attempted),
 		Succeeded:    uint32(r.Succeeded),
 		Failed:       uint32(r.Failed),
 		DurationMs:   r.Duration.Milliseconds(),
 		AchievedRate: r.AchievedRate,
 		Latency:      procedureLatencies(r.Latencies),
+		Resources:    resourceSamples(r.Resources),
 	}
-	for _, rs := range r.Resources {
-		out.Resources = append(out.Resources, &orbitv1.ResourceSample{
-			AtMs:       rs.At.Milliseconds(),
-			Goroutines: uint32(rs.Goroutines),
-			RssBytes:   rs.RSSBytes,
+}
+
+func resourceSamples(rs []load.ResourceSample) []*orbitv1.ResourceSample {
+	var out []*orbitv1.ResourceSample
+	for _, s := range rs {
+		out = append(out, &orbitv1.ResourceSample{
+			AtMs:       s.At.Milliseconds(),
+			Goroutines: uint32(s.Goroutines),
+			RssBytes:   s.RSSBytes,
 		})
 	}
 	return out
@@ -1125,6 +1130,9 @@ func fleetReportProto(r engine.FleetReport) *orbitv1.FleetReport {
 		TrafficBytes:    r.TrafficBytes,
 		Deregistered:    uint32(r.Deregistered),
 		PerGnb:          gnbProgressProtos(r.PerGNB),
+		Latency:         procedureLatencies(r.Latencies),
+		AchievedRate:    r.AchievedRate,
+		Resources:       resourceSamples(r.Resources),
 	}
 }
 

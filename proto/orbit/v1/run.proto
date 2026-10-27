@@ -492,6 +492,11 @@ message FleetReport {
   // label like LoadProgress.per_gnb. These are the run's totals, unlike
   // FleetProgress.per_gnb, which counts the UEs attached at the moment.
   repeated GnbProgress per_gnb = 9;
+  // The attach phase's figures, as LoadReport has them (the same load
+  // controller drives both, ADR-0008 R2), so the same SLO gates read them.
+  repeated ProcedureLatency latency = 10;
+  double achieved_rate = 11;
+  repeated ResourceSample resources = 12;
 }
 
 message GetRunReportResponse {
