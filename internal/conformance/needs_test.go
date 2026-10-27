@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -165,4 +166,45 @@ func TestIdleCoreChecksSkipUnderLoad(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Load is decided per check, as each starts: a storm that ends partway
+// through the suite leaves an early idle-core check SKIPped and lets a
+// later one run.
+func TestIdleCoreDecidedPerCheck(t *testing.T) {
+	var loaded atomic.Bool
+	loaded.Store(true)
+	env := Env{Load: func() string {
+		if loaded.Load() {
+			return "storm"
+		}
+		return ""
+	}}
+	var idle []Result
+	NewRegistry().RunStream(context.Background(), env, time.Second, func(r Result, _, _ int) {
+		if NeedsOf(testByID(t, r.ID)).RequiresIdleCore {
+			idle = append(idle, r)
+			loaded.Store(false) // the storm ends after the first one
+		}
+	}, NAS)
+	if len(idle) != 2 {
+		t.Fatalf("%d idle-core checks ran, want 2", len(idle))
+	}
+	if idle[0].Observed != ObservedNeedsIdleCore {
+		t.Errorf("first, under the storm: %s %q, want SKIP for an idle core", idle[0].Verdict, idle[0].Observed)
+	}
+	if idle[1].Observed == ObservedNeedsIdleCore {
+		t.Errorf("second, after the storm: still skipped for an idle core: %+v", idle[1])
+	}
+}
+
+func testByID(t *testing.T, id string) Test {
+	t.Helper()
+	for _, c := range NewRegistry().Tests() {
+		if c.ID() == id {
+			return c
+		}
+	}
+	t.Fatalf("no check %s", id)
+	return nil
 }

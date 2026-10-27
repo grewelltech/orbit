@@ -141,7 +141,9 @@ type Env struct {
 	// Load, when set, names a population that is putting load on the core
 	// right now ("" when none is active): a run with conformance under
 	// load (ADR-0008 §2). A liveness miss under load is not attributable
-	// to the check, and checks that need an idle core SKIP.
+	// to the check, and checks that need an idle core SKIP. It is asked as
+	// each check starts and again at a liveness miss, so a population that
+	// ends partway through the suite stops counting from the next check.
 	Load func() string
 }
 
