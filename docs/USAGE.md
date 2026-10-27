@@ -653,12 +653,21 @@ back to a default slice accepts the UE; the check then SKIPs and deregisters
 the UE.
 
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
-flags. It registers the UE twice, each time stopping at the Security Mode
-Command. The first registration offers the usual algorithms, and the AMF must
-not select NIA0 and must replay the UE's capabilities exactly. The second
+flags. It registers the UE three times, each time stopping at the Security
+Mode Command. The first registration offers the usual algorithms, and the AMF
+must not select NIA0 and must replay the UE's capabilities exactly. The second
 offers only NIA0 and NIA3, and the AMF must not select NIA0 or skip the
-command (selecting NIA3, rejecting or releasing all pass). Neither
-registration completes, so the check leaves no UE registered.
+command (selecting NIA3, rejecting or releasing all pass). The last offers
+only NIA0: a reject or a release. For any UE, a Security Mode Command
+selecting NIA0, or no Security Mode Command, is FAIL (TS 33.501 5.5.2, 6.7.2
+step 1b). A non-null algorithm the UE did not offer is PASS, recorded, not
+scored: no shall requires the selected algorithm to be one the UE offered at
+initial registration. 5.11.2 b) says only 'dependent on', and 6.7.1.2 (from
+V19.4.0) covers AMF change. No registration completes. If the AMF sends a
+Registration Accept without NAS security, the check deregisters the UE in the
+clear and, if the core does not release it, sends a UE Context Release
+Request; the detail says what the cleanup achieved. A Ctrl-C or run deadline
+during this check's cleanup can delay the return by up to 5 s.
 
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,

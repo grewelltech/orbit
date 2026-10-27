@@ -410,10 +410,15 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("decode downlink NAS: %w", err)
+		return fmt.Errorf("%w: %w", ErrDownlinkNASDecode, err)
 	}
 
-	switch mt := msg.GmmHeader.GetMessageType(); mt {
+	mt := msg.GmmHeader.GetMessageType()
+	if mt == f5nas.MsgTypeRegistrationAccept && f5nas.GetSecurityHeaderType(raw) == f5nas.SecurityHeaderTypePlainNas &&
+		s.ueCfg.Probe != nil && s.ueCfg.Probe.CleanUpPlainAccept > 0 {
+		return s.cleanUpPlainAccept(msg)
+	}
+	switch mt {
 	case f5nas.MsgTypeAuthenticationRequest:
 		return s.onAuthRequest(msg)
 	case f5nas.MsgTypeSecurityModeCommand:

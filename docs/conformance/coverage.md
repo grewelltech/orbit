@@ -225,14 +225,23 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Needs a UE. Not yet run on Ref 2; the source analyst predicts FAIL (an
   AMF-built Reject returned with #91).
 
-- `NAS-SMC-NO-NIA0-REPLAYED-CAPS` (security, FAIL-class) — two
-  registrations with the Security Mode Complete withheld. A normal UE
-  (5G-EA0/1/2, 5G-IA0/1/2) must get a Security Mode Command that selects no
-  NIA0 (TS 33.501 5.5.2) and replays its capabilities exactly (6.7.2 step
-  1b). A UE offering only NIA0 and NIA3 may get NIA3, a reject or a release,
-  never NIA0 or no command. The selected algorithms are recorded. Needs a UE,
-  else SKIP. Not yet run on Ref 2; the source analyst predicts the
-  capabilities replay PASSes.
+- `NAS-SMC-NO-NIA0-REPLAYED-CAPS` (security, FAIL-class) — three registrations
+  with the Security Mode Complete withheld. A normal UE (5G-EA0/1/2,
+  5G-IA0/1/2) must get a Security Mode Command that selects no NIA0 (TS 33.501
+  5.5.2) and replays its capabilities exactly (6.7.2 step 1b). A UE offering
+  only NIA0 and NIA3 may get NIA3, a reject or a release, never NIA0 or no
+  command. A UE offering only NIA0, run last, expects a reject or a release.
+  For any UE, a Security Mode Command selecting NIA0, or no Security Mode
+  Command, is FAIL (TS 33.501 5.5.2, 6.7.2 step 1b). A non-null algorithm the
+  UE did not offer is PASS, recorded, not scored: no shall requires the
+  selected algorithm to be one the UE offered at initial registration. 5.11.2
+  b) says only 'dependent on', and 6.7.1.2 (from V19.4.0) covers AMF change.
+  After a Registration Accept without NAS security the UE is deregistered in
+  the clear, and a UE Context Release is requested if the core sends none; the
+  cleanup is in the detail. Each UE is judged separately and the worst result
+  wins. The selected algorithms are recorded. Needs a UE, else SKIP. Not yet
+  run on Ref 2; the source analyst predicts the capabilities replay PASSes,
+  and the NIA0-only UE is predicted to FAIL on EX-1.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure

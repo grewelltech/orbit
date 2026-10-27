@@ -114,6 +114,10 @@ type AMF struct {
 	tamperCaps      bool
 	skipSMC         bool
 
+	// UE context release options (release.go).
+	releaseOnDereg       bool
+	ignoreReleaseRequest bool
+
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
 	dnnAnswer  DNNAnswer
@@ -276,6 +280,8 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	case ngapType.ProcedureCodeUplinkNASTransport:
 		_, err := a.onUplinkNAS(p, st, up.nasPDU)
 		return err
+	case ngapType.ProcedureCodeUEContextReleaseRequest:
+		return a.onUEContextReleaseRequest(p, st)
 	default:
 		return nil
 	}
@@ -412,7 +418,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return false, a.onPDUSessionRequest(p, st, msg)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
 		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
-		return false, nil
+		return false, a.onDeregistration(p, st)
 	default:
 		return false, nil
 	}
