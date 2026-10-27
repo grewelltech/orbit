@@ -73,7 +73,7 @@ func newResponderRegisterCmd(version string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "registered as %s (%s)\n", c.Name, c.ID)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "registered as %s (%s)\n", c.Name, c.ID)
 			return nil
 		},
 	}
@@ -120,7 +120,7 @@ func newResponderCheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "registered as %s (%s), online\n", c.Name, c.ID)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "registered as %s (%s), online\n", c.Name, c.ID)
 			return nil
 		},
 	}
