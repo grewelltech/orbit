@@ -80,7 +80,9 @@ func TestRedactArchiveScrubsByValue(t *testing.T) {
 		Run:    &orbitv1.Run{RunId: "run-1", Error: "auth failed for key " + ki},
 		Events: []*orbitv1.RunEvent{{Message: "ki=" + ki}},
 		Spec: &orbitv1.RunArchive_FleetSpec{FleetSpec: &orbitv1.FleetRunSpec{
-			ScenarioYaml: "kind: fleet # lab key " + ki + "\n",
+			// The key again, upper-cased, as a copy from another tool would
+			// have it: hex values are scrubbed in any case.
+			ScenarioYaml: "kind: fleet # lab key " + ki + "\n# from the sheet: " + strings.ToUpper(ki) + "\n",
 			Credentials:  &orbitv1.Credentials{Opc: "000102030405060708090a0b0c0d0e0f"},
 		}},
 	}
@@ -89,7 +91,7 @@ func TestRedactArchiveScrubsByValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{ki, "000102030405060708090a0b0c0d0e0f"} {
+	for _, s := range []string{ki, strings.ToUpper(ki), "000102030405060708090a0b0c0d0e0f"} {
 		if bytes.Contains(b, []byte(s)) {
 			t.Errorf("%q survived in the archive", s)
 		}

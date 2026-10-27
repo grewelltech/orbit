@@ -380,7 +380,10 @@ func YAMLSecretValues(doc string) []string {
 // minScrubLen long) in every string and bytes field of m at any depth, map
 // values included, with Masked. It is the by-value pass after Mask: a key
 // pasted into a YAML comment, an error message or an event is found
-// wherever it landed.
+// wherever it landed. A hex value (Ki, OPc) is matched in any letter case,
+// since a key copied from elsewhere often differs only in that; other
+// values, and a key reformatted with spaces or separators, are matched
+// exactly.
 func Scrub(m proto.Message, values []string) {
 	var vs []string
 	for _, v := range values {
@@ -393,17 +396,37 @@ func Scrub(m proto.Message, values []string) {
 	}
 	// Longest first, so a value containing another is replaced whole.
 	sort.Slice(vs, func(i, j int) bool { return len(vs[i]) > len(vs[j]) })
-	scrub(m.ProtoReflect(), vs)
+	ms := make([]matcher, len(vs))
+	for i, v := range vs {
+		ms[i] = matcher{exact: v}
+		if hexValue.MatchString(v) {
+			ms[i].fold = regexp.MustCompile("(?i)" + v) // hex digits only: nothing to quote
+		}
+	}
+	scrub(m.ProtoReflect(), ms)
 }
 
-func scrubString(s string, vs []string) string {
-	for _, v := range vs {
-		s = strings.ReplaceAll(s, v, Masked)
+// hexValue is a value made of hex digits only.
+var hexValue = regexp.MustCompile(`^[0-9A-Fa-f]+$`)
+
+// matcher finds one secret value: exactly, or for a hex value in any case.
+type matcher struct {
+	exact string
+	fold  *regexp.Regexp
+}
+
+func scrubString(s string, ms []matcher) string {
+	for _, m := range ms {
+		if m.fold != nil {
+			s = m.fold.ReplaceAllLiteralString(s, Masked)
+		} else {
+			s = strings.ReplaceAll(s, m.exact, Masked)
+		}
 	}
 	return s
 }
 
-func scrub(m protoreflect.Message, vs []string) {
+func scrub(m protoreflect.Message, vs []matcher) {
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
 		case fd.IsList():
@@ -430,7 +453,7 @@ func scrub(m protoreflect.Message, vs []string) {
 	})
 }
 
-func scrubValue(fd protoreflect.FieldDescriptor, v protoreflect.Value, vs []string) (protoreflect.Value, bool) {
+func scrubValue(fd protoreflect.FieldDescriptor, v protoreflect.Value, vs []matcher) (protoreflect.Value, bool) {
 	switch fd.Kind() {
 	case protoreflect.MessageKind, protoreflect.GroupKind:
 		scrub(v.Message(), vs)

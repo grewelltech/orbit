@@ -24,9 +24,11 @@ import (
 // Known secrets for the archive test: none of them may reach a stored
 // archive or a reply, wherever the request put them.
 const (
-	archKi    = "5122250214c33e723a5dd523fc145fc0"
-	archOpc   = "981d464c7c52eb6e5036234984ad0bcf"
-	archToken = "loomtok-7f3a91c2e4b5d6a8"
+	archKi = "5122250214c33e723a5dd523fc145fc0"
+	// archKiUpper is archKi as a copy from another tool might have it.
+	archKiUpper = "5122250214C33E723A5DD523FC145FC0"
+	archOpc     = "981d464c7c52eb6e5036234984ad0bcf"
+	archToken   = "loomtok-7f3a91c2e4b5d6a8"
 )
 
 // archFleetYAML carries the keys as values, a loom token, and the OPc and
@@ -41,6 +43,7 @@ core:
   tac: 1
   slice: { sst: 1, sd: "010203" }
   dnn: internet
+# the lab sheet has it upper-cased: ` + archKiUpper + `
 credentials:
   ki: "` + archKi + `"
   opc: "` + archOpc + `" # copied from the lab sheet: opc ` + archOpc + `
@@ -91,7 +94,7 @@ func TestArchivesHoldNoSecrets(t *testing.T) {
 
 	secretsIn := func(what string, b []byte) {
 		t.Helper()
-		for _, s := range []string{archKi, archOpc, archToken} {
+		for _, s := range []string{archKi, archKiUpper, archOpc, archToken} {
 			if bytes.Contains(b, []byte(s)) {
 				t.Errorf("%s holds %q", what, s)
 			}

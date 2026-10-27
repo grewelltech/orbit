@@ -267,3 +267,29 @@ func inTemplate(s string) bool {
 	}
 	return false
 }
+
+// Scrub replaces each value wherever it appears; a hex value in any letter
+// case, any other value exactly.
+func TestScrub(t *testing.T) {
+	const ki = "00112233445566778899aabbccddeeff"
+	tests := []struct {
+		name, in, want string
+	}{
+		{name: "exact", in: "key " + ki + " here", want: "key " + Masked + " here"},
+		{name: "hex upper-cased", in: "KEY " + strings.ToUpper(ki), want: "KEY " + Masked},
+		{name: "hex mixed case, twice", in: "00112233445566778899AABBccddeeff/" + ki, want: Masked + "/" + Masked},
+		{name: "a token in another case is not the token", in: "LOOMTOK-SECRET-1", want: "LOOMTOK-SECRET-1"},
+		{name: "a token exactly", in: "t=loomtok-secret-1", want: "t=" + Masked},
+		{name: "a reformatted key is not matched", in: "00:11:22:33", want: "00:11:22:33"},
+		{name: "too short to scrub", in: "abc12 and abc12", want: "abc12 and abc12"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &orbitv1.Run{Error: tc.in}
+			Scrub(m, []string{ki, "loomtok-secret-1", "abc12"})
+			if m.GetError() != tc.want {
+				t.Errorf("Scrub(%q) = %q, want %q", tc.in, m.GetError(), tc.want)
+			}
+		})
+	}
+}

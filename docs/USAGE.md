@@ -353,6 +353,14 @@ orbit ue list
   and keeps it for that browser tab only (sessionStorage): a new tab, or the
   same one after it is closed, asks again. With `--tls auto`, accept the
   self-signed certificate once in the browser.
+- **Run archives** (`run-*.orbitrun` in `--state-dir`) never hold a key: every
+  secret field is masked, and each key or token a run was given is replaced
+  wherever else it appears (a scenario comment, an event), a hex key in any
+  letter case. That replacement is by value, so a key reformatted with spaces
+  or separators is not caught. Archives written before this release may still
+  hold keys outside the secret fields (comments, free text); they are masked
+  when served, not on disk. If those keys matter, delete or rotate the old
+  `run-*.orbitrun` files when you upgrade.
 - **Terminate TLS in `orbit serve`, not in a proxy on the same host.** Behind a
   TLS-terminating reverse proxy on the same machine every request reaches orbit
   from `127.0.0.1`, so it looks like loopback, plaintext requests are allowed
