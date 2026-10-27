@@ -284,8 +284,13 @@ orbit run first-fleet.yaml -t lab1
   range, commands use its first ID; pass `--gnb-id` to pick another.
 - **Stay inside the provisioned SUPI range**, or attach fails with what looks
   like a core problem.
-- **One active run per kind.** Starting a second fleet run is refused; stop the
-  first with `orbit runs stop <run-id>`.
+- **Runs share nothing.** A run leases its SUPIs, gNB IDs and N2 source
+  addresses while it is active; a second run that needs any of them is refused
+  with the resource and the run holding it (stop that one with
+  `orbit runs stop <run-id>`, or give the second other values). Runs that share
+  nothing run side by side. Conformance runs, single-UE commands (`ue
+  register`, `target probe`) and step scenarios take no leases yet, so keep
+  them off a running fleet's SUPIs and gNB IDs.
 - **Ad-hoc `ue` commands never appear on the dashboard.** They create no run.
 - **`make ui` before `make build`** if you want the dashboard embedded.
 
