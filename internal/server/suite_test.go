@@ -73,6 +73,12 @@ func TestSuiteShapeRefusals(t *testing.T) {
 			p.Target.Subscribers = nil
 			cw.Traffic = "127.0.0.1:9"
 		}, wantErr: "needs a subscriber pool"},
+		{name: "an unknown category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"negative-ie", "bogus"} },
+			wantErr: `unknown conformance category "bogus": want one of `},
+		{name: "an unknown category, assigned", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Categories = []string{"bogus"}
+			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}
+		}, wantErr: `unknown conformance category "bogus"`},
 		{name: "an expected entry for no check", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Expected = &orbitv1.ExpectedFailures{Core: "lab", Entries: []*orbitv1.ExpectedFailure{
 				{Check: "NO-SUCH-CHECK", Observed: "x", Finding: "EX-1", Added: "2026-10-27", Reason: "r"}}}
@@ -137,6 +143,51 @@ func TestSuiteLeases(t *testing.T) {
 	}
 }
 
+// Assigned, any selection takes a block as wide as it needs, each check at
+// its stable offset within it: base + its registry index, as RunStream
+// presents it.
+func TestSuiteAssignedSubsets(t *testing.T) {
+	reg := conformance.NewRegistry()
+	one := reg.Tests()[3]
+	tests := []struct {
+		name string
+		cats []string
+	}{
+		{name: "nas", cats: []string{"nas"}},
+		{name: "mobility", cats: []string{"mobility"}},
+		{name: "a single check's category", cats: []string{string(one.Category())}},
+		{name: "the full suite"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := planService(t)
+			pr, err := s.buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+				cw.Categories = tc.cats
+				cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}
+			}), engine.EventsNormal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cats []conformance.Category
+			for _, c := range tc.cats {
+				cats = append(cats, conformance.Category(c))
+			}
+			base := pr.suiteLive.spec.env.GNB.ID
+			if want := reg.Needs(base, cats...).GNBIDs; !slices.Equal(pr.assigned, want) {
+				t.Errorf("assigned %v; the checks present %v from base %d", pr.assigned, want, base)
+			}
+			// The lowest block the range allows: from its first ID, but no
+			// lower than the selection's first offset, so the base is >= 0.
+			if want := max(engine.DefaultGNBIDFirst, reg.Needs(0, cats...).GNBIDs[0]); pr.assigned[0] != want {
+				t.Errorf("block starts at %d, want %d", pr.assigned[0], want)
+			}
+			if span := pr.assigned[len(pr.assigned)-1] - pr.assigned[0]; span > 0x9000+uint32(len(reg.Tests())) {
+				t.Errorf("block spans %d IDs, wider than any selection needs", span)
+			}
+		})
+	}
+}
+
 // Assigned, a suite takes a base whose every ID is free: two suites at
 // once never share one.
 func TestSuiteAssignedBases(t *testing.T) {
@@ -190,6 +241,7 @@ func TestJudgeSuite(t *testing.T) {
 		{name: "incomplete", summary: &orbitv1.ConformanceSummary{Total: 9, Incomplete: true, Results: []*orbitv1.ConformanceResult{
 			res("A", "PASS", false), res("B", "PASS", false)}}, wantDetail: "suite incomplete: 2 of 9 checks ran"},
 		{name: "no report", wantDetail: "no report to judge"},
+		{name: "no checks ran", summary: &orbitv1.ConformanceSummary{}, wantDetail: "no checks ran"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -378,4 +430,62 @@ func TestSuiteLeaseConflict(t *testing.T) {
 		t.Errorf("second suite: %v, want FAILED_PRECONDITION naming %s", err, first.ID)
 	}
 	_, _ = s.reg.Stop(first.ID)
+}
+
+// A typo'd category through RunConformance is a clean INVALID_ARGUMENT
+// naming it, not a dropped stream.
+func TestRunConformanceUnknownCategory(t *testing.T) {
+	c := newConformanceClient(t)
+	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
+		AmfAddress: "127.0.0.1:1", Mcc: "208", Mnc: "93", Categories: []string{"typo"},
+	}))
+	if err == nil {
+		for stream.Receive() {
+		}
+		err = stream.Err()
+	}
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), `unknown conformance category "typo"`) {
+		t.Fatalf("err = %v, want INVALID_ARGUMENT naming the category", err)
+	}
+}
+
+// A suite stopped by another client ends its stream with an error saying
+// so, not a summary that reads finished.
+func TestRunConformanceStoppedElsewhere(t *testing.T) {
+	amf := idleAMF(t)
+	_, runs, conf := suiteServer(t)
+	stream, err := conf.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
+		AmfAddress: amf, Mcc: "208", Mnc: "93", PerTestSeconds: 1,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stream.Receive() {
+		t.Fatalf("no first update: %v", stream.Err())
+	}
+	id := stream.Msg().GetRunId()
+	if _, err := runs.StopRun(context.Background(), connect.NewRequest(&orbitv1.StopRunRequest{RunId: id})); err != nil {
+		t.Fatal(err)
+	}
+	for stream.Receive() {
+		if stream.Msg().GetDone() {
+			t.Fatal("a stopped suite sent a final summary")
+		}
+	}
+	if err := stream.Err(); connect.CodeOf(err) != connect.CodeCanceled || !strings.Contains(err.Error(), "run "+id+" was stopped") {
+		t.Fatalf("stream err = %v, want CANCELED naming the run", err)
+	}
+}
+
+// The UE checks' SUPI lease is the pool's first SUPI, and only a pool that
+// holds one can supply it.
+func TestSuiteSUPIWithinPool(t *testing.T) {
+	s := planService(t)
+	pr, err := s.buildPlan(suitePlan(func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers[0].Count = 1 }), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := pr.needs.SUPIs; len(b) != 1 || b[0].Last != b[0].First {
+		t.Errorf("SUPI lease = %v, want one SUPI", b)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"strconv"
 
@@ -124,6 +125,12 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 		return nil
 	}
 	results, _ := live.snapshot()
+	if len(results) < spec.total {
+		// Stopped from elsewhere (StopRun): say so rather than end the
+		// stream looking like a finished suite.
+		return connect.NewError(connect.CodeCanceled,
+			fmt.Errorf("run %s was stopped after %d of %d checks", id, len(results), spec.total))
+	}
 	return stream.Send(&orbitv1.ConformanceUpdate{
 		Done: true, Tally: cloneTally(&tally),
 		TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
@@ -156,7 +163,7 @@ func conformancePlan(m *orbitv1.RunConformanceRequest) *orbitv1.RunPlan {
 			Ki: m.GetCredentials().GetKi(), Opc: m.GetCredentials().GetOpc()}}
 	}
 	cw := &orbitv1.ConformanceWorkload{
-		Categories: m.GetCategories(), PerTestTimeoutMs: m.GetPerTestSeconds() * 1000,
+		Categories: m.GetCategories(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
 		Traffic: m.GetTraffic(), N3Bind: m.GetN3Bind(),
 		GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: orDefaultU32(m.GetGnbIdBase(), defaultSuiteGNBBase)}},
 	}

@@ -192,6 +192,9 @@ func judgeSuite(c *orbitv1.ConformanceSummary) (passed bool, observed float64, d
 	if c == nil {
 		return false, 0, "no report to judge"
 	}
+	if len(c.GetResults()) == 0 {
+		return false, 0, "no checks ran"
+	}
 	if c.GetIncomplete() {
 		return false, 0, fmt.Sprintf("suite incomplete: %d of %d checks ran", len(c.GetResults()), c.GetTotal())
 	}

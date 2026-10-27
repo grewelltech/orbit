@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -231,6 +232,9 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		cats = append(cats, conformance.Category(c))
 	}
 	reg := conformance.NewRegistry()
+	if err := knownCategories(reg, cats); err != nil {
+		return nil, err
+	}
 	needs := reg.Needs(0, cats...)
 	ueSpec, block, err := suiteUE(t, cw, env.GNB, core.GetDnn(), needs.UEs)
 	if err != nil {
@@ -260,19 +264,26 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if err != nil {
 		return nil, err
 	}
+	// pattern is the IDs the selected checks present, as offsets from the
+	// suite's base; a subset's first is its first check's registry index,
+	// not 0, since RunStream adds the full index.
 	pattern := needs.GNBIDs
+	p0 := pattern[0]
 	var base uint32
 	if cw.GetGnbIds().GetAssign() {
 		if s.rotation == nil {
 			return nil, errors.New("gnb_ids.assign: this server has no gNB ID rotation")
 		}
 		out.amfKeys = s.reg.AMFIdentity(core.GetAmf())
-		var ids []uint32
-		base, ids, err = s.rotation.AssignPattern(out.amfKeys, plmn, lo, hi, pattern, s.reg.GNBInUse(core.GetAmf(), plmn))
+		shifted := make([]uint32, len(pattern))
+		for i, off := range pattern {
+			shifted[i] = off - p0
+		}
+		first, ids, err := s.rotation.AssignPattern(out.amfKeys, plmn, max(lo, p0), hi, shifted, s.reg.GNBInUse(core.GetAmf(), plmn))
 		if err != nil {
 			return nil, err
 		}
-		out.assigned = ids
+		base, out.assigned = first-p0, ids
 	} else {
 		base = cw.GetGnbIds().GetFirst()
 		if base == 0 {
@@ -281,12 +292,12 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		if base == 0 {
 			base = defaultSuiteGNBBase
 		}
-		last := uint64(base) + uint64(pattern[len(pattern)-1])
-		if ranged && (base < lo || last > uint64(hi)) {
-			return nil, fmt.Errorf("the suite's gNB IDs %d..%d fall outside the target's ran.gnb_ids %d..%d", base, last, lo, hi)
+		low, last := uint64(base)+uint64(p0), uint64(base)+uint64(pattern[len(pattern)-1])
+		if ranged && (low < uint64(lo) || last > uint64(hi)) {
+			return nil, fmt.Errorf("the suite's gNB IDs %d..%d fall outside the target's ran.gnb_ids %d..%d", low, last, lo, hi)
 		}
 		if last > uint64(1)<<gnbBits(t)-1 {
-			return nil, fmt.Errorf("the suite's gNB IDs %d..%d (its checks, handover targets and liveness probes) do not fit %d bits", base, last, gnbBits(t))
+			return nil, fmt.Errorf("the suite's gNB IDs %d..%d (its checks, handover targets and liveness probes) do not fit %d bits", low, last, gnbBits(t))
 		}
 	}
 	env.GNB.ID = base
@@ -305,6 +316,29 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	out.suiteLive = newSuiteLive(spec)
 	out.suite = suiteRun(out.suiteLive)
 	return out, nil
+}
+
+// knownCategories refuses a category no check has, and a selection that
+// runs nothing: a typo would otherwise run zero checks, and an empty
+// suite would pass the conformance gate vacuously.
+func knownCategories(reg *conformance.Registry, cats []conformance.Category) error {
+	have := map[conformance.Category]bool{}
+	var names []string
+	for _, t := range reg.Tests() {
+		if !have[t.Category()] {
+			have[t.Category()] = true
+			names = append(names, string(t.Category()))
+		}
+	}
+	for _, c := range cats {
+		if !have[c] {
+			return fmt.Errorf("unknown conformance category %q: want one of %s", c, strings.Join(names, ", "))
+		}
+	}
+	if len(selectedChecks(reg, cats)) == 0 {
+		return fmt.Errorf("no checks selected by categories %v", cats)
+	}
+	return nil
 }
 
 // selectedChecks is the checks a suite in cats runs.
@@ -369,6 +403,9 @@ func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.C
 	}
 	if dnn == "" {
 		dnn = "internet"
+	}
+	if ues > 0 && sp.GetCount() > 0 && uint32(ues) > sp.GetCount() {
+		return conformance.UESpec{}, nil, fmt.Errorf("the selected checks register %d UEs at once; subscriber pool %q holds %d", ues, sp.GetName(), sp.GetCount())
 	}
 	spec := conformance.UESpec{SUPI: supi, Ki: sp.GetKi(), OPc: sp.GetOpc(), DNN: dnn, GNBN3: gnbN3, Traffic: cw.GetTraffic()}
 	if ues == 0 {
