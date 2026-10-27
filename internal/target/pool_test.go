@@ -36,6 +36,9 @@ func TestExpandPool(t *testing.T) {
 		{name: "bad entry", pool: []string{"bad_host!"}, n: 1, wantErr: `entry "bad_host!" is not an address`},
 		{name: "bad IP is not a host name", pool: []string{"192.0.2.300"}, n: 1, wantErr: `entry "192.0.2.300" is not an address`},
 		{name: "range with mismatched zones", pool: []string{"fe80::1-fe80::9%eth1"}, n: 1, wantErr: "is not an address range"},
+		{name: "range zoned at the low end only", pool: []string{"fe80::1%eth0-fe80::9"}, n: 1, wantErr: "is not an address range"},
+		{name: "range zoned at both ends", pool: []string{"fe80::1%eth0-fe80::3%eth0"}, n: 5, want: []string{"fe80::1%eth0", "fe80::2%eth0", "fe80::3%eth0"}},
+		{name: "a zone with a hyphen is one address", pool: []string{"fe80::1%br-lan"}, n: 5, want: []string{"fe80::1%br-lan"}},
 		{name: "backwards range", pool: []string{"192.0.2.9-192.0.2.1"}, n: 1, wantErr: "is not an address range"},
 	}
 	for _, tc := range tests {

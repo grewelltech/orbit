@@ -152,6 +152,21 @@ func (t *targets) apply(cmd *cobra.Command) error {
 		}
 		return nil // $ORBIT_TARGET is ignored here, so a shell export never breaks it
 	}
+	// Whether a target is named needs only -t and $ORBIT_TARGET; with none
+	// and no --explain, return before anything reads the other flags, so a
+	// command runs exactly as it did before targets.
+	name := ""
+	if ours {
+		if v, ok := os.LookupEnv("ORBIT_TARGET"); ok {
+			name = strings.TrimSpace(v)
+		}
+		if explicit {
+			name = strings.TrimSpace(t.flag.Value.String())
+		}
+	}
+	if name == "" && !t.explain {
+		return nil
+	}
 	flagIn, err := target.FlagInput(path, fs)
 	if err != nil {
 		return err
@@ -159,10 +174,6 @@ func (t *targets) apply(cmd *cobra.Command) error {
 	envIn := target.EnvInput(os.LookupEnv)
 	if !ours {
 		envIn = withoutTarget(envIn)
-	}
-	name := target.SelectName(envIn, flagIn)
-	if name == "" && !t.explain {
-		return nil
 	}
 	inputs := []target.Input{target.DefaultInput()}
 	if name != "" {

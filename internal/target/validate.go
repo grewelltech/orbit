@@ -123,7 +123,11 @@ func eachAddr(v any, pools bool) string {
 }
 
 func addrEntry(a string, pools bool) bool {
-	if _, err := netip.ParseAddr(a); err == nil {
+	if _, _, isRange := splitRange(a); isRange {
+		_, _, err := poolBounds(a)
+		return pools && err == nil
+	}
+	if _, err := parseIP(a); err == nil {
 		return true
 	}
 	if _, err := netip.ParseAddrPort(a); err == nil {
@@ -131,9 +135,6 @@ func addrEntry(a string, pools bool) bool {
 	}
 	if pools {
 		if _, err := netip.ParsePrefix(a); err == nil {
-			return true
-		}
-		if _, _, err := poolBounds(a); err == nil && strings.Contains(a, "-") {
 			return true
 		}
 	}
@@ -170,7 +171,7 @@ func isHostName(s string) bool {
 
 // ipOrHost checks an IP or a host name with no port.
 func ipOrHost(s string) string {
-	if _, err := netip.ParseAddr(s); err == nil || isHostName(s) {
+	if _, err := parseIP(s); err == nil || isHostName(s) {
 		return ""
 	}
 	return "is not an IP address or host name"

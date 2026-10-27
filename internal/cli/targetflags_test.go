@@ -839,3 +839,23 @@ func TestLoneSDKeepsTargetSST(t *testing.T) {
 		t.Errorf("sd row %q, want flag --sd over the target's 000002", row)
 	}
 }
+
+// A negative duration, which the commands treat as unset, never fails a
+// command: not with no target and no --explain (the resolver does not run),
+// and not with -t or --explain either (it resolves to 0 ms).
+func TestNegativeDurationAccepted(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1)
+	conf := []string{"conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--per-test-timeout=-1s"}
+	for _, extra := range [][]string{nil, {"--explain"}, {"-t", "lab1", "--supi", ""}, {"-t", "lab1", "--supi", "", "--explain"}} {
+		r := runOrbit(t, loc, append(append([]string{}, conf...), extra...)...)
+		if r.execErr != nil {
+			t.Errorf("--per-test-timeout=-1s %v: %v", extra, r.execErr)
+		}
+	}
+	r := runOrbit(t, loc, "load", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--base-imsi", "001010000000001",
+		"--ki", testKi, "--opc", testOPc, "--count", "1", "--duration=-1s", "--explain")
+	if r.execErr != nil && strings.Contains(r.execErr.Error(), "duration") {
+		t.Errorf("load --duration=-1s --explain: %v", r.execErr)
+	}
+}

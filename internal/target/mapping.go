@@ -318,12 +318,15 @@ func FlagInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 		if f.Value.Type() == "duration" && strings.HasSuffix(b.Path, "_ms") {
 			// A duration flag (--per-test-timeout 15s) sets a millisecond
 			// field.
+			// field. The commands treat a duration of zero or less as unset,
+			// so a negative one is 0 here: the resolver never refuses what a
+			// command accepts.
 			d, perr := time.ParseDuration(f.Value.String())
-			if perr != nil || d < 0 {
-				err = fmt.Errorf("--%s: %q is not a non-negative duration", f.Name, f.Value.String())
+			if perr != nil {
+				err = fmt.Errorf("--%s: %q is not a duration", f.Name, f.Value.String())
 				return
 			}
-			val = uint64(d.Milliseconds())
+			val = uint64(max(d, 0).Milliseconds())
 		}
 		in.Settings = append(in.Settings, Setting{Path: b.Path, Value: val, Source: src})
 	})

@@ -30,7 +30,7 @@ func ExpandPool(pool []string, n int) ([]string, error) {
 		if len(out) >= n {
 			break
 		}
-		if _, err := netip.ParseAddr(entry); err == nil {
+		if _, err := parseIP(entry); err == nil {
 			out = append(out, entry)
 			continue
 		}
@@ -61,7 +61,7 @@ func ExpandPool(pool []string, n int) ([]string, error) {
 // none), a range's low end, a CIDR's first host address. narrowed reports
 // whether the entry was a range or CIDR.
 func PoolFirst(entry string) (host, port string, narrowed bool, err error) {
-	if a, err := netip.ParseAddr(entry); err == nil {
+	if a, err := parseIP(entry); err == nil {
 		return a.String(), "", false, nil
 	}
 	if ap, err := netip.ParseAddrPort(entry); err == nil {
@@ -79,15 +79,50 @@ func PoolFirst(entry string) (host, port string, narrowed bool, err error) {
 	return entry, "", false, nil
 }
 
+// splitRange splits a range a-b at whichever '-' leaves an address on both
+// sides, so an IPv6 zone with a hyphen (fe80::1%br-lan) is not taken for a
+// range, nor a range with zones (fe80::1%eth0-fe80::9%eth0) for one
+// address whose zone is "eth0-fe80::9%eth0", as netip.ParseAddr reads it.
+func splitRange(entry string) (netip.Addr, netip.Addr, bool) {
+	for i := 0; i < len(entry); i++ {
+		if entry[i] != '-' {
+			continue
+		}
+		l, e1 := netip.ParseAddr(entry[:i])
+		h, e2 := netip.ParseAddr(entry[i+1:])
+		if e1 == nil && e2 == nil {
+			return l, h, true
+		}
+	}
+	return netip.Addr{}, netip.Addr{}, false
+}
+
+// parseIP is netip.ParseAddr for one address in a pool: a range (see
+// splitRange) or a zone holding '%' is not one.
+func parseIP(s string) (netip.Addr, error) {
+	if _, _, isRange := splitRange(s); isRange {
+		return netip.Addr{}, fmt.Errorf("%q is a range, not one address", s)
+	}
+	a, err := netip.ParseAddr(s)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	if strings.Contains(a.Zone(), "%") {
+		return netip.Addr{}, fmt.Errorf("%q has a bad zone", s)
+	}
+	return a, nil
+}
+
 // poolBounds is the first and last usable address of a range or CIDR.
 func poolBounds(entry string) (netip.Addr, netip.Addr, error) {
-	if lo, hi, found := strings.Cut(entry, "-"); found {
-		l, e1 := netip.ParseAddr(lo)
-		h, e2 := netip.ParseAddr(hi)
-		if e1 != nil || e2 != nil || l.Is4() != h.Is4() || l.Zone() != h.Zone() || h.Less(l) {
+	if l, h, ok := splitRange(entry); ok {
+		if l.Is4() != h.Is4() || l.Zone() != h.Zone() || h.Less(l) {
 			return netip.Addr{}, netip.Addr{}, fmt.Errorf("entry %q is not an address range", entry)
 		}
 		return l, h, nil
+	}
+	if strings.Contains(entry, "-") && !strings.Contains(entry, "/") {
+		return netip.Addr{}, netip.Addr{}, fmt.Errorf("entry %q is not an address range", entry)
 	}
 	p, err := netip.ParsePrefix(entry)
 	if err != nil {
