@@ -114,10 +114,6 @@ func TestPlanShapeRefusals(t *testing.T) {
 		{name: "a gate with an unknown comparison", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp(42)}}}}
 		}, wantErr: "not op 42"},
-		{name: "gates on a run that never completes", mut: func(p *orbitv1.RunPlan) {
-			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
-			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
-		}, wantErr: "gates need a run that completes"},
 		{name: "a conformance gate on a population", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
 		}, wantErr: `a conformance gate judges a conformance workload; "pop" is a population`},

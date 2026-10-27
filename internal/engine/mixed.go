@@ -404,6 +404,17 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 		res.Report, err = w.Conformance(ctx, tag)
 	}
 	switch {
+	// Finished (StopRun{finish}): the results so far are the workload's
+	// report, judged as a done one's; a suite's is incomplete, so its gate
+	// fails all the same.
+	case ctx.Err() != nil && Finishing(ctx):
+		res.State = WorkloadDone
+		if err != nil || res.Report == nil {
+			res.Report = s.partial()
+		}
+		if res.Report == nil {
+			res.State, res.Detail = WorkloadStopped, "the run was finished before it reported"
+		}
 	// A population returns its report, error or not, when the run is
 	// stopped: stopped it is, its figures partial. A suite reports a stop
 	// as an error, and returns cleanly only once every check ran.

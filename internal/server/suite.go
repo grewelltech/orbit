@@ -166,11 +166,12 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 				emit(sev, "CONFORMANCE", "", fmt.Sprintf("%s %s", one[0].ID, one[0].Verdict))
 			}
 		}, spec.cats...)
-		if rs, _ := live.snapshot(); ctx.Err() != nil && len(rs) < spec.total {
+		if rs, _ := live.snapshot(); ctx.Err() != nil && len(rs) < spec.total && !engine.Finishing(ctx) {
 			return nil, ctx.Err() // stopped: CANCELLED, partial results in live
 		}
-		// Every check ran, even if a stop came after the last: the suite
-		// is done, not stopped.
+		// Every check ran, even if a stop came after the last, or the run
+		// is being finished: the suite reports what it has (incomplete,
+		// when cut short, so its gate fails).
 		return live, nil
 	}
 }

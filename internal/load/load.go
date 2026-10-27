@@ -80,6 +80,10 @@ type Report struct {
 	// bound, in gNB order; filled by the engine, which owns the
 	// associations, so a report records which addresses the load came from.
 	N2Sources []string
+	// DistinctSUPIs is how many subscribers the attempts used: a soak
+	// cycles its Count, so it can make more attempts than that. Filled by
+	// the engine, which owns the SUPI sequence; 0 when unknown.
+	DistinctSUPIs int
 }
 
 // hist accumulates latencies for one procedure. hdrhistogram is not

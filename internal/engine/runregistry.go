@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bgrewell/orbit/internal/load"
@@ -60,6 +61,9 @@ type RunInfo struct {
 	// WorkloadKinds are a mixed run's workloads' kinds, in plan order, so
 	// a kind filter can match any of them; empty for a single-kind run.
 	WorkloadKinds []RunKind
+	// StoppedEarly is a run finished by StopRun{finish}: COMPLETE, judged
+	// on its results so far (Finish).
+	StoppedEarly bool
 }
 
 // RunOptions are the per-run settings the registry applies to every kind, so a
@@ -110,6 +114,7 @@ type run struct {
 	judge     func(report any) any
 	judgement any           // Judge's result, set with report on COMPLETE
 	mixed     []*mixedState // a mixed run's workloads (mixed kind; nil otherwise)
+	finishing *atomic.Bool  // set by Finish before it cancels; read through the run's ctx
 }
 
 // FleetRunFunc executes a fleet run to completion, publishing its aggregates
@@ -180,10 +185,10 @@ func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error
 	return r.start(RunKindLoad, opts, live, nil, nil, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
-			if err != nil {
+			if err != nil && !(Finishing(ctx) && ctx.Err() != nil) {
 				return nil, err
 			}
-			return &rep, nil
+			return &rep, nil // finished: its results so far
 		}
 	})
 }
@@ -196,10 +201,10 @@ func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, err
 	return r.start(RunKindFleet, opts, nil, live, nil, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
-			if err != nil {
+			if err != nil && !(Finishing(ctx) && ctx.Err() != nil) {
 				return nil, err
 			}
-			return &rep, nil
+			return &rep, nil // finished: its results so far
 		}
 	})
 }
@@ -256,7 +261,8 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 		return RunInfo{}, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	finishing := new(atomic.Bool)
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), finishKey{}, finishing))
 	// Verbosity sizes the ring: a verbose run emits every UE transition, and
 	// keeping the default capacity would let that volume evict its own detail.
 	ring := newEventRing(opts.Verbosity.RingCap())
@@ -271,6 +277,7 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 		mixed:     mixed,
 		events:    ring,
 		cancel:    cancel,
+		finishing: finishing,
 		leases:    want.describe(),
 		onRelease: opts.OnRelease,
 		judge:     opts.Judge,
@@ -333,8 +340,11 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 	}
 
 	report, err := r.guard(ctx, id, fn)
+	// A finish (StopRun{finish}) ends the run COMPLETE when its launcher
+	// handed back a report: its results so far are the result.
+	finished := ctx.Err() != nil && Finishing(ctx) && err == nil && report != nil
 	var judgement any
-	if err == nil && ctx.Err() == nil {
+	if err == nil && (ctx.Err() == nil || finished) {
 		judgement = r.judge(id, report)
 	}
 
@@ -342,6 +352,8 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 	var state RunState
 	var errMsg string
 	switch {
+	case finished:
+		state = RunComplete
 	case ctx.Err() != nil:
 		// A cancelled context is a requested stop, whatever the launcher returned.
 		state = RunCancelled
@@ -382,6 +394,7 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 		return // evicted — impossible while terminal-eviction skips this run, but defensive
 	}
 	rec.info.EndedAt = time.Now()
+	rec.info.StoppedEarly = finished
 	rec.info.State = state
 	rec.info.Err = errMsg
 	if state == RunComplete {
@@ -423,6 +436,36 @@ func (r *RunRegistry) Stop(id string) (RunInfo, error) {
 		rec.cancel()
 	}
 	return rec.info, nil
+}
+
+// Finish stops a run as a finish rather than a cancel: its launchers stop
+// and hand back what they have, and a run whose launcher returns a report
+// ends COMPLETE, StoppedEarly, judged on it (a soak's natural end). One
+// that returns none ends CANCELLED, as from Stop.
+func (r *RunRegistry) Finish(id string) (RunInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rec := r.runs[id]
+	if rec == nil {
+		return RunInfo{}, &ErrRunNotFound{ID: id}
+	}
+	if !rec.info.State.Terminal() {
+		rec.finishing.Store(true)
+		rec.info.State = RunDraining
+		rec.cancel()
+	}
+	return rec.info, nil
+}
+
+// finishKey carries a run's finish flag in its context.
+type finishKey struct{}
+
+// Finishing reports whether ctx is a run being finished (Finish) rather
+// than cancelled: a launcher that sees it cancelled returns its results so
+// far, without an error, as its report.
+func Finishing(ctx context.Context) bool {
+	f, _ := ctx.Value(finishKey{}).(*atomic.Bool)
+	return f != nil && f.Load()
 }
 
 // Get returns a run's info snapshot.

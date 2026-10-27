@@ -263,6 +263,9 @@ type Run struct {
 	// A MIXED run's workloads' kinds, in plan order; ListRuns' kind filter
 	// matches a run when any of them is the kind. Empty for one workload.
 	WorkloadKinds []RunKind `protobuf:"varint,8,rep,packed,name=workload_kinds,json=workloadKinds,proto3,enum=orbit.v1.RunKind" json:"workload_kinds,omitempty"`
+	// A run ended by StopRun{finish}: COMPLETE, its reports judged on the
+	// results so far.
+	StoppedEarly  bool `protobuf:"varint,9,opt,name=stopped_early,json=stoppedEarly,proto3" json:"stopped_early,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -351,6 +354,13 @@ func (x *Run) GetWorkloadKinds() []RunKind {
 		return x.WorkloadKinds
 	}
 	return nil
+}
+
+func (x *Run) GetStoppedEarly() bool {
+	if x != nil {
+		return x.StoppedEarly
+	}
+	return false
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
@@ -743,8 +753,13 @@ func (x *StartRunResponse) GetRun() *Run {
 }
 
 type StopRunRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	RunId string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	// finish stops the run as a finish, not a cancel: its workloads stop
+	// and report what they have, and the run ends COMPLETE (Run.stopped_early)
+	// with its gates judged on those results — a soak's natural end. Without
+	// it the run is CANCELLED, and its gates fail as did-not-complete.
+	Finish        bool `protobuf:"varint,2,opt,name=finish,proto3" json:"finish,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -784,6 +799,13 @@ func (x *StopRunRequest) GetRunId() string {
 		return x.RunId
 	}
 	return ""
+}
+
+func (x *StopRunRequest) GetFinish() bool {
+	if x != nil {
+		return x.Finish
+	}
+	return false
 }
 
 type StopRunResponse struct {
@@ -2762,14 +2784,18 @@ func (x *GetRunReportRequest) GetRunId() string {
 // LoadReport is the authoritative end-of-run result. Unlike LoadProgress it is
 // not sampled.
 type LoadReport struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Attempted     uint32                 `protobuf:"varint,1,opt,name=attempted,proto3" json:"attempted,omitempty"`
-	Succeeded     uint32                 `protobuf:"varint,2,opt,name=succeeded,proto3" json:"succeeded,omitempty"`
-	Failed        uint32                 `protobuf:"varint,3,opt,name=failed,proto3" json:"failed,omitempty"`
-	DurationMs    int64                  `protobuf:"varint,4,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
-	AchievedRate  float64                `protobuf:"fixed64,5,opt,name=achieved_rate,json=achievedRate,proto3" json:"achieved_rate,omitempty"`
-	Latency       []*ProcedureLatency    `protobuf:"bytes,6,rep,name=latency,proto3" json:"latency,omitempty"`
-	Resources     []*ResourceSample      `protobuf:"bytes,7,rep,name=resources,proto3" json:"resources,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Attempted    uint32                 `protobuf:"varint,1,opt,name=attempted,proto3" json:"attempted,omitempty"`
+	Succeeded    uint32                 `protobuf:"varint,2,opt,name=succeeded,proto3" json:"succeeded,omitempty"`
+	Failed       uint32                 `protobuf:"varint,3,opt,name=failed,proto3" json:"failed,omitempty"`
+	DurationMs   int64                  `protobuf:"varint,4,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	AchievedRate float64                `protobuf:"fixed64,5,opt,name=achieved_rate,json=achievedRate,proto3" json:"achieved_rate,omitempty"`
+	Latency      []*ProcedureLatency    `protobuf:"bytes,6,rep,name=latency,proto3" json:"latency,omitempty"`
+	Resources    []*ResourceSample      `protobuf:"bytes,7,rep,name=resources,proto3" json:"resources,omitempty"`
+	// The distinct SUPIs the attempts used. A timed storm (a soak) cycles
+	// its attach.count SUPIs for the whole duration, so attempted can exceed
+	// the count: this says across how many subscribers.
+	DistinctSupis uint32 `protobuf:"varint,8,opt,name=distinct_supis,json=distinctSupis,proto3" json:"distinct_supis,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2851,6 +2877,13 @@ func (x *LoadReport) GetResources() []*ResourceSample {
 		return x.Resources
 	}
 	return nil
+}
+
+func (x *LoadReport) GetDistinctSupis() uint32 {
+	if x != nil {
+		return x.DistinctSupis
+	}
+	return 0
 }
 
 // ResourceSample is a point-in-time process reading during a soak.
@@ -3198,7 +3231,8 @@ type RunReport struct {
 	//	*RunReport_Conformance
 	Report        isRunReport_Report `protobuf_oneof:"report"`
 	Gates         []*GateResult      `protobuf:"bytes,6,rep,name=gates,proto3" json:"gates,omitempty"`
-	GatesPassed   bool               `protobuf:"varint,7,opt,name=gates_passed,json=gatesPassed,proto3" json:"gates_passed,omitempty"` // every gate passed (true when there are none)
+	GatesPassed   bool               `protobuf:"varint,7,opt,name=gates_passed,json=gatesPassed,proto3" json:"gates_passed,omitempty"`    // every gate passed (true when there are none)
+	StoppedEarly  bool               `protobuf:"varint,8,opt,name=stopped_early,json=stoppedEarly,proto3" json:"stopped_early,omitempty"` // judged on a run finished early (StopRun{finish})
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3291,6 +3325,13 @@ func (x *RunReport) GetGates() []*GateResult {
 func (x *RunReport) GetGatesPassed() bool {
 	if x != nil {
 		return x.GatesPassed
+	}
+	return false
+}
+
+func (x *RunReport) GetStoppedEarly() bool {
+	if x != nil {
+		return x.StoppedEarly
 	}
 	return false
 }
@@ -3420,7 +3461,7 @@ var File_orbit_v1_run_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
-	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\x1a\x1aorbit/v1/conformance.proto\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xa5\x02\n" +
+	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\x1a\x1aorbit/v1/conformance.proto\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xca\x02\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12%\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x11.orbit.v1.RunKindR\x04kind\x12\x12\n" +
@@ -3429,7 +3470,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x11started_unix_nano\x18\x05 \x01(\x03R\x0fstartedUnixNano\x12&\n" +
 	"\x0fended_unix_nano\x18\x06 \x01(\x03R\rendedUnixNano\x12\x14\n" +
 	"\x05error\x18\a \x01(\tR\x05error\x128\n" +
-	"\x0eworkload_kinds\x18\b \x03(\x0e2\x11.orbit.v1.RunKindR\rworkloadKinds\"\xa3\x04\n" +
+	"\x0eworkload_kinds\x18\b \x03(\x0e2\x11.orbit.v1.RunKindR\rworkloadKinds\x12#\n" +
+	"\rstopped_early\x18\t \x01(\bR\fstoppedEarly\"\xa3\x04\n" +
 	"\vLoadRunSpec\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12'\n" +
@@ -3462,9 +3504,10 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x0fevent_verbosity\x18\x04 \x01(\x0e2\x18.orbit.v1.EventVerbosityR\x0eeventVerbosityB\x06\n" +
 	"\x04spec\"3\n" +
 	"\x10StartRunResponse\x12\x1f\n" +
-	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\"'\n" +
+	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\"?\n" +
 	"\x0eStopRunRequest\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\"2\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
+	"\x06finish\x18\x02 \x01(\bR\x06finish\"2\n" +
 	"\x0fStopRunResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\"8\n" +
 	"\x0fListRunsRequest\x12%\n" +
@@ -3634,7 +3677,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x04html\x18\x01 \x01(\fR\x04html\x12\x1a\n" +
 	"\bfilename\x18\x02 \x01(\tR\bfilename\",\n" +
 	"\x13GetRunReportRequest\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\x94\x02\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\xbb\x02\n" +
 	"\n" +
 	"LoadReport\x12\x1c\n" +
 	"\tattempted\x18\x01 \x01(\rR\tattempted\x12\x1c\n" +
@@ -3644,7 +3687,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"durationMs\x12#\n" +
 	"\rachieved_rate\x18\x05 \x01(\x01R\fachievedRate\x124\n" +
 	"\alatency\x18\x06 \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x126\n" +
-	"\tresources\x18\a \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\"b\n" +
+	"\tresources\x18\a \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\x12%\n" +
+	"\x0edistinct_supis\x18\b \x01(\rR\rdistinctSupis\"b\n" +
 	"\x0eResourceSample\x12\x13\n" +
 	"\x05at_ms\x18\x01 \x01(\x03R\x04atMs\x12\x1e\n" +
 	"\n" +
@@ -3673,7 +3717,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x05gates\x18\x04 \x03(\v2\x14.orbit.v1.GateResultR\x05gates\x12!\n" +
 	"\fgates_passed\x18\x05 \x01(\bR\vgatesPassed\x121\n" +
 	"\tworkloads\x18\x06 \x03(\v2\x13.orbit.v1.RunReportR\tworkloadsB\b\n" +
-	"\x06report\"\xc4\x02\n" +
+	"\x06report\"\xe9\x02\n" +
 	"\tRunReport\x12\x1a\n" +
 	"\bworkload\x18\x01 \x01(\tR\bworkload\x12%\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x11.orbit.v1.RunKindR\x04kind\x12*\n" +
@@ -3681,7 +3725,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x05fleet\x18\x04 \x01(\v2\x15.orbit.v1.FleetReportH\x00R\x05fleet\x12@\n" +
 	"\vconformance\x18\x05 \x01(\v2\x1c.orbit.v1.ConformanceSummaryH\x00R\vconformance\x12*\n" +
 	"\x05gates\x18\x06 \x03(\v2\x14.orbit.v1.GateResultR\x05gates\x12!\n" +
-	"\fgates_passed\x18\a \x01(\bR\vgatesPassedB\b\n" +
+	"\fgates_passed\x18\a \x01(\bR\vgatesPassed\x12#\n" +
+	"\rstopped_early\x18\b \x01(\bR\fstoppedEarlyB\b\n" +
 	"\x06report\"\xd5\x02\n" +
 	"\x12ConformanceSummary\x120\n" +
 	"\x05tally\x18\x01 \x01(\v2\x1a.orbit.v1.ConformanceTallyR\x05tally\x125\n" +

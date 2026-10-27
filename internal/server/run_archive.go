@@ -103,6 +103,7 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 			rs, _ = planJudge(plan)(partial).([]*orbitv1.RunReport)
 		}
 	}
+	markStoppedEarly(rs, info.StoppedEarly)
 	a.Reports = rs
 	redactArchive(a, held.secrets)
 	if err := s.archive.save(a); err != nil {

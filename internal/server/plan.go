@@ -70,11 +70,6 @@ func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkl
 	if err := validateGates(p.GetGates(), w.GetName(), false); err != nil {
 		return nil, nil, err
 	}
-	if len(p.GetGates()) > 0 && p.GetUntil().GetForever() {
-		// Gates judge a completed run; a forever run only ends by StopRun,
-		// cancelled, with no report to judge.
-		return nil, nil, errors.New("gates need a run that completes; use until.duration or until.complete")
-	}
 	return w, pop, nil
 }
 
@@ -729,6 +724,14 @@ func (s *runService) planVerdict(id string) []*orbitv1.RunReport {
 		return a.GetReports()
 	}
 	return nil
+}
+
+// markStoppedEarly marks reports judged on a run finished early
+// (StopRun{finish}), so a reader knows the results were cut short.
+func markStoppedEarly(rs []*orbitv1.RunReport, early bool) {
+	for _, rr := range rs {
+		rr.StoppedEarly = early
+	}
 }
 
 // gatesOf is reports' gate results together, and whether all passed.

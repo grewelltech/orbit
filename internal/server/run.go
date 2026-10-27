@@ -159,7 +159,11 @@ func (s *runService) StopRun(
 	ctx context.Context,
 	req *connect.Request[orbitv1.StopRunRequest],
 ) (*connect.Response[orbitv1.StopRunResponse], error) {
-	info, err := s.reg.Stop(req.Msg.GetRunId())
+	stop := s.reg.Stop
+	if req.Msg.GetFinish() {
+		stop = s.reg.Finish // judged on its results so far, not cancelled
+	}
+	info, err := stop(req.Msg.GetRunId())
 	if err != nil {
 		return nil, runLookupError(err)
 	}
@@ -287,6 +291,7 @@ func (s *runService) GetRunReport(
 	// A plan's gates, judged as the run completed and kept with its report;
 	// the archive as a second line.
 	if rs := s.planVerdict(id); len(rs) > 0 {
+		markStoppedEarly(rs, info.StoppedEarly)
 		resp.Gates, resp.GatesPassed = gatesOf(rs)
 		resp.Workloads = rs
 	}
@@ -1046,6 +1051,7 @@ func runProto(info engine.RunInfo) *orbitv1.Run {
 	for _, k := range info.WorkloadKinds {
 		r.WorkloadKinds = append(r.WorkloadKinds, runKindProto(k))
 	}
+	r.StoppedEarly = info.StoppedEarly
 	return r
 }
 
@@ -1156,13 +1162,14 @@ func gnbProgressProtos(m map[string]load.GNBProgress) []*orbitv1.GnbProgress {
 
 func loadReportProto(r load.Report) *orbitv1.LoadReport {
 	return &orbitv1.LoadReport{
-		Attempted:    uint32(r.Attempted),
-		Succeeded:    uint32(r.Succeeded),
-		Failed:       uint32(r.Failed),
-		DurationMs:   r.Duration.Milliseconds(),
-		AchievedRate: r.AchievedRate,
-		Latency:      procedureLatencies(r.Latencies),
-		Resources:    resourceSamples(r.Resources),
+		Attempted:     uint32(r.Attempted),
+		Succeeded:     uint32(r.Succeeded),
+		Failed:        uint32(r.Failed),
+		DurationMs:    r.Duration.Milliseconds(),
+		AchievedRate:  r.AchievedRate,
+		Latency:       procedureLatencies(r.Latencies),
+		Resources:     resourceSamples(r.Resources),
+		DistinctSupis: uint32(r.DistinctSUPIs),
 	}
 }
 

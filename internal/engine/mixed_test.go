@@ -302,3 +302,38 @@ func TestRunMixedAttachedFromReport(t *testing.T) {
 		t.Errorf("suite = %+v, want it run after the fleet attached", ps[1])
 	}
 }
+
+// Finishing a mixed run reports each workload's results so far as done.
+func TestRunMixedFinish(t *testing.T) {
+	r := quietRegistry(0)
+	info, err := r.StartMixed(RunOptions{}, []MixedWorkload{
+		{Name: "pop", Count: 100, Load: func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
+			s.Observe(load.Sample{Metrics: map[string]time.Duration{"attach": time.Millisecond}})
+			<-ctx.Done()
+			return load.Report{Attempted: 1, Succeeded: 1}, nil
+		}},
+		{Name: "suite", Conformance: func(ctx context.Context, _ RunEventFunc) (any, error) {
+			<-ctx.Done()
+			if Finishing(ctx) {
+				return "partial suite", nil
+			}
+			return nil, ctx.Err()
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, r, info.ID, RunRunning)
+	time.Sleep(10 * time.Millisecond)
+	if _, err := r.Finish(info.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, r, info.ID, RunComplete)
+	rep, ok := r.MixedResult(info.ID)
+	if !ok || rep.Workloads[0].State != WorkloadDone || rep.Workloads[1].Report != "partial suite" {
+		t.Fatalf("report = %+v", rep)
+	}
+	if got, _ := r.Get(info.ID); !got.StoppedEarly {
+		t.Error("not StoppedEarly")
+	}
+}

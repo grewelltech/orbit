@@ -555,3 +555,58 @@ func TestRunRegistryConformance(t *testing.T) {
 		})
 	}
 }
+
+// Finish ends a run COMPLETE and StoppedEarly, judged on the report its
+// launcher hands back when stopped; Stop still cancels. A launcher that
+// errors on the stop keeps its report under a finish.
+func TestRunRegistryFinish(t *testing.T) {
+	tests := []struct {
+		name      string
+		finish    bool
+		errOnStop bool
+		want      RunState
+		judged    bool
+	}{
+		{name: "finish", finish: true, want: RunComplete, judged: true},
+		{name: "finish, the launcher errors on the stop", finish: true, errOnStop: true, want: RunComplete, judged: true},
+		{name: "stop", want: RunCancelled},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := quietRegistry(0)
+			started := make(chan struct{})
+			info, err := r.StartLoad(RunOptions{Judge: func(rep any) any { return rep.(*load.Report).Attempted }},
+				func(ctx context.Context, s *load.LiveStats, _ RunEventFunc) (load.Report, error) {
+					close(started)
+					<-ctx.Done()
+					if !tc.finish && Finishing(ctx) {
+						t.Error("a plain stop reads as finishing")
+					}
+					if tc.errOnStop {
+						return load.Report{Attempted: 7}, ctx.Err()
+					}
+					return load.Report{Attempted: 7}, nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-started
+			if tc.finish {
+				_, err = r.Finish(info.ID)
+			} else {
+				_, err = r.Stop(info.ID)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitState(t, r, info.ID, tc.want)
+			got, _ := r.Get(info.ID)
+			if got.StoppedEarly != tc.finish {
+				t.Errorf("StoppedEarly = %t", got.StoppedEarly)
+			}
+			if j, ok := r.Judgement(info.ID); ok != tc.judged || ok && j != 7 {
+				t.Errorf("judgement = %v, %t; want judged %t", j, ok, tc.judged)
+			}
+		})
+	}
+}

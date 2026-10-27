@@ -79,10 +79,6 @@ func TestMixedShapeRefusals(t *testing.T) {
 		{name: "a gate on no workload", mut: func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, _ *orbitv1.ConformanceWorkload) {
 			p.Gates = []*orbitv1.Gate{slo("other")}
 		}, wantErr: `no workload "other"`},
-		{name: "gates on a forever run", mut: func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, _ *orbitv1.ConformanceWorkload) {
-			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
-			p.Gates = []*orbitv1.Gate{conf("")}
-		}, wantErr: "gates need a run that completes"},
 		{name: "one N2 source for both", mut: func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.N2SourceIps = []string{"127.0.0.10"}
 		}, wantErr: "ran.n2_source_ips holds 1 addresses: the population's 1 gNBs and the suite take 2"},
@@ -529,5 +525,69 @@ func TestPopulationStopArchivesJudgedPartial(t *testing.T) {
 	}
 	if _, err := runs.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("GetRunReport on a CANCELLED run = %v, want FAILED_PRECONDITION", err)
+	}
+}
+
+// A soak (until.forever) carries gates, judged when it is finished:
+// StopRun{finish} ends it COMPLETE and stopped early, its gates judged on
+// the results so far, where a plain StopRun cancels it and fails them.
+func TestForeverGatesJudgedOnFinish(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := sctpfront.Listen(t, amf)
+	for _, finish := range []bool{true, false} {
+		dir, runs, _ := suiteServer(t)
+		p := loadPlan(func(p *orbitv1.RunPlan) {
+			p.Target.Core.Amf = addr
+			p.Target.Subscribers[0].Count = 10
+			pop(p).Attach = &orbitv1.AttachProfile{Count: 10, Rate: 20, Concurrency: 2}
+			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
+			p.Gates = []*orbitv1.Gate{{Name: "attach", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{
+				Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.5}}}}
+		})
+		resp, err := runs.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+		if err != nil {
+			t.Fatalf("finish %t: a forever plan with gates was refused: %v", finish, err)
+		}
+		id := resp.Msg.GetRun().GetRunId()
+		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			g, err := runs.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
+			if err == nil && g.Msg.GetLoadProgress().GetSucceeded() >= 3 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the soak never attached: %v, %v", g, err)
+			}
+		}
+		if _, err := runs.StopRun(context.Background(), connect.NewRequest(&orbitv1.StopRunRequest{RunId: id, Finish: finish})); err != nil {
+			t.Fatal(err)
+		}
+		if !finish {
+			waitRunState(t, runs, id, orbitv1.RunState_RUN_STATE_CANCELLED)
+			a := waitArchive(t, dir, id)
+			if rs := a.GetReports(); len(rs) != 1 || rs[0].GetGatesPassed() {
+				t.Errorf("cancelled soak: reports %v, want its gate failed", rs)
+			}
+			continue
+		}
+		run := waitRunState(t, runs, id, orbitv1.RunState_RUN_STATE_COMPLETE)
+		if !run.GetStoppedEarly() {
+			t.Error("a finished run is not marked stopped early")
+		}
+		r, err := runs.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !r.Msg.GetGatesPassed() || len(r.Msg.GetGates()) != 1 || len(r.Msg.GetWorkloads()) != 1 || !r.Msg.GetWorkloads()[0].GetStoppedEarly() {
+			t.Errorf("finished soak: gates %v passed %t, workloads %v", r.Msg.GetGates(), r.Msg.GetGatesPassed(), r.Msg.GetWorkloads())
+		}
+		if l := r.Msg.GetLoad(); l.GetDistinctSupis() == 0 || l.GetDistinctSupis() > 10 || l.GetAttempted() < l.GetDistinctSupis() {
+			t.Errorf("distinct SUPIs %d of attempted %d, want 1..10", l.GetDistinctSupis(), l.GetAttempted())
+		}
 	}
 }

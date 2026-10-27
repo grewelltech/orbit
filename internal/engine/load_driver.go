@@ -170,6 +170,10 @@ func runStorm(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report
 
 	rep := load.Run(ctx, loadConfig(spec), f.LoadFunc(makeUE))
 	rep.N2Sources = f.N2Sources()
+	rep.DistinctSUPIs = rep.Attempted
+	if spec.Duration > 0 && spec.Count > 0 {
+		rep.DistinctSUPIs = min(rep.Attempted, spec.Count) // cycled modulo Count
+	}
 	return rep, nil
 }
 
