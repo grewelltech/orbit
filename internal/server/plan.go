@@ -532,7 +532,7 @@ func (r *planRun) provenance() []*orbitv1.FieldProvenance {
 		ids[i] = strconv.FormatUint(uint64(id), 10)
 	}
 	return []*orbitv1.FieldProvenance{{
-		Path:   "workloads[" + r.workload + "].population.topology.gnb_ids",
+		Path:   "workloads[" + r.workload + "].topology.gnb_ids",
 		Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_LEASE, Detail: "gNB ID rotation (least recently used) at " + r.amf},
 		Value:  "[" + strings.Join(ids, ",") + "]",
 	}}
