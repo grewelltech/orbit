@@ -120,9 +120,12 @@ var Bindings = []Binding{
 	{Flag: "pdu-session", Path: "workloads[].pdu_session", Commands: append([]string{cmdUERegister}, populationCmds...)},
 	{Flag: "gnb-count", Path: "workloads[].topology.gnb_count"},
 	{Flag: "sample-interval", Path: "workloads[].sample_interval_ms"},
-	{Flag: "slo-reg-p99", Path: "gates[" + GateName("", "slo-reg-p99") + "].slo.threshold"},
-	{Flag: "slo-attach-p99", Path: "gates[" + GateName("", "slo-attach-p99") + "].slo.threshold"},
-	{Flag: "slo-min-success", Path: "gates[" + GateName("", "slo-min-success") + "].slo.threshold"},
+	// The --slo-* flags are aliases for --gate on the server's metrics: the
+	// gate's name says its metric (GateName), and plan.Build gives it its
+	// comparison.
+	{Flag: "slo-reg-p99", Path: "gates[" + GateName("", MetricRegP99) + "].slo.threshold"},
+	{Flag: "slo-attach-p99", Path: "gates[" + GateName("", MetricAttachP99) + "].slo.threshold"},
+	{Flag: "slo-min-success", Path: "gates[" + GateName("", MetricSuccessRatio) + "].slo.threshold"},
 	{Flag: "category", Path: "workloads[].conformance.categories"},
 	{Flag: "target-release", Path: "workloads[].conformance.target_release"},
 	{Flag: "expected-failures", Path: "workloads[].conformance.expected", Commands: []string{cmdConformance}},

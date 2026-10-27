@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // A canonical path names one field (ADR-0008 §3): dot-separated keys, with
@@ -30,6 +32,10 @@ const (
 	// list, so "which layer set this" always has one answer.
 	tStrings // a list of strings
 	tSlices  // a list of {sst, sd}
+	// tAny is a whole-value subtree (a workload's behaviors, a gate's
+	// check): one field, its value a mapping, list or scalar as written,
+	// replaced whole by a higher layer, with provenance at the subtree.
+	tAny
 )
 
 // field is one entry of the field table.
@@ -99,30 +105,56 @@ var fields = map[string]field{
 	"app.responders[].token":          {secret: true, target: true},
 	"app.responders[].data_ip":        {target: true},
 
-	// The run file (ADR-0008 §2), as far as today's flags reach it. A run
-	// file names its target with "target"; the run's own name is
-	// "run.name" so it cannot collide with the target's.
+	// The run file (ADR-0008 §2): every RunPlan field below the target.
+	// A run file names its target with "target"; the run's own name is
+	// "run.name" so it cannot collide with the target's. A population's
+	// fields leave out the kind (workloads[].attach.count is
+	// workloads[i].population.attach.count); a conformance workload's name
+	// it. behaviors, start, conformance.expected and conformance.nas are
+	// whole-value subtrees (tAny), as are a gate's checks below slo.
 	"target":                                      {},
 	"run.name":                                    {},
 	"run.event_verbosity":                         {},
 	"until.duration_ms":                           {typ: tUint},
+	"until.duration":                              {}, // "2h": a run file's spelling of duration_ms
+	"until.complete":                              {typ: tBool},
+	"until.forever":                               {typ: tBool},
 	"workloads[].name":                            {},
+	"workloads[].start":                           {typ: tAny},
 	"workloads[].attach.count":                    {typ: tUint},
 	"workloads[].attach.rate":                     {typ: tFloat},
 	"workloads[].attach.ramp":                     {},
 	"workloads[].attach.arrival":                  {},
 	"workloads[].attach.concurrency":              {typ: tUint},
+	"workloads[].attach.distribution":             {},
+	"workloads[].attach.distribution_seed":        {typ: tUint, wide: true},
 	"workloads[].attach.seed":                     {typ: tUint, wide: true},
 	"workloads[].pdu_session":                     {typ: tBool},
 	"workloads[].topology.gnb_count":              {typ: tUint},
+	"workloads[].topology.layout":                 {},
+	"workloads[].topology.spacing_m":              {typ: tFloat},
+	"workloads[].topology.gnb_ids.first":          {typ: tUint},
+	"workloads[].topology.gnb_ids.assign":         {typ: tBool},
+	"workloads[].behaviors":                       {typ: tAny},
+	"workloads[].subscriber_pool":                 {},
 	"workloads[].sample_interval_ms":              {typ: tUint},
 	"workloads[].conformance.categories":          {typ: tStrings},
 	"workloads[].conformance.target_release":      {},
-	"workloads[].conformance.expected":            {},
+	"workloads[].conformance.expected":            {typ: tAny}, // a file path, or the list inline
 	"workloads[].conformance.per_test_timeout_ms": {typ: tUint},
+	"workloads[].conformance.nas":                 {typ: tAny},
+	"workloads[].conformance.responder":           {},
 	"workloads[].conformance.traffic":             {},
+	"workloads[].conformance.gnb_ids.first":       {typ: tUint},
+	"workloads[].conformance.gnb_ids.assign":      {typ: tBool},
+	"workloads[].conformance.subscriber_pool":     {},
+	"workloads[].conformance.n3_bind":             {},
 	"gates[].name":                                {},
+	"gates[].workload":                            {},
+	"gates[].slo.metric":                          {},
+	"gates[].slo.op":                              {},
 	"gates[].slo.threshold":                       {},
+	"gates[].conformance":                         {typ: tBool},
 }
 
 // segment is one step of a path: a key, or a named-list element.
@@ -235,6 +267,19 @@ func Paths() []string {
 	out := make([]string, 0, len(fields))
 	for p := range fields {
 		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// RunPaths lists the run file's path patterns (every field below the
+// target: workloads, until, gates, the run's own), sorted.
+func RunPaths() []string {
+	var out []string
+	for p, f := range fields {
+		if !f.target {
+			out = append(out, p)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -369,14 +414,29 @@ func convert(f field, v any) (any, error) {
 			return out, nil
 		}
 	}
+	if f.typ == tAny {
+		// A flag or --set gives text: read it as YAML, so a mapping or a
+		// list can be written inline; a plain word stays a string.
+		if x, ok := v.(string); ok {
+			var parsed any
+			if err := yaml.Unmarshal([]byte(x), &parsed); err != nil {
+				return nil, fmt.Errorf("%s is not valid YAML: %w", errValue(f, x), err)
+			}
+			if parsed == nil {
+				return x, nil
+			}
+			return parsed, nil
+		}
+		return v, nil
+	}
 	return nil, fmt.Errorf("%s (%T) is the wrong type", errValue(f, v), v)
 }
 
 // errValue is how an error shows a field's value: masked when the field is
 // secret, quoted when it is a string.
 func errValue(f field, v any) string {
-	if f.secret {
-		return Masked
+	if f.secret || f.typ == tAny {
+		return Masked // a subtree's text may hold a token
 	}
 	if s, ok := v.(string); ok {
 		return strconv.Quote(s)

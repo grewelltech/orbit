@@ -1,10 +1,13 @@
 package target
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/bgrewell/orbit/internal/secrets"
 )
 
 // Layer is a configuration layer, lowest first (ADR-0008 §3): a built-in
@@ -356,10 +359,23 @@ func isTargetPath(p string) bool {
 	return err == nil && f.target
 }
 
-// show renders a value for provenance, masking a secret.
+// show renders a value for provenance, masking a secret. A whole-value
+// subtree is masked whole when any key in it names a secret (a cohort's
+// token, a params entry called password): its provenance is one entry,
+// and a partly masked rendering would still be the subtree's text.
 func show(f field, v any) string {
-	if f.secret {
+	if f.secret || (f.typ == tAny && holdsSecret(v)) {
 		return Masked
+	}
+	if f.typ == tAny {
+		if s, ok := v.(string); ok {
+			return s
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return string(b)
 	}
 	switch x := v.(type) {
 	case []string:
@@ -375,6 +391,31 @@ func show(f field, v any) string {
 		return "[" + strings.Join(parts, ", ") + "]"
 	}
 	return fmt.Sprint(v)
+}
+
+// holdsSecret reports whether a subtree has a key that names a secret.
+func holdsSecret(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			if secrets.IsSecretName(k) || holdsSecret(e) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if holdsSecret(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Names is the element names of a named list (workloads, gates), in the
+// order the layers gave them.
+func (r *Resolved) Names(list string) []string {
+	return append([]string(nil), r.order[list]...)
 }
 
 func contains(xs []string, x string) bool {

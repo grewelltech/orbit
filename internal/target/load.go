@@ -209,7 +209,7 @@ func parseDoc(name string, d *yaml.Node, env Getenv) (*File, error) {
 	// zero) come with their path and line; then a strict decode catches
 	// unknown keys and wrong types it lets through.
 	f := &File{Input: Input{Layer: LayerTarget}}
-	if err := flatten(name, nil, d, env, &f.Input.Settings); err != nil {
+	if err := flatten(name, nil, d, env, targetField, LayerTarget, &f.Input.Settings); err != nil {
 		return nil, err
 	}
 	var raw bytes.Buffer
@@ -235,9 +235,15 @@ func parseDoc(name string, d *yaml.Node, env Getenv) (*File, error) {
 	return f, nil
 }
 
-// flatten turns a target document node into settings on canonical paths,
-// expanding ${ENV} in string values.
-func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, out *[]Setting) error {
+// targetField and runField pick a target document's fields and a run
+// file's.
+func targetField(f field) bool { return f.target }
+func runField(f field) bool    { return !f.target }
+
+// flatten turns a document node into settings on canonical paths, expanding
+// ${ENV} in string values: the fields allow accepts, set in layer. A
+// whole-value field (tAny) takes its node whole, mapping or list.
+func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, allow func(field) bool, layer Layer, out *[]Setting) error {
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k, v := n.Content[i], n.Content[i+1]
 		segs := append(append([]segment(nil), prefix...), segment{key: k.Value})
@@ -261,27 +267,27 @@ func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, out *[]Set
 				}
 				names[elName] = true
 				es := append(append([]segment(nil), segs...), segment{elem: true, name: elName})
-				if err := flatten(file, es, el, env, out); err != nil {
+				if err := flatten(file, es, el, env, allow, layer, out); err != nil {
 					return err
 				}
 			}
-		case v.Kind == yaml.MappingNode:
+		case v.Kind == yaml.MappingNode && fields[pat].typ != tAny:
 			if _, ok := fields[pat]; ok {
 				return fmt.Errorf("%s:%d: %s is not a mapping", file, v.Line, pat)
 			}
-			if err := flatten(file, segs, v, env, out); err != nil {
+			if err := flatten(file, segs, v, env, allow, layer, out); err != nil {
 				return err
 			}
 		default:
 			f, ok := fields[pat]
-			if !ok || !f.target {
+			if !ok || !allow(f) {
 				return fmt.Errorf("%s:%d: unknown key %s", file, k.Line, pat)
 			}
 			val, err := nodeValue(f, v)
 			if err != nil {
 				return fmt.Errorf("%s:%d: %s: %w", file, v.Line, pat, err)
 			}
-			src := Source{Layer: LayerTarget, Name: file, Line: v.Line}
+			src := Source{Layer: layer, Name: file, Line: v.Line}
 			expanded, via, err := expand(val, env)
 			if err != nil {
 				return fmt.Errorf("%s:%d: %s: %w", file, v.Line, pat, err)
@@ -490,4 +496,56 @@ func SelectName(inputs ...Input) string {
 		}
 	}
 	return name
+}
+
+// RunFile is a run file (ADR-0008 §2, kind: run): the target it names and
+// its settings, ready to be the run-file layer.
+type RunFile struct {
+	// Target is the file's target: key, "" when it names none.
+	Target string
+	Input  Input
+}
+
+// ParseRunFile reads a run file: a mapping with kind: run (and version 1
+// when given), every other key a run-file field (workloads, until, gates,
+// run, target). Unknown keys and target fields are errors: a run file
+// names its target, it does not restate it. ${ENV} expands in string
+// values, as in a target file.
+func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(b, &root); err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if root.Kind == 0 || len(root.Content) == 0 {
+		return nil, fmt.Errorf("%s: empty", name)
+	}
+	doc := root.Content[0]
+	if doc.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%s:%d: a run file is a mapping", name, doc.Line)
+	}
+	if k := mapValue(doc, "kind"); k != "run" {
+		return nil, fmt.Errorf("%s: kind is %q, want run", name, k)
+	}
+	if v := mapNode(doc, "version"); v != nil && v.Value != "1" {
+		return nil, fmt.Errorf("%s:%d: version %s: want 1", name, v.Line, v.Value)
+	}
+	// The format markers say what the file is; the rest are fields.
+	body := &yaml.Node{Kind: yaml.MappingNode}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		switch doc.Content[i].Value {
+		case "kind", "version":
+		default:
+			body.Content = append(body.Content, doc.Content[i], doc.Content[i+1])
+		}
+	}
+	rf := &RunFile{Input: Input{Layer: LayerRunFile}}
+	if err := flatten(name, nil, body, env, runField, LayerRunFile, &rf.Input.Settings); err != nil {
+		return nil, err
+	}
+	for _, st := range rf.Input.Settings {
+		if st.Path == "target" {
+			rf.Target, _ = st.Value.(string)
+		}
+	}
+	return rf, nil
 }

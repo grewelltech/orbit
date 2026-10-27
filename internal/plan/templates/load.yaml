@@ -1,0 +1,12 @@
+# An attach storm: the target's subscribers attached and released at a
+# steady rate. Address-free: the core, keys and addresses come from the
+# target (-t). Gated on attach success at least 0.99 (ADR-0008 resolved
+# question 4); latency is reported, not gated, unless --gate adds it.
+kind: run
+workloads:
+  - name: load
+    attach: {count: 100, rate: 20, concurrency: 64}
+until: {complete: true}
+gates:
+  - name: attach_success_ratio
+    slo: {metric: attach.success_ratio, op: ">=", threshold: "0.99"}

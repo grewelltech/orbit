@@ -33,9 +33,11 @@ func TestEveryPathHasAProtoField(t *testing.T) {
 	}
 }
 
-// fileOnly are a target file's format markers: they say what the file is,
-// and a resolved target on the wire has no use for them.
-var fileOnly = map[string]bool{"version": true, "kind": true}
+// fileOnly are a target file's format markers, which say what the file is
+// and a resolved target on the wire has no use for, and a run file's own
+// spellings that Build turns into a field (until.duration, "2h", into
+// until.duration_ms).
+var fileOnly = map[string]bool{"version": true, "kind": true, "until.duration": true}
 
 // protoPath walks a dotted path ("[...]" list keys dropped) from md,
 // returning the field the last segment names, or why it does not resolve.
@@ -98,10 +100,14 @@ func TestSecretPathsMatchProtoMarks(t *testing.T) {
 	}
 }
 
-// viaKind finds seg in exactly one of a Workload's kind messages.
+// viaKind finds seg in a Workload's kind messages: a kind-less path is the
+// population's (ADR-0008 §2), else the one kind that has it.
 func viaKind(md protoreflect.MessageDescriptor, seg string) protoreflect.FieldDescriptor {
 	if md.FullName() != "orbit.v1.Workload" {
 		return nil
+	}
+	if fd := md.Fields().ByName("population").Message().Fields().ByName(protoreflect.Name(seg)); fd != nil {
+		return fd
 	}
 	var found protoreflect.FieldDescriptor
 	kind := md.Oneofs().ByName("kind")
