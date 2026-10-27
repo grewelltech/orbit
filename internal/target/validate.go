@@ -65,8 +65,8 @@ var checks = map[string]func(any) string{
 	"subscribers[].first_supi": supi,
 	"subscribers[].ki":         func(v any) string { return match(v, hex32, "32 hex digits") },
 	"subscribers[].opc":        func(v any) string { return match(v, hex32, "32 hex digits") },
-	"ran.n2_source_ips":        func(v any) string { return eachAddr(v, true) },
-	"ran.n3_ips":               func(v any) string { return eachAddr(v, false) },
+	"ran.n2_source_ips":        func(v any) string { return eachAddr(v) },
+	"ran.n3_ips":               func(v any) string { return eachAddr(v) },
 	"ran.gnb_ids.bits": func(v any) string {
 		if b := v.(uint64); b != 0 && (b < 22 || b > 32) {
 			return "not between 22 and 32"
@@ -101,14 +101,15 @@ func supi(v any) string {
 	return ""
 }
 
-// eachAddr checks an address list: IPs, hostnames, either with an optional
-// :port (port 0 is ephemeral) and, for source pools, ranges (a-b) and
-// CIDRs, which are IP-only and take no port. Hostnames pass unresolved, as
-// the commands pass them (the server resolves them at the dial; S4 when it
-// leases): the resolver never refuses a value a command accepts.
-func eachAddr(v any, pools bool) string {
+// eachAddr checks an address pool (ran.n2_source_ips, ran.n3_ips): IPs and
+// host names, either with an optional :port (port 0 is ephemeral), and
+// ranges (a-b) and CIDRs, which are IP-only and take no port. Host names
+// pass unresolved, as the commands pass them (the server resolves them at
+// the dial; S4 when it leases): the resolver never refuses a value a
+// command accepts.
+func eachAddr(v any) string {
 	for _, a := range v.([]string) {
-		if !addrEntry(a, pools) {
+		if !addrEntry(a, true) {
 			return fmt.Sprintf("entry %q is not an address", a)
 		}
 	}

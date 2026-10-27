@@ -46,7 +46,7 @@ subscribers:
     opc: ${ORBIT_OPC}
 ran:
   n2_source_ips: [192.0.2.50-192.0.2.59]
-  n3_ips: [198.51.100.50, 198.51.100.51]
+  n3_ips: [198.51.100.50-198.51.100.59]
   gnb_ids: { first: 100, count: 900, bits: 24 }
 app:
   responders:
@@ -94,9 +94,10 @@ destination gNB and are never filled from a target; only `--amf` is.
   - a CIDR: `192.0.2.0/28`.
 
   Ranges and CIDRs are IP-only and take no port.
-- **`ran.n3_ips`** entries are IPs, host names or ip:port/host:port. `--gnb-n3`
-  needs an IP: a host-name entry fills `--n3-bind`, leaves `--gnb-n3` unfilled,
-  and says so.
+- **`ran.n3_ips`** is a pool in the same forms as `ran.n2_source_ips`: IPs, host
+  names, ip:port/host:port, and IP-only ranges and CIDRs, expanded by the same
+  rules. `--gnb-n3` needs an IP: a host-name entry fills `--n3-bind`, leaves
+  `--gnb-n3` unfilled, and says so.
 - **One address from a pool.** Until the server leases from the pool, a flag
   that takes one address takes the first entry:
   - a range gives its low end;

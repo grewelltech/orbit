@@ -1357,16 +1357,12 @@ EOF
 # so the file holds no secret. Written directly rather than through
 # `orbit target init`, whose --bind records one address, not a range.
 target_for() {
-    local node=$1 n2 n3 last i n3s=""
+    local node=$1 n2 n3 last
     case "$node" in
         "$NODE_RANF") n2=$TESTBED_NET_FAR_N2; n3=$TESTBED_NET_FAR_N3 ;;
         *)            n2=$TESTBED_NET_N2;     n3=$TESTBED_NET_N3 ;;
     esac
     last=$((TESTBED_HOST_RAN + TESTBED_RAN_GNBS - 1))
-    # n3_ips is a list of addresses (a range is for N2 source pools only).
-    for ((i = TESTBED_HOST_RAN; i <= last; i++)); do
-        n3s+="${n3s:+, }$(ip_in "$n3" "$i")"
-    done
     cat <<TARGET
 # ORBIT target for the LXD testbed, written by testbed.sh for $node.
 #   orbit target probe lxd
@@ -1391,7 +1387,7 @@ subscribers:
     opc: \${ORBIT_OPC}
 ran:
   n2_source_ips: [$(ip_in "$n2" "$TESTBED_HOST_RAN")-$(ip_in "$n2" "$last")]
-  n3_ips: [$n3s]
+  n3_ips: [$(ip_in "$n3" "$TESTBED_HOST_RAN")-$(ip_in "$n3" "$last")]
   gnb_ids: { first: 100, count: 900, bits: 24 }
 app:
   responders:

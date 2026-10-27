@@ -47,7 +47,7 @@ func TestEveryShippedExampleParses(t *testing.T) {
 			if err != nil {
 				t.Fatalf("kind: %v", err)
 			}
-			tg := exampleTarget
+			tg := loadTarget(t, exampleTargetYAML)
 			if kind == "fleet" {
 				if _, err := ParseFleetWithTarget(data, &tg); err != nil {
 					t.Errorf("ParseFleetWithTarget: %v", err)

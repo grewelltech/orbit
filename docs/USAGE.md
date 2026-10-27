@@ -235,7 +235,8 @@ orbit target probe lab1           # NG Setup, one registration, one PDU session,
   `--bind` keeps the port if the entry has one; `--gnb-n3` drops it;
   `--n3-bind` adds GTP-U's 2152 when the entry has none.
 - **Host names** are accepted wherever the commands accept them: in
-  `ran.n2_source_ips` (`--bind`), `ran.n3_ips` (`--n3-bind`) and a responder's
+  `ran.n2_source_ips` (`--bind`), `ran.n3_ips` (`--n3-bind`; a pool like the
+  N2 one, ranges and CIDRs included) and a responder's
   `data_ip`, with or without a port. They pass unresolved, as a typed
   `--bind lab-n2` does. Ranges and CIDRs are IP-only.
 - **Slices.** `--sst` and `--sd` set the first slice's fields

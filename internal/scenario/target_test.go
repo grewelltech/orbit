@@ -8,17 +8,57 @@ import (
 	"github.com/bgrewell/orbit/internal/target"
 )
 
-// exampleTarget is a target big enough for every shipped example: ten
-// N2 and N3 addresses, a thousand subscribers and an N6 responder.
-var exampleTarget = target.Target{Version: 1, Kind: "target", Name: "fixture",
-	Core: target.Core{AMF: "192.0.2.10:38412", PLMN: target.PLMN{MCC: "001", MNC: "01"}, TAC: 1,
-		Slices: []target.Slice{{SST: 1, SD: "010203"}}, DNN: "internet"},
-	Subscribers: []target.Pool{{Name: "main", FirstSUPI: "001010100007500", Count: 1000,
-		Ki: "00112233445566778899aabbccddeeff", OPc: "000102030405060708090a0b0c0d0e0f"}},
-	RAN: target.RAN{N2SourceIPs: []string{"192.0.2.20-192.0.2.29"}, N3IPs: []string{"198.51.100.20", "198.51.100.21", "198.51.100.22", "198.51.100.23", "198.51.100.24",
-		"198.51.100.25", "198.51.100.26", "198.51.100.27", "198.51.100.28", "198.51.100.29"},
-		GNBIDs: target.GNBIDs{First: 100}},
-	App: target.App{Responders: []target.Responder{{Name: "n6", Control: "203.0.113.30:9551", DataIP: "203.0.113.30"}}},
+// exampleTargetYAML is a target big enough for every shipped example: ten
+// N2 and N3 addresses (both as ranges), a thousand subscribers and an N6
+// responder. Fixtures go through the loader and its validator (loadTarget),
+// never a hand-built struct, so a schema error cannot slip past a test.
+const exampleTargetYAML = `version: 1
+kind: target
+name: fixture
+core:
+  amf: 192.0.2.10:38412
+  plmn: { mcc: "001", mnc: "01" }
+  tac: 1
+  slices:
+    - { sst: 1, sd: "010203" }
+  dnn: internet
+subscribers:
+  - name: main
+    first_supi: "001010100007500"
+    count: 1000
+    ki: 00112233445566778899aabbccddeeff
+    opc: 000102030405060708090a0b0c0d0e0f
+ran:
+  n2_source_ips: [192.0.2.20-192.0.2.29]
+  n3_ips: [198.51.100.20-198.51.100.29]
+  gnb_ids: { first: 100 }
+app:
+  responders:
+    - { name: n6, control: 203.0.113.30:9551, data_ip: 203.0.113.30 }
+`
+
+// loadTarget loads a target document through the loader and the resolver,
+// as -t does.
+func loadTarget(t *testing.T, doc string) target.Target {
+	t.Helper()
+	files, err := target.Parse("fixture.yaml", []byte(doc), func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatalf("fixture target: %v", err)
+	}
+	r, err := target.Resolve(target.DefaultInput(), files[0].Input)
+	if err != nil {
+		t.Fatalf("fixture target: %v", err)
+	}
+	return r.Target
+}
+
+// fixtureWith is the fixture target with one edit to its YAML.
+func fixtureWith(t *testing.T, old, new string) target.Target {
+	t.Helper()
+	if !strings.Contains(exampleTargetYAML, old) {
+		t.Fatalf("fixture lacks %q", old)
+	}
+	return loadTarget(t, strings.Replace(exampleTargetYAML, old, new, 1))
 }
 
 func TestReadTargetRef(t *testing.T) {
@@ -78,7 +118,7 @@ behaviors:
 // and N3 address per gNB and the first responder for its app traffic and
 // latency echo.
 func TestFleetApplyTarget(t *testing.T) {
-	tg := exampleTarget
+	tg := loadTarget(t, exampleTargetYAML)
 	f, err := ParseFleetWithTarget([]byte(fleetDoc), &tg)
 	if err != nil {
 		t.Fatal(err)
@@ -104,14 +144,12 @@ func TestFleetApplyTarget(t *testing.T) {
 }
 
 func TestFleetApplyTargetErrors(t *testing.T) {
-	noResp := exampleTarget
-	noResp.App = target.App{}
-	short := exampleTarget
-	short.RAN.N2SourceIPs = []string{"192.0.2.20-192.0.2.21"}
-	small := exampleTarget
-	small.Subscribers = []target.Pool{{Name: "main", FirstSUPI: "001010100007500", Count: 5, Ki: "k", OPc: "o"}}
-	noPool := exampleTarget
-	noPool.Subscribers = nil
+	exampleTarget := loadTarget(t, exampleTargetYAML)
+	noResp := fixtureWith(t, "app:\n  responders:\n    - { name: n6, control: 203.0.113.30:9551, data_ip: 203.0.113.30 }\n", "")
+	short := fixtureWith(t, "[192.0.2.20-192.0.2.29]", "[192.0.2.20-192.0.2.21]")
+	shortN3 := fixtureWith(t, "[198.51.100.20-198.51.100.29]", "[198.51.100.20/31]")
+	small := fixtureWith(t, "count: 1000", "count: 5")
+	noPool := fixtureWith(t, "    first_supi: \"001010100007500\"\n", "")
 	tests := []struct {
 		name string
 		doc  string
@@ -123,8 +161,9 @@ func TestFleetApplyTargetErrors(t *testing.T) {
 		{name: "own peer", doc: strings.Replace(fleetDoc, "share: 1.0 }", "share: 1.0, peer: 192.0.2.30:9551 }", 1), tg: exampleTarget, want: "behaviors.traffic.mix[0].peer"},
 		{name: "no responder for an app cohort", doc: fleetDoc, tg: noResp, want: "behaviors.traffic.mix[0] (app http) needs an N6 responder: target fixture has no app.responders"},
 		{name: "too few N2 addresses", doc: fleetDoc, tg: short, want: "ran.n2_source_ips has 2 addresses, the scenario needs 3 (one per gNB)"},
+		{name: "too few N3 addresses (a CIDR)", doc: fleetDoc, tg: shortN3, want: "ran.n3_ips has 2 addresses, the scenario needs 3 (one per gNB)"},
 		{name: "pool too small", doc: fleetDoc, tg: small, want: "subscribers[main] has 5 subscribers, the scenario needs 10"},
-		{name: "no pool", doc: fleetDoc, tg: noPool, want: "target fixture has no subscriber pool with a first_supi"},
+		{name: "no first SUPI", doc: fleetDoc, tg: noPool, want: "target fixture has no subscriber pool with a first_supi"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -155,7 +194,7 @@ steps:
 // allocated in file order across entries, names resolved, and the echo
 // destinations from the first responder.
 func TestStepApplyTarget(t *testing.T) {
-	tg := exampleTarget
+	tg := loadTarget(t, exampleTargetYAML)
 	s, err := ParseWithTarget([]byte(stepDoc), &tg)
 	if err != nil {
 		t.Fatal(err)
@@ -180,10 +219,9 @@ func TestStepApplyTarget(t *testing.T) {
 }
 
 func TestStepApplyTargetErrors(t *testing.T) {
-	noResp := exampleTarget
-	noResp.App = target.App{}
-	small := exampleTarget
-	small.Subscribers = []target.Pool{{Name: "main", FirstSUPI: "001010100007500", Count: 4, Ki: "k", OPc: "o"}}
+	exampleTarget := loadTarget(t, exampleTargetYAML)
+	noResp := fixtureWith(t, "app:\n  responders:\n    - { name: n6, control: 203.0.113.30:9551, data_ip: 203.0.113.30 }\n", "")
+	small := fixtureWith(t, "count: 1000", "count: 4")
 	tests := []struct {
 		name string
 		doc  string

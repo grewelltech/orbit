@@ -433,6 +433,8 @@ func TestFirstAddress(t *testing.T) {
 		{flag: "n3-bind", list: []string{"198.51.100.50"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", port 2152 added`},
 		{flag: "n3-bind", list: []string{"198.51.100.50", "198.51.100.51"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", the first of 2, port 2152 added`},
 		{flag: "n3-bind", list: []string{"198.51.100.50:3000"}, want: "198.51.100.50:3000"},
+		{flag: "gnb-n3", list: []string{"198.51.100.50-198.51.100.59"}, want: "198.51.100.50", wantNote: `from "198.51.100.50-198.51.100.59"`},
+		{flag: "n3-bind", list: []string{"198.51.100.64/28"}, want: "198.51.100.65:2152", wantNote: `from "198.51.100.64/28", port 2152 added`},
 		{flag: "bind", list: []string{"localhost"}, want: "localhost"},
 		{flag: "bind", list: []string{"localhost:0"}, want: "localhost:0"},
 		{flag: "n3-bind", list: []string{"lab-n3"}, want: "lab-n3:2152", wantNote: `from "lab-n3", port 2152 added`},
