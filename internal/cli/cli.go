@@ -69,6 +69,7 @@ func New(version string, opts ...Option) *cobra.Command {
 	root.AddCommand(newLoadCmd())
 	root.AddCommand(newConformanceCmd())
 	root.AddCommand(newResponderCmd(version))
+	root.AddCommand(newTargetCmd(&serverURL, o)) // resolves --server in RunE (init, probe)
 	installTargets(root, o)
 	return root
 }

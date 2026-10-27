@@ -1,0 +1,330 @@
+package cli
+
+import (
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
+	"github.com/bgrewell/orbit/internal/mockupf"
+	"github.com/bgrewell/orbit/internal/observability"
+	"github.com/bgrewell/orbit/internal/server"
+	"github.com/bgrewell/orbit/internal/target"
+	"github.com/bgrewell/orbit/internal/ue/auth"
+)
+
+// probeLab is a real orbit server and a mock AMF (with a stub UPF when
+// withUPF) behind a real SCTP listener, on loopback /24 net.
+type probeLab struct {
+	server, amf string
+	net         string // "127.0.N."
+}
+
+func newProbeLab(t *testing.T, net int, withUPF bool) probeLab {
+	t.Helper()
+	base := "127.0." + itoa(net) + "."
+	ki, _ := auth.ParseHexKey("Ki", testKi)
+	opc, _ := auth.ParseHexKey("OPc", testOPc)
+	cfg := mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"}
+	if withUPF {
+		upf, err := mockupf.Listen(base+"10:2152", mockupf.Options{})
+		if err != nil {
+			t.Skipf("cannot bind the stub UPF on %s10:2152: %v", base, err)
+		}
+		t.Cleanup(func() { _ = upf.Close() })
+		cfg.UPF, cfg.UPFAddress = upf, base+"10"
+	}
+	amf, err := mockamf.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := sctpfront.Start(t, amf)
+	srv := httptest.NewServer(server.New(observability.NewLogger(io.Discard, slog.LevelError), "test",
+		observability.NewRegistry(), server.Options{}))
+	t.Cleanup(srv.Close)
+	return probeLab{server: srv.URL, amf: front.Addr, net: base}
+}
+
+func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
+
+// labTarget is a target for the lab: its AMF, PLMN, slice, pool and
+// addresses.
+func (l probeLab) target(name, plmn, pool string) string {
+	return "version: 1\nkind: target\nname: " + name + "\ncore:\n  amf: " + l.amf + "\n  plmn: " + plmn +
+		"\n  slices:\n    - { sst: 1, sd: \"010203\" }\n" + pool +
+		"ran:\n  n2_source_ips: [" + l.net + "11]\n  n3_ips: [" + l.net + "11]\n  gnb_ids: { first: 100 }\n"
+}
+
+const servedPLMN = `{ mcc: "208", mnc: "93" }`
+
+func poolWith(ki string) string {
+	return "subscribers:\n  - name: main\n    first_supi: \"208930000000001\"\n    ki: " + ki + "\n    opc: " + testOPc + "\n"
+}
+
+// The roadmap's done-when for T3: probe passes against the mock AMF over
+// real SCTP, NG Setup through a PDU session.
+func TestTargetProbePasses(t *testing.T) {
+	clearOrbitEnv(t)
+	lab := newProbeLab(t, 83, true)
+	r := runOrbit(t, targetDir(t, lab.target("lab1", servedPLMN, poolWith(testKi))), "--server", lab.server, "target", "probe", "lab1")
+	if r.execErr != nil {
+		t.Fatalf("probe: %v\n%s", r.execErr, r.out)
+	}
+	for _, want := range []string{
+		"probe lab1 through " + lab.server + " (gNB ID 0x64, SUPI 208930000000001; until leasing",
+		`✓ NG Setup`, `accepted by AMF`, "from " + lab.net + "11:",
+		`✓ register`, "208930000000001 registered in",
+		`✓ PDU session`, "via UPF " + lab.net + "10",
+		"probe lab1: 3 of 3 steps passed",
+	} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("output lacks %q:\n%s", want, r.out)
+		}
+	}
+	if strings.Contains(r.out, testKi) || strings.Contains(r.out, testOPc) {
+		t.Error("probe output shows a key")
+	}
+}
+
+// Each step stops the probe with what to check: an unreachable AMF, a PLMN
+// the AMF does not serve, a key the core does not hold; a target with no
+// pool SKIPs the UE steps and passes on NG Setup alone.
+func TestTargetProbeFailures(t *testing.T) {
+	clearOrbitEnv(t)
+	lab := newProbeLab(t, 84, false)
+	tests := []struct {
+		name, doc string
+		wantErr   bool
+		want      []string
+	}{
+		{name: "unreachable AMF", doc: strings.Replace(lab.target("lab1", servedPLMN, ""), lab.amf, "127.0.0.1:1", 1), wantErr: true,
+			want: []string{"✗ NG Setup", "AMF 127.0.0.1:1 is not reachable over SCTP from the orbit server", "check core.amf and the N2 route", "0 of 3 steps passed"}},
+		{name: "wrong PLMN", doc: lab.target("lab1", `{ mcc: "001", mnc: "01" }`, ""), wantErr: true,
+			want: []string{"✗ NG Setup", "AMF rejected NG Setup: misc(4) (unknown PLMN); core.plmn 001/01 or core.tac 1 is not one the AMF serves"}},
+		{name: "wrong key", doc: lab.target("lab1", servedPLMN, poolWith(strings.Repeat("a", 32))), wantErr: true,
+			want: []string{"✓ NG Setup", "✗ register", "registering 208930000000001 failed:", "(reject cause not reported yet); check that subscribers[main] (first_supi, ki, opc) is provisioned in the core", "1 of 3 steps passed"}},
+		{name: "no PDU session accept (no UPF behind the mock)", doc: lab.target("lab1", servedPLMN, poolWith(testKi)), wantErr: true,
+			want: []string{"✓ register", "✗ PDU session", "no PDU session accept within 2s (DNN internet, slice 1/010203)", "2 of 3 steps passed"}},
+		{name: "no pool", doc: lab.target("lab1", servedPLMN, ""),
+			want: []string{"✓ NG Setup", "- register", "SKIP", "no subscribers in target lab1; add one with first_supi/ki/opc", "1 of 3 steps passed"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := runOrbit(t, targetDir(t, tc.doc), "--server", lab.server, "target", "probe", "lab1", "--timeout", "2s")
+			if (r.execErr != nil) != tc.wantErr {
+				t.Errorf("err = %v, want an error: %t", r.execErr, tc.wantErr)
+			}
+			if tc.wantErr && (r.execErr == nil || !strings.Contains(r.execErr.Error(), "probe lab1 failed at")) {
+				t.Errorf("err = %v", r.execErr)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(r.out, w) {
+					t.Errorf("output lacks %q:\n%s", w, r.out)
+				}
+			}
+		})
+	}
+}
+
+// init runs NG Setup through the server and records the N2 source it used;
+// the file loads, holds key placeholders, is 0600, and is never written
+// over or written after a rejected NG Setup without --force.
+func TestTargetInit(t *testing.T) {
+	clearOrbitEnv(t)
+	lab := newProbeLab(t, 84, false)
+	loc := targetDir(t, "") // an empty ./orbit.yaml exists: --here must refuse
+	if err := os.Remove(filepath.Join(loc.Dir, "orbit.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--server", lab.server, "target", "init", "lab2", "--amf", lab.amf, "--mcc", "208", "--mnc", "93", "--sd", "010203",
+		"--first-supi", "208930000000001", "--count", "10"}
+	r := runOrbit(t, loc, args...)
+	if r.execErr != nil {
+		t.Fatalf("init: %v\n%s", r.execErr, r.out)
+	}
+	path := filepath.Join(loc.ConfigDir, "targets", "lab2.yaml")
+	st, err := os.Stat(path)
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("file %s: %v mode %v", path, err, st)
+	}
+	b, _ := os.ReadFile(path)
+	for _, want := range []string{"amf: " + lab.amf, `mcc: "208"`, `mnc: "93"`, "first_supi: \"208930000000001\"", "ki: ${ORBIT_KI}", "opc: ${ORBIT_OPC}", "n2_source_ips:", "- 127.0.0.1"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("file lacks %q:\n%s", want, b)
+		}
+	}
+	if !strings.Contains(r.out, "gNB ID 1, the first of the default range") || !strings.Contains(r.out, "export them before a probe or a run") {
+		t.Errorf("init output:\n%s", r.out)
+	}
+	t.Setenv("ORBIT_KI", testKi)
+	t.Setenv("ORBIT_OPC", testOPc)
+	f, err := target.Find("lab2", loc, os.LookupEnv)
+	if err != nil || f.Target.Subscribers[0].Ki != testKi || f.Target.Subscribers[0].Count != 10 {
+		t.Fatalf("written target does not load: %v %+v", err, f)
+	}
+
+	if r := runOrbit(t, loc, args...); r.execErr == nil || !strings.Contains(r.execErr.Error(), "exists: --force overwrites it") {
+		t.Errorf("second init: %v", r.execErr)
+	}
+	// A PLMN the AMF does not serve: nothing written without --force.
+	bad := []string{"--server", lab.server, "target", "init", "lab3", "--amf", lab.amf, "--mcc", "001", "--mnc", "01"}
+	if r := runOrbit(t, loc, bad...); r.execErr == nil || !strings.Contains(r.execErr.Error(), "AMF rejected NG Setup: misc(4) (unknown PLMN)") ||
+		!strings.Contains(r.execErr.Error(), "nothing written") {
+		t.Errorf("rejected init: %v", r.execErr)
+	}
+	if _, err := os.Stat(filepath.Join(loc.ConfigDir, "targets", "lab3.yaml")); err == nil {
+		t.Error("a rejected init wrote its file")
+	}
+	if r := runOrbit(t, loc, append(bad, "--force")...); r.execErr != nil || !strings.Contains(r.out, "writing anyway (--force)") {
+		t.Errorf("rejected init --force: %v\n%s", r.execErr, r.out)
+	}
+	// --here writes ./orbit.yaml, but never over an existing one.
+	here := []string{"target", "init", "lab4", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50", "--here"}
+	if r := runOrbit(t, loc, here...); r.execErr != nil || !strings.Contains(r.out, "no subscriber pool: `orbit target probe lab4` stops after NG Setup") {
+		t.Fatalf("init --here: %v\n%s", r.execErr, r.out)
+	}
+	if r := runOrbit(t, loc, here...); r.execErr == nil || !strings.Contains(r.execErr.Error(), "orbit.yaml exists: add target") {
+		t.Errorf("second init --here: %v", r.execErr)
+	}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"target", "init", "x", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe"}, "--no-probe needs --bind"},
+		{[]string{"target", "init", "x", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50"}, "target init needs --amf"},
+		{[]string{"target", "init", "x/y", "--amf", "a:1"}, `target name "x/y"`},
+		{[]string{"target", "init", "x", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50", "--write-keys"}, "need --first-supi"},
+		{[]string{"target", "init", "x", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--tac", "0010"}, "0010 has a leading zero"},
+	} {
+		if r := runOrbit(t, loc, c.args...); r.execErr == nil || !strings.Contains(r.execErr.Error(), c.want) {
+			t.Errorf("%v: err = %v, want %q", c.args, r.execErr, c.want)
+		}
+	}
+}
+
+// --write-keys puts the keys in the file instead of the placeholders.
+func TestTargetInitWriteKeys(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1)
+	r := runOrbit(t, loc, "target", "init", "k", "--amf", "192.0.2.10:38412", "--mcc", "001", "--mnc", "01", "--no-probe", "--bind", "192.0.2.50",
+		"--first-supi", "001010000000001", "--write-keys", "--ki", testKi, "--opc", testOPc)
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	b, _ := os.ReadFile(filepath.Join(loc.ConfigDir, "targets", "k.yaml"))
+	if !strings.Contains(string(b), "ki: "+testKi) || strings.Contains(string(b), "${ORBIT_KI}") {
+		t.Errorf("file:\n%s", b)
+	}
+	if strings.Contains(r.out, testKi) {
+		t.Error("init printed the key")
+	}
+}
+
+// list shows every target in both places, a bad document (named or not)
+// with its error, and a config-dir target that ./orbit.yaml shadows.
+func TestTargetList(t *testing.T) {
+	clearOrbitEnv(t)
+	list := "- {version: 1, kind: target, name: good, core: {amf: 192.0.2.1:38412, plmn: {mcc: \"001\", mnc: \"01\"}}}\n" +
+		"- {version: 1, kind: target, name: bad, core: {tac: 0010}}\n" +
+		"- {version: 1, kind: target, core: {amff: x}}\n"
+	loc := targetDir(t, list)
+	if err := os.MkdirAll(filepath.Join(loc.ConfigDir, "targets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, doc := range map[string]string{
+		"good.yaml":  "{version: 1, kind: target, name: good}\n",
+		"other.yaml": "{version: 1, kind: target, name: other, core: {amf: 192.0.2.2:38412}}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(loc.ConfigDir, "targets", name), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := runOrbit(t, loc, "target", "list")
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	for _, want := range []string{
+		"NAME", "good", "192.0.2.1:38412", "001/01", "ok",
+		"bad", "error:", "0010 has a leading zero",
+		"(unnamed, document 3)", "unknown key core.amff",
+		"shadowed by ./orbit.yaml", "other", "192.0.2.2:38412",
+	} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("list lacks %q:\n%s", want, r.out)
+		}
+	}
+	r = runOrbit(t, loc, "target", "list", "--json")
+	var rows []listRow
+	if err := json.Unmarshal([]byte(r.out), &rows); err != nil || len(rows) != 5 {
+		t.Fatalf("--json: %v (%d rows)\n%s", err, len(rows), r.out)
+	}
+	// A malformed $ORBIT_SERVER never touches list or show.
+	t.Setenv("ORBIT_SERVER", "not-a-url")
+	if r := runOrbit(t, loc, "target", "list"); r.execErr != nil || strings.Contains(r.err, "server:") {
+		t.Errorf("list under a bad $ORBIT_SERVER: %v %q", r.execErr, r.err)
+	}
+	if r := runOrbit(t, loc, "target", "probe", "good"); r.execErr == nil || !strings.Contains(r.execErr.Error(), `invalid server URL "not-a-url"`) {
+		t.Errorf("probe under a bad $ORBIT_SERVER: %v", r.execErr)
+	}
+}
+
+// show prints the target as loaded with keys masked; --resolved prints
+// every field's layer, with $ORBIT_* over the target.
+func TestTargetShow(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1)
+	r := runOrbit(t, loc, "target", "show", "lab1")
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	for _, want := range []string{"# target lab1, from ", "orbit.yaml:1", "amf: 192.0.2.10:38412", "ki: " + target.Masked, "opc: " + target.Masked} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("show lacks %q:\n%s", want, r.out)
+		}
+	}
+	t.Setenv("ORBIT_MCC", "999")
+	r = runOrbit(t, loc, "target", "show", "lab1", "--resolved")
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	if row := lineWith(r.out, "core.plmn.mcc "); !strings.Contains(row, "999") || !strings.Contains(row, "env $ORBIT_MCC") || !strings.Contains(row, "=001") {
+		t.Errorf("mcc row %q", row)
+	}
+	for _, want := range []string{"default < target", "core.dnn", "default built-in", "core.slices[0].sd", "subscribers[main].ki", target.Masked} {
+		if !strings.Contains(r.out, want) {
+			t.Errorf("show --resolved lacks %q:\n%s", want, r.out)
+		}
+	}
+	for _, out := range []string{r.out, runOrbit(t, loc, "target", "show", "lab1", "--json").out, runOrbit(t, loc, "target", "show", "lab1", "--resolved", "--json").out} {
+		if strings.Contains(out, testKi) || strings.Contains(out, testOPc) {
+			t.Error("show printed a key")
+		}
+	}
+	if r := runOrbit(t, loc, "target", "show", "nope"); r.execErr == nil || !strings.Contains(r.execErr.Error(), "target not found") {
+		t.Errorf("show nope: %v", r.execErr)
+	}
+}
+
+// INFO(1) from #196's review: typed flags without a target still never
+// resolve, so a future reorder cannot bring back MEDIUM-3.
+func TestNoTargetNeverResolvesWithTypedFlags(t *testing.T) {
+	clearOrbitEnv(t)
+	root := New("test", withResolving(func(cmd string) { t.Errorf("%s resolved with no target and no --explain", cmd) }))
+	c, _, err := root.Find([]string{"conformance"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ParseFlags([]string{"--per-test-timeout=-1s", "--amf", "127.0.0.1:1", "--bind", "localhost"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.PreRunE(c, nil); err != nil {
+		t.Errorf("PreRunE: %v", err)
+	}
+}

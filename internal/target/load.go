@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -23,6 +24,54 @@ type File struct {
 	// holds only its name): selecting it fails with Err, while the other
 	// documents in the file still load.
 	Err error
+	// Path and Line are where the document starts.
+	Path string
+	Line int
+}
+
+// DefaultGNBID is the first ID of the default gNB range, which init and
+// probe use until leasing (S4) hands IDs out.
+const DefaultGNBID = 1
+
+// Entry is one target List found: its file, and whether a target of the
+// same name in ./orbit.yaml hides it.
+type Entry struct {
+	*File
+	Shadowed bool
+}
+
+// List loads every target in both locations, ./orbit.yaml first: one bad
+// document is an entry with its Err, not a failure. A file that does not
+// parse at all (a YAML syntax error) is one Err entry for that file.
+func List(loc Locations, env Getenv) ([]Entry, error) {
+	var out []Entry
+	local := map[string]bool{}
+	add := func(path string, fromDir bool) {
+		files, err := LoadFile(path, env)
+		if errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		if err != nil {
+			out = append(out, Entry{File: &File{Path: path, Err: err}})
+			return
+		}
+		for _, f := range files {
+			out = append(out, Entry{File: f, Shadowed: fromDir && f.Target.Name != "" && local[f.Target.Name]})
+			if !fromDir {
+				local[f.Target.Name] = true
+			}
+		}
+	}
+	add(filepath.Join(loc.Dir, "orbit.yaml"), false)
+	paths, err := filepath.Glob(filepath.Join(loc.ConfigDir, "targets", "*.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		add(p, true)
+	}
+	return out, nil
 }
 
 // Getenv looks up an environment variable; os.LookupEnv in production.
@@ -136,6 +185,7 @@ func Parse(name string, b []byte, env Getenv) ([]*File, error) {
 			// In a list, a bad document fails only when it is selected.
 			f = &File{Target: Target{Name: mapValue(d, "name")}, Err: err}
 		}
+		f.Path, f.Line = name, d.Line
 		if f.Target.Name != "" && seen[f.Target.Name] {
 			return nil, fmt.Errorf("%s:%d: target %q is defined twice", name, d.Line, f.Target.Name)
 		}

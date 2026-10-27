@@ -178,6 +178,46 @@ orbit cell ngsetup -t lab1 --tac 9             # a flag still overrides one fiel
 orbit conformance -t lab1 --supi ""            # an empty flag clears a field: here, no mobility UE
 ```
 
+Four commands manage targets:
+
+```sh
+orbit target init lab1 --amf <host:port> --mcc 001 --mnc 01 --sd 010203 --first-supi 001010000000001
+orbit target list                 # ./orbit.yaml and ~/.config/orbit/targets, with any load errors
+orbit target show lab1            # as loaded, keys <redacted>
+orbit target show lab1 --resolved # each field's value after default < target < $ORBIT_*, and where it came from
+orbit target probe lab1           # NG Setup, one registration, one PDU session, through the server
+```
+
+- **`init`** runs one NG Setup through the orbit server, so from the host runs
+  execute on. It records the N2 source that NG Setup used as the target's
+  `n2_source_ips` (and `n3_ips`, unless `--gnb-n3`). `--bind` picks the
+  source instead, and `--no-probe --bind <ip>` skips the NG Setup.
+  - It writes `~/.config/orbit/targets/<name>.yaml` with mode 0600. `--here`
+    writes `./orbit.yaml` only when that file doesn't exist yet.
+  - Keys are written as `${ORBIT_KI}`/`${ORBIT_OPC}` unless `--write-keys`.
+  - A rejected NG Setup writes nothing, and an existing file is not
+    overwritten; `--force` overrides both.
+  - Without `--first-supi` there is no subscriber pool, and `probe` stops
+    after NG Setup.
+  - On a terminal, `init` asks for the AMF, PLMN and first SUPI when the flags
+    leave them out.
+- **`list`** shows every target with its file and line, and the error of any
+  that doesn't load. One bad entry in an `./orbit.yaml` list never stops the
+  others. A target in the config directory with the same name as one in
+  `./orbit.yaml` is marked shadowed.
+- **`probe`** stops at the first failing step and names what to check. It
+  exits non-zero on a failure. With no subscriber pool, the UE steps are
+  SKIPped and it passes on NG Setup alone.
+  - NG Setup: the AMF address and the N2 route, or the PLMN and TAC the AMF
+    doesn't serve.
+  - Registration: whether the subscriber and its keys are provisioned in the
+    core.
+  - PDU session: the DNN and slice.
+
+  The core's reject causes aren't reported yet. Until leasing, `init` and
+  `probe` use the target's first gNB ID (or 1) and first SUPI: a run using the
+  same ones at the same time collides.
+
 - **Precedence**, lowest first: built-in default < target < `$ORBIT_*` < flag,
   field by field. A target therefore never overrides a flag you typed or an
   `$ORBIT_MCC` exported in your shell.
