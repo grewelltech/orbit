@@ -162,3 +162,44 @@ func TestConfirmAliveCutShortIsError(t *testing.T) {
 		t.Errorf("= %+v, want ERROR cut short", got)
 	}
 }
+
+// A liveness miss while a population loads the AMF is an ERROR naming the
+// population, not the check's FAIL; with no population it stays a FAIL.
+func TestConfirmAliveUnderLoadIsError(t *testing.T) {
+	ln, err := isctp.ListenSCTP("sctp", &isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}})
+	if err != nil {
+		t.Skipf("no kernel SCTP on this host: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close() // no NG Setup answer: the AMF is "dead"
+		}
+	}()
+	tests := []struct {
+		name        string
+		load        string
+		wantVerdict Verdict
+		wantPrefix  string
+	}{
+		{name: "under load", load: "fleet", wantVerdict: Error, wantPrefix: ObservedAMFUnresponsiveUnderLoad},
+		{name: "idle core", wantVerdict: Fail, wantPrefix: ObservedAMFUnresponsive},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := Env{AMFAddr: ln.Addr().String(), Load: func() string { return tc.load },
+				GNB: gnb.Config{ID: 1, Name: "g", MCC: "001", MNC: "01", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1}}}}
+			got := confirmAlive(context.Background(), env, Result{Verdict: Pass, Observed: "ok"}, true, "core died")
+			if got.Verdict != tc.wantVerdict || !strings.HasPrefix(got.Observed, tc.wantPrefix+" (ok)") {
+				t.Fatalf("= %s %q, want %s %q", got.Verdict, got.Observed, tc.wantVerdict, tc.wantPrefix)
+			}
+			if tc.load != "" && got.Detail != "AMF unresponsive while population fleet was active; not attributable to this check" {
+				t.Errorf("detail = %q", got.Detail)
+			}
+		})
+	}
+}

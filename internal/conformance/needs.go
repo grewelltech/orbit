@@ -12,7 +12,19 @@ type CheckNeeds struct {
 	// GNBOffsets are the IDs it presents beyond its own: 0 is its own,
 	// targetGNBOffset a handover target, aliveGNBOffset the liveness probe.
 	GNBOffsets []uint32
+	// RequiresIdleCore marks a check whose verdict a loaded core would
+	// distort: under a concurrent population it SKIPs, IdleCoreReason
+	// saying why, rather than run and blame the core for the load.
+	RequiresIdleCore bool
+	IdleCoreReason   string
 }
+
+// ObservedNeedsIdleCore is a check SKIPped because a population loads
+// the core.
+const ObservedNeedsIdleCore = "needs an idle core"
+
+// timerWindowsReason is why the NAS timer checks need an idle core.
+const timerWindowsReason = "measures timer windows; needs an idle core"
 
 // Needer is a check that declares its needs. A check that does not needs
 // no UE, and presents its own gNB ID and the liveness probe's.
@@ -72,6 +84,11 @@ func (r *Registry) GNBPattern(cats ...Category) []uint32 {
 func (endMarkerOnPathSwitch) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBOffsets: []uint32{0, targetGNBOffset, aliveGNBOffset}}
 }
-func (nasSMCNoNIA0) Needs() CheckNeeds             { return ueNeeds }
-func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return ueNeeds }
-func (nasT3550AcceptRetransmit) Needs() CheckNeeds { return ueNeeds }
+func (nasSMCNoNIA0) Needs() CheckNeeds { return ueNeeds }
+
+// The NAS timer checks measure retransmissions against tmax windows, which
+// a loaded AMF's scheduling jitter would push out.
+func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return timerNeeds }
+func (nasT3550AcceptRetransmit) Needs() CheckNeeds { return timerNeeds }
+
+var timerNeeds = CheckNeeds{UEs: 1, GNBOffsets: []uint32{0, aliveGNBOffset}, RequiresIdleCore: true, IdleCoreReason: timerWindowsReason}

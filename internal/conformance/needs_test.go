@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // usesOf maps each type with a method that calls name to true, walking the
@@ -124,5 +126,43 @@ func TestRegistryNeeds(t *testing.T) {
 	}
 	if p := r.GNBPattern(); p[0] != 0 || !slices.Equal(p, r.Needs(0).GNBIDs) {
 		t.Errorf("pattern = %v", p)
+	}
+}
+
+// Under a concurrent population, each check that needs an idle core SKIPs
+// with its reason, without running; with no population it runs. Every
+// other check runs either way.
+func TestIdleCoreChecksSkipUnderLoad(t *testing.T) {
+	idle := map[string]string{
+		nasT3550AcceptRetransmit{}.ID(): timerWindowsReason,
+		nasT3560AuthRetransmit{}.ID():   timerWindowsReason,
+	}
+	for _, c := range NewRegistry().Tests() {
+		n := NeedsOf(c)
+		want, ok := idle[c.ID()]
+		if n.RequiresIdleCore != ok || n.IdleCoreReason != want {
+			t.Errorf("%s: RequiresIdleCore %t (%q), want %t (%q)", c.ID(), n.RequiresIdleCore, n.IdleCoreReason, ok, want)
+		}
+	}
+	for id, reason := range idle {
+		t.Run(id, func(t *testing.T) {
+			var c Test
+			for _, x := range NewRegistry().Tests() {
+				if x.ID() == id {
+					c = x
+				}
+			}
+			env := Env{Load: func() string { return "fleet" }}
+			r := runOne(context.Background(), c, env, time.Second)
+			if r.Verdict != Skip || r.Observed != ObservedNeedsIdleCore || !strings.HasPrefix(r.Detail, reason+"; population fleet is active") {
+				t.Errorf("under load = %s %q %q, want SKIP for an idle core", r.Verdict, r.Observed, r.Detail)
+			}
+			// No population: it runs (and, with no UE configured, SKIPs
+			// for that reason instead).
+			r = runOne(context.Background(), c, Env{Load: func() string { return "" }}, time.Second)
+			if r.Observed == ObservedNeedsIdleCore {
+				t.Errorf("with no population active it still skipped for an idle core: %+v", r)
+			}
+		})
 	}
 }
