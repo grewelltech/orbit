@@ -17,6 +17,7 @@ import (
 	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/join"
 	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/ue"
@@ -29,6 +30,10 @@ import (
 type runService struct {
 	log *slog.Logger
 	reg *engine.RunRegistry
+	// responders are the responders registered by join, which a target
+	// names without an address or token; nil in tests that build a runService
+	// by hand.
+	responders *join.Registry
 
 	// frames holds each run's retained telemetry series, produced by one
 	// sampler per run so every subscriber reads the same frames — and so a
@@ -116,6 +121,9 @@ func (s *runService) startPlan(m *orbitv1.StartRunRequest, opts engine.RunOption
 	}
 	if errors.Is(err, engine.ErrRotationPersist) {
 		return engine.RunInfo{}, nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	if errors.Is(err, errResponderOffline) {
+		return engine.RunInfo{}, nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 	if err != nil {
 		return engine.RunInfo{}, nil, connect.NewError(connect.CodeInvalidArgument, err)

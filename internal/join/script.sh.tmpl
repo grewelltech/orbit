@@ -5,7 +5,7 @@
 #
 # It prints a plan and changes nothing until the plan is confirmed: on
 # /dev/tty, or with --yes. Options: --yes, --dry-run, --n6-ip IP,
-# --bind HOST:PORT, --no-firewall, --no-route, --no-systemd.
+# --bind HOST:PORT, --no-firewall, --no-route, --no-systemd, --reregister.
 #
 # Everything is in main, called on the last line only: a download cut short
 # runs nothing. A partial main is a syntax error, and main refuses to run
@@ -24,6 +24,7 @@ main() {
 
 	ORBIT_SERVER={{q .ServerURL}}
 	ORBIT_PIN={{q .CurlPin}}
+	ORBIT_PIN_RAW={{q .Pin}}
 	ORBIT_TOKEN={{q .Token}}
 	ORBIT_NAME={{q .Name}}
 	SHA256_AMD64={{q .SHA256.amd64}}
@@ -38,6 +39,7 @@ main() {
 
 	LIB=/usr/local/lib/orbit
 	UNIT=/etc/systemd/system/orbit-responder.service
+	CONF=/etc/orbit/responder.yaml
 	TTY=$ROOT/dev/tty
 
 	die() {
@@ -48,7 +50,7 @@ main() {
 		echo "orbit join: $*"
 	}
 
-	YES='' DRY='' N6_IP='' BIND='' NO_FW='' NO_ROUTE='' NO_SYSTEMD=''
+	YES='' DRY='' N6_IP='' BIND='' NO_FW='' NO_ROUTE='' NO_SYSTEMD='' REREGISTER=''
 	while [ $# -gt 1 ]; do
 		case $1 in
 		--yes) YES=1 ;;
@@ -56,6 +58,7 @@ main() {
 		--no-firewall) NO_FW=1 ;;
 		--no-route) NO_ROUTE=1 ;;
 		--no-systemd) NO_SYSTEMD=1 ;;
+		--reregister) REREGISTER=1 ;;
 		--n6-ip | --bind)
 			[ $# -gt 2 ] || die "$1 needs a value"
 			case $1 in --n6-ip) N6_IP=$2 ;; *) BIND=$2 ;; esac
@@ -63,7 +66,7 @@ main() {
 			;;
 		--n6-ip=*) N6_IP=${1#*=} ;;
 		--bind=*) BIND=${1#*=} ;;
-		*) die "unknown option $1 (options: --yes --dry-run --n6-ip IP --bind HOST:PORT --no-firewall --no-route --no-systemd)" ;;
+		*) die "unknown option $1 (options: --yes --dry-run --n6-ip IP --bind HOST:PORT --no-firewall --no-route --no-systemd --reregister)" ;;
 		esac
 		shift
 	done
@@ -142,9 +145,15 @@ main() {
 	GOT=$(sha256sum "$WORK/orbit" | cut -d ' ' -f 1)
 	[ "$GOT" = "$WANT" ] || die "the downloaded orbit's SHA-256 is $GOT, want $WANT; refusing to run it"
 
-	# The responder's name: the token's, else this host's.
+	# The responder's name: the token's, else this host's short name.
 	NAME=$ORBIT_NAME
-	[ -n "$NAME" ] || NAME=$(uname -n)
+	[ -n "$NAME" ] || NAME=$(uname -n | cut -d . -f 1)
+	case $NAME in
+	[A-Za-z0-9]*) ;;
+	*) die "this host's name $(printf '%s' "$NAME") is not a responder name; issue the token with orbit join create --name" ;;
+	esac
+	case $NAME in *[!A-Za-z0-9_-]*) die "this host's name $(printf '%s' "$NAME") is not a responder name; issue the token with orbit join create --name" ;; esac
+	[ ${#NAME} -le 63 ] || die "this host's name is longer than 63 characters; issue the token with orbit join create --name"
 	say "verified orbit for linux/$ARCH (sha256 $WANT)"
 	say "responder $NAME; UE pools $UE_POOLS via $UPF_N6, N6 $N6_SUBNET"
 
@@ -317,6 +326,7 @@ main() {
 	}
 	step() {
 		inert "$1"
+		case $1 in *"'"*) die "refusing a step title with a quote: $(printf '%s' "$1" | tr -c '[:print:]' '?')" ;; esac
 		N=$((N + 1))
 		printf '  %d. %s\n' "$N" "$1" >>"$PLAN"
 		printf "begin %d '%s'\n" "$N" "$1" >>"$APPLY"
@@ -336,6 +346,9 @@ main() {
 	}
 	# helper LINE: a line of join-net.sh, the unit's ExecStartPre.
 	helper() {
+		# Its own fixed syntax aside (the pipe to grep, the || fallback, the
+		# 2>/dev/null), a helper line must be as inert as a plan line.
+		inert "$(printf '%s' "$1" | sed -e 's| 2>/dev/null||g' -e 's/ || / /g' -e 's/ | grep -qF / /g')"
 		printf '%s\n' "$1" >>"$HELPER"
 	}
 
@@ -370,15 +383,14 @@ main() {
 	# The firewall: rules for the control port from the server, and for the
 	# data ports from the UE pools and the N6 subnet, each bound to its
 	# interface too. Where input is not filtered there is nothing to open.
-	LO='' HI=''
-	if [ -z "$NO_FW" ]; then
-		RANGE=$(cat "$ROOT/proc/sys/net/ipv4/ip_local_port_range" 2>/dev/null) || RANGE=''
-		# shellcheck disable=SC2086 # the two numbers, split
-		set -- $RANGE
-		LO=${1:-} HI=${2:-}
-		if ! is_port "$LO" || ! is_port "$HI"; then
-			die "cannot read this host's ephemeral port range (net.ipv4.ip_local_port_range)"
-		fi
+	# The data ports: the host's ephemeral range, which the responder's
+	# receivers bind from; the firewall opens it and the registration reports it.
+	RANGE=$(cat "$ROOT/proc/sys/net/ipv4/ip_local_port_range" 2>/dev/null) || RANGE=''
+	# shellcheck disable=SC2086 # the two numbers, split
+	set -- $RANGE
+	LO=${1:-} HI=${2:-}
+	if ! is_port "$LO" || ! is_port "$HI"; then
+		die "cannot read this host's ephemeral port range (net.ipv4.ip_local_port_range)"
 	fi
 	RANGE_WHY="data ports $LO-$HI: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports"
 	# rules FAMILY: "control DEV SRC PORT" and "data DEV SRC LO-HI" for the
@@ -425,7 +437,9 @@ main() {
 			done
 		done
 		echo "  firewall-cmd --reload" >&2
-		echo "  (firewalld binds interfaces through zones: put $CTL_DEV and $N6_DEV in the zone these rules go in. $RANGE_WHY)" >&2
+		IFACES="$CTL_DEV and $N6_DEV"
+		[ "$CTL_DEV" != "$N6_DEV" ] || IFACES=$CTL_DEV
+		echo "  (firewalld binds interfaces through zones: put $IFACES in the zone these rules go in. $RANGE_WHY)" >&2
 		exit 1
 	else
 		# Whether input is filtered, per family. It is provably not only when
@@ -439,14 +453,29 @@ main() {
 			RS=$(nft list ruleset 2>/dev/null) || die "nft list ruleset failed"
 			CHAINS=$(printf '%s\n' "$RS" | awk '
 				/^table / { if (NF < 3 || in_ch) bad = 1; fam = $2; tbl = $3; next }
-				/^[ \t]*chain / { if (in_ch) bad = 1; ch = $2; base = 0; acc = 1; nrules = 0; in_ch = 1; next }
-				in_ch && /type filter hook input/ { base = 1; if ($0 ~ /policy/ && $0 !~ /policy accept/) acc = 0; next }
-				in_ch && /^[ \t]*}/ {
-					if (base && !((fam == "ip" || fam == "ip6") && tbl == "filter" && ch == "INPUT"))
-						print fam, tbl, ch, (acc && nrules == 0) ? "open" : "filtered"
-					in_ch = 0; next
+				/^[ \t]*chain / { if (in_ch) bad = 1; ch = $2; base = 0; acc = 1; nrules = 0; in_ch = 1; depth = 1; next }
+				in_ch {
+					# Brace depth: a line at depth 1 is the chain'"'"'s own (its type
+					# line, a rule, or its closing brace); deeper lines are a
+					# multi-line set or map inside a rule.
+					line = $0
+					opens = gsub(/[{]/, "", line)
+					line = $0
+					closes = gsub(/[}]/, "", line)
+					if (depth == 1 && $0 ~ /type filter hook input/) {
+						base = 1
+						if ($0 ~ /policy/ && $0 !~ /policy accept/) acc = 0
+						next
+					}
+					if (depth == 1 && NF && $1 !~ /^#/ && $1 != "}") nrules++
+					depth += opens - closes
+					if (depth <= 0) {
+						if (base && !((fam == "ip" || fam == "ip6") && tbl == "filter" && ch == "INPUT"))
+							print fam, tbl, ch, (acc && nrules == 0) ? "open" : "filtered"
+						in_ch = 0
+					}
+					next
 				}
-				in_ch && NF && $1 !~ /^#/ { nrules++ }
 				!in_ch && /hook input/ { bad = 1 }
 				END { if (in_ch) bad = 1; if (bad) print "unparsed" }')
 		fi
@@ -593,13 +622,79 @@ main() {
 		done
 	fi
 
-	# The systemd unit, its user and its helper: installed, not started
-	# (the responder has no token until it registers).
+	# The join token, for the registration: in the private work directory,
+	# mode 0600, never on a command line.
+	printf '%s\n' "$ORBIT_TOKEN" >"$WORK/token"
+
+	# The responder's config: none yet (a new registration), one already
+	# (registered; --reregister rotates its secrets), or one in flight from
+	# an earlier run that did not finish (resumed with the same credential).
+	FRESH='' PROBED=''
+	if [ -f "$ROOT$CONF.pending" ]; then
+		REGISTER="new (resuming the unfinished registration in $CONF.pending)"
+	elif [ ! -f "$ROOT$CONF" ]; then
+		REGISTER=new
+	elif [ -n "$REREGISTER" ]; then
+		REGISTER="existing (re-registration: rotates the credential and the loom token)"
+	else
+		# Registered already: ask the server whether it still knows this
+		# responder, with a heartbeat probe (which records nothing), by curl
+		# as for the download: nothing downloaded runs before confirmation.
+		REGISTER=''
+		CRED=$(awk '/^credential:/ { sub(/^credential: */, ""); print; exit }' "$ROOT$CONF" 2>/dev/null) || CRED=''
+		case $CRED in
+		orc1_*) case ${CRED#orc1_} in *[!A-Za-z0-9_-]* | '') CRED='' ;; esac ;;
+		*) CRED='' ;;
+		esac
+		# curl reads a header from a file (-H @file) from 7.55 on; an older
+		# one cannot ask without the credential on its argv, so it does not.
+		CV=$(curl --version 2>/dev/null | awk 'NR == 1 { print $2 }') || CV=''
+		CMAJ=${CV%%.*} CMIN=${CV#*.}
+		CMIN=${CMIN%%.*}
+		if [ -z "$CRED" ]; then
+			REGISTER="new ($CONF holds no credential: register again)" FRESH=1
+		elif ! is_digits "$CMAJ" || ! is_digits "$CMIN" || [ "$CMAJ" -lt 7 ] || { [ "$CMAJ" = 7 ] && [ "$CMIN" -lt 55 ]; }; then
+			PROBED="the server could not be asked (curl ${CV:-?} is older than 7.55)"
+		else
+			# The credential reaches curl in a header file, never its argv.
+			printf 'Authorization: Responder %s\n' "$CRED" >"$WORK/auth"
+			CODE=$(curl -sS --proto '=https' -k --pinnedpubkey "$ORBIT_PIN" -o "$WORK/probe" -D "$WORK/probe.h" -w '%{http_code}' \
+				-H 'Content-Type: application/json' -H "@$WORK/auth" --data '{"probe":true}' \
+				"$ORBIT_SERVER/orbit.v1.JoinService/Heartbeat" 2>/dev/null) || CODE=''
+			case $CODE in
+			200) PROBED="known to the server" ;;
+			401)
+				if grep -qi '^orbit-responder-state: *removed' "$WORK/probe.h" 2>/dev/null; then
+					REGISTER="new (credential removed by the server: register again)" FRESH=1
+				else
+					REGISTER="new (existing credential unknown to the server: register again)" FRESH=1
+				fi
+				;;
+			*) PROBED="the server could not be asked (HTTP ${CODE:-none}): left as is" ;;
+			esac
+		fi
+	fi
+
+	# The systemd unit, its user and its helper. systemd 247 and later hand
+	# the unit its config with LoadCredential, which it can read but not
+	# replace (root:root 0600); older ones read it as the orbit user's own
+	# file (orbit:orbit 0600).
+	OWNER=''
 	if [ -n "$NO_SYSTEMD" ]; then
 		ok "systemd unit: skipped (--no-systemd)"
 	elif [ ! -d "$ROOT/run/systemd/system" ]; then
-		die "this host does not run systemd; rerun with --no-systemd (the route then lasts until reboot)"
+		die "this host does not run systemd; rerun with --no-systemd (then run the responder yourself, and the route lasts until reboot)"
 	else
+		SDV=$(systemctl --version 2>/dev/null | awk 'NR == 1 { print $2 }') || SDV=''
+		if is_digits "$SDV" && [ "$SDV" -ge 247 ]; then
+			CREDLINE="LoadCredential=responder.yaml:$CONF"
+			EXECCONF="\${CREDENTIALS_DIRECTORY}/responder.yaml"
+		else
+			CREDLINE=''
+			EXECCONF=$CONF
+			OWNER=orbit
+			printf '  note: systemd %s is older than 247 (no LoadCredential): %s is owned by orbit, mode 0600\n' "${SDV:-?}" "$CONF" >>"$PLAN"
+		fi
 		if getent passwd orbit >/dev/null 2>&1; then
 			ok "user orbit exists"
 		else
@@ -620,7 +715,8 @@ main() {
 			while IFS= read -r L; do show "| $L"; done <"$WORK/join-net.sh"
 			printf '%s || fail\n' "install -d -m 0755 '$ROOT$LIB'" "install -m 0755 '$WORK/join-net.sh' '$ROOT$LIB/join-net.sh'" >>"$APPLY"
 		fi
-		cat >"$WORK/unit" <<EOF
+		{
+			cat <<EOF
 [Unit]
 Description=orbit N6 responder (orbit join)
 Wants=network-online.target
@@ -629,9 +725,13 @@ After=network-online.target nftables.service iptables.service ip6tables.service 
 [Service]
 User=orbit
 Group=orbit
+EOF
+			[ -z "$CREDLINE" ] || echo "$CREDLINE"
+			cat <<EOF
 ExecStartPre=+$LIB/join-net.sh
-ExecStart=$LIB/orbit responder --bind $LISTEN
+ExecStart=$LIB/orbit responder --config $EXECCONF
 Restart=on-failure
+RestartPreventExitStatus=78
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -642,23 +742,58 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 [Install]
 WantedBy=multi-user.target
 EOF
+		} >"$WORK/unit"
+		UNIT_CHANGED=''
 		if cmp -s "$WORK/unit" "$ROOT$UNIT"; then
 			ok "$UNIT is up to date"
 		else
-			step "install $UNIT (not enabled or started):"
+			UNIT_CHANGED=1
+			step "install $UNIT:"
 			while IFS= read -r L; do show "| $L"; done <"$WORK/unit"
 			printf '%s || fail\n' "install -m 0644 '$WORK/unit' '$ROOT$UNIT'" "systemctl daemon-reload" >>"$APPLY"
 		fi
 	fi
 
+	# The registration (ADR-0009 §3), by the installed orbit, as root.
+	OWNERFLAG=''
+	[ -z "$OWNER" ] || OWNERFLAG=" --owner $OWNER"
+	[ -z "$FRESH" ] || OWNERFLAG="$OWNERFLAG --fresh"
+	if [ -n "$REGISTER" ]; then
+		step "register the responder on this host with the server as $NAME (credential: $REGISTER)"
+		cmd "$(q "$ROOT$LIB/orbit") responder register --server $(q "$ORBIT_SERVER") --pin $(q "$ORBIT_PIN_RAW") --token-file $(q "$WORK/token") --name $(q "$NAME") --control $(q "$LISTEN") --data-ip $(q "$N6_IP") --data-ports $(q "$LO-$HI") --config $(q "$ROOT$CONF")$OWNERFLAG"
+		show "(the join token is read from a file in this run's private directory, mode 0600)"
+		if [ -n "$FRESH" ]; then
+			show "(replaces $CONF and any $CONF.pending; an entry the server still holds for the old credential is left alone, and shows offline)"
+		fi
+	else
+		ok "registered: $CONF is there, $PROBED (--reregister rotates its credential and loom token)"
+	fi
+
+	# Start it, and wait for the server to see it online.
+	if [ -z "$NO_SYSTEMD" ]; then
+		ENABLED=$(systemctl is-enabled orbit-responder 2>/dev/null) || ENABLED=''
+		ACTIVE=$(systemctl is-active orbit-responder 2>/dev/null) || ACTIVE=''
+		if [ -n "$REGISTER" ] || [ -n "$UNIT_CHANGED" ] || [ "$ENABLED" != enabled ] || [ "$ACTIVE" != active ]; then
+			step "enable and (re)start orbit-responder, then wait for the server to see it online"
+			echo "HINTS=yes" >>"$APPLY"
+			cmd "systemctl enable orbit-responder"
+			cmd "systemctl restart orbit-responder"
+			cmd "$(q "$ROOT$LIB/orbit") responder check --config $(q "$ROOT$CONF") --wait 20s"
+		else
+			ok "orbit-responder is enabled and running"
+		fi
+	fi
+
+{{- if .ExtraStep}}
+	step 'an extra step (tests only)'
+	cmd {{q .ExtraStep}}
+{{- end}}
 	echo
 	echo "Plan:"
 	cat "$PLAN"
-	J3="The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server."
 	if [ "$N" = 0 ]; then
 		echo
 		say "nothing to change"
-		say "$J3"
 		exit 0
 	fi
 	echo
@@ -690,12 +825,16 @@ EOF
 
 	# Apply, step by step; a failure names the steps done and the one that
 	# failed.
-	DONE=0 CUR='' TITLE=''
+	DONE=0 CUR='' TITLE='' HINTS=''
 	begin() {
 		[ -z "$CUR" ] || DONE=$CUR
 		CUR=$1 TITLE=$2
 	}
 	fail() {
+		if [ -n "$HINTS" ]; then
+			echo "orbit join: see why with: systemctl status orbit-responder; journalctl -u orbit-responder -n 20" >&2
+			echo "orbit join: the registration stands: once fixed, systemctl restart orbit-responder (no new token needed)" >&2
+		fi
 		if [ "$DONE" = 0 ]; then
 			echo "orbit join: step $CUR ($TITLE) failed; no step was applied" >&2
 		elif [ "$DONE" = 1 ]; then
@@ -708,7 +847,9 @@ EOF
 	# shellcheck source=/dev/null # the apply file this run wrote
 	. "$APPLY"
 	say "applied $N changes."
-	say "$J3"
+	if [ -n "$NO_SYSTEMD" ]; then
+		say "no systemd unit (--no-systemd): run the responder yourself, as an unprivileged user that can read $CONF: orbit responder --config $CONF"
+	fi
 }
 
 main "$@" {{.End}}

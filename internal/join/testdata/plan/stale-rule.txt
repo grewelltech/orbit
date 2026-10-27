@@ -30,10 +30,11 @@ Plan:
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 10.250.0.0/16 40000-50000"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 40000-50000 accept comment "orbit-join data ens5 10.250.0.0/16 40000-50000"'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 198.51.100.0/24 40000-50000"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 40000-50000 accept comment "orbit-join data ens5 198.51.100.0/24 40000-50000"'
   ok: /etc/systemd/system/orbit-responder.service is up to date
+  ok: registered: /etc/orbit/responder.yaml is there, known to the server (--reregister rotates its credential and loom token)
+  ok: orbit-responder is enabled and running
 
 fake orbit ran: version
 orbit join: applied 5 changes.
-orbit join: The responder is installed but not registered or started yet: this server does not support registration (J3). Rerun the one-liner after upgrading the server.
 --- exit: 0
 --- changes:
 nft insert rule inet filter input iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 40000-50000 accept comment "orbit-join data ens5 10.250.0.0/16 40000-50000"

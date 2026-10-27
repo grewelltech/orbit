@@ -47,7 +47,11 @@ func newJoinLab(t *testing.T, tls bool, listen string) *joinLab {
 	}
 	var logs bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	j := newJoinService(log, newSecurity(log, ""), Options{TLS: tls, Listen: listen, JoinBinaries: map[string]string{"amd64": binPath}})
+	reg, err := join.OpenRegistry("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := newJoinService(log, newSecurity(log, ""), Options{TLS: tls, Listen: listen, JoinBinaries: map[string]string{"amd64": binPath}}, reg)
 	mux := http.NewServeMux()
 	mux.Handle(orbitv1connect.NewJoinServiceHandler(j))
 	mux.Handle("/join/", j)

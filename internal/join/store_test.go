@@ -133,3 +133,24 @@ func TestStoreListRevoke(t *testing.T) {
 		t.Errorf("a revoked token's name is not free: %v", err)
 	}
 }
+
+// A token's name is held only while the token is pending: once a
+// registration burns it, a new token can take the name (to re-join a
+// removed responder); a pending one still holds it, and says which.
+func TestCreateNameAfterBurn(t *testing.T) {
+	clk := &clock{t: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)}
+	s := NewStore(WithClock(clk.now))
+	tok, secret, err := s.Create("app1", 0, testSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Create("app1", 0, testSpec); !errors.Is(err, ErrNameTaken) || !strings.Contains(err.Error(), "token "+tok.ID+" (expires in 10m0s) already has that name; orbit join revoke "+tok.ID) {
+		t.Errorf("a pending duplicate: %v", err)
+	}
+	if err := s.Burn(secret, [32]byte{1}, "rs-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Create("app1", 0, testSpec); err != nil {
+		t.Errorf("after the burn: %v", err)
+	}
+}

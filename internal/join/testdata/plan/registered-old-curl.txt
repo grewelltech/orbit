@@ -1,0 +1,21 @@
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
+orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
+
+Plan:
+  ok: orbit is installed as /usr/local/lib/orbit/orbit (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
+  ok: route 10.250.0.0/16 via 198.51.100.1 dev ens5
+  ok: firewall: orbit-join control ens4 192.0.2.10/32 9551 (in inet filter input)
+  ok: firewall: orbit-join data ens5 10.250.0.0/16 32768-60999 (in inet filter input)
+  ok: firewall: orbit-join data ens5 198.51.100.0/24 32768-60999 (in inet filter input)
+  ok: user orbit exists
+  ok: /usr/local/lib/orbit/join-net.sh is up to date
+  ok: /etc/systemd/system/orbit-responder.service is up to date
+  ok: registered: /etc/orbit/responder.yaml is there, the server could not be asked (curl 7.29.0 is older than 7.55) (--reregister rotates its credential and loom token)
+  ok: orbit-responder is enabled and running
+
+orbit join: nothing to change
+--- exit: 0
+--- changes:
+

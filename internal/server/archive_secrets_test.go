@@ -70,7 +70,7 @@ behaviors:
 func TestArchivesHoldNoSecrets(t *testing.T) {
 	dir := t.TempDir()
 	serve := func() orbitv1connect.RunServiceClient {
-		h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+		h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir, Responders: openResponders(t, dir)})
 		srv := httptest.NewServer(h)
 		t.Cleanup(srv.Close)
 		return orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)

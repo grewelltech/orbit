@@ -572,11 +572,19 @@ func TestFillTemplate(t *testing.T) {
 		wantChanged bool
 		wantNote    string
 		wantLatency string // the built plan's latency target; "" none
+		wantProbe   bool   // a latency probe, even with no target
 	}{
 		{name: "fleet, a responder", template: "fleet", target: withResponder("198.51.100.7", "198.51.100.8"),
 			wantChanged: true, wantLatency: "198.51.100.7"},
 		{name: "fleet, no responder", template: "fleet", target: withResponder(), wantNote: noResponder},
-		{name: "fleet, a responder with no data_ip", template: "fleet", target: withResponder(""), wantNote: noResponder},
+		{name: "fleet, a static responder with no data_ip", template: "fleet", target: func() target.Target {
+			tg := withResponder("")
+			tg.App.Responders[0].Control = "198.51.100.7:9551"
+			return tg
+		}(), wantNote: noResponder},
+		// A registered responder (named only): the probe goes without a
+		// target, which the server fills from its registry.
+		{name: "fleet, a registered responder", template: "fleet", target: withResponder(""), wantChanged: true, wantProbe: true},
 		{name: "load", template: "load", target: withResponder("198.51.100.7")},
 	}
 	for _, tc := range tests {
@@ -604,6 +612,9 @@ func TestFillTemplate(t *testing.T) {
 			pop := p.GetWorkloads()[0].GetPopulation()
 			if got := pop.GetBehaviors().GetLatency().GetTarget(); got != tc.wantLatency {
 				t.Errorf("latency target = %q, want %q", got, tc.wantLatency)
+			}
+			if probe := pop.GetBehaviors().GetLatency() != nil; probe != (tc.wantProbe || tc.wantLatency != "") {
+				t.Errorf("latency probe = %t", probe)
 			}
 			if tc.template == "fleet" && pop.GetBehaviors() == nil {
 				t.Error("the fleet lost its behaviours: it would not keep its UEs")

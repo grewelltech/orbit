@@ -115,6 +115,13 @@ type Token struct {
 	Expires time.Time
 	Spec    Spec
 	hash    [sha256.Size]byte
+	// burned is set by the first registration (Burn): burnedBy is the hash
+	// of the credential that registered, responder its ID. A burned token
+	// still serves its script until it expires, so a rerun can retry, but
+	// registers nothing but that same credential.
+	burned    bool
+	burnedBy  [sha256.Size]byte
+	responder string
 }
 
 // Store holds the pending tokens, in memory: a restart revokes them all.
@@ -144,7 +151,7 @@ func NewStore(opts ...Option) *Store {
 var (
 	ErrTTL       = fmt.Errorf("ttl: at most %s", MaxTTL)
 	ErrName      = errors.New("name: a letter or digit, then up to 62 letters, digits, '-' or '_'")
-	ErrNameTaken = errors.New("name: a pending token already has that name")
+	ErrNameTaken = errors.New("name taken by a pending join token")
 	ErrNotFound  = errors.New("no pending join token with that ID")
 )
 
@@ -181,9 +188,13 @@ func (s *Store) Create(name string, ttl time.Duration, spec Spec) (Token, string
 	defer s.mu.Unlock()
 	s.sweep(now)
 	if name != "" {
+		// Only a pending token holds its name. A burned one has registered
+		// its responder: whether that name is free is the registry's rule,
+		// at registration (a re-join, or --fresh, replaces it there).
 		for _, o := range s.tokens {
-			if o.Name == name {
-				return Token{}, "", ErrNameTaken
+			if o.Name == name && !o.burned {
+				return Token{}, "", fmt.Errorf("%w: token %s (expires in %s) already has that name; orbit join revoke %s",
+					ErrNameTaken, o.ID, o.Expires.Sub(now).Round(time.Second), o.ID)
 			}
 		}
 	}
@@ -191,9 +202,9 @@ func (s *Store) Create(name string, ttl time.Duration, spec Spec) (Token, string
 	return *t, secret, nil
 }
 
-// Lookup is the pending token whose secret this is; ok is false for an
-// unknown, expired or revoked one alike. Looking a token up does not use
-// it up.
+// Lookup is the token whose secret this is, pending or burned; ok is false
+// for an unknown, expired or revoked one alike. Looking a token up does not
+// use it up.
 func (s *Store) Lookup(secret string) (Token, bool) {
 	if !strings.HasPrefix(secret, Prefix) {
 		return Token{}, false
@@ -212,14 +223,16 @@ func (s *Store) Lookup(secret string) (Token, bool) {
 	return *t, true
 }
 
-// List is the pending tokens, oldest first.
+// List is the pending tokens, oldest first: a burned one is not pending.
 func (s *Store) List() []Token {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweep(s.now())
 	out := make([]Token, 0, len(s.tokens))
 	for _, t := range s.tokens {
-		out = append(out, *t)
+		if !t.burned {
+			out = append(out, *t)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].Created.Equal(out[j].Created) {
@@ -242,6 +255,38 @@ func (s *Store) Revoke(id string) error {
 		}
 	}
 	return ErrNotFound
+}
+
+// Burned reports whether t was burned, and by which credential hash and
+// responder.
+func (t Token) Burned() (burned bool, by [sha256.Size]byte, responder string) {
+	return t.burned, t.burnedBy, t.responder
+}
+
+// ErrBurned refuses to burn a token a registration already used.
+var ErrBurned = errors.New("join token already used")
+
+// Burn marks the token as used by the registration of credential hash by
+// for responder: atomically, so of two registrations racing with one token
+// exactly one burns it. A token that is unknown, expired or revoked is
+// ErrNotFound; one already burned is ErrBurned.
+func (s *Store) Burn(secret string, by [sha256.Size]byte, responder string) error {
+	if !strings.HasPrefix(secret, Prefix) {
+		return ErrNotFound
+	}
+	h := sha256.Sum256([]byte(secret))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sweep(s.now())
+	t, ok := s.tokens[h]
+	if !ok {
+		return ErrNotFound
+	}
+	if t.burned {
+		return ErrBurned
+	}
+	t.burned, t.burnedBy, t.responder = true, by, responder
+	return nil
 }
 
 // sweep drops expired tokens; the caller holds mu.

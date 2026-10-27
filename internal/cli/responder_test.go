@@ -14,7 +14,7 @@ import (
 // start until the operator states where it listens. A default — loopback or
 // otherwise — would make reachability implicit.
 func TestResponderRequiresBind(t *testing.T) {
-	cmd := newResponderCmd("test")
+	cmd := newResponderCmd("test", new(string))
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs(nil)
@@ -31,7 +31,7 @@ func TestResponderRequiresBind(t *testing.T) {
 func TestResponderRejectsMalformedBind(t *testing.T) {
 	for _, bind := range []string{"not-a-host-port", "127.0.0.1"} {
 		t.Run(bind, func(t *testing.T) {
-			cmd := newResponderCmd("test")
+			cmd := newResponderCmd("test", new(string))
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
 			cmd.SetArgs([]string{"--bind", bind})
@@ -66,7 +66,7 @@ func TestResponderWarnsOnRoutableBindWithoutToken(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			cmd := newResponderCmd("test")
+			cmd := newResponderCmd("test", new(string))
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&stderr)
 			cmd.SetArgs(tc.args)
@@ -93,7 +93,7 @@ func TestResponderRejectsNegativeTuning(t *testing.T) {
 		{"--bind", "127.0.0.1:0", "--telemetry-interval", "-1s"},
 		{"--bind", "127.0.0.1:0", "--max-flows", "-1"},
 	} {
-		cmd := newResponderCmd("test")
+		cmd := newResponderCmd("test", new(string))
 		cmd.SetOut(&bytes.Buffer{})
 		cmd.SetErr(&bytes.Buffer{})
 		cmd.SetArgs(args)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/conformance"
+	"github.com/bgrewell/orbit/internal/join"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
 	"github.com/bgrewell/orbit/internal/tlspin"
@@ -72,7 +73,7 @@ func New(version string, opts ...Option) *cobra.Command {
 	root.AddCommand(withServerURL(newJoinCmd(&serverURL), &serverURL))
 	root.AddCommand(newLoadCmd(&serverURL, o))
 	root.AddCommand(newConformanceCmd(&serverURL, o))
-	root.AddCommand(newResponderCmd(version))
+	root.AddCommand(newResponderCmd(version, &serverURL))
 	root.AddCommand(newServerCmd())
 	root.AddCommand(newTargetCmd(&serverURL, o)) // resolves --server in RunE (init, probe)
 	installTargets(root, o)
@@ -164,13 +165,19 @@ func newServeCmd(version string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A responder registry that cannot be read stops serve: starting
+			// empty would orphan every registered app host.
+			responders, err := join.OpenRegistry(dir)
+			if err != nil {
+				return fmt.Errorf("registered responders: %w (fix or move the file; serve will not start without it)", err)
+			}
 			pin := ""
 			if sec.leaf != nil {
 				pin = tlspin.Fingerprint(sec.leaf)
 			}
 			reg := observability.NewRegistry()
 			handler := server.New(log, version, reg, server.Options{
-				TLS: sec.tls != nil, TLSPin: pin, Listen: listen, JoinBinaries: bins,
+				TLS: sec.tls != nil, TLSPin: pin, Listen: listen, JoinBinaries: bins, Responders: responders,
 				Token:       sec.token,
 				CoreProfile: coreProfile,
 				LoomAgent:   loomAgent,

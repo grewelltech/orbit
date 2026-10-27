@@ -1,15 +1,20 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os/signal"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/bgrewell/loom/control"
+
+	"github.com/bgrewell/orbit/internal/join"
 )
 
 // newResponderCmd builds `orbit responder` — the far end of an application
@@ -18,10 +23,12 @@ import (
 // The agent itself is loom's, constructed exactly as cmd/loomd does:
 // control.NewServer → control.NewGRPCServer → Serve. ORBIT supplies the process
 // and the flags; responder behaviour lives in loom.
-func newResponderCmd(version string) *cobra.Command {
+func newResponderCmd(version string, serverURL *string) *cobra.Command {
 	var (
 		bind              string
 		token             string
+		tokenFile         string
+		config            string
 		telemetryInterval time.Duration
 		maxFlows          int
 	)
@@ -35,8 +42,37 @@ func newResponderCmd(version string) *cobra.Command {
 			"the default with `orbit serve --loom-agent`.\n\n" +
 			"--bind is required and has no default: an agent is a remotely-aimable\n" +
 			"traffic generator, so its reachability is always an explicit choice.\n\n" +
+			"A responder registered by `orbit join` runs with --config (its\n" +
+			"/etc/orbit/responder.yaml): the bind and the token come from the file,\n" +
+			"never the command line, and it keeps a heartbeat to its server.\n\n" +
 			"Stock loomd remains fully supported and is interchangeable with this.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var cfg join.Config
+			if config != "" {
+				c, err := join.LoadConfig(config)
+				if err != nil {
+					return err
+				}
+				cfg = c
+				if bind == "" {
+					bind = cfg.Control
+				}
+				token = cfg.LoomToken
+			}
+			if tokenFile != "" {
+				if token != "" {
+					return errors.New("--token-file: give one of --token, --token-file and --config")
+				}
+				b, err := join.ReadSecretFile(tokenFile)
+				if err != nil {
+					return fmt.Errorf("--token-file: %w", err)
+				}
+				token = strings.TrimSpace(string(b))
+			}
+			if bind == "" {
+				return errors.New("--bind is required (or --config)")
+			}
 			if _, _, err := net.SplitHostPort(bind); err != nil {
 				return fmt.Errorf("invalid --bind %q (want host:port): %w", bind, err)
 			}
@@ -82,19 +118,47 @@ func newResponderCmd(version string) *cobra.Command {
 				gs.GracefulStop()
 			}()
 
+			// A registered responder beats to its server; a removal stops it.
+			var listening atomic.Bool
+			var removedErr atomic.Pointer[error]
+			if config != "" {
+				client, err := join.Client(cfg.Server, cfg.Pin)
+				if err != nil {
+					return err
+				}
+				hb := &join.Heartbeater{Client: client, Credential: cfg.Credential, ID: cfg.ID, Version: version,
+					Listening: listening.Load, Log: cmdLogger(cmd)}
+				go func() {
+					if err := hb.Run(ctx); errors.Is(err, join.ErrResponderRemoved) {
+						e := error(&ExitError{Code: ExitResponderRemoved, Err: err})
+						removedErr.Store(&e)
+						stop()
+					}
+				}()
+			}
+
 			fmt.Fprintf(out, "orbit responder %s (loom agent) listening on %s\n", version, lis.Addr())
+			listening.Store(true)
 			if err := gs.Serve(lis); err != nil {
 				return fmt.Errorf("responder serve: %w", err)
+			}
+			if e := removedErr.Load(); e != nil {
+				return *e
 			}
 			return nil
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&bind, "bind", "", "control-plane listen address (host:port) — required, no default")
-	f.StringVar(&token, "token", "", "control-plane bearer token; required in practice on a routable --bind")
+	f.StringVar(&bind, "bind", "", "control-plane listen address (host:port) — required unless --config gives it")
+	f.StringVar(&token, "token", "", "control-plane bearer token; required in practice on a routable --bind (it shows in ps: prefer --token-file)")
+	f.StringVar(&tokenFile, "token-file", "", "read the control-plane bearer token from this file (mode 0600)")
+	f.StringVar(&config, "config", "", "a registered responder's config (orbit join: /etc/orbit/responder.yaml); the bind, the token and the heartbeat come from it")
 	f.DurationVar(&telemetryInterval, "telemetry-interval", 0, "telemetry sampling interval (0 = loom default)")
 	f.IntVar(&maxFlows, "max-flows", 0, "maximum concurrent flows (0 = loom default)")
-	_ = cmd.MarkFlagRequired("bind")
+	cmd.MarkFlagsMutuallyExclusive("token", "token-file")
+	cmd.MarkFlagsMutuallyExclusive("token", "config")
+	cmd.AddCommand(newResponderRegisterCmd(version), newResponderCheckCmd(),
+		withServerURL(newResponderListCmd(serverURL), serverURL), withServerURL(newResponderRemoveCmd(serverURL), serverURL))
 	return cmd
 }
 

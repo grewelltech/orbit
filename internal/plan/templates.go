@@ -60,17 +60,25 @@ func FillTemplate(name string, rf *target.RunFile, t target.Target) (changed boo
 	if name != "fleet" {
 		return false, ""
 	}
-	ip := ""
+	ip, registered := "", false
 	if rs := t.App.Responders; len(rs) > 0 {
 		ip = rs[0].DataIP
+		// A responder registered by join (named only) has its data_ip on
+		// the server: the probe goes without a target, which the server
+		// fills from its registry.
+		registered = ip == "" && rs[0].Control == "" && rs[0].Token == ""
 	}
-	if ip == "" {
+	value, source := fmt.Sprintf("{latency: {target: %q}}", ip), " (latency target: the first responder's data_ip)"
+	switch {
+	case registered:
+		value, source = "{latency: {}}", fmt.Sprintf(" (latency target: responder %s's data_ip, from the server's registry)", t.App.Responders[0].Name)
+	case ip == "":
 		return false, fmt.Sprintf("fleet template: no responder with a data_ip in target %s; running without the latency probe", t.Name)
 	}
 	for i, s := range rf.Input.Settings {
 		if s.Path == fleetBehaviors {
-			rf.Input.Settings[i].Value = fmt.Sprintf("{latency: {target: %q}}", ip)
-			rf.Input.Settings[i].Source.Name += " (latency target: the first responder's data_ip)"
+			rf.Input.Settings[i].Value = value
+			rf.Input.Settings[i].Source.Name += source
 			changed = true
 		}
 	}

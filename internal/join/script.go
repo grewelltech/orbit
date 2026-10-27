@@ -63,6 +63,10 @@ type ScriptData struct {
 	// them, so nothing at run time can point a root script elsewhere.
 	root string
 	path string
+	// extraStep adds a plan step running this command (tests): it shows
+	// that inert() alone stops a command line that would run more than the
+	// plan shows.
+	extraStep string
 }
 
 // Script renders the join script for d. Every value is checked for its
@@ -113,17 +117,18 @@ func render(d ScriptData) ([]byte, error) {
 	var b bytes.Buffer
 	err = scriptTmpl.Execute(&b, struct {
 		ScriptData
-		CurlPin  string
-		UEPools  string
-		SHA256   map[string]string
-		End      string
-		Path     string
-		Root     string
-		MgmtHost string
-		MgmtIsIP string
-		BindPort string
+		CurlPin   string
+		UEPools   string
+		SHA256    map[string]string
+		End       string
+		Path      string
+		Root      string
+		MgmtHost  string
+		MgmtIsIP  string
+		BindPort  string
+		ExtraStep string
 	}{d, "sha256//" + strings.TrimPrefix(d.Pin, "sha256/"), strings.Join(pools, " "), sha,
-		"--orbit-end-" + d.Nonce, path, d.root, host, isIP, fmt.Sprint(DefaultBindPort)})
+		"--orbit-end-" + d.Nonce, path, d.root, host, isIP, fmt.Sprint(DefaultBindPort), d.extraStep})
 	if err != nil {
 		return nil, err
 	}

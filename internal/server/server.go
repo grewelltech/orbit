@@ -22,6 +22,7 @@ import (
 	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/join"
 	"github.com/bgrewell/orbit/internal/ngap"
 	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/webui"
@@ -35,6 +36,11 @@ type Options struct {
 	// token for app sessions (`orbit serve --loom-agent/--loom-token`);
 	// per-call values override them.
 	LoomAgent, LoomToken string
+	// Responders are the responders registered by join (ADR-0009 §3), as
+	// orbit serve loaded them from StateDir, refusing to start on a file it
+	// cannot read. New never reads that file: it needs Responders whenever
+	// StateDir is set; with neither, responders are kept in memory.
+	Responders *join.Registry
 	// RunHistory bounds how many terminal runs the registry retains (0 = the
 	// engine default). It bounds the on-disk archive equally, so the two do
 	// not disagree about how far back history goes.
@@ -68,6 +74,9 @@ type Options struct {
 // unless --insecure-listen (ADR-0008 §4).
 // Every procedure refuses subscriber keys and tokens over plaintext from a
 // non-loopback peer, and opts.Token, when set, guards the API.
+//
+// New panics if Options.Responders is nil when a state dir is set: a
+// programming error; orbit serve loads the registry first.
 func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Options) http.Handler {
 	return newHandler(log, version, reg, opts, newSecurity(log, opts.Token))
 }
@@ -112,8 +121,22 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 		log.Error("gNB ID rotation will not persist", "dir", opts.StateDir, "err", err)
 		rotation, _ = engine.OpenGNBRotation("", log)
 	}
+	// Responders registered by join (ADR-0009 §3), persisted with the run
+	// history.
+	responders := opts.Responders
+	switch {
+	case responders != nil:
+	case opts.StateDir != "":
+		panic("server: Options.Responders is nil with a state dir set: a programming error; orbit serve loads the registry first")
+	default:
+		// No state dir: an in-memory registry, which reads nothing.
+		responders, _ = join.OpenRegistry("")
+	}
+	if !responders.Persistent() {
+		log.Warn("registered responders are in memory only: after a restart every app host must join again (serve with --state-dir)")
+	}
 	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive,
-		specs: newSpecStore(), version: version, rotation: rotation, expected: opts.ConformanceExpected}
+		specs: newSpecStore(), version: version, rotation: rotation, expected: opts.ConformanceExpected, responders: responders}
 	runSvc.restoreFrames()
 
 	mux := http.NewServeMux()
@@ -122,8 +145,9 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}, ic))
 	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc, ic))
 	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected, runs: runSvc}, ic))
-	joinSvc := newJoinService(log, sec, opts)
+	joinSvc := newJoinService(log, sec, opts, responders)
 	mux.Handle(orbitv1connect.NewJoinServiceHandler(joinSvc, ic))
+	mux.Handle(orbitv1connect.NewResponderServiceHandler(&responderService{log: log, reg: responders}, ic))
 	// A join token is its own credential: /join/ is outside the bearer
 	// guard (protected), and served over TLS only.
 	mux.Handle("/join/", joinSvc)

@@ -488,6 +488,7 @@ and says so). Pass options after `sh -s --`:
 | `--no-route` | leave the UE-pool routes alone |
 | `--no-firewall` | leave the firewall alone |
 | `--no-systemd` | install no unit (required on a host without systemd) |
+| `--reregister` | register again with the new token, rotating the responder's credential and loom token |
 
 The plan's steps:
 
@@ -517,12 +518,30 @@ The plan's steps:
    UE pools and the N6 subnet on the N6 interface. The data ports are the
    host's ephemeral range (`net.ipv4.ip_local_port_range`), because the
    responder's receivers bind ephemeral ports.
-4. **The unit**, `orbit-responder.service`, runs `orbit responder --bind
-   <control address>` as the system user `orbit` (created if absent), with
-   systemd's sandboxing on. Its `ExecStartPre` runs
+
+   Detection looks only at the input hook: a drop in an nftables prerouting
+   or netdev ingress chain, or in iptables' `raw` or `mangle` tables, is not
+   seen. Then nothing is opened there, and the plan's "not filtered" is
+   about the input hook only.
+4. **The unit**, `orbit-responder.service`, runs `orbit responder --config`
+   as the system user `orbit` (created if absent), with systemd's sandboxing
+   on. On systemd 247 and later it reads its config through
+   `LoadCredential` (the file stays root's, mode 0600, which the service can
+   read but not change); on older systemd the file is the `orbit` user's own,
+   mode 0600, and the plan says so. Its `ExecStartPre` runs
    `/usr/local/lib/orbit/join-net.sh` as root, which re-applies the routes
    and firewall rules, so they come back at boot. The plan shows the helper
    and the unit in full.
+5. **The registration** (ADR-0009 §3): the installed `orbit responder
+   register` registers the responder with the server, with the join token
+   read from a mode-0600 file in the script's private directory (never a
+   command line), and writes `/etc/orbit/responder.yaml`.
+6. **The start:** `systemctl enable` and `restart orbit-responder`, then
+   `orbit responder check`, which waits up to 20 s for the server to see the
+   service's own heartbeat. If the service does not come up the script
+   prints the `systemctl status` and `journalctl` lines to look at; the
+   registration stands, so once fixed `systemctl restart orbit-responder` is
+   enough, with no new token.
 
 Nothing on the host changes, and nothing downloaded runs, before the plan is
 confirmed: the downloaded `orbit` first runs (`orbit version`) after the
@@ -540,10 +559,54 @@ through a gateway from outside the N6 subnet, when the N6 interface has
 several addresses in the N6 subnet, or when the server's name has several
 addresses in one family.
 
-**Not yet:** the unit is installed but not enabled or started, and the
-responder is not registered with the server. The responder gets its control
-token at registration, which this server does not do yet (ADR-0009 J3). The
-script says so when it finishes, and the token is not used up.
+**A host that already drops everything inbound**, replies included, cannot
+download the script at all: curl's own replies are dropped. Allow the server
+first, or download the script elsewhere, copy it over, and run it there.
+
+### Registered responders
+
+A responder registers once, with the join token, which that registration
+uses up. The app host generates the responder's credential itself and the
+server keeps only its hash; the server issues the responder's loom control
+token. Both live in `/etc/orbit/responder.yaml` (mode 0600), never on a
+command line or in the journal.
+
+- **Retries.** The credential is written to `responder.yaml.pending` before
+  the request, so a registration whose answer was lost is retried, by the
+  command or by running the one-liner again, with the same credential, and
+  gets the same answer.
+- **Rerunning the one-liner** on a registered host first asks the server
+  (a heartbeat probe, by curl: nothing downloaded runs before confirmation).
+  Known to the server: `nothing to change`. Unknown to it (say, a server
+  restarted without its `--state-dir`) or removed: the plan registers again
+  with the new token. No answer: left as is. `--reregister` registers again
+  anyway, rotating the credential and the loom token.
+- **The heartbeat.** The responder tells the server it is alive every 10 s
+  (±20%); after 30 s without one it shows offline. It backs off on failure,
+  up to 30 s, and keeps trying, also when the server does not know it (the
+  log says so); only a removal stops it.
+- **Names.** A responder takes the token's `--name`, else the host's short
+  name. A name another responder holds is refused, before the token is used.
+
+```sh
+orbit responder list               # name, ID, state, last seen, control, data IP, version, token ID
+orbit responder list -o wide       # with the source addresses
+orbit responder remove app1        # revoke it: its credential and loom token stop working, and it stops
+```
+
+A target names a registered responder by name alone (`app.responders:
+[{name: app1}]`): a run resolves it on the server to its control address and
+loom token. A name no responder has registered, and an offline responder, are
+refused when the run starts, by name.
+
+The server keeps registered responders in `--state-dir`
+(`responders.json`, mode 0600); `orbit serve` will not start with one it
+cannot read. Without `--state-dir` they are lost at a restart, and every app
+host must join again.
+
+**Known limit:** loom's control channel is plaintext gRPC with a bearer
+token, so a responder's loom token crosses the network in the clear, as
+`--peer --token` does today. TLS for it is a separate loom change.
 
 ## Server runs (`orbit runs`)
 

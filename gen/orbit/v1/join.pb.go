@@ -467,6 +467,627 @@ func (*RevokeJoinTokenResponse) Descriptor() ([]byte, []int) {
 	return file_orbit_v1_join_proto_rawDescGZIP(), []int{7}
 }
 
+type RegisterResponderRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	JoinToken string                 `protobuf:"bytes,1,opt,name=join_token,json=joinToken,proto3" json:"join_token,omitempty"`
+	// credential is the responder credential the app host generated (orc1_…);
+	// the server keeps only its hash.
+	Credential string `protobuf:"bytes,2,opt,name=credential,proto3" json:"credential,omitempty"`
+	// existing_credential is the responder's current credential, for a
+	// re-registration that rotates it; empty for a new responder.
+	ExistingCredential string `protobuf:"bytes,3,opt,name=existing_credential,json=existingCredential,proto3" json:"existing_credential,omitempty"`
+	Name               string `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`                                           // the target name charset
+	ControlAddress     string `protobuf:"bytes,5,opt,name=control_address,json=controlAddress,proto3" json:"control_address,omitempty"` // the responder's control listen address, host:port
+	DataIp             string `protobuf:"bytes,6,opt,name=data_ip,json=dataIp,proto3" json:"data_ip,omitempty"`                         // its N6 data address
+	DataPortLow        uint32 `protobuf:"varint,7,opt,name=data_port_low,json=dataPortLow,proto3" json:"data_port_low,omitempty"`       // its data port range
+	DataPortHigh       uint32 `protobuf:"varint,8,opt,name=data_port_high,json=dataPortHigh,proto3" json:"data_port_high,omitempty"`
+	Version            string `protobuf:"bytes,9,opt,name=version,proto3" json:"version,omitempty"` // the orbit build that registers
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RegisterResponderRequest) Reset() {
+	*x = RegisterResponderRequest{}
+	mi := &file_orbit_v1_join_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterResponderRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterResponderRequest) ProtoMessage() {}
+
+func (x *RegisterResponderRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterResponderRequest.ProtoReflect.Descriptor instead.
+func (*RegisterResponderRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RegisterResponderRequest) GetJoinToken() string {
+	if x != nil {
+		return x.JoinToken
+	}
+	return ""
+}
+
+func (x *RegisterResponderRequest) GetCredential() string {
+	if x != nil {
+		return x.Credential
+	}
+	return ""
+}
+
+func (x *RegisterResponderRequest) GetExistingCredential() string {
+	if x != nil {
+		return x.ExistingCredential
+	}
+	return ""
+}
+
+func (x *RegisterResponderRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RegisterResponderRequest) GetControlAddress() string {
+	if x != nil {
+		return x.ControlAddress
+	}
+	return ""
+}
+
+func (x *RegisterResponderRequest) GetDataIp() string {
+	if x != nil {
+		return x.DataIp
+	}
+	return ""
+}
+
+func (x *RegisterResponderRequest) GetDataPortLow() uint32 {
+	if x != nil {
+		return x.DataPortLow
+	}
+	return 0
+}
+
+func (x *RegisterResponderRequest) GetDataPortHigh() uint32 {
+	if x != nil {
+		return x.DataPortHigh
+	}
+	return 0
+}
+
+func (x *RegisterResponderRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+type RegisterResponderResponse struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ResponderId string                 `protobuf:"bytes,1,opt,name=responder_id,json=responderId,proto3" json:"responder_id,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// loom_token is the responder's loom control token, which the server
+	// presents when a run uses it.
+	LoomToken        string `protobuf:"bytes,3,opt,name=loom_token,json=loomToken,proto3" json:"loom_token,omitempty"`
+	HeartbeatSeconds uint32 `protobuf:"varint,4,opt,name=heartbeat_seconds,json=heartbeatSeconds,proto3" json:"heartbeat_seconds,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *RegisterResponderResponse) Reset() {
+	*x = RegisterResponderResponse{}
+	mi := &file_orbit_v1_join_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterResponderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterResponderResponse) ProtoMessage() {}
+
+func (x *RegisterResponderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterResponderResponse.ProtoReflect.Descriptor instead.
+func (*RegisterResponderResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RegisterResponderResponse) GetResponderId() string {
+	if x != nil {
+		return x.ResponderId
+	}
+	return ""
+}
+
+func (x *RegisterResponderResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RegisterResponderResponse) GetLoomToken() string {
+	if x != nil {
+		return x.LoomToken
+	}
+	return ""
+}
+
+func (x *RegisterResponderResponse) GetHeartbeatSeconds() uint32 {
+	if x != nil {
+		return x.HeartbeatSeconds
+	}
+	return 0
+}
+
+type HeartbeatRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	LoomListening bool                   `protobuf:"varint,2,opt,name=loom_listening,json=loomListening,proto3" json:"loom_listening,omitempty"` // the responder's control listener is up
+	UptimeSeconds uint64                 `protobuf:"varint,3,opt,name=uptime_seconds,json=uptimeSeconds,proto3" json:"uptime_seconds,omitempty"`
+	// probe asks without counting as a heartbeat: `orbit responder check`
+	// uses it to see whether the service's own heartbeats arrive.
+	Probe         bool `protobuf:"varint,4,opt,name=probe,proto3" json:"probe,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeartbeatRequest) Reset() {
+	*x = HeartbeatRequest{}
+	mi := &file_orbit_v1_join_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatRequest) ProtoMessage() {}
+
+func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
+func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *HeartbeatRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *HeartbeatRequest) GetLoomListening() bool {
+	if x != nil {
+		return x.LoomListening
+	}
+	return false
+}
+
+func (x *HeartbeatRequest) GetUptimeSeconds() uint64 {
+	if x != nil {
+		return x.UptimeSeconds
+	}
+	return 0
+}
+
+func (x *HeartbeatRequest) GetProbe() bool {
+	if x != nil {
+		return x.Probe
+	}
+	return false
+}
+
+type HeartbeatResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ResponderId      string                 `protobuf:"bytes,1,opt,name=responder_id,json=responderId,proto3" json:"responder_id,omitempty"`
+	HeartbeatSeconds uint32                 `protobuf:"varint,2,opt,name=heartbeat_seconds,json=heartbeatSeconds,proto3" json:"heartbeat_seconds,omitempty"`     // the interval to use from now on
+	LastSeenUnixNano int64                  `protobuf:"varint,3,opt,name=last_seen_unix_nano,json=lastSeenUnixNano,proto3" json:"last_seen_unix_nano,omitempty"` // the last heartbeat before this one; 0 = none
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *HeartbeatResponse) Reset() {
+	*x = HeartbeatResponse{}
+	mi := &file_orbit_v1_join_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeartbeatResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeartbeatResponse) ProtoMessage() {}
+
+func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
+func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *HeartbeatResponse) GetResponderId() string {
+	if x != nil {
+		return x.ResponderId
+	}
+	return ""
+}
+
+func (x *HeartbeatResponse) GetHeartbeatSeconds() uint32 {
+	if x != nil {
+		return x.HeartbeatSeconds
+	}
+	return 0
+}
+
+func (x *HeartbeatResponse) GetLastSeenUnixNano() int64 {
+	if x != nil {
+		return x.LastSeenUnixNano
+	}
+	return 0
+}
+
+// RegisteredResponder is a registered responder as listed.
+type RegisteredResponder struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name               string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	State              string                 `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`                                                    // "online", "offline" or "never seen"
+	LastSeenUnixNano   int64                  `protobuf:"varint,4,opt,name=last_seen_unix_nano,json=lastSeenUnixNano,proto3" json:"last_seen_unix_nano,omitempty"` // 0 = not since the server started
+	Source             string                 `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`                                                  // the last heartbeat's peer address
+	ControlAddress     string                 `protobuf:"bytes,6,opt,name=control_address,json=controlAddress,proto3" json:"control_address,omitempty"`
+	DataIp             string                 `protobuf:"bytes,7,opt,name=data_ip,json=dataIp,proto3" json:"data_ip,omitempty"`
+	DataPortLow        uint32                 `protobuf:"varint,8,opt,name=data_port_low,json=dataPortLow,proto3" json:"data_port_low,omitempty"`
+	DataPortHigh       uint32                 `protobuf:"varint,9,opt,name=data_port_high,json=dataPortHigh,proto3" json:"data_port_high,omitempty"`
+	Version            string                 `protobuf:"bytes,10,opt,name=version,proto3" json:"version,omitempty"`
+	RegisteredUnixNano int64                  `protobuf:"varint,11,opt,name=registered_unix_nano,json=registeredUnixNano,proto3" json:"registered_unix_nano,omitempty"`
+	RegisteredFrom     string                 `protobuf:"bytes,12,opt,name=registered_from,json=registeredFrom,proto3" json:"registered_from,omitempty"` // the registration's peer address
+	JoinTokenId        string                 `protobuf:"bytes,13,opt,name=join_token_id,json=joinTokenId,proto3" json:"join_token_id,omitempty"`        // the join token that registered it
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RegisteredResponder) Reset() {
+	*x = RegisteredResponder{}
+	mi := &file_orbit_v1_join_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisteredResponder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisteredResponder) ProtoMessage() {}
+
+func (x *RegisteredResponder) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisteredResponder.ProtoReflect.Descriptor instead.
+func (*RegisteredResponder) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RegisteredResponder) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetLastSeenUnixNano() int64 {
+	if x != nil {
+		return x.LastSeenUnixNano
+	}
+	return 0
+}
+
+func (x *RegisteredResponder) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetControlAddress() string {
+	if x != nil {
+		return x.ControlAddress
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetDataIp() string {
+	if x != nil {
+		return x.DataIp
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetDataPortLow() uint32 {
+	if x != nil {
+		return x.DataPortLow
+	}
+	return 0
+}
+
+func (x *RegisteredResponder) GetDataPortHigh() uint32 {
+	if x != nil {
+		return x.DataPortHigh
+	}
+	return 0
+}
+
+func (x *RegisteredResponder) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetRegisteredUnixNano() int64 {
+	if x != nil {
+		return x.RegisteredUnixNano
+	}
+	return 0
+}
+
+func (x *RegisteredResponder) GetRegisteredFrom() string {
+	if x != nil {
+		return x.RegisteredFrom
+	}
+	return ""
+}
+
+func (x *RegisteredResponder) GetJoinTokenId() string {
+	if x != nil {
+		return x.JoinTokenId
+	}
+	return ""
+}
+
+type ListRespondersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRespondersRequest) Reset() {
+	*x = ListRespondersRequest{}
+	mi := &file_orbit_v1_join_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRespondersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRespondersRequest) ProtoMessage() {}
+
+func (x *ListRespondersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRespondersRequest.ProtoReflect.Descriptor instead.
+func (*ListRespondersRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{13}
+}
+
+type ListRespondersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Responders    []*RegisteredResponder `protobuf:"bytes,1,rep,name=responders,proto3" json:"responders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRespondersResponse) Reset() {
+	*x = ListRespondersResponse{}
+	mi := &file_orbit_v1_join_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRespondersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRespondersResponse) ProtoMessage() {}
+
+func (x *ListRespondersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRespondersResponse.ProtoReflect.Descriptor instead.
+func (*ListRespondersResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListRespondersResponse) GetResponders() []*RegisteredResponder {
+	if x != nil {
+		return x.Responders
+	}
+	return nil
+}
+
+type RemoveResponderRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"` // a name or an ID
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveResponderRequest) Reset() {
+	*x = RemoveResponderRequest{}
+	mi := &file_orbit_v1_join_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveResponderRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveResponderRequest) ProtoMessage() {}
+
+func (x *RemoveResponderRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveResponderRequest.ProtoReflect.Descriptor instead.
+func (*RemoveResponderRequest) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *RemoveResponderRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type RemoveResponderResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveResponderResponse) Reset() {
+	*x = RemoveResponderResponse{}
+	mi := &file_orbit_v1_join_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveResponderResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveResponderResponse) ProtoMessage() {}
+
+func (x *RemoveResponderResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_join_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveResponderResponse.ProtoReflect.Descriptor instead.
+func (*RemoveResponderResponse) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_join_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *RemoveResponderResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
 var File_orbit_v1_join_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_join_proto_rawDesc = "" +
@@ -499,11 +1120,68 @@ const file_orbit_v1_join_proto_rawDesc = "" +
 	"\x06tokens\x18\x01 \x03(\v2\x13.orbit.v1.JoinTokenR\x06tokens\"(\n" +
 	"\x16RevokeJoinTokenRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x19\n" +
-	"\x17RevokeJoinTokenResponse2\x98\x02\n" +
+	"\x17RevokeJoinTokenResponse\"\xd6\x02\n" +
+	"\x18RegisterResponderRequest\x12#\n" +
+	"\n" +
+	"join_token\x18\x01 \x01(\tB\x04\x88\xb5\x18\x01R\tjoinToken\x12$\n" +
+	"\n" +
+	"credential\x18\x02 \x01(\tB\x04\x88\xb5\x18\x01R\n" +
+	"credential\x125\n" +
+	"\x13existing_credential\x18\x03 \x01(\tB\x04\x88\xb5\x18\x01R\x12existingCredential\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12'\n" +
+	"\x0fcontrol_address\x18\x05 \x01(\tR\x0econtrolAddress\x12\x17\n" +
+	"\adata_ip\x18\x06 \x01(\tR\x06dataIp\x12\"\n" +
+	"\rdata_port_low\x18\a \x01(\rR\vdataPortLow\x12$\n" +
+	"\x0edata_port_high\x18\b \x01(\rR\fdataPortHigh\x12\x18\n" +
+	"\aversion\x18\t \x01(\tR\aversion\"\xa4\x01\n" +
+	"\x19RegisterResponderResponse\x12!\n" +
+	"\fresponder_id\x18\x01 \x01(\tR\vresponderId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
+	"\n" +
+	"loom_token\x18\x03 \x01(\tB\x04\x88\xb5\x18\x01R\tloomToken\x12+\n" +
+	"\x11heartbeat_seconds\x18\x04 \x01(\rR\x10heartbeatSeconds\"\x90\x01\n" +
+	"\x10HeartbeatRequest\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12%\n" +
+	"\x0eloom_listening\x18\x02 \x01(\bR\rloomListening\x12%\n" +
+	"\x0euptime_seconds\x18\x03 \x01(\x04R\ruptimeSeconds\x12\x14\n" +
+	"\x05probe\x18\x04 \x01(\bR\x05probe\"\x92\x01\n" +
+	"\x11HeartbeatResponse\x12!\n" +
+	"\fresponder_id\x18\x01 \x01(\tR\vresponderId\x12+\n" +
+	"\x11heartbeat_seconds\x18\x02 \x01(\rR\x10heartbeatSeconds\x12-\n" +
+	"\x13last_seen_unix_nano\x18\x03 \x01(\x03R\x10lastSeenUnixNano\"\xbb\x03\n" +
+	"\x13RegisteredResponder\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12-\n" +
+	"\x13last_seen_unix_nano\x18\x04 \x01(\x03R\x10lastSeenUnixNano\x12\x16\n" +
+	"\x06source\x18\x05 \x01(\tR\x06source\x12'\n" +
+	"\x0fcontrol_address\x18\x06 \x01(\tR\x0econtrolAddress\x12\x17\n" +
+	"\adata_ip\x18\a \x01(\tR\x06dataIp\x12\"\n" +
+	"\rdata_port_low\x18\b \x01(\rR\vdataPortLow\x12$\n" +
+	"\x0edata_port_high\x18\t \x01(\rR\fdataPortHigh\x12\x18\n" +
+	"\aversion\x18\n" +
+	" \x01(\tR\aversion\x120\n" +
+	"\x14registered_unix_nano\x18\v \x01(\x03R\x12registeredUnixNano\x12'\n" +
+	"\x0fregistered_from\x18\f \x01(\tR\x0eregisteredFrom\x12\"\n" +
+	"\rjoin_token_id\x18\r \x01(\tR\vjoinTokenId\"\x17\n" +
+	"\x15ListRespondersRequest\"W\n" +
+	"\x16ListRespondersResponse\x12=\n" +
+	"\n" +
+	"responders\x18\x01 \x03(\v2\x1d.orbit.v1.RegisteredResponderR\n" +
+	"responders\",\n" +
+	"\x16RemoveResponderRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\")\n" +
+	"\x17RemoveResponderResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id2\xc0\x03\n" +
 	"\vJoinService\x12X\n" +
 	"\x0fCreateJoinToken\x12 .orbit.v1.CreateJoinTokenRequest\x1a!.orbit.v1.CreateJoinTokenResponse\"\x00\x12U\n" +
 	"\x0eListJoinTokens\x12\x1f.orbit.v1.ListJoinTokensRequest\x1a .orbit.v1.ListJoinTokensResponse\"\x00\x12X\n" +
-	"\x0fRevokeJoinToken\x12 .orbit.v1.RevokeJoinTokenRequest\x1a!.orbit.v1.RevokeJoinTokenResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
+	"\x0fRevokeJoinToken\x12 .orbit.v1.RevokeJoinTokenRequest\x1a!.orbit.v1.RevokeJoinTokenResponse\"\x00\x12^\n" +
+	"\x11RegisterResponder\x12\".orbit.v1.RegisterResponderRequest\x1a#.orbit.v1.RegisterResponderResponse\"\x00\x12F\n" +
+	"\tHeartbeat\x12\x1a.orbit.v1.HeartbeatRequest\x1a\x1b.orbit.v1.HeartbeatResponse\"\x002\xc3\x01\n" +
+	"\x10ResponderService\x12U\n" +
+	"\x0eListResponders\x12\x1f.orbit.v1.ListRespondersRequest\x1a .orbit.v1.ListRespondersResponse\"\x00\x12X\n" +
+	"\x0fRemoveResponder\x12 .orbit.v1.RemoveResponderRequest\x1a!.orbit.v1.RemoveResponderResponse\"\x00B0Z.github.com/bgrewell/orbit/gen/orbit/v1;orbitv1b\x06proto3"
 
 var (
 	file_orbit_v1_join_proto_rawDescOnce sync.Once
@@ -517,33 +1195,51 @@ func file_orbit_v1_join_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_join_proto_rawDescData
 }
 
-var file_orbit_v1_join_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_orbit_v1_join_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_orbit_v1_join_proto_goTypes = []any{
-	(*JoinSpec)(nil),                // 0: orbit.v1.JoinSpec
-	(*JoinToken)(nil),               // 1: orbit.v1.JoinToken
-	(*CreateJoinTokenRequest)(nil),  // 2: orbit.v1.CreateJoinTokenRequest
-	(*CreateJoinTokenResponse)(nil), // 3: orbit.v1.CreateJoinTokenResponse
-	(*ListJoinTokensRequest)(nil),   // 4: orbit.v1.ListJoinTokensRequest
-	(*ListJoinTokensResponse)(nil),  // 5: orbit.v1.ListJoinTokensResponse
-	(*RevokeJoinTokenRequest)(nil),  // 6: orbit.v1.RevokeJoinTokenRequest
-	(*RevokeJoinTokenResponse)(nil), // 7: orbit.v1.RevokeJoinTokenResponse
+	(*JoinSpec)(nil),                  // 0: orbit.v1.JoinSpec
+	(*JoinToken)(nil),                 // 1: orbit.v1.JoinToken
+	(*CreateJoinTokenRequest)(nil),    // 2: orbit.v1.CreateJoinTokenRequest
+	(*CreateJoinTokenResponse)(nil),   // 3: orbit.v1.CreateJoinTokenResponse
+	(*ListJoinTokensRequest)(nil),     // 4: orbit.v1.ListJoinTokensRequest
+	(*ListJoinTokensResponse)(nil),    // 5: orbit.v1.ListJoinTokensResponse
+	(*RevokeJoinTokenRequest)(nil),    // 6: orbit.v1.RevokeJoinTokenRequest
+	(*RevokeJoinTokenResponse)(nil),   // 7: orbit.v1.RevokeJoinTokenResponse
+	(*RegisterResponderRequest)(nil),  // 8: orbit.v1.RegisterResponderRequest
+	(*RegisterResponderResponse)(nil), // 9: orbit.v1.RegisterResponderResponse
+	(*HeartbeatRequest)(nil),          // 10: orbit.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),         // 11: orbit.v1.HeartbeatResponse
+	(*RegisteredResponder)(nil),       // 12: orbit.v1.RegisteredResponder
+	(*ListRespondersRequest)(nil),     // 13: orbit.v1.ListRespondersRequest
+	(*ListRespondersResponse)(nil),    // 14: orbit.v1.ListRespondersResponse
+	(*RemoveResponderRequest)(nil),    // 15: orbit.v1.RemoveResponderRequest
+	(*RemoveResponderResponse)(nil),   // 16: orbit.v1.RemoveResponderResponse
 }
 var file_orbit_v1_join_proto_depIdxs = []int32{
-	0, // 0: orbit.v1.JoinToken.spec:type_name -> orbit.v1.JoinSpec
-	0, // 1: orbit.v1.CreateJoinTokenRequest.spec:type_name -> orbit.v1.JoinSpec
-	1, // 2: orbit.v1.CreateJoinTokenResponse.issued:type_name -> orbit.v1.JoinToken
-	1, // 3: orbit.v1.ListJoinTokensResponse.tokens:type_name -> orbit.v1.JoinToken
-	2, // 4: orbit.v1.JoinService.CreateJoinToken:input_type -> orbit.v1.CreateJoinTokenRequest
-	4, // 5: orbit.v1.JoinService.ListJoinTokens:input_type -> orbit.v1.ListJoinTokensRequest
-	6, // 6: orbit.v1.JoinService.RevokeJoinToken:input_type -> orbit.v1.RevokeJoinTokenRequest
-	3, // 7: orbit.v1.JoinService.CreateJoinToken:output_type -> orbit.v1.CreateJoinTokenResponse
-	5, // 8: orbit.v1.JoinService.ListJoinTokens:output_type -> orbit.v1.ListJoinTokensResponse
-	7, // 9: orbit.v1.JoinService.RevokeJoinToken:output_type -> orbit.v1.RevokeJoinTokenResponse
-	7, // [7:10] is the sub-list for method output_type
-	4, // [4:7] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0,  // 0: orbit.v1.JoinToken.spec:type_name -> orbit.v1.JoinSpec
+	0,  // 1: orbit.v1.CreateJoinTokenRequest.spec:type_name -> orbit.v1.JoinSpec
+	1,  // 2: orbit.v1.CreateJoinTokenResponse.issued:type_name -> orbit.v1.JoinToken
+	1,  // 3: orbit.v1.ListJoinTokensResponse.tokens:type_name -> orbit.v1.JoinToken
+	12, // 4: orbit.v1.ListRespondersResponse.responders:type_name -> orbit.v1.RegisteredResponder
+	2,  // 5: orbit.v1.JoinService.CreateJoinToken:input_type -> orbit.v1.CreateJoinTokenRequest
+	4,  // 6: orbit.v1.JoinService.ListJoinTokens:input_type -> orbit.v1.ListJoinTokensRequest
+	6,  // 7: orbit.v1.JoinService.RevokeJoinToken:input_type -> orbit.v1.RevokeJoinTokenRequest
+	8,  // 8: orbit.v1.JoinService.RegisterResponder:input_type -> orbit.v1.RegisterResponderRequest
+	10, // 9: orbit.v1.JoinService.Heartbeat:input_type -> orbit.v1.HeartbeatRequest
+	13, // 10: orbit.v1.ResponderService.ListResponders:input_type -> orbit.v1.ListRespondersRequest
+	15, // 11: orbit.v1.ResponderService.RemoveResponder:input_type -> orbit.v1.RemoveResponderRequest
+	3,  // 12: orbit.v1.JoinService.CreateJoinToken:output_type -> orbit.v1.CreateJoinTokenResponse
+	5,  // 13: orbit.v1.JoinService.ListJoinTokens:output_type -> orbit.v1.ListJoinTokensResponse
+	7,  // 14: orbit.v1.JoinService.RevokeJoinToken:output_type -> orbit.v1.RevokeJoinTokenResponse
+	9,  // 15: orbit.v1.JoinService.RegisterResponder:output_type -> orbit.v1.RegisterResponderResponse
+	11, // 16: orbit.v1.JoinService.Heartbeat:output_type -> orbit.v1.HeartbeatResponse
+	14, // 17: orbit.v1.ResponderService.ListResponders:output_type -> orbit.v1.ListRespondersResponse
+	16, // 18: orbit.v1.ResponderService.RemoveResponder:output_type -> orbit.v1.RemoveResponderResponse
+	12, // [12:19] is the sub-list for method output_type
+	5,  // [5:12] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_join_proto_init() }
@@ -558,9 +1254,9 @@ func file_orbit_v1_join_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_join_proto_rawDesc), len(file_orbit_v1_join_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   17,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_orbit_v1_join_proto_goTypes,
 		DependencyIndexes: file_orbit_v1_join_proto_depIdxs,

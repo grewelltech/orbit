@@ -23,6 +23,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// JoinServiceName is the fully-qualified name of the JoinService service.
 	JoinServiceName = "orbit.v1.JoinService"
+	// ResponderServiceName is the fully-qualified name of the ResponderService service.
+	ResponderServiceName = "orbit.v1.ResponderService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -42,6 +44,17 @@ const (
 	// JoinServiceRevokeJoinTokenProcedure is the fully-qualified name of the JoinService's
 	// RevokeJoinToken RPC.
 	JoinServiceRevokeJoinTokenProcedure = "/orbit.v1.JoinService/RevokeJoinToken"
+	// JoinServiceRegisterResponderProcedure is the fully-qualified name of the JoinService's
+	// RegisterResponder RPC.
+	JoinServiceRegisterResponderProcedure = "/orbit.v1.JoinService/RegisterResponder"
+	// JoinServiceHeartbeatProcedure is the fully-qualified name of the JoinService's Heartbeat RPC.
+	JoinServiceHeartbeatProcedure = "/orbit.v1.JoinService/Heartbeat"
+	// ResponderServiceListRespondersProcedure is the fully-qualified name of the ResponderService's
+	// ListResponders RPC.
+	ResponderServiceListRespondersProcedure = "/orbit.v1.ResponderService/ListResponders"
+	// ResponderServiceRemoveResponderProcedure is the fully-qualified name of the ResponderService's
+	// RemoveResponder RPC.
+	ResponderServiceRemoveResponderProcedure = "/orbit.v1.ResponderService/RemoveResponder"
 )
 
 // JoinServiceClient is a client for the orbit.v1.JoinService service.
@@ -52,6 +65,16 @@ type JoinServiceClient interface {
 	ListJoinTokens(context.Context, *connect.Request[v1.ListJoinTokensRequest]) (*connect.Response[v1.ListJoinTokensResponse], error)
 	// RevokeJoinToken cancels a pending token by its ID.
 	RevokeJoinToken(context.Context, *connect.Request[v1.RevokeJoinTokenRequest]) (*connect.Response[v1.RevokeJoinTokenResponse], error)
+	// RegisterResponder registers an app host's responder (ADR-0009 §3). It
+	// needs no API token: the join token is its credential, used up by the
+	// first registration. A retry with the same credential gets the same
+	// answer; re-registering an existing responder needs a valid join token
+	// and its current credential.
+	RegisterResponder(context.Context, *connect.Request[v1.RegisterResponderRequest]) (*connect.Response[v1.RegisterResponderResponse], error)
+	// Heartbeat tells the server a registered responder is alive. It needs no
+	// API token: the responder credential goes in the Authorization header,
+	// as "Responder <credential>".
+	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
 }
 
 // NewJoinServiceClient constructs a client for the orbit.v1.JoinService service. By default, it
@@ -83,14 +106,28 @@ func NewJoinServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(joinServiceMethods.ByName("RevokeJoinToken")),
 			connect.WithClientOptions(opts...),
 		),
+		registerResponder: connect.NewClient[v1.RegisterResponderRequest, v1.RegisterResponderResponse](
+			httpClient,
+			baseURL+JoinServiceRegisterResponderProcedure,
+			connect.WithSchema(joinServiceMethods.ByName("RegisterResponder")),
+			connect.WithClientOptions(opts...),
+		),
+		heartbeat: connect.NewClient[v1.HeartbeatRequest, v1.HeartbeatResponse](
+			httpClient,
+			baseURL+JoinServiceHeartbeatProcedure,
+			connect.WithSchema(joinServiceMethods.ByName("Heartbeat")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // joinServiceClient implements JoinServiceClient.
 type joinServiceClient struct {
-	createJoinToken *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
-	listJoinTokens  *connect.Client[v1.ListJoinTokensRequest, v1.ListJoinTokensResponse]
-	revokeJoinToken *connect.Client[v1.RevokeJoinTokenRequest, v1.RevokeJoinTokenResponse]
+	createJoinToken   *connect.Client[v1.CreateJoinTokenRequest, v1.CreateJoinTokenResponse]
+	listJoinTokens    *connect.Client[v1.ListJoinTokensRequest, v1.ListJoinTokensResponse]
+	revokeJoinToken   *connect.Client[v1.RevokeJoinTokenRequest, v1.RevokeJoinTokenResponse]
+	registerResponder *connect.Client[v1.RegisterResponderRequest, v1.RegisterResponderResponse]
+	heartbeat         *connect.Client[v1.HeartbeatRequest, v1.HeartbeatResponse]
 }
 
 // CreateJoinToken calls orbit.v1.JoinService.CreateJoinToken.
@@ -108,6 +145,16 @@ func (c *joinServiceClient) RevokeJoinToken(ctx context.Context, req *connect.Re
 	return c.revokeJoinToken.CallUnary(ctx, req)
 }
 
+// RegisterResponder calls orbit.v1.JoinService.RegisterResponder.
+func (c *joinServiceClient) RegisterResponder(ctx context.Context, req *connect.Request[v1.RegisterResponderRequest]) (*connect.Response[v1.RegisterResponderResponse], error) {
+	return c.registerResponder.CallUnary(ctx, req)
+}
+
+// Heartbeat calls orbit.v1.JoinService.Heartbeat.
+func (c *joinServiceClient) Heartbeat(ctx context.Context, req *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
+	return c.heartbeat.CallUnary(ctx, req)
+}
+
 // JoinServiceHandler is an implementation of the orbit.v1.JoinService service.
 type JoinServiceHandler interface {
 	// CreateJoinToken issues a token and returns its secret, once.
@@ -116,6 +163,16 @@ type JoinServiceHandler interface {
 	ListJoinTokens(context.Context, *connect.Request[v1.ListJoinTokensRequest]) (*connect.Response[v1.ListJoinTokensResponse], error)
 	// RevokeJoinToken cancels a pending token by its ID.
 	RevokeJoinToken(context.Context, *connect.Request[v1.RevokeJoinTokenRequest]) (*connect.Response[v1.RevokeJoinTokenResponse], error)
+	// RegisterResponder registers an app host's responder (ADR-0009 §3). It
+	// needs no API token: the join token is its credential, used up by the
+	// first registration. A retry with the same credential gets the same
+	// answer; re-registering an existing responder needs a valid join token
+	// and its current credential.
+	RegisterResponder(context.Context, *connect.Request[v1.RegisterResponderRequest]) (*connect.Response[v1.RegisterResponderResponse], error)
+	// Heartbeat tells the server a registered responder is alive. It needs no
+	// API token: the responder credential goes in the Authorization header,
+	// as "Responder <credential>".
+	Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error)
 }
 
 // NewJoinServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -143,6 +200,18 @@ func NewJoinServiceHandler(svc JoinServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(joinServiceMethods.ByName("RevokeJoinToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	joinServiceRegisterResponderHandler := connect.NewUnaryHandler(
+		JoinServiceRegisterResponderProcedure,
+		svc.RegisterResponder,
+		connect.WithSchema(joinServiceMethods.ByName("RegisterResponder")),
+		connect.WithHandlerOptions(opts...),
+	)
+	joinServiceHeartbeatHandler := connect.NewUnaryHandler(
+		JoinServiceHeartbeatProcedure,
+		svc.Heartbeat,
+		connect.WithSchema(joinServiceMethods.ByName("Heartbeat")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orbit.v1.JoinService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case JoinServiceCreateJoinTokenProcedure:
@@ -151,6 +220,10 @@ func NewJoinServiceHandler(svc JoinServiceHandler, opts ...connect.HandlerOption
 			joinServiceListJoinTokensHandler.ServeHTTP(w, r)
 		case JoinServiceRevokeJoinTokenProcedure:
 			joinServiceRevokeJoinTokenHandler.ServeHTTP(w, r)
+		case JoinServiceRegisterResponderProcedure:
+			joinServiceRegisterResponderHandler.ServeHTTP(w, r)
+		case JoinServiceHeartbeatProcedure:
+			joinServiceHeartbeatHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -170,4 +243,116 @@ func (UnimplementedJoinServiceHandler) ListJoinTokens(context.Context, *connect.
 
 func (UnimplementedJoinServiceHandler) RevokeJoinToken(context.Context, *connect.Request[v1.RevokeJoinTokenRequest]) (*connect.Response[v1.RevokeJoinTokenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.JoinService.RevokeJoinToken is not implemented"))
+}
+
+func (UnimplementedJoinServiceHandler) RegisterResponder(context.Context, *connect.Request[v1.RegisterResponderRequest]) (*connect.Response[v1.RegisterResponderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.JoinService.RegisterResponder is not implemented"))
+}
+
+func (UnimplementedJoinServiceHandler) Heartbeat(context.Context, *connect.Request[v1.HeartbeatRequest]) (*connect.Response[v1.HeartbeatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.JoinService.Heartbeat is not implemented"))
+}
+
+// ResponderServiceClient is a client for the orbit.v1.ResponderService service.
+type ResponderServiceClient interface {
+	// ListResponders shows the registered responders, never their
+	// credentials or loom tokens.
+	ListResponders(context.Context, *connect.Request[v1.ListRespondersRequest]) (*connect.Response[v1.ListRespondersResponse], error)
+	// RemoveResponder revokes a responder: its credential and loom token stop
+	// working, and its next heartbeat is told it was removed.
+	RemoveResponder(context.Context, *connect.Request[v1.RemoveResponderRequest]) (*connect.Response[v1.RemoveResponderResponse], error)
+}
+
+// NewResponderServiceClient constructs a client for the orbit.v1.ResponderService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewResponderServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ResponderServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	responderServiceMethods := v1.File_orbit_v1_join_proto.Services().ByName("ResponderService").Methods()
+	return &responderServiceClient{
+		listResponders: connect.NewClient[v1.ListRespondersRequest, v1.ListRespondersResponse](
+			httpClient,
+			baseURL+ResponderServiceListRespondersProcedure,
+			connect.WithSchema(responderServiceMethods.ByName("ListResponders")),
+			connect.WithClientOptions(opts...),
+		),
+		removeResponder: connect.NewClient[v1.RemoveResponderRequest, v1.RemoveResponderResponse](
+			httpClient,
+			baseURL+ResponderServiceRemoveResponderProcedure,
+			connect.WithSchema(responderServiceMethods.ByName("RemoveResponder")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// responderServiceClient implements ResponderServiceClient.
+type responderServiceClient struct {
+	listResponders  *connect.Client[v1.ListRespondersRequest, v1.ListRespondersResponse]
+	removeResponder *connect.Client[v1.RemoveResponderRequest, v1.RemoveResponderResponse]
+}
+
+// ListResponders calls orbit.v1.ResponderService.ListResponders.
+func (c *responderServiceClient) ListResponders(ctx context.Context, req *connect.Request[v1.ListRespondersRequest]) (*connect.Response[v1.ListRespondersResponse], error) {
+	return c.listResponders.CallUnary(ctx, req)
+}
+
+// RemoveResponder calls orbit.v1.ResponderService.RemoveResponder.
+func (c *responderServiceClient) RemoveResponder(ctx context.Context, req *connect.Request[v1.RemoveResponderRequest]) (*connect.Response[v1.RemoveResponderResponse], error) {
+	return c.removeResponder.CallUnary(ctx, req)
+}
+
+// ResponderServiceHandler is an implementation of the orbit.v1.ResponderService service.
+type ResponderServiceHandler interface {
+	// ListResponders shows the registered responders, never their
+	// credentials or loom tokens.
+	ListResponders(context.Context, *connect.Request[v1.ListRespondersRequest]) (*connect.Response[v1.ListRespondersResponse], error)
+	// RemoveResponder revokes a responder: its credential and loom token stop
+	// working, and its next heartbeat is told it was removed.
+	RemoveResponder(context.Context, *connect.Request[v1.RemoveResponderRequest]) (*connect.Response[v1.RemoveResponderResponse], error)
+}
+
+// NewResponderServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewResponderServiceHandler(svc ResponderServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	responderServiceMethods := v1.File_orbit_v1_join_proto.Services().ByName("ResponderService").Methods()
+	responderServiceListRespondersHandler := connect.NewUnaryHandler(
+		ResponderServiceListRespondersProcedure,
+		svc.ListResponders,
+		connect.WithSchema(responderServiceMethods.ByName("ListResponders")),
+		connect.WithHandlerOptions(opts...),
+	)
+	responderServiceRemoveResponderHandler := connect.NewUnaryHandler(
+		ResponderServiceRemoveResponderProcedure,
+		svc.RemoveResponder,
+		connect.WithSchema(responderServiceMethods.ByName("RemoveResponder")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orbit.v1.ResponderService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case ResponderServiceListRespondersProcedure:
+			responderServiceListRespondersHandler.ServeHTTP(w, r)
+		case ResponderServiceRemoveResponderProcedure:
+			responderServiceRemoveResponderHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedResponderServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedResponderServiceHandler struct{}
+
+func (UnimplementedResponderServiceHandler) ListResponders(context.Context, *connect.Request[v1.ListRespondersRequest]) (*connect.Response[v1.ListRespondersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.ResponderService.ListResponders is not implemented"))
+}
+
+func (UnimplementedResponderServiceHandler) RemoveResponder(context.Context, *connect.Request[v1.RemoveResponderRequest]) (*connect.Response[v1.RemoveResponderResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.ResponderService.RemoveResponder is not implemented"))
 }
