@@ -73,7 +73,9 @@ func TestSuiteShapeRefusals(t *testing.T) {
 			p.Target.Subscribers = nil
 			cw.Traffic = "127.0.0.1:9"
 		}, wantErr: "needs a subscriber pool"},
-		{name: "an unknown category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"negative-ie", "bogus"} },
+		{name: "an unknown category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Categories = []string{"negative-ie", "bogus"}
+		},
 			wantErr: `unknown conformance category "bogus": want one of `},
 		{name: "an unknown category, assigned", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Categories = []string{"bogus"}
