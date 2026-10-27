@@ -24,7 +24,7 @@ func TestConformanceList(t *testing.T) {
 		{name: "all checks", args: []string{"--list"},
 			want: []string{"CHECK", "UP TO", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
 		{name: "nas only", args: []string{"--list", "--category", "nas"},
-			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "2 checks, up to 5m35s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
+			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "4 checks, up to 6m25s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "longer per-test timeout", args: []string{"--list", "--category", "procedural", "--per-test-timeout", "40s"},
 			want: []string{"NGAP-NG-RESET-ACK", "40s", "at --per-test-timeout 40s"}},
 		{name: "no --amf without --list", args: nil, wantErr: `required flag(s) "amf" not set`},
@@ -100,7 +100,7 @@ func TestAnnouncer(t *testing.T) {
 	a.done()
 	out := w.String()
 	for _, want := range []string{
-		"Running 2 checks, up to 5m35s in total\n",
+		"Running 4 checks, up to 6m25s in total\n",
 		"[1/2] " + nas[0].ID() + " (nas): up to 100ms\n",
 		"[2/2] " + nas[1].ID() + " (nas): up to 10ms\n",
 	} {

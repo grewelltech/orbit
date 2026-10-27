@@ -86,7 +86,9 @@ type AMF struct {
 	// encodeErrs counts downlink PDUs that failed to encode and were
 	// dropped instead of ending the association.
 	encodeErrs atomic.Int64
-	log        *slog.Logger
+	// deregs counts UE-originating Deregistration Requests received.
+	deregs atomic.Int64
+	log    *slog.Logger
 
 	// Options (nastimers.go): T3560 retransmission and release, a crash
 	// after the release, an Authentication Reject, no challenge, T3550
@@ -111,6 +113,28 @@ type AMF struct {
 	forcedIntegrity uint8
 	tamperCaps      bool
 	skipSMC         bool
+	cipheringOrder  []uint8
+	forceCiphering  bool
+	forcedCiphering uint8
+
+	// Accept options (accept.go).
+	undecodableAccept bool
+
+	// UE context release options (release.go).
+	releaseOnDereg       bool
+	ignoreReleaseRequest bool
+
+	// Unknown-DNN options (dnn.go).
+	unknownDNN string
+	dnnAnswer  DNNAnswer
+	dnnCause   uint8
+
+	// Unserved-NSSAI answer (nssai.go).
+	nssaiAnswer NSSAIAnswer
+
+	// regReqs records every Registration Request received, guarded by mu
+	// (RegistrationRequests).
+	regReqs [][]byte
 }
 
 // errCrashed ends every association of a mock that crashed after a release
@@ -262,6 +286,8 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	case ngapType.ProcedureCodeUplinkNASTransport:
 		_, err := a.onUplinkNAS(p, st, up.nasPDU)
 		return err
+	case ngapType.ProcedureCodeUEContextReleaseRequest:
+		return a.onUEContextReleaseRequest(p, st)
 	default:
 		return nil
 	}
@@ -283,6 +309,8 @@ type ueState struct {
 	t3560        *retransmitter               // running T3560 (WithT3560), nil otherwise
 	t3550        *retransmitter               // running T3550 (WithT3550), nil otherwise
 	ueCaps       nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
+	kamf         []byte                       // KAMF from authentication, for the SMC's keys
+	requested    []byte                       // the Requested NSSAI IE's value, nil when absent
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -298,6 +326,10 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 	st.supi = supi
 	st.ueCaps = ueCapsFromRegistration(up.nasPDU)
+	st.requested = requestedNSSAIFromRegistration(up.nasPDU)
+	a.mu.Lock()
+	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
+	a.mu.Unlock()
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
 	var randv [16]byte
@@ -317,7 +349,10 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	if err != nil {
 		return fmt.Errorf("mock amf key derivation: %w", err)
 	}
+	// The 128-NIA2/NEA0 context protects what precedes or replaces the
+	// Security Mode Command; the command derives the selected pair's.
 	st.sec = &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true}
+	st.kamf = vec.KAmf
 
 	if a.noAuthRequest {
 		return nil
@@ -364,6 +399,12 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		// Accept without checking RES* (sim only), send Security Mode Command.
 		return false, a.onAuthenticated(p, st)
 	case f5nas.MsgTypeSecurityModeComplete:
+		if a.nssaiAnswer != AcceptAnyNSSAI && !a.servesRequested(st) {
+			return false, a.answerUnservedNSSAI(p, st)
+		}
+		if a.undecodableAccept {
+			return false, a.sendUndecodableAccept(p, st)
+		}
 		// Send Initial Context Setup Request carrying Registration Accept.
 		acc, err := a.registrationAccept(st)
 		if err != nil {
@@ -388,6 +429,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return true, nil // UE is REGISTERED
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
+	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
+		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
+		return false, a.onDeregistration(p, st)
 	default:
 		return false, nil
 	}
@@ -406,6 +450,10 @@ func (a *AMF) send(p *pipe, pdu ngapType.NGAPPDU) error {
 	}
 	return p.WriteNGAP(1, b)
 }
+
+// Deregistrations reports how many UE-originating Deregistration Requests
+// the mock has received.
+func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
 
 // EncodeErrors reports how many downlink PDUs failed to encode and were
 // dropped; tests use it to assert the mock never produced one.

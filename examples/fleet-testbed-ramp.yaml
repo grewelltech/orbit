@@ -1,7 +1,7 @@
 # A thirty-minute escalating load test: HTTP that gets heavier every six
 # minutes, then delay-sensitive traffic dropped in at peak.
 #
-#   orbit runs start-fleet examples/fleet-testbed-ramp.yaml --name ramp
+#   orbit runs start-fleet examples/fleet-testbed-ramp.yaml -t lxd --name ramp
 #   orbit runs watch
 #
 # How the load escalates. loom's http client is a sequential request loop with
@@ -31,30 +31,13 @@
 kind: fleet
 name: testbed-http-ramp
 
-core:
-  amf: 10.102.0.10:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
 topology:
   gnbs:
     count: 1
-    id_base: 600
     layout: grid
-    source_ips:
-      - 10.102.0.20
-    n3_ips:
-      - 10.103.0.20
 
 fleet:
   count: 100
-  supi_base: "001010100007500"
   distribution: even
   attach_rate: 5/s
   pdu_session: true
@@ -64,19 +47,19 @@ behaviors:
     mix:
       # think: "0" throughout — each member fetches back to back, so the only
       # thing changing between stages is how much data each request moves.
-      - { app: http, name: http-256k, share: 0.2, peer: 10.106.0.30:9551,
+      - { app: http, name: http-256k, share: 0.2,
           params: { object_size: 256KB, think: "0" } }
-      - { app: http, name: http-1m, share: 0.2, peer: 10.106.0.30:9551,
+      - { app: http, name: http-1m, share: 0.2,
           start_after: 6m,
           params: { object_size: 1MB, think: "0" } }
-      - { app: http, name: http-4m, share: 0.2, peer: 10.106.0.30:9551,
+      - { app: http, name: http-4m, share: 0.2,
           start_after: 12m,
           params: { object_size: 4MB, think: "0" } }
-      - { app: http, name: http-16m, share: 0.2, peer: 10.106.0.30:9551,
+      - { app: http, name: http-16m, share: 0.2,
           start_after: 18m,
           params: { object_size: 16MB, think: "0" } }
       # The canary, last, into the heaviest load the run produces.
-      - { app: voip, name: voip-canary, share: 0.2, peer: 10.106.0.30:9551,
+      - { app: voip, name: voip-canary, share: 0.2,
           start_after: 24m,
           params: { codec: pcmu, port_min: "40000", port_max: "40100" } }
 
@@ -84,7 +67,6 @@ behaviors:
   # stage has pushed the path past what it can carry, and it moves well before
   # goodput does.
   latency:
-    target: 10.106.0.30
     interval: 2s
     ues: 6
     timeout: 1s

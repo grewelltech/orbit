@@ -13,7 +13,7 @@ import (
 )
 
 func newUECmd(serverURL *string) *cobra.Command {
-	cmd := &cobra.Command{Use: "ue", Short: "Register and manage simulated UEs"}
+	cmd := &cobra.Command{Use: "ue", Short: "Register and manage software UEs"}
 	cmd.AddCommand(newUERegisterCmd(serverURL))
 	cmd.AddCommand(newUEStatusCmd(serverURL))
 	cmd.AddCommand(newUEDeregisterCmd(serverURL))
@@ -193,7 +193,7 @@ func newUEHandoverCmd(serverURL *string, xn bool) *cobra.Command {
 	cmd.Flags().StringVar(&supi, "supi", "", supiFlagHelp+" of the registered UE")
 	cmd.Flags().StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
 	cmd.Flags().StringVar(&bind, "bind", "", bindFlagHelp)
-	cmd.Flags().StringVar(&gnbN3, "gnb-n3", "", "target gNB N3 address for the downlink tunnel")
+	cmd.Flags().StringVar(&gnbN3, "gnb-n3", "", "target gNB N3 address for the downlink tunnel (required when the UE has a PDU session)")
 	cmd.Flags().Uint32Var(&gnbID, "gnb-id", 0x43, "target gNB ID")
 	cmd.Flags().Uint32Var(&gnbBits, "gnb-bits", 24, "target gNB ID bit length")
 	cmd.Flags().StringVar(&name, "gnb-name", "orbit-gnb-tgt", "target gNB name")

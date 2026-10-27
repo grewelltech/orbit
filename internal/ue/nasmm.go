@@ -17,11 +17,13 @@ import (
 // builders (which attach to this same SD-Core) and the free5gc message
 // tests, cited per message.
 
-// SecurityCapability advertises the NAS algorithms this UE supports
-// (TS 24.501 §9.11.3.54). ORBIT implements ciphering NEA0 and integrity
-// NIA2 only, so it advertises exactly those: advertising an algorithm we
-// cannot perform would let the AMF select it. With the ATB-01 AMF offering
-// integrity NIA1 then NIA2 (D-8), advertising only NIA2 forces NIA2.
+// SecurityCapability is the UE's default advertised NAS algorithms
+// (TS 24.501 §9.11.3.54): ciphering NEA0 and integrity 128-NIA2. The engine
+// completes registration with any advertised 128-NIA1/2/3 and NEA0/1/2/3
+// pair the AMF selects; the default stays NEA0 so the NAS in packet
+// captures stays readable, and 128-NIA2 so existing runs select what they
+// always did (with the ATB-01 AMF offering integrity NIA1 then NIA2 (D-8),
+// advertising only NIA2 forces NIA2). NewSecurityCapability builds others.
 //
 //	octet 1 (5GS enc): bit8=EA0 bit7=EA1 bit6=EA2 bit5=EA3 → 0x80 = EA0
 //	octet 2 (5GS int): bit8=IA0 bit7=IA1 bit6=IA2 bit5=IA3 → 0x20 = IA2
@@ -80,11 +82,30 @@ func setGmmHeader(epd interface {
 	msgID.SetMessageType(msgType)
 }
 
+// RegistrationOption adjusts the Registration Request BuildRegistrationRequest
+// builds.
+type RegistrationOption func(*nasMessage.RegistrationRequest) error
+
+// WithCapability5GMM sets the 5GMM capability IE's value (TS 24.501
+// 9.11.3.1, octet 3 onward, 1 to 13 octets) in place of the default single
+// zero octet 3.
+func WithCapability5GMM(value []byte) RegistrationOption {
+	return func(req *nasMessage.RegistrationRequest) error {
+		if len(value) < 1 || len(value) > len(req.Capability5GMM.Octet) {
+			return fmt.Errorf("5GMM capability value must be 1 to %d octets, got %d", len(req.Capability5GMM.Octet), len(value))
+		}
+		req.Capability5GMM.SetLen(uint8(len(value)))
+		copy(req.Capability5GMM.Octet[:], value)
+		return nil
+	}
+}
+
 // BuildRegistrationRequest builds an initial Registration Request carrying
 // the UE's SUCI (TS 24.501 §8.2.6). ngKSI is set to "no key available" (7)
 // on the first registration. Mandatory IEs plus the UE security capability
-// (so the AMF can run Security Mode Command) and requested NSSAI.
-func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, requestedNSSAI *nasType.RequestedNSSAI) ([]byte, error) {
+// (so the AMF can run Security Mode Command) and requested NSSAI; each opt
+// adjusts the result.
+func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, requestedNSSAI *nasType.RequestedNSSAI, opts ...RegistrationOption) ([]byte, error) {
 	m, gmm := newGmm(f5nas.MsgTypeRegistrationRequest)
 	req := nasMessage.NewRegistrationRequest(f5nas.MsgTypeRegistrationRequest)
 	setGmmHeader(&req.ExtendedProtocolDiscriminator, &req.SpareHalfOctetAndSecurityHeaderType,
@@ -112,6 +133,11 @@ func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, 
 
 	if requestedNSSAI != nil {
 		req.RequestedNSSAI = requestedNSSAI
+	}
+	for _, o := range opts {
+		if err := o(req); err != nil {
+			return nil, err
+		}
 	}
 
 	gmm.RegistrationRequest = req

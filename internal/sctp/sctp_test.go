@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"syscall"
 	"testing"
 
 	isctp "github.com/ishidawataru/sctp"
@@ -382,5 +383,49 @@ func TestDialUnboundReportsOneAddress(t *testing.T) {
 	}
 	if host != bhost {
 		t.Errorf("unbound source IP %s differs from the bound one %s", host, bhost)
+	}
+}
+
+// A link-local IPv6 AMF address without a zone gets a hint naming the zone,
+// from Dial and SourceFor alike, without the probe running; a zoned one
+// reaches the probe; global IPv6 and IPv4 link-local are unaffected (#120).
+func TestLinkLocalAMFNeedsZone(t *testing.T) {
+	const hint = `link-local AMF address "[fe80::1]:38412" needs a %zone, e.g. [fe80::1%eth0]:38412`
+	tests := []struct {
+		name      string
+		raddr     string
+		wantHint  bool
+		wantProbe bool
+	}{
+		{name: "unzoned link-local", raddr: "[fe80::1]:38412", wantHint: true},
+		{name: "zoned link-local", raddr: "[fe80::1%lo]:38412", wantProbe: true},
+		{name: "global IPv6", raddr: "[2001:db8::1]:38412", wantProbe: true},
+		{name: "IPv4 link-local", raddr: "169.254.1.1:38412", wantProbe: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			probed := false
+			_, err := Dial(context.Background(), "", tc.raddr, WithSourceResolver(func(*net.UDPAddr) (net.IP, error) {
+				probed = true
+				return nil, syscall.ENETUNREACH
+			}))
+			if probed != tc.wantProbe {
+				t.Errorf("probe ran = %v, want %v", probed, tc.wantProbe)
+			}
+			if got := err != nil && err.Error() == hint; got != tc.wantHint {
+				t.Errorf("Dial err = %v, want the zone hint %v", err, tc.wantHint)
+			}
+			if tc.wantHint {
+				var de *DialError
+				if !errors.As(err, &de) {
+					t.Errorf("Dial err %T is not a *DialError", err)
+				}
+				if _, err := SourceFor(tc.raddr); err == nil || err.Error() != hint {
+					t.Errorf("SourceFor err = %v, want the zone hint", err)
+				}
+			} else if err != nil && strings.Contains(err.Error(), "%zone") {
+				t.Errorf("Dial err %q hints at a zone", err)
+			}
+		})
 	}
 }

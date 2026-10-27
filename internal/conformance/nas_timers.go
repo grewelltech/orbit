@@ -130,7 +130,8 @@ func (c nasT3560AuthRetransmit) Run(ctx context.Context, env Env) Result {
 	})
 	_, err = h.RegisterWithProbe(actx, &engine.AttachProbe{
 		Withhold:   map[uint8]bool{f5nas.MsgTypeAuthenticationResponse: true},
-		OnDownlink: o.note,
+		OnDownlink: o.noteRelease,
+		OnNAS:      o.noteNAS,
 	})
 	noRequest.Stop()
 	o.stop()
@@ -182,13 +183,16 @@ func estimate(times []time.Time, nominal time.Duration) time.Duration {
 // max(T_est, tmax), long enough to see a late release; one more
 // retransmission, or the release, ends the observation at once. first, if
 // set, judges the first message: false ends the attach at once (refused).
+// NAS messages come from AttachProbe.OnNAS (noteNAS), typed from the
+// decoded message so the observation works under any cipher; the release,
+// an NGAP message, from OnDownlink (noteRelease).
 type retransmitObservation struct {
 	cancel          context.CancelFunc
 	msgType         uint8
 	nominal, tmax   time.Duration
 	retransmissions int
 	release         bool
-	first           func(engine.DownlinkEvent) bool
+	first           func(engine.NASEvent) bool
 
 	mu     sync.Mutex
 	timer  *time.Timer
@@ -205,14 +209,23 @@ type retransmitSnapshot struct {
 	refused      bool        // first judged the first message unusable
 }
 
-func (o *retransmitObservation) note(ev engine.DownlinkEvent) {
+// noteRelease records a UE Context Release Command (AttachProbe.OnDownlink).
+func (o *retransmitObservation) noteRelease(ev engine.DownlinkEvent) {
+	if ev.Procedure != "UEContextRelease" {
+		return
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	switch {
-	case ev.Procedure == "UEContextRelease":
-		o.snap.release = ev.At
-		o.cancel()
-	case ev.NASType == o.msgType:
+	o.snap.release = ev.At
+	o.cancel()
+}
+
+// noteNAS records a downlink NAS message (AttachProbe.OnNAS).
+func (o *retransmitObservation) noteNAS(ev engine.NASEvent) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	switch mt := ev.MessageType(); mt {
+	case o.msgType:
 		o.snap.times = append(o.snap.times, ev.At)
 		n := len(o.snap.times) - 1 // retransmissions so far
 		est := estimate(o.snap.times, o.nominal)
@@ -235,9 +248,9 @@ func (o *retransmitObservation) note(ev engine.DownlinkEvent) {
 		default:
 			o.cancel() // a retransmission too many: the count is decided
 		}
-	case ev.NASType == f5nas.MsgTypeAuthenticationReject:
+	case f5nas.MsgTypeAuthenticationReject:
 		o.snap.reject = "Authentication Reject"
-	case ev.NASType == f5nas.MsgTypeRegistrationReject:
+	case f5nas.MsgTypeRegistrationReject:
 		o.snap.reject = "Registration Reject"
 	}
 }

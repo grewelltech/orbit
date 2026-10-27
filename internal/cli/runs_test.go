@@ -74,7 +74,7 @@ func stubRunServer(t *testing.T, s *stubRunService) *string {
 
 func runRunsCmd(t *testing.T, url *string, args ...string) string {
 	t.Helper()
-	cmd := newRunsCmd(url)
+	cmd := newRunsCmd(url, options{})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -129,7 +129,7 @@ func TestRunsStop(t *testing.T) {
 // on stderr.
 func TestRunsStartLoadBuildsSpec(t *testing.T) {
 	s := &stubRunService{startRunID: "run-new"}
-	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd := newRunsCmd(stubRunServer(t, s), options{})
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -170,7 +170,8 @@ func TestRunsStartLoadBuildsSpec(t *testing.T) {
 func TestRunsStartFleetSendsYAMLAndCreds(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fleet.yaml")
-	if err := os.WriteFile(path, []byte("kind: fleet\nname: f\n"), 0o600); err != nil {
+	// A self-contained file (its own core), so no target is involved.
+	if err := os.WriteFile(path, []byte("kind: fleet\nname: f\ncore:\n  amf: 192.0.2.1:38412\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s := &stubRunService{startRunID: "run-fleet"}
@@ -232,7 +233,7 @@ func TestRunsStartLoadMapsRampSoakPDU(t *testing.T) {
 // A malformed ramp is rejected locally.
 func TestRunsStartLoadRejectsBadRamp(t *testing.T) {
 	s := &stubRunService{startRunID: "run-x"}
-	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd := newRunsCmd(stubRunServer(t, s), options{})
 	cmd.SetArgs([]string{"start-load", "--amf", "a:1", "--base-imsi", "1", "--ki", "00112233445566778899aabbccddeeff",
 		"--opc", "000102030405060708090a0b0c0d0e0f", "--mcc", "208", "--mnc", "93", "--ramp", "nope"})
 	cmd.SetOut(new(bytes.Buffer))
@@ -259,7 +260,7 @@ func TestRunsRejectsMissingCreds(t *testing.T) {
 	t.Setenv("ORBIT_KI", "")
 	t.Setenv("ORBIT_OPC", "")
 	s := &stubRunService{startRunID: "run-x"}
-	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd := newRunsCmd(stubRunServer(t, s), options{})
 	cmd.SetArgs([]string{"start-load", "--amf", "a:1", "--base-imsi", "1", "--mcc", "208", "--mnc", "93"})
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
@@ -275,7 +276,7 @@ func TestRunsRejectsMissingCreds(t *testing.T) {
 // A malformed Ki is rejected locally, before any request.
 func TestRunsRejectsBadHexKey(t *testing.T) {
 	s := &stubRunService{startRunID: "run-x"}
-	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd := newRunsCmd(stubRunServer(t, s), options{})
 	cmd.SetArgs([]string{"start-load", "--amf", "a:1", "--base-imsi", "1", "--mcc", "208", "--mnc", "93",
 		"--ki", "not-hex", "--opc", "000102030405060708090a0b0c0d0e0f"})
 	cmd.SetOut(new(bytes.Buffer))
@@ -291,7 +292,7 @@ func TestRunsRejectsBadHexKey(t *testing.T) {
 // watch with no run id and no active run reports a clear error, not a hang.
 func TestRunsWatchNoActiveRun(t *testing.T) {
 	s := &stubRunService{} // ListRuns returns nothing
-	cmd := newRunsCmd(stubRunServer(t, s))
+	cmd := newRunsCmd(stubRunServer(t, s), options{})
 	cmd.SetArgs([]string{"watch"})
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
