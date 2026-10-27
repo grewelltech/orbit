@@ -3,6 +3,8 @@ package cli
 import (
 	"errors"
 	"fmt"
+
+	"connectrpc.com/connect"
 )
 
 // Exit codes (ADR-0008 open question 5). A failed gate keeps the 1 that
@@ -46,12 +48,26 @@ type ExitError struct {
 func (e *ExitError) Error() string { return e.Err.Error() }
 func (e *ExitError) Unwrap() error { return e.Err }
 
-// exitWith wraps err with an exit code; nil stays nil.
+// exitWith wraps err with an exit code; nil stays nil. A server's
+// INVALID_ARGUMENT or NOT_FOUND is bad input whatever the stage (a wrong
+// run ID, an invalid request): could not start, never "did not complete".
 func exitWith(code int, err error) error {
 	if err == nil {
 		return nil
 	}
+	if badInput(err) {
+		code = ExitCouldNotStart
+	}
 	return &ExitError{Code: code, Err: err}
+}
+
+// badInput reports whether err is the server refusing the request itself.
+func badInput(err error) bool {
+	switch connect.CodeOf(err) {
+	case connect.CodeInvalidArgument, connect.CodeNotFound:
+		return true
+	}
+	return false
 }
 
 // gateFailed is the error a command returns for a failed gate.

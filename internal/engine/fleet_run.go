@@ -104,6 +104,8 @@ type FleetBehaviors struct {
 // FleetReport summarises a fleet run.
 type FleetReport struct {
 	Attached, AttachFailed int
+	// Abandoned are attaches a finish cut off: neither attached nor failed.
+	Abandoned              int
 	AttachElapsed          time.Duration
 	Handovers, HandoverErr int
 	TrafficFlows           int
@@ -246,11 +248,20 @@ func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh
 	if attachRate == nil && spec.RateRPS > 0 {
 		attachRate = load.Constant{RPS: spec.RateRPS}
 	}
+	runCtx := ctx
+	actx, attemptsDone := attemptContext(ctx)
+	defer attemptsDone()
 	lrep := load.Run(ctx, load.Config{
 		Total: spec.Count, Concurrency: orDefaultInt(spec.Concurrency, 64), Rate: attachRate,
 		SampleInterval: spec.SampleEvery, Observer: spec.Observer,
+		AttemptContext: actx, Abandoning: func() bool { return Finishing(runCtx) },
 	}, func(ctx context.Context, i int) load.Sample {
 		fu, metrics, err := attachFleetUE(ctx, f, spec, pool, i, ev, live)
+		if err != nil && ctx.Err() != nil && Finishing(runCtx) {
+			// Cut off at the end of a finish: abandoned, not a failure
+			// (load.Run counts it).
+			return load.Sample{Err: err, SUPI: fleetSUPI(spec, i)}
+		}
 		gnbLabel := gnbAttributionLabel(f.gnbConfigFor(spec.gnbForUE(i, len(f.sessions))))
 		amu.Lock()
 		defer amu.Unlock()
@@ -269,6 +280,7 @@ func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh
 		return load.Sample{Metrics: metrics, SUPI: fu.sess.SUPI, GNB: gnbLabel}
 	})
 	rep.Latencies, rep.AchievedRate, rep.Resources = lrep.Latencies, lrep.AchievedRate, lrep.Resources
+	rep.Abandoned = lrep.Abandoned
 	rep.Attached = len(ues)
 	rep.AttachElapsed = time.Since(start)
 	// The aggregated stand-in for the per-UE successes normal verbosity does

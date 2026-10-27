@@ -20,8 +20,12 @@ var waitPoll = 500 * time.Millisecond
 
 // waitHelp is the --wait flag's help.
 const waitHelp = "follow the run to its end and exit with its result: 0 passed, 1 a gate failed, " +
-	"2 did not complete, 3 could not start. Ctrl-C finishes the run (gates judged on the results " +
+	"2 did not complete, 3 could not start. Without gates, exit 0 means the run completed, not that " +
+	"the core passed; add gates to judge it. Ctrl-C finishes the run (gates judged on the results " +
 	"so far), a second Ctrl-C cancels it; SIGTERM cancels"
+
+// waitSignalsFn installs --wait's signal handler; tests replace it.
+var waitSignalsFn = waitSignals
 
 // waitSignals is SIGINT and SIGTERM for --wait, until stop.
 func waitSignals() (sigs <-chan os.Signal, stop func()) {
@@ -77,6 +81,9 @@ func waitRun(ctx context.Context, out, errOut io.Writer, c orbitv1connect.RunSer
 		return exitWith(ExitDidNotComplete, fmt.Errorf("run %s has no report: %w", id, err))
 	}
 	printWaitReport(out, run, r.Msg)
+	if w := incompleteWorkload(r.Msg); w != "" {
+		return exitWith(ExitDidNotComplete, fmt.Errorf("run %s: workload %s did not complete", id, w))
+	}
 	failed := 0
 	for _, g := range r.Msg.GetGates() {
 		if !g.GetPassed() {
@@ -141,4 +148,22 @@ func soakLine(attempted, distinct uint32) string {
 		return ""
 	}
 	return fmt.Sprintf("soak: %d attempts across %d SUPIs", attempted, distinct)
+}
+
+// incompleteWorkload names a workload of the report that did not
+// complete: one with no report (it failed, was stopped or never ran) or
+// a conformance suite cut short; "" when every workload completed.
+func incompleteWorkload(r *orbitv1.GetRunReportResponse) string {
+	for _, w := range r.GetWorkloads() {
+		switch {
+		case w.GetLoad() == nil && w.GetFleet() == nil && w.GetConformance() == nil,
+			w.GetConformance().GetIncomplete():
+			name := w.GetWorkload()
+			if name == "" {
+				name = "(unnamed)"
+			}
+			return name
+		}
+	}
+	return ""
 }

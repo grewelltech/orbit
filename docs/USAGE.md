@@ -417,10 +417,15 @@ commands, `orbit load` and `orbit conformance` included, use the same codes.
 |---|---|---|
 | 0 | the run completed and every gate passed (or it had none) | |
 | 1 | a gate failed | fix the core: an SLO breached, or a conformance check failed outside the expected list. This is the code `orbit load --slo-*` and `orbit conformance` have always used |
-| 2 | the run did not complete | it failed, was cancelled, or a workload did not complete (a run has no report) |
+| 2 | the run did not complete | it failed or was cancelled, or a workload did not complete (it failed, never ran, or a suite was cut short) |
 | 3 | the run could not start | fix the lab: an invalid plan, a lease another run holds, no server, a usage error |
 
 The meaning is also printed on stderr at exit: `exit 1: a gate failed`.
+
+Without gates, exit 0 means the run completed, not that the core passed:
+add gates to judge it. An error once the run has an ID leaves its outcome
+unknown and exits 2. A refused request (an invalid argument, a run ID that
+does not exist) is bad input and exits 3, whenever it happens.
 
 ### Finishing a run, and soaks
 

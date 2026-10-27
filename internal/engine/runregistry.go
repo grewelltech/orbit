@@ -432,10 +432,57 @@ func (r *RunRegistry) Stop(id string) (RunInfo, error) {
 		return RunInfo{}, &ErrRunNotFound{ID: id}
 	}
 	if !rec.info.State.Terminal() {
+		// A cancel after a finish overrides it: in-flight attempts are cut
+		// and the run ends CANCELLED.
+		rec.finishing.Store(false)
 		rec.info.State = RunDraining
 		rec.cancel()
 	}
 	return rec.info, nil
+}
+
+// finishGrace bounds how long a finish lets attempts already in flight run
+// on: about one attach's worth (registration, authentication, security
+// mode and a PDU session, each under its NAS timers). Attempts still going
+// then are abandoned.
+const finishGrace = 15 * time.Second
+
+// attemptContext is the context a run's attempts run under. A cancel cuts
+// them with the run; a finish (Finishing) lets those in flight complete,
+// for up to finishGrace, while the dispatch stops. A cancel after the
+// finish cuts them at once. Callers cancel it when the run returns.
+func attemptContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	actx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		select {
+		case <-actx.Done():
+			return
+		case <-ctx.Done():
+		}
+		if !Finishing(ctx) {
+			cancel()
+			return
+		}
+		grace := time.NewTimer(finishGrace)
+		defer grace.Stop()
+		tick := time.NewTicker(50 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-actx.Done():
+				return
+			case <-grace.C:
+				cancel()
+				return
+			case <-tick.C:
+				if !Finishing(ctx) { // cancelled after the finish
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return actx, cancel
 }
 
 // Finish stops a run as a finish rather than a cancel: its launchers stop

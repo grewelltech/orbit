@@ -544,11 +544,14 @@ func TestForeverGatesJudgedOnFinish(t *testing.T) {
 		dir, runs, _ := suiteServer(t)
 		p := loadPlan(func(p *orbitv1.RunPlan) {
 			p.Target.Core.Amf = addr
-			p.Target.Subscribers[0].Count = 10
-			pop(p).Attach = &orbitv1.AttachProfile{Count: 10, Rate: 20, Concurrency: 2}
+			// The reviewer's repro: concurrency 16 keeps 16 attaches in
+			// flight at the stop, and a strict gate on a clean core must
+			// still pass on a finish.
+			p.Target.Subscribers[0].Count = 50
+			pop(p).Attach = &orbitv1.AttachProfile{Count: 50, Rate: 500, Concurrency: 16}
 			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
 			p.Gates = []*orbitv1.Gate{{Name: "attach", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{
-				Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.5}}}}
+				Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 1.0}}}}
 		})
 		resp, err := runs.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
 		if err != nil {
@@ -557,8 +560,8 @@ func TestForeverGatesJudgedOnFinish(t *testing.T) {
 		id := resp.Msg.GetRun().GetRunId()
 		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
 			g, err := runs.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
-			if err == nil && g.Msg.GetLoadProgress().GetSucceeded() >= 3 {
-				break
+			if err == nil && g.Msg.GetLoadProgress().GetSucceeded() >= 60 {
+				break // past one cycle of the 50 SUPIs, mid-flight
 			}
 			if time.Now().After(deadline) {
 				t.Fatalf("the soak never attached: %v, %v", g, err)
@@ -586,8 +589,14 @@ func TestForeverGatesJudgedOnFinish(t *testing.T) {
 		if !r.Msg.GetGatesPassed() || len(r.Msg.GetGates()) != 1 || len(r.Msg.GetWorkloads()) != 1 || !r.Msg.GetWorkloads()[0].GetStoppedEarly() {
 			t.Errorf("finished soak: gates %v passed %t, workloads %v", r.Msg.GetGates(), r.Msg.GetGatesPassed(), r.Msg.GetWorkloads())
 		}
-		if l := r.Msg.GetLoad(); l.GetDistinctSupis() == 0 || l.GetDistinctSupis() > 10 || l.GetAttempted() < l.GetDistinctSupis() {
-			t.Errorf("distinct SUPIs %d of attempted %d, want 1..10", l.GetDistinctSupis(), l.GetAttempted())
+		l := r.Msg.GetLoad()
+		if l.GetDistinctSupis() == 0 || l.GetDistinctSupis() > 50 || l.GetAttempted() < l.GetDistinctSupis() {
+			t.Errorf("distinct SUPIs %d of attempted %d, want 1..50", l.GetDistinctSupis(), l.GetAttempted())
+		}
+		// The 16 attaches in flight at the finish complete within its
+		// grace on a mock core: none failed, none abandoned.
+		if l.GetFailed() != 0 || l.GetAbandoned() != 0 {
+			t.Errorf("finished soak: %d failed, %d abandoned; want the in-flight attaches completed", l.GetFailed(), l.GetAbandoned())
 		}
 	}
 }

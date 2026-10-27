@@ -157,3 +157,44 @@ func TestResourceTrendBounded(t *testing.T) {
 		})
 	}
 }
+
+// With an AttemptContext, Run's own context stops only the dispatch:
+// attempts in flight run on. One its AttemptContext then cuts off is
+// abandoned when Abandoning says so (a finish), and failed otherwise (a
+// cancel): abandoned attempts are neither successes nor failures.
+func TestRunAbandonedAttempts(t *testing.T) {
+	tests := []struct {
+		name          string
+		abandoning    bool
+		wantAbandoned int
+		wantFailed    int
+	}{
+		{name: "a finish's bound", abandoning: true, wantAbandoned: 2},
+		{name: "a cancel", abandoning: false, wantFailed: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, stop := context.WithCancel(context.Background())
+			actx, cut := context.WithCancel(context.Background())
+			started := make(chan struct{}, 4)
+			go func() {
+				for i := 0; i < 2; i++ {
+					<-started
+				}
+				stop() // the dispatch ends with two in flight
+				cut()  // and then the bound cuts them
+			}()
+			rep := Run(ctx, Config{Total: 10, Concurrency: 2, AttemptContext: actx,
+				Abandoning: func() bool { return tc.abandoning }},
+				func(c context.Context, _ int) Sample {
+					started <- struct{}{}
+					<-c.Done()
+					return Sample{Err: c.Err()}
+				})
+			if rep.Abandoned != tc.wantAbandoned || rep.Failed != tc.wantFailed || rep.Attempted != tc.wantFailed {
+				t.Errorf("abandoned %d failed %d attempted %d; want %d / %d / %d",
+					rep.Abandoned, rep.Failed, rep.Attempted, tc.wantAbandoned, tc.wantFailed, tc.wantFailed)
+			}
+		})
+	}
+}

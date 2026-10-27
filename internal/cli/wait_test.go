@@ -94,6 +94,11 @@ func TestWaitRun(t *testing.T) {
 			report: &orbitv1.GetRunReportResponse{Gates: []*orbitv1.GateResult{gateResult("ok", true), gateResult("reg", false)}}},
 			wantCode: ExitGateFailed, wantOut: []string{"gate reg: FAIL"}},
 		{name: "failed", stub: &waitStub{runningFor: 0, end: orbitv1.RunState_RUN_STATE_FAILED}, wantCode: ExitDidNotComplete},
+		{name: "a mixed run whose suite never ran", stub: &waitStub{runningFor: 0, end: orbitv1.RunState_RUN_STATE_COMPLETE,
+			report: &orbitv1.GetRunReportResponse{GatesPassed: true, Gates: []*orbitv1.GateResult{gateResult("attach", true)}, Workloads: []*orbitv1.RunReport{
+				{Workload: "pop", Report: &orbitv1.RunReport_Load{Load: &orbitv1.LoadReport{Attempted: 5, Succeeded: 5}}},
+				{Workload: "suite", Kind: orbitv1.RunKind_RUN_KIND_CONFORMANCE}}}},
+			wantCode: ExitDidNotComplete},
 		{name: "SIGINT finishes", stub: &waitStub{runningFor: -1,
 			report: &orbitv1.GetRunReportResponse{Gates: []*orbitv1.GateResult{gateResult("ok", true)}, GatesPassed: true}},
 			sigs: []os.Signal{os.Interrupt}, wantCode: ExitPass, wantStops: []bool{true},
@@ -290,4 +295,68 @@ func (cutStub) StartRun(context.Context, *connect.Request[orbitv1.StartRunReques
 
 func (cutStub) GetRun(context.Context, *connect.Request[orbitv1.GetRunRequest]) (*connect.Response[orbitv1.GetRunResponse], error) {
 	return nil, connect.NewError(connect.CodeUnavailable, errors.New("connection reset"))
+}
+
+// A signal while StartRun is in flight is held, and acted on as soon as
+// the run's ID comes back: the run is finished (SIGINT), not left going.
+func TestStartAndWaitSignalDuringStart(t *testing.T) {
+	old, oldPoll := waitSignalsFn, waitPoll
+	waitPoll = 5 * time.Millisecond
+	ch := make(chan os.Signal, 2)
+	waitSignalsFn = func() (<-chan os.Signal, func()) { return ch, func() {} }
+	defer func() { waitSignalsFn, waitPoll = old, oldPoll }()
+
+	stub := &startingStub{waitStub: waitStub{runningFor: -1,
+		report: &orbitv1.GetRunReportResponse{GatesPassed: true}}, during: func() { ch <- os.Interrupt }}
+	mux := http.NewServeMux()
+	mux.Handle(orbitv1connect.NewRunServiceHandler(stub))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	url := srv.URL
+	cmd := newRunsCmd(&url, options{})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"start-load", "--wait", "--amf", "10.0.0.1:38412", "--base-imsi", "208930100007500",
+		"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f", "--mcc", "208", "--mnc", "93"})
+	err := cmd.Execute()
+	if !equalBools(stub.stops, []bool{true}) || ExitCode(err) != ExitPass {
+		t.Errorf("stops %v, exit %d (%v); want one finish and a pass", stub.stops, ExitCode(err), err)
+	}
+}
+
+// startingStub is a waitStub whose StartRun runs during while it is in
+// flight (a signal arriving mid-start).
+type startingStub struct {
+	waitStub
+	during func()
+}
+
+func (s *startingStub) StartRun(context.Context, *connect.Request[orbitv1.StartRunRequest]) (*connect.Response[orbitv1.StartRunResponse], error) {
+	s.during()
+	return connect.NewResponse(&orbitv1.StartRunResponse{Run: &orbitv1.Run{RunId: "run-w"}}), nil
+}
+
+// A wrong run ID is bad input whatever the stage: runs watch on an unknown
+// run could not start (3), not "did not complete".
+func TestRunsWatchUnknownRunExits3(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.Handle(orbitv1connect.NewRunServiceHandler(notFoundStub{}))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	url := srv.URL
+	cmd := newRunsCmd(&url, options{})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"watch", "run-nope"})
+	if err := cmd.Execute(); ExitCode(err) != ExitCouldNotStart {
+		t.Errorf("exit %d (%v), want 3", ExitCode(err), err)
+	}
+}
+
+type notFoundStub struct {
+	orbitv1connect.UnimplementedRunServiceHandler
+}
+
+func (notFoundStub) RunTelemetry(context.Context, *connect.Request[orbitv1.RunTelemetryRequest], *connect.ServerStream[orbitv1.TelemetryFrame]) error {
+	return connect.NewError(connect.CodeNotFound, errors.New("no run run-nope"))
 }

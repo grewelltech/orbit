@@ -689,6 +689,16 @@ func fleetPlan(data []byte, ki, opc string) (*orbitv1.RunPlan, error) {
 // returns the exit its result calls for. A start the server refuses could
 // not start (exit 3).
 func startAndWait(cmd *cobra.Command, c orbitv1connect.RunServiceClient, req *orbitv1.StartRunRequest, wait bool) error {
+	// With --wait the handler goes in before the start: a Ctrl-C while
+	// StartRun is in flight is held, and acted on (finish, or a cancel on
+	// SIGTERM) as soon as the run's ID comes back, so an interrupted start
+	// never leaves a run going unattended.
+	var sigs <-chan os.Signal
+	if wait {
+		ch, stop := waitSignalsFn()
+		defer stop()
+		sigs = ch
+	}
 	res, err := c.StartRun(cmd.Context(), connect.NewRequest(req))
 	if err != nil {
 		return exitWith(ExitCouldNotStart, err)
@@ -698,8 +708,6 @@ func startAndWait(cmd *cobra.Command, c orbitv1connect.RunServiceClient, req *or
 	if !wait {
 		return nil
 	}
-	sigs, stop := waitSignals()
-	defer stop()
 	// From here the run has an ID: an error that does not say otherwise
 	// leaves its outcome unknown, so it did not complete (2), never "could
 	// not start" (3), which would send CI to fix the lab.

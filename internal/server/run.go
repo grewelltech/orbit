@@ -1170,6 +1170,7 @@ func loadReportProto(r load.Report) *orbitv1.LoadReport {
 		Latency:       procedureLatencies(r.Latencies),
 		Resources:     resourceSamples(r.Resources),
 		DistinctSupis: uint32(r.DistinctSUPIs),
+		Abandoned:     uint32(r.Abandoned),
 	}
 }
 
@@ -1189,6 +1190,7 @@ func fleetReportProto(r engine.FleetReport) *orbitv1.FleetReport {
 	return &orbitv1.FleetReport{
 		Attached:        uint32(r.Attached),
 		AttachFailed:    uint32(r.AttachFailed),
+		Abandoned:       uint32(r.Abandoned),
 		AttachElapsedMs: r.AttachElapsed.Milliseconds(),
 		Handovers:       uint32(r.Handovers),
 		HandoverErrors:  uint32(r.HandoverErr),

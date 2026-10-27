@@ -93,6 +93,11 @@ func newLoadCmd() *cobra.Command {
 				spec.GNBN3Addr = n3
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "network: %s\n", id)
+			// Bad input is refused before the run (exit 3), not reported as
+			// a run that did not complete.
+			if err := spec.Validate(); err != nil {
+				return err
+			}
 
 			// Live progress: a load run is silent for minutes otherwise, and
 			// an operator watching a soak needs to see it degrade as it happens

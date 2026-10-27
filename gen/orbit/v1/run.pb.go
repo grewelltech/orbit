@@ -2805,6 +2805,9 @@ type LoadReport struct {
 	// its attach.count SUPIs for the whole duration, so attempted can exceed
 	// the count: this says across how many subscribers.
 	DistinctSupis uint32 `protobuf:"varint,8,opt,name=distinct_supis,json=distinctSupis,proto3" json:"distinct_supis,omitempty"`
+	// Attempts a finish (StopRun{finish}) cut off after its grace: neither
+	// successes nor failures, and not in attempted or the success ratio.
+	Abandoned     uint32 `protobuf:"varint,9,opt,name=abandoned,proto3" json:"abandoned,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2895,6 +2898,13 @@ func (x *LoadReport) GetDistinctSupis() uint32 {
 	return 0
 }
 
+func (x *LoadReport) GetAbandoned() uint32 {
+	if x != nil {
+		return x.Abandoned
+	}
+	return 0
+}
+
 // ResourceSample is a point-in-time process reading during a soak.
 type ResourceSample struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2973,9 +2983,12 @@ type FleetReport struct {
 	PerGnb []*GnbProgress `protobuf:"bytes,9,rep,name=per_gnb,json=perGnb,proto3" json:"per_gnb,omitempty"`
 	// The attach phase's figures, as LoadReport has them (the same load
 	// controller drives both, ADR-0008 R2), so the same SLO gates read them.
-	Latency       []*ProcedureLatency `protobuf:"bytes,10,rep,name=latency,proto3" json:"latency,omitempty"`
-	AchievedRate  float64             `protobuf:"fixed64,11,opt,name=achieved_rate,json=achievedRate,proto3" json:"achieved_rate,omitempty"`
-	Resources     []*ResourceSample   `protobuf:"bytes,12,rep,name=resources,proto3" json:"resources,omitempty"`
+	Latency      []*ProcedureLatency `protobuf:"bytes,10,rep,name=latency,proto3" json:"latency,omitempty"`
+	AchievedRate float64             `protobuf:"fixed64,11,opt,name=achieved_rate,json=achievedRate,proto3" json:"achieved_rate,omitempty"`
+	Resources    []*ResourceSample   `protobuf:"bytes,12,rep,name=resources,proto3" json:"resources,omitempty"`
+	// Attaches a finish cut off: neither attached nor failed, and not in
+	// the success ratio.
+	Abandoned     uint32 `protobuf:"varint,13,opt,name=abandoned,proto3" json:"abandoned,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3092,6 +3105,13 @@ func (x *FleetReport) GetResources() []*ResourceSample {
 		return x.Resources
 	}
 	return nil
+}
+
+func (x *FleetReport) GetAbandoned() uint32 {
+	if x != nil {
+		return x.Abandoned
+	}
+	return 0
 }
 
 type GetRunReportResponse struct {
@@ -3686,7 +3706,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x04html\x18\x01 \x01(\fR\x04html\x12\x1a\n" +
 	"\bfilename\x18\x02 \x01(\tR\bfilename\",\n" +
 	"\x13GetRunReportRequest\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\xbb\x02\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"\xd9\x02\n" +
 	"\n" +
 	"LoadReport\x12\x1c\n" +
 	"\tattempted\x18\x01 \x01(\rR\tattempted\x12\x1c\n" +
@@ -3697,13 +3717,14 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\rachieved_rate\x18\x05 \x01(\x01R\fachievedRate\x124\n" +
 	"\alatency\x18\x06 \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x126\n" +
 	"\tresources\x18\a \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\x12%\n" +
-	"\x0edistinct_supis\x18\b \x01(\rR\rdistinctSupis\"b\n" +
+	"\x0edistinct_supis\x18\b \x01(\rR\rdistinctSupis\x12\x1c\n" +
+	"\tabandoned\x18\t \x01(\rR\tabandoned\"b\n" +
 	"\x0eResourceSample\x12\x13\n" +
 	"\x05at_ms\x18\x01 \x01(\x03R\x04atMs\x12\x1e\n" +
 	"\n" +
 	"goroutines\x18\x02 \x01(\rR\n" +
 	"goroutines\x12\x1b\n" +
-	"\trss_bytes\x18\x03 \x01(\x04R\brssBytes\"\xf2\x03\n" +
+	"\trss_bytes\x18\x03 \x01(\x04R\brssBytes\"\x90\x04\n" +
 	"\vFleetReport\x12\x1a\n" +
 	"\battached\x18\x01 \x01(\rR\battached\x12#\n" +
 	"\rattach_failed\x18\x02 \x01(\rR\fattachFailed\x12*\n" +
@@ -3717,7 +3738,8 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\alatency\x18\n" +
 	" \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x12#\n" +
 	"\rachieved_rate\x18\v \x01(\x01R\fachievedRate\x126\n" +
-	"\tresources\x18\f \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\"\xe0\x02\n" +
+	"\tresources\x18\f \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\x12\x1c\n" +
+	"\tabandoned\x18\r \x01(\rR\tabandoned\"\xe0\x02\n" +
 	"\x14GetRunReportResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12*\n" +
 	"\x04load\x18\x02 \x01(\v2\x14.orbit.v1.LoadReportH\x00R\x04load\x12-\n" +

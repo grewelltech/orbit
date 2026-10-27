@@ -515,6 +515,9 @@ message LoadReport {
   // its attach.count SUPIs for the whole duration, so attempted can exceed
   // the count: this says across how many subscribers.
   uint32 distinct_supis = 8;
+  // Attempts a finish (StopRun{finish}) cut off after its grace: neither
+  // successes nor failures, and not in attempted or the success ratio.
+  uint32 abandoned = 9;
 }
 
 // ResourceSample is a point-in-time process reading during a soak.
@@ -543,6 +546,9 @@ message FleetReport {
   repeated ProcedureLatency latency = 10;
   double achieved_rate = 11;
   repeated ResourceSample resources = 12;
+  // Attaches a finish cut off: neither attached nor failed, and not in
+  // the success ratio.
+  uint32 abandoned = 13;
 }
 
 message GetRunReportResponse {
