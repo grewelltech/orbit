@@ -19,6 +19,7 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/armplan"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/target"
@@ -117,8 +118,8 @@ func TestLoadArmGolden(t *testing.T) {
 			if !reflect.DeepEqual(got.storm, want) {
 				t.Errorf("engine spec =\n%+v\nwant today's\n%+v", got.storm, want)
 			}
-			if _, err := loadArmPlan(tc.arm); (err == nil) != tc.viaPlan || err != nil && !errors.Is(err, errNoPlan) {
-				t.Errorf("loadArmPlan err = %v, want errNoPlan only off the plan", err)
+			if _, err := armplan.Load(tc.arm); (err == nil) != tc.viaPlan || err != nil && !errors.Is(err, armplan.ErrNoPlan) {
+				t.Errorf("loadArmPlan err = %v, want armplan.ErrNoPlan only off the plan", err)
 			}
 		})
 	}
@@ -152,7 +153,7 @@ func TestLoadArmPlanRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(back.storm, direct.storm) {
 		t.Errorf("round trip spec =\n%+v\nwant\n%+v", back.storm, direct.storm)
 	}
-	again, err := loadArmPlan(arm)
+	again, err := armplan.Load(arm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestFleetArmGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			plan, err := fleetArmPlan(f, creds.GetKi(), creds.GetOpc())
+			plan, err := armplan.Fleet(f, creds.GetKi(), creds.GetOpc())
 			if err != nil {
 				t.Fatalf("fleetArmPlan: %v", err)
 			}
@@ -312,8 +313,8 @@ func TestFleetArmOffThePlan(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := fleetArmPlan(f, archKi, archOpc); !errors.Is(err, errNoPlan) {
-				t.Errorf("fleetArmPlan err = %v, want errNoPlan", err)
+			if _, err := armplan.Fleet(f, archKi, archOpc); !errors.Is(err, armplan.ErrNoPlan) {
+				t.Errorf("fleetArmPlan err = %v, want armplan.ErrNoPlan", err)
 			}
 		})
 	}
