@@ -159,3 +159,17 @@ func TestGetRunArchivedFleetReport(t *testing.T) {
 		}
 	}
 }
+
+// A fleet report carries its attach figures on the wire, as a load
+// report does, so report readers see what the SLO gates are judged on.
+func TestFleetReportProtoCarriesAttachFigures(t *testing.T) {
+	p := fleetReportProto(engine.FleetReport{
+		Attached: 2, AchievedRate: 12.5,
+		Latencies: map[string]load.Stats{"registration": {Count: 2, P50: 3 * time.Millisecond, P99: 9 * time.Millisecond}},
+		Resources: []load.ResourceSample{{At: time.Second, Goroutines: 40, RSSBytes: 1 << 20}},
+	})
+	if p.GetAchievedRate() != 12.5 || len(p.GetLatency()) != 1 || p.GetLatency()[0].GetProcedure() != "registration" ||
+		p.GetLatency()[0].GetP99Ms() != 9 || len(p.GetResources()) != 1 || p.GetResources()[0].GetGoroutines() != 40 {
+		t.Errorf("fleet report proto = %v", p)
+	}
+}

@@ -478,3 +478,40 @@ func TestRunRegistrySubscribeUnknown(t *testing.T) {
 		t.Error("SubscribeEvents on unknown id returned no error")
 	}
 }
+
+// A run's Judge sees its report before the run reads COMPLETE, and the
+// registry keeps the judgement with it; a failed run, or a panicking
+// Judge, has none.
+func TestRunRegistryJudgement(t *testing.T) {
+	tests := []struct {
+		name  string
+		err   error
+		judge func(any) any
+		want  any
+	}{
+		{name: "complete", judge: func(rep any) any { return rep.(*load.Report).Succeeded }, want: 9},
+		{name: "failed", err: errors.New("boom"), judge: func(any) any { return "judged" }},
+		{name: "a panicking judge", judge: func(any) any { panic("bad judge") }},
+		{name: "no judge"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := quietRegistry(0)
+			info, err := r.StartLoad(RunOptions{Judge: tc.judge}, func(context.Context, *load.LiveStats, RunEventFunc) (load.Report, error) {
+				return load.Report{Succeeded: 9}, tc.err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := RunComplete
+			if tc.err != nil {
+				want = RunFailed
+			}
+			waitState(t, r, info.ID, want)
+			got, ok := r.Judgement(info.ID)
+			if ok != (tc.want != nil) || got != tc.want {
+				t.Errorf("Judgement = %v, %t; want %v", got, ok, tc.want)
+			}
+		})
+	}
+}

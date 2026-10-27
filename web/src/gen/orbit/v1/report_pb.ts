@@ -6,7 +6,7 @@ import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { ConformanceResult, ConformanceTally } from "./conformance_pb";
 import { file_orbit_v1_conformance } from "./conformance_pb";
-import type { Gate } from "./plan_pb";
+import type { GateResult } from "./plan_pb";
 import { file_orbit_v1_plan } from "./plan_pb";
 import type { FleetReport, LoadReport, RunKind } from "./run_pb";
 import { file_orbit_v1_run } from "./run_pb";
@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/report.proto.
  */
 export const file_orbit_v1_report: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcmJpdC92MS9yZXBvcnQucHJvdG8SCG9yYml0LnYxIoYCCglSdW5SZXBvcnQSEAoId29ya2xvYWQYASABKAkSHwoEa2luZBgCIAEoDjIRLm9yYml0LnYxLlJ1bktpbmQSJAoEbG9hZBgDIAEoCzIULm9yYml0LnYxLkxvYWRSZXBvcnRIABImCgVmbGVldBgEIAEoCzIVLm9yYml0LnYxLkZsZWV0UmVwb3J0SAASMwoLY29uZm9ybWFuY2UYBSABKAsyHC5vcmJpdC52MS5Db25mb3JtYW5jZVN1bW1hcnlIABIjCgVnYXRlcxgGIAMoCzIULm9yYml0LnYxLkdhdGVSZXN1bHQSFAoMZ2F0ZXNfcGFzc2VkGAcgASgIQggKBnJlcG9ydCJtChJDb25mb3JtYW5jZVN1bW1hcnkSKQoFdGFsbHkYASABKAsyGi5vcmJpdC52MS5Db25mb3JtYW5jZVRhbGx5EiwKB3Jlc3VsdHMYAiADKAsyGy5vcmJpdC52MS5Db25mb3JtYW5jZVJlc3VsdCJcCgpHYXRlUmVzdWx0EhwKBGdhdGUYASABKAsyDi5vcmJpdC52MS5HYXRlEg4KBnBhc3NlZBgCIAEoCBIQCghvYnNlcnZlZBgDIAEoARIOCgZkZXRhaWwYBCABKAlCMFouZ2l0aHViLmNvbS9iZ3Jld2VsbC9vcmJpdC9nZW4vb3JiaXQvdjE7b3JiaXR2MWIGcHJvdG8z", [file_orbit_v1_conformance, file_orbit_v1_plan, file_orbit_v1_run]);
+  fileDesc("ChVvcmJpdC92MS9yZXBvcnQucHJvdG8SCG9yYml0LnYxIoYCCglSdW5SZXBvcnQSEAoId29ya2xvYWQYASABKAkSHwoEa2luZBgCIAEoDjIRLm9yYml0LnYxLlJ1bktpbmQSJAoEbG9hZBgDIAEoCzIULm9yYml0LnYxLkxvYWRSZXBvcnRIABImCgVmbGVldBgEIAEoCzIVLm9yYml0LnYxLkZsZWV0UmVwb3J0SAASMwoLY29uZm9ybWFuY2UYBSABKAsyHC5vcmJpdC52MS5Db25mb3JtYW5jZVN1bW1hcnlIABIjCgVnYXRlcxgGIAMoCzIULm9yYml0LnYxLkdhdGVSZXN1bHQSFAoMZ2F0ZXNfcGFzc2VkGAcgASgIQggKBnJlcG9ydCJtChJDb25mb3JtYW5jZVN1bW1hcnkSKQoFdGFsbHkYASABKAsyGi5vcmJpdC52MS5Db25mb3JtYW5jZVRhbGx5EiwKB3Jlc3VsdHMYAiADKAsyGy5vcmJpdC52MS5Db25mb3JtYW5jZVJlc3VsdEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM", [file_orbit_v1_conformance, file_orbit_v1_plan, file_orbit_v1_run]);
 
 /**
  * RunReport is one workload's end-of-run report, with the gates applied to
@@ -105,42 +105,4 @@ export type ConformanceSummary = Message<"orbit.v1.ConformanceSummary"> & {
  */
 export const ConformanceSummarySchema: GenMessage<ConformanceSummary> = /*@__PURE__*/
   messageDesc(file_orbit_v1_report, 1);
-
-/**
- * GateResult is one gate as the report applied it.
- *
- * @generated from message orbit.v1.GateResult
- */
-export type GateResult = Message<"orbit.v1.GateResult"> & {
-  /**
-   * @generated from field: orbit.v1.Gate gate = 1;
-   */
-  gate?: Gate | undefined;
-
-  /**
-   * @generated from field: bool passed = 2;
-   */
-  passed: boolean;
-
-  /**
-   * the metric's value (SLO gates)
-   *
-   * @generated from field: double observed = 3;
-   */
-  observed: number;
-
-  /**
-   * why it failed, in words
-   *
-   * @generated from field: string detail = 4;
-   */
-  detail: string;
-};
-
-/**
- * Describes the message orbit.v1.GateResult.
- * Use `create(GateResultSchema)` to create a new message.
- */
-export const GateResultSchema: GenMessage<GateResult> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_report, 2);
 

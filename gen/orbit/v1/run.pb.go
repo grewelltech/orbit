@@ -2675,7 +2675,12 @@ type FleetReport struct {
 	// The attach phase per gNB (attempted, succeeded, failed), sorted by gNB
 	// label like LoadProgress.per_gnb. These are the run's totals, unlike
 	// FleetProgress.per_gnb, which counts the UEs attached at the moment.
-	PerGnb        []*GnbProgress `protobuf:"bytes,9,rep,name=per_gnb,json=perGnb,proto3" json:"per_gnb,omitempty"`
+	PerGnb []*GnbProgress `protobuf:"bytes,9,rep,name=per_gnb,json=perGnb,proto3" json:"per_gnb,omitempty"`
+	// The attach phase's figures, as LoadReport has them (the same load
+	// controller drives both, ADR-0008 R2), so the same SLO gates read them.
+	Latency       []*ProcedureLatency `protobuf:"bytes,10,rep,name=latency,proto3" json:"latency,omitempty"`
+	AchievedRate  float64             `protobuf:"fixed64,11,opt,name=achieved_rate,json=achievedRate,proto3" json:"achieved_rate,omitempty"`
+	Resources     []*ResourceSample   `protobuf:"bytes,12,rep,name=resources,proto3" json:"resources,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2773,6 +2778,27 @@ func (x *FleetReport) GetPerGnb() []*GnbProgress {
 	return nil
 }
 
+func (x *FleetReport) GetLatency() []*ProcedureLatency {
+	if x != nil {
+		return x.Latency
+	}
+	return nil
+}
+
+func (x *FleetReport) GetAchievedRate() float64 {
+	if x != nil {
+		return x.AchievedRate
+	}
+	return 0
+}
+
+func (x *FleetReport) GetResources() []*ResourceSample {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
 type GetRunReportResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Run   *Run                   `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
@@ -2780,7 +2806,11 @@ type GetRunReportResponse struct {
 	//
 	//	*GetRunReportResponse_Load
 	//	*GetRunReportResponse_Fleet
-	Report        isGetRunReportResponse_Report `protobuf_oneof:"report"`
+	Report isGetRunReportResponse_Report `protobuf_oneof:"report"`
+	// A plan's gates, as this report judged them (ADR-0008 §2); empty for a
+	// run without gates. gates_passed is true when every gate passed.
+	Gates         []*GateResult `protobuf:"bytes,4,rep,name=gates,proto3" json:"gates,omitempty"`
+	GatesPassed   bool          `protobuf:"varint,5,opt,name=gates_passed,json=gatesPassed,proto3" json:"gates_passed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2845,6 +2875,20 @@ func (x *GetRunReportResponse) GetFleet() *FleetReport {
 		}
 	}
 	return nil
+}
+
+func (x *GetRunReportResponse) GetGates() []*GateResult {
+	if x != nil {
+		return x.Gates
+	}
+	return nil
+}
+
+func (x *GetRunReportResponse) GetGatesPassed() bool {
+	if x != nil {
+		return x.GatesPassed
+	}
+	return false
 }
 
 type isGetRunReportResponse_Report interface {
@@ -3075,7 +3119,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
 	"goroutines\x18\x02 \x01(\rR\n" +
 	"goroutines\x12\x1b\n" +
-	"\trss_bytes\x18\x03 \x01(\x04R\brssBytes\"\xdf\x02\n" +
+	"\trss_bytes\x18\x03 \x01(\x04R\brssBytes\"\xf2\x03\n" +
 	"\vFleetReport\x12\x1a\n" +
 	"\battached\x18\x01 \x01(\rR\battached\x12#\n" +
 	"\rattach_failed\x18\x02 \x01(\rR\fattachFailed\x12*\n" +
@@ -3085,11 +3129,17 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\rtraffic_flows\x18\x06 \x01(\rR\ftrafficFlows\x12#\n" +
 	"\rtraffic_bytes\x18\a \x01(\x04R\ftrafficBytes\x12\"\n" +
 	"\fderegistered\x18\b \x01(\rR\fderegistered\x12.\n" +
-	"\aper_gnb\x18\t \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\"\x9c\x01\n" +
+	"\aper_gnb\x18\t \x03(\v2\x15.orbit.v1.GnbProgressR\x06perGnb\x124\n" +
+	"\alatency\x18\n" +
+	" \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x12#\n" +
+	"\rachieved_rate\x18\v \x01(\x01R\fachievedRate\x126\n" +
+	"\tresources\x18\f \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\"\xeb\x01\n" +
 	"\x14GetRunReportResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12*\n" +
 	"\x04load\x18\x02 \x01(\v2\x14.orbit.v1.LoadReportH\x00R\x04load\x12-\n" +
-	"\x05fleet\x18\x03 \x01(\v2\x15.orbit.v1.FleetReportH\x00R\x05fleetB\b\n" +
+	"\x05fleet\x18\x03 \x01(\v2\x15.orbit.v1.FleetReportH\x00R\x05fleet\x12*\n" +
+	"\x05gates\x18\x04 \x03(\v2\x14.orbit.v1.GateResultR\x05gates\x12!\n" +
+	"\fgates_passed\x18\x05 \x01(\bR\vgatesPassedB\b\n" +
 	"\x06report*\x8f\x01\n" +
 	"\aRunKind\x12\x18\n" +
 	"\x14RUN_KIND_UNSPECIFIED\x10\x00\x12\x11\n" +
@@ -3180,6 +3230,7 @@ var file_orbit_v1_run_proto_goTypes = []any{
 	(*PDUSession)(nil),              // 36: orbit.v1.PDUSession
 	(*RunPlan)(nil),                 // 37: orbit.v1.RunPlan
 	(*Lease)(nil),                   // 38: orbit.v1.Lease
+	(*GateResult)(nil),              // 39: orbit.v1.GateResult
 }
 var file_orbit_v1_run_proto_depIdxs = []int32{
 	0,  // 0: orbit.v1.Run.kind:type_name -> orbit.v1.RunKind
@@ -3223,30 +3274,33 @@ var file_orbit_v1_run_proto_depIdxs = []int32{
 	21, // 38: orbit.v1.LoadReport.latency:type_name -> orbit.v1.ProcedureLatency
 	31, // 39: orbit.v1.LoadReport.resources:type_name -> orbit.v1.ResourceSample
 	20, // 40: orbit.v1.FleetReport.per_gnb:type_name -> orbit.v1.GnbProgress
-	4,  // 41: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
-	30, // 42: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
-	32, // 43: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
-	7,  // 44: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
-	9,  // 45: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
-	11, // 46: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
-	13, // 47: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
-	29, // 48: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
-	27, // 49: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
-	23, // 50: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
-	25, // 51: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
-	8,  // 52: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
-	10, // 53: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
-	12, // 54: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
-	22, // 55: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
-	33, // 56: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
-	28, // 57: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
-	24, // 58: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
-	26, // 59: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
-	52, // [52:60] is the sub-list for method output_type
-	44, // [44:52] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	21, // 41: orbit.v1.FleetReport.latency:type_name -> orbit.v1.ProcedureLatency
+	31, // 42: orbit.v1.FleetReport.resources:type_name -> orbit.v1.ResourceSample
+	4,  // 43: orbit.v1.GetRunReportResponse.run:type_name -> orbit.v1.Run
+	30, // 44: orbit.v1.GetRunReportResponse.load:type_name -> orbit.v1.LoadReport
+	32, // 45: orbit.v1.GetRunReportResponse.fleet:type_name -> orbit.v1.FleetReport
+	39, // 46: orbit.v1.GetRunReportResponse.gates:type_name -> orbit.v1.GateResult
+	7,  // 47: orbit.v1.RunService.StartRun:input_type -> orbit.v1.StartRunRequest
+	9,  // 48: orbit.v1.RunService.StopRun:input_type -> orbit.v1.StopRunRequest
+	11, // 49: orbit.v1.RunService.ListRuns:input_type -> orbit.v1.ListRunsRequest
+	13, // 50: orbit.v1.RunService.GetRun:input_type -> orbit.v1.GetRunRequest
+	29, // 51: orbit.v1.RunService.GetRunReport:input_type -> orbit.v1.GetRunReportRequest
+	27, // 52: orbit.v1.RunService.RenderRunReport:input_type -> orbit.v1.RenderRunReportRequest
+	23, // 53: orbit.v1.RunService.RunTelemetry:input_type -> orbit.v1.RunTelemetryRequest
+	25, // 54: orbit.v1.RunService.RunEvents:input_type -> orbit.v1.RunEventsRequest
+	8,  // 55: orbit.v1.RunService.StartRun:output_type -> orbit.v1.StartRunResponse
+	10, // 56: orbit.v1.RunService.StopRun:output_type -> orbit.v1.StopRunResponse
+	12, // 57: orbit.v1.RunService.ListRuns:output_type -> orbit.v1.ListRunsResponse
+	22, // 58: orbit.v1.RunService.GetRun:output_type -> orbit.v1.GetRunResponse
+	33, // 59: orbit.v1.RunService.GetRunReport:output_type -> orbit.v1.GetRunReportResponse
+	28, // 60: orbit.v1.RunService.RenderRunReport:output_type -> orbit.v1.RenderRunReportResponse
+	24, // 61: orbit.v1.RunService.RunTelemetry:output_type -> orbit.v1.TelemetryFrame
+	26, // 62: orbit.v1.RunService.RunEvents:output_type -> orbit.v1.RunEvent
+	55, // [55:63] is the sub-list for method output_type
+	47, // [47:55] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_run_proto_init() }

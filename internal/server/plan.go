@@ -6,22 +6,22 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
 	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
-// errR3 and errR2 name the roadmap step that lifts a plan restriction, so
-// a client knows the refusal is "not yet", not "never" (ADR-0008 §2).
-var (
-	errR3 = errors.New("is not supported until R3")
-	errR2 = errors.New("is not supported until R2")
-)
+// errR3 names the roadmap step that lifts a plan restriction, so a client
+// knows the refusal is "not yet", not "never" (ADR-0008 §2).
+var errR3 = errors.New("is not supported until R3")
 
 // defaultGNBIDBits is the gNB ID length when the target gives none, as on
 // the CLI (--gnb-id-bits).
@@ -35,7 +35,9 @@ const defaultGNBIDBits = 24
 type planRun struct {
 	load     engine.LoadRunFunc
 	fleet    engine.FleetRunFunc
-	built    engine.FleetRunSpec // the fleet path's engine spec, as run
+	storm    engine.LoadSpec     // the storm path's engine spec, as run
+	built    engine.FleetRunSpec // the persistent path's engine spec, as run
+	beh      engine.FleetBehaviors
 	needs    engine.Needs
 	workload string
 	amf      string   // the gNB IDs' AMF, as given
@@ -61,8 +63,13 @@ func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkl
 	if pop == nil {
 		return nil, nil, fmt.Errorf("workload %q: a conformance or steps workload %w; give a population", w.GetName(), errR3)
 	}
-	if len(p.GetGates()) > 0 {
-		return nil, nil, fmt.Errorf("gates %w", errR2)
+	if err := validateGates(p.GetGates(), w.GetName()); err != nil {
+		return nil, nil, err
+	}
+	if len(p.GetGates()) > 0 && p.GetUntil().GetForever() {
+		// Gates judge a completed run; a forever run only ends by StopRun,
+		// cancelled, with no report to judge.
+		return nil, nil, errors.New("gates need a run that completes; use until.duration or until.complete")
 	}
 	return w, pop, nil
 }
@@ -195,6 +202,13 @@ func gnbName(t *orbitv1.ResolvedTarget, i, n int) string {
 // buildPlan translates a plan (S2). The caller hands assigned IDs back to
 // the rotation if the run then fails to start.
 func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosity) (*planRun, error) {
+	return s.buildPlanAs(p, verbosity, false)
+}
+
+// buildPlanAs is buildPlan, with persistent choosing the persistent
+// strategy even without behaviours: an old fleet arm's plan, since a fleet
+// always kept its UEs.
+func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbosity, persistent bool) (*planRun, error) {
 	w, pop, err := population(p)
 	if err != nil {
 		return nil, err
@@ -218,14 +232,12 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		return nil, fmt.Errorf("subscriber pool %q: %w", sp.GetName(), err)
 	}
 	until := p.GetUntil()
-	if until.GetForever() {
-		return nil, fmt.Errorf("until.forever %w", errR2)
-	}
 	att := pop.GetAttach()
-	if att.GetArrival() == orbitv1.Arrival_ARRIVAL_POISSON || att.GetSeed() != 0 {
-		return nil, fmt.Errorf("attach.arrival poisson and attach.seed %w", errR2)
+	curve, err := planRate(att)
+	if err != nil {
+		return nil, err
 	}
-	count, err := planCount(pop, sp, until.GetDurationMs() > 0)
+	count, err := planCount(pop, sp, until.GetDurationMs() > 0 || until.GetForever())
 	if err != nil {
 		return nil, err
 	}
@@ -259,23 +271,31 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		return nil, err
 	}
 	creds := &orbitv1.Credentials{Ki: sp.GetKi(), Opc: sp.GetOpc()}
-	if pop.GetBehaviors() == nil {
-		spec, err := planLoadSpec(t, pop, sp, creds, count, ids, n2, n3, until)
+	if pop.GetBehaviors() == nil && !persistent {
+		// Storm: today's load run, through the load arm's own translation.
+		lspec, err := planLoadSpec(t, pop, sp, creds, count, ids, n2, n3, until)
 		if err != nil {
 			return fail(err)
 		}
-		fn, needs, err := loadRun(s.log, spec)
+		spec, err := loadSpecFrom(lspec)
 		if err != nil {
 			return fail(err)
 		}
-		out.load, out.needs = fn, needs
+		if _, ok := curve.(*load.Poisson); ok {
+			spec.Rate = curve // Poisson arrival, which a load arm cannot carry
+		}
+		if until.GetForever() {
+			spec.Duration = forever
+		}
+		fn, needs, err := loadRunFrom(s.log, spec)
+		if err != nil {
+			return fail(err)
+		}
+		out.load, out.needs, out.storm = fn, needs, spec
 		return out, nil
 	}
 	if until.GetComplete() {
 		return fail(errors.New("until.complete with behaviours never finishes: behaviours run until the run's duration"))
-	}
-	if att.GetConcurrency() != 0 || att.GetRamp() != nil {
-		return fail(fmt.Errorf("attach.concurrency and attach.ramp for a population with behaviours %w", errR2))
 	}
 	fs, err := planFleetScenario(w, t, pop, sp, count, ids[0], n2, n3, until)
 	if err != nil {
@@ -304,11 +324,23 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		spec.GNBs[i].Config.IDBits = int(gnbBits(t))
 		spec.GNBs[i].Config.Name = gnbName(t, i, len(spec.GNBs))
 	}
+	// The attach controller's knobs a scenario file has no words for. A
+	// constant rate is the scenario's own attach_rate already.
+	if _, constant := curve.(load.Constant); curve != nil && !constant {
+		spec.Rate = curve
+	}
+	if c := att.GetConcurrency(); c > 0 {
+		spec.Concurrency = int(c)
+	}
+	spec.SampleEvery = time.Duration(pop.GetSampleIntervalMs()) * time.Millisecond
+	if until.GetForever() {
+		beh.Duration = forever
+	}
 	fn, needs, err := fleetRunFrom(s.log, s.mgr, spec, beh, verbosity)
 	if err != nil {
 		return fail(err)
 	}
-	out.fleet, out.needs, out.built = fn, needs, spec
+	out.fleet, out.needs, out.built, out.beh = fn, needs, spec, beh
 	return out, nil
 }
 
@@ -532,8 +564,110 @@ func (r *planRun) provenance() []*orbitv1.FieldProvenance {
 		ids[i] = strconv.FormatUint(uint64(id), 10)
 	}
 	return []*orbitv1.FieldProvenance{{
-		Path:   "workloads[" + r.workload + "].population.topology.gnb_ids",
+		Path:   "workloads[" + r.workload + "].topology.gnb_ids",
 		Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_LEASE, Detail: "gNB ID rotation (least recently used) at " + r.amf},
 		Value:  "[" + strings.Join(ids, ",") + "]",
 	}}
+}
+
+// forever is how long an until.forever run's attaching (storm) or
+// behaviours (persistent) last: until StopRun, in practice.
+const forever = 100 * 365 * 24 * time.Hour
+
+// planRate is the attach-rate curve a population asks for: a constant rate
+// or a linear ramp, with Poisson arrival around it when asked (seeded by
+// attach.seed for a reproducible run). nil: concurrency-bound.
+func planRate(a *orbitv1.AttachProfile) (load.Rate, error) {
+	var base load.Rate
+	switch {
+	case a.GetRamp() != nil:
+		r := a.GetRamp()
+		base = load.LinearRamp{Start: r.GetStart(), End: r.GetEnd(), Over: time.Duration(r.GetSeconds()) * time.Second}
+	case a.GetRate() > 0:
+		base = load.Constant{RPS: a.GetRate()}
+	}
+	switch a.GetArrival() {
+	case orbitv1.Arrival_ARRIVAL_POISSON:
+		if base == nil {
+			return nil, errors.New("attach.arrival poisson needs attach.rate or attach.ramp")
+		}
+		return load.NewPoisson(base, a.GetSeed()), nil
+	case orbitv1.Arrival_ARRIVAL_UNSPECIFIED, orbitv1.Arrival_ARRIVAL_UNIFORM:
+		if a.GetSeed() != 0 {
+			return nil, errors.New("attach.seed seeds Poisson arrival; set attach.arrival poisson")
+		}
+		return base, nil
+	}
+	return nil, fmt.Errorf("attach.arrival %v is not supported", a.GetArrival())
+}
+
+// planReport is a completed plan run's report for its one workload, with
+// the plan's gates applied: from the engine's report while the run is in
+// the registry. nil when the run was not a plan.
+func planReport(plan *orbitv1.RunPlan, load *orbitv1.LoadReport, fleet *orbitv1.FleetReport) *orbitv1.RunReport {
+	if plan == nil || len(plan.GetWorkloads()) != 1 {
+		return nil
+	}
+	r := &orbitv1.RunReport{Workload: plan.GetWorkloads()[0].GetName()}
+	switch {
+	case load != nil:
+		r.Kind, r.Report = orbitv1.RunKind_RUN_KIND_LOAD, &orbitv1.RunReport_Load{Load: load}
+	case fleet != nil:
+		r.Kind, r.Report = orbitv1.RunKind_RUN_KIND_FLEET, &orbitv1.RunReport_Fleet{Fleet: fleet}
+	default:
+		return nil
+	}
+	applyGates(r, plan.GetGates())
+	return r
+}
+
+// planJudge judges a plan run's report as it completes (RunOptions.Judge):
+// its workload's RunReport with the plan's gates applied. It keeps only
+// the workload's name and the gates, none of the plan's secrets.
+func planJudge(plan *orbitv1.RunPlan) func(any) any {
+	var gates []*orbitv1.Gate
+	for _, g := range plan.GetGates() {
+		gates = append(gates, proto.Clone(g).(*orbitv1.Gate))
+	}
+	held := &orbitv1.RunPlan{Gates: gates}
+	for _, w := range plan.GetWorkloads() {
+		held.Workloads = append(held.Workloads, &orbitv1.Workload{Name: w.GetName()})
+	}
+	return func(report any) any {
+		var rr *orbitv1.RunReport
+		switch r := report.(type) {
+		case *load.Report:
+			rr = planReport(held, loadReportProto(*r), nil)
+		case *engine.FleetReport:
+			rr = planReport(held, nil, fleetReportProto(*r))
+		}
+		if rr == nil {
+			return nil // not a typed nil, which would read as a judgement
+		}
+		return rr
+	}
+}
+
+// judgedReport is a copy of a completed plan run's judged report, while
+// the registry keeps the run; nil otherwise. A copy, since callers marshal
+// it or redact it in place while the registry's stays shared.
+func judgedReport(reg *engine.RunRegistry, id string) *orbitv1.RunReport {
+	if v, ok := reg.Judgement(id); ok {
+		if rr, ok := v.(*orbitv1.RunReport); ok {
+			return proto.Clone(rr).(*orbitv1.RunReport)
+		}
+	}
+	return nil
+}
+
+// planVerdict is a plan run's judged report: from the registry, else from
+// the run's archive.
+func (s *runService) planVerdict(id string) *orbitv1.RunReport {
+	if rr := judgedReport(s.reg, id); rr != nil {
+		return rr
+	}
+	if a, ok := s.archive.get(id); ok && len(a.GetReports()) == 1 {
+		return a.GetReports()[0]
+	}
+	return nil
 }

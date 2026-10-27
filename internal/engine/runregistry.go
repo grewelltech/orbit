@@ -74,6 +74,12 @@ type RunOptions struct {
 	// the registry's lock: a caller returns what it allocated for the run,
 	// such as gNB IDs from a GNBRotation.
 	OnRelease func()
+	// Judge, when set, judges a completed run's report (the *load.Report or
+	// *FleetReport its launcher returned) before the run reads COMPLETE, and
+	// the registry keeps what it returns beside the report for as long as
+	// it keeps the run (Judgement): a plan's gate results, which then never
+	// depend on anything the caller may have let go of since.
+	Judge func(report any) any
 }
 
 // LoadRunFunc executes a load run to completion, reporting each attempt to
@@ -94,6 +100,8 @@ type run struct {
 	cancel    context.CancelFunc
 	leases    []LeaseInfo // what the run leased, kept after release for the archive
 	onRelease func()
+	judge     func(report any) any
+	judgement any // Judge's result, set with report on COMPLETE
 }
 
 // FleetRunFunc executes a fleet run to completion, publishing its aggregates
@@ -217,6 +225,7 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 		cancel:    cancel,
 		leases:    want.describe(),
 		onRelease: opts.OnRelease,
+		judge:     opts.Judge,
 	}
 	r.runs[id] = rec
 	r.order = append(r.order, id)
@@ -276,6 +285,10 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 	}
 
 	report, err := r.guard(ctx, id, fn)
+	var judgement any
+	if err == nil && ctx.Err() == nil {
+		judgement = r.judge(id, report)
+	}
 
 	// Decide the terminal state before committing it.
 	var state RunState
@@ -324,7 +337,7 @@ func (r *RunRegistry) exec(ctx context.Context, id string, ring *eventRing, fn r
 	rec.info.State = state
 	rec.info.Err = errMsg
 	if state == RunComplete {
-		rec.report = report
+		rec.report, rec.judgement = report, judgement
 	}
 	if r.log != nil {
 		r.log.Info("run finished", "run", id, "kind", rec.info.Kind, "state", state)
@@ -439,6 +452,40 @@ func (r *RunRegistry) FleetResult(id string) (FleetReport, bool) {
 		return *rep, true
 	}
 	return FleetReport{}, false
+}
+
+// Judgement returns what the run's Judge made of its report: set once the
+// run reads COMPLETE, and kept while the registry keeps the run.
+func (r *RunRegistry) Judgement(id string) (any, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rec := r.runs[id]; rec != nil && rec.judgement != nil {
+		return rec.judgement, true
+	}
+	return nil, false
+}
+
+// judge runs the run's Judge on its report, off the registry's lock (a
+// Judge is the caller's code). A panicking Judge judges nothing.
+func (r *RunRegistry) judge(id string, report any) (out any) {
+	r.mu.Lock()
+	var fn func(any) any
+	if rec := r.runs[id]; rec != nil {
+		fn = rec.judge
+	}
+	r.mu.Unlock()
+	if fn == nil || report == nil {
+		return nil
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			if r.log != nil {
+				r.log.Error("run judge panicked", "run", id, "panic", p)
+			}
+			out = nil
+		}
+	}()
+	return fn(report)
 }
 
 // reportAny returns the run's retained report pointer, or nil.

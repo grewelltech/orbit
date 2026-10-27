@@ -61,12 +61,12 @@ func (s *runService) StartRun(
 	opts := engine.RunOptions{Name: m.GetName(), Verbosity: verbosity}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
-		fn, needs, err := loadRun(s.log, spec.Load)
+		arm, err := s.loadArm(spec.Load, verbosity)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		opts.Needs = needs
-		info, err := s.reg.StartLoad(opts, fn)
+		opts.Needs = arm.needs
+		info, err := s.reg.StartLoad(opts, arm.load)
 		if err != nil {
 			return nil, runStartError(err)
 		}
@@ -74,12 +74,12 @@ func (s *runService) StartRun(
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
-		fn, needs, err := fleetRun(s.log, s.mgr, spec.Fleet, verbosity)
+		arm, err := s.fleetArm(spec.Fleet, verbosity)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		opts.Needs = needs
-		info, err := s.reg.StartFleet(opts, fn)
+		opts.Needs = arm.needs
+		info, err := s.reg.StartFleet(opts, arm.fleet)
 		if err != nil {
 			return nil, runStartError(err)
 		}
@@ -99,6 +99,7 @@ func (s *runService) StartRun(
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		opts.Needs = pr.needs
+		opts.Judge = planJudge(spec.Plan)
 		// Read before the run starts: a run that fails fast releases its
 		// leases (and its IDs) while StartRun is still here.
 		prov := pr.provenance()
@@ -247,6 +248,11 @@ func (s *runService) GetRunReport(
 		if report, ok := s.reg.FleetResult(id); ok {
 			resp.Report = &orbitv1.GetRunReportResponse_Fleet{Fleet: fleetReportProto(report)}
 		}
+	}
+	// A plan's gates, judged as the run completed and kept with its report;
+	// the archive as a second line.
+	if rr := s.planVerdict(id); rr != nil {
+		resp.Gates, resp.GatesPassed = rr.GetGates(), rr.GetGatesPassed()
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -772,23 +778,24 @@ func sortedGNBs(m map[string]int) []string {
 // loadRunFunc builds the launcher the registry runs. It validates the spec up
 // front (so a bad request fails synchronously at StartRun) and closes over
 // engine.RunLoad, wiring the run's LiveStats in as the load Observer.
-func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engine.Needs, error) {
+// loadSpecFrom is a load arm as the storm engine's spec.
+func loadSpecFrom(p *orbitv1.LoadRunSpec) (engine.LoadSpec, error) {
 	if p.GetAmfAddress() == "" {
-		return nil, engine.Needs{}, fmt.Errorf("amf_address is required")
+		return engine.LoadSpec{}, fmt.Errorf("amf_address is required")
 	}
 	if p.GetBaseImsi() == "" {
-		return nil, engine.Needs{}, fmt.Errorf("base_imsi is required")
+		return engine.LoadSpec{}, fmt.Errorf("base_imsi is required")
 	}
 	if len(p.GetGnbs()) == 0 {
-		return nil, engine.Needs{}, fmt.Errorf("at least one gnb is required")
+		return engine.LoadSpec{}, fmt.Errorf("at least one gnb is required")
 	}
 	ki, err := auth.ParseHexKey("Ki", p.GetCredentials().GetKi())
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.LoadSpec{}, err
 	}
 	opc, err := auth.ParseHexKey("OPc", p.GetCredentials().GetOpc())
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.LoadSpec{}, err
 	}
 
 	// N2 source addresses follow the same none / one / one-per-gNB rule as
@@ -796,7 +803,7 @@ func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engi
 	// cannot disagree about what a bind list means.
 	binds, err := engine.ExpandBindAddrs(p.GetBindAddresses(), len(p.GetGnbs()))
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.LoadSpec{}, err
 	}
 
 	// UE identity carries one PLMN, so every gNB in a run must agree on it.
@@ -807,12 +814,12 @@ func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engi
 	for i, gp := range p.GetGnbs() {
 		cfg, err := gnbConfigFromProto(gp)
 		if err != nil {
-			return nil, engine.Needs{}, err
+			return engine.LoadSpec{}, err
 		}
 		if i == 0 {
 			mcc, mnc = cfg.MCC, cfg.MNC
 		} else if cfg.MCC != mcc || cfg.MNC != mnc {
-			return nil, engine.Needs{}, fmt.Errorf("all gnbs must share one PLMN; gnb %d is %s/%s, not %s/%s",
+			return engine.LoadSpec{}, fmt.Errorf("all gnbs must share one PLMN; gnb %d is %s/%s, not %s/%s",
 				i, cfg.MCC, cfg.MNC, mcc, mnc)
 		}
 		gnbs = append(gnbs, engine.GNBSpec{Config: cfg, AMFAddr: p.GetAmfAddress(), BindAddr: binds[i]})
@@ -820,7 +827,7 @@ func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engi
 
 	rate, err := loadRate(p)
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.LoadSpec{}, err
 	}
 
 	spec := engine.LoadSpec{
@@ -839,11 +846,11 @@ func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engi
 	// The same rule the in-process load applies: a malformed base_imsi is one
 	// error before any association is opened (InvalidArgument over the wire).
 	if err := spec.Validate(); err != nil {
-		return nil, engine.Needs{}, err
+		return engine.LoadSpec{}, err
 	}
 	if pdu := p.GetPduSession(); pdu != nil {
 		if pdu.GetSst() > 0xFF {
-			return nil, engine.Needs{}, fmt.Errorf("sst %d exceeds one octet", pdu.GetSst())
+			return engine.LoadSpec{}, fmt.Errorf("sst %d exceeds one octet", pdu.GetSst())
 		}
 		spec.PDUSession = &ue.PDUSessionParams{
 			PDUSessionID: uint8(pdu.GetPduSessionId()),
@@ -853,11 +860,26 @@ func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engi
 		}
 		n3, err := gnb.CanonicalN3(p.GetGnbN3Addr())
 		if err != nil {
-			return nil, engine.Needs{}, fmt.Errorf("gnb_n3_addr: %w", err)
+			return engine.LoadSpec{}, fmt.Errorf("gnb_n3_addr: %w", err)
 		}
 		spec.GNBN3Addr = n3
 	}
 
+	return spec, nil
+}
+
+// loadRun is a load arm's launcher and leases.
+func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engine.Needs, error) {
+	spec, err := loadSpecFrom(p)
+	if err != nil {
+		return nil, engine.Needs{}, err
+	}
+	return loadRunFrom(log, spec)
+}
+
+// loadRunFrom is a built load spec's launcher and leases: the storm
+// strategy of RunPopulation (engine.RunLoad).
+func loadRunFrom(log *slog.Logger, spec engine.LoadSpec) (engine.LoadRunFunc, engine.Needs, error) {
 	needs, err := engine.LoadNeeds(spec)
 	if err != nil {
 		return nil, engine.Needs{}, err
@@ -888,35 +910,19 @@ func (f failureEvents) Observe(s load.Sample) {
 	}
 }
 
-// fleetRunFunc parses the fleet scenario YAML, injects the request's
-// credentials, and builds the launcher via the shared scenario→engine mapping —
-// the same one `orbit run <fleet>` uses, so CLI and server runs are identical.
-func fleetRun(log *slog.Logger, mgr *engine.Manager, p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (engine.FleetRunFunc, engine.Needs, error) {
-	if p.GetScenarioYaml() == "" {
-		return nil, engine.Needs{}, fmt.Errorf("scenario_yaml is required")
-	}
-	// Parse WITHOUT ${ENV} expansion: the YAML is client-supplied, and expanding
-	// it against the server's environment would leak the server's variables back
-	// to the client. Credentials come from the request, below.
-	f, err := scenario.ParseFleetNoEnv([]byte(p.GetScenarioYaml()))
+// fleetSpecFrom is a parsed fleet arm's engine spec and behaviours, with
+// the request's credentials: the server cannot expand the client's
+// secrets from its own environment, so the YAML's ${ENV} are not used.
+func fleetSpecFrom(f *scenario.FleetScenario, creds *orbitv1.Credentials) (engine.FleetRunSpec, engine.FleetBehaviors, error) {
+	ki, err := auth.ParseHexKey("Ki", creds.GetKi())
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.FleetRunSpec{}, engine.FleetBehaviors{}, err
 	}
-	// Credentials come from the request, not the YAML's ${ENV}: the server
-	// cannot expand the client's secrets from its own environment.
-	ki, err := auth.ParseHexKey("Ki", p.GetCredentials().GetKi())
+	opc, err := auth.ParseHexKey("OPc", creds.GetOpc())
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.FleetRunSpec{}, engine.FleetBehaviors{}, err
 	}
-	opc, err := auth.ParseHexKey("OPc", p.GetCredentials().GetOpc())
-	if err != nil {
-		return nil, engine.Needs{}, err
-	}
-	spec, beh, err := scenario.BuildFleetRun(f, ki, opc)
-	if err != nil {
-		return nil, engine.Needs{}, err
-	}
-	return fleetRunFrom(log, mgr, spec, beh, verbosity)
+	return scenario.BuildFleetRun(f, ki, opc)
 }
 
 // fleetRunFrom is a built fleet spec's leases and launcher.
@@ -1096,19 +1102,24 @@ func gnbProgressProtos(m map[string]load.GNBProgress) []*orbitv1.GnbProgress {
 }
 
 func loadReportProto(r load.Report) *orbitv1.LoadReport {
-	out := &orbitv1.LoadReport{
+	return &orbitv1.LoadReport{
 		Attempted:    uint32(r.Attempted),
 		Succeeded:    uint32(r.Succeeded),
 		Failed:       uint32(r.Failed),
 		DurationMs:   r.Duration.Milliseconds(),
 		AchievedRate: r.AchievedRate,
 		Latency:      procedureLatencies(r.Latencies),
+		Resources:    resourceSamples(r.Resources),
 	}
-	for _, rs := range r.Resources {
-		out.Resources = append(out.Resources, &orbitv1.ResourceSample{
-			AtMs:       rs.At.Milliseconds(),
-			Goroutines: uint32(rs.Goroutines),
-			RssBytes:   rs.RSSBytes,
+}
+
+func resourceSamples(rs []load.ResourceSample) []*orbitv1.ResourceSample {
+	var out []*orbitv1.ResourceSample
+	for _, s := range rs {
+		out = append(out, &orbitv1.ResourceSample{
+			AtMs:       s.At.Milliseconds(),
+			Goroutines: uint32(s.Goroutines),
+			RssBytes:   s.RSSBytes,
 		})
 	}
 	return out
@@ -1125,6 +1136,9 @@ func fleetReportProto(r engine.FleetReport) *orbitv1.FleetReport {
 		TrafficBytes:    r.TrafficBytes,
 		Deregistered:    uint32(r.Deregistered),
 		PerGnb:          gnbProgressProtos(r.PerGNB),
+		Latency:         procedureLatencies(r.Latencies),
+		AchievedRate:    r.AchievedRate,
+		Resources:       resourceSamples(r.Resources),
 	}
 }
 

@@ -49,6 +49,7 @@ type Config struct {
 	Duration time.Duration
 	// SampleInterval, if > 0, records a resource sample (goroutines, RSS) at
 	// that cadence for the duration of the run (soak resource-trend hook).
+	// At most MaxResourceSamples are kept: see resourceTrend.
 	SampleInterval time.Duration
 	// Observer, if set, is called once per completed attempt (live metrics).
 	Observer Observer
@@ -165,7 +166,7 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 
 	// Soak resource-trend sampler.
 	var resMu sync.Mutex
-	var resources []ResourceSample
+	resources := newResourceTrend()
 	if cfg.SampleInterval > 0 {
 		go func() {
 			t := time.NewTicker(cfg.SampleInterval)
@@ -176,8 +177,8 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 					return
 				case now := <-t.C:
 					resMu.Lock()
-					resources = append(resources, ResourceSample{
-						At: now.Sub(start), Goroutines: runtime.NumGoroutine(), RSSBytes: rssBytes(),
+					resources.add(func() ResourceSample {
+						return ResourceSample{At: now.Sub(start), Goroutines: runtime.NumGoroutine(), RSSBytes: rssBytes()}
 					})
 					resMu.Unlock()
 				}
@@ -243,7 +244,7 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		rate = float64(succeeded) / dur.Seconds()
 	}
 	resMu.Lock()
-	res := resources
+	res := resources.samples
 	resMu.Unlock()
 	return Report{
 		Attempted:    succeeded + failed,
@@ -254,6 +255,41 @@ func Run(ctx context.Context, cfg Config, fn AttachFunc) Report {
 		Latencies:    rec.stats(),
 		Resources:    res,
 	}
+}
+
+// MaxResourceSamples bounds a run's resource trend, so a soak that runs
+// until stopped (until.forever) keeps bounded memory and archive size.
+const MaxResourceSamples = 10_000
+
+// resourceTrend keeps a run's resource samples evenly spaced over the whole
+// run in at most MaxResourceSamples: when it fills, every other sample is
+// dropped and the cadence halves (the stride doubles), so a long soak keeps
+// its full span at a coarser resolution rather than only its recent end.
+type resourceTrend struct {
+	samples      []ResourceSample
+	stride, tick int
+}
+
+func newResourceTrend() *resourceTrend { return &resourceTrend{stride: 1} }
+
+// add records the sample take() reads on every stride-th tick.
+func (r *resourceTrend) add(take func() ResourceSample) {
+	r.tick++
+	if r.tick%r.stride != 0 {
+		return
+	}
+	r.samples = append(r.samples, take())
+	if len(r.samples) < MaxResourceSamples {
+		return
+	}
+	// Keep the samples on ticks that are multiples of the doubled stride:
+	// indexes 1, 3, 5, … (sample i was taken on tick (i+1)*stride).
+	kept := r.samples[:0]
+	for i := 1; i < len(r.samples); i += 2 {
+		kept = append(kept, r.samples[i])
+	}
+	r.samples = kept
+	r.stride *= 2
 }
 
 func nonZero(f float64) float64 {

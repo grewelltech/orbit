@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -24,8 +25,12 @@ import (
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/load"
+	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/secrets"
+	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
 // planTarget is a target whose AMF fails fast (nothing listens), carrying
@@ -91,15 +96,33 @@ func TestPlanShapeRefusals(t *testing.T) {
 			p.Workloads[0].Kind = &orbitv1.Workload_Conformance{Conformance: &orbitv1.ConformanceWorkload{}}
 		}, wantErr: "until R3"},
 		{name: "a start condition", mut: func(p *orbitv1.RunPlan) { p.Workloads[0].Start = &orbitv1.StartCondition{After: "x"} }, wantErr: "until R3"},
-		{name: "gates", mut: func(p *orbitv1.RunPlan) { p.Gates = []*orbitv1.Gate{{Name: "g"}} }, wantErr: "until R2"},
-		{name: "until forever", mut: func(p *orbitv1.RunPlan) { p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}} }, wantErr: "until R2"},
-		{name: "poisson arrival", mut: func(p *orbitv1.RunPlan) { pop(p).Attach.Arrival = orbitv1.Arrival_ARRIVAL_POISSON }, wantErr: "until R2"},
-		{name: "a seed", mut: func(p *orbitv1.RunPlan) { pop(p).Attach.Seed = 7 }, wantErr: "until R2"},
-		{name: "behaviours with a ramp", mut: func(p *orbitv1.RunPlan) {
-			pop(p).Behaviors = &orbitv1.Behaviors{Latency: &orbitv1.LatencyProbe{Target: "127.0.0.1"}}
-			pop(p).Attach.Concurrency = 0
-			pop(p).Attach.Ramp = &orbitv1.Ramp{Start: 1, End: 2, Seconds: 3}
-		}, wantErr: "until R2"},
+		{name: "a seed without poisson arrival", mut: func(p *orbitv1.RunPlan) { pop(p).Attach.Seed = 7 }, wantErr: "set attach.arrival poisson"},
+		{name: "poisson without a rate", mut: func(p *orbitv1.RunPlan) {
+			pop(p).Attach.Rate = 0
+			pop(p).Attach.Arrival = orbitv1.Arrival_ARRIVAL_POISSON
+		}, wantErr: "needs attach.rate or attach.ramp"},
+		{name: "a gate with an unknown metric", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "nope", Op: orbitv1.CompareOp_COMPARE_OP_LE}}}}
+		}, wantErr: `unknown metric "nope"`},
+		{name: "a gate without a comparison", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "registration.p99_ms"}}}}
+		}, wantErr: "give a comparison"},
+		{name: "a gate on a misspelt procedure", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "regstration.p99_ms", Op: orbitv1.CompareOp_COMPARE_OP_LE}}}}
+		}, wantErr: `gate "g": unknown metric "regstration.p99_ms": want attach.success_ratio, attach.achieved_rate, or <attach|registration|pdu_session>`},
+		{name: "a gate with an unknown comparison", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp(42)}}}}
+		}, wantErr: "not op 42"},
+		{name: "gates on a run that never completes", mut: func(p *orbitv1.RunPlan) {
+			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
+		}, wantErr: "gates need a run that completes"},
+		{name: "a conformance gate", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
+		}, wantErr: "until R3"},
+		{name: "a gate on another workload", mut: func(p *orbitv1.RunPlan) {
+			p.Gates = []*orbitv1.Gate{{Name: "g", Workload: "other", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
+		}, wantErr: `no workload "other"`},
 		{name: "behaviours until complete", mut: func(p *orbitv1.RunPlan) {
 			pop(p).Behaviors = &orbitv1.Behaviors{Latency: &orbitv1.LatencyProbe{Target: "127.0.0.1"}}
 			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}}
@@ -547,5 +570,260 @@ func TestPlanAssignSaveFailureIsUnavailable(t *testing.T) {
 	_, err = s.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
 	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "could not persist gNB-ID rotation") {
 		t.Fatalf("StartRun = %v, want UNAVAILABLE naming the rotation", err)
+	}
+}
+
+// What R2 lifts: Poisson arrival with a seed, a ramp and concurrency for a
+// population with behaviours, and until.forever, reach the engine specs.
+func TestPlanR2AttachControls(t *testing.T) {
+	s := planService(t)
+	storm, err := s.buildPlan(loadPlan(func(p *orbitv1.RunPlan) {
+		pop(p).Attach.Arrival = orbitv1.Arrival_ARRIVAL_POISSON
+		pop(p).Attach.Seed = 42
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
+	}), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := storm.storm.Rate.(*load.Poisson); !ok || storm.storm.Duration != forever || storm.storm.Count != 2 {
+		t.Errorf("storm spec: rate %T, duration %v, count %d; want Poisson, forever, the plan's 2", storm.storm.Rate, storm.storm.Duration, storm.storm.Count)
+	}
+	fleet, err := s.buildPlan(loadPlan(func(p *orbitv1.RunPlan) {
+		pop(p).Attach.Ramp = &orbitv1.Ramp{Start: 1, End: 20, Seconds: 10}
+		pop(p).Attach.Concurrency = 3
+		pop(p).SampleIntervalMs = 250
+		pop(p).Behaviors = &orbitv1.Behaviors{Latency: &orbitv1.LatencyProbe{Target: "127.0.0.1"}}
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_DurationMs{DurationMs: 5000}}
+	}), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, ok := fleet.built.Rate.(load.LinearRamp); !ok || r.End != 20 || fleet.built.Concurrency != 3 || fleet.built.SampleEvery != 250*time.Millisecond {
+		t.Errorf("persistent spec: rate %#v, concurrency %d, sample %v", fleet.built.Rate, fleet.built.Concurrency, fleet.built.SampleEvery)
+	}
+}
+
+// Gates judge a report: each SLO metric against its threshold; a metric
+// with no samples fails its gate.
+func TestApplyGates(t *testing.T) {
+	gate := func(name, metric string, op orbitv1.CompareOp, th float64) *orbitv1.Gate {
+		return &orbitv1.Gate{Name: name, Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metric, Op: op, Threshold: th}}}
+	}
+	le, ge := orbitv1.CompareOp_COMPARE_OP_LE, orbitv1.CompareOp_COMPARE_OP_GE
+	load := &orbitv1.LoadReport{Attempted: 100, Succeeded: 99, AchievedRate: 9.5,
+		Latency: []*orbitv1.ProcedureLatency{{Procedure: "registration", Count: 99, P99Ms: 420}}}
+	fleet := &orbitv1.FleetReport{Attached: 98, AttachFailed: 2, AchievedRate: 4,
+		Latency: []*orbitv1.ProcedureLatency{{Procedure: "registration", Count: 98, P99Ms: 650}}}
+	tests := []struct {
+		name   string
+		report *orbitv1.RunReport
+		gates  []*orbitv1.Gate
+		want   []bool
+	}{
+		{name: "load passes", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Load{Load: load}},
+			gates: []*orbitv1.Gate{gate("reg", "registration.p99_ms", le, 500), gate("ok", metricSuccessRatio, ge, 0.99), gate("rate", metricAchievedRate, ge, 9)},
+			want:  []bool{true, true, true}},
+		{name: "fleet fails one", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Fleet{Fleet: fleet}},
+			gates: []*orbitv1.Gate{gate("reg", "registration.p99_ms", le, 500), gate("ok", metricSuccessRatio, ge, 0.98)},
+			want:  []bool{false, true}},
+		{name: "an unmeasured procedure fails", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Load{Load: load}},
+			gates: []*orbitv1.Gate{gate("pdu", "pdu_session.p99_ms", le, 500)},
+			want:  []bool{false}},
+		{name: "an empty run has no achieved rate", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Load{Load: &orbitv1.LoadReport{}}},
+			gates: []*orbitv1.Gate{gate("rate", metricAchievedRate, le, 10)},
+			want:  []bool{false}},
+		{name: "a gate on another workload is not applied", report: &orbitv1.RunReport{Workload: "w", Report: &orbitv1.RunReport_Load{Load: load}},
+			gates: []*orbitv1.Gate{{Workload: "x", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: ge, Threshold: 1}}}},
+			want:  nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			applyGates(tc.report, tc.gates)
+			var got []bool
+			all := true
+			for _, r := range tc.report.GetGates() {
+				got = append(got, r.GetPassed())
+				all = all && r.GetPassed()
+			}
+			if d := map[string]string{"an unmeasured procedure fails": "no samples for pdu_session.p99_ms",
+				"an empty run has no achieved rate": "no samples for attach.achieved_rate"}[tc.name]; d != "" && tc.report.GetGates()[0].GetDetail() != d {
+				t.Errorf("detail = %q, want it to say no samples, not a breach", tc.report.GetGates()[0].GetDetail())
+			}
+			if !reflect.DeepEqual(got, tc.want) || tc.report.GetGatesPassed() != all {
+				t.Errorf("results = %v (passed %t), want %v", got, tc.report.GetGatesPassed(), tc.want)
+			}
+		})
+	}
+}
+
+// A plan run's report carries its gates: judged from the live report, and
+// kept in the archive for GetRunReport once the run has left the registry.
+func TestPlanReportGates(t *testing.T) {
+	plan := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Gates = []*orbitv1.Gate{{Name: "ok", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{
+			Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.99}}}}
+	})
+	lr := &orbitv1.LoadReport{Attempted: 100, Succeeded: 98}
+	rr := planReport(plan, lr, nil)
+	if rr == nil || rr.GetWorkload() != "pop" || rr.GetKind() != orbitv1.RunKind_RUN_KIND_LOAD {
+		t.Fatalf("planReport = %v", rr)
+	}
+	if len(rr.GetGates()) != 1 || rr.GetGatesPassed() || rr.GetGates()[0].GetObserved() != 0.98 {
+		t.Errorf("gates = %v, passed %t; want one failed at 0.98", rr.GetGates(), rr.GetGatesPassed())
+	}
+	if planReport(nil, lr, nil) != nil || planReport(plan, nil, nil) != nil {
+		t.Error("planReport reported a run that was no plan, or had no report")
+	}
+
+	a := &orbitv1.RunArchive{
+		Run:     &orbitv1.Run{RunId: "r", State: orbitv1.RunState_RUN_STATE_COMPLETE},
+		Report:  &orbitv1.RunArchive_LoadReport{LoadReport: lr},
+		Reports: []*orbitv1.RunReport{rr},
+	}
+	resp, err := archivedReportResponse("r", a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Msg.GetGates()) != 1 || resp.Msg.GetGatesPassed() {
+		t.Errorf("archived GetRunReport gates = %v, passed %t", resp.Msg.GetGates(), resp.Msg.GetGatesPassed())
+	}
+}
+
+// A plan's gates are judged as its run completes and kept with the report:
+// GetRunReport gives the same gates just after completion and again once
+// the run is archived and its spec let go (a window where they vanished).
+func TestPlanGatesSurviveArchiving(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := sctpfront.Listen(t, amf)
+	dir := t.TempDir()
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
+	p := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Target.Core.Amf = addr
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}}
+		p.Gates = []*orbitv1.Gate{
+			{Name: "ok", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.99}}},
+			{Name: "reg", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: "registration.p99_ms", Op: orbitv1.CompareOp_COMPARE_OP_LE, Threshold: 10_000}}},
+		}
+	})
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_COMPLETE)
+	report := func() *orbitv1.GetRunReportResponse {
+		t.Helper()
+		r, err := c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Msg
+	}
+	first := report()
+	if len(first.GetGates()) != 2 || !first.GetGatesPassed() {
+		t.Fatalf("just after completion: gates %v, passed %t; want both passed", first.GetGates(), first.GetGatesPassed())
+	}
+	path := filepath.Join(dir, id+archiveExt)
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+		if _, err := os.Stat(path); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run was never archived")
+		}
+	}
+	second := report()
+	if second.GetGatesPassed() != first.GetGatesPassed() || len(second.GetGates()) != len(first.GetGates()) {
+		t.Fatalf("after archiving: gates %v, passed %t; want %v, %t", second.GetGates(), second.GetGatesPassed(), first.GetGates(), first.GetGatesPassed())
+	}
+	for i := range first.GetGates() {
+		if !proto.Equal(first.GetGates()[i], second.GetGates()[i]) {
+			t.Errorf("gate %d: %v after archiving, %v before", i, second.GetGates()[i], first.GetGates()[i])
+		}
+	}
+}
+
+// The archive redacts a copy of the judged report: GetRunReport, reading
+// the registry's judgement while the run is archived, races nothing, and
+// the judgement keeps what the archive masks (a gate named after a
+// responder token, which the by-value scrub masks there).
+func TestPlanJudgementNotRedactedInPlace(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := sctpfront.Listen(t, amf)
+	dir := t.TempDir()
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
+	p := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Target.Core.Amf = addr
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}}
+		p.Gates = []*orbitv1.Gate{{Name: archToken, Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{
+			Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.5}}}}
+	})
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	path := filepath.Join(dir, id+archiveExt)
+	// Readers poll GetRunReport from before completion until after the
+	// archive is written, so their reads overlap the redaction.
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				_, _ = c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+			}
+		}()
+	}
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(path); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			close(done)
+			wg.Wait()
+			t.Fatal("the run was never archived")
+		}
+	}
+	close(done)
+	wg.Wait()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(archToken)) {
+		t.Error("the archive holds the token")
+	}
+	r, err := c.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := r.Msg.GetGates(); len(g) != 1 || g[0].GetGate().GetName() != archToken {
+		t.Errorf("live gates after archiving = %v; the registry's judgement was redacted in place", g)
 	}
 }
