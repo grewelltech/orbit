@@ -11,9 +11,9 @@ testbed](#appendix-no-core-yet) — it builds one.
 ## 1. What you need from the core operator
 
 ORBIT talks to a real core, so it needs the same things any gNB would, plus
-credentials for the subscribers it will simulate. You write them down once, as
-a **target** (§5), and every command and scenario takes them from there with
-`-t <name>` ([targets.md](targets.md) is the reference):
+credentials for the subscribers its UEs register as. You write them down once,
+as a **target** (§5), and every command and scenario takes them from there
+with `-t <name>` ([targets.md](targets.md) is the reference):
 
 | | Target field | Example |
 |---|---|---|
@@ -24,7 +24,7 @@ a **target** (§5), and every command and scenario takes them from there with
 | DNN | `core.dnn` | `internet` |
 | Test SUPI range | `subscribers[].first_supi`, `count` | `001010100007500`, 100 |
 | Subscriber keys | `subscribers[].ki` / `opc` | 32 hex digits each |
-| Your N2 / N3 addresses | `ran.n2_source_ips` / `ran.n3_ips` | one per simulated gNB |
+| Your N2 / N3 addresses | `ran.n2_source_ips` / `ran.n3_ips` | one per software gNB |
 | The N6 far end (§7) | `app.responders` | `<n6-host>:9551` |
 
 Keep the keys out of the file: `orbit target init` writes `${ORBIT_KI}` and
@@ -200,15 +200,52 @@ interchangeable.
 
 ## 8. Writing a scenario
 
-The shipped examples are annotated and are the fastest way in:
+The shipped examples are annotated and are the fastest way in. They are the
+maintained scenario set: CI parses and validates every one of them, so they do
+not drift from what the parser accepts. They hold no addresses or keys; each
+takes the core, keys and addresses from a target, so any of them runs against
+your lab as is:
 
-| File | What it shows |
-|---|---|
-| `examples/fleet-testbed.yaml` | a small fleet with an http cohort and a latency probe |
-| `examples/fleet-testbed-mobility.yaml` | a gNB grid with mobility and handover |
-| `examples/fleet-testbed-heavy.yaml` | a mixed http/video/voip population |
-| `examples/fleet-testbed-staged.yaml` | cohorts joining over time (`start_after`) |
-| `examples/fleet-testbed-ramp.yaml` | load escalating through the run |
+```sh
+orbit run examples/<file> -t <target>
+```
+
+| File | Kind | Intended use |
+|---|---|---|
+| `examples/attach-and-handover-xn.yaml` | scenario, 1 UE | the single-UE Xn path end to end: attach with a session, data, Xn handover, data again, deregister |
+| `examples/attach-and-handover-n2.yaml` | scenario, 1 UE | the same over N2 (AMF-mediated); its header explains why SD-Core's downlink does not follow |
+| `examples/fleet-testbed.yaml` | fleet, 1 gNB, 6 UEs | a small smoke fleet: one http cohort and a latency probe |
+| `examples/fleet-testbed-attach-rate.yaml` | fleet, 10 gNBs, 1000 UEs | control-plane attach rate: registration only, no sessions |
+| `examples/fleet-testbed-heavy.yaml` | fleet, 1 gNB, 100 UEs | a long mixed http/video/voip population |
+| `examples/fleet-testbed-staged.yaml` | fleet, 1 gNB, 100 UEs | cohorts joining over time (`start_after`) |
+| `examples/fleet-testbed-ramp.yaml` | fleet, 1 gNB, 100 UEs | load escalating through a 30-minute run |
+| `examples/fleet-testbed-mobility.yaml` | fleet, 4 gNBs, 20 UEs | a gNB grid with mobility and Xn handover |
+| `examples/fleet-testbed-full.yaml` | fleet, 10 gNBs, 1000 UEs | everything at once: every app, mobility, an uneven cell layout |
+| `examples/fleet.yaml` | fleet, 10 gNBs, 100 UEs | the generic fleet template (ADR-0004) |
+
+Which control flows each one exercises:
+
+| File | Attach | PDU session | Xn HO | N2 HO | Data after HO | Dereg | Mobility model | http | video | voip | Latency probe |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| attach-and-handover-xn | ✓ | ✓ | ✓ | | ✓ | ✓ | | | | | ✓ |
+| attach-and-handover-n2 | ✓ | ✓ | | ✓ | | ✓ | | | | | |
+| fleet-testbed | ✓ | ✓ | | | | ✓ | | ✓ | | | ✓ |
+| fleet-testbed-attach-rate | ✓ | | | | | ✓ | | | | | |
+| fleet-testbed-heavy | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | ✓ | ✓ |
+| fleet-testbed-staged | ✓ | ✓ | | | | ✓ | | ✓ | ✓ | ✓ | ✓ |
+| fleet-testbed-ramp | ✓ | ✓ | | | | ✓ | | ✓ | | ✓ | ✓ |
+| fleet-testbed-mobility | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | | | ✓ |
+| fleet-testbed-full | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| fleet | ✓ | ✓ | ✓ | | | ✓ | ✓ | ✓ | ✓¹ | ✓ | |
+
+- **Data after HO** means the scenario sends traffic after the handover and
+  checks it (the Xn scenario pings again). Fleet runs with mobility keep their
+  app flows running across handovers, but no step checks continuity.
+- Fleet handovers are Xn only. N2 is covered by the single-UE scenario.
+- Every fleet run deregisters its UEs when it ends.
+- ¹ `fleet.yaml`'s video (and its synthetic web profile) is a loom
+  constant-rate profile, not an app cohort; its http ✓ is the real app cohort,
+  as is every other app ✓.
 
 A minimal one. It holds only the workload; the core, keys, gNB IDs, addresses
 and the far end come from the target (`-t lab1`, or a `target: lab1` line):
@@ -247,8 +284,13 @@ orbit run first-fleet.yaml -t lab1
   range, commands use its first ID; pass `--gnb-id` to pick another.
 - **Stay inside the provisioned SUPI range**, or attach fails with what looks
   like a core problem.
-- **One active run per kind.** Starting a second fleet run is refused; stop the
-  first with `orbit runs stop <run-id>`.
+- **Runs share nothing.** A run leases its SUPIs, gNB IDs and N2 source
+  addresses while it is active; a second run that needs any of them is refused
+  with the resource and the run holding it (stop that one with
+  `orbit runs stop <run-id>`, or give the second other values). Runs that share
+  nothing run side by side. Conformance runs, single-UE commands (`ue
+  register`, `target probe`) and step scenarios take no leases yet, so keep
+  them off a running fleet's SUPIs and gNB IDs.
 - **Ad-hoc `ue` commands never appear on the dashboard.** They create no run.
 - **`make ui` before `make build`** if you want the dashboard embedded.
 

@@ -278,16 +278,16 @@ type mockCore struct {
 	n3    string
 }
 
-func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string) *mockCore {
+func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string, amfOpts ...mockamf.Option) *mockCore {
 	t.Helper()
 	base := fmt.Sprintf("127.0.%d.", net24)
-	return newMockCoreAt(t, base+"10:2152", base+"10", base+"11", opts, ki)
+	return newMockCoreAt(t, base+"10:2152", base+"10", base+"11", opts, ki, amfOpts...)
 }
 
 // newMockCoreAt is newMockCore with explicit addresses: the stub UPF's
 // listen address, the IPv4 the mock AMF advertises for it, and the gNB N3
-// address the UE is configured with.
-func newMockCoreAt(t *testing.T, upfListen, upfAddr, n3 string, opts mockupf.Options, ki string) *mockCore {
+// address the UE is configured with. amfOpts adjust the mock AMF.
+func newMockCoreAt(t *testing.T, upfListen, upfAddr, n3 string, opts mockupf.Options, ki string, amfOpts ...mockamf.Option) *mockCore {
 	t.Helper()
 	upf, err := mockupf.Listen(upfListen, opts)
 	if err != nil {
@@ -305,7 +305,7 @@ func newMockCoreAt(t *testing.T, upfListen, upfAddr, n3 string, opts mockupf.Opt
 	amf, err := mockamf.New(mockamf.Config{
 		Ki: k, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
 		MCC: "208", MNC: "93", SST: 1, SD: "010203", UPF: upf, UPFAddress: upfAddr,
-	})
+	}, amfOpts...)
 	if err != nil {
 		t.Fatal(err)
 	}
