@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -200,7 +201,9 @@ func newRunsWatchCmd(serverURL *string) *cobra.Command {
 				}
 				fmt.Fprintln(out, line)
 			}
-			return stream.Err()
+			// A stream cut after the run exists leaves its outcome unknown:
+			// did not complete, not could-not-start.
+			return exitWith(ExitDidNotComplete, stream.Err())
 		},
 	}
 }
@@ -267,7 +270,9 @@ func newRunsEventsCmd(serverURL *string) *cobra.Command {
 					severityLabel(ev.GetSeverity()), ev.GetKind(),
 					supiPrefix(ev.GetSupi()), ev.GetMessage())
 			}
-			return stream.Err()
+			// A stream cut after the run exists leaves its outcome unknown:
+			// did not complete, not could-not-start.
+			return exitWith(ExitDidNotComplete, stream.Err())
 		},
 	}
 	cmd.Flags().Uint64Var(&fromSeq, "from-seq", 0, "resume from this sequence number (0 = oldest retained)")
@@ -695,7 +700,17 @@ func startAndWait(cmd *cobra.Command, c orbitv1connect.RunServiceClient, req *or
 	}
 	sigs, stop := waitSignals()
 	defer stop()
-	return waitRun(cmd.Context(), cmd.ErrOrStderr(), cmd.ErrOrStderr(), c, id, sigs)
+	// From here the run has an ID: an error that does not say otherwise
+	// leaves its outcome unknown, so it did not complete (2), never "could
+	// not start" (3), which would send CI to fix the lab.
+	if err := waitRun(cmd.Context(), cmd.ErrOrStderr(), cmd.ErrOrStderr(), c, id, sigs); err != nil {
+		var typed *ExitError
+		if errors.As(err, &typed) {
+			return err
+		}
+		return exitWith(ExitDidNotComplete, err)
+	}
+	return nil
 }
 
 // --- rendering helpers ---

@@ -237,3 +237,57 @@ func TestSoakLine(t *testing.T) {
 		}
 	}
 }
+
+// Once a run has an ID, an error leaves its outcome unknown: it did not
+// complete (2). Before that, a server that cannot be reached means the run
+// could not start (3).
+func TestStartAndWaitExitCodes(t *testing.T) {
+	old := waitPoll
+	waitPoll = 5 * time.Millisecond
+	defer func() { waitPoll = old }()
+
+	// A server that starts the run, then fails every poll: the stream to
+	// the run is cut mid-wait.
+	mux := http.NewServeMux()
+	mux.Handle(orbitv1connect.NewRunServiceHandler(&cutStub{}))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	gone := httptest.NewServer(http.NotFoundHandler())
+	gone.Close() // nothing listens there any more
+
+	tests := []struct {
+		name string
+		url  string
+		want int
+	}{
+		{name: "cut mid-wait", url: srv.URL, want: ExitDidNotComplete},
+		{name: "server unreachable", url: gone.URL, want: ExitCouldNotStart},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newRunsCmd(&tc.url, options{})
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+			cmd.SetArgs([]string{"start-load", "--wait", "--amf", "10.0.0.1:38412", "--base-imsi", "208930100007500",
+				"--ki", "00112233445566778899aabbccddeeff", "--opc", "000102030405060708090a0b0c0d0e0f", "--mcc", "208", "--mnc", "93"})
+			err := cmd.Execute()
+			if got := ExitCode(err); got != tc.want {
+				t.Errorf("exit %d (%v), want %d", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// cutStub starts a run and then cannot report on it.
+type cutStub struct {
+	orbitv1connect.UnimplementedRunServiceHandler
+}
+
+func (cutStub) StartRun(context.Context, *connect.Request[orbitv1.StartRunRequest]) (*connect.Response[orbitv1.StartRunResponse], error) {
+	return connect.NewResponse(&orbitv1.StartRunResponse{Run: &orbitv1.Run{RunId: "run-cut"}}), nil
+}
+
+func (cutStub) GetRun(context.Context, *connect.Request[orbitv1.GetRunRequest]) (*connect.Response[orbitv1.GetRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnavailable, errors.New("connection reset"))
+}
