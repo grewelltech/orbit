@@ -1153,14 +1153,3 @@ func TestFleetFlowsListedWithoutARateTracker(t *testing.T) {
 		t.Errorf("downlink rate = %v, want 0 (no interval to divide by)", rows[0].GetDownlinkBps())
 	}
 }
-
-// A RunPlan is accepted on the wire and refused as UNIMPLEMENTED until R2.
-func TestRunServicePlanIsUnimplemented(t *testing.T) {
-	c, _ := newRunRPCClient(t)
-	_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Plan{Plan: &orbitv1.RunPlan{Workloads: []*orbitv1.Workload{{Name: "w"}}}},
-	}))
-	if connect.CodeOf(err) != connect.CodeUnimplemented {
-		t.Fatalf("StartRun(plan) = %v, want UNIMPLEMENTED", err)
-	}
-}

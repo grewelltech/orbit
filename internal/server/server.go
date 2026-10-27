@@ -96,8 +96,15 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 	} else {
 		log.Warn("run history is in memory only; it will be lost on restart")
 	}
+	// gNB IDs a plan asks the server to assign rotate least recently used
+	// first, persisted with the run history (ADR-0008 §5).
+	rotation, err := engine.OpenGNBRotation(opts.StateDir, log)
+	if err != nil {
+		log.Error("gNB ID rotation will not persist", "dir", opts.StateDir, "err", err)
+		rotation, _ = engine.OpenGNBRotation("", log)
+	}
 	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive,
-		specs: newSpecStore(), version: version}
+		specs: newSpecStore(), version: version, rotation: rotation}
 	runSvc.restoreFrames()
 
 	mux := http.NewServeMux()
