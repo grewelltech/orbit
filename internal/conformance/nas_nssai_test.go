@@ -253,6 +253,8 @@ func TestJudgeNSSAI(t *testing.T) {
 			wantObserved: "Registration Reject failed integrity check"},
 		{name: "reject protected before any security context", o: nssaiOutcome{reject: rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectErr: fmt.Errorf("wrapped: %w", engine.ErrNoSecurityContext)}, want: Error,
 			wantObserved: "Registration Reject protected before a NAS security context"},
+		{name: "reject that did not decipher", o: nssaiOutcome{rejectRaw: []byte{0x7e, 0x02, 1, 2, 3, 4, 5, 0xaa}, rejectErr: errors.New("nas decrypt")}, want: Error,
+			wantObserved: "Registration Reject could not be deciphered"},
 		{name: "reject the codec refused", o: nssaiOutcome{reject: rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectErr: errors.New("codec")}, want: Pass},
 		{name: "accept that did not decode", o: nssaiOutcome{acceptErr: errors.New("x")}, want: Error, wantObserved: "Registration Accept did not decode"},
 		{name: "released", o: nssaiOutcome{released: true}, want: Error, wantObserved: "released without a Registration Reject or Accept"},

@@ -140,11 +140,21 @@ var ErrIntegrity = errors.New("NAS integrity check failed")
 // (with the tracked overflow) rather than blindly from local state, matching
 // how the NAS layer resynchronises on the sequence byte (TS 24.501 §4.4.3.1).
 func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
+	m, _, err := s.DecodeSecurePlain(data)
+	return m, err
+}
+
+// DecodeSecurePlain is DecodeSecure that also returns the plain NAS message
+// inside the security header: set once the MAC verified and deciphering
+// succeeded, even when the codec then refuses the message, so a caller
+// can read IEs the codec does not know. It is nil when the PDU did not
+// verify or decipher.
+func (s *SecurityContext) DecodeSecurePlain(data []byte) (*f5nas.Message, []byte, error) {
 	if len(data) < 7 {
-		return nil, fmt.Errorf("secured NAS too short: %d bytes", len(data))
+		return nil, nil, fmt.Errorf("secured NAS too short: %d bytes", len(data))
 	}
 	if data[0] != epd5GMM {
-		return nil, fmt.Errorf("unexpected EPD %#x", data[0])
+		return nil, nil, fmt.Errorf("unexpected EPD %#x", data[0])
 	}
 	secHdr := data[1]
 	recvMAC := data[2:6]
@@ -174,10 +184,10 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 	wantMAC, err := security.NASMacCalculate(s.IntegrityAlg, s.KNASint, count,
 		security.Bearer3GPP, s.rxDir(), macInput)
 	if err != nil {
-		return nil, fmt.Errorf("nas mac calculate: %w", err)
+		return nil, nil, fmt.Errorf("nas mac calculate: %w", err)
 	}
 	if !equalMAC(recvMAC, wantMAC) {
-		return nil, fmt.Errorf("%w: mac %x != %x", ErrIntegrity, recvMAC, wantMAC)
+		return nil, nil, fmt.Errorf("%w: mac %x != %x", ErrIntegrity, recvMAC, wantMAC)
 	}
 	// The MAC proved the COUNT: track the last-received sequence number as
 	// the rx COUNT state, even if deciphering or decoding fails below.
@@ -187,15 +197,16 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 	if ciphered {
 		if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, count,
 			security.Bearer3GPP, s.rxDir(), payload); err != nil {
-			return nil, fmt.Errorf("nas decrypt: %w", err)
+			return nil, nil, fmt.Errorf("nas decrypt: %w", err)
 		}
 	}
 
+	plain := append([]byte(nil), payload...)
 	m := f5nas.NewMessage()
 	if err := m.PlainNasDecode(&payload); err != nil {
-		return nil, fmt.Errorf("nas plain decode of unwrapped payload: %w", err)
+		return nil, plain, fmt.Errorf("nas plain decode of unwrapped payload: %w", err)
 	}
-	return m, nil
+	return m, plain, nil
 }
 
 // ResetCounts zeroes the NAS COUNTs, as when a fresh security context is

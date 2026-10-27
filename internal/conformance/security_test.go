@@ -50,6 +50,12 @@ func TestParseSMC(t *testing.T) {
 	if _, err := parseSMC([]byte{0x7e, 0x00, 0x56}); err == nil {
 		t.Error("parseSMC accepted a truncated Authentication Request")
 	}
+	// A ciphered header is refused, not read: past it is ciphertext.
+	ciphered := smcPDU(t, nas.NIA2, nas.NEA0, normalUECaps.Buffer)
+	ciphered[1] = nas.SecHdrIntegrityCiphered
+	if _, err := parseSMC(ciphered); err == nil || !strings.Contains(err.Error(), "ciphered security header") {
+		t.Errorf("parseSMC of a ciphered header: err = %v, want a refusal", err)
+	}
 }
 
 // Each sub-result: NIA0, differing capabilities and a skipped command FAIL

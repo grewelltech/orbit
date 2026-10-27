@@ -140,7 +140,8 @@ func (c nasRegRejectedNSSAI) Run(ctx context.Context, env Env) Result {
 
 // nssaiOutcome is what the probing registration saw.
 type nssaiOutcome struct {
-	reject     []byte // the Registration Reject, plain (security header removed)
+	reject     []byte // the Registration Reject's plain message, nil when unreadable
+	rejectRaw  []byte // the Registration Reject as received, for the record
 	rejectErr  error  // the security context's error for it, nil when it decoded
 	accept     *nasMessage.RegistrationAccept
 	acceptErr  error  // a Registration Accept that did not decode
@@ -152,14 +153,29 @@ type nssaiOutcome struct {
 	err        error  // another failure
 }
 
-// plainNAS strips the security header from a downlink NAS PDU: a protected
-// PDU's inner message starts at offset 7. The inner message is readable
-// only when ciphered with NEA0, which is all the engine selects today.
-func plainNAS(raw []byte) []byte {
-	if len(raw) > 7 && raw[1]&0x0f != nas.SecHdrPlain {
-		return append([]byte(nil), raw[7:]...)
+// sawReject reports whether a Registration Reject arrived, readable or not.
+func (o nssaiOutcome) sawReject() bool { return o.reject != nil || o.rejectRaw != nil }
+
+// shownReject is the Reject for a detail line: as received when kept.
+func (o nssaiOutcome) shownReject() []byte {
+	if o.rejectRaw != nil {
+		return o.rejectRaw
 	}
-	return append([]byte(nil), raw...)
+	return o.reject
+}
+
+// readableNAS is a downlink NAS PDU's plain message: the PDU itself when it
+// was sent plain, else the engine's verified, deciphered Plain. A protected
+// PDU that did not verify or decipher has none: past its header is
+// ciphertext under NEA1-3, and unverified under any cipher.
+func readableNAS(ev engine.NASEvent) []byte {
+	if len(ev.Raw) >= 2 && ev.Raw[1]&0x0f == nas.SecHdrPlain {
+		return append([]byte(nil), ev.Raw...)
+	}
+	if ev.Plain != nil {
+		return append([]byte(nil), ev.Plain...)
+	}
+	return nil
 }
 
 // probe registers the UE requesting only stim, with the stimulus 5GMM
@@ -185,10 +201,13 @@ func (c nasRegRejectedNSSAI) probe(ctx context.Context, h *UEHarness, stim ue.SN
 		OnNAS: func(ev engine.NASEvent) {
 			mu.Lock()
 			defer mu.Unlock()
-			switch ev.Type {
+			// The decoded or deciphered type, not the header read: under
+			// NEA1-3 the header holds no readable type.
+			switch ev.MessageType() {
 			case f5nas.MsgTypeRegistrationReject:
-				if o.reject == nil {
-					o.reject, o.rejectErr = plainNAS(ev.Raw), ev.Err
+				if !o.sawReject() {
+					o.reject, o.rejectErr = readableNAS(ev), ev.Err
+					o.rejectRaw = append([]byte(nil), ev.Raw...)
 				}
 				// A decoded Reject ends the attach by itself; one the codec
 				// refused is skipped, so stop here.
@@ -217,7 +236,7 @@ func (c nasRegRejectedNSSAI) probe(ctx context.Context, h *UEHarness, stim ue.SN
 		if o.accept == nil {
 			o.err = errors.New("registered without a Registration Accept the probe saw")
 		}
-	case o.reject != nil, o.acceptErr != nil, o.authReject:
+	case o.sawReject(), o.acceptErr != nil, o.authReject:
 	case errors.Is(err, engine.ErrReleasedByCore):
 		o.released = true
 	case timedOut && ctx.Err() == nil:
@@ -421,12 +440,14 @@ func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, st
 		return Error, "UE setup failed", o.err.Error()
 	case o.authReject:
 		return Error, "Authentication Reject", "this check needs a subscriber the core authenticates"
-	case o.reject != nil && errors.Is(o.rejectErr, nas.ErrIntegrity):
-		return Error, "Registration Reject failed integrity check", fmt.Sprintf("NAS PDU %x", o.reject)
-	case o.reject != nil && errors.Is(o.rejectErr, engine.ErrNoSecurityContext):
+	case o.sawReject() && errors.Is(o.rejectErr, nas.ErrIntegrity):
+		return Error, "Registration Reject failed integrity check", fmt.Sprintf("NAS PDU %x", o.shownReject())
+	case o.sawReject() && errors.Is(o.rejectErr, engine.ErrNoSecurityContext):
 		// Protected before any NAS security context: the UE cannot verify
 		// it, so its bytes are not judged (#187 review).
-		return Error, "Registration Reject protected before a NAS security context", fmt.Sprintf("its integrity cannot be verified, so the rejected NSSAI is not judged; NAS PDU %x", o.reject)
+		return Error, "Registration Reject protected before a NAS security context", fmt.Sprintf("its integrity cannot be verified, so the rejected NSSAI is not judged; NAS PDU %x", o.shownReject())
+	case o.sawReject() && o.reject == nil:
+		return Error, "Registration Reject could not be deciphered", fmt.Sprintf("%v; NAS PDU %x", o.rejectErr, o.shownReject())
 	case o.reject != nil:
 		return judgeNSSAIReject(o.reject, want)
 	case o.acceptErr != nil:

@@ -33,6 +33,10 @@ func TestUELevelChecksUnderNEA2(t *testing.T) {
 		{name: "NAS-PDU-UNKNOWN-DNN", check: nasPDUUnknownDNN{registerWait: 3 * time.Second, answerWait: 300 * time.Millisecond},
 			opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithUnknownDNN(stimulusDNN, mockamf.RejectDNN, 0)}},
 		{name: "NAS-SMC-NO-NIA0-REPLAYED-CAPS", check: nasSMCNoNIA0{wait: 300 * time.Millisecond}},
+		// A real Reject #62 with the stimulus in the Rejected NSSAI IE, so
+		// the row reaches the IE walk on the deciphered message.
+		{name: "NAS-REG-REJECTED-NSSAI", check: nasRegRejectedNSSAI{wait: 500 * time.Millisecond},
+			opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}},
 		{name: "GTPU-END-MARKER-ON-PATH-SWITCH", check: endMarkerOnPathSwitch{window: 300 * time.Millisecond},
 			net24: 68, upfOpt: mockupf.Options{EndMarker: true}},
 	}
