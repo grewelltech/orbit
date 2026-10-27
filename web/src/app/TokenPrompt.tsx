@@ -10,7 +10,7 @@ import { authRequired, saveToken, type AuthRefusal } from "@/data/transport";
 const TITLES: Record<AuthRefusal, string> = {
   missing: "this server needs a token",
   invalid: "the server rejected this token",
-  locked: "too many wrong tokens from this address: the right one still works",
+  locked: "too many wrong tokens from this address: wait 30 s, then try the right one",
 };
 
 export function TokenPrompt() {

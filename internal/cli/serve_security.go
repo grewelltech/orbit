@@ -15,8 +15,13 @@ import (
 	"github.com/bgrewell/orbit/internal/tlspin"
 )
 
-// minTokenLen is the shortest bearer token serve accepts.
-const minTokenLen = 32
+// minTokenLen is the shortest bearer token serve accepts, and
+// minTokenDistinct the fewest distinct characters: a cheap refusal of a
+// hand-typed pattern, not an entropy estimate.
+const (
+	minTokenLen      = 32
+	minTokenDistinct = 8
+)
 
 // serveSecurity is what serve's TLS and token flags resolve to.
 type serveSecurity struct {
@@ -55,7 +60,8 @@ func listenLoopback(listen string) (bool, error) {
 }
 
 // readTokenFile reads a bearer token: the file's first line, at least
-// minTokenLen characters, from a file no group or other user can read.
+// minTokenLen characters with at least minTokenDistinct distinct ones, from
+// a file no group or other user can read.
 func readTokenFile(path string) (string, error) {
 	st, err := os.Stat(path)
 	if err != nil {
@@ -76,6 +82,13 @@ func readTokenFile(path string) (string, error) {
 	token := strings.TrimSpace(line)
 	if len(token) < minTokenLen {
 		return "", fmt.Errorf("--token-file %s: the token must be at least %d characters (got %d)", path, minTokenLen, len(token))
+	}
+	distinct := map[rune]bool{}
+	for _, r := range token {
+		distinct[r] = true
+	}
+	if len(distinct) < minTokenDistinct {
+		return "", fmt.Errorf("--token-file %s: token file has too little variety; generate one with `openssl rand -hex 32`", path)
 	}
 	return token, nil
 }

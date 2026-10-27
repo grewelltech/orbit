@@ -51,8 +51,8 @@ export function saveToken(token: string, store: TokenStore | undefined = browser
 
 /**
  * Why the server refused a call: no token was sent, the one sent is wrong,
- * or this address sent too many wrong ones and must wait (the right token
- * still passes).
+ * or this address sent too many wrong ones and must wait out the lockout
+ * (30 s), whatever token it sends.
  */
 export type AuthRefusal = "missing" | "invalid" | "locked";
 

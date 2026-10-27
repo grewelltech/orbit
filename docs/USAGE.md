@@ -324,13 +324,16 @@ orbit ue list
   `--no-auth`, which logs a warning. `0.0.0.0` and `:8412` count as non-loopback.
   A host name is resolved once, at startup: if its address later changes to a
   non-loopback one, restart `serve` so the rule is applied again.
-- **The token** (`--token-file`, mode 600 or tighter) is required on every API
+- **The token** (`--token-file`, mode 600 or tighter; at least 32 characters
+  and 8 distinct ones, so use `openssl rand -hex 32`) is required on every API
   call and on `/metrics`; `/healthz` and the dashboard's page itself stay open.
   A missing token gets `unauthenticated` ("a bearer token is required"), a
   wrong one `unauthenticated` ("invalid bearer token"). Ten wrong tokens from
-  one address (an IPv6 /64 counts as one) within 10 s get its further wrong
-  tokens refused for 30 s (`resource_exhausted`); the right token always
-  passes, and a request without one is never counted.
+  one address (an IPv6 /64 counts as one) within 10 s lock it out for 30 s:
+  every request from it with a token, the right one included, gets
+  `resource_exhausted` without the token being checked. A request without a
+  token is never counted, so a dashboard left open before its token is
+  entered cannot lock you out.
 - **Clients** send `$ORBIT_TOKEN`, else the token `orbit server trust` kept in
   `~/.config/orbit/servers.yaml` for that server. `$ORBIT_TOKEN` wins for
   every server, so unset it before switching `--server` to one with another

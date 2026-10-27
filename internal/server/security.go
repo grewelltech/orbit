@@ -19,9 +19,11 @@ import (
 )
 
 // Auth failure limits: a peer presenting authFailLimit wrong tokens within
-// authFailWindow has its wrong attempts refused for authLockout (ADR-0008
-// §4: a token is not to be guessed at line rate). The right token always
-// passes, so a misconfigured client cannot lock its operator out. At most
+// authFailWindow is refused for authLockout, the right token included and
+// with no token compared, so the limit caps the guess rate (ADR-0008 §4: a
+// token is not to be guessed at line rate). Requests without a token are
+// never counted, so a dashboard polling before its token is entered cannot
+// lock its operator out. At most
 // authMaxPeers peers are tracked, so rotating addresses cannot grow the
 // tables without bound.
 const (
@@ -35,7 +37,7 @@ const (
 const (
 	msgTokenRequired = "a bearer token is required: set $ORBIT_TOKEN, or add it to ~/.config/orbit/servers.yaml (orbit server trust)"
 	msgTokenInvalid  = "invalid bearer token"
-	msgLockedOut     = "too many invalid bearer tokens from this address; try again shortly"
+	msgLockedOut     = "too many invalid bearer tokens from this address; try again in 30 s"
 )
 
 // connState is what the transport knew about a request's connection, kept
@@ -72,7 +74,7 @@ type security struct {
 
 	mu       sync.Mutex
 	failures map[string][]time.Time // by peerKey, within the window
-	locked   map[string]time.Time   // peerKey → wrong tokens refused until
+	locked   map[string]time.Time   // peerKey → refused until
 }
 
 func newSecurity(log *slog.Logger, token string) *security {
@@ -124,10 +126,12 @@ func (s *security) middleware(next http.Handler) http.Handler {
 			// No guess was made, so nothing is counted: a dashboard polling
 			// before its token is entered is not an attack.
 			s.refuse(w, r, connect.CodeUnauthenticated, http.StatusUnauthorized, msgTokenRequired)
+		case s.lockedOut(peerKey(r.RemoteAddr)):
+			// Before the comparison: a locked-out peer learns nothing about
+			// any token until the lockout ends.
+			s.refuse(w, r, connect.CodeResourceExhausted, http.StatusTooManyRequests, msgLockedOut)
 		case s.authorized(header):
 			next.ServeHTTP(w, r)
-		case s.lockedOut(peerKey(r.RemoteAddr)):
-			s.refuse(w, r, connect.CodeResourceExhausted, http.StatusTooManyRequests, msgLockedOut)
 		default:
 			s.fail(peerKey(r.RemoteAddr), r.URL.Path)
 			s.refuse(w, r, connect.CodeUnauthenticated, http.StatusUnauthorized, msgTokenInvalid)
@@ -147,7 +151,7 @@ func (s *security) authorized(header string) bool {
 }
 
 // fail records a wrong token, logged without what was presented, and locks
-// the peer's wrong attempts out once it reaches the limit within the window.
+// the peer out once it reaches the limit within the window.
 func (s *security) fail(peer, path string) {
 	now := s.now()
 	s.mu.Lock()

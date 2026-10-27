@@ -103,9 +103,9 @@ func TestAuth(t *testing.T) {
 	}
 }
 
-// After authFailLimit wrong tokens within the window a peer's wrong tokens
-// are refused until the lockout ends; the right token always passes, and a
-// request with no token is never counted.
+// After authFailLimit wrong tokens within the window a peer is refused,
+// the right token included, until the lockout ends; a request with no token
+// is never counted.
 func TestAuthLockout(t *testing.T) {
 	srv, sec := secureServer(t, testToken, true, false)
 	now := time.Unix(1000, 0)
@@ -132,13 +132,14 @@ func TestAuthLockout(t *testing.T) {
 	for i := 0; i < authFailLimit; i++ {
 		wantCode("wrong token", call(bad), connect.CodeUnauthenticated, msgTokenInvalid)
 	}
-	wantCode("wrong token, locked out", call(bad), connect.CodeResourceExhausted, "")
-	if err := call(good); err != nil {
-		t.Errorf("the right token during the lockout: %v", err)
-	}
+	wantCode("wrong token, locked out", call(bad), connect.CodeResourceExhausted, msgLockedOut)
+	wantCode("the right token, locked out", call(good), connect.CodeResourceExhausted, msgLockedOut)
 	wantCode("no token during the lockout", call(none), connect.CodeUnauthenticated, msgTokenRequired)
 
 	now = now.Add(authLockout + time.Second)
+	if err := call(good); err != nil {
+		t.Errorf("the right token after the lockout: %v", err)
+	}
 	wantCode("wrong token after the lockout", call(bad), connect.CodeUnauthenticated, msgTokenInvalid)
 
 	// Wrong tokens spread out beyond the window never lock a peer out.
@@ -186,8 +187,11 @@ func TestPeerKey(t *testing.T) {
 	if c := try("[2001:db8:1:3::1]:4000", "Bearer wrong"); c != http.StatusUnauthorized {
 		t.Errorf("another /64 = %d, want 401", c)
 	}
-	if c := try("[2001:db8:1:2::ffff]:4000", "Bearer "+testToken); c != http.StatusOK {
-		t.Errorf("the right token from the locked /64 = %d, want 200", c)
+	if c := try("[2001:db8:1:2::ffff]:4000", "Bearer "+testToken); c != http.StatusTooManyRequests {
+		t.Errorf("the right token from the locked /64 = %d, want 429", c)
+	}
+	if c := try("[2001:db8:1:3::1]:4000", "Bearer "+testToken); c != http.StatusOK {
+		t.Errorf("the right token from another /64 = %d, want 200", c)
 	}
 }
 

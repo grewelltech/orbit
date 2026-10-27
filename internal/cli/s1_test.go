@@ -44,6 +44,8 @@ func tokenFileOf(t *testing.T, token string, mode os.FileMode) string {
 func TestServeSecurityMatrix(t *testing.T) {
 	good := tokenFileOf(t, s1Token, 0o600)
 	short := tokenFileOf(t, "short", 0o600)
+	samey := tokenFileOf(t, strings.Repeat("orbit", 8), 0o600)     // 4 distinct
+	varied := tokenFileOf(t, strings.Repeat("abcdefgh", 4), 0o600) // exactly 8
 	loose := tokenFileOf(t, s1Token, 0o644)
 	state := t.TempDir()
 	// A certificate and key in files, for --tls-cert/--tls-key.
@@ -78,6 +80,8 @@ func TestServeSecurityMatrix(t *testing.T) {
 		{name: "--tls bogus", listen: "127.0.0.1:8412", tls: "yes", wantErr: "the only value is auto"},
 		{name: "--tls auto without a state dir", listen: "127.0.0.1:8412", tls: "auto", wantErr: "keeps its certificate in --state-dir"},
 		{name: "a short token", listen: "127.0.0.1:8412", token: short, wantErr: "at least 32 characters"},
+		{name: "a token with too little variety", listen: "127.0.0.1:8412", token: samey, wantErr: "too little variety; generate one with `openssl rand -hex 32`"},
+		{name: "a token with just enough variety", listen: "127.0.0.1:8412", token: varied, wantToken: true},
 		{name: "a token others can read", listen: "127.0.0.1:8412", token: loose, wantErr: "readable by others"},
 	}
 	for _, r := range rows {

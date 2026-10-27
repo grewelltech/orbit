@@ -92,7 +92,7 @@ describe("authInterceptor", () => {
     expect(refusals.why).toEqual(["invalid"]);
   });
 
-  it("reports a lockout, so the prompt can say the right token still works", async () => {
+  it("reports a lockout, so the prompt can say to wait", async () => {
     const refusals = { n: 0, why: [] as string[] };
     const transport = createRouterTransport(
       (router) =>
