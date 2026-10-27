@@ -105,9 +105,10 @@ A conformance suite presents three gNB IDs per check: the check's own, a
 handover target, and a liveness probe. When the target bounds its IDs
 (`ran.gnb_ids.count` set), a suite run from a plan packs them into the block
 from its base: with N registered checks, check i takes base+i, its handover
-target base+N+i, and its probe base+2N+i. The block must hold 3N IDs (27
-today), or the run is refused, naming the size it needs. Every check added to
-the suite adds three, so leave the block headroom beyond today's count. Without a count, the
+target base+N+i, and its probe base+2N+i. The block must hold 3N IDs, three
+for each check in the suite, or the run is refused, naming the size it needs.
+Every check added to the suite adds three, so leave the block headroom beyond
+today's count. Without a count, the
 suite keeps the legacy layout: base+i, with the handover target 0x8000 and
 the probe 0x9000 above it.
 - **One address from a pool.** Until the server leases from the pool, a flag

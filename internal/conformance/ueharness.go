@@ -11,9 +11,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/free5gc/nas/nasType"
+
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -37,6 +40,12 @@ type UESpec struct {
 	// Traffic is an optional host:port echo peer the UE sends to across the
 	// handover, so downlink flows on the old path; "" sends nothing.
 	Traffic string
+	// NASIntegrity and NASCiphering are the 128-NIA and NEA algorithms the
+	// UE advertises, as the UE security capability's octets (TS 24.501
+	// 9.11.3.54: bit 8 is algorithm 0). Zero keeps the default, 128-NIA2 and
+	// NEA0 (ue.SecurityCapability); a check that sets its own capabilities
+	// as the stimulus overrides them.
+	NASIntegrity, NASCiphering uint8
 }
 
 // Configured reports whether a UE is configured.
@@ -62,6 +71,8 @@ type UEHarness struct {
 	id   ue.Identity
 	sub  auth.Subscription
 	pdu  ue.PDUSessionParams
+	// caps is the advertised UE security capability, nil for the default.
+	caps *nasType.UESecurityCapability
 
 	registered bool
 	stopObs    func()
@@ -135,10 +146,36 @@ func NewUEHarness(env Env, log *slog.Logger) (*UEHarness, error) {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	env.UE.GNBN3 = n3
+	caps, err := ueCapability(env.UE)
+	if err != nil {
+		return nil, err
+	}
 	return &UEHarness{
 		env: env, m: engine.NewManager(log), supi: supi, id: id,
-		sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}, pdu: pdu,
+		sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}, pdu: pdu, caps: caps,
 	}, nil
+}
+
+// ueCapability is the UE security capability s advertises: nil (the
+// default) when both bitmaps are zero; otherwise the given ones, the zero
+// one taking its default, 128-NIA2 or NEA0.
+func ueCapability(s UESpec) (*nasType.UESecurityCapability, error) {
+	if s.NASIntegrity == 0 && s.NASCiphering == 0 {
+		return nil, nil
+	}
+	if s.NASIntegrity&0x80 != 0 {
+		return nil, errors.New("the UE never offers NIA0")
+	}
+	ia, ea := s.NASIntegrity, s.NASCiphering
+	if ia == 0 {
+		ia = 0x80 >> nas.NIA2
+	}
+	if ea == 0 {
+		ea = 0x80 >> nas.NEA0
+	}
+	c := ue.SecurityCapability()
+	c.Buffer = []uint8{ea, ia}
+	return &c, nil
 }
 
 // TargetGNB is gNB B, the handover target.
@@ -153,7 +190,7 @@ func (h *UEHarness) TargetGNB() gnb.Config {
 // its downlink lane. An error names the step that failed.
 func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) {
 	res, err := h.m.Register(ctx, engine.GNBSpec{Config: h.env.GNB, AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind},
-		engine.UEConfig{Identity: h.id, Sub: h.sub, PDUSession: &h.pdu, GNBN3Addr: h.env.UE.GNBN3})
+		engine.UEConfig{Identity: h.id, Sub: h.sub, PDUSession: &h.pdu, GNBN3Addr: h.env.UE.GNBN3, SecurityCapabilities: h.caps})
 	if err != nil {
 		return nil, fmt.Errorf("registration on gNB %#x: %w", h.env.GNB.ID, err)
 	}
@@ -187,7 +224,7 @@ func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) 
 // Each mod adjusts the UE's configuration first (for example its security
 // capabilities).
 func (h *UEHarness) RegisterWithProbe(ctx context.Context, probe *engine.AttachProbe, mods ...func(*engine.UEConfig)) (*engine.AttachResult, error) {
-	cfg := engine.UEConfig{Identity: h.id, Sub: h.sub, Probe: probe}
+	cfg := engine.UEConfig{Identity: h.id, Sub: h.sub, Probe: probe, SecurityCapabilities: h.caps}
 	for _, m := range mods {
 		m(&cfg)
 	}
@@ -319,11 +356,21 @@ func (h *UEHarness) Close() {
 		h.stopObs = nil
 	}
 	if h.registered {
-		h.registered = false
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		// Switch-off deregistration does not wait for the core; an error
 		// here leaves nothing open, since the association closes either way.
-		_ = h.m.Deregister(ctx, h.supi)
+		_ = h.Deregister(ctx)
 	}
+}
+
+// Deregister deregisters a registered UE (switch-off), which closes its
+// association, and returns the error that Close discards. It is a no-op
+// when no UE is registered, and Close after it does not deregister again.
+func (h *UEHarness) Deregister(ctx context.Context) error {
+	if !h.registered {
+		return nil
+	}
+	h.registered = false
+	return h.m.Deregister(ctx, h.supi)
 }

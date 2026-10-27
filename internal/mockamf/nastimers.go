@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/free5gc/aper"
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasMessage"
 	"github.com/free5gc/ngap/ngapType"
@@ -205,6 +206,12 @@ func buildAuthenticationReject() ([]byte, error) {
 // buildUEContextReleaseCommand releases the UE identified by its NGAP ID
 // pair, cause NAS authentication-failure (TS 38.413 9.2.2.5).
 func buildUEContextReleaseCommand(amfID, ranID int64) ngapType.NGAPPDU {
+	return buildUEContextReleaseCommandCause(amfID, ranID, ngapType.CauseNasPresentAuthenticationFailure)
+}
+
+// buildUEContextReleaseCommandCause is buildUEContextReleaseCommand with
+// the NAS cause given.
+func buildUEContextReleaseCommandCause(amfID, ranID int64, nasCause aper.Enumerated) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
 	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
@@ -231,7 +238,7 @@ func buildUEContextReleaseCommand(amfID, ranID int64) ngapType.NGAPPDU {
 	cause.Value.Present = ngapType.UEContextReleaseCommandIEsPresentCause
 	cause.Value.Cause = &ngapType.Cause{
 		Present: ngapType.CausePresentNas,
-		Nas:     &ngapType.CauseNas{Value: ngapType.CauseNasPresentAuthenticationFailure},
+		Nas:     &ngapType.CauseNas{Value: nasCause},
 	}
 	cmd.ProtocolIEs.List = append(cmd.ProtocolIEs.List, ids, cause)
 	return pdu

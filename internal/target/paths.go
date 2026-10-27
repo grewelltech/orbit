@@ -110,8 +110,10 @@ var fields = map[string]field{
 	// "run.name" so it cannot collide with the target's. A population's
 	// fields leave out the kind (workloads[].attach.count is
 	// workloads[i].population.attach.count); a conformance workload's name
-	// it. behaviors, start, conformance.expected and conformance.nas are
-	// whole-value subtrees (tAny), as are a gate's checks below slo.
+	// it. behaviors, start and conformance.expected are whole-value
+	// subtrees (tAny), as are a gate's checks below slo; conformance.nas is
+	// two lists, integrity and ciphering, as --nas-integrity and
+	// --nas-ciphering set them.
 	"target":                                      {},
 	"run.name":                                    {},
 	"run.event_verbosity":                         {},
@@ -142,13 +144,14 @@ var fields = map[string]field{
 	"workloads[].conformance.target_release":      {},
 	"workloads[].conformance.expected":            {typ: tAny}, // a file path, or the list inline
 	"workloads[].conformance.per_test_timeout_ms": {typ: tUint},
-	"workloads[].conformance.nas":                 {typ: tAny},
 	"workloads[].conformance.responder":           {},
 	"workloads[].conformance.traffic":             {},
 	"workloads[].conformance.gnb_ids.first":       {typ: tUint},
 	"workloads[].conformance.gnb_ids.assign":      {typ: tBool},
 	"workloads[].conformance.subscriber_pool":     {},
 	"workloads[].conformance.n3_bind":             {},
+	"workloads[].conformance.nas.integrity":       {typ: tStrings},
+	"workloads[].conformance.nas.ciphering":       {typ: tStrings},
 	"gates[].name":                                {},
 	"gates[].workload":                            {},
 	"gates[].slo.metric":                          {},

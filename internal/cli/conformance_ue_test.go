@@ -84,3 +84,74 @@ func TestGNBN3Flag(t *testing.T) {
 		})
 	}
 }
+
+// --nas-integrity and --nas-ciphering: unset keeps the default, names are
+// case-insensitive and comma lists combine, NIA0 and unknown names are
+// refused, and they need --supi.
+func TestConformanceNASAlgorithmFlags(t *testing.T) {
+	const ki, opc = "5122250214c33e723a5dd523fc145fc0", "981d464c7c52eb6e5036234984ad0bcf"
+	ueFlags := func(ia, ea []string) conformanceUEFlags {
+		return conformanceUEFlags{supi: "208930100000011", ki: ki, opc: opc, gnbN3: "10.0.0.5", nasIntegrity: ia, nasCiphering: ea}
+	}
+	tests := []struct {
+		name           string
+		flags          conformanceUEFlags
+		wantIA, wantEA uint8
+		wantErr        string
+	}{
+		{name: "default", flags: ueFlags(nil, nil)},
+		{name: "one each", flags: ueFlags([]string{"NIA1"}, []string{"NEA2"}), wantIA: 0x40, wantEA: 0x20},
+		{name: "fully featured", flags: ueFlags([]string{"nia1", "NIA2", "Nia3"}, []string{"NEA0", "NEA1", "NEA2", "NEA3"}), wantIA: 0x70, wantEA: 0xf0},
+		{name: "NIA0 refused", flags: ueFlags([]string{"NIA0", "NIA2"}, nil), wantErr: "NIA0 is refused"},
+		{name: "NIA0 refused inside a list", flags: ueFlags([]string{"NIA1", "NIA2", "NIA0"}, nil), wantErr: "NIA0 is refused"},
+		{name: "order does not matter", flags: ueFlags([]string{"NIA3", "NIA1"}, []string{"NEA2", "NEA0"}), wantIA: 0x50, wantEA: 0xa0},
+		{name: "unknown name inside a list", flags: ueFlags([]string{"NIA1", "NIA9"}, nil), wantErr: "--nas-integrity"},
+		{name: "unknown integrity", flags: ueFlags([]string{"NIA4"}, nil), wantErr: "--nas-integrity"},
+		{name: "ciphering name for integrity", flags: ueFlags([]string{"NEA1"}, nil), wantErr: "--nas-integrity"},
+		{name: "unknown ciphering", flags: ueFlags(nil, []string{"AES"}), wantErr: "--nas-ciphering"},
+		{name: "empty list", flags: ueFlags([]string{}, nil), wantErr: "name at least one"},
+		{name: "without --supi", flags: conformanceUEFlags{nasIntegrity: []string{"NIA1"}}, wantErr: "need --supi"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.flags.spec("internet", "208", "93", func(string) bool { return true })
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want one containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.NASIntegrity != tc.wantIA || got.NASCiphering != tc.wantEA {
+				t.Errorf("NAS algorithms = %#02x/%#02x, want %#02x/%#02x", got.NASIntegrity, got.NASCiphering, tc.wantIA, tc.wantEA)
+			}
+		})
+	}
+}
+
+// The flags reach the command: parsed from the command line, a comma list
+// and a repeated flag combine, and an unset flag stays nil (the default).
+func TestNASAlgorithmFlagsParse(t *testing.T) {
+	var ia, ea []string
+	cmd := newConformanceCmd()
+	f := cmd.Flags()
+	f.Lookup("nas-integrity").Value = newNilStringSlice(&ia)
+	f.Lookup("nas-ciphering").Value = newNilStringSlice(&ea)
+	if err := f.Parse([]string{"--nas-integrity", "NIA1,NIA3", "--nas-integrity", "NIA2"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(ia, ",") != "NIA1,NIA3,NIA2" {
+		t.Errorf("--nas-integrity = %q", ia)
+	}
+	if ea != nil {
+		t.Errorf("unset --nas-ciphering = %q, want nil", ea)
+	}
+	for _, bad := range []string{"NIA1,,NIA2", "NIA1,", ",NIA1", ""} {
+		var v []string
+		if err := newNilStringSlice(&v).Set(bad); err == nil {
+			t.Errorf("Set(%q) = nil, want an empty-element error", bad)
+		}
+	}
+}

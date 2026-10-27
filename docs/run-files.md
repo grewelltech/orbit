@@ -81,7 +81,9 @@ without it is a storm: each UE attaches and is released. One with
 
 A **conformance** workload runs the suite, its fields under `conformance`:
 `categories`, `target_release`, `per_test_timeout_ms`, `traffic`,
-`responder`, `subscriber_pool`, `n3_bind`, `gnb_ids` (as above), `nas`, and
+`responder`, `subscriber_pool`, `n3_bind`, `gnb_ids` (as above),
+`nas.integrity` and `nas.ciphering` (the UE's NAS algorithms, as
+`--nas-integrity` and `--nas-ciphering` give them), and
 `expected`. `expected` is the
 [expected-failures list](conformance/expected-failures.md): a path, read
 relative to the run file, or the list inline.
@@ -131,7 +133,7 @@ aliases for these gates:
 `--set path=value` sets any run-file field, such as
 `--set workloads[pop].attach.count=1000`. The path is the field's path in
 this document, with a list element selected by its name. A whole value
-(`behaviors`, `start`, `conformance.expected`, `conformance.nas`) is set
+(`behaviors`, `start`, `conformance.expected`) is set
 whole, as YAML (`--set 'workloads[pop].behaviors={}'`). `--set` does not
 reach inside one, so to change a field in it, write it in a run file.
 
