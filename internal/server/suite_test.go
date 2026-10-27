@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -64,7 +65,8 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		}, wantErr: "do not fit 22 bits"},
 		{name: "a block narrower than three IDs a check", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 20}
-		}, wantErr: "the suite needs a block of 27 gNB IDs (3 for each of its 9 checks); the target's ran.gnb_ids 700..719 holds 20"},
+		}, wantErr: fmt.Sprintf("the suite needs a block of %d gNB IDs (3 for each of its %d checks); the target's ran.gnb_ids 700..719 holds 20",
+			3*len(conformance.NewRegistry().Tests()), len(conformance.NewRegistry().Tests()))},
 		{name: "a pin outside the target's block", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 100}
 			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 790}}

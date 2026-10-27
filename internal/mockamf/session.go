@@ -80,9 +80,11 @@ type pduSession struct {
 // a UL NAS Transport: it allocates the UE address and the UPF uplink TEID,
 // and sends a PDU Session Resource Setup Request carrying the secured DL NAS
 // Transport with the Establishment Accept. Without a UPF the request is
-// ignored, which is the mock's behaviour from before sessions existed.
+// ignored, which is the mock's behaviour from before sessions existed. A
+// request for the WithUnknownDNN DNN is answered as that option says, with
+// or without a UPF.
 func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) error {
-	if a.cfg.UPF == nil || msg.ULNASTransport == nil {
+	if (a.cfg.UPF == nil && a.unknownDNN == "") || msg.ULNASTransport == nil {
 		return nil
 	}
 	t := msg.ULNASTransport
@@ -103,6 +105,12 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 	var dnn string
 	if t.DNN != nil {
 		dnn = t.GetDNN()
+	}
+	if a.unknownDNN != "" && dnn == a.unknownDNN && a.dnnAnswer != AcceptDNN {
+		return a.answerUnknownDNN(p, st, id, pti, t.GetPayloadContainerContents())
+	}
+	if a.cfg.UPF == nil {
+		return nil
 	}
 
 	s := &pduSession{id: id, ueIP: a.nextUEIP(), ul: Tunnel{Addr: a.cfg.UPFAddress, TEID: a.nextULTEID()}}

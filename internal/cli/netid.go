@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/pflag"
 
@@ -167,26 +168,35 @@ func (id netIdentity) gnbProto(gnbID, idBits uint32, name string) *orbitv1.GnbCo
 
 // String renders the identity for the one-line `network:` report every
 // command prints, e.g. "plmn=001/01 tac=1 snssai=1/010203 dnn=internet".
-// Fields left for the server to inherit are shown as such.
+// It is never used for an inheriting identity: a handover prints the target
+// the server reports (presentedNetwork).
 func (id netIdentity) String() string {
-	plmn := id.MCC + "/" + id.MNC
-	if id.MCC == "" && id.MNC == "" {
-		plmn = "(inherited)"
-	}
-	tac := fmt.Sprint(id.TAC)
-	if id.inherit && id.TAC == 0 {
-		tac = "(inherited)"
-	}
 	snssai := fmt.Sprint(id.SST)
 	if id.SD != "" {
 		snssai += "/" + id.SD
 	}
-	if id.inherit && !id.sliceGiven() {
-		snssai = "(inherited)"
-	}
-	s := fmt.Sprintf("plmn=%s tac=%s snssai=%s", plmn, tac, snssai)
+	s := fmt.Sprintf("plmn=%s/%s tac=%d snssai=%s", id.MCC, id.MNC, id.TAC, snssai)
 	if id.hasDNN {
 		s += " dnn=" + id.DNN
 	}
 	return s
+}
+
+// presentedNetwork is the network line of a handover: the target identity
+// the server reports it presented, with inherited fields filled in, every
+// slice listed. A server too old to report it gets a placeholder, never
+// the request's partial identity.
+func presentedNetwork(p *orbitv1.GnbConfig) string {
+	if p == nil {
+		return "(not reported by the server)"
+	}
+	slices := make([]string, 0, len(p.GetSlices()))
+	for _, s := range p.GetSlices() {
+		v := fmt.Sprint(s.GetSst())
+		if s.GetSd() != "" {
+			v += "/" + s.GetSd()
+		}
+		slices = append(slices, v)
+	}
+	return fmt.Sprintf("plmn=%s/%s tac=%d snssai=%s", p.GetMcc(), p.GetMnc(), p.GetTac(), strings.Join(slices, ","))
 }

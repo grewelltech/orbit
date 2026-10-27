@@ -128,6 +128,8 @@ var Bindings = []Binding{
 	{Flag: "expected-failures", Path: "workloads[].conformance.expected", Commands: []string{cmdConformance}},
 	{Flag: "per-test-timeout", Path: "workloads[].conformance.per_test_timeout_ms"},
 	{Flag: "traffic", Path: "workloads[].conformance.traffic", Commands: []string{cmdConformance}},
+	{Flag: "nas-integrity", Path: "workloads[].conformance.nas.integrity", Commands: []string{cmdConformance}},
+	{Flag: "nas-ciphering", Path: "workloads[].conformance.nas.ciphering", Commands: []string{cmdConformance}},
 }
 
 // Exclusions are the env vars and flags that are not configuration.
@@ -138,6 +140,7 @@ var Exclusions = []Exclusion{
 
 	{Flag: "json", Reason: ReasonOutput},
 	{Flag: "explain", Reason: ReasonOutput},
+	{Flag: "list", Reason: ReasonOutput},
 	{Flag: "out", Reason: ReasonOutput},
 	{Flag: "progress-every", Reason: ReasonOutput},
 	{Flag: "from-seq", Reason: ReasonOutput},

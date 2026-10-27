@@ -10,7 +10,6 @@ import (
 	f5nas "github.com/free5gc/nas"
 
 	"github.com/bgrewell/orbit/internal/engine"
-	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/ue"
 )
 
@@ -131,7 +130,8 @@ func (c nasT3550AcceptRetransmit) Run(ctx context.Context, env Env) Result {
 	})
 	_, err = h.RegisterWithProbe(actx, &engine.AttachProbe{
 		Withhold:   map[uint8]bool{f5nas.MsgTypeRegistrationComplete: true},
-		OnDownlink: o.note,
+		OnDownlink: o.noteRelease,
+		OnNAS:      o.noteNAS,
 	})
 	noAccept.Stop()
 	o.stop()
@@ -161,18 +161,12 @@ func (c nasT3550AcceptRetransmit) Run(ctx context.Context, env Env) Result {
 }
 
 // acceptAssignsGUTI reports whether a Registration Accept event assigns a
-// 5G-GUTI. Its NAS type was readable, so the inner plain message starts at
-// offset 7 of a protected PDU (or at 0 of a plain one).
-func acceptAssignsGUTI(ev engine.DownlinkEvent) bool {
-	raw := ev.NAS
-	if len(raw) > 7 && raw[1]&0x0f != nas.SecHdrPlain {
-		raw = raw[7:]
-	}
-	msg, err := nas.DecodePlain(raw)
-	if err != nil {
+// 5G-GUTI, read from the message the security context deciphered.
+func acceptAssignsGUTI(ev engine.NASEvent) bool {
+	if ev.Msg == nil {
 		return false
 	}
-	g, err := ue.ParseRegistrationAccept(msg)
+	g, err := ue.ParseRegistrationAccept(ev.Msg)
 	return err == nil && g != nil && len(g.Raw) > 0
 }
 

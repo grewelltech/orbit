@@ -62,6 +62,14 @@ type GNBEndpoint struct {
 	N3Addr   string
 }
 
+// HandoverResult is what a completed handover reports: how long it took and
+// the target identity actually presented to the core, with the fields the
+// caller left unset inherited from the serving gNB (inheritIdentity).
+type HandoverResult struct {
+	Elapsed time.Duration
+	Target  gnb.Config
+}
+
 // ErrInvalidTarget marks a handover target whose network identity, after
 // inheriting from the serving gNB, is still invalid: a caller's input error
 // rather than a procedure failure.
@@ -121,25 +129,25 @@ const targetHandoverRANID int64 = 1
 // The elapsed time is returned so a single-UE handover is a measurement rather
 // than a pass/fail: it is the same procedure the fleet's CP-latency series
 // records, and an operator comparing N2 against Xn needs the number.
-func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint) (time.Duration, error) {
+func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint) (HandoverResult, error) {
 	start := time.Now()
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
 	m.mu.Unlock()
 	if !ok {
-		return 0, fmt.Errorf("UE %s is not registered", supi)
+		return HandoverResult{}, fmt.Errorf("UE %s is not registered", supi)
 	}
 
 	// Serialise against another handover or a deregistration on this UE: they
 	// rewrite the association and the serving cell together.
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
-		return 0, err
+		return HandoverResult{}, err
 	}
 	defer release()
 
 	if target.Config, err = inheritIdentity(target.Config, sess.ServingGNB()); err != nil {
-		return 0, err
+		return HandoverResult{}, err
 	}
 
 	m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverStarted,
@@ -149,7 +157,7 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 	if err := m.runHandover(ctx, sess, target); err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: err.Error()},
 			"type", "n2", "target_gnb", target.Config.Name)
-		return 0, err
+		return HandoverResult{}, err
 	}
 
 	elapsed := time.Since(start)
@@ -158,7 +166,7 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 			elapsed.Round(time.Millisecond))},
 		"type", "n2", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID,
 		"elapsed_ms", elapsed.Milliseconds())
-	return elapsed, nil
+	return HandoverResult{Elapsed: elapsed, Target: target.Config}, nil
 }
 
 func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndpoint) error {
