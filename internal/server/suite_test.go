@@ -62,8 +62,12 @@ func TestSuiteShapeRefusals(t *testing.T) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{Bits: 22}
 			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 1<<22 - 100}}
 		}, wantErr: "do not fit 22 bits"},
-		{name: "IDs outside the target's block", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+		{name: "a block narrower than three IDs a check", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 20}
+		}, wantErr: "the suite needs a block of 27 gNB IDs (3 for each of its 9 checks); the target's ran.gnb_ids 700..719 holds 20"},
+		{name: "a pin outside the target's block", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 100}
+			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 790}}
 		}, wantErr: "fall outside the target's ran.gnb_ids 700..799"},
 		{name: "a fixed N2 port", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.N2SourceIps = []string{"127.0.0.1:5000"}
@@ -124,7 +128,7 @@ func TestSuiteLeases(t *testing.T) {
 			for _, g := range pr.needs.GNBs {
 				got = append(got, g.ID)
 			}
-			if want := reg.Needs(defaultSuiteGNBBase, tc.cats...).GNBIDs; !slices.Equal(got, want) {
+			if want := reg.Needs(defaultSuiteGNBBase, false, tc.cats...).GNBIDs; !slices.Equal(got, want) {
 				t.Errorf("gNB IDs = %v, want %v", got, want)
 			}
 			if !slices.Equal(pr.needs.N2IPs, []string{"127.0.0.1"}) {
@@ -175,12 +179,12 @@ func TestSuiteAssignedSubsets(t *testing.T) {
 				cats = append(cats, conformance.Category(c))
 			}
 			base := pr.suiteLive.spec.env.GNB.ID
-			if want := reg.Needs(base, cats...).GNBIDs; !slices.Equal(pr.assigned, want) {
+			if want := reg.Needs(base, false, cats...).GNBIDs; !slices.Equal(pr.assigned, want) {
 				t.Errorf("assigned %v; the checks present %v from base %d", pr.assigned, want, base)
 			}
 			// The lowest block the range allows: from its first ID, but no
 			// lower than the selection's first offset, so the base is >= 0.
-			if want := max(engine.DefaultGNBIDFirst, reg.Needs(0, cats...).GNBIDs[0]); pr.assigned[0] != want {
+			if want := max(engine.DefaultGNBIDFirst, reg.Needs(0, false, cats...).GNBIDs[0]); pr.assigned[0] != want {
 				t.Errorf("block starts at %d, want %d", pr.assigned[0], want)
 			}
 			if span := pr.assigned[len(pr.assigned)-1] - pr.assigned[0]; span > 0x9000+uint32(len(reg.Tests())) {
@@ -489,5 +493,57 @@ func TestSuiteSUPIWithinPool(t *testing.T) {
 	}
 	if b := pr.needs.SUPIs; len(b) != 1 || b[0].Last != b[0].First {
 		t.Errorf("SUPI lease = %v, want one SUPI", b)
+	}
+}
+
+// A target that bounds its gNB IDs (200 here) runs the whole suite in the
+// packed layout: every ID it leases is inside the block, pinned or
+// assigned, and the suite runs to the end.
+func TestSuiteInABoundedBlock(t *testing.T) {
+	reg := conformance.NewRegistry()
+	block := func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+		p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 5000, Count: 200}
+		p.Target.Core.Amf = "127.0.0.1:1"
+	}
+	for _, assign := range []bool{false, true} {
+		s := planService(t)
+		pr, err := s.buildPlan(suitePlan(block, func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			if assign {
+				cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}
+			}
+		}), engine.EventsNormal)
+		if err != nil {
+			t.Fatalf("assign %t: %v", assign, err)
+		}
+		env := pr.suiteLive.spec.env
+		if !env.PackedGNBIDs {
+			t.Errorf("assign %t: not packed in a bounded block", assign)
+		}
+		want := reg.Needs(env.GNB.ID, true).GNBIDs
+		var got []uint32
+		for _, g := range pr.needs.GNBs {
+			got = append(got, g.ID)
+			if g.ID < 5000 || g.ID > 5199 {
+				t.Errorf("assign %t: gNB ID %d outside the block", assign, g.ID)
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("assign %t: leased %v, the suite presents %v", assign, got, want)
+		}
+	}
+	// And it runs, every check to a verdict.
+	_, runs, _ := suiteServer(t)
+	resp, err := runs.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: suitePlan(block)}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	waitRunState(t, runs, id, orbitv1.RunState_RUN_STATE_COMPLETE)
+	r, err := runs.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := r.Msg.GetConformance(); c.GetIncomplete() || len(c.GetResults()) != len(reg.Tests()) {
+		t.Errorf("summary: %d of %d results, incomplete %t", len(c.GetResults()), c.GetTotal(), c.GetIncomplete())
 	}
 }

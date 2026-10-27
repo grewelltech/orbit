@@ -660,7 +660,9 @@ is not supported yet (#156).
 
 `GTPU-END-MARKER-ON-PATH-SWITCH` registers the UE with a PDU session on one
 gNB and hands it over to a second gNB. The second gNB uses the same `--bind`
-and `--gnb-n3` and a gNB ID 0x8000 above the first. The check then waits
+and `--gnb-n3` and a gNB ID 0x8000 above the first. (A run whose target
+bounds its gNB IDs with `ran.gnb_ids.count` packs the suite into that
+block instead, three IDs per check: see docs/targets.md.) The check then waits
 5 s after the Path Switch Request Acknowledge. Give `--per-test-timeout`
 room for the registration, the handover and that wait. It passes when a GTP-U
 End Marker arrives on the old downlink tunnel at the source gNB, and no

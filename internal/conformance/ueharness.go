@@ -42,18 +42,6 @@ type UESpec struct {
 // Configured reports whether a UE is configured.
 func (s UESpec) Configured() bool { return s.SUPI != "" }
 
-// targetGNBOffset separates the handover target's gNB ID from the other IDs
-// a suite presents, because the AMF does not cleanly re-key a reused gNB ID
-// from a new association. gNB ID offsets in use from the base (--gnb-base):
-// each check's own gNB at base + registry index (RunStream), a mobility
-// check's handover target at check ID + 0x8000 (here), and the liveness
-// probe at check ID + 0x9000 (Env.Alive). A new check needing another gNB
-// must pick an offset clear of all three.
-const (
-	targetGNBOffset = 0x8000
-	aliveGNBOffset  = 0x9000 // Env.Alive's probe
-)
-
 // trafficRate and trafficPacketSize shape the optional echo flow: enough
 // downlink to show the old path in use, little enough for any testbed.
 const (
@@ -64,7 +52,7 @@ const (
 // UEHarness drives one UE through engine.Manager for the mobility checks: it
 // registers the UE with a PDU session on Env.GNB (gNB A), observes its
 // downlink lane, runs an optional echo flow, hands it over by Xn to gNB B
-// (Env.GNB.ID + targetGNBOffset, same PLMN, TAC and slices) and records what
+// (Env.TargetGNBID, same PLMN, TAC and slices) and records what
 // arrived on the old path. Both gNB associations come from Env.Bind, which
 // must leave the port to the kernel. Close releases everything.
 type UEHarness struct {
@@ -156,7 +144,7 @@ func NewUEHarness(env Env, log *slog.Logger) (*UEHarness, error) {
 // TargetGNB is gNB B, the handover target.
 func (h *UEHarness) TargetGNB() gnb.Config {
 	t := h.env.GNB
-	t.ID = h.env.GNB.ID + targetGNBOffset
+	t.ID = h.env.targetGNBID()
 	t.Name = "orbit-conf-xn-target"
 	return t
 }

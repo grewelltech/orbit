@@ -235,7 +235,19 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if err := knownCategories(reg, cats); err != nil {
 		return nil, err
 	}
-	needs := reg.Needs(0, cats...)
+	// A target that bounds its gNB IDs gets the packed layout, three IDs
+	// per check from the base; an unbounded one (the RunConformance
+	// wrapper's base 700 among them) keeps the legacy layout.
+	lo, hi, ranged, err := gnbRange(t)
+	if err != nil {
+		return nil, err
+	}
+	if span := reg.PackedSpan(); ranged && uint64(hi)-uint64(lo)+1 < uint64(span) {
+		return nil, fmt.Errorf("the suite needs a block of %d gNB IDs (3 for each of its %d checks); the target's ran.gnb_ids %d..%d holds %d",
+			span, span/3, lo, hi, uint64(hi)-uint64(lo)+1)
+	}
+	env.PackedGNBIDs = ranged
+	needs := reg.Needs(0, ranged, cats...)
 	ueSpec, block, err := suiteUE(t, cw, env.GNB, core.GetDnn(), needs.UEs)
 	if err != nil {
 		return nil, err
@@ -257,13 +269,9 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		spec.expected, spec.source = own, "plan"
 	}
 
-	// The gNB IDs: every selected check's own and offsets, from one base.
+	// The gNB IDs: every selected check's IDs in its layout, from one base.
 	plmn := core.GetPlmn().GetMcc() + "/" + core.GetPlmn().GetMnc()
 	out := &planRun{workload: w.GetName(), amf: core.GetAmf(), plmn: plmn}
-	lo, hi, ranged, err := gnbRange(t)
-	if err != nil {
-		return nil, err
-	}
 	// pattern is the IDs the selected checks present, as offsets from the
 	// suite's base; a subset's first is its first check's registry index,
 	// not 0, since RunStream adds the full index.
