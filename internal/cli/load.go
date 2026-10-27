@@ -297,14 +297,20 @@ func printLoadReport(w io.Writer, rep load.Report) {
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(w, "  %-13s P50 %-8s P99 %-8s P99.9 %-8s max %s\n",
-			name, round(s.P50), round(s.P99), round(s.P999), round(s.Max))
+		_, _ = fmt.Fprint(w, latencyLine(name, uint64(s.Count), round(s.P50), round(s.P90), round(s.P99), round(s.P999), round(s.Max)))
 	}
 	if len(rep.Resources) > 0 {
 		first, last := rep.Resources[0], rep.Resources[len(rep.Resources)-1]
 		fmt.Fprintf(w, "  resources: goroutines %d→%d, RSS %dMB→%dMB over %d samples\n",
 			first.Goroutines, last.Goroutines, first.RSSBytes>>20, last.RSSBytes>>20, len(rep.Resources))
 	}
+}
+
+// latencyLine is one procedure's line in a load report: its sample count and
+// percentiles. printLoadReport and printLoadReportProto both print through
+// it, so --local and server output compare line by line.
+func latencyLine(name string, n uint64, p50, p90, p99, p999, peak string) string {
+	return fmt.Sprintf("  %-13s n %-6d P50 %-8s P90 %-8s P99 %-8s P99.9 %-8s max %s\n", name, n, p50, p90, p99, p999, peak)
 }
 
 func round(d time.Duration) string { return d.Round(100 * time.Microsecond).String() }
@@ -459,8 +465,8 @@ func printLoadReportProto(w io.Writer, rep *orbitv1.LoadReport) {
 		if !ok {
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "  %-13s P50 %-8s P99 %-8s P99.9 %-8s max %s\n", name,
-			msDuration64(l.GetP50Ms()), msDuration64(l.GetP99Ms()), msDuration64(l.GetP999Ms()), msDuration64(l.GetMaxMs()))
+		_, _ = fmt.Fprint(w, latencyLine(name, l.GetCount(), msDuration64(l.GetP50Ms()), msDuration64(l.GetP90Ms()),
+			msDuration64(l.GetP99Ms()), msDuration64(l.GetP999Ms()), msDuration64(l.GetMaxMs())))
 	}
 	if rs := rep.GetResources(); len(rs) > 0 {
 		first, last := rs[0], rs[len(rs)-1]
