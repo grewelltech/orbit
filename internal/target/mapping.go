@@ -3,6 +3,7 @@ package target
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -18,6 +19,16 @@ type Binding struct {
 	// Part is set for the flags that together form one list value:
 	// --sst and --sd make up the single slice of core.slices.
 	Part string
+}
+
+// Numeric reports whether the binding's value is a number: its path is an
+// integer or float field, or it is the SST part of a slice.
+func (b Binding) Numeric() bool {
+	if b.Part == "sst" {
+		return true
+	}
+	_, f, err := lookup(b.Path)
+	return err == nil && (f.typ == tUint || f.typ == tFloat)
 }
 
 // Reason is why an env var or flag is not configuration.
@@ -90,6 +101,7 @@ var Bindings = []Binding{
 	{Flag: "opc", Path: "subscribers[].opc"},
 	{Flag: "routing-indicator", Path: "subscribers[].routing_indicator"},
 	{Flag: "bind", Path: "ran.n2_source_ips", Commands: []string{cmdConformance, cmdLoad, cmdStartLoad, cmdUERegister, cmdCellNGSetup}},
+	{Flag: "local", Path: "ran.n2_source_ips", Commands: []string{cmdCellNGSetup}}, // deprecated alias of --bind
 	{Flag: "gnb-n3", Path: "ran.n3_ips"},
 	{Flag: "n3-bind", Path: "ran.n3_ips", Commands: []string{cmdConformance}},
 	{Flag: "gnb-name", Path: "ran.gnb_name"},
@@ -151,7 +163,6 @@ var Exclusions = []Exclusion{
 	{Flag: "supi", Reason: ReasonOperation},
 	{Flag: "pdu-session-id", Reason: ReasonOperation},
 	{Flag: "hold", Reason: ReasonOperation},
-	{Flag: "local", Reason: ReasonOperation},
 	{Flag: "timeout", Reason: ReasonOperation},
 	{Flag: "name", Commands: []string{cmdCellNGSetup}, Reason: ReasonOperation},
 	{Flag: "count", Commands: []string{"orbit ue ping"}, Reason: ReasonOperation},
@@ -328,6 +339,16 @@ func FlagInput(cmd string, fs *pflag.FlagSet) (Input, error) {
 		val := any(f.Value.String())
 		if sv, ok := f.Value.(pflag.SliceValue); ok {
 			val = sv.GetSlice()
+		}
+		if f.Value.Type() == "duration" && strings.HasSuffix(b.Path, "_ms") {
+			// A duration flag (--per-test-timeout 15s) sets a millisecond
+			// field.
+			d, perr := time.ParseDuration(f.Value.String())
+			if perr != nil || d < 0 {
+				err = fmt.Errorf("--%s: %q is not a non-negative duration", f.Name, f.Value.String())
+				return
+			}
+			val = uint64(d.Milliseconds())
 		}
 		in.Settings = append(in.Settings, Setting{Path: b.Path, Value: val, Source: src})
 	})

@@ -134,6 +134,15 @@ func validateValue(path string, f field, v any, src Source) error {
 	if !ok {
 		return nil
 	}
+	// An empty value is a layer clearing the field (--bind "" is the
+	// route-selected source; --supi "" turns a target's UE off), not a
+	// malformed one.
+	if s, isStr := v.(string); isStr && s == "" {
+		return nil
+	}
+	if l, isList := v.([]string); isList && len(l) == 0 {
+		return nil
+	}
 	reason := check(v)
 	if reason == "" {
 		return nil

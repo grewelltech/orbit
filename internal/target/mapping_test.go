@@ -3,6 +3,7 @@ package target
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -38,6 +39,7 @@ func TestFlagInput(t *testing.T) {
 		fs.String("supi", "", "")
 		fs.StringSlice("category", nil, "")
 		fs.Bool("json", false, "")
+		fs.Duration("per-test-timeout", 15*time.Second, "")
 		return fs
 	}
 	tests := []struct {
@@ -58,6 +60,8 @@ func TestFlagInput(t *testing.T) {
 			want: map[string]any{"subscribers[].first_supi": "001010000000001"}},
 		{name: "command scoping: supi on ue ping is an operation argument", cmd: "orbit ue ping", args: []string{"--supi", "001010000000001"},
 			want: map[string]any{}},
+		{name: "duration flag to a millisecond field", cmd: "orbit conformance", args: []string{"--per-test-timeout", "2.5s"},
+			want: map[string]any{"workloads[].conformance.per_test_timeout_ms": uint64(2500)}},
 		{name: "slice flag", cmd: "orbit conformance", args: []string{"--category", "nas,security"},
 			want: map[string]any{"workloads[].conformance.categories": []string{"nas", "security"}}},
 	}

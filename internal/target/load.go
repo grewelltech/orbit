@@ -303,6 +303,11 @@ func leadingZero(n *yaml.Node) error {
 	return leadingZeroText(n.Value)
 }
 
+// LeadingZero rejects a number's text written with a leading zero, such
+// as 0010, the rule a target file and the env layer apply; a CLI flag
+// applies it too. Plain 0, decimal, and prefixed 0x, 0o and 0b pass.
+func LeadingZero(s string) error { return leadingZeroText(s) }
+
 // leadingZeroText is leadingZero for a number's text, from a file, an env
 // var or a flag.
 func leadingZeroText(s string) error {

@@ -325,7 +325,8 @@ func TestIntegerRange(t *testing.T) {
 		{name: "count text 2^32", path: "subscribers[].count", v: "4294967296", wantErr: `"4294967296" is out of range`},
 		{name: "count text negative", path: "subscribers[].count", v: "-1", wantErr: `"-1" is not a non-negative integer`},
 		{name: "sst 2^32+1", path: "core.slices", v: []any{map[string]any{"sst": 4294967297}}, wantErr: "slice sst: 4294967297 is out of range"},
-		{name: "run seed 2^32", path: "workloads[].attach.seed", v: uint64(1 << 32), wantErr: "out of range"},
+		{name: "seed is 64-bit", path: "workloads[].attach.seed", v: uint64(1 << 40)},
+		{name: "seed text above 64 bits", path: "workloads[].attach.seed", v: "18446744073709551616", wantErr: `"18446744073709551616" is out of range (0 to 18446744073709551615)`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,6 +334,9 @@ func TestIntegerRange(t *testing.T) {
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatal(err)
+				}
+				if tc.path != "subscribers[].count" {
+					return
 				}
 				if r.Target.Subscribers[0].Count != 4294967295 {
 					t.Errorf("count = %d", r.Target.Subscribers[0].Count)

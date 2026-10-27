@@ -101,6 +101,43 @@ type Resolved struct {
 	Target     Target
 	Run        map[string]any
 	Provenance []FieldProvenance
+
+	state map[string]*entry   // every set field by concrete path
+	order map[string][]string // named list path → element names
+}
+
+// Field is one resolved field: its concrete path, its value in the field's
+// type (string, uint64, float64, bool, []string or []Slice; secrets
+// unmasked) and the source that set it.
+type Field struct {
+	Path   string
+	Value  any
+	Source Source
+}
+
+// Lookup is the resolved field at path. An empty selector (subscribers[].ki)
+// names the list's default element, its first. ok is false when no layer
+// set the field.
+func (r *Resolved) Lookup(path string) (Field, bool) {
+	segs, _, err := lookup(path)
+	if err != nil {
+		return Field{}, false
+	}
+	for i := range segs {
+		if segs[i].elem && segs[i].name == "" {
+			names := r.order[listOf(segs, i)]
+			if len(names) == 0 {
+				return Field{}, false
+			}
+			segs[i].name = names[0]
+		}
+	}
+	p := format(segs)
+	e, ok := r.state[p]
+	if !ok {
+		return Field{}, false
+	}
+	return Field{Path: p, Value: e.value, Source: e.src}, true
 }
 
 // entry is a field's state during the merge.
@@ -188,7 +225,7 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 		}
 	}
 
-	res := &Resolved{Run: map[string]any{}}
+	res := &Resolved{Run: map[string]any{}, state: state, order: order}
 	for p, e := range state {
 		res.Provenance = append(res.Provenance, *e.prov)
 		if !isTargetPath(p) {

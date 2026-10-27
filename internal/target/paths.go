@@ -39,6 +39,16 @@ type field struct {
 	// target marks a field of the target document; the others are run-file
 	// fields (workloads, until, gates, the run's name).
 	target bool
+	// wide marks a tUint field that is 64-bit; the others are 32-bit.
+	wide bool
+}
+
+// max is the largest value a tUint field holds.
+func (f field) max() uint64 {
+	if f.wide {
+		return math.MaxUint64
+	}
+	return math.MaxUint32
 }
 
 // namedLists are the lists that merge element by element, by name.
@@ -95,7 +105,7 @@ var fields = map[string]field{
 	"workloads[].attach.ramp":                     {},
 	"workloads[].attach.arrival":                  {},
 	"workloads[].attach.concurrency":              {typ: tUint},
-	"workloads[].attach.seed":                     {typ: tUint},
+	"workloads[].attach.seed":                     {typ: tUint, wide: true},
 	"workloads[].population.pdu_session":          {typ: tBool},
 	"workloads[].population.topology.gnb_count":   {typ: tUint},
 	"workloads[].population.sample_interval_ms":   {typ: tUint},
@@ -216,8 +226,9 @@ func Paths() []string {
 // Strings convert; values already of the type pass through.
 //
 // Every value an error shows goes through errValue, so a secret field's
-// value never prints, whatever went wrong. tUint fields are 32-bit: a value
-// above 2^32-1 or below zero is a range error, never truncated.
+// value never prints, whatever went wrong. A tUint field is 32-bit unless
+// marked wide (the load seed, 64-bit): a value above its width or below
+// zero is a range error, never truncated.
 func convert(f field, v any) (any, error) {
 	switch f.typ {
 	case tString:
@@ -234,24 +245,28 @@ func convert(f field, v any) (any, error) {
 			if err := leadingZeroText(t); err != nil {
 				return nil, err
 			}
-			n, err := strconv.ParseUint(t, 0, 32)
+			bits := 32
+			if f.wide {
+				bits = 64
+			}
+			n, err := strconv.ParseUint(t, 0, bits)
 			if errors.Is(err, strconv.ErrRange) {
-				return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), uint64(math.MaxUint32))
+				return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), f.max())
 			}
 			if err != nil {
 				return nil, fmt.Errorf("%s is not a non-negative integer", errValue(f, x))
 			}
 			return n, nil
 		case int:
-			if x >= 0 && uint64(x) <= math.MaxUint32 {
+			if x >= 0 && uint64(x) <= f.max() {
 				return uint64(x), nil
 			}
-			return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), uint64(math.MaxUint32))
+			return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), f.max())
 		case uint64:
-			if x <= math.MaxUint32 {
+			if x <= f.max() {
 				return x, nil
 			}
-			return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), uint64(math.MaxUint32))
+			return nil, fmt.Errorf("%s is out of range (0 to %d)", errValue(f, x), f.max())
 		}
 	case tFloat:
 		switch x := v.(type) {

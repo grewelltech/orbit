@@ -18,6 +18,8 @@ func TestResolveValidatesValues(t *testing.T) {
 		wantErr string // "" = valid
 	}{
 		{name: "mcc ok", path: "core.plmn.mcc", value: "001"},
+		{name: "empty clears, not malformed", path: "subscribers[].first_supi", value: ""},
+		{name: "empty amf", path: "core.amf", value: ""},
 		{name: "mcc short", path: "core.plmn.mcc", value: "1", wantErr: `core.plmn.mcc: "1" is not 3 digits (env $SRC)`},
 		{name: "mcc letters", path: "core.plmn.mcc", value: "0a1", wantErr: "is not 3 digits"},
 		{name: "mnc 2", path: "core.plmn.mnc", value: "01"},
