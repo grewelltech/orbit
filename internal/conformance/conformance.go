@@ -94,6 +94,21 @@ type Test interface {
 // raised the timeout; --per-test-timeout stays the floor for every check.
 type Budgeter interface{ Budget() time.Duration }
 
+// DefaultPerTestTimeout is the per-check timeout when the caller sets none
+// (RunStream) and the CLI's --per-test-timeout default.
+const DefaultPerTestTimeout = 15 * time.Second
+
+// ExpectedDuration is the longest t can take at the per-test timeout
+// perTest: perTest, or its Budget when longer. It is what a check is
+// announced with before it runs, and what --list and checks.md show.
+func ExpectedDuration(t Test, perTest time.Duration) time.Duration {
+	if perTest <= 0 {
+		perTest = DefaultPerTestTimeout
+	}
+	d, _ := budget(t, perTest)
+	return d
+}
+
 // budget is the time runOne gives t: perTest, or t's Budget when longer, with
 // whether it was raised.
 func budget(t Test, perTest time.Duration) (time.Duration, bool) {
@@ -382,6 +397,22 @@ func NewRegistry() *Registry {
 // Register adds a test.
 func (r *Registry) Register(t Test) { r.tests = append(r.tests, t) }
 
+// Select returns the registered tests in cats (every test when cats is
+// empty), in registration order.
+func (r *Registry) Select(cats ...Category) []Test {
+	want := map[Category]bool{}
+	for _, c := range cats {
+		want[c] = true
+	}
+	var out []Test
+	for _, t := range r.tests {
+		if len(want) == 0 || want[t.Category()] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // Tests returns the registered tests.
 func (r *Registry) Tests() []Test { return r.tests }
 
@@ -405,15 +436,27 @@ func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats
 // that stamps identity onto the result.
 func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration,
 	emit func(res Result, index, total int), cats ...Category) {
+	r.RunWithStart(ctx, env, perTest, nil, emit, cats...)
+}
+
+// RunWithStart is RunStream with start, if non-nil, called just before each
+// selected test runs, with the time it may take (ExpectedDuration), so a
+// caller can announce a long check rather than appear to hang.
+func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Duration,
+	start func(t Test, expected time.Duration, index, total int),
+	emit func(res Result, index, total int), cats ...Category) {
 	if perTest <= 0 {
-		perTest = 15 * time.Second
+		perTest = DefaultPerTestTimeout
 	}
 	// The selected set, so `total` and `index` count only what will run rather
 	// than every registered test.
-	selected := r.selected(cats)
+	selected := r.Select(cats...)
 	for i, t := range selected {
 		if err := ctx.Err(); err != nil {
 			return // client went away; stop rather than keep dialling the core
+		}
+		if start != nil {
+			start(t, ExpectedDuration(t, perTest), i, len(selected))
 		}
 		// Give each test a distinct gNB ID — the AMF does not cleanly re-key a
 		// reused gNB ID from a new association (docs/interop/sdcore.md). Indexed
@@ -542,22 +585,6 @@ func joinDetail(detail, more string) string {
 		return more
 	}
 	return detail + "; " + more
-}
-
-// selected is the registered tests in cats (every test when cats is
-// empty), in registration order.
-func (r *Registry) selected(cats []Category) []Test {
-	want := map[Category]bool{}
-	for _, c := range cats {
-		want[c] = true
-	}
-	var out []Test
-	for _, t := range r.tests {
-		if len(want) == 0 || want[t.Category()] {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // indexOf returns a test's position in the full registry, used for a stable

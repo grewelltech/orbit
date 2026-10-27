@@ -106,7 +106,7 @@ type SuiteNeeds struct {
 func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds {
 	var out SuiteNeeds
 	seen := map[uint32]bool{}
-	for _, t := range r.selected(cats) {
+	for _, t := range r.Select(cats...) {
 		n := NeedsOf(t)
 		out.UEs = max(out.UEs, n.UEs)
 		own, target, liveness := r.gnbIDsOf(base, r.indexOf(t), packed)

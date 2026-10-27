@@ -127,7 +127,9 @@ network: plmn=001/01 tac=1 snssai=1/010203 dnn=internet
   from the UE's serving gNB (`$ORBIT_MCC`/`$ORBIT_MNC` are ignored here, since
   the target is in the serving PLMN by definition), so a same-network handover
   needs only `--gnb-id`, `--bind` and `--gnb-n3`. A field given explicitly
-  overrides the inherited one.
+  overrides the inherited one. The handover's `network:` line shows the
+  identity actually presented to the core, inherited fields filled in, as
+  the server reports it.
 - **Scenario files** need `core.plmn.mcc` and `core.plmn.mnc` (quote them, so
   `"01"` is read as the string it is; `${ORBIT_MCC}`/`${ORBIT_MNC}` expand);
   `core.tac`, `core.slice.sst` and `core.dnn` take the defaults above when
@@ -643,6 +645,21 @@ orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
     [--target-release Rel-16] [--expected-failures <core-list.yaml>]
 ```
 
+Some checks wait out real NAS timer expiries and take minutes. Before each
+check runs, the suite prints it on stderr with the longest it can take (its
+own budget, or `--per-test-timeout` when that is longer), starting with the
+suite's total, and a check that can take longer than 30 s reports its elapsed
+time every 30 s. stdout carries only the results, so `--json` stays clean.
+`--list` shows the same durations without running anything, and needs no
+`--amf`:
+
+```sh
+orbit conformance --list [--category nas] [--per-test-timeout 15s]
+```
+
+[checks.md](conformance/checks.md) has the same figures in its **Up to**
+column, at the default per-test timeout.
+
 The `mobility` category registers a real UE and hands it over by Xn, so it
 needs a subscriber and a gNB N3 address reachable from the UPF. Without
 `--supi` its checks SKIP with "no UE configured":
@@ -708,13 +725,50 @@ orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
     --category nas --supi 001010100007500 --gnb-n3 172.17.50.12
 ```
 
+The UE advertises NEA0 and 128-NIA2 by default and completes registration with
+whichever advertised pair the AMF selects. `--nas-integrity` (NIA1, NIA2,
+NIA3; default NIA2) and `--nas-ciphering` (NEA0 to NEA3; default NEA0) change
+what it advertises, as comma-separated lists, for example
+`--nas-integrity NIA1,NIA2,NIA3 --nas-ciphering NEA0,NEA1,NEA2` for a fully
+featured UE. NIA0 is refused: the UE never registers for emergency. They need
+`--supi`. A check that sets its own capabilities as its stimulus, such as
+`NAS-SMC-NO-NIA0-REPLAYED-CAPS`, keeps them. Once the AMF selects a cipher
+other than NEA0, the NAS in packet captures is ciphered and unreadable without
+the keys.
+
+`NAS-PDU-UNKNOWN-DNN` registers the UE and requests a PDU session for the DNN
+`orbit-unknown-dnn` on the run's slice. It passes on a PDU Session
+Establishment Reject with any 5GSM cause, or when the AMF returns the request
+unchanged in a DL NAS Transport with 5GMM cause #90 or #91. It fails on #90/#91
+with a different payload, on another answer, or on nothing within 10 s. It
+SKIPs when the core accepts the DNN, or when the AMF returns the request for
+congestion (#22, #67 or #69). The UE is deregistered at the end.
+
+`NAS-REG-REJECTED-NSSAI` applies from Rel-16. It registers the UE requesting
+only an S-NSSAI the core does not serve: the run's SST with SD `EEEEEE`
+(`DDDDDD` if the run's SD is `EEEEEE`). It passes on a Registration Reject
+with 5GMM cause #62 whose Rejected NSSAI IE lists that S-NSSAI. It fails on
+another cause, on a #62 Reject that leaves the S-NSSAI out, or when the
+S-NSSAI appears only in the Extended rejected NSSAI IE. A core that falls
+back to a default slice accepts the UE; the check then SKIPs and deregisters
+the UE.
+
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
-flags. It registers the UE twice, each time stopping at the Security Mode
-Command. The first registration offers the usual algorithms, and the AMF must
-not select NIA0 and must replay the UE's capabilities exactly. The second
+flags. It registers the UE three times, each time stopping at the Security
+Mode Command. The first registration offers the usual algorithms, and the AMF
+must not select NIA0 and must replay the UE's capabilities exactly. The second
 offers only NIA0 and NIA3, and the AMF must not select NIA0 or skip the
-command (selecting NIA3, rejecting or releasing all pass). Neither
-registration completes, so the check leaves no UE registered.
+command (selecting NIA3, rejecting or releasing all pass). The last offers
+only NIA0: a reject or a release. For any UE, a Security Mode Command
+selecting NIA0, or no Security Mode Command, is FAIL (TS 33.501 5.5.2, 6.7.2
+step 1b). A non-null algorithm the UE did not offer is PASS, recorded, not
+scored: no shall requires the selected algorithm to be one the UE offered at
+initial registration. 5.11.2 b) says only 'dependent on', and 6.7.1.2 (from
+V19.4.0) covers AMF change. No registration completes. If the AMF sends a
+Registration Accept without NAS security, the check deregisters the UE in the
+clear and, if the core does not release it, sends a UE Context Release
+Request; the detail says what the cleanup achieved. A Ctrl-C or run deadline
+during this check's cleanup can delay the return by up to 5 s.
 
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,

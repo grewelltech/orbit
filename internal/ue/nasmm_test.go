@@ -173,3 +173,45 @@ func TestDecodeSecureDownlink(t *testing.T) {
 		t.Error("expected integrity failure on tampered MAC")
 	}
 }
+
+// WithCapability5GMM replaces the 5GMM capability value and survives a
+// decode; without it the IE is the single zero octet 3; a value outside 1
+// to 13 octets is refused.
+func TestWithCapability5GMM(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    []RegistrationOption
+		want    []byte
+		wantErr bool
+	}{
+		{name: "default", want: []byte{0}},
+		{name: "octets 3 to 5 zero", opts: []RegistrationOption{WithCapability5GMM([]byte{0, 0, 0})}, want: []byte{0, 0, 0}},
+		{name: "13 octets", opts: []RegistrationOption{WithCapability5GMM(make([]byte, 13))}, want: make([]byte, 13)},
+		{name: "empty", opts: []RegistrationOption{WithCapability5GMM(nil)}, wantErr: true},
+		{name: "14 octets", opts: []RegistrationOption{WithCapability5GMM(make([]byte, 14))}, wantErr: true},
+	}
+	suci := buildSUCI(t)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := BuildRegistrationRequest(suci, SecurityCapability(), nil, tc.opts...)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("built a Registration Request with an invalid 5GMM capability")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := nas.DecodePlain(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rr := m.RegistrationRequest
+			c := rr.Capability5GMM
+			if c == nil || int(c.GetLen()) != len(tc.want) || string(c.Octet[:c.GetLen()]) != string(tc.want) {
+				t.Errorf("5GMM capability = %+v, want %x", c, tc.want)
+			}
+		})
+	}
+}

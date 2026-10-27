@@ -146,8 +146,10 @@ func TestTargetFillsFlags(t *testing.T) {
 			t.Errorf("--%s = %q, want %q", name, got, v)
 		}
 	}
-	if r.err != "" {
-		t.Errorf("stderr without --explain: %q", r.err)
+	// Without --explain there is no provenance table; stderr carries only
+	// the conformance progress lines.
+	if strings.Contains(r.err, "SET BY") {
+		t.Errorf("provenance on stderr without --explain: %q", r.err)
 	}
 }
 
