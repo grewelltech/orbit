@@ -249,7 +249,10 @@ type ConformanceUpdate struct {
 	ExpectedFailuresCore string `protobuf:"bytes,8,opt,name=expected_failures_core,json=expectedFailuresCore,proto3" json:"expected_failures_core,omitempty"`
 	// Entries whose check ran without the FAIL they tolerate; on the final
 	// update only. They warn, not gate.
-	Stale         []*StaleExpectation `protobuf:"bytes,9,rep,name=stale,proto3" json:"stale,omitempty"`
+	Stale []*StaleExpectation `protobuf:"bytes,9,rep,name=stale,proto3" json:"stale,omitempty"`
+	// The run the suite runs as (ADR-0008 §2), on every update, so a client
+	// can follow it in the run history.
+	RunId         string `protobuf:"bytes,10,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -345,6 +348,13 @@ func (x *ConformanceUpdate) GetStale() []*StaleExpectation {
 		return x.Stale
 	}
 	return nil
+}
+
+func (x *ConformanceUpdate) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
 }
 
 type ConformanceResult struct {
@@ -470,10 +480,15 @@ func (x *ConformanceResult) GetExpectedFailure() *ExpectedFailure {
 // ExpectedFailure is the expected-failures entry that tolerates a FAIL
 // (docs/conformance/expected-failures.md).
 type ExpectedFailure struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Finding       string                 `protobuf:"bytes,1,opt,name=finding,proto3" json:"finding,omitempty"`
-	Added         string                 `protobuf:"bytes,2,opt,name=added,proto3" json:"added,omitempty"` // YYYY-MM-DD
-	Reason        string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Finding string                 `protobuf:"bytes,1,opt,name=finding,proto3" json:"finding,omitempty"`
+	Added   string                 `protobuf:"bytes,2,opt,name=added,proto3" json:"added,omitempty"` // YYYY-MM-DD
+	Reason  string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The FAIL the entry tolerates, in a plan's own list
+	// (ConformanceWorkload.expected): the check's ID and its exact observed
+	// text. Unset on a result's matched entry.
+	Check         string `protobuf:"bytes,4,opt,name=check,proto3" json:"check,omitempty"`
+	Observed      string `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -525,6 +540,20 @@ func (x *ExpectedFailure) GetAdded() string {
 func (x *ExpectedFailure) GetReason() string {
 	if x != nil {
 		return x.Reason
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetCheck() string {
+	if x != nil {
+		return x.Check
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetObserved() string {
+	if x != nil {
+		return x.Observed
 	}
 	return ""
 }
@@ -1092,7 +1121,7 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\vcredentials\x18\x0f \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\x12\x10\n" +
 	"\x03dnn\x18\x10 \x01(\tR\x03dnn\x12\x15\n" +
 	"\x06gnb_n3\x18\x11 \x01(\tR\x05gnbN3\x12\x18\n" +
-	"\atraffic\x18\x12 \x01(\tR\atraffic\"\xf7\x03\n" +
+	"\atraffic\x18\x12 \x01(\tR\atraffic\"\x8e\x04\n" +
 	"\x11ConformanceUpdate\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.orbit.v1.ConformanceResultR\x06result\x12\x12\n" +
 	"\x04done\x18\x02 \x01(\bR\x04done\x120\n" +
@@ -1102,7 +1131,9 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\x0etarget_release\x18\x06 \x01(\rR\rtargetRelease\x12e\n" +
 	"\x14spec_target_releases\x18\a \x03(\v23.orbit.v1.ConformanceUpdate.SpecTargetReleasesEntryR\x12specTargetReleases\x124\n" +
 	"\x16expected_failures_core\x18\b \x01(\tR\x14expectedFailuresCore\x120\n" +
-	"\x05stale\x18\t \x03(\v2\x1a.orbit.v1.StaleExpectationR\x05stale\x1aE\n" +
+	"\x05stale\x18\t \x03(\v2\x1a.orbit.v1.StaleExpectationR\x05stale\x12\x15\n" +
+	"\x06run_id\x18\n" +
+	" \x01(\tR\x05runId\x1aE\n" +
 	"\x17SpecTargetReleasesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xdb\x02\n" +
@@ -1118,11 +1149,13 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\vmin_release\x18\t \x01(\rR\n" +
 	"minRelease\x12D\n" +
 	"\x10expected_failure\x18\n" +
-	" \x01(\v2\x19.orbit.v1.ExpectedFailureR\x0fexpectedFailure\"Y\n" +
+	" \x01(\v2\x19.orbit.v1.ExpectedFailureR\x0fexpectedFailure\"\x8b\x01\n" +
 	"\x0fExpectedFailure\x12\x18\n" +
 	"\afinding\x18\x01 \x01(\tR\afinding\x12\x14\n" +
 	"\x05added\x18\x02 \x01(\tR\x05added\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"\xa5\x01\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x14\n" +
+	"\x05check\x18\x04 \x01(\tR\x05check\x12\x1a\n" +
+	"\bobserved\x18\x05 \x01(\tR\bobserved\"\xa5\x01\n" +
 	"\x10StaleExpectation\x12\x14\n" +
 	"\x05check\x18\x01 \x01(\tR\x05check\x12\x18\n" +
 	"\afinding\x18\x02 \x01(\tR\afinding\x12+\n" +

@@ -343,3 +343,74 @@ func TestGNBRotationBlocksShareHistory(t *testing.T) {
 		t.Fatalf("B again: %v, %v; want an ID other than the 1 it just released", b2, err)
 	}
 }
+
+// AssignPattern picks a base whose every patterned ID is free: never-used
+// bases first, lowest first, then the least recently used.
+func TestGNBRotationAssignPattern(t *testing.T) {
+	amf := []string{"amf:38412"}
+	pat := []uint32{0, 1, 10}
+	tests := []struct {
+		name     string
+		setup    func(g *GNBRotation, now *time.Time)
+		inUse    func(uint32) bool
+		first    uint32
+		last     uint32
+		pattern  []uint32
+		wantBase uint32
+		wantErr  error
+	}{
+		{name: "fresh: the lowest base", first: 100, last: 200, pattern: pat, wantBase: 100},
+		{name: "a used ID moves the base past it", setup: func(g *GNBRotation, now *time.Time) {
+			if _, err := g.Assign(amf, "208/93", 110, 110, 1, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := g.Released(amf, "208/93", []uint32{110}); err != nil {
+				t.Fatal(err)
+			}
+		}, first: 100, last: 200, pattern: pat, wantBase: 101}, // 100+10 is used
+		{name: "a lease in use moves it too", inUse: func(id uint32) bool { return id == 101 }, first: 100, last: 200, pattern: pat, wantBase: 102},
+		{name: "every base used: the least recently used", setup: func(g *GNBRotation, now *time.Time) {
+			// IDs 0..12 used in order, so base 0's latest use (ID 10) is the oldest.
+			for id := uint32(0); id <= 12; id++ {
+				*now = now.Add(time.Second)
+				if _, err := g.Assign(amf, "208/93", id, id, 1, nil); err != nil {
+					t.Fatal(err)
+				}
+				if err := g.Released(amf, "208/93", []uint32{id}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}, first: 0, last: 12, pattern: pat, wantBase: 0},
+		{name: "a range shorter than the pattern", first: 100, last: 105, pattern: pat, wantErr: ErrGNBRangeExhausted},
+		{name: "every base blocked", inUse: func(uint32) bool { return true }, first: 100, last: 120, pattern: pat, wantErr: ErrGNBRangeExhausted},
+		{name: "a pattern not from 0", first: 100, last: 200, pattern: []uint32{1, 2}, wantErr: errors.New("must start at 0")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Unix(1000, 0)
+			g := smallRotation(t, "", &now)
+			if tc.setup != nil {
+				tc.setup(g, &now)
+			}
+			now = now.Add(time.Second)
+			base, ids, err := g.AssignPattern(amf, "208/93", tc.first, tc.last, tc.pattern, tc.inUse)
+			if tc.wantErr != nil {
+				if err == nil || !errors.Is(err, tc.wantErr) && !strings.Contains(err.Error(), tc.wantErr.Error()) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if base != tc.wantBase || len(ids) != len(tc.pattern) || ids[len(ids)-1] != base+tc.pattern[len(tc.pattern)-1] {
+				t.Fatalf("base %d, ids %v; want base %d", base, ids, tc.wantBase)
+			}
+			// The IDs are held: the same pattern again takes another base.
+			again, _, err := g.AssignPattern(amf, "208/93", tc.first, tc.last, tc.pattern, tc.inUse)
+			if err == nil && again == base {
+				t.Errorf("a second assignment reused base %d", base)
+			}
+		})
+	}
+}

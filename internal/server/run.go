@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/load"
@@ -50,6 +51,10 @@ type runService struct {
 	// least recently used first, persisted in the state directory. Nil: a
 	// plan cannot ask.
 	rotation *engine.GNBRotation
+	// expected is the server's conformance expected-failures list (orbit
+	// serve --conformance-expected-failures), which a conformance workload
+	// without its own is judged against; nil for none.
+	expected *conformance.ExpectedFailures
 }
 
 func (s *runService) StartRun(
@@ -87,47 +92,63 @@ func (s *runService) StartRun(
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Plan:
-		// S2: one population workload, run on today's engines.
-		pr, err := s.buildPlan(spec.Plan, verbosity)
-		if errors.Is(err, engine.ErrGNBRangeExhausted) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
-		}
-		if errors.Is(err, engine.ErrRotationPersist) {
-			return nil, connect.NewError(connect.CodeUnavailable, err)
-		}
+		info, _, err := s.startPlan(m, opts)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, err
 		}
-		opts.Needs = pr.needs
-		opts.Judge = planJudge(spec.Plan)
-		// Read before the run starts: a run that fails fast releases its
-		// leases (and its IDs) while StartRun is still here.
-		prov := pr.provenance()
-		// The IDs go back once: from the run's release, or below if it
-		// never starts (a launcher that panicked does both).
-		var once sync.Once
-		release := func() {}
-		if ids := pr.assigned; len(ids) > 0 {
-			keys, plmn := pr.amfKeys, pr.plmn
-			release = func() { once.Do(func() { s.releaseIDs(keys, plmn, ids) }) }
-			opts.OnRelease = release
-		}
-		var info engine.RunInfo
-		if pr.fleet != nil {
-			info, err = s.reg.StartFleet(opts, pr.fleet)
-		} else {
-			info, err = s.reg.StartLoad(opts, pr.load)
-		}
-		if err != nil {
-			release()
-			return nil, runStartError(err)
-		}
-		s.specs.put(info.ID, m, prov...)
-		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("a run spec is required (load or fleet)"))
 	}
+}
+
+// startPlan builds a plan request's run and starts it under its leases,
+// with its gates judged on completion; m is what the run records (and
+// archives, masked). Errors are connect errors: INVALID_ARGUMENT for a
+// plan that does not build, FAILED_PRECONDITION for an exhausted gNB
+// range or a lease conflict, UNAVAILABLE when the rotation cannot save.
+func (s *runService) startPlan(m *orbitv1.StartRunRequest, opts engine.RunOptions) (engine.RunInfo, *planRun, error) {
+	plan := m.GetPlan()
+	pr, err := s.buildPlan(plan, opts.Verbosity)
+	if errors.Is(err, engine.ErrGNBRangeExhausted) {
+		return engine.RunInfo{}, nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	if errors.Is(err, engine.ErrRotationPersist) {
+		return engine.RunInfo{}, nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	if err != nil {
+		return engine.RunInfo{}, nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	opts.Needs = pr.needs
+	opts.Judge = planJudge(plan)
+	// Read before the run starts: a run that fails fast releases its
+	// leases (and its IDs) while StartRun is still here.
+	prov := pr.provenance()
+	// The IDs go back once: from the run's release, or below if it never
+	// starts (a launcher that panicked does both).
+	var once sync.Once
+	release := func() {}
+	if ids := pr.assigned; len(ids) > 0 {
+		keys, plmn := pr.amfKeys, pr.plmn
+		release = func() { once.Do(func() { s.releaseIDs(keys, plmn, ids) }) }
+		opts.OnRelease = release
+	}
+	var info engine.RunInfo
+	switch {
+	case pr.suite != nil:
+		info, err = s.reg.StartConformance(opts, pr.suiteLive, pr.suite)
+	case pr.fleet != nil:
+		info, err = s.reg.StartFleet(opts, pr.fleet)
+	default:
+		info, err = s.reg.StartLoad(opts, pr.load)
+	}
+	if err != nil {
+		release()
+		return engine.RunInfo{}, nil, runStartError(err)
+	}
+	s.specs.put(info.ID, m, prov...)
+	s.startSampler(info.ID)
+	return info, pr, nil
 }
 
 func (s *runService) StopRun(
@@ -218,6 +239,10 @@ func (s *runService) GetRun(
 				resp.FleetReport = fleetReportProto(rep)
 			}
 		}
+	case engine.RunKindConformance:
+		if live := s.suiteLive(id); live != nil {
+			resp.ConformanceProgress = live.progress()
+		}
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -248,11 +273,16 @@ func (s *runService) GetRunReport(
 		if report, ok := s.reg.FleetResult(id); ok {
 			resp.Report = &orbitv1.GetRunReportResponse_Fleet{Fleet: fleetReportProto(report)}
 		}
+	case info.Kind == engine.RunKindConformance:
+		if live := s.suiteLive(id); live != nil {
+			resp.Report = &orbitv1.GetRunReportResponse_Conformance{Conformance: live.summary()}
+		}
 	}
 	// A plan's gates, judged as the run completed and kept with its report;
 	// the archive as a second line.
 	if rr := s.planVerdict(id); rr != nil {
 		resp.Gates, resp.GatesPassed = rr.GetGates(), rr.GetGatesPassed()
+		resp.Workloads = []*orbitv1.RunReport{rr}
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -539,6 +569,10 @@ func (s *runService) telemetryFrame(id string, info engine.RunInfo, intervalMs u
 	case engine.RunKindFleet:
 		if snap, ok := s.reg.FleetSnapshot(id); ok {
 			frame.Progress = &orbitv1.TelemetryFrame_Fleet{Fleet: fleetProgressProto(snap, now, rates)}
+		}
+	case engine.RunKindConformance:
+		if live := s.suiteLive(id); live != nil {
+			frame.Progress = &orbitv1.TelemetryFrame_Conformance{Conformance: live.progress()}
 		}
 	}
 	return frame
@@ -1010,6 +1044,8 @@ func runKindProto(k engine.RunKind) orbitv1.RunKind {
 		return orbitv1.RunKind_RUN_KIND_LOAD
 	case engine.RunKindFleet:
 		return orbitv1.RunKind_RUN_KIND_FLEET
+	case engine.RunKindConformance:
+		return orbitv1.RunKind_RUN_KIND_CONFORMANCE
 	default:
 		return orbitv1.RunKind_RUN_KIND_UNSPECIFIED
 	}
@@ -1021,6 +1057,8 @@ func runKindFromProto(k orbitv1.RunKind) engine.RunKind {
 		return engine.RunKindLoad
 	case orbitv1.RunKind_RUN_KIND_FLEET:
 		return engine.RunKindFleet
+	case orbitv1.RunKind_RUN_KIND_CONFORMANCE:
+		return engine.RunKindConformance
 	default:
 		return "" // unspecified = no filter
 	}

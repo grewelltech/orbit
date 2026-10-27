@@ -80,11 +80,20 @@ func parseExpectedFailures(path string, b []byte, known map[string]bool) (*Expec
 	if err := dec.Decode(&x); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := x.validate(path, known); err != nil {
+		return nil, err
+	}
+	return &x, nil
+}
+
+// validate checks a list as parseExpectedFailures does; path names it in
+// errors.
+func (x *ExpectedFailures) validate(path string, known map[string]bool) error {
 	if strings.TrimSpace(x.Core) == "" {
-		return nil, fmt.Errorf("%s: core is required", path)
+		return fmt.Errorf("%s: core is required", path)
 	}
 	if strings.TrimSpace(x.Version) == "" {
-		return nil, fmt.Errorf("%s: version is required", path)
+		return fmt.Errorf("%s: version is required", path)
 	}
 	seen := map[[2]string]int{}
 	for i, e := range x.Entries {
@@ -93,23 +102,37 @@ func parseExpectedFailures(path string, b []byte, known map[string]bool) (*Expec
 			{"check", e.Check}, {"observed", e.Observed}, {"finding", e.Finding}, {"added", e.Added}, {"reason", e.Reason},
 		} {
 			if strings.TrimSpace(f.v) == "" {
-				return nil, fmt.Errorf("%s: %s is required", where, f.name)
+				return fmt.Errorf("%s: %s is required", where, f.name)
 			}
 		}
 		if hasPrefixAny(e.Observed, livenessTexts) {
-			return nil, fmt.Errorf("%s: observed %q reports a core that stopped answering or could not be checked; it cannot be listed", where, e.Observed)
+			return fmt.Errorf("%s: observed %q reports a core that stopped answering or could not be checked; it cannot be listed", where, e.Observed)
 		}
 		if !known[e.Check] {
-			return nil, fmt.Errorf("%s: unknown check %q", where, e.Check)
+			return fmt.Errorf("%s: unknown check %q", where, e.Check)
 		}
 		if _, err := time.Parse(time.DateOnly, e.Added); err != nil {
-			return nil, fmt.Errorf("%s: added %q is not a YYYY-MM-DD date", where, e.Added)
+			return fmt.Errorf("%s: added %q is not a YYYY-MM-DD date", where, e.Added)
 		}
 		key := [2]string{e.Check, e.Observed}
 		if j, dup := seen[key]; dup {
-			return nil, fmt.Errorf("%s: duplicates entry %d (%s, %q)", where, j, e.Check, e.Observed)
+			return fmt.Errorf("%s: duplicates entry %d (%s, %q)", where, j, e.Check, e.Observed)
 		}
 		seen[key] = i + 1
+	}
+	return nil
+}
+
+// NewExpectedFailures is a list given inline (a plan's conformance
+// workload) rather than read from a file, validated as a file is; where
+// names it in errors.
+func NewExpectedFailures(where string, x ExpectedFailures) (*ExpectedFailures, error) {
+	known := map[string]bool{}
+	for _, t := range NewRegistry().Tests() {
+		known[t.ID()] = true
+	}
+	if err := x.validate(where, known); err != nil {
+		return nil, err
 	}
 	return &x, nil
 }

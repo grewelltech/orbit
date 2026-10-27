@@ -91,11 +91,11 @@ func TestPlanShapeRefusals(t *testing.T) {
 		wantErr string
 	}{
 		{name: "no workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = nil }, wantErr: "a plan needs at least one workload"},
-		{name: "two workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = append(p.Workloads, p.Workloads[0]) }, wantErr: "until R3"},
-		{name: "a conformance workload", mut: func(p *orbitv1.RunPlan) {
-			p.Workloads[0].Kind = &orbitv1.Workload_Conformance{Conformance: &orbitv1.ConformanceWorkload{}}
-		}, wantErr: "until R3"},
-		{name: "a start condition", mut: func(p *orbitv1.RunPlan) { p.Workloads[0].Start = &orbitv1.StartCondition{After: "x"} }, wantErr: "until R3"},
+		{name: "two workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = append(p.Workloads, p.Workloads[0]) }, wantErr: "until R3b"},
+		{name: "a steps workload", mut: func(p *orbitv1.RunPlan) {
+			p.Workloads[0].Kind = &orbitv1.Workload_Steps{Steps: &orbitv1.StepsWorkload{}}
+		}, wantErr: "a steps workload is not supported yet"},
+		{name: "a start condition", mut: func(p *orbitv1.RunPlan) { p.Workloads[0].Start = &orbitv1.StartCondition{After: "x"} }, wantErr: "until R3b"},
 		{name: "a seed without poisson arrival", mut: func(p *orbitv1.RunPlan) { pop(p).Attach.Seed = 7 }, wantErr: "set attach.arrival poisson"},
 		{name: "poisson without a rate", mut: func(p *orbitv1.RunPlan) {
 			pop(p).Attach.Rate = 0
@@ -117,9 +117,9 @@ func TestPlanShapeRefusals(t *testing.T) {
 			p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Forever{Forever: true}}
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
 		}, wantErr: "gates need a run that completes"},
-		{name: "a conformance gate", mut: func(p *orbitv1.RunPlan) {
+		{name: "a conformance gate on a population", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
-		}, wantErr: "until R3"},
+		}, wantErr: `a conformance gate judges a conformance workload; "pop" is a population`},
 		{name: "a gate on another workload", mut: func(p *orbitv1.RunPlan) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Workload: "other", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
 		}, wantErr: `no workload "other"`},
@@ -664,14 +664,14 @@ func TestPlanReportGates(t *testing.T) {
 			Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE, Threshold: 0.99}}}}
 	})
 	lr := &orbitv1.LoadReport{Attempted: 100, Succeeded: 98}
-	rr := planReport(plan, lr, nil)
+	rr := planReport(plan, lr, nil, nil)
 	if rr == nil || rr.GetWorkload() != "pop" || rr.GetKind() != orbitv1.RunKind_RUN_KIND_LOAD {
 		t.Fatalf("planReport = %v", rr)
 	}
 	if len(rr.GetGates()) != 1 || rr.GetGatesPassed() || rr.GetGates()[0].GetObserved() != 0.98 {
 		t.Errorf("gates = %v, passed %t; want one failed at 0.98", rr.GetGates(), rr.GetGatesPassed())
 	}
-	if planReport(nil, lr, nil) != nil || planReport(plan, nil, nil) != nil {
+	if planReport(nil, lr, nil, nil) != nil || planReport(plan, nil, nil, nil) != nil {
 		t.Error("planReport reported a run that was no plan, or had no report")
 	}
 

@@ -285,7 +285,7 @@ func TestResolveHostTimeout(t *testing.T) {
 func TestLauncherPanicReleasesLeases(t *testing.T) {
 	r := quietRegistry(0)
 	needs := testNeeds("208930000000001", 1, 1, "10.0.0.11")
-	_, err := r.start(RunKindLoad, RunOptions{Needs: needs}, nil, nil, func(RunEventFunc) runFunc {
+	_, err := r.start(RunKindLoad, RunOptions{Needs: needs}, nil, nil, nil, func(RunEventFunc) runFunc {
 		panic("launcher setup")
 	})
 	if err == nil || !strings.Contains(err.Error(), "run setup panicked") {

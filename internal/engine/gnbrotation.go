@@ -128,19 +128,7 @@ func (g *GNBRotation) Assign(amfs []string, plmn string, first, last uint32, n i
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	used := map[uint32]int64{} // latest use across the set
-	held := map[uint32]bool{}
-	for _, a := range amfs {
-		k := g.keyLocked(a, plmn)
-		for id, at := range k.Used {
-			if at > used[id] {
-				used[id] = at
-			}
-		}
-		for id := range g.held[rotationKeyOf(a, plmn)] {
-			held[id] = true
-		}
-	}
+	used, held := g.usedLocked(amfs, plmn) // latest use across the set
 	free := func(id uint32) bool { return !held[id] && (inUse == nil || !inUse(id)) }
 	out := make([]uint32, 0, n)
 	// Never used, in order. Used IDs are few, so walking up from first is
@@ -180,8 +168,16 @@ func (g *GNBRotation) Assign(amfs []string, plmn string, first, last uint32, n i
 	if len(out) < n {
 		return nil, fmt.Errorf("%w: %d..%d at AMF %s (PLMN %s) has %d free, %d wanted", ErrGNBRangeExhausted, first, last, amfs[0], plmn, len(out), n)
 	}
-	// Transactional: the choice is written to a copy of the state, saved,
-	// and only then applied, so a failed save holds nothing.
+	if err := g.takeLocked(amfs, plmn, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// takeLocked records out as assigned for amfs in plmn: transactional, the
+// choice is written to a copy of the state, saved, and only then applied,
+// so a failed save holds nothing. Callers hold g.mu.
+func (g *GNBRotation) takeLocked(amfs []string, plmn string, out []uint32) error {
 	at := g.now().UnixNano()
 	next := g.state.clone()
 	for _, a := range amfs {
@@ -192,7 +188,7 @@ func (g *GNBRotation) Assign(amfs []string, plmn string, first, last uint32, n i
 		g.prune(k, rotationKeyOf(a, plmn), out)
 	}
 	if err := g.save(next); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrRotationPersist, err)
+		return fmt.Errorf("%w: %v", ErrRotationPersist, err)
 	}
 	g.state = next
 	for _, a := range amfs {
@@ -204,7 +200,99 @@ func (g *GNBRotation) Assign(amfs []string, plmn string, first, last uint32, n i
 			g.held[key][id] = true
 		}
 	}
-	return out, nil
+	return nil
+}
+
+// usedLocked is the latest use of each ID across amfs, and the IDs another
+// Assign holds. Callers hold g.mu.
+func (g *GNBRotation) usedLocked(amfs []string, plmn string) (used map[uint32]int64, held map[uint32]bool) {
+	used, held = map[uint32]int64{}, map[uint32]bool{}
+	for _, a := range amfs {
+		for id, at := range g.keyLocked(a, plmn).Used {
+			if at > used[id] {
+				used[id] = at
+			}
+		}
+		for id := range g.held[rotationKeyOf(a, plmn)] {
+			held[id] = true
+		}
+	}
+	return used, held
+}
+
+// AssignPattern returns a base in first..last for which every base+offset
+// is free, and those IDs, recorded as Assign records them: for a run that
+// presents IDs at fixed offsets from one base (a conformance suite). A
+// base whose IDs were never used comes first, lowest first; else the base
+// whose most recent use is oldest. pattern is ascending and starts at 0.
+// No free base is ErrGNBRangeExhausted.
+func (g *GNBRotation) AssignPattern(amfs []string, plmn string, first, last uint32, pattern []uint32, inUse func(uint32) bool) (uint32, []uint32, error) {
+	if len(amfs) == 0 {
+		return 0, nil, errors.New("gNB ID rotation: no AMF")
+	}
+	if len(pattern) == 0 || pattern[0] != 0 {
+		return 0, nil, fmt.Errorf("gNB ID rotation: pattern %v must start at 0", pattern)
+	}
+	span := pattern[len(pattern)-1]
+	if last < first || uint64(last)-uint64(first) < uint64(span) {
+		return 0, nil, fmt.Errorf("%w: %d..%d cannot hold a pattern spanning %d IDs", ErrGNBRangeExhausted, first, last, uint64(span)+1)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	used, held := g.usedLocked(amfs, plmn)
+	maxBase := last - span
+	// score is a base's most recent use (0 = never used) and whether all
+	// its IDs are free.
+	score := func(b uint32) (int64, bool) {
+		var latest int64
+		for _, off := range pattern {
+			id := b + off
+			if held[id] || (inUse != nil && inUse(id)) {
+				return 0, false
+			}
+			latest = max(latest, used[id])
+		}
+		return latest, true
+	}
+	// Never used, lowest first. Used IDs are few, so the walk ends within
+	// a few bases of the lowest one clear of them.
+	limit := len(used) + len(held) + 4096 // slack for IDs only inUse blocks
+	for b, tried := first, 0; b <= maxBase && tried <= limit*len(pattern); b++ {
+		if at, ok := score(b); ok && at == 0 {
+			return g.takePattern(amfs, plmn, b, pattern)
+		}
+		tried++
+	}
+	// Else the least recently used: bases that line an offset up with a
+	// used ID, oldest most-recent use first.
+	best, bestAt, found := uint32(0), int64(0), false
+	for id := range used {
+		for _, off := range pattern {
+			if id < first+off || id-off > maxBase {
+				continue
+			}
+			b := id - off
+			at, ok := score(b)
+			if ok && (!found || at < bestAt || at == bestAt && b < best) {
+				best, bestAt, found = b, at, true
+			}
+		}
+	}
+	if !found {
+		return 0, nil, fmt.Errorf("%w: %d..%d at AMF %s (PLMN %s) has no base with all %d of its IDs free", ErrGNBRangeExhausted, first, last, amfs[0], plmn, len(pattern))
+	}
+	return g.takePattern(amfs, plmn, best, pattern)
+}
+
+func (g *GNBRotation) takePattern(amfs []string, plmn string, base uint32, pattern []uint32) (uint32, []uint32, error) {
+	ids := make([]uint32, len(pattern))
+	for i, off := range pattern {
+		ids[i] = base + off
+	}
+	if err := g.takeLocked(amfs, plmn, ids); err != nil {
+		return 0, nil, err
+	}
+	return base, ids, nil
 }
 
 // clone copies the state deeply enough to change use records on it.

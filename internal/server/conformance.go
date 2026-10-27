@@ -5,13 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
-	"time"
+	"strconv"
 
 	"connectrpc.com/connect"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/conformance"
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -31,6 +33,9 @@ type conformanceService struct {
 	// --conformance-expected-failures), loaded at startup; nil without one.
 	// A request never names a path.
 	expected *conformance.ExpectedFailures
+	// runs starts the suite as a run (ADR-0008 §2): RunConformance is a
+	// thin wrapper over a one-workload plan.
+	runs *runService
 }
 
 // RunConformance streams one update per completed test, then a final summary.
@@ -56,99 +61,120 @@ func (s *conformanceService) RunConformance(
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	// 0 is the server default, the same run the CLI makes with no
-	// --target-release; an explicit "unset" is not expressible here yet.
-	target := conformance.DefaultTargetRelease
-	if m.GetTargetRelease() != 0 {
-		target = conformance.Release(m.GetTargetRelease())
-	}
-	env := conformance.Env{
-		AMFAddr:       m.GetAmfAddress(),
-		Bind:          m.GetBindAddress(),
-		UPFN3:         m.GetUpfN3(),
-		N3Bind:        m.GetN3Bind(),
-		TargetRelease: target,
-		SpecTargets:   conformance.DefaultSpecTargets(),
-		GNB: gnb.Config{
-			ID:     orDefaultU32(m.GetGnbIdBase(), 700),
-			IDBits: 24,
-			Name:   "orbit-conformance",
-			MCC:    m.GetMcc(),
-			MNC:    m.GetMnc(),
-			TAC:    orDefaultU32(m.GetTac(), 1),
-			// NG Setup fails without a supported slice, so one is always
-			// broadcast — this was the whole suite ERRORing "at least one
-			// supported S-NSSAI is required" until it was set. SST defaults
-			// to 1; SD has no default (the core's slice is the caller's to
-			// name — SD-Core wants 010203).
-			Slices: []gnb.SNSSAI{{SST: uint8(orDefaultU32(m.GetSst(), 1)), SD: m.GetSd()}},
-		},
-	}
-	if err := env.GNB.ValidateIdentity(); err != nil {
+	// The suite's own identity rules, checked here as before so a client
+	// sees the same refusals; the plan's build checks the rest.
+	g := gnb.Config{ID: 1, MCC: m.GetMcc(), MNC: m.GetMnc(), TAC: orDefaultU32(m.GetTac(), 1),
+		Slices: []gnb.SNSSAI{{SST: uint8(orDefaultU32(m.GetSst(), 1)), SD: m.GetSd()}}}
+	if err := g.ValidateIdentity(); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	ueSpec, err := conformanceUE(m)
+	if _, err := conformanceUE(m); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	run := &orbitv1.StartRunRequest{Name: "conformance", Spec: &orbitv1.StartRunRequest_Plan{Plan: conformancePlan(m)}}
+	info, pr, err := s.runs.startPlan(run, engine.RunOptions{Name: run.GetName(), Verbosity: engine.EventsNormal})
 	if err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, err)
+		return err
 	}
-	env.UE = ueSpec
+	return s.stream(ctx, stream, info.ID, pr.suiteLive)
+}
 
-	var cats []conformance.Category
-	for _, c := range m.GetCategories() {
-		cats = append(cats, conformance.Category(c))
-	}
-	perTest := time.Duration(m.GetPerTestSeconds()) * time.Second
-
+// stream sends a conformance run's results as they come, one update per
+// check, then the summary. A client that goes away stops the run, as it
+// always stopped the suite: the run ends CANCELLED, with the results so
+// far archived.
+func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerStream[orbitv1.ConformanceUpdate], id string, live *suiteLive) error {
+	spec := live.spec
 	specTargets := map[string]uint32{}
-	for spec, rel := range env.NarrowingSpecTargets() {
-		specTargets[spec] = uint32(rel)
+	for name, rel := range spec.env.NarrowingSpecTargets() {
+		specTargets[name] = uint32(rel)
 	}
-
+	core := spec.expected.Label()
 	var tally orbitv1.ConformanceTally
-	var results []conformance.Result // for the stale entries at the end
-	var sendErr error
-	core := s.expected.Label()
-	conformance.NewRegistry().RunStream(ctx, env, perTest,
-		func(res conformance.Result, index, total int) {
-			if sendErr != nil {
-				return // a prior Send failed; stop trying but let the loop unwind
+	sent := 0
+	for {
+		rs, done, wake := live.since(sent)
+		for _, r := range rs {
+			addToTally(&tally, r)
+			if err := stream.Send(&orbitv1.ConformanceUpdate{
+				Result: resultProto(r), Tally: cloneTally(&tally),
+				Index: uint32(sent), Total: uint32(spec.total),
+				TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
+				ExpectedFailuresCore: core, RunId: id,
+			}); err != nil {
+				_, _ = s.runs.reg.Stop(id) // the client is gone; so is its run
+				return err
 			}
-			one := []conformance.Result{res}
-			s.expected.Apply(one)
-			res = one[0]
-			results = append(results, res)
-			addToTally(&tally, res)
-			upd := &orbitv1.ConformanceUpdate{
-				Result:               resultProto(res),
-				Tally:                cloneTally(&tally),
-				Index:                uint32(index),
-				Total:                uint32(total),
-				TargetRelease:        uint32(target),
-				SpecTargetReleases:   specTargets,
-				ExpectedFailuresCore: core,
-			}
-			if err := stream.Send(upd); err != nil {
-				sendErr = err
-			}
-		}, cats...)
-	if sendErr != nil {
-		return sendErr
+			sent++
+		}
+		if done {
+			break
+		}
+		select {
+		case <-wake:
+		case <-ctx.Done():
+			_, _ = s.runs.reg.Stop(id)
+			return nil
+		}
 	}
-	if err := ctx.Err(); err != nil {
-		// Cancelled mid-run: the tallies so far are honest, but do not claim
-		// the run finished.
+	if ctx.Err() != nil {
+		// Cancelled mid-run: the tallies so far are honest, but do not
+		// claim the run finished.
+		_, _ = s.runs.reg.Stop(id)
 		return nil
 	}
-
-	// Final summary update.
+	results, _ := live.snapshot()
+	if len(results) < spec.total {
+		// Stopped from elsewhere (StopRun): say so rather than end the
+		// stream looking like a finished suite.
+		return connect.NewError(connect.CodeCanceled,
+			fmt.Errorf("run %s was stopped after %d of %d checks", id, len(results), spec.total))
+	}
 	return stream.Send(&orbitv1.ConformanceUpdate{
-		Done:                 true,
-		Tally:                cloneTally(&tally),
-		TargetRelease:        uint32(target),
-		SpecTargetReleases:   specTargets,
-		ExpectedFailuresCore: core,
-		Stale:                staleProto(s.expected.Stale(results)),
+		Done: true, Tally: cloneTally(&tally),
+		TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
+		ExpectedFailuresCore: core, RunId: id,
+		Stale: staleProto(spec.expected.Stale(results)),
 	})
+}
+
+// conformancePlan is a RunConformance request as a one-workload plan, every
+// field where the plan keeps it: the core's identity and N3 endpoint in
+// the target, the N2 source and the UE's gNB N3 in its RAN pools, the UE
+// as a one-subscriber pool, and the suite's own knobs in the workload.
+// Defaults stay where the request leaves them unset: gNB base 700, TAC 1,
+// SST 1, the server's target release.
+func conformancePlan(m *orbitv1.RunConformanceRequest) *orbitv1.RunPlan {
+	core := &orbitv1.TargetCore{
+		Amf: m.GetAmfAddress(), Plmn: &orbitv1.Plmn{Mcc: m.GetMcc(), Mnc: m.GetMnc()}, Tac: orDefaultU32(m.GetTac(), 1),
+		Slices: []*orbitv1.Snssai{{Sst: orDefaultU32(m.GetSst(), 1), Sd: m.GetSd()}}, Dnn: m.GetDnn(), UpfN3: m.GetUpfN3(),
+	}
+	ran := &orbitv1.TargetRAN{GnbIds: &orbitv1.GNBIDRange{Bits: 24}}
+	if b := m.GetBindAddress(); b != "" {
+		ran.N2SourceIps = []string{b}
+	}
+	if n3 := m.GetGnbN3(); n3 != "" {
+		ran.N3Ips = []string{n3}
+	}
+	t := &orbitv1.ResolvedTarget{Core: core, Ran: ran}
+	if supi := m.GetSupi(); supi != "" {
+		t.Subscribers = []*orbitv1.SubscriberPool{{Name: "ue", FirstSupi: supi, Count: 1,
+			Ki: m.GetCredentials().GetKi(), Opc: m.GetCredentials().GetOpc()}}
+	}
+	cw := &orbitv1.ConformanceWorkload{
+		Categories: m.GetCategories(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
+		Traffic: m.GetTraffic(), N3Bind: m.GetN3Bind(),
+		GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: orDefaultU32(m.GetGnbIdBase(), defaultSuiteGNBBase)}},
+	}
+	if r := m.GetTargetRelease(); r != 0 {
+		cw.TargetRelease = strconv.FormatUint(uint64(r), 10)
+	}
+	return &orbitv1.RunPlan{
+		Target:    t,
+		Workloads: []*orbitv1.Workload{{Name: "conformance", Kind: &orbitv1.Workload_Conformance{Conformance: cw}}},
+		Until:     &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}},
+	}
 }
 
 // ListConformanceTests reports the registered tests without running them.

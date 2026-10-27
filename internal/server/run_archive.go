@@ -84,7 +84,15 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 	}
 
 	// A plan's per-workload report, with its gates as judged on completion.
-	if rr := judgedReport(s.reg, id); rr != nil {
+	// A conformance run that did not complete (stopped) keeps its partial
+	// results, judged here: its gates fail, as an incomplete suite's do.
+	rr := judgedReport(s.reg, id)
+	if live := s.suiteLive(id); rr == nil && live != nil {
+		if v, ok := planJudge(held.archive.GetPlan())(live).(*orbitv1.RunReport); ok {
+			rr = v
+		}
+	}
+	if rr != nil {
 		a.Reports = []*orbitv1.RunReport{rr}
 	}
 	redactArchive(a, held.secrets)
@@ -155,6 +163,10 @@ func archivedReportResponse(id string, a *orbitv1.RunArchive) (*connect.Response
 	}
 	if rs := a.GetReports(); len(rs) == 1 {
 		resp.Gates, resp.GatesPassed = rs[0].GetGates(), rs[0].GetGatesPassed()
+		resp.Workloads = rs
+		if c := rs[0].GetConformance(); c != nil && resp.Report == nil {
+			resp.Report = &orbitv1.GetRunReportResponse_Conformance{Conformance: c}
+		}
 	}
 	return connect.NewResponse(resp), nil
 }

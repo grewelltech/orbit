@@ -153,6 +153,14 @@ type Env struct {
 	TargetRelease Release
 	SpecTargets   map[string]Release
 	UE            UESpec
+	// TargetGNBID and LivenessGNBID are the check's handover target's and
+	// liveness probe's gNB IDs, which RunStream assigns with its own ID
+	// (GNB.ID): checks take them from here, never computing one.
+	TargetGNBID, LivenessGNBID uint32
+	// PackedGNBIDs lays a suite's IDs out compactly from the base, for a
+	// target that bounds its gNB IDs (see Registry.gnbIDsOf); unset, the
+	// legacy layout applies.
+	PackedGNBIDs bool
 }
 
 // SpecTarget is the release a reference to spec is gated on: the pin for
@@ -260,7 +268,7 @@ func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 // with a nil error is the core's doing: no answer to the probe.
 func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	probe := e.GNB
-	probe.ID = e.GNB.ID + 0x9000
+	probe.ID = e.livenessGNBID()
 	probe.Name = "orbit-conf-probe"
 	conn, err := e.Dial(ctx)
 	if err != nil {
@@ -455,7 +463,7 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 		// by position in the FULL registry so IDs are stable regardless of the
 		// category filter.
 		e := env
-		e.GNB.ID = env.GNB.ID + uint32(r.indexOf(t))
+		e.GNB.ID, e.TargetGNBID, e.LivenessGNBID = r.gnbIDsOf(env.GNB.ID, r.indexOf(t), env.PackedGNBIDs)
 		emit(runOne(ctx, t, e, perTest), i, len(selected))
 	}
 }

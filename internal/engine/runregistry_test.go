@@ -515,3 +515,43 @@ func TestRunRegistryJudgement(t *testing.T) {
 		})
 	}
 }
+
+// A conformance run keeps the caller's live holder for as long as the
+// registry keeps the run, and its report only on COMPLETE.
+func TestRunRegistryConformance(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantState  RunState
+		wantReport bool
+	}{
+		{name: "complete", wantState: RunComplete, wantReport: true},
+		{name: "failed", err: errors.New("boom"), wantState: RunFailed},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := quietRegistry(0)
+			live := &struct{ n int }{}
+			info, err := r.StartConformance(RunOptions{}, live, func(context.Context, RunEventFunc) (any, error) {
+				live.n = 3
+				return "report", tc.err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitState(t, r, info.ID, tc.wantState)
+			if info.Kind != RunKindConformance {
+				t.Errorf("kind = %s", info.Kind)
+			}
+			if got, ok := r.ConformanceLive(info.ID); !ok || got != live {
+				t.Errorf("ConformanceLive = %v, %t; want the holder", got, ok)
+			}
+			if got, ok := r.ConformanceResult(info.ID); ok != tc.wantReport || ok && got != "report" {
+				t.Errorf("ConformanceResult = %v, %t", got, ok)
+			}
+			if _, ok := r.Report(info.ID); ok {
+				t.Error("a conformance run reads as a load report")
+			}
+		})
+	}
+}
