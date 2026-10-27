@@ -231,8 +231,8 @@ func (x *CreateJoinTokenRequest) GetSpec() *JoinSpec {
 }
 
 type CreateJoinTokenResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Token *JoinToken             `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Issued *JoinToken             `protobuf:"bytes,1,opt,name=issued,proto3" json:"issued,omitempty"` // the token as list shows it: never its secret
 	// The token itself: shown once, kept by the server only as a hash.
 	Secret        string `protobuf:"bytes,2,opt,name=secret,proto3" json:"secret,omitempty"`
 	Url           string `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`                           // https://<mgmt>/join/<secret>
@@ -272,9 +272,9 @@ func (*CreateJoinTokenResponse) Descriptor() ([]byte, []int) {
 	return file_orbit_v1_join_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *CreateJoinTokenResponse) GetToken() *JoinToken {
+func (x *CreateJoinTokenResponse) GetIssued() *JoinToken {
 	if x != nil {
-		return x.Token
+		return x.Issued
 	}
 	return nil
 }
@@ -487,9 +487,9 @@ const file_orbit_v1_join_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\vttl_seconds\x18\x02 \x01(\rR\n" +
 	"ttlSeconds\x12&\n" +
-	"\x04spec\x18\x03 \x01(\v2\x12.orbit.v1.JoinSpecR\x04spec\"\xaf\x01\n" +
-	"\x17CreateJoinTokenResponse\x12)\n" +
-	"\x05token\x18\x01 \x01(\v2\x13.orbit.v1.JoinTokenR\x05token\x12\x1c\n" +
+	"\x04spec\x18\x03 \x01(\v2\x12.orbit.v1.JoinSpecR\x04spec\"\xb1\x01\n" +
+	"\x17CreateJoinTokenResponse\x12+\n" +
+	"\x06issued\x18\x01 \x01(\v2\x13.orbit.v1.JoinTokenR\x06issued\x12\x1c\n" +
 	"\x06secret\x18\x02 \x01(\tB\x04\x88\xb5\x18\x01R\x06secret\x12\x16\n" +
 	"\x03url\x18\x03 \x01(\tB\x04\x88\xb5\x18\x01R\x03url\x12\x10\n" +
 	"\x03pin\x18\x04 \x01(\tR\x03pin\x12!\n" +
@@ -531,7 +531,7 @@ var file_orbit_v1_join_proto_goTypes = []any{
 var file_orbit_v1_join_proto_depIdxs = []int32{
 	0, // 0: orbit.v1.JoinToken.spec:type_name -> orbit.v1.JoinSpec
 	0, // 1: orbit.v1.CreateJoinTokenRequest.spec:type_name -> orbit.v1.JoinSpec
-	1, // 2: orbit.v1.CreateJoinTokenResponse.token:type_name -> orbit.v1.JoinToken
+	1, // 2: orbit.v1.CreateJoinTokenResponse.issued:type_name -> orbit.v1.JoinToken
 	1, // 3: orbit.v1.ListJoinTokensResponse.tokens:type_name -> orbit.v1.JoinToken
 	2, // 4: orbit.v1.JoinService.CreateJoinToken:input_type -> orbit.v1.CreateJoinTokenRequest
 	4, // 5: orbit.v1.JoinService.ListJoinTokens:input_type -> orbit.v1.ListJoinTokensRequest

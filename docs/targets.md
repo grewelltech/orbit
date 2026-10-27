@@ -38,6 +38,9 @@ core:
   dnn: internet
   profile: strict-3gpp
   upf_n3: 198.51.100.10:2152
+  ue_pools: [10.250.0.0/16]
+  upf_n6: 203.0.113.1
+  n6_subnet: 203.0.113.0/24
 subscribers:
   - name: main
     first_supi: "001010000000001"
@@ -67,6 +70,9 @@ they show as `<redacted>` in `--explain`, `target show` and every error.
 | `core.slices` | S-NSSAIs; the commands use the first | `--sst`, `--sd` set the first slice's fields | |
 | `core.dnn` | data network name | `--dnn` | |
 | `core.upf_n3` | the UPF's N3 endpoint, for GTP-U checks | `--upf-n3` (conformance) | |
+| `core.ue_pools` | the CIDRs the core gives UEs their addresses from, which an N6 host routes back through the UPF | `--ue-pool` (join create) | |
+| `core.upf_n6` | the UPF's N6 address, the N6 host's return route's next hop | `--upf-n6` (join create) | |
+| `core.n6_subnet` | the UPF's N6 network (CIDR), which an N6 host's firewall opens to | `--n6-subnet` (join create) | |
 | `subscribers[].first_supi` | first SUPI of the pool | `--supi` (conformance, ue register), `--base-imsi` | |
 | `subscribers[].count` | subscribers in the pool | | |
 | `subscribers[].ki` / `opc` | keys, 32 hex digits | `--ki` / `--opc` | `$ORBIT_KI` / `$ORBIT_OPC` |

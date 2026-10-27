@@ -47,7 +47,7 @@ message CreateJoinTokenRequest {
 }
 
 message CreateJoinTokenResponse {
-  JoinToken token = 1;
+  JoinToken issued = 1;             // the token as list shows it: never its secret
   // The token itself: shown once, kept by the server only as a hash.
   string secret = 2 [(orbit.v1.secret) = true];
   string url = 3 [(orbit.v1.secret) = true];        // https://<mgmt>/join/<secret>

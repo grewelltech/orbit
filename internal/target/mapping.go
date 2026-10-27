@@ -68,6 +68,7 @@ const (
 	cmdTargetInit   = "orbit target init"
 	cmdResponder    = "orbit responder"
 	cmdTest         = "orbit test"
+	cmdJoinCreate   = "orbit join create"
 )
 
 var (
@@ -95,6 +96,9 @@ var Bindings = []Binding{
 	{Flag: "sd", Path: "core.slices[0].sd"},
 	{Flag: "dnn", Path: "core.dnn"},
 	{Flag: "upf-n3", Path: "core.upf_n3", Commands: []string{cmdConformance}},
+	{Flag: "ue-pool", Path: "core.ue_pools", Commands: []string{cmdJoinCreate}},
+	{Flag: "upf-n6", Path: "core.upf_n6", Commands: []string{cmdJoinCreate}},
+	{Flag: "n6-subnet", Path: "core.n6_subnet", Commands: []string{cmdJoinCreate}},
 	{Flag: "supi", Path: "subscribers[].first_supi", Commands: []string{cmdConformance, cmdUERegister}},
 	{Flag: "base-imsi", Path: "subscribers[].first_supi"},
 	{Flag: "ki", Path: "subscribers[].ki"},
@@ -159,6 +163,12 @@ var Exclusions = []Exclusion{
 	// --local runs in this process instead of on the server.
 	{Flag: "local", Commands: []string{"orbit run", cmdLoad, cmdConformance}, Reason: ReasonConnection},
 	{Flag: "list", Commands: []string{cmdTest}, Reason: ReasonOutput},
+	// A join token's own settings (ADR-0009 §1): the responder's name, how
+	// long the token lasts, and the address the app host reaches the
+	// server at.
+	{Flag: "name", Commands: []string{cmdJoinCreate}, Reason: ReasonOperation},
+	{Flag: "ttl", Commands: []string{cmdJoinCreate}, Reason: ReasonOperation},
+	{Flag: "mgmt", Commands: []string{cmdJoinCreate}, Reason: ReasonConnection},
 	{Flag: "gate", Reason: ReasonFieldSetter},
 	{Flag: "set", Commands: []string{"orbit run", cmdTest}, Reason: ReasonFieldSetter},
 
@@ -178,6 +188,7 @@ var Exclusions = []Exclusion{
 	{Flag: "loom-agent", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "loom-token", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "conformance-expected-failures", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "join-binaries", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "bind", Commands: []string{cmdResponder}, Reason: ReasonProcess},
 	{Flag: "token", Commands: []string{cmdResponder}, Reason: ReasonProcess},
 	{Flag: "max-flows", Commands: []string{cmdResponder}, Reason: ReasonProcess},

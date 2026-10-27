@@ -74,7 +74,7 @@ func TestResolveServerURL(t *testing.T) {
 
 // hookedGroups are the top-level commands whose every leaf talks to the API
 // server; exactly these carry the --server resolution hook.
-var hookedGroups = []string{"system", "cell", "ue", "runs"}
+var hookedGroups = []string{"system", "cell", "ue", "runs", "join"}
 
 // inRunE are the commands that resolve --server in RunE, only where they
 // talk to the server, and so have no hook:
@@ -168,10 +168,14 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	const wantURLErr = `invalid server URL "not-a-url" (from $ORBIT_SERVER)`
 	for _, leaf := range clientLeaves {
 		t.Run(leaf, func(t *testing.T) {
-			// One positional argument satisfies every leaf's Args rule; the hook
-			// runs after args validation and before required-flag checks and
-			// RunE, so nothing here needs a server.
-			args := append(strings.Fields(leaf)[1:], "x")
+			// One positional argument satisfies every leaf's Args rule but a
+			// leaf that takes none; the hook runs after args validation and
+			// before required-flag checks and RunE, so nothing here needs a
+			// server.
+			args := strings.Fields(leaf)[1:]
+			if c, _, err := New("test").Find(args); err != nil || c.Args == nil || c.Args(c, []string{"x"}) == nil {
+				args = append(args, "x")
+			}
 			err := execute(t, args...)
 			if err == nil || !strings.Contains(err.Error(), wantURLErr) {
 				t.Errorf("err = %v, want containing %q", err, wantURLErr)

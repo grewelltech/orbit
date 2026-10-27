@@ -69,6 +69,7 @@ func New(version string, opts ...Option) *cobra.Command {
 	root.AddCommand(newRunCmd(&serverURL, o))
 	root.AddCommand(newTestCmd(&serverURL, o))
 	root.AddCommand(withServerURL(newRunsCmd(&serverURL, o), &serverURL))
+	root.AddCommand(withServerURL(newJoinCmd(&serverURL), &serverURL))
 	root.AddCommand(newLoadCmd(&serverURL, o))
 	root.AddCommand(newConformanceCmd(&serverURL, o))
 	root.AddCommand(newResponderCmd(version))
@@ -97,6 +98,7 @@ func newServeCmd(version string) *cobra.Command {
 	var runHistory int
 	var expectedPath string
 	var tlsMode, tlsCert, tlsKey, tokenFile string
+	var joinBinariesDir string
 	var noAuth, insecureListen bool
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -158,8 +160,17 @@ func newServeCmd(version string) *cobra.Command {
 				}
 			}()
 
+			bins, err := joinBinaries(joinBinariesDir)
+			if err != nil {
+				return err
+			}
+			pin := ""
+			if sec.leaf != nil {
+				pin = tlspin.Fingerprint(sec.leaf)
+			}
 			reg := observability.NewRegistry()
 			handler := server.New(log, version, reg, server.Options{
+				TLS: sec.tls != nil, TLSPin: pin, Listen: listen, JoinBinaries: bins,
 				Token:       sec.token,
 				CoreProfile: coreProfile,
 				LoomAgent:   loomAgent,
@@ -187,6 +198,8 @@ func newServeCmd(version string) *cobra.Command {
 			"(default $XDG_STATE_HOME/orbit/runs; \"none\" disables persistence)")
 	cmd.Flags().IntVar(&runHistory, "run-history", 0,
 		"how many finished runs to keep, in memory and on disk (0 = default 50)")
+	cmd.Flags().StringVar(&joinBinariesDir, "join-binaries", "",
+		"directory holding orbit-linux-amd64 and orbit-linux-arm64, the binaries an app host's join downloads (default: this binary, for its own arch)")
 	cmd.Flags().StringVar(&expectedPath, "conformance-expected-failures", "",
 		"YAML list of the core's known, tolerated conformance FAILs that dashboard and API runs apply (docs/conformance/expected-failures.md)")
 	cmd.Flags().StringVar(&listen, "listen", DefaultListen, "listen address (host:port); anything but loopback needs TLS and a token")

@@ -87,12 +87,17 @@ func validHost(s string) bool {
 			return false
 		}
 		for _, c := range l {
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			if !hostChar(c) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// hostChar reports whether c may appear in a host name label.
+func hostChar(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-'
 }
 
 // Token is a pending token as the server keeps it: its ID, never its
