@@ -51,6 +51,11 @@ func (f field) max() uint64 {
 	return math.MaxUint32
 }
 
+// firstOnly are the plain lists whose first element's fields have paths of
+// their own (core.slices[0].sst): --sst and --sd set those, on top of the
+// merged list, so a lone --sd keeps the target's SST and other slices.
+var firstOnly = map[string]bool{"core.slices": true}
+
 // namedLists are the lists that merge element by element, by name.
 var namedLists = map[string]bool{
 	"subscribers":    true,
@@ -71,6 +76,8 @@ var fields = map[string]field{
 	"core.plmn.mnc":                   {target: true},
 	"core.tac":                        {typ: tUint, target: true},
 	"core.slices":                     {typ: tSlices, target: true},
+	"core.slices[].sst":               {typ: tUint, target: true}, // the first slice's, core.slices[0].sst
+	"core.slices[].sd":                {target: true},             // core.slices[0].sd
 	"core.dnn":                        {target: true},
 	"core.profile":                    {target: true},
 	"core.upf_n3":                     {target: true},
@@ -198,8 +205,19 @@ func lookup(p string) ([]segment, field, error) {
 		return nil, field{}, fmt.Errorf("unknown field %q", p)
 	}
 	for i, s := range segs {
-		if s.elem && !namedLists[pattern(segs[:i])] {
-			return nil, field{}, fmt.Errorf("path %q: %s is not a named list", p, pattern(segs[:i]))
+		if !s.elem {
+			continue
+		}
+		lp := pattern(segs[:i])
+		switch {
+		case namedLists[lp]:
+		case firstOnly[lp]:
+			if s.name != "" && s.name != "0" {
+				return nil, field{}, fmt.Errorf("path %q: only the first element of %s, [0], has paths of its own", p, lp)
+			}
+			segs[i].name = "0"
+		default:
+			return nil, field{}, fmt.Errorf("path %q: %s is not a named list", p, lp)
 		}
 	}
 	return segs, f, nil

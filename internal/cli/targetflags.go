@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -173,7 +172,14 @@ func (t *targets) apply(cmd *cobra.Command) error {
 		}
 		inputs = append(inputs, f.Input)
 	}
-	r, err := target.Resolve(append(inputs, envIn, flagIn)...)
+	resolve := target.Resolve
+	if name == "" {
+		// --explain with no target only reports: a value the resolver finds
+		// bad is a marked row, never an error, so it cannot change what the
+		// command does.
+		resolve = target.Report
+	}
+	r, err := resolve(append(inputs, envIn, flagIn)...)
 	if err != nil {
 		return err
 	}
@@ -324,21 +330,6 @@ func flagText(cmd, path, name string, b target.Binding, v any, fv pflag.Value, g
 		return appliedFlag{text: strconv.FormatFloat(x, 'g', -1, 64)}, true, nil
 	case bool:
 		return appliedFlag{text: strconv.FormatBool(x)}, true, nil
-	case []target.Slice:
-		if len(x) == 0 {
-			return appliedFlag{}, false, nil
-		}
-		note := ""
-		if len(x) > 1 {
-			note = "the first slice of " + strconv.Itoa(len(x))
-		}
-		switch b.Part {
-		case "sst":
-			return appliedFlag{text: strconv.FormatUint(uint64(x[0].SST), 10), note: note}, true, nil
-		case "sd":
-			return appliedFlag{text: x[0].SD, note: note}, true, nil
-		}
-		return appliedFlag{}, false, fmt.Errorf("a slice list needs --sst/--sd")
 	case []string:
 		if _, isSlice := fv.(pflag.SliceValue); isSlice {
 			if _, isAddr := addressShapes[name]; isAddr {
@@ -401,13 +392,9 @@ var addressShapes = map[string]string{"bind": "ip[:port]", "local": "ip[:port]",
 // done, "" when the list was the one plain entry used as is.
 func firstAddress(flag string, list []string) (string, string, error) {
 	entry := list[0]
-	addr, p, narrowed, err := target.PoolFirst(entry)
+	host, port, narrowed, err := target.PoolFirst(entry)
 	if err != nil {
 		return "", "", err
-	}
-	port := ""
-	if _, err := netip.ParseAddr(entry); err != nil && !narrowed {
-		port = strconv.Itoa(int(p)) // an ip:port entry keeps its port, 0 included
 	}
 	added := false
 	switch addressShapes[flag] {
@@ -421,9 +408,9 @@ func firstAddress(flag string, list []string) (string, string, error) {
 			port, added = gtpuPort, true
 		}
 	}
-	text := addr.String()
+	text := host
 	if port != "" {
-		text = net.JoinHostPort(text, port)
+		text = net.JoinHostPort(host, port)
 	}
 	note := ""
 	if narrowed || len(list) > 1 || text != entry {
@@ -454,6 +441,13 @@ func explain(w io.Writer, cmd, name string, bound map[string]target.Binding, r *
 		}
 	}
 	paths := make([]string, 0, len(flagsOf))
+	problems := map[string][]string{}
+	for _, pr := range r.Problems {
+		problems[pr.Path] = append(problems[pr.Path], pr.Err)
+		if flagsOf[pr.Path] == nil {
+			flagsOf[pr.Path] = []string{}
+		}
+	}
 	for p := range flagsOf {
 		paths = append(paths, p)
 		sort.Strings(flagsOf[p])
@@ -489,12 +483,18 @@ func explain(w io.Writer, cmd, name string, bound map[string]target.Binding, r *
 			// An empty value from a layer clears the field (--bind "").
 			value, setBy = "(cleared)", "cleared by "+setBy
 		}
+		if _, set := byPath[p]; !set {
+			value, setBy = "-", "-"
+		}
+		for _, e := range problems[p] {
+			flags = append(flags, "⚠ "+e)
+		}
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p, value, setBy, dash(strings.Join(over, "; ")), strings.Join(flags, " "))
 	}
 	_ = tw.Flush()
 	var unused []string
 	for _, pv := range r.Provenance {
-		if pv.Source.Layer == target.LayerTarget && flagsOf[pv.Path] == nil && !documentField(pv.Path) {
+		if pv.Source.Layer == target.LayerTarget && flagsOf[pv.Path] == nil && !documentField(pv.Path) && !usedBelow(pv.Path, flagsOf) {
 			unused = append(unused, pv.Path)
 		}
 	}
@@ -518,6 +518,17 @@ func shortSource(src target.Source) string {
 		}
 	}
 	return src.String()
+}
+
+// usedBelow reports whether a field under list path p (core.slices[0].sd
+// under core.slices) is bound by the command.
+func usedBelow(p string, flagsOf map[string][]string) bool {
+	for q := range flagsOf {
+		if strings.HasPrefix(q, p+"[") {
+			return true
+		}
+	}
+	return false
 }
 
 // documentField reports whether p describes the target document itself

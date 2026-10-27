@@ -2,7 +2,9 @@ package target
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 )
 
@@ -16,7 +18,8 @@ const MaxPoolExpand = 65536
 // and keeps its port; a range (a-b) gives every address from a to b; an
 // IPv4 CIDR gives its host addresses (no network or broadcast address for
 // /30 and wider, both addresses for /31 and /32); an IPv6 CIDR gives every
-// address. n above MaxPoolExpand is an error. Until leasing allocates from
+// address; a host name (with or without :port) is one source, passed on
+// unresolved. n above MaxPoolExpand is an error. Until leasing allocates from
 // the pool, a caller that needs one address per gNB takes the first n.
 func ExpandPool(pool []string, n int) ([]string, error) {
 	if n > MaxPoolExpand {
@@ -37,6 +40,10 @@ func ExpandPool(pool []string, n int) ([]string, error) {
 		}
 		lo, hi, err := poolBounds(entry)
 		if err != nil {
+			if addrEntry(entry, false) {
+				out = append(out, entry) // a host name: one source, unresolved
+				continue
+			}
 			return nil, err
 		}
 		for a := lo; len(out) < n; a = a.Next() {
@@ -49,21 +56,27 @@ func ExpandPool(pool []string, n int) ([]string, error) {
 	return out, nil
 }
 
-// PoolFirst is the first address of a pool entry: the entry itself for an
-// IP or ip:port, a range's low end, a CIDR's first host address. narrowed
-// reports whether the entry was a range or CIDR.
-func PoolFirst(entry string) (addr netip.Addr, port uint16, narrowed bool, err error) {
+// PoolFirst is the first source of a pool entry, as host and port text:
+// an IP, host name, ip:port or host:port as it is (port "" when it has
+// none), a range's low end, a CIDR's first host address. narrowed reports
+// whether the entry was a range or CIDR.
+func PoolFirst(entry string) (host, port string, narrowed bool, err error) {
 	if a, err := netip.ParseAddr(entry); err == nil {
-		return a, 0, false, nil
+		return a.String(), "", false, nil
 	}
 	if ap, err := netip.ParseAddrPort(entry); err == nil {
-		return ap.Addr(), ap.Port(), false, nil
+		return ap.Addr().String(), strconv.Itoa(int(ap.Port())), false, nil
 	}
-	lo, _, err := poolBounds(entry)
-	if err != nil {
-		return netip.Addr{}, 0, false, err
+	if lo, _, err := poolBounds(entry); err == nil {
+		return lo.String(), "", true, nil
 	}
-	return lo, 0, true, nil
+	if !addrEntry(entry, false) {
+		return "", "", false, fmt.Errorf("entry %q is not an address", entry)
+	}
+	if h, p, err := net.SplitHostPort(entry); err == nil {
+		return h, p, false, nil
+	}
+	return entry, "", false, nil
 }
 
 // poolBounds is the first and last usable address of a range or CIDR.
@@ -71,7 +84,7 @@ func poolBounds(entry string) (netip.Addr, netip.Addr, error) {
 	if lo, hi, found := strings.Cut(entry, "-"); found {
 		l, e1 := netip.ParseAddr(lo)
 		h, e2 := netip.ParseAddr(hi)
-		if e1 != nil || e2 != nil || l.Is4() != h.Is4() || h.Less(l) {
+		if e1 != nil || e2 != nil || l.Is4() != h.Is4() || l.Zone() != h.Zone() || h.Less(l) {
 			return netip.Addr{}, netip.Addr{}, fmt.Errorf("entry %q is not an address range", entry)
 		}
 		return l, h, nil

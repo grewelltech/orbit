@@ -186,6 +186,13 @@ orbit conformance -t lab1 --supi ""            # an empty flag clears a field: h
   step). A range gives its low end, and a CIDR its first host address.
   `--bind` keeps the port if the entry has one; `--gnb-n3` drops it;
   `--n3-bind` adds GTP-U's 2152 when the entry has none.
+- **Host names** are accepted wherever the commands accept them: in
+  `ran.n2_source_ips` (`--bind`), `ran.n3_ips` (`--n3-bind`) and a responder's
+  `data_ip`, with or without a port. They pass unresolved, as a typed
+  `--bind lab-n2` does. Ranges and CIDRs are IP-only.
+- **Slices.** `--sst` and `--sd` set the first slice's fields
+  (`core.slices[0].sst`, `.sd`), not the whole list. So `-t lab1 --sd 000005`
+  keeps the target's SST, and its other slices stay in the target.
 - **Lists of pools or responders** use the first: `--supi`/`--base-imsi` come
   from the first pool's `first_supi`, and `--peer`/`--token`/`--peer-data-ip`
   from the first responder.
@@ -194,7 +201,12 @@ orbit conformance -t lab1 --supi ""            # an empty flag clears a field: h
   `flag --tac`), what it overrode, and which flag took it. It also lists the
   target's fields the command does not use. Keys and tokens show as
   `<redacted>`. The command then runs as usual. `--explain` works without a
-  target as well.
+  target as well, and then it only reports: a value the resolver would
+  reject shows as a row marked `⚠`, and the command runs exactly as without
+  `--explain`. With a target named, such a value is an error.
+- **A stale `$ORBIT_TARGET`** naming a target that no longer exists fails
+  every command that takes target fields with `target not found`, even when
+  every flag is typed: run `unset ORBIT_TARGET`.
 - **Commands that take no target field** (`version`, `runs list`, …) refuse
   `-t` and `--explain`, and ignore `$ORBIT_TARGET`, so exporting it never
   breaks them.

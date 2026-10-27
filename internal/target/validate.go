@@ -51,10 +51,17 @@ var checks = map[string]func(any) string{
 		}
 		return ""
 	},
+	"core.slices[].sst": func(v any) string {
+		if n := v.(uint64); n > 255 {
+			return fmt.Sprintf("SST %d is more than 255", n)
+		}
+		return ""
+	},
+	"core.slices[].sd":         func(v any) string { return match(v, hex6, "6 hex digits") },
 	"core.amf":                 hostPort,
 	"core.upf_n3":              hostPort,
 	"app.responders[].control": hostPort,
-	"app.responders[].data_ip": func(v any) string { return ip(v.(string)) },
+	"app.responders[].data_ip": func(v any) string { return ipOrHost(v.(string)) },
 	"subscribers[].first_supi": supi,
 	"subscribers[].ki":         func(v any) string { return match(v, hex32, "32 hex digits") },
 	"subscribers[].opc":        func(v any) string { return match(v, hex32, "32 hex digits") },
@@ -101,29 +108,72 @@ func supi(v any) string {
 	return ""
 }
 
-// eachAddr checks an address list: IPs and ip:port (port 0 is ephemeral)
-// and, for source pools, ranges (a-b) and CIDRs, which take no port.
+// eachAddr checks an address list: IPs, hostnames, either with an optional
+// :port (port 0 is ephemeral) and, for source pools, ranges (a-b) and
+// CIDRs, which are IP-only and take no port. Hostnames pass unresolved, as
+// the commands pass them (the server resolves them at the dial; S4 when it
+// leases): the resolver never refuses a value a command accepts.
 func eachAddr(v any, pools bool) string {
 	for _, a := range v.([]string) {
-		ok := false
-		if _, err := netip.ParseAddr(a); err == nil {
-			ok = true
-		} else if _, err := netip.ParseAddrPort(a); err == nil {
-			ok = true
-		} else if pools {
-			if _, err := netip.ParsePrefix(a); err == nil {
-				ok = true
-			} else if lo, hi, found := strings.Cut(a, "-"); found {
-				l, e1 := netip.ParseAddr(lo)
-				h, e2 := netip.ParseAddr(hi)
-				ok = e1 == nil && e2 == nil && l.Is4() == h.Is4() && !h.Less(l)
-			}
-		}
-		if !ok {
+		if !addrEntry(a, pools) {
 			return fmt.Sprintf("entry %q is not an address", a)
 		}
 	}
 	return ""
+}
+
+func addrEntry(a string, pools bool) bool {
+	if _, err := netip.ParseAddr(a); err == nil {
+		return true
+	}
+	if _, err := netip.ParseAddrPort(a); err == nil {
+		return true
+	}
+	if pools {
+		if _, err := netip.ParsePrefix(a); err == nil {
+			return true
+		}
+		if _, _, err := poolBounds(a); err == nil && strings.Contains(a, "-") {
+			return true
+		}
+	}
+	host, port, err := net.SplitHostPort(a)
+	if err != nil {
+		host, port = a, ""
+	}
+	if port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 0 || n > 65535 {
+			return false
+		}
+	}
+	return isHostName(host)
+}
+
+// hostLabel is one DNS label (RFC 1123: letters, digits, hyphens inside).
+var hostLabel = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+
+// isHostName reports whether s is a host name: dot-separated labels whose
+// last is not all digits, so 192.0.2.300 is a bad IP, not a name.
+func isHostName(s string) bool {
+	if s == "" || len(s) > 253 {
+		return false
+	}
+	labels := strings.Split(strings.TrimSuffix(s, "."), ".")
+	for _, l := range labels {
+		if !hostLabel.MatchString(l) {
+			return false
+		}
+	}
+	last := labels[len(labels)-1]
+	return strings.Trim(last, "0123456789") != ""
+}
+
+// ipOrHost checks an IP or a host name with no port.
+func ipOrHost(s string) string {
+	if _, err := netip.ParseAddr(s); err == nil || isHostName(s) {
+		return ""
+	}
+	return "is not an IP address or host name"
 }
 
 // validateValue checks one resolved field; the error names the path, the

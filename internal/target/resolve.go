@@ -101,6 +101,8 @@ type Resolved struct {
 	Target     Target
 	Run        map[string]any
 	Provenance []FieldProvenance
+	// Problems are the bad values Report recorded; Resolve fails instead.
+	Problems []Problem
 
 	state map[string]*entry   // every set field by concrete path
 	order map[string][]string // named list path → element names
@@ -155,7 +157,25 @@ type entry struct {
 // its first as the lower layers have it, creating one named "default" when
 // there is none. The resolved target's ran.node must be "" (ErrNodeReserved);
 // the document checks of Validate apply to target files, at load.
-func Resolve(inputs ...Input) (*Resolved, error) {
+func Resolve(inputs ...Input) (*Resolved, error) { return resolve(false, inputs) }
+
+// Problem is a value Report found bad: the path, the source that set it
+// and the error, with a secret's value masked as everywhere else.
+type Problem struct {
+	Path   string
+	Source Source
+	Err    string
+}
+
+// Report is Resolve for reporting only (--explain with no target): a value
+// that does not convert or fails its format check is recorded in
+// Resolved.Problems instead of failing the call. A value that does not
+// convert is left out, so the field shows what the lower layers set. The
+// structural errors (an unknown field, a reserved ran.node) still fail.
+func Report(inputs ...Input) (*Resolved, error) { return resolve(true, inputs) }
+
+func resolve(lenient bool, inputs []Input) (*Resolved, error) {
+	var problems []Problem
 	ordered := append([]Input(nil), inputs...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Layer < ordered[j].Layer })
 
@@ -174,6 +194,9 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 					continue
 				}
 				lp := listOf(segs, i)
+				if firstOnly[lp] {
+					continue // lookup has made it [0]
+				}
 				if segs[i].name == "" {
 					if names := order[lp]; len(names) > 0 {
 						segs[i].name = names[0]
@@ -187,7 +210,12 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 			}
 			v, err := convert(f, s.Value)
 			if err != nil {
-				return nil, fmt.Errorf("%s: %w (%s)", format(segs), err, s.Source)
+				err = fmt.Errorf("%s: %w (%s)", format(segs), err, s.Source)
+				if lenient {
+					problems = append(problems, Problem{Path: format(segs), Source: s.Source, Err: err.Error()})
+					continue
+				}
+				return nil, err
 			}
 			path := format(segs)
 			if e, ok := state[path]; ok {
@@ -200,6 +228,7 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 				prov: &FieldProvenance{Path: path, Source: s.Source, Value: show(f, v)}}
 		}
 	}
+	firstSlice(state)
 	// A named-list element's name field is its selector.
 	for lp, names := range order {
 		for _, n := range names {
@@ -221,11 +250,15 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 	for _, p := range paths {
 		_, f, _ := lookup(p)
 		if err := validateValue(p, f, state[p].value, state[p].src); err != nil {
+			if lenient {
+				problems = append(problems, Problem{Path: p, Source: state[p].src, Err: err.Error()})
+				continue
+			}
 			return nil, err
 		}
 	}
 
-	res := &Resolved{Run: map[string]any{}, state: state, order: order}
+	res := &Resolved{Run: map[string]any{}, state: state, order: order, Problems: problems}
 	for p, e := range state {
 		res.Provenance = append(res.Provenance, *e.prov)
 		if !isTargetPath(p) {
@@ -239,6 +272,46 @@ func Resolve(inputs ...Input) (*Resolved, error) {
 	}
 	res.Target = t
 	return res, nil
+}
+
+// firstSlice gives the first slice's fields (core.slices[0].sst and .sd)
+// provenance of their own whenever the merged core.slices has a first
+// slice or a layer set one of them. A field a layer set records the list's
+// value it replaced; one no layer set comes from the list's source. A
+// field set below the list's layer is dropped: the higher list replaced
+// it, as a list replaces whole.
+func firstSlice(state map[string]*entry) {
+	list := state["core.slices"]
+	var first *Slice
+	if list != nil {
+		if sl := list.value.([]Slice); len(sl) > 0 {
+			first = &sl[0]
+		}
+	}
+	for _, k := range []string{"sst", "sd"} {
+		p := "core.slices[0]." + k
+		var listVal any
+		if first != nil {
+			listVal = any(uint64(first.SST))
+			if k == "sd" {
+				listVal = first.SD
+			}
+		}
+		e, set := state[p]
+		_, f, _ := lookup(p)
+		switch {
+		case set && list != nil && e.src.Layer < list.src.Layer:
+			delete(state, p)
+			fallthrough
+		case !set:
+			if first != nil {
+				state[p] = &entry{value: listVal, src: list.src,
+					prov: &FieldProvenance{Path: p, Source: list.src, Value: show(f, listVal)}}
+			}
+		case first != nil:
+			e.prov.Overridden = append([]Override{{Source: list.src, Value: show(f, listVal)}}, e.prov.Overridden...)
+		}
+	}
 }
 
 // isTargetPath reports whether p is a field of the target document.
@@ -312,7 +385,18 @@ func buildTarget(state map[string]*entry, order map[string][]string) (Target, er
 	t.Core.PLMN = PLMN{MCC: str("core.plmn.mcc"), MNC: str("core.plmn.mnc")}
 	t.Core.TAC = num("core.tac")
 	if v, ok := get("core.slices"); ok {
-		t.Core.Slices = v.([]Slice)
+		t.Core.Slices = append([]Slice(nil), v.([]Slice)...)
+	}
+	sst, hasSST := get("core.slices[0].sst")
+	sd, hasSD := get("core.slices[0].sd")
+	if (hasSST || hasSD) && len(t.Core.Slices) == 0 {
+		t.Core.Slices = []Slice{{}}
+	}
+	if hasSST {
+		t.Core.Slices[0].SST = uint32(sst.(uint64))
+	}
+	if hasSD {
+		t.Core.Slices[0].SD = sd.(string)
 	}
 	t.Core.DNN, t.Core.Profile, t.Core.UPFN3 = str("core.dnn"), str("core.profile"), str("core.upf_n3")
 	for _, n := range order["subscribers"] {

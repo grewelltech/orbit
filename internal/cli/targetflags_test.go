@@ -433,6 +433,9 @@ func TestFirstAddress(t *testing.T) {
 		{flag: "n3-bind", list: []string{"198.51.100.50"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", port 2152 added`},
 		{flag: "n3-bind", list: []string{"198.51.100.50", "198.51.100.51"}, want: "198.51.100.50:2152", wantNote: `from "198.51.100.50", the first of 2, port 2152 added`},
 		{flag: "n3-bind", list: []string{"198.51.100.50:3000"}, want: "198.51.100.50:3000"},
+		{flag: "bind", list: []string{"localhost"}, want: "localhost"},
+		{flag: "bind", list: []string{"localhost:0"}, want: "localhost:0"},
+		{flag: "n3-bind", list: []string{"lab-n3"}, want: "lab-n3:2152", wantNote: `from "lab-n3", port 2152 added`},
 	}
 	for _, tc := range tests {
 		got, note, err := firstAddress(tc.flag, tc.list)
@@ -440,7 +443,7 @@ func TestFirstAddress(t *testing.T) {
 			t.Errorf("firstAddress(%s, %v) = %q, %q, %v; want %q, %q", tc.flag, tc.list, got, note, err, tc.want, tc.wantNote)
 		}
 	}
-	if _, _, err := firstAddress("bind", []string{"host"}); err == nil {
+	if _, _, err := firstAddress("bind", []string{"bad_host!"}); err == nil {
 		t.Error("a non-address entry was accepted")
 	}
 }
@@ -726,5 +729,113 @@ func TestPoolBindListFlags(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// ueRegisterArgs is a full ue register line against an unreachable server:
+// the run ends at the server call, so equal errors mean the CLI accepted
+// the same input.
+var ueRegisterArgs = []string{"--server", "http://127.0.0.1:1", "ue", "register", "--amf", "192.0.2.10:38412",
+	"--mcc", "001", "--mnc", "01", "--supi", "001010000000001", "--ki", testKi, "--opc", testOPc}
+
+// A host name for --bind, which the server resolves, is accepted with and
+// without --explain and with -t, as without them; a target pool may hold
+// one too.
+func TestHostnameBind(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1NoUE)
+	base := runOrbit(t, loc, ueRegisterArgs...)
+	if base.execErr == nil || !strings.Contains(base.execErr.Error(), "unavailable") {
+		t.Fatalf("baseline: %v", base.execErr)
+	}
+	for _, bind := range []string{"localhost", "localhost:0"} {
+		for _, extra := range [][]string{nil, {"--explain"}, {"-t", "lab1"}, {"-t", "lab1", "--explain"}} {
+			args := append(append(append([]string{}, ueRegisterArgs...), "--bind", bind), extra...)
+			r := runOrbit(t, loc, args...)
+			if r.execErr == nil || r.execErr.Error() != base.execErr.Error() {
+				t.Errorf("--bind %s %v: err = %v, want the server-call error %v", bind, extra, r.execErr, base.execErr)
+			}
+			if got := r.flag(t, "bind"); got != bind {
+				t.Errorf("--bind %s %v: flag = %q", bind, extra, got)
+			}
+		}
+	}
+	r := runOrbit(t, targetDir(t, strings.Replace(lab1NoUE, "[192.0.2.50-192.0.2.59]", "[lab-n2]", 1)),
+		"--server", "http://127.0.0.1:1", "ue", "register", "-t", "lab1", "--supi", "001010000000001", "--ki", testKi, "--opc", testOPc)
+	if got := r.flag(t, "bind"); got != "lab-n2" {
+		t.Errorf("a host name in the pool: --bind = %q (err %v)", got, r.execErr)
+	}
+}
+
+// --explain with no target changes nothing: for values each command
+// accepts, including ones the resolver's own checks reject, the result is
+// the same with --explain as without, and a rejected value is a marked row.
+func TestExplainChangesNothing(t *testing.T) {
+	clearOrbitEnv(t)
+	loc := targetDir(t, lab1)
+	conf := []string{"conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01"}
+	tests := []struct {
+		name string
+		args []string
+		mark string // a marked row --explain must show, "" for none
+	}{
+		{name: "register: host name bind", args: append(append([]string{}, ueRegisterArgs...), "--bind", "localhost:0")},
+		{name: "register: SUPI the server judges", args: append(append([]string{}, ueRegisterArgs...), "--supi", "imsi-00101x"),
+			mark: `⚠ subscribers[default].first_supi: "imsi-00101x" is not an IMSI`},
+		{name: "register: hex gNB ID and TAC", args: append(append([]string{}, ueRegisterArgs...), "--gnb-id", "0x10", "--tac", "0x0a")},
+		{name: "register: empty bind", args: append(append([]string{}, ueRegisterArgs...), "--bind", "")},
+		{name: "conformance: host name binds", args: append(append([]string{}, conf...), "--bind", "localhost", "--n3-bind", "localhost:2152", "--upf-n3", "upf.example:2152")},
+		{name: "conformance: categories and timeout", args: append(append([]string{}, conf...), "--category", "nas,security", "--per-test-timeout", "1500ms")},
+		{name: "load: binds and counts", args: []string{"load", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--base-imsi", "001010000000001",
+			"--ki", testKi, "--opc", testOPc, "--bind", "localhost,127.0.0.2:0", "--gnb-count", "2", "--count", "1", "--rate", "2.5"}},
+		{name: "cell ngsetup: deprecated --local", args: []string{"--server", "http://127.0.0.1:1", "cell", "ngsetup", "--amf", "192.0.2.10:38412",
+			"--mcc", "001", "--mnc", "01", "--local", "localhost:0"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			plain := runOrbit(t, loc, tc.args...)
+			explained := runOrbit(t, loc, append(append([]string{}, tc.args...), "--explain")...)
+			if errText(plain.execErr) != errText(explained.execErr) || plain.out != explained.out {
+				t.Errorf("--explain changed the result:\nwithout: %v\n%s\nwith: %v\n%s", plain.execErr, plain.out, explained.execErr, explained.out)
+			}
+			if tc.mark != "" && !strings.Contains(explained.err, tc.mark) {
+				t.Errorf("explain lacks the marked row %q:\n%s", tc.mark, explained.err)
+			}
+			if tc.mark == "" && strings.Contains(explained.err, "⚠") {
+				t.Errorf("unexpected marked row:\n%s", explained.err)
+			}
+		})
+	}
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	// Ephemeral source ports differ run to run.
+	return regexp.MustCompile(`:\d{4,5}\b`).ReplaceAllString(err.Error(), ":P")
+}
+
+// A lone --sd with a target keeps the target's SST and the rest of its
+// slice list, end to end through a command.
+func TestLoneSDKeepsTargetSST(t *testing.T) {
+	clearOrbitEnv(t)
+	doc := strings.Replace(lab1NoUE, `    - { sst: 1, sd: "010203" }`, `    - { sst: 2, sd: "000002" }
+    - { sst: 1 }`, 1)
+	r := runOrbit(t, targetDir(t, doc), append(skipAll, "-t", "lab1", "--sd", "000005", "--explain")...)
+	if r.execErr != nil {
+		t.Fatal(r.execErr)
+	}
+	if !strings.Contains(r.out, "snssai=2/000005") {
+		t.Errorf("network line, want the target's SST 2 with --sd 000005:\n%s", r.out)
+	}
+	if got := r.flag(t, "sst"); got != "2" {
+		t.Errorf("--sst = %q, want the target's 2", got)
+	}
+	if row := lineWith(r.err, "core.slices[0].sst "); !strings.Contains(row, "target ") {
+		t.Errorf("sst row %q, want set by the target", row)
+	}
+	if row := lineWith(r.err, "core.slices[0].sd "); !strings.Contains(row, "flag --sd") || !strings.Contains(row, "=000002") {
+		t.Errorf("sd row %q, want flag --sd over the target's 000002", row)
 	}
 }

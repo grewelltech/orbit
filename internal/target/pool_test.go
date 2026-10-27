@@ -32,7 +32,10 @@ func TestExpandPool(t *testing.T) {
 		{name: "a /8 stops at n", pool: []string{"10.0.0.0/8"}, n: 2, want: []string{"10.0.0.1", "10.0.0.2"}},
 		{name: "cap", pool: []string{"10.0.0.0/8"}, n: MaxPoolExpand + 1, wantErr: "65537 addresses is more than a pool expands to (65536)"},
 		{name: "at the cap", pool: []string{"10.0.0.0/8"}, n: MaxPoolExpand},
-		{name: "bad entry", pool: []string{"lab-host"}, n: 1, wantErr: `entry "lab-host" is not an address`},
+		{name: "host names pass unresolved", pool: []string{"lab-n2", "lab-n2b:0", "192.0.2.5"}, n: 3, want: []string{"lab-n2", "lab-n2b:0", "192.0.2.5"}},
+		{name: "bad entry", pool: []string{"bad_host!"}, n: 1, wantErr: `entry "bad_host!" is not an address`},
+		{name: "bad IP is not a host name", pool: []string{"192.0.2.300"}, n: 1, wantErr: `entry "192.0.2.300" is not an address`},
+		{name: "range with mismatched zones", pool: []string{"fe80::1-fe80::9%eth1"}, n: 1, wantErr: "is not an address range"},
 		{name: "backwards range", pool: []string{"192.0.2.9-192.0.2.1"}, n: 1, wantErr: "is not an address range"},
 	}
 	for _, tc := range tests {
