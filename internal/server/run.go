@@ -57,10 +57,11 @@ func (s *runService) StartRun(
 	opts := engine.RunOptions{Name: m.GetName(), Verbosity: verbosity}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
-		fn, err := loadRunFunc(s.log, spec.Load)
+		fn, needs, err := loadRun(s.log, spec.Load)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
+		opts.Needs = needs
 		info, err := s.reg.StartLoad(opts, fn)
 		if err != nil {
 			return nil, runStartError(err)
@@ -69,10 +70,11 @@ func (s *runService) StartRun(
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
-		fn, err := fleetRunFunc(s.log, s.mgr, spec.Fleet, verbosity)
+		fn, needs, err := fleetRun(s.log, s.mgr, spec.Fleet, verbosity)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
+		opts.Needs = needs
 		info, err := s.reg.StartFleet(opts, fn)
 		if err != nil {
 			return nil, runStartError(err)
@@ -725,23 +727,23 @@ func sortedGNBs(m map[string]int) []string {
 // loadRunFunc builds the launcher the registry runs. It validates the spec up
 // front (so a bad request fails synchronously at StartRun) and closes over
 // engine.RunLoad, wiring the run's LiveStats in as the load Observer.
-func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, error) {
+func loadRun(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, engine.Needs, error) {
 	if p.GetAmfAddress() == "" {
-		return nil, fmt.Errorf("amf_address is required")
+		return nil, engine.Needs{}, fmt.Errorf("amf_address is required")
 	}
 	if p.GetBaseImsi() == "" {
-		return nil, fmt.Errorf("base_imsi is required")
+		return nil, engine.Needs{}, fmt.Errorf("base_imsi is required")
 	}
 	if len(p.GetGnbs()) == 0 {
-		return nil, fmt.Errorf("at least one gnb is required")
+		return nil, engine.Needs{}, fmt.Errorf("at least one gnb is required")
 	}
 	ki, err := auth.ParseHexKey("Ki", p.GetCredentials().GetKi())
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 	opc, err := auth.ParseHexKey("OPc", p.GetCredentials().GetOpc())
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 
 	// N2 source addresses follow the same none / one / one-per-gNB rule as
@@ -749,7 +751,7 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 	// cannot disagree about what a bind list means.
 	binds, err := engine.ExpandBindAddrs(p.GetBindAddresses(), len(p.GetGnbs()))
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 
 	// UE identity carries one PLMN, so every gNB in a run must agree on it.
@@ -760,12 +762,12 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 	for i, gp := range p.GetGnbs() {
 		cfg, err := gnbConfigFromProto(gp)
 		if err != nil {
-			return nil, err
+			return nil, engine.Needs{}, err
 		}
 		if i == 0 {
 			mcc, mnc = cfg.MCC, cfg.MNC
 		} else if cfg.MCC != mcc || cfg.MNC != mnc {
-			return nil, fmt.Errorf("all gnbs must share one PLMN; gnb %d is %s/%s, not %s/%s",
+			return nil, engine.Needs{}, fmt.Errorf("all gnbs must share one PLMN; gnb %d is %s/%s, not %s/%s",
 				i, cfg.MCC, cfg.MNC, mcc, mnc)
 		}
 		gnbs = append(gnbs, engine.GNBSpec{Config: cfg, AMFAddr: p.GetAmfAddress(), BindAddr: binds[i]})
@@ -773,7 +775,7 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 
 	rate, err := loadRate(p)
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 
 	spec := engine.LoadSpec{
@@ -792,11 +794,11 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 	// The same rule the in-process load applies: a malformed base_imsi is one
 	// error before any association is opened (InvalidArgument over the wire).
 	if err := spec.Validate(); err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 	if pdu := p.GetPduSession(); pdu != nil {
 		if pdu.GetSst() > 0xFF {
-			return nil, fmt.Errorf("sst %d exceeds one octet", pdu.GetSst())
+			return nil, engine.Needs{}, fmt.Errorf("sst %d exceeds one octet", pdu.GetSst())
 		}
 		spec.PDUSession = &ue.PDUSessionParams{
 			PDUSessionID: uint8(pdu.GetPduSessionId()),
@@ -806,18 +808,28 @@ func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, 
 		}
 		n3, err := gnb.CanonicalN3(p.GetGnbN3Addr())
 		if err != nil {
-			return nil, fmt.Errorf("gnb_n3_addr: %w", err)
+			return nil, engine.Needs{}, fmt.Errorf("gnb_n3_addr: %w", err)
 		}
 		spec.GNBN3Addr = n3
 	}
 
+	needs, err := engine.LoadNeeds(spec)
+	if err != nil {
+		return nil, engine.Needs{}, err
+	}
 	return func(ctx context.Context, stats *load.LiveStats, emit engine.RunEventFunc) (load.Report, error) {
 		s := spec
 		// Fan out each attempt to the live aggregates and to a run-event
 		// reporter that turns failures into discrete events.
 		s.Observer = load.Observers{stats, failureEvents(emit)}
 		return engine.RunLoad(ctx, log, s)
-	}, nil
+	}, needs, nil
+}
+
+// loadRunFunc is loadRun without the leases.
+func loadRunFunc(log *slog.Logger, p *orbitv1.LoadRunSpec) (engine.LoadRunFunc, error) {
+	fn, _, err := loadRun(log, p)
+	return fn, err
 }
 
 // failureEvents is a load.Observer that reports each failed attempt as a run
@@ -834,30 +846,34 @@ func (f failureEvents) Observe(s load.Sample) {
 // fleetRunFunc parses the fleet scenario YAML, injects the request's
 // credentials, and builds the launcher via the shared scenario→engine mapping —
 // the same one `orbit run <fleet>` uses, so CLI and server runs are identical.
-func fleetRunFunc(log *slog.Logger, mgr *engine.Manager, p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (engine.FleetRunFunc, error) {
+func fleetRun(log *slog.Logger, mgr *engine.Manager, p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (engine.FleetRunFunc, engine.Needs, error) {
 	if p.GetScenarioYaml() == "" {
-		return nil, fmt.Errorf("scenario_yaml is required")
+		return nil, engine.Needs{}, fmt.Errorf("scenario_yaml is required")
 	}
 	// Parse WITHOUT ${ENV} expansion: the YAML is client-supplied, and expanding
 	// it against the server's environment would leak the server's variables back
 	// to the client. Credentials come from the request, below.
 	f, err := scenario.ParseFleetNoEnv([]byte(p.GetScenarioYaml()))
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 	// Credentials come from the request, not the YAML's ${ENV}: the server
 	// cannot expand the client's secrets from its own environment.
 	ki, err := auth.ParseHexKey("Ki", p.GetCredentials().GetKi())
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 	opc, err := auth.ParseHexKey("OPc", p.GetCredentials().GetOpc())
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
 	}
 	spec, beh, err := scenario.BuildFleetRun(f, ki, opc)
 	if err != nil {
-		return nil, err
+		return nil, engine.Needs{}, err
+	}
+	needs, err := engine.FleetNeeds(spec)
+	if err != nil {
+		return nil, engine.Needs{}, err
 	}
 	return func(ctx context.Context, stats *engine.FleetLiveStats, emit engine.RunEventFunc) (engine.FleetReport, error) {
 		return engine.RunFleet(ctx, log, spec, beh, engine.FleetDeps{
@@ -865,7 +881,7 @@ func fleetRunFunc(log *slog.Logger, mgr *engine.Manager, p *orbitv1.FleetRunSpec
 			Events:  engine.NewRunEvents(emit, verbosity),
 			Manager: mgr,
 		})
-	}, nil
+	}, needs, nil
 }
 
 // loadRate turns the ramp/rate fields into a load.Rate (nil = concurrency-bound).
@@ -896,11 +912,12 @@ func eventVerbosityFromProto(v orbitv1.EventVerbosity) engine.EventVerbosity {
 	return engine.EventsNormal
 }
 
-// runStartError maps a StartLoad error to a Connect code. A rejected concurrent
-// run is a precondition failure, not an internal error.
+// runStartError maps a StartLoad error to a Connect code. A run refused for
+// a resource another run holds (ErrLeaseConflict, naming both) is a
+// precondition failure, not an internal error.
 func runStartError(err error) *connect.Error {
-	var active *engine.ErrRunActive
-	if errors.As(err, &active) {
+	var held *engine.ErrLeaseConflict
+	if errors.As(err, &held) {
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 	return connect.NewError(connect.CodeInternal, err)

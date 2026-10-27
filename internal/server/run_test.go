@@ -111,31 +111,62 @@ func TestRunServiceStartAndList(t *testing.T) {
 	}
 }
 
-// A second load run while the first is active is rejected as FailedPrecondition.
-func TestRunServiceOneActiveRejectsSecond(t *testing.T) {
+// A run whose leases overlap an active run's is refused as FailedPrecondition,
+// naming the resource and the holding run; one that shares nothing starts
+// alongside it (ADR-0008 §5).
+func TestRunServiceLeaseConflicts(t *testing.T) {
 	c, reg := newRunRPCClient(t)
 
-	// Hold the first run active with a launcher that blocks until the test ends.
+	// Hold a run active, with the leases failFastLoadSpec needs, using a
+	// launcher that blocks until the test ends.
+	_, needs, err := loadRun(slog.New(slog.NewTextHandler(io.Discard, nil)), failFastLoadSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
-	if _, err := reg.StartLoad(engine.RunOptions{Name: "blocking"}, func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+	seed, err := reg.StartLoad(engine.RunOptions{Name: "blocking", Needs: needs}, func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
 		select {
 		case <-block:
 		case <-ctx.Done():
 		}
 		return load.Report{}, nil
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("seed run: %v", err)
 	}
 
-	_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
-		Spec: &orbitv1.StartRunRequest_Load{Load: failFastLoadSpec()},
-	}))
-	if err == nil {
-		t.Fatal("second StartRun succeeded while a run was active")
+	start := func(spec *orbitv1.LoadRunSpec) error {
+		_, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{
+			Spec: &orbitv1.StartRunRequest_Load{Load: spec},
+		}))
+		return err
 	}
-	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Errorf("second StartRun code = %v, want FailedPrecondition", connect.CodeOf(err))
+	otherSUPIs := func(s *orbitv1.LoadRunSpec) { s.BaseImsi = "208930100009000" }
+	otherGNB := func(s *orbitv1.LoadRunSpec) { s.Gnbs[0].Id = 99 }
+	for _, tc := range []struct {
+		name    string
+		mutate  []func(*orbitv1.LoadRunSpec)
+		wantErr string // "" = starts
+	}{
+		{name: "the same spec", wantErr: "SUPIs 208930100007500 (PLMN 208/93) is held by " + seed.ID},
+		{name: "other SUPIs, same gNB", mutate: []func(*orbitv1.LoadRunSpec){otherSUPIs},
+			wantErr: "gNB ID 1 on AMF 127.0.0.1:1 (PLMN 208/93) is held by " + seed.ID},
+		{name: "other SUPIs and gNB", mutate: []func(*orbitv1.LoadRunSpec){otherSUPIs, otherGNB}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := failFastLoadSpec()
+			for _, m := range tc.mutate {
+				m(spec)
+			}
+			err := start(spec)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("refused: %v", err)
+			case tc.wantErr != "" && (connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("err = %v, want FailedPrecondition %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 
