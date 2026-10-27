@@ -14,13 +14,19 @@ Plan:
        nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
        inserted into inet filter input (your ruleset)
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
-  5. firewall: allow data traffic (tcp, udp) on ens5 from 198.51.100.0/24 to ports 32768-60999
+  5. firewall: allow ICMP echo on ens5 from 10.250.0.0/16 (for orbit target probe)
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"'
+       inserted into inet filter input (your ruleset)
+  6. firewall: allow data traffic (tcp, udp) on ens5 from 198.51.100.0/24 to ports 32768-60999
        nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
        inserted into inet filter input (your ruleset)
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
-  6. create the system user orbit, which the responder runs as
+  7. firewall: allow ICMP echo on ens5 from 198.51.100.0/24 (for orbit target probe)
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"'
+       inserted into inet filter input (your ruleset)
+  8. create the system user orbit, which the responder runs as
        useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin orbit
-  7. install /usr/local/lib/orbit/join-net.sh (run as root before the responder starts):
+  9. install /usr/local/lib/orbit/join-net.sh (run as root before the responder starts):
        | #!/bin/sh
        | # orbit join: re-applies the N6 route and firewall rules for orbit-responder.service.
        | set -eu
@@ -28,8 +34,10 @@ Plan:
        | ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join control ens5 192.0.2.10/32 7000"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 192.0.2.10/32 tcp dport 7000 accept comment "orbit-join control ens5 192.0.2.10/32 7000"'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 10.250.0.0/16 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join icmp ens5 10.250.0.0/16 echo"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"'
        | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 198.51.100.0/24 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
-  8. install /etc/systemd/system/orbit-responder.service:
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join icmp ens5 198.51.100.0/24 echo"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"'
+  10. install /etc/systemd/system/orbit-responder.service:
        | [Unit]
        | Description=orbit N6 responder (orbit join)
        | Wants=network-online.target
@@ -52,10 +60,10 @@ Plan:
        | 
        | [Install]
        | WantedBy=multi-user.target
-  9. register the responder on this host with the server as app1 (credential: new)
+  11. register the responder on this host with the server as app1 (credential: new)
        '/usr/local/lib/orbit/orbit' responder register --server 'https://192.0.2.10:8412' --pin 'sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' --token-file '<work>/token' --name 'app1' --control '198.51.100.20:7000' --data-ip '198.51.100.20' --data-ports '32768-60999' --config '/etc/orbit/responder.yaml'
        (the join token is read from a file in this run's private directory, mode 0600)
-  10. enable and (re)start orbit-responder, then wait for the server to see it online
+  12. enable and (re)start orbit-responder, then wait for the server to see it online
        systemctl enable orbit-responder
        systemctl restart orbit-responder
        '/usr/local/lib/orbit/orbit' responder check --config '/etc/orbit/responder.yaml' --wait 20s
@@ -63,7 +71,7 @@ Plan:
 fake orbit ran: version
 fake orbit ran: responder register --server https://192.0.2.10:8412 --pin sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU= --token-file <work>/token --name app1 --control 198.51.100.20:7000 --data-ip 198.51.100.20 --data-ports 32768-60999 --config /etc/orbit/responder.yaml
 fake orbit ran: responder check --config /etc/orbit/responder.yaml --wait 20s
-orbit join: applied 10 changes.
+orbit join: applied 12 changes.
 --- exit: 0
 --- changes:
 install -d -m 0755 <tmp>/root/usr/local/lib/orbit
@@ -71,7 +79,9 @@ install -m 0755 <work>/orbit <tmp>/root/usr/local/lib/orbit/orbit
 ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
 nft insert rule inet filter input iifname "ens5" ip saddr 192.0.2.10/32 tcp dport 7000 accept comment "orbit-join control ens5 192.0.2.10/32 7000"
 nft insert rule inet filter input iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"
+nft insert rule inet filter input iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"
 nft insert rule inet filter input iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"
+nft insert rule inet filter input iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"
 useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin orbit
 install -d -m 0755 <tmp>/root/usr/local/lib/orbit
 install -m 0755 <work>/join-net.sh <tmp>/root/usr/local/lib/orbit/join-net.sh

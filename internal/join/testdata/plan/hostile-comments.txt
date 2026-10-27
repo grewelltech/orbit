@@ -8,7 +8,9 @@ Plan:
   ok: route 10.250.0.0/16 via 198.51.100.1 dev ens5
   ok: firewall: orbit-join control ens4 192.0.2.10/32 9551 (in inet filter input)
   ok: firewall: orbit-join data ens5 10.250.0.0/16 32768-60999 (in inet filter input)
+  ok: firewall: orbit-join icmp ens5 10.250.0.0/16 echo (in inet filter input)
   ok: firewall: orbit-join data ens5 198.51.100.0/24 32768-60999 (in inet filter input)
+  ok: firewall: orbit-join icmp ens5 198.51.100.0/24 echo (in inet filter input)
   note: left alone, a rule in inet filter input whose orbit-join comment this script did not write: orbit-join data ens5 10.250.0.0/16 $(touch pwned)
   note: left alone, a rule in inet filter input whose orbit-join comment this script did not write: orbit-join data ens5 10.0.0.0/8 1;touch pwned
   note: left alone, a rule in inet filter input whose orbit-join comment this script did not write: orbit-join it's `touch pwned`

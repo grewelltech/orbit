@@ -6,8 +6,10 @@ orbit join: ufw manages this host's firewall; this script does not edit it. Run 
   ufw allow in on ens4 from 192.0.2.10/32 to any port 9551 proto tcp
   ufw allow in on ens5 from 10.250.0.0/16 to any port 32768:60999 proto udp
   ufw allow in on ens5 from 10.250.0.0/16 to any port 32768:60999 proto tcp
+  (ICMP echo-request from 10.250.0.0/16 on ens5: ufw allows it by default, in /etc/ufw/before.rules; keep that)
   ufw allow in on ens5 from 198.51.100.0/24 to any port 32768:60999 proto udp
   ufw allow in on ens5 from 198.51.100.0/24 to any port 32768:60999 proto tcp
+  (ICMP echo-request from 198.51.100.0/24 on ens5: ufw allows it by default, in /etc/ufw/before.rules; keep that)
   (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
 --- exit: 1
 --- changes:

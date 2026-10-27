@@ -13,10 +13,16 @@ Plan:
        nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
        inserted into inet filter input (your ruleset)
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
-  3. firewall: allow data traffic (tcp, udp) on ens5 from 198.51.100.0/24 to ports 32768-60999
+  3. firewall: allow ICMP echo on ens5 from 10.250.0.0/16 (for orbit target probe)
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"'
+       inserted into inet filter input (your ruleset)
+  4. firewall: allow data traffic (tcp, udp) on ens5 from 198.51.100.0/24 to ports 32768-60999
        nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
        inserted into inet filter input (your ruleset)
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  5. firewall: allow ICMP echo on ens5 from 198.51.100.0/24 (for orbit target probe)
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"'
+       inserted into inet filter input (your ruleset)
   ok: user orbit exists
   ok: /usr/local/lib/orbit/join-net.sh is up to date
   ok: /etc/systemd/system/orbit-responder.service is up to date
@@ -24,9 +30,11 @@ Plan:
   ok: orbit-responder is enabled and running
 
 fake orbit ran: version
-orbit join: applied 3 changes.
+orbit join: applied 5 changes.
 --- exit: 0
 --- changes:
 nft insert rule inet filter input iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"
 nft insert rule inet filter input iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"
+nft insert rule inet filter input iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"
 nft insert rule inet filter input iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"
+nft insert rule inet filter input iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"

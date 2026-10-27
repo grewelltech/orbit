@@ -12,8 +12,10 @@ Plan:
        iptables -A ORBIT-JOIN -s '192.0.2.10/32' -i 'ens4' -p tcp -m tcp --dport '9551' -j ACCEPT
        iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
        iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
+       iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p icmp -m icmp --icmp-type 8 -j ACCEPT
        iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
        iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
+       iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p icmp -m icmp --icmp-type 8 -j ACCEPT
        (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
   4. firewall: iptables INPUT jumps to ORBIT-JOIN first
        iptables -I INPUT 1 -m comment --comment orbit-join -j ORBIT-JOIN
@@ -29,8 +31,10 @@ Plan:
        | iptables -C ORBIT-JOIN -s '192.0.2.10/32' -i 'ens4' -p tcp -m tcp --dport '9551' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '192.0.2.10/32' -i 'ens4' -p tcp -m tcp --dport '9551' -j ACCEPT
        | iptables -C ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
        | iptables -C ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
+       | iptables -C ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p icmp -m icmp --icmp-type 8 -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '10.250.0.0/16' -i 'ens5' -p icmp -m icmp --icmp-type 8 -j ACCEPT
        | iptables -C ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p udp -m udp --dport '32768:60999' -j ACCEPT
        | iptables -C ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p tcp -m tcp --dport '32768:60999' -j ACCEPT
+       | iptables -C ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p icmp -m icmp --icmp-type 8 -j ACCEPT 2>/dev/null || iptables -A ORBIT-JOIN -s '198.51.100.0/24' -i 'ens5' -p icmp -m icmp --icmp-type 8 -j ACCEPT
        | iptables -C INPUT -m comment --comment orbit-join -j ORBIT-JOIN 2>/dev/null || iptables -I INPUT 1 -m comment --comment orbit-join -j ORBIT-JOIN
   7. install /etc/systemd/system/orbit-responder.service:
        | [Unit]
@@ -76,8 +80,10 @@ iptables -N ORBIT-JOIN
 iptables -A ORBIT-JOIN -s 192.0.2.10/32 -i ens4 -p tcp -m tcp --dport 9551 -j ACCEPT
 iptables -A ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT
 iptables -A ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT
+iptables -A ORBIT-JOIN -s 10.250.0.0/16 -i ens5 -p icmp -m icmp --icmp-type 8 -j ACCEPT
 iptables -A ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p udp -m udp --dport 32768:60999 -j ACCEPT
 iptables -A ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p tcp -m tcp --dport 32768:60999 -j ACCEPT
+iptables -A ORBIT-JOIN -s 198.51.100.0/24 -i ens5 -p icmp -m icmp --icmp-type 8 -j ACCEPT
 iptables -I INPUT 1 -m comment --comment orbit-join -j ORBIT-JOIN
 useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin orbit
 install -d -m 0755 <tmp>/root/usr/local/lib/orbit

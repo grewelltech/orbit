@@ -5,7 +5,9 @@ orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server a
 orbit join: several chains filter IPv4 input on this host (inet filter input; ip extra in); this script does not choose for you. Allow these where they belong, then rerun with --no-firewall:
   tcp to port 9551, in on ens4, from 192.0.2.10/32
   tcp and udp to ports 32768-60999, in on ens5, from 10.250.0.0/16
+  icmp echo-request, in on ens5, from 10.250.0.0/16
   tcp and udp to ports 32768-60999, in on ens5, from 198.51.100.0/24
+  icmp echo-request, in on ens5, from 198.51.100.0/24
   (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
 --- exit: 1
 --- changes:
