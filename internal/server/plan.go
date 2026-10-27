@@ -18,12 +18,9 @@ import (
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
-// errR3 and errR2 name the roadmap step that lifts a plan restriction, so
-// a client knows the refusal is "not yet", not "never" (ADR-0008 §2).
-var (
-	errR3 = errors.New("is not supported until R3")
-	errR2 = errors.New("is not supported until R2")
-)
+// errR3 names the roadmap step that lifts a plan restriction, so a client
+// knows the refusal is "not yet", not "never" (ADR-0008 §2).
+var errR3 = errors.New("is not supported until R3")
 
 // defaultGNBIDBits is the gNB ID length when the target gives none, as on
 // the CLI (--gnb-id-bits).
