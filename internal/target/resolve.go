@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bgrewell/orbit/internal/secrets"
 )
@@ -359,14 +360,16 @@ func isTargetPath(p string) bool {
 	return err == nil && f.target
 }
 
+// unrenderable is what show prints for a whole value it does not render
+// (one holding a map with a key that is not a string, which encoding/json
+// renders on some Go versions and refuses on others): masked, whatever it
+// holds.
+const unrenderable = "<unrenderable: masked>"
+
 // show renders a value for provenance, masking a secret. A whole-value
 // subtree is masked whole when any key in it names a secret (a cohort's
 // token, a params entry called password): its provenance is one entry,
 // and a partly masked rendering would still be the subtree's text.
-// unrenderable is what show prints for a whole value it cannot render (a
-// map with a key that is not a string): masked, whatever it holds.
-const unrenderable = "<unrenderable: masked>"
-
 func show(f field, v any) string {
 	if f.secret || (f.typ == tAny && holdsSecret(v)) {
 		return Masked
@@ -374,6 +377,9 @@ func show(f field, v any) string {
 	if f.typ == tAny {
 		if s, ok := v.(string); ok {
 			return s
+		}
+		if !plainTree(v) {
+			return unrenderable
 		}
 		b, err := json.Marshal(v)
 		if err != nil {
@@ -397,6 +403,29 @@ func show(f field, v any) string {
 		return "[" + strings.Join(parts, ", ") + "]"
 	}
 	return fmt.Sprint(v)
+}
+
+// plainTree reports whether a whole value is only string-keyed maps,
+// lists and scalars, the shapes show renders.
+func plainTree(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		for _, e := range x {
+			if !plainTree(e) {
+				return false
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if !plainTree(e) {
+				return false
+			}
+		}
+	case nil, string, bool, int, int64, uint64, float64, time.Time:
+	default:
+		return false
+	}
+	return true
 }
 
 // holdsSecret reports whether a subtree has a key that names a secret.

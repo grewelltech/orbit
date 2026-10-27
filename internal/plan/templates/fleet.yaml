@@ -1,6 +1,7 @@
 # A fleet: the target's subscribers attached and kept for the run's
-# duration (--for, default 5m), then deregistered. Add behaviors with --set
-# (workloads[fleet].behaviors). Gated on attach success at least 0.99.
+# duration (--for, default 5m), then deregistered: idle, with no
+# behaviours. For behaviours, copy it (orbit test --list fleet) into a run
+# file and fill in behaviors. Gated on attach success at least 0.99.
 kind: run
 workloads:
   - name: fleet

@@ -87,7 +87,8 @@ type planFlags struct {
 const (
 	gateFlagHelp = "add a gate: [name=]metric<op>value (e.g. registration.p99_ms<=500ms, attach.success_ratio>=0.99), " +
 		"or conformance; repeat for more"
-	setFlagHelp = "set a run-file field: path=value (e.g. workloads[load].attach.count=500); repeat for more"
+	setFlagHelp = "set a run-file field: path=value (e.g. workloads[load].attach.count=500); repeat for more. " +
+		"A whole value (behaviors, start, conformance.expected, conformance.nas) is set whole; to change inside one, write it in a run file"
 )
 
 func (f *planFlags) add(fs *pflag.FlagSet) {

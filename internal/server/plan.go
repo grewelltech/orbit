@@ -341,6 +341,11 @@ func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbo
 	if until.GetForever() {
 		beh.Duration = forever
 	}
+	// A plan's until.duration is the run's deadline: the population keeps
+	// its UEs until then, even with no behaviours or ones that end sooner.
+	// An old fleet arm's plan (persistent) keeps the arm's meaning: its
+	// run.duration only bounds its behaviours.
+	beh.Hold = until.GetDurationMs() > 0 && !persistent
 	fn, needs, err := fleetRunFrom(s.log, s.mgr, spec, beh, verbosity)
 	if err != nil {
 		return fail(err)

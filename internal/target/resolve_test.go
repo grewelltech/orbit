@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -487,6 +488,8 @@ func TestShowWholeValueFailsClosed(t *testing.T) {
 		want string
 	}{
 		{name: "rendered", v: map[string]any{"rate": 2}, want: `{"rate":2}`},
+		{name: "rendered, every YAML scalar", v: map[string]any{"l": []any{true, uint64(1), 1.5, nil, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
+			want: `{"l":[true,1,1.5,null,"2026-01-01T00:00:00Z"]}`},
 		{name: "secret key, string keys", v: map[string]any{"params": map[string]any{"token": "s3cret"}}, want: Masked},
 		{name: "secret key in a non-string-keyed map", v: map[any]any{"params": map[any]any{"token": "s3cret", 1: "x"}}, want: Masked},
 		{name: "secret value in a non-string-keyed map", v: map[any]any{1: "s3cret", "note": "x"}, want: unrenderable},

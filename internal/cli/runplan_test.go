@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +17,11 @@ import (
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
+	"github.com/bgrewell/orbit/internal/observability"
+	"github.com/bgrewell/orbit/internal/server"
+	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
 // writeRunFile writes a run file next to the target and returns its path.
@@ -307,5 +314,54 @@ func TestStartLoadGNBNaming(t *testing.T) {
 		if got := p.GetTarget().GetRan().GetGnbName(); got != "edge" {
 			t.Errorf("--gnb-count %s: gnb_name = %q, want edge (the server numbers several from -1)", n, got)
 		}
+	}
+}
+
+// A plan's until.duration is the run's deadline: a population with no
+// behaviours keeps its UEs until then (the fleet template under --for, a
+// run file with behaviors: {}). A fleet scenario's run.duration on the
+// old arm still only bounds its behaviours, so one with none ends after
+// attaching. End to end against the mock AMF over real SCTP.
+func TestPopulationHoldsUntilTheDeadline(t *testing.T) {
+	clearOrbitEnv(t)
+	ki, _ := auth.ParseHexKey("Ki", testKi)
+	opc, _ := auth.ParseHexKey("OPc", testOPc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := sctpfront.Start(t, amf)
+	srv := httptest.NewServer(server.New(observability.NewLogger(io.Discard, slog.LevelError), "test",
+		observability.NewRegistry(), server.Options{StateDir: ""}))
+	t.Cleanup(srv.Close)
+	loc := targetDir(t, loadTarget(front.Addr, "127.0.0.1-127.0.0.9"))
+	runFile := writeRunFile(t, "kind: run\nworkloads:\n  - name: pop\n    attach: {count: 2, rate: 20}\n    behaviors: {}\nuntil: {duration: 3s}\n")
+	legacy := writeScenario(t, "kind: fleet\nname: legacy\ntarget: lab1\ntopology:\n  gnbs: { count: 1 }\n"+
+		"fleet: { count: 2, attach_rate: 20/s }\nrun: { duration: 5s }\n")
+
+	tests := []struct {
+		name     string
+		args     []string
+		min, max time.Duration
+	}{
+		{name: "the fleet template with --for 6s", args: []string{"test", "fleet", "-t", "lab1", "--for", "6s",
+			"--set", "workloads[fleet].attach.count=2", "--wait"}, min: 6 * time.Second, max: 20 * time.Second},
+		{name: "behaviors: {} until 3s", args: []string{"run", runFile, "-t", "lab1"}, min: 3 * time.Second, max: 15 * time.Second},
+		{name: "a legacy fleet scenario: run.duration bounds behaviours only", args: []string{"runs", "start-fleet", legacy, "--wait"},
+			min: 0, max: 4 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Now()
+			r := runOrbit(t, loc, append([]string{"--server", srv.URL}, tc.args...)...)
+			took := time.Since(start)
+			if r.execErr != nil {
+				t.Fatalf("%v\n%s", r.execErr, r.err)
+			}
+			if took < tc.min || took > tc.max {
+				t.Errorf("ran %v, want between %v and %v\n%s", took, tc.min, tc.max, r.err)
+			}
+		})
 	}
 }

@@ -50,7 +50,7 @@ How the run stops. Give one of:
 
 | Key | Meaning |
 |---|---|
-| `duration: 2h` (or `duration_ms`) | stop after this long; a storm keeps attaching, cycling its count's SUPIs |
+| `duration: 2h` (or `duration_ms`) | stop after this long. A storm keeps attaching, cycling its count's SUPIs. A population that keeps its UEs (`behaviors`) holds them until then, even with no behaviours or behaviours that end sooner, then deregisters them |
 | `complete: true` | stop when every workload completes (the default) |
 | `forever: true` | run until stopped (`orbit runs stop`); gates are judged only on a finish |
 
@@ -70,7 +70,7 @@ A **population** attaches the target's subscribers:
 | `topology.gnb_count`, `layout`, `spacing_m` | gNBs to spread the UEs over, and their layout |
 | `topology.gnb_ids` | `{first: N}` pins the IDs, `{assign: true}` takes them from the server's rotation |
 | `pdu_session` | establish a PDU session per UE |
-| `behaviors` | keep the UEs and run behaviours on them (a fleet; `{}` keeps them idle) |
+| `behaviors` | keep the UEs and run behaviours on them (a fleet; `{}` keeps them idle until `until.duration`). A whole value: write it in the run file, since `--set` does not reach inside it |
 | `subscriber_pool` | which of the target's `subscribers` pools to use, by name |
 | `sample_interval_ms` | the resource-sample cadence of a soak |
 
@@ -125,7 +125,10 @@ aliases for these gates:
 
 `--set path=value` sets any run-file field, such as
 `--set workloads[pop].attach.count=1000`. The path is the field's path in
-this document, with a list element selected by its name.
+this document, with a list element selected by its name. A whole value
+(`behaviors`, `start`, `conformance.expected`, `conformance.nas`) is set
+whole, as YAML (`--set 'workloads[pop].behaviors={}'`). `--set` does not
+reach inside one, so to change a field in it, write it in a run file.
 
 Without gates, exit 0 means the run completed, not that the core passed.
 Add gates to judge it.
