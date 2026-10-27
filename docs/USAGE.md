@@ -788,10 +788,18 @@ orbit load ... --gnb-count 2 --bind 172.17.50.21,172.17.50.22
 orbit load ... --duration 10m --sample-interval 15s
 ```
 
-Output is per-procedure latency (P50/P99/P99.9), achieved rate, success/failure
-counts, and (for soak) a goroutine/RSS trend. The `--slo-*` flags and `--gate`
-turn a run into a CI gate ([exit codes](#exit-codes)). With `--local`, gate
-with `--slo-*` only, which the CLI judges itself.
+Output is per-procedure latency (the sample count `n`, then P50/P90/P99/P99.9
+and max), achieved rate, success/failure counts, and (for soak) a goroutine/RSS
+trend. `--local` and server runs print the same columns, so the two compare line
+by line:
+
+```
+  registration  n 50     P50 12.3ms   P90 20.1ms   P99 31.4ms   P99.9 40ms     max 41.2ms
+```
+
+The `--slo-*` flags and `--gate` turn a run into a CI gate
+([exit codes](#exit-codes)). With `--local`, gate with `--slo-*` only, which
+the CLI judges itself.
 
 ## Conformance / regression
 
