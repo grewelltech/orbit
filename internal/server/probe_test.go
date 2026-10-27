@@ -138,6 +138,7 @@ func TestProbeSteps(t *testing.T) {
 		change   func(e *probeEnv)
 		want     string   // the statuses, in order
 		texts    []string // in some step's detail or fix
+		absent   []string // in no step's detail or fix
 		token    string   // the loom token the UDP check got
 	}{
 		{name: "all seven pass (registered responder)", target: probeTarget(named), want: "OK OK OK OK OK OK OK", token: probeLoom,
@@ -221,6 +222,14 @@ func TestProbeSteps(t *testing.T) {
 				e.udp = func(context.Context, string, string, string, string) (uint64, uint32, error) { return 0, 40123, nil }
 			},
 			texts: []string{"allow udp its receive ports from"}},
+		{name: "the receiver's telemetry ends early: no firewall advice", target: probeTarget(named), want: "OK OK OK OK OK OK FAIL",
+			change: func(e *probeEnv) {
+				e.udp = func(context.Context, string, string, string, string) (uint64, uint32, error) {
+					return 0, 40123, &errTelemetryEnded{err: io.EOF}
+				}
+			},
+			texts:  []string{"the responder's flow telemetry ended before the count was read: EOF"},
+			absent: []string{"allow udp", "no UDP datagram arrived"}},
 		{name: "the UDP check cannot run", target: probeTarget(named), want: "OK OK OK OK OK OK FAIL",
 			change: func(e *probeEnv) {
 				e.udp = func(context.Context, string, string, string, string) (uint64, uint32, error) {
@@ -254,6 +263,11 @@ func TestProbeSteps(t *testing.T) {
 			for _, w := range tc.texts {
 				if !strings.Contains(all.String(), w) {
 					t.Errorf("no step says %q:\n%s", w, all.String())
+				}
+			}
+			for _, w := range tc.absent {
+				if strings.Contains(all.String(), w) {
+					t.Errorf("a step says %q:\n%s", w, all.String())
 				}
 			}
 			for _, secret := range []string{probeKi, probeOPc, probeLoom, "orl1_"} {
@@ -447,5 +461,59 @@ func TestProbeGNBIDs(t *testing.T) {
 				t.Errorf("gNB IDs %v, want %v", ids, tc.want)
 			}
 		})
+	}
+}
+
+// A step timeout is bounded, since the probe holds its leases for it: 0 is
+// the default, 2m is the most, and more is refused before anything runs.
+func TestProbeStepTimeoutBound(t *testing.T) {
+	tests := []struct {
+		name     string
+		ms       uint32
+		wantCode connect.Code // 0: no error
+	}{
+		{name: "0 is the default", ms: 0},
+		{name: "2m", ms: 120000},
+		{name: "past 2m", ms: 120001, wantCode: connect.CodeInvalidArgument},
+		{name: "about 49 days", ms: 1<<32 - 1, wantCode: connect.CodeInvalidArgument},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &probeFakes{}
+			svc, _ := newProbeService(f.env())
+			steps, err := probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: probeTarget(nil), CoreOnly: true, StepTimeoutMs: tc.ms}, nil)
+			switch {
+			case tc.wantCode == 0 && err != nil:
+				t.Fatal(err)
+			case tc.wantCode != 0 && connect.CodeOf(err) != tc.wantCode:
+				t.Fatalf("err = %v, want %v", err, tc.wantCode)
+			}
+			if tc.wantCode != 0 && len(steps) != 0 {
+				t.Errorf("%d steps ran before the refusal", len(steps))
+			}
+		})
+	}
+}
+
+// The agent gone mid-check: its telemetry ends before a count, which is
+// the check not running (errTelemetryEnded), not "no datagram arrived".
+func TestLoomUDPCheckTelemetryEnds(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gs := control.NewGRPCServer(control.NewServer("test", control.WithAuthToken(probeLoom), control.WithTelemetryInterval(100*time.Millisecond)))
+	go func() { _ = gs.Serve(lis) }()
+	t.Cleanup(gs.Stop)
+	gone := func(context.Context, string) error {
+		gs.Stop()
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _, err = loomUDPCheck(ctx, gone, lis.Addr().String(), probeLoom, "127.0.0.1")
+	var ended *errTelemetryEnded
+	if !errors.As(err, &ended) {
+		t.Fatalf("err = %v, want the telemetry ended", err)
 	}
 }

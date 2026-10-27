@@ -609,8 +609,10 @@ func TestTargetProbeSummary(t *testing.T) {
 		steps    []string
 		err      error
 		coreOnly bool
+		args     []string
 		wantExit int
 		want     string
+		wantErr  string
 	}{
 		{name: "all pass", steps: []string{"OK", "OK", "OK", "OK", "OK", "OK", "OK"}, wantExit: ExitPass, want: "probe lab1: 7 of 7 steps passed (0 skipped)"},
 		{name: "echo FAIL, UDP OK: still a failure", steps: []string{"OK", "OK", "OK", "OK", "OK", "FAIL", "OK"}, wantExit: ExitGateFailed,
@@ -623,6 +625,7 @@ func TestTargetProbeSummary(t *testing.T) {
 			wantExit: ExitDidNotComplete},
 		{name: "refused before a step", err: connect.NewError(connect.CodeFailedPrecondition, errors.New("gNB ID 1 is held by run-7")),
 			wantExit: ExitCouldNotStart},
+		{name: "--timeout past 2m", args: []string{"--timeout", "3m"}, wantExit: ExitCouldNotStart, wantErr: "at most 2m"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -634,7 +637,10 @@ func TestTargetProbeSummary(t *testing.T) {
 			if tc.coreOnly {
 				args = append(args, "--core-only")
 			}
-			r := runOrbit(t, targetDir(t, lab1), args...)
+			r := runOrbit(t, targetDir(t, lab1), append(args, tc.args...)...)
+			if tc.wantErr != "" && (r.execErr == nil || !strings.Contains(r.execErr.Error(), tc.wantErr)) {
+				t.Errorf("err = %v, want %q", r.execErr, tc.wantErr)
+			}
 			if got := ExitCode(r.execErr); got != tc.wantExit {
 				t.Errorf("exit %d (%v), want %d\n%s", got, r.execErr, tc.wantExit, r.out)
 			}

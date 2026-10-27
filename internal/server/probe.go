@@ -29,6 +29,18 @@ import (
 // The doctor's steps (ADR-0009 §5), in order.
 var probeStepNames = []string{"NG Setup", "register", "PDU session", "responder", "control", "UE to N6 echo", "data ports"}
 
+// maxProbeStepMS bounds a probe's step timeout, and so how long it holds
+// its leases on a step.
+const maxProbeStepMS = 120000
+
+// errTelemetryEnded is a UDP check whose receiver's telemetry ended before
+// a count was read: the check did not run, whatever the firewall.
+type errTelemetryEnded struct{ err error }
+
+func (e *errTelemetryEnded) Error() string {
+	return "the responder's flow telemetry ended before the count was read: " + e.err.Error()
+}
+
 // Step outcomes.
 const (
 	probeOK   = "OK"
@@ -141,8 +153,12 @@ func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.
 	if core.GetAmf() == "" || core.GetPlmn().GetMcc() == "" || core.GetPlmn().GetMnc() == "" {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("the target needs core.amf and core.plmn"))
 	}
+	// The probe holds its leases for its steps: each is bounded.
+	if m.GetStepTimeoutMs() > maxProbeStepMS {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("step_timeout_ms %d: at most %d (2m)", m.GetStepTimeoutMs(), maxProbeStepMS))
+	}
 	timeout := time.Duration(m.GetStepTimeoutMs()) * time.Millisecond
-	if timeout <= 0 {
+	if timeout == 0 {
 		timeout = 20 * time.Second
 	}
 	plmn := core.GetPlmn().GetMcc() + "/" + core.GetPlmn().GetMnc()
@@ -386,6 +402,10 @@ func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.
 	if udpOK {
 		return p.send(probeOK, fmt.Sprintf("%d UDP datagrams arrived at %s:%d", udpN, dataIP, udpPort), "")
 	}
+	var ended *errTelemetryEnded
+	if errors.As(udpErr, &ended) {
+		return p.send(probeFail, ended.Error(), "")
+	}
 	why := fmt.Sprintf("no UDP datagram arrived at %s:%d", dataIP, udpPort)
 	if udpErr != nil {
 		why = "the UDP check could not run: " + udpErr.Error()
@@ -470,14 +490,20 @@ func loomUDPCheck(ctx context.Context, send func(ctx context.Context, target str
 		return 0, port, err
 	}
 	seen := make(chan uint64, 64)
+	var ended error // set before seen closes
 	go func() {
 		for {
 			s, err := stream.Recv()
 			if err != nil {
+				ended = err
 				close(seen)
 				return
 			}
-			seen <- s.GetPackets()
+			select {
+			case seen <- s.GetPackets():
+			case <-tctx.Done():
+				return
+			}
 		}
 	}()
 	if err := send(ctx, net.JoinHostPort(dataIP, strconv.Itoa(int(port)))); err != nil {
@@ -489,7 +515,10 @@ func loomUDPCheck(ctx context.Context, send func(ctx context.Context, target str
 	for {
 		select {
 		case n, ok := <-seen:
-			if !ok || n > 0 {
+			if !ok {
+				return 0, port, &errTelemetryEnded{err: ended}
+			}
+			if n > 0 {
 				return n, port, nil
 			}
 		case <-deadline:

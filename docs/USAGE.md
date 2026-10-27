@@ -229,7 +229,8 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   `--core-only` covers steps 1–3 only, for a target with no app host yet; a
   failure there SKIPs the rest of those three. A step 7 that passes after a
   failed echo still leaves the probe failed (exit 1).
-  `--timeout` bounds each step (20s).
+  `--timeout` bounds each step (20s; at most 2m, since the probe holds its
+  leases while a step runs).
 
   It exits 1 when a step failed (a gate failed: fix the core or the app host)
   and 3 when it could not start (no server, or a lease another run holds).

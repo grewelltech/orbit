@@ -553,13 +553,13 @@ func newTargetProbeCmd(serverURL *string, loc targetLocations) *cobra.Command {
 			if err := applyServerURL(cmd, serverURL); err != nil {
 				return err
 			}
-			if timeout <= 0 || timeout > time.Hour {
-				return fmt.Errorf("--timeout %s: want more than 0 and at most 1h", timeout)
+			if timeout <= 0 || timeout > 2*time.Minute {
+				return fmt.Errorf("--timeout %s: want more than 0 and at most 2m (the probe holds its leases for each step)", timeout)
 			}
 			return runProbe(cmd, serverURL, f.Target.Name, r.Target, timeout, coreOnly)
 		},
 	}
-	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "bound on each step")
+	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "bound on each step, at most 2m")
 	cmd.Flags().BoolVar(&coreOnly, "core-only", false, "stop after the PDU session (steps 1-3): the user plane is not checked")
 	return cmd
 }
