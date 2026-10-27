@@ -104,7 +104,7 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 		rotation, _ = engine.OpenGNBRotation("", log)
 	}
 	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive,
-		specs: newSpecStore(), version: version, rotation: rotation}
+		specs: newSpecStore(), version: version, rotation: rotation, expected: opts.ConformanceExpected}
 	runSvc.restoreFrames()
 
 	mux := http.NewServeMux()
@@ -112,7 +112,7 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}, ic))
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}, ic))
 	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc, ic))
-	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected}, ic))
+	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected, runs: runSvc}, ic))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

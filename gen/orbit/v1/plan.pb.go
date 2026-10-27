@@ -1492,8 +1492,15 @@ type ConformanceWorkload struct {
 	Nas              *NASAlgorithms         `protobuf:"bytes,5,opt,name=nas,proto3" json:"nas,omitempty"`
 	Responder        string                 `protobuf:"bytes,6,opt,name=responder,proto3" json:"responder,omitempty"` // for checks that need traffic
 	Traffic          string                 `protobuf:"bytes,7,opt,name=traffic,proto3" json:"traffic,omitempty"`     // echo peer host:port the mobility checks' UE sends to
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The suite's gNB IDs: each check presents base + its registry index,
+	// plus its handover target and liveness probe at fixed offsets. first
+	// pins the base; assign takes a base from the rotation whose IDs are all
+	// free. Default: the target's ran.gnb_ids.first, else 700.
+	GnbIds         *GNBIDSelection `protobuf:"bytes,8,opt,name=gnb_ids,json=gnbIds,proto3" json:"gnb_ids,omitempty"`
+	SubscriberPool string          `protobuf:"bytes,9,opt,name=subscriber_pool,json=subscriberPool,proto3" json:"subscriber_pool,omitempty"` // the UE checks' subscriber; default the first pool
+	N3Bind         string          `protobuf:"bytes,10,opt,name=n3_bind,json=n3Bind,proto3" json:"n3_bind,omitempty"`                        // the GTP-U checks' local N3 source, ip:port; empty: they SKIP
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ConformanceWorkload) Reset() {
@@ -1575,10 +1582,31 @@ func (x *ConformanceWorkload) GetTraffic() string {
 	return ""
 }
 
+func (x *ConformanceWorkload) GetGnbIds() *GNBIDSelection {
+	if x != nil {
+		return x.GnbIds
+	}
+	return nil
+}
+
+func (x *ConformanceWorkload) GetSubscriberPool() string {
+	if x != nil {
+		return x.SubscriberPool
+	}
+	return ""
+}
+
+func (x *ConformanceWorkload) GetN3Bind() string {
+	if x != nil {
+		return x.N3Bind
+	}
+	return ""
+}
+
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).
 type ExpectedFailures struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Entries       []*ExpectedFailure     `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	Entries       []*ExpectedFailure     `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"` // each with check and observed
 	Core          string                 `protobuf:"bytes,2,opt,name=core,proto3" json:"core,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2040,7 +2068,9 @@ func (x *SLOGate) GetThreshold() float64 {
 	return 0
 }
 
-// ConformanceGate passes when no FAIL falls outside the expected-failures list.
+// ConformanceGate passes when no FAIL falls outside the expected-failures
+// list, no check ERRORed, and the suite ran to the end (Summary.OK, the
+// CLI's exit code).
 type ConformanceGate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2343,7 +2373,7 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"intervalMs\x12\x10\n" +
 	"\x03ues\x18\x03 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\xa6\x02\n" +
+	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\x9b\x03\n" +
 	"\x13ConformanceWorkload\x12\x1e\n" +
 	"\n" +
 	"categories\x18\x01 \x03(\tR\n" +
@@ -2353,7 +2383,11 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\x13per_test_timeout_ms\x18\x04 \x01(\rR\x10perTestTimeoutMs\x12)\n" +
 	"\x03nas\x18\x05 \x01(\v2\x17.orbit.v1.NASAlgorithmsR\x03nas\x12\x1c\n" +
 	"\tresponder\x18\x06 \x01(\tR\tresponder\x12\x18\n" +
-	"\atraffic\x18\a \x01(\tR\atraffic\"[\n" +
+	"\atraffic\x18\a \x01(\tR\atraffic\x121\n" +
+	"\agnb_ids\x18\b \x01(\v2\x18.orbit.v1.GNBIDSelectionR\x06gnbIds\x12'\n" +
+	"\x0fsubscriber_pool\x18\t \x01(\tR\x0esubscriberPool\x12\x17\n" +
+	"\an3_bind\x18\n" +
+	" \x01(\tR\x06n3Bind\"[\n" +
 	"\x10ExpectedFailures\x123\n" +
 	"\aentries\x18\x01 \x03(\v2\x19.orbit.v1.ExpectedFailureR\aentries\x12\x12\n" +
 	"\x04core\x18\x02 \x01(\tR\x04core\"K\n" +
@@ -2500,18 +2534,19 @@ var file_orbit_v1_plan_proto_depIdxs = []int32{
 	31, // 23: orbit.v1.AppCohort.params:type_name -> orbit.v1.AppCohort.ParamsEntry
 	21, // 24: orbit.v1.ConformanceWorkload.expected:type_name -> orbit.v1.ExpectedFailures
 	22, // 25: orbit.v1.ConformanceWorkload.nas:type_name -> orbit.v1.NASAlgorithms
-	34, // 26: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
-	2,  // 27: orbit.v1.StartCondition.phase:type_name -> orbit.v1.WorkloadPhase
-	27, // 28: orbit.v1.Gate.slo:type_name -> orbit.v1.SLOGate
-	28, // 29: orbit.v1.Gate.conformance:type_name -> orbit.v1.ConformanceGate
-	3,  // 30: orbit.v1.SLOGate.op:type_name -> orbit.v1.CompareOp
-	26, // 31: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
-	4,  // 32: orbit.v1.Lease.resource:type_name -> orbit.v1.LeaseResource
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	11, // 26: orbit.v1.ConformanceWorkload.gnb_ids:type_name -> orbit.v1.GNBIDSelection
+	34, // 27: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
+	2,  // 28: orbit.v1.StartCondition.phase:type_name -> orbit.v1.WorkloadPhase
+	27, // 29: orbit.v1.Gate.slo:type_name -> orbit.v1.SLOGate
+	28, // 30: orbit.v1.Gate.conformance:type_name -> orbit.v1.ConformanceGate
+	3,  // 31: orbit.v1.SLOGate.op:type_name -> orbit.v1.CompareOp
+	26, // 32: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
+	4,  // 33: orbit.v1.Lease.resource:type_name -> orbit.v1.LeaseResource
+	34, // [34:34] is the sub-list for method output_type
+	34, // [34:34] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_plan_proto_init() }

@@ -19,9 +19,13 @@ import (
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
-// errR3 names the roadmap step that lifts a plan restriction, so a client
-// knows the refusal is "not yet", not "never" (ADR-0008 §2).
-var errR3 = errors.New("is not supported until R3")
+// errR3b names the roadmap step that lifts a plan restriction, so a client
+// knows the refusal is "not yet", not "never" (ADR-0008 §2); errNotYet is
+// one no step has been scheduled for.
+var (
+	errR3b    = errors.New("is not supported until R3b")
+	errNotYet = errors.New("is not supported yet")
+)
 
 // defaultGNBIDBits is the gNB ID length when the target gives none, as on
 // the CLI (--gnb-id-bits).
@@ -33,17 +37,19 @@ const defaultGNBIDBits = 24
 // set. assigned are the gNB IDs taken from the rotation, to hand back
 // when the run releases its leases.
 type planRun struct {
-	load     engine.LoadRunFunc
-	fleet    engine.FleetRunFunc
-	storm    engine.LoadSpec     // the storm path's engine spec, as run
-	built    engine.FleetRunSpec // the persistent path's engine spec, as run
-	beh      engine.FleetBehaviors
-	needs    engine.Needs
-	workload string
-	amf      string   // the gNB IDs' AMF, as given
-	amfKeys  []string // its identity set, which the rotation keys on
-	plmn     string
-	assigned []uint32
+	load      engine.LoadRunFunc
+	fleet     engine.FleetRunFunc
+	storm     engine.LoadSpec     // the storm path's engine spec, as run
+	built     engine.FleetRunSpec // the persistent path's engine spec, as run
+	beh       engine.FleetBehaviors
+	suite     engine.ConformanceRunFunc // a conformance workload's launcher
+	suiteLive *suiteLive
+	needs     engine.Needs
+	workload  string
+	amf       string   // the gNB IDs' AMF, as given
+	amfKeys   []string // its identity set, which the rotation keys on
+	plmn      string
+	assigned  []uint32
 }
 
 // population checks a plan's shape for S2 and returns its one population
@@ -53,17 +59,17 @@ func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkl
 	case n == 0:
 		return nil, nil, errors.New("a plan needs at least one workload")
 	case n > 1:
-		return nil, nil, fmt.Errorf("a plan with %d workloads %w: give exactly one population workload", n, errR3)
+		return nil, nil, fmt.Errorf("a plan with %d workloads %w: give exactly one population or conformance workload", n, errR3b)
 	}
 	w := p.GetWorkloads()[0]
 	if w.GetStart() != nil {
-		return nil, nil, fmt.Errorf("workload %q: a start condition %w", w.GetName(), errR3)
+		return nil, nil, fmt.Errorf("workload %q: a start condition %w", w.GetName(), errR3b)
 	}
 	pop := w.GetPopulation()
 	if pop == nil {
-		return nil, nil, fmt.Errorf("workload %q: a conformance or steps workload %w; give a population", w.GetName(), errR3)
+		return nil, nil, fmt.Errorf("workload %q: a steps workload %w; give a population or conformance workload", w.GetName(), errNotYet)
 	}
-	if err := validateGates(p.GetGates(), w.GetName()); err != nil {
+	if err := validateGates(p.GetGates(), w.GetName(), false); err != nil {
 		return nil, nil, err
 	}
 	if len(p.GetGates()) > 0 && p.GetUntil().GetForever() {
@@ -209,6 +215,9 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 // strategy even without behaviours: an old fleet arm's plan, since a fleet
 // always kept its UEs.
 func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbosity, persistent bool) (*planRun, error) {
+	if ws := p.GetWorkloads(); len(ws) == 1 && ws[0].GetConformance() != nil && ws[0].GetStart() == nil {
+		return s.buildSuite(p, ws[0])
+	}
 	w, pop, err := population(p)
 	if err != nil {
 		return nil, err
@@ -604,7 +613,7 @@ func planRate(a *orbitv1.AttachProfile) (load.Rate, error) {
 // planReport is a completed plan run's report for its one workload, with
 // the plan's gates applied: from the engine's report while the run is in
 // the registry. nil when the run was not a plan.
-func planReport(plan *orbitv1.RunPlan, load *orbitv1.LoadReport, fleet *orbitv1.FleetReport) *orbitv1.RunReport {
+func planReport(plan *orbitv1.RunPlan, load *orbitv1.LoadReport, fleet *orbitv1.FleetReport, suite *orbitv1.ConformanceSummary) *orbitv1.RunReport {
 	if plan == nil || len(plan.GetWorkloads()) != 1 {
 		return nil
 	}
@@ -614,6 +623,8 @@ func planReport(plan *orbitv1.RunPlan, load *orbitv1.LoadReport, fleet *orbitv1.
 		r.Kind, r.Report = orbitv1.RunKind_RUN_KIND_LOAD, &orbitv1.RunReport_Load{Load: load}
 	case fleet != nil:
 		r.Kind, r.Report = orbitv1.RunKind_RUN_KIND_FLEET, &orbitv1.RunReport_Fleet{Fleet: fleet}
+	case suite != nil:
+		r.Kind, r.Report = orbitv1.RunKind_RUN_KIND_CONFORMANCE, &orbitv1.RunReport_Conformance{Conformance: suite}
 	default:
 		return nil
 	}
@@ -637,9 +648,11 @@ func planJudge(plan *orbitv1.RunPlan) func(any) any {
 		var rr *orbitv1.RunReport
 		switch r := report.(type) {
 		case *load.Report:
-			rr = planReport(held, loadReportProto(*r), nil)
+			rr = planReport(held, loadReportProto(*r), nil, nil)
 		case *engine.FleetReport:
-			rr = planReport(held, nil, fleetReportProto(*r))
+			rr = planReport(held, nil, fleetReportProto(*r), nil)
+		case *suiteLive:
+			rr = planReport(held, nil, nil, r.summary())
 		}
 		if rr == nil {
 			return nil // not a typed nil, which would read as a judgement

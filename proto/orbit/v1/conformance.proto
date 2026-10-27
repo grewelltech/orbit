@@ -91,6 +91,9 @@ message ConformanceUpdate {
   // Entries whose check ran without the FAIL they tolerate; on the final
   // update only. They warn, not gate.
   repeated StaleExpectation stale = 9;
+  // The run the suite runs as (ADR-0008 §2), on every update, so a client
+  // can follow it in the run history.
+  string run_id = 10;
 }
 
 message ConformanceResult {
@@ -116,6 +119,11 @@ message ExpectedFailure {
   string finding = 1;
   string added = 2;               // YYYY-MM-DD
   string reason = 3;
+  // The FAIL the entry tolerates, in a plan's own list
+  // (ConformanceWorkload.expected): the check's ID and its exact observed
+  // text. Unset on a result's matched entry.
+  string check = 4;
+  string observed = 5;
 }
 
 // StaleExpectation is an expected-failures entry whose check ran without the

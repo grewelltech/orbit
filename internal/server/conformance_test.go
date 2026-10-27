@@ -19,9 +19,18 @@ import (
 
 func newConformanceClient(t *testing.T) orbitv1connect.ConformanceServiceClient {
 	t.Helper()
+	return conformanceClientWith(t, nil)
+}
+
+// conformanceClientWith serves the conformance service over a fresh run
+// service, as New wires it, with x as the server's expected failures.
+func conformanceClientWith(t *testing.T, x *conformance.ExpectedFailures) orbitv1connect.ConformanceServiceClient {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	runs := planService(t)
+	runs.expected = x
 	mux := http.NewServeMux()
-	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log}))
+	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: x, runs: runs}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return orbitv1connect.NewConformanceServiceClient(srv.Client(), srv.URL)
@@ -294,12 +303,7 @@ func TestRunConformanceCarriesExpectedFailuresCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	mux := http.NewServeMux()
-	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: x}))
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	c := orbitv1connect.NewConformanceServiceClient(srv.Client(), srv.URL)
+	c := conformanceClientWith(t, x)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
 		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2, Categories: []string{"negative-ie"},
 	}))

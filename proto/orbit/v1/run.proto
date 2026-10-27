@@ -5,6 +5,7 @@ package orbit.v1;
 import "orbit/v1/options.proto";
 
 import "orbit/v1/cell.proto";
+import "orbit/v1/conformance.proto";
 import "orbit/v1/plan.proto";
 import "orbit/v1/ue.proto";
 
@@ -374,6 +375,16 @@ message GetRunResponse {
   // The resources the run leases while active (ADR-0008 §5); empty once
   // it is terminal.
   repeated Lease leases = 5;
+  // Populated for a CONFORMANCE run: the suite so far.
+  ConformanceProgress conformance_progress = 6;
+}
+
+// ConformanceProgress is a conformance run's suite so far.
+message ConformanceProgress {
+  ConformanceTally tally = 1;
+  uint32 ran = 2;                 // checks finished
+  uint32 total = 3;               // checks selected
+  string last_check = 4;          // the most recent check's ID
 }
 
 message RunTelemetryRequest {
@@ -411,6 +422,7 @@ message TelemetryFrame {
   oneof progress {
     LoadProgress load = 7;
     FleetProgress fleet = 8;
+    ConformanceProgress conformance = 9;
   }
 }
 
@@ -504,9 +516,43 @@ message GetRunReportResponse {
   oneof report {
     LoadReport load = 2;
     FleetReport fleet = 3;
+    ConformanceSummary conformance = 7;
   }
   // A plan's gates, as this report judged them (ADR-0008 §2); empty for a
   // run without gates. gates_passed is true when every gate passed.
   repeated GateResult gates = 4;
   bool gates_passed = 5;
+  // Each workload's report with its gates, for a run started from a plan.
+  repeated RunReport workloads = 6;
+}
+
+// RunReport is one workload's end-of-run report, with the gates applied to
+// it (ADR-0008 §2).
+message RunReport {
+  string workload = 1;            // the workload's name
+  RunKind kind = 2;               // the workload's kind
+  oneof report {
+    LoadReport load = 3;
+    FleetReport fleet = 4;
+    ConformanceSummary conformance = 5;
+  }
+  repeated GateResult gates = 6;
+  bool gates_passed = 7;          // every gate passed (true when there are none)
+}
+
+// ConformanceSummary is a conformance workload's results.
+message ConformanceSummary {
+  ConformanceTally tally = 1;
+  repeated ConformanceResult results = 2;
+  // The expected-failures list the results were judged against: its core
+  // line, and which list it was ("plan": the workload's own; "server":
+  // orbit serve --conformance-expected-failures; "" for none).
+  string expected_failures_core = 3;
+  string expected_failures_source = 4;
+  // Entries of that list whose check ran without the FAIL they tolerate.
+  repeated StaleExpectation stale = 5;
+  // How many checks were selected; fewer results means the suite was cut
+  // off (stopped, or at a deadline) and incomplete is set.
+  uint32 total = 6;
+  bool incomplete = 7;
 }

@@ -28,9 +28,10 @@ var latencyQuantiles = map[string]func(*orbitv1.ProcedureLatency) float64{
 }
 
 // validateGates checks a plan's gates before the run starts: each names
-// the workload (or none, the whole run), an SLO metric this report has,
-// and a comparison. Conformance gates arrive with conformance workloads.
-func validateGates(gates []*orbitv1.Gate, workload string) error {
+// the workload (or none, the whole run) and a check its report answers:
+// for a population an SLO metric and a comparison, for a conformance
+// workload (suite) the conformance gate.
+func validateGates(gates []*orbitv1.Gate, workload string, suite bool) error {
 	names := map[string]bool{}
 	for i, g := range gates {
 		label := g.GetName()
@@ -45,8 +46,13 @@ func validateGates(gates []*orbitv1.Gate, workload string) error {
 		}
 		switch c := g.GetCheck().(type) {
 		case *orbitv1.Gate_Conformance:
-			return fmt.Errorf("gate %q: a conformance gate %w", label, errR3)
+			if !suite {
+				return fmt.Errorf("gate %q: a conformance gate judges a conformance workload; %q is a population", label, workload)
+			}
 		case *orbitv1.Gate_Slo:
+			if suite {
+				return fmt.Errorf("gate %q: an slo gate judges a population; %q is a conformance workload (give a conformance gate)", label, workload)
+			}
 			if _, ok := opText[c.Slo.GetOp()]; !ok {
 				return fmt.Errorf("gate %q: give a comparison (op: le, lt, ge or gt), not op %d", label, int32(c.Slo.GetOp()))
 			}
@@ -54,7 +60,7 @@ func validateGates(gates []*orbitv1.Gate, workload string) error {
 				return fmt.Errorf("gate %q: %w", label, err)
 			}
 		default:
-			return fmt.Errorf("gate %q: give an slo check", label)
+			return fmt.Errorf("gate %q: give an slo or conformance check", label)
 		}
 	}
 	return nil
@@ -154,8 +160,14 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 		if w := g.GetWorkload(); w != "" && w != r.GetWorkload() {
 			continue
 		}
-		slo := g.GetSlo()
 		res := &orbitv1.GateResult{Gate: g}
+		if g.GetConformance() != nil {
+			res.Passed, res.Observed, res.Detail = judgeSuite(r.GetConformance())
+			r.Gates = append(r.Gates, res)
+			r.GatesPassed = r.GatesPassed && res.Passed
+			continue
+		}
+		slo := g.GetSlo()
 		switch v, err := figs.metric(slo.GetMetric()); {
 		case !ok:
 			res.Detail = "no report to judge"
@@ -169,4 +181,29 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 		r.Gates = append(r.Gates, res)
 		r.GatesPassed = r.GatesPassed && res.Passed
 	}
+}
+
+// judgeSuite is the conformance gate (ADR-0008 §2): it passes when the
+// suite ran to the end and no check FAILed outside the expected-failures
+// list or ERRORed, Summary.OK as the CLI's exit code has it. observed is
+// how many did. An incomplete suite fails: an unmeasured suite is not a
+// passed one.
+func judgeSuite(c *orbitv1.ConformanceSummary) (passed bool, observed float64, detail string) {
+	if c == nil {
+		return false, 0, "no report to judge"
+	}
+	if c.GetIncomplete() {
+		return false, 0, fmt.Sprintf("suite incomplete: %d of %d checks ran", len(c.GetResults()), c.GetTotal())
+	}
+	var bad []string
+	for _, r := range c.GetResults() {
+		switch {
+		case r.GetVerdict() == "FAIL" && r.GetExpectedFailure() == nil, r.GetVerdict() == "ERROR":
+			bad = append(bad, r.GetId()+" "+r.GetVerdict())
+		}
+	}
+	if len(bad) > 0 {
+		return false, float64(len(bad)), fmt.Sprintf("%d unexpected: %s", len(bad), strings.Join(bad, ", "))
+	}
+	return true, 0, fmt.Sprintf("%d checks, no unexpected FAIL or ERROR", len(c.GetResults()))
 }

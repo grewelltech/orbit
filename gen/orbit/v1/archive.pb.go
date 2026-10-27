@@ -284,7 +284,7 @@ var File_orbit_v1_archive_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_archive_proto_rawDesc = "" +
 	"\n" +
-	"\x16orbit/v1/archive.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x15orbit/v1/report.proto\x1a\x12orbit/v1/run.proto\x1a\x15orbit/v1/target.proto\"\x86\x06\n" +
+	"\x16orbit/v1/archive.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x12orbit/v1/run.proto\x1a\x15orbit/v1/target.proto\"\x86\x06\n" +
 	"\n" +
 	"RunArchive\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\x1f\n" +
@@ -366,7 +366,6 @@ func file_orbit_v1_archive_proto_init() {
 		return
 	}
 	file_orbit_v1_plan_proto_init()
-	file_orbit_v1_report_proto_init()
 	file_orbit_v1_run_proto_init()
 	file_orbit_v1_target_proto_init()
 	file_orbit_v1_archive_proto_msgTypes[0].OneofWrappers = []any{
