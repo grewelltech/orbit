@@ -13,9 +13,11 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
+	"github.com/bgrewell/orbit/internal/scenario"
 )
 
 // msDuration converts a duration to milliseconds for a uint32 proto field,
@@ -37,7 +39,7 @@ func runsClient(url *string) orbitv1connect.RunServiceClient {
 // newRunsCmd manages server-side runs (ADR-0005): the CLI is a client of the
 // RunService, not an in-process orchestrator. A run started here executes on
 // the server and outlives this command.
-func newRunsCmd(serverURL *string) *cobra.Command {
+func newRunsCmd(serverURL *string, o options) *cobra.Command {
 	cmd := &cobra.Command{Use: "runs", Short: "Start and observe server-side test runs"}
 	cmd.AddCommand(newRunsListCmd(serverURL))
 	cmd.AddCommand(newRunsGetCmd(serverURL))
@@ -45,7 +47,7 @@ func newRunsCmd(serverURL *string) *cobra.Command {
 	cmd.AddCommand(newRunsWatchCmd(serverURL))
 	cmd.AddCommand(newRunsEventsCmd(serverURL))
 	cmd.AddCommand(newRunsStartLoadCmd(serverURL))
-	cmd.AddCommand(newRunsStartFleetCmd(serverURL))
+	cmd.AddCommand(newRunsStartFleetCmd(serverURL, o))
 	cmd.AddCommand(newRunsReportCmd(serverURL))
 	return cmd
 }
@@ -584,7 +586,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	return cmd
 }
 
-func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
+func newRunsStartFleetCmd(serverURL *string, o options) *cobra.Command {
 	var name, ki, opc, events string
 	cmd := &cobra.Command{
 		Use:   "start-fleet <scenario.yaml>",
@@ -595,10 +597,34 @@ func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Credentials come from flags or $ORBIT_KI/$ORBIT_OPC, validated
-			// locally; never the scenario's ${ENV}, which the server does not
-			// expand (secret safety).
-			ki, opc, err := resolveCreds(ki, opc)
+			t, err := scenarioTarget(cmd, args[0], data, o)
+			if err != nil {
+				return err
+			}
+			if t != nil {
+				// The server stores no targets: apply it here and send the
+				// scenario with it applied. The keys travel in the request,
+				// not the YAML; a typed --ki/--opc still wins over the
+				// target's (which already carry $ORBIT_KI/$ORBIT_OPC).
+				f, err := scenario.ParseFleetWithTarget(data, t)
+				if err != nil {
+					return err
+				}
+				if ki == "" {
+					ki = f.Credentials.Ki
+				}
+				if opc == "" {
+					opc = f.Credentials.OPc
+				}
+				f.Credentials = scenario.Credentials{}
+				if data, err = yaml.Marshal(f); err != nil {
+					return err
+				}
+			}
+			// Credentials come from flags or $ORBIT_KI/$ORBIT_OPC (or the
+			// target), validated locally; never the scenario's ${ENV}, which
+			// the server does not expand (secret safety).
+			ki, opc, err = resolveCreds(ki, opc)
 			if err != nil {
 				return err
 			}
@@ -621,6 +647,7 @@ func newRunsStartFleetCmd(serverURL *string) *cobra.Command {
 			return nil
 		},
 	}
+	consumesTarget(cmd)
 	cmd.Flags().StringVar(&name, "name", "", "run label")
 	cmd.Flags().StringVar(&events, "events", "normal", eventsFlagHelp)
 	cmd.Flags().StringVar(&ki, "ki", "", kiFlagHelp)

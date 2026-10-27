@@ -80,6 +80,12 @@ var hookedGroups = []string{"system", "cell", "ue", "runs"}
 // engine in-process and never reads $ORBIT_SERVER. It has no hook.
 const runCommand = "run"
 
+// targetCommand is a mixed group: target init (unless --no-probe) and probe
+// talk to the server and resolve --server in RunE; list and show only read
+// files and never read $ORBIT_SERVER. It has no hook either
+// (TestTargetCommandsServerURL).
+const targetCommand = "target"
+
 // localCommands are the top-level commands that never talk to the API server
 // and so never read $ORBIT_SERVER. With hookedGroups and runCommand this is
 // the whole top level: a new command must be classified in one of them, so a
@@ -110,7 +116,7 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	for _, g := range hookedGroups {
 		isClient[g] = true
 	}
-	known := map[string]bool{runCommand: true}
+	known := map[string]bool{runCommand: true, targetCommand: true}
 	for _, name := range append(append([]string{}, hookedGroups...), localCommands...) {
 		known[name] = true
 	}
@@ -121,9 +127,9 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	}
 	var clientLeaves []string
 	for _, top := range root.Commands() {
-		if top.Name() == runCommand {
+		if top.Name() == runCommand || top.Name() == targetCommand {
 			if top.PersistentPreRunE != nil || top.PersistentPreRun != nil {
-				t.Error("orbit run: has a hook; it must resolve --server in RunE on the step path only")
+				t.Errorf("orbit %s: has a hook; it must resolve --server in RunE, only where it talks to the server", top.Name())
 			}
 			continue
 		}
@@ -175,10 +181,11 @@ func TestServerURLHookCoversClientCommands(t *testing.T) {
 	dir := t.TempDir()
 	stepFile := filepath.Join(dir, "step.yaml")
 	fleetFile := filepath.Join(dir, "fleet.yaml")
-	if err := os.WriteFile(stepFile, []byte("steps: []\n"), 0o600); err != nil {
+	// Self-contained files (their own core), so no target is involved.
+	if err := os.WriteFile(stepFile, []byte("core:\n  amf: 192.0.2.1:38412\nsteps: []\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fleetFile, []byte("kind: fleet\n"), 0o600); err != nil {
+	if err := os.WriteFile(fleetFile, []byte("kind: fleet\ncore:\n  amf: 192.0.2.1:38412\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Run("orbit run step", func(t *testing.T) {

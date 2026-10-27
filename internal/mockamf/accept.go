@@ -7,10 +7,6 @@ import "github.com/bgrewell/orbit/internal/nas"
 // with no 5GS registration result.
 func WithUndecodableAccept() Option { return func(a *AMF) { a.undecodableAccept = true } }
 
-// Deregistrations returns how many Deregistration Requests the mock has
-// received, plain or protected.
-func (a *AMF) Deregistrations() int { return int(a.deregs.Load()) }
-
 // sendUndecodableAccept sends WithUndecodableAccept's Accept in an Initial
 // Context Setup Request.
 func (a *AMF) sendUndecodableAccept(p *pipe, st *ueState) error {

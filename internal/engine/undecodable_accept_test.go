@@ -25,7 +25,7 @@ func TestDeregisterUndecodableAccept(t *testing.T) {
 		name       string
 		deregister bool
 		nea2       bool // the AMF selects NEA2, so the Accept's header type is unreadable
-		wantDereg  int
+		wantDereg  int64
 	}{
 		{name: "deregistered", deregister: true, wantDereg: 1},
 		{name: "deregistered under NEA2", deregister: true, nea2: true, wantDereg: 1},

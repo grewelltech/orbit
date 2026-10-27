@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+
+	"github.com/free5gc/ngap/ngapConvert"
+	"github.com/free5gc/ngap/ngapType"
 )
 
 // ErrIPv6N3 refuses an IPv6 gNB N3 address: the gNB encodes its N3 tunnel
@@ -29,4 +32,18 @@ func CanonicalN3(addr string) (string, error) {
 		return "", fmt.Errorf("%w: got %q", ErrIPv6N3, addr)
 	}
 	return v4.String(), nil
+}
+
+// tunnelAddress encodes a gNB N3 tunnel address for NGAP. Only IPv4 (or
+// IPv4-mapped) is encodable: an IPv6 address is ErrIPv6N3, where free5gc's
+// converter would panic on it.
+func tunnelAddress(addr string) (ngapType.TransportLayerAddress, error) {
+	v4, err := CanonicalN3(addr)
+	if err != nil {
+		return ngapType.TransportLayerAddress{}, err
+	}
+	if v4 == "" {
+		return ngapType.TransportLayerAddress{}, errors.New("gNB N3 tunnel address is empty")
+	}
+	return ngapConvert.IPAddressToNgap(v4, ""), nil
 }

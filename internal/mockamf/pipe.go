@@ -49,12 +49,22 @@ func (p *pipe) WriteNGAP(stream uint16, pdu []byte) error {
 	}
 }
 
+// ReadMsg returns the next message. Messages the peer queued before the
+// pipe closed are still delivered, as SCTP delivers data sent before a
+// shutdown: picking the close at random over a ready message dropped a
+// gNB's last message (a Deregistration sent just before it closed) about
+// half the time.
 func (p *pipe) ReadMsg(buf []byte) (payload []byte, stream uint16, ppid uint32, err error) {
 	select {
 	case b := <-p.in:
 		return b, 1, ppidNGAP, nil
 	case <-p.closed:
-		return nil, 0, 0, errPipeClosed
+		select {
+		case b := <-p.in:
+			return b, 1, ppidNGAP, nil
+		default:
+			return nil, 0, 0, errPipeClosed
+		}
 	}
 }
 

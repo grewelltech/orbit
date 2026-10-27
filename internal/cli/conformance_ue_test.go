@@ -40,7 +40,7 @@ func TestConformanceUEFlagsSpec(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ORBIT_KI", tc.envKi)
 			t.Setenv("ORBIT_OPC", tc.envOPc)
-			got, err := tc.flags.spec("internet", "208", "93")
+			got, err := tc.flags.spec("internet", "208", "93", func(string) bool { return true })
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want one containing %q", err, tc.wantErr)
@@ -114,7 +114,7 @@ func TestConformanceNASAlgorithmFlags(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := tc.flags.spec("internet", "208", "93")
+			got, err := tc.flags.spec("internet", "208", "93", func(string) bool { return true })
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want one containing %q", err, tc.wantErr)

@@ -14,57 +14,34 @@
 # fleet-testbed-heavy.yaml instead when the user plane is the point.
 #
 # App cohorts are deliberately absent: they require pdu_session: true, since
-# application traffic rides the UEs' GTP-U data paths.
+# application traffic rides the UEs' GTP-U data paths. So is mobility: a
+# handover switches a UE's user-plane path, and without a PDU session there is
+# no path to switch (the AMF rejects every attempt, and the scenario validator
+# refuses mobility.handover without pdu_session).
+#
+# How long it runs. With no behaviours there is nothing to do once the
+# population is attached, and no scenario option holds an idle run open
+# (run.duration only bounds the behaviours), so the run deregisters the fleet
+# and completes as soon as the attach phase ends: about 1000 / 158 ≈ 6-7 s on
+# the LXD testbed. Watch the attach phase live, or read the final report.
 
 kind: fleet
 name: attach-rate
 
-core:
-  amf: 10.102.0.10:38412
-  plmn: { mcc: "001", mnc: "01" }
-  tac: 1
-  slice: { sst: 1, sd: "010203" }
-  dnn: internet
-
-credentials:
-  ki: ${ORBIT_KI}
-  opc: ${ORBIT_OPC}
-
-# Ten gNBs, each with its own N2 source address. An AMF keys a gNB's
+#   orbit runs start-fleet examples/fleet-testbed-attach-rate.yaml -t lxd
+#
+# Ten gNBs, each with its own N2 source address from the target's pool. An AMF
+# keys a gNB's
 # association on that address, so distinct IPs are what make ten gNBs ten gNBs
 # rather than one association reused.
 topology:
   gnbs:
     count: 10
-    id_base: 400
     layout: grid
     spacing_m: 1000
-    source_ips:
-      - 10.102.0.20
-      - 10.102.0.21
-      - 10.102.0.22
-      - 10.102.0.23
-      - 10.102.0.24
-      - 10.102.0.25
-      - 10.102.0.26
-      - 10.102.0.27
-      - 10.102.0.28
-      - 10.102.0.29
-    n3_ips:
-      - 10.103.0.20
-      - 10.103.0.21
-      - 10.103.0.22
-      - 10.103.0.23
-      - 10.103.0.24
-      - 10.103.0.25
-      - 10.103.0.26
-      - 10.103.0.27
-      - 10.103.0.28
-      - 10.103.0.29
 
 fleet:
   count: 1000
-  supi_base: "001010100007500"
   distribution: even
   # Offered well above what the core can absorb, so the run measures the core's
   # ceiling rather than this number. Concurrency is the real control: throughput
@@ -73,13 +50,3 @@ fleet:
   attach_rate: 500/s
   concurrency: 32
   pdu_session: false
-
-# Mobility keeps the run alive past the attach phase and gives the dashboard
-# something to show — handovers are pure control plane, so they work perfectly
-# well without a user plane. Without this the run has nothing to do once the
-# population is attached and completes in seconds, too fast to watch.
-behaviors:
-  mobility: { model: random_walk, speed: 20m/s, handover: xn }
-
-run:
-  duration: 300s
