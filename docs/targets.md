@@ -98,6 +98,18 @@ destination gNB and are never filled from a target; only `--amf` is.
   names, ip:port/host:port, and IP-only ranges and CIDRs, expanded by the same
   rules. `--gnb-n3` needs an IP: a host-name entry fills `--n3-bind`, leaves
   `--gnb-n3` unfilled, and says so.
+
+### gNB IDs for a conformance run
+
+A conformance suite presents three gNB IDs per check: the check's own, a
+handover target, and a liveness probe. When the target bounds its IDs
+(`ran.gnb_ids.count` set), a suite run from a plan packs them into the block
+from its base: with N registered checks, check i takes base+i, its handover
+target base+N+i, and its probe base+2N+i. The block must hold 3N IDs (27
+today), or the run is refused, naming the size it needs. Every check added to
+the suite adds three, so leave the block headroom beyond today's count. Without a count, the
+suite keeps the legacy layout: base+i, with the handover target 0x8000 and
+the probe 0x9000 above it.
 - **One address from a pool.** Until the server leases from the pool, a flag
   that takes one address takes the first entry:
   - a range gives its low end;

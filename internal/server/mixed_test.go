@@ -92,7 +92,7 @@ func TestMixedShapeRefusals(t *testing.T) {
 		{name: "suite IDs over the population's", mut: func(_ *orbitv1.RunPlan, pop *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
 			// The suite's first check presents base + its index: pin the
 			// population's one gNB there.
-			first := conformance.NewRegistry().Needs(700, conformance.NegativeIE).GNBIDs[0]
+			first := conformance.NewRegistry().Needs(700, false, conformance.NegativeIE).GNBIDs[0]
 			pop.Topology = &orbitv1.Topology{GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: first}}}
 			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 700}}
 		}, wantErr: "is the population's and the suite's"},
