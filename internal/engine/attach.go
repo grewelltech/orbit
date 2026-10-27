@@ -6,9 +6,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/nas/nasType"
@@ -56,6 +58,10 @@ type UEConfig struct {
 	// (ue.SecurityCapability), the only pair this UE completes an attach
 	// with.
 	SecurityCapabilities *nasType.UESecurityCapability
+	// Capability5GMM, when set, is the 5GMM capability IE's value the
+	// Registration Request carries (octet 3 onward; conformance checks).
+	// Nil is the default single zero octet.
+	Capability5GMM []byte
 	// Probe, when set, withholds chosen UE replies and reports the
 	// downlink (conformance checks only; see AttachProbe). Nil is the
 	// ordinary attach.
@@ -126,13 +132,17 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	if ueCfg.SecurityCapabilities != nil {
 		caps = *ueCfg.SecurityCapabilities
 	}
-	regReq, err := ue.BuildRegistrationRequest(suci, caps, requested)
+	var regOpts []ue.RegistrationOption
+	if ueCfg.Capability5GMM != nil {
+		regOpts = append(regOpts, ue.WithCapability5GMM(ueCfg.Capability5GMM))
+	}
+	regReq, err := ue.BuildRegistrationRequest(suci, caps, requested, regOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("build Registration Request: %w", err)
 	}
 
 	st := &attachState{
-		ctx: ctx, conn: conn, gnbCfg: gnbCfg, ueCfg: ueCfg,
+		ctx: ctx, conn: conn, gnbCfg: gnbCfg, ueCfg: ueCfg, caps: caps,
 		snn: snn, ranID: ranID, regReq: regReq, log: log, emit: emit,
 		wanted: sessionsToEstablish(ueCfg), sessions: map[uint8]SessionResult{},
 	}
@@ -150,9 +160,14 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	// The loop runs until the target state: REGISTERED, or (if a PDU session
 	// is requested) session-active. The PDU Session Establishment Request is
 	// triggered once REGISTERED (see onRegistrationAccept).
-	for !st.done() {
-		pdu, err := gnb.ReadPDU(ctx, conn)
+	rctx, stopReads := st.readContext(ctx)
+	defer stopReads()
+	for !st.done() && !st.stopped() {
+		pdu, err := gnb.ReadPDU(rctx, conn)
 		if err != nil {
+			if st.stopped() && ctx.Err() == nil {
+				break
+			}
 			return nil, st.fail(err)
 		}
 		if err := st.observe(pdu); err != nil {
@@ -175,6 +190,9 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		}
 	}
 
+	if !st.registered {
+		return nil, ErrProbeStopped
+	}
 	return &Session{
 		SUPI:   ueCfg.Sub.SUPI,
 		gnbCfg: gnbCfg,
@@ -221,6 +239,7 @@ type attachState struct {
 	emit   func(StateEvent)
 
 	amfID      int64
+	caps       nasType.UESecurityCapability // what the Registration Request advertised
 	vec        *auth.Vector
 	sec        *nas.SecurityContext
 	guti       []byte
@@ -374,21 +393,54 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	if len(raw) < 2 {
 		return fmt.Errorf("downlink NAS too short: %d bytes", len(raw))
 	}
+	// The header's message type, read without the key, for the probe.
+	at := time.Now()
+	typ := nasMessageType(raw, s.readableCipher())
 	var msg *f5nas.Message
+	var plain []byte // a protected PDU's verified, deciphered message
 	var err error
-	if f5nas.GetSecurityHeaderType(raw) == f5nas.SecurityHeaderTypePlainNas {
+	switch hdr := f5nas.GetSecurityHeaderType(raw); {
+	case hdr == f5nas.SecurityHeaderTypePlainNas:
 		msg, err = nas.DecodePlain(raw)
-	} else {
-		if s.sec == nil {
-			return fmt.Errorf("received protected NAS before security context established")
+	case hdr == nas.SecHdrIntegrityNewContext && s.vec != nil:
+		// A Security Mode Command: its algorithms decide the context.
+		msg, err = s.securityModeContext(raw)
+		if errors.Is(err, ErrUnsupportedAlgorithms) {
+			if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
+				p.OnNAS(NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Err: err})
+			}
+			return err
 		}
-		msg, err = s.sec.DecodeSecure(raw)
+	case s.sec == nil:
+		// Protected, with no context to verify it: the probe still gets
+		// the type-only read (readableCipher) with the error.
+		err = ErrNoSecurityContext
+	default:
+		msg, plain, err = s.sec.DecodeSecurePlain(raw)
+	}
+	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
+		ev := NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Plain: plain, Err: err}
+		p.OnNAS(ev)
+		// The readable type (a deciphered Plain's included): a Reject the
+		// codec refused must not draw a switch-off Deregistration.
+		if err != nil && p.DeregisterUndecodableAccept && s.mayBeAccept(ev.MessageType()) {
+			return s.deregisterUndecodableAccept(err)
+		}
+		if err != nil {
+			s.log.WarnContext(s.ctx, "probe: skipping a downlink NAS PDU that did not decode", "err", err)
+			return nil
+		}
 	}
 	if err != nil {
-		return fmt.Errorf("decode downlink NAS: %w", err)
+		return fmt.Errorf("%w: %w", ErrDownlinkNASDecode, err)
 	}
 
-	switch mt := msg.GmmHeader.GetMessageType(); mt {
+	mt := msg.GmmHeader.GetMessageType()
+	if mt == f5nas.MsgTypeRegistrationAccept && f5nas.GetSecurityHeaderType(raw) == f5nas.SecurityHeaderTypePlainNas &&
+		s.ueCfg.Probe != nil && s.ueCfg.Probe.CleanUpPlainAccept > 0 {
+		return s.cleanUpPlainAccept(msg)
+	}
+	switch mt {
 	case f5nas.MsgTypeAuthenticationRequest:
 		return s.onAuthRequest(msg)
 	case f5nas.MsgTypeSecurityModeCommand:
@@ -400,7 +452,7 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	case f5nas.MsgTypeAuthenticationReject:
 		return fmt.Errorf("AMF rejected authentication")
 	case f5nas.MsgTypeRegistrationReject:
-		return fmt.Errorf("AMF rejected registration")
+		return ErrRegistrationRejected
 	default:
 		s.log.WarnContext(s.ctx, "unhandled downlink NAS message", "type", mt)
 		return nil
@@ -416,9 +468,9 @@ func (s *attachState) onAuthRequest(msg *f5nas.Message) error {
 	if err != nil {
 		return err
 	}
-	// Derive with the algorithms the UE advertised (NIA2/NEA0); the AMF must
-	// select from them. KNASint/KNASenc are re-confirmed at Security Mode
-	// Command.
+	// Only KAMF is used from here: KNASint/KNASenc are derived at the
+	// Security Mode Command for the algorithms it selects, so the
+	// algorithms passed here do not matter.
 	vec, err := s.ueCfg.Sub.DeriveFromChallenge(ch.RAND[:], ch.AUTN[:], s.snn, nas.NIA2, nas.NEA0)
 	if err != nil {
 		return fmt.Errorf("5G-AKA derivation: %w", err)
@@ -445,9 +497,6 @@ func (s *attachState) onSecurityModeCommand(msg *f5nas.Message) error {
 	sel, err := ue.ParseSecurityModeCommand(msg)
 	if err != nil {
 		return err
-	}
-	if sel.Integrity != nas.NIA2 || sel.Ciphering != nas.NEA0 {
-		return fmt.Errorf("AMF selected unsupported NAS algorithms: integrity %d, ciphering %d", sel.Integrity, sel.Ciphering)
 	}
 
 	// Security Mode Complete echoes the full initial Registration Request in
@@ -522,6 +571,9 @@ func (s *attachState) requestPDUSession(p ue.PDUSessionParams) error {
 	if err != nil {
 		return fmt.Errorf("wrap PDU session UL NAS Transport: %w", err)
 	}
+	if p := s.ueCfg.Probe; p != nil && p.OnSMRequest != nil {
+		p.OnSMRequest(append([]byte(nil), sm...))
+	}
 	if err := s.sendUL(wrapped); err != nil {
 		return err
 	}
@@ -531,17 +583,8 @@ func (s *attachState) requestPDUSession(p ue.PDUSessionParams) error {
 }
 
 // sendUL wraps a (plain or already-secured) NAS PDU in an Uplink NAS
-// Transport and sends it. Before the security context exists it also
-// pre-derives that context from KAMF so the first protected downlink
-// (Security Mode Command) can be verified.
+// Transport and sends it.
 func (s *attachState) sendUL(nasPDU []byte) error {
-	if s.sec == nil && s.vec != nil {
-		kInt, kEnc, err := auth.DeriveNASKeys(s.vec.KAmf, nas.NIA2, nas.NEA0)
-		if err != nil {
-			return fmt.Errorf("derive NAS keys: %w", err)
-		}
-		s.sec = &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: kInt, KNASenc: kEnc}
-	}
 	pdu, err := gnb.BuildUplinkNASTransport(s.gnbCfg, s.amfID, s.ranID, nasPDU)
 	if err != nil {
 		return err
