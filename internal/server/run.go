@@ -61,12 +61,12 @@ func (s *runService) StartRun(
 	opts := engine.RunOptions{Name: m.GetName(), Verbosity: verbosity}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
-		fn, needs, err := loadRun(s.log, spec.Load)
+		arm, err := s.loadArm(spec.Load, verbosity)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		opts.Needs = needs
-		info, err := s.reg.StartLoad(opts, fn)
+		opts.Needs = arm.needs
+		info, err := s.reg.StartLoad(opts, arm.load)
 		if err != nil {
 			return nil, runStartError(err)
 		}
@@ -74,12 +74,12 @@ func (s *runService) StartRun(
 		s.startSampler(info.ID)
 		return connect.NewResponse(&orbitv1.StartRunResponse{Run: runProto(info)}), nil
 	case *orbitv1.StartRunRequest_Fleet:
-		fn, needs, err := fleetRun(s.log, s.mgr, spec.Fleet, verbosity)
+		arm, err := s.fleetArm(spec.Fleet, verbosity)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
-		opts.Needs = needs
-		info, err := s.reg.StartFleet(opts, fn)
+		opts.Needs = arm.needs
+		info, err := s.reg.StartFleet(opts, arm.fleet)
 		if err != nil {
 			return nil, runStartError(err)
 		}
@@ -909,35 +909,19 @@ func (f failureEvents) Observe(s load.Sample) {
 	}
 }
 
-// fleetRunFunc parses the fleet scenario YAML, injects the request's
-// credentials, and builds the launcher via the shared scenario→engine mapping —
-// the same one `orbit run <fleet>` uses, so CLI and server runs are identical.
-func fleetRun(log *slog.Logger, mgr *engine.Manager, p *orbitv1.FleetRunSpec, verbosity engine.EventVerbosity) (engine.FleetRunFunc, engine.Needs, error) {
-	if p.GetScenarioYaml() == "" {
-		return nil, engine.Needs{}, fmt.Errorf("scenario_yaml is required")
-	}
-	// Parse WITHOUT ${ENV} expansion: the YAML is client-supplied, and expanding
-	// it against the server's environment would leak the server's variables back
-	// to the client. Credentials come from the request, below.
-	f, err := scenario.ParseFleetNoEnv([]byte(p.GetScenarioYaml()))
+// fleetSpecFrom is a parsed fleet arm's engine spec and behaviours, with
+// the request's credentials: the server cannot expand the client's
+// secrets from its own environment, so the YAML's ${ENV} are not used.
+func fleetSpecFrom(f *scenario.FleetScenario, creds *orbitv1.Credentials) (engine.FleetRunSpec, engine.FleetBehaviors, error) {
+	ki, err := auth.ParseHexKey("Ki", creds.GetKi())
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.FleetRunSpec{}, engine.FleetBehaviors{}, err
 	}
-	// Credentials come from the request, not the YAML's ${ENV}: the server
-	// cannot expand the client's secrets from its own environment.
-	ki, err := auth.ParseHexKey("Ki", p.GetCredentials().GetKi())
+	opc, err := auth.ParseHexKey("OPc", creds.GetOpc())
 	if err != nil {
-		return nil, engine.Needs{}, err
+		return engine.FleetRunSpec{}, engine.FleetBehaviors{}, err
 	}
-	opc, err := auth.ParseHexKey("OPc", p.GetCredentials().GetOpc())
-	if err != nil {
-		return nil, engine.Needs{}, err
-	}
-	spec, beh, err := scenario.BuildFleetRun(f, ki, opc)
-	if err != nil {
-		return nil, engine.Needs{}, err
-	}
-	return fleetRunFrom(log, mgr, spec, beh, verbosity)
+	return scenario.BuildFleetRun(f, ki, opc)
 }
 
 // fleetRunFrom is a built fleet spec's leases and launcher.

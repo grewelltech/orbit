@@ -39,6 +39,7 @@ type planRun struct {
 	fleet    engine.FleetRunFunc
 	storm    engine.LoadSpec     // the storm path's engine spec, as run
 	built    engine.FleetRunSpec // the persistent path's engine spec, as run
+	beh      engine.FleetBehaviors
 	needs    engine.Needs
 	workload string
 	amf      string   // the gNB IDs' AMF, as given
@@ -198,6 +199,13 @@ func gnbName(t *orbitv1.ResolvedTarget, i, n int) string {
 // buildPlan translates a plan (S2). The caller hands assigned IDs back to
 // the rotation if the run then fails to start.
 func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosity) (*planRun, error) {
+	return s.buildPlanAs(p, verbosity, false)
+}
+
+// buildPlanAs is buildPlan, with persistent choosing the persistent
+// strategy even without behaviours: an old fleet arm's plan, since a fleet
+// always kept its UEs.
+func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbosity, persistent bool) (*planRun, error) {
 	w, pop, err := population(p)
 	if err != nil {
 		return nil, err
@@ -260,7 +268,7 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		return nil, err
 	}
 	creds := &orbitv1.Credentials{Ki: sp.GetKi(), Opc: sp.GetOpc()}
-	if pop.GetBehaviors() == nil {
+	if pop.GetBehaviors() == nil && !persistent {
 		// Storm: today's load run, through the load arm's own translation.
 		lspec, err := planLoadSpec(t, pop, sp, creds, count, ids, n2, n3, until)
 		if err != nil {
@@ -270,7 +278,7 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		if err != nil {
 			return fail(err)
 		}
-		if curve != nil {
+		if _, ok := curve.(*load.Poisson); ok {
 			spec.Rate = curve // Poisson arrival, which a load arm cannot carry
 		}
 		if until.GetForever() {
@@ -313,11 +321,14 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		spec.GNBs[i].Config.IDBits = int(gnbBits(t))
 		spec.GNBs[i].Config.Name = gnbName(t, i, len(spec.GNBs))
 	}
-	// The attach controller's knobs a scenario file has no words for.
-	if curve != nil {
+	// The attach controller's knobs a scenario file has no words for. A
+	// constant rate is the scenario's own attach_rate already.
+	if _, constant := curve.(load.Constant); curve != nil && !constant {
 		spec.Rate = curve
 	}
-	spec.Concurrency = int(att.GetConcurrency())
+	if c := att.GetConcurrency(); c > 0 {
+		spec.Concurrency = int(c)
+	}
 	spec.SampleEvery = time.Duration(pop.GetSampleIntervalMs()) * time.Millisecond
 	if until.GetForever() {
 		beh.Duration = forever
@@ -326,7 +337,7 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 	if err != nil {
 		return fail(err)
 	}
-	out.fleet, out.needs, out.built = fn, needs, spec
+	out.fleet, out.needs, out.built, out.beh = fn, needs, spec, beh
 	return out, nil
 }
 
