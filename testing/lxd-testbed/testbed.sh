@@ -1297,6 +1297,22 @@ responder_token() {
     printf '%s' "$t"
 }
 
+# One API token per testbed, for the RAN nodes' `orbit serve --token-file`
+# and their clients ($ORBIT_TOKEN). A RAN node's copy is authoritative, so a
+# reinstall of one node keeps the token the other is serving with; the host
+# cache carries it across a full rebuild.
+api_token() {
+    local f="$TESTBED_CACHE_DIR/$P.api-token" t="" n
+    for n in "$NODE_RANN" "$NODE_RANF"; do
+        [ -z "$t" ] && exists_instance "$n" || continue
+        t=$(lxc exec "$n" -- sh -c 'sed -n "s/^ORBIT_TOKEN=//p" /etc/orbit/env 2>/dev/null' 2>/dev/null | tr -d '\r') || t=""
+    done
+    if [ -z "$t" ] && [ -s "$f" ]; then t=$(cat "$f"); fi
+    if [ -z "$t" ]; then t=$(openssl rand -hex 32); info "generated a new API token"; fi
+    mkdir -p "$TESTBED_CACHE_DIR"; (umask 077; printf '%s\n' "$t" > "$f")
+    printf '%s' "$t"
+}
+
 # Ki/OPc as the deployed core actually has them, falling back to the configured
 # test values when the core is not up. A mismatch presents as a 5G-AKA MAC
 # failure at registration, not as a rejected authentication.
@@ -1343,10 +1359,13 @@ ORBIT_RESPONDER_TOKEN=$token
 EOF
     case "$node" in
         "$NODE_RANN"|"$NODE_RANF")
-            echo "# API server and dashboard on this node's management address; API client"
-            echo "# commands (cell, ue, runs) default to it when --server is omitted."
+            echo "# API server and dashboard on this node's management address, over TLS"
+            echo "# (--tls auto, pinned in /root/.config/orbit/servers.yaml) with a bearer"
+            echo "# token; API client commands (cell, ue, runs) default to it when --server"
+            echo "# is omitted."
             echo "ORBIT_LISTEN=$oam:$ORBIT_PORT"
-            echo "ORBIT_SERVER=http://$oam:$ORBIT_PORT" ;;
+            echo "ORBIT_SERVER=https://$oam:$ORBIT_PORT"
+            echo "ORBIT_TOKEN=$(api_token)" ;;
     esac
 }
 
@@ -1470,9 +1489,14 @@ cmd_ran() {
 
         # The API server listens on the node's management address: the
         # dashboard it serves on the same port is worth reaching from a browser
-        # inside the site, and the API is unauthenticated and carries
-        # subscriber credentials (Ki/OPc), so it has no business on N2 or N3.
-        info "starting the ORBIT API server on $(oam_of "$node"):$ORBIT_PORT"
+        # inside the site, and the API carries subscriber credentials (Ki/OPc),
+        # so it has no business on N2 or N3. Off loopback it needs TLS and a
+        # token (ADR-0008 §4): a self-signed certificate kept in the state
+        # dir, and the testbed's API token.
+        local oam; oam=$(oam_of "$node")
+        info "starting the ORBIT API server on https://$oam:$ORBIT_PORT"
+        api_token | lxc_do exec "$node" -- sh -c 'umask 077; cat > /etc/orbit/api-token' \
+            || die "could not write the API token on $node"
         lxc_do exec "$node" -- bash -c "cat > /etc/systemd/system/orbit.service <<'EOF'
 [Unit]
 Description=ORBIT API server and dashboard
@@ -1481,7 +1505,7 @@ Wants=network-online.target
 
 [Service]
 EnvironmentFile=/etc/orbit/env
-ExecStart=/usr/local/bin/orbit serve --listen \${ORBIT_LISTEN} --loom-agent \${TESTBED_RESPONDER} --loom-token \${ORBIT_RESPONDER_TOKEN} --state-dir /var/lib/orbit/runs
+ExecStart=/usr/local/bin/orbit serve --listen \${ORBIT_LISTEN} --tls auto --token-file /etc/orbit/api-token --loom-agent \${TESTBED_RESPONDER} --loom-token \${ORBIT_RESPONDER_TOKEN} --state-dir /var/lib/orbit/runs
 Restart=on-failure
 RestartSec=5
 
@@ -1491,7 +1515,26 @@ EOF
 mkdir -p /var/lib/orbit/runs && systemctl daemon-reload && systemctl enable orbit >/dev/null 2>&1 && systemctl restart orbit" >/dev/null
         lxc_do exec "$node" -- systemctl is-active orbit >/dev/null \
             && info "orbit serve active on $node" || warn "orbit did not come up on $node; check journalctl -u orbit"
+        trust_orbit "$node" "$oam"
     done
+}
+
+# trust_orbit <node> <oam>: pins the node's own API server for its clients.
+# The pin is computed from the certificate on the node, not read off the
+# wire, so nothing is trusted on first use; the token is kept with it.
+trust_orbit() {
+    local node=$1 oam=$2
+    lxc_do exec "$node" -- bash -c '
+        cert=/var/lib/orbit/runs/tls/cert.pem
+        for _ in $(seq 1 50); do [ -s "$cert" ] && break; sleep 0.2; done
+        [ -s "$cert" ] || { echo "no $cert: orbit serve --tls auto did not start" >&2; exit 1; }
+        pin=$(openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl base64 -A)
+        for _ in $(seq 1 50); do
+            /usr/local/bin/orbit server trust "https://'"$oam:$ORBIT_PORT"'" --fingerprint "sha256/$pin" --token-file /etc/orbit/api-token --timeout 2s >/dev/null 2>&1 && exit 0
+            sleep 0.2
+        done
+        /usr/local/bin/orbit server trust "https://'"$oam:$ORBIT_PORT"'" --fingerprint "sha256/$pin" --token-file /etc/orbit/api-token --timeout 2s' >/dev/null \
+        && info "pinned the API server on $node" || warn "could not pin the API server on $node; check journalctl -u orbit"
 }
 
 cmd_apps() { cmd_app; cmd_ran; }

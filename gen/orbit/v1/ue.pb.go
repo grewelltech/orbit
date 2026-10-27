@@ -2983,10 +2983,10 @@ var File_orbit_v1_ue_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\n" +
-	"\x11orbit/v1/ue.proto\x12\borbit.v1\x1a\x13orbit/v1/cell.proto\"/\n" +
-	"\vCredentials\x12\x0e\n" +
-	"\x02ki\x18\x01 \x01(\tR\x02ki\x12\x10\n" +
-	"\x03opc\x18\x02 \x01(\tR\x03opc\"f\n" +
+	"\x11orbit/v1/ue.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\";\n" +
+	"\vCredentials\x12\x14\n" +
+	"\x02ki\x18\x01 \x01(\tB\x04\x88\xb5\x18\x01R\x02ki\x12\x16\n" +
+	"\x03opc\x18\x02 \x01(\tB\x04\x88\xb5\x18\x01R\x03opc\"f\n" +
 	"\n" +
 	"PDUSession\x12$\n" +
 	"\x0epdu_session_id\x18\x01 \x01(\rR\fpduSessionId\x12\x10\n" +
@@ -3123,12 +3123,12 @@ const file_orbit_v1_ue_proto_rawDesc = "" +
 	"\x10downlink_packets\x18\x04 \x01(\x04R\x0fdownlinkPackets\x12%\n" +
 	"\x0edownlink_bytes\x18\x05 \x01(\x04R\rdownlinkBytes\"=\n" +
 	"\x11DataStatsResponse\x12(\n" +
-	"\x05flows\x18\x01 \x03(\v2\x12.orbit.v1.QFIStatsR\x05flows\"\x9e\x02\n" +
+	"\x05flows\x18\x01 \x03(\v2\x12.orbit.v1.QFIStatsR\x05flows\"\xa4\x02\n" +
 	"\x0fStartAppRequest\x12\x12\n" +
 	"\x04supi\x18\x01 \x01(\tR\x04supi\x12\x10\n" +
 	"\x03app\x18\x02 \x01(\tR\x03app\x12\x12\n" +
-	"\x04peer\x18\x03 \x01(\tR\x04peer\x12\x14\n" +
-	"\x05token\x18\x04 \x01(\tR\x05token\x12 \n" +
+	"\x04peer\x18\x03 \x01(\tR\x04peer\x12\x1a\n" +
+	"\x05token\x18\x04 \x01(\tB\x04\x88\xb5\x18\x01R\x05token\x12 \n" +
 	"\fpeer_data_ip\x18\x05 \x01(\tR\n" +
 	"peerDataIp\x12=\n" +
 	"\x06params\x18\x06 \x03(\v2%.orbit.v1.StartAppRequest.ParamsEntryR\x06params\x12\x1f\n" +
@@ -3395,6 +3395,7 @@ func file_orbit_v1_ue_proto_init() {
 	if File_orbit_v1_ue_proto != nil {
 		return
 	}
+	file_orbit_v1_options_proto_init()
 	file_orbit_v1_cell_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{

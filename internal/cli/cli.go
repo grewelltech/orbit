@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
+	"github.com/bgrewell/orbit/internal/tlspin"
 )
 
 // bindFlagHelp is the one help text for --bind on every command that opens
@@ -69,6 +71,7 @@ func New(version string, opts ...Option) *cobra.Command {
 	root.AddCommand(newLoadCmd())
 	root.AddCommand(newConformanceCmd())
 	root.AddCommand(newResponderCmd(version))
+	root.AddCommand(newServerCmd())
 	root.AddCommand(newTargetCmd(&serverURL, o)) // resolves --server in RunE (init, probe)
 	installTargets(root, o)
 	return root
@@ -92,15 +95,44 @@ func newServeCmd(version string) *cobra.Command {
 	var stateDir string
 	var runHistory int
 	var expectedPath string
+	var tlsMode, tlsCert, tlsKey, tokenFile string
+	var noAuth, insecureListen bool
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the ORBIT API server",
+		Long: "Run the ORBIT API server and dashboard. On loopback (the default) it\n" +
+			"serves plaintext and needs no token. Any other --listen needs TLS\n" +
+			"(--tls auto, or --tls-cert/--tls-key) unless --insecure-listen, and a\n" +
+			"bearer token (--token-file) unless --no-auth. Subscriber keys and tokens\n" +
+			"are refused over plaintext from off the host either way.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			level := slog.LevelInfo
 			if err := level.UnmarshalText([]byte(logLevel)); err != nil {
 				return fmt.Errorf("invalid --log-level %q: %w", logLevel, err)
 			}
 			log := observability.NewLogger(os.Stderr, level)
+			dir, err := resolveStateDir(stateDir)
+			if err != nil {
+				return err
+			}
+			// Settled before anything binds: a listener that would expose the
+			// API without TLS or a token fails here, not after it is reachable.
+			sec, err := resolveServeSecurity(listen, tlsMode, tlsCert, tlsKey, tokenFile, dir, noAuth, insecureListen)
+			if err != nil {
+				return err
+			}
+			if sec.leaf != nil {
+				if sec.repaired != "" {
+					log.Warn("TLS certificate regenerated", "reason", sec.repaired)
+				}
+				log.Info("TLS", "spki", tlspin.Fingerprint(sec.leaf), "subject", sec.leaf.Subject.String(),
+					"pin_with", "orbit server trust https://"+listen)
+			}
+			if sec.token == "" {
+				if loopback, _ := listenLoopback(listen); !loopback {
+					log.Warn("NO AUTHENTICATION: --no-auth on a non-loopback listener; anyone who can reach " + listen + " can drive the API")
+				}
+			}
 
 			// Loaded before anything starts: a bad list fails startup
 			// rather than serving runs that gate on the wrong FAILs.
@@ -126,11 +158,8 @@ func newServeCmd(version string) *cobra.Command {
 			}()
 
 			reg := observability.NewRegistry()
-			dir, err := resolveStateDir(stateDir)
-			if err != nil {
-				return err
-			}
 			handler := server.New(log, version, reg, server.Options{
+				Token:       sec.token,
 				CoreProfile: coreProfile,
 				LoomAgent:   loomAgent,
 				LoomToken:   loomToken,
@@ -140,13 +169,13 @@ func newServeCmd(version string) *cobra.Command {
 				ConformanceExpected: expected,
 			})
 
-			srv := &http.Server{
-				Addr:              listen,
-				Handler:           handler,
-				ReadHeaderTimeout: 10 * time.Second,
+			srv := newHTTPServer(listen, handler, sec.tls)
+			log.Info("orbit API listening", "addr", listen, "version", version, "tls", sec.tls != nil, "auth", sec.token != "")
+			serve := srv.ListenAndServe
+			if sec.tls != nil {
+				serve = func() error { return srv.ListenAndServeTLS("", "") }
 			}
-			log.Info("orbit API listening", "addr", listen, "version", version)
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := serve(); err != nil && err != http.ErrServerClosed {
 				return err
 			}
 			return nil
@@ -159,7 +188,13 @@ func newServeCmd(version string) *cobra.Command {
 		"how many finished runs to keep, in memory and on disk (0 = default 50)")
 	cmd.Flags().StringVar(&expectedPath, "conformance-expected-failures", "",
 		"YAML list of the core's known, tolerated conformance FAILs that dashboard and API runs apply (docs/conformance/expected-failures.md)")
-	cmd.Flags().StringVar(&listen, "listen", DefaultListen, "listen address (host:port)")
+	cmd.Flags().StringVar(&listen, "listen", DefaultListen, "listen address (host:port); anything but loopback needs TLS and a token")
+	cmd.Flags().StringVar(&tlsMode, "tls", "", "auto: serve TLS with a self-signed certificate kept in --state-dir/tls (pin it with orbit server trust)")
+	cmd.Flags().StringVar(&tlsCert, "tls-cert", "", "TLS certificate (PEM), with --tls-key")
+	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "TLS private key (PEM), with --tls-cert")
+	cmd.Flags().StringVar(&tokenFile, "token-file", "", "file whose first line is the bearer token every API call needs (at least 32 characters, mode 600)")
+	cmd.Flags().BoolVar(&noAuth, "no-auth", false, "serve a non-loopback listener with no token (anyone who reaches it drives the API)")
+	cmd.Flags().BoolVar(&insecureListen, "insecure-listen", false, "serve a non-loopback listener in plaintext")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level (debug, info, warn, error)")
 	cmd.Flags().StringVar(&coreProfile, "core-profile", "", "core compatibility profile (strict-3gpp, sdcore); default strict-3gpp")
 	cmd.Flags().StringVar(&loomAgent, "loom-agent", "", "default N6 loomd control address (host:port) for app sessions; per-call --peer overrides")
@@ -168,15 +203,37 @@ func newServeCmd(version string) *cobra.Command {
 }
 
 func systemClient(url *string) orbitv1connect.SystemServiceClient {
-	return orbitv1connect.NewSystemServiceClient(http.DefaultClient, *url)
+	h, guard := apiClient(*url)
+	return orbitv1connect.NewSystemServiceClient(h, *url, guard)
 }
 
 func cellClient(url *string) orbitv1connect.CellServiceClient {
-	return orbitv1connect.NewCellServiceClient(http.DefaultClient, *url)
+	h, guard := apiClient(*url)
+	return orbitv1connect.NewCellServiceClient(h, *url, guard)
 }
 
 func ueClient(url *string) orbitv1connect.UEServiceClient {
-	return orbitv1connect.NewUEServiceClient(http.DefaultClient, *url)
+	h, guard := apiClient(*url)
+	return orbitv1connect.NewUEServiceClient(h, *url, guard)
+}
+
+// newHTTPServer is serve's http.Server: TLS when tlsConf is set (HTTP/2 by
+// ALPN), else plaintext HTTP/1.1 and unencrypted HTTP/2 (prior knowledge),
+// so gRPC clients connect to a loopback server without TLS.
+func newHTTPServer(listen string, h http.Handler, tlsConf *tls.Config) *http.Server {
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsConf,
+	}
+	if tlsConf == nil {
+		var p http.Protocols
+		p.SetHTTP1(true)
+		p.SetUnencryptedHTTP2(true)
+		srv.Protocols = &p
+	}
+	return srv
 }
 
 // resolveStateDir turns the --state-dir flag into a path.

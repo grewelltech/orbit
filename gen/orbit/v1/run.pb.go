@@ -2834,7 +2834,7 @@ var File_orbit_v1_run_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
-	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x13orbit/v1/cell.proto\x1a\x11orbit/v1/ue.proto\"\xeb\x01\n" +
+	"\x12orbit/v1/run.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x13orbit/v1/cell.proto\x1a\x11orbit/v1/ue.proto\"\xeb\x01\n" +
 	"\x03Run\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12%\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x11.orbit.v1.RunKindR\x04kind\x12\x12\n" +
@@ -2863,9 +2863,9 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\vpdu_session\x18\r \x01(\v2\x14.orbit.v1.PDUSessionR\n" +
 	"pduSession\x12\x1e\n" +
 	"\vgnb_n3_addr\x18\x0e \x01(\tR\tgnbN3Addr\x12%\n" +
-	"\x0ebind_addresses\x18\x0f \x03(\tR\rbindAddresses\"l\n" +
-	"\fFleetRunSpec\x12#\n" +
-	"\rscenario_yaml\x18\x01 \x01(\tR\fscenarioYaml\x127\n" +
+	"\x0ebind_addresses\x18\x0f \x03(\tR\rbindAddresses\"r\n" +
+	"\fFleetRunSpec\x12)\n" +
+	"\rscenario_yaml\x18\x01 \x01(\tB\x04\x90\xb5\x18\x01R\fscenarioYaml\x127\n" +
 	"\vcredentials\x18\x02 \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\"\xcd\x01\n" +
 	"\x0fStartRunRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
@@ -3214,6 +3214,7 @@ func file_orbit_v1_run_proto_init() {
 	if File_orbit_v1_run_proto != nil {
 		return
 	}
+	file_orbit_v1_options_proto_init()
 	file_orbit_v1_cell_proto_init()
 	file_orbit_v1_ue_proto_init()
 	file_orbit_v1_run_proto_msgTypes[3].OneofWrappers = []any{

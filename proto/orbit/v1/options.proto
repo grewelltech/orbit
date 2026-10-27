@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package orbit.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
+
+// Field options the API's handling of secrets keys on. The server refuses a
+// request carrying a non-empty marked field over plaintext from a
+// non-loopback peer, the CLI refuses to send one over plaintext to a
+// non-loopback server, and redaction masks them. A test walks every message
+// and fails on a secret-looking field name that is not marked.
+extend google.protobuf.FieldOptions {
+  // secret marks a field whose value is a secret: subscriber keys, bearer
+  // tokens.
+  bool secret = 50001;
+  // secret_yaml marks a string field holding a YAML document that may embed
+  // secrets (a scenario's credentials or tokens), found by the same key
+  // detector the archive's redaction uses.
+  bool secret_yaml = 50002;
+}

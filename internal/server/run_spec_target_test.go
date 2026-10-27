@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/bgrewell/orbit/internal/scenario"
+	"github.com/bgrewell/orbit/internal/secrets"
 	"github.com/bgrewell/orbit/internal/target"
 )
 
@@ -63,7 +64,17 @@ behaviors:
 	if strings.Count(string(b), token) != 2 {
 		t.Fatalf("the marshalled scenario should carry the token twice (cohort and bulk):\n%s", b)
 	}
-	if red := redactSecretsInYAML(string(b)); strings.Contains(red, token) {
+	red := secrets.RedactYAML(string(b))
+	if strings.Contains(red, token) {
 		t.Errorf("redaction left the token:\n%s", red)
+	}
+	// Masked, not mangled: the archived scenario still parses, with both
+	// copies of the token masked.
+	var back yaml.Node
+	if err := yaml.Unmarshal([]byte(red), &back); err != nil {
+		t.Fatalf("the redacted scenario does not parse: %v\n%s", err, red)
+	}
+	if n := strings.Count(red, secrets.Masked); n < 2 {
+		t.Errorf("want both copies of the token masked, got %d masks:\n%s", n, red)
 	}
 }

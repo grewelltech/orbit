@@ -20,7 +20,7 @@
  * an instant data path.
  */
 import { createClient, type Client } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-web";
+import { orbitTransport } from "./transport";
 import {
   RunService,
   RunState,
@@ -77,7 +77,7 @@ export class ConnectSource implements TelemetrySource {
   constructor(opts: ConnectOptions = {}) {
     this.client = createClient(
       RunService,
-      createConnectTransport({ baseUrl: opts.baseUrl ?? window.location.origin }),
+      orbitTransport(opts.baseUrl),
     );
     this.pinnedRunId = opts.runId;
   }

@@ -68,9 +68,10 @@ type RunArchive struct {
 	// configured, and two runs cannot be meaningfully compared — the difference
 	// between them is exactly the thing that is missing.
 	//
-	// Credentials are NOT stored: LoadRunSpec carries Ki/OPc, which have no place
-	// in an artefact meant to be attached to a ticket. They are stripped before
-	// the archive is written.
+	// Secrets are NOT stored: Ki/OPc and tokens have no place in an artefact
+	// meant to be attached to a ticket. Every field marked (orbit.v1.secret)
+	// or (orbit.v1.secret_yaml) is masked before the archive is written, and
+	// the request's secret values are replaced wherever else they appear.
 	//
 	// Types that are valid to be assigned to Spec:
 	//

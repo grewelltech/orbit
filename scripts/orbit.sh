@@ -16,7 +16,8 @@
 #   REF=main           git ref to clone + build when not run from a checkout (default: main)
 #   VERSION=v1.2.3     download a released binary instead of building (if releases exist)
 #   ORBIT_ARGS="..."   args written to /etc/orbit/orbit.env on a fresh install
-#                      (e.g. "--listen 0.0.0.0:8412 --core-profile sdcore")
+#                      (e.g. "--core-profile sdcore"; a non-loopback --listen
+#                      also needs TLS and a token, see docs/USAGE.md)
 #
 set -euo pipefail
 
@@ -159,8 +160,10 @@ write_env_if_absent() {
 	cat >"$ENV_PATH" <<EOF
 # Args passed to \`orbit serve\` (see \`orbit serve --help\`). Empty = listen on
 # 127.0.0.1:8412 with the strict-3gpp core profile. The API carries subscriber
-# credentials — expose beyond loopback only behind TLS / a trusted network.
-# Examples: --listen 0.0.0.0:8412 · --core-profile sdcore · --log-level debug
+# credentials: off loopback, orbit serve refuses to start without TLS
+# (--tls auto or --tls-cert/--tls-key) and a token (--token-file); see
+# docs/USAGE.md, "TLS and tokens".
+# Examples: --core-profile sdcore · --log-level debug
 ORBIT_ARGS=${ORBIT_ARGS:-}
 EOF
 }
