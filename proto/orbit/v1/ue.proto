@@ -214,6 +214,10 @@ message HandoverResponse {
   // rather than a pass/fail, which is what comparing N2 against Xn on a given
   // core needs. Zero on failure — there is no completed procedure to time.
   double elapsed_ms = 4;
+  // The target identity actually presented to the core: the request's
+  // target with every unset field (PLMN, TAC, slices) inherited from the
+  // UE's serving gNB, after validation.
+  GnbConfig target = 5;
 }
 
 message TrafficRequest {
