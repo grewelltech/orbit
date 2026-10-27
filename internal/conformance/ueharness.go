@@ -328,11 +328,21 @@ func (h *UEHarness) Close() {
 		h.stopObs = nil
 	}
 	if h.registered {
-		h.registered = false
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		// Switch-off deregistration does not wait for the core; an error
 		// here leaves nothing open, since the association closes either way.
-		_ = h.m.Deregister(ctx, h.supi)
+		_ = h.Deregister(ctx)
 	}
+}
+
+// Deregister deregisters a registered UE (switch-off), which closes its
+// association, and returns the error that Close discards. It is a no-op
+// when no UE is registered, and Close after it does not deregister again.
+func (h *UEHarness) Deregister(ctx context.Context) error {
+	if !h.registered {
+		return nil
+	}
+	h.registered = false
+	return h.m.Deregister(ctx, h.supi)
 }
