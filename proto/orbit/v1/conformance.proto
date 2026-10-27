@@ -4,6 +4,7 @@ package orbit.v1;
 
 option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
 
+import "orbit/v1/plan.proto";
 import "orbit/v1/ue.proto";
 
 // ConformanceService runs the core conformance / regression suite server-side,
@@ -69,6 +70,10 @@ message RunConformanceRequest {
   string dnn = 16;                // PDU session DNN; default "internet"
   string gnb_n3 = 17;             // gNB N3 IP, reachable from the UPF; both gNBs use it
   string traffic = 18;            // optional echo peer host:port for traffic across the handover
+  // The suite as a plan (ADR-0008 §2): one conformance workload with its
+  // target, expected-failures list and gates, as `orbit conformance` builds
+  // it. When set, every field above must be unset; the plan says it all.
+  RunPlan plan = 19;
 }
 
 // ConformanceUpdate is one test's outcome, or (with done=true) the summary.
@@ -111,19 +116,6 @@ message ConformanceResult {
   // verdict stays FAIL. Unrelated to `expected`, the behaviour the spec
   // expects.
   ExpectedFailure expected_failure = 10;
-}
-
-// ExpectedFailure is the expected-failures entry that tolerates a FAIL
-// (docs/conformance/expected-failures.md).
-message ExpectedFailure {
-  string finding = 1;
-  string added = 2;               // YYYY-MM-DD
-  string reason = 3;
-  // The FAIL the entry tolerates, in a plan's own list
-  // (ConformanceWorkload.expected): the check's ID and its exact observed
-  // text. Unset on a result's matched entry.
-  string check = 4;
-  string observed = 5;
 }
 
 // StaleExpectation is an expected-failures entry whose check ran without the

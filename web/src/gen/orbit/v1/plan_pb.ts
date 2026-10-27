@@ -4,8 +4,6 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { ExpectedFailure } from "./conformance_pb";
-import { file_orbit_v1_conformance } from "./conformance_pb";
 import { file_orbit_v1_options } from "./options_pb";
 import type { FieldProvenance, ResolvedTarget } from "./target_pb";
 import { file_orbit_v1_target } from "./target_pb";
@@ -15,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/plan.proto.
  */
 export const file_orbit_v1_plan: GenFile = /*@__PURE__*/
-  fileDesc("ChNvcmJpdC92MS9wbGFuLnByb3RvEghvcmJpdC52MSLIAQoHUnVuUGxhbhIoCgZ0YXJnZXQYASABKAsyGC5vcmJpdC52MS5SZXNvbHZlZFRhcmdldBIlCgl3b3JrbG9hZHMYAiADKAsyEi5vcmJpdC52MS5Xb3JrbG9hZBIeCgV1bnRpbBgDIAEoCzIPLm9yYml0LnYxLlVudGlsEh0KBWdhdGVzGAQgAygLMg4ub3JiaXQudjEuR2F0ZRItCgpwcm92ZW5hbmNlGAUgAygLMhkub3JiaXQudjEuRmllbGRQcm92ZW5hbmNlIt0BCghXb3JrbG9hZBIMCgRuYW1lGAEgASgJEicKBXN0YXJ0GAIgASgLMhgub3JiaXQudjEuU3RhcnRDb25kaXRpb24SMgoKcG9wdWxhdGlvbhgKIAEoCzIcLm9yYml0LnYxLlBvcHVsYXRpb25Xb3JrbG9hZEgAEjQKC2NvbmZvcm1hbmNlGAsgASgLMh0ub3JiaXQudjEuQ29uZm9ybWFuY2VXb3JrbG9hZEgAEigKBXN0ZXBzGAwgASgLMhcub3JiaXQudjEuU3RlcHNXb3JrbG9hZEgAQgYKBGtpbmQi1QEKElBvcHVsYXRpb25Xb3JrbG9hZBInCgZhdHRhY2gYASABKAsyFy5vcmJpdC52MS5BdHRhY2hQcm9maWxlEiQKCHRvcG9sb2d5GAIgASgLMhIub3JiaXQudjEuVG9wb2xvZ3kSEwoLcGR1X3Nlc3Npb24YAyABKAgSJgoJYmVoYXZpb3JzGAQgASgLMhMub3JiaXQudjEuQmVoYXZpb3JzEhcKD3N1YnNjcmliZXJfcG9vbBgFIAEoCRIaChJzYW1wbGVfaW50ZXJ2YWxfbXMYBiABKA0iwgEKDUF0dGFjaFByb2ZpbGUSDQoFY291bnQYASABKA0SDAoEcmF0ZRgCIAEoARIcCgRyYW1wGAMgASgLMg4ub3JiaXQudjEuUmFtcBIiCgdhcnJpdmFsGAQgASgOMhEub3JiaXQudjEuQXJyaXZhbBITCgtjb25jdXJyZW5jeRgFIAEoDRIUCgxkaXN0cmlidXRpb24YBiABKAkSGQoRZGlzdHJpYnV0aW9uX3NlZWQYByABKAMSDAoEc2VlZBgIIAEoBCIzCgRSYW1wEg0KBXN0YXJ0GAEgASgBEgsKA2VuZBgCIAEoARIPCgdzZWNvbmRzGAMgASgNImsKCFRvcG9sb2d5EhEKCWduYl9jb3VudBgBIAEoDRIOCgZsYXlvdXQYAiABKAkSEQoJc3BhY2luZ19tGAMgASgBEikKB2duYl9pZHMYBCABKAsyGC5vcmJpdC52MS5HTkJJRFNlbGVjdGlvbiI9Cg5HTkJJRFNlbGVjdGlvbhIPCgVmaXJzdBgBIAEoDUgAEhAKBmFzc2lnbhgCIAEoCEgAQggKBnNlbGVjdCJ+CglCZWhhdmlvcnMSJAoIbW9iaWxpdHkYASABKAsyEi5vcmJpdC52MS5Nb2JpbGl0eRIiCgd0cmFmZmljGAIgASgLMhEub3JiaXQudjEuVHJhZmZpYxInCgdsYXRlbmN5GAMgASgLMhYub3JiaXQudjEuTGF0ZW5jeVByb2JlIlYKCE1vYmlsaXR5Eg0KBW1vZGVsGAEgASgJEhEKCXNwZWVkX21wcxgCIAEoARIoCghoYW5kb3ZlchgDIAEoDjIWLm9yYml0LnYxLkhhbmRvdmVyS2luZCJTCgdUcmFmZmljEiMKA21peBgBIAMoCzIWLm9yYml0LnYxLlRyYWZmaWNTaGFyZRIjCgRidWxrGAIgASgLMhUub3JiaXQudjEuQnVsa1RyYWZmaWMiiAEKDFRyYWZmaWNTaGFyZRIMCgRuYW1lGAEgASgJEg0KBXNoYXJlGAIgASgBEi8KCXN5bnRoZXRpYxgDIAEoCzIaLm9yYml0LnYxLlN5bnRoZXRpY1Byb2ZpbGVIABIiCgNhcHAYBCABKAsyEy5vcmJpdC52MS5BcHBDb2hvcnRIAEIGCgRraW5kIkUKEFN5bnRoZXRpY1Byb2ZpbGUSDwoHcHJvZmlsZRgBIAEoCRIQCghyYXRlX2JwcxgCIAEoBBIOCgZ0YXJnZXQYAyABKAki3AEKCUFwcENvaG9ydBILCgNhcHAYASABKAkSFgoOc3RhcnRfYWZ0ZXJfbXMYAiABKAQSEQoJcmVzcG9uZGVyGAMgASgJEgwKBHBlZXIYBCABKAkSEwoFdG9rZW4YBSABKAlCBIi1GAESFAoMcGVlcl9kYXRhX2lwGAYgASgJEi8KBnBhcmFtcxgHIAMoCzIfLm9yYml0LnYxLkFwcENvaG9ydC5QYXJhbXNFbnRyeRotCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIqUBCgtCdWxrVHJhZmZpYxILCgN1ZXMYASABKA0SEgoKdXBsaW5rX2JwcxgCIAEoBBIUCgxkb3dubGlua19icHMYAyABKAQSEQoJcmVzcG9uZGVyGAQgASgJEgwKBHBlZXIYBSABKAkSEwoFdG9rZW4YBiABKAlCBIi1GAESFAoMcGVlcl9kYXRhX2lwGAcgASgJEhMKC3BhY2tldF9zaXplGAggASgNIlQKDExhdGVuY3lQcm9iZRIOCgZ0YXJnZXQYASABKAkSEwoLaW50ZXJ2YWxfbXMYAiABKAQSCwoDdWVzGAMgASgNEhIKCnRpbWVvdXRfbXMYBCABKAQiqwIKE0NvbmZvcm1hbmNlV29ya2xvYWQSEgoKY2F0ZWdvcmllcxgBIAMoCRIWCg50YXJnZXRfcmVsZWFzZRgCIAEoCRIsCghleHBlY3RlZBgDIAEoCzIaLm9yYml0LnYxLkV4cGVjdGVkRmFpbHVyZXMSGwoTcGVyX3Rlc3RfdGltZW91dF9tcxgEIAEoDRIkCgNuYXMYBSABKAsyFy5vcmJpdC52MS5OQVNBbGdvcml0aG1zEhEKCXJlc3BvbmRlchgGIAEoCRIPCgd0cmFmZmljGAcgASgJEikKB2duYl9pZHMYCCABKAsyGC5vcmJpdC52MS5HTkJJRFNlbGVjdGlvbhIXCg9zdWJzY3JpYmVyX3Bvb2wYCSABKAkSDwoHbjNfYmluZBgKIAEoCSJMChBFeHBlY3RlZEZhaWx1cmVzEioKB2VudHJpZXMYASADKAsyGS5vcmJpdC52MS5FeHBlY3RlZEZhaWx1cmUSDAoEY29yZRgCIAEoCSI1Cg1OQVNBbGdvcml0aG1zEhEKCWludGVncml0eRgBIAMoCRIRCgljaXBoZXJpbmcYAiADKAkiLAoNU3RlcHNXb3JrbG9hZBIbCg1zY2VuYXJpb195YW1sGAEgASgJQgSQtRgBIkcKDlN0YXJ0Q29uZGl0aW9uEg0KBWFmdGVyGAEgASgJEiYKBXBoYXNlGAIgASgOMhcub3JiaXQudjEuV29ya2xvYWRQaGFzZSJNCgVVbnRpbBIVCgtkdXJhdGlvbl9tcxgBIAEoBEgAEhIKCGNvbXBsZXRlGAIgASgISAASEQoHZm9yZXZlchgDIAEoCEgAQgYKBHN0b3AigwEKBEdhdGUSEAoId29ya2xvYWQYASABKAkSIAoDc2xvGAIgASgLMhEub3JiaXQudjEuU0xPR2F0ZUgAEjAKC2NvbmZvcm1hbmNlGAMgASgLMhkub3JiaXQudjEuQ29uZm9ybWFuY2VHYXRlSAASDAoEbmFtZRgEIAEoCUIHCgVjaGVjayJNCgdTTE9HYXRlEg4KBm1ldHJpYxgBIAEoCRIfCgJvcBgCIAEoDjITLm9yYml0LnYxLkNvbXBhcmVPcBIRCgl0aHJlc2hvbGQYAyABKAEiEQoPQ29uZm9ybWFuY2VHYXRlIlwKCkdhdGVSZXN1bHQSHAoEZ2F0ZRgBIAEoCzIOLm9yYml0LnYxLkdhdGUSDgoGcGFzc2VkGAIgASgIEhAKCG9ic2VydmVkGAMgASgBEg4KBmRldGFpbBgEIAEoCSKTAQoFTGVhc2USKQoIcmVzb3VyY2UYASABKA4yFy5vcmJpdC52MS5MZWFzZVJlc291cmNlEgwKBHBsbW4YAiABKAkSEgoKZmlyc3Rfc3VwaRgDIAEoCRIRCglsYXN0X3N1cGkYBCABKAkSCwoDYW1mGAUgASgJEg4KBmduYl9pZBgGIAEoDRINCgVuMl9pcBgHIAEoCSpMCgdBcnJpdmFsEhcKE0FSUklWQUxfVU5TUEVDSUZJRUQQABITCg9BUlJJVkFMX1VOSUZPUk0QARITCg9BUlJJVkFMX1BPSVNTT04QAipZCgxIYW5kb3ZlcktpbmQSHQoZSEFORE9WRVJfS0lORF9VTlNQRUNJRklFRBAAEhQKEEhBTkRPVkVSX0tJTkRfWE4QARIUChBIQU5ET1ZFUl9LSU5EX04yEAIqhQEKDVdvcmtsb2FkUGhhc2USHgoaV09SS0xPQURfUEhBU0VfVU5TUEVDSUZJRUQQABIaChZXT1JLTE9BRF9QSEFTRV9TVEFSVEVEEAESGwoXV09SS0xPQURfUEhBU0VfQVRUQUNIRUQQAhIbChdXT1JLTE9BRF9QSEFTRV9DT01QTEVURRADKnMKCUNvbXBhcmVPcBIaChZDT01QQVJFX09QX1VOU1BFQ0lGSUVEEAASEQoNQ09NUEFSRV9PUF9MRRABEhEKDUNPTVBBUkVfT1BfTFQQAhIRCg1DT01QQVJFX09QX0dFEAMSEQoNQ09NUEFSRV9PUF9HVBAEKoMBCg1MZWFzZVJlc291cmNlEh4KGkxFQVNFX1JFU09VUkNFX1VOU1BFQ0lGSUVEEAASHQoZTEVBU0VfUkVTT1VSQ0VfU1VQSV9CTE9DSxABEhkKFUxFQVNFX1JFU09VUkNFX0dOQl9JRBACEhgKFExFQVNFX1JFU09VUkNFX04yX0lQEANCMFouZ2l0aHViLmNvbS9iZ3Jld2VsbC9vcmJpdC9nZW4vb3JiaXQvdjE7b3JiaXR2MWIGcHJvdG8z", [file_orbit_v1_conformance, file_orbit_v1_options, file_orbit_v1_target]);
+  fileDesc("ChNvcmJpdC92MS9wbGFuLnByb3RvEghvcmJpdC52MSLIAQoHUnVuUGxhbhIoCgZ0YXJnZXQYASABKAsyGC5vcmJpdC52MS5SZXNvbHZlZFRhcmdldBIlCgl3b3JrbG9hZHMYAiADKAsyEi5vcmJpdC52MS5Xb3JrbG9hZBIeCgV1bnRpbBgDIAEoCzIPLm9yYml0LnYxLlVudGlsEh0KBWdhdGVzGAQgAygLMg4ub3JiaXQudjEuR2F0ZRItCgpwcm92ZW5hbmNlGAUgAygLMhkub3JiaXQudjEuRmllbGRQcm92ZW5hbmNlIt0BCghXb3JrbG9hZBIMCgRuYW1lGAEgASgJEicKBXN0YXJ0GAIgASgLMhgub3JiaXQudjEuU3RhcnRDb25kaXRpb24SMgoKcG9wdWxhdGlvbhgKIAEoCzIcLm9yYml0LnYxLlBvcHVsYXRpb25Xb3JrbG9hZEgAEjQKC2NvbmZvcm1hbmNlGAsgASgLMh0ub3JiaXQudjEuQ29uZm9ybWFuY2VXb3JrbG9hZEgAEigKBXN0ZXBzGAwgASgLMhcub3JiaXQudjEuU3RlcHNXb3JrbG9hZEgAQgYKBGtpbmQi1QEKElBvcHVsYXRpb25Xb3JrbG9hZBInCgZhdHRhY2gYASABKAsyFy5vcmJpdC52MS5BdHRhY2hQcm9maWxlEiQKCHRvcG9sb2d5GAIgASgLMhIub3JiaXQudjEuVG9wb2xvZ3kSEwoLcGR1X3Nlc3Npb24YAyABKAgSJgoJYmVoYXZpb3JzGAQgASgLMhMub3JiaXQudjEuQmVoYXZpb3JzEhcKD3N1YnNjcmliZXJfcG9vbBgFIAEoCRIaChJzYW1wbGVfaW50ZXJ2YWxfbXMYBiABKA0iwgEKDUF0dGFjaFByb2ZpbGUSDQoFY291bnQYASABKA0SDAoEcmF0ZRgCIAEoARIcCgRyYW1wGAMgASgLMg4ub3JiaXQudjEuUmFtcBIiCgdhcnJpdmFsGAQgASgOMhEub3JiaXQudjEuQXJyaXZhbBITCgtjb25jdXJyZW5jeRgFIAEoDRIUCgxkaXN0cmlidXRpb24YBiABKAkSGQoRZGlzdHJpYnV0aW9uX3NlZWQYByABKAMSDAoEc2VlZBgIIAEoBCIzCgRSYW1wEg0KBXN0YXJ0GAEgASgBEgsKA2VuZBgCIAEoARIPCgdzZWNvbmRzGAMgASgNImsKCFRvcG9sb2d5EhEKCWduYl9jb3VudBgBIAEoDRIOCgZsYXlvdXQYAiABKAkSEQoJc3BhY2luZ19tGAMgASgBEikKB2duYl9pZHMYBCABKAsyGC5vcmJpdC52MS5HTkJJRFNlbGVjdGlvbiI9Cg5HTkJJRFNlbGVjdGlvbhIPCgVmaXJzdBgBIAEoDUgAEhAKBmFzc2lnbhgCIAEoCEgAQggKBnNlbGVjdCJ+CglCZWhhdmlvcnMSJAoIbW9iaWxpdHkYASABKAsyEi5vcmJpdC52MS5Nb2JpbGl0eRIiCgd0cmFmZmljGAIgASgLMhEub3JiaXQudjEuVHJhZmZpYxInCgdsYXRlbmN5GAMgASgLMhYub3JiaXQudjEuTGF0ZW5jeVByb2JlIlYKCE1vYmlsaXR5Eg0KBW1vZGVsGAEgASgJEhEKCXNwZWVkX21wcxgCIAEoARIoCghoYW5kb3ZlchgDIAEoDjIWLm9yYml0LnYxLkhhbmRvdmVyS2luZCJTCgdUcmFmZmljEiMKA21peBgBIAMoCzIWLm9yYml0LnYxLlRyYWZmaWNTaGFyZRIjCgRidWxrGAIgASgLMhUub3JiaXQudjEuQnVsa1RyYWZmaWMiiAEKDFRyYWZmaWNTaGFyZRIMCgRuYW1lGAEgASgJEg0KBXNoYXJlGAIgASgBEi8KCXN5bnRoZXRpYxgDIAEoCzIaLm9yYml0LnYxLlN5bnRoZXRpY1Byb2ZpbGVIABIiCgNhcHAYBCABKAsyEy5vcmJpdC52MS5BcHBDb2hvcnRIAEIGCgRraW5kIkUKEFN5bnRoZXRpY1Byb2ZpbGUSDwoHcHJvZmlsZRgBIAEoCRIQCghyYXRlX2JwcxgCIAEoBBIOCgZ0YXJnZXQYAyABKAki3AEKCUFwcENvaG9ydBILCgNhcHAYASABKAkSFgoOc3RhcnRfYWZ0ZXJfbXMYAiABKAQSEQoJcmVzcG9uZGVyGAMgASgJEgwKBHBlZXIYBCABKAkSEwoFdG9rZW4YBSABKAlCBIi1GAESFAoMcGVlcl9kYXRhX2lwGAYgASgJEi8KBnBhcmFtcxgHIAMoCzIfLm9yYml0LnYxLkFwcENvaG9ydC5QYXJhbXNFbnRyeRotCgtQYXJhbXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIqUBCgtCdWxrVHJhZmZpYxILCgN1ZXMYASABKA0SEgoKdXBsaW5rX2JwcxgCIAEoBBIUCgxkb3dubGlua19icHMYAyABKAQSEQoJcmVzcG9uZGVyGAQgASgJEgwKBHBlZXIYBSABKAkSEwoFdG9rZW4YBiABKAlCBIi1GAESFAoMcGVlcl9kYXRhX2lwGAcgASgJEhMKC3BhY2tldF9zaXplGAggASgNIlQKDExhdGVuY3lQcm9iZRIOCgZ0YXJnZXQYASABKAkSEwoLaW50ZXJ2YWxfbXMYAiABKAQSCwoDdWVzGAMgASgNEhIKCnRpbWVvdXRfbXMYBCABKAQiqwIKE0NvbmZvcm1hbmNlV29ya2xvYWQSEgoKY2F0ZWdvcmllcxgBIAMoCRIWCg50YXJnZXRfcmVsZWFzZRgCIAEoCRIsCghleHBlY3RlZBgDIAEoCzIaLm9yYml0LnYxLkV4cGVjdGVkRmFpbHVyZXMSGwoTcGVyX3Rlc3RfdGltZW91dF9tcxgEIAEoDRIkCgNuYXMYBSABKAsyFy5vcmJpdC52MS5OQVNBbGdvcml0aG1zEhEKCXJlc3BvbmRlchgGIAEoCRIPCgd0cmFmZmljGAcgASgJEikKB2duYl9pZHMYCCABKAsyGC5vcmJpdC52MS5HTkJJRFNlbGVjdGlvbhIXCg9zdWJzY3JpYmVyX3Bvb2wYCSABKAkSDwoHbjNfYmluZBgKIAEoCSJMChBFeHBlY3RlZEZhaWx1cmVzEioKB2VudHJpZXMYASADKAsyGS5vcmJpdC52MS5FeHBlY3RlZEZhaWx1cmUSDAoEY29yZRgCIAEoCSJiCg9FeHBlY3RlZEZhaWx1cmUSDwoHZmluZGluZxgBIAEoCRINCgVhZGRlZBgCIAEoCRIOCgZyZWFzb24YAyABKAkSDQoFY2hlY2sYBCABKAkSEAoIb2JzZXJ2ZWQYBSABKAkiNQoNTkFTQWxnb3JpdGhtcxIRCglpbnRlZ3JpdHkYASADKAkSEQoJY2lwaGVyaW5nGAIgAygJIiwKDVN0ZXBzV29ya2xvYWQSGwoNc2NlbmFyaW9feWFtbBgBIAEoCUIEkLUYASJHCg5TdGFydENvbmRpdGlvbhINCgVhZnRlchgBIAEoCRImCgVwaGFzZRgCIAEoDjIXLm9yYml0LnYxLldvcmtsb2FkUGhhc2UiTQoFVW50aWwSFQoLZHVyYXRpb25fbXMYASABKARIABISCghjb21wbGV0ZRgCIAEoCEgAEhEKB2ZvcmV2ZXIYAyABKAhIAEIGCgRzdG9wIoMBCgRHYXRlEhAKCHdvcmtsb2FkGAEgASgJEiAKA3NsbxgCIAEoCzIRLm9yYml0LnYxLlNMT0dhdGVIABIwCgtjb25mb3JtYW5jZRgDIAEoCzIZLm9yYml0LnYxLkNvbmZvcm1hbmNlR2F0ZUgAEgwKBG5hbWUYBCABKAlCBwoFY2hlY2siTQoHU0xPR2F0ZRIOCgZtZXRyaWMYASABKAkSHwoCb3AYAiABKA4yEy5vcmJpdC52MS5Db21wYXJlT3ASEQoJdGhyZXNob2xkGAMgASgBIhEKD0NvbmZvcm1hbmNlR2F0ZSJcCgpHYXRlUmVzdWx0EhwKBGdhdGUYASABKAsyDi5vcmJpdC52MS5HYXRlEg4KBnBhc3NlZBgCIAEoCBIQCghvYnNlcnZlZBgDIAEoARIOCgZkZXRhaWwYBCABKAkikwEKBUxlYXNlEikKCHJlc291cmNlGAEgASgOMhcub3JiaXQudjEuTGVhc2VSZXNvdXJjZRIMCgRwbG1uGAIgASgJEhIKCmZpcnN0X3N1cGkYAyABKAkSEQoJbGFzdF9zdXBpGAQgASgJEgsKA2FtZhgFIAEoCRIOCgZnbmJfaWQYBiABKA0SDQoFbjJfaXAYByABKAkqTAoHQXJyaXZhbBIXChNBUlJJVkFMX1VOU1BFQ0lGSUVEEAASEwoPQVJSSVZBTF9VTklGT1JNEAESEwoPQVJSSVZBTF9QT0lTU09OEAIqWQoMSGFuZG92ZXJLaW5kEh0KGUhBTkRPVkVSX0tJTkRfVU5TUEVDSUZJRUQQABIUChBIQU5ET1ZFUl9LSU5EX1hOEAESFAoQSEFORE9WRVJfS0lORF9OMhACKoUBCg1Xb3JrbG9hZFBoYXNlEh4KGldPUktMT0FEX1BIQVNFX1VOU1BFQ0lGSUVEEAASGgoWV09SS0xPQURfUEhBU0VfU1RBUlRFRBABEhsKF1dPUktMT0FEX1BIQVNFX0FUVEFDSEVEEAISGwoXV09SS0xPQURfUEhBU0VfQ09NUExFVEUQAypzCglDb21wYXJlT3ASGgoWQ09NUEFSRV9PUF9VTlNQRUNJRklFRBAAEhEKDUNPTVBBUkVfT1BfTEUQARIRCg1DT01QQVJFX09QX0xUEAISEQoNQ09NUEFSRV9PUF9HRRADEhEKDUNPTVBBUkVfT1BfR1QQBCqDAQoNTGVhc2VSZXNvdXJjZRIeChpMRUFTRV9SRVNPVVJDRV9VTlNQRUNJRklFRBAAEh0KGUxFQVNFX1JFU09VUkNFX1NVUElfQkxPQ0sQARIZChVMRUFTRV9SRVNPVVJDRV9HTkJfSUQQAhIYChRMRUFTRV9SRVNPVVJDRV9OMl9JUBADQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_options, file_orbit_v1_target]);
 
 /**
  * RunPlan is what a run is asked to do (ADR-0008 §2): a resolved target, one
@@ -743,6 +741,52 @@ export const ExpectedFailuresSchema: GenMessage<ExpectedFailures> = /*@__PURE__*
   messageDesc(file_orbit_v1_plan, 16);
 
 /**
+ * ExpectedFailure is the expected-failures entry that tolerates a FAIL
+ * (docs/conformance/expected-failures.md).
+ *
+ * @generated from message orbit.v1.ExpectedFailure
+ */
+export type ExpectedFailure = Message<"orbit.v1.ExpectedFailure"> & {
+  /**
+   * @generated from field: string finding = 1;
+   */
+  finding: string;
+
+  /**
+   * YYYY-MM-DD
+   *
+   * @generated from field: string added = 2;
+   */
+  added: string;
+
+  /**
+   * @generated from field: string reason = 3;
+   */
+  reason: string;
+
+  /**
+   * The FAIL the entry tolerates, in a plan's own list
+   * (ConformanceWorkload.expected): the check's ID and its exact observed
+   * text. Unset on a result's matched entry.
+   *
+   * @generated from field: string check = 4;
+   */
+  check: string;
+
+  /**
+   * @generated from field: string observed = 5;
+   */
+  observed: string;
+};
+
+/**
+ * Describes the message orbit.v1.ExpectedFailure.
+ * Use `create(ExpectedFailureSchema)` to create a new message.
+ */
+export const ExpectedFailureSchema: GenMessage<ExpectedFailure> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_plan, 17);
+
+/**
  * NASAlgorithms are the NAS security algorithms the UE offers, as
  * --nas-integrity and --nas-ciphering take them.
  *
@@ -769,7 +813,7 @@ export type NASAlgorithms = Message<"orbit.v1.NASAlgorithms"> & {
  * Use `create(NASAlgorithmsSchema)` to create a new message.
  */
 export const NASAlgorithmsSchema: GenMessage<NASAlgorithms> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 17);
+  messageDesc(file_orbit_v1_plan, 18);
 
 /**
  * StepsWorkload is an ADR-0003 step scenario, minus core and credentials.
@@ -788,7 +832,7 @@ export type StepsWorkload = Message<"orbit.v1.StepsWorkload"> & {
  * Use `create(StepsWorkloadSchema)` to create a new message.
  */
 export const StepsWorkloadSchema: GenMessage<StepsWorkload> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 18);
+  messageDesc(file_orbit_v1_plan, 19);
 
 /**
  * StartCondition starts a workload relative to another (e.g. conformance
@@ -815,7 +859,7 @@ export type StartCondition = Message<"orbit.v1.StartCondition"> & {
  * Use `create(StartConditionSchema)` to create a new message.
  */
 export const StartConditionSchema: GenMessage<StartCondition> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 19);
+  messageDesc(file_orbit_v1_plan, 20);
 
 /**
  * Until is when the run stops.
@@ -856,7 +900,7 @@ export type Until = Message<"orbit.v1.Until"> & {
  * Use `create(UntilSchema)` to create a new message.
  */
 export const UntilSchema: GenMessage<Until> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 20);
+  messageDesc(file_orbit_v1_plan, 21);
 
 /**
  * Gate is a pass/fail rule the report applies, evaluated server-side.
@@ -901,7 +945,7 @@ export type Gate = Message<"orbit.v1.Gate"> & {
  * Use `create(GateSchema)` to create a new message.
  */
 export const GateSchema: GenMessage<Gate> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 21);
+  messageDesc(file_orbit_v1_plan, 22);
 
 /**
  * SLOGate compares a report metric with a threshold.
@@ -932,7 +976,7 @@ export type SLOGate = Message<"orbit.v1.SLOGate"> & {
  * Use `create(SLOGateSchema)` to create a new message.
  */
 export const SLOGateSchema: GenMessage<SLOGate> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 22);
+  messageDesc(file_orbit_v1_plan, 23);
 
 /**
  * ConformanceGate passes when no FAIL falls outside the expected-failures
@@ -949,7 +993,7 @@ export type ConformanceGate = Message<"orbit.v1.ConformanceGate"> & {
  * Use `create(ConformanceGateSchema)` to create a new message.
  */
 export const ConformanceGateSchema: GenMessage<ConformanceGate> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 23);
+  messageDesc(file_orbit_v1_plan, 24);
 
 /**
  * GateResult is one gate as the report applied it.
@@ -987,7 +1031,7 @@ export type GateResult = Message<"orbit.v1.GateResult"> & {
  * Use `create(GateResultSchema)` to create a new message.
  */
 export const GateResultSchema: GenMessage<GateResult> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 24);
+  messageDesc(file_orbit_v1_plan, 25);
 
 /**
  * Lease is one resource an active run holds (ADR-0008 §5).
@@ -1044,7 +1088,7 @@ export type Lease = Message<"orbit.v1.Lease"> & {
  * Use `create(LeaseSchema)` to create a new message.
  */
 export const LeaseSchema: GenMessage<Lease> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_plan, 25);
+  messageDesc(file_orbit_v1_plan, 26);
 
 /**
  * Arrival is the attach arrival process.

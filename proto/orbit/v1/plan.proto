@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package orbit.v1;
 
-import "orbit/v1/conformance.proto";
 import "orbit/v1/options.proto";
 import "orbit/v1/target.proto";
 
@@ -190,6 +189,19 @@ message ConformanceWorkload {
 message ExpectedFailures {
   repeated ExpectedFailure entries = 1;  // each with check and observed
   string core = 2;
+}
+
+// ExpectedFailure is the expected-failures entry that tolerates a FAIL
+// (docs/conformance/expected-failures.md).
+message ExpectedFailure {
+  string finding = 1;
+  string added = 2;               // YYYY-MM-DD
+  string reason = 3;
+  // The FAIL the entry tolerates, in a plan's own list
+  // (ConformanceWorkload.expected): the check's ID and its exact observed
+  // text. Unset on a result's matched entry.
+  string check = 4;
+  string observed = 5;
 }
 
 // NASAlgorithms are the NAS security algorithms the UE offers, as

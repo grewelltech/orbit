@@ -1656,6 +1656,87 @@ func (x *ExpectedFailures) GetCore() string {
 	return ""
 }
 
+// ExpectedFailure is the expected-failures entry that tolerates a FAIL
+// (docs/conformance/expected-failures.md).
+type ExpectedFailure struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Finding string                 `protobuf:"bytes,1,opt,name=finding,proto3" json:"finding,omitempty"`
+	Added   string                 `protobuf:"bytes,2,opt,name=added,proto3" json:"added,omitempty"` // YYYY-MM-DD
+	Reason  string                 `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	// The FAIL the entry tolerates, in a plan's own list
+	// (ConformanceWorkload.expected): the check's ID and its exact observed
+	// text. Unset on a result's matched entry.
+	Check         string `protobuf:"bytes,4,opt,name=check,proto3" json:"check,omitempty"`
+	Observed      string `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExpectedFailure) Reset() {
+	*x = ExpectedFailure{}
+	mi := &file_orbit_v1_plan_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExpectedFailure) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExpectedFailure) ProtoMessage() {}
+
+func (x *ExpectedFailure) ProtoReflect() protoreflect.Message {
+	mi := &file_orbit_v1_plan_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExpectedFailure.ProtoReflect.Descriptor instead.
+func (*ExpectedFailure) Descriptor() ([]byte, []int) {
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ExpectedFailure) GetFinding() string {
+	if x != nil {
+		return x.Finding
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetAdded() string {
+	if x != nil {
+		return x.Added
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetCheck() string {
+	if x != nil {
+		return x.Check
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetObserved() string {
+	if x != nil {
+		return x.Observed
+	}
+	return ""
+}
+
 // NASAlgorithms are the NAS security algorithms the UE offers, as
 // --nas-integrity and --nas-ciphering take them.
 type NASAlgorithms struct {
@@ -1668,7 +1749,7 @@ type NASAlgorithms struct {
 
 func (x *NASAlgorithms) Reset() {
 	*x = NASAlgorithms{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[17]
+	mi := &file_orbit_v1_plan_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1680,7 +1761,7 @@ func (x *NASAlgorithms) String() string {
 func (*NASAlgorithms) ProtoMessage() {}
 
 func (x *NASAlgorithms) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[17]
+	mi := &file_orbit_v1_plan_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1693,7 +1774,7 @@ func (x *NASAlgorithms) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NASAlgorithms.ProtoReflect.Descriptor instead.
 func (*NASAlgorithms) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{17}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *NASAlgorithms) GetIntegrity() []string {
@@ -1720,7 +1801,7 @@ type StepsWorkload struct {
 
 func (x *StepsWorkload) Reset() {
 	*x = StepsWorkload{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[18]
+	mi := &file_orbit_v1_plan_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1732,7 +1813,7 @@ func (x *StepsWorkload) String() string {
 func (*StepsWorkload) ProtoMessage() {}
 
 func (x *StepsWorkload) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[18]
+	mi := &file_orbit_v1_plan_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1745,7 +1826,7 @@ func (x *StepsWorkload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsWorkload.ProtoReflect.Descriptor instead.
 func (*StepsWorkload) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{18}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StepsWorkload) GetScenarioYaml() string {
@@ -1767,7 +1848,7 @@ type StartCondition struct {
 
 func (x *StartCondition) Reset() {
 	*x = StartCondition{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[19]
+	mi := &file_orbit_v1_plan_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1779,7 +1860,7 @@ func (x *StartCondition) String() string {
 func (*StartCondition) ProtoMessage() {}
 
 func (x *StartCondition) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[19]
+	mi := &file_orbit_v1_plan_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1792,7 +1873,7 @@ func (x *StartCondition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartCondition.ProtoReflect.Descriptor instead.
 func (*StartCondition) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{19}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StartCondition) GetAfter() string {
@@ -1824,7 +1905,7 @@ type Until struct {
 
 func (x *Until) Reset() {
 	*x = Until{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[20]
+	mi := &file_orbit_v1_plan_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1836,7 +1917,7 @@ func (x *Until) String() string {
 func (*Until) ProtoMessage() {}
 
 func (x *Until) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[20]
+	mi := &file_orbit_v1_plan_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1849,7 +1930,7 @@ func (x *Until) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Until.ProtoReflect.Descriptor instead.
 func (*Until) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{20}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Until) GetStop() isUntil_Stop {
@@ -1924,7 +2005,7 @@ type Gate struct {
 
 func (x *Gate) Reset() {
 	*x = Gate{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[21]
+	mi := &file_orbit_v1_plan_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1936,7 +2017,7 @@ func (x *Gate) String() string {
 func (*Gate) ProtoMessage() {}
 
 func (x *Gate) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[21]
+	mi := &file_orbit_v1_plan_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1949,7 +2030,7 @@ func (x *Gate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Gate.ProtoReflect.Descriptor instead.
 func (*Gate) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{21}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Gate) GetWorkload() string {
@@ -2019,7 +2100,7 @@ type SLOGate struct {
 
 func (x *SLOGate) Reset() {
 	*x = SLOGate{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[22]
+	mi := &file_orbit_v1_plan_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2031,7 +2112,7 @@ func (x *SLOGate) String() string {
 func (*SLOGate) ProtoMessage() {}
 
 func (x *SLOGate) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[22]
+	mi := &file_orbit_v1_plan_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2044,7 +2125,7 @@ func (x *SLOGate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SLOGate.ProtoReflect.Descriptor instead.
 func (*SLOGate) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{22}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SLOGate) GetMetric() string {
@@ -2079,7 +2160,7 @@ type ConformanceGate struct {
 
 func (x *ConformanceGate) Reset() {
 	*x = ConformanceGate{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[23]
+	mi := &file_orbit_v1_plan_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2091,7 +2172,7 @@ func (x *ConformanceGate) String() string {
 func (*ConformanceGate) ProtoMessage() {}
 
 func (x *ConformanceGate) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[23]
+	mi := &file_orbit_v1_plan_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2104,7 +2185,7 @@ func (x *ConformanceGate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConformanceGate.ProtoReflect.Descriptor instead.
 func (*ConformanceGate) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{23}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{24}
 }
 
 // GateResult is one gate as the report applied it.
@@ -2120,7 +2201,7 @@ type GateResult struct {
 
 func (x *GateResult) Reset() {
 	*x = GateResult{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[24]
+	mi := &file_orbit_v1_plan_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2132,7 +2213,7 @@ func (x *GateResult) String() string {
 func (*GateResult) ProtoMessage() {}
 
 func (x *GateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[24]
+	mi := &file_orbit_v1_plan_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2145,7 +2226,7 @@ func (x *GateResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GateResult.ProtoReflect.Descriptor instead.
 func (*GateResult) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{24}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *GateResult) GetGate() *Gate {
@@ -2192,7 +2273,7 @@ type Lease struct {
 
 func (x *Lease) Reset() {
 	*x = Lease{}
-	mi := &file_orbit_v1_plan_proto_msgTypes[25]
+	mi := &file_orbit_v1_plan_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2204,7 +2285,7 @@ func (x *Lease) String() string {
 func (*Lease) ProtoMessage() {}
 
 func (x *Lease) ProtoReflect() protoreflect.Message {
-	mi := &file_orbit_v1_plan_proto_msgTypes[25]
+	mi := &file_orbit_v1_plan_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2217,7 +2298,7 @@ func (x *Lease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Lease.ProtoReflect.Descriptor instead.
 func (*Lease) Descriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{25}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Lease) GetResource() LeaseResource {
@@ -2273,7 +2354,7 @@ var File_orbit_v1_plan_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\n" +
-	"\x13orbit/v1/plan.proto\x12\borbit.v1\x1a\x1aorbit/v1/conformance.proto\x1a\x16orbit/v1/options.proto\x1a\x15orbit/v1/target.proto\"\xf5\x01\n" +
+	"\x13orbit/v1/plan.proto\x12\borbit.v1\x1a\x16orbit/v1/options.proto\x1a\x15orbit/v1/target.proto\"\xf5\x01\n" +
 	"\aRunPlan\x120\n" +
 	"\x06target\x18\x01 \x01(\v2\x18.orbit.v1.ResolvedTargetR\x06target\x120\n" +
 	"\tworkloads\x18\x02 \x03(\v2\x12.orbit.v1.WorkloadR\tworkloads\x12%\n" +
@@ -2390,7 +2471,13 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	" \x01(\tR\x06n3Bind\"[\n" +
 	"\x10ExpectedFailures\x123\n" +
 	"\aentries\x18\x01 \x03(\v2\x19.orbit.v1.ExpectedFailureR\aentries\x12\x12\n" +
-	"\x04core\x18\x02 \x01(\tR\x04core\"K\n" +
+	"\x04core\x18\x02 \x01(\tR\x04core\"\x8b\x01\n" +
+	"\x0fExpectedFailure\x12\x18\n" +
+	"\afinding\x18\x01 \x01(\tR\afinding\x12\x14\n" +
+	"\x05added\x18\x02 \x01(\tR\x05added\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x14\n" +
+	"\x05check\x18\x04 \x01(\tR\x05check\x12\x1a\n" +
+	"\bobserved\x18\x05 \x01(\tR\bobserved\"K\n" +
 	"\rNASAlgorithms\x12\x1c\n" +
 	"\tintegrity\x18\x01 \x03(\tR\tintegrity\x12\x1c\n" +
 	"\tciphering\x18\x02 \x03(\tR\tciphering\":\n" +
@@ -2469,7 +2556,7 @@ func file_orbit_v1_plan_proto_rawDescGZIP() []byte {
 }
 
 var file_orbit_v1_plan_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_orbit_v1_plan_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_orbit_v1_plan_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_orbit_v1_plan_proto_goTypes = []any{
 	(Arrival)(0),                // 0: orbit.v1.Arrival
 	(HandoverKind)(0),           // 1: orbit.v1.HandoverKind
@@ -2493,30 +2580,30 @@ var file_orbit_v1_plan_proto_goTypes = []any{
 	(*LatencyProbe)(nil),        // 19: orbit.v1.LatencyProbe
 	(*ConformanceWorkload)(nil), // 20: orbit.v1.ConformanceWorkload
 	(*ExpectedFailures)(nil),    // 21: orbit.v1.ExpectedFailures
-	(*NASAlgorithms)(nil),       // 22: orbit.v1.NASAlgorithms
-	(*StepsWorkload)(nil),       // 23: orbit.v1.StepsWorkload
-	(*StartCondition)(nil),      // 24: orbit.v1.StartCondition
-	(*Until)(nil),               // 25: orbit.v1.Until
-	(*Gate)(nil),                // 26: orbit.v1.Gate
-	(*SLOGate)(nil),             // 27: orbit.v1.SLOGate
-	(*ConformanceGate)(nil),     // 28: orbit.v1.ConformanceGate
-	(*GateResult)(nil),          // 29: orbit.v1.GateResult
-	(*Lease)(nil),               // 30: orbit.v1.Lease
-	nil,                         // 31: orbit.v1.AppCohort.ParamsEntry
-	(*ResolvedTarget)(nil),      // 32: orbit.v1.ResolvedTarget
-	(*FieldProvenance)(nil),     // 33: orbit.v1.FieldProvenance
-	(*ExpectedFailure)(nil),     // 34: orbit.v1.ExpectedFailure
+	(*ExpectedFailure)(nil),     // 22: orbit.v1.ExpectedFailure
+	(*NASAlgorithms)(nil),       // 23: orbit.v1.NASAlgorithms
+	(*StepsWorkload)(nil),       // 24: orbit.v1.StepsWorkload
+	(*StartCondition)(nil),      // 25: orbit.v1.StartCondition
+	(*Until)(nil),               // 26: orbit.v1.Until
+	(*Gate)(nil),                // 27: orbit.v1.Gate
+	(*SLOGate)(nil),             // 28: orbit.v1.SLOGate
+	(*ConformanceGate)(nil),     // 29: orbit.v1.ConformanceGate
+	(*GateResult)(nil),          // 30: orbit.v1.GateResult
+	(*Lease)(nil),               // 31: orbit.v1.Lease
+	nil,                         // 32: orbit.v1.AppCohort.ParamsEntry
+	(*ResolvedTarget)(nil),      // 33: orbit.v1.ResolvedTarget
+	(*FieldProvenance)(nil),     // 34: orbit.v1.FieldProvenance
 }
 var file_orbit_v1_plan_proto_depIdxs = []int32{
-	32, // 0: orbit.v1.RunPlan.target:type_name -> orbit.v1.ResolvedTarget
+	33, // 0: orbit.v1.RunPlan.target:type_name -> orbit.v1.ResolvedTarget
 	6,  // 1: orbit.v1.RunPlan.workloads:type_name -> orbit.v1.Workload
-	25, // 2: orbit.v1.RunPlan.until:type_name -> orbit.v1.Until
-	26, // 3: orbit.v1.RunPlan.gates:type_name -> orbit.v1.Gate
-	33, // 4: orbit.v1.RunPlan.provenance:type_name -> orbit.v1.FieldProvenance
-	24, // 5: orbit.v1.Workload.start:type_name -> orbit.v1.StartCondition
+	26, // 2: orbit.v1.RunPlan.until:type_name -> orbit.v1.Until
+	27, // 3: orbit.v1.RunPlan.gates:type_name -> orbit.v1.Gate
+	34, // 4: orbit.v1.RunPlan.provenance:type_name -> orbit.v1.FieldProvenance
+	25, // 5: orbit.v1.Workload.start:type_name -> orbit.v1.StartCondition
 	7,  // 6: orbit.v1.Workload.population:type_name -> orbit.v1.PopulationWorkload
 	20, // 7: orbit.v1.Workload.conformance:type_name -> orbit.v1.ConformanceWorkload
-	23, // 8: orbit.v1.Workload.steps:type_name -> orbit.v1.StepsWorkload
+	24, // 8: orbit.v1.Workload.steps:type_name -> orbit.v1.StepsWorkload
 	8,  // 9: orbit.v1.PopulationWorkload.attach:type_name -> orbit.v1.AttachProfile
 	10, // 10: orbit.v1.PopulationWorkload.topology:type_name -> orbit.v1.Topology
 	12, // 11: orbit.v1.PopulationWorkload.behaviors:type_name -> orbit.v1.Behaviors
@@ -2531,16 +2618,16 @@ var file_orbit_v1_plan_proto_depIdxs = []int32{
 	18, // 20: orbit.v1.Traffic.bulk:type_name -> orbit.v1.BulkTraffic
 	16, // 21: orbit.v1.TrafficShare.synthetic:type_name -> orbit.v1.SyntheticProfile
 	17, // 22: orbit.v1.TrafficShare.app:type_name -> orbit.v1.AppCohort
-	31, // 23: orbit.v1.AppCohort.params:type_name -> orbit.v1.AppCohort.ParamsEntry
+	32, // 23: orbit.v1.AppCohort.params:type_name -> orbit.v1.AppCohort.ParamsEntry
 	21, // 24: orbit.v1.ConformanceWorkload.expected:type_name -> orbit.v1.ExpectedFailures
-	22, // 25: orbit.v1.ConformanceWorkload.nas:type_name -> orbit.v1.NASAlgorithms
+	23, // 25: orbit.v1.ConformanceWorkload.nas:type_name -> orbit.v1.NASAlgorithms
 	11, // 26: orbit.v1.ConformanceWorkload.gnb_ids:type_name -> orbit.v1.GNBIDSelection
-	34, // 27: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
+	22, // 27: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
 	2,  // 28: orbit.v1.StartCondition.phase:type_name -> orbit.v1.WorkloadPhase
-	27, // 29: orbit.v1.Gate.slo:type_name -> orbit.v1.SLOGate
-	28, // 30: orbit.v1.Gate.conformance:type_name -> orbit.v1.ConformanceGate
+	28, // 29: orbit.v1.Gate.slo:type_name -> orbit.v1.SLOGate
+	29, // 30: orbit.v1.Gate.conformance:type_name -> orbit.v1.ConformanceGate
 	3,  // 31: orbit.v1.SLOGate.op:type_name -> orbit.v1.CompareOp
-	26, // 32: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
+	27, // 32: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
 	4,  // 33: orbit.v1.Lease.resource:type_name -> orbit.v1.LeaseResource
 	34, // [34:34] is the sub-list for method output_type
 	34, // [34:34] is the sub-list for method input_type
@@ -2554,7 +2641,6 @@ func file_orbit_v1_plan_proto_init() {
 	if File_orbit_v1_plan_proto != nil {
 		return
 	}
-	file_orbit_v1_conformance_proto_init()
 	file_orbit_v1_options_proto_init()
 	file_orbit_v1_target_proto_init()
 	file_orbit_v1_plan_proto_msgTypes[1].OneofWrappers = []any{
@@ -2570,12 +2656,12 @@ func file_orbit_v1_plan_proto_init() {
 		(*TrafficShare_Synthetic)(nil),
 		(*TrafficShare_App)(nil),
 	}
-	file_orbit_v1_plan_proto_msgTypes[20].OneofWrappers = []any{
+	file_orbit_v1_plan_proto_msgTypes[21].OneofWrappers = []any{
 		(*Until_DurationMs)(nil),
 		(*Until_Complete)(nil),
 		(*Until_Forever)(nil),
 	}
-	file_orbit_v1_plan_proto_msgTypes[21].OneofWrappers = []any{
+	file_orbit_v1_plan_proto_msgTypes[22].OneofWrappers = []any{
 		(*Gate_Slo)(nil),
 		(*Gate_Conformance)(nil),
 	}
@@ -2585,7 +2671,7 @@ func file_orbit_v1_plan_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_plan_proto_rawDesc), len(file_orbit_v1_plan_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   27,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

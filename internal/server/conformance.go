@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/conformance"
@@ -45,6 +46,9 @@ func (s *conformanceService) RunConformance(
 	stream *connect.ServerStream[orbitv1.ConformanceUpdate],
 ) error {
 	m := req.Msg
+	if p := m.GetPlan(); p != nil {
+		return s.runPlan(ctx, m, p, stream)
+	}
 	if m.GetAmfAddress() == "" {
 		return connect.NewError(connect.CodeInvalidArgument,
 			errAMFRequired)
@@ -73,6 +77,30 @@ func (s *conformanceService) RunConformance(
 	}
 
 	run := &orbitv1.StartRunRequest{Name: "conformance", Spec: &orbitv1.StartRunRequest_Plan{Plan: conformancePlan(m)}}
+	info, pr, err := s.runs.startPlan(run, engine.RunOptions{Name: run.GetName(), Verbosity: engine.EventsNormal})
+	if err != nil {
+		return err
+	}
+	return s.stream(ctx, stream, info.ID, pr.suiteLive)
+}
+
+// runPlan runs a suite given as a plan (RunConformanceRequest.plan): one
+// conformance workload, with the plan's own target, expected-failures list
+// and gates, and nothing set beside it. The plan's build checks the rest,
+// as StartRun's does.
+func (s *conformanceService) runPlan(ctx context.Context, m *orbitv1.RunConformanceRequest, p *orbitv1.RunPlan,
+	stream *connect.ServerStream[orbitv1.ConformanceUpdate]) error {
+	legacy := proto.Clone(m).(*orbitv1.RunConformanceRequest)
+	legacy.Plan = nil
+	if !proto.Equal(legacy, &orbitv1.RunConformanceRequest{}) {
+		return connect.NewError(connect.CodeInvalidArgument,
+			errors.New("plan: leave the request's other fields unset; the plan carries the target and the suite"))
+	}
+	if ws := p.GetWorkloads(); len(ws) != 1 || ws[0].GetConformance() == nil || ws[0].GetStart() != nil {
+		return connect.NewError(connect.CodeInvalidArgument,
+			errors.New("plan: RunConformance runs one conformance workload; start any other plan with StartRun"))
+	}
+	run := &orbitv1.StartRunRequest{Name: "conformance", Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}
 	info, pr, err := s.runs.startPlan(run, engine.RunOptions{Name: run.GetName(), Verbosity: engine.EventsNormal})
 	if err != nil {
 		return err
