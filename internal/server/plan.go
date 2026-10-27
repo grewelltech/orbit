@@ -35,9 +35,11 @@ const defaultGNBIDBits = 24
 type planRun struct {
 	load     engine.LoadRunFunc
 	fleet    engine.FleetRunFunc
+	built    engine.FleetRunSpec // the fleet path's engine spec, as run
 	needs    engine.Needs
 	workload string
-	amf      string // the gNB IDs' AMF and PLMN, for the rotation
+	amf      string   // the gNB IDs' AMF, as given
+	amfKeys  []string // its identity set, which the rotation keys on
 	plmn     string
 	assigned []uint32
 }
@@ -45,8 +47,11 @@ type planRun struct {
 // population checks a plan's shape for S2 and returns its one population
 // workload.
 func population(p *orbitv1.RunPlan) (*orbitv1.Workload, *orbitv1.PopulationWorkload, error) {
-	if len(p.GetWorkloads()) != 1 {
-		return nil, nil, fmt.Errorf("a plan with %d workloads %w: give exactly one population workload", len(p.GetWorkloads()), errR3)
+	switch n := len(p.GetWorkloads()); {
+	case n == 0:
+		return nil, nil, errors.New("a plan needs at least one workload")
+	case n > 1:
+		return nil, nil, fmt.Errorf("a plan with %d workloads %w: give exactly one population workload", n, errR3)
 	}
 	w := p.GetWorkloads()[0]
 	if w.GetStart() != nil {
@@ -96,28 +101,95 @@ func planCount(pop *orbitv1.PopulationWorkload, sp *orbitv1.SubscriberPool, time
 	return n, nil
 }
 
+// gnbBits is the target's gNB ID length, or the default.
+func gnbBits(t *orbitv1.ResolvedTarget) uint32 {
+	if b := t.GetRan().GetGnbIds().GetBits(); b != 0 {
+		return b
+	}
+	return defaultGNBIDBits
+}
+
+// gnbRange is the range a population's gNB IDs must come from (ADR-0008
+// §5): the target's ran.gnb_ids block when it has a count, else (for
+// assignment) the server default, or from ran.gnb_ids.first upward, either
+// way within the ID length. ranged reports whether the target gave a block.
+func gnbRange(t *orbitv1.ResolvedTarget) (lo, hi uint32, ranged bool, err error) {
+	ids := t.GetRan().GetGnbIds()
+	bits := gnbBits(t)
+	if bits < 22 || bits > 32 {
+		return 0, 0, false, fmt.Errorf("ran.gnb_ids.bits %d: want 22 to 32", bits)
+	}
+	maxID := uint64(1)<<bits - 1
+	if n := ids.GetCount(); n > 0 {
+		end := uint64(ids.GetFirst()) + uint64(n) - 1
+		if end > maxID {
+			return 0, 0, false, fmt.Errorf("ran.gnb_ids %d..%d does not fit %d bits", ids.GetFirst(), end, bits)
+		}
+		return ids.GetFirst(), uint32(end), true, nil
+	}
+	lo, hi = engine.DefaultGNBIDFirst, engine.DefaultGNBIDLast
+	if ids.GetFirst() != 0 {
+		lo = ids.GetFirst()
+		hi = uint32(maxID)
+	}
+	if uint64(hi) > maxID {
+		hi = uint32(maxID)
+	}
+	return lo, hi, false, nil
+}
+
 // gnbIDs are the population's gNB IDs: pinned (topology.gnb_ids.first, or
-// the target's ran.gnb_ids.first, or 1), or assigned from the rotation.
-func (s *runService) gnbIDs(t *orbitv1.ResolvedTarget, pop *orbitv1.PopulationWorkload, amf, plmn string, n int) (ids []uint32, assigned bool, err error) {
+// the target's ran.gnb_ids.first, or 1), which must lie in the target's
+// block when it gives one; or assigned from the rotation within the range
+// (gnbRange). amfKeys is the AMF's identity set (RunRegistry.AMFIdentity),
+// which the rotation keys on; amf is the AMF as given, for the in-use
+// check.
+func (s *runService) gnbIDs(t *orbitv1.ResolvedTarget, pop *orbitv1.PopulationWorkload, amf string, amfKeys []string, plmn string, n int) (ids []uint32, assigned bool, err error) {
+	lo, hi, ranged, err := gnbRange(t)
+	if err != nil {
+		return nil, false, err
+	}
 	sel := pop.GetTopology().GetGnbIds()
 	if sel.GetAssign() {
 		if s.rotation == nil {
 			return nil, false, errors.New("topology.gnb_ids.assign: this server has no gNB ID rotation")
 		}
-		ids, err := s.rotation.Assign(amf, plmn, n, s.reg.GNBInUse(amf, plmn))
+		ids, err := s.rotation.Assign(amfKeys, plmn, lo, hi, n, s.reg.GNBInUse(amf, plmn))
 		return ids, true, err
 	}
 	first := sel.GetFirst()
 	if first == 0 {
 		first = t.GetRan().GetGnbIds().GetFirst()
 	}
-	if first == 0 {
+	if first == 0 && !ranged {
 		first = 1
+	}
+	last := uint64(first) + uint64(n) - 1
+	if ranged && (first < lo || last > uint64(hi)) {
+		return nil, false, fmt.Errorf("gNB IDs %d..%d fall outside the target's ran.gnb_ids %d..%d; %d gNBs need a block of %d there",
+			first, last, lo, hi, n, n)
+	}
+	if last > uint64(1)<<gnbBits(t)-1 {
+		return nil, false, fmt.Errorf("gNB IDs %d..%d do not fit %d bits", first, last, gnbBits(t))
 	}
 	for i := 0; i < n; i++ {
 		ids = append(ids, first+uint32(i))
 	}
 	return ids, false, nil
+}
+
+// gnbName is gNB i of n's RANNodeName, the same for the load and fleet
+// paths: the target's ran.gnb_name (default "orbit-gnb"), numbered when
+// there are several.
+func gnbName(t *orbitv1.ResolvedTarget, i, n int) string {
+	name := t.GetRan().GetGnbName()
+	if name == "" {
+		name = "orbit-gnb"
+	}
+	if n > 1 {
+		name += "-" + strconv.Itoa(i+1)
+	}
+	return name
 }
 
 // buildPlan translates a plan (S2). The caller hands assigned IDs back to
@@ -170,11 +242,15 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 		return nil, fmt.Errorf("ran.n3_ips: %w", err)
 	}
 	plmn := core.GetPlmn().GetMcc() + "/" + core.GetPlmn().GetMnc()
-	ids, assigned, err := s.gnbIDs(t, pop, core.GetAmf(), plmn, gnbCount)
+	var amfKeys []string
+	if pop.GetTopology().GetGnbIds().GetAssign() {
+		amfKeys = s.reg.AMFIdentity(core.GetAmf()) // resolved here, outside any lock
+	}
+	ids, assigned, err := s.gnbIDs(t, pop, core.GetAmf(), amfKeys, plmn, gnbCount)
 	if err != nil {
 		return nil, err
 	}
-	out := &planRun{workload: w.GetName(), amf: core.GetAmf(), plmn: plmn}
+	out := &planRun{workload: w.GetName(), amf: core.GetAmf(), amfKeys: amfKeys, plmn: plmn}
 	if assigned {
 		out.assigned = ids
 	}
@@ -221,14 +297,18 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 	if err != nil {
 		return fail(err)
 	}
+	// As the load path builds them: assigned IDs need not be contiguous,
+	// and the target's ID length and gNB name apply to fleets too.
 	for i := range spec.GNBs {
-		spec.GNBs[i].Config.ID = ids[i] // assigned IDs need not be contiguous
+		spec.GNBs[i].Config.ID = ids[i]
+		spec.GNBs[i].Config.IDBits = int(gnbBits(t))
+		spec.GNBs[i].Config.Name = gnbName(t, i, len(spec.GNBs))
 	}
 	fn, needs, err := fleetRunFrom(s.log, s.mgr, spec, beh, verbosity)
 	if err != nil {
 		return fail(err)
 	}
-	out.fleet, out.needs = fn, needs
+	out.fleet, out.needs, out.built = fn, needs, spec
 	return out, nil
 }
 
@@ -238,16 +318,16 @@ func (s *runService) giveBack(r *planRun) {
 	if r == nil {
 		return
 	}
-	s.releaseIDs(r.amf, r.plmn, r.assigned)
+	s.releaseIDs(r.amfKeys, r.plmn, r.assigned)
 	r.assigned = nil
 }
 
-// releaseIDs returns gNB IDs to the rotation.
-func (s *runService) releaseIDs(amf, plmn string, ids []uint32) {
+// releaseIDs returns gNB IDs to the rotation, under the AMF's identity set.
+func (s *runService) releaseIDs(amfKeys []string, plmn string, ids []uint32) {
 	if len(ids) == 0 || s.rotation == nil {
 		return
 	}
-	if err := s.rotation.Released(amf, plmn, ids); err != nil {
+	if err := s.rotation.Released(amfKeys, plmn, ids); err != nil {
 		s.log.Warn("could not record released gNB IDs", "err", err)
 	}
 }
@@ -259,10 +339,7 @@ func planLoadSpec(t *orbitv1.ResolvedTarget, pop *orbitv1.PopulationWorkload, sp
 	if until.GetDurationMs() > math.MaxUint32 {
 		return nil, fmt.Errorf("until.duration_ms %d is longer than a load run takes (%d)", until.GetDurationMs(), uint64(math.MaxUint32))
 	}
-	bits := t.GetRan().GetGnbIds().GetBits()
-	if bits == 0 {
-		bits = defaultGNBIDBits
-	}
+	bits := gnbBits(t)
 	spec := &orbitv1.LoadRunSpec{
 		AmfAddress:       core.GetAmf(),
 		BaseImsi:         sp.GetFirstSupi(),
@@ -278,15 +355,8 @@ func planLoadSpec(t *orbitv1.ResolvedTarget, pop *orbitv1.PopulationWorkload, sp
 		spec.RampStart, spec.RampEnd, spec.RampSeconds = r.GetStart(), r.GetEnd(), r.GetSeconds()
 	}
 	for i, id := range ids {
-		name := t.GetRan().GetGnbName()
-		if name == "" {
-			name = "orbit-gnb"
-		}
-		if len(ids) > 1 {
-			name += "-" + strconv.Itoa(i+1)
-		}
 		spec.Gnbs = append(spec.Gnbs, &orbitv1.GnbConfig{
-			Id: id, IdBits: bits, Name: name,
+			Id: id, IdBits: bits, Name: gnbName(t, i, len(ids)),
 			Mcc: core.GetPlmn().GetMcc(), Mnc: core.GetPlmn().GetMnc(), Tac: core.GetTac(),
 			Slices: core.GetSlices(),
 		})

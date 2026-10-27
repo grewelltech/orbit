@@ -89,6 +89,9 @@ func (s *runService) StartRun(
 	case *orbitv1.StartRunRequest_Plan:
 		// S2: one population workload, run on today's engines.
 		pr, err := s.buildPlan(spec.Plan, verbosity)
+		if errors.Is(err, engine.ErrGNBRangeExhausted) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
@@ -96,9 +99,14 @@ func (s *runService) StartRun(
 		// Read before the run starts: a run that fails fast releases its
 		// leases (and its IDs) while StartRun is still here.
 		prov := pr.provenance()
+		// The IDs go back once: from the run's release, or below if it
+		// never starts (a launcher that panicked does both).
+		var once sync.Once
+		release := func() {}
 		if ids := pr.assigned; len(ids) > 0 {
-			amf, plmn := pr.amf, pr.plmn
-			opts.OnRelease = func() { s.releaseIDs(amf, plmn, ids) }
+			keys, plmn := pr.amfKeys, pr.plmn
+			release = func() { once.Do(func() { s.releaseIDs(keys, plmn, ids) }) }
+			opts.OnRelease = release
 		}
 		var info engine.RunInfo
 		if pr.fleet != nil {
@@ -107,7 +115,7 @@ func (s *runService) StartRun(
 			info, err = s.reg.StartLoad(opts, pr.load)
 		}
 		if err != nil {
-			s.giveBack(pr) // never started: OnRelease will not run
+			release()
 			return nil, runStartError(err)
 		}
 		s.specs.put(info.ID, m, prov...)

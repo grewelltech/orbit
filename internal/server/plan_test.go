@@ -4,22 +4,27 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	isctp "github.com/ishidawataru/sctp"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/secrets"
 )
 
@@ -80,6 +85,7 @@ func TestPlanShapeRefusals(t *testing.T) {
 		mut     func(*orbitv1.RunPlan)
 		wantErr string
 	}{
+		{name: "no workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = nil }, wantErr: "a plan needs at least one workload"},
 		{name: "two workloads", mut: func(p *orbitv1.RunPlan) { p.Workloads = append(p.Workloads, p.Workloads[0]) }, wantErr: "until R3"},
 		{name: "a conformance workload", mut: func(p *orbitv1.RunPlan) {
 			p.Workloads[0].Kind = &orbitv1.Workload_Conformance{Conformance: &orbitv1.ConformanceWorkload{}}
@@ -250,7 +256,10 @@ func TestPlanArchiveHoldsNoSecrets(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
 
+	// A one-ID block: a second plan can only get the ID if the first run
+	// released it.
 	p := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 7, Count: 1, Bits: 24}
 		pop(p).Topology = &orbitv1.Topology{GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}}
 	})
 	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Name: "plan-run", Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
@@ -325,9 +334,196 @@ func TestPlanArchiveHoldsNoSecrets(t *testing.T) {
 	if len(resources) < 2 {
 		t.Errorf("archived leases = %v, want the SUPI block and the gNB ID at least", a.GetLeases())
 	}
-	// The assigned gNB ID went back to the rotation when the run ended.
-	rot, err := os.ReadFile(filepath.Join(dir, engine.GNBRotationFile))
-	if err != nil || !bytes.Contains(rot, []byte(`"released":{"`)) {
-		t.Errorf("rotation file after the run: %s, %v; want the ID released", rot, err)
+	// The assigned gNB ID went back to the rotation when the run ended:
+	// the one-ID block can be assigned again.
+	if _, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}})); err != nil {
+		t.Errorf("the block's only ID after the first run ended: %v", err)
+	}
+}
+
+// Assigned and pinned gNB IDs both come from the target's ran.gnb_ids
+// block when it has one; an exhausted block is FAILED_PRECONDITION naming
+// it, and a pinned block outside it is refused.
+func TestPlanGNBIDRange(t *testing.T) {
+	ranged := func(first, count uint32) func(*orbitv1.RunPlan) {
+		return func(p *orbitv1.RunPlan) {
+			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: first, Count: count, Bits: 24}
+		}
+	}
+	assign := func(n uint32) func(*orbitv1.RunPlan) {
+		return func(p *orbitv1.RunPlan) {
+			pop(p).Topology = &orbitv1.Topology{GnbCount: n, GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}}
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.10-127.0.0.40"}
+		}
+	}
+	s := planService(t)
+	a, err := s.buildPlan(loadPlan(ranged(5000, 20), assign(6)), engine.EventsNormal)
+	if err != nil || a.assigned[0] != 5000 || a.assigned[5] != 5005 {
+		t.Fatalf("assign in 5000..5019: %+v, %v", a, err)
+	}
+	// A later, narrower block on the same AMF draws only from it.
+	b, err := s.buildPlan(loadPlan(ranged(5004, 4), assign(2)), engine.EventsNormal)
+	if err != nil || b.assigned[0] != 5006 || b.assigned[1] != 5007 {
+		t.Fatalf("assign in 5004..5007: %+v, %v", b, err)
+	}
+	if _, err := s.buildPlan(loadPlan(ranged(5004, 4), assign(1)), engine.EventsNormal); !errors.Is(err, engine.ErrGNBRangeExhausted) {
+		t.Errorf("an exhausted block: err = %v, want ErrGNBRangeExhausted", err)
+	}
+	// Pinned: inside the block is fine, outside it is refused.
+	pinned := func(first, n uint32) func(*orbitv1.RunPlan) {
+		return func(p *orbitv1.RunPlan) {
+			pop(p).Topology = &orbitv1.Topology{GnbCount: n, GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: first}}}
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.10-127.0.0.40"}
+		}
+	}
+	if _, err := s.buildPlan(loadPlan(ranged(100, 4), pinned(101, 3)), engine.EventsNormal); err != nil {
+		t.Errorf("pinned 101..103 in 100..103: %v", err)
+	}
+	if _, err := s.buildPlan(loadPlan(ranged(100, 1), pinned(100, 3)), engine.EventsNormal); err == nil || !strings.Contains(err.Error(), "outside the target's ran.gnb_ids 100..100") {
+		t.Errorf("pinned 100..102 in 100..100: err = %v", err)
+	}
+	// No block: only the ID length bounds a pinned block.
+	if _, err := s.buildPlan(loadPlan(func(p *orbitv1.RunPlan) { p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{Bits: 22} }, pinned(1<<22-1, 2)), engine.EventsNormal); err == nil || !strings.Contains(err.Error(), "do not fit 22 bits") {
+		t.Errorf("pinned past 22 bits: err = %v", err)
+	}
+}
+
+// The fleet path builds its gNBs as the load path does for the same
+// target: the target's ID length and gNB name, numbered.
+func TestPlanFleetGNBsMatchLoad(t *testing.T) {
+	target := func(p *orbitv1.RunPlan) {
+		p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 40, Count: 10, Bits: 28}
+		p.Target.Ran.GnbName = "lab-gnb"
+		p.Target.Ran.N2SourceIps = []string{"127.0.0.10", "127.0.0.11"}
+		pop(p).Topology = &orbitv1.Topology{GnbCount: 2}
+		pop(p).Attach.Concurrency = 0
+	}
+	lp := loadPlan(target)
+	ls, err := planLoadSpec(lp.GetTarget(), pop(lp), lp.GetTarget().GetSubscribers()[0],
+		&orbitv1.Credentials{}, 2, []uint32{40, 41}, []string{"127.0.0.10", "127.0.0.11"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := loadPlan(target, func(p *orbitv1.RunPlan) {
+		pop(p).Behaviors = &orbitv1.Behaviors{Latency: &orbitv1.LatencyProbe{Target: "127.0.0.1"}}
+	})
+	pr, err := planService(t).buildPlan(fp, engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := pr.built.GNBs
+	if len(got) != 2 {
+		t.Fatalf("fleet gNBs = %v, want 2", got)
+	}
+	for i, g := range got {
+		want := ls.GetGnbs()[i]
+		if g.Config.ID != want.GetId() || uint32(g.Config.IDBits) != want.GetIdBits() || g.Config.Name != want.GetName() {
+			t.Errorf("fleet gNB %d = id %d bits %d name %q; load gives id %d bits %d name %q",
+				i, g.Config.ID, g.Config.IDBits, g.Config.Name, want.GetId(), want.GetIdBits(), want.GetName())
+		}
+	}
+}
+
+// idleAMF is an SCTP listener that accepts associations and never answers,
+// so a run against it stays up until it is stopped.
+func idleAMF(t *testing.T) string {
+	t.Helper()
+	ln, err := isctp.ListenSCTPExt("sctp",
+		&isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}},
+		isctp.InitMsg{NumOstreams: sctp.DefaultNGAPStreams, MaxInstreams: sctp.DefaultNGAPStreams})
+	if err != nil {
+		t.Skipf("no kernel SCTP on this host: %v", err)
+	}
+	var conns []*isctp.SCTPConn
+	var mu sync.Mutex
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		mu.Unlock()
+	})
+	go func() {
+		for {
+			c, err := ln.AcceptSCTP()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// A load plan without assign that runs until StopRun (the tester's case)
+// archives the client's provenance, masked by path, with every other
+// entry as sent.
+func TestPlanStoppedRunArchivesProvenance(t *testing.T) {
+	amf := idleAMF(t)
+	dir := t.TempDir()
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)
+	p := loadPlan(func(p *orbitv1.RunPlan) {
+		p.Target.Core.Amf = amf
+		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_DurationMs{DurationMs: 60000}}
+		p.Provenance = append(p.Provenance,
+			&orbitv1.FieldProvenance{Path: "app.responders[n6].token", Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, Detail: "$ORBIT_TOKEN"}, Value: archToken},
+			&orbitv1.FieldProvenance{Path: "workloads[pop].attach.rate", Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_FLAG, Detail: "--rate"}, Value: "5"})
+	})
+	resp, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := resp.Msg.GetRun().GetRunId()
+	waitRunState(t, c, id, orbitv1.RunState_RUN_STATE_RUNNING)
+	g, err := c.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
+	if err != nil || len(g.Msg.GetLeases()) == 0 {
+		t.Fatalf("GetRun while active: leases %v, %v", g.Msg.GetLeases(), err)
+	}
+	if _, err := c.StopRun(context.Background(), connect.NewRequest(&orbitv1.StopRunRequest{RunId: id})); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, id+archiveExt)
+	var raw []byte
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
+			raw = b
+			break
+		}
+	}
+	if raw == nil {
+		t.Fatal("the stopped run was never archived")
+	}
+	for _, k := range []string{archKi, archOpc, archToken, oldKi} {
+		if bytes.Contains(raw, []byte(k)) {
+			t.Errorf(".orbitrun holds %q", k)
+		}
+	}
+	a, err := readArchive(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, pv := range a.GetProvenance() {
+		got[pv.GetPath()] = pv.GetValue()
+	}
+	want := map[string]string{
+		"subscribers[main].ki":       secrets.Masked,
+		"core.plmn.mcc":              "208",
+		"app.responders[n6].token":   secrets.Masked,
+		"workloads[pop].attach.rate": "5",
+	}
+	for path, v := range want {
+		if got[path] != v {
+			t.Errorf("archived provenance %s = %q, want %q (all: %v)", path, got[path], v, got)
+		}
+	}
+	if a.GetRun().GetState() != orbitv1.RunState_RUN_STATE_CANCELLED || len(a.GetLeases()) == 0 {
+		t.Errorf("archive run %v, leases %v", a.GetRun(), a.GetLeases())
 	}
 }

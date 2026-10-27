@@ -322,6 +322,9 @@ func TestReleaseHookAndLeases(t *testing.T) {
 		t.Fatal(err)
 	}
 	inUse := r.GNBInUse("10.0.0.1:38412", "001/01") // amf.lab by its address
+	if got := r.AMFIdentity("AMF.lab:38412"); !reflect.DeepEqual(got, []string{"10.0.0.1:38412", "amf.lab:38412"}) {
+		t.Errorf("AMFIdentity = %v", got)
+	}
 	if !inUse(7) || inUse(8) {
 		t.Errorf("GNBInUse(7) = %t, (8) = %t; want true, false", inUse(7), inUse(8))
 	}

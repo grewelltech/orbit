@@ -568,6 +568,24 @@ func (r *RunRegistry) Leases(id string) []LeaseInfo {
 	return nil
 }
 
+// AMFIdentity is an AMF's identity set, sorted: the address as written
+// (lower-cased) and every IP:port it resolves to, as leases compare AMFs.
+// It resolves names, so call it outside any lock; it takes none.
+func (r *RunRegistry) AMFIdentity(amf string) []string {
+	res := &resolver{t: r.leases, seen: map[string][]netip.Addr{}}
+	id := res.amfIdentity(amf)
+	out := make([]string, 0, len(id))
+	for k := range id {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Lock order: GNBRotation.Assign holds its own lock while calling the
+// returned check, which takes r.mu; nothing calls the rotation under r.mu
+// (OnRelease runs after it is released).
+//
 // GNBInUse returns a check of whether a gNB ID at amf (any of its names or
 // addresses, as leases compare them) in plmn is leased by an active run, for
 // a GNBRotation's Assign. amf is resolved once, here, outside the lock.
