@@ -22,6 +22,7 @@ import (
 	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/join"
 	"github.com/bgrewell/orbit/internal/ngap"
 	"github.com/bgrewell/orbit/internal/sctp"
 	"github.com/bgrewell/orbit/internal/webui"
@@ -112,8 +113,19 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 		log.Error("gNB ID rotation will not persist", "dir", opts.StateDir, "err", err)
 		rotation, _ = engine.OpenGNBRotation("", log)
 	}
+	// Responders registered by join (ADR-0009 §3), persisted with the run
+	// history. A registry that cannot be read is not overwritten: the
+	// server runs with an empty, unpersisted one and says so, and its
+	// responders keep retrying until it is restored.
+	responders, err := join.OpenRegistry(opts.StateDir)
+	if err != nil {
+		log.Error("registered responders could not be read; running without them, and not persisting", "dir", opts.StateDir, "err", err)
+		responders, _ = join.OpenRegistry("")
+	} else if !responders.Persistent() {
+		log.Warn("registered responders are in memory only: after a restart every app host must join again (serve with --state-dir)")
+	}
 	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive,
-		specs: newSpecStore(), version: version, rotation: rotation, expected: opts.ConformanceExpected}
+		specs: newSpecStore(), version: version, rotation: rotation, expected: opts.ConformanceExpected, responders: responders}
 	runSvc.restoreFrames()
 
 	mux := http.NewServeMux()
@@ -122,8 +134,9 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}, ic))
 	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc, ic))
 	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected, runs: runSvc}, ic))
-	joinSvc := newJoinService(log, sec, opts)
+	joinSvc := newJoinService(log, sec, opts, responders)
 	mux.Handle(orbitv1connect.NewJoinServiceHandler(joinSvc, ic))
+	mux.Handle(orbitv1connect.NewResponderServiceHandler(&responderService{log: log, reg: responders}, ic))
 	// A join token is its own credential: /join/ is outside the bearer
 	// guard (protected), and served over TLS only.
 	mux.Handle("/join/", joinSvc)

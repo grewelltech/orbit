@@ -83,8 +83,13 @@ func newSecurity(log *slog.Logger, token string) *security {
 }
 
 // protected reports whether a request path needs the token: a Connect
-// procedure (/orbit.v1.Service/Method) or /metrics.
+// procedure (/orbit.v1.Service/Method) or /metrics, but for exactly the two
+// an app host calls with its own credential (RegisterResponder, Heartbeat),
+// matched by full name.
 func protected(path string) bool {
+	if path == procRegisterResponder || path == procHeartbeat {
+		return false
+	}
 	return strings.HasPrefix(path, "/orbit.v1.") || path == "/metrics"
 }
 

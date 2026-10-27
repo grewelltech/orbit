@@ -57,6 +57,7 @@ type joinService struct {
 	log    *slog.Logger
 	sec    *security
 	store  *join.Store
+	reg    *join.Registry
 	tls    bool   // orbit serve has TLS: without it nothing join is served
 	pin    string // the server's key, sha256/<base64>
 	listen string // the server's listen address, host:port
@@ -68,8 +69,8 @@ type joinService struct {
 	peers map[string][]time.Time // requests by peerKey, within joinPeerWindow
 }
 
-func newJoinService(log *slog.Logger, sec *security, opts Options) *joinService {
-	j := &joinService{log: log, sec: sec, store: join.NewStore(), tls: opts.TLS, pin: opts.TLSPin, listen: opts.Listen,
+func newJoinService(log *slog.Logger, sec *security, opts Options, reg *join.Registry) *joinService {
+	j := &joinService{log: log, sec: sec, store: join.NewStore(), reg: reg, tls: opts.TLS, pin: opts.TLSPin, listen: opts.Listen,
 		bins: map[string]joinBinary{}, renders: make(chan struct{}, joinMaxRenders),
 		binaries: make(chan struct{}, joinMaxBinaries), peers: map[string][]time.Time{}}
 	for arch, path := range opts.JoinBinaries {

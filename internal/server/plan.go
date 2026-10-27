@@ -208,6 +208,10 @@ func (s *runService) buildPlan(p *orbitv1.RunPlan, verbosity engine.EventVerbosi
 // strategy even without behaviours: an old fleet arm's plan, since a fleet
 // always kept its UEs.
 func (s *runService) buildPlanAs(p *orbitv1.RunPlan, verbosity engine.EventVerbosity, persistent bool) (*planRun, error) {
+	p, err := s.withRegistered(p)
+	if err != nil {
+		return nil, err
+	}
 	switch ws := p.GetWorkloads(); {
 	case len(ws) == 1 && ws[0].GetConformance() != nil && ws[0].GetStart() == nil:
 		return s.buildSuite(p, ws[0])

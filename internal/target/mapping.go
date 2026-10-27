@@ -193,6 +193,20 @@ var Exclusions = []Exclusion{
 	{Flag: "token", Commands: []string{cmdResponder}, Reason: ReasonProcess},
 	{Flag: "max-flows", Commands: []string{cmdResponder}, Reason: ReasonProcess},
 	{Flag: "telemetry-interval", Commands: []string{cmdResponder}, Reason: ReasonProcess},
+	{Flag: "token-file", Commands: []string{cmdResponder}, Reason: ReasonProcess},
+	{Flag: "config", Commands: []string{cmdResponder, "orbit responder check", "orbit responder register"}, Reason: ReasonProcess},
+	// The join script's registration of its host's responder (ADR-0009 §3):
+	// what the host is, and where its server and secrets are.
+	{Flag: "server", Commands: []string{"orbit responder register"}, Reason: ReasonConnection},
+	{Flag: "pin", Commands: []string{"orbit responder register"}, Reason: ReasonConnection},
+	{Flag: "token-file", Commands: []string{"orbit responder register"}, Reason: ReasonConnection},
+	{Flag: "name", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "control", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "data-ip", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "data-ports", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "owner", Commands: []string{"orbit responder register"}, Reason: ReasonProcess},
+	{Flag: "wait", Commands: []string{"orbit responder check"}, Reason: ReasonOutput},
+	{Flag: "output", Commands: []string{"orbit responder list"}, Reason: ReasonOutput},
 	{Flag: "metrics-listen", Commands: []string{"orbit run"}, Reason: ReasonProcess},
 
 	// Operations on an existing UE, and one-off cell procedures.

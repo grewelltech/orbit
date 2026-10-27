@@ -11,7 +11,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/join.proto.
  */
 export const file_orbit_v1_join: GenFile = /*@__PURE__*/
-  fileDesc("ChNvcmJpdC92MS9qb2luLnByb3RvEghvcmJpdC52MSJbCghKb2luU3BlYxIQCgh1ZV9wb29scxgBIAMoCRIOCgZ1cGZfbjYYAiABKAkSEQoJbjZfc3VibmV0GAMgASgJEhoKEm1hbmFnZW1lbnRfYWRkcmVzcxgEIAEoCSJ9CglKb2luVG9rZW4SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIZChFjcmVhdGVkX3VuaXhfbmFubxgDIAEoAxIZChFleHBpcmVzX3VuaXhfbmFubxgEIAEoAxIgCgRzcGVjGAUgASgLMhIub3JiaXQudjEuSm9pblNwZWMiXQoWQ3JlYXRlSm9pblRva2VuUmVxdWVzdBIMCgRuYW1lGAEgASgJEhMKC3R0bF9zZWNvbmRzGAIgASgNEiAKBHNwZWMYAyABKAsyEi5vcmJpdC52MS5Kb2luU3BlYyKNAQoXQ3JlYXRlSm9pblRva2VuUmVzcG9uc2USIwoGaXNzdWVkGAEgASgLMhMub3JiaXQudjEuSm9pblRva2VuEhQKBnNlY3JldBgCIAEoCUIEiLUYARIRCgN1cmwYAyABKAlCBIi1GAESCwoDcGluGAQgASgJEhcKCW9uZV9saW5lchgFIAEoCUIEiLUYASIXChVMaXN0Sm9pblRva2Vuc1JlcXVlc3QiPQoWTGlzdEpvaW5Ub2tlbnNSZXNwb25zZRIjCgZ0b2tlbnMYASADKAsyEy5vcmJpdC52MS5Kb2luVG9rZW4iJAoWUmV2b2tlSm9pblRva2VuUmVxdWVzdBIKCgJpZBgBIAEoCSIZChdSZXZva2VKb2luVG9rZW5SZXNwb25zZTKYAgoLSm9pblNlcnZpY2USWAoPQ3JlYXRlSm9pblRva2VuEiAub3JiaXQudjEuQ3JlYXRlSm9pblRva2VuUmVxdWVzdBohLm9yYml0LnYxLkNyZWF0ZUpvaW5Ub2tlblJlc3BvbnNlIgASVQoOTGlzdEpvaW5Ub2tlbnMSHy5vcmJpdC52MS5MaXN0Sm9pblRva2Vuc1JlcXVlc3QaIC5vcmJpdC52MS5MaXN0Sm9pblRva2Vuc1Jlc3BvbnNlIgASWAoPUmV2b2tlSm9pblRva2VuEiAub3JiaXQudjEuUmV2b2tlSm9pblRva2VuUmVxdWVzdBohLm9yYml0LnYxLlJldm9rZUpvaW5Ub2tlblJlc3BvbnNlIgBCMFouZ2l0aHViLmNvbS9iZ3Jld2VsbC9vcmJpdC9nZW4vb3JiaXQvdjE7b3JiaXR2MWIGcHJvdG8z", [file_orbit_v1_options]);
+  fileDesc("ChNvcmJpdC92MS9qb2luLnByb3RvEghvcmJpdC52MSJbCghKb2luU3BlYxIQCgh1ZV9wb29scxgBIAMoCRIOCgZ1cGZfbjYYAiABKAkSEQoJbjZfc3VibmV0GAMgASgJEhoKEm1hbmFnZW1lbnRfYWRkcmVzcxgEIAEoCSJ9CglKb2luVG9rZW4SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIZChFjcmVhdGVkX3VuaXhfbmFubxgDIAEoAxIZChFleHBpcmVzX3VuaXhfbmFubxgEIAEoAxIgCgRzcGVjGAUgASgLMhIub3JiaXQudjEuSm9pblNwZWMiXQoWQ3JlYXRlSm9pblRva2VuUmVxdWVzdBIMCgRuYW1lGAEgASgJEhMKC3R0bF9zZWNvbmRzGAIgASgNEiAKBHNwZWMYAyABKAsyEi5vcmJpdC52MS5Kb2luU3BlYyKNAQoXQ3JlYXRlSm9pblRva2VuUmVzcG9uc2USIwoGaXNzdWVkGAEgASgLMhMub3JiaXQudjEuSm9pblRva2VuEhQKBnNlY3JldBgCIAEoCUIEiLUYARIRCgN1cmwYAyABKAlCBIi1GAESCwoDcGluGAQgASgJEhcKCW9uZV9saW5lchgFIAEoCUIEiLUYASIXChVMaXN0Sm9pblRva2Vuc1JlcXVlc3QiPQoWTGlzdEpvaW5Ub2tlbnNSZXNwb25zZRIjCgZ0b2tlbnMYASADKAsyEy5vcmJpdC52MS5Kb2luVG9rZW4iJAoWUmV2b2tlSm9pblRva2VuUmVxdWVzdBIKCgJpZBgBIAEoCSIZChdSZXZva2VKb2luVG9rZW5SZXNwb25zZSLpAQoYUmVnaXN0ZXJSZXNwb25kZXJSZXF1ZXN0EhgKCmpvaW5fdG9rZW4YASABKAlCBIi1GAESGAoKY3JlZGVudGlhbBgCIAEoCUIEiLUYARIhChNleGlzdGluZ19jcmVkZW50aWFsGAMgASgJQgSItRgBEgwKBG5hbWUYBCABKAkSFwoPY29udHJvbF9hZGRyZXNzGAUgASgJEg8KB2RhdGFfaXAYBiABKAkSFQoNZGF0YV9wb3J0X2xvdxgHIAEoDRIWCg5kYXRhX3BvcnRfaGlnaBgIIAEoDRIPCgd2ZXJzaW9uGAkgASgJInQKGVJlZ2lzdGVyUmVzcG9uZGVyUmVzcG9uc2USFAoMcmVzcG9uZGVyX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSGAoKbG9vbV90b2tlbhgDIAEoCUIEiLUYARIZChFoZWFydGJlYXRfc2Vjb25kcxgEIAEoDSJiChBIZWFydGJlYXRSZXF1ZXN0Eg8KB3ZlcnNpb24YASABKAkSFgoObG9vbV9saXN0ZW5pbmcYAiABKAgSFgoOdXB0aW1lX3NlY29uZHMYAyABKAQSDQoFcHJvYmUYBCABKAgiYQoRSGVhcnRiZWF0UmVzcG9uc2USFAoMcmVzcG9uZGVyX2lkGAEgASgJEhkKEWhlYXJ0YmVhdF9zZWNvbmRzGAIgASgNEhsKE2xhc3Rfc2Vlbl91bml4X25hbm8YAyABKAMiowIKE1JlZ2lzdGVyZWRSZXNwb25kZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVzdGF0ZRgDIAEoCRIbChNsYXN0X3NlZW5fdW5peF9uYW5vGAQgASgDEg4KBnNvdXJjZRgFIAEoCRIXCg9jb250cm9sX2FkZHJlc3MYBiABKAkSDwoHZGF0YV9pcBgHIAEoCRIVCg1kYXRhX3BvcnRfbG93GAggASgNEhYKDmRhdGFfcG9ydF9oaWdoGAkgASgNEg8KB3ZlcnNpb24YCiABKAkSHAoUcmVnaXN0ZXJlZF91bml4X25hbm8YCyABKAMSFwoPcmVnaXN0ZXJlZF9mcm9tGAwgASgJEhUKDWpvaW5fdG9rZW5faWQYDSABKAkiFwoVTGlzdFJlc3BvbmRlcnNSZXF1ZXN0IksKFkxpc3RSZXNwb25kZXJzUmVzcG9uc2USMQoKcmVzcG9uZGVycxgBIAMoCzIdLm9yYml0LnYxLlJlZ2lzdGVyZWRSZXNwb25kZXIiJgoWUmVtb3ZlUmVzcG9uZGVyUmVxdWVzdBIMCgRuYW1lGAEgASgJIiUKF1JlbW92ZVJlc3BvbmRlclJlc3BvbnNlEgoKAmlkGAEgASgJMsADCgtKb2luU2VydmljZRJYCg9DcmVhdGVKb2luVG9rZW4SIC5vcmJpdC52MS5DcmVhdGVKb2luVG9rZW5SZXF1ZXN0GiEub3JiaXQudjEuQ3JlYXRlSm9pblRva2VuUmVzcG9uc2UiABJVCg5MaXN0Sm9pblRva2VucxIfLm9yYml0LnYxLkxpc3RKb2luVG9rZW5zUmVxdWVzdBogLm9yYml0LnYxLkxpc3RKb2luVG9rZW5zUmVzcG9uc2UiABJYCg9SZXZva2VKb2luVG9rZW4SIC5vcmJpdC52MS5SZXZva2VKb2luVG9rZW5SZXF1ZXN0GiEub3JiaXQudjEuUmV2b2tlSm9pblRva2VuUmVzcG9uc2UiABJeChFSZWdpc3RlclJlc3BvbmRlchIiLm9yYml0LnYxLlJlZ2lzdGVyUmVzcG9uZGVyUmVxdWVzdBojLm9yYml0LnYxLlJlZ2lzdGVyUmVzcG9uZGVyUmVzcG9uc2UiABJGCglIZWFydGJlYXQSGi5vcmJpdC52MS5IZWFydGJlYXRSZXF1ZXN0Ghsub3JiaXQudjEuSGVhcnRiZWF0UmVzcG9uc2UiADLDAQoQUmVzcG9uZGVyU2VydmljZRJVCg5MaXN0UmVzcG9uZGVycxIfLm9yYml0LnYxLkxpc3RSZXNwb25kZXJzUmVxdWVzdBogLm9yYml0LnYxLkxpc3RSZXNwb25kZXJzUmVzcG9uc2UiABJYCg9SZW1vdmVSZXNwb25kZXISIC5vcmJpdC52MS5SZW1vdmVSZXNwb25kZXJSZXF1ZXN0GiEub3JiaXQudjEuUmVtb3ZlUmVzcG9uZGVyUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM", [file_orbit_v1_options]);
 
 /**
  * JoinSpec is what the join script needs from the target, kept with the
@@ -239,6 +239,337 @@ export const RevokeJoinTokenResponseSchema: GenMessage<RevokeJoinTokenResponse> 
   messageDesc(file_orbit_v1_join, 7);
 
 /**
+ * @generated from message orbit.v1.RegisterResponderRequest
+ */
+export type RegisterResponderRequest = Message<"orbit.v1.RegisterResponderRequest"> & {
+  /**
+   * @generated from field: string join_token = 1;
+   */
+  joinToken: string;
+
+  /**
+   * credential is the responder credential the app host generated (orc1_…);
+   * the server keeps only its hash.
+   *
+   * @generated from field: string credential = 2;
+   */
+  credential: string;
+
+  /**
+   * existing_credential is the responder's current credential, for a
+   * re-registration that rotates it; empty for a new responder.
+   *
+   * @generated from field: string existing_credential = 3;
+   */
+  existingCredential: string;
+
+  /**
+   * the target name charset
+   *
+   * @generated from field: string name = 4;
+   */
+  name: string;
+
+  /**
+   * the responder's control listen address, host:port
+   *
+   * @generated from field: string control_address = 5;
+   */
+  controlAddress: string;
+
+  /**
+   * its N6 data address
+   *
+   * @generated from field: string data_ip = 6;
+   */
+  dataIp: string;
+
+  /**
+   * its data port range
+   *
+   * @generated from field: uint32 data_port_low = 7;
+   */
+  dataPortLow: number;
+
+  /**
+   * @generated from field: uint32 data_port_high = 8;
+   */
+  dataPortHigh: number;
+
+  /**
+   * the orbit build that registers
+   *
+   * @generated from field: string version = 9;
+   */
+  version: string;
+};
+
+/**
+ * Describes the message orbit.v1.RegisterResponderRequest.
+ * Use `create(RegisterResponderRequestSchema)` to create a new message.
+ */
+export const RegisterResponderRequestSchema: GenMessage<RegisterResponderRequest> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 8);
+
+/**
+ * @generated from message orbit.v1.RegisterResponderResponse
+ */
+export type RegisterResponderResponse = Message<"orbit.v1.RegisterResponderResponse"> & {
+  /**
+   * @generated from field: string responder_id = 1;
+   */
+  responderId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * loom_token is the responder's loom control token, which the server
+   * presents when a run uses it.
+   *
+   * @generated from field: string loom_token = 3;
+   */
+  loomToken: string;
+
+  /**
+   * @generated from field: uint32 heartbeat_seconds = 4;
+   */
+  heartbeatSeconds: number;
+};
+
+/**
+ * Describes the message orbit.v1.RegisterResponderResponse.
+ * Use `create(RegisterResponderResponseSchema)` to create a new message.
+ */
+export const RegisterResponderResponseSchema: GenMessage<RegisterResponderResponse> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 9);
+
+/**
+ * @generated from message orbit.v1.HeartbeatRequest
+ */
+export type HeartbeatRequest = Message<"orbit.v1.HeartbeatRequest"> & {
+  /**
+   * @generated from field: string version = 1;
+   */
+  version: string;
+
+  /**
+   * the responder's control listener is up
+   *
+   * @generated from field: bool loom_listening = 2;
+   */
+  loomListening: boolean;
+
+  /**
+   * @generated from field: uint64 uptime_seconds = 3;
+   */
+  uptimeSeconds: bigint;
+
+  /**
+   * probe asks without counting as a heartbeat: `orbit responder check`
+   * uses it to see whether the service's own heartbeats arrive.
+   *
+   * @generated from field: bool probe = 4;
+   */
+  probe: boolean;
+};
+
+/**
+ * Describes the message orbit.v1.HeartbeatRequest.
+ * Use `create(HeartbeatRequestSchema)` to create a new message.
+ */
+export const HeartbeatRequestSchema: GenMessage<HeartbeatRequest> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 10);
+
+/**
+ * @generated from message orbit.v1.HeartbeatResponse
+ */
+export type HeartbeatResponse = Message<"orbit.v1.HeartbeatResponse"> & {
+  /**
+   * @generated from field: string responder_id = 1;
+   */
+  responderId: string;
+
+  /**
+   * the interval to use from now on
+   *
+   * @generated from field: uint32 heartbeat_seconds = 2;
+   */
+  heartbeatSeconds: number;
+
+  /**
+   * the last heartbeat before this one; 0 = none
+   *
+   * @generated from field: int64 last_seen_unix_nano = 3;
+   */
+  lastSeenUnixNano: bigint;
+};
+
+/**
+ * Describes the message orbit.v1.HeartbeatResponse.
+ * Use `create(HeartbeatResponseSchema)` to create a new message.
+ */
+export const HeartbeatResponseSchema: GenMessage<HeartbeatResponse> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 11);
+
+/**
+ * RegisteredResponder is a registered responder as listed.
+ *
+ * @generated from message orbit.v1.RegisteredResponder
+ */
+export type RegisteredResponder = Message<"orbit.v1.RegisteredResponder"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * "online", "offline" or "never seen"
+   *
+   * @generated from field: string state = 3;
+   */
+  state: string;
+
+  /**
+   * 0 = not since the server started
+   *
+   * @generated from field: int64 last_seen_unix_nano = 4;
+   */
+  lastSeenUnixNano: bigint;
+
+  /**
+   * the last heartbeat's peer address
+   *
+   * @generated from field: string source = 5;
+   */
+  source: string;
+
+  /**
+   * @generated from field: string control_address = 6;
+   */
+  controlAddress: string;
+
+  /**
+   * @generated from field: string data_ip = 7;
+   */
+  dataIp: string;
+
+  /**
+   * @generated from field: uint32 data_port_low = 8;
+   */
+  dataPortLow: number;
+
+  /**
+   * @generated from field: uint32 data_port_high = 9;
+   */
+  dataPortHigh: number;
+
+  /**
+   * @generated from field: string version = 10;
+   */
+  version: string;
+
+  /**
+   * @generated from field: int64 registered_unix_nano = 11;
+   */
+  registeredUnixNano: bigint;
+
+  /**
+   * the registration's peer address
+   *
+   * @generated from field: string registered_from = 12;
+   */
+  registeredFrom: string;
+
+  /**
+   * the join token that registered it
+   *
+   * @generated from field: string join_token_id = 13;
+   */
+  joinTokenId: string;
+};
+
+/**
+ * Describes the message orbit.v1.RegisteredResponder.
+ * Use `create(RegisteredResponderSchema)` to create a new message.
+ */
+export const RegisteredResponderSchema: GenMessage<RegisteredResponder> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 12);
+
+/**
+ * @generated from message orbit.v1.ListRespondersRequest
+ */
+export type ListRespondersRequest = Message<"orbit.v1.ListRespondersRequest"> & {
+};
+
+/**
+ * Describes the message orbit.v1.ListRespondersRequest.
+ * Use `create(ListRespondersRequestSchema)` to create a new message.
+ */
+export const ListRespondersRequestSchema: GenMessage<ListRespondersRequest> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 13);
+
+/**
+ * @generated from message orbit.v1.ListRespondersResponse
+ */
+export type ListRespondersResponse = Message<"orbit.v1.ListRespondersResponse"> & {
+  /**
+   * @generated from field: repeated orbit.v1.RegisteredResponder responders = 1;
+   */
+  responders: RegisteredResponder[];
+};
+
+/**
+ * Describes the message orbit.v1.ListRespondersResponse.
+ * Use `create(ListRespondersResponseSchema)` to create a new message.
+ */
+export const ListRespondersResponseSchema: GenMessage<ListRespondersResponse> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 14);
+
+/**
+ * @generated from message orbit.v1.RemoveResponderRequest
+ */
+export type RemoveResponderRequest = Message<"orbit.v1.RemoveResponderRequest"> & {
+  /**
+   * a name or an ID
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message orbit.v1.RemoveResponderRequest.
+ * Use `create(RemoveResponderRequestSchema)` to create a new message.
+ */
+export const RemoveResponderRequestSchema: GenMessage<RemoveResponderRequest> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 15);
+
+/**
+ * @generated from message orbit.v1.RemoveResponderResponse
+ */
+export type RemoveResponderResponse = Message<"orbit.v1.RemoveResponderResponse"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message orbit.v1.RemoveResponderResponse.
+ * Use `create(RemoveResponderResponseSchema)` to create a new message.
+ */
+export const RemoveResponderResponseSchema: GenMessage<RemoveResponderResponse> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_join, 16);
+
+/**
  * JoinService issues the join tokens an app host's one-liner presents
  * (ADR-0009 §1). A token is single-purpose and short-lived: the server keeps
  * only its hash, for at most an hour, with the addresses the join script
@@ -278,6 +609,63 @@ export const JoinService: GenService<{
     input: typeof RevokeJoinTokenRequestSchema;
     output: typeof RevokeJoinTokenResponseSchema;
   },
+  /**
+   * RegisterResponder registers an app host's responder (ADR-0009 §3). It
+   * needs no API token: the join token is its credential, used up by the
+   * first registration. A retry with the same credential gets the same
+   * answer; re-registering an existing responder needs a valid join token
+   * and its current credential.
+   *
+   * @generated from rpc orbit.v1.JoinService.RegisterResponder
+   */
+  registerResponder: {
+    methodKind: "unary";
+    input: typeof RegisterResponderRequestSchema;
+    output: typeof RegisterResponderResponseSchema;
+  },
+  /**
+   * Heartbeat tells the server a registered responder is alive. It needs no
+   * API token: the responder credential goes in the Authorization header,
+   * as "Responder <credential>".
+   *
+   * @generated from rpc orbit.v1.JoinService.Heartbeat
+   */
+  heartbeat: {
+    methodKind: "unary";
+    input: typeof HeartbeatRequestSchema;
+    output: typeof HeartbeatResponseSchema;
+  },
 }> = /*@__PURE__*/
   serviceDesc(file_orbit_v1_join, 0);
+
+/**
+ * ResponderService lists and removes registered responders (ADR-0009 §3).
+ *
+ * @generated from service orbit.v1.ResponderService
+ */
+export const ResponderService: GenService<{
+  /**
+   * ListResponders shows the registered responders, never their
+   * credentials or loom tokens.
+   *
+   * @generated from rpc orbit.v1.ResponderService.ListResponders
+   */
+  listResponders: {
+    methodKind: "unary";
+    input: typeof ListRespondersRequestSchema;
+    output: typeof ListRespondersResponseSchema;
+  },
+  /**
+   * RemoveResponder revokes a responder: its credential and loom token stop
+   * working, and its next heartbeat is told it was removed.
+   *
+   * @generated from rpc orbit.v1.ResponderService.RemoveResponder
+   */
+  removeResponder: {
+    methodKind: "unary";
+    input: typeof RemoveResponderRequestSchema;
+    output: typeof RemoveResponderResponseSchema;
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_orbit_v1_join, 1);
 

@@ -22,6 +22,10 @@ const (
 	// ExitCouldNotStart is a run that never started: refused (an invalid
 	// plan, a lease another run holds), no server, or a usage error.
 	ExitCouldNotStart = 3
+	// ExitResponderRemoved is `orbit responder` told by its server that
+	// it was removed (orbit responder remove): EX_CONFIG, which the join
+	// unit's RestartPreventExitStatus keeps systemd from restarting.
+	ExitResponderRemoved = 78
 )
 
 // ExitMeaning is an exit code in words, for stderr.
@@ -35,6 +39,8 @@ func ExitMeaning(code int) string {
 		return "the run did not complete"
 	case ExitCouldNotStart:
 		return "the run could not start"
+	case ExitResponderRemoved:
+		return "the responder was removed from its server"
 	}
 	return "unknown"
 }
