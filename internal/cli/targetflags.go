@@ -133,12 +133,10 @@ func boundFlags(cmd *cobra.Command) map[string]target.Binding {
 	return out
 }
 
-// apply resolves the layers for cmd and sets every bound flag whose winning
-// layer is the target, so the command's own code reads target values
-// through its flags. Env and flag winners are left to that code, which
-// already gives a flag precedence over $ORBIT_*; defaults are the flags'
-// own. With no target named and no --explain, nothing is resolved and the
-// command runs exactly as before.
+// apply resolves the layers for cmd and fills its untyped bound flags from
+// the resolved fields (setFromTarget), so the command's own code reads
+// target values through its flags. With no target named and no --explain,
+// nothing is resolved and the command runs exactly as before.
 func (t *targets) apply(cmd *cobra.Command) error {
 	path := cmd.CommandPath()
 	fs := cmd.Flags()
@@ -178,7 +176,9 @@ func (t *targets) apply(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	applied, err := setFromTarget(fs, bound, r)
+	// Filling from another flag needs a target named: --explain alone only
+	// reports, and never changes what the command does.
+	applied, err := setFromTarget(fs, bound, r, name != "")
 	if err != nil {
 		return err
 	}
@@ -211,20 +211,37 @@ func withoutTarget(in target.Input) target.Input {
 	return out
 }
 
-// setFromTarget sets each bound flag whose path the target layer won. It
-// returns, by flag name, the text set and, when the target's value had to
-// be narrowed to fit the flag (one address from a pool), how.
-func setFromTarget(fs *pflag.FlagSet, bound map[string]target.Binding, r *target.Resolved) (map[string]appliedFlag, error) {
+// setFromTarget fills the bound flags the user did not type with their
+// field's resolved value, when the target won the field or, with a target
+// named (fromFlags), another flag bound to the same field did: the resolved
+// field is the truth, so --n3-bind typed alone also gives --gnb-n3 its
+// address. A typed flag is never overwritten, and two typed flags on one
+// field each keep their own value. Env winners are left to the command's
+// own $ORBIT_* fallback, which gives the same answer, and defaults to the
+// flags' own. It returns, by flag name, the text set and, when the value
+// had to be narrowed to fit the flag, how.
+func setFromTarget(fs *pflag.FlagSet, bound map[string]target.Binding, r *target.Resolved, fromFlags bool) (map[string]appliedFlag, error) {
 	names := make([]string, 0, len(bound))
+	typed := map[string]bool{}
 	for n := range bound {
 		names = append(names, n)
+		typed[n] = fs.Lookup(n).Changed
 	}
 	sort.Strings(names)
 	out := map[string]appliedFlag{}
 	for _, n := range names {
 		b := bound[n]
 		f, ok := r.Lookup(b.Path)
-		if !ok || f.Source.Layer != target.LayerTarget {
+		if !ok || typed[n] {
+			continue
+		}
+		switch f.Source.Layer {
+		case target.LayerTarget:
+		case target.LayerFlag:
+			if !fromFlags {
+				continue
+			}
+		default:
 			continue
 		}
 		fl := fs.Lookup(n)
@@ -233,19 +250,26 @@ func setFromTarget(fs *pflag.FlagSet, bound map[string]target.Binding, r *target
 		}
 		a, ok, err := flagText(n, b, f.Value, fl.Value)
 		if err != nil {
-			return nil, fmt.Errorf("target %s: %s for --%s: %w", f.Source, f.Path, n, err)
+			return nil, fmt.Errorf("%s: %s for --%s: %w", f.Source, f.Path, n, err)
 		}
 		if !ok {
 			continue
 		}
+		if f.Source.Layer == target.LayerFlag {
+			note := "from " + f.Source.String() + " via " + f.Path
+			if strings.HasSuffix(a.note, ", port "+gtpuPort+" added") {
+				note += ", port " + gtpuPort + " added"
+			}
+			a.note = note
+		}
 		if sv, isSlice := fl.Value.(pflag.SliceValue); isSlice && a.list != nil {
 			if err := sv.Replace(a.list); err != nil {
-				return nil, fmt.Errorf("--%s from target: %w", n, err)
+				return nil, fmt.Errorf("--%s from %s: %w", n, f.Source, err)
 			}
 			fl.Changed = true
 		} else if err := fs.Set(n, a.text); err != nil {
 			// The value is not echoed: it may be a key.
-			return nil, fmt.Errorf("--%s from target %s: %s does not fit the flag", n, f.Source, f.Path)
+			return nil, fmt.Errorf("--%s from %s: %s does not fit the flag", n, f.Source, f.Path)
 		}
 		if fl.Annotations == nil {
 			fl.Annotations = map[string][]string{}
@@ -257,13 +281,14 @@ func setFromTarget(fs *pflag.FlagSet, bound map[string]target.Binding, r *target
 	return out, nil
 }
 
-// fromTargetAnnotation marks a flag setFromTarget set: its value came from
-// the target, not the command line.
+// fromTargetAnnotation marks a flag setFromTarget filled: its value came
+// from the resolver (the target, or another flag on the same field), not
+// from the user typing it.
 const fromTargetAnnotation = "orbit/from-target"
 
 // userGave reports whether the user gave --name on the command line (or
 // $ORBIT_*, for the flags that fall back to it), as opposed to its default
-// or a value the target supplied. Code that refuses a flag the user should
+// or a value the resolver filled in. Code that refuses a flag the user should
 // not have given ("--ki needs --supi") asks this, not Changed: a target
 // describes the environment and may hold fields a run does not use.
 func userGave(fs *pflag.FlagSet, name string) bool {

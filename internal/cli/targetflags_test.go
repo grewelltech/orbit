@@ -335,12 +335,13 @@ func TestEchoTargetCommandsKeepTheirFlag(t *testing.T) {
 }
 
 // The deprecated --local on cell ngsetup is bound with --bind, so a user's
-// --local beats a target's N2 pool instead of losing to it.
+// --local beats a target's N2 pool instead of losing to it (it fills --bind,
+// as any flag on the same field does), and a target never fills --local.
 func TestNGSetupLocalBeatsTarget(t *testing.T) {
 	clearOrbitEnv(t)
 	r := runOrbit(t, targetDir(t, lab1), "cell", "ngsetup", "-t", "lab1", "--local", "192.0.2.77:0", "--server", "http://127.0.0.1:1")
-	if got := r.flag(t, "bind"); got != "" {
-		t.Errorf("--bind = %q: --local was given", got)
+	if got := r.flag(t, "bind"); got != "192.0.2.77:0" {
+		t.Errorf("--bind = %q: the user's --local beats the target's pool", got)
 	}
 	r = runOrbit(t, targetDir(t, lab1), "cell", "ngsetup", "-t", "lab1", "--server", "http://127.0.0.1:1")
 	if got := r.flag(t, "bind"); got != "192.0.2.50" {
@@ -601,11 +602,57 @@ ran:
 // passed on exactly as given, and the GTP-U checks report it as today.
 func TestTypedN3BindIsNotRewritten(t *testing.T) {
 	clearOrbitEnv(t)
-	r := runOrbit(t, targetDir(t, lab1), append(skipAll, "-t", "lab1", "--supi", "", "--n3-bind", "198.51.100.77")...)
+	r := runOrbit(t, targetDir(t, lab1), append(skipAll, "-t", "lab1", "--n3-bind", "198.51.100.77")...)
 	if r.execErr != nil {
 		t.Fatal(r.execErr)
 	}
 	if got := r.flag(t, "n3-bind"); got != "198.51.100.77" {
 		t.Errorf("--n3-bind = %q, want it as typed", got)
+	}
+}
+
+// Two flags bound to one field (--gnb-n3, --n3-bind: the gNB's N3 address)
+// take the resolved field: the one the user did not type is filled from the
+// one they did, shaped to it; both typed keep their own values; neither
+// typed, the target fills both. --explain names the flag a value came from.
+func TestFlagsSharingAFieldFillEachOther(t *testing.T) {
+	tests := []struct {
+		name            string
+		args            []string
+		gnbN3, n3Bind   string
+		explainContains string
+	}{
+		{name: "neither typed: the target fills both", gnbN3: "198.51.100.50", n3Bind: "198.51.100.50:2152"},
+		{name: "--n3-bind typed fills --gnb-n3", args: []string{"--n3-bind", "192.0.2.7:2152"}, gnbN3: "192.0.2.7", n3Bind: "192.0.2.7:2152",
+			explainContains: "--gnb-n3=192.0.2.7 (from flag --n3-bind via ran.n3_ips)"},
+		{name: "--gnb-n3 typed fills --n3-bind", args: []string{"--gnb-n3", "192.0.2.8"}, gnbN3: "192.0.2.8", n3Bind: "192.0.2.8:2152",
+			explainContains: "--n3-bind=192.0.2.8:2152 (from flag --gnb-n3 via ran.n3_ips, port 2152 added)"},
+		{name: "both typed keep their own", args: []string{"--gnb-n3", "192.0.2.8", "--n3-bind", "192.0.2.9:3000"}, gnbN3: "192.0.2.8", n3Bind: "192.0.2.9:3000"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearOrbitEnv(t)
+			r := runOrbit(t, targetDir(t, lab1), append(append(skipAll, "-t", "lab1", "--explain"), tc.args...)...)
+			if r.execErr != nil {
+				t.Fatalf("%v\n%s", r.execErr, r.err)
+			}
+			if got := r.flag(t, "gnb-n3"); got != tc.gnbN3 {
+				t.Errorf("--gnb-n3 = %q, want %q", got, tc.gnbN3)
+			}
+			if got := r.flag(t, "n3-bind"); got != tc.n3Bind {
+				t.Errorf("--n3-bind = %q, want %q", got, tc.n3Bind)
+			}
+			if tc.explainContains != "" && !strings.Contains(r.err, tc.explainContains) {
+				t.Errorf("explain lacks %q:\n%s", tc.explainContains, r.err)
+			}
+		})
+	}
+	// --explain alone only reports: with no target, a typed --n3-bind does
+	// not fill --gnb-n3.
+	clearOrbitEnv(t)
+	r := runOrbit(t, targetDir(t, lab1), "conformance", "--target-release", "Rel-14", "--amf", "127.0.0.1:1",
+		"--mcc", "001", "--mnc", "01", "--n3-bind", "192.0.2.7:2152", "--explain")
+	if r.execErr != nil || r.flag(t, "gnb-n3") != "" {
+		t.Errorf("--explain without a target filled --gnb-n3 = %q (err %v)", r.flag(t, "gnb-n3"), r.execErr)
 	}
 }
