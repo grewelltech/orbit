@@ -34,9 +34,11 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 		Run:     runProto(info),
 		Frames:  frames,
 	}
-	// What the run was asked to do, captured at StartRun and redacted there.
-	if held := s.specs.take(id); held != nil {
-		a.Spec = held.GetSpec()
+	// What the run was asked to do, captured at StartRun and masked there;
+	// its secret values are scrubbed from the whole archive below.
+	held, _ := s.specs.take(id)
+	if held.archive != nil {
+		a.Spec = held.archive.GetSpec()
 	}
 
 	// The final progress snapshot, exactly as GetRun would have returned it.
@@ -78,6 +80,7 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 		}
 	}
 
+	redactArchive(a, held.secrets)
 	if err := s.archive.save(a); err != nil {
 		// The run itself succeeded; failing to archive it does not change that,
 		// so this is reported and not propagated.

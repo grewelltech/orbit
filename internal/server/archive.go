@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/secrets"
 )
 
 // archiveVersion is the on-disk format version. Bumped only for a change proto
@@ -150,6 +151,11 @@ func readArchive(path string) (*orbitv1.RunArchive, error) {
 	if a.GetRun().GetRunId() == "" {
 		return nil, errors.New("archive has no run id")
 	}
+	// An archive written before every marked field was masked (or by an
+	// older build) is masked as it is loaded, so it is never served with a
+	// key in a marked field. Values elsewhere in it are beyond reach: the
+	// request that carried them is gone.
+	secrets.Mask(&a)
 	return &a, nil
 }
 

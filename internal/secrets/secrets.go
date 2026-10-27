@@ -107,12 +107,14 @@ func item(fd protoreflect.FieldDescriptor, v protoreflect.Value, path string, ou
 	}
 }
 
+// nonEmpty reports whether a marked field holds a secret: a value that is
+// neither empty nor already Masked.
 func nonEmpty(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 	switch fd.Kind() {
 	case protoreflect.StringKind:
-		return v.String() != ""
+		return v.String() != "" && v.String() != Masked
 	case protoreflect.BytesKind:
-		return len(v.Bytes()) > 0
+		return len(v.Bytes()) > 0 && string(v.Bytes()) != Masked
 	}
 	return true
 }
@@ -257,9 +259,189 @@ func eachSecret(root *yaml.Node, fn func(path string, value *yaml.Node)) {
 func secretValue(n *yaml.Node) bool {
 	switch n.Kind {
 	case yaml.ScalarNode:
-		return n.Value != "" && n.Tag != "!!null" && !placeholder.MatchString(n.Value)
+		return n.Value != "" && n.Value != Masked && n.Tag != "!!null" && !placeholder.MatchString(n.Value)
 	case yaml.MappingNode, yaml.SequenceNode:
 		return len(n.Content) > 0
 	}
 	return false
+}
+
+// minScrubLen is the shortest secret value Scrub replaces by value: a
+// shorter one would mangle unrelated text wherever it happens to occur,
+// and is still masked structurally by Mask.
+const minScrubLen = 6
+
+// Mask masks, in place, every secret m carries at any depth: each non-empty
+// field marked secret becomes Masked, and each secret_yaml document goes
+// through RedactYAML. It returns the secret values it masked (the marked
+// fields' values and the YAML secrets' scalars), deduplicated, for Scrub
+// to remove wherever else they appear.
+func Mask(m proto.Message) []string {
+	if m == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(v string) {
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	mask(m.ProtoReflect(), add)
+	sort.Strings(out)
+	return out
+}
+
+func mask(m protoreflect.Message, add func(string)) {
+	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		switch {
+		case fd.IsList():
+			l := v.List()
+			for i := 0; i < l.Len(); i++ {
+				if nv, ok := maskValue(fd, l.Get(i), add); ok {
+					l.Set(i, nv)
+				}
+			}
+		case fd.IsMap():
+			mp := v.Map()
+			mp.Range(func(k protoreflect.MapKey, mv protoreflect.Value) bool {
+				if nv, ok := maskValue(fd.MapValue(), mv, add); ok {
+					mp.Set(k, nv)
+				}
+				return true
+			})
+		default:
+			if nv, ok := maskValue(fd, v, add); ok {
+				m.Set(fd, nv)
+			}
+		}
+		return true
+	})
+}
+
+// maskValue masks one value of field fd, reporting whether it changed.
+func maskValue(fd protoreflect.FieldDescriptor, v protoreflect.Value, add func(string)) (protoreflect.Value, bool) {
+	switch {
+	case fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind:
+		mask(v.Message(), add)
+		return v, false
+	case Marked(fd) && fd.Kind() == protoreflect.StringKind && v.String() != "":
+		add(v.String())
+		return protoreflect.ValueOfString(Masked), true
+	case Marked(fd) && fd.Kind() == protoreflect.BytesKind && len(v.Bytes()) > 0:
+		add(string(v.Bytes()))
+		return protoreflect.ValueOfBytes([]byte(Masked)), true
+	case MarkedYAML(fd) && fd.Kind() == protoreflect.StringKind && v.String() != "":
+		for _, s := range YAMLSecretValues(v.String()) {
+			add(s)
+		}
+		return protoreflect.ValueOfString(RedactYAML(v.String())), true
+	}
+	return v, false
+}
+
+// YAMLSecretValues returns the scalar values of a YAML document's secrets
+// (eachSecret), each multi-line one also line by line, so Scrub finds a
+// key wherever it was pasted. Text that does not parse yields none: it is
+// never stored (RedactYAML replaces it whole).
+func YAMLSecretValues(doc string) []string {
+	docs, err := parseYAML(doc)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	var leaves func(n *yaml.Node)
+	leaves = func(n *yaml.Node) {
+		n = resolve(n)
+		if n == nil {
+			return
+		}
+		if n.Kind == yaml.ScalarNode {
+			out = append(out, n.Value)
+			for _, line := range strings.Split(n.Value, "\n") {
+				if t := strings.TrimSpace(line); t != "" && t != n.Value {
+					out = append(out, t)
+				}
+			}
+			return
+		}
+		for _, c := range n.Content {
+			leaves(c)
+		}
+	}
+	for _, d := range docs {
+		eachSecret(d, func(_ string, v *yaml.Node) { leaves(v) })
+	}
+	return out
+}
+
+// Scrub replaces, in place, every occurrence of each value (at least
+// minScrubLen long) in every string and bytes field of m at any depth, map
+// values included, with Masked. It is the by-value pass after Mask: a key
+// pasted into a YAML comment, an error message or an event is found
+// wherever it landed.
+func Scrub(m proto.Message, values []string) {
+	var vs []string
+	for _, v := range values {
+		if len(v) >= minScrubLen {
+			vs = append(vs, v)
+		}
+	}
+	if m == nil || len(vs) == 0 {
+		return
+	}
+	// Longest first, so a value containing another is replaced whole.
+	sort.Slice(vs, func(i, j int) bool { return len(vs[i]) > len(vs[j]) })
+	scrub(m.ProtoReflect(), vs)
+}
+
+func scrubString(s string, vs []string) string {
+	for _, v := range vs {
+		s = strings.ReplaceAll(s, v, Masked)
+	}
+	return s
+}
+
+func scrub(m protoreflect.Message, vs []string) {
+	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		switch {
+		case fd.IsList():
+			l := v.List()
+			for i := 0; i < l.Len(); i++ {
+				if nv, ok := scrubValue(fd, l.Get(i), vs); ok {
+					l.Set(i, nv)
+				}
+			}
+		case fd.IsMap():
+			mp := v.Map()
+			mp.Range(func(k protoreflect.MapKey, mv protoreflect.Value) bool {
+				if nv, ok := scrubValue(fd.MapValue(), mv, vs); ok {
+					mp.Set(k, nv)
+				}
+				return true
+			})
+		default:
+			if nv, ok := scrubValue(fd, v, vs); ok {
+				m.Set(fd, nv)
+			}
+		}
+		return true
+	})
+}
+
+func scrubValue(fd protoreflect.FieldDescriptor, v protoreflect.Value, vs []string) (protoreflect.Value, bool) {
+	switch fd.Kind() {
+	case protoreflect.MessageKind, protoreflect.GroupKind:
+		scrub(v.Message(), vs)
+	case protoreflect.StringKind:
+		if s := scrubString(v.String(), vs); s != v.String() {
+			return protoreflect.ValueOfString(s), true
+		}
+	case protoreflect.BytesKind:
+		if s := scrubString(string(v.Bytes()), vs); s != string(v.Bytes()) {
+			return protoreflect.ValueOfBytes([]byte(s)), true
+		}
+	}
+	return v, false
 }

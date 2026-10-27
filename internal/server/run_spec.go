@@ -18,15 +18,30 @@ import (
 // runs incomparable: the difference between them is precisely what is absent.
 type specStore struct {
 	mu    sync.Mutex
-	specs map[string]*orbitv1.RunArchive
+	specs map[string]heldSpec
+}
+
+// heldSpec is a run's spec, masked, and the secret values masked out of it.
+// The values stay in memory for the life of the run only, so the archive can
+// be scrubbed of them wherever else they surface (secrets.Scrub).
+type heldSpec struct {
+	archive *orbitv1.RunArchive
+	secrets []string
 }
 
 func newSpecStore() *specStore {
-	return &specStore{specs: make(map[string]*orbitv1.RunArchive)}
+	return &specStore{specs: make(map[string]heldSpec)}
 }
 
-// put records a run's spec, redacted. The value is held as a RunArchive so the
-// oneof is built once, here, rather than at archive time.
+// put records a run's spec with every secret masked (secrets.Mask: every
+// marked field, so credentials and any future marked field, and the keys in
+// a scenario document). The value is held as a RunArchive so the oneof is
+// built once, here, rather than at archive time.
+//
+// A report is meant to be saved, attached to a ticket and emailed. Ki and OPc
+// are the subscriber's long-term secrets and have no business in one — and an
+// archive on disk is exactly the artefact someone would copy around without
+// thinking about what is inside it.
 func (s *specStore) put(id string, m *orbitv1.StartRunRequest) {
 	if s == nil || id == "" {
 		return
@@ -34,65 +49,39 @@ func (s *specStore) put(id string, m *orbitv1.StartRunRequest) {
 	holder := &orbitv1.RunArchive{}
 	switch spec := m.GetSpec().(type) {
 	case *orbitv1.StartRunRequest_Load:
-		holder.Spec = &orbitv1.RunArchive_LoadSpec{LoadSpec: redactLoadSpec(spec.Load)}
+		holder.Spec = &orbitv1.RunArchive_LoadSpec{LoadSpec: proto.Clone(spec.Load).(*orbitv1.LoadRunSpec)}
 	case *orbitv1.StartRunRequest_Fleet:
-		holder.Spec = &orbitv1.RunArchive_FleetSpec{FleetSpec: redactFleetSpec(spec.Fleet)}
+		holder.Spec = &orbitv1.RunArchive_FleetSpec{FleetSpec: proto.Clone(spec.Fleet).(*orbitv1.FleetRunSpec)}
 	default:
 		return
 	}
+	held := heldSpec{archive: holder, secrets: secrets.Mask(holder)}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.specs[id] = holder
+	s.specs[id] = held
 }
 
-// take returns and forgets a run's spec. Forgetting matters: the map would
-// otherwise grow for the life of the process, holding a scenario document per
-// run that was started.
-func (s *specStore) take(id string) *orbitv1.RunArchive {
+// take returns and forgets a run's masked spec and its secret values.
+// Forgetting matters: the map would otherwise grow for the life of the
+// process, holding a scenario document and keys per run that was started.
+func (s *specStore) take(id string) (heldSpec, bool) {
 	if s == nil {
-		return nil
+		return heldSpec{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	h := s.specs[id]
+	h, ok := s.specs[id]
 	delete(s.specs, id)
-	return h
-}
-
-// redactLoadSpec copies a load spec without its subscriber credentials.
-//
-// A report is meant to be saved, attached to a ticket and emailed. Ki and OPc
-// are the subscriber's long-term secrets and have no business in one — and an
-// archive on disk is exactly the artefact someone would copy around without
-// thinking about what is inside it.
-func redactLoadSpec(in *orbitv1.LoadRunSpec) *orbitv1.LoadRunSpec {
-	if in == nil {
-		return nil
-	}
-	out, _ := proto.Clone(in).(*orbitv1.LoadRunSpec)
-	out.Credentials = nil
-	return out
-}
-
-// redactFleetSpec copies a fleet spec with credential values masked in the
-// scenario document.
-//
-// The server ignores the scenario's own credentials block (it takes keys from
-// the request instead), but nothing stops a document from carrying a literal
-// key, and storing it verbatim would persist it. Masking works on the parsed
-// document (secrets.RedactYAML), so a key in any YAML style or behind an
-// alias is masked; comments survive, the document's own formatting does not.
-func redactFleetSpec(in *orbitv1.FleetRunSpec) *orbitv1.FleetRunSpec {
-	if in == nil {
-		return nil
-	}
-	out, _ := proto.Clone(in).(*orbitv1.FleetRunSpec)
-	out.ScenarioYaml = redactSecretsInYAML(out.GetScenarioYaml())
-	return out
+	return h, ok
 }
 
 const redacted = secrets.Masked
 
-// redactSecretsInYAML masks every secret in a scenario document, with the
-// detector the plaintext-keys refusal uses (secrets.RedactYAML).
-func redactSecretsInYAML(doc string) string { return secrets.RedactYAML(doc) }
+// redactArchive is the last step before an archive is stored: every marked
+// field anywhere in it is masked (secrets.Mask), then every secret value
+// the run's request carried is replaced wherever it appears (secrets.Scrub)
+// — a key pasted into a scenario comment, an event, an error.
+func redactArchive(a *orbitv1.RunArchive, requestSecrets []string) {
+	values := append(secrets.Mask(a), requestSecrets...)
+	secrets.Scrub(a, values)
+}
