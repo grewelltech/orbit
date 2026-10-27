@@ -63,3 +63,53 @@ func TestPopulationStrategy(t *testing.T) {
 		t.Errorf("default with behaviours: err = %v, want the persistent engine's", err)
 	}
 }
+
+// Storm and persistent attach one population through the same controller,
+// so against the same mock core they report the same attach figures: every
+// UE attached, the same procedures timed, as many samples of each.
+func TestPopulationStormPersistentParity(t *testing.T) {
+	amf, cfg, ki, opc := newBindTestAMF(t)
+	addr := sctpFront(t, amf)
+	spec := func(s Strategy) PopulationSpec {
+		return PopulationSpec{Strategy: s, AMFAddr: addr, GNBs: []FleetGNB{{Config: cfg}},
+			BaseIMSI: "208930100007500", Count: 6, MCC: "208", MNC: "93", Ki: ki, OPc: opc,
+			Rate: load.Constant{RPS: 200}, Concurrency: 2}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	storm, err := RunPopulation(ctx, testLogger(), spec(Storm), FleetBehaviors{}, FleetDeps{})
+	if err != nil {
+		t.Fatalf("storm: %v", err)
+	}
+	kept, err := RunPopulation(ctx, testLogger(), spec(Persistent), FleetBehaviors{}, FleetDeps{Stats: NewFleetLiveStats()})
+	if err != nil {
+		t.Fatalf("persistent: %v", err)
+	}
+	l, f := storm.Load, kept.Fleet
+	if l == nil || f == nil {
+		t.Fatalf("reports: storm %v, persistent %v", l, f)
+	}
+	if l.Succeeded != 6 || l.Failed != 0 || f.Attached != 6 || f.AttachFailed != 0 {
+		t.Fatalf("attached: storm %d/%d, persistent %d/%d; want 6/0 each", l.Succeeded, l.Failed, f.Attached, f.AttachFailed)
+	}
+	if l.AchievedRate <= 0 || f.AchievedRate <= 0 {
+		t.Errorf("achieved rate: storm %v, persistent %v", l.AchievedRate, f.AchievedRate)
+	}
+	for proc, ls := range l.Latencies {
+		fs, ok := f.Latencies[proc]
+		if !ok || fs.Count != ls.Count {
+			t.Errorf("%s: storm timed %d, persistent %d (present %t)", proc, ls.Count, fs.Count, ok)
+		}
+	}
+	if len(f.Latencies) != len(l.Latencies) {
+		t.Errorf("procedures: storm %v, persistent %v", keys(l.Latencies), keys(f.Latencies))
+	}
+}
+
+func keys(m map[string]load.Stats) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
