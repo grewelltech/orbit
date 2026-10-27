@@ -184,9 +184,12 @@ func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, err
 // goroutine. Each kind supplies at most one live-aggregate holder (the other
 // is nil). mkExec builds the launcher once the run's event emitter exists.
 func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats, fleetLive *FleetLiveStats, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
+	// Canonicalising may resolve AMF names, so it happens before the lock:
+	// a slow resolver must not stall every other call on the registry.
+	want := r.leases.canonical(opts.Needs)
 	r.mu.Lock()
 	id := r.freshIDLocked()
-	if err := r.leases.acquire(id, opts.Needs); err != nil {
+	if err := r.leases.acquire(id, want); err != nil {
 		r.mu.Unlock()
 		return RunInfo{}, err
 	}

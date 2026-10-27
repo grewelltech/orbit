@@ -12,7 +12,7 @@ import (
 
 // fakeResolve resolves amf.lab to 10.0.0.1, as DNS would, and leaves other
 // addresses as written.
-func fakeResolve(amf string) string {
+func fakeResolve(_ context.Context, amf string) string {
 	if amf == "amf.lab:38412" {
 		return "10.0.0.1:38412"
 	}
@@ -53,10 +53,10 @@ func TestLeaseConflicts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			lt := newLeaseTable()
 			lt.resolveAMF = fakeResolve
-			if err := lt.acquire("run-held", tc.held); err != nil {
+			if err := lt.acquire("run-held", lt.canonical(tc.held)); err != nil {
 				t.Fatal(err)
 			}
-			err := lt.acquire("run-new", tc.want)
+			err := lt.acquire("run-new", lt.canonical(tc.want))
 			if tc.resource == "" {
 				if err != nil {
 					t.Fatalf("refused: %v", err)
@@ -81,7 +81,7 @@ func TestLeaseConflicts(t *testing.T) {
 // --bind); that is not a conflict with itself.
 func TestLeaseSharedBindWithinARun(t *testing.T) {
 	lt := newLeaseTable()
-	if err := lt.acquire("run-1", Needs{N2IPs: []string{"10.0.1.5", "10.0.1.5", "10.0.1.5:0"}}); err != nil {
+	if err := lt.acquire("run-1", lt.canonical(Needs{N2IPs: []string{"10.0.1.5", "10.0.1.5", "10.0.1.5:0"}})); err != nil {
 		t.Fatalf("a run sharing one bind across its gNBs was refused: %v", err)
 	}
 	if n := len(lt.held["run-1"].n2); n != 1 {
@@ -102,7 +102,7 @@ func TestResolveAMF(t *testing.T) {
 		"no-such-host.invalid:1": "no-such-host.invalid:1",
 		"AMF.Example.INVALID:1":  "amf.example.invalid:1",
 	} {
-		got := resolveAMF(in)
+		got := resolveAMF(context.Background(), in)
 		if in == "localhost:38412" && got == "[::1]:38412" {
 			continue // a host resolving localhost to ::1 first
 		}
@@ -212,5 +212,56 @@ func TestLeasesReleasedOnEveryEnd(t *testing.T) {
 				t.Errorf("the same resources after a %s run: %v", tc.state, err)
 			}
 		})
+	}
+}
+
+// Resolving an AMF name happens outside the registry lock and is bounded:
+// while one StartRun waits on a hanging resolver, other calls on the
+// registry return at once, and a resolver past its deadline falls back to
+// the name as written.
+func TestSlowAMFResolutionBlocksNobody(t *testing.T) {
+	r := quietRegistry(0)
+	entered := make(chan struct{})
+	unblock := make(chan struct{})
+	r.leases.resolveAMF = func(ctx context.Context, amf string) string {
+		close(entered)
+		select {
+		case <-unblock:
+		case <-ctx.Done():
+		}
+		return amf
+	}
+	started := make(chan error, 1)
+	go func() {
+		_, err := r.StartLoad(RunOptions{Needs: Needs{GNBs: []GNBKey{{AMF: "amf.slow:38412", PLMN: "001/01", ID: 1}}}},
+			func(context.Context, *load.LiveStats, RunEventFunc) (load.Report, error) { return load.Report{}, nil })
+		started <- err
+	}()
+	<-entered
+	done := make(chan struct{})
+	go func() {
+		r.List()
+		_, _ = r.Get("run-none")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("List/Get blocked behind a StartRun resolving its AMF")
+	}
+	close(unblock)
+	if err := <-started; err != nil {
+		t.Fatalf("StartLoad: %v", err)
+	}
+}
+
+// A resolver that never answers is cut off at the timeout and the name is
+// leased as written.
+func TestResolveAMFTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	<-ctx.Done()
+	if got := resolveAMF(ctx, "Some.Host.Invalid:38412"); got != "some.host.invalid:38412" {
+		t.Errorf("resolveAMF after the deadline = %q, want the lower-cased name", got)
 	}
 }

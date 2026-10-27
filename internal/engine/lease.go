@@ -1,12 +1,14 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bgrewell/orbit/internal/ue"
 )
@@ -126,11 +128,13 @@ type leases struct {
 
 // leaseTable holds every active run's leases. It is guarded by the
 // registry's lock: a run's leases are taken in the same critical section
-// that registers it, so two StartRuns cannot both win a resource.
+// that registers it, so two StartRuns cannot both win a resource. Needs are
+// canonicalised (canonical, which may resolve names) BEFORE that section,
+// so a slow resolver never holds the lock.
 type leaseTable struct {
 	// resolveAMF canonicalises an AMF address to IP:port, so a name and
 	// its address are one key. Tests replace it.
-	resolveAMF func(string) string
+	resolveAMF func(ctx context.Context, amf string) string
 	held       map[string]*leases // run id → its leases
 }
 
@@ -138,15 +142,29 @@ func newLeaseTable() *leaseTable {
 	return &leaseTable{resolveAMF: resolveAMF, held: map[string]*leases{}}
 }
 
-// resolveAMF is an AMF's IP:port, or the address as written when it does
-// not resolve.
-func resolveAMF(amf string) string {
-	if a, err := net.ResolveTCPAddr("tcp", amf); err == nil && a.IP != nil {
-		if ip, ok := netip.AddrFromSlice(a.IP); ok {
-			return netip.AddrPortFrom(ip.Unmap(), uint16(a.Port)).String()
-		}
+// amfResolveTimeout bounds resolving one AMF name at StartRun.
+const amfResolveTimeout = 2 * time.Second
+
+// resolveAMF is an AMF's IP:port, or the address as written (lower-cased)
+// when it does not resolve within ctx.
+func resolveAMF(ctx context.Context, amf string) string {
+	host, port, err := net.SplitHostPort(amf)
+	if err != nil {
+		return strings.ToLower(amf)
 	}
-	return strings.ToLower(amf)
+	p, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		return strings.ToLower(amf)
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		return netip.AddrPortFrom(a.Unmap().WithZone(""), uint16(p)).String()
+	}
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil || len(addrs) == 0 {
+		return strings.ToLower(amf)
+	}
+	// The first address is the one a dial would try first.
+	return netip.AddrPortFrom(addrs[0].Unmap(), uint16(p)).String()
 }
 
 // n2Key is an N2 bind address's IP, canonicalised, or "" for none: an empty
@@ -169,12 +187,22 @@ func n2Key(bind string) string {
 	return a.Unmap().WithZone("").String()
 }
 
-// canonical turns a run's needs into its leases, deduplicated: a load run
-// may share one N2 address across its gNBs.
+// canonical turns a run's needs into its leases, deduplicated (a load run
+// may share one N2 address across its gNBs), resolving each distinct AMF
+// once within amfResolveTimeout. It takes no lock: call it before the
+// registry's critical section.
 func (t *leaseTable) canonical(n Needs) *leases {
 	l := &leases{supis: n.SUPIs, gnbs: map[GNBKey]bool{}, n2: map[string]bool{}}
+	resolved := map[string]string{}
 	for _, g := range n.GNBs {
-		g.AMF = t.resolveAMF(g.AMF)
+		amf, ok := resolved[g.AMF]
+		if !ok {
+			ctx, cancel := context.WithTimeout(context.Background(), amfResolveTimeout)
+			amf = t.resolveAMF(ctx, g.AMF)
+			cancel()
+			resolved[g.AMF] = amf
+		}
+		g.AMF = amf
 		l.gnbs[g] = true
 	}
 	for _, b := range n.N2IPs {
@@ -185,10 +213,10 @@ func (t *leaseTable) canonical(n Needs) *leases {
 	return l
 }
 
-// acquire takes run id's leases, or refuses with the first conflict, in a
-// stable order (holders by id).
-func (t *leaseTable) acquire(id string, n Needs) error {
-	want := t.canonical(n)
+// acquire takes run id's leases (from canonical), or refuses with the
+// first conflict, in a stable order (holders by id). Callers hold the
+// registry's lock.
+func (t *leaseTable) acquire(id string, want *leases) error {
 	holders := make([]string, 0, len(t.held))
 	for h := range t.held {
 		holders = append(holders, h)
