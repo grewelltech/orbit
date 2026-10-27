@@ -369,3 +369,30 @@ func TestRegistrySaveFailure(t *testing.T) {
 		t.Errorf("the tombstone is not on disk: %v", err)
 	}
 }
+
+// Remove, then re-join under the same name: a new token with that name is
+// issued (the burned one does not hold it), and it registers.
+func TestRejoinSameNameAfterRemove(t *testing.T) {
+	l := newRegLab(t, "")
+	named := func() string {
+		t.Helper()
+		_, secret, err := l.store.Create("app1", 0, testSpec)
+		if err != nil {
+			t.Fatalf("join create --name app1: %v", err)
+		}
+		return secret
+	}
+	if _, err := l.reg.Register(l.store, regReq(named(), cred(t), "app1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.reg.Remove("app1"); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := l.reg.Register(l.store, regReq(named(), cred(t), "app1"))
+	if err != nil || rs.Name != "app1" {
+		t.Fatalf("re-join: %+v, %v", rs, err)
+	}
+	if st := l.reg.List(); len(st) != 1 || st[0].ID != rs.ID {
+		t.Errorf("registered: %+v", st)
+	}
+}

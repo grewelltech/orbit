@@ -151,7 +151,7 @@ func NewStore(opts ...Option) *Store {
 var (
 	ErrTTL       = fmt.Errorf("ttl: at most %s", MaxTTL)
 	ErrName      = errors.New("name: a letter or digit, then up to 62 letters, digits, '-' or '_'")
-	ErrNameTaken = errors.New("name: a pending token already has that name")
+	ErrNameTaken = errors.New("name taken by a pending join token")
 	ErrNotFound  = errors.New("no pending join token with that ID")
 )
 
@@ -188,9 +188,13 @@ func (s *Store) Create(name string, ttl time.Duration, spec Spec) (Token, string
 	defer s.mu.Unlock()
 	s.sweep(now)
 	if name != "" {
+		// Only a pending token holds its name. A burned one has registered
+		// its responder: whether that name is free is the registry's rule,
+		// at registration (a re-join, or --fresh, replaces it there).
 		for _, o := range s.tokens {
-			if o.Name == name {
-				return Token{}, "", ErrNameTaken
+			if o.Name == name && !o.burned {
+				return Token{}, "", fmt.Errorf("%w: token %s (expires in %s) already has that name; orbit join revoke %s",
+					ErrNameTaken, o.ID, o.Expires.Sub(now).Round(time.Second), o.ID)
 			}
 		}
 	}
