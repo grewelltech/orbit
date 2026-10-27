@@ -472,3 +472,35 @@ func TestFirstSUPIInPLMN(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// show never prints a whole value's raw text: one holding a secret-named
+// key is masked, and one it cannot render (a YAML map with a key that is
+// not a string) is masked too, whatever it holds.
+func TestShowWholeValueFailsClosed(t *testing.T) {
+	_, f, err := lookup("workloads[].behaviors")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		v    any
+		want string
+	}{
+		{name: "rendered", v: map[string]any{"rate": 2}, want: `{"rate":2}`},
+		{name: "secret key, string keys", v: map[string]any{"params": map[string]any{"token": "s3cret"}}, want: Masked},
+		{name: "secret key in a non-string-keyed map", v: map[any]any{"params": map[any]any{"token": "s3cret", 1: "x"}}, want: Masked},
+		{name: "secret value in a non-string-keyed map", v: map[any]any{1: "s3cret", "note": "x"}, want: unrenderable},
+		{name: "unrenderable in a list", v: []any{map[any]any{1: "s3cret"}}, want: unrenderable},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := show(f, tc.v)
+			if got != tc.want {
+				t.Errorf("show = %q, want %q", got, tc.want)
+			}
+			if strings.Contains(got, "s3cret") {
+				t.Errorf("show printed the secret: %q", got)
+			}
+		})
+	}
+}

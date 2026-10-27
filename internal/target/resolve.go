@@ -363,6 +363,10 @@ func isTargetPath(p string) bool {
 // subtree is masked whole when any key in it names a secret (a cohort's
 // token, a params entry called password): its provenance is one entry,
 // and a partly masked rendering would still be the subtree's text.
+// unrenderable is what show prints for a whole value it cannot render (a
+// map with a key that is not a string): masked, whatever it holds.
+const unrenderable = "<unrenderable: masked>"
+
 func show(f field, v any) string {
 	if f.secret || (f.typ == tAny && holdsSecret(v)) {
 		return Masked
@@ -373,7 +377,9 @@ func show(f field, v any) string {
 		}
 		b, err := json.Marshal(v)
 		if err != nil {
-			return fmt.Sprint(v)
+			// Fails closed: a subtree that cannot be rendered is shown
+			// masked, never as Go's own text of its values.
+			return unrenderable
 		}
 		return string(b)
 	}
@@ -399,6 +405,13 @@ func holdsSecret(v any) bool {
 	case map[string]any:
 		for k, e := range x {
 			if secrets.IsSecretName(k) || holdsSecret(e) {
+				return true
+			}
+		}
+	case map[any]any:
+		// A YAML map with a key that is not a string (1: x) decodes so.
+		for k, e := range x {
+			if secrets.IsSecretName(fmt.Sprint(k)) || holdsSecret(e) {
 				return true
 			}
 		}

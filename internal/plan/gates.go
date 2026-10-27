@@ -136,6 +136,9 @@ func ParseGate(spec string) ([]target.Setting, error) {
 	if n, rest, ok := strings.Cut(spec, "="); ok && !strings.ContainsAny(n, "<>") {
 		name, expr = strings.TrimSpace(n), strings.TrimSpace(rest)
 	}
+	if strings.ContainsAny(name, ".[]") {
+		return nil, fmt.Errorf("--gate %q: a gate's name may not hold '.', '[' or ']'", spec)
+	}
 	if expr == "conformance" {
 		if name == "" {
 			name = "conformance"

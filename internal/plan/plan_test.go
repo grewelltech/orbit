@@ -417,6 +417,8 @@ func TestParseGate(t *testing.T) {
 		{spec: "suite=conformance", want: map[string]string{"gates[suite].conformance": "true"}},
 		{spec: "attach.success_ratio", wantErr: "want [name=]metric<op>value"},
 		{spec: "a.b=attach.success_ratio>=1", wantErr: "may not hold"},
+		{spec: "a.b=conformance", wantErr: "may not hold"},
+		{spec: "x[0]=conformance", wantErr: "may not hold"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.spec, func(t *testing.T) {
