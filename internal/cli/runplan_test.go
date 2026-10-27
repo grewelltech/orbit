@@ -365,3 +365,41 @@ func TestPopulationHoldsUntilTheDeadline(t *testing.T) {
 		})
 	}
 }
+
+// `orbit test fleet` probes latency to the target's first responder's
+// data_ip; against a target with none it says so and runs the fleet idle,
+// never failing.
+func TestOrbitTestFleetLatencyProbe(t *testing.T) {
+	clearOrbitEnv(t)
+	withResponder := lab1 + "app:\n  responders:\n    - { name: n6, control: 203.0.113.20:9551, data_ip: 203.0.113.21 }\n"
+	const note = "fleet template: no responder in target lab1; running without the latency probe"
+	tests := []struct {
+		name        string
+		doc         string
+		wantLatency string
+		wantNote    bool
+	}{
+		{name: "a responder", doc: withResponder, wantLatency: "203.0.113.21"},
+		{name: "no responder", doc: lab1, wantNote: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &stubRunService{startRunID: "run-f"}
+			url := stubRunServer(t, stub)
+			r := runOrbit(t, targetDir(t, tc.doc), "test", "fleet", "-t", "lab1", "--server", *url)
+			if r.execErr != nil {
+				t.Fatalf("%v\n%s", r.execErr, r.err)
+			}
+			if strings.Contains(r.err, note) != tc.wantNote {
+				t.Errorf("stderr note = %t, want %t:\n%s", !tc.wantNote, tc.wantNote, r.err)
+			}
+			beh := stub.startReq.GetPlan().GetWorkloads()[0].GetPopulation().GetBehaviors()
+			if beh == nil {
+				t.Fatal("the fleet has no behaviours: it would not keep its UEs")
+			}
+			if got := beh.GetLatency().GetTarget(); got != tc.wantLatency {
+				t.Errorf("latency target = %q, want %q", got, tc.wantLatency)
+			}
+		})
+	}
+}

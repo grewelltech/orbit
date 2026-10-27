@@ -548,3 +548,62 @@ func TestGates(t *testing.T) {
 		})
 	}
 }
+
+// The fleet template's latency probe echoes the target's first responder's
+// data_ip; a target with none runs the fleet idle, with a note, and never
+// fails. Other templates take nothing more from the target.
+func TestFillTemplate(t *testing.T) {
+	withResponder := func(ips ...string) target.Target {
+		tg := target.Target{Name: "lab"}
+		for i, ip := range ips {
+			tg.App.Responders = append(tg.App.Responders, target.Responder{Name: fmt.Sprintf("r%d", i), DataIP: ip})
+		}
+		return tg
+	}
+	const noResponder = "fleet template: no responder in target lab; running without the latency probe"
+	tests := []struct {
+		name        string
+		template    string
+		target      target.Target
+		wantChanged bool
+		wantNote    string
+		wantLatency string // the built plan's latency target; "" none
+	}{
+		{name: "fleet, a responder", template: "fleet", target: withResponder("198.51.100.7", "198.51.100.8"),
+			wantChanged: true, wantLatency: "198.51.100.7"},
+		{name: "fleet, no responder", template: "fleet", target: withResponder(), wantNote: noResponder},
+		{name: "fleet, a responder with no data_ip", template: "fleet", target: withResponder(""), wantNote: noResponder},
+		{name: "load", template: "load", target: withResponder("198.51.100.7")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rf, err := Template(tc.template)
+			if err != nil {
+				t.Fatal(err)
+			}
+			changed, note := FillTemplate(tc.template, rf, tc.target)
+			if changed != tc.wantChanged || note != tc.wantNote {
+				t.Fatalf("FillTemplate = %t, %q; want %t, %q", changed, note, tc.wantChanged, tc.wantNote)
+			}
+			files, err := target.Parse("lab1.yaml", []byte(labTarget), noEnv)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := target.Resolve(target.DefaultInput(), files[0].Input, rf.Input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, _, err := Build(res)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pop := p.GetWorkloads()[0].GetPopulation()
+			if got := pop.GetBehaviors().GetLatency().GetTarget(); got != tc.wantLatency {
+				t.Errorf("latency target = %q, want %q", got, tc.wantLatency)
+			}
+			if tc.template == "fleet" && pop.GetBehaviors() == nil {
+				t.Error("the fleet lost its behaviours: it would not keep its UEs")
+			}
+		})
+	}
+}

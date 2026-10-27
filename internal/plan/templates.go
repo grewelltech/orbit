@@ -46,3 +46,33 @@ func Template(name string) (*target.RunFile, error) {
 	}
 	return target.ParseRunFile("template "+name, []byte(text), func(string) (string, bool) { return "", false })
 }
+
+// fleetBehaviors is the fleet template's behaviours field.
+const fleetBehaviors = "workloads[fleet].behaviors"
+
+// FillTemplate completes template name from the resolved target t: the
+// fleet template's latency probe echoes the target's first responder's
+// data_ip, as a scenario's omitted latency.target does. A target with
+// none leaves the fleet idle until its deadline, and FillTemplate says so
+// in note; it never fails. changed reports whether rf changed, so the
+// plan must be built again.
+func FillTemplate(name string, rf *target.RunFile, t target.Target) (changed bool, note string) {
+	if name != "fleet" {
+		return false, ""
+	}
+	ip := ""
+	if rs := t.App.Responders; len(rs) > 0 {
+		ip = rs[0].DataIP
+	}
+	if ip == "" {
+		return false, fmt.Sprintf("fleet template: no responder in target %s; running without the latency probe", t.Name)
+	}
+	for i, s := range rf.Input.Settings {
+		if s.Path == fleetBehaviors {
+			rf.Input.Settings[i].Value = fmt.Sprintf("{latency: {target: %q}}", ip)
+			rf.Input.Settings[i].Source.Name += " (latency target: the first responder's data_ip)"
+			changed = true
+		}
+	}
+	return changed, ""
+}

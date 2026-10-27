@@ -60,6 +60,17 @@ func newTestCmd(serverURL *string, o options) *cobra.Command {
 			if err != nil {
 				return exitWith(ExitCouldNotStart, err)
 			}
+			// What the template takes from the target (the fleet's
+			// latency probe) is known once the target is resolved.
+			changed, note := plan.FillTemplate(args[0], rf, res.Target)
+			if note != "" {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), note)
+			}
+			if changed {
+				if req, res, name, err = buildPlan(cmd, o, rf, flags, "."); err != nil {
+					return exitWith(ExitCouldNotStart, err)
+				}
+			}
 			if explaining(cmd) {
 				return explainPlan(cmd, name, res, req)
 			}
