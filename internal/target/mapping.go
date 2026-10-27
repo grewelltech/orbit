@@ -139,6 +139,7 @@ var Exclusions = []Exclusion{
 
 	{Flag: "json", Reason: ReasonOutput},
 	{Flag: "explain", Reason: ReasonOutput},
+	{Flag: "list", Reason: ReasonOutput},
 	{Flag: "out", Reason: ReasonOutput},
 	{Flag: "progress-every", Reason: ReasonOutput},
 	{Flag: "from-seq", Reason: ReasonOutput},

@@ -6,6 +6,8 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -30,11 +32,23 @@ func newConformanceCmd() *cobra.Command {
 		targetRelease string
 		expectedPath  string
 		ueFlags       conformanceUEFlags
+		list          bool
 	)
 	cmd := &cobra.Command{
 		Use:   "conformance",
 		Short: "Run the core conformance / regression suite against a live core",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cats := make([]conformance.Category, 0, len(categories))
+			for _, c := range categories {
+				cats = append(cats, conformance.Category(c))
+			}
+			reg := conformance.NewRegistry()
+			if list {
+				return printConformanceList(cmd.OutOrStdout(), reg.Select(cats...), perTest)
+			}
+			if amf == "" {
+				return fmt.Errorf(`required flag(s) "amf" not set`)
+			}
 			// The list is read first, so a bad file fails before any dial.
 			var expected *conformance.ExpectedFailures
 			if expectedPath != "" {
@@ -72,11 +86,16 @@ func newConformanceCmd() *cobra.Command {
 				SpecTargets:   conformance.DefaultSpecTargets(),
 				UE:            ueSpec,
 			}
-			cats := make([]conformance.Category, 0, len(categories))
-			for _, c := range categories {
-				cats = append(cats, conformance.Category(c))
-			}
-			results := conformance.NewRegistry().Run(cmd.Context(), env, perTest, cats...)
+			// Each check is announced on stderr before it runs, with how long
+			// it may take, so a check that waits out NAS timers does not look
+			// like a hang; stdout keeps only the results.
+			ann := newAnnouncer(cmd.ErrOrStderr(), progressEvery)
+			ann.suite(reg.Select(cats...), perTest)
+			var results []conformance.Result
+			reg.RunWithStart(cmd.Context(), env, perTest, ann.start, func(res conformance.Result, _, _ int) {
+				ann.done()
+				results = append(results, res)
+			}, cats...)
 			expected.Apply(results)
 			sum := conformance.Summarize(results)
 			sum.Stale = expected.Stale(results)
@@ -100,7 +119,7 @@ func newConformanceCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port)")
+	f.StringVar(&amf, "amf", "", "AMF N2 endpoint (host:port); required unless --list")
 	f.StringVar(&bind, "bind", "", bindFlagHelp+"; port must be 0 (each check dials afresh)")
 	addNetIdentityFlags(f, &id, withDNN())
 	f.StringVar(&upfN3, "upf-n3", "", "UPF N3 endpoint host:port: the UPF's primary N3 address, which answers GTP-U Echo (enables GTP-U checks; run from the UPF access network)")
@@ -108,7 +127,8 @@ func newConformanceCmd() *cobra.Command {
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")
 	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility, nas)")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	f.DurationVar(&perTest, "per-test-timeout", 15*time.Second, "per-check timeout")
+	f.DurationVar(&perTest, "per-test-timeout", conformance.DefaultPerTestTimeout, "per-check timeout; a check that needs longer (NAS timer checks) gets its own budget")
+	f.BoolVar(&list, "list", false, "list the checks (filtered by --category) with how long each can take at --per-test-timeout, and the total, without running them")
 	f.StringVar(&targetRelease, "target-release", "",
 		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, the SD-Core release; TS 29.244 pinned to Rel-16; \"unset\" runs every check)")
 	f.StringVar(&expectedPath, "expected-failures", "",
@@ -120,8 +140,107 @@ func newConformanceCmd() *cobra.Command {
 	f.StringVar(&ueFlags.traffic, "traffic", "", "optional echo peer host:port the mobility checks' UE sends to across the handover")
 	f.Var(newNilStringSlice(&ueFlags.nasIntegrity), "nas-integrity", "NAS integrity algorithms the UE advertises: NIA1, NIA2, NIA3, comma-separated (default NIA2; NIA0 is refused)")
 	f.Var(newNilStringSlice(&ueFlags.nasCiphering), "nas-ciphering", "NAS ciphering algorithms the UE advertises: NEA0, NEA1, NEA2, NEA3, comma-separated (default NEA0; another cipher makes the NAS in pcaps unreadable)")
-	_ = cmd.MarkFlagRequired("amf")
 	return cmd
+}
+
+// printConformanceList prints --list: one line per check with its category,
+// required release and the longest it can take at perTest, then the total.
+func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tREQUIRES\tUP TO")
+	var total time.Duration
+	for _, t := range tests {
+		d := conformance.ExpectedDuration(t, perTest)
+		total += d
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.ID(), t.Category(), conformance.MinRelease(t), d)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(w, "\n%d checks, up to %s in total at --per-test-timeout %s\n", len(tests), total, perTestOrDefault(perTest))
+	return err
+}
+
+func perTestOrDefault(d time.Duration) time.Duration {
+	if d <= 0 {
+		return conformance.DefaultPerTestTimeout
+	}
+	return d
+}
+
+// progressEvery is how often a long check reports that it is still running.
+const progressEvery = 30 * time.Second
+
+// announcer prints the run's progress to w (stderr): the suite's total
+// before it starts, each check as it starts with the longest it can take,
+// and, for a check that can take longer than every, its elapsed time every
+// every. It is driven from the suite's goroutine (start, done) plus one
+// ticker goroutine per long check.
+type announcer struct {
+	w     io.Writer
+	every time.Duration
+
+	mu   sync.Mutex
+	stop chan struct{}
+	wg   sync.WaitGroup
+}
+
+func newAnnouncer(w io.Writer, every time.Duration) *announcer {
+	return &announcer{w: w, every: every}
+}
+
+// suite prints how many checks will run and the longest the run can take.
+func (a *announcer) suite(tests []conformance.Test, perTest time.Duration) {
+	var total time.Duration
+	for _, t := range tests {
+		total += conformance.ExpectedDuration(t, perTest)
+	}
+	a.printf("Running %d checks, up to %s in total\n", len(tests), total)
+}
+
+// start announces a check; a long one gets a progress line every a.every.
+func (a *announcer) start(t conformance.Test, expected time.Duration, index, total int) {
+	a.printf("[%d/%d] %s (%s): up to %s\n", index+1, total, t.ID(), t.Category(), expected)
+	if expected <= a.every {
+		return
+	}
+	stop := make(chan struct{})
+	a.mu.Lock()
+	a.stop = stop
+	a.mu.Unlock()
+	began := time.Now()
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		tick := time.NewTicker(a.every)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				a.printf("      %s: %s elapsed of up to %s\n", t.ID(), time.Since(began).Round(time.Second), expected)
+			}
+		}
+	}()
+}
+
+// done ends the running check's progress lines.
+func (a *announcer) done() {
+	a.mu.Lock()
+	stop := a.stop
+	a.stop = nil
+	a.mu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
+	a.wg.Wait()
+}
+
+func (a *announcer) printf(format string, args ...any) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	_, _ = fmt.Fprintf(a.w, format, args...)
 }
 
 // printConformanceText renders a run for the terminal: the network, source,
