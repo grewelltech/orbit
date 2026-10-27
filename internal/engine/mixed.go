@@ -206,6 +206,18 @@ func (s *mixedState) partial() any {
 	return nil
 }
 
+// attachedBy reports whether a population's final report shows its attach
+// phase done.
+func attachedBy(report any, count int) bool {
+	switch r := report.(type) {
+	case *load.Report:
+		return count > 0 && r.Attempted >= count
+	case *FleetReport:
+		return count > 0 && r.Attached+r.AttachFailed >= count
+	}
+	return false
+}
+
 // attachPoll is how often a population is checked for PhaseAttached.
 const attachPoll = 50 * time.Millisecond
 
@@ -387,7 +399,9 @@ func runWorkload(ctx context.Context, s *mixedState, byName map[string]*mixedSta
 		res.State, res.Detail = WorkloadFailed, err.Error()
 	default:
 		res.State = WorkloadDone
-		if s.attached() {
+		// The final report too: a fleet that attached and deregistered
+		// inside one poll shows no attached UEs live any more.
+		if s.attached() || attachedBy(res.Report, w.Count) {
 			s.reach(PhaseAttached)
 		}
 		s.reach(PhaseComplete)

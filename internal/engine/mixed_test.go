@@ -281,3 +281,24 @@ func TestRunMixedStopKeepsPartials(t *testing.T) {
 		t.Errorf("stopped population's report = %+v, want its 3 attempts", r.MixedProgress(info.ID)[0].Report)
 	}
 }
+
+// A population whose whole attach phase falls inside one poll still
+// reaches ATTACHED, from its final report: a fleet's live count of
+// attached UEs falls as they deregister.
+func TestRunMixedAttachedFromReport(t *testing.T) {
+	r := quietRegistry(0)
+	c := &clock{}
+	info, err := r.StartMixed(RunOptions{}, []MixedWorkload{
+		{Name: "fleet", Count: 5, Fleet: func(context.Context, *FleetLiveStats, RunEventFunc) (FleetReport, error) {
+			return FleetReport{Attached: 5, Deregistered: 5}, nil // attached and gone, unseen live
+		}},
+		{Name: "suite", Conformance: suite(c), After: "fleet", Phase: PhaseAttached},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, r, info.ID, RunComplete)
+	if ps := r.MixedProgress(info.ID); ps[1].State != WorkloadDone {
+		t.Errorf("suite = %+v, want it run after the fleet attached", ps[1])
+	}
+}

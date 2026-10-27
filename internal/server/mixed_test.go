@@ -341,3 +341,46 @@ func TestSuiteDeadlineFromRunStart(t *testing.T) {
 		t.Errorf("summary: %d of %d, incomplete %t", len(c.GetResults()), c.GetTotal(), c.GetIncomplete())
 	}
 }
+
+// A mixed plan on a target that bounds its gNB IDs keeps both workloads
+// inside the block: the suite packed above the population's IDs.
+func TestMixedInABoundedBlock(t *testing.T) {
+	s := planService(t)
+	pr, err := s.buildPlan(mixedPlan(func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
+		p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 5000, Count: 200}
+		cw.Categories = nil
+	}), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range pr.needs.GNBs {
+		if g.ID < 5000 || g.ID > 5199 {
+			t.Errorf("gNB ID %d outside the block", g.ID)
+		}
+	}
+	if !pr.mixed[1].SuiteLive.(*suiteLive).spec.env.PackedGNBIDs {
+		t.Error("the suite is not packed in a bounded block")
+	}
+}
+
+// A suite stopped after its last check ran is done, not stopped.
+func TestSuiteStoppedAfterTheLastCheckIsDone(t *testing.T) {
+	s := planService(t)
+	pr, err := s.buildPlan(suitePlan(func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+		p.Target.Core.Amf = "127.0.0.1:1"
+		cw.Categories = []string{"procedural"}
+	}), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	stopAtEnd := func(sev, kind, supi, msg string) {
+		if rs, _ := pr.suiteLive.snapshot(); len(rs) == pr.suiteLive.spec.total {
+			cancel() // the stop lands as the last result is published
+		}
+	}
+	rep, err := pr.suite(ctx, stopAtEnd)
+	if err != nil || rep == nil {
+		t.Fatalf("suite = %v, %v; want done", rep, err)
+	}
+}
