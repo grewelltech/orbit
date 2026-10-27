@@ -395,6 +395,79 @@ tokens" above), which the unit does not yet provision. When it does, export
 `ORBIT_SERVER=https://<listen>` in the shell you run client commands from, so
 they find the service without `--server` on every call.
 
+## N6 app hosts (`orbit join`)
+
+An app host on the N6 side (the far end of user-plane tests) is set up by
+pasting one line on it (ADR-0009). `orbit join create` issues a short-lived
+token and prints that line:
+
+```sh
+orbit join create -t lab1 --name app1
+# join token jt-… for responder app1, expires … (in 10m0s).
+curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/join/oj1_…' | sudo sh
+```
+
+- **Server needs TLS.** The script runs as root, so `orbit serve` offers join
+  only with TLS (`--tls auto`, or `--tls-cert`/`--tls-key`), never in
+  plaintext.
+- **The pin is the check.** The line pins the server's key with
+  `--pinnedpubkey`. `-k` only skips the CA check, which a self-signed
+  `--tls auto` certificate cannot pass: curl still refuses any other key.
+- **What the token carries.** It holds the UE pools (`core.ue_pools`), the
+  UPF's N6 address and subnet (`core.upf_n6`, `core.n6_subnet`) and the
+  address the app host reaches the server at. That address is `--mgmt`, by
+  default the server's `--listen` address, which must then be neither a
+  wildcard nor loopback.
+- **What the script does now.** It checks for Linux amd64/arm64, downloads
+  `orbit` into a private directory and refuses it unless its SHA-256
+  matches. The route, firewall and responder setup steps are being added;
+  this server's script changes nothing on the host yet. The whole script is
+  one function, called on its last line, so a download cut short runs
+  nothing.
+- **How to tell it worked.** `curl … | sudo sh` exits with sh's status, not
+  curl's: a failed download (a key that does not match the pin, an expired
+  token) still exits 0, with only curl's error on stderr. Success is the
+  line `orbit join: verified orbit for linux/<arch> …`, not `$?`. In a
+  script or automation, download first and run it only if that worked:
+
+  ```sh
+  curl -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh
+  ```
+- **Limits.** The join endpoints take the token only as the exact path
+  `/join/<token>` (or `/join/<token>/bin/<arch>`), unencoded. Anything else,
+  including an unknown, expired or revoked token and an arch the server has
+  no binary for, gets the same 404 and counts as a miss.
+  - **Misses:** 10 in 10 s lock the client's address out for 30 s.
+  - **Per address:** at most 30 requests a minute.
+  - **Server-wide:** at most 16 scripts render and 4 binaries download at
+    once.
+  - **A full table:** the server tracks up to 4096 client addresses a
+    minute. When the table is full, new addresses are refused for up to a
+    minute, keeping the server's memory bounded.
+- **The binaries.** `orbit serve` serves its own binary for its own arch.
+  `--join-binaries <dir>` serves `orbit-linux-amd64` and `orbit-linux-arm64`
+  from a directory.
+
+The token is in the line's URL, so treat the line as a credential until it
+expires:
+
+- paste it only on the intended host: it can show up in shell history,
+  briefly in `ps` while curl runs, and in the logs of any HTTP proxy the
+  request passes through (the URL is all a proxy logs; the server logs only
+  the token's ID);
+- keep `--ttl` short (default 10m, at most 1h);
+- revoke a token you do not use.
+
+```sh
+orbit join list            # pending tokens: ID, name, expiry; never the secret
+orbit join revoke jt-…     # cancel one
+```
+
+The server keeps only each token's hash, in memory, so restarting it revokes
+every pending token. A token stays valid until it expires or is revoked:
+fetching the script does not use it up, so a script that fails partway can be
+run again.
+
 ## Server runs (`orbit runs`)
 
 A run started with `orbit run <plan.yaml>`, `orbit run <fleet.yaml>`, `orbit

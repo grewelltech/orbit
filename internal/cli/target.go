@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -44,9 +43,6 @@ func newTargetCmd(serverURL *string, o options) *cobra.Command {
 	cmd.AddCommand(newTargetProbeCmd(serverURL, loc))
 	return cmd
 }
-
-// targetName is what init accepts as a name: it becomes a file name.
-var targetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$`)
 
 // keyPlaceholders are what init writes for the keys unless --write-keys:
 // the file then holds no key, and loading it expands them from the
@@ -107,7 +103,7 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			if !targetName.MatchString(name) {
+			if !target.ValidName(name) {
 				return fmt.Errorf("target name %q: use letters, digits, '-' and '_'", name)
 			}
 			out := cmd.OutOrStdout()

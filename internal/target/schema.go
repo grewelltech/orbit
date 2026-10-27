@@ -12,6 +12,7 @@ package target
 import (
 	"errors"
 	"fmt"
+	"regexp"
 )
 
 // Version is the target schema version this package reads.
@@ -50,6 +51,13 @@ type Core struct {
 	// UPFN3 is the UPF's N3 endpoint, host:port, for checks that reach it
 	// directly.
 	UPFN3 string `yaml:"upf_n3,omitempty" json:"upf_n3,omitempty"`
+	// UEPools are the CIDRs the core gives UEs their addresses from: the N6
+	// side routes them back through the UPF (ADR-0009 §2).
+	UEPools []string `yaml:"ue_pools,omitempty" json:"ue_pools,omitempty"`
+	// UPFN6 is the UPF's N6 address, the return route's next hop, and
+	// N6Subnet the N6 network it sits on, which the firewall opens to.
+	UPFN6    string `yaml:"upf_n6,omitempty" json:"upf_n6,omitempty"`
+	N6Subnet string `yaml:"n6_subnet,omitempty" json:"n6_subnet,omitempty"`
 }
 
 // PLMN is a PLMN identity.
@@ -154,3 +162,11 @@ func (t *Target) Validate() error {
 	}
 	return nil
 }
+
+// validName is the name charset: a target's name becomes a file name, and
+// a responder's a target's reference to it.
+var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$`)
+
+// ValidName reports whether s is a valid target or responder name: a
+// letter or digit, then up to 62 letters, digits, '-' or '_'.
+func ValidName(s string) bool { return validName.MatchString(s) }

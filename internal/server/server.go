@@ -51,6 +51,15 @@ type Options struct {
 	// require ("" = none). /healthz and the dashboard's static files stay
 	// open.
 	Token string
+	// TLS says orbit serve has TLS; without it nothing join is served
+	// (ADR-0009 §1). TLSPin is the server's key, sha256/<base64>, which a
+	// join one-liner pins, and Listen its listen address, host:port.
+	TLS    bool
+	TLSPin string
+	Listen string
+	// JoinBinaries are the orbit binaries a join serves, by arch (amd64,
+	// arm64), path to file.
+	JoinBinaries map[string]string
 }
 
 // New builds the ORBIT HTTP handler. The http.Server serving it enables
@@ -113,6 +122,11 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}, ic))
 	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc, ic))
 	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected, runs: runSvc}, ic))
+	joinSvc := newJoinService(log, sec, opts)
+	mux.Handle(orbitv1connect.NewJoinServiceHandler(joinSvc, ic))
+	// A join token is its own credential: /join/ is outside the bearer
+	// guard (protected), and served over TLS only.
+	mux.Handle("/join/", joinSvc)
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

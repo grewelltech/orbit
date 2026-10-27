@@ -518,6 +518,7 @@ func buildTarget(state map[string]*entry, order map[string][]string) (Target, er
 		t.Core.Slices[0].SD = sd.(string)
 	}
 	t.Core.DNN, t.Core.Profile, t.Core.UPFN3 = str("core.dnn"), str("core.profile"), str("core.upf_n3")
+	t.Core.UEPools, t.Core.UPFN6, t.Core.N6Subnet = strs("core.ue_pools"), str("core.upf_n6"), str("core.n6_subnet")
 	for _, n := range order["subscribers"] {
 		b := "subscribers[" + n + "]."
 		t.Subscribers = append(t.Subscribers, Pool{Name: n, FirstSUPI: str(b + "first_supi"), Count: num(b + "count"),

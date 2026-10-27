@@ -68,9 +68,19 @@ var checks = map[string]func(any) string{
 		}
 		return ""
 	},
-	"core.slices[].sd":         func(v any) string { return match(v, hex6, "6 hex digits") },
-	"core.amf":                 hostPort,
-	"core.upf_n3":              hostPort,
+	"core.slices[].sd": func(v any) string { return match(v, hex6, "6 hex digits") },
+	"core.amf":         hostPort,
+	"core.upf_n3":      hostPort,
+	"core.ue_pools": func(v any) string {
+		for _, c := range v.([]string) {
+			if msg := cidr(c); msg != "" {
+				return fmt.Sprintf("entry %q %s", c, msg)
+			}
+		}
+		return ""
+	},
+	"core.upf_n6":              func(v any) string { return ipAddr(v.(string)) },
+	"core.n6_subnet":           func(v any) string { return cidr(v.(string)) },
 	"app.responders[].control": hostPort,
 	"app.responders[].data_ip": func(v any) string { return ipOrHost(v.(string)) },
 	"subscribers[].first_supi": supi,
@@ -89,6 +99,22 @@ var checks = map[string]func(any) string{
 func match(v any, re *regexp.Regexp, want string) string {
 	if !re.MatchString(v.(string)) {
 		return "is not " + want
+	}
+	return ""
+}
+
+// ipAddr refuses anything but an IP address.
+func ipAddr(s string) string {
+	if _, err := netip.ParseAddr(s); err != nil {
+		return "is not an IP address"
+	}
+	return ""
+}
+
+// cidr refuses anything but a network in CIDR form (198.51.100.0/24).
+func cidr(s string) string {
+	if _, err := netip.ParsePrefix(s); err != nil {
+		return "is not a CIDR (address/length)"
 	}
 	return ""
 }

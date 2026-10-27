@@ -11,7 +11,8 @@ func TargetProto(t target.Target) *orbitv1.ResolvedTarget {
 	out := &orbitv1.ResolvedTarget{
 		Name: t.Name,
 		Core: &orbitv1.TargetCore{Amf: t.Core.AMF, Plmn: &orbitv1.Plmn{Mcc: t.Core.PLMN.MCC, Mnc: t.Core.PLMN.MNC},
-			Tac: t.Core.TAC, Dnn: t.Core.DNN, Profile: t.Core.Profile, UpfN3: t.Core.UPFN3},
+			Tac: t.Core.TAC, Dnn: t.Core.DNN, Profile: t.Core.Profile, UpfN3: t.Core.UPFN3,
+			UePools: t.Core.UEPools, UpfN6: t.Core.UPFN6, N6Subnet: t.Core.N6Subnet},
 		Ran: &orbitv1.TargetRAN{Node: t.RAN.Node, GnbName: t.RAN.GNBName, N2SourceIps: t.RAN.N2SourceIPs, N3Ips: t.RAN.N3IPs,
 			GnbIds: &orbitv1.GNBIDRange{First: t.RAN.GNBIDs.First, Count: t.RAN.GNBIDs.Count, Bits: t.RAN.GNBIDs.Bits}},
 		App: &orbitv1.TargetApp{},

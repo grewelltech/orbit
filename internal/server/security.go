@@ -153,6 +153,12 @@ func (s *security) authorized(header string) bool {
 // fail records a wrong token, logged without what was presented, and locks
 // the peer out once it reaches the limit within the window.
 func (s *security) fail(peer, path string) {
+	s.failWith(peer, "invalid bearer token", "path", path)
+}
+
+// failWith is fail with its own log message and attributes: a join token
+// miss logs no path, which would hold the token presented.
+func (s *security) failWith(peer, msg string, attrs ...any) {
 	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -165,11 +171,11 @@ func (s *security) fail(peer, path string) {
 	}
 	recent = append(recent, now)
 	s.failures[peer] = recent
-	s.log.Warn("invalid bearer token", "peer", peer, "path", path, "recent_failures", len(recent))
+	s.log.Warn(msg, append([]any{"peer", peer}, append(attrs, "recent_failures", len(recent))...)...)
 	if len(recent) >= authFailLimit {
 		s.locked[peer] = now.Add(authLockout)
 		delete(s.failures, peer)
-		s.log.Warn("peer locked out after repeated invalid bearer tokens", "peer", peer, "for", authLockout)
+		s.log.Warn("peer locked out after repeated invalid tokens", "peer", peer, "for", authLockout)
 	}
 }
 
