@@ -78,7 +78,12 @@ func (s FleetRunSpec) gnbForUE(i, gnbs int) int {
 // triggers, executed on schedule. Traffic runs one loom flow per non-mobile UE
 // over its gNB's shared N3 socket.
 type FleetBehaviors struct {
-	Duration      time.Duration
+	Duration time.Duration
+	// Hold keeps the fleet attached for all of Duration, even when its
+	// behaviours end sooner or it has none: a plan's until.duration is the
+	// run's own deadline. Without it (a scenario's run.duration), Duration
+	// only bounds the behaviours, and the fleet deregisters when they end.
+	Hold          bool
 	MobileUEs     int
 	Traffic       bool
 	TrafficRate   string
@@ -598,6 +603,10 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	}
 
 	wg.Wait()
+	if beh.Hold {
+		// Until the deadline, or a finish or cancel (which end ctx).
+		<-dctx.Done()
+	}
 	rep.TrafficBytes = trafficBytes.Load() + bulkBytes
 	rep.AppCohorts = appReports
 	if beh.Traffic && spec.PDUSession != nil && len(trafficUEs) > 0 {

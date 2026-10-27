@@ -1,0 +1,15 @@
+# A fleet: the target's subscribers attached and kept for the run's
+# duration (--for, default 5m), then deregistered. orbit test probes
+# user-plane latency to the target's first responder's data_ip; a target
+# with no responder runs the fleet idle. For other behaviours, copy it
+# (orbit test --list fleet) into a run file and fill in behaviors. Gated
+# on attach success at least 0.99.
+kind: run
+workloads:
+  - name: fleet
+    attach: {count: 100, rate: 10, concurrency: 64}
+    behaviors: {}
+until: {duration: 5m}
+gates:
+  - name: attach_success_ratio
+    slo: {metric: attach.success_ratio, op: ">=", threshold: "0.99"}

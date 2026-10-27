@@ -10,15 +10,26 @@ import (
 )
 
 // GateName is a gate's name in the gates list: derived from what it checks,
-// the metric and the workload it scopes to ("" for the whole run), so a gate
-// set in a run file and a --slo-* flag on the same metric are one gate and
-// merge (the flag winning) instead of being two.
+// the server's metric (attach.success_ratio, registration.p99_ms) and the
+// workload it scopes to ("" for the whole run), so a gate set in a run file
+// and a --slo-* or --gate flag on the same metric are one gate and merge
+// (the flag winning) instead of being two. A path selects a list element
+// by name between dots, so the metric's dots are underscores in the name:
+// attach_success_ratio, pop/registration_p99_ms.
 func GateName(workload, metric string) string {
+	name := strings.ReplaceAll(metric, ".", "_")
 	if workload == "" {
-		return metric
+		return name
 	}
-	return workload + "/" + metric
+	return workload + "/" + name
 }
+
+// The metrics the --slo-* flags gate on, as the server names them.
+const (
+	MetricSuccessRatio = "attach.success_ratio"
+	MetricRegP99       = "registration.p99_ms"
+	MetricAttachP99    = "attach.p99_ms"
+)
 
 var (
 	digits3    = regexp.MustCompile(`^[0-9]{3}$`)

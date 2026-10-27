@@ -112,17 +112,19 @@ func TestResolveValidatesValues(t *testing.T) {
 // A gate's name comes from its metric and scope, so a run-file gate and a
 // --slo-* flag on the same metric merge into one gate, the flag winning.
 func TestGatesMergeByDerivedName(t *testing.T) {
-	if GateName("", "slo-reg-p99") != "slo-reg-p99" || GateName("pop", "slo-reg-p99") != "pop/slo-reg-p99" {
-		t.Fatalf("GateName = %q, %q", GateName("", "slo-reg-p99"), GateName("pop", "slo-reg-p99"))
+	// Named after the server's metric, its dots underscores (a path selects
+	// an element by name between dots).
+	if GateName("", MetricRegP99) != "registration_p99_ms" || GateName("pop", MetricRegP99) != "pop/registration_p99_ms" {
+		t.Fatalf("GateName = %q, %q", GateName("", MetricRegP99), GateName("pop", MetricRegP99))
 	}
 	b, ok := FlagBinding("orbit load", "slo-reg-p99")
-	if !ok || b.Path != "gates["+GateName("", "slo-reg-p99")+"].slo.threshold" {
+	if !ok || b.Path != "gates["+GateName("", MetricRegP99)+"].slo.threshold" {
 		t.Fatalf("binding = %+v", b)
 	}
 	r, err := Resolve(
 		Input{Layer: LayerRunFile, Settings: []Setting{
-			set("gates["+GateName("", "slo-reg-p99")+"].slo.threshold", "500ms", "run.yaml"),
-			set("gates["+GateName("pop", "slo-reg-p99")+"].slo.threshold", "800ms", "run.yaml"),
+			set("gates["+GateName("", MetricRegP99)+"].slo.threshold", "500ms", "run.yaml"),
+			set("gates["+GateName("pop", MetricRegP99)+"].slo.threshold", "800ms", "run.yaml"),
 		}},
 		Input{Layer: LayerFlag, Settings: []Setting{set(b.Path, "300ms", "--slo-reg-p99")}},
 	)
@@ -138,13 +140,13 @@ func TestGatesMergeByDerivedName(t *testing.T) {
 	if len(gates) != 2 {
 		t.Errorf("gates = %v, want the run-wide one (merged) and pop's", gates)
 	}
-	if got := r.Run["gates[slo-reg-p99].slo.threshold"]; got != "300ms" {
+	if got := r.Run["gates[registration_p99_ms].slo.threshold"]; got != "300ms" {
 		t.Errorf("run-wide threshold = %v, want the flag's 300ms", got)
 	}
-	if p := prov(t, r, "gates[slo-reg-p99].slo.threshold"); len(p.Overridden) != 1 || p.Overridden[0].Value != "500ms" {
+	if p := prov(t, r, "gates[registration_p99_ms].slo.threshold"); len(p.Overridden) != 1 || p.Overridden[0].Value != "500ms" {
 		t.Errorf("provenance = %+v", p)
 	}
-	if got := r.Run["gates[pop/slo-reg-p99].slo.threshold"]; got != "800ms" {
+	if got := r.Run["gates[pop/registration_p99_ms].slo.threshold"]; got != "800ms" {
 		t.Errorf("pop's threshold = %v, want 800ms untouched", got)
 	}
 }

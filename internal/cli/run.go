@@ -24,17 +24,27 @@ import (
 // operations as the individual `ue` commands, without the flag repetition.
 // A `kind: fleet` file selects the population mode (ADR-0004) instead.
 func newRunCmd(serverURL *string, o options) *cobra.Command {
-	var metricsListen string
+	var (
+		metricsListen string
+		pf            planFlags
+		detach        bool
+	)
 	cmd := &cobra.Command{
-		Use:   "run <scenario.yaml>",
-		Short: "Run a declarative YAML scenario against the ORBIT API server",
+		Use:   "run <plan-or-scenario.yaml>",
+		Short: "Run a run file (kind: run) or a declarative YAML scenario against the ORBIT API server",
 		Long: "Run a declarative YAML scenario. A step scenario declares the core, gNBs,\n" +
 			"and UEs, then an ordered `steps` list (register, ping, traffic, latency,\n" +
 			"handover, deregister, wait). A `kind: fleet` scenario generates a topology and\n" +
 			"a UE population running continuous behaviours. The core, keys and addresses\n" +
 			"come from a target: -t, $ORBIT_TARGET, or the file's target: (docs/targets.md);\n" +
 			"a file may instead set its own core/credentials. ${ENV} references expand from\n" +
-			"the environment. See docs/USAGE.md.",
+			"the environment.\n\n" +
+			"A `kind: run` file is a run plan (docs/run-files.md): its workloads, gates\n" +
+			"and stop condition go to the server, and orbit run waits for the run's end\n" +
+			"and exits with its result (0 passed, 1 a gate failed, 2 did not complete,\n" +
+			"3 could not start); --detach starts it and returns. --gate and --set add to\n" +
+			"or override the file's fields, --explain shows the plan without starting it.\n" +
+			"See docs/USAGE.md.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			data, err := os.ReadFile(args[0])
@@ -44,6 +54,14 @@ func newRunCmd(serverURL *string, o options) *cobra.Command {
 			kind, err := scenario.PeekKind(data)
 			if err != nil {
 				return err
+			}
+			if kind == "run" {
+				return runPlanFile(cmd, serverURL, o, args[0], data, pf, detach)
+			}
+			for _, f := range []string{"gate", "set", "detach"} {
+				if cmd.Flags().Changed(f) {
+					return fmt.Errorf("--%s applies to a run file (kind: run), not a %s scenario", f, orDefault(kind, "step"))
+				}
 			}
 			t, err := scenarioTarget(cmd, args[0], data, o)
 			if err != nil {
@@ -72,6 +90,8 @@ func newRunCmd(serverURL *string, o options) *cobra.Command {
 	consumesTarget(cmd)
 	cmd.Flags().StringVar(&metricsListen, "metrics-listen", "",
 		"serve Prometheus /metrics on this address during a fleet run (live orbit_fleet_app_* cohort gauges; empty = disabled)")
+	pf.add(cmd.Flags())
+	cmd.Flags().BoolVar(&detach, "detach", false, "run file: start the run, print its ID and return instead of waiting for its end")
 	return cmd
 }
 

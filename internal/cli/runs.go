@@ -503,6 +503,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 		concurrency                  uint32
 		duration, sampleInterval     time.Duration
 		withPDU, wait                bool
+		gf                           gateFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "start-load",
@@ -527,8 +528,14 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 			if gnbCount < 1 {
 				gnbCount = 1
 			}
+			// Named as a plan names them (and orbit run): one gNB by
+			// --gnb-name itself, several <name>-1 .. <name>-n.
 			for n := 0; n < gnbCount; n++ {
-				gnbs = append(gnbs, id.gnbProto(gnbID+uint32(n), gnbBits, fmt.Sprintf("%s-%d", gnbName, n)))
+				name := gnbName
+				if gnbCount > 1 {
+					name = fmt.Sprintf("%s-%d", gnbName, n+1)
+				}
+				gnbs = append(gnbs, id.gnbProto(gnbID+uint32(n), gnbBits, name))
 			}
 			n3, err := gnbN3Flag(gnbN3)
 			if err != nil {
@@ -560,20 +567,22 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			req := &orbitv1.StartRunRequest{Name: name, EventVerbosity: verbosity}
-			if plan, err := armplan.Load(spec); err == nil {
-				req.Spec = &orbitv1.StartRunRequest_Plan{Plan: plan}
-			} else {
-				// A plan cannot express it (gNBs named from -0, say):
-				// the deprecated arm, which the server still runs.
-				req.Spec = &orbitv1.StartRunRequest_Load{Load: spec} //nolint:staticcheck // the deprecated arm, kept for API clients
+			// Always a plan: the flags give nothing a plan cannot carry.
+			plan, err := armplan.Load(spec)
+			if err != nil {
+				return exitWith(ExitCouldNotStart, err)
 			}
+			if plan.Gates, err = gf.gates(cmd); err != nil {
+				return err
+			}
+			req := &orbitv1.StartRunRequest{Name: name, EventVerbosity: verbosity, Spec: &orbitv1.StartRunRequest_Plan{Plan: plan}}
 			return startAndWait(cmd, runsClient(serverURL), req, wait)
 		},
 	}
 	f := cmd.Flags()
 	f.StringVar(&name, "name", "", "run label")
 	f.BoolVar(&wait, "wait", false, waitHelp)
+	gf.add(f)
 	f.StringVar(&events, "events", "normal", eventsFlagHelp)
 	f.StringVar(&amf, "amf", "", "AMF N2 address (host:port)")
 	f.StringSliceVar(&binds, "bind", nil, bindFlagHelp+"; repeat or comma-separate for one per gNB (one value is shared by every gNB)")
@@ -588,7 +597,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 	f.IntVar(&gnbCount, "gnb-count", 1, "number of gNBs to mux UEs across")
 	f.Uint32Var(&gnbID, "gnb-id", 1, "base gNB ID")
 	f.Uint32Var(&gnbBits, "gnb-id-bits", 24, "gNB ID bit length")
-	f.StringVar(&gnbName, "gnb-name", "orbit-gnb", "gNB name prefix")
+	f.StringVar(&gnbName, "gnb-name", "orbit-gnb", "gNB name: one gNB's own, or with --gnb-count n the prefix of <name>-1 .. <name>-n")
 	f.BoolVar(&withPDU, "pdu-session", false, "establish a PDU session per UE")
 	f.StringVar(&gnbN3, "gnb-n3", "", "gNB N3 address (with --pdu-session)")
 	f.DurationVar(&duration, "duration", 0, "soak: run for this long, cycling --count's SUPIs (attempts can outnumber --count)")
@@ -604,6 +613,7 @@ func newRunsStartLoadCmd(serverURL *string) *cobra.Command {
 func newRunsStartFleetCmd(serverURL *string, o options) *cobra.Command {
 	var name, ki, opc, events string
 	var wait bool
+	var gf gateFlags
 	cmd := &cobra.Command{
 		Use:   "start-fleet <scenario.yaml>",
 		Short: "Start a fleet run on the server from a fleet scenario file",
@@ -648,10 +658,19 @@ func newRunsStartFleetCmd(serverURL *string, o options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			gates, err := gf.gates(cmd)
+			if err != nil {
+				return err
+			}
 			req := &orbitv1.StartRunRequest{Name: name, EventVerbosity: verbosity}
 			plan, err := fleetPlan(data, ki, opc)
 			if err == nil {
+				plan.Gates = gates
 				req.Spec = &orbitv1.StartRunRequest_Plan{Plan: plan}
+			} else if len(gates) > 0 {
+				// The deprecated arm carries no gates.
+				return exitWith(ExitCouldNotStart, fmt.Errorf("gates need the scenario as a run plan, which cannot carry it (%v): "+
+					"drop the gate flags, or write it as a run file (orbit run, docs/run-files.md)", err))
 			} else {
 				// A plan cannot carry the file's text exactly (a rate it
 				// would rewrite, say): the deprecated arm, which the
@@ -667,6 +686,7 @@ func newRunsStartFleetCmd(serverURL *string, o options) *cobra.Command {
 	consumesTarget(cmd)
 	cmd.Flags().StringVar(&name, "name", "", "run label")
 	cmd.Flags().BoolVar(&wait, "wait", false, waitHelp)
+	gf.add(cmd.Flags())
 	cmd.Flags().StringVar(&events, "events", "normal", eventsFlagHelp)
 	cmd.Flags().StringVar(&ki, "ki", "", kiFlagHelp)
 	cmd.Flags().StringVar(&opc, "opc", "", opcFlagHelp)
@@ -689,6 +709,12 @@ func fleetPlan(data []byte, ki, opc string) (*orbitv1.RunPlan, error) {
 // returns the exit its result calls for. A start the server refuses could
 // not start (exit 3).
 func startAndWait(cmd *cobra.Command, c orbitv1connect.RunServiceClient, req *orbitv1.StartRunRequest, wait bool) error {
+	return startRun(cmd, c, req, wait, false)
+}
+
+// startRun is startAndWait; with hint, a run left going says on stderr how
+// to follow it.
+func startRun(cmd *cobra.Command, c orbitv1connect.RunServiceClient, req *orbitv1.StartRunRequest, wait, hint bool) error {
 	// With --wait the handler goes in before the start: a Ctrl-C while
 	// StartRun is in flight is held, and acted on (finish, or a cancel on
 	// SIGTERM) as soon as the run's ID comes back, so an interrupted start
@@ -706,6 +732,9 @@ func startAndWait(cmd *cobra.Command, c orbitv1connect.RunServiceClient, req *or
 	id := res.Msg.GetRun().GetRunId()
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), id)
 	if !wait {
+		if hint {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "started %s; follow with `orbit runs watch %s` or pass --wait\n", id, id)
+		}
 		return nil
 	}
 	// From here the run has an ID: an error that does not say otherwise

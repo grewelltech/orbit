@@ -1,10 +1,14 @@
 package target
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/bgrewell/orbit/internal/secrets"
 )
 
 // Layer is a configuration layer, lowest first (ADR-0008 §3): a built-in
@@ -356,10 +360,34 @@ func isTargetPath(p string) bool {
 	return err == nil && f.target
 }
 
-// show renders a value for provenance, masking a secret.
+// unrenderable is what show prints for a whole value it does not render
+// (one holding a map with a key that is not a string, which encoding/json
+// renders on some Go versions and refuses on others): masked, whatever it
+// holds.
+const unrenderable = "<unrenderable: masked>"
+
+// show renders a value for provenance, masking a secret. A whole-value
+// subtree is masked whole when any key in it names a secret (a cohort's
+// token, a params entry called password): its provenance is one entry,
+// and a partly masked rendering would still be the subtree's text.
 func show(f field, v any) string {
-	if f.secret {
+	if f.secret || (f.typ == tAny && holdsSecret(v)) {
 		return Masked
+	}
+	if f.typ == tAny {
+		if s, ok := v.(string); ok {
+			return s
+		}
+		if !plainTree(v) {
+			return unrenderable
+		}
+		b, err := json.Marshal(v)
+		if err != nil {
+			// Fails closed: a subtree that cannot be rendered is shown
+			// masked, never as Go's own text of its values.
+			return unrenderable
+		}
+		return string(b)
 	}
 	switch x := v.(type) {
 	case []string:
@@ -375,6 +403,61 @@ func show(f field, v any) string {
 		return "[" + strings.Join(parts, ", ") + "]"
 	}
 	return fmt.Sprint(v)
+}
+
+// plainTree reports whether a whole value is only string-keyed maps,
+// lists and scalars, the shapes show renders.
+func plainTree(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		for _, e := range x {
+			if !plainTree(e) {
+				return false
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if !plainTree(e) {
+				return false
+			}
+		}
+	case nil, string, bool, int, int64, uint64, float64, time.Time:
+	default:
+		return false
+	}
+	return true
+}
+
+// holdsSecret reports whether a subtree has a key that names a secret.
+func holdsSecret(v any) bool {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			if secrets.IsSecretName(k) || holdsSecret(e) {
+				return true
+			}
+		}
+	case map[any]any:
+		// A YAML map with a key that is not a string (1: x) decodes so.
+		for k, e := range x {
+			if secrets.IsSecretName(fmt.Sprint(k)) || holdsSecret(e) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if holdsSecret(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Names is the element names of a named list (workloads, gates), in the
+// order the layers gave them.
+func (r *Resolved) Names(list string) []string {
+	return append([]string(nil), r.order[list]...)
 }
 
 func contains(xs []string, x string) bool {

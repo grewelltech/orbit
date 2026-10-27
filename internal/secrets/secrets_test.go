@@ -370,3 +370,33 @@ func TestIsSecretName(t *testing.T) {
 		}
 	}
 }
+
+// A provenance entry for a whole-value subtree (a workload's behaviors)
+// that holds a secret-named key is masked whole, value and overridden
+// values, and its secret joins the scrub list; a plain value is left be.
+func TestMaskSubtreeProvenance(t *testing.T) {
+	behaviors := `{"traffic":{"mix":[{"app":{"app":"http","token":"cohort-tok"}}]}}`
+	plan := &orbitv1.RunPlan{Provenance: []*orbitv1.FieldProvenance{
+		{Path: "workloads[pop].behaviors", Value: behaviors,
+			Overridden: []*orbitv1.ProvenanceOverride{{Value: `{"traffic":{"bulk":{"token":"old-tok"}}}`}}},
+		{Path: "workloads[pop].attach.count", Value: "5"},
+		{Path: "workloads[pop].behaviors", Value: `{"latency":{"target":"192.0.2.1"}}`},
+	}}
+	found := Mask(plan)
+	got := plan.GetProvenance()
+	if got[0].GetValue() != Masked || got[0].GetOverridden()[0].GetValue() != Masked {
+		t.Errorf("subtree with a token = %v, want masked whole", got[0])
+	}
+	if got[1].GetValue() != "5" || got[2].GetValue() == Masked {
+		t.Errorf("plain values masked: %v / %v", got[1], got[2])
+	}
+	for _, want := range []string{"cohort-tok", "old-tok"} {
+		var has bool
+		for _, f := range found {
+			has = has || f == want
+		}
+		if !has {
+			t.Errorf("Mask did not report %q for the scrub (found %v)", want, found)
+		}
+	}
+}

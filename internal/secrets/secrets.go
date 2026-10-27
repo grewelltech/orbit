@@ -106,7 +106,7 @@ func provenanceSecret(m protoreflect.Message) (path string, isProvenance bool) {
 		return "", false
 	}
 	path = m.Get(d.Fields().ByName("path")).String()
-	if !secretPath(path) {
+	if !secretPath(path) && !subtreeSecret(m) {
 		return "", true
 	}
 	if v := m.Get(d.Fields().ByName("value")).String(); v != "" && v != Masked {
@@ -120,6 +120,31 @@ func provenanceSecret(m protoreflect.Message) (path string, isProvenance bool) {
 		}
 	}
 	return "", true
+}
+
+// subtreeSecret reports whether a provenance entry's value, or a value it
+// overrode, is a whole-value subtree (a workload's behaviors, as YAML or
+// JSON text) holding a secret-named key: the entry is masked whole
+// (ADR-0008 §3), whatever its path says.
+func subtreeSecret(m protoreflect.Message) bool {
+	for _, v := range provenanceValues(m) {
+		if v != Masked && len(YAMLSecretValues(v)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// provenanceValues are a provenance entry's value and overridden values.
+func provenanceValues(m protoreflect.Message) []string {
+	d := m.Descriptor()
+	out := []string{m.Get(d.Fields().ByName("value")).String()}
+	over := m.Get(d.Fields().ByName("overridden")).List()
+	for i := 0; i < over.Len(); i++ {
+		o := over.Get(i).Message()
+		out = append(out, o.Get(o.Descriptor().Fields().ByName("value")).String())
+	}
+	return out
 }
 
 // secretPath reports whether a canonical field path (e.g.
@@ -432,8 +457,15 @@ func mask(m protoreflect.Message, add func(string)) {
 // when its path names a secret field.
 func maskProvenance(m protoreflect.Message, add func(string)) {
 	d := m.Descriptor()
-	if !secretPath(m.Get(d.Fields().ByName("path")).String()) {
+	if !secretPath(m.Get(d.Fields().ByName("path")).String()) && !subtreeSecret(m) {
 		return
+	}
+	// A whole-value subtree (a workload's behaviors) masks whole: the
+	// secrets inside it are scrubbed everywhere else, too.
+	for _, v := range provenanceValues(m) {
+		for _, sec := range YAMLSecretValues(v) {
+			add(sec)
+		}
 	}
 	vf := d.Fields().ByName("value")
 	if v := m.Get(vf).String(); v != "" && v != Masked {

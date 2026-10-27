@@ -156,6 +156,12 @@ func Fleet(f *scenario.FleetScenario, ki, opc string) (*orbitv1.RunPlan, error) 
 	if err != nil {
 		return nil, err
 	}
+	if dur > 0 && proto.Equal(beh, &orbitv1.Behaviors{}) {
+		// A plan holds its population until until.duration; a scenario's
+		// run.duration only bounds its behaviours, so one with none ends
+		// after the attach phase. Only the arm keeps that.
+		return nil, fmt.Errorf("run.duration with no behaviours: %w", ErrNoPlan)
+	}
 	// A fleet names its gNBs gnb-1 .. gnb-n, numbered even when alone.
 	name := "gnb"
 	if g.Count == 1 {
