@@ -182,6 +182,19 @@ func (d FleetDeps) n3() *n3Pool {
 // fleet on its own socket pool.
 func RunFleet(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors,
 	deps FleetDeps) (FleetReport, error) {
+	ps := PopulationFromFleet(spec)
+	ps.Strategy = Persistent
+	rep, err := RunPopulation(ctx, log, ps, beh, deps)
+	if rep.Fleet == nil {
+		return FleetReport{}, err
+	}
+	return *rep.Fleet, err
+}
+
+// runPersistent is the persistent strategy (a fleet run): each UE attaches
+// once and is kept while the behaviours run, then deregistered.
+func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh FleetBehaviors,
+	deps FleetDeps) (FleetReport, error) {
 	live, ev := deps.Stats, deps.Events
 	var rep FleetReport
 	if len(spec.GNBs) == 0 {

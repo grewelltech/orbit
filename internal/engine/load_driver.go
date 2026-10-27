@@ -121,6 +121,16 @@ func (s *LoadSpec) Validate() error {
 // are bounded by the core under test (report them separately from mock-AMF
 // sim capacity).
 func RunLoad(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report, error) {
+	rep, err := RunPopulation(ctx, log, PopulationFromLoad(spec), FleetBehaviors{}, FleetDeps{})
+	if rep.Load == nil {
+		return load.Report{}, err
+	}
+	return *rep.Load, err
+}
+
+// runStorm is the storm strategy (a load run): each UE attaches and is
+// released, rate-paced, for Count attaches or for Duration.
+func runStorm(ctx context.Context, log *slog.Logger, spec LoadSpec) (load.Report, error) {
 	if err := spec.Validate(); err != nil {
 		return load.Report{}, err
 	}
