@@ -275,6 +275,17 @@ func TestWithRegisteredLatency(t *testing.T) {
 	if sent.GetWorkloads()[0].GetPopulation().GetBehaviors().GetLatency().GetTarget() != "" {
 		t.Error("the plan as sent changed")
 	}
+	// An explicit responder's own data_ip, from the target.
+	explicit := plan("")
+	explicit.Target.App.Responders[0] = &orbitv1.Responder{Name: "static", Control: "198.51.100.30:9551", Token: "t", DataIp: "198.51.100.31"}
+	got, prov, err = s.withRegistered(explicit)
+	if err != nil || got.GetWorkloads()[0].GetPopulation().GetBehaviors().GetLatency().GetTarget() != "198.51.100.31" ||
+		len(prov) != 1 || prov[0].GetSource().GetDetail() != "responder static (target)" || prov[0].GetSource().GetLayer() != orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET {
+		t.Errorf("explicit responder: %v, %v, %v", got, prov, err)
+	}
+	if explicit.GetWorkloads()[0].GetPopulation().GetBehaviors().GetLatency().GetTarget() != "" {
+		t.Error("the plan as sent changed")
+	}
 	got, prov, err = s.withRegistered(plan("203.0.113.9"))
 	if err != nil || len(prov) != 0 || got.GetWorkloads()[0].GetPopulation().GetBehaviors().GetLatency().GetTarget() != "203.0.113.9" {
 		t.Errorf("explicit target: %v, %v, %v", got, prov, err)

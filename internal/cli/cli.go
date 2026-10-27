@@ -167,7 +167,8 @@ func newServeCmd(version string) *cobra.Command {
 			}
 			// A responder registry that cannot be read stops serve: starting
 			// empty would orphan every registered app host.
-			if _, err := join.OpenRegistry(dir); err != nil {
+			responders, err := join.OpenRegistry(dir)
+			if err != nil {
 				return fmt.Errorf("registered responders: %w (fix or move the file; serve will not start without it)", err)
 			}
 			pin := ""
@@ -176,7 +177,7 @@ func newServeCmd(version string) *cobra.Command {
 			}
 			reg := observability.NewRegistry()
 			handler := server.New(log, version, reg, server.Options{
-				TLS: sec.tls != nil, TLSPin: pin, Listen: listen, JoinBinaries: bins,
+				TLS: sec.tls != nil, TLSPin: pin, Listen: listen, JoinBinaries: bins, Responders: responders,
 				Token:       sec.token,
 				CoreProfile: coreProfile,
 				LoomAgent:   loomAgent,

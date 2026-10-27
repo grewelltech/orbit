@@ -208,15 +208,27 @@ func (s *runService) withRegistered(p *orbitv1.RunPlan) (*orbitv1.RunPlan, []*or
 		}
 		resolved[r.GetName()] = rs
 	}
+	// The latency target: a registered responder's data IP from the
+	// registry, or an explicit one's own data_ip from the target, as the
+	// scenario path takes it.
 	var prov []*orbitv1.FieldProvenance
+	ip, source, layer := "", "", orbitv1.ProvenanceLayer_PROVENANCE_LAYER_UNSPECIFIED
 	if rs, ok := resolved[latencyFrom]; ok && latencyFrom != "" {
+		ip, source, layer = rs.DataIP, "responder "+latencyFrom+" (registry)", orbitv1.ProvenanceLayer_PROVENANCE_LAYER_LEASE
+	} else if latencyFrom != "" && responders[0].GetDataIp() != "" {
+		ip, source, layer = responders[0].GetDataIp(), "responder "+latencyFrom+" (target)", orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET
+	}
+	if ip != "" {
+		if out == nil {
+			out = proto.Clone(p).(*orbitv1.RunPlan)
+		}
 		for _, w := range out.GetWorkloads() {
 			if l := w.GetPopulation().GetBehaviors().GetLatency(); l != nil && l.GetTarget() == "" {
-				l.Target = rs.DataIP
+				l.Target = ip
 				prov = append(prov, &orbitv1.FieldProvenance{
 					Path:   "workloads[" + w.GetName() + "].behaviors.latency.target",
-					Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_LEASE, Detail: "responder " + latencyFrom + " (registry)"},
-					Value:  rs.DataIP,
+					Source: &orbitv1.ProvenanceSource{Layer: layer, Detail: source},
+					Value:  ip,
 				})
 			}
 		}

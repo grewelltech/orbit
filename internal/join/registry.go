@@ -161,6 +161,9 @@ type Registry struct {
 	mu    sync.Mutex
 	byID  map[string]*entry
 	tombs map[string]tombstone // by credential hash
+
+	// failSave, when it returns true, fails the next save (tests).
+	failSave func() bool
 }
 
 // RegistryOption configures a Registry.
@@ -210,17 +213,22 @@ func OpenRegistry(dir string, opts ...RegistryOption) (*Registry, error) {
 // Persistent reports whether the registry survives a restart.
 func (r *Registry) Persistent() bool { return r.path != "" }
 
-// save writes the registry atomically, 0600; the caller holds mu.
-func (r *Registry) save() error {
-	if r.path == "" {
+// save writes the registry with byID and tombs atomically, 0600; the
+// caller holds mu. Every mutation saves its new state first and only then
+// makes it the registry's, so memory is never ahead of the disk.
+func (r *Registry) save(byID map[string]*entry, tombs map[string]tombstone) error {
+	if r.path == "" || r.failSave != nil && r.failSave() {
+		if r.path != "" {
+			return errors.New("injected save failure")
+		}
 		return nil
 	}
 	f := registryFile{Version: 1, Responders: []Responder{}, Removed: []tombstone{}}
-	for _, e := range r.byID {
+	for _, e := range byID {
 		f.Responders = append(f.Responders, e.Responder)
 	}
 	sort.Slice(f.Responders, func(i, j int) bool { return f.Responders[i].ID < f.Responders[j].ID })
-	for _, t := range r.tombs {
+	for _, t := range tombs {
 		f.Removed = append(f.Removed, t)
 	}
 	sort.Slice(f.Removed, func(i, j int) bool { return f.Removed[i].ID < f.Removed[j].ID })
@@ -375,9 +383,6 @@ func (r *Registry) Register(store *Store, q RegisterRequest) (Responder, error) 
 		}
 		id = "rs-" + hex.EncodeToString(raw)
 	}
-	if err := store.Burn(q.JoinToken, h, id); err != nil {
-		return Responder{}, ErrUnknownToken
-	}
 	now := r.now()
 	e := &entry{Responder: Responder{ID: id, Name: q.Name, CredentialHash: hexHash(h), LoomToken: loom,
 		Control: q.Control, DataIP: q.DataIP, PortLow: q.PortLow, PortHigh: q.PortHigh, Version: q.Version,
@@ -385,10 +390,25 @@ func (r *Registry) Register(store *Store, q RegisterRequest) (Responder, error) 
 	if cur != nil {
 		e.lastSeen, e.lastSource, e.loomListening = cur.lastSeen, cur.lastSource, cur.loomListening
 	}
-	r.byID[id] = e
-	if err := r.save(); err != nil {
+	// Persist, then publish: the new state on disk first; the token burned
+	// and the entry in memory only once it is there. A save that fails
+	// changes nothing, so a retry starts clean.
+	next := make(map[string]*entry, len(r.byID)+1)
+	for k, v := range r.byID {
+		next[k] = v
+	}
+	next[id] = e
+	if err := r.save(next, r.tombs); err != nil {
 		return Responder{}, fmt.Errorf("the responder registry did not persist: %w", err)
 	}
+	if err := store.Burn(q.JoinToken, h, id); err != nil {
+		// Revoked or expired since the lookup: put the disk back as it was.
+		if err := r.save(r.byID, r.tombs); err != nil {
+			return Responder{}, fmt.Errorf("the responder registry did not persist: %w", err)
+		}
+		return Responder{}, ErrUnknownToken
+	}
+	r.byID = next
 	return e.Responder, nil
 }
 
@@ -454,11 +474,23 @@ func (r *Registry) Remove(nameOrID string) (string, error) {
 	defer r.mu.Unlock()
 	for id, e := range r.byID {
 		if e.Name == nameOrID || id == nameOrID {
-			delete(r.byID, id)
-			r.tombs[e.CredentialHash] = tombstone{ID: id, CredentialHash: e.CredentialHash, Removed: r.now()}
-			if err := r.save(); err != nil {
+			// Persist, then publish: a save that fails leaves the responder
+			// registered and its credential working.
+			byID := make(map[string]*entry, len(r.byID))
+			for k, v := range r.byID {
+				if k != id {
+					byID[k] = v
+				}
+			}
+			tombs := make(map[string]tombstone, len(r.tombs)+1)
+			for k, v := range r.tombs {
+				tombs[k] = v
+			}
+			tombs[e.CredentialHash] = tombstone{ID: id, CredentialHash: e.CredentialHash, Removed: r.now()}
+			if err := r.save(byID, tombs); err != nil {
 				return "", fmt.Errorf("the responder registry did not persist: %w", err)
 			}
+			r.byID, r.tombs = byID, tombs
 			return id, nil
 		}
 	}

@@ -760,7 +760,7 @@ EOF
 	[ -z "$FRESH" ] || OWNERFLAG="$OWNERFLAG --fresh"
 	if [ -n "$REGISTER" ]; then
 		step "register the responder on this host with the server as $NAME (credential: $REGISTER)"
-		cmd "'$ROOT$LIB/orbit' responder register --server '$ORBIT_SERVER' --pin '$ORBIT_PIN_RAW' --token-file '$WORK/token' --name '$NAME' --control '$LISTEN' --data-ip '$N6_IP' --data-ports '$LO-$HI' --config '$ROOT$CONF'$OWNERFLAG"
+		cmd "$(q "$ROOT$LIB/orbit") responder register --server $(q "$ORBIT_SERVER") --pin $(q "$ORBIT_PIN_RAW") --token-file $(q "$WORK/token") --name $(q "$NAME") --control $(q "$LISTEN") --data-ip $(q "$N6_IP") --data-ports $(q "$LO-$HI") --config $(q "$ROOT$CONF")$OWNERFLAG"
 		show "(the join token is read from a file in this run's private directory, mode 0600)"
 		if [ -n "$FRESH" ]; then
 			show "(replaces $CONF and any $CONF.pending; an entry the server still holds for the old credential is left alone, and shows offline)"
@@ -778,7 +778,7 @@ EOF
 			echo "HINTS=yes" >>"$APPLY"
 			cmd "systemctl enable orbit-responder"
 			cmd "systemctl restart orbit-responder"
-			cmd "'$ROOT$LIB/orbit' responder check --config '$ROOT$CONF' --wait 20s"
+			cmd "$(q "$ROOT$LIB/orbit") responder check --config $(q "$ROOT$CONF") --wait 20s"
 		else
 			ok "orbit-responder is enabled and running"
 		fi

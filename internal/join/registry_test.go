@@ -315,3 +315,57 @@ func TestRegistryPersists(t *testing.T) {
 		}
 	}
 }
+
+// Persist, then publish: a registration or removal whose save fails changes
+// nothing (no burn, no entry, no tombstone), so a retry starts clean; once
+// the fault clears, the retry succeeds and is on disk.
+func TestRegistrySaveFailure(t *testing.T) {
+	dir := t.TempDir()
+	l := newRegLab(t, dir)
+	fail := true
+	l.reg.failSave = func() bool { return fail }
+	tok, c := l.token(t), cred(t)
+	if _, err := l.reg.Register(l.store, regReq(tok, c, "app1")); err == nil || !strings.Contains(err.Error(), "did not persist") {
+		t.Fatalf("register with a failing save: %v", err)
+	}
+	if tk, ok := l.store.Lookup(tok); !ok {
+		t.Fatal("the token is gone")
+	} else if burned, _, _ := tk.Burned(); burned {
+		t.Error("a registration that did not persist burned the token")
+	}
+	if len(l.reg.List()) != 0 {
+		t.Error("a registration that did not persist is in memory")
+	}
+	if _, _, err := l.reg.Heartbeat(c, "x", "", true, false); !errors.Is(err, ErrUnknownResponder) {
+		t.Errorf("its credential beats: %v", err)
+	}
+	fail = false
+	rs, err := l.reg.Register(l.store, regReq(tok, c, "app1"))
+	if err != nil {
+		t.Fatalf("the retry: %v", err)
+	}
+	re, err := OpenRegistry(dir)
+	if err != nil || len(re.List()) != 1 || re.List()[0].ID != rs.ID {
+		t.Fatalf("on disk after the retry: %v, %v", re.List(), err)
+	}
+
+	// A removal whose save fails leaves the responder registered.
+	fail = true
+	if _, err := l.reg.Remove("app1"); err == nil || !strings.Contains(err.Error(), "did not persist") {
+		t.Fatalf("remove with a failing save: %v", err)
+	}
+	if _, _, err := l.reg.Heartbeat(c, "x", "", true, false); err != nil {
+		t.Errorf("after a failed remove the credential does not beat: %v", err)
+	}
+	fail = false
+	if _, err := l.reg.Remove("app1"); err != nil {
+		t.Fatal(err)
+	}
+	re, err = OpenRegistry(dir)
+	if err != nil || len(re.List()) != 0 {
+		t.Fatalf("on disk after the remove: %v, %v", re.List(), err)
+	}
+	if _, _, err := re.Heartbeat(c, "x", "", true, false); !errors.Is(err, ErrResponderRemoved) {
+		t.Errorf("the tombstone is not on disk: %v", err)
+	}
+}

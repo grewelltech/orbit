@@ -36,6 +36,11 @@ type Options struct {
 	// token for app sessions (`orbit serve --loom-agent/--loom-token`);
 	// per-call values override them.
 	LoomAgent, LoomToken string
+	// Responders are the responders registered by join (ADR-0009 §3), as
+	// orbit serve opened them from StateDir, refusing to start on a file it
+	// cannot read. Nil opens StateDir's here, and New panics on one it
+	// cannot read: starting empty would orphan every registered app host.
+	Responders *join.Registry
 	// RunHistory bounds how many terminal runs the registry retains (0 = the
 	// engine default). It bounds the on-disk archive equally, so the two do
 	// not disagree about how far back history goes.
@@ -114,14 +119,16 @@ func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts
 		rotation, _ = engine.OpenGNBRotation("", log)
 	}
 	// Responders registered by join (ADR-0009 §3), persisted with the run
-	// history. A registry that cannot be read is not overwritten: the
-	// server runs with an empty, unpersisted one and says so, and its
-	// responders keep retrying until it is restored.
-	responders, err := join.OpenRegistry(opts.StateDir)
-	if err != nil {
-		log.Error("registered responders could not be read; running without them, and not persisting", "dir", opts.StateDir, "err", err)
-		responders, _ = join.OpenRegistry("")
-	} else if !responders.Persistent() {
+	// history.
+	responders := opts.Responders
+	if responders == nil {
+		r, err := join.OpenRegistry(opts.StateDir)
+		if err != nil {
+			panic(fmt.Sprintf("registered responders: %v", err))
+		}
+		responders = r
+	}
+	if !responders.Persistent() {
 		log.Warn("registered responders are in memory only: after a restart every app host must join again (serve with --state-dir)")
 	}
 	runSvc := &runService{log: log, reg: runReg, mgr: mgr, archive: archive,
