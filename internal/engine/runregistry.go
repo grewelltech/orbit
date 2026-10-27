@@ -213,8 +213,40 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 	info := rec.info
 	r.mu.Unlock()
 
-	go r.exec(ctx, id, ring, mkExec(ring.emit))
+	fn, err := r.launcher(id, cancel, ring, mkExec)
+	if err != nil {
+		return RunInfo{}, err
+	}
+	go r.exec(ctx, id, ring, fn)
 	return info, nil
+}
+
+// launcher builds a registered run's launcher. If building it panics, the
+// run never starts: its record and leases are dropped and StartRun fails,
+// rather than leaving resources held by a run that will never release
+// them.
+func (r *RunRegistry) launcher(id string, cancel context.CancelFunc, ring *eventRing, mkExec func(emit RunEventFunc) runFunc) (fn runFunc, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			cancel()
+			r.mu.Lock()
+			r.leases.release(id)
+			delete(r.runs, id)
+			kept := r.order[:0]
+			for _, o := range r.order {
+				if o != id {
+					kept = append(kept, o)
+				}
+			}
+			r.order = kept
+			r.mu.Unlock()
+			if r.log != nil {
+				r.log.Error("run launcher setup panicked", "run", id, "panic", p, "stack", string(debug.Stack()))
+			}
+			fn, err = nil, fmt.Errorf("run setup panicked: %v", p)
+		}
+	}()
+	return mkExec(ring.emit), nil
 }
 
 // exec runs the launcher and records the outcome. It runs on its own goroutine;

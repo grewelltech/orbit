@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"errors"
+	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,13 +12,19 @@ import (
 	"github.com/bgrewell/orbit/internal/load"
 )
 
-// fakeResolve resolves amf.lab to 10.0.0.1, as DNS would, and leaves other
-// addresses as written.
-func fakeResolve(_ context.Context, amf string) string {
-	if amf == "amf.lab:38412" {
-		return "10.0.0.1:38412"
+// fakeResolve is a resolver: amf.lab has one address, amf.multi two (in
+// either order, as a rotating resolver would answer), ran-n2.lab one, and
+// amf.timeout none (a lookup past its deadline).
+func fakeResolve(_ context.Context, host string) []netip.Addr {
+	switch host {
+	case "amf.lab":
+		return []netip.Addr{netip.MustParseAddr("10.0.0.1")}
+	case "amf.multi":
+		return []netip.Addr{netip.MustParseAddr("10.0.0.8"), netip.MustParseAddr("10.0.0.9")}
+	case "ran-n2.lab":
+		return []netip.Addr{netip.MustParseAddr("10.0.1.5")}
 	}
-	return amf
+	return nil
 }
 
 func TestLeaseConflicts(t *testing.T) {
@@ -41,10 +49,15 @@ func TestLeaseConflicts(t *testing.T) {
 		{name: "same gNB ID, other AMF", held: gnbID("10.0.0.1:38412", "001/01", 7), want: gnbID("10.0.0.2:38412", "001/01", 7)},
 		{name: "same gNB ID, other PLMN", held: gnbID("10.0.0.1:38412", "001/01", 7), want: gnbID("10.0.0.1:38412", "001/02", 7)},
 		{name: "same gNB ID, AMF by name and by address", held: gnbID("10.0.0.1:38412", "001/01", 7), want: gnbID("amf.lab:38412", "001/01", 7), resource: "gNB ID", value: "7 on AMF 10.0.0.1:38412 (PLMN 001/01)"},
+		{name: "same gNB ID, a two-record name against one of its IPs", held: gnbID("amf.multi:38412", "001/01", 7), want: gnbID("10.0.0.9:38412", "001/01", 7), resource: "gNB ID", value: "7 on AMF amf.multi:38412 (PLMN 001/01)"},
+		{name: "same gNB ID, a name that timed out against the same name resolved", held: gnbID("AMF.Timeout:38412", "001/01", 7), want: gnbID("amf.timeout:38412", "001/01", 7), resource: "gNB ID", value: "7 on AMF AMF.Timeout:38412 (PLMN 001/01)"},
+		{name: "same gNB ID, other port", held: gnbID("10.0.0.1:38412", "001/01", 7), want: gnbID("10.0.0.1:38413", "001/01", 7)},
 		{name: "other gNB ID", held: gnbID("10.0.0.1:38412", "001/01", 7), want: gnbID("10.0.0.1:38412", "001/01", 8)},
 		{name: "same N2 IP", held: n2("10.0.1.5"), want: n2("10.0.1.5"), resource: "N2 source IP", value: "10.0.1.5"},
 		{name: "same N2 IP with a port", held: n2("10.0.1.5"), want: n2("10.0.1.5:0"), resource: "N2 source IP", value: "10.0.1.5"},
 		{name: "same N2 IP, v4-mapped", held: n2("10.0.1.5"), want: n2("[::ffff:10.0.1.5]:0"), resource: "N2 source IP", value: "10.0.1.5"},
+		{name: "an N2 host-name bind against its IP", held: n2("ran-n2.lab"), want: n2("10.0.1.5:0"), resource: "N2 source IP", value: "10.0.1.5"},
+		{name: "an N2 host-name bind against itself", held: n2("ran-n2.lab"), want: n2("RAN-N2.lab"), resource: "N2 source IP", value: "10.0.1.5"},
 		{name: "kernel-chosen N2 sources lease nothing", held: n2("", "0.0.0.0", "[::]:0"), want: n2("", "0.0.0.0")},
 		{name: "other N2 IP", held: n2("10.0.1.5"), want: n2("10.0.1.6")},
 		{name: "N3 is not leased", held: Needs{}, want: Needs{}},
@@ -52,7 +65,7 @@ func TestLeaseConflicts(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			lt := newLeaseTable()
-			lt.resolveAMF = fakeResolve
+			lt.resolveHost = fakeResolve
 			if err := lt.acquire("run-held", lt.canonical(tc.held)); err != nil {
 				t.Fatal(err)
 			}
@@ -94,20 +107,20 @@ func TestLeaseSharedBindWithinARun(t *testing.T) {
 	}
 }
 
-func TestResolveAMF(t *testing.T) {
+// An AMF's identity is the address as written plus every IP:port it
+// resolves to; a literal IP is just itself.
+func TestAMFIdentity(t *testing.T) {
+	r := &resolver{t: &leaseTable{resolveHost: fakeResolve}, seen: map[string][]netip.Addr{}}
 	for in, want := range map[string]string{
-		"127.0.0.1:38412":        "127.0.0.1:38412",
-		"[::ffff:127.0.0.1]:38":  "127.0.0.1:38",
-		"localhost:38412":        "127.0.0.1:38412",
-		"no-such-host.invalid:1": "no-such-host.invalid:1",
-		"AMF.Example.INVALID:1":  "amf.example.invalid:1",
+		"10.0.0.1:38412":          "10.0.0.1:38412",
+		"[::ffff:10.0.0.1]:38412": "10.0.0.1:38412",
+		"AMF.Lab:38412":           "10.0.0.1:38412,amf.lab:38412",
+		"amf.multi:1":             "10.0.0.8:1,10.0.0.9:1,amf.multi:1",
+		"amf.timeout:1":           "amf.timeout:1",
+		"no-port":                 "no-port",
 	} {
-		got := resolveAMF(context.Background(), in)
-		if in == "localhost:38412" && got == "[::1]:38412" {
-			continue // a host resolving localhost to ::1 first
-		}
-		if got != want {
-			t.Errorf("resolveAMF(%q) = %q, want %q", in, got, want)
+		if got := r.amfIdentity(in).key(); got != want {
+			t.Errorf("amfIdentity(%q) = %s, want %s", in, got, want)
 		}
 	}
 }
@@ -223,13 +236,13 @@ func TestSlowAMFResolutionBlocksNobody(t *testing.T) {
 	r := quietRegistry(0)
 	entered := make(chan struct{})
 	unblock := make(chan struct{})
-	r.leases.resolveAMF = func(ctx context.Context, amf string) string {
+	r.leases.resolveHost = func(ctx context.Context, host string) []netip.Addr {
 		close(entered)
 		select {
 		case <-unblock:
 		case <-ctx.Done():
 		}
-		return amf
+		return nil
 	}
 	started := make(chan error, 1)
 	go func() {
@@ -255,13 +268,34 @@ func TestSlowAMFResolutionBlocksNobody(t *testing.T) {
 	}
 }
 
-// A resolver that never answers is cut off at the timeout and the name is
-// leased as written.
-func TestResolveAMFTimeout(t *testing.T) {
+// The system resolver is cut off at its deadline and gives no addresses, so
+// the name stands alone in the identity.
+func TestResolveHostTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	<-ctx.Done()
-	if got := resolveAMF(ctx, "Some.Host.Invalid:38412"); got != "some.host.invalid:38412" {
-		t.Errorf("resolveAMF after the deadline = %q, want the lower-cased name", got)
+	if got := resolveHost(ctx, "some.host.invalid"); len(got) != 0 {
+		t.Errorf("resolveHost after the deadline = %v, want none", got)
+	}
+}
+
+// A panic while building a registered run's launcher drops the run and its
+// leases, and StartRun fails rather than leaving the resources held.
+func TestLauncherPanicReleasesLeases(t *testing.T) {
+	r := quietRegistry(0)
+	needs := testNeeds("208930000000001", 1, 1, "10.0.0.11")
+	_, err := r.start(RunKindLoad, RunOptions{Needs: needs}, nil, nil, func(RunEventFunc) runFunc {
+		panic("launcher setup")
+	})
+	if err == nil || !strings.Contains(err.Error(), "run setup panicked") {
+		t.Fatalf("err = %v, want a setup panic error", err)
+	}
+	if n := len(r.List()); n != 0 {
+		t.Errorf("a run that never started is listed (%d runs)", n)
+	}
+	if _, err := r.StartLoad(RunOptions{Needs: needs}, func(context.Context, *load.LiveStats, RunEventFunc) (load.Report, error) {
+		return load.Report{}, nil
+	}); err != nil {
+		t.Errorf("the same resources after a setup panic: %v", err)
 	}
 }

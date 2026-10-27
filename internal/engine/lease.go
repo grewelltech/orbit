@@ -119,11 +119,43 @@ func (e *ErrLeaseConflict) Error() string {
 	return fmt.Sprintf("%s %s is held by %s", e.Resource, e.Value, e.Holder)
 }
 
-// leases is what one run holds, canonicalised.
+// leases is what one run holds. A gNB ID's AMF and an N2 source are kept as
+// identity sets (the name as written plus every address it resolved to), so
+// a name and its address are one resource however the resolver answers.
 type leases struct {
 	supis []SUPIBlock
-	gnbs  map[GNBKey]bool
-	n2    map[string]bool
+	gnbs  []gnbLease
+	n2    []identity
+}
+
+// gnbLease is one gNB ID at an AMF, the AMF by its identity set.
+type gnbLease struct {
+	plmn    string
+	id      uint32
+	amf     identity
+	written string // the AMF as the run gave it, for messages
+}
+
+// identity is the set of keys one resource is known by.
+type identity map[string]bool
+
+func (a identity) intersects(b identity) bool {
+	for k := range a {
+		if b[k] {
+			return true
+		}
+	}
+	return false
+}
+
+// key is a stable string for the set, to deduplicate within a run.
+func (a identity) key() string {
+	ks := make([]string, 0, len(a))
+	for k := range a {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return strings.Join(ks, ",")
 }
 
 // leaseTable holds every active run's leases. It is guarded by the
@@ -132,83 +164,120 @@ type leases struct {
 // canonicalised (canonical, which may resolve names) BEFORE that section,
 // so a slow resolver never holds the lock.
 type leaseTable struct {
-	// resolveAMF canonicalises an AMF address to IP:port, so a name and
-	// its address are one key. Tests replace it.
-	resolveAMF func(ctx context.Context, amf string) string
-	held       map[string]*leases // run id → its leases
+	// resolveHost returns the addresses a host name resolves to (none on
+	// failure or timeout). Tests replace it.
+	resolveHost func(ctx context.Context, host string) []netip.Addr
+	held        map[string]*leases // run id → its leases
 }
 
 func newLeaseTable() *leaseTable {
-	return &leaseTable{resolveAMF: resolveAMF, held: map[string]*leases{}}
+	return &leaseTable{resolveHost: resolveHost, held: map[string]*leases{}}
 }
 
-// amfResolveTimeout bounds resolving one AMF name at StartRun.
-const amfResolveTimeout = 2 * time.Second
+// resolveTimeout bounds resolving one name at StartRun.
+const resolveTimeout = 2 * time.Second
 
-// resolveAMF is an AMF's IP:port, or the address as written (lower-cased)
-// when it does not resolve within ctx.
-func resolveAMF(ctx context.Context, amf string) string {
-	host, port, err := net.SplitHostPort(amf)
+// resolveHost resolves a name through the system resolver.
+func resolveHost(ctx context.Context, host string) []netip.Addr {
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
-		return strings.ToLower(amf)
+		return nil
 	}
-	p, err := strconv.ParseUint(port, 10, 16)
-	if err != nil {
-		return strings.ToLower(amf)
+	return addrs
+}
+
+// resolver resolves each distinct name once per run, within resolveTimeout.
+type resolver struct {
+	t    *leaseTable
+	seen map[string][]netip.Addr
+}
+
+func (r *resolver) lookup(host string) []netip.Addr {
+	host = strings.ToLower(host) // names are case-insensitive
+	if a, ok := r.seen[host]; ok {
+		return a
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
+	defer cancel()
+	a := r.t.resolveHost(ctx, host)
+	r.seen[host] = a
+	return a
+}
+
+// amfIdentity is an AMF's identity: the address as written (lower-cased)
+// and, for a name, every IP:port it resolves to. A literal IP is just its
+// canonical IP:port.
+func (r *resolver) amfIdentity(amf string) identity {
+	host, port, err := net.SplitHostPort(amf)
+	p, perr := strconv.ParseUint(port, 10, 16)
+	if err != nil || perr != nil {
+		return identity{strings.ToLower(amf): true}
 	}
 	if a, err := netip.ParseAddr(host); err == nil {
-		return netip.AddrPortFrom(a.Unmap().WithZone(""), uint16(p)).String()
+		return identity{netip.AddrPortFrom(a.Unmap().WithZone(""), uint16(p)).String(): true}
 	}
-	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-	if err != nil || len(addrs) == 0 {
-		return strings.ToLower(amf)
+	id := identity{strings.ToLower(amf): true}
+	for _, a := range r.lookup(host) {
+		id[netip.AddrPortFrom(a.Unmap().WithZone(""), uint16(p)).String()] = true
 	}
-	// The first address is the one a dial would try first.
-	return netip.AddrPortFrom(addrs[0].Unmap(), uint16(p)).String()
+	return id
 }
 
-// n2Key is an N2 bind address's IP, canonicalised, or "" for none: an empty
-// or unspecified bind lets the kernel choose, which leases nothing.
-func n2Key(bind string) string {
+// n2Identity is an N2 bind's identity, or nil for none: an empty or
+// unspecified bind lets the kernel choose, which leases nothing. A literal
+// IP is its canonical form; a name is itself (lower-cased) and every IP it
+// resolves to.
+func (r *resolver) n2Identity(bind string) identity {
 	host := bind
 	if h, _, err := net.SplitHostPort(bind); err == nil {
 		host = h
 	}
 	if host == "" {
-		return ""
+		return nil
 	}
-	a, err := netip.ParseAddr(host)
-	if err != nil {
-		return strings.ToLower(host)
+	if a, err := netip.ParseAddr(host); err == nil {
+		if a.IsUnspecified() {
+			return nil
+		}
+		return identity{a.Unmap().WithZone("").String(): true}
 	}
-	if a.IsUnspecified() {
-		return ""
+	id := identity{strings.ToLower(host): true}
+	for _, a := range r.lookup(host) {
+		id[a.Unmap().WithZone("").String()] = true
 	}
-	return a.Unmap().WithZone("").String()
+	return id
 }
 
 // canonical turns a run's needs into its leases, deduplicated (a load run
-// may share one N2 address across its gNBs), resolving each distinct AMF
-// once within amfResolveTimeout. It takes no lock: call it before the
+// may share one N2 address across its gNBs), resolving each distinct name
+// once within resolveTimeout. It takes no lock: call it before the
 // registry's critical section.
 func (t *leaseTable) canonical(n Needs) *leases {
-	l := &leases{supis: n.SUPIs, gnbs: map[GNBKey]bool{}, n2: map[string]bool{}}
-	resolved := map[string]string{}
+	r := &resolver{t: t, seen: map[string][]netip.Addr{}}
+	l := &leases{supis: n.SUPIs}
+	amfs := map[string]identity{}
+	seenGNB := map[string]bool{}
 	for _, g := range n.GNBs {
-		amf, ok := resolved[g.AMF]
+		id, ok := amfs[g.AMF]
 		if !ok {
-			ctx, cancel := context.WithTimeout(context.Background(), amfResolveTimeout)
-			amf = t.resolveAMF(ctx, g.AMF)
-			cancel()
-			resolved[g.AMF] = amf
+			id = r.amfIdentity(g.AMF)
+			amfs[g.AMF] = id
 		}
-		g.AMF = amf
-		l.gnbs[g] = true
+		k := fmt.Sprintf("%s|%d|%s", g.PLMN, g.ID, id.key())
+		if seenGNB[k] {
+			continue
+		}
+		seenGNB[k] = true
+		l.gnbs = append(l.gnbs, gnbLease{plmn: g.PLMN, id: g.ID, amf: id, written: g.AMF})
 	}
+	seenN2 := map[string]bool{}
 	for _, b := range n.N2IPs {
-		if k := n2Key(b); k != "" {
-			l.n2[k] = true
+		id := r.n2Identity(b)
+		if id == nil || seenN2[id.key()] {
+			continue
 		}
+		seenN2[id.key()] = true
+		l.n2 = append(l.n2, id)
 	}
 	return l
 }
@@ -234,7 +303,9 @@ func (t *leaseTable) acquire(id string, want *leases) error {
 // release drops run id's leases. It is idempotent.
 func (t *leaseTable) release(id string) { delete(t.held, id) }
 
-// conflict reports the first resource want shares with have (held by h).
+// conflict reports the first resource want shares with have (held by h):
+// overlapping SUPI blocks in a PLMN, a gNB ID in a PLMN at an AMF whose
+// identities intersect, or N2 sources whose identities intersect.
 func conflict(want, have *leases, h string) error {
 	for _, a := range want.supis {
 		for _, b := range have.supis {
@@ -244,27 +315,38 @@ func conflict(want, have *leases, h string) error {
 			}
 		}
 	}
-	keys := make([]GNBKey, 0, len(want.gnbs))
-	for k := range want.gnbs {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i].ID < keys[j].ID })
-	for _, k := range keys {
-		if have.gnbs[k] {
-			return &ErrLeaseConflict{Resource: "gNB ID", Value: fmt.Sprintf("%d on AMF %s (PLMN %s)", k.ID, k.AMF, k.PLMN), Holder: h}
+	for _, a := range want.gnbs {
+		for _, b := range have.gnbs {
+			if a.plmn == b.plmn && a.id == b.id && a.amf.intersects(b.amf) {
+				return &ErrLeaseConflict{Resource: "gNB ID", Value: fmt.Sprintf("%d on AMF %s (PLMN %s)", b.id, b.written, b.plmn), Holder: h}
+			}
 		}
 	}
-	ips := make([]string, 0, len(want.n2))
-	for ip := range want.n2 {
-		ips = append(ips, ip)
-	}
-	sort.Strings(ips)
-	for _, ip := range ips {
-		if have.n2[ip] {
-			return &ErrLeaseConflict{Resource: "N2 source IP", Value: ip, Holder: h}
+	for _, a := range want.n2 {
+		for _, b := range have.n2 {
+			if a.intersects(b) {
+				return &ErrLeaseConflict{Resource: "N2 source IP", Value: firstKey(b), Holder: h}
+			}
 		}
 	}
 	return nil
+}
+
+// firstKey names an identity in a message: its address if it has one.
+func firstKey(id identity) string {
+	ks := make([]string, 0, len(id))
+	for k := range id {
+		ks = append(ks, k)
+	}
+	sort.Slice(ks, func(i, j int) bool {
+		_, ei := netip.ParseAddr(ks[i])
+		_, ej := netip.ParseAddr(ks[j])
+		if (ei == nil) != (ej == nil) {
+			return ei == nil
+		}
+		return ks[i] < ks[j]
+	})
+	return ks[0]
 }
 
 func supiRange(lo, hi uint64) string {
