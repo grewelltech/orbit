@@ -128,3 +128,5 @@ func (endMarkerOnPathSwitch) Needs() CheckNeeds {
 func (nasSMCNoNIA0) Needs() CheckNeeds             { return ueNeeds }
 func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return ueNeeds }
 func (nasT3550AcceptRetransmit) Needs() CheckNeeds { return ueNeeds }
+func (nasPDUUnknownDNN) Needs() CheckNeeds         { return ueNeeds }
+func (nasRegRejectedNSSAI) Needs() CheckNeeds      { return ueNeeds }
