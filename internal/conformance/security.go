@@ -270,9 +270,16 @@ type smcFields struct {
 }
 
 // parseSMC reads a Security Mode Command NAS PDU (integrity-protected, not
-// ciphered: the inner plain message starts at offset 7) without the key.
+// ciphered: the inner plain message starts at offset 7) without the key. A
+// ciphered security header is refused rather than read: past it would be
+// ciphertext (TS 24.501 4.4.6: the SMC is never ciphered).
 func parseSMC(raw []byte) (smcFields, error) {
 	if len(raw) > 7 && raw[1]&0x0f != nas.SecHdrPlain {
+		switch raw[1] & 0x0f {
+		case nas.SecHdrIntegrity, nas.SecHdrIntegrityNewContext:
+		default:
+			return smcFields{}, fmt.Errorf("security mode command with ciphered security header type %d", raw[1]&0x0f)
+		}
 		raw = raw[7:]
 	}
 	m, err := nas.DecodePlain(raw)

@@ -253,8 +253,12 @@ func TestJudgeNSSAI(t *testing.T) {
 			wantObserved: "Registration Reject failed integrity check"},
 		{name: "reject protected before any security context", o: nssaiOutcome{reject: rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectErr: fmt.Errorf("wrapped: %w", engine.ErrNoSecurityContext)}, want: Error,
 			wantObserved: "Registration Reject protected before a NAS security context"},
+		{name: "reject that did not decipher", o: nssaiOutcome{rejectRaw: []byte{0x7e, 0x02, 1, 2, 3, 4, 5, 0xaa}, rejectErr: errors.New("nas decrypt")}, want: Error,
+			wantObserved: "Registration Reject could not be deciphered"},
 		{name: "reject the codec refused", o: nssaiOutcome{reject: rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectErr: errors.New("codec")}, want: Pass},
-		{name: "accept that did not decode", o: nssaiOutcome{acceptErr: errors.New("x")}, want: Error, wantObserved: "Registration Accept did not decode"},
+		{name: "accept that did not decode", o: nssaiOutcome{acceptErr: errors.New("x"), acceptRaw: []byte{0x7e, 0x00, 0x42}}, want: Error, wantObserved: "Registration Accept did not decode"},
+		{name: "a PDU of unreadable type that did not decode", o: nssaiOutcome{acceptErr: errors.New("mac"), unreadableRaw: []byte{0x7e, 0x02, 9, 9, 9, 9, 1, 0xaa}, acceptCleanup: "switch-off Deregistration Request sent"}, want: Error,
+			wantObserved: "a protected NAS PDU of unreadable type did not decode"},
 		{name: "released", o: nssaiOutcome{released: true}, want: Error, wantObserved: "released without a Registration Reject or Accept"},
 		{name: "nothing", o: nssaiOutcome{noAnswer: true}, want: Error, wantObserved: "no Registration Reject or Accept"},
 		{name: "no outcome", o: nssaiOutcome{}, want: Error, wantObserved: "no outcome"},
@@ -284,7 +288,10 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 		want         Verdict
 		wantObserved string
 		wantDetail   []string
+		wantDeregs   int64 // Deregistration Requests the mock must see
 	}{
+		{name: "an undecodable Accept is deregistered", opts: []mockamf.Option{mockamf.WithUndecodableAccept()}, want: Error,
+			wantObserved: "Registration Accept did not decode", wantDetail: []string{"Cleanup: switch-off Deregistration Request sent"}, wantDeregs: 1},
 		{name: "#62 with Rejected NSSAI", opts: nssai(mockamf.Reject62NSSAI), want: Pass,
 			wantObserved: "Registration Reject #62, stimulus S-NSSAI in the Rejected NSSAI IE",
 			wantDetail:   []string{"Rejected NSSAI [01eeeeee (cause 0)]", "NSSAA and ER-NSSAI bits sent as 0 (not supported)", "b) 2)"}},
@@ -331,6 +338,15 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(r.Detail, w) {
 					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			if tc.wantDeregs > 0 {
+				deadline := time.Now().Add(3 * time.Second)
+				for amf.Deregistrations() < tc.wantDeregs && time.Now().Before(deadline) {
+					time.Sleep(10 * time.Millisecond)
+				}
+				if n := amf.Deregistrations(); n != tc.wantDeregs {
+					t.Errorf("mock saw %d Deregistration Requests, want %d", n, tc.wantDeregs)
 				}
 			}
 			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {

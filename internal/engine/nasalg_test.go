@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -408,6 +409,107 @@ func TestMessageTypeFallbackOnlyWhenReadable(t *testing.T) {
 			}
 			if mt := got[0].MessageType(); mt != tc.want {
 				t.Errorf("MessageType() = %#02x, want %#02x", mt, tc.want)
+			}
+		})
+	}
+}
+
+// Plain carries a protected PDU's deciphered message once its MAC
+// verified, even when the codec refuses the message, so MessageType() and a
+// probe's IE walk work under NEA1-3; a PDU that does not verify has no
+// Plain.
+func TestNASEventPlain(t *testing.T) {
+	var kInt, kEnc [16]byte
+	for i := range kInt {
+		kInt[i], kEnc[i] = byte(i), byte(0x80+i)
+	}
+	// A Registration Reject the codec cannot finish: its cause octet is
+	// missing.
+	reject := []byte{0x7e, 0x00, f5nas.MsgTypeRegistrationReject}
+	tests := []struct {
+		name      string
+		ea        uint8
+		breakMAC  bool
+		wantPlain bool
+		wantType  uint8
+	}{
+		{name: "NEA2, verified", ea: nas.NEA2, wantPlain: true, wantType: f5nas.MsgTypeRegistrationReject},
+		{name: "NEA0, verified", ea: nas.NEA0, wantPlain: true, wantType: f5nas.MsgTypeRegistrationReject},
+		{name: "NEA2, MAC broken", ea: nas.NEA2, breakMAC: true, wantType: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amfSec := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: tc.ea, KNASint: kInt, KNASenc: kEnc, Network: true}
+			pdu, err := amfSec.EncodeSecureRaw(append([]byte(nil), reject...), nas.SecHdrIntegrityCiphered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.breakMAC {
+				pdu[3] ^= 0xff
+			}
+			var got []NASEvent
+			s := &attachState{ctx: context.Background(), log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				sec:   &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: tc.ea, KNASint: kInt, KNASenc: kEnc},
+				ueCfg: UEConfig{Probe: &AttachProbe{OnNAS: func(ev NASEvent) { got = append(got, ev) }}}}
+			if err := s.handleNAS(pdu, false); err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1 || got[0].Err == nil {
+				t.Fatalf("OnNAS got %+v, want one event the codec refused", got)
+			}
+			ev := got[0]
+			if tc.wantPlain != (ev.Plain != nil) {
+				t.Fatalf("Plain = %x, want set %t", ev.Plain, tc.wantPlain)
+			}
+			if tc.wantPlain && !bytes.Equal(ev.Plain, reject) {
+				t.Errorf("Plain = %x, want the plaintext %x", ev.Plain, reject)
+			}
+			if mt := ev.MessageType(); mt != tc.wantType {
+				t.Errorf("MessageType() = %#02x, want %#02x", mt, tc.wantType)
+			}
+		})
+	}
+}
+
+// DeregisterUndecodableAccept keys on the readable type: a Registration
+// Reject that deciphered but the codec refused is skipped, with no
+// switch-off Deregistration; a PDU nothing can be read of, under NEA2
+// before REGISTERED, may be the Accept and ends the attach.
+func TestUndecodableAcceptUsesReadableType(t *testing.T) {
+	var kInt, kEnc [16]byte
+	for i := range kInt {
+		kInt[i], kEnc[i] = byte(i), byte(0x80+i)
+	}
+	tests := []struct {
+		name      string
+		inner     []byte
+		breakMAC  bool
+		wantDereg bool
+	}{
+		{name: "deciphered Reject the codec refused", inner: []byte{0x7e, 0x00, f5nas.MsgTypeRegistrationReject}},
+		{name: "deciphered Accept the codec refused", inner: []byte{0x7e, 0x00, f5nas.MsgTypeRegistrationAccept}, wantDereg: true},
+		{name: "unreadable PDU", inner: []byte{0x7e, 0x00, f5nas.MsgTypeRegistrationReject}, breakMAC: true, wantDereg: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amfSec := &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA2, KNASint: kInt, KNASenc: kEnc, Network: true}
+			pdu, err := amfSec.EncodeSecureRaw(append([]byte(nil), tc.inner...), nas.SecHdrIntegrityCiphered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.breakMAC {
+				pdu[3] ^= 0xff
+			}
+			s := &attachState{ctx: context.Background(), log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+				sec:   &nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA2, KNASint: kInt, KNASenc: kEnc},
+				ueCfg: UEConfig{Probe: &AttachProbe{OnNAS: func(NASEvent) {}, DeregisterUndecodableAccept: true}}}
+			err = s.handleNAS(pdu, false)
+			var ua *UndecodableAcceptError
+			if got := errors.As(err, &ua); got != tc.wantDereg {
+				t.Fatalf("handleNAS = %v; ended for a deregistration %t, want %t", err, got, tc.wantDereg)
+			}
+			if !tc.wantDereg && err != nil {
+				t.Errorf("a skipped PDU returned %v", err)
 			}
 		})
 	}

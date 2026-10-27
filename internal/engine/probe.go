@@ -172,11 +172,20 @@ type NASEvent struct {
 	Type uint8
 	// Msg is the decoded plain message, nil when Err is set.
 	Msg *f5nas.Message
-	Err error
+	// Plain is a protected PDU's plain NAS message (the bytes inside the
+	// security header), set only when its MAC verified and it deciphered,
+	// even if the codec then refused it (Err set), so a probe can read
+	// IEs the codec does not know. It is nil for a plain-NAS PDU, whose
+	// Raw is already plain, and for a PDU that did not verify or
+	// decipher. Never read a protected PDU's Raw past its header instead:
+	// under NEA1-3 that is ciphertext.
+	Plain []byte
+	Err   error
 }
 
 // MessageType is the PDU's 5GMM message type: the decoded message's when it
-// decoded, which works under any cipher, else the header read (Type). Type
+// decoded, which works under any cipher; else the deciphered Plain's; else
+// the header read (Type). Type
 // is only ever read where the header is plaintext (a plain PDU, or a
 // protected one under NEA0 or before any context; see nasMessageType and
 // readableCipher), so under NEA1-3 an undecodable PDU is 0, never a
@@ -184,6 +193,9 @@ type NASEvent struct {
 func (e NASEvent) MessageType() uint8 {
 	if e.Msg != nil && e.Msg.GmmMessage != nil {
 		return e.Msg.GmmHeader.GetMessageType()
+	}
+	if len(e.Plain) >= 3 { // EPD, security header, message type
+		return e.Plain[2]
 	}
 	return e.Type
 }
