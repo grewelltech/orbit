@@ -49,12 +49,26 @@ type Options struct {
 	// apply (orbit serve --conformance-expected-failures); nil for none. The
 	// caller loads it, so a bad file fails startup.
 	ConformanceExpected *conformance.ExpectedFailures
+	// Token is the bearer token every Connect procedure and /metrics
+	// require ("" = none). /healthz and the dashboard's static files stay
+	// open.
+	Token string
+	// TLS says the handler is served over TLS, where HTTP/2 comes from
+	// ALPN; without it the handler speaks h2c for plaintext gRPC clients.
+	TLS bool
 }
 
-// New builds the ORBIT HTTP handler. The h2c wrapper lets gRPC clients
-// connect without TLS on lab-internal listeners; the API is not meant to be
-// externally exposed (DESIGN §8, credential handling).
+// New builds the ORBIT HTTP handler. Served plaintext (opts.TLS false), it
+// wraps the mux in h2c so gRPC clients connect without TLS; `orbit serve`
+// allows plaintext only on loopback unless --insecure-listen (ADR-0008 §4).
+// Every procedure refuses subscriber keys and tokens over plaintext from a
+// non-loopback peer, and opts.Token, when set, guards the API.
 func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Options) http.Handler {
+	return newHandler(log, version, reg, opts, newSecurity(log, opts.Token))
+}
+
+func newHandler(log *slog.Logger, version string, reg *prometheus.Registry, opts Options, sec *security) http.Handler {
+	ic := connect.WithInterceptors(keysInterceptor{})
 	mgr := engine.NewManager(log)
 	mgr.EnableAppMetrics(reg)
 	if opts.CoreProfile != "" {
@@ -91,11 +105,11 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 	runSvc.restoreFrames()
 
 	mux := http.NewServeMux()
-	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}))
-	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}))
-	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}))
-	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc))
-	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected}))
+	mux.Handle(orbitv1connect.NewSystemServiceHandler(&systemService{version: version}, ic))
+	mux.Handle(orbitv1connect.NewCellServiceHandler(&cellService{log: log}, ic))
+	mux.Handle(orbitv1connect.NewUEServiceHandler(&ueService{log: log, mgr: mgr, apps: mgr}, ic))
+	mux.Handle(orbitv1connect.NewRunServiceHandler(runSvc, ic))
+	mux.Handle(orbitv1connect.NewConformanceServiceHandler(&conformanceService{log: log, expected: opts.ConformanceExpected}, ic))
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -107,7 +121,11 @@ func New(log *slog.Logger, version string, reg *prometheus.Registry, opts Option
 	if !webui.Available() {
 		log.Warn("dashboard assets not embedded; run `make ui` to build them")
 	}
-	return h2c.NewHandler(mux, &http2.Server{})
+	h := sec.middleware(mux)
+	if opts.TLS {
+		return h
+	}
+	return h2c.NewHandler(h, &http2.Server{})
 }
 
 type systemService struct {
