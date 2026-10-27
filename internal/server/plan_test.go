@@ -356,9 +356,14 @@ func TestPlanArchiveHoldsNoSecrets(t *testing.T) {
 	}
 	// The assigned gNB ID went back to the rotation when the run ended:
 	// the one-ID block can be assigned again.
-	if _, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}})); err != nil {
+	second, err := c.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
 		t.Errorf("the block's only ID after the first run ended: %v", err)
+		return
 	}
+	// Let the second run end and be archived before the state directory is
+	// removed: its late writes raced the cleanup.
+	waitArchive(t, dir, second.Msg.GetRun().GetRunId())
 }
 
 // Assigned and pinned gNB IDs both come from the target's ran.gnb_ids
