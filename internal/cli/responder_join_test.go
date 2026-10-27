@@ -51,7 +51,9 @@ func TestResponderListRemove(t *testing.T) {
 	}{
 		{name: "default", args: []string{"responder", "list"},
 			want: []string{"NAME", "app1", "rs-1", "online", "ago", "198.51.100.20:9551", "jt-1"}, wantNot: []string{"203.0.113.7", "SOURCE"}},
-		{name: "wide", args: []string{"responder", "list", "-o", "wide"}, want: []string{"SOURCE", "203.0.113.7:40000", "203.0.113.7:39999"}},
+		// Registered from 203.0.113.7, control on 198.51.100.20: marked.
+		{name: "wide", args: []string{"responder", "list", "-o", "wide"}, want: []string{"SOURCE", "203.0.113.7:40000", "203.0.113.7:39999 !",
+			"! registered from a different address than its control address"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,6 +126,24 @@ func TestServeRefusesAnUnreadableRegistry(t *testing.T) {
 		r := runOrbit(t, targetDir(t, lab1), "serve", "--state-dir", dir, "--listen", "127.0.0.1:0")
 		if r.execErr == nil || !strings.Contains(r.execErr.Error(), "responders.json") || !strings.Contains(r.execErr.Error(), "serve will not start") {
 			t.Errorf("%q: err = %v", bad, r.execErr)
+		}
+	}
+}
+
+// The wide list's marker: registration source host versus control host.
+func TestRegisteredElsewhere(t *testing.T) {
+	tests := []struct {
+		from, control string
+		want          bool
+	}{
+		{"198.51.100.20:40000", "198.51.100.20:9551", false},
+		{"203.0.113.7:40000", "198.51.100.20:9551", true},
+		{"[2001:db8::1]:40000", "[2001:db8::1]:9551", false},
+		{"", "198.51.100.20:9551", false},
+	}
+	for _, tc := range tests {
+		if got := registeredElsewhere(tc.from, tc.control); got != tc.want {
+			t.Errorf("registeredElsewhere(%q, %q) = %v", tc.from, tc.control, got)
 		}
 	}
 }

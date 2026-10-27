@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -164,6 +166,7 @@ type Registry struct {
 
 	// failSave, when it returns true, fails the next save (tests).
 	failSave func() bool
+	log      *slog.Logger
 }
 
 // RegistryOption configures a Registry.
@@ -174,11 +177,22 @@ func WithRegistryClock(now func() time.Time) RegistryOption {
 	return func(r *Registry) { r.now = now }
 }
 
+// WithRegistryLog sets where the registry logs what it cannot otherwise
+// report (default: nowhere).
+func WithRegistryLog(log *slog.Logger) RegistryOption {
+	return func(r *Registry) {
+		if log != nil {
+			r.log = log
+		}
+	}
+}
+
 // OpenRegistry loads the registry from dir's RegistryFileName ("" = memory
 // only). A missing file is an empty registry; a file that cannot be read
 // is an error, so a server never silently forgets its responders.
 func OpenRegistry(dir string, opts ...RegistryOption) (*Registry, error) {
-	r := &Registry{now: time.Now, byID: map[string]*entry{}, tombs: map[string]tombstone{}}
+	r := &Registry{now: time.Now, byID: map[string]*entry{}, tombs: map[string]tombstone{},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	for _, o := range opts {
 		o(r)
 	}
@@ -404,6 +418,9 @@ func (r *Registry) Register(store *Store, q RegisterRequest) (Responder, error) 
 	if err := store.Burn(q.JoinToken, h, id); err != nil {
 		// Revoked or expired since the lookup: put the disk back as it was.
 		if err := r.save(r.byID, r.tombs); err != nil {
+			// The disk now holds an entry memory does not, whose credential
+			// was never handed out: it would come back at the next restart.
+			r.log.Error("registry: orphan entry "+id+" after failed put-back; remove it with orbit responder remove", "id", id, "err", err)
 			return Responder{}, fmt.Errorf("the responder registry did not persist: %w", err)
 		}
 		return Responder{}, ErrUnknownToken

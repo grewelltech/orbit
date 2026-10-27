@@ -588,6 +588,13 @@ command line or in the journal.
 - **Names.** A responder takes the token's `--name`, else the host's short
   name. A name another responder holds is refused, before the token is used.
 
+- **Issue join tokens only to the app host's operator.** A registration
+  states its own control address and data IP, and the server takes them as
+  given: it later dials that control address with the responder's loom
+  token. So whoever holds a join token chooses where that token goes.
+  `orbit responder list -o wide` marks with `!` a responder that registered
+  from a different address than its control address (NAT does that too).
+
 ```sh
 orbit responder list               # name, ID, state, last seen, control, data IP, version, token ID
 orbit responder list -o wide       # with the source addresses
