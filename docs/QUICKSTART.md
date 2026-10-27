@@ -288,8 +288,9 @@ orbit run first-fleet.yaml -t lab1
   addresses while it is active; a second run that needs any of them is refused
   with the resource and the run holding it (stop that one with
   `orbit runs stop <run-id>`, or give the second other values). Runs that share
-  nothing run side by side. Conformance runs take no leases yet, so keep them
-  off a running fleet's SUPIs and gNB IDs.
+  nothing run side by side. Conformance runs, single-UE commands (`ue
+  register`, `target probe`) and step scenarios take no leases yet, so keep
+  them off a running fleet's SUPIs and gNB IDs.
 - **Ad-hoc `ue` commands never appear on the dashboard.** They create no run.
 - **`make ui` before `make build`** if you want the dashboard embedded.
 
