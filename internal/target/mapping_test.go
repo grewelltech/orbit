@@ -2,6 +2,7 @@ package target
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,5 +170,47 @@ func TestHandoverTargetFlagsExcluded(t *testing.T) {
 		if b, ok := FlagBinding(c.cmd, c.flag); !ok || b.Path != c.path {
 			t.Errorf("%s --%s: %+v, %v; want %s", c.cmd, c.flag, b, ok, c.path)
 		}
+	}
+}
+
+// DefaultsInput is the command's flag defaults that say something, at the
+// default layer: not the user's flags, not empty or zero defaults, not
+// unbound or deprecated flags; a duration default on a _ms path in ms.
+func TestDefaultsInput(t *testing.T) {
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	fs.String("amf", "", "")
+	fs.Int("count", 100, "")
+	fs.Int("concurrency", 64, "")
+	fs.Float64("rate", 0, "")
+	fs.Bool("pdu-session", false, "")
+	fs.String("gnb-name", "orbit-gnb", "")
+	fs.Duration("duration", 0, "")
+	fs.Duration("sample-interval", 2*time.Second, "")
+	fs.String("arrival", "constant", "")
+	fs.Int("progress-every", 5, "") // unbound
+	fs.Uint32("gnb-bits", 22, "")
+	_ = fs.MarkDeprecated("gnb-bits", "use --gnb-id-bits")
+	if err := fs.Parse([]string{"--count", "7"}); err != nil {
+		t.Fatal(err)
+	}
+	in, err := DefaultsInput("orbit load", fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]any{}
+	for _, s := range in.Settings {
+		got[s.Path] = s.Value
+		if !strings.HasSuffix(s.Source.Name, " default") {
+			t.Errorf("%s source = %q", s.Path, s.Source.Name)
+		}
+	}
+	want := map[string]any{
+		"workloads[].attach.concurrency": "64",
+		"ran.gnb_name":                   "orbit-gnb",
+		"workloads[].sample_interval_ms": uint64(2000),
+		"workloads[].attach.arrival":     "constant",
+	}
+	if in.Layer != LayerDefault || !reflect.DeepEqual(got, want) {
+		t.Errorf("DefaultsInput = %v (layer %v), want %v", got, in.Layer, want)
 	}
 }
