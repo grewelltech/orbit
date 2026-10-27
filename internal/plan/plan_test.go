@@ -3,6 +3,7 @@ package plan
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -606,6 +607,50 @@ func TestFillTemplate(t *testing.T) {
 			}
 			if tc.template == "fleet" && pop.GetBehaviors() == nil {
 				t.Error("the fleet lost its behaviours: it would not keep its UEs")
+			}
+		})
+	}
+}
+
+// conformance.nas is the two lists --nas-integrity and --nas-ciphering
+// set (main's flags, bound in the mapping): from those flags' paths they
+// reach the plan's ConformanceWorkload.nas.
+func TestNASFlagsReachThePlan(t *testing.T) {
+	ia, ok := target.FlagBinding("orbit conformance", "nas-integrity")
+	if !ok {
+		t.Fatal("--nas-integrity is not bound")
+	}
+	ea, ok := target.FlagBinding("orbit conformance", "nas-ciphering")
+	if !ok {
+		t.Fatal("--nas-ciphering is not bound")
+	}
+	src := target.Source{Name: "--nas-integrity"}
+	tests := []struct {
+		name     string
+		settings []target.Setting
+		wantIA   []string
+		wantEA   []string
+	}{
+		{name: "integrity", settings: []target.Setting{{Path: ia.Path, Value: []string{"NIA1", "NIA3"}, Source: src}}, wantIA: []string{"NIA1", "NIA3"}},
+		{name: "ciphering", settings: []target.Setting{{Path: ea.Path, Value: []string{"NEA2"}, Source: src}}, wantEA: []string{"NEA2"}},
+		{name: "both", settings: []target.Setting{{Path: ia.Path, Value: []string{"NIA2"}, Source: src}, {Path: ea.Path, Value: []string{"NEA0"}, Source: src}},
+			wantIA: []string{"NIA2"}, wantEA: []string{"NEA0"}},
+		{name: "neither"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res := resolve(t, "kind: run\nworkloads:\n  - name: suite\n    conformance: {categories: [nas]}\n",
+				target.Input{Layer: target.LayerFlag, Settings: tc.settings})
+			p, _, err := Build(res)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nas := p.GetWorkloads()[0].GetConformance().GetNas()
+			if (tc.wantIA == nil && tc.wantEA == nil) != (nas == nil) {
+				t.Fatalf("nas = %v", nas)
+			}
+			if !slices.Equal(nas.GetIntegrity(), tc.wantIA) || !slices.Equal(nas.GetCiphering(), tc.wantEA) {
+				t.Errorf("nas = %v, want %v / %v", nas, tc.wantIA, tc.wantEA)
 			}
 		})
 	}
