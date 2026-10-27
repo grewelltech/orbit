@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -31,7 +30,8 @@ func msDuration(name string, d time.Duration) (uint32, error) {
 
 // runsClient builds a RunService client against the API server.
 func runsClient(url *string) orbitv1connect.RunServiceClient {
-	return orbitv1connect.NewRunServiceClient(http.DefaultClient, *url)
+	h, guard := apiClient(*url)
+	return orbitv1connect.NewRunServiceClient(h, *url, guard)
 }
 
 // newRunsCmd manages server-side runs (ADR-0005): the CLI is a client of the

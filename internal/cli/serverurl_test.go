@@ -90,7 +90,7 @@ const targetCommand = "target"
 // and so never read $ORBIT_SERVER. With hookedGroups and runCommand this is
 // the whole top level: a new command must be classified in one of them, so a
 // client group added without withServerURL cannot pass as "local".
-var localCommands = []string{"version", "serve", "load", "conformance", "responder"}
+var localCommands = []string{"version", "serve", "load", "conformance", "responder", "server"}
 
 // leaves returns every runnable leaf below c with its full path.
 func leaves(c *cobra.Command, path string) []string {

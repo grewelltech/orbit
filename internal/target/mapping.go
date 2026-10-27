@@ -133,6 +133,7 @@ var Bindings = []Binding{
 // Exclusions are the env vars and flags that are not configuration.
 var Exclusions = []Exclusion{
 	{Env: "ORBIT_SERVER", Reason: ReasonConnection},
+	{Env: "ORBIT_TOKEN", Reason: ReasonConnection},
 	{Flag: "server", Reason: ReasonConnection},
 
 	{Flag: "json", Reason: ReasonOutput},
@@ -142,6 +143,14 @@ var Exclusions = []Exclusion{
 	{Flag: "from-seq", Reason: ReasonOutput},
 
 	{Flag: "listen", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "tls", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "tls-cert", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "tls-key", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "token-file", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "no-auth", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "insecure-listen", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "fingerprint", Commands: []string{"orbit server trust"}, Reason: ReasonConnection},
+	{Flag: "token-file", Commands: []string{"orbit server trust"}, Reason: ReasonConnection},
 	{Flag: "log-level", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "state-dir", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "run-history", Commands: []string{cmdServe}, Reason: ReasonProcess},
