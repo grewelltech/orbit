@@ -57,6 +57,9 @@ type RunInfo struct {
 	StartedAt time.Time
 	EndedAt   time.Time // zero while not terminal
 	Err       string    // set when State == RunFailed
+	// WorkloadKinds are a mixed run's workloads' kinds, in plan order, so
+	// a kind filter can match any of them; empty for a single-kind run.
+	WorkloadKinds []RunKind
 }
 
 // RunOptions are the per-run settings the registry applies to every kind, so a
@@ -81,6 +84,8 @@ type RunOptions struct {
 	// it keeps the run (Judgement): a plan's gate results, which then never
 	// depend on anything the caller may have let go of since.
 	Judge func(report any) any
+	// WorkloadKinds are recorded on the run (RunInfo.WorkloadKinds).
+	WorkloadKinds []RunKind
 }
 
 // LoadRunFunc executes a load run to completion, reporting each attempt to
@@ -103,7 +108,8 @@ type run struct {
 	leases    []LeaseInfo // what the run leased, kept after release for the archive
 	onRelease func()
 	judge     func(report any) any
-	judgement any // Judge's result, set with report on COMPLETE
+	judgement any           // Judge's result, set with report on COMPLETE
+	mixed     []*mixedState // a mixed run's workloads (mixed kind; nil otherwise)
 }
 
 // FleetRunFunc executes a fleet run to completion, publishing its aggregates
@@ -171,7 +177,7 @@ func newRunID() string {
 // run concurrently, whatever their kind.
 func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error) {
 	live := load.NewLiveStats()
-	return r.start(RunKindLoad, opts, live, nil, nil, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindLoad, opts, live, nil, nil, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
 			if err != nil {
@@ -187,7 +193,7 @@ func (r *RunRegistry) StartLoad(opts RunOptions, fn LoadRunFunc) (RunInfo, error
 // proceeds.
 func (r *RunRegistry) StartFleet(opts RunOptions, fn FleetRunFunc) (RunInfo, error) {
 	live := NewFleetLiveStats()
-	return r.start(RunKindFleet, opts, nil, live, nil, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindFleet, opts, nil, live, nil, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) {
 			rep, err := fn(ctx, live, emit)
 			if err != nil {
@@ -210,7 +216,7 @@ type ConformanceRunFunc func(ctx context.Context, emit RunEventFunc) (any, error
 // with the run for as long as the registry keeps it (ConformanceLive), so
 // a reader can follow results without the launcher's help.
 func (r *RunRegistry) StartConformance(opts RunOptions, live any, fn ConformanceRunFunc) (RunInfo, error) {
-	return r.start(RunKindConformance, opts, nil, nil, live, func(emit RunEventFunc) runFunc {
+	return r.start(RunKindConformance, opts, nil, nil, live, nil, func(emit RunEventFunc) runFunc {
 		return func(ctx context.Context) (any, error) { return fn(ctx, emit) }
 	})
 }
@@ -239,7 +245,7 @@ func (r *RunRegistry) ConformanceResult(id string) (any, bool) {
 // start registers a run of the given kind and launches exec on its own
 // goroutine. Each kind supplies at most one live-aggregate holder (the other
 // is nil). mkExec builds the launcher once the run's event emitter exists.
-func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats, fleetLive *FleetLiveStats, suiteLive any, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
+func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats, fleetLive *FleetLiveStats, suiteLive any, mixed []*mixedState, mkExec func(emit RunEventFunc) runFunc) (RunInfo, error) {
 	// Canonicalising may resolve AMF names, so it happens before the lock:
 	// a slow resolver must not stall every other call on the registry.
 	want := r.leases.canonical(opts.Needs)
@@ -257,11 +263,12 @@ func (r *RunRegistry) start(kind RunKind, opts RunOptions, live *load.LiveStats,
 	rec := &run{
 		info: RunInfo{
 			ID: id, Kind: kind, Name: opts.Name,
-			State: RunPending, StartedAt: time.Now(),
+			State: RunPending, StartedAt: time.Now(), WorkloadKinds: opts.WorkloadKinds,
 		},
 		live:      live,
 		fleetLive: fleetLive,
 		suiteLive: suiteLive,
+		mixed:     mixed,
 		events:    ring,
 		cancel:    cancel,
 		leases:    want.describe(),
