@@ -336,6 +336,9 @@ func TestNoUnmaskedTargetErrorShown(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Deliberately coarse: any .Unwrap() call in these packages fails,
+			// a non-target error's too. Allow one by name here only after
+			// checking it can never reach a target error.
 			for _, banned := range []string{"errors.Unwrap(", ".Unwrap()", "yaml.TypeError"} {
 				if strings.Contains(string(b), banned) {
 					t.Errorf("%s uses %s: a target error's unmasked text could be shown", f, banned)
