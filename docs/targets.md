@@ -109,6 +109,15 @@ destination gNB and are never filled from a target; only `--amf` is.
   rules. `--gnb-n3` needs an IP: a host-name entry fills `--n3-bind`, leaves
   `--gnb-n3` unfilled, and says so.
 
+### gNB IDs fit their length
+
+`ran.gnb_ids` must fit `bits` (24 when unset): from `first` to
+`first+count-1`, or `first` alone with no `count`, at most `2^bits-1`. A
+block that overflows is refused when the target resolves, by the CLI and by
+the server alike, naming the range:
+`ran.gnb_ids: 16777200..16777231 does not fit 24 bits (at most 16777215)`.
+A `--gnb-id` that moves the block past the end is refused the same way.
+
 ### gNB IDs for a conformance run
 
 A conformance suite presents three gNB IDs per check: the check's own, a
