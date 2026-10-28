@@ -1,0 +1,138 @@
+{
+  "plan": {
+    "target": {
+      "name": "lab1",
+      "core": {
+        "amf": "192.0.2.10:38412",
+        "plmn": {
+          "mcc": "208",
+          "mnc": "93"
+        },
+        "tac": 1,
+        "slices": [
+          {
+            "sst": 1,
+            "sd": "010203"
+          }
+        ],
+        "dnn": "internet"
+      },
+      "subscribers": [
+        {
+          "name": "main",
+          "firstSupi": "208930100007500",
+          "count": 10,
+          "ki": "<redacted>",
+          "opc": "<redacted>"
+        }
+      ],
+      "ran": {
+        "n2SourceIps": [
+          "127.0.0.1"
+        ],
+        "n3Ips": [
+          "127.0.0.1"
+        ],
+        "gnbIds": {
+          "first": 7,
+          "bits": 24
+        }
+      },
+      "app": {
+        "responders": [
+          {
+            "name": "app1"
+          },
+          {
+            "name": "n6",
+            "control": "127.0.0.1:9",
+            "token": "<redacted>",
+            "dataIp": "127.0.0.1"
+          }
+        ]
+      }
+    },
+    "workloads": [
+      {
+        "name": "pop",
+        "population": {
+          "attach": {
+            "count": 2,
+            "rate": 5,
+            "concurrency": 2
+          },
+          "behaviors": {
+            "latency": {
+              "intervalMs": "500"
+            }
+          }
+        }
+      }
+    ],
+    "until": {
+      "durationMs": "3000"
+    },
+    "gates": [
+      {
+        "slo": {
+          "metric": "attach.success_ratio",
+          "op": "COMPARE_OP_GE"
+        },
+        "name": "<redacted>"
+      }
+    ],
+    "provenance": [
+      {
+        "path": "subscribers[main].ki",
+        "source": {
+          "layer": "PROVENANCE_LAYER_TARGET",
+          "detail": "lab1.yaml:9"
+        },
+        "value": "<redacted>",
+        "overridden": [
+          {
+            "value": "<redacted>"
+          }
+        ]
+      },
+      {
+        "path": "core.plmn.mcc",
+        "source": {
+          "layer": "PROVENANCE_LAYER_TARGET"
+        },
+        "value": "208"
+      }
+    ]
+  },
+  "provenance": [
+    {
+      "path": "subscribers[main].ki",
+      "source": {
+        "layer": "PROVENANCE_LAYER_TARGET",
+        "detail": "lab1.yaml:9"
+      },
+      "value": "<redacted>",
+      "overridden": [
+        {
+          "value": "<redacted>"
+        }
+      ]
+    },
+    {
+      "path": "core.plmn.mcc",
+      "source": {
+        "layer": "PROVENANCE_LAYER_TARGET"
+      },
+      "value": "208"
+    },
+    {
+      "path": "workloads[pop].behaviors.latency.target",
+      "source": {
+        "layer": "PROVENANCE_LAYER_LEASE",
+        "detail": "responder app1 (registry)"
+      },
+      "value": "127.0.0.1"
+    }
+  ],
+  "resolved": true
+}

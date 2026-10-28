@@ -400,7 +400,7 @@ page; add a pool on the Targets page to run those. The run view
 (`?run=<id>`) shows a suite's tally as it runs, then every check's verdict,
 spec reference and observation once it ends, with the expected-failures
 list it was judged against ("failed (N expected)" counts the FAILs the list
-tolerates). **stop run** cancels a suite in flight, as the old page's
+tolerates). **cancel run** stops a suite in flight, as the old page's
 cancel did.
 
 ### Launching a run from the browser (`?launch`)
@@ -443,9 +443,29 @@ the CLI.
   - A field the server refuses is named, with its document and line.
   - The page then opens the run on the dashboard (`?run=<id>`).
   - A run started here runs on the server: it keeps going when you leave
-    the page or close the tab. Stop it from its run view (**stop run**, after
-    a confirm; it ends as cancelled, its gates not judged) or with
-    `orbit runs stop <id>`.
+    the page or close the tab. Launch lists the last 5 runs this tab
+    started, each with its state, a link to its run view and, while in
+    flight, Stop.
+- **Stop** (on a run's view, and on Launch for this tab's runs) works two
+  ways, each after a confirm:
+  - **finish run**: the workloads stop and report what they have, and the
+    gates are judged on that. The run ends complete, stopped early.
+  - **cancel run**: the run ends cancelled, and its gates are failed as
+    did-not-complete.
+
+  `orbit runs stop <id>` (add `--finish` for the first) does the same.
+- **Resolved config.** A run's view shows every field the run resolved
+  to, with the layer and source that set it (`target lab1.yaml:6`,
+  `env $ORBIT_MCC`, a flag, or the server for a lease), and the lower
+  layers' values it replaced, struck through. Keys show only as
+  `<redacted>`, struck through or not. A `notice:` on top marks a field an
+  `$ORBIT_*` var set over a file's value, the forgotten export. A line says
+  what the plan holds: env or flag layers, none (as from Launch), or no
+  provenance at all for a run started without the resolver
+  (`orbit runs start-load`, `start-fleet`). Launch shows the same panel for
+  the plan "check the plan" resolved. The browser has no env layer, so
+  there it can't show what an exported `$ORBIT_*` would change; run the
+  copied command with `--explain` to see that.
 - **Keys** go only with the plan, under the same rule as Probe: to the
   server's own host, or over https:// with the API token. That rule applies
   only when the run carries a secret: a key in the target, or any `${VAR}`

@@ -1,10 +1,16 @@
 package plan
 
 import (
+	"encoding/json"
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
+	"testing"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
-	"testing"
 
 	"github.com/bgrewell/orbit/internal/target"
 )
@@ -162,5 +168,36 @@ func TestOverrideNoticeHighestFileAndSameValue(t *testing.T) {
 	}
 	if want := "core.plmn.mcc: env $ORBIT_MCC (001) overrode target lab1.yaml:6 (001) (same value)"; NoticeText(got[1]) != want {
 		t.Errorf("got %s\nwant %s", NoticeText(got[1]), want)
+	}
+	if *updateRunConfig {
+		writeRunConfigFixture(t, "highest-file-and-same-value", &orbitv1.GetRunConfigResponse{Provenance: prov, Notices: got, Resolved: true})
+	}
+}
+
+var updateRunConfig = flag.Bool("update-runconfig", false, "write TestOverrideNoticeHighestFileAndSameValue's notices for the dashboard's tests")
+
+// writeRunConfigFixture writes a GetRunConfig answer for the dashboard's
+// provenance tests, and next to it the text NoticeText gives each of its
+// notices, in order: the dashboard's noticeText is pinned to say exactly
+// the same.
+func writeRunConfigFixture(t *testing.T, name string, res *orbitv1.GetRunConfigResponse) {
+	t.Helper()
+	dir := filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig")
+	b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".json"), append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	texts := make([]string, 0, len(res.GetNotices()))
+	for _, n := range res.GetNotices() {
+		texts = append(texts, NoticeText(n))
+	}
+	if b, err = json.MarshalIndent(texts, "", "  "); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".text.json"), append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

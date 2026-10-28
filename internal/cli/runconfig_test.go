@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"io"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/observability"
+	"github.com/bgrewell/orbit/internal/plan"
 	"github.com/bgrewell/orbit/internal/server"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -30,6 +32,25 @@ var updateRunConfig = flag.Bool("update-runconfig", false, "write the GetRunConf
 // runConfigFixture is where the dashboard's provenance tests read a real
 // GetRunConfig answer: a run whose env beat its target.
 var runConfigFixture = filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig", "env-over-target.json")
+
+// writeNoticeTexts writes, next to a GetRunConfig fixture, the text
+// plan.NoticeText gives each of its notices, in order: the dashboard's
+// noticeText is pinned to say exactly the same. rewrite is the fixture's
+// own rewrite (its temporary paths and addresses), applied to each text.
+func writeNoticeTexts(t *testing.T, fixture string, notices []*orbitv1.OverrideNotice, rewrite func(string) string) {
+	t.Helper()
+	texts := make([]string, 0, len(notices))
+	for _, n := range notices {
+		texts = append(texts, rewrite(plan.NoticeText(n)))
+	}
+	b, err := json.MarshalIndent(texts, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strings.TrimSuffix(fixture, ".json")+".text.json", append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // The debug view's case (ADR-0008 §3): an ORBIT_MCC left exported in the
 // shell beats the target's mcc. --explain says so before anything starts,
@@ -138,6 +159,9 @@ ran:
 		if err := os.WriteFile(runConfigFixture, []byte(text+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		writeNoticeTexts(t, runConfigFixture, cfg.Msg.GetNotices(), func(s string) string {
+			return strings.ReplaceAll(strings.ReplaceAll(s, filepath.Dir(loc.Dir+"/x"), "lab"), filepath.Dir(file), "lab")
+		})
 	}
 	// The archive is written as the run ends, just after it: wait for it.
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(25 * time.Millisecond) {

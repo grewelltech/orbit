@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -29,6 +31,37 @@ import (
 	"github.com/bgrewell/orbit/internal/secrets"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
+
+var updateRunConfig = flag.Bool("update-runconfig", false, "write TestGetRunConfig's archived answer for the dashboard's tests")
+
+// runConfigKeysFixture is a real GetRunConfig answer for a run with keys,
+// a key a provenance entry overrode, and the server's own (LEASE) entries:
+// the dashboard's provenance tests read its masked rows.
+var runConfigKeysFixture = filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig", "keys-and-leases.json")
+
+// runConfigSameValueFixture is a real GetRunConfig answer for an archived
+// run whose notices are same and not, secret and not: the dashboard's
+// notice text claims "(same value)" only where Go's does.
+var runConfigSameValueFixture = filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig", "secrets-and-same-value.json")
+
+// writeNoticeTexts writes, next to a GetRunConfig fixture, the text
+// plan.NoticeText gives each of its notices, in order: the dashboard's
+// noticeText is pinned to say exactly the same. rewrite is the fixture's
+// own rewrite (its temporary paths and addresses), applied to each text.
+func writeNoticeTexts(t *testing.T, fixture string, notices []*orbitv1.OverrideNotice, rewrite func(string) string) {
+	t.Helper()
+	texts := make([]string, 0, len(notices))
+	for _, n := range notices {
+		texts = append(texts, rewrite(plan.NoticeText(n)))
+	}
+	b, err := json.MarshalIndent(texts, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strings.TrimSuffix(fixture, ".json")+".text.json", append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // GetRunConfig serves a run's plan and provenance as the archive holds
 // them: from the held spec while the run is live (read, not taken: the
@@ -111,6 +144,22 @@ func TestGetRunConfig(t *testing.T) {
 		}
 	}
 	archived := read("archived")
+	if *updateRunConfig {
+		b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(archived)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.ReplaceAll(string(b), addr, "192.0.2.10:38412")
+		if err := os.MkdirAll(filepath.Dir(runConfigKeysFixture), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(runConfigKeysFixture, []byte(text+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeNoticeTexts(t, runConfigKeysFixture, archived.GetNotices(), func(s string) string {
+			return strings.ReplaceAll(s, addr, "192.0.2.10:38412")
+		})
+	}
 	// Reading the live spec took nothing from the archive.
 	if len(archived.GetProvenance()) < len(live.GetProvenance()) || archived.GetPlan() == nil {
 		t.Errorf("archived: %d provenance entries and plan %t; live had %d", len(archived.GetProvenance()), archived.GetPlan() != nil, len(live.GetProvenance()))
@@ -391,5 +440,15 @@ func TestGetRunConfigSameValueOnAnArchivedRun(t *testing.T) {
 	want := map[string]bool{"core.plmn.mcc": true, "core.amf": false, "subscribers[main].ki": false, "subscribers[main].opc": false}
 	if !maps.Equal(same, want) {
 		t.Errorf("same_value by path %v, want %v", same, want)
+	}
+	if *updateRunConfig {
+		b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(got.Msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(runConfigSameValueFixture, []byte(string(b)+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeNoticeTexts(t, runConfigSameValueFixture, got.Msg.GetNotices(), func(s string) string { return s })
 	}
 }

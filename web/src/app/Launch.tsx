@@ -25,6 +25,9 @@ import { parseStored } from "@/data/targets/actions";
 import { PageLinks } from "./PageLinks";
 import { buttonStyle, inputStyle, TextField } from "./targets/fields";
 import { CommandPanel } from "./launch/CommandPanel";
+import { StartedRuns } from "./launch/StartedRuns";
+import { ProvenancePanel } from "./ProvenancePanel";
+import { LAUNCH_NO_ENV } from "@/data/provenance";
 import { RunCard } from "./launch/RunCard";
 import { WorkloadCard } from "./launch/WorkloadCard";
 
@@ -233,6 +236,10 @@ export function Launch({ preset }: { preset?: string }) {
               )}
             </div>
           </Panel>
+          <StartedRuns runs={l.started} />
+          {s.plan && (
+            <ProvenancePanel provenance={s.plan.response.provenance} notices={s.plan.response.notices} resolved footnote={LAUNCH_NO_ENV} />
+          )}
           <CommandPanel state={s} runYaml={l.runYaml} targetName={t?.name ?? "target"} replaceText={(text, keep) => l.replaceText(text, keep ? l.template : "")} onNotice={(n) => l.notify(n)} />
         </div>
       </main>

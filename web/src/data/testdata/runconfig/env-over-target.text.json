@@ -1,0 +1,4 @@
+[
+  "core.plmn.mcc: env $ORBIT_MCC (208) overrode target lab/orbit.yaml:6 (001)",
+  "core.plmn.mnc: env $ORBIT_MNC (93) overrode target lab/orbit.yaml:6 (01)"
+]
