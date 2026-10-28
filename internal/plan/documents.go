@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"gopkg.in/yaml.v3"
+
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/target"
 )
@@ -38,7 +40,8 @@ type Planned struct {
 // `orbit test` fills only what --set does not set.
 func FromDocuments(d Documents) (*Planned, error) {
 	getenv := func(name string) (string, bool) { v, ok := d.Vars[name]; return v, ok }
-	fs, err := target.Parse("target", d.TargetYAML, getenv)
+	targetFile, runFile := DocumentNames(d.TargetYAML)
+	fs, err := target.Parse(targetFile, d.TargetYAML, getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +54,7 @@ func FromDocuments(d Documents) (*Planned, error) {
 	}
 	rf := &target.RunFile{Input: target.Input{Layer: target.LayerRunFile}}
 	if len(d.RunYAML) > 0 {
-		if rf, err = target.ParseRunFile("run file", d.RunYAML, getenv); err != nil {
+		if rf, err = target.ParseRunFile(runFile, d.RunYAML, getenv); err != nil {
 			return nil, err
 		}
 	}
@@ -106,6 +109,20 @@ func FromDocuments(d Documents) (*Planned, error) {
 		return build()
 	}
 	return out, nil
+}
+
+// DocumentNames are the names a sent target and run file go by in errors
+// and provenance: the files they would be, <target>.yaml and
+// <target>.run.yaml (the page's export), or target.yaml and run.yaml when
+// the target's name is not a valid one.
+func DocumentNames(targetYAML []byte) (targetFile, runFile string) {
+	var head struct {
+		Name string `yaml:"name"`
+	}
+	if err := yaml.Unmarshal(targetYAML, &head); err != nil || !target.ValidName(head.Name) {
+		return "target.yaml", "run.yaml"
+	}
+	return head.Name + ".yaml", head.Name + ".run.yaml"
 }
 
 // sameAsTemplate reports whether rf sets path as base does.

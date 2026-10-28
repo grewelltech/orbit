@@ -129,6 +129,16 @@ func TestPlanRun(t *testing.T) {
 			wantErr: "one target document"},
 		{name: "an unknown template", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, RunYaml: load, Template: "nope", Vars: planVars()},
 			wantErr: `no template "nope"`},
+		// Where: the documents go by the files they would be.
+		{name: "a bad value, at its line", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, Vars: planVars(),
+			RunYaml: strings.Replace(load, "count: 100", "count: abc", 1)},
+			wantErr: `workloads[load].attach.count: "abc" is not a non-negative integer (run file lab1.run.yaml:`},
+		{name: "a parse error, at its line", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, Vars: planVars(),
+			RunYaml: load + "nope: 1\n"},
+			wantErr: "lab1.run.yaml:"},
+		{name: "a target whose name is no file name", req: &orbitv1.ResolveRequest{RunYaml: load, Vars: planVars(),
+			TargetYaml: strings.NewReplacer("name: lab1", "name: 'a b'", `mcc: "001"`, `mcc: "1"`).Replace(planTargetYAML)},
+			wantErr: "(target target.yaml:"},
 		{name: "no run file", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, Vars: planVars()}, wantErr: "no run file"},
 	}
 	s := registeredRunService(t)
