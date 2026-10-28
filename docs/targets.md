@@ -23,6 +23,10 @@ orbit conformance -t lab1
 to load, with the error. One bad entry in an `./orbit.yaml` list fails only
 when that target is selected. A YAML syntax error fails the whole file.
 
+The dashboard's Targets page (`?targets`) also keeps targets, in the
+browser. It imports and exports these same files, and keeps keys out of
+what it stores. See USAGE, "Targets in the browser".
+
 ## The document
 
 ```yaml

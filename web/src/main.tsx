@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { Conformance } from "./app/Conformance";
+import { Targets } from "./app/Targets";
 import { TokenPrompt } from "./app/TokenPrompt";
 import { registerOrbitTheme } from "./theme/echarts";
 import "./styles/global.css";
@@ -17,11 +18,14 @@ if (!host) throw new Error("#root not found");
 // from a load run — "does this core behave to spec" versus "how much can it
 // take" — so it gets its own view rather than a tab bar bolted onto the run
 // dashboard.
-const conformance = new URLSearchParams(window.location.search).has("conformance");
+// Targets (?targets) are the CLI's target files, kept and edited in the
+// browser.
+const query = new URLSearchParams(window.location.search);
+const page = query.has("conformance") ? <Conformance /> : query.has("targets") ? <Targets /> : <App />;
 
 createRoot(host).render(
   <StrictMode>
-    {conformance ? <Conformance /> : <App />}
+    {page}
     <TokenPrompt />
   </StrictMode>,
 );

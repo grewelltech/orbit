@@ -7,7 +7,7 @@
  * hook holds the accumulating results and the running tally, and exposes a
  * `run()` the view calls.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@connectrpc/connect";
 import { orbitTransport } from "./transport";
 import {
@@ -137,7 +137,8 @@ export function paramsFromIdentity(amfAddress: string, id: NetworkIdentity): Con
   };
 }
 
-const EMPTY: ConformanceState = {
+/** A page before any run. */
+export const EMPTY: ConformanceState = {
   results: [],
   tally: undefined,
   expectedCore: "",
@@ -174,44 +175,62 @@ export function failedLabel(tally: ConformanceTally | undefined, expectedCore: s
   return expectedCore ? `failed (${tally?.expectedFailures ?? 0} expected)` : "failed";
 }
 
-export function useConformance(baseUrl?: string) {
-  const client = useMemo(
-    () =>
-      createClient(
-        ConformanceService,
-        orbitTransport(baseUrl),
-      ),
-    [baseUrl],
-  );
-  const [state, setState] = useState<ConformanceState>(EMPTY);
-  // A run in flight, so a second run() cancels the first rather than
-  // interleaving two streams into one table.
-  const abort = useRef<AbortController | null>(null);
+/** The part of a ConformanceService client a run uses. */
+export interface ConformanceStreamer {
+  runConformance(req: ReturnType<typeof buildRequest>, opts: { signal: AbortSignal }): AsyncIterable<ConformanceUpdate>;
+}
 
-  const run = useCallback(
-    async (params: ConformanceParams) => {
-      abort.current?.abort();
-      const ctrl = new AbortController();
-      abort.current = ctrl;
-      setState({ ...EMPTY, running: true });
+/**
+ * One page's conformance runs: at most one stream at a time. A new run
+ * aborts the one before; cancel aborts the current one; dispose (the page
+ * going away) aborts it too, so the server's suite stops rather than
+ * running on for a page no one reads.
+ */
+export class ConformanceRunner {
+  private abort: AbortController | null = null;
 
-      try {
-        const stream = client.runConformance(buildRequest(params), { signal: ctrl.signal });
-        for await (const upd of stream) {
-          setState((prev) => applyUpdate(prev, upd));
-        }
-      } catch (err) {
-        if (ctrl.signal.aborted) return; // superseded by a newer run; not an error
-        setState((prev) => ({ ...prev, running: false, error: String(err) }));
+  constructor(
+    private readonly client: ConformanceStreamer,
+    private readonly setState: (f: (prev: ConformanceState) => ConformanceState) => void,
+  ) {}
+
+  /** The current run's signal, for tests. */
+  get signal(): AbortSignal | undefined {
+    return this.abort?.signal;
+  }
+
+  async run(params: ConformanceParams): Promise<void> {
+    this.abort?.abort();
+    const ctrl = new AbortController();
+    this.abort = ctrl;
+    this.setState(() => ({ ...EMPTY, running: true }));
+    try {
+      for await (const upd of this.client.runConformance(buildRequest(params), { signal: ctrl.signal })) {
+        this.setState((prev) => applyUpdate(prev, upd));
       }
-    },
-    [client],
-  );
+    } catch (err) {
+      if (ctrl.signal.aborted) return; // superseded, cancelled or unmounted; not an error
+      this.setState((prev) => ({ ...prev, running: false, error: String(err) }));
+    }
+  }
 
-  const cancel = useCallback(() => {
-    abort.current?.abort();
-    setState((prev) => ({ ...prev, running: false }));
-  }, []);
+  cancel(): void {
+    this.abort?.abort();
+    this.setState((prev) => ({ ...prev, running: false }));
+  }
 
+  dispose(): void {
+    this.abort?.abort();
+  }
+}
+
+export function useConformance(baseUrl?: string) {
+  const client = useMemo(() => createClient(ConformanceService, orbitTransport(baseUrl)), [baseUrl]);
+  const [state, setState] = useState<ConformanceState>(EMPTY);
+  const runner = useMemo(() => new ConformanceRunner(client, setState), [client]);
+  // Leaving the page (or a new client) ends the run's stream.
+  useEffect(() => () => runner.dispose(), [runner]);
+  const run = useCallback((params: ConformanceParams) => runner.run(params), [runner]);
+  const cancel = useCallback(() => runner.cancel(), [runner]);
   return { state, run, cancel };
 }

@@ -10,6 +10,8 @@ import { ExpectedFailureSchema } from "@/gen/orbit/v1/plan_pb";
 import {
   applyUpdate,
   buildRequest,
+  ConformanceRunner,
+  EMPTY,
   failedLabel,
   identityComplete,
   paramsFromIdentity,
@@ -104,5 +106,50 @@ describe("expected failures", () => {
     expect(failedLabel(tally, "Example core")).toBe("failed (2 expected)");
     expect(failedLabel(tally, "")).toBe("failed");
     expect(failedLabel(undefined, "Example core")).toBe("failed (0 expected)");
+  });
+});
+
+describe("ConformanceRunner", () => {
+  /** A streamer whose stream yields nothing and ends only when aborted. */
+  function hanging() {
+    const seen: AbortSignal[] = [];
+    const client = {
+      runConformance: (_req: unknown, opts: { signal: AbortSignal }) => {
+        seen.push(opts.signal);
+        return {
+          async *[Symbol.asyncIterator]() {
+            await new Promise<void>((_, reject) => opts.signal.addEventListener("abort", () => reject(new Error("aborted"))));
+          },
+        };
+      },
+    };
+    return { client, seen };
+  }
+  const params = { amfAddress: "10.0.0.1:38412", mcc: "001", mnc: "01" };
+
+  it("dispose (the page going away) aborts the run's stream, and that is no error", async () => {
+    const { client, seen } = hanging();
+    let state = { ...EMPTY };
+    const r = new ConformanceRunner(client, (f) => (state = f(state)));
+    const done = r.run(params);
+    expect(seen[0]?.aborted).toBe(false);
+    r.dispose();
+    await done;
+    expect(seen[0]?.aborted).toBe(true);
+    expect(state.error).toBeUndefined();
+  });
+
+  it("a new run aborts the one before; cancel aborts the current one", async () => {
+    const { client, seen } = hanging();
+    let state = { ...EMPTY };
+    const r = new ConformanceRunner(client, (f) => (state = f(state)));
+    const first = r.run(params);
+    const second = r.run(params);
+    expect(seen[0]?.aborted).toBe(true);
+    expect(seen[1]?.aborted).toBe(false);
+    r.cancel();
+    await Promise.all([first, second]);
+    expect(seen[1]?.aborted).toBe(true);
+    expect(state.running).toBe(false);
   });
 });

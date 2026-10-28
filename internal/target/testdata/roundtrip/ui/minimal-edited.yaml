@@ -1,0 +1,22 @@
+version: 1
+kind: target
+name: minimal
+core:
+    amf: 10.0.0.1:38412
+    plmn:
+        mcc: "001"
+        mnc: "001"
+    tac: 9
+    slices:
+        - sst: 1
+    ue_pools:
+        - 10.251.0.0/16
+        - 10.252.0.0/16
+ran:
+    n2_source_ips:
+        - 10.0.0.5
+    n3_ips:
+        - 10.0.0.5
+    gnb_name: "null"
+    gnb_ids:
+        first: 0x20
