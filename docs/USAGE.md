@@ -494,7 +494,9 @@ orbit join revoke jt-…     # cancel one
 The server keeps only each token's hash, in memory, so restarting it revokes
 every pending token. A token stays valid until it expires or is revoked:
 fetching the script does not use it up, so a script that fails partway can be
-run again.
+run again. A token a registration has used can no longer be revoked
+(`orbit join revoke` says so): there is nothing left to cancel, and its
+record lapses at its expiry.
 
 ### Over ssh: `orbit target add-responder`
 

@@ -134,6 +134,33 @@ func TestStoreListRevoke(t *testing.T) {
 	}
 }
 
+// A burned token is not revoked: Revoke is ErrBurned and the record, with
+// the credential that burned it, stays for that registration's retry.
+func TestStoreRevokeBurned(t *testing.T) {
+	s := NewStore()
+	tok, secret, err := s.Create("app1", 0, testSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := [32]byte{7}
+	if err := s.Burn(secret, by, "rs-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke(tok.ID); !errors.Is(err, ErrBurned) {
+		t.Fatalf("revoking a burned token: %v, want ErrBurned", err)
+	}
+	got, ok := s.Lookup(secret)
+	if !ok {
+		t.Fatal("the burned token's record is gone")
+	}
+	if burned, gotBy, responder := got.Burned(); !burned || gotBy != by || responder != "rs-1" {
+		t.Errorf("Burned() = %v, %x, %q after the refused revoke", burned, gotBy[:1], responder)
+	}
+	if err := s.Burn(secret, by, "rs-1"); !errors.Is(err, ErrBurned) {
+		t.Errorf("a second burn: %v, want ErrBurned (the retry is told apart by Burned's credential)", err)
+	}
+}
+
 // A token's name is held only while the token is pending: once a
 // registration burns it, a new token can take the name (to re-join a
 // removed responder); a pending one still holds it, and says which.

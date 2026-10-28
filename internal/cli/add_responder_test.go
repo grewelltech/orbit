@@ -49,6 +49,8 @@ type stubAddJoin struct {
 	used      bool
 	revokeErr error
 	revoked   []string
+	// onCreate, when set, runs in CreateJoinToken before it answers.
+	onCreate func()
 }
 
 func (s *stubAddJoin) ListJoinTokens(context.Context, *connect.Request[orbitv1.ListJoinTokensRequest]) (*connect.Response[orbitv1.ListJoinTokensResponse], error) {
@@ -80,6 +82,9 @@ const addSecret = "oj1_SECRETSECRETSECRETSE"
 
 func (s *stubAddJoin) CreateJoinToken(_ context.Context, req *connect.Request[orbitv1.CreateJoinTokenRequest]) (*connect.Response[orbitv1.CreateJoinTokenResponse], error) {
 	s.create = req.Msg
+	if s.onCreate != nil {
+		s.onCreate()
+	}
 	return connect.NewResponse(&orbitv1.CreateJoinTokenResponse{
 		Issued: &orbitv1.JoinToken{Id: "jt-9", ExpiresUnixNano: time.Now().Add(10 * time.Minute).UnixNano()},
 		Secret: addSecret, Url: s.base + "/join/" + addSecret, Pin: s.pin,
@@ -191,11 +196,11 @@ func TestAddResponderSSH(t *testing.T) {
 			wantCalls:   []string{"mktemp", "cat > ", "--dry-run", "--yes; fi; rc=$?; rm -f ", "rm -f "},
 			wantRemoved: true, wantOut: "applied 9 changes",
 			exact: []string{
-				`ops@app1 | sh -c 'umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX'`,
-				`ops@app1 | sh -c 'cat > '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
-				`ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; fi'`,
-				`ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; fi; rc=$?; rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\''; exit $rc'`,
-				`ops@app1 | sh -c 'rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+				`-- | ops@app1 | sh -c 'umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX'`,
+				`-- | ops@app1 | sh -c 'cat > '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+				`-- | ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; fi'`,
+				`-- | ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; fi; rc=$?; rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\''; exit $rc'`,
+				`-- | ops@app1 | sh -c 'rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
 			}},
 		{name: "applied, nothing registered (a rerun): the token revoked", mode: "noreg", args: []string{"--ssh", "app1", "--yes"},
 			wantCalls:   []string{"mktemp", "cat > ", "--dry-run", "--yes; fi; rc=$?; rm -f ", "rm -f "},
@@ -204,11 +209,11 @@ func TestAddResponderSSH(t *testing.T) {
 			args:      []string{"--ssh", "app1", "--yes", "--n6-ip", "198.51.100.20", "--bind", "[2001:db8::20]:9551", "--no-firewall", "--no-route", "--no-systemd"},
 			wantCalls: []string{"mktemp", "cat > ", "--dry-run", "--yes ", "rm -f "}, wantRemoved: true,
 			exact: []string{
-				`app1 | sh -c 'umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX'`,
-				`app1 | sh -c 'cat > '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
-				`app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; fi'`,
-				`app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; fi; rc=$?; rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\''; exit $rc'`,
-				`app1 | sh -c 'rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+				`-- | app1 | sh -c 'umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX'`,
+				`-- | app1 | sh -c 'cat > '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+				`-- | app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; fi'`,
+				`-- | app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; fi; rc=$?; rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\''; exit $rc'`,
+				`-- | app1 | sh -c 'rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
 			}},
 		{name: "--n6-ip not an address", args: []string{"--ssh", "app1", "--yes", "--n6-ip", "198.51.100.20; reboot"},
 			wantErr: "--n6-ip", wantNoToken: true},
@@ -218,6 +223,10 @@ func TestAddResponderSSH(t *testing.T) {
 			wantErr: "--bind", wantNoToken: true},
 		{name: "--bind port 0", args: []string{"--ssh", "app1", "--yes", "--bind", "192.0.2.20:0"},
 			wantErr: "--bind", wantNoToken: true},
+		{name: "--n6-ip with a zone", args: []string{"--ssh", "app1", "--yes", "--n6-ip", "fe80::1%eth0';reboot;'"},
+			wantErr: "with no zone", wantNoToken: true},
+		{name: "--bind with a zone", args: []string{"--ssh", "app1", "--yes", "--bind", "[fe80::1%eth0']:9551"},
+			wantErr: "with no zone", wantNoToken: true},
 		{name: "no terminal and no --yes", args: []string{"--ssh", "app1"}, wantErr: "pass --yes", wantNoToken: true},
 		{name: "a host that would be an ssh option", args: []string{"--ssh", "-oProxyCommand=id", "--yes"}, wantErr: "want a host", wantNoToken: true},
 		// No '=' in these: only the leading '-' refuses them.
@@ -329,6 +338,38 @@ func TestAddResponderInterruptedFetchRevokes(t *testing.T) {
 	}
 }
 
+// A Ctrl-C while the token is being created does not cancel the call: the
+// command learns the token the server issued, and revokes it.
+func TestAddResponderInterruptedCreateRevokes(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	clearOrbitEnv(t)
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+	l := newAddResponderLab(t, "")
+	l.join.onCreate = func() {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		time.Sleep(300 * time.Millisecond) // the client's Ctrl-C lands mid-call
+	}
+	doc := strings.Replace(lab1, "  dnn: internet\n",
+		"  dnn: internet\n  ue_pools: [10.250.0.0/16]\n  upf_n6: 198.51.100.1\n  n6_subnet: 198.51.100.0/24\n", 1)
+	r := runOrbit(t, targetDir(t, doc), "--server", l.url, "target", "add-responder", "-t", "lab1", "--ssh", "app1", "--yes")
+	if r.execErr == nil {
+		t.Fatal("the interrupted command succeeded")
+	}
+	if calls := l.calls(t); len(calls) != 0 {
+		t.Errorf("ssh ran after the Ctrl-C:\n%s", strings.Join(calls, "\n"))
+	}
+	l.join.mu.Lock()
+	revoked := append([]string(nil), l.join.revoked...)
+	l.join.mu.Unlock()
+	if len(revoked) != 1 || revoked[0] != "jt-9" || !strings.Contains(r.err, "revoked the unused join token jt-9") {
+		t.Errorf("revoked %v; stderr %q", revoked, r.err)
+	}
+}
+
 // A run cancelled mid-way (Ctrl-C) still removes the remote file.
 func TestAddResponderCancelledRemoves(t *testing.T) {
 	l := newAddResponderLab(t, "slow")
@@ -339,8 +380,8 @@ func TestAddResponderCancelledRemoves(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	s := &sshSession{ssh: ssh, host: "app1", out: io.Discard, errOut: io.Discard}
-	if err := s.run(ctx, []byte("#!/bin/sh\n"), true, strings.NewReader("")); err == nil {
-		t.Fatal("a cancelled run returned no error")
+	if applied, err := s.run(ctx, []byte("#!/bin/sh\n"), true, strings.NewReader("")); err == nil || applied {
+		t.Fatalf("a cancelled run: applied %v, err %v", applied, err)
 	}
 	if !l.removed() {
 		t.Error("a cancelled run left the remote file")
@@ -357,8 +398,8 @@ func TestAddResponderDeclined(t *testing.T) {
 	}
 	var errOut bytes.Buffer
 	s := &sshSession{ssh: ssh, host: "app1", out: io.Discard, errOut: &errOut}
-	if err := s.run(context.Background(), []byte("#!/bin/sh\n"), false, strings.NewReader("n\n")); err != nil {
-		t.Fatal(err)
+	if applied, err := s.run(context.Background(), []byte("#!/bin/sh\n"), false, strings.NewReader("n\n")); err != nil || applied {
+		t.Fatalf("applied %v, err %v", applied, err)
 	}
 	calls := l.calls(t)
 	if len(calls) != 4 || strings.Contains(strings.Join(calls, "\n"), "--yes") || !l.removed() {
@@ -376,6 +417,7 @@ func TestRevokeUnused(t *testing.T) {
 	tests := []struct {
 		name        string
 		used        bool
+		joined      bool // the apply succeeded
 		revokeErr   error
 		wantRevoked bool
 		wantOut     string
@@ -384,12 +426,17 @@ func TestRevokeUnused(t *testing.T) {
 		{name: "used by a registration: left alone", used: true},
 		{name: "the revoke fails: told, with the ID", revokeErr: connect.NewError(connect.CodeUnavailable, errors.New("down")),
 			wantOut: "could not revoke the unused join token jt-9: unavailable: down; revoke it with orbit join revoke jt-9"},
+		// A registration burned it between the list and the revoke.
+		{name: "used as it was revoked: the host joined", revokeErr: connect.NewError(connect.CodeFailedPrecondition, errors.New("join token jt-9 was used by a registration")),
+			wantOut: "orbit: the join token jt-9 was used: the host joined\n"},
+		{name: "after a good apply, a failed revoke is harmless", joined: true, revokeErr: connect.NewError(connect.CodeUnavailable, errors.New("down")),
+			wantOut: "orbit: the host joined; the join token jt-9 could not be revoked: unavailable: down, it expires in 10m0s\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			j := &stubAddJoin{used: tc.used, revokeErr: tc.revokeErr}
 			var out bytes.Buffer
-			revokeUnused(j, "jt-9", &out)
+			revokeUnused(j, "jt-9", tc.joined, time.Now().Add(10*time.Minute+500*time.Millisecond), &out)
 			if got := len(j.revoked) == 1 && j.revoked[0] == "jt-9"; got != tc.wantRevoked {
 				t.Errorf("revoked %v, want %v", j.revoked, tc.wantRevoked)
 			}

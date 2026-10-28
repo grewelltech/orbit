@@ -92,28 +92,37 @@ func newTargetAddResponderCmd(serverURL *string) *cobra.Command {
 			}
 			// Ctrl-C from here on cancels the run rather than the process, so
 			// the token below is always revoked if no registration used it.
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
 			client := joinClient(serverURL)
-			res, err := client.CreateJoinToken(ctx, connect.NewRequest(&orbitv1.CreateJoinTokenRequest{
+			// The token is created on a context a Ctrl-C does not cancel: a
+			// cancel mid-call would leave a token the server issued and
+			// this command never learned of, so could not revoke.
+			cctx, ccancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			res, err := client.CreateJoinToken(cctx, connect.NewRequest(&orbitv1.CreateJoinTokenRequest{
 				Name: name, TtlSeconds: uint32(ttl / time.Second),
 				Spec: &orbitv1.JoinSpec{UePools: uePools, UpfN6: upfN6, N6Subnet: n6Subnet, ManagementAddress: mgmt},
 			}))
+			ccancel()
 			if err != nil {
 				return err
 			}
-			tokenID := res.Msg.GetIssued().GetId()
+			issued := res.Msg.GetIssued()
 			// A token no registration used is revoked on every way out: a
 			// failure, a Ctrl-C, a declined plan, or an apply that had
 			// nothing to register (a rerun on a joined host). A used token
 			// is no longer pending, so revokeUnused leaves it alone.
-			defer revokeUnused(client, tokenID, cmd.ErrOrStderr())
+			applied := false
+			defer func() {
+				revokeUnused(client, issued.GetId(), applied, time.Unix(0, issued.GetExpiresUnixNano()), cmd.ErrOrStderr())
+			}()
 			script, err := fetchJoinScript(ctx, res.Msg.GetUrl(), res.Msg.GetPin())
 			if err != nil {
 				return fmt.Errorf("fetching the join script: %w", err)
 			}
 			s := &sshSession{ssh: sshPath, host: host, tty: interactive(in), args: scriptArgs, out: cmd.OutOrStdout(), errOut: cmd.ErrOrStderr()}
-			return s.run(ctx, script, yes, in)
+			applied, err = s.run(ctx, script, yes, in)
+			return err
 		},
 	}
 	f := cmd.Flags()
@@ -140,15 +149,15 @@ func newTargetAddResponderCmd(serverURL *string) *cobra.Command {
 func passArgs(n6IP, bind string, noFirewall, noRoute, noSystemd bool) (string, error) {
 	var args []string
 	if n6IP != "" {
-		if _, err := netip.ParseAddr(n6IP); err != nil {
-			return "", fmt.Errorf("--n6-ip %q: want an IP address", n6IP)
+		if a, err := netip.ParseAddr(n6IP); err != nil || a.Zone() != "" {
+			return "", fmt.Errorf("--n6-ip %q: want an IP address, with no zone", n6IP)
 		}
 		args = append(args, "--n6-ip", shellQuote(n6IP))
 	}
 	if bind != "" {
 		ap, err := netip.ParseAddrPort(bind)
-		if err != nil || ap.Port() == 0 {
-			return "", fmt.Errorf("--bind %q: want IP:port ([addr]:port for IPv6)", bind)
+		if err != nil || ap.Port() == 0 || ap.Addr().Zone() != "" {
+			return "", fmt.Errorf("--bind %q: want IP:port ([addr]:port for IPv6, with no zone)", bind)
 		}
 		args = append(args, "--bind", shellQuote(bind))
 	}
@@ -171,10 +180,13 @@ type joinTokenRevoker interface {
 
 // revokeUnused revokes join token id if it is still pending, best effort,
 // on a context of its own: the command's may be cancelled. A token a
-// registration used (an apply that registered, then failed) is not pending
-// and is left alone. A failure is told, with the ID, and changes nothing
-// else: the error that brought us here is the one returned.
-func revokeUnused(client joinTokenRevoker, id string, errOut io.Writer) {
+// registration used (an apply that registered, then failed) is not pending,
+// or is refused as used (FailedPrecondition) when the registration came
+// between the list and the revoke, and is left alone. A failure is told,
+// with the ID, and changes nothing else: the error that brought us here is
+// the one returned. After an apply that succeeded (joined), the host is
+// set up, and a failed revoke only means the token lives until expires.
+func revokeUnused(client joinTokenRevoker, id string, joined bool, expires time.Time, errOut io.Writer) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	list, err := client.ListJoinTokens(ctx, connect.NewRequest(&orbitv1.ListJoinTokensRequest{}))
@@ -187,6 +199,14 @@ func revokeUnused(client joinTokenRevoker, id string, errOut io.Writer) {
 			return
 		}
 		_, err = client.RevokeJoinToken(ctx, connect.NewRequest(&orbitv1.RevokeJoinTokenRequest{Id: id}))
+		if connect.CodeOf(err) == connect.CodeFailedPrecondition {
+			_, _ = fmt.Fprintf(errOut, "orbit: the join token %s was used: the host joined\n", id)
+			return
+		}
+	}
+	if err != nil && joined {
+		_, _ = fmt.Fprintf(errOut, "orbit: the host joined; the join token %s could not be revoked: %v, it expires in %s\n", id, err, time.Until(expires).Round(time.Second))
+		return
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "orbit: could not revoke the unused join token %s: %v; revoke it with orbit join revoke %s\n", id, err, id)
@@ -231,7 +251,8 @@ func (s *sshSession) remote(ctx context.Context, tty bool, command string, stdin
 	if tty {
 		args = append(args, "-t")
 	}
-	args = append(args, s.host, command)
+	// -- ends ssh's options: the host is never read as one.
+	args = append(args, "--", s.host, command)
 	c := exec.CommandContext(ctx, s.ssh, args...) // #nosec G204 -- the user's own ssh, the host checked, the command ours
 	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, s.errOut
 	// A cancelled ssh may leave a child holding its output open: do not
@@ -246,14 +267,15 @@ func (s *sshSession) remote(ctx context.Context, tty bool, command string, stdin
 // run is the whole exchange: a private file, the script copied into it on
 // stdin, its plan shown, the confirmation here, the apply. The file goes
 // on every path, a failure or a cancel (the caller's Ctrl-C) included.
-func (s *sshSession) run(ctx context.Context, script []byte, yes bool, in io.Reader) error {
+// applied is whether the apply ran to success.
+func (s *sshSession) run(ctx context.Context, script []byte, yes bool, in io.Reader) (applied bool, err error) {
 	var out bytes.Buffer
 	if err := s.remote(ctx, false, remoteSh("umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX"), nil, &out); err != nil {
-		return fmt.Errorf("ssh %s: mktemp: %w", s.host, err)
+		return false, fmt.Errorf("ssh %s: mktemp: %w", s.host, err)
 	}
 	path := strings.TrimSpace(out.String())
 	if !remotePathRE.MatchString(path) {
-		return fmt.Errorf("ssh %s: mktemp answered %q, not a /tmp/orbit-join.* path", s.host, path)
+		return false, fmt.Errorf("ssh %s: mktemp answered %q, not a /tmp/orbit-join.* path", s.host, path)
 	}
 	defer func() {
 		// One more ssh, on a context of its own: the run's may be cancelled.
@@ -264,10 +286,10 @@ func (s *sshSession) run(ctx context.Context, script []byte, yes bool, in io.Rea
 		}
 	}()
 	if err := s.remote(ctx, false, remoteSh("cat > "+shellQuote(path)), bytes.NewReader(script), io.Discard); err != nil {
-		return fmt.Errorf("ssh %s: copying the script: %w", s.host, err)
+		return false, fmt.Errorf("ssh %s: copying the script: %w", s.host, err)
 	}
 	if err := s.remote(ctx, s.tty, remoteSh(remoteSudo(path, s.opts("--dry-run"))), nil, s.out); err != nil {
-		return fmt.Errorf("ssh %s: the plan (--dry-run) failed: %w", s.host, err)
+		return false, fmt.Errorf("ssh %s: the plan (--dry-run) failed: %w", s.host, err)
 	}
 	if !yes {
 		_, _ = fmt.Fprintf(s.errOut, "Apply this plan on %s? [y/N] ", s.host)
@@ -276,16 +298,16 @@ func (s *sshSession) run(ctx context.Context, script []byte, yes bool, in io.Rea
 		case "y", "Y", "yes", "YES":
 		default:
 			_, _ = fmt.Fprintf(s.errOut, "not applied: nothing on %s was changed\n", s.host)
-			return nil
+			return false, nil
 		}
 	}
 	// The apply plans again on the host and prints that plan before it
 	// changes anything.
 	apply := remoteSudo(path, s.opts("--yes")) + "; rc=$?; rm -f " + shellQuote(path) + "; exit $rc"
 	if err := s.remote(ctx, s.tty, remoteSh(apply), nil, s.out); err != nil {
-		return fmt.Errorf("ssh %s: the join script failed: %w", s.host, err)
+		return false, fmt.Errorf("ssh %s: the join script failed: %w", s.host, err)
 	}
-	return nil
+	return true, nil
 }
 
 // opts is mode (--dry-run or --yes) and the options passed through.

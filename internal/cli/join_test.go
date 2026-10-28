@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,6 +42,9 @@ func (s *stubJoin) ListJoinTokens(context.Context, *connect.Request[orbitv1.List
 }
 
 func (s *stubJoin) RevokeJoinToken(_ context.Context, req *connect.Request[orbitv1.RevokeJoinTokenRequest]) (*connect.Response[orbitv1.RevokeJoinTokenResponse], error) {
+	if req.Msg.GetId() == "jt-used" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("join token jt-used was used by a registration, so there is nothing to revoke; it lapses at its expiry"))
+	}
 	s.revoked = req.Msg.GetId()
 	return connect.NewResponse(&orbitv1.RevokeJoinTokenResponse{}), nil
 }
@@ -114,6 +118,11 @@ func TestJoinListRevoke(t *testing.T) {
 	r = runOrbit(t, targetDir(t, lab1), "--server", url, "join", "revoke", "jt-1")
 	if r.execErr != nil || s.revoked != "jt-1" {
 		t.Errorf("revoke: %v, revoked %q", r.execErr, s.revoked)
+	}
+	// A used token: the command says so, and what it means.
+	r = runOrbit(t, targetDir(t, lab1), "--server", url, "join", "revoke", "jt-used")
+	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "join token jt-used was used by a registration, so there is nothing to revoke") {
+		t.Errorf("revoking a used token: %v", r.execErr)
 	}
 }
 
