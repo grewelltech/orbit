@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -183,6 +184,16 @@ func TestProbeSteps(t *testing.T) {
 				}
 			},
 			texts: []string{"no PDU session accept within 20s (DNN internet, slice 1/010203)", "core.dnn and core.slices[0]"}},
+		{name: "step 3 meets a stale context (protected NAS first)", target: probeTarget(named), want: "OK OK FAIL SKIP SKIP SKIP SKIP",
+			change: pduRegisterFails(connect.NewError(connect.CodeInternal, fmt.Errorf("attach: %w", engine.ErrNoSecurityContext))),
+			texts:  []string{"registering 001010000000001 again for the PDU session failed on NAS security", "still holds an earlier registration of 001010000000001 (a stale context)", "use another SUPI"},
+			absent: []string{"core.dnn"}},
+		{name: "step 3 meets a stale context (NAS that does not decode)", target: probeTarget(named), want: "OK OK FAIL SKIP SKIP SKIP SKIP",
+			change: pduRegisterFails(connect.NewError(connect.CodeInternal, fmt.Errorf("%w: bad MAC", engine.ErrDownlinkNASDecode))),
+			texts:  []string{"failed on NAS security", "a stale context"}, absent: []string{"core.dnn"}},
+		{name: "step 3 fails otherwise: the DNN and slice", target: probeTarget(named), want: "OK OK FAIL SKIP SKIP SKIP SKIP",
+			change: pduRegisterFails(connect.NewError(connect.CodeInternal, errors.New("PDU Session Establishment Reject"))),
+			texts:  []string{"the PDU session for DNN internet on slice 1/010203 failed", "core.dnn and core.slices[0]"}, absent: []string{"stale context"}},
 		{name: "no responder", target: probeTarget(nil), want: "OK OK OK FAIL SKIP SKIP SKIP",
 			texts: []string{"no responder in lab1", "orbit join create -t lab1", "--core-only"}},
 		{name: "registered responder offline", target: probeTarget(named), want: "OK OK OK FAIL SKIP SKIP SKIP",
@@ -515,5 +526,19 @@ func TestLoomUDPCheckTelemetryEnds(t *testing.T) {
 	var ended *errTelemetryEnded
 	if !errors.As(err, &ended) {
 		t.Fatalf("err = %v, want the telemetry ended", err)
+	}
+}
+
+// pduRegisterFails makes the probe's second registration, the one with a
+// PDU session, fail with err.
+func pduRegisterFails(err error) func(*probeEnv) {
+	return func(e *probeEnv) {
+		inner := e.register
+		e.register = func(ctx context.Context, req *orbitv1.RegisterRequest) (*orbitv1.RegisterResponse, error) {
+			if req.GetPduSession() != nil {
+				return nil, err
+			}
+			return inner(ctx, req)
+		}
 	}
 }

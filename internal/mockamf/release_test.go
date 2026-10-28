@@ -23,9 +23,9 @@ import (
 // SkipNoCommonIntegrity answers a UE offering only NIA0 with a plain
 // Registration Accept (7e 00 42) and no Security Mode Command, and the
 // engine's cleanup deregisters the UE in the clear, then asks for a release
-// if the core sends none: the mock releases on the request by default, on
-// the deregistration with WithReleaseOnDeregistration, and never with
-// WithIgnoreUEContextReleaseRequest. The cleanup runs to its own bound
+// if the core sends none: the mock releases on the deregistration by
+// default, on the request with WithNoReleaseOnDeregistration, and never
+// with that and WithIgnoreUEContextReleaseRequest. The cleanup runs to its own bound
 // even when the attach's context ends as the Accept arrives. With 128-NIA2
 // in common the option changes nothing.
 func TestSkipNoCommonIntegrity(t *testing.T) {
@@ -41,15 +41,15 @@ func TestSkipNoCommonIntegrity(t *testing.T) {
 		cancel    bool // the attach's context ends as the plain Accept arrives
 		wantSteps []string
 	}{
-		{name: "released on request", opts: []mockamf.Option{skip, mockamf.WithGUTI()},
+		{name: "released on request", opts: []mockamf.Option{skip, mockamf.WithGUTI(), mockamf.WithNoReleaseOnDeregistration()},
 			wantSteps: []string{"plain switch-off Deregistration Request sent", "no UE Context Release Command within 100ms", "UE Context Release Request sent", "the core released the UE context (UE Context Release Complete sent)"}},
-		{name: "no GUTI: deregistered by SUCI", opts: []mockamf.Option{skip},
+		{name: "no GUTI: deregistered by SUCI", opts: []mockamf.Option{skip, mockamf.WithNoReleaseOnDeregistration()},
 			wantSteps: []string{"plain switch-off Deregistration Request sent", "UE Context Release Request sent", "the core released the UE context"}},
-		{name: "released on deregistration", opts: []mockamf.Option{skip, mockamf.WithGUTI(), mockamf.WithReleaseOnDeregistration()},
+		{name: "released on deregistration", opts: []mockamf.Option{skip, mockamf.WithGUTI()},
 			wantSteps: []string{"plain switch-off Deregistration Request sent", "the core released the UE context (UE Context Release Complete sent)"}},
-		{name: "never released", opts: []mockamf.Option{skip, mockamf.WithIgnoreUEContextReleaseRequest()},
+		{name: "never released", opts: []mockamf.Option{skip, mockamf.WithNoReleaseOnDeregistration(), mockamf.WithIgnoreUEContextReleaseRequest()},
 			wantSteps: []string{"UE Context Release Request sent", "no UE Context Release Command within 100ms; the association is closed with the UE context still held"}},
-		{name: "context ended at the Accept", opts: []mockamf.Option{skip, mockamf.WithGUTI()}, cancel: true,
+		{name: "context ended at the Accept", opts: []mockamf.Option{skip, mockamf.WithGUTI(), mockamf.WithNoReleaseOnDeregistration()}, cancel: true,
 			wantSteps: []string{"plain switch-off Deregistration Request sent", "no UE Context Release Command within 100ms", "UE Context Release Request sent", "the core released the UE context (UE Context Release Complete sent)"}},
 		{name: "NIA2 in common", opts: []mockamf.Option{skip}, normal: true},
 	}
