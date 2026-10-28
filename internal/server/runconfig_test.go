@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -23,6 +25,7 @@ import (
 	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
+	"github.com/bgrewell/orbit/internal/plan"
 	"github.com/bgrewell/orbit/internal/secrets"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -243,17 +246,39 @@ func startEnded(t *testing.T, s *runService) string {
 	}
 }
 
+// archiveTried waits for run id's archiveRun to have run, saved or not:
+// its sampler closes the run's frame log just after.
+func archiveTried(t *testing.T, s *runService, id string) {
+	t.Helper()
+	sub := s.frameLogFor(id).subscribeFrom(0)
+	deadline := time.After(30 * time.Second)
+	for {
+		select {
+		case _, ok := <-sub.Ch:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the run's frame log never closed")
+		}
+	}
+}
+
 // A run whose archive cannot be saved keeps its spec held: its config is
-// still served, resolved, never an empty unresolved answer.
+// still served, resolved, never an empty unresolved answer. The state dir
+// is replaced by a regular file, so the save fails whoever runs the test
+// (a read-only dir does not stop root).
 func TestGetRunConfigSaveFails(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "state")
 	s := archivedService(t, dir)
-	if err := os.Chmod(dir, 0o500); err != nil {
+	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if err := os.WriteFile(dir, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	id := startEnded(t, s)
-	time.Sleep(200 * time.Millisecond) // archiveRun has run, and failed
+	archiveTried(t, s, id) // archiveRun has run, and failed
 	if _, ok := s.archive.get(id); ok {
 		t.Fatal("archived after all: the case this test is for does not arise")
 	}
@@ -314,5 +339,57 @@ func TestGetRunConfigBeforeTheSpecIsHeld(t *testing.T) {
 	_, err = s.GetRunConfig(context.Background(), connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: info.ID}))
 	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "starting; try again") {
 		t.Errorf("before the spec is held: %v, want Unavailable", err)
+	}
+}
+
+// Through GetRunConfig on an archived run, as a past run is read: the
+// notices' same_value is claimed only for a field that is not secret. A
+// different ORBIT_KI over the target's ki, and an identical ORBIT_OPC
+// over its opc, are both masked, and neither is claimed the same; an
+// ORBIT_MCC equal to the target's is.
+func TestGetRunConfigSameValueOnAnArchivedRun(t *testing.T) {
+	s := archivedService(t, t.TempDir())
+	env := func(v string) *orbitv1.ProvenanceSource {
+		return &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, Detail: "env $" + v}
+	}
+	tgt := func(line int) *orbitv1.ProvenanceSource {
+		return &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET, Detail: fmt.Sprintf("target lab1.yaml:%d", line)}
+	}
+	const keyA, keyB = "00112233445566778899aabbccddeeff", "ffeeddccbbaa99887766554433221100"
+	p := loadPlan()
+	p.Provenance = []*orbitv1.FieldProvenance{
+		{Path: "core.plmn.mcc", Source: env("ORBIT_MCC"), Value: "001", Overridden: []*orbitv1.ProvenanceOverride{{Source: tgt(6), Value: "001"}}},
+		{Path: "core.amf", Source: env("ORBIT_AMF"), Value: "192.0.2.2:38412", Overridden: []*orbitv1.ProvenanceOverride{{Source: tgt(5), Value: "192.0.2.1:38412"}}},
+		{Path: "subscribers[main].ki", Source: env("ORBIT_KI"), Value: keyB, Overridden: []*orbitv1.ProvenanceOverride{{Source: tgt(9), Value: keyA}}},
+		{Path: "subscribers[main].opc", Source: env("ORBIT_OPC"), Value: keyA, Overridden: []*orbitv1.ProvenanceOverride{{Source: tgt(10), Value: keyA}}},
+	}
+	ctx := context.Background()
+	r, err := s.StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := r.Msg.GetRun().GetRunId()
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, ok := s.archive.get(id); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never archived")
+		}
+	}
+	got, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	same := map[string]bool{}
+	for _, n := range got.Msg.GetNotices() {
+		same[n.GetPath()] = n.GetSameValue()
+		if text := plan.NoticeText(n); strings.Contains(text, keyA) || strings.Contains(text, keyB) {
+			t.Errorf("a notice shows a key: %s", text)
+		}
+	}
+	want := map[string]bool{"core.plmn.mcc": true, "core.amf": false, "subscribers[main].ki": false, "subscribers[main].opc": false}
+	if !maps.Equal(same, want) {
+		t.Errorf("same_value by path %v, want %v", same, want)
 	}
 }
