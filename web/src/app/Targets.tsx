@@ -19,6 +19,7 @@ import { documentRefs, refName, secretSlots } from "@/data/targets/yamlio";
 import { PageLinks } from "./PageLinks";
 import { buttonStyle, inputStyle } from "./targets/fields";
 import { ProbePanel } from "./targets/ProbePanel";
+import { RespondersPanel } from "./targets/RespondersPanel";
 import { TargetEditor } from "./targets/TargetEditor";
 
 /** Hands the browser a file to save. */
@@ -177,6 +178,7 @@ export function Targets() {
               </button>
             </div>
           </Panel>
+          <RespondersPanel />
         </div>
 
         {e ? (
