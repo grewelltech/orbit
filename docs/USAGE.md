@@ -386,9 +386,14 @@ browser has no environment to take it from.
 - A probe uses the first subscriber pool and the first responder. Each
   target's last result in the tab shows beside its name.
 
-The **Conformance** page's *use target* menu fills its AMF and network
-identity from a stored target. Keys are not involved, and the form works as
-before without a target.
+The conformance suite is run from the Launch page. `?conformance` opens
+Launch on the `conformance` template. A suite needs a target, but a target
+made there with **new from AMF + PLMN** needs no keys. It has no subscriber
+pool, so the checks that need a UE SKIP, as they did on the old Conformance
+page; add a pool on the Targets page to run those. The run view
+(`?run=<id>`) shows a suite's tally as it runs, then every check's verdict,
+spec reference and observation once it ends, with the expected-failures
+list it was judged against.
 
 ### Launching a run from the browser (`?launch`)
 
@@ -417,6 +422,8 @@ the CLI.
 
   An expected-failures file is put inline in the run file, since the server
   reads no file.
+- **A target.** Pick a stored one, or make one with **new from AMF + PLMN**
+  (an AMF, a PLMN and a slice; no keys).
 - **Variables.** The target's keys come from the Targets page. Any other
   `${VAR}` the target or the run file names gets a field here. Values are
   held in this tab, and Start waits until each has one.

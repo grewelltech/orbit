@@ -23,6 +23,7 @@ import { MockSource } from "@/data/mock";
 import { attachRateTile, attachRateLabel } from "@/app/attachRateTile";
 import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
+import { SuiteResults } from "@/app/SuiteResults";
 import { cpLatencyTile } from "@/app/cpLatencyTile";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
@@ -266,6 +267,9 @@ export function App() {
           ))}
           </div>
         </div>
+
+        {/* A conformance suite's verdicts, for a run that has one. */}
+        {!mock && <SuiteResults runId={(selectedRun ?? latest?.run.runId) || undefined} />}
 
         {/* Time series */}
         <section className="grid min-h-0 shrink-0 grid-cols-1 gap-3 xl:grid-cols-2">

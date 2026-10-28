@@ -1,0 +1,8 @@
+{
+  "targetYaml": "version: 1\nkind: target\nname: core\ncore:\n    amf: ${LAB_AMF}\n    plmn:\n        mcc: 208\n        mnc: 93\n    slices:\n        - sst: 1\n          sd: 010203\n",
+  "runYaml": "# The conformance suite against the target's core, every category, gated\n# on no FAIL outside the expected-failures list and no ERROR.\nkind: run\nworkloads:\n  - name: conformance\n    conformance: {categories: [], per_test_timeout_ms: 3000}\ngates:\n  - name: conformance\n    conformance: true\n",
+  "template": "conformance",
+  "vars": [
+    "LAB_AMF"
+  ]
+}

@@ -11,15 +11,16 @@ import { RunService } from "@/gen/orbit/v1/run_pb";
 import { orbitTransport } from "../transport";
 import * as act from "../targets/actions";
 import { browserLocal, browserSession, keysFor, loadTargets, storageChange, type KeyValueStore } from "../targets/store";
+import { newTarget, render, setSlices, setValue } from "../targets/yamlio";
 import { startFrom } from "./form";
 import { LAUNCH_IDLE, LaunchRunner, type LaunchState } from "./launch";
 import { formKey, refsOf, type LaunchInput } from "./resolve";
 import { parseRun, renderRun } from "./runyaml";
 
 /** The draft run file, kept per tab so a reload keeps the form (never a key: a run file holds none). */
-const DRAFT_KEY = "orbit.launch.draft";
+export const DRAFT_KEY = "orbit.launch.draft";
 
-interface Draft {
+export interface Draft {
   target?: string;
   template: string;
   yaml: string;
@@ -46,10 +47,51 @@ function saveDraft(session: KeyValueStore | undefined, d: Draft) {
   }
 }
 
-export function useLaunch(local: KeyValueStore | undefined = browserLocal(), session: KeyValueStore | undefined = browserSession(), baseUrl?: string) {
+/** What a new target from the Launch page holds: an AMF and a network identity, no keys. */
+export interface QuickTarget {
+  name: string;
+  amf: string;
+  mcc: string;
+  mnc: string;
+  sst: string;
+  sd: string;
+}
+
+/**
+ * The target a QuickTarget makes: core.amf, the PLMN and one slice. It has
+ * no subscriber pool, so a suite run against it SKIPs the checks that need
+ * a UE; add a pool on the Targets page for those.
+ */
+export function quickTargetText(q: QuickTarget): string {
+  const d = newTarget(q.name.trim());
+  setValue(d, ["core", "amf"], q.amf.trim());
+  setValue(d, ["core", "plmn", "mcc"], q.mcc.trim());
+  setValue(d, ["core", "plmn", "mnc"], q.mnc.trim());
+  if (q.sst.trim()) setSlices(d, ["core", "slices"], [{ sst: q.sst.trim(), sd: q.sd.trim() || undefined }]);
+  return render(d);
+}
+
+/**
+ * The run the page opens on: the tab's draft, unless a preset names
+ * another template (?conformance), which starts the form on that one.
+ */
+export function initialDraft(session: KeyValueStore | undefined, preset: string | undefined): { draft: Draft; doc: Document } {
+  const d = loadDraft(session);
+  if (preset !== undefined && d.draft.template !== preset) return { draft: { ...d.draft, template: preset, yaml: "" }, doc: startFrom(preset || undefined) };
+  return d;
+}
+
+export interface LaunchOptions {
+  /** A template the page opens on (?conformance opens the suite): the draft is kept only when it started from it. */
+  preset?: string;
+  baseUrl?: string;
+}
+
+export function useLaunch(local: KeyValueStore | undefined = browserLocal(), session: KeyValueStore | undefined = browserSession(), opts: LaunchOptions = {}) {
+  const { preset, baseUrl } = opts;
   const stores = useMemo<act.Stores>(() => ({ local, session }), [local, session]);
   const [targets, setTargets] = useState(() => loadTargets(local));
-  const initial = useMemo(() => loadDraft(session), [session]);
+  const initial = useMemo(() => initialDraft(session, preset), [session, preset]);
   const [targetName, setTargetName] = useState<string | undefined>(() => initial.draft.target ?? targets[0]?.name);
   const [template, setTemplate] = useState(initial.draft.template);
   const [doc, setDoc] = useState<Document>(initial.doc);
@@ -150,6 +192,13 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
       if (!target) return;
       act.setKey(stores, target.name, variable, value);
       setKeysVersion((v) => v + 1);
+    },
+    /** Adds a target from an AMF and a network identity (QuickTarget), and selects it; the notices say what happened. */
+    addTarget: (q: QuickTarget): string[] => {
+      const r = act.importInto(stores, targets, quickTargetText(q), false);
+      setTargets(r.targets);
+      if (r.last) setTargetName(r.last);
+      return r.notices;
     },
     state,
     plan: () => (input ? runner.plan(input) : Promise.resolve(undefined)),
