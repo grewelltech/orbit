@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"testing"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gtpu"
+	"github.com/bgrewell/orbit/internal/testnet"
 )
 
 // Phase-5 engine coverage: the per-gNB SharedTunnel pool behind
@@ -23,18 +23,15 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 }
 
-// freeUDPPort reserves a currently-free loopback UDP port (bind :0, note the
-// port, release it) so two sessions can share a FIXED port — the shape that
-// used to EADDRINUSE on a real gNB's 2152.
-func freeUDPPort(t *testing.T) string {
-	t.Helper()
-	c, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := c.LocalAddr().(*net.UDPAddr).Port
-	c.Close()
-	return fmt.Sprint(port)
+// newDataSessionAt is newDataSession on gNB N3 address gnbN3 and the gNB's
+// real, fixed port 2152 (the shape that used to EADDRINUSE). gnbN3 is a host
+// in the test's own loopback block (internal/testnet), so no other test
+// binds it, and 2152 is outside the ephemeral range, so no other process's
+// port-0 bind takes it: there is no free-port pick to lose.
+func newDataSessionAt(m *Manager, supi, upfAddr, gnbN3 string, ulTEID, dlTEID uint32, qfi uint8) *Session {
+	sess := newDataSession(m, supi, upfAddr, "", ulTEID, dlTEID, qfi)
+	sess.gnbN3 = gnbN3
+	return sess
 }
 
 // newDataSession builds a synthetic SESSION_ACTIVE UE on m's shared pool.
@@ -104,7 +101,7 @@ func TestN3PoolRefcountLifecycle(t *testing.T) {
 	}
 
 	// A different gNB N3 address is its own socket.
-	other, err := p.acquire("127.0.0.1:"+freeUDPPort(t), upf.LocalAddr().String())
+	other, err := p.acquire(testnet.Addr(testnet.EngineN3PoolDistinct, 11)+":2152", upf.LocalAddr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,10 +145,10 @@ func TestN3PoolRefcountLifecycle(t *testing.T) {
 func TestTwoUEsOneGNBNoEADDRINUSE(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
-	port := freeUDPPort(t)
+	gnbN3 := testnet.Addr(testnet.EngineTwoUEsOneGNB, 11)
 
-	sessA := newDataSession(m, "001010000000001", upf.LocalAddr().String(), port, 0xA1, 0xA2, 1)
-	sessB := newDataSession(m, "001010000000002", upf.LocalAddr().String(), port, 0xB1, 0xB2, 1)
+	sessA := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), gnbN3, 0xA1, 0xA2, 1)
+	sessB := newDataSessionAt(m, "001010000000002", upf.LocalAddr().String(), gnbN3, 0xB1, 0xB2, 1)
 
 	tunA, rxA, err := sessA.dataplane()
 	if err != nil {
@@ -278,10 +275,10 @@ func TestRebindDataPathInterGNB(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 0 // immediate source release; the End-Marker grace window has its own test
-	portSrc, portTgt := freeUDPPort(t), freeUDPPort(t)
+	src, tgt := testnet.Addr(testnet.EngineRebindInterGNB, 11), testnet.Addr(testnet.EngineRebindInterGNB, 12)
 
-	mover := newDataSession(m, "001010000000001", upf.LocalAddr().String(), portSrc, 0x11, 0x100, 1)
-	stayer := newDataSession(m, "001010000000002", upf.LocalAddr().String(), portSrc, 0x21, 0x900, 1)
+	mover := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), src, 0x11, 0x100, 1)
+	stayer := newDataSessionAt(m, "001010000000002", upf.LocalAddr().String(), src, 0x21, 0x900, 1)
 
 	_, rxM, err := mover.dataplane()
 	if err != nil {
@@ -303,8 +300,7 @@ func TestRebindDataPathInterGNB(t *testing.T) {
 	statsBefore := mover.ue.Stats()[1].DownlinkPackets
 
 	// The Xn/N2 move: new gNB N3 address + new DL TEID, then rebind.
-	mover.gnbN3 = "127.0.0.1"
-	mover.n3Port = portTgt
+	mover.gnbN3 = tgt
 	mover.Result.DLTEID = 0x300
 	if err := mover.rebindDataPath(); err != nil {
 		t.Fatalf("inter-gNB rebind: %v", err)
@@ -352,9 +348,9 @@ func TestRebindDataPathInterGNBLastUEEndMarkerGrace(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 250 * time.Millisecond // test-speed grace window
-	portSrc, portTgt := freeUDPPort(t), freeUDPPort(t)
+	src, tgt := testnet.Addr(testnet.EngineRebindLastUEGrace, 11), testnet.Addr(testnet.EngineRebindLastUEGrace, 12)
 
-	sess := newDataSession(m, "001010000000001", upf.LocalAddr().String(), portSrc, 0x11, 0x100, 1)
+	sess := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), src, 0x11, 0x100, 1)
 	_, rx, err := sess.dataplane()
 	if err != nil {
 		t.Fatal(err)
@@ -371,8 +367,7 @@ func TestRebindDataPathInterGNBLastUEEndMarkerGrace(t *testing.T) {
 	})
 
 	// The Xn move to another gNB N3 socket — sess was the source's ONLY UE.
-	sess.n3Port = portTgt
-	if err := sess.retargetDataPath(dataPathMove{gnbN3: "127.0.0.1", dlTEID: 0x300}); err != nil {
+	if err := sess.retargetDataPath(dataPathMove{gnbN3: tgt, dlTEID: 0x300}); err != nil {
 		t.Fatalf("inter-gNB retarget: %v", err)
 	}
 	if m.n3.size() != 2 {
@@ -413,8 +408,8 @@ func TestRetargetDataPathConcurrentDataplane(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 0
-	port := freeUDPPort(t)
-	sess := newDataSession(m, "001010000000001", upf.LocalAddr().String(), port, 0x11, 0x100, 1)
+	hosts := [2]string{testnet.Addr(testnet.EngineRetargetConcurrent, 11), testnet.Addr(testnet.EngineRetargetConcurrent, 12)}
+	sess := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), hosts[0], 0x11, 0x100, 1)
 	if _, _, err := sess.dataplane(); err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +418,6 @@ func TestRetargetDataPathConcurrentDataplane(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		hosts := [2]string{"127.0.0.1", "127.0.0.2"}
 		for i := 0; i < 40; i++ {
 			// Alternate inter-gNB moves (new N3 address + new TEID), as
 			// runXnHandover does after each PathSwitchRequestAcknowledge.
@@ -530,11 +524,11 @@ func TestManagerAndFleetShareOneGNBSocket(t *testing.T) {
 	defer upf.Close()
 
 	m := NewManager(testLogger())
-	port := freeUDPPort(t)
-	localN3 := net.JoinHostPort("127.0.0.1", fmt.Sprint(port))
+	gnbN3 := testnet.Addr(testnet.EngineManagerFleetShare, 11)
+	localN3 := net.JoinHostPort(gnbN3, "2152")
 
 	// An ad-hoc `orbit ue` session opens its data path first.
-	sess := newDataSession(m, "001010000000001", upf.LocalAddr().String(), port, 0xA1, 0xA2, 1)
+	sess := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), gnbN3, 0xA1, 0xA2, 1)
 	if _, _, err := sess.dataplane(); err != nil {
 		t.Fatalf("ad-hoc session data path: %v", err)
 	}

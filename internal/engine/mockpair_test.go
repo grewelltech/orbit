@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockupf"
+	"github.com/bgrewell/orbit/internal/testnet"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -34,11 +36,9 @@ type mockPair struct {
 
 func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) *mockPair {
 	t.Helper()
-	base := fmt.Sprintf("127.0.%d.", net24)
+	base := testnet.Base(net24)
 	upf, err := mockupf.Listen(base+"10:2152", opts)
-	if err != nil {
-		t.Skipf("cannot bind the stub UPF on %s10:2152: %v", base, err)
-	}
+	testnet.RequireBind(t, base+"10:2152", err)
 	t.Cleanup(func() { _ = upf.Close() })
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
 	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
@@ -66,7 +66,7 @@ func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) 
 
 // register attaches one UE with a PDU session through the source gNB and
 // returns its session with the data path open.
-func (p *mockPair) register(t *testing.T, m *Manager, supi string) *Session {
+func (p *mockPair) register(t testing.TB, m *Manager, supi string) *Session {
 	t.Helper()
 	id, err := ue.ParseIdentity(supi, "208", "93", "0")
 	if err != nil {
@@ -95,11 +95,12 @@ func (p *mockPair) register(t *testing.T, m *Manager, supi string) *Session {
 	}
 	// Cleanups run last-in first-out: close the data path, then wait until
 	// every N3 socket (including a source held through the End-Marker grace
-	// window) is released, so a repeated run can bind the same addresses.
+	// window) is released, so a repeated run can bind the same addresses. The
+	// wait outlasts the pool's grace window; a socket still held after it is
+	// a leak, and fails the test rather than the next run's bind.
 	t.Cleanup(func() {
-		deadline := time.Now().Add(3 * time.Second)
-		for m.n3.size() != 0 && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
+		if err := n3Released(m, m.n3.grace+2*time.Second); err != nil {
+			t.Error(err)
 		}
 	})
 	t.Cleanup(sess.closeDataPath)
@@ -107,6 +108,77 @@ func (p *mockPair) register(t *testing.T, m *Manager, supi string) *Session {
 		t.Fatal("the UPF never heard about the session")
 	}
 	return sess
+}
+
+// n3Released waits up to within for m's N3 pool to empty, and says how many
+// sockets are still held if it does not.
+func n3Released(m *Manager, within time.Duration) error {
+	deadline := time.Now().Add(within)
+	for m.n3.size() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := m.n3.size(); n != 0 {
+		return fmt.Errorf("%d N3 socket(s) still held %s after the test (grace window %s)", n, within, m.n3.grace)
+	}
+	return nil
+}
+
+// A socket still held after the wait is reported; a released pool is not.
+func TestN3ReleasedReportsAHeldSocket(t *testing.T) {
+	upf := newFakeUPFSocket(t)
+	m := NewManager(testLogger())
+	ref, err := m.n3.acquire("127.0.0.1:0", upf.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n3Released(m, 50*time.Millisecond); err == nil || !strings.Contains(err.Error(), "1 N3 socket(s) still held") {
+		t.Errorf("n3Released with a socket held = %v, want it reported", err)
+	}
+	m.n3.release(ref)
+	if err := n3Released(m, time.Second); err != nil {
+		t.Errorf("n3Released after the release = %v, want nil", err)
+	}
+}
+
+// cleanupRecorder is a testing.TB that keeps the cleanups registered on it,
+// and the errors they report, for a test to run and read.
+type cleanupRecorder struct {
+	testing.TB
+	cleanups []func()
+	errs     []string
+}
+
+func (r *cleanupRecorder) Cleanup(f func())  { r.cleanups = append(r.cleanups, f) }
+func (r *cleanupRecorder) Error(args ...any) { r.errs = append(r.errs, fmt.Sprint(args...)) }
+func (r *cleanupRecorder) Errorf(format string, args ...any) {
+	r.errs = append(r.errs, fmt.Sprintf(format, args...))
+}
+
+// run runs the kept cleanups last-in first-out, as testing does.
+func (r *cleanupRecorder) run() {
+	for i := len(r.cleanups) - 1; i >= 0; i-- {
+		r.cleanups[i]()
+	}
+}
+
+// register's cleanup fails the test when an N3 socket outlives the wait,
+// rather than leaving it for the next run's bind to collide with.
+func TestRegisterCleanupReportsAHeldN3Socket(t *testing.T) {
+	p := newMockPair(t, testnet.EngineRegisterCleanup, mockupf.Options{}, false)
+	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.n3.grace = 0
+	rec := &cleanupRecorder{TB: t}
+	p.register(rec, m, "208930100007800")
+	// A socket the session's teardown does not release: the leak.
+	held, err := m.n3.acquire(p.tgtN3+":2152", p.amfAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.n3.release(held)
+	rec.run()
+	if len(rec.errs) != 1 || !strings.Contains(rec.errs[0], "1 N3 socket(s) still held") {
+		t.Errorf("register's cleanup reported %q, want the held socket", rec.errs)
+	}
 }
 
 // xn switches the UE to gNB 2.
@@ -144,12 +216,12 @@ func (e *endMarkers) list() []datapath.EndMarker {
 // UPF learns the gNB's downlink tunnel, and both directions of user plane
 // flow over real N3 sockets.
 func TestMockPairPDUSessionCarriesUserPlane(t *testing.T) {
-	p := newMockPair(t, 41, mockupf.Options{}, false)
+	p := newMockPair(t, testnet.EngineUserPlane, mockupf.Options{}, false)
 	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	const supi = "208930100000001"
 	sess := p.register(t, m, supi)
 
-	if sess.Result.UPFAddress != "127.0.41.10" || sess.Result.UPFTEID == 0 {
+	if sess.Result.UPFAddress != testnet.Addr(testnet.EngineUserPlane, 10) || sess.Result.UPFTEID == 0 {
 		t.Errorf("session UPF tunnel = %s TEID %#x, want the stub's address and a TEID", sess.Result.UPFAddress, sess.Result.UPFTEID)
 	}
 	if ip := net.ParseIP(sess.Result.PDUAddress); ip == nil || ip.To4()[0] != 10 {
@@ -207,13 +279,13 @@ func TestMockPairXnPathSwitch(t *testing.T) {
 		wantEndMarker bool
 		wantSent      []string
 	}{
-		{name: "end marker", net24: 42, opts: mockupf.Options{EndMarker: true}, wantEndMarker: true, wantSent: []string{mockupf.KindEndMarker}},
-		{name: "no end marker", net24: 43, opts: mockupf.Options{}, wantEndMarker: false},
-		{name: "late g-pdu after the end marker", net24: 44, opts: mockupf.Options{EndMarker: true, LateGPDU: true}, wantEndMarker: true,
+		{name: "end marker", net24: testnet.EngineXnEndMarker, opts: mockupf.Options{EndMarker: true}, wantEndMarker: true, wantSent: []string{mockupf.KindEndMarker}},
+		{name: "no end marker", net24: testnet.EngineXnNoEndMarker, opts: mockupf.Options{}, wantEndMarker: false},
+		{name: "late g-pdu after the end marker", net24: testnet.EngineXnLateGPDU, opts: mockupf.Options{EndMarker: true, LateGPDU: true}, wantEndMarker: true,
 			wantSent: []string{mockupf.KindEndMarker, mockupf.KindGPDU}},
-		{name: "end marker with QFI header", net24: 45, opts: mockupf.Options{EndMarker: true, QFI: true}, wantEndMarker: true,
+		{name: "end marker with QFI header", net24: testnet.EngineXnEndMarkerQFI, opts: mockupf.Options{EndMarker: true, QFI: true}, wantEndMarker: true,
 			wantSent: []string{mockupf.KindEndMarker}},
-		{name: "uplink tunnel reallocated", net24: 46, opts: mockupf.Options{EndMarker: true}, reallocUL: true, wantEndMarker: true,
+		{name: "uplink tunnel reallocated", net24: testnet.EngineXnULReallocated, opts: mockupf.Options{EndMarker: true}, reallocUL: true, wantEndMarker: true,
 			wantSent: []string{mockupf.KindEndMarker}},
 	}
 	for _, tc := range tests {
@@ -334,7 +406,7 @@ func TestMockPairXnPathSwitch(t *testing.T) {
 // container when the UPF adds one, and a late G-PDU on that TEID after it,
 // in arrival order. An unregistered UE is an error.
 func TestObserveDownlinkAcrossXn(t *testing.T) {
-	p := newMockPair(t, 47, mockupf.Options{EndMarker: true, LateGPDU: true, QFI: true}, false)
+	p := newMockPair(t, testnet.EngineObserveAcrossXn, mockupf.Options{EndMarker: true, LateGPDU: true, QFI: true}, false)
 	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	m.n3.grace = 250 * time.Millisecond
 	const supi = "208930100000003"

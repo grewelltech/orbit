@@ -9,6 +9,7 @@ import (
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/mockupf"
 	"github.com/bgrewell/orbit/internal/nas"
+	"github.com/bgrewell/orbit/internal/testnet"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
@@ -23,7 +24,8 @@ func TestUELevelChecksUnderNEA2(t *testing.T) {
 		name   string
 		check  Test
 		opts   []mockamf.Option
-		net24  int // > 0: run over the mock pair with a stub UPF on this /24
+		net24  int // > 0: run over the mock pair with a stub UPF on this /24 (under NEA0)
+		nea2   int // the /24 for the same run under NEA2
 		upfOpt mockupf.Options
 	}{
 		{name: "NAS-T3560-AUTH-RETRANSMIT", check: nasT3560AuthRetransmit{t3560: T, tmax: Tmax, authWait: 100 * time.Millisecond},
@@ -38,7 +40,7 @@ func TestUELevelChecksUnderNEA2(t *testing.T) {
 		{name: "NAS-REG-REJECTED-NSSAI", check: nasRegRejectedNSSAI{wait: 500 * time.Millisecond},
 			opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}},
 		{name: "GTPU-END-MARKER-ON-PATH-SWITCH", check: endMarkerOnPathSwitch{window: 300 * time.Millisecond},
-			net24: 68, upfOpt: mockupf.Options{EndMarker: true}},
+			net24: testnet.ConformanceCipherNEA0, nea2: testnet.ConformanceCipherNEA2, upfOpt: mockupf.Options{EndMarker: true}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -74,7 +76,7 @@ func TestUELevelChecksUnderNEA2(t *testing.T) {
 			if base.Verdict != Pass {
 				t.Fatalf("under NEA0: %s %q (%s), want PASS", base.Verdict, base.Observed, base.Detail)
 			}
-			got := run(true, tc.net24+1)
+			got := run(true, tc.nea2)
 			if got.Verdict != base.Verdict || got.Observed != base.Observed {
 				t.Errorf("under NEA2: %s %q (%s); under NEA0: %s %q", got.Verdict, got.Observed, got.Detail, base.Verdict, base.Observed)
 			}

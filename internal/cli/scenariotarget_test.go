@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bgrewell/orbit/internal/testnet"
 )
 
 // fleetFile is a target-based fleet scenario: workload only.
@@ -166,10 +168,10 @@ func TestScenarioExplain(t *testing.T) {
 // core, keys, gNB IDs and N2 sources.
 func TestScenariosRunWithTarget(t *testing.T) {
 	clearOrbitEnv(t)
-	lab := newProbeLab(t, 85, false)
+	lab := newProbeLab(t, testnet.CLIScenariosRun, false)
 	doc := "version: 1\nkind: target\nname: lab1\ncore:\n  amf: " + lab.amf + "\n  plmn: { mcc: \"208\", mnc: \"93\" }\n" +
 		"  slices:\n    - { sst: 1, sd: \"010203\" }\nsubscribers:\n  - name: main\n    first_supi: \"208930000000001\"\n    count: 10\n" +
-		"    ki: " + testKi + "\n    opc: " + testOPc + "\nran:\n  n2_source_ips: [127.0.85.1-127.0.85.9]\n  gnb_ids: { first: 300 }\n"
+		"    ki: " + testKi + "\n    opc: " + testOPc + "\nran:\n  n2_source_ips: [" + testnet.Addr(testnet.CLIScenariosRun, 1) + "-" + testnet.Addr(testnet.CLIScenariosRun, 9) + "]\n  gnb_ids: { first: 300 }\n"
 	loc := targetDir(t, doc)
 
 	fleet := writeScenario(t, "kind: fleet\nname: f\ntopology:\n  gnbs: { count: 2 }\nfleet: { count: 4, attach_rate: 50/s }\n")
@@ -203,7 +205,7 @@ steps:
 	}
 	// Each gNB registers from its own address of the pool: g1's UE from the
 	// pool's first address, g2's two from its second.
-	for supi, src := range map[string]string{"208930000000001": "127.0.85.1", "208930000000002": "127.0.85.2", "208930000000003": "127.0.85.2"} {
+	for supi, src := range map[string]string{"208930000000001": testnet.Addr(testnet.CLIScenariosRun, 1), "208930000000002": testnet.Addr(testnet.CLIScenariosRun, 2), "208930000000003": testnet.Addr(testnet.CLIScenariosRun, 2)} {
 		r = runOrbit(t, loc, "--server", lab.server, "ue", "status", "--supi", supi)
 		if r.execErr != nil || !strings.Contains(r.out, "n2-source="+src+":") {
 			t.Errorf("ue status %s, want n2-source %s (its gNB's pool address):\n%s (err %v)", supi, src, r.out, r.execErr)

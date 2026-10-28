@@ -14,6 +14,7 @@ import (
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/mockupf"
+	"github.com/bgrewell/orbit/internal/testnet"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
@@ -280,7 +281,7 @@ type mockCore struct {
 
 func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string, amfOpts ...mockamf.Option) *mockCore {
 	t.Helper()
-	base := fmt.Sprintf("127.0.%d.", net24)
+	base := testnet.Base(net24)
 	return newMockCoreAt(t, base+"10:2152", base+"10", base+"11", opts, ki, amfOpts...)
 }
 
@@ -290,9 +291,7 @@ func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string, amfOp
 func newMockCoreAt(t *testing.T, upfListen, upfAddr, n3 string, opts mockupf.Options, ki string, amfOpts ...mockamf.Option) *mockCore {
 	t.Helper()
 	upf, err := mockupf.Listen(upfListen, opts)
-	if err != nil {
-		t.Skipf("cannot bind the stub UPF on %s: %v", upfListen, err)
-	}
+	testnet.RequireBind(t, upfListen, err)
 	t.Cleanup(func() { _ = upf.Close() })
 	k, err := auth.ParseHexKey("Ki", ki)
 	if err != nil {
@@ -349,20 +348,20 @@ func TestEndMarkerCheckAgainstMockPair(t *testing.T) {
 		wantObserved string
 		wantDetail   []string
 	}{
-		{name: "end marker disabled", net24: 61, opts: mockupf.Options{}, want: Fail,
+		{name: "end marker disabled", net24: testnet.ConformanceNoEndMarker, opts: mockupf.Options{}, want: Fail,
 			wantObserved: "no End Marker on the old F-TEID",
 			wantDetail:   []string{"no GTP-U End Marker on the old F-TEID between Path Switch Request and 300ms after its Acknowledge.", "End Markers counted 0"}},
-		{name: "end marker", net24: 62, opts: mockupf.Options{EndMarker: true}, want: Pass,
+		{name: "end marker", net24: testnet.ConformanceEndMarker, opts: mockupf.Options{EndMarker: true}, want: Pass,
 			wantObserved: "1 End Marker(s) on the old F-TEID, no G-PDU after",
 			wantDetail:   []string{"End Markers counted 1 (before the handover 0, after the window 0, on other tunnels 0)", "QFI container absent"}},
-		{name: "end marker with QFI", net24: 63, opts: mockupf.Options{EndMarker: true, QFI: true}, want: Pass,
+		{name: "end marker with QFI", net24: testnet.ConformanceEndMarkerQFI, opts: mockupf.Options{EndMarker: true, QFI: true}, want: Pass,
 			wantDetail: []string{"QFI container present, QFI 1"}},
-		{name: "late g-pdu after the end marker", net24: 64, opts: mockupf.Options{EndMarker: true, LateGPDU: true}, want: Fail,
+		{name: "late g-pdu after the end marker", net24: testnet.ConformanceLateGPDU, opts: mockupf.Options{EndMarker: true, LateGPDU: true}, want: Fail,
 			wantObserved: "1 G-PDU(s) on the old F-TEID after the End Marker",
 			wantDetail:   []string{"G-PDU on the old F-TEID after the End Marker: end markers are sent after the last PDU on the old path"}},
 		// The stub UPF does not echo, so the flow reaches the UPF but brings
 		// no downlink back.
-		{name: "traffic configured", net24: 67, opts: mockupf.Options{EndMarker: true}, traffic: "192.0.2.7:7", want: Pass,
+		{name: "traffic configured", net24: testnet.ConformanceTraffic, opts: mockupf.Options{EndMarker: true}, traffic: "192.0.2.7:7", want: Pass,
 			wantDetail: []string{"traffic to 192.0.2.7:7 configured, but no downlink reached the old path"}},
 	}
 	for _, tc := range tests {
@@ -407,6 +406,7 @@ func TestEndMarkerCheckAgainstMockPair(t *testing.T) {
 // form. (An IPv6 gNB N3 is refused up front, #156: see
 // TestEndMarkerCheckWithoutHarness.)
 func TestEndMarkerCheckNonCanonicalGNBN3(t *testing.T) {
+	v4, hex := testnet.ConformanceNonCanonicalV4, testnet.ConformanceNonCanonicalHex
 	tests := []struct {
 		name      string
 		upfListen string
@@ -414,8 +414,9 @@ func TestEndMarkerCheckNonCanonicalGNBN3(t *testing.T) {
 		n3        string
 		wantSrc   string
 	}{
-		{name: "IPv4-mapped", upfListen: "127.0.68.10:2152", upfAddr: "127.0.68.10", n3: "::ffff:127.0.68.11", wantSrc: "127.0.68.11:2152"},
-		{name: "IPv4-mapped, expanded", upfListen: "127.0.69.10:2152", upfAddr: "127.0.69.10", n3: "0:0:0:0:0:ffff:7f00:450b", wantSrc: "127.0.69.11:2152"},
+		{name: "IPv4-mapped", upfListen: testnet.Addr(v4, 10) + ":2152", upfAddr: testnet.Addr(v4, 10), n3: "::ffff:" + testnet.Addr(v4, 11), wantSrc: testnet.Addr(v4, 11) + ":2152"},
+		// 127.0.hex.11 in the expanded form: 7f00 is 127.0, then the block and 11 (0b).
+		{name: "IPv4-mapped, expanded", upfListen: testnet.Addr(hex, 10) + ":2152", upfAddr: testnet.Addr(hex, 10), n3: fmt.Sprintf("0:0:0:0:0:ffff:7f00:%02x0b", hex), wantSrc: testnet.Addr(hex, 11) + ":2152"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -438,7 +439,7 @@ func TestEndMarkerCheckNonCanonicalGNBN3(t *testing.T) {
 // A registration the core refuses (the UE's Ki does not match the core's)
 // is an ERROR naming the step, with no association left open.
 func TestEndMarkerCheckRegistrationFailure(t *testing.T) {
-	c := newMockCore(t, 65, mockupf.Options{EndMarker: true}, "000102030405060708090a0b0c0d0e0f")
+	c := newMockCore(t, testnet.ConformanceRegistrationFail, mockupf.Options{EndMarker: true}, "000102030405060708090a0b0c0d0e0f")
 	env := ueEnv(c.front.Addr, "", c.n3)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -455,7 +456,7 @@ func TestEndMarkerCheckRegistrationFailure(t *testing.T) {
 // A per-test timeout shorter than the window is an ERROR, not a verdict on
 // the core.
 func TestEndMarkerCheckTimeoutBeforeWindow(t *testing.T) {
-	c := newMockCore(t, 66, mockupf.Options{EndMarker: true}, testKi)
+	c := newMockCore(t, testnet.ConformanceTimeoutBefore, mockupf.Options{EndMarker: true}, testKi)
 	env := ueEnv(c.front.Addr, "", c.n3)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
