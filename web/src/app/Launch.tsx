@@ -17,8 +17,8 @@ import { Panel } from "@/components/Panel";
 import { addWorkload, workloads } from "@/data/launch/form";
 import { TEMPLATES } from "@/data/launch/runschema.gen";
 import { useState } from "react";
-import { useLaunch, type QuickTarget } from "@/data/launch/useLaunch";
-import { keysBlocked } from "@/data/targets/probe";
+import { quickTargetProblem, useLaunch, type QuickTarget } from "@/data/launch/useLaunch";
+import { startBlocked } from "@/data/launch/resolve";
 import { loadToken } from "@/data/transport";
 import { secretSlots, refName } from "@/data/targets/yamlio";
 import { parseStored } from "@/data/targets/actions";
@@ -30,7 +30,7 @@ import { WorkloadCard } from "./launch/WorkloadCard";
 
 /** A target from an AMF and a network identity, for a suite with no UE (and a first target). */
 function QuickTargetForm({ onAdd, taken }: { onAdd: (q: QuickTarget) => void; taken: readonly string[] }) {
-  const [q, setQ] = useState<QuickTarget>({ name: taken.includes("core") ? "" : "core", amf: "", mcc: "", mnc: "", sst: "1", sd: "" });
+  const [q, setQ] = useState<QuickTarget>({ name: taken.includes("core") ? "" : "core", amf: "", mcc: "", mnc: "", sst: "1", sd: "", tac: "" });
   const field = (k: keyof QuickTarget, label: string, placeholder: string, width: string) => (
     <label className="o-label flex flex-col gap-0.5" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
       {label}
@@ -44,7 +44,8 @@ function QuickTargetForm({ onAdd, taken }: { onAdd: (q: QuickTarget) => void; ta
       />
     </label>
   );
-  const ready = q.name.trim() && q.amf.trim() && q.mcc.trim() && q.mnc.trim();
+  const problem = quickTargetProblem(q);
+  const ready = problem === undefined;
   return (
     <div className="flex flex-col gap-1">
       <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
@@ -55,9 +56,10 @@ function QuickTargetForm({ onAdd, taken }: { onAdd: (q: QuickTarget) => void; ta
         {field("amf", "AMF", "host:port", "12rem")}
         {field("mcc", "MCC", "001", "4rem")}
         {field("mnc", "MNC", "01", "4rem")}
+        {field("tac", "TAC", "1", "6rem")}
         {field("sst", "SST", "1", "3rem")}
         {field("sd", "SD", "hex, optional", "7rem")}
-        <button type="button" disabled={!ready} className="o-label cursor-pointer px-2 py-1 disabled:opacity-50" style={buttonStyle} onClick={() => ready && onAdd(q)}>
+        <button type="button" disabled={!ready} title={problem} className="o-label cursor-pointer px-2 py-1 disabled:opacity-50" style={buttonStyle} onClick={() => ready && onAdd(q)}>
           add target
         </button>
       </div>
@@ -78,7 +80,7 @@ export function Launch({ preset }: { preset?: string }) {
   const prompts = l.refs.filter((r) => !keyRefs.has(r));
   const why = !t
     ? "make a target first: new from AMF + PLMN above, or on the Targets page"
-    : (keysBlocked(window.location, loadToken()) ??
+    : (startBlocked(window.location, loadToken(), { targetYaml: t.yaml, runYaml: l.runYaml }) ??
       (missingKeys.length > 0
         ? `set ${missingKeys.map((v) => `\${${v}}`).join(", ")} on the Targets page first`
         : prompts.some((r) => !l.values[r])

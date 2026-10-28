@@ -80,7 +80,7 @@ const STATES: Record<string, { template: string; build: () => Document; target?:
   // no keys, so the checks that need a UE SKIP.
   "conformance-amf-only": {
     template: "conformance",
-    target: quickTargetText({ name: "core", amf: "\${LAB_AMF}", mcc: "208", mnc: "93", sst: "1", sd: "010203" }),
+    target: quickTargetText({ name: "core", amf: "\${LAB_AMF}", mcc: "208", mnc: "93", sst: "1", sd: "010203", tac: "" }),
     build: () => {
       const d = startFrom("conformance");
       setValue(d, ["workloads", 0, "conformance", "per_test_timeout_ms"], "3000");

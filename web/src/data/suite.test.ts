@@ -78,7 +78,7 @@ describe("SuiteWatch over a server", () => {
         getRun(): GetRunResponse {
           n++;
           const state = n > polls ? RunState.COMPLETE : RunState.RUNNING;
-          return create(GetRunResponseSchema, { run: { runId: "r", state }, conformanceProgress: { ...progress, ran: n } });
+          return create(GetRunResponseSchema, { run: { runId: "r", state, kind: RunKind.CONFORMANCE }, conformanceProgress: { ...progress, ran: n } });
         },
         getRunReport() {
           reports++;
@@ -121,5 +121,68 @@ describe("SuiteWatch over a server", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(srv.polls()).toBe(at);
     expect(srv.reports()).toBe(0);
+  });
+
+  it("a failed GetRun is retried, with backoff, and the polls go on", async () => {
+    let n = 0;
+    const client = {
+      getRun: async () => {
+        n++;
+        if (n === 1) throw new Error("the server restarting");
+        return create(GetRunResponseSchema, { run: { runId: "r", state: RunState.COMPLETE, kind: RunKind.CONFORMANCE }, conformanceProgress: progress });
+      },
+      getRunReport: async () => create(GetRunReportResponseSchema, { report: { case: "conformance", value: { results: [result("A", "PASS")] } } }),
+      runEvents: async function* () {},
+    };
+    const seen: boolean[] = [];
+    await new SuiteWatch(client, "r", (_s, done) => seen.push(done), 1).start();
+    expect(n).toBe(2);
+    expect(seen).toEqual([true]);
+  });
+
+  it("a run with no suite (a load run): one GetRun, no more polls, no events read", async () => {
+    let polls = 0;
+    let events = 0;
+    const client = {
+      getRun: async () => {
+        polls++;
+        return create(GetRunResponseSchema, { run: { runId: "r", state: RunState.RUNNING, kind: RunKind.LOAD } });
+      },
+      getRunReport: async () => create(GetRunReportResponseSchema, {}),
+      runEvents: async function* (_req: unknown, opts?: { signal?: AbortSignal }) {
+        for (let i = 0; i < 100 && !opts?.signal?.aborted; i++) {
+          events++;
+          yield create(RunEventSchema, { kind: "CONFORMANCE", message: `X${i} PASS` });
+          await new Promise((r) => setTimeout(r, 2));
+        }
+      },
+    };
+    const seen: Suite[][] = [];
+    await new SuiteWatch(client, "r", (s) => seen.push(s), 1).start();
+    expect(polls).toBe(1);
+    expect(seen).toEqual([]);
+    expect(events).toBeLessThan(100);
+  });
+
+  it("no verdict is handed on after dispose", async () => {
+    let release = () => undefined as void;
+    const client = {
+      getRun: () => new Promise<GetRunResponse>(() => undefined),
+      getRunReport: async () => create(GetRunReportResponseSchema, {}),
+      // Ignores the signal: the guard, not the stream, has to stop it.
+      runEvents: async function* () {
+        yield create(RunEventSchema, { kind: "CONFORMANCE", message: "A PASS" });
+        await new Promise<void>((r) => (release = r));
+        yield create(RunEventSchema, { kind: "CONFORMANCE", message: "B FAIL" });
+      },
+    };
+    const checks: CheckVerdict[] = [];
+    const w = new SuiteWatch(client, "r", () => undefined, 1, (v) => checks.push(v));
+    void w.start();
+    await new Promise((r) => setTimeout(r, 10));
+    w.dispose();
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(checks.map((c) => c.id)).toEqual(["A"]);
   });
 });

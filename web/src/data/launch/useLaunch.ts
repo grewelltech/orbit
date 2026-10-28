@@ -55,6 +55,19 @@ export interface QuickTarget {
   mnc: string;
   sst: string;
   sd: string;
+  /** "" for the default (1); otherwise 1 to 2^24-1, as the old conformance page bounded it. */
+  tac: string;
+}
+
+/** The largest TAC: 24 bits. */
+export const TAC_MAX = 0xffffff;
+
+/** Why q makes no target yet, or undefined: a name, an AMF and a PLMN, and a TAC (when given) within 1 to TAC_MAX. */
+export function quickTargetProblem(q: QuickTarget): string | undefined {
+  if (!q.name.trim() || !q.amf.trim() || !q.mcc.trim() || !q.mnc.trim()) return "a name, an AMF and a PLMN";
+  const tac = q.tac.trim();
+  if (tac !== "" && !(/^[0-9]+$/.test(tac) && Number(tac) >= 1 && Number(tac) <= TAC_MAX)) return `a TAC is 1 to ${TAC_MAX}`;
+  return undefined;
 }
 
 /**
@@ -67,6 +80,7 @@ export function quickTargetText(q: QuickTarget): string {
   setValue(d, ["core", "amf"], q.amf.trim());
   setValue(d, ["core", "plmn", "mcc"], q.mcc.trim());
   setValue(d, ["core", "plmn", "mnc"], q.mnc.trim());
+  if (q.tac.trim()) setValue(d, ["core", "tac"], q.tac.trim());
   if (q.sst.trim()) setSlices(d, ["core", "slices"], [{ sst: q.sst.trim(), sd: q.sd.trim() || undefined }]);
   return render(d);
 }
@@ -75,10 +89,29 @@ export function quickTargetText(q: QuickTarget): string {
  * The run the page opens on: the tab's draft, unless a preset names
  * another template (?conformance), which starts the form on that one.
  */
-export function initialDraft(session: KeyValueStore | undefined, preset: string | undefined): { draft: Draft; doc: Document } {
+export function initialDraft(session: KeyValueStore | undefined, preset: string | undefined): { draft: Draft; doc: Document; replaced?: string } {
   const d = loadDraft(session);
-  if (preset !== undefined && d.draft.template !== preset) return { draft: { ...d.draft, template: preset, yaml: "" }, doc: startFrom(preset || undefined) };
+  if (preset !== undefined && d.draft.template !== preset) {
+    // A draft the tab had (not the load template a fresh page opens on) is
+    // replaced: say so, naming what it started from.
+    const had = d.draft.yaml !== "" ? d.draft.template || "an empty run file" : undefined;
+    return { draft: { ...d.draft, template: preset, yaml: "" }, doc: startFrom(preset || undefined), ...(had ? { replaced: had } : {}) };
+  }
   return d;
+}
+
+/** The old conformance page's key: the PLMN form it remembered, which nothing reads now. */
+export const RETIRED_KEYS: readonly string[] = ["orbit.conformance.identity"];
+
+/** Removes the retired keys from local; a no-op where storage is unavailable. */
+export function dropRetiredKeys(local: KeyValueStore | undefined): void {
+  for (const k of RETIRED_KEYS) {
+    try {
+      local?.removeItem(k);
+    } catch {
+      /* storage unavailable: nothing to remove */
+    }
+  }
 }
 
 export interface LaunchOptions {
@@ -96,7 +129,10 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
   const [template, setTemplate] = useState(initial.draft.template);
   const [doc, setDoc] = useState<Document>(initial.doc);
   const [keysVersion, setKeysVersion] = useState(0);
-  const [notice, setNotice] = useState<string | undefined>();
+  const [notice, setNotice] = useState<string | undefined>(() =>
+    initial.replaced ? `the conformance link started the form on its template; the draft from ${initial.replaced === "an empty run file" ? "an empty run file" : `template ${initial.replaced}`} was replaced` : undefined,
+  );
+  useEffect(() => dropRetiredKeys(local), [local]);
   const [state, setState] = useState<LaunchState>(LAUNCH_IDLE);
 
   const client = useMemo(() => createClient(RunService, orbitTransport(baseUrl)), [baseUrl]);

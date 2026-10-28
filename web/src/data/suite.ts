@@ -92,6 +92,12 @@ export function suitesOf(run: GetRunResponse | undefined, report: GetRunReportRe
   return out;
 }
 
+/** Whether a run has a conformance suite: a conformance run, or a mixed one with a conformance workload. */
+export function hasSuite(run: GetRunResponse): boolean {
+  const r = run.run;
+  return r?.kind === RunKind.CONFORMANCE || (r?.workloadKinds ?? []).includes(RunKind.CONFORMANCE) || run.conformanceProgress !== undefined;
+}
+
 /** Whether a run state is one it ends in. */
 export function ended(state: RunState | undefined): boolean {
   return state === RunState.COMPLETE || state === RunState.FAILED || state === RunState.CANCELLED;
@@ -119,6 +125,7 @@ export class SuiteWatch {
     private readonly onSuites: (s: Suite[], done: boolean) => void,
     private readonly intervalMs = 1000,
     private readonly onCheck: (v: CheckVerdict) => void = () => undefined,
+    private readonly maxBackoffMs = 30_000,
   ) {}
 
   async start(): Promise<void> {
@@ -138,28 +145,48 @@ export class SuiteWatch {
     }
   }
 
+  /**
+   * GetRun each interval while the run is in flight, then GetRunReport
+   * once. A failed GetRun (the server restarting, a token the prompt is
+   * asking for) is retried, waiting twice as long each time up to
+   * maxBackoffMs; only dispose or the run's end stops the polls. A run
+   * with no conformance suite stops them, and the events, at the first
+   * answer: the run view shows nothing for it.
+   */
   private async poll(): Promise<void> {
     const { signal } = this.ctrl;
-    try {
-      for (;;) {
-        const run = await this.client.getRun({ runId: this.runId }, { signal });
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    let wait = this.intervalMs;
+    let first = true;
+    while (!signal.aborted) {
+      let run: GetRunResponse;
+      try {
+        run = await this.client.getRun({ runId: this.runId }, { signal });
+      } catch {
         if (signal.aborted) return;
-        if (ended(run.run?.state)) {
-          let report: GetRunReportResponse | undefined;
-          try {
-            report = await this.client.getRunReport({ runId: this.runId }, { signal });
-          } catch {
-            /* a run that failed before it had a report: its progress is all there is */
-          }
-          if (!signal.aborted) this.onSuites(suitesOf(run, report), true);
-          return;
-        }
-        this.onSuites(suitesOf(run, undefined), false);
-        await new Promise((r) => setTimeout(r, this.intervalMs));
-        if (signal.aborted) return;
+        await sleep(wait);
+        wait = Math.min(wait * 2, this.maxBackoffMs);
+        continue;
       }
-    } catch {
-      /* the stream of polls ends with the page, or with the server */
+      wait = this.intervalMs;
+      if (signal.aborted) return;
+      if (first && !hasSuite(run)) {
+        this.ctrl.abort();
+        return;
+      }
+      first = false;
+      if (ended(run.run?.state)) {
+        let report: GetRunReportResponse | undefined;
+        try {
+          report = await this.client.getRunReport({ runId: this.runId }, { signal });
+        } catch {
+          /* a run that failed before it had a report: its progress is all there is */
+        }
+        if (!signal.aborted) this.onSuites(suitesOf(run, report), true);
+        return;
+      }
+      this.onSuites(suitesOf(run, undefined), false);
+      await sleep(this.intervalMs);
     }
   }
 

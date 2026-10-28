@@ -10,7 +10,8 @@ import type { ResolveRequestSchema } from "@/gen/orbit/v1/target_pb";
 import type { RenderRunRequestSchema } from "@/gen/orbit/v1/run_pb";
 import type { KeyValues } from "../targets/store";
 import { isScalar, parseDocument, visit } from "yaml";
-import { refsIn } from "../targets/yamlio";
+import { keysBlocked } from "../targets/probe";
+import { refName, refsIn, secretSlots } from "../targets/yamlio";
 
 export type PlanRequest = MessageInitShape<typeof ResolveRequestSchema>;
 export type RenderRequest = MessageInitShape<typeof RenderRunRequestSchema>;
@@ -47,6 +48,29 @@ export function refsOf(input: Pick<LaunchInput, "targetYaml" | "runYaml">): stri
     });
   }
   return out;
+}
+
+/**
+ * Whether a request built from input carries a secret, as the server's
+ * check reads it: any ${VAR} value (each is marked secret), or a key
+ * written out in the target's secret slots. A run file holds none (the
+ * gate refuses one), and the page sends no --set.
+ */
+export function carriesSecrets(input: Pick<LaunchInput, "targetYaml" | "runYaml">): boolean {
+  if (refsOf(input).length > 0) return true;
+  const doc = parseDocument(input.targetYaml, { schema: "failsafe" });
+  return secretSlots(doc).some((s) => s.value !== "" && refName(s.value) === undefined);
+}
+
+/**
+ * Why this page may not send input's run (Start, check the plan), or
+ * undefined: keysBlocked's rule (loopback, or https with the API token),
+ * but only for a request that carries a secret. A keyless run (a target
+ * made from an AMF and a PLMN, say) goes from any dashboard, as the old
+ * conformance page's did; the server's own check stays the real one.
+ */
+export function startBlocked(loc: { protocol: string; hostname: string }, token: string, input: Pick<LaunchInput, "targetYaml" | "runYaml">): string | undefined {
+  return carriesSecrets(input) ? keysBlocked(loc, token) : undefined;
 }
 
 /** The PlanRun request, or the ${VAR}s it still needs a value for. */

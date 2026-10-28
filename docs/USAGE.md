@@ -434,8 +434,14 @@ the CLI.
   - **Check the plan** resolves without starting.
   - A field the server refuses is named, with its document and line.
   - The page then opens the run on the dashboard (`?run=<id>`).
+  - A run started here runs on the server: it keeps going when you leave
+    the page or close the tab. Stop it with `orbit runs stop <id>`; a Stop
+    button comes with the next dashboard step.
 - **Keys** go only with the plan, under the same rule as Probe: to the
-  server's own host, or over https:// with the API token.
+  server's own host, or over https:// with the API token. That rule applies
+  only when the run carries a secret: a key in the target, or any `${VAR}`
+  value. A keyless run (a target made from an AMF and a PLMN) starts from
+  any dashboard.
 - **As the CLI runs it.** The panel gives the command and the file to save,
   from `RunService.RenderRun`, keyless:
   - `orbit test <template> --set …` when the page started from a template
