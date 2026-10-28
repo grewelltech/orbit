@@ -109,7 +109,7 @@ export function JoinPanel({ editing, responders, use }: { editing: Editing; resp
                 type="button"
                 className="o-label cursor-pointer px-2 py-0.5"
                 style={buttonStyle}
-                onClick={() => void navigator.clipboard.writeText(s.line ?? "").then(() => setCopied(true), () => setCopied(false))}
+                onClick={() => void join.copy().then(setCopied)}
               >
                 {copied ? "copied" : "copy"}
               </button>
@@ -121,9 +121,14 @@ export function JoinPanel({ editing, responders, use }: { editing: Editing; resp
               </button>
             </div>
             <span className="o-label" role="note" style={label}>
-              Run it on the app host only: it runs the join script as root. Anyone with it can join a host until it is used, revoked or expired; a
-              copy on your clipboard is dead once it is.
+              Run it on the app host only: it runs the join script as root. Anyone with it can join a host until it is used, revoked or expired.
             </span>
+            {s.copied && (
+              <span className="o-label" role="status" style={{ ...label, color: "var(--o-amber)" }}>
+                copied: it works until it is used or expires at {s.expiresAt === undefined ? "its expiry" : new Date(s.expiresAt).toLocaleTimeString()}; Revoke
+                stops it now. Closing this panel asks first; leaving the page keeps it.
+              </span>
+            )}
           </div>
         )}
         {usedBy && (

@@ -91,14 +91,38 @@ describe("useJoin's wiring", () => {
     expect(imported(raw, "joinPageLifecycle", "./session")).toBe(true);
     expect(imported(raw, "revokeOnHide", "./session")).toBe(true);
   });
-  it("another target, or the panel gone, closes the session (an unused token revoked), on [session, targetName]", () => {
-    expect(fx.some((e) => !e.block && tight(e.body) === "()=>voidsession.close()" && e.deps === "[session,targetName]")).toBe(true);
+  it("another target closes the session asking first (a copied token kept unless the user says revoke), on [session, targetName]", () => {
+    expect(
+      fx.some(
+        (e) =>
+          e.block &&
+          /^if\(shownFor\.current===targetName\)return;shownFor\.current=targetName;voidsession\.close\(\(question\)=>window\.confirm\(question\)\);$/.test(tight(e.body)) &&
+          e.deps === "[session,targetName]",
+      ),
+    ).toBe(true);
+  });
+  it("the panel going closes the session without asking (a copied token kept to its TTL), on [session]", () => {
+    expect(fx.some((e) => !e.block && tight(e.body) === "()=>voidsession.close()" && e.deps === "[session]")).toBe(true);
+  });
+  it("copy is copyLine with the clipboard (the real line, and marked copied), and close asks", () => {
+    const s = strip(raw);
+    expect(tight(s)).toContain("constcopy=useCallback(()=>copyLine(session,navigator.clipboard),[session]);");
+    expect(tight(s)).toContain("constclose=useCallback(()=>session.close((question)=>window.confirm(question)),[session]);");
+    expect(imported(raw, "copyLine", "./session")).toBe(true);
   });
   it("the countdown ticks the session, its interval cleared as the only return, on [session]", () => {
     expect(fx.some((e) => e.body.includes("session.tick()") && cleanupIs(e, "() => clearInterval(t)", "setInterval(") && e.deps === "[session]")).toBe(true);
   });
   it("the polled responders mark the token used, on [session, responders]", () => {
     expect(fx.some((e) => !e.block && tight(e.body) === "session.sawResponders(responders)" && e.deps === "[session,responders]")).toBe(true);
+  });
+});
+
+describe("JoinPanel's copy", () => {
+  it("copies through the hook's copy (copyLine: the real line, marked copied), never the clipboard directly", () => {
+    const panel = strip(read("../../app/targets/JoinPanel.tsx"));
+    expect(tight(panel)).toContain("onClick={()=>voidjoin.copy().then(setCopied)}");
+    expect(panel).not.toContain("navigator.clipboard");
   });
 });
 

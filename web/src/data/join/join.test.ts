@@ -8,7 +8,7 @@ import { parseTargets, render } from "../targets/yamlio";
 import { nameResponderIn, usesResponder } from "./addToTarget";
 import { joinBlocked } from "./gate";
 import { MASK, maskOneLiner } from "./mask";
-import { joinPageLifecycle, JoinSession, revokeOnHide, type JoinClient, type JoinState } from "./session";
+import { copyLine, joinPageLifecycle, JoinSession, revokeOnHide, type JoinClient, type JoinState } from "./session";
 import { joinSpecFor } from "./spec";
 
 /** A one-liner as CreateJoinToken writes it (join.go), with a stand-in token. */
@@ -257,6 +257,99 @@ describe("a join token's life on the page", () => {
     win.dispatchEvent(new Event("pagehide"));
     expect(revoked).toEqual(["jt-1"]);
     remove();
+  });
+
+  // Once copied, the line is on its way to an app host: only Revoke, or a
+  // yes to close's question, ends it before its TTL.
+  const copied = async (srv: ReturnType<typeof server>) => {
+    const x = session(srv);
+    await x.s.create("app5", 600, SPEC);
+    const wrote: string[] = [];
+    expect(await copyLine(x.s, { writeText: async (t) => void wrote.push(t) })).toBe(true);
+    expect(wrote).toEqual([LINE]);
+    return x;
+  };
+
+  it("copy, then close, keep (the default): not revoked; the panel says until when it works", async () => {
+    const srv = server();
+    const { s, seen } = await copied(srv);
+    const asked: string[] = [];
+    await s.close((q) => (asked.push(q), false));
+    expect(srv.calls).toEqual(["create app5 600"]);
+    expect(asked[0]).toMatch(/^The copied one-liner works until .+ \(10 min left\)\. Revoke it now\?$/);
+    expect(seen.at(-1)?.note).toContain("kept: the copied one-liner works until it is used or expires");
+    expect(seen.at(-1)?.line).toBeUndefined();
+  });
+
+  it("copy, then close, revoke: revoked", async () => {
+    const srv = server();
+    const { s } = await copied(srv);
+    await s.close(() => true);
+    expect(srv.calls).toEqual(["create app5 600", "list", "revoke jt-1"]);
+  });
+
+  it("copy, then the panel goes (close with no question): not revoked", async () => {
+    const srv = server();
+    const { s } = await copied(srv);
+    await s.close();
+    expect(srv.calls).toEqual(["create app5 600"]);
+  });
+
+  it("copy, then pagehide: not revoked; no copy, then pagehide: revoked", async () => {
+    const win = new EventTarget();
+    const revoked: string[] = [];
+    const a = await copied(server());
+    joinPageLifecycle(win, a.s, (id) => revoked.push(`copied ${id}`));
+    win.dispatchEvent(new Event("pagehide"));
+    expect(revoked).toEqual([]);
+    const win2 = new EventTarget();
+    const srv = server();
+    const b = session(srv);
+    await b.s.create("app6", 600, SPEC);
+    joinPageLifecycle(win2, b.s, (id) => revoked.push(id));
+    win2.dispatchEvent(new Event("pagehide"));
+    expect(revoked).toEqual(["jt-1"]);
+  });
+
+  it("Revoke always revokes, copied or not", async () => {
+    const srv = server();
+    const { s } = await copied(srv);
+    await s.revoke();
+    expect(srv.calls).toEqual(["create app5 600", "revoke jt-1"]);
+    expect(s.tick()).toMatchObject({ phase: "revoked" });
+  });
+
+  it("copyLine: the real line (whatever the panel shows); nothing written when there is no line or the write fails", async () => {
+    const { s } = session(server());
+    const wrote: string[] = [];
+    expect(await copyLine(s, { writeText: async (t) => void wrote.push(t) })).toBe(false);
+    expect(wrote).toEqual([]);
+    await s.create("app5", 600, SPEC);
+    expect(await copyLine(s, { writeText: async () => Promise.reject(new Error("denied")) })).toBe(false);
+    expect(s.tick().copied).toBeUndefined();
+    expect(await copyLine(s, { writeText: async (t) => void wrote.push(t) })).toBe(true);
+    expect(wrote).toEqual([LINE]);
+    expect(wrote[0]).not.toContain(MASK);
+    expect(s.tick().copied).toBe(true);
+  });
+
+  it("a back/forward-cache restore checks the token again: gone from pending, the panel resets; still pending, it stays", async () => {
+    const srv = server();
+    const { s } = session(srv);
+    await s.create("app5", 600, SPEC);
+    const win = new EventTarget();
+    joinPageLifecycle(win, s, () => undefined);
+    win.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: false }));
+    await Promise.resolve();
+    expect(srv.calls).toEqual(["create app5 600"]);
+    win.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.tick().phase).toBe("ready");
+    srv.use("jt-1");
+    win.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.tick()).toMatchObject({ phase: "idle" });
+    expect(s.tick().note).toContain("no longer live");
   });
 
   it("revokeOnHide: a keepalive POST to RevokeJoinToken, with the API token when there is one", () => {

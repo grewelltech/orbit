@@ -425,10 +425,18 @@ then **make a join one-liner**:
   on the app host only, since it runs the join script as root. Until then
   anyone with it can join a host.
 - **It lasts** 5 minutes to an hour (10 by default), with the time left
-  shown. **revoke** ends it now. An unused token is also revoked when you
-  close the panel, pick another target, or leave the page (that last one is
-  best effort; its expiry ends it anyway). A copy left on your clipboard is
-  dead once the token is.
+  shown. **revoke** ends it now, copied or not.
+- **Before it's copied**, an unused token is revoked when you close the
+  panel, pick another target, or leave the page (that last one is best
+  effort; its expiry ends it anyway).
+- **Once it's copied**, it's on its way to the app host, so the page stops
+  revoking it on its own: "copied: it works until it is used or expires at
+  <time>". Closing the panel or picking another target asks "Revoke it
+  now?", and the default is no, keep it. Leaving the page keeps it. Its
+  expiry ends it, as with `orbit target add-responder`. So copy, close the
+  panel, and paste on the app host works. Coming back to the page from the
+  browser's back/forward cache checks the token again, and clears it if it
+  was used, revoked or expired meanwhile.
 - **Once the host joins**, the panel says "used by <name>". Then **use <name>
   in <target>** names the responder in the target's `app.responders`, by name
   only (the server fills in the rest). The edit goes through the same checks
