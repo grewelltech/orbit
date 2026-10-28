@@ -83,6 +83,65 @@ func TestOverrideNotices(t *testing.T) {
 	}
 }
 
+// "(same value)" is claimed only for a field that is not secret, from
+// same_value, never from comparing the values: a secret's are both the
+// mask, so a different ORBIT_KI over a target's ki must not read as the
+// same, and an identical one cannot be known to be.
+func TestOverrideNoticeSameValue(t *testing.T) {
+	src := func(name string, line int) target.Source {
+		return target.Source{Layer: target.LayerTarget, Name: name, Line: line}
+	}
+	tgt := target.Input{Layer: target.LayerTarget, Settings: []target.Setting{
+		{Path: "name", Value: "lab1", Source: src("lab1.yaml", 3)},
+		{Path: "core.amf", Value: "192.0.2.1:38412", Source: src("lab1.yaml", 5)},
+		{Path: "core.plmn.mcc", Value: "001", Source: src("lab1.yaml", 6)},
+		{Path: "core.plmn.mnc", Value: "01", Source: src("lab1.yaml", 6)},
+		{Path: "subscribers[main].name", Value: "main", Source: src("lab1.yaml", 8)},
+		{Path: "subscribers[main].first_supi", Value: "001010000000001", Source: src("lab1.yaml", 8)},
+		{Path: "subscribers[main].ki", Value: "00112233445566778899aabbccddeeff", Source: src("lab1.yaml", 9)},
+		{Path: "subscribers[main].opc", Value: "00112233445566778899aabbccddeeff", Source: src("lab1.yaml", 10)},
+	}}
+	env := target.Input{Layer: target.LayerEnv, Settings: []target.Setting{
+		{Path: "core.plmn.mcc", Value: "001", Source: target.Source{Name: "ORBIT_MCC"}},                                  // the same, not secret
+		{Path: "core.amf", Value: "192.0.2.2:38412", Source: target.Source{Name: "ORBIT_AMF"}},                           // different, not secret
+		{Path: "subscribers[].ki", Value: "ffeeddccbbaa99887766554433221100", Source: target.Source{Name: "ORBIT_KI"}},   // different, secret
+		{Path: "subscribers[].opc", Value: "00112233445566778899aabbccddeeff", Source: target.Source{Name: "ORBIT_OPC"}}, // the same, secret
+	}}
+	res, err := target.Resolve(target.DefaultInput(), tgt, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]*orbitv1.OverrideNotice{}
+	for _, n := range OverrideNotices(ProvenanceProto(res.Provenance)) {
+		got[n.GetPath()] = n
+	}
+	for _, tc := range []struct {
+		path string
+		same bool
+	}{
+		{"core.plmn.mcc", true},
+		{"core.amf", false},
+		{"subscribers[main].ki", false},
+		{"subscribers[main].opc", false}, // identical, and still no claim
+	} {
+		n := got[tc.path]
+		if n == nil {
+			t.Errorf("%s: no notice", tc.path)
+			continue
+		}
+		text := NoticeText(n)
+		if n.GetSameValue() != tc.same || strings.HasSuffix(text, " (same value)") != tc.same {
+			t.Errorf("%s: same_value %t, text %q; want same %t", tc.path, n.GetSameValue(), text, tc.same)
+		}
+	}
+	// A notice built by hand, its values two masks: NoticeText reads
+	// same_value, not the values.
+	masked := &orbitv1.OverrideNotice{Path: "subscribers[main].ki", Value: target.Masked, OverriddenValue: target.Masked}
+	if strings.Contains(NoticeText(masked), "same value") {
+		t.Errorf("two masks read as the same value: %s", NoticeText(masked))
+	}
+}
+
 // A notice names the highest file value the env beat: the run file's over
 // the target's, when both set the field. An env value equal to the file's
 // is still a notice, marked.

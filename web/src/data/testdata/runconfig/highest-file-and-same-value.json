@@ -74,7 +74,8 @@
         "layer": "PROVENANCE_LAYER_TARGET",
         "detail": "target lab1.yaml:6"
       },
-      "overriddenValue": "001"
+      "overriddenValue": "001",
+      "sameValue": true
     }
   ],
   "resolved": true

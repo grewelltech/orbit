@@ -11,7 +11,9 @@ import { ALL_ROWS, filterRows, madeBy, MASKED, noticeText, rows } from "./proven
  * ORBIT_MNC beat an AMF-only target's 001/01) and keys-and-leases
  * (internal/server TestGetRunConfig: keys, a key a layer overrode, and the
  * server's own entries); highest-file-and-same-value (internal/plan: a
- * notice naming the run file over the target, and one whose values match).
+ * notice naming the run file over the target, and one whose values match);
+ * secrets-and-same-value (internal/server: an archived run's notices, the
+ * same and not, secret and not).
  */
 const dir = join(__dirname, "testdata", "runconfig");
 const read = (name: string) => fromJson(GetRunConfigResponseSchema, JSON.parse(readFileSync(join(dir, `${name}.json`), "utf8")));
@@ -67,6 +69,10 @@ describe("the notices", () => {
     expect(all.some((t) => / overrode target .* \(001\)$/.test(t))).toBe(true);
     expect(all.some((t) => / overrode run file /.test(t))).toBe(true);
     expect(all.some((t) => t.endsWith(" (same value)"))).toBe(true);
+    // A secret's notice, whose values are two masks, equal or not, never says so.
+    const secret = all.filter((t) => t.includes(MASKED));
+    expect(secret.length).toBeGreaterThanOrEqual(2);
+    for (const t of secret) expect(t, t).not.toContain("same value");
   });
 
   it.each(fixtures)("in %s, say exactly what the CLI says", (name) => {
