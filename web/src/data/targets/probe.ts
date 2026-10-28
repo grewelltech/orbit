@@ -130,3 +130,15 @@ export class ProbeRunner {
     this.abort = null;
   }
 }
+
+/**
+ * Ends runner's probe when the page goes by a full page load (a link to
+ * another page, a reload), which unmounts nothing: the server then
+ * releases the probe's leases at once, not when its step times out.
+ * Returns the remover.
+ */
+export function endOnPageHide(win: Pick<EventTarget, "addEventListener" | "removeEventListener">, runner: Pick<ProbeRunner, "dispose">): () => void {
+  const end = () => runner.dispose();
+  win.addEventListener("pagehide", end);
+  return () => win.removeEventListener("pagehide", end);
+}

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@connectrpc/connect";
 import { TargetService } from "@/gen/orbit/v1/target_pb";
 import { orbitTransport } from "../transport";
-import { IDLE, ProbeRunner, type ProbeRequestInit, type ProbeState } from "./probe";
+import { endOnPageHide, IDLE, ProbeRunner, type ProbeRequestInit, type ProbeState } from "./probe";
 
 export function useProbe(targetName: string | undefined, baseUrl?: string) {
   const client = useMemo(() => createClient(TargetService, orbitTransport(baseUrl)), [baseUrl]);
@@ -19,6 +19,8 @@ export function useProbe(targetName: string | undefined, baseUrl?: string) {
     setState(IDLE);
     return () => runner.dispose();
   }, [runner, targetName]);
+  // A full page load (a link to another page, a reload) unmounts nothing.
+  useEffect(() => endOnPageHide(window, runner), [runner]);
   const run = useCallback((req: ProbeRequestInit) => runner.run(req), [runner]);
   const cancel = useCallback(() => runner.cancel(), [runner]);
   return { state, run, cancel };

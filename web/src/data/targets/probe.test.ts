@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, createClient, createRouterTransport } from "@connectrpc/connect";
 import { ProbeStepSchema, TargetService } from "@/gen/orbit/v1/target_pb";
-import { ended, IDLE, keysBlocked, ProbeRunner, refusedField, summary, varsNote, withStep, type ProbeState } from "./probe";
+import { endOnPageHide, ended, IDLE, keysBlocked, ProbeRunner, refusedField, summary, varsNote, withStep, type ProbeState } from "./probe";
 import { authInterceptor, type AuthRefusal } from "../transport";
 
 const step = (index: number, status: string) => create(ProbeStepSchema, { index, name: `step ${index}`, status });
@@ -26,6 +26,12 @@ describe("keysBlocked", () => {
     it(`no token on loopback (${hostname})`, () => expect(keysBlocked({ protocol: "http:", hostname }, "")).toBeUndefined());
   }
   it("no token, http across the network: still the TLS reason", () => expect(keysBlocked({ protocol: "http:", hostname: "192.0.2.10" }, "")).toContain("--tls auto"));
+  // Only the page's own loopback host: names that merely start or end like
+  // one are another host, so http to them is refused even with a token.
+  for (const hostname of ["localhost.example.com", "127.0.0.1.nip.io", "foo.localhost"]) {
+    it(`a loopback lookalike over http is blocked (${hostname})`, () =>
+      expect(keysBlocked({ protocol: "http:", hostname }, "tok")).toContain("--tls auto"));
+  }
   it("says why, as the CLI does", () => expect(keysBlocked({ protocol: "http:", hostname: "192.0.2.10" }, "t")).toContain("--tls auto"));
 });
 
@@ -167,5 +173,28 @@ describe("ProbeRunner over a server stream", () => {
     await new ProbeRunner(createClient(TargetService, transport), (f) => (s = f(s))).run({});
     expect(refused).toEqual(["missing"]);
     expect(s.phase).toBe("failed");
+  });
+
+  it("a full page load (pagehide) ends the stream", async () => {
+    const { client, closed } = server();
+    let s: ProbeState = IDLE;
+    const r = new ProbeRunner(client, (f) => (s = f(s)));
+    const win = new EventTarget();
+    const remove = endOnPageHide(win, r);
+    const done = r.run({ targetName: "lab1" });
+    await until(() => s.steps.length >= 2);
+    win.dispatchEvent(new Event("pagehide"));
+    await done;
+    await until(closed);
+    expect(closed()).toBe(true);
+    remove();
+  });
+
+  it("the remover takes the listener off", () => {
+    let disposed = 0;
+    const win = new EventTarget();
+    endOnPageHide(win, { dispose: () => disposed++ })();
+    win.dispatchEvent(new Event("pagehide"));
+    expect(disposed).toBe(0);
   });
 });
