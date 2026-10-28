@@ -961,8 +961,14 @@ type OverrideNotice struct {
 	Value           string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`                                            // masked when secret
 	Overridden      *ProvenanceSource      `protobuf:"bytes,4,opt,name=overridden,proto3" json:"overridden,omitempty"`                                  // the file and line it beat
 	OverriddenValue string                 `protobuf:"bytes,5,opt,name=overridden_value,json=overriddenValue,proto3" json:"overridden_value,omitempty"` // masked when secret
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The env value equals the file's. Set only for a field that is not
+	// secret: a secret's values are both masked, so whether they were the
+	// same cannot be known, and is never claimed. Clients must read this,
+	// never compare value with overridden_value (two masks are not equal
+	// values).
+	SameValue     bool `protobuf:"varint,6,opt,name=same_value,json=sameValue,proto3" json:"same_value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OverrideNotice) Reset() {
@@ -1028,6 +1034,13 @@ func (x *OverrideNotice) GetOverriddenValue() string {
 		return x.OverriddenValue
 	}
 	return ""
+}
+
+func (x *OverrideNotice) GetSameValue() bool {
+	if x != nil {
+		return x.SameValue
+	}
+	return false
 }
 
 type RenderRunRequest struct {
@@ -4037,7 +4050,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"provenance\x18\x02 \x03(\v2\x19.orbit.v1.FieldProvenanceR\n" +
 	"provenance\x122\n" +
 	"\anotices\x18\x03 \x03(\v2\x18.orbit.v1.OverrideNoticeR\anotices\x12\x1a\n" +
-	"\bresolved\x18\x04 \x01(\bR\bresolved\"\xd5\x01\n" +
+	"\bresolved\x18\x04 \x01(\bR\bresolved\"\xf4\x01\n" +
 	"\x0eOverrideNotice\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x122\n" +
 	"\x06winner\x18\x02 \x01(\v2\x1a.orbit.v1.ProvenanceSourceR\x06winner\x12\x14\n" +
@@ -4045,7 +4058,9 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
 	"overridden\x18\x04 \x01(\v2\x1a.orbit.v1.ProvenanceSourceR\n" +
 	"overridden\x12)\n" +
-	"\x10overridden_value\x18\x05 \x01(\tR\x0foverriddenValue\"\xc7\x01\n" +
+	"\x10overridden_value\x18\x05 \x01(\tR\x0foverriddenValue\x12\x1d\n" +
+	"\n" +
+	"same_value\x18\x06 \x01(\bR\tsameValue\"\xc7\x01\n" +
 	"\x10RenderRunRequest\x12\x1f\n" +
 	"\brun_yaml\x18\x01 \x01(\tB\x04\x90\xb5\x18\x01R\arunYaml\x12\x1f\n" +
 	"\vtarget_name\x18\x02 \x01(\tR\n" +

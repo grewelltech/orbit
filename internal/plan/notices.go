@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/secrets"
+	"github.com/bgrewell/orbit/internal/target"
 )
 
 // OverrideNotices are the fields an env var set over a file's value: an
@@ -36,18 +38,32 @@ func OverrideNotices(prov []*orbitv1.FieldProvenance) []*orbitv1.OverrideNotice 
 			Value:           p.GetValue(),
 			Overridden:      beat.GetSource(),
 			OverriddenValue: beat.GetValue(),
+			SameValue:       sameValue(p.GetPath(), p.GetValue(), beat.GetValue()),
 		})
 	}
 	return out
 }
 
+// sameValue reports whether an env value equals the file value it beat,
+// for a field that is not secret only. A secret's values are masked in
+// provenance (and in the archive, which is all a past run has), so two
+// masks say nothing of the values: a different ORBIT_KI over a target's
+// ki would read as harmless. Neither is a value that is the mask.
+func sameValue(path, value, overridden string) bool {
+	if target.IsSecret(path) || value == secrets.Masked || overridden == secrets.Masked {
+		return false
+	}
+	return value == overridden
+}
+
 // NoticeText is a notice as the CLI prints it: the field, the env value
 // and the file value it beat, with where each came from. An env value the
 // same as the file's is still a notice (an export left in the shell is
-// what it shows), marked "(same value)".
+// what it shows), marked "(same value)" when the notice says so
+// (same_value), never from comparing the values, which may be masks.
 func NoticeText(n *orbitv1.OverrideNotice) string {
 	text := fmt.Sprintf("%s: %s (%s) overrode %s (%s)", n.GetPath(), n.GetWinner().GetDetail(), n.GetValue(), n.GetOverridden().GetDetail(), n.GetOverriddenValue())
-	if n.GetValue() == n.GetOverriddenValue() {
+	if n.GetSameValue() {
 		text += " (same value)"
 	}
 	return text

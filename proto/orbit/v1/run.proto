@@ -213,6 +213,12 @@ message OverrideNotice {
   string value = 3;                 // masked when secret
   ProvenanceSource overridden = 4;  // the file and line it beat
   string overridden_value = 5;      // masked when secret
+  // The env value equals the file's. Set only for a field that is not
+  // secret: a secret's values are both masked, so whether they were the
+  // same cannot be known, and is never claimed. Clients must read this,
+  // never compare value with overridden_value (two masks are not equal
+  // values).
+  bool same_value = 6;
 }
 
 message RenderRunRequest {
