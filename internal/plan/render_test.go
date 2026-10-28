@@ -187,3 +187,18 @@ func TestPasteUnsafe(t *testing.T) {
 		}
 	}
 }
+
+// The plan package's refusals are masked at its boundary: a key typed as
+// a --gate name, or as a run file's target:, is not echoed by ParseGate or
+// Render (each quotes what it was given).
+func TestPlanRefusalsMaskKeyText(t *testing.T) {
+	const key = "465b5ce8b199b49faa5f0a2ee238a6bc"
+	_, err := ParseGate(key + "=registration.p99_ms")
+	if err == nil || strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "<redacted>") {
+		t.Errorf("ParseGate: %v", err)
+	}
+	_, err = Render(RenderInput{RunYAML: []byte("target: " + key + "\nkind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\n"), Target: "lab1"})
+	if err == nil || strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "<redacted>") {
+		t.Errorf("Render: %v", err)
+	}
+}

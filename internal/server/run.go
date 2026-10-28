@@ -21,6 +21,7 @@ import (
 	"github.com/bgrewell/orbit/internal/join"
 	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
+	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -67,7 +68,18 @@ type runService struct {
 	expected *conformance.ExpectedFailures
 }
 
+// StartRun starts a run (startRun). Its refusals quote what the request
+// named, a workload, gate or pool, so their text has any key- or
+// token-shaped word masked (maskedRefusal), the code kept.
 func (s *runService) StartRun(
+	ctx context.Context,
+	req *connect.Request[orbitv1.StartRunRequest],
+) (*connect.Response[orbitv1.StartRunResponse], error) {
+	res, err := s.startRun(ctx, req)
+	return res, maskedRefusal(err)
+}
+
+func (s *runService) startRun(
 	ctx context.Context,
 	req *connect.Request[orbitv1.StartRunRequest],
 ) (*connect.Response[orbitv1.StartRunResponse], error) {
@@ -1295,6 +1307,33 @@ func leasesProto(ls []engine.LeaseInfo) []*orbitv1.Lease {
 			pl.Resource = orbitv1.LeaseResource_LEASE_RESOURCE_N2_IP
 		}
 		out = append(out, pl)
+	}
+	return out
+}
+
+// maskedRefusal is err with any key- or token-shaped word in its text
+// masked (target.MaskErr), as a client is sent it. A *connect.Error is
+// rebuilt around its masked cause with its code (and metadata) kept: the
+// Connect handler finds a *connect.Error by errors.As and sends its own
+// message, so a mask wrapped around it would not be what is sent.
+func maskedRefusal(err error) error {
+	if err == nil {
+		return nil
+	}
+	var ce *connect.Error
+	if !errors.As(err, &ce) {
+		return target.MaskErr(err)
+	}
+	cause := ce.Unwrap()
+	if cause == nil {
+		cause = errors.New(ce.Message())
+	}
+	out := connect.NewError(ce.Code(), target.MaskErr(cause))
+	for k, v := range ce.Meta() {
+		out.Meta()[k] = v
+	}
+	for _, d := range ce.Details() {
+		out.AddDetail(d)
 	}
 	return out
 }
