@@ -77,6 +77,6 @@ describe("the notices", () => {
 
 describe("what the plan says of how it was made (worded from the plan, not the client)", () => {
   it("env or flag layers", () => expect(madeBy(envOverTarget.provenance, true)).toBe("this plan has env or flag layers"));
-  it("none", () => expect(madeBy(keys.provenance, true)).toBe("no env or flag layers (as from Launch)"));
+  it("none", () => expect(madeBy(keys.provenance, true)).toBe("no env or flag layers"));
   it("without the resolver", () => expect(madeBy([], false)).toContain("started without the resolver"));
 });

@@ -25,7 +25,7 @@ import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
 import { ProvenancePanel } from "@/app/ProvenancePanel";
 import { StopControl } from "@/app/StopControl";
-import { useRunConfig } from "@/data/runConfig";
+import { runEnded, useRunConfig } from "@/data/runConfig";
 import { SuiteResults } from "@/app/SuiteResults";
 import { cpLatencyTile } from "@/app/cpLatencyTile";
 import { ConnectSource } from "@/data/connect";
@@ -67,7 +67,7 @@ export function App() {
   const telemetry = useTelemetry(source);
   const { latest, history, events, state, clearEvents } = telemetry;
   const shownRun = (selectedRun ?? latest?.run.runId) || undefined;
-  const runConfig = useRunConfig(mock ? undefined : shownRun, latest?.run.state === "complete" || latest?.run.state === "failed");
+  const runConfig = useRunConfig(mock ? undefined : shownRun, runEnded(latest?.run.state));
 
   const { setting: themeSetting, theme, cycle: cycleTheme } = useTheme();
   // One span for every panel: the value of these charts is reading them
