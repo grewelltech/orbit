@@ -13,7 +13,7 @@ import { useRef, useState } from "react";
 import { Panel } from "@/components/Panel";
 import { StatusDot } from "@/components/StatusDot";
 import { useTargets, type ExportFile } from "@/data/targets/useTargets";
-import { documentRefs, refName, secretSlots } from "@/data/targets/yamlio";
+import { documentRefs, MAX_FILE_BYTES, refName, secretSlots, TOO_LARGE } from "@/data/targets/yamlio";
 import { PageLinks } from "./PageLinks";
 import { buttonStyle, inputStyle } from "./targets/fields";
 import { TargetEditor } from "./targets/TargetEditor";
@@ -127,7 +127,9 @@ export function Targets() {
                 className="o-label"
                 onChange={async (ev) => {
                   const f = ev.target.files?.[0];
-                  if (f) t.importText(await f.text(), replace);
+                  // The size before the read: a large file is never loaded.
+                  if (f && f.size > MAX_FILE_BYTES) t.notify([`import: ${f.name} is ${TOO_LARGE}`]);
+                  else if (f) t.importText(await f.text(), replace);
                   if (fileInput.current) fileInput.current.value = "";
                 }}
               />

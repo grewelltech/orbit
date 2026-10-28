@@ -7,7 +7,8 @@
 import { describe, expect, it } from "vitest";
 import { importFile } from "./importexport";
 import { parseBlob, saveTargets, storageChange, TARGETS_KEY, withoutSecrets, type KeyValueStore } from "./store";
-import { MAX_FILE_BYTES, parseTargets, SHARED_REFUSED } from "./yamlio";
+import { MAX_FILE_BYTES, parseTargets, SHARED_REFUSED, shapeProblem, strayKey, TOO_LARGE } from "./yamlio";
+import { parseDocument } from "yaml";
 
 const KI = "AAAA1111222233334444555566667777";
 const OPC = "BBBB1111222233334444555566667777";
@@ -28,6 +29,12 @@ const leaks: Record<string, string> = {
     `subscribers:\n${pool}      ki: &k ${KI}\n      opc: \${ORBIT_OPC}\n    - name: b\n      first_supi: "001010000000002"\n      count: 1\n      ki: *k\n      opc: \${ORBIT_OPC}\n`,
   anchorOnly: head + `subscribers:\n${pool}      ki: &k ${KI}\n`,
   listRoot: `- version: 1\n  kind: target\n  name: c\n- version: 1\n  kind: target\n  name: d\n  subscribers:\n    - name: a\n      ki: ${KI}\n`,
+  // A list of the wrong shape: its keys are not where secretSlots looks.
+  forgottenDash: head + `subscribers:\n    name: a\n    ki: ${KI}\n`,
+  listInList: head + `subscribers:\n    - - name: a\n        ki: ${KI}\n`,
+  respondersMap: head + `app:\n    responders:\n        name: n6\n        token: orl-${KI}\n`,
+  // A key name at a depth no field has.
+  kiInCore: head.replace("core:\n", `core:\n    ki: ${KI}\n`),
 };
 
 describe("a key the page cannot see is never kept", () => {
@@ -40,6 +47,7 @@ describe("a key the page cannot see is never kept", () => {
         expect(holdsKey((e as Error).message)).toBe(false);
       }
       if (name !== "listRoot") expect(imported).toEqual([]); // refused outright
+      if (name === "listRoot") expect(imported.every((t) => !holdsKey(t.target.yaml))).toBe(true);
       for (const t of imported) expect(holdsKey(t.target.yaml)).toBe(false);
       const local = mem();
       saveTargets(local, imported.map((t) => t.target));
@@ -62,6 +70,31 @@ describe("a key the page cannot see is never kept", () => {
     const imported = importFile(leaks.listRoot ?? "");
     expect(imported.map((t) => t.target.name)).toEqual(["c", "d"]);
     expect(imported[1]?.moved.map((m) => m.variable)).toEqual(["ORBIT_KI"]);
+  });
+});
+
+describe("the two layers, each on its own", () => {
+  const contents = (text: string) => parseDocument(text, { schema: "failsafe" }).contents;
+
+  it("shape: a key-holding list that is not a list of entries", () => {
+    expect(shapeProblem(contents(leaks.forgottenDash ?? ""))).toContain("subscribers is not a list of entries");
+    expect(shapeProblem(contents(leaks.listInList ?? ""))).toContain("subscribers is not a list of entries");
+    expect(shapeProblem(contents(leaks.respondersMap ?? ""))).toContain("app.responders is not a list of entries");
+    expect(shapeProblem(contents(head + "app: [x]\n"))).toContain("app is not a mapping");
+    expect(shapeProblem(contents(head + `subscribers:\n    - name: a\n      ki: ${KI}\n`))).toBeUndefined();
+    expect(shapeProblem(contents(head + "subscribers:\n"))).toBeUndefined();
+  });
+
+  it("sweep: ki, opc or token anywhere but its field, unless a ${VAR}; the reason names the path, not the value", () => {
+    expect(strayKey(contents(leaks.forgottenDash ?? ""))).toContain("a ki at subscribers.ki");
+    expect(strayKey(contents(leaks.listInList ?? ""))).toContain("a ki at subscribers[0][0].ki");
+    expect(strayKey(contents(leaks.respondersMap ?? ""))).toContain("a token at app.responders.token");
+    expect(strayKey(contents(leaks.kiInCore ?? ""))).toContain("a ki at core.ki");
+    expect(strayKey(contents(head.replace("core:\n", "core:\n    ki: ${X}\n")))).toBeUndefined();
+    expect(strayKey(contents(head + `subscribers:\n    - name: a\n      ki: ${KI}\n`))).toBeUndefined();
+    for (const name of ["forgottenDash", "listInList", "respondersMap", "kiInCore"]) {
+      expect(holdsKey(strayKey(contents(leaks[name] ?? "")) ?? "")).toBe(false);
+    }
   });
 });
 
@@ -91,9 +124,10 @@ describe("hostile files", () => {
     expect(() => parseTargets(y)).toThrow(SHARED_REFUSED);
   });
 
-  it("a file over 1 MiB is refused before it is parsed", () => {
-    const big = head + "#" + "x".repeat(MAX_FILE_BYTES);
-    expect(() => parseTargets(big)).toThrow("larger than 1 MiB");
+  it("a file over 1 MiB is refused before it is parsed, measured in bytes", () => {
+    expect(() => parseTargets(head + "#" + "x".repeat(MAX_FILE_BYTES))).toThrow(TOO_LARGE);
+    // 400k "€" is 1.2 MB of UTF-8, though only 400k UTF-16 units.
+    expect(() => parseTargets(head + "#" + "€".repeat(400_000))).toThrow(TOO_LARGE);
   });
 
   it("deep nesting throws an error, not a crash", () => {

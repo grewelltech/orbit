@@ -89,7 +89,7 @@ export const MAX_FILE_BYTES = 1024 * 1024;
  * `orbit target init` never writes them.
  */
 export function parseTargets(text: string): ParsedTarget[] {
-  if (text.length > MAX_FILE_BYTES) throw new Error("larger than 1 MiB; a target file is a few KiB");
+  if (utf8Length(text) > MAX_FILE_BYTES) throw new Error(TOO_LARGE);
   const docs = parseAllDocuments(text, { schema: "failsafe", prettyErrors: false });
   if (!Array.isArray(docs)) throw new Error("empty");
   const first = docs[0];
@@ -101,6 +101,13 @@ export function parseTargets(text: string): ParsedTarget[] {
     throw new Error(`YAML syntax error at line ${before.length}, column ${(before[before.length - 1]?.length ?? 0) + 1}`);
   }
   if (sharesNodes(first)) throw new Error(SHARED_REFUSED);
+  // Every key this page cannot see as a key is refused: a pool or
+  // responder list of the wrong shape, and anything named ki, opc or token
+  // outside the fields that hold them.
+  for (const t of isSeq(first.contents) ? first.contents.items : [first.contents]) {
+    const why = shapeProblem(t) ?? strayKey(t);
+    if (why) throw new Error(why);
+  }
   const style = styleOf(text);
   const root = first.contents;
   if (isMap(root)) return [{ doc: first, text, style }];
@@ -112,6 +119,70 @@ export function parseTargets(text: string): ParsedTarget[] {
     });
   }
   throw new Error("want a target or a list of targets");
+}
+
+/** Why a file over MAX_FILE_BYTES is refused. */
+export const TOO_LARGE = "larger than 1 MiB; a target file is a few KiB";
+
+/** A text's size in UTF-8 bytes, as a file's on disk. */
+export function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** The lists whose elements hold keys, and the key fields each element has. */
+const KEY_LISTS: readonly { list: readonly string[]; keys: readonly string[] }[] = [
+  { list: ["subscribers"], keys: ["ki", "opc"] },
+  { list: ["app", "responders"], keys: ["token"] },
+];
+
+/**
+ * Layer one: a list that holds keys (subscribers, app.responders), when
+ * present, is a sequence of mappings. Any other shape (a forgotten "-", a
+ * list in a list) would hide its keys from secretSlots.
+ */
+export function shapeProblem(target: unknown): string | undefined {
+  if (!isMap(target)) return undefined;
+  for (const { list } of KEY_LISTS) {
+    const parent = list.length > 1 ? target.getIn(list.slice(0, -1), true) : target;
+    if (parent !== undefined && !isMap(parent)) return `${list.slice(0, -1).join(".")} is not a mapping; it holds ${list.join(".")}`;
+    const n = target.getIn(list, true);
+    if (n === undefined || (isScalar(n) && (n.value === null || n.value === ""))) continue;
+    if (!isSeq(n) || n.items.some((e) => !isMap(e))) return `${list.join(".")} is not a list of entries (each "- name: …"); it holds keys, so it is refused as it is`;
+  }
+  return undefined;
+}
+
+/**
+ * Layer two, the backstop: any key named ki, opc or token, at any depth,
+ * whose value is not exactly a ${VAR} and which is not one of the fields
+ * secretSlots knows (subscribers[i].ki/opc, app.responders[i].token). The
+ * reason names the path, never the value.
+ */
+export function strayKey(target: unknown): string | undefined {
+  let found: string | undefined;
+  const known = (path: readonly Step[], key: string) =>
+    KEY_LISTS.some(
+      ({ list, keys }) => keys.includes(key) && path.length === list.length + 1 && list.every((k, i) => path[i] === k) && typeof path[list.length] === "number",
+    );
+  const walk = (n: unknown, path: Step[]) => {
+    if (found) return;
+    if (isMap(n)) {
+      for (const pair of n.items) {
+        const k = keyText(pair.key) ?? "?";
+        const v = pair.value;
+        if (/^(ki|opc|token)$/.test(k) && !known(path, k)) {
+          const text = isScalar(v) ? String(v.value ?? "") : undefined;
+          if (text === undefined || (text !== "" && refName(text) === undefined)) {
+            found = `a ${k} at ${[...path, k].map((s) => (typeof s === "number" ? `[${s}]` : s)).join(".").replace(/\.\[/g, "[")} is outside the fields that hold keys; refused so it cannot be kept in clear`;
+            return;
+          }
+        }
+        walk(v, [...path, k]);
+      }
+    } else if (isSeq(n)) n.items.forEach((e, i) => walk(e, [...path, i]));
+  };
+  walk(target, []);
+  return found;
 }
 
 /** Why a file with an anchor, alias or merge key is refused. */

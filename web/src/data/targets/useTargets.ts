@@ -108,6 +108,8 @@ export function useTargets(local: KeyValueStore | undefined = browserLocal(), se
     editing,
     notices,
     dismissNotices: () => setNotices([]),
+    /** Shows notices of the page's own (a file refused before it is read). */
+    notify: (n: string[]) => setNotices(n),
     select: setSelected,
     create: () => took(act.createTarget(stores, targets)),
     duplicate: () => editing && took(act.duplicateTarget(stores, targets, editing.name)),

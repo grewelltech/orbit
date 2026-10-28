@@ -13,6 +13,11 @@
  *   readable by any script on this origin; Forget removes them.
  *
  * Nothing is sent to or kept by the server.
+ *
+ * The invariant covers the fields the schema names as keys (ki, opc,
+ * token) and anything named so at any depth. A key under a misspelled
+ * field (kii:) is outside it by design: the CLI refuses such a file as an
+ * unknown key, and the page lists it as a problem.
  */
 import { moveSecrets, parseTargets, refName, render, secretSlots, sharesNodes } from "./yamlio";
 
