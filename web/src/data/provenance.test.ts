@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fromJson } from "@bufbuild/protobuf";
+import { create, fromJson } from "@bufbuild/protobuf";
 import { GetRunConfigResponseSchema } from "@/gen/orbit/v1/run_pb";
+import { FieldProvenanceSchema, ProvenanceLayer } from "@/gen/orbit/v1/target_pb";
 import { ALL_ROWS, filterRows, madeBy, MASKED, noticeText, rows } from "./provenance";
 
 /**
@@ -62,6 +63,19 @@ describe("the Resolved config panel's rows", () => {
 const fixtures = readdirSync(dir)
   .filter((f) => f.endsWith(".json") && !f.endsWith(".text.json"))
   .map((f) => f.slice(0, -".json".length));
+
+describe("the flag layer", () => {
+  it("a --set or flag entry counts as command line: the env-or-flag filter keeps it, and the plan is worded as having one", () => {
+    const prov = [
+      create(FieldProvenanceSchema, { path: "core.tac", source: { layer: ProvenanceLayer.FLAG, detail: "flag --tac" }, value: "7", overridden: [{ source: { layer: ProvenanceLayer.TARGET, detail: "target lab1.yaml:7" }, value: "1" }] }),
+      create(FieldProvenanceSchema, { path: "core.amf", source: { layer: ProvenanceLayer.TARGET, detail: "target lab1.yaml:5" }, value: "192.0.2.1:38412" }),
+    ];
+    const rs = rows(prov);
+    expect(rs.find((r) => r.path === "core.tac")).toMatchObject({ layer: "flag", commandLine: true });
+    expect(filterRows(rs, { ...ALL_ROWS, commandLineOnly: true }).map((r) => r.path)).toEqual(["core.tac"]);
+    expect(madeBy(prov, true)).toBe("this plan has env or flag layers");
+  });
+});
 
 describe("the notices", () => {
   it("cover a notice of each kind: env over a target, over a run file, and the same value", () => {

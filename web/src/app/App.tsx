@@ -24,8 +24,9 @@ import { attachRateTile, attachRateLabel } from "@/app/attachRateTile";
 import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
 import { ProvenancePanel } from "@/app/ProvenancePanel";
+import { Panel } from "@/components/Panel";
 import { StopControl } from "@/app/StopControl";
-import { runEnded, useRunConfig } from "@/data/runConfig";
+import { runConfigRefusal, runEnded, useRunConfig } from "@/data/runConfig";
 import { SuiteResults } from "@/app/SuiteResults";
 import { cpLatencyTile } from "@/app/cpLatencyTile";
 import { ConnectSource } from "@/data/connect";
@@ -277,6 +278,13 @@ export function App() {
         {/* What the run resolved to, and what beat what (the Resolved config panel). */}
         {!mock && runConfig.config && (
           <ProvenancePanel provenance={runConfig.config.provenance} notices={runConfig.config.notices} resolved={runConfig.config.resolved} />
+        )}
+        {!mock && runConfigRefusal(runConfig) && (
+          <Panel title="resolved config">
+            <span className="o-label" role="status" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
+              {runConfigRefusal(runConfig)}
+            </span>
+          </Panel>
         )}
 
         {/* A conformance suite's verdicts, for a run that has one. */}
