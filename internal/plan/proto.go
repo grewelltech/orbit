@@ -30,6 +30,32 @@ func TargetProto(t target.Target) *orbitv1.ResolvedTarget {
 	return out
 }
 
+// TargetFromProto is TargetProto's inverse: a target sent on the wire as
+// the target it describes, keys included. Version and kind are the
+// schema's: the wire form does not carry them.
+func TargetFromProto(rt *orbitv1.ResolvedTarget) target.Target {
+	core, ran := rt.GetCore(), rt.GetRan()
+	t := target.Target{
+		Version: target.Version, Kind: target.Kind, Name: rt.GetName(),
+		Core: target.Core{AMF: core.GetAmf(), PLMN: target.PLMN{MCC: core.GetPlmn().GetMcc(), MNC: core.GetPlmn().GetMnc()},
+			TAC: core.GetTac(), DNN: core.GetDnn(), Profile: core.GetProfile(), UPFN3: core.GetUpfN3(),
+			UEPools: core.GetUePools(), UPFN6: core.GetUpfN6(), N6Subnet: core.GetN6Subnet()},
+		RAN: target.RAN{Node: ran.GetNode(), GNBName: ran.GetGnbName(), N2SourceIPs: ran.GetN2SourceIps(), N3IPs: ran.GetN3Ips(),
+			GNBIDs: target.GNBIDs{First: ran.GetGnbIds().GetFirst(), Count: ran.GetGnbIds().GetCount(), Bits: ran.GetGnbIds().GetBits()}},
+	}
+	for _, s := range core.GetSlices() {
+		t.Core.Slices = append(t.Core.Slices, target.Slice{SST: s.GetSst(), SD: s.GetSd()})
+	}
+	for _, p := range rt.GetSubscribers() {
+		t.Subscribers = append(t.Subscribers, target.Pool{Name: p.GetName(), FirstSUPI: p.GetFirstSupi(), Count: p.GetCount(),
+			Ki: p.GetKi(), OPc: p.GetOpc(), RoutingIndicator: p.GetRoutingIndicator()})
+	}
+	for _, r := range rt.GetApp().GetResponders() {
+		t.App.Responders = append(t.App.Responders, target.Responder{Name: r.GetName(), Control: r.GetControl(), Token: r.GetToken(), DataIP: r.GetDataIp()})
+	}
+	return t
+}
+
 // ProvenanceProto is the resolver's provenance as the plan carries it:
 // informational, values already masked where secret (a whole subtree with
 // a secret in it, too); the server's path guard masks again.

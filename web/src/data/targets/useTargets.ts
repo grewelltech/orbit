@@ -70,7 +70,7 @@ export function useTargets(local: KeyValueStore | undefined = browserLocal(), se
   }, []);
 
   const edit = useCallback(
-    (change: (doc: Document) => void) => editing && took(act.editTarget(stores, targets, editing.name, change)),
+    (change: (doc: Document) => void) => editing && took(act.editTarget(stores, targets, editing.name, change, (why) => setNotices([why]))),
     [editing, stores, targets, took],
   );
   const setField = useCallback((steps: readonly Step[], value: string | readonly string[]) => edit((d) => setValue(d, steps, value)), [edit]);

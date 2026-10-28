@@ -9,14 +9,16 @@
  * ($ORBIT_MCC, $ORBIT_KI …) do not apply here: the browser has no
  * environment.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Panel } from "@/components/Panel";
-import { StatusDot } from "@/components/StatusDot";
+import { StatusDot, type Status } from "@/components/StatusDot";
+import { useProbe } from "@/data/targets/useProbe";
 import { useTargets, type ExportFile } from "@/data/targets/useTargets";
 import { readImportFile } from "@/data/targets/importexport";
 import { documentRefs, refName, secretSlots } from "@/data/targets/yamlio";
 import { PageLinks } from "./PageLinks";
 import { buttonStyle, inputStyle } from "./targets/fields";
+import { ProbePanel } from "./targets/ProbePanel";
 import { TargetEditor } from "./targets/TargetEditor";
 
 /** Hands the browser a file to save. */
@@ -37,6 +39,17 @@ export function Targets() {
   const [withKeys, setWithKeys] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const e = t.editing;
+  const probe = useProbe(e?.name);
+  // Each target's last probe in this tab, for the list.
+  const [lastProbe, setLastProbe] = useState<Record<string, Status>>({});
+  useEffect(() => {
+    const p = probe.state;
+    if (!e || p.phase === "idle" || p.phase === "cancelled") return;
+    const status: Status = p.phase === "running" ? "active" : p.phase === "failed" || p.steps.some((x) => x.status === "FAIL") ? "error" : "ok";
+    setLastProbe((m) => (m[e.name] === status ? m : { ...m, [e.name]: status }));
+  }, [probe.state, e]);
+  // A field the server refused is marked at its field, as the editor's own problems are.
+  const serverIssues = probe.state.field ? [{ path: probe.state.field.path, message: `the server: ${probe.state.field.reason}` }] : [];
 
   const unset = e
     ? documentRefs(e.doc).filter((v) => {
@@ -91,7 +104,7 @@ export function Targets() {
                       background: x.name === e?.name ? "var(--o-surface-2)" : "transparent",
                     }}
                   >
-                    <StatusDot status="idle" label={x.name} />
+                    <StatusDot status={lastProbe[x.name] ?? "idle"} label={x.name} />
                   </button>
                 </li>
               ))}
@@ -211,7 +224,8 @@ export function Targets() {
                 </div>
               </div>
             </Panel>
-            <TargetEditor editing={e} edit={t.edit} setField={t.setField} setSecret={t.setSecret} />
+            <ProbePanel editing={e} state={probe.state} run={probe.run} cancel={probe.cancel} setKey={t.setKey} />
+            <TargetEditor editing={{ ...e, issues: [...e.issues, ...serverIssues] }} edit={t.edit} setField={t.setField} setSecret={t.setSecret} />
           </div>
         ) : (
           <Panel title="no target">

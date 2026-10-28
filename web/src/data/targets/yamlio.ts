@@ -160,11 +160,14 @@ export function structureProblem(target: unknown): string | undefined {
   const walk = (map: unknown, pattern: string, path: Step[]): string | undefined => {
     if (!isMap(map) || tagged(map)) return `${show(path)} is not a mapping`;
     for (const pair of map.items) {
+      if (tagged(pair.key)) return `a key under ${show(path)} has a YAML tag (!!…); write it plain`;
       const k = plainKey(pair.key);
       if (k === undefined) return `a key under ${show(path)} is not plain text`;
       const pat = pattern ? `${pattern}.${k}` : k;
       const v = pair.value;
       const f = FIELDS.get(pat);
+      // A tag, never quoted: a custom one is file text.
+      if (tagged(v) && (LISTS.has(pat) || f || MAPPINGS.has(pat))) return `${show([...path, k])} has a YAML tag (!!…); write it plain`;
       if (LISTS.has(pat)) {
         if (!isSeq(v) || tagged(v)) return `${show([...path, k])} is not a list of entries`;
         for (let i = 0; i < v.items.length; i++) {
@@ -176,7 +179,8 @@ export function structureProblem(target: unknown): string | undefined {
         if (f.type === "string" || f.type === "uint") {
           if (!scalar(v)) return `${here} is not a single value`;
         } else if (f.type === "strings") {
-          if (!scalar(v) && !(isSeq(v) && !tagged(v) && v.items.every(scalar))) return `${here} is not a list of values`;
+          // A list, as the CLI's decode wants: a lone value is refused there.
+          if (!(isSeq(v) && !tagged(v) && v.items.every(scalar))) return `${here} is not a list of values (write "- value")`;
         } else if (f.type === "slices") {
           if (!isSeq(v) || tagged(v)) return `${here} is not a list of slices`;
           for (let i = 0; i < v.items.length; i++) {
