@@ -134,6 +134,77 @@ export const GATE_OPS: readonly string[] = [
   "\u003e="
 ];
 
+/** An inline expected-failures list's keys (docs/conformance/expected-failures.md). */
+export const EXPECTED_KEYS: readonly string[] = [
+  "core",
+  "version",
+  "entries"
+];
+
+/** One expected-failures entry's keys, each required. */
+export const EXPECTED_ENTRY_KEYS: readonly string[] = [
+  "check",
+  "observed",
+  "finding",
+  "added",
+  "reason"
+];
+
+/** A workload's start: {after: <workload>, phase: one of these}. */
+export const START_PHASES: readonly string[] = [
+  "started",
+  "attached",
+  "complete"
+];
+
+/** The names that hold secrets, normalised (internal/secrets.Names). */
+export const SECRET_NAMES: readonly string[] = [
+  "accesskey",
+  "apikey",
+  "auth",
+  "authorization",
+  "bearer",
+  "credential",
+  "k",
+  "key",
+  "ki",
+  "opc",
+  "passphrase",
+  "passwd",
+  "password",
+  "privatekey",
+  "secret",
+  "token"
+];
+
+/** secrets.IsSecretName on these names, for the page's port of it. */
+export const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = {
+  "Authorization": true,
+  "OPC": true,
+  "X-Api-Key": true,
+  "apiKey": true,
+  "api_key": true,
+  "auth": true,
+  "author": false,
+  "bearer": true,
+  "k": true,
+  "keys": false,
+  "ki": true,
+  "kk": false,
+  "loom_token": true,
+  "monkey": false,
+  "my-bearer": true,
+  "name": false,
+  "passwd": true,
+  "peer": false,
+  "privateKey": true,
+  "private_key": true,
+  "secretName": false,
+  "target": false,
+  "token": true,
+  "tokenizer": false
+};
+
 /** The built-in templates (orbit test), as written. */
 export const TEMPLATES: Readonly<Record<string, string>> = {
   "conformance": "# The conformance suite against the target's core, every category, gated\n# on no FAIL outside the expected-failures list and no ERROR.\nkind: run\nworkloads:\n  - name: conformance\n    conformance: {categories: []}\ngates:\n  - name: conformance\n    conformance: true\n",
