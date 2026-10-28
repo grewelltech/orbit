@@ -375,10 +375,14 @@ browser has no environment to take it from.
   disabled and says why. On loopback no token is asked for up front: a
   server that wants one refuses the probe, and the token prompt opens. The
   server applies its own rule either way.
+  "On loopback" means the server's own host. A plaintext forwarder on
+  127.0.0.1 to a remote orbit (socat, a local nginx) sends the keys in the
+  clear on its far leg; use `ssh -L` or `kubectl port-forward` instead.
 - The server resolves and checks the target as the CLI does (see `orbit
   target probe` above). A field it refuses is marked in the editor.
-- Leaving the page, picking another target, or Cancel ends the probe. The
-  server then deregisters the UE, stops its flow and releases its leases.
+- Leaving the page (a link to another page or a reload included), picking
+  another target, or Cancel ends the probe. The server then deregisters the
+  UE, stops its flow and releases its leases.
 - A probe uses the first subscriber pool and the first responder. Each
   target's last result in the tab shows beside its name.
 
