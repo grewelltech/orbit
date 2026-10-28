@@ -164,9 +164,20 @@ func LoadFile(path string, env Getenv) ([]*File, error) {
 
 // Parse is LoadFile for bytes already read; name labels errors and sources.
 func Parse(name string, b []byte, env Getenv) ([]*File, error) {
+	files, err := parse(name, b, env)
+	for _, f := range files {
+		f.Err = maskErr(f.Err)
+	}
+	return files, maskErr(err)
+}
+
+func parse(name string, b []byte, env Getenv) ([]*File, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if line := secondDocument(b); line > 0 {
+		return nil, fmt.Errorf("%s:%d: a second YAML document (---); a target file is one document, a target or a list of targets, and the rest would be ignored", name, line)
 	}
 	if root.Kind == 0 || len(root.Content) == 0 {
 		return nil, fmt.Errorf("%s: empty", name)
@@ -534,6 +545,11 @@ type RunFile struct {
 // names its target, it does not restate it. ${ENV} expands in string
 // values, as in a target file.
 func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
+	rf, err := parseRunFile(name, b, env)
+	return rf, maskErr(err)
+}
+
+func parseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -572,6 +588,28 @@ func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 	return rf, nil
 }
 
+// secondDocument is the line a second YAML document in b starts on, 0 when
+// there is none (yaml.Unmarshal reads the first and ignores the rest). A
+// document that is empty, such as a trailing "---", is not one.
+func secondDocument(b []byte) int {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	for n := 0; ; n++ {
+		var doc yaml.Node
+		if err := dec.Decode(&doc); err != nil {
+			return 0 // io.EOF, or an error the first decode has reported
+		}
+		if n > 0 && len(doc.Content) > 0 && !emptyNode(doc.Content[0]) {
+			return doc.Content[0].Line
+		}
+	}
+}
+
+// emptyNode reports whether n is a document's nothing: a null scalar with
+// no text, as a trailing --- gives.
+func emptyNode(n *yaml.Node) bool {
+	return n.Kind == yaml.ScalarNode && n.Value == "" && n.ShortTag() == "!!null"
+}
+
 // typeErrorRe is one of a yaml.TypeError's entries: its line, the tag
 // found, the value quoted (a prefix of it), and the Go type wanted.
 var typeErrorRe = regexp.MustCompile("^line ([0-9]+): cannot unmarshal (!![a-z]+)(?: `[^`]*`)? into (.+)$")
@@ -602,7 +640,14 @@ func withoutValues(err error, at func(line int) string) error {
 				where = p + ": "
 			}
 		}
-		msgs = append(msgs, fmt.Sprintf("line %s: %swant %s, not %s", sub[1], where, goTypeWord(sub[3]), tagWord(sub[2])))
+		want, found := goTypeWord(sub[3]), tagWord(sub[2])
+		if want == found {
+			// The type is right and the value is not: a number too big
+			// for its field.
+			msgs = append(msgs, fmt.Sprintf("line %s: %sout of range%s", sub[1], where, rangeOf(sub[3])))
+			continue
+		}
+		msgs = append(msgs, fmt.Sprintf("line %s: %swant %s, not %s", sub[1], where, want, found))
 	}
 	return errors.New(strings.Join(msgs, "; "))
 }
@@ -621,6 +666,17 @@ func goTypeWord(t string) string {
 	default:
 		return "a mapping"
 	}
+}
+
+// rangeOf is " (at most N)" for a Go integer type a yaml error names, ""
+// for another.
+func rangeOf(t string) string {
+	bits := map[string]uint{"uint8": 8, "uint16": 16, "uint32": 32, "uint64": 64, "uint": 64, "int8": 7, "int16": 15, "int32": 31, "int64": 63, "int": 63}
+	n, ok := bits[t]
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf(" (at most %d)", uint64(1)<<n-1)
 }
 
 // tagWord is a YAML tag, as a document's reader has it.

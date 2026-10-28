@@ -504,7 +504,7 @@ func TestProbeGNBIDsFit(t *testing.T) {
 		{name: "32 bits, the last three", ids: &orbitv1.GNBIDRange{First: 1<<32 - 3, Bits: 32}},
 		{name: "32 bits, one over (would wrap)", ids: &orbitv1.GNBIDRange{First: 1<<32 - 2, Bits: 32}, refuse: "4294967294..4294967296, which do not fit 32 bits"},
 		{name: "a count of 3", ids: &orbitv1.GNBIDRange{First: 100, Count: 3}},
-		{name: "a count of 2", ids: &orbitv1.GNBIDRange{First: 100, Count: 2}, refuse: "a count of 2 holds fewer"},
+		{name: "a count of 2", ids: &orbitv1.GNBIDRange{First: 100, Count: 2}, refuse: "the probe needs 3 gNB IDs: set ran.gnb_ids.count to 3 or more, or leave count unset (a count of 2 holds fewer)"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

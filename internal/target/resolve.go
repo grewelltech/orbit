@@ -162,7 +162,10 @@ type entry struct {
 // its first as the lower layers have it, creating one named "default" when
 // there is none. The resolved target's ran.node must be "" (ErrNodeReserved);
 // the document checks of Validate apply to target files, at load.
-func Resolve(inputs ...Input) (*Resolved, error) { return resolve(false, inputs) }
+func Resolve(inputs ...Input) (*Resolved, error) {
+	res, err := resolve(false, inputs)
+	return res, maskErr(err)
+}
 
 // Problem is a value Report found bad: the path, the source that set it
 // and the error, with a secret's value masked as everywhere else.
@@ -177,7 +180,15 @@ type Problem struct {
 // Resolved.Problems instead of failing the call. A value that does not
 // convert is left out, so the field shows what the lower layers set. The
 // structural errors (an unknown field, a reserved ran.node) still fail.
-func Report(inputs ...Input) (*Resolved, error) { return resolve(true, inputs) }
+func Report(inputs ...Input) (*Resolved, error) {
+	res, err := resolve(true, inputs)
+	if res != nil {
+		for i := range res.Problems {
+			res.Problems[i].Err = maskKeyShaped(res.Problems[i].Err)
+		}
+	}
+	return res, maskErr(err)
+}
 
 func resolve(lenient bool, inputs []Input) (*Resolved, error) {
 	var problems []Problem

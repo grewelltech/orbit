@@ -161,12 +161,28 @@ the probe 0x9000 above it.
   `${VAR}` (`${TAC} is not expanded in numeric fields`); override one from the
   environment with its `$ORBIT_*` binding, or with a flag.
 - **An error never shows a key.** A secret field's value always shows as
-  `<redacted>`. So does any value shaped like a key or token in a field that
-  isn't secret, a key pasted into the wrong field: 32 or 64 hex digits, or an
-  `oj1_`, `orc1_` or `orl1_` token. For example,
-  `core.slices[0].sd: <redacted> is not 6 hex digits`. A value of the wrong
-  YAML type names the field and the types, not the value:
-  `line 6: core.tac: want a number, not a string`.
+  `<redacted>`. So does any text in an error that's shaped like a key or
+  token, a key pasted into the wrong field, used as a YAML key, or used as a
+  pool's name:
+  - hex digits, 31 to 33 or 63 to 65 of them (a Ki or OPc is 32), with an
+    optional `0x`, whole or in pairs or quads separated by `:`, `-` or a
+    space;
+  - a token with orbit's join, credential or loom token prefix.
+
+  For example, `core.slices[0].sd: <redacted> is not 6 hex digits`, or
+  `unknown key core.<redacted>`. IMSIs, SDs and PLMNs stay readable. A value
+  of the wrong YAML type names the field and the types, not the value:
+  `line 6: core.tac: want a number, not a string`. A number too big for its
+  field is `line 6: core.tac: out of range (at most 4294967295)`.
+
+  **The limits of a shape.** A base64 or bearer secret has no shape to know
+  it by, so a field it is pasted into shows it in an error. An IPv6 address
+  written out in full (eight groups of four hex digits) is a Ki's shape, so
+  it shows as `<redacted>` in an error; the compressed form (`2001:db8::1`)
+  stays readable.
+- **One YAML document.** A target file is one document: a target, or a list
+  of targets. A second document after `---` is refused, naming its line; it
+  used to be ignored.
 
 ## Precedence
 

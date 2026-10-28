@@ -458,10 +458,10 @@ func probeGNB(t *orbitv1.ResolvedTarget) (*orbitv1.GnbConfig, error) {
 	}
 	last := uint64(id) + probeGNBs - 1
 	if maxID := uint64(1)<<bits - 1; bits <= 32 && last > maxID {
-		return nil, fmt.Errorf("ran.gnb_ids: the probe uses %d gNB IDs, %d..%d, which do not fit %d bits (at most %d)", probeGNBs, id, last, bits, maxID)
+		return nil, fmt.Errorf("ran.gnb_ids: the probe uses %d gNB IDs, %d..%d, which do not fit %d bits (at most %d): lower ran.gnb_ids.first", probeGNBs, id, last, bits, maxID)
 	}
 	if n := ran.GetGnbIds().GetCount(); n > 0 && n < probeGNBs {
-		return nil, fmt.Errorf("ran.gnb_ids: the probe uses %d gNB IDs from first; a count of %d holds fewer", probeGNBs, n)
+		return nil, fmt.Errorf("ran.gnb_ids: the probe needs %d gNB IDs: set ran.gnb_ids.count to %d or more, or leave count unset (a count of %d holds fewer)", probeGNBs, probeGNBs, n)
 	}
 	name := ran.GetGnbName()
 	if name == "" {

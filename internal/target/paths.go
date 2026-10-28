@@ -462,19 +462,58 @@ func errValue(f field, v any) string {
 	return maskKeyShaped(show(f, v)) // a list or mapping: a key in an entry
 }
 
-// keyShapedRe is a value shaped like a secret: a Ki or OPc (32 hex digits),
-// a 64-hex-digit key, or one of orbit's tokens (a join token, a responder
-// credential, a loom token) by its prefix.
-var keyShapedRe = regexp.MustCompile(`^(?:[0-9A-Fa-f]{32}|[0-9A-Fa-f]{64}|(?:oj1|orc1|orl1)_[A-Za-z0-9_-]+)$`)
+// keyShapePattern is a key or token's shape, unanchored: hex digits with
+// an optional 0x, as a Ki or OPc (32) or a 64-digit key is written, give
+// or take a digit (a key mistyped), whole or in pairs or quads separated
+// by ':', '-' or ' '; or one of orbit's tokens (a join token, a responder
+// credential, a loom token) by its prefix. A base64 or bearer secret has
+// no shape to know it by.
+const keyShapePattern = `(?:0[xX])?(?:` +
+	`[0-9A-Fa-f]{63,65}|[0-9A-Fa-f]{31,33}|` +
+	`[0-9A-Fa-f]{2}(?:[:\- ][0-9A-Fa-f]{2}){14,31}(?:[:\- ][0-9A-Fa-f])?|` +
+	`[0-9A-Fa-f]{4}(?:[:\- ][0-9A-Fa-f]{4}){6,15}(?:[:\- ][0-9A-Fa-f]{1,3})?)` +
+	`|(?:oj1|orc1|orl1)_[A-Za-z0-9_-]+`
+
+// keyShapedRe is a whole value of keyShapePattern's shape.
+var keyShapedRe = regexp.MustCompile(`^(?:` + keyShapePattern + `)$`)
 
 // keyShaped reports whether s, trimmed, is shaped like a key or token. A
 // ${VAR} is not: it names where a secret comes from, and shows as written.
 func keyShaped(s string) bool { return keyShapedRe.MatchString(strings.TrimSpace(s)) }
 
-// keyShapedInRe is keyShapedRe within a longer text: a whole word of hex
-// digits, 32 or 64 long, or a token.
-var keyShapedInRe = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{64}|[0-9A-Fa-f]{32})\b|\b(?:oj1|orc1|orl1)_[A-Za-z0-9_-]+`)
+// keyShapedInRe is keyShapePattern within a longer text, bounded by what
+// is not a hex digit (so '_' splits a token's tail, and a longer run of hex
+// digits is not taken apart).
+var keyShapedInRe = regexp.MustCompile(`(^|[^0-9A-Fa-f])(` + keyShapePattern + `)([^0-9A-Fa-f]|$)`)
+
+// maskedErr is an error whose text has every key- or token-shaped word
+// masked (maskKeyShaped): a key used as a YAML key, a pool's name, or a
+// value an error quotes. errors.Is and errors.As still see the error it
+// wraps.
+type maskedErr struct{ err error }
+
+func (e maskedErr) Error() string { return maskKeyShaped(e.err.Error()) }
+func (e maskedErr) Unwrap() error { return e.err }
+
+// maskErr is err as its callers see it from the target package: masked
+// (maskedErr), nil for nil.
+func maskErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return maskedErr{err}
+}
 
 // maskKeyShaped is text with every key- or token-shaped word in it masked:
-// a value rendered whole (a slice list) or quoted in a reason.
-func maskKeyShaped(text string) string { return keyShapedInRe.ReplaceAllString(text, Masked) }
+// a value rendered whole (a slice list) or quoted in a reason. A match
+// takes the character after it as its boundary, so a key right after
+// another is masked on the next pass.
+func maskKeyShaped(text string) string {
+	for {
+		out := keyShapedInRe.ReplaceAllString(text, "${1}"+Masked+"${3}")
+		if out == text {
+			return out
+		}
+		text = out
+	}
+}
