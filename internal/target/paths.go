@@ -498,6 +498,11 @@ type maskedErr struct{ err error }
 func (e maskedErr) Error() string { return maskKeyShaped(e.err.Error()) }
 func (e maskedErr) Unwrap() error { return e.err }
 
+// MaskErr is err with every key- or token-shaped word in its text masked
+// (errors.Is and errors.As still see err): what a package whose errors may
+// quote a selector or value (plan) returns at its boundary, as target does.
+func MaskErr(err error) error { return maskErr(err) }
+
 // maskErr is err as its callers see it from the target package: masked
 // (maskedErr), nil for nil.
 func maskErr(err error) error {

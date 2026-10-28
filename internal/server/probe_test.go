@@ -497,6 +497,7 @@ func TestProbeRefusalMasksKeyText(t *testing.T) {
 	}{
 		{"a key-shaped name with a '.'", []*orbitv1.SubscriberPool{{Name: key + ".x", FirstSupi: "001010000000001"}}},
 		{"a key-shaped name twice", []*orbitv1.SubscriberPool{{Name: key, FirstSupi: "001010000000001"}, {Name: key, FirstSupi: "001010000000002"}}},
+		{"a key split by '.' (no key's shape)", []*orbitv1.SubscriberPool{{Name: key[:16] + "." + key[16:], FirstSupi: "001010000000001"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &probeFakes{}
@@ -504,8 +505,8 @@ func TestProbeRefusalMasksKeyText(t *testing.T) {
 			tg := probeTarget(nil)
 			tg.Subscribers = tc.pools
 			_, err := probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: tg, CoreOnly: true}, nil)
-			if connect.CodeOf(err) != connect.CodeInvalidArgument || strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), target.Masked) {
-				t.Errorf("err %v: want InvalidArgument with the name masked", err)
+			if connect.CodeOf(err) != connect.CodeInvalidArgument || strings.Contains(err.Error(), key[:16]) || strings.Contains(err.Error(), key[16:]) || !strings.Contains(err.Error(), "subscribers[") {
+				t.Errorf("err %v: want InvalidArgument naming the entry by index, not the name", err)
 			}
 		})
 	}

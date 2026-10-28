@@ -206,7 +206,7 @@ func TestErrorsMaskKeyTextInKeysAndNames(t *testing.T) {
 		{"a key as a pool name, twice", func() error {
 			_, err := Parse("lab.yaml", []byte(base+"subscribers:\n  - {name: "+key+", first_supi: \"001010000000001\"}\n  - {name: "+key+", first_supi: \"001010000000002\"}\n"), none)
 			return err
-		}, "distinct names (\"" + Masked + "\" twice)"},
+		}, "subscribers[1].name is the same as subscribers[0].name"},
 		{"a key as a pool name, in a later error", func() error {
 			_, err := Parse("lab.yaml", []byte(base+"subscribers:\n  - {name: "+key+", first_supi: \"999990000000001\"}\n"), none)
 			return err
@@ -312,7 +312,7 @@ func TestResolveSentMasksKeyText(t *testing.T) {
 		if !errors.As(err, &fe) {
 			t.Fatalf("%s: %v, want a *FieldError", tc.name, err)
 		}
-		if strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), Masked) {
+		if strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "subscribers[") {
 			t.Errorf("%s: %v", tc.name, err)
 		}
 	}
@@ -342,4 +342,47 @@ func TestNoUnmaskedTargetErrorShown(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A key typed as a name and split by '.' (no key's shape) is never echoed:
+// name refusals identify the entry by index and line, not by its name, in
+// a target file, a run file, and a target the dashboard sends.
+func TestNameRefusalsDoNotEchoTheName(t *testing.T) {
+	none := func(string) (string, bool) { return "", false }
+	const half1, half2 = "465b5ce8b199b49f", "aa5f0a2ee238a6bc"
+	dotted := half1 + "." + half2
+	base := "version: 1\nkind: target\nname: a\ncore:\n  amf: 192.0.2.1:38412\n  plmn: {mcc: \"001\", mnc: \"01\"}\n"
+	check := func(name string, err error, want string) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), half1) || strings.Contains(err.Error(), half2) {
+			t.Errorf("%s: %v, want %q and no part of the name", name, err, want)
+		}
+	}
+	_, err := Parse("lab.yaml", []byte(base+"subscribers:\n  - {name: "+dotted+", first_supi: \"001010000000001\"}\n"), none)
+	check("a dotted pool name", err, "subscribers[0].name may not contain '.', '[' or ']'")
+	_, err = Parse("lab.yaml", []byte(base+"subscribers:\n  - {name: "+half1+", first_supi: \"001010000000001\"}\n  - {name: "+half1+", first_supi: \"001010000000002\"}\n"), none)
+	check("a duplicate pool name", err, "subscribers[1].name is the same as subscribers[0].name")
+	_, err = Parse("lab.yaml", []byte(base+"app:\n  responders:\n    - {name: "+dotted+"}\n"), none)
+	check("a dotted responder name", err, "app.responders[0].name may not contain")
+	_, err = ParseRunFile("soak.yaml", []byte("kind: run\nworkloads:\n  - name: "+dotted+"\n    attach: {count: 1}\n"), none)
+	check("a dotted workload name", err, "workloads[0].name may not contain")
+	_, err = ParseRunFile("soak.yaml", []byte("kind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\ngates:\n  - name: "+dotted+"\n    conformance: true\n"), none)
+	check("a dotted gate name", err, "gates[0].name may not contain")
+	// A target the dashboard sends (the probe's path).
+	sent := Target{Name: "lab1", Core: Core{AMF: "192.0.2.1:38412", PLMN: PLMN{MCC: "001", MNC: "01"}}}
+	sent.Subscribers = []Pool{{Name: dotted, FirstSUPI: "001010000000001"}}
+	_, err = ResolveSent(sent)
+	check("sent: a dotted pool name", err, "subscribers[0].name: may not contain")
+	sent.Subscribers = []Pool{{Name: half1, FirstSUPI: "001010000000001"}, {Name: half1, FirstSUPI: "001010000000002"}}
+	_, err = ResolveSent(sent)
+	check("sent: a duplicate pool name", err, "subscribers[1].name: is the same as subscribers[0].name")
+	sent.Subscribers = nil
+	sent.App.Responders = []Responder{{Name: dotted}}
+	_, err = ResolveSent(sent)
+	check("sent: a dotted responder name", err, "app.responders[0].name: may not contain")
+	// Target.Validate (a target built in code: no file, no ResolveSent).
+	v := Target{Version: Version, Kind: Kind, Name: "lab1", Subscribers: []Pool{{Name: dotted}, {Name: dotted}}}
+	check("Validate: a duplicate pool name", v.Validate(), "subscribers[1] needs a name of its own")
+	v = Target{Version: Version, Kind: Kind, Name: "lab1", App: App{Responders: []Responder{{Name: dotted}, {Name: dotted}}}}
+	check("Validate: a duplicate responder name", v.Validate(), "app.responders[1] needs a name of its own")
 }

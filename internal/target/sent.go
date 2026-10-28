@@ -114,17 +114,20 @@ func resolveSent(t Target) (*Resolved, error) {
 		path  string
 		names []string
 	}{{"subscribers", poolNames(t.Subscribers)}, {"app.responders", responderNames(t.App.Responders)}} {
-		seen := map[string]bool{}
+		// A name refused is told by its entry's index, never quoted: a
+		// key typed as a name stays off the screen.
+		seen := map[string]int{}
 		for i, n := range list.names {
+			j, dup := seen[n]
 			switch {
 			case n == "":
 				return nil, &FieldError{Path: fmt.Sprintf("%s[%d].name", list.path, i), Reason: "is required"}
 			case strings.ContainsAny(n, ".[]"):
-				return nil, &FieldError{Path: fmt.Sprintf("%s[%d].name", list.path, i), Reason: fmt.Sprintf("%q may not contain '.', '[' or ']'", n)}
-			case seen[n]:
-				return nil, &FieldError{Path: list.path + "[" + n + "].name", Reason: fmt.Sprintf("%q twice; %s need distinct names", n, list.path)}
+				return nil, &FieldError{Path: fmt.Sprintf("%s[%d].name", list.path, i), Reason: "may not contain '.', '[' or ']'"}
+			case dup:
+				return nil, &FieldError{Path: fmt.Sprintf("%s[%d].name", list.path, i), Reason: fmt.Sprintf("is the same as %s[%d].name; %s need distinct names", list.path, j, list.path)}
 			}
-			seen[n] = true
+			seen[n] = i
 		}
 	}
 	if t.RAN.Node != "" {

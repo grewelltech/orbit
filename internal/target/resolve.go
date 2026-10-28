@@ -253,7 +253,7 @@ func resolve(lenient bool, inputs []Input) (*Resolved, error) {
 				state[p] = &entry{value: n, src: Source{Layer: LayerDefault, Name: "selector"},
 					prov: &FieldProvenance{Path: p, Source: Source{Layer: LayerDefault, Name: "selector"}, Value: n}}
 			} else if state[p].value != n {
-				return nil, fmt.Errorf("%s: name %q does not match its selector %q", p, state[p].value, n)
+				return nil, fmt.Errorf("%s: the name does not match its selector", p)
 			}
 		}
 	}

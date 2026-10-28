@@ -266,19 +266,21 @@ func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, allow func
 			if v.Kind != yaml.SequenceNode {
 				return fmt.Errorf("%s:%d: %s is a list", file, v.Line, pat)
 			}
-			names := map[string]bool{}
-			for _, el := range v.Content {
+			// A name refused is told by its entry's index and line, never
+			// quoted: a key typed as a name stays off the screen.
+			names := map[string]int{}
+			for i, el := range v.Content {
 				elName := mapValue(el, "name")
 				if elName == "" {
 					return fmt.Errorf("%s:%d: %s entries need a name", file, el.Line, pat)
 				}
 				if strings.ContainsAny(elName, ".[]") {
-					return fmt.Errorf("%s:%d: %s name %q may not contain '.', '[' or ']'", file, el.Line, pat, elName)
+					return fmt.Errorf("%s:%d: %s[%d].name may not contain '.', '[' or ']'", file, el.Line, pat, i)
 				}
-				if names[elName] {
-					return fmt.Errorf("%s:%d: %s entries need distinct names (%q twice)", file, el.Line, pat, elName)
+				if j, ok := names[elName]; ok {
+					return fmt.Errorf("%s:%d: %s[%d].name is the same as %s[%d].name; entries need distinct names", file, el.Line, pat, i, pat, j)
 				}
-				names[elName] = true
+				names[elName] = i
 				es := append(append([]segment(nil), segs...), segment{elem: true, name: elName})
 				if err := flatten(file, es, el, env, allow, layer, out); err != nil {
 					return err
