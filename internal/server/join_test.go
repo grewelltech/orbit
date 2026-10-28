@@ -416,3 +416,37 @@ func TestJoinCurlPinned(t *testing.T) {
 		t.Errorf("a wrong pin fetched %q", out)
 	}
 }
+
+// The join responses that carry a secret (CreateJoinToken's token and
+// one-liner, RegisterResponder's loom token) never go to a plaintext peer,
+// whatever its address: a loopback one too, which the keys-over-plaintext
+// check on requests lets through. The Targets page creates tokens, so this
+// is the rule it relies on (it asks only over https://). Over the real
+// middleware and HTTP, on a server configured for TLS whose connection here
+// is plaintext.
+func TestJoinSecretsNeverToAPlaintextPeer(t *testing.T) {
+	l := newJoinLab(t, false, "192.0.2.10:8412")
+	l.j.tls = true // configured for TLS; this listener is plaintext
+	if !l.j.sec.loopback(strings.TrimPrefix(l.srv.URL, "http://")) {
+		t.Fatalf("the peer %s is not loopback: the case this row is for does not arise", l.srv.URL)
+	}
+	_, err := l.join.CreateJoinToken(context.Background(), connect.NewRequest(&orbitv1.CreateJoinTokenRequest{Spec: joinSpec}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), msgJoinNeedsTLS) {
+		t.Errorf("CreateJoinToken from a loopback plaintext peer: %v, want FailedPrecondition", err)
+	}
+	if len(l.j.store.List()) != 0 {
+		t.Error("a token was issued")
+	}
+	// A token issued as over TLS, then a registration over plaintext.
+	_, secret, err := l.j.store.Create("", 0, join.Spec{UEPools: joinSpec.UePools, UPFN6: joinSpec.UpfN6, N6Subnet: joinSpec.N6Subnet, Management: "192.0.2.10:8412"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.join.RegisterResponder(context.Background(), connect.NewRequest(registerReq(secret, newCred(t), "app1")))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), msgJoinNeedsTLS) {
+		t.Errorf("RegisterResponder from a loopback plaintext peer: %v, want FailedPrecondition", err)
+	}
+	if len(l.j.reg.List()) != 0 {
+		t.Error("a responder was registered, and its loom token sent in the clear")
+	}
+}
