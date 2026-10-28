@@ -20,6 +20,7 @@ import (
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockupf"
 	"github.com/bgrewell/orbit/internal/nas"
+	"github.com/bgrewell/orbit/internal/testnet"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -49,11 +50,9 @@ func (n *nasEvents) list() []NASEvent {
 // context is the selected pair, and every downlink after the Security Mode
 // Command is protected with it.
 func TestAttachEveryNASAlgorithmPair(t *testing.T) {
-	const base = "127.0.61."
+	base := testnet.Base(testnet.EngineNASAlgorithmPairs)
 	upf, err := mockupf.Listen(base+"10:2152", mockupf.Options{})
-	if err != nil {
-		t.Skipf("cannot bind the stub UPF on %s10:2152: %v", base, err)
-	}
+	testnet.RequireBind(t, "the stub UPF on "+base+"10:2152", err)
 	t.Cleanup(func() { _ = upf.Close() })
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
 	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")

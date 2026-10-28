@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/orbit/internal/mockupf"
+	"github.com/bgrewell/orbit/internal/testnet"
 )
 
 // A latency run racing a deregistration stops when the UE's data path goes:
@@ -17,7 +18,7 @@ import (
 // The stub UPF answers no echoes, so every sent probe is lost; what matters
 // is that the accounting adds up and the run ends.
 func TestLatencyStopsWhenDeregistered(t *testing.T) {
-	p := newMockPair(t, 48, mockupf.Options{}, false)
+	p := newMockPair(t, testnet.EngineLatency, mockupf.Options{}, false)
 	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	const supi = "208930100000048"
 	p.register(t, m, supi)

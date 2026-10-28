@@ -14,6 +14,7 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockupf"
+	"github.com/bgrewell/orbit/internal/testnet"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -34,11 +35,9 @@ type mockPair struct {
 
 func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) *mockPair {
 	t.Helper()
-	base := fmt.Sprintf("127.0.%d.", net24)
+	base := testnet.Base(net24)
 	upf, err := mockupf.Listen(base+"10:2152", opts)
-	if err != nil {
-		t.Skipf("cannot bind the stub UPF on %s10:2152: %v", base, err)
-	}
+	testnet.RequireBind(t, "the stub UPF on "+base+"10:2152", err)
 	t.Cleanup(func() { _ = upf.Close() })
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
 	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
@@ -95,11 +94,16 @@ func (p *mockPair) register(t *testing.T, m *Manager, supi string) *Session {
 	}
 	// Cleanups run last-in first-out: close the data path, then wait until
 	// every N3 socket (including a source held through the End-Marker grace
-	// window) is released, so a repeated run can bind the same addresses.
+	// window) is released, so a repeated run can bind the same addresses. The
+	// wait outlasts the pool's grace window; a socket still held after it is
+	// a leak, and fails the test rather than the next run's bind.
 	t.Cleanup(func() {
-		deadline := time.Now().Add(3 * time.Second)
+		deadline := time.Now().Add(m.n3.grace + 2*time.Second)
 		for m.n3.size() != 0 && time.Now().Before(deadline) {
 			time.Sleep(10 * time.Millisecond)
+		}
+		if n := m.n3.size(); n != 0 {
+			t.Errorf("%d N3 socket(s) still held %s after the test (grace window %s)", n, m.n3.grace+2*time.Second, m.n3.grace)
 		}
 	})
 	t.Cleanup(sess.closeDataPath)
@@ -144,12 +148,12 @@ func (e *endMarkers) list() []datapath.EndMarker {
 // UPF learns the gNB's downlink tunnel, and both directions of user plane
 // flow over real N3 sockets.
 func TestMockPairPDUSessionCarriesUserPlane(t *testing.T) {
-	p := newMockPair(t, 41, mockupf.Options{}, false)
+	p := newMockPair(t, testnet.EngineUserPlane, mockupf.Options{}, false)
 	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	const supi = "208930100000001"
 	sess := p.register(t, m, supi)
 
-	if sess.Result.UPFAddress != "127.0.41.10" || sess.Result.UPFTEID == 0 {
+	if sess.Result.UPFAddress != testnet.Addr(testnet.EngineUserPlane, 10) || sess.Result.UPFTEID == 0 {
 		t.Errorf("session UPF tunnel = %s TEID %#x, want the stub's address and a TEID", sess.Result.UPFAddress, sess.Result.UPFTEID)
 	}
 	if ip := net.ParseIP(sess.Result.PDUAddress); ip == nil || ip.To4()[0] != 10 {
@@ -207,13 +211,13 @@ func TestMockPairXnPathSwitch(t *testing.T) {
 		wantEndMarker bool
 		wantSent      []string
 	}{
-		{name: "end marker", net24: 42, opts: mockupf.Options{EndMarker: true}, wantEndMarker: true, wantSent: []string{mockupf.KindEndMarker}},
-		{name: "no end marker", net24: 43, opts: mockupf.Options{}, wantEndMarker: false},
-		{name: "late g-pdu after the end marker", net24: 44, opts: mockupf.Options{EndMarker: true, LateGPDU: true}, wantEndMarker: true,
+		{name: "end marker", net24: testnet.EngineXnEndMarker, opts: mockupf.Options{EndMarker: true}, wantEndMarker: true, wantSent: []string{mockupf.KindEndMarker}},
+		{name: "no end marker", net24: testnet.EngineXnNoEndMarker, opts: mockupf.Options{}, wantEndMarker: false},
+		{name: "late g-pdu after the end marker", net24: testnet.EngineXnLateGPDU, opts: mockupf.Options{EndMarker: true, LateGPDU: true}, wantEndMarker: true,
 			wantSent: []string{mockupf.KindEndMarker, mockupf.KindGPDU}},
-		{name: "end marker with QFI header", net24: 45, opts: mockupf.Options{EndMarker: true, QFI: true}, wantEndMarker: true,
+		{name: "end marker with QFI header", net24: testnet.EngineXnEndMarkerQFI, opts: mockupf.Options{EndMarker: true, QFI: true}, wantEndMarker: true,
 			wantSent: []string{mockupf.KindEndMarker}},
-		{name: "uplink tunnel reallocated", net24: 46, opts: mockupf.Options{EndMarker: true}, reallocUL: true, wantEndMarker: true,
+		{name: "uplink tunnel reallocated", net24: testnet.EngineXnULReallocated, opts: mockupf.Options{EndMarker: true}, reallocUL: true, wantEndMarker: true,
 			wantSent: []string{mockupf.KindEndMarker}},
 	}
 	for _, tc := range tests {
@@ -334,7 +338,7 @@ func TestMockPairXnPathSwitch(t *testing.T) {
 // container when the UPF adds one, and a late G-PDU on that TEID after it,
 // in arrival order. An unregistered UE is an error.
 func TestObserveDownlinkAcrossXn(t *testing.T) {
-	p := newMockPair(t, 47, mockupf.Options{EndMarker: true, LateGPDU: true, QFI: true}, false)
+	p := newMockPair(t, testnet.EngineObserveAcrossXn, mockupf.Options{EndMarker: true, LateGPDU: true, QFI: true}, false)
 	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	m.n3.grace = 250 * time.Millisecond
 	const supi = "208930100000003"
