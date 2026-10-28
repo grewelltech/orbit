@@ -112,12 +112,7 @@ func (f *planFlags) settings(cmd *cobra.Command) ([]target.Setting, error) {
 		out = append(out, target.Setting{Path: strings.TrimSpace(path), Value: value, Source: target.Source{Name: "--set"}})
 	}
 	if f.dur > 0 {
-		src := target.Source{Name: "--for"}
-		out = append(out,
-			target.Setting{Path: "until.duration_ms", Value: uint64(f.dur.Milliseconds()), Source: src},
-			target.Setting{Path: "until.duration", Value: "", Source: src},
-			target.Setting{Path: "until.complete", Value: false, Source: src},
-			target.Setting{Path: "until.forever", Value: false, Source: src})
+		out = append(out, plan.ForSettings(f.dur)...)
 	}
 	return out, nil
 }

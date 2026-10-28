@@ -177,9 +177,10 @@ func TestRenderedCommandRoundTrip(t *testing.T) {
 	tests := []struct {
 		name      string
 		in        plan.RenderInput
-		wantWords string // the command's first words
-		target    string // the target document; lab1 when empty
-		probe     bool   // the plan keeps the fleet's latency probe
+		wantWords string   // the command's first words
+		contains  []string // arguments the command gives (--for, --slo-*), said as the CLI takes them
+		target    string   // the target document; lab1 when empty
+		probe     bool     // the plan keeps the fleet's latency probe
 	}{
 		// A target whose first responder has a data_ip fills the fleet's
 		// latency probe: orbit test fills it itself; on the orbit run
@@ -193,7 +194,11 @@ func TestRenderedCommandRoundTrip(t *testing.T) {
 		{name: "fleet", in: plan.RenderInput{RunYAML: []byte(tmpl("fleet")), Template: "fleet"}, wantWords: "orbit test fleet"},
 		{name: "conformance", in: plan.RenderInput{RunYAML: []byte(tmpl("conformance")), Template: "conformance"}, wantWords: "orbit test conformance"},
 		{name: "load edited", in: plan.RenderInput{Template: "load", RunYAML: []byte(edit("load", "count: 100", "count: 250", "rate: 20", "rate: 7.5",
-			"until: {complete: true}", "until: {duration: 90s}", `threshold: "0.99"`, `threshold: "0.95"`))}, wantWords: "orbit test load"},
+			"until: {complete: true}", "until: {duration: 90s}", `threshold: "0.99"`, `threshold: "0.95"`))}, wantWords: "orbit test load",
+			contains: []string{"'--for=90s'", "'--slo-min-success=0.95'"}},
+		{name: "load with the registration P99 alias gate", in: plan.RenderInput{Template: "load", RunYAML: []byte(tmpl("load") +
+			"  - name: registration_p99_ms\n    slo: {metric: registration.p99_ms, op: \"<=\", threshold: 500ms}\n")},
+			wantWords: "orbit test load", contains: []string{"'--slo-reg-p99=500ms'"}},
 		{name: "load with a second workload and gate", in: plan.RenderInput{Template: "load", RunYAML: []byte(edit("load",
 			"until:", "  - name: suite\n    start: {after: load, phase: attached}\n    conformance: {categories: [nas], per_test_timeout_ms: 4000}\nuntil:",
 			`threshold: "0.99"}`, "threshold: \"0.99\"}\n  - name: reg\n    workload: load\n    slo: {metric: registration.p99_ms, op: \"<=\", threshold: 500ms}"))},
@@ -235,6 +240,11 @@ func TestRenderedCommandRoundTrip(t *testing.T) {
 			}
 			if !strings.HasPrefix(r.Command, tc.wantWords+" ") {
 				t.Fatalf("command %s, want %s …", r.Command, tc.wantWords)
+			}
+			for _, arg := range tc.contains {
+				if !strings.Contains(r.Command, " "+arg) {
+					t.Errorf("command %s, want %s in it", r.Command, arg)
+				}
 			}
 			dir := t.TempDir()
 			if r.FileName != "" {

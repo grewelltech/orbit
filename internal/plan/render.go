@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"google.golang.org/protobuf/proto"
@@ -331,7 +333,132 @@ func templateSets(name string, rf *target.RunFile, flags []target.Setting) ([]st
 	if err != nil || !proto.Equal(viaTemplate, asWritten) {
 		return nil, false
 	}
+	// The same, said as the CLI would: --for for the stop, --slo-* for the
+	// gates they alias. Kept only when it, too, builds the run file's plan.
+	if args, layer, ok := idiomatic(flagLayer); ok {
+		if p, err := comparablePlan(base.Input, append(layer, flags...)); err == nil && proto.Equal(p, asWritten) {
+			return args, true
+		}
+	}
 	return sets, true
+}
+
+// sloFlags are the gates the --slo-* flags alias (target's mapping): the
+// gate's name, the flag, and whether its threshold is a duration (else a
+// ratio).
+var sloFlags = []struct {
+	gate, flag string
+	duration   bool
+}{
+	{target.GateName("", target.MetricRegP99), "slo-reg-p99", true},
+	{target.GateName("", target.MetricAttachP99), "slo-attach-p99", true},
+	{target.GateName("", target.MetricSuccessRatio), "slo-min-success", false},
+}
+
+// untilPaths are the stop's fields, which --for sets together.
+var untilPaths = map[string]bool{"until.duration": true, "until.duration_ms": true, "until.complete": true, "until.forever": true}
+
+// idiomatic is the --set list layer gives, said with --for and --slo-*
+// where they say it: the until fields as --for <d> when they stop the run
+// after a duration d, and an alias gate's fields as its --slo-* flag. It
+// returns the arguments and the flag layer they give (ForSettings, and the
+// alias's threshold setting), ok false when neither applies.
+func idiomatic(layer []target.Setting) (args []string, out []target.Setting, ok bool) {
+	var forText string
+	var forDur time.Duration
+	var rest []target.Setting
+	untilSet := false
+	slo := map[string]string{} // flag → threshold
+	sloGate := map[string]bool{}
+	for _, sf := range sloFlags {
+		sloGate[sf.gate] = true
+	}
+	for _, s := range layer {
+		text, _ := s.Value.(string)
+		switch {
+		case untilPaths[s.Path]:
+			untilSet = true
+			switch s.Path {
+			case "until.duration":
+				if d, err := time.ParseDuration(text); err == nil && d > 0 {
+					forText, forDur = text, d
+				}
+			case "until.duration_ms":
+				if ms, err := strconv.ParseUint(text, 10, 64); err == nil && ms > 0 {
+					forDur = time.Duration(ms) * time.Millisecond
+					forText = forDur.String()
+				}
+			}
+		case strings.HasPrefix(s.Path, "gates[") && sloGate[gateOf(s.Path)]:
+			if !strings.HasSuffix(s.Path, ".slo.threshold") {
+				// The alias sets the threshold only; plan.Build names the
+				// metric and the comparison from the gate's name.
+				continue
+			}
+			for _, sf := range sloFlags {
+				if sf.gate == gateOf(s.Path) && thresholdParses(text, sf.duration) {
+					slo[sf.flag] = text
+				}
+			}
+		default:
+			rest = append(rest, s)
+		}
+	}
+	if (untilSet && forDur == 0) || (!untilSet && len(slo) == 0) {
+		return nil, nil, false
+	}
+	for _, s := range rest {
+		text, _ := s.Value.(string)
+		args = append(args, "--set="+s.Path+"="+text)
+		out = append(out, s)
+	}
+	if untilSet {
+		args = append(args, "--for="+forText)
+		out = append(out, ForSettings(forDur)...)
+	}
+	for _, sf := range sloFlags {
+		if t, ok := slo[sf.flag]; ok {
+			args = append(args, "--"+sf.flag+"="+t)
+			out = append(out, target.Setting{Path: "gates[" + sf.gate + "].slo.threshold", Value: t, Source: target.Source{Name: "--" + sf.flag}})
+		}
+	}
+	return args, out, true
+}
+
+// gateOf is the gate a gates[<name>]… path names, "" for another path.
+func gateOf(path string) string {
+	name, ok := strings.CutPrefix(path, "gates[")
+	if !ok {
+		return ""
+	}
+	name, _, _ = strings.Cut(name, "]")
+	return name
+}
+
+// thresholdParses reports whether text is what a --slo-* flag takes: a
+// duration (the P99 aliases) or a number (the success ratio). A threshold
+// the flag would refuse stays a --set.
+func thresholdParses(text string, duration bool) bool {
+	if duration {
+		_, err := time.ParseDuration(text)
+		return err == nil
+	}
+	_, err := strconv.ParseFloat(text, 64)
+	return err == nil
+}
+
+// ForSettings is the flag layer --for d gives: the run stops after d,
+// whatever the lower layers say (until.duration_ms set; until.duration,
+// complete and forever cleared). The CLI's --for and Render's proof share
+// it, so a rendered --for is the --for the CLI runs.
+func ForSettings(d time.Duration) []target.Setting {
+	src := target.Source{Name: "--for"}
+	return []target.Setting{
+		{Path: "until.duration_ms", Value: uint64(d.Milliseconds()), Source: src},
+		{Path: "until.duration", Value: "", Source: src},
+		{Path: "until.complete", Value: false, Source: src},
+		{Path: "until.forever", Value: false, Source: src},
+	}
 }
 
 // renderTarget is the target templateSets builds both plans over: any
