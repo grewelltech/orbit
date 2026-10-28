@@ -4,7 +4,7 @@ version: 1
 kind: target
 name: handwritten
 core:
-  amf: ${LAB_AMF} # the AMF's N2 address, from the shell
+  amf: ${LAB_AMF}   # the AMF's N2 address, from the shell
   plmn: {mcc: "208", mnc: "93"}
   tac: 0x10
   slices:

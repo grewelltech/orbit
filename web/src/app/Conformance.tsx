@@ -17,7 +17,7 @@ import {
   type ConformanceResult,
   type NetworkIdentity,
 } from "@/data/conformance";
-import { pickTarget } from "@/data/targets/picker";
+import { pickInto } from "@/data/targets/picker";
 import { browserLocal, loadTargets } from "@/data/targets/store";
 import { PageLinks } from "./PageLinks";
 
@@ -60,12 +60,10 @@ export function Conformance() {
   const [unresolved, setUnresolved] = useState<string[]>([]);
   const applyTarget = (name: string) => {
     setPicked(name);
-    const t = targets.find((x) => x.name === name);
-    const p = t && pickTarget(t.yaml);
-    if (!p) return;
-    if (p.amf) setAmf(p.amf);
-    setIdentity(p.identity);
-    setUnresolved(p.unresolved);
+    const next = pickInto({ amf, identity, unresolved }, targets.find((x) => x.name === name)?.yaml);
+    setAmf(next.amf);
+    setIdentity(next.identity);
+    setUnresolved(next.unresolved);
   };
 
   const start = () => {

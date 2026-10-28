@@ -91,6 +91,16 @@ describe("edits", () => {
     expect(checkTarget(doc(out))).toEqual([]);
   });
 
+  it("an existing plain value set to text that reads as null is quoted (the CLI would read a null)", () => {
+    const d = doc(base);
+    setValue(d, ["core", "amf"], "null");
+    setValue(d, ["core", "plmn", "mcc"], "~");
+    const out = render(d);
+    expect(out).toContain('amf: "null"');
+    expect(out).toContain('mcc: "~"');
+    expect(getValue(doc(out), ["core", "amf"])).toBe("null");
+  });
+
   it("an empty value removes the key, and the mapping it empties", () => {
     const d = doc(base + "ran:\n    gnb_name: g\n");
     setValue(d, ["ran", "gnb_name"], "");

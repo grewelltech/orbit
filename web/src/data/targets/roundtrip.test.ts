@@ -76,7 +76,9 @@ describe("the files this page exports for the CLI", () => {
         const got = getValue(p.doc, e.steps);
         expect(got ?? "").toEqual(e.value);
       }
-      const out = exportText(p.doc, p.style, c.keys ? { keys: t.keys } : {});
+      // Unedited and without keys, the page exports the stored text (as
+      // exportTarget does); otherwise the document written out again.
+      const out = c.edits.length === 0 && !c.keys ? t.target.yaml : exportText(p.doc, p.style, c.keys ? { keys: t.keys } : {});
       const path = `ui/${c.name}.yaml`;
       if (process.env.UPDATE) writeFileSync(new URL(path, dir), out);
       expect(out, `${path} is stale: UPDATE=1 npm test`).toBe(read(path));

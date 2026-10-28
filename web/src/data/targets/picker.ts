@@ -33,18 +33,38 @@ export function pickTarget(yaml: string): PickedTarget | undefined {
     }
     return s;
   };
+  // In document order, so unresolved lists the fields as the file has them.
+  const amf = text("core.amf", ["core", "amf"]);
+  const mcc = text("core.plmn.mcc", ["core", "plmn", "mcc"]);
+  const mnc = text("core.plmn.mnc", ["core", "plmn", "mnc"]);
+  const tac = text("core.tac", ["core", "tac"], (defaultFor("core.tac") as string | undefined) ?? "");
   const slices = getSlices(doc, ["core", "slices"]);
   const defSlices = defaultFor("core.slices") as { sst: string; sd?: string }[] | undefined;
-  const slice = slices[0] ?? { sst: defSlices?.[0]?.sst ?? "", sd: defSlices?.[0]?.sd ?? "" };
-  return {
-    amf: text("core.amf", ["core", "amf"]),
-    identity: {
-      mcc: text("core.plmn.mcc", ["core", "plmn", "mcc"]),
-      mnc: text("core.plmn.mnc", ["core", "plmn", "mnc"]),
-      tac: text("core.tac", ["core", "tac"], (defaultFor("core.tac") as string | undefined) ?? ""),
-      sst: slice.sst,
-      sd: slice.sd,
-    },
-    unresolved,
+  const first = slices[0] ?? { sst: defSlices?.[0]?.sst ?? "", sd: defSlices?.[0]?.sd ?? "" };
+  const plain = (path: string, v: string) => {
+    if (refsIn(v).length === 0) return v;
+    unresolved.push(path);
+    return "";
   };
+  const slice = { sst: plain("core.slices[0].sst", first.sst), sd: plain("core.slices[0].sd", first.sd) };
+  return { amf, identity: { mcc, mnc, tac, sst: slice.sst, sd: slice.sd }, unresolved };
+}
+
+/** The conformance form's fields a target sets, and what it left unresolved. */
+export interface PickedForm {
+  amf: string;
+  identity: NetworkIdentity;
+  unresolved: string[];
+}
+
+/**
+ * The form after picking a target: every field the target controls is set
+ * from it, and one it leaves unresolved or empty is cleared, never kept
+ * from the target picked before (a run must not go to the last target's
+ * AMF). A target that does not parse leaves the form as it was.
+ */
+export function pickInto(form: PickedForm, yaml: string | undefined): PickedForm {
+  const p = yaml === undefined ? undefined : pickTarget(yaml);
+  if (!p) return form;
+  return { amf: p.amf, identity: p.identity, unresolved: p.unresolved };
 }

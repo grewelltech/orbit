@@ -12,7 +12,7 @@
  * written as numbers, names. Formats (an SD of six hex digits, a CIDR) are
  * the server's to judge; it is the authority, and says which field.
  */
-import { Document, isMap, isScalar, isSeq, parseAllDocuments, Scalar, YAMLMap, YAMLSeq, type Node } from "yaml";
+import { Document, isAlias, isMap, isPair, isScalar, isSeq, parseAllDocuments, Scalar, visit, YAMLMap, YAMLSeq, type Node } from "yaml";
 import { DEFAULTS, NAMED_LISTS, TARGET_FIELDS, VALID_NAME, type FieldSpec } from "./schema.gen";
 
 /** What the name rule allows, in words. */
@@ -75,16 +75,32 @@ export interface ParsedTarget {
   style: WriteStyle;
 }
 
+/** The largest file the page reads (1 MiB): a target file is a few KiB. */
+export const MAX_FILE_BYTES = 1024 * 1024;
+
 /**
  * Reads a target file: one target, or a list of them, as LoadFile takes.
- * A YAML syntax error fails the whole file.
+ * A YAML syntax error fails the whole file; its message names the line
+ * and column only, never quotes the text (which may hold a key).
+ *
+ * Anchors (&name), aliases (*name) and merge keys (<<) are refused. The
+ * CLI resolves them, so a key can reach a field through one; this page
+ * checks and moves keys field by field, and refuses what it cannot see.
+ * `orbit target init` never writes them.
  */
 export function parseTargets(text: string): ParsedTarget[] {
-  const docs = parseAllDocuments(text, { schema: "failsafe", prettyErrors: true });
+  if (text.length > MAX_FILE_BYTES) throw new Error("larger than 1 MiB; a target file is a few KiB");
+  const docs = parseAllDocuments(text, { schema: "failsafe", prettyErrors: false });
   if (!Array.isArray(docs)) throw new Error("empty");
   const first = docs[0];
   if (!first || docs.length > 1) throw new Error(docs.length > 1 ? "one YAML document per file" : "empty");
-  if (first.errors.length > 0) throw new Error(first.errors[0]?.message ?? "not YAML");
+  const bad = first.errors[0];
+  if (bad) {
+    const at = bad.pos?.[0] ?? 0;
+    const before = text.slice(0, at).split("\n");
+    throw new Error(`YAML syntax error at line ${before.length}, column ${(before[before.length - 1]?.length ?? 0) + 1}`);
+  }
+  if (sharesNodes(first)) throw new Error(SHARED_REFUSED);
   const style = styleOf(text);
   const root = first.contents;
   if (isMap(root)) return [{ doc: first, text, style }];
@@ -96,6 +112,22 @@ export function parseTargets(text: string): ParsedTarget[] {
     });
   }
   throw new Error("want a target or a list of targets");
+}
+
+/** Why a file with an anchor, alias or merge key is refused. */
+export const SHARED_REFUSED = "anchors, aliases and merge keys are not supported: write the value out";
+
+/** Whether doc has an anchor (&a), an alias (*a) or a merge key (<<) anywhere. */
+export function sharesNodes(doc: Document): boolean {
+  let found = false;
+  visit(doc, (_, n) => {
+    if (isAlias(n) || ((isScalar(n) || isMap(n) || isSeq(n)) && n.anchor) || (isPair(n) && keyText(n.key) === "<<")) {
+      found = true;
+      return visit.BREAK;
+    }
+    return undefined;
+  });
+  return found;
 }
 
 /** The pattern of a path: list indexes as [] (subscribers[].ki). */

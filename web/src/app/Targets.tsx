@@ -25,7 +25,8 @@ function download(f: ExportFile) {
   a.href = url;
   a.download = f.fileName;
   a.click();
-  URL.revokeObjectURL(url);
+  // After the click has had its turn: revoking at once can cancel the save.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function Targets() {
@@ -173,11 +174,7 @@ export function Targets() {
                   <input
                     type="checkbox"
                     checked={e.remembered}
-                    onChange={(ev) => {
-                      if (!ev.target.checked || window.confirm("Remember this target's keys in this browser? They are stored unencrypted, readable by any script on this page's origin, until you Forget them.")) {
-                        t.remember(ev.target.checked);
-                      }
-                    }}
+                    onChange={(ev) => t.remember(ev.target.checked)}
                   />
                   remember keys in this browser (stored unencrypted; any script on this origin can read them)
                 </label>
@@ -199,9 +196,9 @@ export function Targets() {
                     className="o-label cursor-pointer px-2 py-1"
                     style={{ color: "var(--o-bg)", background: "var(--o-accent)", borderRadius: "var(--o-radius)" }}
                     onClick={() => {
-                      const f = t.exportCurrent(withKeys);
-                      if (f) download(f);
-                      setWithKeys(false);
+                      const r = t.exportCurrent(withKeys);
+                      if (r.file) download(r.file);
+                      setWithKeys(r.withKeys);
                     }}
                   >
                     export {e.name}.yaml

@@ -14,7 +14,7 @@
  *
  * Nothing is sent to or kept by the server.
  */
-import { moveSecrets, parseTargets, render } from "./yamlio";
+import { moveSecrets, parseTargets, refName, render, secretSlots, sharesNodes } from "./yamlio";
 
 /** The Storage operations used; window.localStorage / sessionStorage in the browser, a fake in tests. */
 export interface KeyValueStore {
@@ -65,9 +65,19 @@ function write(store: KeyValueStore | undefined, key: string, value: string | nu
  */
 export function withoutSecrets(yaml: string): string | undefined {
   try {
-    const [t] = parseTargets(yaml);
-    if (!t) return undefined;
-    return moveSecrets(t.doc).length === 0 ? yaml : render(t.doc, t.style);
+    // Fail closed: exactly one target, standing alone (not a list), with
+    // no alias or merge key (parseTargets refuses those), so every secret
+    // field is one moveSecrets sees.
+    const all = parseTargets(yaml);
+    const t = all[0];
+    if (all.length !== 1 || !t || t.text === undefined) return undefined;
+    const clean = moveSecrets(t.doc).length === 0 ? yaml : render(t.doc, t.style);
+    // And check what comes out, rather than trust the cleaning: one target,
+    // nothing shared, every secret a ${VAR}.
+    const again = parseTargets(clean);
+    const [c] = again;
+    if (again.length !== 1 || !c || sharesNodes(c.doc) || secretSlots(c.doc).some((s) => refName(s.value) === undefined)) return undefined;
+    return clean;
   } catch {
     return undefined;
   }
