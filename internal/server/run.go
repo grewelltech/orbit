@@ -1313,9 +1313,11 @@ func leasesProto(ls []engine.LeaseInfo) []*orbitv1.Lease {
 
 // maskedRefusal is err with any key- or token-shaped word in its text
 // masked (target.MaskErr), as a client is sent it. A *connect.Error is
-// rebuilt around its masked cause with its code (and metadata) kept: the
-// Connect handler finds a *connect.Error by errors.As and sends its own
-// message, so a mask wrapped around it would not be what is sent.
+// rebuilt around its masked message with its code (and metadata) kept:
+// the Connect handler finds a *connect.Error by errors.As and sends its
+// own message, so a mask wrapped around it would not be what is sent. The
+// rebuilt error carries text only, not the cause chain: it goes straight
+// to the handler, and nothing here unwraps a target error.
 func maskedRefusal(err error) error {
 	if err == nil {
 		return nil
@@ -1324,11 +1326,7 @@ func maskedRefusal(err error) error {
 	if !errors.As(err, &ce) {
 		return target.MaskErr(err)
 	}
-	cause := ce.Unwrap()
-	if cause == nil {
-		cause = errors.New(ce.Message())
-	}
-	out := connect.NewError(ce.Code(), target.MaskErr(cause))
+	out := connect.NewError(ce.Code(), target.MaskErr(errors.New(ce.Message())))
 	for k, v := range ce.Meta() {
 		out.Meta()[k] = v
 	}
