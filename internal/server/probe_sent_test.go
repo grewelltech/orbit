@@ -67,7 +67,7 @@ func TestProbeSentTarget(t *testing.T) {
 			wantErr: "invalid target: subscribers[main].ki: <redacted> is not 32 hex digits"},
 		{name: "two pools named alike", change: func(x *orbitv1.ResolvedTarget) {
 			x.Subscribers = append(x.Subscribers, proto.Clone(x.Subscribers[0]).(*orbitv1.SubscriberPool))
-		}, wantErr: `invalid target: subscribers[main].name: "main" twice; subscribers need distinct names`},
+		}, wantErr: `invalid target: subscribers[1].name: is the same as subscribers[0].name; subscribers need distinct names`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

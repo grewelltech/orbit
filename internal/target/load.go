@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -164,9 +165,20 @@ func LoadFile(path string, env Getenv) ([]*File, error) {
 
 // Parse is LoadFile for bytes already read; name labels errors and sources.
 func Parse(name string, b []byte, env Getenv) ([]*File, error) {
+	files, err := parse(name, b, env)
+	for _, f := range files {
+		f.Err = maskErr(f.Err)
+	}
+	return files, maskErr(err)
+}
+
+func parse(name string, b []byte, env Getenv) ([]*File, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if line, ok := secondDocument(b); ok {
+		return nil, secondDocumentError(name, "a target file", line)
 	}
 	if root.Kind == 0 || len(root.Content) == 0 {
 		return nil, fmt.Errorf("%s: empty", name)
@@ -254,19 +266,21 @@ func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, allow func
 			if v.Kind != yaml.SequenceNode {
 				return fmt.Errorf("%s:%d: %s is a list", file, v.Line, pat)
 			}
-			names := map[string]bool{}
-			for _, el := range v.Content {
+			// A name refused is told by its entry's index and line, never
+			// quoted: a key typed as a name stays off the screen.
+			names := map[string]int{}
+			for i, el := range v.Content {
 				elName := mapValue(el, "name")
 				if elName == "" {
 					return fmt.Errorf("%s:%d: %s entries need a name", file, el.Line, pat)
 				}
 				if strings.ContainsAny(elName, ".[]") {
-					return fmt.Errorf("%s:%d: %s name %q may not contain '.', '[' or ']'", file, el.Line, pat, elName)
+					return fmt.Errorf("%s:%d: %s[%d].name may not contain '.', '[' or ']'", file, el.Line, pat, i)
 				}
-				if names[elName] {
-					return fmt.Errorf("%s:%d: %s entries need distinct names (%q twice)", file, el.Line, pat, elName)
+				if j, ok := names[elName]; ok {
+					return fmt.Errorf("%s:%d: %s[%d].name is the same as %s[%d].name; entries need distinct names", file, el.Line, pat, i, pat, j)
 				}
-				names[elName] = true
+				names[elName] = i
 				es := append(append([]segment(nil), segs...), segment{elem: true, name: elName})
 				if err := flatten(file, es, el, env, allow, layer, out); err != nil {
 					return err
@@ -534,9 +548,17 @@ type RunFile struct {
 // names its target, it does not restate it. ${ENV} expands in string
 // values, as in a target file.
 func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
+	rf, err := parseRunFile(name, b, env)
+	return rf, maskErr(err)
+}
+
+func parseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if line, ok := secondDocument(b); ok {
+		return nil, secondDocumentError(name, "a run file", line)
 	}
 	if root.Kind == 0 || len(root.Content) == 0 {
 		return nil, fmt.Errorf("%s: empty", name)
@@ -572,6 +594,53 @@ func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 	return rf, nil
 }
 
+// yamlLineRe is the line a yaml error names.
+var yamlLineRe = regexp.MustCompile(`line ([0-9]+)`)
+
+// secondDocument reports whether b holds a second YAML document
+// (yaml.Unmarshal reads the first and ignores the rest), and the line it
+// starts on, or where it fails to parse (0 when yaml names none). A
+// document that is empty, such as a trailing "---", is not one; the
+// first document's own errors are yaml.Unmarshal's to report.
+func secondDocument(b []byte) (int, bool) {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	for n := 0; ; n++ {
+		var doc yaml.Node
+		err := dec.Decode(&doc)
+		switch {
+		case errors.Is(err, io.EOF):
+			return 0, false
+		case err != nil && n == 0:
+			return 0, false
+		case err != nil:
+			// Past the first document: a second one that does not parse.
+			line := 0
+			if m := yamlLineRe.FindStringSubmatch(err.Error()); m != nil {
+				line, _ = strconv.Atoi(m[1])
+			}
+			return line, true
+		case n > 0 && len(doc.Content) > 0 && !emptyNode(doc.Content[0]):
+			return doc.Content[0].Line, true
+		}
+	}
+}
+
+// secondDocumentError is the refusal of a file holding a second YAML
+// document; what is a file of kind what.
+func secondDocumentError(name, what string, line int) error {
+	at := name
+	if line > 0 {
+		at = fmt.Sprintf("%s:%d", name, line)
+	}
+	return fmt.Errorf("%s: a second YAML document (---); %s is one document, and the rest would be ignored", at, what)
+}
+
+// emptyNode reports whether n is a document's nothing: a null scalar with
+// no text, as a trailing --- gives.
+func emptyNode(n *yaml.Node) bool {
+	return n.Kind == yaml.ScalarNode && n.Value == "" && n.ShortTag() == "!!null"
+}
+
 // typeErrorRe is one of a yaml.TypeError's entries: its line, the tag
 // found, the value quoted (a prefix of it), and the Go type wanted.
 var typeErrorRe = regexp.MustCompile("^line ([0-9]+): cannot unmarshal (!![a-z]+)(?: `[^`]*`)? into (.+)$")
@@ -602,7 +671,14 @@ func withoutValues(err error, at func(line int) string) error {
 				where = p + ": "
 			}
 		}
-		msgs = append(msgs, fmt.Sprintf("line %s: %swant %s, not %s", sub[1], where, goTypeWord(sub[3]), tagWord(sub[2])))
+		want, found := goTypeWord(sub[3]), tagWord(sub[2])
+		if want == found {
+			// The type is right and the value is not: a number too big
+			// for its field.
+			msgs = append(msgs, fmt.Sprintf("line %s: %sout of range%s", sub[1], where, rangeOf(sub[3])))
+			continue
+		}
+		msgs = append(msgs, fmt.Sprintf("line %s: %swant %s, not %s", sub[1], where, want, found))
 	}
 	return errors.New(strings.Join(msgs, "; "))
 }
@@ -621,6 +697,17 @@ func goTypeWord(t string) string {
 	default:
 		return "a mapping"
 	}
+}
+
+// rangeOf is " (at most N)" for a Go integer type a yaml error names, ""
+// for another.
+func rangeOf(t string) string {
+	bits := map[string]uint{"uint8": 8, "uint16": 16, "uint32": 32, "uint64": 64, "uint": 64, "int8": 7, "int16": 15, "int32": 31, "int64": 63, "int": 63}
+	n, ok := bits[t]
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf(" (at most %d)", uint64(1)<<n-1)
 }
 
 // tagWord is a YAML tag, as a document's reader has it.

@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/bgrewell/orbit/internal/target"
 )
 
 // A run file renders as orbit test <template> --set … when the template
@@ -39,7 +42,23 @@ func TestRender(t *testing.T) {
 		{name: "a changed count", in: RenderInput{RunYAML: []byte(edit("load", "count: 100", "count: 500")), Template: "load", Target: "lab1"},
 			want: `orbit test load '--target=lab1' '--set=workloads[load].attach.count=500'`},
 		{name: "a duration instead of complete", in: RenderInput{RunYAML: []byte(edit("load", "until: {complete: true}", "until: {duration: 10m}")), Template: "load", Target: "lab1"},
-			want: `orbit test load '--target=lab1' '--set=until.duration=10m' '--set=until.complete=false'`},
+			want: `orbit test load '--target=lab1' '--for=10m'`},
+		// Said as the CLI would: --for and --slo-*, each kept only when it
+		// builds the run file's plan.
+		{name: "a duration and a count", in: RenderInput{RunYAML: []byte(strings.NewReplacer("until: {complete: true}", "until: {duration: 90s}", "count: 100", "count: 500").Replace(tmpl("load"))), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--set=workloads[load].attach.count=500' '--for=90s'`},
+		{name: "run forever: no --for", in: RenderInput{RunYAML: []byte(edit("load", "until: {complete: true}", "until: {forever: true}")), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--set=until.forever=true' '--set=until.complete=false'`},
+		{name: "the alias gate's threshold", in: RenderInput{RunYAML: []byte(edit("load", `threshold: "0.99"`, `threshold: "0.95"`)), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--slo-min-success=0.95'`},
+		{name: "a P99 alias gate added", in: RenderInput{RunYAML: []byte(tmpl("load") + "  - name: registration_p99_ms\n    slo: {metric: registration.p99_ms, op: \"<=\", threshold: 500ms}\n"), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--slo-reg-p99=500ms'`},
+		{name: "a P99 gate under the alias's name, another comparison: no --slo", in: RenderInput{RunYAML: []byte(tmpl("load") + "  - name: registration_p99_ms\n    slo: {metric: registration.p99_ms, op: \"<\", threshold: 500ms}\n"), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--set=gates[registration_p99_ms].name=registration_p99_ms' '--set=gates[registration_p99_ms].slo.metric=registration.p99_ms' '--set=gates[registration_p99_ms].slo.op=<' '--set=gates[registration_p99_ms].slo.threshold=500ms'`},
+		{name: "a P99 alias threshold the flag would refuse (no unit): no --slo", in: RenderInput{RunYAML: []byte(tmpl("load") + "  - name: registration_p99_ms\n    slo: {metric: registration.p99_ms, op: \"<=\", threshold: \"500\"}\n"), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--set=gates[registration_p99_ms].name=registration_p99_ms' '--set=gates[registration_p99_ms].slo.metric=registration.p99_ms' '--set=gates[registration_p99_ms].slo.op=<=' '--set=gates[registration_p99_ms].slo.threshold=500'`},
+		{name: "a duration and an alias threshold together", in: RenderInput{RunYAML: []byte(strings.NewReplacer("until: {complete: true}", "until: {duration: 10m}", `threshold: "0.99"`, `threshold: "0.9"`).Replace(tmpl("load"))), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--for=10m' '--slo-min-success=0.9'`},
 		{name: "a whole value", in: RenderInput{RunYAML: []byte(edit("fleet", "behaviors: {}", "behaviors: {latency: {target: 10.0.0.9}}")), Template: "fleet", Target: "lab1"},
 			want: `orbit test fleet '--target=lab1' '--set=workloads[fleet].behaviors={latency: {target: 10.0.0.9}}'`},
 		{name: "one category", in: RenderInput{RunYAML: []byte(edit("conformance", "categories: []", "categories: [nas]")), Template: "conformance", Target: "lab1"},
@@ -155,6 +174,23 @@ func TestRenderFleetProbe(t *testing.T) {
 	}
 }
 
+// --for bounds a run whatever the lower layers say: over a run file that
+// runs forever, ForSettings (what --for gives, on the CLI and in Render's
+// proof) gives a plan that stops after the duration, forever cleared.
+func TestForSettingsOverForever(t *testing.T) {
+	rf, err := target.ParseRunFile("soak.yaml", []byte("kind: run\nworkloads:\n  - name: load\n    attach: {count: 10}\nuntil: {forever: true}\n"), keepRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := comparablePlan(rf.Input, ForSettings(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.GetUntil(); got.GetDurationMs() != 600000 || got.GetForever() {
+		t.Errorf("until %v, want 10m and not forever", got)
+	}
+}
+
 // pasteUnsafe takes out what a terminal may act on when a copied command
 // is pasted, or that shows text other than it runs: among them a zero-width
 // space (U+200B, a format character) and a right-to-left override (U+202E,
@@ -185,5 +221,20 @@ func TestPasteUnsafe(t *testing.T) {
 		if got := pasteUnsafe(tc.s); got != tc.want {
 			t.Errorf("%s: pasteUnsafe(%q) = %t, want %t", tc.name, tc.s, got, tc.want)
 		}
+	}
+}
+
+// The plan package's refusals are masked at its boundary: a key typed as
+// a --gate name, or as a run file's target:, is not echoed by ParseGate or
+// Render (each quotes what it was given).
+func TestPlanRefusalsMaskKeyText(t *testing.T) {
+	const key = "465b5ce8b199b49faa5f0a2ee238a6bc"
+	_, err := ParseGate(key + "=registration.p99_ms")
+	if err == nil || strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "<redacted>") {
+		t.Errorf("ParseGate: %v", err)
+	}
+	_, err = Render(RenderInput{RunYAML: []byte("target: " + key + "\nkind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\n"), Target: "lab1"})
+	if err == nil || strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "<redacted>") {
+		t.Errorf("Render: %v", err)
 	}
 }

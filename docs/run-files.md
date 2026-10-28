@@ -16,6 +16,9 @@ one, as a starting point for your own.
 
 ## The document
 
+A run file is one YAML document. A second one after `---` is refused, naming
+its line, whether it parses or not; `orbit run` used to ignore it.
+
 ```yaml
 kind: run                  # required: this is a run file, not a scenario
 version: 1                 # optional; 1 is the only version
@@ -158,7 +161,10 @@ and builds the plan the page starts.
 
 `RunService.RenderRun` gives the same run as a command:
 - `orbit test <template> --set …` when the page started from a template
-  and the flags express the changes;
+  and the flags express the changes. A stop after a duration is said as
+  `--for 10m`, and a threshold on a gate the `--slo-*` flags alias as that
+  flag (`--slo-min-success=0.95`), when the plan they give is the run file's;
+  otherwise as `--set`;
 - otherwise `orbit run <target>.run.yaml`, with the run file to save
   beside the command.
 

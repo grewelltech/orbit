@@ -39,6 +39,11 @@ type Planned struct {
 // only while the run file leaves that field as the template has it, as
 // `orbit test` fills only what --set does not set.
 func FromDocuments(d Documents) (*Planned, error) {
+	p, err := fromDocuments(d)
+	return p, target.MaskErr(err)
+}
+
+func fromDocuments(d Documents) (*Planned, error) {
 	getenv := func(name string) (string, bool) { v, ok := d.Vars[name]; return v, ok }
 	targetFile, runFile := DocumentNames(d.TargetYAML)
 	fs, err := target.Parse(targetFile, d.TargetYAML, getenv)
