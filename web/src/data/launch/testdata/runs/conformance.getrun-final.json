@@ -1,0 +1,18 @@
+{
+  "run":  {
+    "runId":  "run-5c2e5ce6",
+    "kind":  "RUN_KIND_CONFORMANCE",
+    "state":  "RUN_STATE_COMPLETE",
+    "startedUnixNano":  "1793174968050822774",
+    "endedUnixNano":  "1793174968060067066"
+  },
+  "conformanceProgress":  {
+    "tally":  {
+      "passed":  1,
+      "failed":  2
+    },
+    "ran":  3,
+    "total":  3,
+    "lastCheck":  "NGAP-NGSETUP-UNKNOWN-PLMN"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "run":  {
+    "runId":  "run-eadfbed8",
+    "kind":  "RUN_KIND_MIXED",
+    "state":  "RUN_STATE_COMPLETE",
+    "startedUnixNano":  "1793174970772990707",
+    "endedUnixNano":  "1793174970985151366",
+    "workloadKinds":  [
+      "RUN_KIND_LOAD",
+      "RUN_KIND_CONFORMANCE"
+    ]
+  },
+  "workloads":  [
+    {
+      "name":  "pop",
+      "kind":  "RUN_KIND_LOAD",
+      "state":  "done",
+      "load":  {
+        "elapsedMs":  "222",
+        "attempted":  2,
+        "succeeded":  2,
+        "achievedRate":  9.003779232789503,
+        "latency":  [
+          {
+            "procedure":  "registration",
+            "count":  "2",
+            "p50Ms":  5.823,
+            "p90Ms":  8.911,
+            "p99Ms":  8.911,
+            "p999Ms":  8.911,
+            "maxMs":  8.911
+          },
+          {
+            "procedure":  "attach",
+            "count":  "2",
+            "p50Ms":  5.827,
+            "p90Ms":  8.919,
+            "p99Ms":  8.919,
+            "p999Ms":  8.919,
+            "maxMs":  8.919
+          }
+        ],
+        "perGnb":  [
+          {
+            "gnb":  "orbit-gnb",
+            "attempted":  2,
+            "succeeded":  2
+          }
+        ]
+      }
+    },
+    {
+      "name":  "suite",
+      "kind":  "RUN_KIND_CONFORMANCE",
+      "state":  "done",
+      "conformance":  {
+        "tally":  {
+          "passed":  1,
+          "failed":  2
+        },
+        "ran":  3,
+        "total":  3,
+        "lastCheck":  "NGAP-NGSETUP-UNKNOWN-PLMN"
+      }
+    }
+  ]
+}

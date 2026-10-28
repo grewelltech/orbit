@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -23,6 +25,30 @@ import (
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
+
+var updateLaunchRuns = flag.Bool("update-launch-runs", false, "write each Launch fixture's GetRun (in flight and final) and GetRunReport as JSON for the dashboard's tests")
+
+// launchRunsDir is where the dashboard's suite tests read what the server
+// answers for each Launch fixture's run: the shapes suitesOf must read.
+var launchRunsDir = filepath.Join("..", "..", "web", "src", "data", "launch", "testdata", "runs")
+
+// writeRunJSON writes m as the dashboard's tests read it, under -update-launch-runs.
+func writeRunJSON(t *testing.T, name string, m proto.Message) {
+	t.Helper()
+	if !*updateLaunchRuns {
+		return
+	}
+	b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(launchRunsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(launchRunsDir, name), append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // launchFixture is a request the Launch page sends, as its tests keep it
 // (web/src/data/launch/fixtures.test.ts): the documents, and the names of
@@ -90,7 +116,16 @@ func TestLaunchRequestsRunEndToEnd(t *testing.T) {
 				t.Error("StartRun changed the plan it was sent")
 			}
 			id := started.Msg.GetRun().GetRunId()
+			fixture := strings.TrimSuffix(filepath.Base(path), ".json")
+			if first, err := c.GetRun(ctx, connect.NewRequest(&orbitv1.GetRunRequest{RunId: id})); err == nil {
+				if st := first.Msg.GetRun().GetState(); st == orbitv1.RunState_RUN_STATE_PENDING || st == orbitv1.RunState_RUN_STATE_RUNNING {
+					writeRunJSON(t, fixture+".getrun-inflight.json", first.Msg)
+				}
+			}
 			run := waitTerminal(t, c, id, 60*time.Second)
+			if final, err := c.GetRun(ctx, connect.NewRequest(&orbitv1.GetRunRequest{RunId: id})); err == nil {
+				writeRunJSON(t, fixture+".getrun-final.json", final.Msg)
+			}
 			if run.GetState() != orbitv1.RunState_RUN_STATE_COMPLETE {
 				t.Fatalf("run %s ended %s (%s), want COMPLETE", id, run.GetState(), run.GetError())
 			}
@@ -98,6 +133,7 @@ func TestLaunchRequestsRunEndToEnd(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			writeRunJSON(t, fixture+".report.json", rep.Msg)
 			if got, want := len(rep.Msg.GetGates()), len(p.GetGates()); got != want {
 				t.Errorf("%d gates judged, want the plan's %d", got, want)
 			}

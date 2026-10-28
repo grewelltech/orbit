@@ -393,7 +393,9 @@ pool, so the checks that need a UE SKIP, as they did on the old Conformance
 page; add a pool on the Targets page to run those. The run view
 (`?run=<id>`) shows a suite's tally as it runs, then every check's verdict,
 spec reference and observation once it ends, with the expected-failures
-list it was judged against.
+list it was judged against ("failed (N expected)" counts the FAILs the list
+tolerates). **stop run** cancels a suite in flight, as the old page's
+cancel did.
 
 ### Launching a run from the browser (`?launch`)
 
@@ -435,8 +437,9 @@ the CLI.
   - A field the server refuses is named, with its document and line.
   - The page then opens the run on the dashboard (`?run=<id>`).
   - A run started here runs on the server: it keeps going when you leave
-    the page or close the tab. Stop it with `orbit runs stop <id>`; a Stop
-    button comes with the next dashboard step.
+    the page or close the tab. Stop it from its run view (**stop run**, after
+    a confirm; it ends as cancelled, its gates not judged) or with
+    `orbit runs stop <id>`.
 - **Keys** go only with the plan, under the same rule as Probe: to the
   server's own host, or over https:// with the API token. That rule applies
   only when the run carries a secret: a key in the target, or any `${VAR}`

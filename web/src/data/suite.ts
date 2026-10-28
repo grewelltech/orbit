@@ -37,7 +37,7 @@ export function checkVerdict(ev: Pick<RunEvent, "kind" | "message">): CheckVerdi
 export interface Suite {
   /** The workload's name; "" for a conformance run's one suite. */
   name: string;
-  progress?: { pass: number; fail: number; error: number; skip: number; deviation: number; ran: number; total: number; lastCheck: string };
+  progress?: { pass: number; fail: number; error: number; skip: number; deviation: number; expected: number; ran: number; total: number; lastCheck: string };
   results: ConformanceResult[];
   /** The expected-failures list the results were judged against, by its core line. */
   expectedCore: string;
@@ -59,37 +59,59 @@ function progressOf(p: ConformanceProgress | undefined): Suite["progress"] {
     error: t?.errored ?? 0,
     skip: t?.skipped ?? 0,
     deviation: t?.deviations ?? 0,
+    expected: t?.expectedFailures ?? 0,
     ran: p.ran,
     total: p.total,
     lastCheck: p.lastCheck,
   };
 }
 
-/** The suites of a run: its progress from run, its results from report once there is one. */
+/**
+ * The suites of a run, each once: its progress from run, its results from
+ * report once there is one. A run started from a plan reports a lone
+ * suite twice, at run level and as its workload (both, with the same
+ * results); the workload's entry is the one kept, under its name, with the
+ * run-level progress when it is the only suite. A run-level suite stands
+ * alone only where no workload entry names one (a conformance run in
+ * flight, or one not started from a plan).
+ */
 export function suitesOf(run: GetRunResponse | undefined, report: GetRunReportResponse | undefined): Suite[] {
   const out: Suite[] = [];
-  if (run?.conformanceProgress || report?.report.case === "conformance") {
-    const summary = report?.report.case === "conformance" ? report.report.value : undefined;
-    out.push({ name: "", progress: progressOf(run?.conformanceProgress), ...fromSummary(summary) });
-  }
-  const reported = new Map((report?.workloads ?? []).filter((w) => w.report.case === "conformance").map((w) => [w.workload, w]));
-  for (const w of run?.workloads ?? []) {
-    if (w.kind !== RunKind.CONFORMANCE) continue;
-    const r = reported.get(w.name);
-    const summary = r?.report.case === "conformance" ? r.report.value : undefined;
+  const reported = (report?.workloads ?? []).filter((w) => w.report.case === "conformance");
+  const live = (run?.workloads ?? []).filter((w) => w.kind === RunKind.CONFORMANCE);
+  const runLevel = progressOf(run?.conformanceProgress);
+  const names = new Set<string>();
+  for (const w of live) {
+    const r = reported.find((x) => x.workload === w.name);
     out.push({
       name: w.name,
       progress: progressOf(w.progress.case === "conformance" ? w.progress.value : undefined),
-      ...fromSummary(summary),
+      ...fromSummary(r?.report.case === "conformance" ? r.report.value : undefined),
     });
-    reported.delete(w.name);
+    names.add(w.name);
   }
-  // A suite the report has and the live view did not (a finished run read cold).
-  for (const [name, r] of reported) {
-    const summary = r.report.case === "conformance" ? r.report.value : undefined;
-    out.push({ name, ...fromSummary(summary) });
+  for (const r of reported) {
+    if (names.has(r.workload)) continue;
+    out.push({
+      name: r.workload,
+      progress: reported.length === 1 ? runLevel : undefined,
+      ...fromSummary(r.report.case === "conformance" ? r.report.value : undefined),
+    });
+    names.add(r.workload);
+  }
+  if (out.length === 0 && (runLevel || report?.report.case === "conformance")) {
+    out.push({ name: "", progress: runLevel, ...fromSummary(report?.report.case === "conformance" ? report.report.value : undefined) });
   }
   return out;
+}
+
+/**
+ * The tally's failed label, as the old conformance page had it: "failed (N
+ * expected)" when an expected-failures list applies, so the FAILs it
+ * tolerates are counted, not hidden.
+ */
+export function failedLabel(expected: number, expectedCore: string): string {
+  return expectedCore || expected > 0 ? `failed (${expected} expected)` : "failed";
 }
 
 /** Whether a run has a conformance suite: a conformance run, or a mixed one with a conformance workload. */

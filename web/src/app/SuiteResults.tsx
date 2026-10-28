@@ -10,7 +10,7 @@ import { createClient } from "@connectrpc/connect";
 import { ConformanceService, type ConformanceResult, type ConformanceTestInfo } from "@/gen/orbit/v1/conformance_pb";
 import { RunService } from "@/gen/orbit/v1/run_pb";
 import { Panel } from "@/components/Panel";
-import { SuiteWatch, type CheckVerdict, type Suite } from "@/data/suite";
+import { failedLabel, SuiteWatch, type CheckVerdict, type Suite } from "@/data/suite";
 import { orbitTransport } from "@/data/transport";
 
 const VERDICT_COLOR: Record<string, string> = {
@@ -67,7 +67,7 @@ export function SuiteResults({ runId }: { runId: string | undefined }) {
   return (
     <section className="flex shrink-0 flex-col gap-3">
       {suites.map((s) => (
-        <SuitePanel key={s.name} suite={s} done={done} live={live.filter((v) => v.workload === s.name)} info={info} />
+        <SuitePanel key={s.name} suite={s} named={suites.length > 1} done={done} live={live.filter((v) => v.workload === s.name)} info={info} />
       ))}
     </section>
   );
@@ -78,8 +78,11 @@ function SuitePanel({
   done,
   live,
   info,
+  named,
 }: {
   suite: Suite;
+  /** The workload's name goes in the title when the run has more than one suite. */
+  named: boolean;
   done: boolean;
   live: readonly CheckVerdict[];
   info: ReadonlyMap<string, ConformanceTestInfo>;
@@ -87,15 +90,22 @@ function SuitePanel({
   const p = suite.progress;
   const count = (v: string) => suite.results.filter((r) => r.verdict === v).length;
   const tally = done
-    ? { pass: count("PASS"), fail: count("FAIL"), error: count("ERROR"), deviation: count("DEVIATION"), skip: count("SKIP") }
-    : { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0 };
+    ? {
+        pass: count("PASS"),
+        fail: count("FAIL"),
+        error: count("ERROR"),
+        deviation: count("DEVIATION"),
+        skip: count("SKIP"),
+        expected: suite.results.filter((r) => r.verdict === "FAIL" && r.expectedFailure).length,
+      }
+    : { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0, expected: p?.expected ?? 0 };
   const meta = done ? `${suite.results.length} checks` : p ? `${p.ran} of ${p.total}${p.lastCheck ? ` · ${p.lastCheck}` : ""}` : "starting";
   return (
-    <Panel title={suite.name ? `conformance · ${suite.name}` : "conformance"} live={!done} meta={meta}>
+    <Panel title={named && suite.name ? `conformance · ${suite.name}` : "conformance"} live={!done} meta={meta}>
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap gap-x-5 gap-y-1">
           <Stat label="pass" value={tally.pass} color={verdictColor("PASS")} />
-          <Stat label="fail" value={tally.fail} color={verdictColor("FAIL")} />
+          <Stat label={failedLabel(tally.expected, suite.expectedCore)} value={tally.fail} color={verdictColor("FAIL")} />
           <Stat label="error" value={tally.error} color={verdictColor("ERROR")} />
           <Stat label="deviation" value={tally.deviation} color={verdictColor("DEVIATION")} />
           <Stat label="skip" value={tally.skip} color={verdictColor("SKIP")} />

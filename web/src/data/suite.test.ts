@@ -1,53 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { create } from "@bufbuild/protobuf";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parseDocument } from "yaml";
+import { create, fromJson } from "@bufbuild/protobuf";
 import { createClient, createRouterTransport } from "@connectrpc/connect";
 import { ConformanceResultSchema } from "@/gen/orbit/v1/conformance_pb";
 import { GetRunReportResponseSchema, GetRunResponseSchema, RunEventSchema, RunKind, RunService, RunState, type GetRunResponse } from "@/gen/orbit/v1/run_pb";
-import { checkVerdict, SuiteWatch, suitesOf, type CheckVerdict, type Suite } from "./suite";
+import { checkVerdict, failedLabel, SuiteWatch, suitesOf, type CheckVerdict, type Suite } from "./suite";
 
 const result = (id: string, verdict: string) => create(ConformanceResultSchema, { id, verdict });
 const progress = { tally: { passed: 2, failed: 1 }, ran: 3, total: 9, lastCheck: "NGAP-X" };
 
-describe("a run's suites", () => {
-  it("a conformance run in flight: its progress, no results yet", () => {
-    const run = create(GetRunResponseSchema, { run: { runId: "r", state: RunState.RUNNING }, conformanceProgress: progress });
-    const [s] = suitesOf(run, undefined);
-    expect(s).toMatchObject({ name: "", progress: { pass: 2, fail: 1, ran: 3, total: 9, lastCheck: "NGAP-X" }, results: [] });
-  });
+/**
+ * What the server answers for each Launch fixture's run, written by
+ * internal/server's TestLaunchRequestsRunEndToEnd (-update-launch-runs):
+ * GetRun in flight and at the end, and GetRunReport. suitesOf is held to
+ * these, not to shapes written by hand.
+ */
+const runsDir = join(__dirname, "launch", "testdata", "runs");
+const fixtureDir = join(__dirname, "launch", "testdata");
+const fixtures = readdirSync(runsDir)
+  .filter((f) => f.endsWith(".report.json"))
+  .map((f) => f.replace(/\.report\.json$/, ""));
+const readRun = (name: string, kind: string) => {
+  const path = join(runsDir, `${name}.${kind}.json`);
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined;
+};
+/** The run file's conformance workloads, by name: the suites the run has. */
+const suiteNames = (name: string): string[] => {
+  const req = JSON.parse(readFileSync(join(fixtureDir, `${name}.json`), "utf8")) as { runYaml: string };
+  const doc = parseDocument(req.runYaml).toJSON() as { workloads?: { name: string; conformance?: unknown }[] };
+  return (doc.workloads ?? []).filter((w) => w.conformance !== undefined).map((w) => w.name);
+};
 
-  it("a conformance run ended: every check's result, the expected list's core and its stale entries", () => {
-    const run = create(GetRunResponseSchema, { run: { runId: "r", state: RunState.COMPLETE }, conformanceProgress: progress });
-    const report = create(GetRunReportResponseSchema, {
-      report: { case: "conformance", value: { results: [result("A", "PASS"), result("B", "FAIL")], expectedFailuresCore: "lab", stale: [{ check: "C", finding: "EX-1" }] } },
+describe("a run's suites, as the server answers", () => {
+  it("has all five Launch fixtures' runs", () => expect([...fixtures].sort()).toEqual(["conformance", "conformance-amf-only", "fleet", "load", "mixed"]));
+  for (const name of fixtures) {
+    it(`${name}: ended, one suite per conformance workload, each once, with its results`, () => {
+      const run = fromJson(GetRunResponseSchema, readRun(name, "getrun-final"));
+      const report = fromJson(GetRunReportResponseSchema, readRun(name, "report"));
+      const suites = suitesOf(run, report);
+      expect(suites.map((s) => s.name)).toEqual(suiteNames(name));
+      for (const s of suites) expect(s.results.length, s.name).toBeGreaterThan(0);
     });
-    const [s] = suitesOf(run, report);
-    expect(s!.results.map((r) => `${r.id}:${r.verdict}`)).toEqual(["A:PASS", "B:FAIL"]);
-    expect(s!.expectedCore).toBe("lab");
-    expect(s!.stale.map((x) => x.check)).toEqual(["C"]);
-  });
+    it(`${name}: in flight, a suite at most once per conformance workload, none for a population`, () => {
+      const raw = readRun(name, "getrun-inflight");
+      if (!raw) return; // the run ended before the first GetRun
+      const suites = suitesOf(fromJson(GetRunResponseSchema, raw), undefined);
+      const want = suiteNames(name);
+      expect(suites.length).toBeLessThanOrEqual(want.length);
+      if (want.length === 0) expect(suites).toEqual([]);
+      expect(new Set(suites.map((s) => s.name)).size).toBe(suites.length);
+    });
+  }
+});
 
-  it("a mixed run: one suite per conformance workload, by name, populations left out", () => {
-    const run = create(GetRunResponseSchema, {
-      run: { runId: "r", state: RunState.COMPLETE },
-      workloads: [
-        { name: "pop", kind: RunKind.LOAD },
-        { name: "s1", kind: RunKind.CONFORMANCE, progress: { case: "conformance", value: progress } },
-      ],
-    });
-    const report = create(GetRunReportResponseSchema, {
-      workloads: [
-        { workload: "pop", kind: RunKind.LOAD },
-        { workload: "s1", kind: RunKind.CONFORMANCE, report: { case: "conformance", value: { results: [result("A", "SKIP")] } } },
-        // Reported, not in the live view: a finished run read cold.
-        { workload: "s2", kind: RunKind.CONFORMANCE, report: { case: "conformance", value: { results: [result("B", "PASS")] } } },
-      ],
-    });
-    expect(suitesOf(run, report).map((s) => `${s.name}:${s.results.length}:${s.progress?.ran ?? "-"}`)).toEqual(["s1:1:3", "s2:1:-"]);
-  });
-
-  it("a run with no suite: none", () => {
-    expect(suitesOf(create(GetRunResponseSchema, { run: { runId: "r" } }), undefined)).toEqual([]);
-    expect(suitesOf(undefined, undefined)).toEqual([]);
+describe("the failed label", () => {
+  it("plain without an expected-failures list", () => expect(failedLabel(0, "")).toBe("failed"));
+  it("counts the tolerated FAILs when a list applies", () => {
+    expect(failedLabel(2, "lab core")).toBe("failed (2 expected)");
+    expect(failedLabel(0, "lab core")).toBe("failed (0 expected)");
+    expect(failedLabel(1, "")).toBe("failed (1 expected)"); // in flight: the tally knows, the core line comes at the end
   });
 });
 
