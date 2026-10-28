@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/target.proto.
  */
 export const file_orbit_v1_target: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcmJpdC92MS90YXJnZXQucHJvdG8SCG9yYml0LnYxIrUBCg5SZXNvbHZlZFRhcmdldBIMCgRuYW1lGAEgASgJEiIKBGNvcmUYAiABKAsyFC5vcmJpdC52MS5UYXJnZXRDb3JlEi0KC3N1YnNjcmliZXJzGAMgAygLMhgub3JiaXQudjEuU3Vic2NyaWJlclBvb2wSIAoDcmFuGAQgASgLMhMub3JiaXQudjEuVGFyZ2V0UkFOEiAKA2FwcBgFIAEoCzITLm9yYml0LnYxLlRhcmdldEFwcCLJAQoKVGFyZ2V0Q29yZRILCgNhbWYYASABKAkSHAoEcGxtbhgCIAEoCzIOLm9yYml0LnYxLlBsbW4SCwoDdGFjGAMgASgNEiAKBnNsaWNlcxgEIAMoCzIQLm9yYml0LnYxLlNuc3NhaRILCgNkbm4YBSABKAkSDwoHcHJvZmlsZRgGIAEoCRIOCgZ1cGZfbjMYByABKAkSEAoIdWVfcG9vbHMYCCADKAkSDgoGdXBmX242GAkgASgJEhEKCW42X3N1Ym5ldBgKIAEoCSIgCgRQbG1uEgsKA21jYxgBIAEoCRILCgNtbmMYAiABKAkigQEKDlN1YnNjcmliZXJQb29sEgwKBG5hbWUYASABKAkSEgoKZmlyc3Rfc3VwaRgCIAEoCRINCgVjb3VudBgDIAEoDRIQCgJraRgEIAEoCUIEiLUYARIRCgNvcGMYBSABKAlCBIi1GAESGQoRcm91dGluZ19pbmRpY2F0b3IYBiABKAkieQoJVGFyZ2V0UkFOEgwKBG5vZGUYASABKAkSEAoIZ25iX25hbWUYAiABKAkSFQoNbjJfc291cmNlX2lwcxgDIAMoCRIOCgZuM19pcHMYBCADKAkSJQoHZ25iX2lkcxgFIAEoCzIULm9yYml0LnYxLkdOQklEUmFuZ2UiOAoKR05CSURSYW5nZRINCgVmaXJzdBgBIAEoDRINCgVjb3VudBgCIAEoDRIMCgRiaXRzGAMgASgNIjQKCVRhcmdldEFwcBInCgpyZXNwb25kZXJzGAEgAygLMhMub3JiaXQudjEuUmVzcG9uZGVyIlAKCVJlc3BvbmRlchIMCgRuYW1lGAEgASgJEg8KB2NvbnRyb2wYAiABKAkSEwoFdG9rZW4YAyABKAlCBIi1GAESDwoHZGF0YV9pcBgEIAEoCSKMAQoPRmllbGRQcm92ZW5hbmNlEgwKBHBhdGgYASABKAkSKgoGc291cmNlGAIgASgLMhoub3JiaXQudjEuUHJvdmVuYW5jZVNvdXJjZRINCgV2YWx1ZRgDIAEoCRIwCgpvdmVycmlkZGVuGAQgAygLMhwub3JiaXQudjEuUHJvdmVuYW5jZU92ZXJyaWRlIkwKEFByb3ZlbmFuY2VTb3VyY2USKAoFbGF5ZXIYASABKA4yGS5vcmJpdC52MS5Qcm92ZW5hbmNlTGF5ZXISDgoGZGV0YWlsGAIgASgJIk8KElByb3ZlbmFuY2VPdmVycmlkZRIqCgZzb3VyY2UYASABKAsyGi5vcmJpdC52MS5Qcm92ZW5hbmNlU291cmNlEg0KBXZhbHVlGAIgASgJInkKDFByb2JlUmVxdWVzdBIoCgZ0YXJnZXQYASABKAsyGC5vcmJpdC52MS5SZXNvbHZlZFRhcmdldBITCgt0YXJnZXRfbmFtZRgCIAEoCRIRCgljb3JlX29ubHkYAyABKAgSFwoPc3RlcF90aW1lb3V0X21zGAQgASgNIlUKCVByb2JlU3RlcBINCgVpbmRleBgBIAEoDRIMCgRuYW1lGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIOCgZkZXRhaWwYBCABKAkSCwoDZml4GAUgASgJKt4BCg9Qcm92ZW5hbmNlTGF5ZXISIAocUFJPVkVOQU5DRV9MQVlFUl9VTlNQRUNJRklFRBAAEhwKGFBST1ZFTkFOQ0VfTEFZRVJfREVGQVVMVBABEhsKF1BST1ZFTkFOQ0VfTEFZRVJfVEFSR0VUEAISHQoZUFJPVkVOQU5DRV9MQVlFUl9SVU5fRklMRRADEhgKFFBST1ZFTkFOQ0VfTEFZRVJfRU5WEAQSGQoVUFJPVkVOQU5DRV9MQVlFUl9GTEFHEAUSGgoWUFJPVkVOQU5DRV9MQVlFUl9MRUFTRRAGMkkKDVRhcmdldFNlcnZpY2USOAoFUHJvYmUSFi5vcmJpdC52MS5Qcm9iZVJlcXVlc3QaEy5vcmJpdC52MS5Qcm9iZVN0ZXAiADABQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_cell, file_orbit_v1_options]);
+  fileDesc("ChVvcmJpdC92MS90YXJnZXQucHJvdG8SCG9yYml0LnYxIrUBCg5SZXNvbHZlZFRhcmdldBIMCgRuYW1lGAEgASgJEiIKBGNvcmUYAiABKAsyFC5vcmJpdC52MS5UYXJnZXRDb3JlEi0KC3N1YnNjcmliZXJzGAMgAygLMhgub3JiaXQudjEuU3Vic2NyaWJlclBvb2wSIAoDcmFuGAQgASgLMhMub3JiaXQudjEuVGFyZ2V0UkFOEiAKA2FwcBgFIAEoCzITLm9yYml0LnYxLlRhcmdldEFwcCLJAQoKVGFyZ2V0Q29yZRILCgNhbWYYASABKAkSHAoEcGxtbhgCIAEoCzIOLm9yYml0LnYxLlBsbW4SCwoDdGFjGAMgASgNEiAKBnNsaWNlcxgEIAMoCzIQLm9yYml0LnYxLlNuc3NhaRILCgNkbm4YBSABKAkSDwoHcHJvZmlsZRgGIAEoCRIOCgZ1cGZfbjMYByABKAkSEAoIdWVfcG9vbHMYCCADKAkSDgoGdXBmX242GAkgASgJEhEKCW42X3N1Ym5ldBgKIAEoCSIgCgRQbG1uEgsKA21jYxgBIAEoCRILCgNtbmMYAiABKAkigQEKDlN1YnNjcmliZXJQb29sEgwKBG5hbWUYASABKAkSEgoKZmlyc3Rfc3VwaRgCIAEoCRINCgVjb3VudBgDIAEoDRIQCgJraRgEIAEoCUIEiLUYARIRCgNvcGMYBSABKAlCBIi1GAESGQoRcm91dGluZ19pbmRpY2F0b3IYBiABKAkieQoJVGFyZ2V0UkFOEgwKBG5vZGUYASABKAkSEAoIZ25iX25hbWUYAiABKAkSFQoNbjJfc291cmNlX2lwcxgDIAMoCRIOCgZuM19pcHMYBCADKAkSJQoHZ25iX2lkcxgFIAEoCzIULm9yYml0LnYxLkdOQklEUmFuZ2UiOAoKR05CSURSYW5nZRINCgVmaXJzdBgBIAEoDRINCgVjb3VudBgCIAEoDRIMCgRiaXRzGAMgASgNIjQKCVRhcmdldEFwcBInCgpyZXNwb25kZXJzGAEgAygLMhMub3JiaXQudjEuUmVzcG9uZGVyIlAKCVJlc3BvbmRlchIMCgRuYW1lGAEgASgJEg8KB2NvbnRyb2wYAiABKAkSEwoFdG9rZW4YAyABKAlCBIi1GAESDwoHZGF0YV9pcBgEIAEoCSKMAQoPRmllbGRQcm92ZW5hbmNlEgwKBHBhdGgYASABKAkSKgoGc291cmNlGAIgASgLMhoub3JiaXQudjEuUHJvdmVuYW5jZVNvdXJjZRINCgV2YWx1ZRgDIAEoCRIwCgpvdmVycmlkZGVuGAQgAygLMhwub3JiaXQudjEuUHJvdmVuYW5jZU92ZXJyaWRlIkwKEFByb3ZlbmFuY2VTb3VyY2USKAoFbGF5ZXIYASABKA4yGS5vcmJpdC52MS5Qcm92ZW5hbmNlTGF5ZXISDgoGZGV0YWlsGAIgASgJIk8KElByb3ZlbmFuY2VPdmVycmlkZRIqCgZzb3VyY2UYASABKAsyGi5vcmJpdC52MS5Qcm92ZW5hbmNlU291cmNlEg0KBXZhbHVlGAIgASgJInkKDFByb2JlUmVxdWVzdBIoCgZ0YXJnZXQYASABKAsyGC5vcmJpdC52MS5SZXNvbHZlZFRhcmdldBITCgt0YXJnZXRfbmFtZRgCIAEoCRIRCgljb3JlX29ubHkYAyABKAgSFwoPc3RlcF90aW1lb3V0X21zGAQgASgNIlUKCVByb2JlU3RlcBINCgVpbmRleBgBIAEoDRIMCgRuYW1lGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIOCgZkZXRhaWwYBCABKAkSCwoDZml4GAUgASgJIpQBCg5SZXNvbHZlUmVxdWVzdBIZCgt0YXJnZXRfeWFtbBgBIAEoCUIEkLUYARIWCghydW5feWFtbBgCIAEoCUIEkLUYARIQCgh0ZW1wbGF0ZRgDIAEoCRIMCgRzZXRzGAQgAygJEg0KBWdhdGVzGAUgAygJEiAKBHZhcnMYBiADKAsyEi5vcmJpdC52MS5WYXJpYWJsZSItCghWYXJpYWJsZRIMCgRuYW1lGAEgASgJEhMKBXZhbHVlGAIgASgJQgSItRgBKt4BCg9Qcm92ZW5hbmNlTGF5ZXISIAocUFJPVkVOQU5DRV9MQVlFUl9VTlNQRUNJRklFRBAAEhwKGFBST1ZFTkFOQ0VfTEFZRVJfREVGQVVMVBABEhsKF1BST1ZFTkFOQ0VfTEFZRVJfVEFSR0VUEAISHQoZUFJPVkVOQU5DRV9MQVlFUl9SVU5fRklMRRADEhgKFFBST1ZFTkFOQ0VfTEFZRVJfRU5WEAQSGQoVUFJPVkVOQU5DRV9MQVlFUl9GTEFHEAUSGgoWUFJPVkVOQU5DRV9MQVlFUl9MRUFTRRAGMkkKDVRhcmdldFNlcnZpY2USOAoFUHJvYmUSFi5vcmJpdC52MS5Qcm9iZVJlcXVlc3QaEy5vcmJpdC52MS5Qcm9iZVN0ZXAiADABQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_cell, file_orbit_v1_options]);
 
 /**
  * ResolvedTarget is a target after layering (ADR-0008 §1, §3): the core,
@@ -508,6 +508,91 @@ export type ProbeStep = Message<"orbit.v1.ProbeStep"> & {
  */
 export const ProbeStepSchema: GenMessage<ProbeStep> = /*@__PURE__*/
   messageDesc(file_orbit_v1_target, 12);
+
+/**
+ * ResolveRequest is a run as a client sends it whole (ADR-0008 §3): the
+ * target document and the run file as YAML text, which the server parses
+ * as the CLI parses its files, and the layers above them. There is no env
+ * layer: a ${VAR} takes its value from vars, never from the server's
+ * environment, and one with no value is an error naming it.
+ *
+ * @generated from message orbit.v1.ResolveRequest
+ */
+export type ResolveRequest = Message<"orbit.v1.ResolveRequest"> & {
+  /**
+   * one kind: target document
+   *
+   * @generated from field: string target_yaml = 1;
+   */
+  targetYaml: string;
+
+  /**
+   * one kind: run document
+   *
+   * @generated from field: string run_yaml = 2;
+   */
+  runYaml: string;
+
+  /**
+   * the built-in template run_yaml started from, or ""
+   *
+   * @generated from field: string template = 3;
+   */
+  template: string;
+
+  /**
+   * the flag layer: --set path=value
+   *
+   * @generated from field: repeated string sets = 4;
+   */
+  sets: string[];
+
+  /**
+   * the flag layer: --gate specs
+   *
+   * @generated from field: repeated string gates = 5;
+   */
+  gates: string[];
+
+  /**
+   * the ${VAR}s' values
+   *
+   * @generated from field: repeated orbit.v1.Variable vars = 6;
+   */
+  vars: Variable[];
+};
+
+/**
+ * Describes the message orbit.v1.ResolveRequest.
+ * Use `create(ResolveRequestSchema)` to create a new message.
+ */
+export const ResolveRequestSchema: GenMessage<ResolveRequest> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_target, 13);
+
+/**
+ * Variable is one ${VAR}'s value. Every value counts as a secret: a name
+ * does not say whether it holds a key.
+ *
+ * @generated from message orbit.v1.Variable
+ */
+export type Variable = Message<"orbit.v1.Variable"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string value = 2;
+   */
+  value: string;
+};
+
+/**
+ * Describes the message orbit.v1.Variable.
+ * Use `create(VariableSchema)` to create a new message.
+ */
+export const VariableSchema: GenMessage<Variable> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_target, 14);
 
 /**
  * ProvenanceLayer is a resolution layer, lowest first.

@@ -148,6 +148,24 @@ reach inside one, so to change a field in it, write it in a run file.
 Without gates, exit 0 means the run completed, not that the core passed.
 Add gates to judge it.
 
+## From the dashboard
+
+The dashboard's Launch page sends the server a stored target and the run
+file it builds, as text, with the `${VAR}` values the tab holds.
+`RunService.PlanRun` resolves them as `orbit run` resolves the same files
+(no `$ORBIT_*`, and no file read: give an expected-failures list inline)
+and builds the plan the page starts.
+
+`RunService.RenderRun` gives the same run as a command:
+- `orbit test <template> --set …` when the page started from a template
+  and the flags express the changes;
+- otherwise `orbit run <target>.run.yaml`, with the run file to save
+  beside the command.
+
+Each argument is quoted for a POSIX shell. A secret written out in the run
+file is refused: write it as a `${VAR}`. The command gives the same plan
+with no `$ORBIT_*` exported, since `--explain` shows what those change.
+
 ## Precedence
 
 A field's value comes from the highest of these layers that sets it: the

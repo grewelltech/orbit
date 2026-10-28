@@ -1,0 +1,124 @@
+package plan
+
+import (
+	"errors"
+	"strings"
+	"testing"
+)
+
+// A run file renders as orbit test <template> --set … when the template
+// and --set give its plan, else as orbit run <file>; each argument quoted.
+func TestRender(t *testing.T) {
+	tmpl := func(name string) string {
+		s, err := TemplateText(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	edit := func(name, from, to string) string {
+		s := tmpl(name)
+		if !strings.Contains(s, from) {
+			t.Fatalf("%q not in template %s", from, name)
+		}
+		return strings.Replace(s, from, to, 1)
+	}
+	tests := []struct {
+		name     string
+		in       RenderInput
+		want     string // the whole command
+		wantFile string
+		wantErr  string
+	}{
+		{name: "load as written", in: RenderInput{RunYAML: []byte(tmpl("load")), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1'`},
+		{name: "fleet as written", in: RenderInput{RunYAML: []byte(tmpl("fleet")), Template: "fleet", Target: "lab1"},
+			want: `orbit test fleet '--target=lab1'`},
+		{name: "conformance as written", in: RenderInput{RunYAML: []byte(tmpl("conformance")), Template: "conformance", Target: "lab1"},
+			want: `orbit test conformance '--target=lab1'`},
+		{name: "a changed count", in: RenderInput{RunYAML: []byte(edit("load", "count: 100", "count: 500")), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--set=workloads[load].attach.count=500'`},
+		{name: "a duration instead of complete", in: RenderInput{RunYAML: []byte(edit("load", "until: {complete: true}", "until: {duration: 10m}")), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--set=until.duration=10m' '--set=until.complete=false'`},
+		{name: "a whole value", in: RenderInput{RunYAML: []byte(edit("fleet", "behaviors: {}", "behaviors: {latency: {target: 10.0.0.9}}")), Template: "fleet", Target: "lab1"},
+			want: `orbit test fleet '--target=lab1' '--set=workloads[fleet].behaviors={latency: {target: 10.0.0.9}}'`},
+		{name: "one category", in: RenderInput{RunYAML: []byte(edit("conformance", "categories: []", "categories: [nas]")), Template: "conformance", Target: "lab1"},
+			want: `orbit test conformance '--target=lab1' '--set=workloads[conformance].conformance.categories=nas'`},
+		{name: "a quote in a value", in: RenderInput{RunYAML: []byte(edit("load", "  - name: load\n", "  - name: load\n    subscriber_pool: \"it's\"\n")), Template: "load", Target: "lab1"},
+			want: `orbit test load '--target=lab1' '--set=workloads[load].subscriber_pool=it'\''s'`},
+		{name: "the flag layer passes through", in: RenderInput{RunYAML: []byte(tmpl("load")), Template: "load", Target: "lab1",
+			Sets: []string{"workloads[load].attach.rate=5"}, Gates: []string{"registration.p99_ms<=500ms"}},
+			want: `orbit test load '--target=lab1' '--set=workloads[load].attach.rate=5' '--gate=registration.p99_ms<=500ms'`},
+		// What --set cannot say: a run file.
+		{name: "two categories", in: RenderInput{RunYAML: []byte(edit("conformance", "categories: []", "categories: [nas, ngap]")), Template: "conformance", Target: "lab1"},
+			want: `orbit run './lab1.run.yaml' '--target=lab1'`, wantFile: "lab1.run.yaml"},
+		{name: "a removed gate", in: RenderInput{RunYAML: []byte(tmpl("load")[:strings.Index(tmpl("load"), "gates:")]), Template: "load", Target: "lab1"},
+			want: `orbit run './lab1.run.yaml' '--target=lab1'`, wantFile: "lab1.run.yaml"},
+		{name: "a ${VAR}", in: RenderInput{RunYAML: []byte(edit("fleet", "behaviors: {}", "behaviors: {latency: {target: \"${ECHO}\"}}")), Template: "fleet", Target: "lab1"},
+			want: `orbit run './lab1.run.yaml' '--target=lab1'`, wantFile: "lab1.run.yaml"},
+		{name: "a token as a ${VAR}", in: RenderInput{RunYAML: []byte(edit("fleet", "behaviors: {}", "behaviors: {traffic: {bulk: {ues: 1, responder: app1, token: \"${APP1_TOKEN}\"}}}")), Template: "fleet", Target: "lab1"},
+			want: `orbit run './lab1.run.yaml' '--target=lab1'`, wantFile: "lab1.run.yaml"},
+		// --set can clear a removed string only to "", which a gate's
+		// threshold still counts as set: the plans differ, so orbit run.
+		{name: "a gate made a conformance gate", in: RenderInput{RunYAML: []byte(edit("load",
+			`slo: {metric: attach.success_ratio, op: ">=", threshold: "0.99"}`, "conformance: true")), Template: "load", Target: "lab1"},
+			want: `orbit run './lab1.run.yaml' '--target=lab1'`, wantFile: "lab1.run.yaml"},
+		{name: "no template", in: RenderInput{RunYAML: []byte(tmpl("load")), Target: "lab1"},
+			want: `orbit run './lab1.run.yaml' '--target=lab1'`, wantFile: "lab1.run.yaml"},
+		// Refused.
+		{name: "a literal token in behaviors", in: RenderInput{RunYAML: []byte(edit("fleet", "behaviors: {}", "behaviors: {traffic: {bulk: {ues: 1, responder: app1, token: s3cr3t-value}}}")), Template: "fleet", Target: "lab1"},
+			wantErr: "literal secret"},
+		{name: "another target", in: RenderInput{RunYAML: []byte("target: lab2\n" + tmpl("load")), Template: "load", Target: "lab1"},
+			wantErr: `target: is "lab2"`},
+		{name: "a target field", in: RenderInput{RunYAML: []byte(tmpl("load") + "core: {amf: x}\n"), Template: "load", Target: "lab1"},
+			wantErr: "unknown key core"},
+		{name: "a bad target name", in: RenderInput{RunYAML: []byte(tmpl("load")), Target: "-x"}, wantErr: "want letters"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := Render(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				if strings.Contains(err.Error(), "s3cr3t") {
+					t.Errorf("the secret in %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Command != tc.want {
+				t.Errorf("command\n got %s\nwant %s", r.Command, tc.want)
+			}
+			if r.FileName != tc.wantFile {
+				t.Errorf("file = %q, want %q", r.FileName, tc.wantFile)
+			}
+		})
+	}
+	if _, err := Render(RenderInput{RunYAML: []byte(tmpl("fleet") + "x: {token: abc}\n"), Target: "lab1"}); !errors.Is(err, ErrLiteralSecret) {
+		t.Errorf("a literal secret anywhere: err = %v, want ErrLiteralSecret", err)
+	}
+}
+
+// The export re-encodes once: again changes nothing.
+func TestCanonicalRunYAML(t *testing.T) {
+	for _, name := range Templates() {
+		text, err := TemplateText(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		once, err := CanonicalRunYAML([]byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		twice, err := CanonicalRunYAML([]byte(once))
+		if err != nil || twice != once {
+			t.Errorf("%s: not stable (%v):\n%s\n---\n%s", name, err, once, twice)
+		}
+	}
+	if _, err := CanonicalRunYAML(nil); err == nil {
+		t.Error("an empty run file re-encoded")
+	}
+}

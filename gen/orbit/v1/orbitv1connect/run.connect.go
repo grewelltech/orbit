@@ -35,6 +35,10 @@ const (
 const (
 	// RunServiceStartRunProcedure is the fully-qualified name of the RunService's StartRun RPC.
 	RunServiceStartRunProcedure = "/orbit.v1.RunService/StartRun"
+	// RunServicePlanRunProcedure is the fully-qualified name of the RunService's PlanRun RPC.
+	RunServicePlanRunProcedure = "/orbit.v1.RunService/PlanRun"
+	// RunServiceRenderRunProcedure is the fully-qualified name of the RunService's RenderRun RPC.
+	RunServiceRenderRunProcedure = "/orbit.v1.RunService/RenderRun"
 	// RunServiceStopRunProcedure is the fully-qualified name of the RunService's StopRun RPC.
 	RunServiceStopRunProcedure = "/orbit.v1.RunService/StopRun"
 	// RunServiceListRunsProcedure is the fully-qualified name of the RunService's ListRuns RPC.
@@ -57,6 +61,15 @@ type RunServiceClient interface {
 	// StartRun launches a run and returns its identity immediately. The run
 	// executes asynchronously; poll GetRun or fetch GetRunReport when done.
 	StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error)
+	// PlanRun resolves a target and a run file the client sends (defaults <
+	// target < run file < flags; no env layer) and builds the run's plan,
+	// as orbit run builds it from the same files (ADR-0008 §3). Stateless:
+	// the server keeps nothing. Its keys are the request's own.
+	PlanRun(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.PlanRunResponse], error)
+	// RenderRun gives a run file as the orbit command that runs it and as
+	// the run file to save. Keyless: a secret written out in the run file is
+	// refused.
+	RenderRun(context.Context, *connect.Request[v1.RenderRunRequest]) (*connect.Response[v1.RenderRunResponse], error)
 	// StopRun requests cancellation. Idempotent; a terminal run is unchanged.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// ListRuns returns active and retained runs, newest first.
@@ -100,6 +113,18 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+RunServiceStartRunProcedure,
 			connect.WithSchema(runServiceMethods.ByName("StartRun")),
+			connect.WithClientOptions(opts...),
+		),
+		planRun: connect.NewClient[v1.ResolveRequest, v1.PlanRunResponse](
+			httpClient,
+			baseURL+RunServicePlanRunProcedure,
+			connect.WithSchema(runServiceMethods.ByName("PlanRun")),
+			connect.WithClientOptions(opts...),
+		),
+		renderRun: connect.NewClient[v1.RenderRunRequest, v1.RenderRunResponse](
+			httpClient,
+			baseURL+RunServiceRenderRunProcedure,
+			connect.WithSchema(runServiceMethods.ByName("RenderRun")),
 			connect.WithClientOptions(opts...),
 		),
 		stopRun: connect.NewClient[v1.StopRunRequest, v1.StopRunResponse](
@@ -150,6 +175,8 @@ func NewRunServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 // runServiceClient implements RunServiceClient.
 type runServiceClient struct {
 	startRun        *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
+	planRun         *connect.Client[v1.ResolveRequest, v1.PlanRunResponse]
+	renderRun       *connect.Client[v1.RenderRunRequest, v1.RenderRunResponse]
 	stopRun         *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	listRuns        *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
 	getRun          *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
@@ -162,6 +189,16 @@ type runServiceClient struct {
 // StartRun calls orbit.v1.RunService.StartRun.
 func (c *runServiceClient) StartRun(ctx context.Context, req *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error) {
 	return c.startRun.CallUnary(ctx, req)
+}
+
+// PlanRun calls orbit.v1.RunService.PlanRun.
+func (c *runServiceClient) PlanRun(ctx context.Context, req *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.PlanRunResponse], error) {
+	return c.planRun.CallUnary(ctx, req)
+}
+
+// RenderRun calls orbit.v1.RunService.RenderRun.
+func (c *runServiceClient) RenderRun(ctx context.Context, req *connect.Request[v1.RenderRunRequest]) (*connect.Response[v1.RenderRunResponse], error) {
+	return c.renderRun.CallUnary(ctx, req)
 }
 
 // StopRun calls orbit.v1.RunService.StopRun.
@@ -204,6 +241,15 @@ type RunServiceHandler interface {
 	// StartRun launches a run and returns its identity immediately. The run
 	// executes asynchronously; poll GetRun or fetch GetRunReport when done.
 	StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error)
+	// PlanRun resolves a target and a run file the client sends (defaults <
+	// target < run file < flags; no env layer) and builds the run's plan,
+	// as orbit run builds it from the same files (ADR-0008 §3). Stateless:
+	// the server keeps nothing. Its keys are the request's own.
+	PlanRun(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.PlanRunResponse], error)
+	// RenderRun gives a run file as the orbit command that runs it and as
+	// the run file to save. Keyless: a secret written out in the run file is
+	// refused.
+	RenderRun(context.Context, *connect.Request[v1.RenderRunRequest]) (*connect.Response[v1.RenderRunResponse], error)
 	// StopRun requests cancellation. Idempotent; a terminal run is unchanged.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// ListRuns returns active and retained runs, newest first.
@@ -243,6 +289,18 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		RunServiceStartRunProcedure,
 		svc.StartRun,
 		connect.WithSchema(runServiceMethods.ByName("StartRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	runServicePlanRunHandler := connect.NewUnaryHandler(
+		RunServicePlanRunProcedure,
+		svc.PlanRun,
+		connect.WithSchema(runServiceMethods.ByName("PlanRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	runServiceRenderRunHandler := connect.NewUnaryHandler(
+		RunServiceRenderRunProcedure,
+		svc.RenderRun,
+		connect.WithSchema(runServiceMethods.ByName("RenderRun")),
 		connect.WithHandlerOptions(opts...),
 	)
 	runServiceStopRunHandler := connect.NewUnaryHandler(
@@ -291,6 +349,10 @@ func NewRunServiceHandler(svc RunServiceHandler, opts ...connect.HandlerOption) 
 		switch r.URL.Path {
 		case RunServiceStartRunProcedure:
 			runServiceStartRunHandler.ServeHTTP(w, r)
+		case RunServicePlanRunProcedure:
+			runServicePlanRunHandler.ServeHTTP(w, r)
+		case RunServiceRenderRunProcedure:
+			runServiceRenderRunHandler.ServeHTTP(w, r)
 		case RunServiceStopRunProcedure:
 			runServiceStopRunHandler.ServeHTTP(w, r)
 		case RunServiceListRunsProcedure:
@@ -316,6 +378,14 @@ type UnimplementedRunServiceHandler struct{}
 
 func (UnimplementedRunServiceHandler) StartRun(context.Context, *connect.Request[v1.StartRunRequest]) (*connect.Response[v1.StartRunResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.RunService.StartRun is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) PlanRun(context.Context, *connect.Request[v1.ResolveRequest]) (*connect.Response[v1.PlanRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.RunService.PlanRun is not implemented"))
+}
+
+func (UnimplementedRunServiceHandler) RenderRun(context.Context, *connect.Request[v1.RenderRunRequest]) (*connect.Response[v1.RenderRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orbit.v1.RunService.RenderRun is not implemented"))
 }
 
 func (UnimplementedRunServiceHandler) StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {

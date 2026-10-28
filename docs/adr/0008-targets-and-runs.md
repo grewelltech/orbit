@@ -264,6 +264,23 @@ layer, so no command line changes meaning.
   provenance with source `lease`. They fill only fields the layers left unset or
   gave as a pool, and they never override a value a layer set.
 
+**Implementation notes** (U2, 2026-10-28; a note on the implementation, not a
+change to the decision):
+
+- The plan comes from `RunService.PlanRun(ResolveRequest)`. It returns the
+  plan, its provenance, the run's name and its event verbosity. It can't
+  live on `TargetService.Resolve`, because `plan.proto` imports
+  `target.proto`.
+- `ResolveRequest` carries the layers as YAML text: the target document,
+  the run file, the template it started from, `--set`/`--gate`, and the
+  `${VAR}` values. Each value is marked secret. There's no env layer, and
+  no file is read.
+- `RunService.RenderRun` gives a run file as its `orbit` command and the
+  file to save. It's keyless: a secret written out in the run file is
+  refused.
+- `TargetService.Resolve`, with this section's target-only shape, waits
+  for its first target-only caller.
+
 ### 4. The credential channel
 
 Keys travel inside `StartRun` and `Resolve`, so the channel has to be fit for
