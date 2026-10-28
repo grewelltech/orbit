@@ -327,7 +327,7 @@ func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	// the SHUTDOWN ahead of the Deregistration Request queued before it, and
 	// keep the UE registered.
 	detail := "UE deregistered (switch-off)"
-	if err := sess.awaitSwitchOffRelease(ctx, m.releaseLinger); err != nil {
+	if err := sess.awaitSwitchOffRelease(ctx, m.releaseLinger, m.log); err != nil {
 		m.log.Warn("switch-off deregistration: closing the association without the core's release", "supi", supi, "err", err)
 		detail += "; " + err.Error()
 	}
@@ -830,8 +830,6 @@ func stateFromResult(r *AttachResult) string {
 	return StateRegistering
 }
 
-// deregister sends a UE-originating switch-off Deregistration Request under
-// the session's security context.
 // switchOffReleaseLinger bounds the wait, after a switch-off
 // Deregistration Request, for the AMF's UE Context Release Command. A
 // switch-off gets no Deregistration Accept (TS 24.501 5.5.2.2.1); the
@@ -851,20 +849,29 @@ var errNoUEContextRelease = errors.New("the core sent no UE Context Release")
 // awaitSwitchOffRelease waits on the UE's association for the UE Context
 // Release Command that answers its switch-off deregistration, and answers
 // it with UE Context Release Complete. The wait ends with ctx, or after
-// linger, as errNoUEContextRelease; other downlink PDUs are skipped.
-func (s *Session) awaitSwitchOffRelease(ctx context.Context, linger time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, linger)
+// linger, as errNoUEContextRelease; other downlink PDUs are skipped (and
+// logged at debug).
+func (s *Session) awaitSwitchOffRelease(parent context.Context, linger time.Duration, log *slog.Logger) error {
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(parent, linger)
 	defer cancel()
 	for {
 		pdu, err := gnb.ReadPDU(ctx, s.conn)
+		if parent.Err() != nil {
+			return fmt.Errorf("%w: waited %s: %v", errNoUEContextRelease, time.Since(start).Round(time.Millisecond), parent.Err())
+		}
 		if ctx.Err() != nil {
 			return fmt.Errorf("%w within %s", errNoUEContextRelease, linger)
 		}
 		if err != nil {
 			return fmt.Errorf("%w: %v", errNoUEContextRelease, err)
 		}
-		if code, ok := procedureCode(pdu); !ok || code != ngapType.ProcedureCodeUEContextRelease ||
-			pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
+		code, ok := procedureCode(pdu)
+		if !ok || code != ngapType.ProcedureCodeUEContextRelease || pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
+			if log != nil {
+				log.Debug("switch-off deregistration: skipping a downlink PDU while waiting for the release",
+					"supi", s.SUPI, "procedure", procedureName(code), "present", pdu.Present)
+			}
 			continue
 		}
 		if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(s.amfID, s.ranID)); err != nil {
@@ -874,7 +881,15 @@ func (s *Session) awaitSwitchOffRelease(ctx context.Context, linger time.Duratio
 	}
 }
 
+// deregister sends a UE-originating switch-off Deregistration Request under
+// the session's security context.
 func (s *Session) deregister(ctx context.Context) error {
+	// A downlink PDU already waiting (a release the core sent mid-run, an
+	// AN or inactivity release) predates this request: dropped, so only a
+	// release that answers it ends awaitSwitchOffRelease.
+	if d, ok := s.conn.(interface{ Drain() int }); ok {
+		d.Drain()
+	}
 	if s.sec == nil {
 		return fmt.Errorf("no security context")
 	}

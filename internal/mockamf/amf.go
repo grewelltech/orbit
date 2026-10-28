@@ -88,8 +88,15 @@ type AMF struct {
 	encodeErrs atomic.Int64
 	// deregs counts UE-originating Deregistration Requests received.
 	deregs atomic.Int64
-	// releaseCompletes counts UE CONTEXT RELEASE COMPLETEs received.
+	// releaseCompletes counts UE CONTEXT RELEASE COMPLETEs received;
+	// completeIDs (under mu) are the NGAP ID pairs they named, and
+	// deregReleases the pairs of the releases sent for a switch-off.
 	releaseCompletes atomic.Int64
+	completeIDs      [][2]int64
+	deregReleases    [][2]int64
+	// strayCompletes counts Completes that came before any switch-off
+	// release named their UE.
+	strayCompletes atomic.Int64
 	// setups are the gNBs that sent an NG Setup Request, in order (Setups).
 	setups []Setup
 	log    *slog.Logger
@@ -126,6 +133,9 @@ type AMF struct {
 
 	// UE context release options (release.go).
 	noReleaseOnDereg     bool
+	noiseBeforeRelease   bool
+	releaseDelay         time.Duration
+	staleRelease         time.Duration
 	ignoreReleaseRequest bool
 
 	// Unknown-DNN options (dnn.go).
@@ -274,6 +284,17 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	}
 	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentUEContextReleaseComplete {
+		ids := releaseCompleteIDs(pdu.SuccessfulOutcome.Value.UEContextReleaseComplete)
+		a.mu.Lock()
+		a.completeIDs = append(a.completeIDs, ids)
+		answered := false
+		for _, r := range a.deregReleases {
+			answered = answered || r == ids
+		}
+		a.mu.Unlock()
+		if !answered {
+			a.strayCompletes.Add(1)
+		}
 		a.releaseCompletes.Add(1)
 		return nil
 	}
@@ -441,6 +462,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		return false, nil
 	case f5nas.MsgTypeRegistrationComplete:
 		st.t3550.stop()
+		if a.staleRelease > 0 {
+			a.sendStaleRelease(p, st)
+		}
 		return true, nil // UE is REGISTERED
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
@@ -474,6 +498,27 @@ func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
 // has received: a release it sent on an association the gNB had already
 // closed is never completed.
 func (a *AMF) ReleaseCompletes() int64 { return a.releaseCompletes.Load() }
+
+// StrayReleaseCompletes reports how many UE CONTEXT RELEASE COMPLETEs
+// arrived before any switch-off release named their UE: a gNB that took
+// some other PDU, or an older release, for the answer.
+func (a *AMF) StrayReleaseCompletes() int64 { return a.strayCompletes.Load() }
+
+// ReleaseCompleteIDs reports the (AMF, RAN) UE NGAP ID pair each UE
+// CONTEXT RELEASE COMPLETE named, in the order they arrived.
+func (a *AMF) ReleaseCompleteIDs() [][2]int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([][2]int64(nil), a.completeIDs...)
+}
+
+// DeregistrationReleaseIDs reports the (AMF, RAN) UE NGAP ID pair of each
+// UE CONTEXT RELEASE COMMAND the mock sent to answer a switch-off.
+func (a *AMF) DeregistrationReleaseIDs() [][2]int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([][2]int64(nil), a.deregReleases...)
+}
 
 // Setup is a gNB's NG Setup Request: its gNB ID and RAN node name.
 type Setup struct {

@@ -324,7 +324,7 @@ func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh
 	// The associations close (f.Close, deferred) only once the core has
 	// released the UEs, or the wait is over.
 	note := ""
-	if n := awaitSwitchOffReleases(context.Background(), sent, switchOffReleaseLinger); n > 0 {
+	if n := awaitSwitchOffReleases(context.Background(), sent, switchOffReleaseLinger, log); n > 0 {
 		note = fmt.Sprintf("; %s for %d of them within %s", errNoUEContextRelease, n, switchOffReleaseLinger)
 		log.Warn("fleet run: closing the associations without the core's release", "ues", n)
 	}
@@ -335,14 +335,14 @@ func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh
 // awaitSwitchOffReleases waits for each session's UE Context Release, all
 // at once, so a run's teardown waits linger at most rather than linger per
 // UE. It returns how many the core did not release.
-func awaitSwitchOffReleases(ctx context.Context, sessions []*Session, linger time.Duration) int {
+func awaitSwitchOffReleases(ctx context.Context, sessions []*Session, linger time.Duration, log *slog.Logger) int {
 	var missing atomic.Int64
 	var wg sync.WaitGroup
 	for _, s := range sessions {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if s.awaitSwitchOffRelease(ctx, linger) != nil {
+			if s.awaitSwitchOffRelease(ctx, linger, log) != nil {
 				missing.Add(1)
 			}
 		}()

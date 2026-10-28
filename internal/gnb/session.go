@@ -101,6 +101,20 @@ func (t *UETransport) ReadMsg(_ []byte) (payload []byte, stream uint16, ppid uin
 	}
 }
 
+// Drain drops the PDUs waiting in the UE's inbox, without blocking, and
+// returns how many: what arrived before a request cannot be its answer.
+func (t *UETransport) Drain() int {
+	n := 0
+	for {
+		select {
+		case <-t.inbox:
+			n++
+		default:
+			return n
+		}
+	}
+}
+
 // Close unregisters the UE from the session demux. It does not close the
 // shared association.
 func (t *UETransport) Close() error {

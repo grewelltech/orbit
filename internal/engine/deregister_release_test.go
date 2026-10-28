@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,16 +20,24 @@ import (
 // and is reported on the DEREGISTERED event.
 func TestDeregisterAwaitsRelease(t *testing.T) {
 	tests := []struct {
-		name         string
-		opts         []mockamf.Option
-		linger       time.Duration
-		ctxTimeout   time.Duration // the Deregister call's context
-		wantComplete int64
-		wantDetail   string
-		minWait      time.Duration
-		maxWait      time.Duration
+		name          string
+		opts          []mockamf.Option
+		linger        time.Duration
+		ctxTimeout    time.Duration // the Deregister call's context
+		wantComplete  int64
+		wantDetail    string
+		wantDetailEnd string // the detail's end, when it holds a measured time
+		minWait       time.Duration
+		maxWait       time.Duration
 	}{
 		{name: "released: completed before the close", linger: 10 * time.Second, ctxTimeout: 10 * time.Second,
+			wantComplete: 1, wantDetail: "UE deregistered (switch-off)", maxWait: 2 * time.Second},
+		// A Downlink NAS Transport and a release's successful outcome come
+		// first: neither is the command, and the wait goes on to it.
+		// The release comes 200ms late, so a Complete sent for either of
+		// the others arrives before it and is a stray.
+		{name: "other PDUs before the release: skipped", opts: []mockamf.Option{mockamf.WithNoiseBeforeRelease(), mockamf.WithReleaseDelay(200 * time.Millisecond)},
+			linger: 10 * time.Second, ctxTimeout: 10 * time.Second,
 			wantComplete: 1, wantDetail: "UE deregistered (switch-off)", maxWait: 2 * time.Second},
 		{name: "never released: bounded by the linger", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()},
 			linger: 300 * time.Millisecond, ctxTimeout: 10 * time.Second,
@@ -36,7 +45,7 @@ func TestDeregisterAwaitsRelease(t *testing.T) {
 			minWait:    300 * time.Millisecond, maxWait: 2 * time.Second},
 		{name: "never released: bounded by the caller's context", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()},
 			linger: time.Minute, ctxTimeout: 500 * time.Millisecond,
-			wantDetail: "the core sent no UE Context Release", maxWait: 2 * time.Second},
+			wantDetail: "the core sent no UE Context Release: waited ", wantDetailEnd: "ms: context deadline exceeded", maxWait: 2 * time.Second},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,6 +90,16 @@ func TestDeregisterAwaitsRelease(t *testing.T) {
 			if got := amf.ReleaseCompletes(); got != tc.wantComplete {
 				t.Errorf("the mock got %d UE Context Release Completes, want %d", got, tc.wantComplete)
 			}
+			if n := amf.StrayReleaseCompletes(); n != 0 {
+				t.Errorf("%d UE Context Release Completes came before the release they answer", n)
+			}
+			// The Complete names the UE the command released.
+			if tc.wantComplete > 0 {
+				sent, got := amf.DeregistrationReleaseIDs(), amf.ReleaseCompleteIDs()
+				if len(sent) != 1 || len(got) != 1 || got[0] != sent[0] {
+					t.Errorf("Release Complete for (AMF, RAN) UE NGAP IDs %v, want %v", got, sent)
+				}
+			}
 			if amf.Deregistrations() != 1 {
 				t.Errorf("the mock got %d Deregistration Requests, want 1", amf.Deregistrations())
 			}
@@ -95,7 +114,7 @@ func TestDeregisterAwaitsRelease(t *testing.T) {
 					t.Fatal("no DEREGISTERED event")
 				}
 			}
-			if !strings.Contains(detail, tc.wantDetail) || (tc.wantComplete == 1 && strings.Contains(detail, "no UE Context Release")) {
+			if !strings.Contains(detail, tc.wantDetail) || !strings.HasSuffix(detail, tc.wantDetailEnd) || (tc.wantComplete == 1 && strings.Contains(detail, "no UE Context Release")) {
 				t.Errorf("DEREGISTERED detail %q, want %q", detail, tc.wantDetail)
 			}
 		})
@@ -136,7 +155,7 @@ func TestAwaitSwitchOffReleasesParallel(t *testing.T) {
 	}
 	const linger = 400 * time.Millisecond
 	start := time.Now()
-	if n := awaitSwitchOffReleases(ctx, sessions, linger); n != 4 {
+	if n := awaitSwitchOffReleases(ctx, sessions, linger, testLogger()); n != 4 {
 		t.Errorf("%d unreleased, want 4", n)
 	}
 	if took := time.Since(start); took > 2*linger {
@@ -155,10 +174,20 @@ func TestRunFleetAwaitsReleases(t *testing.T) {
 		wantComplete int64
 		minWait      time.Duration
 		maxWait      time.Duration
+		wantNote     string // in the teardown milestone
+		hold         time.Duration
 	}{
-		{name: "released", wantComplete: 4, maxWait: switchOffReleaseLinger},
+		{name: "released", wantComplete: 4, maxWait: switchOffReleaseLinger, wantNote: "deregistered 4/4 UEs"},
 		{name: "never released", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()},
-			minWait: switchOffReleaseLinger, maxWait: 2 * switchOffReleaseLinger},
+			minWait: switchOffReleaseLinger, maxWait: 2 * switchOffReleaseLinger,
+			wantNote: "deregistered 4/4 UEs; the core sent no UE Context Release for 4 of them within 3s"},
+		// Each UE is released mid-run, 20ms after it registers, and the
+		// release answering its switch-off comes 300ms late: the old one
+		// waiting in the inbox must not be taken for it.
+		{name: "a release queued before the deregistration is not taken",
+			opts:         []mockamf.Option{mockamf.WithStaleRelease(20 * time.Millisecond), mockamf.WithReleaseDelay(300 * time.Millisecond)},
+			hold:         300 * time.Millisecond,
+			wantComplete: 4, minWait: 600 * time.Millisecond, maxWait: switchOffReleaseLinger, wantNote: "deregistered 4/4 UEs"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -177,12 +206,19 @@ func TestRunFleetAwaitsReleases(t *testing.T) {
 			cfgB.ID, cfgB.Name = 2, ""
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
+			var mu sync.Mutex
+			var milestones []string
+			events := NewRunEvents(func(_, _, _, message string) {
+				mu.Lock()
+				defer mu.Unlock()
+				milestones = append(milestones, message)
+			}, EventsNormal)
 			start := time.Now()
 			rep, err := RunFleet(ctx, testLogger(), FleetRunSpec{
 				AMFAddr:  addr,
 				GNBs:     []FleetGNB{{Config: cfg}, {Config: cfgB}},
 				BaseIMSI: "208930100007500", Count: 4, MCC: "208", MNC: "93", Ki: ki, OPc: opc,
-			}, FleetBehaviors{}, FleetDeps{Stats: NewFleetLiveStats()})
+			}, FleetBehaviors{Duration: tc.hold, Hold: tc.hold > 0}, FleetDeps{Stats: NewFleetLiveStats(), Events: events})
 			took := time.Since(start)
 			if err != nil {
 				t.Fatalf("RunFleet: %v", err)
@@ -197,6 +233,31 @@ func TestRunFleetAwaitsReleases(t *testing.T) {
 			}
 			if got := amf.ReleaseCompletes(); got != tc.wantComplete {
 				t.Errorf("the mock got %d UE Context Release Completes, want %d", got, tc.wantComplete)
+			}
+			if n := amf.StrayReleaseCompletes(); n != 0 {
+				t.Errorf("%d UE Context Release Completes came before the release they answer", n)
+			}
+			// Each Complete names a UE a command released, each UE once.
+			sent := map[[2]int64]bool{}
+			for _, ids := range amf.DeregistrationReleaseIDs() {
+				sent[ids] = true
+			}
+			for _, ids := range amf.ReleaseCompleteIDs() {
+				if !sent[ids] {
+					t.Errorf("a Release Complete for %v, which no command released (sent %v)", ids, amf.DeregistrationReleaseIDs())
+				}
+				delete(sent, ids)
+			}
+			mu.Lock()
+			var teardown string
+			for _, m := range milestones {
+				if strings.HasPrefix(m, "deregistered ") {
+					teardown = m
+				}
+			}
+			mu.Unlock()
+			if teardown != tc.wantNote {
+				t.Errorf("teardown milestone %q, want %q", teardown, tc.wantNote)
 			}
 			// The whole run: four attaches take milliseconds, the teardown
 			// up to one linger.
