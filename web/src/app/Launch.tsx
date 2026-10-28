@@ -18,10 +18,8 @@ import { addWorkload, workloads } from "@/data/launch/form";
 import { TEMPLATES } from "@/data/launch/runschema.gen";
 import { useState } from "react";
 import { quickTargetProblem, useLaunch, type QuickTarget } from "@/data/launch/useLaunch";
-import { carriesSecrets, varsPromptNote, whyNotStart } from "@/data/launch/resolve";
+import { startStateFor, varsPromptNote, whyNotStart } from "@/data/launch/resolve";
 import { loadToken } from "@/data/transport";
-import { secretSlots, refName } from "@/data/targets/yamlio";
-import { parseStored } from "@/data/targets/actions";
 import { PageLinks } from "./PageLinks";
 import { buttonStyle, inputStyle, TextField } from "./targets/fields";
 import { CommandPanel } from "./launch/CommandPanel";
@@ -77,19 +75,16 @@ export function Launch({ preset }: { preset?: string }) {
   const s = l.state;
   const ws = workloads(l.doc);
   // The target's keys are set on the Targets page; the other ${VAR}s here.
-  const parsed = t ? parseStored(t) : undefined;
-  const keyRefs = new Set(parsed ? secretSlots(parsed.doc).map((x) => refName(x.value)).filter((v): v is string => v !== undefined) : []);
-  const missingKeys = l.refs.filter((r) => keyRefs.has(r) && !l.values[r]);
-  const prompts = l.refs.filter((r) => !keyRefs.has(r));
-  const why = whyNotStart({
+  const { state: start, prompts } = startStateFor({
+    targetYaml: t?.yaml,
+    runYaml: l.runYaml,
+    refs: l.refs,
+    values: l.values,
+    workloads: ws.length,
     loc: window.location,
     token: loadToken(),
-    hasTarget: t !== undefined,
-    missingKeys,
-    unsetVars: prompts.filter((r) => !l.values[r]),
-    workloads: ws.length,
-    carriesSecrets: t !== undefined && carriesSecrets({ targetYaml: t.yaml, runYaml: l.runYaml }),
   });
+  const why = whyNotStart(start);
   const err = s.planError;
 
   return (

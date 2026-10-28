@@ -1,0 +1,713 @@
+{
+  "run": {
+    "runId": "run-d68c9c66",
+    "kind": "RUN_KIND_CONFORMANCE",
+    "state": "RUN_STATE_COMPLETE",
+    "startedUnixNano": "1793182318811223902",
+    "endedUnixNano": "1793182318818161501"
+  },
+  "conformance": {
+    "tally": {
+      "passed": 1,
+      "failed": 2,
+      "expectedFailures": 1
+    },
+    "results": [
+      {
+        "id": "NGAP-UNKNOWN-UE-SURVIVES",
+        "category": "negative-ie",
+        "specRef": "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+        "verdict": "FAIL",
+        "expected": "ERROR INDICATION for the unknown UE NGAP IDs, and the NG association keeps working (TS 38.413 10.6, 8.7.5.2)",
+        "observed": "association reset",
+        "detail": "sctp read: EOF; requires Rel-15 or later; TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+        "specRefs": [
+          {
+            "spec": "TS 38.413",
+            "clause": "10.6",
+            "strength": "shall",
+            "since": 15,
+            "verified": [
+              {
+                "release": 15,
+                "version": "V15.0.0",
+                "archive": "38413-f00.zip"
+              },
+              {
+                "release": 15,
+                "version": "V15.13.0",
+                "archive": "38413-fd0.zip"
+              },
+              {
+                "release": 16,
+                "version": "V16.18.0",
+                "archive": "38413-gi0.zip"
+              },
+              {
+                "release": 17,
+                "version": "V17.15.0",
+                "archive": "38413-hf0.zip"
+              },
+              {
+                "release": 18,
+                "version": "V18.11.0",
+                "archive": "38413-ib0.zip"
+              },
+              {
+                "release": 19,
+                "version": "V19.4.0",
+                "archive": "38413-j40.zip"
+              }
+            ],
+            "changed": [
+              {
+                "release": 15,
+                "note": "V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message"
+              }
+            ],
+            "rendered": "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message)"
+          },
+          {
+            "spec": "TS 38.413",
+            "clause": "8.7.5.2",
+            "strength": "shall",
+            "since": 15,
+            "verified": [
+              {
+                "release": 15,
+                "version": "V15.0.0",
+                "archive": "38413-f00.zip"
+              },
+              {
+                "release": 15,
+                "version": "V15.13.0",
+                "archive": "38413-fd0.zip"
+              },
+              {
+                "release": 16,
+                "version": "V16.18.0",
+                "archive": "38413-gi0.zip"
+              },
+              {
+                "release": 17,
+                "version": "V17.15.0",
+                "archive": "38413-hf0.zip"
+              },
+              {
+                "release": 18,
+                "version": "V18.11.0",
+                "archive": "38413-ib0.zip"
+              },
+              {
+                "release": 19,
+                "version": "V19.4.0",
+                "archive": "38413-j40.zip"
+              }
+            ],
+            "changed": [
+              {
+                "release": 15,
+                "note": "example cause names replaced in V15.4.0"
+              },
+              {
+                "release": 19,
+                "note": "V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences"
+              }
+            ],
+            "rendered": "TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)"
+          }
+        ],
+        "minRelease": 15,
+        "expectedFailure": {
+          "finding": "EX-1",
+          "added": "2026-10-28",
+          "reason": "example: the mock core resets the association"
+        }
+      },
+      {
+        "id": "NGAP-NGSETUP-MISSING-TALIST",
+        "category": "negative-ie",
+        "specRef": "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+        "verdict": "FAIL",
+        "expected": "NG SETUP FAILURE reporting the missing Supported TA List, and the core survives (TS 38.413 10.3.5)",
+        "observed": "NG SETUP RESPONSE (accepted!)",
+        "detail": "AMF accepted an NG Setup missing the mandatory Supported TA List; requires Rel-15 or later; TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+        "specRefs": [
+          {
+            "spec": "TS 38.413",
+            "clause": "9.2.6.1 Supported TA List",
+            "strength": "descriptive",
+            "since": 15,
+            "verified": [
+              {
+                "release": 15,
+                "version": "V15.0.0",
+                "archive": "38413-f00.zip"
+              },
+              {
+                "release": 15,
+                "version": "V15.13.0",
+                "archive": "38413-fd0.zip"
+              },
+              {
+                "release": 16,
+                "version": "V16.18.0",
+                "archive": "38413-gi0.zip"
+              },
+              {
+                "release": 17,
+                "version": "V17.15.0",
+                "archive": "38413-hf0.zip"
+              },
+              {
+                "release": 18,
+                "version": "V18.11.0",
+                "archive": "38413-ib0.zip"
+              },
+              {
+                "release": 19,
+                "version": "V19.4.0",
+                "archive": "38413-j40.zip"
+              }
+            ],
+            "changed": [
+              {
+                "release": 15,
+                "note": "criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0"
+              },
+              {
+                "release": 19,
+                "note": "semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject"
+              }
+            ],
+            "rendered": "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject)"
+          },
+          {
+            "spec": "TS 38.413",
+            "clause": "10.3.5 Reject IE bullet 1",
+            "strength": "shall",
+            "since": 15,
+            "verified": [
+              {
+                "release": 15,
+                "version": "V15.0.0",
+                "archive": "38413-f00.zip"
+              },
+              {
+                "release": 15,
+                "version": "V15.13.0",
+                "archive": "38413-fd0.zip"
+              },
+              {
+                "release": 16,
+                "version": "V16.18.0",
+                "archive": "38413-gi0.zip"
+              },
+              {
+                "release": 17,
+                "version": "V17.15.0",
+                "archive": "38413-hf0.zip"
+              },
+              {
+                "release": 18,
+                "version": "V18.11.0",
+                "archive": "38413-ib0.zip"
+              },
+              {
+                "release": 19,
+                "version": "V19.4.0",
+                "archive": "38413-j40.zip"
+              }
+            ],
+            "wordingUnchanged": true,
+            "rendered": "TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)"
+          }
+        ],
+        "minRelease": 15
+      },
+      {
+        "id": "NGAP-NGSETUP-UNKNOWN-PLMN",
+        "category": "negative-ie",
+        "specRef": "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+        "verdict": "PASS",
+        "expected": "NG SETUP FAILURE rejecting a gNB whose PLMNs the AMF does not serve, and the core survives (TS 38.413 8.7.1.4)",
+        "observed": "NG SETUP FAILURE (rejected)",
+        "detail": "presented PLMN 999/99, TAC 257 (served: 208/93, TAC 1); cause Misc unknown-PLMN-or-SNPN (recorded, not asserted); requires Rel-15 or later; TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+        "specRefs": [
+          {
+            "spec": "TS 38.413",
+            "clause": "8.7.1.4",
+            "strength": "shall",
+            "since": 15,
+            "verified": [
+              {
+                "release": 15,
+                "version": "V15.2.0",
+                "archive": "38413-f20.zip"
+              },
+              {
+                "release": 15,
+                "version": "V15.13.0",
+                "archive": "38413-fd0.zip"
+              },
+              {
+                "release": 16,
+                "version": "V16.9.0",
+                "archive": "38413-g90.zip"
+              },
+              {
+                "release": 16,
+                "version": "V16.18.0",
+                "archive": "38413-gi0.zip"
+              },
+              {
+                "release": 17,
+                "version": "V17.15.0",
+                "archive": "38413-hf0.zip"
+              },
+              {
+                "release": 18,
+                "version": "V18.11.0",
+                "archive": "38413-ib0.zip"
+              },
+              {
+                "release": 19,
+                "version": "V19.4.0",
+                "archive": "38413-j40.zip"
+              }
+            ],
+            "changed": [
+              {
+                "release": 15,
+                "note": "added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs"
+              },
+              {
+                "release": 16,
+                "note": "reworded to the PLMNs/SNPNs form in V16.9.0"
+              },
+              {
+                "release": 19,
+                "note": "V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged"
+              }
+            ],
+            "rendered": "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged)"
+          },
+          {
+            "spec": "TS 38.413",
+            "clause": "9.3.1.2",
+            "strength": "descriptive",
+            "since": 15,
+            "verified": [
+              {
+                "release": 15,
+                "version": "V15.0.0",
+                "archive": "38413-f00.zip"
+              },
+              {
+                "release": 15,
+                "version": "V15.13.0",
+                "archive": "38413-fd0.zip"
+              },
+              {
+                "release": 16,
+                "version": "V16.18.0",
+                "archive": "38413-gi0.zip"
+              },
+              {
+                "release": 17,
+                "version": "V17.15.0",
+                "archive": "38413-hf0.zip"
+              },
+              {
+                "release": 18,
+                "version": "V18.11.0",
+                "archive": "38413-ib0.zip"
+              },
+              {
+                "release": 19,
+                "version": "V19.4.0",
+                "archive": "38413-j40.zip"
+              }
+            ],
+            "changed": [
+              {
+                "release": 16,
+                "note": "Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0"
+              }
+            ],
+            "rendered": "TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)"
+          }
+        ],
+        "minRelease": 15
+      }
+    ],
+    "expectedFailuresCore": "mockamf",
+    "expectedFailuresSource": "plan",
+    "total": 3
+  },
+  "gates": [
+    {
+      "gate": {
+        "conformance": {},
+        "name": "conformance"
+      },
+      "observed": 1,
+      "detail": "1 unexpected: NGAP-NGSETUP-MISSING-TALIST FAIL"
+    }
+  ],
+  "workloads": [
+    {
+      "workload": "conformance",
+      "kind": "RUN_KIND_CONFORMANCE",
+      "conformance": {
+        "tally": {
+          "passed": 1,
+          "failed": 2,
+          "expectedFailures": 1
+        },
+        "results": [
+          {
+            "id": "NGAP-UNKNOWN-UE-SURVIVES",
+            "category": "negative-ie",
+            "specRef": "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+            "verdict": "FAIL",
+            "expected": "ERROR INDICATION for the unknown UE NGAP IDs, and the NG association keeps working (TS 38.413 10.6, 8.7.5.2)",
+            "observed": "association reset",
+            "detail": "sctp read: EOF; requires Rel-15 or later; TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+            "specRefs": [
+              {
+                "spec": "TS 38.413",
+                "clause": "10.6",
+                "strength": "shall",
+                "since": 15,
+                "verified": [
+                  {
+                    "release": 15,
+                    "version": "V15.0.0",
+                    "archive": "38413-f00.zip"
+                  },
+                  {
+                    "release": 15,
+                    "version": "V15.13.0",
+                    "archive": "38413-fd0.zip"
+                  },
+                  {
+                    "release": 16,
+                    "version": "V16.18.0",
+                    "archive": "38413-gi0.zip"
+                  },
+                  {
+                    "release": 17,
+                    "version": "V17.15.0",
+                    "archive": "38413-hf0.zip"
+                  },
+                  {
+                    "release": 18,
+                    "version": "V18.11.0",
+                    "archive": "38413-ib0.zip"
+                  },
+                  {
+                    "release": 19,
+                    "version": "V19.4.0",
+                    "archive": "38413-j40.zip"
+                  }
+                ],
+                "changed": [
+                  {
+                    "release": 15,
+                    "note": "V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message"
+                  }
+                ],
+                "rendered": "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message)"
+              },
+              {
+                "spec": "TS 38.413",
+                "clause": "8.7.5.2",
+                "strength": "shall",
+                "since": 15,
+                "verified": [
+                  {
+                    "release": 15,
+                    "version": "V15.0.0",
+                    "archive": "38413-f00.zip"
+                  },
+                  {
+                    "release": 15,
+                    "version": "V15.13.0",
+                    "archive": "38413-fd0.zip"
+                  },
+                  {
+                    "release": 16,
+                    "version": "V16.18.0",
+                    "archive": "38413-gi0.zip"
+                  },
+                  {
+                    "release": 17,
+                    "version": "V17.15.0",
+                    "archive": "38413-hf0.zip"
+                  },
+                  {
+                    "release": 18,
+                    "version": "V18.11.0",
+                    "archive": "38413-ib0.zip"
+                  },
+                  {
+                    "release": 19,
+                    "version": "V19.4.0",
+                    "archive": "38413-j40.zip"
+                  }
+                ],
+                "changed": [
+                  {
+                    "release": 15,
+                    "note": "example cause names replaced in V15.4.0"
+                  },
+                  {
+                    "release": 19,
+                    "note": "V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences"
+                  }
+                ],
+                "rendered": "TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)"
+              }
+            ],
+            "minRelease": 15,
+            "expectedFailure": {
+              "finding": "EX-1",
+              "added": "2026-10-28",
+              "reason": "example: the mock core resets the association"
+            }
+          },
+          {
+            "id": "NGAP-NGSETUP-MISSING-TALIST",
+            "category": "negative-ie",
+            "specRef": "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+            "verdict": "FAIL",
+            "expected": "NG SETUP FAILURE reporting the missing Supported TA List, and the core survives (TS 38.413 10.3.5)",
+            "observed": "NG SETUP RESPONSE (accepted!)",
+            "detail": "AMF accepted an NG Setup missing the mandatory Supported TA List; requires Rel-15 or later; TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+            "specRefs": [
+              {
+                "spec": "TS 38.413",
+                "clause": "9.2.6.1 Supported TA List",
+                "strength": "descriptive",
+                "since": 15,
+                "verified": [
+                  {
+                    "release": 15,
+                    "version": "V15.0.0",
+                    "archive": "38413-f00.zip"
+                  },
+                  {
+                    "release": 15,
+                    "version": "V15.13.0",
+                    "archive": "38413-fd0.zip"
+                  },
+                  {
+                    "release": 16,
+                    "version": "V16.18.0",
+                    "archive": "38413-gi0.zip"
+                  },
+                  {
+                    "release": 17,
+                    "version": "V17.15.0",
+                    "archive": "38413-hf0.zip"
+                  },
+                  {
+                    "release": 18,
+                    "version": "V18.11.0",
+                    "archive": "38413-ib0.zip"
+                  },
+                  {
+                    "release": 19,
+                    "version": "V19.4.0",
+                    "archive": "38413-j40.zip"
+                  }
+                ],
+                "changed": [
+                  {
+                    "release": 15,
+                    "note": "criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0"
+                  },
+                  {
+                    "release": 19,
+                    "note": "semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject"
+                  }
+                ],
+                "rendered": "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject)"
+              },
+              {
+                "spec": "TS 38.413",
+                "clause": "10.3.5 Reject IE bullet 1",
+                "strength": "shall",
+                "since": 15,
+                "verified": [
+                  {
+                    "release": 15,
+                    "version": "V15.0.0",
+                    "archive": "38413-f00.zip"
+                  },
+                  {
+                    "release": 15,
+                    "version": "V15.13.0",
+                    "archive": "38413-fd0.zip"
+                  },
+                  {
+                    "release": 16,
+                    "version": "V16.18.0",
+                    "archive": "38413-gi0.zip"
+                  },
+                  {
+                    "release": 17,
+                    "version": "V17.15.0",
+                    "archive": "38413-hf0.zip"
+                  },
+                  {
+                    "release": 18,
+                    "version": "V18.11.0",
+                    "archive": "38413-ib0.zip"
+                  },
+                  {
+                    "release": 19,
+                    "version": "V19.4.0",
+                    "archive": "38413-j40.zip"
+                  }
+                ],
+                "wordingUnchanged": true,
+                "rendered": "TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)"
+              }
+            ],
+            "minRelease": 15
+          },
+          {
+            "id": "NGAP-NGSETUP-UNKNOWN-PLMN",
+            "category": "negative-ie",
+            "specRef": "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+            "verdict": "PASS",
+            "expected": "NG SETUP FAILURE rejecting a gNB whose PLMNs the AMF does not serve, and the core survives (TS 38.413 8.7.1.4)",
+            "observed": "NG SETUP FAILURE (rejected)",
+            "detail": "presented PLMN 999/99, TAC 257 (served: 208/93, TAC 1); cause Misc unknown-PLMN-or-SNPN (recorded, not asserted); requires Rel-15 or later; TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+            "specRefs": [
+              {
+                "spec": "TS 38.413",
+                "clause": "8.7.1.4",
+                "strength": "shall",
+                "since": 15,
+                "verified": [
+                  {
+                    "release": 15,
+                    "version": "V15.2.0",
+                    "archive": "38413-f20.zip"
+                  },
+                  {
+                    "release": 15,
+                    "version": "V15.13.0",
+                    "archive": "38413-fd0.zip"
+                  },
+                  {
+                    "release": 16,
+                    "version": "V16.9.0",
+                    "archive": "38413-g90.zip"
+                  },
+                  {
+                    "release": 16,
+                    "version": "V16.18.0",
+                    "archive": "38413-gi0.zip"
+                  },
+                  {
+                    "release": 17,
+                    "version": "V17.15.0",
+                    "archive": "38413-hf0.zip"
+                  },
+                  {
+                    "release": 18,
+                    "version": "V18.11.0",
+                    "archive": "38413-ib0.zip"
+                  },
+                  {
+                    "release": 19,
+                    "version": "V19.4.0",
+                    "archive": "38413-j40.zip"
+                  }
+                ],
+                "changed": [
+                  {
+                    "release": 15,
+                    "note": "added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs"
+                  },
+                  {
+                    "release": 16,
+                    "note": "reworded to the PLMNs/SNPNs form in V16.9.0"
+                  },
+                  {
+                    "release": 19,
+                    "note": "V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged"
+                  }
+                ],
+                "rendered": "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged)"
+              },
+              {
+                "spec": "TS 38.413",
+                "clause": "9.3.1.2",
+                "strength": "descriptive",
+                "since": 15,
+                "verified": [
+                  {
+                    "release": 15,
+                    "version": "V15.0.0",
+                    "archive": "38413-f00.zip"
+                  },
+                  {
+                    "release": 15,
+                    "version": "V15.13.0",
+                    "archive": "38413-fd0.zip"
+                  },
+                  {
+                    "release": 16,
+                    "version": "V16.18.0",
+                    "archive": "38413-gi0.zip"
+                  },
+                  {
+                    "release": 17,
+                    "version": "V17.15.0",
+                    "archive": "38413-hf0.zip"
+                  },
+                  {
+                    "release": 18,
+                    "version": "V18.11.0",
+                    "archive": "38413-ib0.zip"
+                  },
+                  {
+                    "release": 19,
+                    "version": "V19.4.0",
+                    "archive": "38413-j40.zip"
+                  }
+                ],
+                "changed": [
+                  {
+                    "release": 16,
+                    "note": "Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0"
+                  }
+                ],
+                "rendered": "TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)"
+              }
+            ],
+            "minRelease": 15
+          }
+        ],
+        "expectedFailuresCore": "mockamf",
+        "expectedFailuresSource": "plan",
+        "total": 3
+      },
+      "gates": [
+        {
+          "gate": {
+            "conformance": {},
+            "name": "conformance"
+          },
+          "observed": 1,
+          "detail": "1 unexpected: NGAP-NGSETUP-MISSING-TALIST FAIL"
+        }
+      ]
+    }
+  ]
+}

@@ -43,6 +43,9 @@ describe("the quick target's TAC", () => {
     ["x", "a TAC is 1"],
     ["-1", "a TAC is 1"],
     ["1.5", "a TAC is 1"],
+    ["007", "TAC 007 has a leading zero; write 7"],
+    ["010", "write 10"],
+    ["00", "TAC 00 has a leading zero; write 0"],
   ];
   for (const [tac, want] of rows) {
     it(`TAC "${tac}"`, () => {

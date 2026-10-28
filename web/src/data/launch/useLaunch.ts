@@ -63,10 +63,15 @@ export interface QuickTarget {
 /** The largest TAC: 24 bits. */
 export const TAC_MAX = 0xffffff;
 
-/** Why q makes no target yet, or undefined: a name, an AMF and a PLMN, and a TAC (when given) within 1 to TAC_MAX. */
+/**
+ * Why q makes no target yet, or undefined: a name, an AMF and a PLMN, and
+ * a TAC (when given) within 1 to TAC_MAX, written without a leading zero
+ * (as import and the server refuse one: 007 could be octal or decimal).
+ */
 export function quickTargetProblem(q: QuickTarget): string | undefined {
   if (!q.name.trim() || !q.amf.trim() || !q.mcc.trim() || !q.mnc.trim()) return "a name, an AMF and a PLMN";
   const tac = q.tac.trim();
+  if (/^0[0-9]+$/.test(tac)) return `TAC ${tac} has a leading zero; write ${tac.replace(/^0+/, "") || "0"}`;
   if (tac !== "" && !(/^[0-9]+$/.test(tac) && Number(tac) >= 1 && Number(tac) <= TAC_MAX)) return `a TAC is 1 to ${TAC_MAX}`;
   return undefined;
 }

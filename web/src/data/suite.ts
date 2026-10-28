@@ -108,6 +108,37 @@ export function suitesOf(run: GetRunResponse | undefined, report: GetRunReportRe
   return out;
 }
 
+/** A suite's counts by verdict, and how many of its FAILs the expected-failures list tolerates. */
+export interface Tally {
+  pass: number;
+  fail: number;
+  error: number;
+  deviation: number;
+  skip: number;
+  expected: number;
+}
+
+/**
+ * A suite's tally: once done, counted from its results (a FAIL the list
+ * tolerates counted in expected as well as in fail); in flight, the
+ * server's running tally.
+ */
+export function suiteTally(suite: Suite, done: boolean): Tally {
+  if (!done) {
+    const p = suite.progress;
+    return { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0, expected: p?.expected ?? 0 };
+  }
+  const count = (v: string) => suite.results.filter((r) => r.verdict === v).length;
+  return {
+    pass: count("PASS"),
+    fail: count("FAIL"),
+    error: count("ERROR"),
+    deviation: count("DEVIATION"),
+    skip: count("SKIP"),
+    expected: suite.results.filter((r) => r.verdict === "FAIL" && r.expectedFailure).length,
+  };
+}
+
 /**
  * The tally's failed label, as the old conformance page had it: "failed (N
  * expected)" when an expected-failures list applies, so the FAILs it
