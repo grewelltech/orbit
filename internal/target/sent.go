@@ -1,6 +1,7 @@
 package target
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -95,6 +96,17 @@ func (e *FieldError) Error() string { return e.Path + ": " + e.Reason }
 // Nothing is expanded: a ${VAR} in a sent field is that text, and a check
 // sees it as written.
 func ResolveSent(t Target) (*Resolved, error) {
+	res, err := resolveSent(t)
+	var fe *FieldError
+	if errors.As(err, &fe) {
+		// Still a *FieldError (the dashboard marks the field from its
+		// path), with any key text in a name or value masked.
+		return nil, &FieldError{Path: maskKeyShaped(fe.Path), Reason: maskKeyShaped(fe.Reason)}
+	}
+	return res, maskErr(err)
+}
+
+func resolveSent(t Target) (*Resolved, error) {
 	if t.Name == "" {
 		return nil, &FieldError{Path: "name", Reason: "is required"}
 	}

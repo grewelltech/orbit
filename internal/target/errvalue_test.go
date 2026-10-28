@@ -2,6 +2,8 @@ package target
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -252,6 +254,7 @@ func TestSecondYAMLDocumentRefused(t *testing.T) {
 		{"one, with a leading ---", "---\n" + one, ""},
 		{"one, with a trailing ---", one + "---\n", ""},
 		{"two documents", one + "---\n" + strings.Replace(one, "name: a", "name: b", 1), "lab.yaml:7: a second YAML document"},
+		{"a second document that does not parse", one + "---\nfoo: [\n", "a second YAML document"},
 		{"a list, then a second document", "- " + strings.ReplaceAll(strings.TrimSuffix(one, "\n"), "\n", "\n  ") + "\n---\nversion: 1\n", "a second YAML document"},
 	} {
 		_, err := Parse("lab.yaml", []byte(tc.doc), none)
@@ -260,6 +263,83 @@ func TestSecondYAMLDocumentRefused(t *testing.T) {
 			t.Errorf("%s: %v", tc.name, err)
 		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%s: %v, want %q", tc.name, err, tc.want)
+		}
+	}
+}
+
+// A run file is one YAML document too: a second is refused, as a target
+// file's is, whether it parses or not.
+func TestRunFileSecondDocumentRefused(t *testing.T) {
+	none := func(string) (string, bool) { return "", false }
+	one := "kind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\n"
+	for _, tc := range []struct {
+		name, doc string
+		want      string
+	}{
+		{"one document", one, ""},
+		{"a trailing ---", one + "---\n", ""},
+		{"two documents", one + "---\n" + one, "soak.yaml:6: a second YAML document (---); a run file is one document"},
+		{"a second that does not parse", one + "---\nfoo: [\n", "a second YAML document"},
+	} {
+		_, err := ParseRunFile("soak.yaml", []byte(tc.doc), none)
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%s: %v", tc.name, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%s: %v, want %q", tc.name, err, tc.want)
+		}
+	}
+}
+
+// A target the dashboard sends (ResolveSent, the probe's path) shows no key
+// text in its refusals either: a key-shaped pool name with a '.' or given
+// twice. The refusal is still a *FieldError, which the page marks the field
+// from.
+func TestResolveSentMasksKeyText(t *testing.T) {
+	const key = "465b5ce8b199b49faa5f0a2ee238a6bc"
+	base := Target{Name: "lab1", Core: Core{AMF: "192.0.2.1:38412", PLMN: PLMN{MCC: "001", MNC: "01"}}}
+	for _, tc := range []struct {
+		name  string
+		pools []Pool
+	}{
+		{"a key-shaped name with a '.'", []Pool{{Name: key + ".x", FirstSUPI: "001010000000001"}}},
+		{"a key-shaped name twice", []Pool{{Name: key, FirstSUPI: "001010000000001"}, {Name: key, FirstSUPI: "001010000000002"}}},
+	} {
+		tg := base
+		tg.Subscribers = tc.pools
+		_, err := ResolveSent(tg)
+		var fe *FieldError
+		if !errors.As(err, &fe) {
+			t.Fatalf("%s: %v, want a *FieldError", tc.name, err)
+		}
+		if strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), Masked) {
+			t.Errorf("%s: %v", tc.name, err)
+		}
+	}
+}
+
+// No caller in internal/cli or internal/server shows a target error's
+// unmasked text: none unwraps one (errors.Unwrap), and none reaches the
+// yaml error a target error wraps, whose text quotes the value.
+func TestNoUnmaskedTargetErrorShown(t *testing.T) {
+	for _, dir := range []string{"../cli", "../server"} {
+		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			if strings.HasSuffix(f, "_test.go") {
+				continue
+			}
+			b, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, banned := range []string{"errors.Unwrap(", "yaml.TypeError"} {
+				if strings.Contains(string(b), banned) {
+					t.Errorf("%s uses %s: a target error's unmasked text could be shown", f, banned)
+				}
+			}
 		}
 	}
 }

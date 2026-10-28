@@ -486,6 +486,31 @@ func TestProbeGNBIDs(t *testing.T) {
 	}
 }
 
+// The probe's refusal of a sent target (InvalidArgument, the path the
+// Targets page marks) shows no key text: a key-shaped pool name with a '.'
+// or given twice comes back masked.
+func TestProbeRefusalMasksKeyText(t *testing.T) {
+	const key = "465b5ce8b199b49faa5f0a2ee238a6bc"
+	for _, tc := range []struct {
+		name  string
+		pools []*orbitv1.SubscriberPool
+	}{
+		{"a key-shaped name with a '.'", []*orbitv1.SubscriberPool{{Name: key + ".x", FirstSupi: "001010000000001"}}},
+		{"a key-shaped name twice", []*orbitv1.SubscriberPool{{Name: key, FirstSupi: "001010000000001"}, {Name: key, FirstSupi: "001010000000002"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &probeFakes{}
+			svc, _ := newProbeService(f.env())
+			tg := probeTarget(nil)
+			tg.Subscribers = tc.pools
+			_, err := probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: tg, CoreOnly: true}, nil)
+			if connect.CodeOf(err) != connect.CodeInvalidArgument || strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), target.Masked) {
+				t.Errorf("err %v: want InvalidArgument with the name masked", err)
+			}
+		})
+	}
+}
+
 // The probe's three gNB IDs must fit the ID length and, when the target
 // gives a count, its block: otherwise the target is refused before
 // anything runs (InvalidArgument, naming ran.gnb_ids), not probed with IDs

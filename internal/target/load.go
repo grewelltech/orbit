@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -176,8 +177,8 @@ func parse(name string, b []byte, env Getenv) ([]*File, error) {
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	if line := secondDocument(b); line > 0 {
-		return nil, fmt.Errorf("%s:%d: a second YAML document (---); a target file is one document, a target or a list of targets, and the rest would be ignored", name, line)
+	if line, ok := secondDocument(b); ok {
+		return nil, secondDocumentError(name, "a target file", line)
 	}
 	if root.Kind == 0 || len(root.Content) == 0 {
 		return nil, fmt.Errorf("%s: empty", name)
@@ -554,6 +555,9 @@ func parseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
+	if line, ok := secondDocument(b); ok {
+		return nil, secondDocumentError(name, "a run file", line)
+	}
 	if root.Kind == 0 || len(root.Content) == 0 {
 		return nil, fmt.Errorf("%s: empty", name)
 	}
@@ -588,20 +592,45 @@ func parseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 	return rf, nil
 }
 
-// secondDocument is the line a second YAML document in b starts on, 0 when
-// there is none (yaml.Unmarshal reads the first and ignores the rest). A
-// document that is empty, such as a trailing "---", is not one.
-func secondDocument(b []byte) int {
+// yamlLineRe is the line a yaml error names.
+var yamlLineRe = regexp.MustCompile(`line ([0-9]+)`)
+
+// secondDocument reports whether b holds a second YAML document
+// (yaml.Unmarshal reads the first and ignores the rest), and the line it
+// starts on, or where it fails to parse (0 when yaml names none). A
+// document that is empty, such as a trailing "---", is not one; the
+// first document's own errors are yaml.Unmarshal's to report.
+func secondDocument(b []byte) (int, bool) {
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	for n := 0; ; n++ {
 		var doc yaml.Node
-		if err := dec.Decode(&doc); err != nil {
-			return 0 // io.EOF, or an error the first decode has reported
-		}
-		if n > 0 && len(doc.Content) > 0 && !emptyNode(doc.Content[0]) {
-			return doc.Content[0].Line
+		err := dec.Decode(&doc)
+		switch {
+		case errors.Is(err, io.EOF):
+			return 0, false
+		case err != nil && n == 0:
+			return 0, false
+		case err != nil:
+			// Past the first document: a second one that does not parse.
+			line := 0
+			if m := yamlLineRe.FindStringSubmatch(err.Error()); m != nil {
+				line, _ = strconv.Atoi(m[1])
+			}
+			return line, true
+		case n > 0 && len(doc.Content) > 0 && !emptyNode(doc.Content[0]):
+			return doc.Content[0].Line, true
 		}
 	}
+}
+
+// secondDocumentError is the refusal of a file holding a second YAML
+// document; what is a file of kind what.
+func secondDocumentError(name, what string, line int) error {
+	at := name
+	if line > 0 {
+		at = fmt.Sprintf("%s:%d", name, line)
+	}
+	return fmt.Errorf("%s: a second YAML document (---); %s is one document, and the rest would be ignored", at, what)
 }
 
 // emptyNode reports whether n is a document's nothing: a null scalar with

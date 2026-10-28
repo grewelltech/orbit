@@ -179,10 +179,12 @@ the probe 0x9000 above it.
   it by, so a field it is pasted into shows it in an error. An IPv6 address
   written out in full (eight groups of four hex digits) is a Ki's shape, so
   it shows as `<redacted>` in an error; the compressed form (`2001:db8::1`)
-  stays readable.
+  stays readable. Nor does a long list of two-digit numbers (15 or more,
+  separated by `:`, `-` or spaces): it has the shape of a key in pairs.
 - **One YAML document.** A target file is one document: a target, or a list
-  of targets. A second document after `---` is refused, naming its line; it
-  used to be ignored.
+  of targets. A second document after `---` is refused, naming its line,
+  whether it parses or not; it used to be ignored. A run file is the same
+  ([run-files.md](run-files.md#the-document)).
 
 ## Precedence
 

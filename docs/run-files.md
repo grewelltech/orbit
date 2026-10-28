@@ -16,6 +16,9 @@ one, as a starting point for your own.
 
 ## The document
 
+A run file is one YAML document. A second one after `---` is refused, naming
+its line, whether it parses or not; `orbit run` used to ignore it.
+
 ```yaml
 kind: run                  # required: this is a run file, not a scenario
 version: 1                 # optional; 1 is the only version

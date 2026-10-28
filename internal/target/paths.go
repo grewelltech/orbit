@@ -489,7 +489,10 @@ var keyShapedInRe = regexp.MustCompile(`(^|[^0-9A-Fa-f])(` + keyShapePattern + `
 // maskedErr is an error whose text has every key- or token-shaped word
 // masked (maskKeyShaped): a key used as a YAML key, a pool's name, or a
 // value an error quotes. errors.Is and errors.As still see the error it
-// wraps.
+// wraps, whose own text is NOT masked: a caller must never show an
+// Unwrap()ped target error, or the text of one errors.As found inside it
+// (TestNoUnmaskedTargetErrorShown keeps internal/cli and internal/server to
+// that).
 type maskedErr struct{ err error }
 
 func (e maskedErr) Error() string { return maskKeyShaped(e.err.Error()) }
