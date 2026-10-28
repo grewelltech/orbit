@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { createClient, createRouterTransport } from "@connectrpc/connect";
 import { ConformanceResultSchema } from "@/gen/orbit/v1/conformance_pb";
-import { GetRunReportResponseSchema, GetRunResponseSchema, RunKind, RunService, RunState, type GetRunResponse } from "@/gen/orbit/v1/run_pb";
-import { SuiteWatch, suitesOf, type Suite } from "./suite";
+import { GetRunReportResponseSchema, GetRunResponseSchema, RunEventSchema, RunKind, RunService, RunState, type GetRunResponse } from "@/gen/orbit/v1/run_pb";
+import { checkVerdict, SuiteWatch, suitesOf, type CheckVerdict, type Suite } from "./suite";
 
 const result = (id: string, verdict: string) => create(ConformanceResultSchema, { id, verdict });
 const progress = { tally: { passed: 2, failed: 1 }, ran: 3, total: 9, lastCheck: "NGAP-X" };
@@ -51,6 +51,23 @@ describe("a run's suites", () => {
   });
 });
 
+describe("a check's verdict from the run's events", () => {
+  const rows: [string, string, CheckVerdict | undefined][] = [
+    ["CONFORMANCE", "NGAP-NG-RESET-ACK FAIL", { workload: "", id: "NGAP-NG-RESET-ACK", verdict: "FAIL" }],
+    ["CONFORMANCE", "NAS-T3560-AUTH-RETRANSMIT SKIP", { workload: "", id: "NAS-T3560-AUTH-RETRANSMIT", verdict: "SKIP" }],
+    ["CONFORMANCE", "X DEVIATION", { workload: "", id: "X", verdict: "DEVIATION" }],
+    // A mixed run names the workload.
+    ["CONFORMANCE", "[suite] NGAP-UNKNOWN-UE-SURVIVES FAIL", { workload: "suite", id: "NGAP-UNKNOWN-UE-SURVIVES", verdict: "FAIL" }],
+    ["CONFORMANCE", "[s-2] X PASS", { workload: "s-2", id: "X", verdict: "PASS" }],
+    ["CONFORMANCE", "[a] b] X PASS", undefined],
+    ["ATTACH", "NGAP-NG-RESET-ACK FAIL", undefined],
+    ["CONFORMANCE", "suite started", undefined],
+    ["CONFORMANCE", "X MAYBE", undefined],
+    ["CONFORMANCE", "X FAIL extra", undefined],
+  ];
+  for (const [kind, message, want] of rows) it(`${kind} "${message}"`, () => expect(checkVerdict({ kind, message })).toEqual(want));
+});
+
 describe("SuiteWatch over a server", () => {
   /** A RunService whose run is RUNNING for `polls` GetRuns, then COMPLETE with a report. */
   function server(polls: number) {
@@ -67,6 +84,11 @@ describe("SuiteWatch over a server", () => {
           reports++;
           return create(GetRunReportResponseSchema, { report: { case: "conformance", value: { results: [result("A", "PASS")] } } });
         },
+        async *runEvents() {
+          yield create(RunEventSchema, { seq: 1n, kind: "RUN", message: "started" });
+          yield create(RunEventSchema, { seq: 2n, kind: "CONFORMANCE", message: "A PASS" });
+          yield create(RunEventSchema, { seq: 3n, kind: "CONFORMANCE", message: "[s1] B FAIL" });
+        },
       });
     });
     return { client: createClient(RunService, transport), polls: () => n, reports: () => reports };
@@ -75,7 +97,13 @@ describe("SuiteWatch over a server", () => {
   it("follows progress while the run is in flight, then reads the report once", async () => {
     const srv = server(2);
     const seen: { suites: Suite[]; done: boolean }[] = [];
-    await new SuiteWatch(srv.client, "r", (suites, done) => seen.push({ suites, done }), 1).start();
+    const checks: CheckVerdict[] = [];
+    await new SuiteWatch(srv.client, "r", (suites, done) => seen.push({ suites, done }), 1, (v) => checks.push(v)).start();
+    // Each check's verdict as it landed, in order; other events left out.
+    expect(checks).toEqual([
+      { workload: "", id: "A", verdict: "PASS" },
+      { workload: "s1", id: "B", verdict: "FAIL" },
+    ]);
     expect(seen.map((v) => v.done)).toEqual([false, false, true]);
     expect(seen[1]!.suites[0]!.progress?.ran).toBe(2);
     expect(seen[2]!.suites[0]!.results.map((r) => r.id)).toEqual(["A"]);

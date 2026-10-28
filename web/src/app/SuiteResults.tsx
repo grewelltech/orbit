@@ -1,15 +1,16 @@
 /**
  * SuiteResults — a run's conformance suites on the run view: each suite's
- * progress while the run is in flight, then every check's verdict once it
- * has ended. Shown only for a run that has a suite (a conformance run, or
- * a mixed run with a conformance workload).
+ * progress and each check's verdict as it lands while the run is in
+ * flight, then every check's full result once it has ended. Shown only
+ * for a run that has a suite (a conformance run, or a mixed run with a
+ * conformance workload).
  */
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@connectrpc/connect";
-import type { ConformanceResult } from "@/gen/orbit/v1/conformance_pb";
+import { ConformanceService, type ConformanceResult, type ConformanceTestInfo } from "@/gen/orbit/v1/conformance_pb";
 import { RunService } from "@/gen/orbit/v1/run_pb";
 import { Panel } from "@/components/Panel";
-import { SuiteWatch, type Suite } from "@/data/suite";
+import { SuiteWatch, type CheckVerdict, type Suite } from "@/data/suite";
 import { orbitTransport } from "@/data/transport";
 
 const VERDICT_COLOR: Record<string, string> = {
@@ -24,33 +25,65 @@ function verdictColor(v: string): string {
   return VERDICT_COLOR[v] ?? "var(--o-ink-2)";
 }
 
-/** Follows runId's suites; none when there is no run or it has no suite. */
-function useSuites(runId: string | undefined, baseUrl?: string): { suites: Suite[]; done: boolean } {
+/** Follows runId's suites and its checks' verdicts as they land; none when there is no run or it has no suite. */
+function useSuites(runId: string | undefined, baseUrl?: string): { suites: Suite[]; done: boolean; live: CheckVerdict[] } {
   const client = useMemo(() => createClient(RunService, orbitTransport(baseUrl)), [baseUrl]);
   const [view, setView] = useState<{ suites: Suite[]; done: boolean }>({ suites: [], done: false });
+  const [live, setLive] = useState<CheckVerdict[]>([]);
   useEffect(() => {
     setView({ suites: [], done: false });
+    setLive([]);
     if (!runId) return;
-    const w = new SuiteWatch(client, runId, (suites, done) => setView({ suites, done }));
+    const w = new SuiteWatch(client, runId, (suites, done) => setView({ suites, done }), 1000, (v) => setLive((l) => [...l, v]));
     void w.start();
     return () => w.dispose();
   }, [client, runId]);
-  return view;
+  return { ...view, live };
+}
+
+/** The suite's checks by ID (ListConformanceTests), for a verdict that names only its check. */
+function useCheckInfo(): ReadonlyMap<string, ConformanceTestInfo> {
+  const client = useMemo(() => createClient(ConformanceService, orbitTransport()), []);
+  const [info, setInfo] = useState<ReadonlyMap<string, ConformanceTestInfo>>(new Map());
+  useEffect(() => {
+    let on = true;
+    client
+      .listConformanceTests({})
+      .then((r) => on && setInfo(new Map(r.tests.map((t) => [t.id, t]))))
+      .catch(() => {
+        /* the verdicts show without their category and spec */
+      });
+    return () => {
+      on = false;
+    };
+  }, [client]);
+  return info;
 }
 
 export function SuiteResults({ runId }: { runId: string | undefined }) {
-  const { suites, done } = useSuites(runId);
+  const { suites, done, live } = useSuites(runId);
+  const info = useCheckInfo();
   if (suites.length === 0) return null;
   return (
     <section className="flex shrink-0 flex-col gap-3">
       {suites.map((s) => (
-        <SuitePanel key={s.name} suite={s} done={done} />
+        <SuitePanel key={s.name} suite={s} done={done} live={live.filter((v) => v.workload === s.name)} info={info} />
       ))}
     </section>
   );
 }
 
-function SuitePanel({ suite, done }: { suite: Suite; done: boolean }) {
+function SuitePanel({
+  suite,
+  done,
+  live,
+  info,
+}: {
+  suite: Suite;
+  done: boolean;
+  live: readonly CheckVerdict[];
+  info: ReadonlyMap<string, ConformanceTestInfo>;
+}) {
   const p = suite.progress;
   const count = (v: string) => suite.results.filter((r) => r.verdict === v).length;
   const tally = done
@@ -97,9 +130,37 @@ function SuitePanel({ suite, done }: { suite: Suite; done: boolean }) {
             </table>
           </div>
         ) : (
-          <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-            each check&apos;s verdict shows when the run ends
-          </span>
+          <div className="flex flex-col gap-1">
+            <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
+              {live.length === 0 ? "verdicts show as each check ends; the full results when the run ends" : "verdicts so far; the full results when the run ends"}
+            </span>
+            {live.length > 0 && (
+              <div className="max-h-[24rem] overflow-auto">
+                <table className="w-full" style={{ borderCollapse: "collapse", fontFamily: "var(--o-font-mono)" }}>
+                  <tbody>
+                    {live.map((v, i) => (
+                      <tr key={`${i}:${v.id}`} style={{ borderBottom: "1px solid var(--o-border)" }}>
+                        <td style={{ padding: "4px 12px" }}>
+                          <span className="o-label" style={{ color: verdictColor(v.verdict), fontWeight: 600 }}>
+                            {v.verdict}
+                          </span>
+                        </td>
+                        <td style={{ padding: "4px 12px", color: "var(--o-ink)", fontSize: "0.82rem" }}>{v.id}</td>
+                        <td style={{ padding: "4px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{info.get(v.id)?.category ?? ""}</td>
+                        <td
+                          className="max-w-[32rem] truncate"
+                          title={info.get(v.id)?.specRef}
+                          style={{ padding: "4px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}
+                        >
+                          {info.get(v.id)?.specRef ?? ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </Panel>

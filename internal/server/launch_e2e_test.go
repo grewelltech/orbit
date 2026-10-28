@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +118,33 @@ func TestLaunchRequestsRunEndToEnd(t *testing.T) {
 					t.Errorf("suite %s ran no checks", w.GetName())
 				}
 			}
+			// Each check's verdict is a run event as it lands, which the run
+			// view reads: kind CONFORMANCE, "<check ID> <verdict>", in a mixed
+			// run after "[<workload>] ", one per result (web/src/data/suite.ts
+			// checkVerdict).
+			if ran := countResults(rep.Msg); ran > 0 {
+				evs, err := c.RunEvents(ctx, connect.NewRequest(&orbitv1.RunEventsRequest{RunId: id}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				verdicts := 0
+				for evs.Receive() {
+					ev := evs.Msg()
+					if ev.GetKind() != "CONFORMANCE" {
+						continue
+					}
+					if !checkEventText.MatchString(ev.GetMessage()) {
+						t.Errorf("a CONFORMANCE event reads %q, not \"[<workload>] <check> <verdict>\"", ev.GetMessage())
+					}
+					verdicts++
+				}
+				if err := evs.Err(); err != nil {
+					t.Fatal(err)
+				}
+				if verdicts != ran {
+					t.Errorf("%d CONFORMANCE events, want one per result (%d)", verdicts, ran)
+				}
+			}
 			// A population against the mock core attaches every UE: its
 			// SLO gates pass. A suite's verdicts are the mock's to give.
 			for _, g := range rep.Msg.GetGates() {
@@ -126,6 +154,22 @@ func TestLaunchRequestsRunEndToEnd(t *testing.T) {
 			}
 		})
 	}
+}
+
+// checkEventText is a check's verdict event: "<check ID> <verdict>".
+var checkEventText = regexp.MustCompile(`^(\[[^][]+\] )?\S+ (PASS|FAIL|ERROR|SKIP|DEVIATION)$`)
+
+// countResults is the conformance results a report holds: its workloads'
+// for a plan (the run-level summary repeats a lone suite's), else its own.
+func countResults(r *orbitv1.GetRunReportResponse) int {
+	n := 0
+	for _, w := range r.GetWorkloads() {
+		n += len(w.GetConformance().GetResults())
+	}
+	if len(r.GetWorkloads()) == 0 {
+		n = len(r.GetConformance().GetResults())
+	}
+	return n
 }
 
 // waitTerminal polls run id until it is no longer pending, running or draining.

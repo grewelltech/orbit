@@ -3,11 +3,36 @@
  * in flight, each suite's progress (GetRun: its tally, checks run of those
  * selected, the last check); once it has ended, every check's result
  * (GetRunReport). A conformance run has one suite; a mixed run has one per
- * conformance workload.
+ * conformance workload. In between, each check's verdict as it lands, from
+ * the run's events (RunEvents: kind CONFORMANCE, "<check> <verdict>", with
+ * "[<workload>] " ahead of it in a mixed run).
  */
 import type { ConformanceResult, StaleExpectation } from "@/gen/orbit/v1/conformance_pb";
 import type { ConformanceSummary } from "@/gen/orbit/v1/run_pb";
-import { RunKind, RunState, type ConformanceProgress, type GetRunReportResponse, type GetRunResponse } from "@/gen/orbit/v1/run_pb";
+import { RunKind, RunState, type ConformanceProgress, type GetRunReportResponse, type GetRunResponse, type RunEvent } from "@/gen/orbit/v1/run_pb";
+
+/** A check's verdict as it landed: the run's event for it. */
+export interface CheckVerdict {
+  /** The workload whose suite ran the check; "" in a conformance run (one suite). */
+  workload: string;
+  id: string;
+  verdict: string;
+}
+
+const VERDICTS = new Set(["PASS", "FAIL", "ERROR", "SKIP", "DEVIATION"]);
+
+/**
+ * A check's verdict from a run event: the suite emits one CONFORMANCE
+ * event per check, its message "<check ID> <verdict>", which a mixed run
+ * prefixes with "[<workload>] " (a workload's name holds no brackets). Any
+ * other event, or a message not of that form, is none.
+ */
+export function checkVerdict(ev: Pick<RunEvent, "kind" | "message">): CheckVerdict | undefined {
+  if (ev.kind !== "CONFORMANCE") return undefined;
+  const m = /^(?:\[([^\][]+)\] )?(\S+) (\S+)$/.exec(ev.message);
+  if (!m || !VERDICTS.has(m[3] ?? "")) return undefined;
+  return { workload: m[1] ?? "", id: m[2] ?? "", verdict: m[3] ?? "" };
+}
 
 export interface Suite {
   /** The workload's name; "" for a conformance run's one suite. */
@@ -76,11 +101,14 @@ export function ended(state: RunState | undefined): boolean {
 export interface SuiteClient {
   getRun(req: { runId: string }, opts?: { signal?: AbortSignal }): Promise<GetRunResponse>;
   getRunReport(req: { runId: string }, opts?: { signal?: AbortSignal }): Promise<GetRunReportResponse>;
+  runEvents(req: { runId: string; fromSeq: bigint }, opts?: { signal?: AbortSignal }): AsyncIterable<RunEvent>;
 }
 
 /**
  * Follows one run's suites: GetRun each interval while the run is in
- * flight, then GetRunReport once when it has ended. Stops on dispose.
+ * flight, then GetRunReport once when it has ended; and, alongside, each
+ * check's verdict from the run's events as it lands (onCheck, in order).
+ * Stops on dispose.
  */
 export class SuiteWatch {
   private readonly ctrl = new AbortController();
@@ -90,9 +118,27 @@ export class SuiteWatch {
     private readonly runId: string,
     private readonly onSuites: (s: Suite[], done: boolean) => void,
     private readonly intervalMs = 1000,
+    private readonly onCheck: (v: CheckVerdict) => void = () => undefined,
   ) {}
 
   async start(): Promise<void> {
+    await Promise.all([this.poll(), this.events()]);
+  }
+
+  /** The run's events, from the oldest retained: each check's verdict. The stream ends with the run. */
+  private async events(): Promise<void> {
+    const { signal } = this.ctrl;
+    try {
+      for await (const ev of this.client.runEvents({ runId: this.runId, fromSeq: 0n }, { signal })) {
+        const v = checkVerdict(ev);
+        if (v && !signal.aborted) this.onCheck(v);
+      }
+    } catch {
+      /* no events (an older server, a token prompt): the progress and the final table still show */
+    }
+  }
+
+  private async poll(): Promise<void> {
     const { signal } = this.ctrl;
     try {
       for (;;) {
