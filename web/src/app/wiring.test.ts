@@ -87,6 +87,29 @@ function cleanupIs(e: Effect, cleanup: string, marker?: string): boolean {
   return (tail.match(/\breturn\b/g)?.length ?? 0) === 1 && tight(tail).endsWith(tight(`return ${cleanup};`));
 }
 
+/** Each <button>…</button> in s. */
+function buttons(s: string): string[] {
+  const out: string[] = [];
+  for (let i = s.indexOf("<button"); i >= 0; i = s.indexOf("<button", i + 1)) {
+    const end = s.indexOf("</button>", i);
+    if (end > i) out.push(s.slice(i, end));
+  }
+  return out;
+}
+
+/** The expression of attribute name={…} in a JSX element's text, its braces balanced. */
+function attr(el: string, name: string): string | undefined {
+  const at = el.search(new RegExp(`\\b${name}=\\{`));
+  if (at < 0) return undefined;
+  const open = el.indexOf("{", at);
+  let depth = 0;
+  for (let j = open; j < el.length; j++) {
+    if (el[j] === "{") depth++;
+    if (el[j] === "}" && --depth === 0) return el.slice(open + 1, j);
+  }
+  return undefined;
+}
+
 describe("hook-to-helper wiring", () => {
   const useProbe = read("data/targets/useProbe.ts");
   const probeEffects = effects(strip(useProbe));
@@ -115,9 +138,22 @@ describe("hook-to-helper wiring", () => {
     const s = strip(raw);
     expect(s).toMatch(/const\s*\{\s*state:\s*start\b[^}]*\}\s*=\s*startStateFor\(/);
     expect(s).toMatch(/const\s+why\s*=\s*whyNotStart\(\s*start\s*\)\s*;/);
-    expect(s.match(/disabled=\{why !== undefined/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    // Both start buttons (start, check the plan): their whole disabled
+    // expression, not a prefix of it.
+    const disabled = buttons(s)
+      .filter((b) => /^\(\)=>voidl\.(start|plan)\(\)$/.test(tight(attr(b, "onClick") ?? "")))
+      .map((b) => tight(attr(b, "disabled") ?? ""));
+    expect(disabled).toEqual(["why!==undefined||s.busy!==undefined", "why!==undefined||s.busy!==undefined"]);
     expect(imported(raw, "startStateFor", "@/data/launch/resolve")).toBe(true);
     expect(imported(raw, "whyNotStart", "@/data/launch/resolve")).toBe(true);
+  });
+
+  it("the reader: a button's attributes come out whole", () => {
+    const b = buttons('<button disabled={a || (b && c)} onClick={() => f({ x: 1 })}>x</button><button>y</button>');
+    expect(b).toHaveLength(2);
+    expect(attr(b[0] ?? "", "disabled")).toBe("a || (b && c)");
+    expect(attr(b[0] ?? "", "onClick")).toBe("() => f({ x: 1 })");
+    expect(attr(b[1] ?? "", "disabled")).toBeUndefined();
   });
 
   it("the reader: comments and literals are stripped; deps and bodies come apart", () => {
