@@ -392,6 +392,21 @@ browser has no environment to take it from.
 - A probe uses the first subscriber pool and the first responder. Each
   target's last result in the tab shows beside its name.
 
+**Responders.** The page lists the N6 responders registered with this
+server (by `orbit target add-responder` or a join one-liner), as `orbit
+responder list` does:
+- each one's state (online, offline, or never seen), when its last
+  heartbeat was, its version, and its data and control addresses. The list
+  is read every 5s, and backs off to a minute while the server doesn't
+  answer;
+- **remove**, after a confirm: its credential and loom token stop working,
+  and runs that name it are refused. Rerun the join to re-add it;
+- the join tokens not yet used, with the time each has left and
+  **revoke**. A used token isn't listed: it's spent.
+
+No credential or loom token reaches the page: the server sends none, and
+the page shows only the fields it lists.
+
 The conformance suite is run from the Launch page. `?conformance` opens
 Launch on the `conformance` template. A suite needs a target, but a target
 made there with **new from AMF + PLMN** needs no keys. It has no subscriber
