@@ -142,7 +142,10 @@ export function App() {
   );
 
   // Sparkline history. Recomputed per publish, not per sample.
+  // history is a ring buffer, appended to in place: latest, which each
+  // publish replaces, is what says it changed.
   const spark = useMemo(() => {
+    void latest;
     const recent = history.toArray().slice(-60);
     return {
       sessions: recent.map((f) => f.ues.sessionActive),
@@ -169,14 +172,17 @@ export function App() {
   // Peak and average over the WHOLE run, not the visible window: the attach
   // burst is over in seconds, and a shorter span would scroll it out of view
   // and take the headline number with it.
-  const atTile = useMemo(
-    () => attachRateTile(history.toArray(), (v) => pct(v, 1)),
-    [history, latest],
-  );
+  const atTile = useMemo(() => {
+    void latest; // a publish (history changes in place)
+    return attachRateTile(history.toArray(), (v) => pct(v, 1));
+  }, [history, latest]);
 
   // The tile names the procedure it is reporting and flags a value that has
   // stopped advancing — see cpLatencyTile.
-  const cpTile = useMemo(() => cpLatencyTile(history.toArray().slice(-60), ms), [history, latest]);
+  const cpTile = useMemo(() => {
+    void latest; // a publish (history changes in place)
+    return cpLatencyTile(history.toArray().slice(-60), ms);
+  }, [history, latest]);
 
   const dl = bps(latest?.throughput.downlinkBps ?? 0);
   const attachOk = latest ? latest.rates.attachSuccess : 1;
