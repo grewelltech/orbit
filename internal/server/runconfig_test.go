@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -592,4 +593,58 @@ func TestGetRunConfigSameValueOnAnArchivedRun(t *testing.T) {
 		}
 		writeNoticeTexts(t, runConfigSameValueFixture, got.Msg.GetNotices(), func(s string) string { return s })
 	}
+}
+
+// A run's spec outlives its eviction from the registry until its own
+// sampler has archived it: another run's end can evict it, and sweep, in
+// the gap between its sampler seeing it end and archiving it. The hook
+// holds run Y's sampler in that gap while run Z ends (history 1: the
+// registry lets Y go, and Z's sweep runs); Y's archive still has its plan.
+func TestSweepKeepsASpecItsSamplerHasNotArchived(t *testing.T) {
+	s := historyService(t, t.TempDir(), 1)
+	inGap, release := make(chan string, 1), make(chan struct{})
+	var first sync.Once
+	s.beforeArchive = func(id string) {
+		hold := false
+		first.Do(func() { hold = true }) // the first run to end: Y
+		if hold {
+			inGap <- id
+			<-release
+		}
+	}
+	ctx := context.Background()
+	r, err := s.StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	y := r.Msg.GetRun().GetRunId()
+	select {
+	case held := <-inGap:
+		if held != y {
+			t.Fatalf("held %s, want Y %s", held, y)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Y's sampler never reached its archiving")
+	}
+	z := startEnded(t, s)
+	archiveTried(t, s, z) // Z archived, and swept
+	if _, err := s.reg.Get(y); err == nil {
+		t.Fatal("the registry still has Y: the case this row is for does not arise")
+	}
+	if _, held := s.specs.get(y); !held {
+		t.Error("Z's sweep dropped Y's spec while Y's sampler had yet to archive it")
+	}
+	close(release)
+	archiveTried(t, s, y)
+	if a, ok := s.archive.get(y); !ok || a.GetPlan() == nil {
+		t.Errorf("Y's archive: archived %t, plan %t; want its plan", ok, a.GetPlan() != nil)
+	}
+	// Archived, and its sampler done: a later sweep lets it go.
+	startEnded(t, s)
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, held := s.specs.get(y); !held {
+			return
+		}
+	}
+	t.Error("Y's spec is still held after it was archived and its sampler ended")
 }

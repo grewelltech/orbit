@@ -47,6 +47,9 @@ type runService struct {
 	// specs remembers what each run was asked to do, so the archive — and the
 	// report built from it — is self-describing.
 	specs *specStore
+	// beforeArchive, when set (tests only), runs in a run's sampler after
+	// it has seen the run end and before it archives it.
+	beforeArchive func(id string)
 	// archive persists terminal runs so history survives a restart. Never nil;
 	// a disabled store is a no-op rather than a special case at each call site.
 	archive *archiveStore
@@ -463,6 +466,9 @@ func (s *runService) frameLogFor(id string) *frameLog {
 	s.framesMu.Unlock()
 
 	if start {
+		// Until this sampler has archived the run, its spec outlives the
+		// run's eviction from the registry (sweep).
+		s.specs.sampling(id, true)
 		go s.sampleRun(id, l)
 	}
 	return l
@@ -509,8 +515,12 @@ func (s *runService) sampleRun(id string, log *frameLog) {
 	// the specs of the runs it let go are let go too (sweep).
 	finish := func() {
 		if done != nil {
+			if s.beforeArchive != nil {
+				s.beforeArchive(id)
+			}
 			s.archiveRun(id, *done, log.retained())
 		}
+		s.specs.sampling(id, false)
 		s.specs.sweep(func(id string) bool {
 			_, err := s.reg.Get(id)
 			return err == nil
