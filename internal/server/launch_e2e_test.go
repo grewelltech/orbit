@@ -172,6 +172,15 @@ func TestLaunchRequestsRunEndToEnd(t *testing.T) {
 					if !checkEventText.MatchString(ev.GetMessage()) {
 						t.Errorf("a CONFORMANCE event reads %q, not \"[<workload>] <check> <verdict>\"", ev.GetMessage())
 					}
+					// The fields say what the text says (RunEvent.check).
+					c := ev.GetCheck()
+					want := c.GetCheckId() + " " + c.GetVerdict()
+					if c.GetWorkload() != "" {
+						want = "[" + c.GetWorkload() + "] " + want
+					}
+					if c == nil || want != ev.GetMessage() {
+						t.Errorf("event %q: check %v", ev.GetMessage(), c)
+					}
 					verdicts++
 				}
 				if err := evs.Err(); err != nil {

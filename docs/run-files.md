@@ -190,3 +190,16 @@ built-in defaults, the target, the run file (or template), `$ORBIT_*`, then
 the flags. `--explain` lists each field with the layer that set it and the
 values it overrode. Keys, and any whole-value field holding one (a
 `behaviors` cohort's token, say), are masked.
+
+An env var that overrides a value from a file (the target or this run file)
+is easy to miss: a forgotten `export ORBIT_MCC` changes every run from that
+shell. `--explain`, and a run started without `--detach`, print a notice for
+each one:
+
+```text
+notice: core.plmn.mcc: env $ORBIT_MCC (208) overrode target lab/orbit.yaml:6 (001)
+```
+
+A flag is meant, so it gets no notice. The server keeps the provenance with
+the run: `RunService.GetRunConfig` returns a run's plan, every field's
+provenance and these notices, during the run and after it, from its archive.

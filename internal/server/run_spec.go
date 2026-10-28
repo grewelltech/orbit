@@ -73,18 +73,29 @@ func (s *specStore) put(id string, m *orbitv1.StartRunRequest, extra ...*orbitv1
 	s.specs[id] = held
 }
 
-// take returns and forgets a run's masked spec and its secret values.
-// Forgetting matters: the map would otherwise grow for the life of the
-// process, holding a scenario document and keys per run that was started.
-func (s *specStore) take(id string) (heldSpec, bool) {
+// get returns a run's masked spec and its secret values, leaving them
+// held: archiveRun reads them, and drops them only once the archive is
+// saved, so a run's config is served throughout (GetRunConfig).
+func (s *specStore) get(id string) (heldSpec, bool) {
 	if s == nil {
 		return heldSpec{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h, ok := s.specs[id]
-	delete(s.specs, id)
 	return h, ok
+}
+
+// drop forgets a run's spec, once its archive is saved. Forgetting matters:
+// the map would otherwise grow for the life of the process, holding a
+// scenario document and keys per run that was started.
+func (s *specStore) drop(id string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.specs, id)
 }
 
 const redacted = secrets.Masked
@@ -96,4 +107,25 @@ const redacted = secrets.Masked
 func redactArchive(a *orbitv1.RunArchive, requestSecrets []string) {
 	values := append(secrets.Mask(a), requestSecrets...)
 	secrets.Scrub(a, values)
+}
+
+// peek returns a copy of a run's masked spec, its request's secret values
+// scrubbed from it, leaving the held one as it was: GetRunConfig reads a
+// live run's spec this way, and archiving still takes it after.
+func (s *specStore) peek(id string) (*orbitv1.RunArchive, bool) {
+	if s == nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	h, ok := s.specs[id]
+	var out *orbitv1.RunArchive
+	if ok {
+		out = proto.Clone(h.archive).(*orbitv1.RunArchive)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	redactArchive(out, h.secrets)
+	return out, true
 }

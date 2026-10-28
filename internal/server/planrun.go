@@ -39,6 +39,7 @@ func (s *runService) PlanRun(_ context.Context, req *connect.Request[orbitv1.Res
 	return connect.NewResponse(&orbitv1.PlanRunResponse{
 		Plan:           p,
 		Provenance:     p.GetProvenance(),
+		Notices:        plan.OverrideNotices(p.GetProvenance()),
 		RunName:        got.Request.GetName(),
 		EventVerbosity: got.Request.GetEventVerbosity(),
 	}), nil
