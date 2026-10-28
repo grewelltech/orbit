@@ -92,7 +92,7 @@ func TestResolveSent(t *testing.T) {
 		{name: "a bad control", change: func(x *Target) { x.App.Responders[0].Control = "nowhere" }, wantPath: "app.responders[n6].control"},
 		{name: "gnb_ids bits", change: func(x *Target) { x.RAN.GNBIDs.Bits = 40 }, wantPath: "ran.gnb_ids.bits", want: "not between 22 and 32"},
 		{name: "no name", change: func(x *Target) { x.Name = "" }, wantPath: "name", want: "is required"},
-		{name: "pools with one name", change: func(x *Target) { x.Subscribers = append(x.Subscribers, x.Subscribers[0]) }, wantPath: "subscribers[main].name", want: `"main" twice`},
+		{name: "pools with one name", change: func(x *Target) { x.Subscribers = append(x.Subscribers, x.Subscribers[0]) }, wantPath: "subscribers[1].name", want: "is the same as subscribers[0].name"},
 		{name: "a pool without a name", change: func(x *Target) { x.Subscribers[0].Name = "" }, wantPath: "subscribers[0].name", want: "is required"},
 		{name: "a responder name with a dot", change: func(x *Target) { x.App.Responders[0].Name = "n.6" }, wantPath: "app.responders[0].name"},
 		{name: "ran.node", change: func(x *Target) { x.RAN.Node = "edge1" }, wantPath: "ran.node", want: "reserved"},

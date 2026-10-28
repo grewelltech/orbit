@@ -208,7 +208,11 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
 - **`list`** shows every target with its file and line, and the error of any
   that doesn't load. One bad entry in an `./orbit.yaml` list never stops the
   others. A target in the config directory with the same name as one in
-  `./orbit.yaml` is marked shadowed.
+  `./orbit.yaml` is marked shadowed. A target's errors never show a key:
+  text shaped like one is `<redacted>`. A base64 or bearer secret has no
+  such shape and can't be recognised, and an IPv6 address written out in
+  full has a Ki's shape, so it's masked too
+  ([targets.md](targets.md#numbers-and-text)).
 - **`probe`** is the doctor (ADR-0009 §5). The server runs it, from the host
   runs execute on, and the CLI prints each step as it finishes:
 
@@ -239,6 +243,12 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   run and a probe never collide; one that needs them is refused, naming the
   other. The core's reject causes aren't reported yet. `init` uses the
   target range's first gNB ID (or 1) and takes no lease.
+
+  The three IDs must fit `ran.gnb_ids.bits`, and the target's block when it
+  has a `count`. Otherwise the probe is refused before it starts, on the CLI
+  and on the Targets page alike: "the probe needs 3 gNB IDs: set
+  ran.gnb_ids.count to 3 or more, or leave count unset". A target with a
+  count of 1 or 2 could be probed before this; it can't now.
 
   **Behaviour changes** from the three-step probe:
   - it runs on the server and has seven steps; a target with no responder

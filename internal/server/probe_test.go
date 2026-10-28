@@ -486,6 +486,82 @@ func TestProbeGNBIDs(t *testing.T) {
 	}
 }
 
+// The probe's refusal of a sent target (InvalidArgument, the path the
+// Targets page marks) shows no key text: a key-shaped pool name with a '.'
+// or given twice comes back masked.
+func TestProbeRefusalMasksKeyText(t *testing.T) {
+	const key = "465b5ce8b199b49faa5f0a2ee238a6bc"
+	for _, tc := range []struct {
+		name  string
+		pools []*orbitv1.SubscriberPool
+	}{
+		{"a key-shaped name with a '.'", []*orbitv1.SubscriberPool{{Name: key + ".x", FirstSupi: "001010000000001"}}},
+		{"a key-shaped name twice", []*orbitv1.SubscriberPool{{Name: key, FirstSupi: "001010000000001"}, {Name: key, FirstSupi: "001010000000002"}}},
+		{"a key split by '.' (no key's shape)", []*orbitv1.SubscriberPool{{Name: key[:16] + "." + key[16:], FirstSupi: "001010000000001"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &probeFakes{}
+			svc, _ := newProbeService(f.env())
+			tg := probeTarget(nil)
+			tg.Subscribers = tc.pools
+			_, err := probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: tg, CoreOnly: true}, nil)
+			if connect.CodeOf(err) != connect.CodeInvalidArgument || strings.Contains(err.Error(), key[:16]) || strings.Contains(err.Error(), key[16:]) || !strings.Contains(err.Error(), "subscribers[") {
+				t.Errorf("err %v: want InvalidArgument naming the entry by index, not the name", err)
+			}
+		})
+	}
+}
+
+// The probe's three gNB IDs must fit the ID length and, when the target
+// gives a count, its block: otherwise the target is refused before
+// anything runs (InvalidArgument, naming ran.gnb_ids), not probed with IDs
+// that wrap at 32 bits or that the target never gave.
+func TestProbeGNBIDsFit(t *testing.T) {
+	tests := []struct {
+		name   string
+		ids    *orbitv1.GNBIDRange
+		refuse string // "" when it runs
+	}{
+		{name: "24 bits (the default), the last three", ids: &orbitv1.GNBIDRange{First: 1<<24 - 3}},
+		{name: "24 bits, one over", ids: &orbitv1.GNBIDRange{First: 1<<24 - 2}, refuse: "16777214..16777216, which do not fit 24 bits"},
+		{name: "a count of 1 at the top: fits I4, not the probe", ids: &orbitv1.GNBIDRange{First: 1<<24 - 1, Count: 1}, refuse: "do not fit 24 bits"},
+		{name: "22 bits, the last three", ids: &orbitv1.GNBIDRange{First: 1<<22 - 3, Bits: 22}},
+		{name: "22 bits, one over", ids: &orbitv1.GNBIDRange{First: 1<<22 - 2, Bits: 22}, refuse: "do not fit 22 bits"},
+		{name: "32 bits, the last three", ids: &orbitv1.GNBIDRange{First: 1<<32 - 3, Bits: 32}},
+		{name: "32 bits, one over (would wrap)", ids: &orbitv1.GNBIDRange{First: 1<<32 - 2, Bits: 32}, refuse: "4294967294..4294967296, which do not fit 32 bits"},
+		{name: "a count of 3", ids: &orbitv1.GNBIDRange{First: 100, Count: 3}},
+		{name: "a count of 2", ids: &orbitv1.GNBIDRange{First: 100, Count: 2}, refuse: "the probe needs 3 gNB IDs: set ran.gnb_ids.count to 3 or more, or leave count unset (a count of 2 holds fewer)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &probeFakes{}
+			env := f.env()
+			var ran int
+			ng := env.ngSetup
+			env.ngSetup = func(ctx context.Context, req *orbitv1.RunNGSetupRequest) (*orbitv1.RunNGSetupResponse, error) {
+				ran++
+				return ng(ctx, req)
+			}
+			svc, _ := newProbeService(env)
+			tg := probeTarget(nil)
+			tg.Ran.GnbIds = tc.ids
+			_, err := probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: tg, CoreOnly: true}, nil)
+			if tc.refuse == "" {
+				if err != nil || ran == 0 {
+					t.Fatalf("err %v, NG Setups %d; want it run", err, ran)
+				}
+				return
+			}
+			if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "ran.gnb_ids") || !strings.Contains(err.Error(), tc.refuse) {
+				t.Errorf("err %v, want InvalidArgument naming ran.gnb_ids, %q", err, tc.refuse)
+			}
+			if ran != 0 {
+				t.Errorf("%d NG Setups before the refusal", ran)
+			}
+		})
+	}
+}
+
 // A step timeout is bounded, since the probe holds its leases for it: 0 is
 // the default, 2m is the most, and more is refused before anything runs.
 func TestProbeStepTimeoutBound(t *testing.T) {

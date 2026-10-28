@@ -39,7 +39,7 @@ func (b builder) gate(n string) (*orbitv1.Gate, error) {
 		metric = metricFromName
 	}
 	if metric == "" {
-		return nil, fmt.Errorf("give slo.metric: the name %q does not say one", n)
+		return nil, fmt.Errorf("give slo.metric: the gate's name does not say one")
 	}
 	op, err := compareOp(b.str(base+"slo.op"), metric)
 	if err != nil {
@@ -131,6 +131,11 @@ func threshold(s, metric string) (float64, error) {
 // metric<op>value, its name then GateName's, or "conformance" (a
 // conformance gate on the run) and name=conformance.
 func ParseGate(spec string) ([]target.Setting, error) {
+	s, err := parseGate(spec)
+	return s, target.MaskErr(err)
+}
+
+func parseGate(spec string) ([]target.Setting, error) {
 	src := target.Source{Name: "--gate"}
 	name, expr := "", spec
 	if n, rest, ok := strings.Cut(spec, "="); ok && !strings.ContainsAny(n, "<>") {
