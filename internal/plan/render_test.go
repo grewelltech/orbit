@@ -122,3 +122,35 @@ func TestCanonicalRunYAML(t *testing.T) {
 		t.Error("an empty run file re-encoded")
 	}
 }
+
+// On the orbit run fallback, the fleet's probe goes in the file only when
+// the target gives it a target and the run file leaves behaviors as the
+// template has them.
+func TestRenderFleetProbe(t *testing.T) {
+	fleet, err := TemplateText("fleet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noGate := fleet[:strings.Index(fleet, "gates:")]
+	base := "kind: target\nname: lab1\n"
+	tests := []struct {
+		name, target, run string
+		want              bool
+	}{
+		{"a responder with a data_ip", base + "app:\n  responders:\n    - {name: n6, control: \"h:1\", data_ip: \"${N6_IP}\"}\n", noGate, true},
+		{"a registered responder (named only)", base + "app:\n  responders:\n    - {name: app1}\n", noGate, true},
+		{"no responder", base, noGate, false},
+		{"a responder with no data_ip", base + "app:\n  responders:\n    - {name: n6, control: \"h:1\"}\n", noGate, false},
+		{"behaviors edited", base + "app:\n  responders:\n    - {name: app1}\n", strings.Replace(noGate, "behaviors: {}", "behaviors: {mobility: {model: random_walk}}", 1), false},
+		{"no target sent", "", noGate, false},
+	}
+	for _, tc := range tests {
+		r, err := Render(RenderInput{RunYAML: []byte(tc.run), Template: "fleet", Target: "lab1", TargetYAML: []byte(tc.target)})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := strings.Contains(r.RunYAML, "behaviors: {latency: {}}"); got != tc.want || r.FileName == "" {
+			t.Errorf("%s: probe in the file %t, want %t (file %q)\n%s", tc.name, got, tc.want, r.FileName, r.RunYAML)
+		}
+	}
+}

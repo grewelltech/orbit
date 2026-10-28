@@ -102,6 +102,17 @@ func TestPlanRun(t *testing.T) {
 					t.Errorf("behaviors = %v, want the latency probe, its target from the registry", b)
 				}
 			}},
+		// The copied command for this is orbit run <file> (no gate the
+		// template has): the plan keeps the probe in the form the file
+		// carries, filled when the run starts.
+		{name: "the fleet template, its gate removed: the probe kept", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, Template: "fleet", Vars: planVars(),
+			RunYaml: templateYAML(t, "fleet")[:strings.Index(templateYAML(t, "fleet"), "gates:")]},
+			check: func(t *testing.T, r *orbitv1.PlanRunResponse) {
+				b := r.GetPlan().GetWorkloads()[0].GetPopulation().GetBehaviors()
+				if b.GetLatency() == nil || b.GetLatency().GetTarget() != "" {
+					t.Errorf("behaviors = %v, want the latency probe, its target filled at the start", b)
+				}
+			}},
 		{name: "edited behaviors are not filled", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, Template: "fleet", Vars: planVars(),
 			RunYaml: strings.Replace(templateYAML(t, "fleet"), "behaviors: {}", "behaviors: {mobility: {model: random_walk, speed_mps: 3}}", 1)},
 			check: func(t *testing.T, r *orbitv1.PlanRunResponse) {
@@ -139,6 +150,20 @@ func TestPlanRun(t *testing.T) {
 		{name: "a target whose name is no file name", req: &orbitv1.ResolveRequest{RunYaml: load, Vars: planVars(),
 			TargetYaml: strings.NewReplacer("name: lab1", "name: 'a b'", `mcc: "001"`, `mcc: "1"`).Replace(planTargetYAML)},
 			wantErr: "(target target.yaml:"},
+		// A --set never carries a key, whatever its form: keys go in the
+		// target, as ${VAR}s, which the vars fill. A ${VAR} at a secret
+		// path is refused too: the flag layer expands none, so it could
+		// only reach the plan as that text.
+		{name: "a --set ki", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, RunYaml: load, Vars: planVars(),
+			Sets: []string{"subscribers[main].ki=" + probeKi}}, wantErr: "--set subscribers[main].ki: keys go in the target"},
+		{name: "a --set opc", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, RunYaml: load, Vars: planVars(),
+			Sets: []string{"subscribers[].opc=" + probeOPc}}, wantErr: "--set subscribers[].opc: keys go in the target"},
+		{name: "a --set responder token", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, RunYaml: load, Vars: planVars(),
+			Sets: []string{"app.responders[app1].token=tok-0123456789"}}, wantErr: "--set app.responders[app1].token: keys go in the target"},
+		{name: "a --set whole value with a token", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, RunYaml: load, Vars: planVars(),
+			Sets: []string{"workloads[load].behaviors={traffic: {bulk: {ues: 1, token: tok-0123456789}}}"}}, wantErr: "--set workloads[load].behaviors: keys go in the target"},
+		{name: "a --set ${VAR} at a secret path", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, RunYaml: load, Vars: planVars(),
+			Sets: []string{"subscribers[main].ki=${ORBIT_KI}"}}, wantErr: "--set subscribers[main].ki: keys go in the target"},
 		{name: "no run file", req: &orbitv1.ResolveRequest{TargetYaml: planTargetYAML, Vars: planVars()}, wantErr: "no run file"},
 	}
 	s := registeredRunService(t)
@@ -149,7 +174,7 @@ func TestPlanRun(t *testing.T) {
 				if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.HasPrefix(connectMsg(err), "invalid run: ") || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want InvalidArgument invalid run: …%q", err, tc.wantErr)
 				}
-				for _, secret := range []string{probeKi, probeOPc, "abc-not-a-key", "ffffffff"} {
+				for _, secret := range []string{probeKi, probeOPc, "abc-not-a-key", "ffffffff", "tok-0123456789"} {
 					if strings.Contains(err.Error(), secret) {
 						t.Errorf("a key in %v", err)
 					}
@@ -221,6 +246,32 @@ func TestRenderRunRPC(t *testing.T) {
 	}
 	if res.Msg.GetCommand() != `orbit test load '--target=lab1' '--set=workloads[load].attach.count=9'` || res.Msg.GetFileName() != "" || !strings.Contains(res.Msg.GetRunYaml(), "kind: run") {
 		t.Errorf("got %v", res.Msg)
+	}
+	// The fleet with its gate removed: orbit run <file>, the file carrying
+	// the probe the target gives (its responder app1, registered).
+	fleet := templateYAML(t, "fleet")
+	res2, err := s.RenderRun(context.Background(), connect.NewRequest(&orbitv1.RenderRunRequest{RunYaml: fleet[:strings.Index(fleet, "gates:")],
+		Template: "fleet", TargetName: "lab1", TargetYaml: strings.NewReplacer(`"${ORBIT_KI}"`, `"${ORBIT_KI}"`).Replace(planTargetYAML)}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(res2.Msg.GetCommand(), "orbit run ") || !strings.Contains(res2.Msg.GetRunYaml(), "behaviors: {latency: {}}") {
+		t.Errorf("fleet fallback: %q\n%s", res2.Msg.GetCommand(), res2.Msg.GetRunYaml())
+	}
+	// A literal key in the target is refused, keyless as RenderRun is.
+	_, err = s.RenderRun(context.Background(), connect.NewRequest(&orbitv1.RenderRunRequest{RunYaml: load, TargetName: "lab1",
+		TargetYaml: strings.Replace(planTargetYAML, `"${ORBIT_KI}"`, probeKi, 1)}))
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || strings.Contains(err.Error(), probeKi) {
+		t.Errorf("a key in the target: err = %v, want InvalidArgument without it", err)
+	}
+	for _, set := range []string{"subscribers[main].ki=" + probeKi, "subscribers[].opc=" + probeOPc, "app.responders[app1].token=t-0123456789",
+		"workloads[load].behaviors={traffic: {bulk: {ues: 1, token: t-0123456789}}}", "subscribers[main].ki=${ORBIT_KI}"} {
+		_, err := s.RenderRun(context.Background(), connect.NewRequest(&orbitv1.RenderRunRequest{RunYaml: load, Template: "load", TargetName: "lab1", Sets: []string{set}}))
+		path, _, _ := strings.Cut(set, "=")
+		if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "--set "+path+": keys go in the target") ||
+			strings.Contains(err.Error(), probeKi) || strings.Contains(err.Error(), probeOPc) || strings.Contains(err.Error(), "t-0123456789") {
+			t.Errorf("RenderRun --set %s: err = %v, want InvalidArgument naming the path only", path, err)
+		}
 	}
 	_, err = s.RenderRun(context.Background(), connect.NewRequest(&orbitv1.RenderRunRequest{TargetName: "lab1",
 		RunYaml: "kind: run\nworkloads:\n  - name: f\n    behaviors: {traffic: {apps: [{token: t-0123456789}]}}\n"}))

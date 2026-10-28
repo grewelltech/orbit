@@ -131,3 +131,12 @@ func RunNamedLists() []string {
 	sort.Strings(out)
 	return out
 }
+
+// HoldsSecret reports whether a whole value (a decoded mapping or list)
+// has a key that names a secret, whatever its value: a --set must not
+// carry one.
+func HoldsSecret(v any) bool { return holdsSecret(v) }
+
+// IsWholeValue reports whether the field a path names is a whole-value
+// subtree (behaviors, start, conformance.expected), set as YAML text.
+func IsWholeValue(path string) bool { return runType(path) == tAny }
