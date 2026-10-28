@@ -23,6 +23,7 @@ import (
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/join"
+	"github.com/bgrewell/orbit/internal/plan"
 	"github.com/bgrewell/orbit/internal/target"
 )
 
@@ -144,18 +145,26 @@ func (p *probeRun) skipRest(why string) error {
 // is an error; a step that fails is a FAIL step, and the stream ends well.
 func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.ProbeRequest], stream *connect.ServerStream[orbitv1.ProbeStep]) error {
 	m := req.Msg
-	t := m.GetTarget()
 	name := m.GetTargetName()
 	if name == "" {
 		name = "the target"
 	}
-	core := t.GetCore()
-	if core.GetAmf() == "" || core.GetPlmn().GetMcc() == "" || core.GetPlmn().GetMnc() == "" {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("the target needs core.amf and core.plmn"))
-	}
 	// The probe holds its leases for its steps: each is bounded.
 	if m.GetStepTimeoutMs() > maxProbeStepMS {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("step_timeout_ms %d: at most %d (2m)", m.GetStepTimeoutMs(), maxProbeStepMS))
+	}
+	// The target as the CLI would load it: the built-in defaults under what
+	// it leaves unset, and the CLI's checks on every field, before any
+	// lease. The CLI sends a resolved target, which this leaves as it is; a
+	// dashboard sends what its file says. Nothing is expanded from this
+	// server's environment.
+	t, err := sentTarget(m.GetTarget())
+	if err != nil {
+		return err
+	}
+	core := t.GetCore()
+	if core.GetAmf() == "" || core.GetPlmn().GetMcc() == "" || core.GetPlmn().GetMnc() == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("the target needs core.amf and core.plmn"))
 	}
 	timeout := time.Duration(m.GetStepTimeoutMs()) * time.Millisecond
 	if timeout == 0 {
@@ -543,6 +552,18 @@ func sourceToward(host string) string {
 		return a.IP.String()
 	}
 	return "this server"
+}
+
+// sentTarget is a probe request's target resolved over the defaults and
+// checked (target.ResolveSent). A refused field is InvalidArgument
+// "invalid target: <path>: <reason>", the form the dashboard reads the
+// field's path from.
+func sentTarget(rt *orbitv1.ResolvedTarget) (*orbitv1.ResolvedTarget, error) {
+	res, err := target.ResolveSent(plan.TargetFromProto(rt))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid target: %w", err))
+	}
+	return plan.TargetProto(res.Target), nil
 }
 
 // staleNASContext is whether a registration failed on NAS security: a
