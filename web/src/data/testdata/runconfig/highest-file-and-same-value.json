@@ -1,0 +1,81 @@
+{
+  "provenance": [
+    {
+      "path": "workloads[pop].attach.seed",
+      "source": {
+        "layer": "PROVENANCE_LAYER_ENV",
+        "detail": "env $ORBIT_LOAD_SEED"
+      },
+      "value": "7",
+      "overridden": [
+        {
+          "source": {
+            "layer": "PROVENANCE_LAYER_DEFAULT",
+            "detail": "default built-in"
+          },
+          "value": "0"
+        },
+        {
+          "source": {
+            "layer": "PROVENANCE_LAYER_TARGET",
+            "detail": "target lab1.yaml:9"
+          },
+          "value": "3"
+        },
+        {
+          "source": {
+            "layer": "PROVENANCE_LAYER_RUN_FILE",
+            "detail": "run file soak.yaml:5"
+          },
+          "value": "5"
+        }
+      ]
+    },
+    {
+      "path": "core.plmn.mcc",
+      "source": {
+        "layer": "PROVENANCE_LAYER_ENV",
+        "detail": "env $ORBIT_MCC"
+      },
+      "value": "001",
+      "overridden": [
+        {
+          "source": {
+            "layer": "PROVENANCE_LAYER_TARGET",
+            "detail": "target lab1.yaml:6"
+          },
+          "value": "001"
+        }
+      ]
+    }
+  ],
+  "notices": [
+    {
+      "path": "workloads[pop].attach.seed",
+      "winner": {
+        "layer": "PROVENANCE_LAYER_ENV",
+        "detail": "env $ORBIT_LOAD_SEED"
+      },
+      "value": "7",
+      "overridden": {
+        "layer": "PROVENANCE_LAYER_RUN_FILE",
+        "detail": "run file soak.yaml:5"
+      },
+      "overriddenValue": "5"
+    },
+    {
+      "path": "core.plmn.mcc",
+      "winner": {
+        "layer": "PROVENANCE_LAYER_ENV",
+        "detail": "env $ORBIT_MCC"
+      },
+      "value": "001",
+      "overridden": {
+        "layer": "PROVENANCE_LAYER_TARGET",
+        "detail": "target lab1.yaml:6"
+      },
+      "overriddenValue": "001"
+    }
+  ],
+  "resolved": true
+}

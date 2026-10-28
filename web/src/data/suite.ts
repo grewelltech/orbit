@@ -27,8 +27,11 @@ const VERDICTS = new Set(["PASS", "FAIL", "ERROR", "SKIP", "DEVIATION"]);
  * prefixes with "[<workload>] " (a workload's name holds no brackets). Any
  * other event, or a message not of that form, is none.
  */
-export function checkVerdict(ev: Pick<RunEvent, "kind" | "message">): CheckVerdict | undefined {
+export function checkVerdict(ev: Pick<RunEvent, "kind" | "message"> & Partial<Pick<RunEvent, "check">>): CheckVerdict | undefined {
   if (ev.kind !== "CONFORMANCE") return undefined;
+  // A server that sends the verdict as fields (RunEvent.check): those; an
+  // older one, the text.
+  if (ev.check && VERDICTS.has(ev.check.verdict)) return { workload: ev.check.workload, id: ev.check.checkId, verdict: ev.check.verdict };
   const m = /^(?:\[([^\][]+)\] )?(\S+) (\S+)$/.exec(ev.message);
   if (!m || !VERDICTS.has(m[3] ?? "")) return undefined;
   return { workload: m[1] ?? "", id: m[2] ?? "", verdict: m[3] ?? "" };

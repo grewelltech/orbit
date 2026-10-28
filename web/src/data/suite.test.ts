@@ -79,6 +79,10 @@ describe("a check's verdict from the run's events", () => {
     ["CONFORMANCE", "X FAIL extra", undefined],
   ];
   for (const [kind, message, want] of rows) it(`${kind} "${message}"`, () => expect(checkVerdict({ kind, message })).toEqual(want));
+  it("prefers the fields (RunEvent.check) when the server sends them", () => {
+    const ev = create(RunEventSchema, { kind: "CONFORMANCE", message: "older text that says otherwise", check: { checkId: "NGAP-X", verdict: "FAIL", workload: "s1" } });
+    expect(checkVerdict(ev)).toEqual({ workload: "s1", id: "NGAP-X", verdict: "FAIL" });
+  });
 });
 
 describe("SuiteWatch over a server", () => {
