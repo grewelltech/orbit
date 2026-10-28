@@ -146,19 +146,22 @@ func (t *Target) Validate() error {
 	if t.RAN.Node != "" {
 		return fmt.Errorf("target %q: %w (got %q)", t.Name, ErrNodeReserved, t.RAN.Node)
 	}
-	seen := map[string]bool{}
-	for _, p := range t.Subscribers {
-		if p.Name == "" || seen[p.Name] {
-			return fmt.Errorf("target %q: subscriber pools need distinct names (got %q)", t.Name, p.Name)
+	// An entry refused is told by its index, never by its name.
+	seen := map[string]int{}
+	for i, p := range t.Subscribers {
+		j, dup := seen[p.Name]
+		if p.Name == "" || dup {
+			return fmt.Errorf("target %q: subscribers[%d] needs a name of its own (subscriber pools need distinct names%s)", t.Name, i, sameAs("subscribers", j, dup))
 		}
-		seen[p.Name] = true
+		seen[p.Name] = i
 	}
-	seen = map[string]bool{}
-	for _, r := range t.App.Responders {
-		if r.Name == "" || seen[r.Name] {
-			return fmt.Errorf("target %q: responders need distinct names (got %q)", t.Name, r.Name)
+	seen = map[string]int{}
+	for i, r := range t.App.Responders {
+		j, dup := seen[r.Name]
+		if r.Name == "" || dup {
+			return fmt.Errorf("target %q: app.responders[%d] needs a name of its own (responders need distinct names%s)", t.Name, i, sameAs("app.responders", j, dup))
 		}
-		seen[r.Name] = true
+		seen[r.Name] = i
 	}
 	return nil
 }
@@ -170,3 +173,11 @@ var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$`)
 // ValidName reports whether s is a valid target or responder name: a
 // letter or digit, then up to 62 letters, digits, '-' or '_'.
 func ValidName(s string) bool { return validName.MatchString(s) }
+
+// sameAs is "; the same as <list>[j]" when dup, else "".
+func sameAs(list string, j int, dup bool) string {
+	if !dup {
+		return ""
+	}
+	return fmt.Sprintf("; the same as %s[%d]", list, j)
+}

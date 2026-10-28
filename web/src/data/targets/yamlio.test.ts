@@ -68,8 +68,19 @@ describe("checkTarget", () => {
       text: base + "subscribers:\n    - first_supi: \"001010000000001\"\n    - name: a\n    - name: a\n    - name: b.c\n",
       want: [
         "subscribers[0]: subscribers entries need a name",
-        "subscribers[a]: subscribers entries need distinct names (\"a\" twice)",
-        "subscribers[b.c]: subscribers name \"b.c\" may not contain '.', '[' or ']'",
+        "subscribers[2]: subscribers[2].name is the same as subscribers[1].name; entries need distinct names",
+        "subscribers[3]: subscribers[3].name may not contain '.', '[' or ']'",
+      ],
+    },
+    {
+      name: "a key typed as a name, split by '.': the entry by index, never the name",
+      text:
+        base +
+        "subscribers:\n    - name: 465b5ce8b199b49f.aa5f0a2ee238a6bc\n    - name: 465b5ce8b199b49f\n    - name: 465b5ce8b199b49f\napp:\n    responders:\n        - name: aa5f0a2ee238a6bc.465b5ce8b199b49f\n",
+      want: [
+        "subscribers[0]: subscribers[0].name may not contain '.', '[' or ']'",
+        "subscribers[2]: subscribers[2].name is the same as subscribers[1].name; entries need distinct names",
+        "app.responders[0]: app.responders[0].name may not contain '.', '[' or ']'",
       ],
     },
     { name: "an unknown pool key, by the pool's name", text: base + "subscribers:\n    - name: main\n      key: x\n", want: ["subscribers[main].key: unknown key subscribers[].key"] },

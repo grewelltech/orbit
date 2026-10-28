@@ -189,7 +189,7 @@ func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.
 
 	// Leases, as a run takes them: the three gNB IDs, the SUPI, the N2 source.
 	needs := engine.Needs{}
-	for i := uint32(0); i < 3; i++ {
+	for i := uint32(0); i < probeGNBs; i++ {
 		needs.GNBs = append(needs.GNBs, engine.GNBKey{AMF: core.GetAmf(), PLMN: plmn, ID: gnb.GetId() + i})
 	}
 	if pool != nil {
@@ -438,7 +438,15 @@ func (p *probeRun) fail(detail, fix string) error {
 	return p.skipRest("after " + failed + " failed")
 }
 
-// probeGNB is the target's first gNB, as the probe uses it.
+// probeGNBs is how many gNB IDs the probe uses, from ran.gnb_ids.first:
+// NG Setup's, registration's, and the handover target's.
+const probeGNBs = 3
+
+// probeGNB is the target's first gNB, as the probe uses it. The probe
+// leases and uses probeGNBs IDs from it, so all of them must fit the ID
+// length, and lie in the target's block when it has a count; otherwise
+// the target is refused (InvalidArgument), naming ran.gnb_ids, rather than
+// probed with IDs that wrap or that the target never gave.
 func probeGNB(t *orbitv1.ResolvedTarget) (*orbitv1.GnbConfig, error) {
 	core, ran := t.GetCore(), t.GetRan()
 	id, bits := ran.GetGnbIds().GetFirst(), ran.GetGnbIds().GetBits()
@@ -446,7 +454,14 @@ func probeGNB(t *orbitv1.ResolvedTarget) (*orbitv1.GnbConfig, error) {
 		id = target.DefaultGNBID
 	}
 	if bits == 0 {
-		bits = 24
+		bits = target.DefaultGNBIDBits
+	}
+	last := uint64(id) + probeGNBs - 1
+	if maxID := uint64(1)<<bits - 1; bits <= 32 && last > maxID {
+		return nil, fmt.Errorf("ran.gnb_ids: the probe uses %d gNB IDs, %d..%d, which do not fit %d bits (at most %d): lower ran.gnb_ids.first", probeGNBs, id, last, bits, maxID)
+	}
+	if n := ran.GetGnbIds().GetCount(); n > 0 && n < probeGNBs {
+		return nil, fmt.Errorf("ran.gnb_ids: the probe needs %d gNB IDs: set ran.gnb_ids.count to %d or more, or leave count unset (a count of %d holds fewer)", probeGNBs, probeGNBs, n)
 	}
 	name := ran.GetGnbName()
 	if name == "" {
