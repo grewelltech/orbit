@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { fromJson } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { ListJoinTokensResponseSchema, ListRespondersResponseSchema, RegisteredResponderSchema } from "@/gen/orbit/v1/join_pb";
-import { ageText, NOT_SHOWN, removeConfirm, removeResponder, responderRows, revokeToken, SHOWN, tokenRows } from "./responders";
+import { ageText, InFlight, NOT_SHOWN, removeConfirm, removeResponder, responderRows, revokeToken, SHOWN, tokenRows } from "./responders";
 
 /**
  * Real ListResponders and ListJoinTokens answers, written by Go
@@ -63,9 +63,24 @@ describe("Remove", () => {
     expect(sent).toEqual(["app2"]);
   });
 
+  it("a responder the server no longer has is already removed (a second click that got through, or removed elsewhere)", async () => {
+    const client = { removeResponder: async () => Promise.reject(new ConnectError("no responder app2", Code.NotFound)) };
+    expect(await removeResponder(client, "app2", () => true)).toBe("already removed");
+  });
+
+  it("one Remove at a time per responder: a second start while one is in flight is refused, and allowed again after", () => {
+    const f = new InFlight();
+    expect(f.start("app2")).toBe(true);
+    expect(f.start("app2")).toBe(false);
+    expect(f.start("app3")).toBe(true);
+    expect(f.list().sort()).toEqual(["app2", "app3"]);
+    f.end("app2");
+    expect(f.start("app2")).toBe(true);
+  });
+
   it("a refusal says why, in the server's words", async () => {
-    const client = { removeResponder: async () => Promise.reject(new ConnectError("no responder app9", Code.NotFound)) };
-    expect(await removeResponder(client, "app9", () => true)).toBe("not removed: no responder app9");
+    const client = { removeResponder: async () => Promise.reject(new ConnectError("the responder registry did not persist", Code.Unavailable)) };
+    expect(await removeResponder(client, "app9", () => true)).toBe("not removed: the responder registry did not persist");
   });
 });
 

@@ -987,3 +987,29 @@ func TestGNBIDsOverflowRefused(t *testing.T) {
 		t.Errorf("--gnb-id past the end: %v", r.execErr)
 	}
 }
+
+// Key text never reaches the CLI's errors: a key typed as a pool name and
+// split by '.' (no key's shape) is refused by its index, in target show
+// and target probe (which load the target first); a key as a --set
+// selector is masked in the plan's refusal.
+func TestKeyTextNotEchoedByTheCLI(t *testing.T) {
+	clearOrbitEnv(t)
+	t.Setenv("ORBIT_TEST_KI", testKi)
+	const half1, half2 = "465b5ce8b199b49f", "aa5f0a2ee238a6bc"
+	dotted := strings.Replace(lab1, "  - name: main\n", "  - name: "+half1+"."+half2+"\n", 1)
+	clean := func(name string, r orbitRun, want string) {
+		t.Helper()
+		msg := ""
+		if r.execErr != nil {
+			msg = r.execErr.Error()
+		}
+		msg += r.err
+		if !strings.Contains(msg, want) || strings.Contains(msg, half1) || strings.Contains(msg, half2) {
+			t.Errorf("%s: %q, want %q and no part of the name", name, msg, want)
+		}
+	}
+	clean("target show", runOrbit(t, targetDir(t, dotted), "target", "show", "lab1"), "subscribers[0].name may not contain")
+	clean("target probe", runOrbit(t, targetDir(t, dotted), "target", "probe", "lab1", "--server", "http://127.0.0.1:1"), "subscribers[0].name may not contain")
+	const key = half1 + half2
+	clean("--set gates[<key>]", runOrbit(t, targetDir(t, lab1), "test", "load", "-t", "lab1", "--set", "gates["+key+"].slo.threshold=1", "--explain"), "give slo.metric")
+}

@@ -148,7 +148,7 @@ export function CohortCard({ cohort: c, history }: { cohort: CohortQuality; hist
         { type: "line", name: "p95", showSymbol: false, data: points.p95, lineStyle: { width: 1, color: t.series[4] }, itemStyle: { color: t.series[4] } },
       ],
     };
-  }, [c.name, history, metric, t.series]);
+  }, [c.name, history, metric, t]);
 
   return (
     <Panel
