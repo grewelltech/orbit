@@ -234,5 +234,5 @@ func validateValue(path string, f field, v any, src Source) error {
 	if reason == "" {
 		return nil
 	}
-	return fmt.Errorf("%s: %s %s (%s)", path, errValue(f, v), reason, src)
+	return fmt.Errorf("%s: %s %s (%s)", path, errValue(f, v), maskKeyShaped(reason), src)
 }

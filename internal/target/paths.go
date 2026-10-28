@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -446,13 +447,34 @@ func convert(f field, v any) (any, error) {
 }
 
 // errValue is how an error shows a field's value: masked when the field is
-// secret, quoted when it is a string.
+// secret, or when the value is shaped like a key or token (keyShaped), a
+// secret pasted into the wrong field; quoted when it is a string.
 func errValue(f field, v any) string {
 	if f.secret || f.typ == tAny {
 		return Masked // a subtree's text may hold a token
 	}
 	if s, ok := v.(string); ok {
+		if keyShaped(s) {
+			return Masked
+		}
 		return strconv.Quote(s)
 	}
-	return show(f, v)
+	return maskKeyShaped(show(f, v)) // a list or mapping: a key in an entry
 }
+
+// keyShapedRe is a value shaped like a secret: a Ki or OPc (32 hex digits),
+// a 64-hex-digit key, or one of orbit's tokens (a join token, a responder
+// credential, a loom token) by its prefix.
+var keyShapedRe = regexp.MustCompile(`^(?:[0-9A-Fa-f]{32}|[0-9A-Fa-f]{64}|(?:oj1|orc1|orl1)_[A-Za-z0-9_-]+)$`)
+
+// keyShaped reports whether s, trimmed, is shaped like a key or token. A
+// ${VAR} is not: it names where a secret comes from, and shows as written.
+func keyShaped(s string) bool { return keyShapedRe.MatchString(strings.TrimSpace(s)) }
+
+// keyShapedInRe is keyShapedRe within a longer text: a whole word of hex
+// digits, 32 or 64 long, or a token.
+var keyShapedInRe = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{64}|[0-9A-Fa-f]{32})\b|\b(?:oj1|orc1|orl1)_[A-Za-z0-9_-]+`)
+
+// maskKeyShaped is text with every key- or token-shaped word in it masked:
+// a value rendered whole (a slice list) or quoted in a reason.
+func maskKeyShaped(text string) string { return keyShapedInRe.ReplaceAllString(text, Masked) }
