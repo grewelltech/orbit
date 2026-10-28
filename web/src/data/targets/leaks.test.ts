@@ -104,8 +104,11 @@ describe("no key the page cannot see is kept, by any path", () => {
 
   it("an edit that would leave a key out of sight (a pool as one mapping) is refused whole", () => {
     const s = { local: mem(), session: mem() };
-    const r = act.editTarget(s, [{ name: "t1", yaml: head }], "t1", (d) => d.setIn(["subscribers"], d.createNode({ name: "a", ki: KI })));
+    let told = "";
+    const r = act.editTarget(s, [{ name: "t1", yaml: head }], "t1", (d) => d.setIn(["subscribers"], d.createNode({ name: "a", ki: KI })), (w) => (told = w));
     expect(r).toBeUndefined();
+    // Said, not dropped silently, and without the key.
+    expect(told).toBe("edit not kept: subscribers is not a list of entries");
     expect(holdsKey([...s.local.data.values(), ...s.session.data.values()].join(""))).toBe(false);
   });
 
@@ -143,6 +146,16 @@ describe("each layer on its own", () => {
       expect(strayKey(c)).toBeUndefined();
       expect(() => parseTargets(text)).toThrow();
     }
+  });
+
+  it("a list field takes a list, as the CLI's decode does: a lone value is refused", () => {
+    expect(structureProblem(contents(head.replace("core:\n", "core:\n    ue_pools: 10.250.0.0/16\n")))).toBe('core.ue_pools is not a list of values (write "- value")');
+    expect(structureProblem(contents(head.replace("core:\n", "core:\n    ue_pools: [10.250.0.0/16]\n")))).toBeUndefined();
+  });
+
+  it("a tag is named as a tag, never quoted", () => {
+    expect(structureProblem(contents(head + sub(`      ki: !custom${KI} x\n`)))).toBe("subscribers[0].ki has a YAML tag (!!…); write it plain");
+    expect(structureProblem(contents(head + sub(`      !!str ki: x\n`)))).toBe("a key under subscribers[0] has a YAML tag (!!…); write it plain");
   });
 
   it("layer zero's reasons name schema fields and indexes only", () => {

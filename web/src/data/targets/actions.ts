@@ -59,7 +59,13 @@ export interface Edited {
  * a rename to a free, valid name takes the keys with it, and any other
  * rename is undone.
  */
-export function editTarget(s: Stores, targets: readonly StoredTarget[], name: string, change: (doc: Document) => void): Edited | undefined {
+export function editTarget(
+  s: Stores,
+  targets: readonly StoredTarget[],
+  name: string,
+  change: (doc: Document) => void,
+  onRefused?: (why: string) => void,
+): Edited | undefined {
   const cur = targets.find((t) => t.name === name);
   const p = cur && parseStored(cur);
   if (!p) return undefined;
@@ -69,7 +75,8 @@ export function editTarget(s: Stores, targets: readonly StoredTarget[], name: st
   // key where nothing sees it is refused whole.
   try {
     parseTargets(render(p.doc, p.style));
-  } catch {
+  } catch (e) {
+    onRefused?.(`edit not kept: ${(e instanceof Error ? e.message : String(e)).split("\n")[0] ?? ""}`);
     return undefined;
   }
   const moved = moveSecrets(p.doc);
