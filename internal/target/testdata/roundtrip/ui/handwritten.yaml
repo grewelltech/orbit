@@ -1,0 +1,40 @@
+# A target written by hand: 2-space indents, comments, a ${VAR} outside
+# the keys, two pools and a static responder.
+version: 1
+kind: target
+name: handwritten
+core:
+  amf: ${LAB_AMF} # the AMF's N2 address, from the shell
+  plmn: {mcc: "208", mnc: "93"}
+  tac: 0x10
+  slices:
+    - sst: 1
+      sd: "010203"
+    - sst: 2
+  dnn: internet
+  upf_n3: 192.0.2.30:2152
+  ue_pools: [10.250.0.0/16]
+  upf_n6: 198.51.100.1
+  n6_subnet: 198.51.100.0/24
+subscribers:
+  - name: main
+    first_supi: "208930000000001"
+    count: 10
+    ki: ${ORBIT_KI}
+    opc: ${ORBIT_OPC}
+  - name: roaming
+    first_supi: "208930000100001"
+    ki: ${ROAM_KI}
+    opc: ${ROAM_OPC}
+    routing_indicator: "0001"
+ran:
+  gnb_name: lab-gnb
+  n2_source_ips: [192.0.2.20]
+  n3_ips: [192.0.2.21]
+  gnb_ids: {first: 100, count: 4, bits: 24}
+app:
+  responders:
+    - name: n6
+      control: 203.0.113.20:9551
+      token: ${ORBIT_RESPONDER_TOKEN_0}
+      data_ip: 203.0.113.20

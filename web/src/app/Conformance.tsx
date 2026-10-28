@@ -6,7 +6,7 @@
  * behave to spec") from a load run ("how much can it take"), and mixing the two
  * controls would muddle both.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   failedLabel,
   identityComplete,
@@ -17,6 +17,9 @@ import {
   type ConformanceResult,
   type NetworkIdentity,
 } from "@/data/conformance";
+import { pickTarget } from "@/data/targets/picker";
+import { browserLocal, loadTargets } from "@/data/targets/store";
+import { PageLinks } from "./PageLinks";
 
 const VERDICT_COLOR: Record<string, string> = {
   PASS: "var(--o-accent)",
@@ -50,6 +53,20 @@ export function Conformance() {
   // starts on the last core's values; the PLMN itself is never guessed.
   const [identity, setIdentity] = useState<NetworkIdentity>(() => loadIdentity());
   const ready = Boolean(amf) && identityComplete(identity);
+  // "use target": fills the form from a target kept on the Targets page.
+  // The form, and what it remembers, work as before without one.
+  const targets = useMemo(() => loadTargets(browserLocal()), []);
+  const [picked, setPicked] = useState("");
+  const [unresolved, setUnresolved] = useState<string[]>([]);
+  const applyTarget = (name: string) => {
+    setPicked(name);
+    const t = targets.find((x) => x.name === name);
+    const p = t && pickTarget(t.yaml);
+    if (!p) return;
+    if (p.amf) setAmf(p.amf);
+    setIdentity(p.identity);
+    setUnresolved(p.unresolved);
+  };
 
   const start = () => {
     saveIdentity(identity);
@@ -75,11 +92,35 @@ export function Conformance() {
         >
           ORBIT
         </span>
-        <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
-          conformance
-        </span>
+        <PageLinks current="conformance" />
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {targets.length > 0 && (
+            <select
+              value={picked}
+              onChange={(e) => applyTarget(e.target.value)}
+              aria-label="use target"
+              className="o-label px-2 py-1"
+              style={{
+                color: "var(--o-ink-2)",
+                background: "var(--o-surface-2)",
+                border: "1px solid var(--o-border)",
+                borderRadius: "var(--o-radius)",
+              }}
+            >
+              <option value="">use target…</option>
+              {targets.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {unresolved.length > 0 && (
+            <span className="o-label" style={{ color: "var(--o-amber)", textTransform: "none" }} title="the browser has no environment to expand ${VAR} from">
+              {unresolved.join(", ")}: a {"${VAR}"} in the target; fill in by hand
+            </span>
+          )}
           <input
             value={amf}
             onChange={(e) => setAmf(e.target.value)}

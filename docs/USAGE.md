@@ -299,6 +299,51 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   for hex. Before, `--tac 0010` was read as octal 8. `0x`, `0o` and plain `0`
   are accepted, as in a target file.
 
+### Targets in the browser (`?targets`)
+
+The dashboard's **Targets** page (`http://<server>:8412/?targets`) creates and
+edits targets in the browser, using the same schema as the CLI's target file.
+It imports and exports those files: a file `orbit target init` wrote,
+imported and then exported unchanged, comes back byte for byte, and a file
+exported from the page loads in the CLI as it is.
+
+What is stored where:
+
+- **Targets** are stored in this browser's localStorage (`orbit.targets.v1`),
+  each as its file's text. A key or token is never stored there: a secret
+  field always holds a `${VAR}` reference, as `target init` writes it without
+  `--write-keys`.
+- **Keys and tokens** (`subscribers[].ki`, `opc`, `app.responders[].token`)
+  are held in this tab only (sessionStorage), and are gone when the tab
+  closes. An imported file that has a key in clear has it moved into the tab.
+  The page says so ("ki … moved to this tab as ${ORBIT_KI}; the file had it in
+  clear"), and puts `${ORBIT_KI}` (or `${ORBIT_KI_1}` for a second pool,
+  `${ORBIT_RESPONDER_TOKEN_0}` for a responder) in the document.
+- **Remember keys in this browser** is a per-target opt-in. It stores that
+  target's keys **unencrypted** in localStorage (`orbit.targets.keys.<name>`),
+  where any script on the dashboard's origin can read them. A marker shows
+  while it is on. **Forget keys** removes them from the browser and the tab.
+- **The server stores nothing** about targets.
+
+**Export** writes `<name>.yaml`. Secrets are written as their `${VAR}` unless
+you tick *include keys in clear*, which has to be ticked again for every
+export.
+
+**The CLI's environment does not apply here.** The browser has no environment:
+the CLI's `$ORBIT_MCC`/`$ORBIT_MNC`/`$ORBIT_KI`/`$ORBIT_OPC` overrides, and the
+`${VAR}` expansion a target file gets when the CLI loads it, do not happen. A
+`${VAR}` in any string field is kept as written. A `${VAR}` in a numeric field
+is refused, as the CLI refuses it.
+
+The editor checks structure only: known keys, numbers written as numbers
+(not quoted, no leading zero), and named pools and responders. Formats (an SD
+of six hex digits, a CIDR) are checked by the CLI, and by the server when the
+target is used.
+
+The **Conformance** page's *use target* menu fills its AMF and network
+identity from a stored target. Keys are not involved, and the form works as
+before without a target.
+
 ## The server
 
 Most commands are Connect API clients; start the server first:

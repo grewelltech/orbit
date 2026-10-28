@@ -8,6 +8,7 @@ import { StatusDot, type Status } from "@/components/StatusDot";
 import type { RunState, SourceState, TelemetryFrame } from "@/data/types";
 import type { ThemeName, ThemeSetting } from "@/theme/useTheme";
 import { duration } from "@/lib/format";
+import { PageLinks } from "./PageLinks";
 
 const SOURCE_STATUS: Record<SourceState, { status: Status; label: string }> = {
   connecting: { status: "warn", label: "connecting" },
@@ -85,6 +86,7 @@ export function Header({ frame, sourceState, sourceName, theme, themeSetting, on
       <Field label="elapsed" value={duration(run?.elapsedMs ?? 0)} />
 
       <div className="ml-auto flex items-center gap-4">
+        <PageLinks current="dashboard" />
         {run && <StatusDot status={RUN_STATUS[run.state]} label={run.state} />}
         {/* Reachability only. Which source it is now reads beside the wordmark. */}
         <StatusDot status={src.status} label={src.label} />

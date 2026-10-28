@@ -7,7 +7,7 @@
  * hook holds the accumulating results and the running tally, and exposes a
  * `run()` the view calls.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@connectrpc/connect";
 import { orbitTransport } from "./transport";
 import {
@@ -212,6 +212,10 @@ export function useConformance(baseUrl?: string) {
     abort.current?.abort();
     setState((prev) => ({ ...prev, running: false }));
   }, []);
+
+  // Leaving the page ends the run's stream, so the server's suite stops
+  // rather than running on for a page no one is reading.
+  useEffect(() => () => abort.current?.abort(), []);
 
   return { state, run, cancel };
 }
