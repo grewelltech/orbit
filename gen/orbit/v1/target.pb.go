@@ -999,13 +999,16 @@ func (x *ProbeStep) GetFix() string {
 // layer: a ${VAR} takes its value from vars, never from the server's
 // environment, and one with no value is an error naming it.
 type ResolveRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TargetYaml    string                 `protobuf:"bytes,1,opt,name=target_yaml,json=targetYaml,proto3" json:"target_yaml,omitempty"` // one kind: target document
-	RunYaml       string                 `protobuf:"bytes,2,opt,name=run_yaml,json=runYaml,proto3" json:"run_yaml,omitempty"`          // one kind: run document
-	Template      string                 `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`                       // the built-in template run_yaml started from, or ""
-	Sets          []string               `protobuf:"bytes,4,rep,name=sets,proto3" json:"sets,omitempty"`                               // the flag layer: --set path=value
-	Gates         []string               `protobuf:"bytes,5,rep,name=gates,proto3" json:"gates,omitempty"`                             // the flag layer: --gate specs
-	Vars          []*Variable            `protobuf:"bytes,6,rep,name=vars,proto3" json:"vars,omitempty"`                               // the ${VAR}s' values
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TargetYaml string                 `protobuf:"bytes,1,opt,name=target_yaml,json=targetYaml,proto3" json:"target_yaml,omitempty"` // one kind: target document
+	RunYaml    string                 `protobuf:"bytes,2,opt,name=run_yaml,json=runYaml,proto3" json:"run_yaml,omitempty"`          // one kind: run document
+	Template   string                 `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`                       // the built-in template run_yaml started from, or ""
+	// The flag layer: --set path=value. Marked secret, so a set is refused
+	// over plaintext off loopback before it is read; the server refuses one
+	// at a secret field (keys go in the target, as ${VAR}s) in any case.
+	Sets          []string    `protobuf:"bytes,4,rep,name=sets,proto3" json:"sets,omitempty"`
+	Gates         []string    `protobuf:"bytes,5,rep,name=gates,proto3" json:"gates,omitempty"` // the flag layer: --gate specs
+	Vars          []*Variable `protobuf:"bytes,6,rep,name=vars,proto3" json:"vars,omitempty"`   // the ${VAR}s' values
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1215,13 +1218,13 @@ const file_orbit_v1_target_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x16\n" +
 	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x10\n" +
-	"\x03fix\x18\x05 \x01(\tR\x03fix\"\xc6\x01\n" +
+	"\x03fix\x18\x05 \x01(\tR\x03fix\"\xcc\x01\n" +
 	"\x0eResolveRequest\x12%\n" +
 	"\vtarget_yaml\x18\x01 \x01(\tB\x04\x90\xb5\x18\x01R\n" +
 	"targetYaml\x12\x1f\n" +
 	"\brun_yaml\x18\x02 \x01(\tB\x04\x90\xb5\x18\x01R\arunYaml\x12\x1a\n" +
-	"\btemplate\x18\x03 \x01(\tR\btemplate\x12\x12\n" +
-	"\x04sets\x18\x04 \x03(\tR\x04sets\x12\x14\n" +
+	"\btemplate\x18\x03 \x01(\tR\btemplate\x12\x18\n" +
+	"\x04sets\x18\x04 \x03(\tB\x04\x88\xb5\x18\x01R\x04sets\x12\x14\n" +
 	"\x05gates\x18\x05 \x03(\tR\x05gates\x12&\n" +
 	"\x04vars\x18\x06 \x03(\v2\x12.orbit.v1.VariableR\x04vars\":\n" +
 	"\bVariable\x12\x12\n" +

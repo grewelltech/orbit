@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"unicode"
 
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
@@ -16,14 +17,16 @@ import (
 )
 
 // RenderInput is a run as a client has it: its run file, the template the
-// file started from ("" for none), the target it runs against, and the
-// flag layer (--set and --gate).
+// file started from ("" for none), the target it runs against (its name,
+// and its document, keyless, to decide a template's fill), and the flag
+// layer (--set and --gate).
 type RenderInput struct {
-	RunYAML  []byte
-	Template string
-	Target   string
-	Sets     []string // path=value
-	Gates    []string // --gate specs
+	RunYAML    []byte
+	Template   string
+	Target     string
+	TargetYAML []byte
+	Sets       []string // path=value
+	Gates      []string // --gate specs
 }
 
 // Rendered is a run as the CLI runs it: the command, and the run file the
@@ -49,6 +52,9 @@ func Render(in RenderInput) (*Rendered, error) {
 	if paths := secrets.YAMLSecrets(string(in.RunYAML)); len(paths) > 0 {
 		return nil, fmt.Errorf("%s: %w", strings.Join(paths, ", "), ErrLiteralSecret)
 	}
+	if paths := secrets.YAMLSecrets(string(in.TargetYAML)); len(paths) > 0 {
+		return nil, fmt.Errorf("target: %s: %w", strings.Join(paths, ", "), ErrLiteralSecret)
+	}
 	if !target.ValidName(in.Target) {
 		return nil, fmt.Errorf("target %q: want letters, digits, '-' and '_'", in.Target)
 	}
@@ -59,10 +65,6 @@ func Render(in RenderInput) (*Rendered, error) {
 	}
 	if rf.Target != "" && rf.Target != in.Target {
 		return nil, fmt.Errorf("the run file's target: is %q, not %q", rf.Target, in.Target)
-	}
-	text, err := CanonicalRunYAML(in.RunYAML)
-	if err != nil {
-		return nil, err
 	}
 	flags, err := flagSettings(in.Sets, in.Gates)
 	if err != nil {
@@ -76,13 +78,97 @@ func Render(in RenderInput) (*Rendered, error) {
 		tail = append(tail, "--gate="+g)
 	}
 	if in.Template != "" {
-		if sets, ok := templateSets(in.Template, rf, flags); ok {
+		if sets, ok := templateSets(in.Template, rf, flags); ok && pasteSafe(sets) {
 			args := append([]string{"--target=" + in.Target}, sets...)
+			text, err := CanonicalRunYAML(in.RunYAML)
+			if err != nil {
+				return nil, err
+			}
 			return &Rendered{Command: command([]string{"orbit", "test", in.Template}, append(args, tail[1:]...)), RunYAML: text}, nil
 		}
 	}
+	// orbit run <file>: the file carries what the template's fill would
+	// give (the fleet's latency probe), as PlanRun's plan does on this path.
+	runYAML := in.RunYAML
+	if in.Template != "" && len(in.TargetYAML) > 0 {
+		if runYAML, err = withProbe(in, rf); err != nil {
+			return nil, err
+		}
+	}
+	text, err := CanonicalRunYAML(runYAML)
+	if err != nil {
+		return nil, err
+	}
 	file := in.Target + ".run.yaml"
 	return &Rendered{Command: command([]string{"orbit", "run"}, append([]string{"./" + file}, tail...)), RunYAML: text, FileName: file}, nil
+}
+
+// pasteSafe reports whether every argument can go in a copied command:
+// none pasteUnsafe, none over MaxArg.
+func pasteSafe(args []string) bool {
+	for _, a := range args {
+		if pasteUnsafe(a) || len(a) > MaxArg {
+			return false
+		}
+	}
+	return true
+}
+
+// withProbe is in's run file with the fleet's latency probe written in
+// (FleetProbe), when the template's fill applies: the run file leaves
+// behaviors as the template has them and the target gives the probe a
+// target. The target is read keyless; only its first responder's shape
+// decides.
+func withProbe(in RenderInput, rf *target.RunFile) ([]byte, error) {
+	base, err := Template(in.Template)
+	if err != nil {
+		return nil, err
+	}
+	if !sameAsTemplate(rf, base, fleetBehaviors) {
+		return in.RunYAML, nil
+	}
+	// Only the first responder's shape decides (a data_ip; or named only,
+	// registered by join), so the document is decoded as written: its
+	// ${VAR}s (keys among them) are neither expanded nor checked here.
+	var t target.Target
+	if err := yaml.Unmarshal(in.TargetYAML, &t); err != nil {
+		return nil, fmt.Errorf("target: %w", err)
+	}
+	if !fillProbe(in.Template, rf, t) {
+		return in.RunYAML, nil
+	}
+	return setWorkloadField(in.RunYAML, "fleet", "behaviors", FleetProbe)
+}
+
+// setWorkloadField is run file b with workload name's key set to value
+// (YAML text), comments and the rest as written.
+func setWorkloadField(b []byte, name, key, value string) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, err
+	}
+	var v yaml.Node
+	if err := yaml.Unmarshal([]byte(value), &v); err != nil || len(v.Content) == 0 {
+		return nil, fmt.Errorf("%s: %q is not YAML", key, value)
+	}
+	root := doc.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "workloads" {
+			continue
+		}
+		for _, w := range root.Content[i+1].Content {
+			for j := 0; j+1 < len(w.Content); j += 2 {
+				if w.Content[j].Value == "name" && w.Content[j+1].Value == name {
+					for k := 0; k+1 < len(w.Content); k += 2 {
+						if w.Content[k].Value == key {
+							w.Content[k+1] = v.Content[0]
+						}
+					}
+				}
+			}
+		}
+	}
+	return yaml.Marshal(&doc)
 }
 
 // keepRefs is a Getenv that leaves each ${VAR} as written.
@@ -104,10 +190,47 @@ func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// flagSettings is the flag layer --set and --gate give.
+// MaxArg is the longest argument a copied command carries: a longer one
+// goes in the run file (orbit run <file>), as does one a terminal would
+// act on when pasted (pasteUnsafe).
+const MaxArg = 4096
+
+// pasteUnsafe reports whether s holds a code point a terminal may act on
+// when the command is pasted, or that shows text other than it runs: a C0
+// control (tab and newline included), DEL, a C1 control, a bidirectional
+// control (U+202A–U+202E, U+2066–U+2069, U+200E, U+200F, U+061C), U+2028,
+// U+2029, or any other Unicode format character (a zero-width space).
+func pasteUnsafe(s string) bool {
+	for _, r := range s {
+		switch {
+		case r < 0x20, r == 0x7f, r >= 0x80 && r < 0xa0:
+			return true
+		case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069, r == 0x200e, r == 0x200f, r == 0x061c:
+			return true
+		case r == 0x2028, r == 0x2029, unicode.Is(unicode.Cf, r):
+			return true
+		}
+	}
+	return false
+}
+
+// ErrSecretSet is a --set or --gate that would carry a key: keys go in the
+// target, as ${VAR}s, where the request's vars fill them.
+var ErrSecretSet = errors.New("keys go in the target, as ${VAR}s, not in --set")
+
+// flagSettings is the flag layer --set and --gate give, as a client sends
+// it. A --set at a secret field (ki, opc, a responder token), whatever its
+// value (a ${VAR} too: the flag layer expands none, so it could only reach
+// the plan as that text), or a whole value with a secret-named key in it,
+// is refused, naming the path. So is a --set or --gate the copied command
+// could not carry: one with a pasteUnsafe code point or over MaxArg. The
+// CLI's own --set is its own (internal/cli): this is the RPCs' rule.
 func flagSettings(sets, gates []string) ([]target.Setting, error) {
 	var out []target.Setting
 	for _, g := range gates {
+		if pasteUnsafe(g) || len(g) > MaxArg {
+			return nil, fmt.Errorf("--gate: a control or format character, or over %d bytes; it could not be copied safely", MaxArg)
+		}
 		s, err := ParseGate(g)
 		if err != nil {
 			return nil, err
@@ -116,10 +239,26 @@ func flagSettings(sets, gates []string) ([]target.Setting, error) {
 	}
 	for _, kv := range sets {
 		path, value, ok := strings.Cut(kv, "=")
-		if !ok || strings.TrimSpace(path) == "" {
-			return nil, fmt.Errorf("--set %q: want path=value", kv)
+		path = strings.TrimSpace(path)
+		if !ok || path == "" {
+			return nil, errors.New("--set: want path=value")
 		}
-		out = append(out, target.Setting{Path: strings.TrimSpace(path), Value: value, Source: target.Source{Name: "--set"}})
+		if pasteUnsafe(path) {
+			return nil, errors.New("--set: a path with a control or format character")
+		}
+		if target.IsSecret(path) {
+			return nil, fmt.Errorf("--set %s: %w", path, ErrSecretSet)
+		}
+		if target.IsWholeValue(path) {
+			var v any
+			if err := yaml.Unmarshal([]byte(value), &v); err == nil && target.HoldsSecret(v) {
+				return nil, fmt.Errorf("--set %s: %w", path, ErrSecretSet)
+			}
+		}
+		if pasteUnsafe(value) || len(kv) > MaxArg {
+			return nil, fmt.Errorf("--set %s: a control or format character, or over %d bytes; it could not be copied safely", path, MaxArg)
+		}
+		out = append(out, target.Setting{Path: path, Value: value, Source: target.Source{Name: "--set"}})
 	}
 	return out, nil
 }

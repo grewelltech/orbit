@@ -830,12 +830,16 @@ func (x *PlanRunResponse) GetEventVerbosity() EventVerbosity {
 }
 
 type RenderRunRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunYaml       string                 `protobuf:"bytes,1,opt,name=run_yaml,json=runYaml,proto3" json:"run_yaml,omitempty"`          // one kind: run document
-	TargetName    string                 `protobuf:"bytes,2,opt,name=target_name,json=targetName,proto3" json:"target_name,omitempty"` // the command's --target
-	Template      string                 `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`                       // the built-in template run_yaml started from, or ""
-	Sets          []string               `protobuf:"bytes,4,rep,name=sets,proto3" json:"sets,omitempty"`                               // --set path=value
-	Gates         []string               `protobuf:"bytes,5,rep,name=gates,proto3" json:"gates,omitempty"`                             // --gate specs
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RunYaml    string                 `protobuf:"bytes,1,opt,name=run_yaml,json=runYaml,proto3" json:"run_yaml,omitempty"`          // one kind: run document
+	TargetName string                 `protobuf:"bytes,2,opt,name=target_name,json=targetName,proto3" json:"target_name,omitempty"` // the command's --target
+	Template   string                 `protobuf:"bytes,3,opt,name=template,proto3" json:"template,omitempty"`                       // the built-in template run_yaml started from, or ""
+	Sets       []string               `protobuf:"bytes,4,rep,name=sets,proto3" json:"sets,omitempty"`                               // --set path=value; marked as ResolveRequest.sets is
+	Gates      []string               `protobuf:"bytes,5,rep,name=gates,proto3" json:"gates,omitempty"`                             // --gate specs
+	// The target the run goes against, keyless (its keys ${VAR}s): only
+	// whether a template's fill applies is read from it, never a value the
+	// command or the file would carry.
+	TargetYaml    string `protobuf:"bytes,6,opt,name=target_yaml,json=targetYaml,proto3" json:"target_yaml,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -903,6 +907,13 @@ func (x *RenderRunRequest) GetGates() []string {
 		return x.Gates
 	}
 	return nil
+}
+
+func (x *RenderRunRequest) GetTargetYaml() string {
+	if x != nil {
+		return x.TargetYaml
+	}
+	return ""
 }
 
 type RenderRunResponse struct {
@@ -3744,14 +3755,16 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"provenance\x18\x02 \x03(\v2\x19.orbit.v1.FieldProvenanceR\n" +
 	"provenance\x12\x19\n" +
 	"\brun_name\x18\x03 \x01(\tR\arunName\x12A\n" +
-	"\x0fevent_verbosity\x18\x04 \x01(\x0e2\x18.orbit.v1.EventVerbosityR\x0eeventVerbosity\"\x9a\x01\n" +
+	"\x0fevent_verbosity\x18\x04 \x01(\x0e2\x18.orbit.v1.EventVerbosityR\x0eeventVerbosity\"\xc7\x01\n" +
 	"\x10RenderRunRequest\x12\x1f\n" +
 	"\brun_yaml\x18\x01 \x01(\tB\x04\x90\xb5\x18\x01R\arunYaml\x12\x1f\n" +
 	"\vtarget_name\x18\x02 \x01(\tR\n" +
 	"targetName\x12\x1a\n" +
-	"\btemplate\x18\x03 \x01(\tR\btemplate\x12\x12\n" +
-	"\x04sets\x18\x04 \x03(\tR\x04sets\x12\x14\n" +
-	"\x05gates\x18\x05 \x03(\tR\x05gates\"k\n" +
+	"\btemplate\x18\x03 \x01(\tR\btemplate\x12\x18\n" +
+	"\x04sets\x18\x04 \x03(\tB\x04\x88\xb5\x18\x01R\x04sets\x12\x14\n" +
+	"\x05gates\x18\x05 \x03(\tR\x05gates\x12%\n" +
+	"\vtarget_yaml\x18\x06 \x01(\tB\x04\x90\xb5\x18\x01R\n" +
+	"targetYaml\"k\n" +
 	"\x11RenderRunResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x1f\n" +
 	"\brun_yaml\x18\x02 \x01(\tB\x04\x90\xb5\x18\x01R\arunYaml\x12\x1b\n" +

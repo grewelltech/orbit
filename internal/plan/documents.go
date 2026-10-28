@@ -61,23 +61,32 @@ func FromDocuments(d Documents) (*Planned, error) {
 	if rf.Target != "" && rf.Target != tf.Target.Name {
 		return nil, fmt.Errorf("the run file's target: is %q, not the target sent (%q)", rf.Target, tf.Target.Name)
 	}
+	flags, err := flagSettings(d.Sets, d.Gates)
+	if err != nil {
+		return nil, err
+	}
+	// The template's fill (the fleet's latency probe), while the run file
+	// leaves behaviors as the template has them. When the run is exactly
+	// what `orbit test <template>` runs (templateSets), as orbit test fills
+	// it; otherwise the copied command is `orbit run <file>`, whose file
+	// carries the probe as FleetProbe, so the plan here does the same.
 	var fill func(*target.Resolved) bool
 	if d.Template != "" {
 		base, err := Template(d.Template)
 		if err != nil {
 			return nil, err
 		}
+		_, asTemplate := templateSets(d.Template, rf, flags)
 		fill = func(res *target.Resolved) bool {
 			if !sameAsTemplate(rf, base, fleetBehaviors) {
 				return false
 			}
-			changed, _ := FillTemplate(d.Template, rf, res.Target)
-			return changed
+			if asTemplate {
+				changed, _ := FillTemplate(d.Template, rf, res.Target)
+				return changed
+			}
+			return fillProbe(d.Template, rf, res.Target)
 		}
-	}
-	flags, err := flagSettings(d.Sets, d.Gates)
-	if err != nil {
-		return nil, err
 	}
 	build := func() (*Planned, error) {
 		res, err := target.Resolve(target.DefaultInput(), tf.Input, rf.Input, target.Input{Layer: target.LayerFlag, Settings: flags})
