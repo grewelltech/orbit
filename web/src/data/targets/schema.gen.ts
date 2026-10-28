@@ -53,6 +53,12 @@ export const NAMED_LISTS: readonly string[] = [
   "subscribers"
 ];
 
+/** The keys of one core.slices entry. */
+export const SLICE_KEYS: readonly string[] = [
+  "sd",
+  "sst"
+];
+
 /** A target or responder name: it becomes a file name. */
 export const VALID_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;
 

@@ -64,6 +64,14 @@ export function editTarget(s: Stores, targets: readonly StoredTarget[], name: st
   const p = cur && parseStored(cur);
   if (!p) return undefined;
   change(p.doc);
+  // The edited document must pass what an import passes (the structure
+  // gate above all) before anything is written: an edit that would leave a
+  // key where nothing sees it is refused whole.
+  try {
+    parseTargets(render(p.doc, p.style));
+  } catch {
+    return undefined;
+  }
   const moved = moveSecrets(p.doc);
   if (moved.length > 0) setTabKeys(s.session, name, { ...tabKeys(s.session, name), ...Object.fromEntries(moved.map((m) => [m.variable, m.value])) });
   let next = nameOf(p.doc) || name;

@@ -13,7 +13,7 @@
  * the server's to judge; it is the authority, and says which field.
  */
 import { Document, isAlias, isMap, isPair, isScalar, isSeq, parseAllDocuments, Scalar, visit, YAMLMap, YAMLSeq, type Node } from "yaml";
-import { DEFAULTS, NAMED_LISTS, TARGET_FIELDS, VALID_NAME, type FieldSpec } from "./schema.gen";
+import { DEFAULTS, NAMED_LISTS, SLICE_KEYS, TARGET_FIELDS, VALID_NAME, type FieldSpec } from "./schema.gen";
 
 /** What the name rule allows, in words. */
 export const VALID_NAME_TEXT = "letters, digits, '-' and '_', starting with a letter or digit, at most 63";
@@ -101,15 +101,15 @@ export function parseTargets(text: string): ParsedTarget[] {
     throw new Error(`YAML syntax error at line ${before.length}, column ${(before[before.length - 1]?.length ?? 0) + 1}`);
   }
   if (sharesNodes(first)) throw new Error(SHARED_REFUSED);
-  // Every key this page cannot see as a key is refused: a pool or
-  // responder list of the wrong shape, and anything named ki, opc or token
-  // outside the fields that hold them.
-  for (const t of isSeq(first.contents) ? first.contents.items : [first.contents]) {
-    const why = shapeProblem(t) ?? strayKey(t);
+  // Layer zero, the structure (structureProblem), refuses everything the
+  // other two do and more: they are kept as defence in depth, each tested
+  // on its own, though no input is known to get past layer zero to them.
+  const root = first.contents;
+  for (const t of isSeq(root) ? root.items : isMap(root) ? [root] : []) {
+    const why = structureProblem(t) ?? shapeProblem(t) ?? strayKey(t);
     if (why) throw new Error(why);
   }
   const style = styleOf(text);
-  const root = first.contents;
   if (isMap(root)) return [{ doc: first, text, style }];
   if (isSeq(root)) {
     return root.items.map((item) => {
@@ -127,6 +127,78 @@ export const TOO_LARGE = "larger than 1 MiB; a target file is a few KiB";
 /** A text's size in UTF-8 bytes, as a file's on disk. */
 export function utf8Length(text: string): number {
   return new TextEncoder().encode(text).length;
+}
+
+/** Every mapping a target document has, by pattern: the parents of its fields. */
+const MAPPINGS: ReadonlySet<string> = new Set(
+  TARGET_FIELDS.flatMap((f) => {
+    const out: string[] = [];
+    const parts = f.path.split(".");
+    for (let i = 1; i < parts.length; i++) {
+      const p = parts.slice(0, i).join(".");
+      if (!p.endsWith("[]")) out.push(p);
+    }
+    return out;
+  }),
+);
+
+/**
+ * Layer zero, the gate: the document's structure is exactly the target
+ * schema's, generated from Go (schema.gen.ts), as the CLI's strict decode
+ * (KnownFields) requires. Every mapping key is a plain string; every key
+ * is a known field at its path; every field has its kind (a scalar, a
+ * mapping, a list); a key field is a scalar. No YAML tags. A value's
+ * format (an SD's hex, a missing name) is not checked here: the editor
+ * shows those. The reason is built from schema field names and list
+ * indexes only, so it never quotes the file.
+ */
+export function structureProblem(target: unknown): string | undefined {
+  const show = (path: readonly Step[]) => path.map((s) => (typeof s === "number" ? `[${s}]` : `.${s}`)).join("").replace(/^\./, "") || "the top";
+  const tagged = (n: unknown) => (isScalar(n) || isMap(n) || isSeq(n)) && n.tag !== undefined;
+  const plainKey = (k: unknown) => (typeof k === "string" ? k : isScalar(k) && !tagged(k) && typeof k.value === "string" ? k.value : undefined);
+  const scalar = (n: unknown) => isScalar(n) && !tagged(n);
+  const walk = (map: unknown, pattern: string, path: Step[]): string | undefined => {
+    if (!isMap(map) || tagged(map)) return `${show(path)} is not a mapping`;
+    for (const pair of map.items) {
+      const k = plainKey(pair.key);
+      if (k === undefined) return `a key under ${show(path)} is not plain text`;
+      const pat = pattern ? `${pattern}.${k}` : k;
+      const v = pair.value;
+      const f = FIELDS.get(pat);
+      if (LISTS.has(pat)) {
+        if (!isSeq(v) || tagged(v)) return `${show([...path, k])} is not a list of entries`;
+        for (let i = 0; i < v.items.length; i++) {
+          const why = walk(v.items[i], pat + "[]", [...path, k, i]);
+          if (why) return why;
+        }
+      } else if (f) {
+        const here = show([...path, k]);
+        if (f.type === "string" || f.type === "uint") {
+          if (!scalar(v)) return `${here} is not a single value`;
+        } else if (f.type === "strings") {
+          if (!scalar(v) && !(isSeq(v) && !tagged(v) && v.items.every(scalar))) return `${here} is not a list of values`;
+        } else if (f.type === "slices") {
+          if (!isSeq(v) || tagged(v)) return `${here} is not a list of slices`;
+          for (let i = 0; i < v.items.length; i++) {
+            const e = v.items[i];
+            if (!isMap(e) || tagged(e)) return `${here}[${i}] is not a slice ({sst, sd})`;
+            for (const sp of e.items) {
+              const sk = plainKey(sp.key);
+              if (sk === undefined || !SLICE_KEYS.includes(sk)) return `an unknown field under ${here}[${i}]`;
+              if (!scalar(sp.value)) return `${here}[${i}].${sk} is not a single value`;
+            }
+          }
+        }
+      } else if (MAPPINGS.has(pat)) {
+        const why = walk(v, pat, [...path, k]);
+        if (why) return why;
+      } else {
+        return `an unknown field under ${show(path)}`;
+      }
+    }
+    return undefined;
+  };
+  return walk(target, "", []);
 }
 
 /** The lists whose elements hold keys, and the key fields each element has. */
@@ -164,16 +236,35 @@ export function strayKey(target: unknown): string | undefined {
     KEY_LISTS.some(
       ({ list, keys }) => keys.includes(key) && path.length === list.length + 1 && list.every((k, i) => path[i] === k) && typeof path[list.length] === "number",
     );
+  // A path as a notice shows it: list indexes in brackets, and any key
+  // that is not shaped like a field name as "…", so a key written as a
+  // mapping key is never quoted.
+  const show = (path: readonly Step[]) =>
+    path
+      .map((s) => (typeof s === "number" ? `[${s}]` : /^[a-z_<][a-z0-9_<]{0,31}$/.test(s) ? s : "…"))
+      .join(".")
+      .replace(/\.\[/g, "[");
   const walk = (n: unknown, path: Step[]) => {
     if (found) return;
     if (isMap(n)) {
       for (const pair of n.items) {
-        const k = keyText(pair.key) ?? "?";
+        const k = keyText(pair.key);
+        if (k === undefined) {
+          found = `a mapping key at ${show(path) || "the top"} is not text; refused`;
+          return;
+        }
         const v = pair.value;
-        if (/^(ki|opc|token)$/.test(k) && !known(path, k)) {
-          const text = isScalar(v) ? String(v.value ?? "") : undefined;
-          if (text === undefined || (text !== "" && refName(text) === undefined)) {
-            found = `a ${k} at ${[...path, k].map((s) => (typeof s === "number" ? `[${s}]` : s)).join(".").replace(/\.\[/g, "[")} is outside the fields that hold keys; refused so it cannot be kept in clear`;
+        if (/^(ki|opc|token)$/.test(k)) {
+          const here = show([...path, k]);
+          // A key's value is one scalar, wherever it is: a list or a
+          // mapping there would hide a key from every other check.
+          if (v !== null && v !== undefined && !isScalar(v)) {
+            found = `the ${k} at ${here} is not a single value; refused so it cannot be kept in clear`;
+            return;
+          }
+          const text = isScalar(v) ? String(v.value ?? "") : "";
+          if (!known(path, k) && text !== "" && refName(text) === undefined) {
+            found = `a ${k} at ${here} is outside the fields that hold keys; refused so it cannot be kept in clear`;
             return;
           }
         }

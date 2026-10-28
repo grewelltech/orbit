@@ -150,6 +150,14 @@ func renderWebSchema(t *testing.T) []byte {
 	}
 	b.WriteString("];\n\n")
 	fmt.Fprintf(&b, "/** The lists whose elements are named (and merge by name). */\nexport const NAMED_LISTS: readonly string[] = %s;\n\n", js(lists))
+	var sliceKeys []string
+	for p, f := range fields {
+		if f.target && strings.HasPrefix(p, "core.slices[].") {
+			sliceKeys = append(sliceKeys, strings.TrimPrefix(p, "core.slices[]."))
+		}
+	}
+	sortStrings(sliceKeys)
+	fmt.Fprintf(&b, "/** The keys of one core.slices entry. */\nexport const SLICE_KEYS: readonly string[] = %s;\n\n", js(sliceKeys))
 	fmt.Fprintf(&b, "/** A target or responder name: it becomes a file name. */\nexport const VALID_NAME = /%s/;\n\n", validName.String())
 	fmt.Fprintf(&b, "/** The built-in defaults (target.DefaultInput), applied under the document. */\nexport const DEFAULTS: Readonly<Record<string, unknown>> = %s;\n", js(webDefaults(t)))
 	return b.Bytes()

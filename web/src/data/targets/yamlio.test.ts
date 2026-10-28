@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseDocument } from "yaml";
 import {
   addElement,
   canonicalPath,
@@ -46,7 +47,9 @@ describe("parseTargets", () => {
 });
 
 describe("checkTarget", () => {
-  const issues = (text: string) => checkTarget(doc(text)).map((i) => `${i.path}: ${i.message}`);
+  // checkTarget runs on any document; parseTargets refuses some of these
+  // (an unknown key, a wrong shape) before it, so they are parsed raw here.
+  const issues = (text: string) => checkTarget(parseDocument(text, { schema: "failsafe" })).map((i) => `${i.path}: ${i.message}`);
   const rows: { name: string; text: string; want: string[] }[] = [
     { name: "a good target", text: base, want: [] },
     { name: "an unknown key", text: base + "    color: blue\n", want: ["core.color: unknown key core.color"] },

@@ -1,133 +1,192 @@
 /**
- * Keys that could reach a field without this page seeing them (the review
- * of #223): anchors, aliases and merge keys, a list where one target goes,
- * and error messages that quote the file. Each case must leave no key in
- * anything stored or exported.
+ * Keys that could reach a field without this page seeing them, every case
+ * from the three reviews of #223 in one table. Each row either is refused
+ * (REFUSE: nothing imported) or imports with the key moved to the tab
+ * (MOVE). Either way no key is left in anything stored or exported, in a
+ * notice, or in what parseBlob or withoutSecrets keep.
  */
 import { describe, expect, it } from "vitest";
-import { importFile } from "./importexport";
-import { parseBlob, saveTargets, storageChange, TARGETS_KEY, withoutSecrets, type KeyValueStore } from "./store";
-import { MAX_FILE_BYTES, parseTargets, SHARED_REFUSED, shapeProblem, sharesNodes, strayKey, TOO_LARGE } from "./yamlio";
 import { Alias, Document, parseDocument } from "yaml";
+import * as act from "./actions";
+import { importFile, readImportFile } from "./importexport";
+import { parseBlob, saveTargets, storageChange, TARGETS_KEY, withoutSecrets, type KeyValueStore } from "./store";
+import { MAX_FILE_BYTES, parseTargets, shapeProblem, SHARED_REFUSED, sharesNodes, strayKey, structureProblem, TOO_LARGE } from "./yamlio";
 
 const KI = "AAAA1111222233334444555566667777";
 const OPC = "BBBB1111222233334444555566667777";
 const head = "version: 1\nkind: target\nname: t1\ncore:\n    amf: 10.0.0.1:38412\n";
-const pool = '    - name: a\n      first_supi: "001010000000001"\n      count: 1\n';
+const sub = (x: string) => 'subscribers:\n    - name: a\n      first_supi: "001010000000001"\n      count: 1\n' + x;
 
 function mem(): KeyValueStore & { data: Map<string, string> } {
   const data = new Map<string, string>();
   return { data, getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v), removeItem: (k) => void data.delete(k) };
 }
-const holdsKey = (s: string) => s.includes(KI) || s.includes(OPC);
+const holdsKey = (s: string) => s.includes(KI) || s.includes(OPC) || s.includes("AAAA1111") || s.includes("222233334444555566667777");
 
-const leaks: Record<string, string> = {
-  aliasFromUnknown: head + `x-keys: &k ${KI}\nsubscribers:\n${pool}      ki: *k\n      opc: \${ORBIT_OPC}\n`,
-  mergeKey: head + `x-defaults: &d\n    ki: ${KI}\n    opc: ${OPC}\nsubscribers:\n${pool}      <<: *d\n`,
-  anchorShared:
-    head +
-    `subscribers:\n${pool}      ki: &k ${KI}\n      opc: \${ORBIT_OPC}\n    - name: b\n      first_supi: "001010000000002"\n      count: 1\n      ki: *k\n      opc: \${ORBIT_OPC}\n`,
-  anchorOnly: head + `subscribers:\n${pool}      ki: &k ${KI}\n`,
-  listRoot: `- version: 1\n  kind: target\n  name: c\n- version: 1\n  kind: target\n  name: d\n  subscribers:\n    - name: a\n      ki: ${KI}\n`,
-  // A list of the wrong shape: its keys are not where secretSlots looks.
-  forgottenDash: head + `subscribers:\n    name: a\n    ki: ${KI}\n`,
-  listInList: head + `subscribers:\n    - - name: a\n        ki: ${KI}\n`,
-  respondersMap: head + `app:\n    responders:\n        name: n6\n        token: orl-${KI}\n`,
-  // A key name at a depth no field has.
-  kiInCore: head.replace("core:\n", `core:\n    ki: ${KI}\n`),
-  // A merge key with its map inline: no anchor, no alias, but the CLI
-  // merges it, so it is a key.
-  inlineMerge: head + `subscribers:\n${pool}      <<: {ki: ${KI}}\n`,
-};
+type Want = "REFUSE" | "MOVE";
+const rows: [string, Want, string][] = [
+  // Round 1: anchors, aliases, merge keys, errors, nesting.
+  ["aliasFromUnknown", "REFUSE", head + `x-keys: &k ${KI}\n` + sub("      ki: *k\n      opc: ${ORBIT_OPC}\n")],
+  ["mergeKey", "REFUSE", head + `x-defaults: &d\n    ki: ${KI}\n    opc: ${OPC}\n` + sub("      <<: *d\n")],
+  ["anchorShared", "REFUSE", head + sub(`      ki: &k ${KI}\n`) + '    - name: b\n      first_supi: "001010000000002"\n      count: 1\n      ki: *k\n'],
+  ["anchorOnly", "REFUSE", head + sub(`      ki: &k ${KI}\n`)],
+  ["inlineMerge", "REFUSE", head + sub(`      <<: {ki: ${KI}}\n`)],
+  ["dupKey", "REFUSE", head + sub(`      ki: \${ORBIT_KI}\n      ki: ${KI}\n`)],
+  ["pretty", "REFUSE", head + `subscribers:\n    - name: a\n      ki: ${KI}\n     opc: [unclosed\n`],
+  ["deepNesting", "REFUSE", head + "x: " + "[".repeat(100000) + "]".repeat(100000) + "\n"],
+  ["pollution", "REFUSE", head + "__proto__:\n    polluted: yes\nconstructor:\n    prototype:\n        polluted2: yes\n"],
+  // Round 2: tags, key forms, shapes, documents.
+  ["tagStr", "REFUSE", head + sub(`      ki: !!str ${KI}\n`)],
+  ["tagCustom", "REFUSE", head + sub(`      ki: !custom ${KI}\n`)],
+  ["tagBinary", "REFUSE", head + sub("      ki: !!binary QUFBQTExMTEyMjIyMzMzMzQ0NDQ1NTU1NjY2Njc3Nzc=\n")],
+  ["flowMap", "MOVE", head + `subscribers: [{name: a, first_supi: "001010000000001", count: 1, ki: ${KI}}]\n`],
+  ["complexKey", "MOVE", head + sub(`      ? ki\n      : ${KI}\n`)],
+  ["quotedKey", "MOVE", head + sub(`      "ki": ${KI}\n`)],
+  ["taggedKey", "REFUSE", head + sub(`      !!str ki: ${KI}\n`)],
+  ["dupSubscribers", "REFUSE", head + sub("      ki: ${ORBIT_KI}\n") + `subscribers:\n    - name: b\n      ki: ${KI}\n`],
+  ["dupQuotedSubscribers", "REFUSE", head + sub("      ki: ${ORBIT_KI}\n") + `"subscribers":\n    - name: b\n      ki: ${KI}\n`],
+  ["multiDoc", "REFUSE", head + sub("      ki: ${ORBIT_KI}\n") + "---\n" + head + sub(`      ki: ${KI}\n`)],
+  ["multiDocEmpty", "REFUSE", head + sub(`      ki: ${KI}\n`) + "---\n"],
+  ["forgottenDash", "REFUSE", head + `subscribers:\n    name: a\n    ki: ${KI}\n`],
+  ["listInList", "REFUSE", head + `subscribers:\n    - - name: a\n        ki: ${KI}\n`],
+  ["respondersMap", "REFUSE", head + `app:\n    responders:\n        name: n6\n        token: orl-${KI}\n`],
+  ["plainScalarMultiline", "MOVE", head + sub("      ki: AAAA1111\n        222233334444555566667777\n")],
+  // Round 3: non-scalar values, keys as text, odd shapes.
+  ["kiSeqValue", "REFUSE", head + sub(`      ki: [${KI}]\n`)],
+  ["kiMapValue", "REFUSE", head + sub(`      ki: {${KI}: x}\n`)],
+  ["kiBlockSeq", "REFUSE", head + sub(`      ki:\n        - ${KI}\n`)],
+  ["tokenSeqValue", "REFUSE", head + `app:\n    responders:\n        - name: n6\n          token: [orl-${KI}]\n`],
+  ["nonStringKey", "REFUSE", head + sub(`      ? [ki]\n      : ${KI}\n`)],
+  ["secretAsKeyText", "REFUSE", head + `x-junk:\n    ${KI}:\n        ki: literal-AAAA\n`],
+  ["secretAsKeyInList", "REFUSE", head + sub(`      ${KI}: 1\n      opc: \${ORBIT_OPC}\n`)],
+  ["upperKI", "REFUSE", head + sub(`      KI: ${KI}\n`)],
+  ["coreKi", "REFUSE", head.replace("core:\n", `core:\n    ki: ${KI}\n`)],
+  ["strayNull", "REFUSE", head + "x:\n    ki: ~\n"],
+  ["appScalar", "REFUSE", head + `app: ${KI}\n`],
+  ["appSeq", "REFUSE", head + `app:\n    - responders: [{name: n6, token: ${KI}}]\n`],
+  ["pairsTag", "REFUSE", head + `subscribers: !!pairs [{name: a, ki: ${KI}}]\n`],
+  ["flowPairs", "MOVE", head + `subscribers: [name: a, ki: ${KI}]\n`],
+  ["dollarNoBrace", "MOVE", head + sub("      ki: $ORBIT_KI\n")],
+  ["refSuffix", "MOVE", head + sub("      ki: ${ORBIT_KI}x\n")],
+];
 
-describe("a key the page cannot see is never kept", () => {
-  for (const [name, text] of Object.entries(leaks)) {
-    it(name, () => {
-      let imported: ReturnType<typeof importFile> = [];
-      try {
-        imported = importFile(text);
-      } catch (e) {
-        expect(holdsKey((e as Error).message)).toBe(false);
-      }
-      if (name !== "listRoot") expect(imported).toEqual([]); // refused outright
-      if (name === "listRoot") expect(imported.every((t) => !holdsKey(t.target.yaml))).toBe(true);
-      for (const t of imported) expect(holdsKey(t.target.yaml)).toBe(false);
-      const local = mem();
-      saveTargets(local, imported.map((t) => t.target));
-      expect(holdsKey(local.data.get(TARGETS_KEY) ?? "")).toBe(false);
+describe("no key the page cannot see is kept, by any path", () => {
+  for (const [name, want, text] of rows) {
+    it(`${name}: ${want}`, () => {
+      const s = { local: mem(), session: mem() };
+      const r = act.importInto(s, [], text, false);
+      for (const n of r.notices) expect(holdsKey(n), n).toBe(false);
+      if (want === "REFUSE") expect(r.targets).toEqual([]);
+      else expect(r.targets.length).toBeGreaterThan(0);
+      for (const t of r.targets) expect(holdsKey(t.yaml)).toBe(false);
+      expect(holdsKey(s.local.data.get(TARGETS_KEY) ?? "")).toBe(false);
+      if (r.last) expect(holdsKey(act.exportTarget(s, r.targets, r.last, false)?.text ?? "")).toBe(false);
       const blob = JSON.stringify({ version: 1, targets: [{ name: "x", yaml: text }] });
-      expect(parseBlob(blob)).toEqual([]);
-      expect(withoutSecrets(text)).toBeUndefined();
-      const ev = storageChange({ key: TARGETS_KEY, newValue: blob, storageArea: local }, local);
-      expect(ev).toEqual({ kind: "targets", targets: [] });
+      for (const t of parseBlob(blob)) expect(holdsKey(t.yaml)).toBe(false);
+      const ev = storageChange({ key: TARGETS_KEY, newValue: blob, storageArea: s.local }, s.local);
+      expect(holdsKey(JSON.stringify(ev))).toBe(false);
+      const w = withoutSecrets(text);
+      if (want === "REFUSE") expect(w).toBeUndefined();
+      else expect(holdsKey(w ?? "")).toBe(false);
     });
   }
 
-  it("anchors, aliases and merge keys are refused with one message", () => {
-    for (const name of ["aliasFromUnknown", "mergeKey", "anchorShared", "anchorOnly", "inlineMerge"]) {
-      expect(() => parseTargets(leaks[name] ?? ""), name).toThrow(SHARED_REFUSED);
-    }
+  it("a list root: each target in it is cleaned on import; as a stored blob it is no target", () => {
+    const list = `- version: 1\n  kind: target\n  name: c\n- version: 1\n  kind: target\n  name: d\n  subscribers:\n    - name: a\n      ki: ${KI}\n`;
+    const imported = importFile(list);
+    expect(imported.map((t) => t.target.name)).toEqual(["c", "d"]);
+    for (const t of imported) expect(holdsKey(t.target.yaml)).toBe(false);
+    expect(parseBlob(JSON.stringify({ version: 1, targets: [{ name: "x", yaml: list }] }))).toEqual([]);
+    expect(withoutSecrets(list)).toBeUndefined();
+    // The list guard alone decides this one: every target in it is clean.
+    expect(withoutSecrets("- version: 1\n  kind: target\n  name: a\n- version: 1\n  kind: target\n  name: b\n")).toBeUndefined();
   });
 
-  it("a list's second target with a key: stored only through import, each alone and cleaned", () => {
-    const imported = importFile(leaks.listRoot ?? "");
-    expect(imported.map((t) => t.target.name)).toEqual(["c", "d"]);
-    expect(imported[1]?.moved.map((m) => m.variable)).toEqual(["ORBIT_KI"]);
+  it("an edit that would leave a key out of sight (a pool as one mapping) is refused whole", () => {
+    const s = { local: mem(), session: mem() };
+    const r = act.editTarget(s, [{ name: "t1", yaml: head }], "t1", (d) => d.setIn(["subscribers"], d.createNode({ name: "a", ki: KI })));
+    expect(r).toBeUndefined();
+    expect(holdsKey([...s.local.data.values(), ...s.session.data.values()].join(""))).toBe(false);
+  });
+
+  it("saveTargets drops what it is handed with a hidden key", () => {
+    const local = mem();
+    saveTargets(local, [{ name: "t1", yaml: head + sub(`      ki: [${KI}]\n`) }]);
+    expect(holdsKey(local.data.get(TARGETS_KEY) ?? "")).toBe(false);
   });
 });
 
-describe("sharesNodes, each kind on its own", () => {
-  it("an alias node, with no anchor in the document", () => {
+describe("files the CLI writes all pass the gate", () => {
+  it("every round-trip file, CLI and dashboard written, imports with no refusal", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const dir = new URL("../../../../internal/target/testdata/roundtrip/", import.meta.url);
+    let n = 0;
+    for (const sub of ["cli/", "ui/"]) {
+      for (const f of readdirSync(new URL(sub, dir))) {
+        const text = readFileSync(new URL(sub + f, dir), "utf8");
+        expect(() => importFile(text), sub + f).not.toThrow();
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThanOrEqual(11);
+  });
+});
+
+describe("each layer on its own", () => {
+  const contents = (text: string) => parseDocument(text, { schema: "failsafe" }).contents;
+
+  it("layer zero, the structure: only it refuses these (the other layers pass them)", () => {
+    for (const text of [head + sub(`      KI: ${KI}\n`), head + "color: blue\n", head + sub("      ki: !!str x\n")]) {
+      const c = contents(text);
+      expect(structureProblem(c), text).toBeDefined();
+      expect(shapeProblem(c)).toBeUndefined();
+      expect(strayKey(c)).toBeUndefined();
+      expect(() => parseTargets(text)).toThrow();
+    }
+  });
+
+  it("layer zero's reasons name schema fields and indexes only", () => {
+    expect(structureProblem(contents(head + `x-junk:\n    ${KI}:\n        ki: x\n`))).toBe("an unknown field under the top");
+    expect(structureProblem(contents(head + sub(`      ${KI}: 1\n`)))).toBe("an unknown field under subscribers[0]");
+    expect(structureProblem(contents(head + sub(`      ki: [${KI}]\n`)))).toBe("subscribers[0].ki is not a single value");
+    expect(structureProblem(contents(head + "core:\n    slices:\n        - sst: 1\n          x: 2\n"))).toBe("an unknown field under core.slices[0]");
+  });
+
+  it("shape: a key-holding list that is not a list of entries", () => {
+    expect(shapeProblem(contents(head + `subscribers:\n    name: a\n    ki: ${KI}\n`))).toContain("subscribers is not a list of entries");
+    // Only shape refuses this one of the two later layers: its ki is a ${VAR}.
+    const viaVar = contents(head + "subscribers:\n    name: a\n    ki: ${ORBIT_KI}\n");
+    expect(shapeProblem(viaVar)).toContain("subscribers is not a list of entries");
+    expect(strayKey(viaVar)).toBeUndefined();
+    expect(shapeProblem(contents(head + `app:\n    responders:\n        name: n6\n`))).toContain("app.responders is not a list of entries");
+    expect(shapeProblem(contents(head + "app: [x]\n"))).toContain("app is not a mapping");
+    expect(shapeProblem(contents(head + sub(`      ki: ${KI}\n`)))).toBeUndefined();
+  });
+
+  it("sweep: a key field anywhere but its own, or not one value; the path never quotes the file", () => {
+    expect(strayKey(contents(head.replace("core:\n", `core:\n    ki: ${KI}\n`)))).toContain("a ki at core.ki");
+    expect(strayKey(contents(head + sub(`      ki: [${KI}]\n`)))).toContain("the ki at subscribers[0].ki is not a single value");
+    expect(strayKey(contents(head + `x-junk:\n    ${KI}:\n        ki: literal\n`))).toContain("a ki at ….….ki");
+    expect(strayKey(contents(head + `y:\n    ? [a]\n    : 1\n`))).toContain("is not text");
+    expect(strayKey(contents(head.replace("core:\n", "core:\n    ki: ${X}\n")))).toBeUndefined();
+    expect(strayKey(contents(head + sub(`      ki: ${KI}\n`)))).toBeUndefined();
+  });
+
+  it("sharesNodes: an alias with no anchor, an anchor alone, a merge key alone", () => {
     const d = new Document({ a: 1 }, { schema: "failsafe" });
     d.set("b", new Alias("k"));
     expect(sharesNodes(d)).toBe(true);
-  });
-  it("an anchor alone", () => expect(sharesNodes(parseDocument("a: &k 1\n", { schema: "failsafe" }))).toBe(true));
-  it("a merge key alone (inline map)", () => expect(sharesNodes(parseDocument(leaks.inlineMerge ?? "", { schema: "failsafe" }))).toBe(true));
-  it("none of them", () => expect(sharesNodes(parseDocument(head, { schema: "failsafe" }))).toBe(false));
-});
-
-describe("withoutSecrets' guards", () => {
-  it("a list is no target, though every target in it is clean", () => {
-    const clean = "- version: 1\n  kind: target\n  name: a\n- version: 1\n  kind: target\n  name: b\n";
-    expect(parseTargets(clean)).toHaveLength(2);
-    expect(withoutSecrets(clean)).toBeUndefined();
-  });
-});
-
-describe("the two layers, each on its own", () => {
-  const contents = (text: string) => parseDocument(text, { schema: "failsafe" }).contents;
-
-  it("shape: a key-holding list that is not a list of entries", () => {
-    expect(shapeProblem(contents(leaks.forgottenDash ?? ""))).toContain("subscribers is not a list of entries");
-    expect(shapeProblem(contents(leaks.listInList ?? ""))).toContain("subscribers is not a list of entries");
-    expect(shapeProblem(contents(leaks.respondersMap ?? ""))).toContain("app.responders is not a list of entries");
-    expect(shapeProblem(contents(head + "app: [x]\n"))).toContain("app is not a mapping");
-    expect(shapeProblem(contents(head + `subscribers:\n    - name: a\n      ki: ${KI}\n`))).toBeUndefined();
-    expect(shapeProblem(contents(head + "subscribers:\n"))).toBeUndefined();
-  });
-
-  it("sweep: ki, opc or token anywhere but its field, unless a ${VAR}; the reason names the path, not the value", () => {
-    expect(strayKey(contents(leaks.forgottenDash ?? ""))).toContain("a ki at subscribers.ki");
-    expect(strayKey(contents(leaks.listInList ?? ""))).toContain("a ki at subscribers[0][0].ki");
-    expect(strayKey(contents(leaks.respondersMap ?? ""))).toContain("a token at app.responders.token");
-    expect(strayKey(contents(leaks.kiInCore ?? ""))).toContain("a ki at core.ki");
-    expect(strayKey(contents(leaks.inlineMerge ?? ""))).toContain("a ki at subscribers[0].<<.ki");
-    expect(strayKey(contents(head.replace("core:\n", "core:\n    ki: ${X}\n")))).toBeUndefined();
-    expect(strayKey(contents(head + `subscribers:\n    - name: a\n      ki: ${KI}\n`))).toBeUndefined();
-    for (const name of ["forgottenDash", "listInList", "respondersMap", "kiInCore", "inlineMerge"]) {
-      expect(holdsKey(strayKey(contents(leaks[name] ?? "")) ?? "")).toBe(false);
-    }
+    expect(sharesNodes(parseDocument("a: &k 1\n", { schema: "failsafe" }))).toBe(true);
+    expect(sharesNodes(parseDocument(head + sub(`      <<: {ki: ${KI}}\n`), { schema: "failsafe" }))).toBe(true);
+    expect(sharesNodes(parseDocument(head, { schema: "failsafe" }))).toBe(false);
+    expect(() => parseTargets(head + "a: &k 1\n")).toThrow(SHARED_REFUSED);
   });
 });
 
 describe("errors never quote the file", () => {
-  const rows: Record<string, string> = {
-    dupKey: head + `subscribers:\n${pool}      ki: \${ORBIT_KI}\n      ki: ${KI}\n`,
-    pretty: head + `subscribers:\n    - name: a\n      ki: ${KI}\n     opc: [unclosed\n`,
-  };
-  for (const [name, text] of Object.entries(rows)) {
-    it(name, () => {
+  const cases = [head + sub(`      ki: \${ORBIT_KI}\n      ki: ${KI}\n`), head + `subscribers:\n    - name: a\n      ki: ${KI}\n     opc: [unclosed\n`];
+  cases.forEach((text, i) => {
+    it(`case ${i + 1}`, () => {
       let msg = "";
       try {
         parseTargets(text);
@@ -137,29 +196,33 @@ describe("errors never quote the file", () => {
       expect(msg).toMatch(/^YAML syntax error at line \d+, column \d+$/);
       expect(holdsKey(msg)).toBe(false);
     });
-  }
+  });
 });
 
-describe("hostile files", () => {
+describe("size and hostile files", () => {
+  it("over 1 MiB of UTF-8 is refused before it is parsed; just under is read", () => {
+    expect(() => parseTargets(head + "# " + "€".repeat(400_000) + "\n")).toThrow(TOO_LARGE);
+    expect(() => parseTargets(head + "#" + "x".repeat(MAX_FILE_BYTES))).toThrow(TOO_LARGE);
+    const under = head + "# " + "x".repeat(MAX_FILE_BYTES - head.length - 10) + "\n";
+    expect(parseTargets(under)).toHaveLength(1);
+  });
+
+  it("a chosen file over the cap is refused by its size, never read", async () => {
+    let read = false;
+    const big = { name: "big.yaml", size: MAX_FILE_BYTES + 1, text: async () => ((read = true), "") };
+    expect(await readImportFile(big)).toEqual({ refusal: `import: big.yaml is ${TOO_LARGE}` });
+    expect(read).toBe(false);
+    expect(await readImportFile({ name: "ok.yaml", size: 10, text: async () => head })).toEqual({ text: head });
+  });
+
   it("an alias tree (billion laughs) is refused before it is expanded", () => {
     let y = head + "x0: &a0 [lol,lol,lol,lol,lol,lol,lol,lol,lol]\n";
     for (let i = 1; i < 12; i++) y += `x${i}: &a${i} [${Array(9).fill(`*a${i - 1}`).join(",")}]\n`;
     expect(() => parseTargets(y)).toThrow(SHARED_REFUSED);
   });
 
-  it("a file over 1 MiB is refused before it is parsed, measured in bytes", () => {
-    expect(() => parseTargets(head + "#" + "x".repeat(MAX_FILE_BYTES))).toThrow(TOO_LARGE);
-    // 400k "€" is 1.2 MB of UTF-8, though only 400k UTF-16 units.
-    expect(() => parseTargets(head + "#" + "€".repeat(400_000))).toThrow(TOO_LARGE);
-  });
-
-  it("deep nesting throws an error, not a crash", () => {
-    expect(() => parseTargets(head + "x: " + "[".repeat(100000) + "]".repeat(100000) + "\n")).toThrow();
-  });
-
-  it("__proto__ and constructor keys pollute nothing", () => {
-    importFile(head + "__proto__:\n    polluted: yes\nconstructor:\n    prototype:\n        polluted2: yes\n");
+  it("__proto__ and constructor pollute nothing", () => {
+    expect(() => importFile(head + "__proto__:\n    polluted: yes\n")).toThrow();
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    expect(({} as Record<string, unknown>).polluted2).toBeUndefined();
   });
 });

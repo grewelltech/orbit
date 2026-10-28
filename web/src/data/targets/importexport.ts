@@ -2,7 +2,7 @@
  * Import and export of target files: what the Targets page does with a
  * file the user gives it, and what it hands back.
  */
-import { checkTarget, moveSecrets, nameOf, parseTargets, render, type Issue, type MovedSecret } from "./yamlio";
+import { checkTarget, MAX_FILE_BYTES, moveSecrets, nameOf, parseTargets, render, TOO_LARGE, type Issue, type MovedSecret } from "./yamlio";
 import type { KeyValues, StoredTarget } from "./store";
 
 /** One target read from an imported file. */
@@ -45,4 +45,20 @@ export function freeName(name: string, taken: ReadonlySet<string>): string {
     const n = `${name}-${i}`.slice(0, 63);
     if (!taken.has(n)) return n;
   }
+}
+
+/** The part of a File the page reads. */
+export interface ImportSource {
+  name: string;
+  size: number;
+  text(): Promise<string>;
+}
+
+/**
+ * A chosen file's text, or why it is refused: one over the cap is refused
+ * by its size, before it is read at all.
+ */
+export async function readImportFile(f: ImportSource): Promise<{ text: string } | { refusal: string }> {
+  if (f.size > MAX_FILE_BYTES) return { refusal: `import: ${f.name} is ${TOO_LARGE}` };
+  return { text: await f.text() };
 }

@@ -19,7 +19,7 @@
  * field (kii:) is outside it by design: the CLI refuses such a file as an
  * unknown key, and the page lists it as a problem.
  */
-import { moveSecrets, parseTargets, refName, render, secretSlots, sharesNodes } from "./yamlio";
+import { moveSecrets, parseTargets, render } from "./yamlio";
 
 /** The Storage operations used; window.localStorage / sessionStorage in the browser, a fake in tests. */
 export interface KeyValueStore {
@@ -76,14 +76,11 @@ export function withoutSecrets(yaml: string): string | undefined {
     const all = parseTargets(yaml);
     const t = all[0];
     if (all.length !== 1 || !t || t.text === undefined) return undefined;
-    const clean = moveSecrets(t.doc).length === 0 ? yaml : render(t.doc, t.style);
-    // And check what comes out, rather than trust the cleaning: nothing
-    // shared, every secret a ${VAR}. No input is known to reach a refusal
-    // here (parseTargets has refused anything shared or misshapen, and
-    // moveSecrets leaves only ${VAR}s); it is kept as defence in depth.
-    const [c] = parseTargets(clean);
-    if (!c || sharesNodes(c.doc) || secretSlots(c.doc).some((s) => refName(s.value) === undefined)) return undefined;
-    return clean;
+    // parseTargets has refused anything that is not exactly the schema's
+    // structure (so every key is in a field secretSlots sees), and
+    // moveSecrets leaves only ${VAR}s there. A check of the cleaned text
+    // was dropped: no input could reach it.
+    return moveSecrets(t.doc).length === 0 ? yaml : render(t.doc, t.style);
   } catch {
     return undefined;
   }
