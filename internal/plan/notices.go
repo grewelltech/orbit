@@ -2,6 +2,7 @@ package plan
 
 import (
 	"fmt"
+	"strings"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/secrets"
@@ -48,9 +49,11 @@ func OverrideNotices(prov []*orbitv1.FieldProvenance) []*orbitv1.OverrideNotice 
 // for a field that is not secret only. A secret's values are masked in
 // provenance (and in the archive, which is all a past run has), so two
 // masks say nothing of the values: a different ORBIT_KI over a target's
-// ki would read as harmless. Neither is a value that is the mask.
+// ki would read as harmless. Nor is a value with the mask in it: two
+// different values that each held the same request secret both scrub to
+// the same text.
 func sameValue(path, value, overridden string) bool {
-	if target.IsSecret(path) || value == secrets.Masked || overridden == secrets.Masked {
+	if target.IsSecret(path) || strings.Contains(value, secrets.Masked) || strings.Contains(overridden, secrets.Masked) {
 		return false
 	}
 	return value == overridden
