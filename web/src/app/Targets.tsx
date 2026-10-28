@@ -20,6 +20,9 @@ import { PageLinks } from "./PageLinks";
 import { buttonStyle, inputStyle } from "./targets/fields";
 import { ProbePanel } from "./targets/ProbePanel";
 import { RespondersPanel } from "./targets/RespondersPanel";
+import { JoinPanel } from "./targets/JoinPanel";
+import { useResponders } from "@/data/join/useResponders";
+import { nameResponderIn } from "@/data/join/addToTarget";
 import { TargetEditor } from "./targets/TargetEditor";
 
 /** Hands the browser a file to save. */
@@ -41,6 +44,8 @@ export function Targets() {
   const fileInput = useRef<HTMLInputElement>(null);
   const e = t.editing;
   const probe = useProbe(e?.name);
+  // The registered responders: listed on the left, and they mark a join token used.
+  const responders = useResponders();
   // Each target's last probe in this tab, for the list.
   const [lastProbe, setLastProbe] = useState<Record<string, Status>>({});
   useEffect(() => {
@@ -178,7 +183,7 @@ export function Targets() {
               </button>
             </div>
           </Panel>
-          <RespondersPanel />
+          <RespondersPanel responders={responders} />
         </div>
 
         {e ? (
@@ -227,6 +232,7 @@ export function Targets() {
               </div>
             </Panel>
             <ProbePanel editing={e} state={probe.state} run={probe.run} cancel={probe.cancel} setKey={t.setKey} />
+            <JoinPanel editing={e} responders={responders.state.responders} use={(name) => t.edit(nameResponderIn(name))} />
             <TargetEditor editing={{ ...e, issues: [...e.issues, ...serverIssues] }} edit={t.edit} setField={t.setField} setSecret={t.setSecret} />
           </div>
         ) : (
