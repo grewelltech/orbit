@@ -276,8 +276,8 @@ describe("a join token's life on the page", () => {
     const asked: string[] = [];
     await s.close((q) => (asked.push(q), false));
     expect(srv.calls).toEqual(["create app5 600"]);
-    expect(asked[0]).toMatch(/^The copied one-liner works until .+ \(10 min left\)\. Revoke it now\?$/);
-    expect(seen.at(-1)?.note).toContain("kept: the copied one-liner works until it is used or expires");
+    expect(asked[0]).toMatch(/^The one-liner, shown or copied, works until .+ \(10 min left\)\. Revoke it now\?$/);
+    expect(seen.at(-1)?.note).toContain("kept: the one-liner, shown or copied, works until it is used or expires");
     expect(seen.at(-1)?.line).toBeUndefined();
   });
 
@@ -350,6 +350,60 @@ describe("a join token's life on the page", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(s.tick()).toMatchObject({ phase: "idle" });
     expect(s.tick().note).toContain("no longer live");
+  });
+
+  // Revealed, the line can be selected and copied by hand: it counts as
+  // copied, so nothing revokes it behind the user's back.
+  it("reveal, then close: asks (and keep keeps it)", async () => {
+    const srv = server();
+    const { s } = session(srv);
+    await s.create("app5", 600, SPEC);
+    s.markRevealed();
+    const asked: string[] = [];
+    await s.close((q) => (asked.push(q), false));
+    expect(asked).toHaveLength(1);
+    expect(srv.calls).toEqual(["create app5 600"]);
+  });
+
+  it("reveal, then pagehide or the panel going: kept; never revealed nor copied: revoked silently", async () => {
+    const revoked: string[] = [];
+    const srv = server();
+    const { s } = session(srv);
+    await s.create("app5", 600, SPEC);
+    s.markRevealed();
+    const win = new EventTarget();
+    joinPageLifecycle(win, s, (id) => revoked.push(id));
+    win.dispatchEvent(new Event("pagehide"));
+    await s.close();
+    expect(revoked).toEqual([]);
+    expect(srv.calls).toEqual(["create app5 600"]);
+    const plain = server();
+    const b = session(plain);
+    await b.s.create("app6", 600, SPEC);
+    const asked: string[] = [];
+    await b.s.close((q) => (asked.push(q), true));
+    expect(asked).toEqual([]);
+    expect(plain.calls).toEqual(["create app6 600", "list", "revoke jt-1"]);
+  });
+
+  it("a copy by hand from the shown line (the copy event) counts as copied", async () => {
+    const srv = server();
+    const { s } = session(srv);
+    await s.create("app5", 600, SPEC);
+    s.markCopied();
+    expect(s.tick().copied).toBe(true);
+    expect(s.liveID()).toBeUndefined();
+  });
+
+  it("a bfcache recheck that cannot reach the server says so, and does not leave the line shown as ready", async () => {
+    const srv = server({ listFails: true });
+    const { s } = session(srv);
+    await s.create("app5", 600, SPEC);
+    await s.recheck();
+    const st = s.tick();
+    expect(st.phase).toBe("idle");
+    expect(st.line).toBeUndefined();
+    expect(st.note).toContain("couldn't check this token: unreachable");
   });
 
   it("revokeOnHide: a keepalive POST to RevokeJoinToken, with the API token when there is one", () => {

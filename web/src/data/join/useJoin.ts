@@ -45,5 +45,7 @@ export function useJoin(targetName: string | undefined, responders: readonly Reg
   const revoke = useCallback(() => session.revoke(), [session]);
   const close = useCallback(() => session.close((question) => window.confirm(question)), [session]);
   const copy = useCallback(() => copyLine(session, navigator.clipboard), [session]);
-  return { state, now, make, revoke, close, copy };
+  const reveal = useCallback(() => session.markRevealed(), [session]);
+  const copiedByHand = useCallback(() => session.markCopied(), [session]);
+  return { state, now, make, revoke, close, copy, reveal, copiedByHand };
 }

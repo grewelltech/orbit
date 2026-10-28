@@ -98,11 +98,19 @@ export function JoinPanel({ editing, responders, use }: { editing: Editing; resp
         )}
         {s.phase === "ready" && s.line !== undefined && (
           <div className="flex flex-col gap-1">
-            <pre className="o-num overflow-x-auto whitespace-pre-wrap break-all p-2" style={inputStyle} aria-label="join one-liner">
+            <pre className="o-num overflow-x-auto whitespace-pre-wrap break-all p-2" style={inputStyle} aria-label="join one-liner" onCopy={join.copiedByHand}>
               {revealed ? s.line : maskOneLiner(s.line, s.secret ?? "")}
             </pre>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="o-label cursor-pointer px-2 py-0.5" style={buttonStyle} onClick={() => setRevealed((r) => !r)}>
+              <button
+                type="button"
+                className="o-label cursor-pointer px-2 py-0.5"
+                style={buttonStyle}
+                onClick={() => {
+                  if (!revealed) join.reveal();
+                  setRevealed((r) => !r);
+                }}
+              >
                 {revealed ? "hide" : "reveal"}
               </button>
               <button
@@ -125,8 +133,8 @@ export function JoinPanel({ editing, responders, use }: { editing: Editing; resp
             </span>
             {s.copied && (
               <span className="o-label" role="status" style={{ ...label, color: "var(--o-amber)" }}>
-                copied: it works until it is used or expires at {s.expiresAt === undefined ? "its expiry" : new Date(s.expiresAt).toLocaleTimeString()}; Revoke
-                stops it now. Closing this panel asks first; leaving the page keeps it.
+                shown or copied: it works until it is used or expires at {s.expiresAt === undefined ? "its expiry" : new Date(s.expiresAt).toLocaleTimeString()};
+                Revoke stops it now. Closing this panel asks first; leaving the page keeps it.
               </span>
             )}
           </div>

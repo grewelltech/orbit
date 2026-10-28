@@ -4,10 +4,11 @@
  * never in storage, and dropped when the token expires, is used, or is
  * revoked. While the line has never left the page, a token no registration
  * used is revoked whenever the page lets it go (close, another target,
- * leaving the page). Once it is copied it is on its way to an app host:
- * close and another target ask before revoking it (keeping it by default),
- * and unmounting or leaving the page does not revoke it; its TTL ends it,
- * as with the CLI's add-responder. Revoke always revokes.
+ * leaving the page). Once it is shown (revealed) or copied it may be on its
+ * way to an app host: close and another target ask before revoking it
+ * (keeping it by default), and unmounting or leaving the page does not
+ * revoke it; its TTL ends it, as with the CLI's add-responder. Revoke
+ * always revokes.
  */
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { JoinToken } from "@/gen/orbit/v1/join_pb";
@@ -34,7 +35,7 @@ export interface JoinState {
   expiresAt?: number;
   /** The responder that used it. */
   usedBy?: string;
-  /** The line has been copied: it may be on its way to an app host. */
+  /** The line has been shown (revealed) or copied: it may be on its way to an app host. */
   copied?: boolean;
   /** What went wrong, or what became of the token, in words. */
   note?: string;
@@ -95,16 +96,25 @@ export class JoinSession {
     return this.state.phase === "ready" ? this.state.line : undefined;
   }
 
-  /** Records that the line left the page (copyLine). */
+  /**
+   * Records that the line may have left the page: copied (copyLine, or a
+   * copy from the shown line), or revealed, from where it can be selected
+   * and copied by hand.
+   */
   markCopied(): void {
-    if (this.state.phase === "ready") this.update({ ...this.state, copied: true });
+    if (this.state.phase === "ready" && !this.state.copied) this.update({ ...this.state, copied: true });
+  }
+
+  /** The line was revealed: as copied (markCopied). */
+  markRevealed(): void {
+    this.markCopied();
   }
 
   /** What close asks before revoking a copied token: until when it works. */
   keepQuestion(): string {
     const at = this.state.expiresAt ?? this.now();
     const left = Math.max(0, Math.ceil((at - this.now()) / 60_000));
-    return `The copied one-liner works until ${new Date(at).toLocaleTimeString()} (${left} min left). Revoke it now?`;
+    return `The one-liner, shown or copied, works until ${new Date(at).toLocaleTimeString()} (${left} min left). Revoke it now?`;
   }
 
   /**
@@ -119,8 +129,9 @@ export class JoinSession {
     try {
       const { tokens } = await this.client.listJoinTokens({});
       if (!tokens.some((t) => t.id === id)) this.update({ phase: "idle", note: "the join token is no longer live (used, revoked or expired while the page was away)" });
-    } catch {
-      /* unreachable now: the next tick or poll tells */
+    } catch (err) {
+      // Not shown as ready when it could not be checked: it may be dead.
+      this.update({ phase: "idle", note: `couldn't check this token: ${ConnectError.from(err).rawMessage}; make another if it is still needed` });
     }
   }
 
@@ -155,7 +166,7 @@ export class JoinSession {
     }
     if (s.copied && !(ask?.(this.keepQuestion()) ?? false)) {
       const at = s.expiresAt === undefined ? "its expiry" : new Date(s.expiresAt).toLocaleTimeString();
-      this.update({ phase: "idle", note: `kept: the copied one-liner works until it is used or expires at ${at}` });
+      this.update({ phase: "idle", note: `kept: the one-liner, shown or copied, works until it is used or expires at ${at}` });
       return;
     }
     let note: string | undefined;

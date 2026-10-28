@@ -124,6 +124,14 @@ describe("JoinPanel's copy", () => {
     expect(tight(panel)).toContain("onClick={()=>voidjoin.copy().then(setCopied)}");
     expect(panel).not.toContain("navigator.clipboard");
   });
+  it("reveal marks the line as shown (join.reveal), and the shown line's copy event marks it copied", () => {
+    const panel = tight(strip(read("../../app/targets/JoinPanel.tsx")));
+    expect(panel).toContain("onClick={()=>{if(!revealed)join.reveal();setRevealed((r)=>!r);}}");
+    expect(panel).toContain('aria-label=""onCopy={join.copiedByHand}>');
+    const hook = tight(strip(read("useJoin.ts")));
+    expect(hook).toContain("constreveal=useCallback(()=>session.markRevealed(),[session]);");
+    expect(hook).toContain("constcopiedByHand=useCallback(()=>session.markCopied(),[session]);");
+  });
 });
 
 describe("useResponders' wiring", () => {
