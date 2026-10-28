@@ -10,7 +10,7 @@ import type { Document } from "yaml";
 import { RunService } from "@/gen/orbit/v1/run_pb";
 import { orbitTransport } from "../transport";
 import * as act from "../targets/actions";
-import { browserLocal, browserSession, keysFor, loadTargets, storageChange, type KeyValueStore } from "../targets/store";
+import { browserLocal, browserSession, keysFor, loadTargets, remembers, storageChange, type KeyValueStore } from "../targets/store";
 import { startFrom } from "./form";
 import { LAUNCH_IDLE, LaunchRunner, type LaunchState } from "./launch";
 import { formKey, refsOf, type LaunchInput } from "./resolve";
@@ -143,6 +143,8 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
     notice,
     notify: setNotice,
     values,
+    /** Whether the target's values are remembered in this browser (U1's opt-in), not only held in this tab. */
+    remembered: target ? (void keysVersion, remembers(local, target.name)) : false,
     /** The ${VAR}s the target and run file name, for the prompt. */
     refs: input ? refsOf(input) : [],
     /** A ${VAR}'s value, held in this tab with the target's keys (U1). */

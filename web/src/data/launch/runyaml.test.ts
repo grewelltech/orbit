@@ -67,6 +67,10 @@ describe("the run-file gate", () => {
     ["a bad handover", pop + "    behaviors: {mobility: {handover: WARP}}\n", "is not one of HANDOVER_KIND_XN"],
     ["a token written out", pop + "    behaviors: {traffic: {bulk: {token: abc123}}}\n", "holds a secret; write it as a ${VAR}"],
     ["a secret-named app param written out", pop + "    behaviors: {traffic: {mix: [{name: m, app: {app: x, params: {X-Api-Key: k1}}}]}}\n", "holds a secret"],
+    // Names Go reads as secrets, though not shaped like a field: a dot or a
+    // space splits words there too.
+    ["an api.key param written out", pop + "    behaviors: {traffic: {mix: [{name: m, app: {app: x, params: {api.key: 00112233445566778899aabbccddeeff}}}]}}\n", "holds a secret"],
+    ["a 'my token' param written out", pop + '    behaviors: {traffic: {mix: [{name: m, app: {app: x, params: {"my token": t0k}}}]}}\n', "holds a secret"],
     ["a token as a list", pop + "    behaviors: {traffic: {bulk: {token: [a]}}}\n", "is not a single value"],
     ["a bad start phase", pop + "    start: {after: x, phase: never}\n", "is not one of started"],
     ["an unknown start key", pop + "    start: {before: x}\n", "an unknown field under workloads[0].start"],

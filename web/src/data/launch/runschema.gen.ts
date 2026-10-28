@@ -177,32 +177,51 @@ export const SECRET_NAMES: readonly string[] = [
   "token"
 ];
 
-/** secrets.IsSecretName on these names, for the page's port of it. */
+/** secrets.NameCases: the names secrets.IsSecretName is held to, for the page's port of it. */
 export const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = {
+  "": false,
+  "API_KEY": true,
   "Authorization": true,
-  "OPC": true,
+  "Password": true,
+  "Private.Key": true,
+  "Tokenizer.Mode": false,
   "X-Api-Key": true,
+  "a.b": false,
+  "access_key": true,
+  "api-key": true,
+  "api.key": true,
   "apiKey": true,
-  "api_key": true,
-  "auth": true,
-  "author": false,
+  "authToken": true,
+  "auth_token": true,
   "bearer": true,
+  "bearer token": true,
+  "credential": true,
   "k": true,
-  "keys": false,
+  "keyboard": false,
   "ki": true,
-  "kk": false,
   "loom_token": true,
   "monkey": false,
+  "my token": true,
+  "my token count": false,
   "my-bearer": true,
+  "my.Bearer": true,
   "name": false,
+  "oauth": false,
+  "object_size": false,
+  "opc": true,
+  "passphrase": true,
   "passwd": true,
-  "peer": false,
   "privateKey": true,
-  "private_key": true,
-  "secretName": false,
-  "target": false,
+  "routing_indicator": false,
+  "secret": true,
+  "supi": false,
   "token": true,
-  "tokenizer": false
+  "token ": true,
+  "tokenizer": false,
+  "tokens_per_s": false,
+  "x.token": true,
+  "x_api_key": true,
+  "x٣Token": true
 };
 
 /** The built-in templates (orbit test), as written. */

@@ -126,6 +126,16 @@ describe("LaunchRunner", () => {
     expect(box.s.planError?.message).toContain("start again");
   });
 
+  it("a start whose plan a newer one replaced says so, and sends nothing", async () => {
+    const { client, starts } = server();
+    const { box, r } = runner(client);
+    const started = r.start(() => base, undefined);
+    void r.plan({ ...base, runYaml: base.runYaml.replace("count: 1", "count: 4") }); // a newer plan, from another edit
+    expect(await started).toBeUndefined();
+    expect(starts).toHaveLength(0);
+    expect(box.s.planError?.message).toContain("newer plan");
+  });
+
   it("a refused plan names the field, and nothing starts", async () => {
     const { client, starts } = server({ planError: "invalid run: workloads[load].attach.count: -1 is not a non-negative integer (run file lab1.run.yaml:4)" });
     const { box, r } = runner(client);
