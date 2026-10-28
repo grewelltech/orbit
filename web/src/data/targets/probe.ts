@@ -11,14 +11,31 @@ import type { ProbeRequestSchema, ProbeStep } from "@/gen/orbit/v1/target_pb";
 /** A probe request as the client takes it. */
 export type ProbeRequestInit = MessageInitShape<typeof ProbeRequestSchema>;
 
-/** Why keys may not be sent from this page, or undefined when they may. */
+/**
+ * Why keys may not be sent from this page, or undefined when they may: on
+ * the server's own host, always (a server that wants a token answers
+ * Unauthenticated, and the token prompt opens); from another host, only
+ * over https:// and with an API token in this tab. The server's
+ * keysInterceptor is the real check.
+ */
 export function keysBlocked(loc: { protocol: string; hostname: string }, token: string): string | undefined {
   const loopback = /^(localhost|127(\.\d{1,3}){3}|\[?::1\]?)$/i.test(loc.hostname);
-  if (loc.protocol !== "https:" && !loopback) {
+  if (loopback) return undefined;
+  if (loc.protocol !== "https:") {
     return "subscriber keys would cross the network in the clear: serve with TLS (orbit serve --tls auto) and open the dashboard over https://, or use it on the server's own host";
   }
-  if (!token) return "no API token in this tab: the server asks for one first (orbit serve --token-file)";
+  if (!token) return "no API token in this tab: from another host, keys go only with the server's token (orbit serve --token-file)";
   return undefined;
+}
+
+/**
+ * The probe panel's line over the ${VAR}s it asks for: their values are
+ * kept where the target's keys are (this tab, or this browser when the
+ * target remembers its keys), as SecretField says.
+ */
+export function varsNote(remembered: boolean): string {
+  const where = remembered ? "remembered in this browser" : "held in this tab";
+  return `the target names these; their values are ${where} (keys are set in the target's fields):`;
 }
 
 /** Where a probe is. */
@@ -88,14 +105,19 @@ export class ProbeRunner {
     this.abort?.abort();
     const ctrl = new AbortController();
     this.abort = ctrl;
-    this.setState(() => ({ phase: "running", steps: [] }));
+    // A stream a newer probe or dispose superseded writes nothing more: the
+    // state is the newer one's (or the next target's).
+    const set = (f: (prev: ProbeState) => ProbeState) => {
+      if (this.abort === ctrl) this.setState(f);
+    };
+    set(() => ({ phase: "running", steps: [] }));
     try {
       for await (const step of this.client.probe(req, { signal: ctrl.signal })) {
-        this.setState((prev) => withStep(prev, step));
+        set((prev) => withStep(prev, step));
       }
-      this.setState((prev) => ended(prev, undefined, ctrl.signal.aborted));
+      set((prev) => ended(prev, undefined, ctrl.signal.aborted));
     } catch (err) {
-      this.setState((prev) => ended(prev, err, ctrl.signal.aborted));
+      set((prev) => ended(prev, err, ctrl.signal.aborted));
     }
   }
 
@@ -105,5 +127,6 @@ export class ProbeRunner {
 
   dispose(): void {
     this.abort?.abort();
+    this.abort = null;
   }
 }

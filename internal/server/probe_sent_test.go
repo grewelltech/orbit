@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/coreprofile"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/plan"
 	"github.com/bgrewell/orbit/internal/target"
@@ -42,6 +43,20 @@ func TestProbeSentTarget(t *testing.T) {
 			wantPass: "OK OK OK OK OK OK OK", wantReg: func(t *testing.T, tac uint32, _ *orbitv1.PDUSession) {
 				if tac != 1 {
 					t.Errorf("NG Setup TAC %d, want 1", tac)
+				}
+			}},
+		// The other zeros a file may write and the wire cannot carry: each
+		// is probed as its default (TestProbeExplicitZeros pins the four).
+		{name: `dnn "" is probed as the default internet`, change: func(x *orbitv1.ResolvedTarget) { x.Core.Dnn = "" },
+			wantPass: "OK OK OK OK OK OK OK", wantReg: func(t *testing.T, _ uint32, pdu *orbitv1.PDUSession) {
+				if pdu.GetDnn() != "internet" {
+					t.Errorf("PDU session dnn %q, want internet", pdu.GetDnn())
+				}
+			}},
+		{name: "slices [] is probed as the default [{sst: 1}]", change: func(x *orbitv1.ResolvedTarget) { x.Core.Slices = []*orbitv1.Snssai{} },
+			wantPass: "OK OK OK OK OK OK OK", wantReg: func(t *testing.T, _ uint32, pdu *orbitv1.PDUSession) {
+				if pdu.GetSst() != 1 || pdu.GetSd() != "" {
+					t.Errorf("PDU session %v, want sst 1, no sd", pdu)
 				}
 			}},
 		{name: "a bad SD", change: func(x *orbitv1.ResolvedTarget) { x.Core.Slices[0].Sd = "xyz" },
@@ -168,6 +183,69 @@ func TestProbeCLITargetUnchanged(t *testing.T) {
 	before, after := run(tg), run(again)
 	if before != after || !strings.HasPrefix(before, "OK") {
 		t.Errorf("steps before:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// The four zeros a target file may write that the wire cannot tell from
+// unset: `orbit target probe` resolves each to the zero, and the server
+// probes it as the default. profile "" is the same probe either way: the
+// engine reads "" as strict-3gpp (coreprofile.Get).
+func TestProbeExplicitZeros(t *testing.T) {
+	base, err := os.ReadFile(filepath.Join("..", "target", "testdata", "roundtrip", "cli", "minimal.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, from, to string
+		zero, dflt     func(t *testing.T, c *orbitv1.TargetCore) bool
+	}{
+		{name: "tac 0", from: "tac: 1", to: "tac: 0",
+			zero: func(_ *testing.T, c *orbitv1.TargetCore) bool { return c.GetTac() == 0 },
+			dflt: func(_ *testing.T, c *orbitv1.TargetCore) bool { return c.GetTac() == 1 }},
+		{name: `dnn ""`, from: "dnn: internet", to: `dnn: ""`,
+			zero: func(_ *testing.T, c *orbitv1.TargetCore) bool { return c.GetDnn() == "" },
+			dflt: func(_ *testing.T, c *orbitv1.TargetCore) bool { return c.GetDnn() == "internet" }},
+		{name: "slices []", from: "slices:\n        - sst: 1", to: "slices: []",
+			zero: func(_ *testing.T, c *orbitv1.TargetCore) bool { return len(c.GetSlices()) == 0 },
+			dflt: func(_ *testing.T, c *orbitv1.TargetCore) bool {
+				return len(c.GetSlices()) == 1 && c.GetSlices()[0].GetSst() == 1 && c.GetSlices()[0].GetSd() == ""
+			}},
+		{name: `profile ""`, from: "dnn: internet", to: "dnn: internet\n    profile: \"\"",
+			zero: func(_ *testing.T, c *orbitv1.TargetCore) bool { return c.GetProfile() == "" },
+			dflt: func(t *testing.T, c *orbitv1.TargetCore) bool {
+				p, ok := coreprofile.Get("")
+				if !ok || p.Name != coreprofile.Default().Name {
+					t.Errorf(`the engine reads profile "" as %q, not the default`, p.Name)
+				}
+				return c.GetProfile() == coreprofile.Default().Name
+			}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := strings.Replace(string(base), tc.from, tc.to, 1)
+			if src == string(base) {
+				t.Fatalf("%q not in the fixture", tc.from)
+			}
+			fs, err := target.Parse("zero.yaml", []byte(src), func(string) (string, bool) { return "", false })
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := target.Resolve(target.DefaultInput(), fs[0].Input)
+			if err != nil {
+				t.Fatalf("the CLI refuses %s: %v", tc.to, err)
+			}
+			sent := plan.TargetProto(res.Target)
+			if !tc.zero(t, sent.GetCore()) {
+				t.Fatalf("the CLI resolves %s to %v, not the zero", tc.to, sent.GetCore())
+			}
+			got, err := sentTarget(sent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.dflt(t, got.GetCore()) {
+				t.Errorf("the server probes %s as %v, not the default", tc.to, got.GetCore())
+			}
+		})
 	}
 }
 

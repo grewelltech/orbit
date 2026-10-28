@@ -9,7 +9,7 @@ import { useState } from "react";
 import { Panel } from "@/components/Panel";
 import { StatTile } from "@/components/StatTile";
 import { StatusDot, type Status } from "@/components/StatusDot";
-import { keysBlocked, summary, type ProbeState } from "@/data/targets/probe";
+import { keysBlocked, summary, varsNote, type ProbeState } from "@/data/targets/probe";
 import type { ProbeRequestInit } from "@/data/targets/probe";
 import { requestTarget } from "@/data/targets/request";
 import type { Editing } from "@/data/targets/useTargets";
@@ -53,7 +53,7 @@ export function ProbePanel({ editing, state, run, cancel, setKey }: ProbePanelPr
         {vars.length > 0 && (
           <div className="flex flex-col gap-1" aria-label="variables">
             <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-              the target names these; their values are held in this tab (keys are set in the target's fields):
+              {varsNote(editing.remembered)}
             </span>
             {vars.map((v) => (
               <label key={v} className="grid grid-cols-[14rem_1fr] items-center gap-2">

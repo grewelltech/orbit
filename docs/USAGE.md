@@ -257,9 +257,22 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   CLI's checks before any lease or step. A bad field is refused at once
   (exit 3), naming it: `invalid target: core.slices: [1/xyz] SD "xyz" is not
   6 hex digits`. A target the CLI loaded already passed those checks, so
-  this changes nothing for it, with one exception: an explicit `tac: 0`
-  cannot be told apart from an unset TAC on the wire, so it is probed with
-  TAC 1, the default.
+  this changes nothing for it, with four exceptions. The wire cannot tell
+  these zeros from an unset field, so the probe takes the default for
+  each:
+
+  | In the file   | Probed as            |
+  |---------------|----------------------|
+  | `tac: 0`      | TAC 1                |
+  | `dnn: ""`     | `internet`           |
+  | `slices: []`  | `[{sst: 1}]`         |
+  | `profile: ""` | `strict-3gpp`        |
+
+  `profile: ""` probes the same either way: the engine reads an empty
+  profile as `strict-3gpp`.
+
+  **Known limit:** a probe can't test "no DNN" (letting the SMF pick its
+  default) or "no slices", since both arrive as unset.
 - `init` never writes through a symlink: a link at `./orbit.yaml` or at
   `targets/<name>.yaml` is refused. A `--force` overwrite replaces the file
   through a temp file and a rename.
@@ -357,9 +370,11 @@ fields, and any other `${VAR}` (an AMF taken from the shell, say) in the
 probe panel. A `${VAR}` with no value holds the probe back, because the
 browser has no environment to take it from.
 
-- **Keys are sent only over https://, or to a server on the page's own
-  loopback host, and only with an API token in the tab.** Otherwise the
-  button is disabled and says why. The server applies the same rule itself.
+- **Keys are sent to a server on the page's own loopback host, or over
+  https:// with an API token in the tab.** Otherwise the button is
+  disabled and says why. On loopback no token is asked for up front: a
+  server that wants one refuses the probe, and the token prompt opens. The
+  server applies its own rule either way.
 - The server resolves and checks the target as the CLI does (see `orbit
   target probe` above). A field it refuses is marked in the editor.
 - Leaving the page, picking another target, or Cancel ends the probe. The
