@@ -170,12 +170,8 @@ func renderRunSchema(t *testing.T) []byte {
 	}
 	sort.Strings(names)
 	fmt.Fprintf(&b, "/** The names that hold secrets, normalised (internal/secrets.Names). */\nexport const SECRET_NAMES: readonly string[] = %s;\n\n", js(names))
-	vectors := map[string]bool{}
-	for _, n := range []string{"ki", "OPC", "token", "loom_token", "X-Api-Key", "apiKey", "api_key", "bearer", "my-bearer", "monkey", "keys", "tokenizer",
-		"name", "peer", "target", "privateKey", "private_key", "auth", "author", "Authorization", "k", "kk", "passwd", "secretName"} {
-		vectors[n] = secrets.IsSecretName(n)
-	}
-	fmt.Fprintf(&b, "/** secrets.IsSecretName on these names, for the page's port of it. */\nexport const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = %s;\n\n", js(vectors))
+	vectors := secrets.NameCases
+	fmt.Fprintf(&b, "/** secrets.NameCases: the names secrets.IsSecretName is held to, for the page's port of it. */\nexport const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = %s;\n\n", js(vectors))
 	templates := map[string]string{}
 	for _, n := range plan.Templates() {
 		text, err := plan.TemplateText(n)

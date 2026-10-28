@@ -48,6 +48,8 @@ export class LaunchRunner {
   private renderSeq = 0;
   private renderAbort: AbortController | null = null;
   private planSeq = 0;
+  /** Whether the last plan() was dropped for a newer one. */
+  private superseded = false;
 
   constructor(
     private readonly client: LaunchClient,
@@ -55,7 +57,7 @@ export class LaunchRunner {
   ) {}
 
   /** Renders input's run file as a command. A newer call wins: an older answer is dropped. */
-  async render(input: Pick<LaunchInput, "targetName" | "runYaml" | "template">): Promise<void> {
+  async render(input: Pick<LaunchInput, "targetName" | "targetYaml" | "runYaml" | "template">): Promise<void> {
     this.renderAbort?.abort();
     const ctrl = new AbortController();
     this.renderAbort = ctrl;
@@ -80,10 +82,14 @@ export class LaunchRunner {
     }
     const key = formKey(input);
     const seq = ++this.planSeq;
+    this.superseded = false;
     this.setState((s) => ({ ...s, unresolved: [], busy: "planning", planError: undefined }));
     try {
       const response = await this.client.planRun(request);
-      if (seq !== this.planSeq) return undefined;
+      if (seq !== this.planSeq) {
+        this.superseded = true;
+        return undefined;
+      }
       const plan = { key, response };
       this.setState((s) => ({ ...s, plan, busy: undefined }));
       return plan;
@@ -110,7 +116,12 @@ export class LaunchRunner {
   async start(current: () => LaunchInput, held: { key: string; response: PlanRunResponse } | undefined): Promise<string | undefined> {
     const input = current();
     const plan = held && held.key === formKey(input) ? held : await this.plan(input);
-    if (!plan) return undefined;
+    if (!plan) {
+      // A plan for a newer form replaced this one: say so, as an edit
+      // during the start does, rather than do nothing.
+      if (this.superseded) this.setState((s) => ({ ...s, planError: { message: "a newer plan replaced this one; start again" } }));
+      return undefined;
+    }
     if (plan.key !== formKey(current())) {
       this.setState((s) => ({ ...s, plan: undefined, planError: { message: "the form changed while the plan was resolved; start again" } }));
       return undefined;

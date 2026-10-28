@@ -31,8 +31,8 @@ describe("what Launch sends", () => {
     });
   });
 
-  it("renders keyless: no values at all", () => {
-    expect(renderRequest(input(all))).toEqual({ runYaml: run, targetName: "lab1", template: "fleet" });
+  it("renders keyless: the target as kept (its ${VAR}s), no values at all", () => {
+    expect(renderRequest(input(all))).toEqual({ runYaml: run, targetName: "lab1", template: "fleet", targetYaml: target });
   });
 
   it("keys the form state: any change of target, run file, template or a value sent", () => {

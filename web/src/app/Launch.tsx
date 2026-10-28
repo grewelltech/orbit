@@ -167,7 +167,7 @@ export function Launch({ preset }: { preset?: string }) {
               {prompts.length > 0 && (
                 <div className="flex flex-col gap-1" aria-label="variables">
                   <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-                    the target and run file name these; their values are held in this tab:
+                    {`the target and run file name these; their values are ${l.remembered ? "remembered in this browser" : "held in this tab"}:`}
                   </span>
                   {prompts.map((v) => (
                     <label key={v} className="grid grid-cols-[14rem_1fr] items-center gap-2">

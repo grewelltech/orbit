@@ -357,14 +357,7 @@ func TestMapAndProvenanceSecrets(t *testing.T) {
 // Secret names match on words, case and separators aside: a name, or a
 // word-aligned suffix, that is one of Names.
 func TestIsSecretName(t *testing.T) {
-	for name, want := range map[string]bool{
-		"ki": true, "opc": true, "k": true, "token": true, "Password": true, "secret": true,
-		"apiKey": true, "api-key": true, "X-Api-Key": true, "x_api_key": true, "API_KEY": true,
-		"bearer": true, "my-bearer": true, "Authorization": true, "auth_token": true, "authToken": true,
-		"passwd": true, "passphrase": true, "privateKey": true, "access_key": true, "credential": true,
-		"loom_token": true, "routing_indicator": false, "supi": false, "monkey": false, "keyboard": false,
-		"tokens_per_s": false, "object_size": false, "oauth": false, "name": false, "": false,
-	} {
+	for name, want := range NameCases {
 		if got := IsSecretName(name); got != want {
 			t.Errorf("IsSecretName(%q) = %t, want %t", name, got, want)
 		}

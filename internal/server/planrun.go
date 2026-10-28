@@ -50,11 +50,12 @@ func (s *runService) PlanRun(_ context.Context, req *connect.Request[orbitv1.Res
 func (s *runService) RenderRun(_ context.Context, req *connect.Request[orbitv1.RenderRunRequest]) (*connect.Response[orbitv1.RenderRunResponse], error) {
 	m := req.Msg
 	r, err := plan.Render(plan.RenderInput{
-		RunYAML:  []byte(m.GetRunYaml()),
-		Template: m.GetTemplate(),
-		Target:   m.GetTargetName(),
-		Sets:     m.GetSets(),
-		Gates:    m.GetGates(),
+		RunYAML:    []byte(m.GetRunYaml()),
+		Template:   m.GetTemplate(),
+		Target:     m.GetTargetName(),
+		TargetYAML: []byte(m.GetTargetYaml()),
+		Sets:       m.GetSets(),
+		Gates:      m.GetGates(),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid run: %w", err))

@@ -49,26 +49,28 @@ const BEHAVIOR_LISTS = new Set(
   }),
 );
 
-/** Splits a name into lower-case words at '-', '_' and a lower-to-upper change, as internal/secrets does. */
+/**
+ * Splits a name into lower-case words as internal/secrets' splitWords
+ * does: at '-', '_', '.' and ' ', and before an upper-case letter that
+ * follows a lower-case letter or a digit, each in Unicode's sense.
+ */
 function words(name: string): string[] {
   const out: string[] = [];
   let cur = "";
-  let prevLowerOrDigit = false;
-  for (const ch of name) {
-    if (ch === "-" || ch === "_") {
+  const rs = [...name];
+  const upper = /^\p{Lu}$/u;
+  const lowerOrDigit = /^[\p{Ll}\p{Nd}]$/u;
+  rs.forEach((r, i) => {
+    if (r === "-" || r === "_" || r === "." || r === " ") {
       if (cur) out.push(cur.toLowerCase());
       cur = "";
-      prevLowerOrDigit = false;
-      continue;
+    } else if (upper.test(r) && i > 0 && lowerOrDigit.test(rs[i - 1] ?? "")) {
+      if (cur) out.push(cur.toLowerCase());
+      cur = r;
+    } else {
+      cur += r;
     }
-    const upper = ch !== ch.toLowerCase() && ch === ch.toUpperCase();
-    if (upper && prevLowerOrDigit && cur) {
-      out.push(cur.toLowerCase());
-      cur = "";
-    }
-    cur += ch;
-    prevLowerOrDigit = !upper && (ch !== ch.toUpperCase() || /[0-9]/.test(ch));
-  }
+  });
   if (cur) out.push(cur.toLowerCase());
   return out;
 }

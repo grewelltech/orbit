@@ -163,7 +163,24 @@ and builds the plan the page starts.
   beside the command.
 
 Each argument is quoted for a POSIX shell. A secret written out in the run
-file is refused: write it as a `${VAR}`. The command gives the same plan
+file is refused: write it as a `${VAR}`.
+
+- **No keys in `--set`.** Both RPCs refuse a `--set` to a key or token
+  field, or a whole value with a key in it. They also refuse a `${VAR}` there,
+  since `--set` expands none. Keys go in the target.
+- **Safe to paste.** A value a terminal would act on when pasted (a control
+  character such as Ctrl-C, ESC, CR or a tab), one that would show other text
+  than it runs (a bidi or zero-width character, U+2028, U+2029), or an
+  argument over 4 KiB never goes in the command:
+  - from the run file, the command becomes `orbit run <file>`, and the file
+    keeps the value;
+  - a `--set` or `--gate` holding one is refused.
+- **The fleet's latency probe.** When the fleet template has to go as
+  `orbit run <file>`, the file keeps its latency probe as
+  `behaviors: {latency: {}}`, as long as the target gives the probe a
+  target (a first responder with a `data_ip`, or one registered by join).
+  The server fills it from that responder when the run starts. It does the
+  same for the plan the page starts. The command gives the same plan
 with no `$ORBIT_*` exported, since `--explain` shows what those change.
 
 ## Precedence

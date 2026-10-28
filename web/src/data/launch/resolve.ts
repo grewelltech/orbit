@@ -65,9 +65,13 @@ export function planRequest(input: LaunchInput): { request: PlanRequest; unresol
   };
 }
 
-/** The RenderRun request: keyless, so always sent. */
-export function renderRequest(input: Pick<LaunchInput, "targetName" | "runYaml" | "template">): RenderRequest {
-  return { runYaml: input.runYaml, targetName: input.targetName, template: input.template };
+/**
+ * The RenderRun request: keyless, so always sent. The target goes as the
+ * page keeps it (its keys ${VAR}s, no values), so the server can tell
+ * whether a template's fill applies (the fleet's latency probe).
+ */
+export function renderRequest(input: Pick<LaunchInput, "targetName" | "targetYaml" | "runYaml" | "template">): RenderRequest {
+  return { runYaml: input.runYaml, targetName: input.targetName, template: input.template, targetYaml: input.targetYaml };
 }
 
 /**
