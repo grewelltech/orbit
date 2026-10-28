@@ -424,8 +424,15 @@ func convert(f field, v any) (any, error) {
 		// A flag or --set gives text: read it as YAML, so a mapping or a
 		// list can be written inline; a plain word stays a string.
 		if x, ok := v.(string); ok {
-			var parsed any
-			if err := yaml.Unmarshal([]byte(x), &parsed); err != nil {
+			var doc yaml.Node
+			if err := yaml.Unmarshal([]byte(x), &doc); err != nil {
+				return nil, fmt.Errorf("%s is not valid YAML: %w", errValue(f, x), err)
+			}
+			if doc.Kind == 0 || len(doc.Content) == 0 {
+				return x, nil
+			}
+			parsed, err := decodeWhole(doc.Content[0])
+			if err != nil {
 				return nil, fmt.Errorf("%s is not valid YAML: %w", errValue(f, x), err)
 			}
 			if parsed == nil {

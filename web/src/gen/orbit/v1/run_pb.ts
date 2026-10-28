@@ -11,6 +11,8 @@ import type { ConformanceResult, ConformanceTally, StaleExpectation } from "./co
 import { file_orbit_v1_conformance } from "./conformance_pb";
 import type { GateResult, Lease, RunPlan } from "./plan_pb";
 import { file_orbit_v1_plan } from "./plan_pb";
+import type { FieldProvenance, ResolveRequestSchema } from "./target_pb";
+import { file_orbit_v1_target } from "./target_pb";
 import type { Credentials, PDUSession } from "./ue_pb";
 import { file_orbit_v1_ue } from "./ue_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -19,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/run.proto.
  */
 export const file_orbit_v1_run: GenFile = /*@__PURE__*/
-  fileDesc("ChJvcmJpdC92MS9ydW4ucHJvdG8SCG9yYml0LnYxIuwBCgNSdW4SDgoGcnVuX2lkGAEgASgJEh8KBGtpbmQYAiABKA4yES5vcmJpdC52MS5SdW5LaW5kEgwKBG5hbWUYAyABKAkSIQoFc3RhdGUYBCABKA4yEi5vcmJpdC52MS5SdW5TdGF0ZRIZChFzdGFydGVkX3VuaXhfbmFubxgFIAEoAxIXCg9lbmRlZF91bml4X25hbm8YBiABKAMSDQoFZXJyb3IYByABKAkSKQoOd29ya2xvYWRfa2luZHMYCCADKA4yES5vcmJpdC52MS5SdW5LaW5kEhUKDXN0b3BwZWRfZWFybHkYCSABKAgi/wIKC0xvYWRSdW5TcGVjEhMKC2FtZl9hZGRyZXNzGAEgASgJEiEKBGduYnMYAiADKAsyEy5vcmJpdC52MS5HbmJDb25maWcSEQoJYmFzZV9pbXNpGAMgASgJEg0KBWNvdW50GAQgASgNEioKC2NyZWRlbnRpYWxzGAUgASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSDAoEcmF0ZRgGIAEoARISCgpyYW1wX3N0YXJ0GAcgASgBEhAKCHJhbXBfZW5kGAggASgBEhQKDHJhbXBfc2Vjb25kcxgJIAEoDRITCgtjb25jdXJyZW5jeRgKIAEoDRITCgtkdXJhdGlvbl9tcxgLIAEoDRIaChJzYW1wbGVfaW50ZXJ2YWxfbXMYDCABKA0SKQoLcGR1X3Nlc3Npb24YDSABKAsyFC5vcmJpdC52MS5QRFVTZXNzaW9uEhMKC2duYl9uM19hZGRyGA4gASgJEhYKDmJpbmRfYWRkcmVzc2VzGA8gAygJOgIYASJbCgxGbGVldFJ1blNwZWMSGwoNc2NlbmFyaW9feWFtbBgBIAEoCUIEkLUYARIqCgtjcmVkZW50aWFscxgCIAEoCzIVLm9yYml0LnYxLkNyZWRlbnRpYWxzOgIYASLVAQoPU3RhcnRSdW5SZXF1ZXN0EgwKBG5hbWUYASABKAkSKQoEbG9hZBgCIAEoCzIVLm9yYml0LnYxLkxvYWRSdW5TcGVjQgIYAUgAEisKBWZsZWV0GAMgASgLMhYub3JiaXQudjEuRmxlZXRSdW5TcGVjQgIYAUgAEiEKBHBsYW4YBSABKAsyES5vcmJpdC52MS5SdW5QbGFuSAASMQoPZXZlbnRfdmVyYm9zaXR5GAQgASgOMhgub3JiaXQudjEuRXZlbnRWZXJib3NpdHlCBgoEc3BlYyIuChBTdGFydFJ1blJlc3BvbnNlEhoKA3J1bhgBIAEoCzINLm9yYml0LnYxLlJ1biIwCg5TdG9wUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkSDgoGZmluaXNoGAIgASgIIi0KD1N0b3BSdW5SZXNwb25zZRIaCgNydW4YASABKAsyDS5vcmJpdC52MS5SdW4iMgoPTGlzdFJ1bnNSZXF1ZXN0Eh8KBGtpbmQYASABKA4yES5vcmJpdC52MS5SdW5LaW5kIi8KEExpc3RSdW5zUmVzcG9uc2USGwoEcnVucxgBIAMoCzINLm9yYml0LnYxLlJ1biIfCg1HZXRSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSLEAQoMTG9hZFByb2dyZXNzEhIKCmVsYXBzZWRfbXMYASABKAMSEQoJYXR0ZW1wdGVkGAIgASgNEhEKCXN1Y2NlZWRlZBgDIAEoDRIOCgZmYWlsZWQYBCABKA0SFQoNYWNoaWV2ZWRfcmF0ZRgFIAEoARIrCgdsYXRlbmN5GAYgAygLMhoub3JiaXQudjEuUHJvY2VkdXJlTGF0ZW5jeRImCgdwZXJfZ25iGAcgAygLMhUub3JiaXQudjEuR25iUHJvZ3Jlc3MigwUKDUZsZWV0UHJvZ3Jlc3MSEgoKZWxhcHNlZF9tcxgBIAEoAxIQCghhdHRhY2hlZBgCIAEoDRIVCg1hdHRhY2hfZmFpbGVkGAMgASgNEhEKCWhhbmRvdmVycxgEIAEoDRIXCg9oYW5kb3Zlcl9lcnJvcnMYBSABKA0SFQoNdHJhZmZpY19mbG93cxgGIAEoDRIUCgxhcHBfc2Vzc2lvbnMYByABKA0SFAoMdXBsaW5rX2J5dGVzGAggASgEEhYKDmRvd25saW5rX2J5dGVzGAkgASgEEhYKDnVwbGlua19wYWNrZXRzGAogASgEEhgKEGRvd25saW5rX3BhY2tldHMYCyABKAQSEgoKdXBsaW5rX2JwcxgMIAEoARIUCgxkb3dubGlua19icHMYDSABKAESEgoKdXBsaW5rX3BwcxgOIAEoARIUCgxkb3dubGlua19wcHMYDyABKAESJgoHcGVyX2duYhgQIAMoCzIVLm9yYml0LnYxLkduYlByb2dyZXNzEisKB2xhdGVuY3kYGCADKAsyGi5vcmJpdC52MS5Qcm9jZWR1cmVMYXRlbmN5EikKB2NvaG9ydHMYFCADKAsyGC5vcmJpdC52MS5Db2hvcnRQcm9ncmVzcxIgCgVmbG93cxgVIAMoCzIRLm9yYml0LnYxLkZsb3dSb3cSEwoLZmxvd3NfdG90YWwYFiABKA0SFgoOZmxvd3NfcmVwb3J0ZWQYFyABKA0SLgoKdXBfbGF0ZW5jeRgRIAEoCzIaLm9yYml0LnYxLlByb2NlZHVyZUxhdGVuY3kSEQoJdXBfcHJvYmVzGBIgASgEEhYKDnVwX3Byb2Jlc19sb3N0GBMgASgEIjEKCVF1YW50aWxlcxIKCgJwNRgBIAEoARILCgNwNTAYAiABKAESCwoDcDk1GAMgASgBIqMDCg5Db2hvcnRQcm9ncmVzcxIMCgRuYW1lGAEgASgJEgsKA2FwcBgCIAEoCRILCgN1ZXMYAyABKA0SEgoKZWxhcHNlZF9tcxgEIAEoAxIOCgZmYWlsZWQYDSABKA0SIAoDbW9zGAUgASgLMhMub3JiaXQudjEuUXVhbnRpbGVzEiQKB3R0ZmJfbXMYBiABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSKQoMZ29vZHB1dF9tYnBzGAcgASgLMhMub3JiaXQudjEuUXVhbnRpbGVzEioKDXN0YWxsX3RpbWVfbXMYCCABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSKwoOcmVidWZmZXJfcmF0aW8YCSABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSKQoMYml0cmF0ZV9rYnBzGAogASgLMhMub3JiaXQudjEuUXVhbnRpbGVzEicKCnN0YXJ0dXBfbXMYCyABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSJQoHZmFyX2VuZBgMIAEoCzIULm9yYml0LnYxLkZhckVuZFZpZXcihwEKCkZhckVuZFZpZXcSEQoJYXZhaWxhYmxlGAEgASgIEg4KBnJlYXNvbhgCIAEoCRINCgVieXRlcxgDIAEoBBIPCgdwYWNrZXRzGAQgASgEEhQKDGJpdHNfcGVyX3NlYxgFIAEoARIQCghyZXF1ZXN0cxgGIAEoBBIOCgZlcnJvcnMYByABKAQiuwEKB0Zsb3dSb3cSDAoEc3VwaRgBIAEoCRIOCgZjb2hvcnQYAiABKAkSCwoDYXBwGAMgASgJEgwKBHBlZXIYBCABKAkSCwoDZ25iGAUgASgJEhIKCmVsYXBzZWRfbXMYBiABKAMSFAoMdXBsaW5rX2J5dGVzGAcgASgEEhYKDmRvd25saW5rX2J5dGVzGAggASgEEhIKCnVwbGlua19icHMYCSABKAESFAoMZG93bmxpbmtfYnBzGAogASgBIlAKC0duYlByb2dyZXNzEgsKA2duYhgBIAEoCRIRCglhdHRlbXB0ZWQYAiABKA0SEQoJc3VjY2VlZGVkGAMgASgNEg4KBmZhaWxlZBgEIAEoDSKFAQoQUHJvY2VkdXJlTGF0ZW5jeRIRCglwcm9jZWR1cmUYASABKAkSDQoFY291bnQYAiABKAQSDgoGcDUwX21zGAMgASgBEg4KBnA5MF9tcxgEIAEoARIOCgZwOTlfbXMYBSABKAESDwoHcDk5OV9tcxgGIAEoARIOCgZtYXhfbXMYByABKAEixgIKDkdldFJ1blJlc3BvbnNlEhoKA3J1bhgBIAEoCzINLm9yYml0LnYxLlJ1bhItCg1sb2FkX3Byb2dyZXNzGAIgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzEi8KDmZsZWV0X3Byb2dyZXNzGAMgASgLMhcub3JiaXQudjEuRmxlZXRQcm9ncmVzcxIrCgxmbGVldF9yZXBvcnQYBCABKAsyFS5vcmJpdC52MS5GbGVldFJlcG9ydBIfCgZsZWFzZXMYBSADKAsyDy5vcmJpdC52MS5MZWFzZRI7ChRjb25mb3JtYW5jZV9wcm9ncmVzcxgGIAEoCzIdLm9yYml0LnYxLkNvbmZvcm1hbmNlUHJvZ3Jlc3MSLQoJd29ya2xvYWRzGAcgAygLMhoub3JiaXQudjEuV29ya2xvYWRQcm9ncmVzcyL0AQoQV29ya2xvYWRQcm9ncmVzcxIMCgRuYW1lGAEgASgJEh8KBGtpbmQYAiABKA4yES5vcmJpdC52MS5SdW5LaW5kEg0KBXN0YXRlGAMgASgJEg4KBmRldGFpbBgEIAEoCRImCgRsb2FkGAUgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzSAASKAoFZmxlZXQYBiABKAsyFy5vcmJpdC52MS5GbGVldFByb2dyZXNzSAASNAoLY29uZm9ybWFuY2UYByABKAsyHS5vcmJpdC52MS5Db25mb3JtYW5jZVByb2dyZXNzSABCCgoIcHJvZ3Jlc3MicAoTQ29uZm9ybWFuY2VQcm9ncmVzcxIpCgV0YWxseRgBIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSCwoDcmFuGAIgASgNEg0KBXRvdGFsGAMgASgNEhIKCmxhc3RfY2hlY2sYBCABKAkiTAoTUnVuVGVsZW1ldHJ5UmVxdWVzdBIOCgZydW5faWQYASABKAkSEwoLaW50ZXJ2YWxfbXMYAiABKA0SEAoIZnJvbV9zZXEYAyABKAQi7QIKDlRlbGVtZXRyeUZyYW1lEg4KBnJ1bl9pZBgBIAEoCRIRCgl1bml4X25hbm8YAiABKAMSEwoLaW50ZXJ2YWxfbXMYAyABKA0SEQoJZnJhbWVfc2VxGAQgASgEEiEKBXN0YXRlGAUgASgOMhIub3JiaXQudjEuUnVuU3RhdGUSEgoKZWxhcHNlZF9tcxgGIAEoAxIWCg5kcm9wcGVkX2JlZm9yZRgZIAEoBBImCgRsb2FkGAcgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzSAASKAoFZmxlZXQYCCABKAsyFy5vcmJpdC52MS5GbGVldFByb2dyZXNzSAASNAoLY29uZm9ybWFuY2UYCSABKAsyHS5vcmJpdC52MS5Db25mb3JtYW5jZVByb2dyZXNzSAASLQoJd29ya2xvYWRzGAogAygLMhoub3JiaXQudjEuV29ya2xvYWRQcm9ncmVzc0IKCghwcm9ncmVzcyI0ChBSdW5FdmVudHNSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIQCghmcm9tX3NlcRgCIAEoBCKaAQoIUnVuRXZlbnQSCwoDc2VxGAEgASgEEhEKCXVuaXhfbmFubxgCIAEoAxIpCghzZXZlcml0eRgDIAEoDjIXLm9yYml0LnYxLkV2ZW50U2V2ZXJpdHkSDAoEa2luZBgEIAEoCRIMCgRzdXBpGAUgASgJEg8KB21lc3NhZ2UYBiABKAkSFgoOZHJvcHBlZF9iZWZvcmUYByABKAQiKAoWUmVuZGVyUnVuUmVwb3J0UmVxdWVzdBIOCgZydW5faWQYASABKAkiOQoXUmVuZGVyUnVuUmVwb3J0UmVzcG9uc2USDAoEaHRtbBgBIAEoDBIQCghmaWxlbmFtZRgCIAEoCSIlChNHZXRSdW5SZXBvcnRSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSLzAQoKTG9hZFJlcG9ydBIRCglhdHRlbXB0ZWQYASABKA0SEQoJc3VjY2VlZGVkGAIgASgNEg4KBmZhaWxlZBgDIAEoDRITCgtkdXJhdGlvbl9tcxgEIAEoAxIVCg1hY2hpZXZlZF9yYXRlGAUgASgBEisKB2xhdGVuY3kYBiADKAsyGi5vcmJpdC52MS5Qcm9jZWR1cmVMYXRlbmN5EisKCXJlc291cmNlcxgHIAMoCzIYLm9yYml0LnYxLlJlc291cmNlU2FtcGxlEhYKDmRpc3RpbmN0X3N1cGlzGAggASgNEhEKCWFiYW5kb25lZBgJIAEoDSJGCg5SZXNvdXJjZVNhbXBsZRINCgVhdF9tcxgBIAEoAxISCgpnb3JvdXRpbmVzGAIgASgNEhEKCXJzc19ieXRlcxgDIAEoBCLtAgoLRmxlZXRSZXBvcnQSEAoIYXR0YWNoZWQYASABKA0SFQoNYXR0YWNoX2ZhaWxlZBgCIAEoDRIZChFhdHRhY2hfZWxhcHNlZF9tcxgDIAEoAxIRCgloYW5kb3ZlcnMYBCABKA0SFwoPaGFuZG92ZXJfZXJyb3JzGAUgASgNEhUKDXRyYWZmaWNfZmxvd3MYBiABKA0SFQoNdHJhZmZpY19ieXRlcxgHIAEoBBIUCgxkZXJlZ2lzdGVyZWQYCCABKA0SJgoHcGVyX2duYhgJIAMoCzIVLm9yYml0LnYxLkduYlByb2dyZXNzEisKB2xhdGVuY3kYCiADKAsyGi5vcmJpdC52MS5Qcm9jZWR1cmVMYXRlbmN5EhUKDWFjaGlldmVkX3JhdGUYCyABKAESKwoJcmVzb3VyY2VzGAwgAygLMhgub3JiaXQudjEuUmVzb3VyY2VTYW1wbGUSEQoJYWJhbmRvbmVkGA0gASgNIqICChRHZXRSdW5SZXBvcnRSZXNwb25zZRIaCgNydW4YASABKAsyDS5vcmJpdC52MS5SdW4SJAoEbG9hZBgCIAEoCzIULm9yYml0LnYxLkxvYWRSZXBvcnRIABImCgVmbGVldBgDIAEoCzIVLm9yYml0LnYxLkZsZWV0UmVwb3J0SAASMwoLY29uZm9ybWFuY2UYByABKAsyHC5vcmJpdC52MS5Db25mb3JtYW5jZVN1bW1hcnlIABIjCgVnYXRlcxgEIAMoCzIULm9yYml0LnYxLkdhdGVSZXN1bHQSFAoMZ2F0ZXNfcGFzc2VkGAUgASgIEiYKCXdvcmtsb2FkcxgGIAMoCzITLm9yYml0LnYxLlJ1blJlcG9ydEIICgZyZXBvcnQinQIKCVJ1blJlcG9ydBIQCgh3b3JrbG9hZBgBIAEoCRIfCgRraW5kGAIgASgOMhEub3JiaXQudjEuUnVuS2luZBIkCgRsb2FkGAMgASgLMhQub3JiaXQudjEuTG9hZFJlcG9ydEgAEiYKBWZsZWV0GAQgASgLMhUub3JiaXQudjEuRmxlZXRSZXBvcnRIABIzCgtjb25mb3JtYW5jZRgFIAEoCzIcLm9yYml0LnYxLkNvbmZvcm1hbmNlU3VtbWFyeUgAEiMKBWdhdGVzGAYgAygLMhQub3JiaXQudjEuR2F0ZVJlc3VsdBIUCgxnYXRlc19wYXNzZWQYByABKAgSFQoNc3RvcHBlZF9lYXJseRgIIAEoCEIICgZyZXBvcnQi/QEKEkNvbmZvcm1hbmNlU3VtbWFyeRIpCgV0YWxseRgBIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSLAoHcmVzdWx0cxgCIAMoCzIbLm9yYml0LnYxLkNvbmZvcm1hbmNlUmVzdWx0Eh4KFmV4cGVjdGVkX2ZhaWx1cmVzX2NvcmUYAyABKAkSIAoYZXhwZWN0ZWRfZmFpbHVyZXNfc291cmNlGAQgASgJEikKBXN0YWxlGAUgAygLMhoub3JiaXQudjEuU3RhbGVFeHBlY3RhdGlvbhINCgV0b3RhbBgGIAEoDRISCgppbmNvbXBsZXRlGAcgASgIKo8BCgdSdW5LaW5kEhgKFFJVTl9LSU5EX1VOU1BFQ0lGSUVEEAASEQoNUlVOX0tJTkRfTE9BRBABEhIKDlJVTl9LSU5EX0ZMRUVUEAISFQoRUlVOX0tJTkRfU0NFTkFSSU8QAxIYChRSVU5fS0lORF9DT05GT1JNQU5DRRAEEhIKDlJVTl9LSU5EX01JWEVEEAUqsgEKCFJ1blN0YXRlEhkKFVJVTl9TVEFURV9VTlNQRUNJRklFRBAAEhUKEVJVTl9TVEFURV9QRU5ESU5HEAESFQoRUlVOX1NUQVRFX1JVTk5JTkcQAhIWChJSVU5fU1RBVEVfRFJBSU5JTkcQAxIWChJSVU5fU1RBVEVfQ09NUExFVEUQBBIUChBSVU5fU1RBVEVfRkFJTEVEEAUSFwoTUlVOX1NUQVRFX0NBTkNFTExFRBAGKmoKDkV2ZW50VmVyYm9zaXR5Eh8KG0VWRU5UX1ZFUkJPU0lUWV9VTlNQRUNJRklFRBAAEhoKFkVWRU5UX1ZFUkJPU0lUWV9OT1JNQUwQARIbChdFVkVOVF9WRVJCT1NJVFlfVkVSQk9TRRACKnsKDUV2ZW50U2V2ZXJpdHkSHgoaRVZFTlRfU0VWRVJJVFlfVU5TUEVDSUZJRUQQABIXChNFVkVOVF9TRVZFUklUWV9JTkZPEAESFwoTRVZFTlRfU0VWRVJJVFlfV0FSThACEhgKFEVWRU5UX1NFVkVSSVRZX0VSUk9SEAMy0AQKClJ1blNlcnZpY2USQwoIU3RhcnRSdW4SGS5vcmJpdC52MS5TdGFydFJ1blJlcXVlc3QaGi5vcmJpdC52MS5TdGFydFJ1blJlc3BvbnNlIgASQAoHU3RvcFJ1bhIYLm9yYml0LnYxLlN0b3BSdW5SZXF1ZXN0Ghkub3JiaXQudjEuU3RvcFJ1blJlc3BvbnNlIgASQwoITGlzdFJ1bnMSGS5vcmJpdC52MS5MaXN0UnVuc1JlcXVlc3QaGi5vcmJpdC52MS5MaXN0UnVuc1Jlc3BvbnNlIgASPQoGR2V0UnVuEhcub3JiaXQudjEuR2V0UnVuUmVxdWVzdBoYLm9yYml0LnYxLkdldFJ1blJlc3BvbnNlIgASTwoMR2V0UnVuUmVwb3J0Eh0ub3JiaXQudjEuR2V0UnVuUmVwb3J0UmVxdWVzdBoeLm9yYml0LnYxLkdldFJ1blJlcG9ydFJlc3BvbnNlIgASWAoPUmVuZGVyUnVuUmVwb3J0EiAub3JiaXQudjEuUmVuZGVyUnVuUmVwb3J0UmVxdWVzdBohLm9yYml0LnYxLlJlbmRlclJ1blJlcG9ydFJlc3BvbnNlIgASSwoMUnVuVGVsZW1ldHJ5Eh0ub3JiaXQudjEuUnVuVGVsZW1ldHJ5UmVxdWVzdBoYLm9yYml0LnYxLlRlbGVtZXRyeUZyYW1lIgAwARI/CglSdW5FdmVudHMSGi5vcmJpdC52MS5SdW5FdmVudHNSZXF1ZXN0GhIub3JiaXQudjEuUnVuRXZlbnQiADABQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_options, file_orbit_v1_cell, file_orbit_v1_conformance, file_orbit_v1_plan, file_orbit_v1_ue]);
+  fileDesc("ChJvcmJpdC92MS9ydW4ucHJvdG8SCG9yYml0LnYxIuwBCgNSdW4SDgoGcnVuX2lkGAEgASgJEh8KBGtpbmQYAiABKA4yES5vcmJpdC52MS5SdW5LaW5kEgwKBG5hbWUYAyABKAkSIQoFc3RhdGUYBCABKA4yEi5vcmJpdC52MS5SdW5TdGF0ZRIZChFzdGFydGVkX3VuaXhfbmFubxgFIAEoAxIXCg9lbmRlZF91bml4X25hbm8YBiABKAMSDQoFZXJyb3IYByABKAkSKQoOd29ya2xvYWRfa2luZHMYCCADKA4yES5vcmJpdC52MS5SdW5LaW5kEhUKDXN0b3BwZWRfZWFybHkYCSABKAgi/wIKC0xvYWRSdW5TcGVjEhMKC2FtZl9hZGRyZXNzGAEgASgJEiEKBGduYnMYAiADKAsyEy5vcmJpdC52MS5HbmJDb25maWcSEQoJYmFzZV9pbXNpGAMgASgJEg0KBWNvdW50GAQgASgNEioKC2NyZWRlbnRpYWxzGAUgASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSDAoEcmF0ZRgGIAEoARISCgpyYW1wX3N0YXJ0GAcgASgBEhAKCHJhbXBfZW5kGAggASgBEhQKDHJhbXBfc2Vjb25kcxgJIAEoDRITCgtjb25jdXJyZW5jeRgKIAEoDRITCgtkdXJhdGlvbl9tcxgLIAEoDRIaChJzYW1wbGVfaW50ZXJ2YWxfbXMYDCABKA0SKQoLcGR1X3Nlc3Npb24YDSABKAsyFC5vcmJpdC52MS5QRFVTZXNzaW9uEhMKC2duYl9uM19hZGRyGA4gASgJEhYKDmJpbmRfYWRkcmVzc2VzGA8gAygJOgIYASJbCgxGbGVldFJ1blNwZWMSGwoNc2NlbmFyaW9feWFtbBgBIAEoCUIEkLUYARIqCgtjcmVkZW50aWFscxgCIAEoCzIVLm9yYml0LnYxLkNyZWRlbnRpYWxzOgIYASLVAQoPU3RhcnRSdW5SZXF1ZXN0EgwKBG5hbWUYASABKAkSKQoEbG9hZBgCIAEoCzIVLm9yYml0LnYxLkxvYWRSdW5TcGVjQgIYAUgAEisKBWZsZWV0GAMgASgLMhYub3JiaXQudjEuRmxlZXRSdW5TcGVjQgIYAUgAEiEKBHBsYW4YBSABKAsyES5vcmJpdC52MS5SdW5QbGFuSAASMQoPZXZlbnRfdmVyYm9zaXR5GAQgASgOMhgub3JiaXQudjEuRXZlbnRWZXJib3NpdHlCBgoEc3BlYyIuChBTdGFydFJ1blJlc3BvbnNlEhoKA3J1bhgBIAEoCzINLm9yYml0LnYxLlJ1biKmAQoPUGxhblJ1blJlc3BvbnNlEh8KBHBsYW4YASABKAsyES5vcmJpdC52MS5SdW5QbGFuEi0KCnByb3ZlbmFuY2UYAiADKAsyGS5vcmJpdC52MS5GaWVsZFByb3ZlbmFuY2USEAoIcnVuX25hbWUYAyABKAkSMQoPZXZlbnRfdmVyYm9zaXR5GAQgASgOMhgub3JiaXQudjEuRXZlbnRWZXJib3NpdHkijwEKEFJlbmRlclJ1blJlcXVlc3QSFgoIcnVuX3lhbWwYASABKAlCBJC1GAESEwoLdGFyZ2V0X25hbWUYAiABKAkSEAoIdGVtcGxhdGUYAyABKAkSEgoEc2V0cxgEIAMoCUIEiLUYARINCgVnYXRlcxgFIAMoCRIZCgt0YXJnZXRfeWFtbBgGIAEoCUIEkLUYASJPChFSZW5kZXJSdW5SZXNwb25zZRIPCgdjb21tYW5kGAEgASgJEhYKCHJ1bl95YW1sGAIgASgJQgSQtRgBEhEKCWZpbGVfbmFtZRgDIAEoCSIwCg5TdG9wUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkSDgoGZmluaXNoGAIgASgIIi0KD1N0b3BSdW5SZXNwb25zZRIaCgNydW4YASABKAsyDS5vcmJpdC52MS5SdW4iMgoPTGlzdFJ1bnNSZXF1ZXN0Eh8KBGtpbmQYASABKA4yES5vcmJpdC52MS5SdW5LaW5kIi8KEExpc3RSdW5zUmVzcG9uc2USGwoEcnVucxgBIAMoCzINLm9yYml0LnYxLlJ1biIfCg1HZXRSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSLEAQoMTG9hZFByb2dyZXNzEhIKCmVsYXBzZWRfbXMYASABKAMSEQoJYXR0ZW1wdGVkGAIgASgNEhEKCXN1Y2NlZWRlZBgDIAEoDRIOCgZmYWlsZWQYBCABKA0SFQoNYWNoaWV2ZWRfcmF0ZRgFIAEoARIrCgdsYXRlbmN5GAYgAygLMhoub3JiaXQudjEuUHJvY2VkdXJlTGF0ZW5jeRImCgdwZXJfZ25iGAcgAygLMhUub3JiaXQudjEuR25iUHJvZ3Jlc3MigwUKDUZsZWV0UHJvZ3Jlc3MSEgoKZWxhcHNlZF9tcxgBIAEoAxIQCghhdHRhY2hlZBgCIAEoDRIVCg1hdHRhY2hfZmFpbGVkGAMgASgNEhEKCWhhbmRvdmVycxgEIAEoDRIXCg9oYW5kb3Zlcl9lcnJvcnMYBSABKA0SFQoNdHJhZmZpY19mbG93cxgGIAEoDRIUCgxhcHBfc2Vzc2lvbnMYByABKA0SFAoMdXBsaW5rX2J5dGVzGAggASgEEhYKDmRvd25saW5rX2J5dGVzGAkgASgEEhYKDnVwbGlua19wYWNrZXRzGAogASgEEhgKEGRvd25saW5rX3BhY2tldHMYCyABKAQSEgoKdXBsaW5rX2JwcxgMIAEoARIUCgxkb3dubGlua19icHMYDSABKAESEgoKdXBsaW5rX3BwcxgOIAEoARIUCgxkb3dubGlua19wcHMYDyABKAESJgoHcGVyX2duYhgQIAMoCzIVLm9yYml0LnYxLkduYlByb2dyZXNzEisKB2xhdGVuY3kYGCADKAsyGi5vcmJpdC52MS5Qcm9jZWR1cmVMYXRlbmN5EikKB2NvaG9ydHMYFCADKAsyGC5vcmJpdC52MS5Db2hvcnRQcm9ncmVzcxIgCgVmbG93cxgVIAMoCzIRLm9yYml0LnYxLkZsb3dSb3cSEwoLZmxvd3NfdG90YWwYFiABKA0SFgoOZmxvd3NfcmVwb3J0ZWQYFyABKA0SLgoKdXBfbGF0ZW5jeRgRIAEoCzIaLm9yYml0LnYxLlByb2NlZHVyZUxhdGVuY3kSEQoJdXBfcHJvYmVzGBIgASgEEhYKDnVwX3Byb2Jlc19sb3N0GBMgASgEIjEKCVF1YW50aWxlcxIKCgJwNRgBIAEoARILCgNwNTAYAiABKAESCwoDcDk1GAMgASgBIqMDCg5Db2hvcnRQcm9ncmVzcxIMCgRuYW1lGAEgASgJEgsKA2FwcBgCIAEoCRILCgN1ZXMYAyABKA0SEgoKZWxhcHNlZF9tcxgEIAEoAxIOCgZmYWlsZWQYDSABKA0SIAoDbW9zGAUgASgLMhMub3JiaXQudjEuUXVhbnRpbGVzEiQKB3R0ZmJfbXMYBiABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSKQoMZ29vZHB1dF9tYnBzGAcgASgLMhMub3JiaXQudjEuUXVhbnRpbGVzEioKDXN0YWxsX3RpbWVfbXMYCCABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSKwoOcmVidWZmZXJfcmF0aW8YCSABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSKQoMYml0cmF0ZV9rYnBzGAogASgLMhMub3JiaXQudjEuUXVhbnRpbGVzEicKCnN0YXJ0dXBfbXMYCyABKAsyEy5vcmJpdC52MS5RdWFudGlsZXMSJQoHZmFyX2VuZBgMIAEoCzIULm9yYml0LnYxLkZhckVuZFZpZXcihwEKCkZhckVuZFZpZXcSEQoJYXZhaWxhYmxlGAEgASgIEg4KBnJlYXNvbhgCIAEoCRINCgVieXRlcxgDIAEoBBIPCgdwYWNrZXRzGAQgASgEEhQKDGJpdHNfcGVyX3NlYxgFIAEoARIQCghyZXF1ZXN0cxgGIAEoBBIOCgZlcnJvcnMYByABKAQiuwEKB0Zsb3dSb3cSDAoEc3VwaRgBIAEoCRIOCgZjb2hvcnQYAiABKAkSCwoDYXBwGAMgASgJEgwKBHBlZXIYBCABKAkSCwoDZ25iGAUgASgJEhIKCmVsYXBzZWRfbXMYBiABKAMSFAoMdXBsaW5rX2J5dGVzGAcgASgEEhYKDmRvd25saW5rX2J5dGVzGAggASgEEhIKCnVwbGlua19icHMYCSABKAESFAoMZG93bmxpbmtfYnBzGAogASgBIlAKC0duYlByb2dyZXNzEgsKA2duYhgBIAEoCRIRCglhdHRlbXB0ZWQYAiABKA0SEQoJc3VjY2VlZGVkGAMgASgNEg4KBmZhaWxlZBgEIAEoDSKFAQoQUHJvY2VkdXJlTGF0ZW5jeRIRCglwcm9jZWR1cmUYASABKAkSDQoFY291bnQYAiABKAQSDgoGcDUwX21zGAMgASgBEg4KBnA5MF9tcxgEIAEoARIOCgZwOTlfbXMYBSABKAESDwoHcDk5OV9tcxgGIAEoARIOCgZtYXhfbXMYByABKAEixgIKDkdldFJ1blJlc3BvbnNlEhoKA3J1bhgBIAEoCzINLm9yYml0LnYxLlJ1bhItCg1sb2FkX3Byb2dyZXNzGAIgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzEi8KDmZsZWV0X3Byb2dyZXNzGAMgASgLMhcub3JiaXQudjEuRmxlZXRQcm9ncmVzcxIrCgxmbGVldF9yZXBvcnQYBCABKAsyFS5vcmJpdC52MS5GbGVldFJlcG9ydBIfCgZsZWFzZXMYBSADKAsyDy5vcmJpdC52MS5MZWFzZRI7ChRjb25mb3JtYW5jZV9wcm9ncmVzcxgGIAEoCzIdLm9yYml0LnYxLkNvbmZvcm1hbmNlUHJvZ3Jlc3MSLQoJd29ya2xvYWRzGAcgAygLMhoub3JiaXQudjEuV29ya2xvYWRQcm9ncmVzcyL0AQoQV29ya2xvYWRQcm9ncmVzcxIMCgRuYW1lGAEgASgJEh8KBGtpbmQYAiABKA4yES5vcmJpdC52MS5SdW5LaW5kEg0KBXN0YXRlGAMgASgJEg4KBmRldGFpbBgEIAEoCRImCgRsb2FkGAUgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzSAASKAoFZmxlZXQYBiABKAsyFy5vcmJpdC52MS5GbGVldFByb2dyZXNzSAASNAoLY29uZm9ybWFuY2UYByABKAsyHS5vcmJpdC52MS5Db25mb3JtYW5jZVByb2dyZXNzSABCCgoIcHJvZ3Jlc3MicAoTQ29uZm9ybWFuY2VQcm9ncmVzcxIpCgV0YWxseRgBIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSCwoDcmFuGAIgASgNEg0KBXRvdGFsGAMgASgNEhIKCmxhc3RfY2hlY2sYBCABKAkiTAoTUnVuVGVsZW1ldHJ5UmVxdWVzdBIOCgZydW5faWQYASABKAkSEwoLaW50ZXJ2YWxfbXMYAiABKA0SEAoIZnJvbV9zZXEYAyABKAQi7QIKDlRlbGVtZXRyeUZyYW1lEg4KBnJ1bl9pZBgBIAEoCRIRCgl1bml4X25hbm8YAiABKAMSEwoLaW50ZXJ2YWxfbXMYAyABKA0SEQoJZnJhbWVfc2VxGAQgASgEEiEKBXN0YXRlGAUgASgOMhIub3JiaXQudjEuUnVuU3RhdGUSEgoKZWxhcHNlZF9tcxgGIAEoAxIWCg5kcm9wcGVkX2JlZm9yZRgZIAEoBBImCgRsb2FkGAcgASgLMhYub3JiaXQudjEuTG9hZFByb2dyZXNzSAASKAoFZmxlZXQYCCABKAsyFy5vcmJpdC52MS5GbGVldFByb2dyZXNzSAASNAoLY29uZm9ybWFuY2UYCSABKAsyHS5vcmJpdC52MS5Db25mb3JtYW5jZVByb2dyZXNzSAASLQoJd29ya2xvYWRzGAogAygLMhoub3JiaXQudjEuV29ya2xvYWRQcm9ncmVzc0IKCghwcm9ncmVzcyI0ChBSdW5FdmVudHNSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIQCghmcm9tX3NlcRgCIAEoBCKaAQoIUnVuRXZlbnQSCwoDc2VxGAEgASgEEhEKCXVuaXhfbmFubxgCIAEoAxIpCghzZXZlcml0eRgDIAEoDjIXLm9yYml0LnYxLkV2ZW50U2V2ZXJpdHkSDAoEa2luZBgEIAEoCRIMCgRzdXBpGAUgASgJEg8KB21lc3NhZ2UYBiABKAkSFgoOZHJvcHBlZF9iZWZvcmUYByABKAQiKAoWUmVuZGVyUnVuUmVwb3J0UmVxdWVzdBIOCgZydW5faWQYASABKAkiOQoXUmVuZGVyUnVuUmVwb3J0UmVzcG9uc2USDAoEaHRtbBgBIAEoDBIQCghmaWxlbmFtZRgCIAEoCSIlChNHZXRSdW5SZXBvcnRSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSLzAQoKTG9hZFJlcG9ydBIRCglhdHRlbXB0ZWQYASABKA0SEQoJc3VjY2VlZGVkGAIgASgNEg4KBmZhaWxlZBgDIAEoDRITCgtkdXJhdGlvbl9tcxgEIAEoAxIVCg1hY2hpZXZlZF9yYXRlGAUgASgBEisKB2xhdGVuY3kYBiADKAsyGi5vcmJpdC52MS5Qcm9jZWR1cmVMYXRlbmN5EisKCXJlc291cmNlcxgHIAMoCzIYLm9yYml0LnYxLlJlc291cmNlU2FtcGxlEhYKDmRpc3RpbmN0X3N1cGlzGAggASgNEhEKCWFiYW5kb25lZBgJIAEoDSJGCg5SZXNvdXJjZVNhbXBsZRINCgVhdF9tcxgBIAEoAxISCgpnb3JvdXRpbmVzGAIgASgNEhEKCXJzc19ieXRlcxgDIAEoBCLtAgoLRmxlZXRSZXBvcnQSEAoIYXR0YWNoZWQYASABKA0SFQoNYXR0YWNoX2ZhaWxlZBgCIAEoDRIZChFhdHRhY2hfZWxhcHNlZF9tcxgDIAEoAxIRCgloYW5kb3ZlcnMYBCABKA0SFwoPaGFuZG92ZXJfZXJyb3JzGAUgASgNEhUKDXRyYWZmaWNfZmxvd3MYBiABKA0SFQoNdHJhZmZpY19ieXRlcxgHIAEoBBIUCgxkZXJlZ2lzdGVyZWQYCCABKA0SJgoHcGVyX2duYhgJIAMoCzIVLm9yYml0LnYxLkduYlByb2dyZXNzEisKB2xhdGVuY3kYCiADKAsyGi5vcmJpdC52MS5Qcm9jZWR1cmVMYXRlbmN5EhUKDWFjaGlldmVkX3JhdGUYCyABKAESKwoJcmVzb3VyY2VzGAwgAygLMhgub3JiaXQudjEuUmVzb3VyY2VTYW1wbGUSEQoJYWJhbmRvbmVkGA0gASgNIqICChRHZXRSdW5SZXBvcnRSZXNwb25zZRIaCgNydW4YASABKAsyDS5vcmJpdC52MS5SdW4SJAoEbG9hZBgCIAEoCzIULm9yYml0LnYxLkxvYWRSZXBvcnRIABImCgVmbGVldBgDIAEoCzIVLm9yYml0LnYxLkZsZWV0UmVwb3J0SAASMwoLY29uZm9ybWFuY2UYByABKAsyHC5vcmJpdC52MS5Db25mb3JtYW5jZVN1bW1hcnlIABIjCgVnYXRlcxgEIAMoCzIULm9yYml0LnYxLkdhdGVSZXN1bHQSFAoMZ2F0ZXNfcGFzc2VkGAUgASgIEiYKCXdvcmtsb2FkcxgGIAMoCzITLm9yYml0LnYxLlJ1blJlcG9ydEIICgZyZXBvcnQinQIKCVJ1blJlcG9ydBIQCgh3b3JrbG9hZBgBIAEoCRIfCgRraW5kGAIgASgOMhEub3JiaXQudjEuUnVuS2luZBIkCgRsb2FkGAMgASgLMhQub3JiaXQudjEuTG9hZFJlcG9ydEgAEiYKBWZsZWV0GAQgASgLMhUub3JiaXQudjEuRmxlZXRSZXBvcnRIABIzCgtjb25mb3JtYW5jZRgFIAEoCzIcLm9yYml0LnYxLkNvbmZvcm1hbmNlU3VtbWFyeUgAEiMKBWdhdGVzGAYgAygLMhQub3JiaXQudjEuR2F0ZVJlc3VsdBIUCgxnYXRlc19wYXNzZWQYByABKAgSFQoNc3RvcHBlZF9lYXJseRgIIAEoCEIICgZyZXBvcnQi/QEKEkNvbmZvcm1hbmNlU3VtbWFyeRIpCgV0YWxseRgBIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSLAoHcmVzdWx0cxgCIAMoCzIbLm9yYml0LnYxLkNvbmZvcm1hbmNlUmVzdWx0Eh4KFmV4cGVjdGVkX2ZhaWx1cmVzX2NvcmUYAyABKAkSIAoYZXhwZWN0ZWRfZmFpbHVyZXNfc291cmNlGAQgASgJEikKBXN0YWxlGAUgAygLMhoub3JiaXQudjEuU3RhbGVFeHBlY3RhdGlvbhINCgV0b3RhbBgGIAEoDRISCgppbmNvbXBsZXRlGAcgASgIKo8BCgdSdW5LaW5kEhgKFFJVTl9LSU5EX1VOU1BFQ0lGSUVEEAASEQoNUlVOX0tJTkRfTE9BRBABEhIKDlJVTl9LSU5EX0ZMRUVUEAISFQoRUlVOX0tJTkRfU0NFTkFSSU8QAxIYChRSVU5fS0lORF9DT05GT1JNQU5DRRAEEhIKDlJVTl9LSU5EX01JWEVEEAUqsgEKCFJ1blN0YXRlEhkKFVJVTl9TVEFURV9VTlNQRUNJRklFRBAAEhUKEVJVTl9TVEFURV9QRU5ESU5HEAESFQoRUlVOX1NUQVRFX1JVTk5JTkcQAhIWChJSVU5fU1RBVEVfRFJBSU5JTkcQAxIWChJSVU5fU1RBVEVfQ09NUExFVEUQBBIUChBSVU5fU1RBVEVfRkFJTEVEEAUSFwoTUlVOX1NUQVRFX0NBTkNFTExFRBAGKmoKDkV2ZW50VmVyYm9zaXR5Eh8KG0VWRU5UX1ZFUkJPU0lUWV9VTlNQRUNJRklFRBAAEhoKFkVWRU5UX1ZFUkJPU0lUWV9OT1JNQUwQARIbChdFVkVOVF9WRVJCT1NJVFlfVkVSQk9TRRACKnsKDUV2ZW50U2V2ZXJpdHkSHgoaRVZFTlRfU0VWRVJJVFlfVU5TUEVDSUZJRUQQABIXChNFVkVOVF9TRVZFUklUWV9JTkZPEAESFwoTRVZFTlRfU0VWRVJJVFlfV0FSThACEhgKFEVWRU5UX1NFVkVSSVRZX0VSUk9SEAMy2gUKClJ1blNlcnZpY2USQwoIU3RhcnRSdW4SGS5vcmJpdC52MS5TdGFydFJ1blJlcXVlc3QaGi5vcmJpdC52MS5TdGFydFJ1blJlc3BvbnNlIgASQAoHUGxhblJ1bhIYLm9yYml0LnYxLlJlc29sdmVSZXF1ZXN0Ghkub3JiaXQudjEuUGxhblJ1blJlc3BvbnNlIgASRgoJUmVuZGVyUnVuEhoub3JiaXQudjEuUmVuZGVyUnVuUmVxdWVzdBobLm9yYml0LnYxLlJlbmRlclJ1blJlc3BvbnNlIgASQAoHU3RvcFJ1bhIYLm9yYml0LnYxLlN0b3BSdW5SZXF1ZXN0Ghkub3JiaXQudjEuU3RvcFJ1blJlc3BvbnNlIgASQwoITGlzdFJ1bnMSGS5vcmJpdC52MS5MaXN0UnVuc1JlcXVlc3QaGi5vcmJpdC52MS5MaXN0UnVuc1Jlc3BvbnNlIgASPQoGR2V0UnVuEhcub3JiaXQudjEuR2V0UnVuUmVxdWVzdBoYLm9yYml0LnYxLkdldFJ1blJlc3BvbnNlIgASTwoMR2V0UnVuUmVwb3J0Eh0ub3JiaXQudjEuR2V0UnVuUmVwb3J0UmVxdWVzdBoeLm9yYml0LnYxLkdldFJ1blJlcG9ydFJlc3BvbnNlIgASWAoPUmVuZGVyUnVuUmVwb3J0EiAub3JiaXQudjEuUmVuZGVyUnVuUmVwb3J0UmVxdWVzdBohLm9yYml0LnYxLlJlbmRlclJ1blJlcG9ydFJlc3BvbnNlIgASSwoMUnVuVGVsZW1ldHJ5Eh0ub3JiaXQudjEuUnVuVGVsZW1ldHJ5UmVxdWVzdBoYLm9yYml0LnYxLlRlbGVtZXRyeUZyYW1lIgAwARI/CglSdW5FdmVudHMSGi5vcmJpdC52MS5SdW5FdmVudHNSZXF1ZXN0GhIub3JiaXQudjEuUnVuRXZlbnQiADABQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_options, file_orbit_v1_cell, file_orbit_v1_conformance, file_orbit_v1_plan, file_orbit_v1_target, file_orbit_v1_ue]);
 
 /**
  * Run is a run's identity and lifecycle.
@@ -322,6 +324,131 @@ export const StartRunResponseSchema: GenMessage<StartRunResponse> = /*@__PURE__*
   messageDesc(file_orbit_v1_run, 4);
 
 /**
+ * @generated from message orbit.v1.PlanRunResponse
+ */
+export type PlanRunResponse = Message<"orbit.v1.PlanRunResponse"> & {
+  /**
+   * keys as sent (on the wire only); provenance filled
+   *
+   * @generated from field: orbit.v1.RunPlan plan = 1;
+   */
+  plan?: RunPlan | undefined;
+
+  /**
+   * masked
+   *
+   * @generated from field: repeated orbit.v1.FieldProvenance provenance = 2;
+   */
+  provenance: FieldProvenance[];
+
+  /**
+   * @generated from field: string run_name = 3;
+   */
+  runName: string;
+
+  /**
+   * @generated from field: orbit.v1.EventVerbosity event_verbosity = 4;
+   */
+  eventVerbosity: EventVerbosity;
+};
+
+/**
+ * Describes the message orbit.v1.PlanRunResponse.
+ * Use `create(PlanRunResponseSchema)` to create a new message.
+ */
+export const PlanRunResponseSchema: GenMessage<PlanRunResponse> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_run, 5);
+
+/**
+ * @generated from message orbit.v1.RenderRunRequest
+ */
+export type RenderRunRequest = Message<"orbit.v1.RenderRunRequest"> & {
+  /**
+   * one kind: run document
+   *
+   * @generated from field: string run_yaml = 1;
+   */
+  runYaml: string;
+
+  /**
+   * the command's --target
+   *
+   * @generated from field: string target_name = 2;
+   */
+  targetName: string;
+
+  /**
+   * the built-in template run_yaml started from, or ""
+   *
+   * @generated from field: string template = 3;
+   */
+  template: string;
+
+  /**
+   * --set path=value; marked as ResolveRequest.sets is
+   *
+   * @generated from field: repeated string sets = 4;
+   */
+  sets: string[];
+
+  /**
+   * --gate specs
+   *
+   * @generated from field: repeated string gates = 5;
+   */
+  gates: string[];
+
+  /**
+   * The target the run goes against, keyless (its keys ${VAR}s): only
+   * whether a template's fill applies is read from it, never a value the
+   * command or the file would carry.
+   *
+   * @generated from field: string target_yaml = 6;
+   */
+  targetYaml: string;
+};
+
+/**
+ * Describes the message orbit.v1.RenderRunRequest.
+ * Use `create(RenderRunRequestSchema)` to create a new message.
+ */
+export const RenderRunRequestSchema: GenMessage<RenderRunRequest> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_run, 6);
+
+/**
+ * @generated from message orbit.v1.RenderRunResponse
+ */
+export type RenderRunResponse = Message<"orbit.v1.RenderRunResponse"> & {
+  /**
+   * orbit test … or orbit run <file> …, each argument shell-quoted
+   *
+   * @generated from field: string command = 1;
+   */
+  command: string;
+
+  /**
+   * the run file to save (keyless; marked as every YAML field is)
+   *
+   * @generated from field: string run_yaml = 2;
+   */
+  runYaml: string;
+
+  /**
+   * the file the command names, when it is orbit run
+   *
+   * @generated from field: string file_name = 3;
+   */
+  fileName: string;
+};
+
+/**
+ * Describes the message orbit.v1.RenderRunResponse.
+ * Use `create(RenderRunResponseSchema)` to create a new message.
+ */
+export const RenderRunResponseSchema: GenMessage<RenderRunResponse> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_run, 7);
+
+/**
  * @generated from message orbit.v1.StopRunRequest
  */
 export type StopRunRequest = Message<"orbit.v1.StopRunRequest"> & {
@@ -346,7 +473,7 @@ export type StopRunRequest = Message<"orbit.v1.StopRunRequest"> & {
  * Use `create(StopRunRequestSchema)` to create a new message.
  */
 export const StopRunRequestSchema: GenMessage<StopRunRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 5);
+  messageDesc(file_orbit_v1_run, 8);
 
 /**
  * @generated from message orbit.v1.StopRunResponse
@@ -365,7 +492,7 @@ export type StopRunResponse = Message<"orbit.v1.StopRunResponse"> & {
  * Use `create(StopRunResponseSchema)` to create a new message.
  */
 export const StopRunResponseSchema: GenMessage<StopRunResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 6);
+  messageDesc(file_orbit_v1_run, 9);
 
 /**
  * @generated from message orbit.v1.ListRunsRequest
@@ -384,7 +511,7 @@ export type ListRunsRequest = Message<"orbit.v1.ListRunsRequest"> & {
  * Use `create(ListRunsRequestSchema)` to create a new message.
  */
 export const ListRunsRequestSchema: GenMessage<ListRunsRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 7);
+  messageDesc(file_orbit_v1_run, 10);
 
 /**
  * @generated from message orbit.v1.ListRunsResponse
@@ -401,7 +528,7 @@ export type ListRunsResponse = Message<"orbit.v1.ListRunsResponse"> & {
  * Use `create(ListRunsResponseSchema)` to create a new message.
  */
 export const ListRunsResponseSchema: GenMessage<ListRunsResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 8);
+  messageDesc(file_orbit_v1_run, 11);
 
 /**
  * @generated from message orbit.v1.GetRunRequest
@@ -418,7 +545,7 @@ export type GetRunRequest = Message<"orbit.v1.GetRunRequest"> & {
  * Use `create(GetRunRequestSchema)` to create a new message.
  */
 export const GetRunRequestSchema: GenMessage<GetRunRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 9);
+  messageDesc(file_orbit_v1_run, 12);
 
 /**
  * LoadProgress is a live aggregate snapshot of a load run in flight. Cumulative
@@ -473,7 +600,7 @@ export type LoadProgress = Message<"orbit.v1.LoadProgress"> & {
  * Use `create(LoadProgressSchema)` to create a new message.
  */
 export const LoadProgressSchema: GenMessage<LoadProgress> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 10);
+  messageDesc(file_orbit_v1_run, 13);
 
 /**
  * FleetProgress is a live aggregate snapshot of a fleet run in flight: its
@@ -658,7 +785,7 @@ export type FleetProgress = Message<"orbit.v1.FleetProgress"> & {
  * Use `create(FleetProgressSchema)` to create a new message.
  */
 export const FleetProgressSchema: GenMessage<FleetProgress> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 11);
+  messageDesc(file_orbit_v1_run, 14);
 
 /**
  * Quantiles is an across-member distribution: the p5/p50/p95 of one metric
@@ -688,7 +815,7 @@ export type Quantiles = Message<"orbit.v1.Quantiles"> & {
  * Use `create(QuantilesSchema)` to create a new message.
  */
 export const QuantilesSchema: GenMessage<Quantiles> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 12);
+  messageDesc(file_orbit_v1_run, 15);
 
 /**
  * CohortProgress is one app cohort's live quality. Only the families its app
@@ -796,7 +923,7 @@ export type CohortProgress = Message<"orbit.v1.CohortProgress"> & {
  * Use `create(CohortProgressSchema)` to create a new message.
  */
 export const CohortProgressSchema: GenMessage<CohortProgress> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 13);
+  messageDesc(file_orbit_v1_run, 16);
 
 /**
  * FarEndView is the N6 agent's independent account of a cohort's traffic.
@@ -863,7 +990,7 @@ export type FarEndView = Message<"orbit.v1.FarEndView"> & {
  * Use `create(FarEndViewSchema)` to create a new message.
  */
 export const FarEndViewSchema: GenMessage<FarEndView> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 14);
+  messageDesc(file_orbit_v1_run, 17);
 
 /**
  * FlowRow is one UE's traffic on the data path. Byte counters are cumulative;
@@ -933,7 +1060,7 @@ export type FlowRow = Message<"orbit.v1.FlowRow"> & {
  * Use `create(FlowRowSchema)` to create a new message.
  */
 export const FlowRowSchema: GenMessage<FlowRow> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 15);
+  messageDesc(file_orbit_v1_run, 18);
 
 /**
  * GnbProgress is one gNB's share of the attach population in a load run.
@@ -969,7 +1096,7 @@ export type GnbProgress = Message<"orbit.v1.GnbProgress"> & {
  * Use `create(GnbProgressSchema)` to create a new message.
  */
 export const GnbProgressSchema: GenMessage<GnbProgress> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 16);
+  messageDesc(file_orbit_v1_run, 19);
 
 /**
  * ProcedureLatency is one procedure's live percentile summary, milliseconds.
@@ -1020,7 +1147,7 @@ export type ProcedureLatency = Message<"orbit.v1.ProcedureLatency"> & {
  * Use `create(ProcedureLatencySchema)` to create a new message.
  */
 export const ProcedureLatencySchema: GenMessage<ProcedureLatency> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 17);
+  messageDesc(file_orbit_v1_run, 20);
 
 /**
  * @generated from message orbit.v1.GetRunResponse
@@ -1085,7 +1212,7 @@ export type GetRunResponse = Message<"orbit.v1.GetRunResponse"> & {
  * Use `create(GetRunResponseSchema)` to create a new message.
  */
 export const GetRunResponseSchema: GenMessage<GetRunResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 18);
+  messageDesc(file_orbit_v1_run, 21);
 
 /**
  * WorkloadProgress is one workload of a MIXED run as it stands.
@@ -1146,7 +1273,7 @@ export type WorkloadProgress = Message<"orbit.v1.WorkloadProgress"> & {
  * Use `create(WorkloadProgressSchema)` to create a new message.
  */
 export const WorkloadProgressSchema: GenMessage<WorkloadProgress> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 19);
+  messageDesc(file_orbit_v1_run, 22);
 
 /**
  * ConformanceProgress is a conformance run's suite so far.
@@ -1186,7 +1313,7 @@ export type ConformanceProgress = Message<"orbit.v1.ConformanceProgress"> & {
  * Use `create(ConformanceProgressSchema)` to create a new message.
  */
 export const ConformanceProgressSchema: GenMessage<ConformanceProgress> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 20);
+  messageDesc(file_orbit_v1_run, 23);
 
 /**
  * @generated from message orbit.v1.RunTelemetryRequest
@@ -1223,7 +1350,7 @@ export type RunTelemetryRequest = Message<"orbit.v1.RunTelemetryRequest"> & {
  * Use `create(RunTelemetryRequestSchema)` to create a new message.
  */
 export const RunTelemetryRequestSchema: GenMessage<RunTelemetryRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 21);
+  messageDesc(file_orbit_v1_run, 24);
 
 /**
  * TelemetryFrame is a complete snapshot of a run's aggregate state at an
@@ -1315,7 +1442,7 @@ export type TelemetryFrame = Message<"orbit.v1.TelemetryFrame"> & {
  * Use `create(TelemetryFrameSchema)` to create a new message.
  */
 export const TelemetryFrameSchema: GenMessage<TelemetryFrame> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 22);
+  messageDesc(file_orbit_v1_run, 25);
 
 /**
  * @generated from message orbit.v1.RunEventsRequest
@@ -1340,7 +1467,7 @@ export type RunEventsRequest = Message<"orbit.v1.RunEventsRequest"> & {
  * Use `create(RunEventsRequestSchema)` to create a new message.
  */
 export const RunEventsRequestSchema: GenMessage<RunEventsRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 23);
+  messageDesc(file_orbit_v1_run, 26);
 
 /**
  * RunEvent is one discrete occurrence during a run.
@@ -1398,7 +1525,7 @@ export type RunEvent = Message<"orbit.v1.RunEvent"> & {
  * Use `create(RunEventSchema)` to create a new message.
  */
 export const RunEventSchema: GenMessage<RunEvent> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 24);
+  messageDesc(file_orbit_v1_run, 27);
 
 /**
  * RenderRunReportRequest asks for a finished run as a document.
@@ -1417,7 +1544,7 @@ export type RenderRunReportRequest = Message<"orbit.v1.RenderRunReportRequest"> 
  * Use `create(RenderRunReportRequestSchema)` to create a new message.
  */
 export const RenderRunReportRequestSchema: GenMessage<RenderRunReportRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 25);
+  messageDesc(file_orbit_v1_run, 28);
 
 /**
  * RenderRunReportResponse carries a complete, self-contained HTML document —
@@ -1445,7 +1572,7 @@ export type RenderRunReportResponse = Message<"orbit.v1.RenderRunReportResponse"
  * Use `create(RenderRunReportResponseSchema)` to create a new message.
  */
 export const RenderRunReportResponseSchema: GenMessage<RenderRunReportResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 26);
+  messageDesc(file_orbit_v1_run, 29);
 
 /**
  * @generated from message orbit.v1.GetRunReportRequest
@@ -1462,7 +1589,7 @@ export type GetRunReportRequest = Message<"orbit.v1.GetRunReportRequest"> & {
  * Use `create(GetRunReportRequestSchema)` to create a new message.
  */
 export const GetRunReportRequestSchema: GenMessage<GetRunReportRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 27);
+  messageDesc(file_orbit_v1_run, 30);
 
 /**
  * LoadReport is the authoritative end-of-run result. Unlike LoadProgress it is
@@ -1529,7 +1656,7 @@ export type LoadReport = Message<"orbit.v1.LoadReport"> & {
  * Use `create(LoadReportSchema)` to create a new message.
  */
 export const LoadReportSchema: GenMessage<LoadReport> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 28);
+  messageDesc(file_orbit_v1_run, 31);
 
 /**
  * ResourceSample is a point-in-time process reading during a soak.
@@ -1558,7 +1685,7 @@ export type ResourceSample = Message<"orbit.v1.ResourceSample"> & {
  * Use `create(ResourceSampleSchema)` to create a new message.
  */
 export const ResourceSampleSchema: GenMessage<ResourceSample> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 29);
+  messageDesc(file_orbit_v1_run, 32);
 
 /**
  * FleetReport is the end-of-run result of a fleet run.
@@ -1647,7 +1774,7 @@ export type FleetReport = Message<"orbit.v1.FleetReport"> & {
  * Use `create(FleetReportSchema)` to create a new message.
  */
 export const FleetReportSchema: GenMessage<FleetReport> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 30);
+  messageDesc(file_orbit_v1_run, 33);
 
 /**
  * @generated from message orbit.v1.GetRunReportResponse
@@ -1707,7 +1834,7 @@ export type GetRunReportResponse = Message<"orbit.v1.GetRunReportResponse"> & {
  * Use `create(GetRunReportResponseSchema)` to create a new message.
  */
 export const GetRunReportResponseSchema: GenMessage<GetRunReportResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 31);
+  messageDesc(file_orbit_v1_run, 34);
 
 /**
  * RunReport is one workload's end-of-run report, with the gates applied to
@@ -1778,7 +1905,7 @@ export type RunReport = Message<"orbit.v1.RunReport"> & {
  * Use `create(RunReportSchema)` to create a new message.
  */
 export const RunReportSchema: GenMessage<RunReport> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 32);
+  messageDesc(file_orbit_v1_run, 35);
 
 /**
  * ConformanceSummary is a conformance workload's results.
@@ -1836,7 +1963,7 @@ export type ConformanceSummary = Message<"orbit.v1.ConformanceSummary"> & {
  * Use `create(ConformanceSummarySchema)` to create a new message.
  */
 export const ConformanceSummarySchema: GenMessage<ConformanceSummary> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_run, 33);
+  messageDesc(file_orbit_v1_run, 36);
 
 /**
  * RunKind is what a run does. Only LOAD is executable in this slice; the others
@@ -2023,6 +2150,31 @@ export const RunService: GenService<{
     methodKind: "unary";
     input: typeof StartRunRequestSchema;
     output: typeof StartRunResponseSchema;
+  },
+  /**
+   * PlanRun resolves a target and a run file the client sends (defaults <
+   * target < run file < flags; no env layer) and builds the run's plan,
+   * as orbit run builds it from the same files (ADR-0008 §3). Stateless:
+   * the server keeps nothing. Its keys are the request's own.
+   *
+   * @generated from rpc orbit.v1.RunService.PlanRun
+   */
+  planRun: {
+    methodKind: "unary";
+    input: typeof ResolveRequestSchema;
+    output: typeof PlanRunResponseSchema;
+  },
+  /**
+   * RenderRun gives a run file as the orbit command that runs it and as
+   * the run file to save. Keyless: a secret written out in the run file is
+   * refused.
+   *
+   * @generated from rpc orbit.v1.RunService.RenderRun
+   */
+  renderRun: {
+    methodKind: "unary";
+    input: typeof RenderRunRequestSchema;
+    output: typeof RenderRunResponseSchema;
   },
   /**
    * StopRun requests cancellation. Idempotent; a terminal run is unchanged.

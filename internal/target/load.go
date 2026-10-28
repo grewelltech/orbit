@@ -361,6 +361,24 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			return out, nil
 		}
 	}
+	return decodeWhole(v)
+}
+
+// decodeWhole decodes a whole-value node as written. A plain scalar that
+// YAML 1.1 would read as a timestamp (2026-10-12) stays its text: a run
+// file's dates (an inline expected-failures list's added) are strings, and
+// a time would come back re-encoded in another form.
+func decodeWhole(v *yaml.Node) (any, error) {
+	var plain func(*yaml.Node)
+	plain = func(n *yaml.Node) {
+		if n.Kind == yaml.ScalarNode && n.Style == 0 && n.ShortTag() == "!!timestamp" {
+			n.Tag = "!!str"
+		}
+		for _, c := range n.Content {
+			plain(c)
+		}
+	}
+	plain(v)
 	var val any
 	if err := v.Decode(&val); err != nil {
 		return nil, err

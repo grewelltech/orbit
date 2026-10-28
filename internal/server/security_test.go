@@ -267,6 +267,48 @@ func TestSecretsOverPlaintext(t *testing.T) {
 		{name: "a probe without secrets (a stream)", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
 			return drainProbe(ctx, h, url, &orbitv1.ResolvedTarget{Name: "lab1"})
 		}},
+		// PlanRun (U2): every ${VAR} value counts as a secret, whatever its
+		// name; a key written out in either document is one too.
+		{name: "PlanRun with a var", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).PlanRun(ctx, connect.NewRequest(&orbitv1.ResolveRequest{
+				TargetYaml: "kind: target\nname: lab1\n", RunYaml: "kind: run\n", Vars: []*orbitv1.Variable{{Name: "LAB_K", Value: "v"}}}))
+			return err
+		}},
+		{name: "PlanRun with a key in the target", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).PlanRun(ctx, connect.NewRequest(&orbitv1.ResolveRequest{
+				TargetYaml: "kind: target\nname: lab1\nsubscribers:\n  - {name: main, ki: " + creds.Ki + "}\n", RunYaml: "kind: run\n"}))
+			return err
+		}},
+		{name: "PlanRun with placeholders only", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).PlanRun(ctx, connect.NewRequest(&orbitv1.ResolveRequest{
+				TargetYaml: "kind: target\nname: lab1\nsubscribers:\n  - {name: main, ki: \"${ORBIT_KI}\"}\n", RunYaml: "kind: run\n"}))
+			return ignoreInvalid(err)
+		}},
+		// --set is marked secret: refused over plaintext before it is read.
+		{name: "PlanRun with a --set", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).PlanRun(ctx, connect.NewRequest(&orbitv1.ResolveRequest{
+				TargetYaml: "kind: target\nname: lab1\n", RunYaml: "kind: run\n", Sets: []string{"subscribers[main].ki=" + creds.Ki}}))
+			return err
+		}},
+		{name: "RenderRun with a --set", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).RenderRun(ctx, connect.NewRequest(&orbitv1.RenderRunRequest{
+				TargetName: "lab1", RunYaml: "kind: run\n", Sets: []string{"workloads[w].attach.count=1"}}))
+			return err
+		}},
+		{name: "RenderRun with a key in the target", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).RenderRun(ctx, connect.NewRequest(&orbitv1.RenderRunRequest{
+				TargetName: "lab1", RunYaml: "kind: run\n", TargetYaml: "kind: target\nname: lab1\nsubscribers:\n  - {name: main, ki: " + creds.Ki + "}\n"}))
+			return err
+		}},
+		{name: "RenderRun with a token in behaviors", secrets: true, call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).RenderRun(ctx, connect.NewRequest(&orbitv1.RenderRunRequest{
+				TargetName: "lab1", RunYaml: "kind: run\nworkloads:\n  - name: f\n    behaviors: {traffic: {apps: [{token: t-123}]}}\n"}))
+			return err
+		}},
+		{name: "RenderRun without secrets", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
+			_, err := orbitv1connect.NewRunServiceClient(h, url).RenderRun(ctx, connect.NewRequest(&orbitv1.RenderRunRequest{TargetName: "lab1", RunYaml: "kind: run\n"}))
+			return ignoreInvalid(err)
+		}},
 		{name: "a plan without secrets", call: func(ctx context.Context, h connect.HTTPClient, url string) error {
 			return startPlan(ctx, h, url, planWithParams(map[string]string{"object_size": "256KB"}))
 		}},
@@ -295,6 +337,15 @@ func TestSecretsOverPlaintext(t *testing.T) {
 			})
 		}
 	}
+}
+
+// ignoreInvalid is err unless it is InvalidArgument: a call that passed
+// the secrets check and was refused for its content.
+func ignoreInvalid(err error) error {
+	if connect.CodeOf(err) == connect.CodeInvalidArgument {
+		return nil
+	}
+	return err
 }
 
 func TestIsLoopbackAddr(t *testing.T) {

@@ -137,3 +137,27 @@ message ProbeStep {
   string detail = 4;  // what was seen
   string fix = 5;     // what to change, on a FAIL
 }
+
+// ResolveRequest is a run as a client sends it whole (ADR-0008 §3): the
+// target document and the run file as YAML text, which the server parses
+// as the CLI parses its files, and the layers above them. There is no env
+// layer: a ${VAR} takes its value from vars, never from the server's
+// environment, and one with no value is an error naming it.
+message ResolveRequest {
+  string target_yaml = 1 [(orbit.v1.secret_yaml) = true];  // one kind: target document
+  string run_yaml = 2 [(orbit.v1.secret_yaml) = true];     // one kind: run document
+  string template = 3;          // the built-in template run_yaml started from, or ""
+  // The flag layer: --set path=value. Marked secret, so a set is refused
+  // over plaintext off loopback before it is read; the server refuses one
+  // at a secret field (keys go in the target, as ${VAR}s) in any case.
+  repeated string sets = 4 [(orbit.v1.secret) = true];
+  repeated string gates = 5;    // the flag layer: --gate specs
+  repeated Variable vars = 6;   // the ${VAR}s' values
+}
+
+// Variable is one ${VAR}'s value. Every value counts as a secret: a name
+// does not say whether it holds a key.
+message Variable {
+  string name = 1;
+  string value = 2 [(orbit.v1.secret) = true];
+}

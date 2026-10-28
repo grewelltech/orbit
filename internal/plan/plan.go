@@ -331,7 +331,7 @@ func (b builder) expected(v any) (*orbitv1.ExpectedFailures, error) {
 	switch x := v.(type) {
 	case string:
 		if b.o.readFile == nil {
-			return nil, fmt.Errorf("%q: this command does not read files", x)
+			return nil, fmt.Errorf("%q: this command does not read files; give the list inline", x)
 		}
 		data, err := b.o.readFile(x)
 		if err != nil {

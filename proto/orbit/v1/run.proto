@@ -7,6 +7,7 @@ import "orbit/v1/options.proto";
 import "orbit/v1/cell.proto";
 import "orbit/v1/conformance.proto";
 import "orbit/v1/plan.proto";
+import "orbit/v1/target.proto";
 import "orbit/v1/ue.proto";
 
 option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
@@ -23,6 +24,15 @@ service RunService {
   // StartRun launches a run and returns its identity immediately. The run
   // executes asynchronously; poll GetRun or fetch GetRunReport when done.
   rpc StartRun(StartRunRequest) returns (StartRunResponse) {}
+  // PlanRun resolves a target and a run file the client sends (defaults <
+  // target < run file < flags; no env layer) and builds the run's plan,
+  // as orbit run builds it from the same files (ADR-0008 §3). Stateless:
+  // the server keeps nothing. Its keys are the request's own.
+  rpc PlanRun(ResolveRequest) returns (PlanRunResponse) {}
+  // RenderRun gives a run file as the orbit command that runs it and as
+  // the run file to save. Keyless: a secret written out in the run file is
+  // refused.
+  rpc RenderRun(RenderRunRequest) returns (RenderRunResponse) {}
   // StopRun requests cancellation. Idempotent; a terminal run is unchanged.
   rpc StopRun(StopRunRequest) returns (StopRunResponse) {}
   // ListRuns returns active and retained runs, newest first.
@@ -165,6 +175,31 @@ message StartRunRequest {
 
 message StartRunResponse {
   Run run = 1;
+}
+
+message PlanRunResponse {
+  RunPlan plan = 1;                         // keys as sent (on the wire only); provenance filled
+  repeated FieldProvenance provenance = 2;  // masked
+  string run_name = 3;
+  EventVerbosity event_verbosity = 4;
+}
+
+message RenderRunRequest {
+  string run_yaml = 1 [(orbit.v1.secret_yaml) = true];  // one kind: run document
+  string target_name = 2;      // the command's --target
+  string template = 3;         // the built-in template run_yaml started from, or ""
+  repeated string sets = 4 [(orbit.v1.secret) = true];  // --set path=value; marked as ResolveRequest.sets is
+  repeated string gates = 5;   // --gate specs
+  // The target the run goes against, keyless (its keys ${VAR}s): only
+  // whether a template's fill applies is read from it, never a value the
+  // command or the file would carry.
+  string target_yaml = 6 [(orbit.v1.secret_yaml) = true];
+}
+
+message RenderRunResponse {
+  string command = 1;    // orbit test … or orbit run <file> …, each argument shell-quoted
+  string run_yaml = 2 [(orbit.v1.secret_yaml) = true];  // the run file to save (keyless; marked as every YAML field is)
+  string file_name = 3;  // the file the command names, when it is orbit run
 }
 
 message StopRunRequest {
