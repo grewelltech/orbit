@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
@@ -1151,5 +1152,26 @@ func TestFleetFlowsListedWithoutARateTracker(t *testing.T) {
 	}
 	if rows[0].GetDownlinkBps() != 0 {
 		t.Errorf("downlink rate = %v, want 0 (no interval to divide by)", rows[0].GetDownlinkBps())
+	}
+}
+
+// A CONFORMANCE event that is a check's verdict carries it as fields too;
+// any other event carries none.
+func TestCheckEvent(t *testing.T) {
+	tests := []struct {
+		kind, message string
+		want          *orbitv1.ConformanceCheckEvent
+	}{
+		{"CONFORMANCE", "NGAP-NG-RESET-ACK FAIL", &orbitv1.ConformanceCheckEvent{CheckId: "NGAP-NG-RESET-ACK", Verdict: "FAIL"}},
+		{"CONFORMANCE", "[suite] NAS-X SKIP", &orbitv1.ConformanceCheckEvent{Workload: "suite", CheckId: "NAS-X", Verdict: "SKIP"}},
+		{"CONFORMANCE", "suite started", nil},
+		{"CONFORMANCE", "X MAYBE", nil},
+		{"ATTACH", "X PASS", nil},
+	}
+	for _, tc := range tests {
+		got := runEventProto(engine.RunEvent{Kind: tc.kind, Message: tc.message}).GetCheck()
+		if !proto.Equal(got, tc.want) {
+			t.Errorf("%s %q: check %v, want %v", tc.kind, tc.message, got, tc.want)
+		}
 	}
 }

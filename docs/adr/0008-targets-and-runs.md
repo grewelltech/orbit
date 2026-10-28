@@ -280,6 +280,15 @@ change to the decision):
   refused.
 - `TargetService.Resolve`, with this section's target-only shape, waits
   for its first target-only caller.
+- (U3, 2026-10-28) **The override notice** is built: `--explain` and
+  `--wait` print it, and `RunService.GetRunConfig` returns it.
+  - **Wider than "run file":** the notice covers an env value over any
+    **file layer**, the target or the run file. A run file can set only one
+    env-bound field (`ORBIT_LOAD_SEED`). The override worth catching is the
+    shell beating the target, such as a forgotten `export ORBIT_MCC`.
+  - **No new archive field:** `GetRunConfig` derives the notice from the
+    archived provenance. An ENV entry that overrode a TARGET or RUN_FILE
+    value is already there.
 
 ### 4. The credential channel
 

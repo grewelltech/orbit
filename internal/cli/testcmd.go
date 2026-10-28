@@ -77,6 +77,9 @@ func newTestCmd(serverURL *string, o options) *cobra.Command {
 			if err := applyServerURL(cmd, serverURL); err != nil {
 				return err
 			}
+			if wait {
+				printNotices(cmd, res)
+			}
 			return startRun(cmd, runsClient(serverURL), req, wait, true)
 		},
 	}

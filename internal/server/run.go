@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"sort"
 	"sync"
@@ -390,7 +391,26 @@ func runEventProto(ev engine.RunEvent) *orbitv1.RunEvent {
 		Kind:     ev.Kind,
 		Supi:     ev.SUPI,
 		Message:  ev.Message,
+		Check:    checkEvent(ev.Kind, ev.Message),
 	}
+}
+
+// checkText is a conformance check's verdict event as the suite emits it,
+// "<check> <verdict>", which a mixed run's workload prefixes with
+// "[<workload>] " (engine/mixed.go); a workload's name holds no brackets.
+var checkText = regexp.MustCompile(`^(?:\[([^][]+)\] )?(\S+) (PASS|FAIL|ERROR|SKIP|DEVIATION)$`)
+
+// checkEvent is a CONFORMANCE event's verdict as fields, beside its text
+// for older clients; nil for any other event.
+func checkEvent(kind, message string) *orbitv1.ConformanceCheckEvent {
+	if kind != "CONFORMANCE" {
+		return nil
+	}
+	m := checkText.FindStringSubmatch(message)
+	if m == nil {
+		return nil
+	}
+	return &orbitv1.ConformanceCheckEvent{Workload: m[1], CheckId: m[2], Verdict: m[3]}
 }
 
 func eventSeverityProto(s string) orbitv1.EventSeverity {

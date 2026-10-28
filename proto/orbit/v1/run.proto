@@ -33,6 +33,12 @@ service RunService {
   // the run file to save. Keyless: a secret written out in the run file is
   // refused.
   rpc RenderRun(RenderRunRequest) returns (RenderRunResponse) {}
+  // GetRunConfig is what a run was asked to run, as resolved: its plan
+  // (masked: keys never), every field's provenance (masked), and the
+  // notices drawn from it (an env value that beat a file's, ADR-0008 §3).
+  // From a live run's held spec or its archive; NotFound for a run the
+  // server does not know.
+  rpc GetRunConfig(GetRunConfigRequest) returns (GetRunConfigResponse) {}
   // StopRun requests cancellation. Idempotent; a terminal run is unchanged.
   rpc StopRun(StopRunRequest) returns (StopRunResponse) {}
   // ListRuns returns active and retained runs, newest first.
@@ -182,6 +188,31 @@ message PlanRunResponse {
   repeated FieldProvenance provenance = 2;  // masked
   string run_name = 3;
   EventVerbosity event_verbosity = 4;
+  repeated OverrideNotice notices = 5;      // always empty here (no env layer); one code path with GetRunConfig
+}
+
+message GetRunConfigRequest {
+  string run_id = 1;
+}
+
+message GetRunConfigResponse {
+  RunPlan plan = 1;                         // masked; unset for a run started from a deprecated spec
+  repeated FieldProvenance provenance = 2;  // masked; the server's own entries (leases) included
+  repeated OverrideNotice notices = 3;
+  // False for a run started without the layers resolved (orbit runs
+  // start-load, start-fleet, a deprecated spec): it has no provenance.
+  bool resolved = 4;
+}
+
+// OverrideNotice is a field an env var set over a file's value (the target
+// or the run file): the shell beating a file, which is what a forgotten
+// export does (ADR-0008 §3). A flag over a file is meant, and no notice.
+message OverrideNotice {
+  string path = 1;
+  ProvenanceSource winner = 2;      // the env layer and its variable
+  string value = 3;                 // masked when secret
+  ProvenanceSource overridden = 4;  // the file and line it beat
+  string overridden_value = 5;      // masked when secret
 }
 
 message RenderRunRequest {
@@ -516,6 +547,16 @@ message RunEvent {
   // Set on the first event of a stream when the requested from_seq had already
   // been evicted: how many events before this one the client will never see.
   uint64 dropped_before = 7;
+  // Set on a CONFORMANCE event that is a check's verdict, beside the same
+  // in message ("[<workload>] <check> <verdict>"), which older clients read.
+  ConformanceCheckEvent check = 8;
+}
+
+// ConformanceCheckEvent is one conformance check's verdict as it lands.
+message ConformanceCheckEvent {
+  string check_id = 1;
+  string verdict = 2;   // PASS | FAIL | ERROR | SKIP | DEVIATION
+  string workload = 3;  // the workload whose suite ran it; "" in a run with one suite
 }
 
 // RenderRunReportRequest asks for a finished run as a document.

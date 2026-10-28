@@ -1,0 +1,384 @@
+{
+  "plan":  {
+    "target":  {
+      "name":  "core",
+      "core":  {
+        "amf":  "127.0.0.1:46508",
+        "plmn":  {
+          "mcc":  "208",
+          "mnc":  "93"
+        },
+        "tac":  1,
+        "slices":  [
+          {
+            "sst":  1,
+            "sd":  "010203"
+          }
+        ],
+        "dnn":  "internet",
+        "profile":  "strict-3gpp"
+      },
+      "ran":  {
+        "n2SourceIps":  [
+          "127.0.0.1"
+        ],
+        "gnbIds":  {}
+      },
+      "app":  {}
+    },
+    "workloads":  [
+      {
+        "name":  "suite",
+        "conformance":  {
+          "categories":  [
+            "negative-ie"
+          ],
+          "perTestTimeoutMs":  3000
+        }
+      }
+    ],
+    "provenance":  [
+      {
+        "path":  "core.amf",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:5"
+        },
+        "value":  "127.0.0.1:46508"
+      },
+      {
+        "path":  "core.dnn",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_DEFAULT",
+          "detail":  "default built-in"
+        },
+        "value":  "internet"
+      },
+      {
+        "path":  "core.plmn.mcc",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_ENV",
+          "detail":  "env $ORBIT_MCC"
+        },
+        "value":  "208",
+        "overridden":  [
+          {
+            "source":  {
+              "layer":  "PROVENANCE_LAYER_TARGET",
+              "detail":  "target lab/orbit.yaml:6"
+            },
+            "value":  "001"
+          }
+        ]
+      },
+      {
+        "path":  "core.plmn.mnc",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_ENV",
+          "detail":  "env $ORBIT_MNC"
+        },
+        "value":  "93",
+        "overridden":  [
+          {
+            "source":  {
+              "layer":  "PROVENANCE_LAYER_TARGET",
+              "detail":  "target lab/orbit.yaml:6"
+            },
+            "value":  "01"
+          }
+        ]
+      },
+      {
+        "path":  "core.profile",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_DEFAULT",
+          "detail":  "default built-in"
+        },
+        "value":  "strict-3gpp"
+      },
+      {
+        "path":  "core.slices",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:8"
+        },
+        "value":  "[1/010203]",
+        "overridden":  [
+          {
+            "source":  {
+              "layer":  "PROVENANCE_LAYER_DEFAULT",
+              "detail":  "default built-in"
+            },
+            "value":  "[1]"
+          }
+        ]
+      },
+      {
+        "path":  "core.slices[0].sd",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:8"
+        },
+        "value":  "010203"
+      },
+      {
+        "path":  "core.slices[0].sst",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:8"
+        },
+        "value":  "1"
+      },
+      {
+        "path":  "core.tac",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_DEFAULT",
+          "detail":  "default built-in"
+        },
+        "value":  "1"
+      },
+      {
+        "path":  "kind",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:2"
+        },
+        "value":  "target"
+      },
+      {
+        "path":  "name",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:3"
+        },
+        "value":  "core"
+      },
+      {
+        "path":  "ran.n2_source_ips",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:10"
+        },
+        "value":  "[127.0.0.1]"
+      },
+      {
+        "path":  "version",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_TARGET",
+          "detail":  "target lab/orbit.yaml:1"
+        },
+        "value":  "1"
+      },
+      {
+        "path":  "workloads[suite].conformance.categories",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_RUN_FILE",
+          "detail":  "run file lab/suite.yaml:4"
+        },
+        "value":  "[negative-ie]"
+      },
+      {
+        "path":  "workloads[suite].conformance.per_test_timeout_ms",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_RUN_FILE",
+          "detail":  "run file lab/suite.yaml:4"
+        },
+        "value":  "3000"
+      },
+      {
+        "path":  "workloads[suite].name",
+        "source":  {
+          "layer":  "PROVENANCE_LAYER_RUN_FILE",
+          "detail":  "run file lab/suite.yaml:3"
+        },
+        "value":  "suite"
+      }
+    ]
+  },
+  "provenance":  [
+    {
+      "path":  "core.amf",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:5"
+      },
+      "value":  "127.0.0.1:46508"
+    },
+    {
+      "path":  "core.dnn",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_DEFAULT",
+        "detail":  "default built-in"
+      },
+      "value":  "internet"
+    },
+    {
+      "path":  "core.plmn.mcc",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_ENV",
+        "detail":  "env $ORBIT_MCC"
+      },
+      "value":  "208",
+      "overridden":  [
+        {
+          "source":  {
+            "layer":  "PROVENANCE_LAYER_TARGET",
+            "detail":  "target lab/orbit.yaml:6"
+          },
+          "value":  "001"
+        }
+      ]
+    },
+    {
+      "path":  "core.plmn.mnc",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_ENV",
+        "detail":  "env $ORBIT_MNC"
+      },
+      "value":  "93",
+      "overridden":  [
+        {
+          "source":  {
+            "layer":  "PROVENANCE_LAYER_TARGET",
+            "detail":  "target lab/orbit.yaml:6"
+          },
+          "value":  "01"
+        }
+      ]
+    },
+    {
+      "path":  "core.profile",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_DEFAULT",
+        "detail":  "default built-in"
+      },
+      "value":  "strict-3gpp"
+    },
+    {
+      "path":  "core.slices",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:8"
+      },
+      "value":  "[1/010203]",
+      "overridden":  [
+        {
+          "source":  {
+            "layer":  "PROVENANCE_LAYER_DEFAULT",
+            "detail":  "default built-in"
+          },
+          "value":  "[1]"
+        }
+      ]
+    },
+    {
+      "path":  "core.slices[0].sd",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:8"
+      },
+      "value":  "010203"
+    },
+    {
+      "path":  "core.slices[0].sst",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:8"
+      },
+      "value":  "1"
+    },
+    {
+      "path":  "core.tac",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_DEFAULT",
+        "detail":  "default built-in"
+      },
+      "value":  "1"
+    },
+    {
+      "path":  "kind",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:2"
+      },
+      "value":  "target"
+    },
+    {
+      "path":  "name",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:3"
+      },
+      "value":  "core"
+    },
+    {
+      "path":  "ran.n2_source_ips",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:10"
+      },
+      "value":  "[127.0.0.1]"
+    },
+    {
+      "path":  "version",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:1"
+      },
+      "value":  "1"
+    },
+    {
+      "path":  "workloads[suite].conformance.categories",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_RUN_FILE",
+        "detail":  "run file lab/suite.yaml:4"
+      },
+      "value":  "[negative-ie]"
+    },
+    {
+      "path":  "workloads[suite].conformance.per_test_timeout_ms",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_RUN_FILE",
+        "detail":  "run file lab/suite.yaml:4"
+      },
+      "value":  "3000"
+    },
+    {
+      "path":  "workloads[suite].name",
+      "source":  {
+        "layer":  "PROVENANCE_LAYER_RUN_FILE",
+        "detail":  "run file lab/suite.yaml:3"
+      },
+      "value":  "suite"
+    }
+  ],
+  "notices":  [
+    {
+      "path":  "core.plmn.mcc",
+      "winner":  {
+        "layer":  "PROVENANCE_LAYER_ENV",
+        "detail":  "env $ORBIT_MCC"
+      },
+      "value":  "208",
+      "overridden":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:6"
+      },
+      "overriddenValue":  "001"
+    },
+    {
+      "path":  "core.plmn.mnc",
+      "winner":  {
+        "layer":  "PROVENANCE_LAYER_ENV",
+        "detail":  "env $ORBIT_MNC"
+      },
+      "value":  "93",
+      "overridden":  {
+        "layer":  "PROVENANCE_LAYER_TARGET",
+        "detail":  "target lab/orbit.yaml:6"
+      },
+      "overriddenValue":  "01"
+    }
+  ],
+  "resolved":  true
+}

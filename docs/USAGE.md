@@ -304,6 +304,12 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   target as well, and then it only reports: a value the resolver would
   reject shows as a row marked `⚠`, and the command runs exactly as without
   `--explain`. With a target named, such a value is an error.
+- **An env var over a file.** `orbit run` and `orbit test` print a
+  `notice:` line for each field an `$ORBIT_*` var set over the target's or
+  the run file's value. They do so under `--explain`, and when the run is
+  started without `--detach`, so a forgotten export doesn't pass silently.
+  The run keeps its provenance, and `RunService.GetRunConfig` returns the
+  same notices for it later ([run files](run-files.md#precedence)).
 - **A stale `$ORBIT_TARGET`** naming a target that no longer exists fails
   every command that takes target fields with `target not found`, even when
   every flag is typed: run `unset ORBIT_TARGET`.

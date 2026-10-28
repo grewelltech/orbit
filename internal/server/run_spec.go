@@ -97,3 +97,24 @@ func redactArchive(a *orbitv1.RunArchive, requestSecrets []string) {
 	values := append(secrets.Mask(a), requestSecrets...)
 	secrets.Scrub(a, values)
 }
+
+// peek returns a copy of a run's masked spec, its request's secret values
+// scrubbed from it, leaving the held one as it was: GetRunConfig reads a
+// live run's spec this way, and archiving still takes it after.
+func (s *specStore) peek(id string) (*orbitv1.RunArchive, bool) {
+	if s == nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	h, ok := s.specs[id]
+	var out *orbitv1.RunArchive
+	if ok {
+		out = proto.Clone(h.archive).(*orbitv1.RunArchive)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	redactArchive(out, h.secrets)
+	return out, true
+}
