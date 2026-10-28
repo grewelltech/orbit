@@ -49,7 +49,7 @@ func newProbeLab(t *testing.T, net int, withUPF bool) probeLab {
 		MCC: "208", MNC: "93", SST: 1, SD: "010203"}
 	if withUPF {
 		upf, err := mockupf.Listen(base+"10:2152", mockupf.Options{})
-		testnet.RequireBind(t, "the stub UPF on "+base+"10:2152", err)
+		testnet.RequireBind(t, base+"10:2152", err)
 		t.Cleanup(func() { _ = upf.Close() })
 		cfg.UPF, cfg.UPFAddress = upf, base+"10"
 	}

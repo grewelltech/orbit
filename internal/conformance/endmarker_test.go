@@ -291,7 +291,7 @@ func newMockCore(t *testing.T, net24 int, opts mockupf.Options, ki string, amfOp
 func newMockCoreAt(t *testing.T, upfListen, upfAddr, n3 string, opts mockupf.Options, ki string, amfOpts ...mockamf.Option) *mockCore {
 	t.Helper()
 	upf, err := mockupf.Listen(upfListen, opts)
-	testnet.RequireBind(t, "the stub UPF on "+upfListen, err)
+	testnet.RequireBind(t, upfListen, err)
 	t.Cleanup(func() { _ = upf.Close() })
 	k, err := auth.ParseHexKey("Ki", ki)
 	if err != nil {

@@ -70,8 +70,35 @@ func TestBlocksAreUnique(t *testing.T) {
 }
 
 // literalBlock is an address in a 127.0.N.0/24 other than 127.0.0.x, written
-// out or built by hand ("127.0.%d.", "127.0." + n).
-var literalBlock = regexp.MustCompile(`127\.0\.([1-9][0-9]{0,2}\.|%d|"\s*\+)`)
+// out or built by hand: "127.0.N.", "127.0.%d.", "127.0." + n,
+// net.IPv4(127, 0, N, …) or a byte literal {127, 0, N, …}.
+var literalBlock = regexp.MustCompile(`127\.0\.([1-9][0-9]{0,2}\.|%d|"\s*\+)|IPv4\(127,\s*0,\s*[1-9]|\{127,\s*0,\s*[1-9]`)
+
+// The pattern catches each way of writing a block address and none of
+// 127.0.0.x.
+func TestLiteralBlockPattern(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{`upf := "127.0.61.10:2152"`, true},
+		{`base := fmt.Sprintf("127.0.%d.", n)`, true},
+		{`base := "127.0." + itoa(n) + "."`, true},
+		{`ip := net.IPv4(127, 0, 61, 10)`, true},
+		{`ip := net.IPv4(127,0,9,1)`, true},
+		{`b := [4]byte{127, 0, 61, 10}`, true},
+		{`a := netip.AddrFrom4([4]byte{127,0,200,1})`, true},
+		{`lis, err := net.Listen("tcp", "127.0.0.1:0")`, false},
+		{`ip := net.IPv4(127, 0, 0, 1)`, false},
+		{`b := [4]byte{127, 0, 0, 2}`, false},
+		{`n3 := "0:0:0:0:0:ffff:7f00:450b"`, false},
+	}
+	for _, tc := range tests {
+		if got := literalBlock.MatchString(tc.line); got != tc.want {
+			t.Errorf("literalBlock.MatchString(%q) = %t, want %t", tc.line, got, tc.want)
+		}
+	}
+}
 
 // Every block address is taken from this package: none is written out
 // anywhere else in the module, so the table above is the whole allocation.

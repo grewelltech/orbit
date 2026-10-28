@@ -52,7 +52,7 @@ func (n *nasEvents) list() []NASEvent {
 func TestAttachEveryNASAlgorithmPair(t *testing.T) {
 	base := testnet.Base(testnet.EngineNASAlgorithmPairs)
 	upf, err := mockupf.Listen(base+"10:2152", mockupf.Options{})
-	testnet.RequireBind(t, "the stub UPF on "+base+"10:2152", err)
+	testnet.RequireBind(t, base+"10:2152", err)
 	t.Cleanup(func() { _ = upf.Close() })
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
 	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
