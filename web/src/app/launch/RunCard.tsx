@@ -5,7 +5,7 @@
 import { useState } from "react";
 import type { Document } from "yaml";
 import { Panel } from "@/components/Panel";
-import { durationOK, gates, GATE_PRESETS, getUntil, removeGate, setGate, setUntil, workloads, type Gate } from "@/data/launch/form";
+import { durationOK, gates, GATE_PRESETS, getUntil, removeGate, RUN_GATE_PRESETS, setGate, setUntil, workloads, type Gate } from "@/data/launch/form";
 import { GATE_METRICS, GATE_OPS, GATE_PROCEDURES, GATE_QUANTILES } from "@/data/launch/runschema.gen";
 import { buttonStyle, FieldRow, inputStyle, TextField } from "../targets/fields";
 import { RunChoice, RunText, type Edit } from "./RunFields";
@@ -124,6 +124,25 @@ export function RunCard({ doc, edit }: { doc: Document; edit: Edit }) {
                     key={p.label}
                     type="button"
                     disabled={taken || !first}
+                    className="o-label cursor-pointer px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={buttonStyle}
+                    onClick={() => edit((d) => setGate(d, gate))}
+                  >
+                    + {p.label}
+                  </button>
+                );
+              })}
+            </span>
+            <span className="flex flex-wrap gap-2 pt-1" aria-label="gates for the whole run">
+              {RUN_GATE_PRESETS.map((p) => {
+                const gate = p.gate();
+                const taken = gs.some((g) => g.name === gate.name);
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    disabled={taken || !first}
+                    title="as --slo-* gives it: on the run, not one workload"
                     className="o-label cursor-pointer px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
                     style={buttonStyle}
                     onClick={() => edit((d) => setGate(d, gate))}

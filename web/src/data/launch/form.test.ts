@@ -18,6 +18,7 @@ import {
   setUntil,
   startFrom,
   workloads,
+  RUN_GATE_PRESETS,
 } from "./form";
 import { parseRun, renderRun } from "./runyaml";
 
@@ -127,5 +128,36 @@ describe("the Launch form's edits", () => {
   it("refuses a picked expected-failures file over 1 MiB by its size, before reading it", () => {
     expect(pickedFileRefusal({ size: 1024 * 1024 })).toBeUndefined();
     expect(pickedFileRefusal({ size: 1024 * 1024 + 1 })).toBe(EXPECTED_TOO_LARGE);
+  });
+});
+
+describe("the gate presets for the whole run", () => {
+  it("are the --slo-* aliases' gates: the metric's name, no workload, the same comparison and threshold", () => {
+    expect(RUN_GATE_PRESETS.map((p) => p.gate())).toEqual([
+      { name: "attach_success_ratio", workload: "", kind: "slo", metric: "attach.success_ratio", op: ">=", threshold: "0.99" },
+      { name: "registration_p99_ms", workload: "", kind: "slo", metric: "registration.p99_ms", op: "<=", threshold: "500ms" },
+      { name: "attach_p99_ms", workload: "", kind: "slo", metric: "attach.p99_ms", op: "<=", threshold: "1s" },
+    ]);
+    expect(RUN_GATE_PRESETS.map((p) => p.label)).toEqual([
+      "attach success ≥ 0.99, the whole run",
+      "registration p99 ≤ 500ms, the whole run",
+      "attach p99 ≤ 1s, the whole run",
+    ]);
+  });
+
+  it("written, the gate has no workload: what Render says as --slo-reg-p99=500ms", () => {
+    const d = startFrom("load");
+    setGate(d, RUN_GATE_PRESETS[1]!.gate());
+    const text = renderRun(d);
+    const doc = parseRun(text);
+    const g = gates(doc).find((x) => x.name === "registration_p99_ms");
+    expect(g).toEqual({ name: "registration_p99_ms", workload: "", kind: "slo", metric: "registration.p99_ms", op: "<=", threshold: "500ms" });
+    const i = gates(doc).findIndex((x) => x.name === "registration_p99_ms");
+    expect(getValue(doc, ["gates", i, "workload"])).toBeUndefined();
+    expect(text).not.toMatch(/registration_p99_ms[\s\S]*?workload:/);
+  });
+
+  it("share their names with the workload presets: one gate of that name, whichever was added", () => {
+    for (const p of RUN_GATE_PRESETS) expect(GATE_PRESETS.some((w) => w.gate("load").name === p.gate().name)).toBe(true);
   });
 });
