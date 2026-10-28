@@ -10,6 +10,7 @@ import (
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gtpu"
 	"github.com/bgrewell/orbit/internal/loomgtp"
+	"github.com/bgrewell/orbit/internal/testnet"
 )
 
 // readGPDU reads one G-PDU from the fake UPF within d and returns the source
@@ -41,8 +42,8 @@ func TestSendUplinkRetriesOnceOnStaleView(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 0
-	portSrc, portTgt := freeUDPPort(t), freeUDPPort(t)
-	sess := newDataSession(m, "001010000000001", upf.LocalAddr().String(), portSrc, 0x11, 0x100, 1)
+	srcN3, tgtN3 := testnet.Addr(testnet.EngineUplinkRetryStale, 11), testnet.Addr(testnet.EngineUplinkRetryStale, 12)
+	sess := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), srcN3, 0x11, 0x100, 1)
 	if _, _, err := sess.dataplane(); err != nil {
 		t.Fatal(err)
 	}
@@ -53,9 +54,8 @@ func TestSendUplinkRetriesOnceOnStaleView(t *testing.T) {
 	if old == nil {
 		t.Fatal("no view after dataplane()")
 	}
-	// The inter-gNB move: new N3 port on the same host, new DL TEID.
-	sess.n3Port = portTgt
-	if err := sess.retargetDataPath(dataPathMove{gnbN3: "127.0.0.1", dlTEID: 0x300}); err != nil {
+	// The inter-gNB move: a new gNB N3 address, new DL TEID.
+	if err := sess.retargetDataPath(dataPathMove{gnbN3: tgtN3, dlTEID: 0x300}); err != nil {
 		t.Fatalf("inter-gNB retarget: %v", err)
 	}
 	cur := sess.ueUp.Load()
@@ -116,7 +116,7 @@ func TestSendUplinkTeardownDoesNotRetry(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 0
-	sess := newDataSession(m, "001010000000001", upf.LocalAddr().String(), freeUDPPort(t), 0x11, 0x100, 1)
+	sess := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), testnet.Addr(testnet.EngineUplinkTeardown, 11), 0x11, 0x100, 1)
 	if _, _, err := sess.dataplane(); err != nil {
 		t.Fatal(err)
 	}
@@ -156,8 +156,8 @@ func TestSendUplinkRetryDoesNotLoop(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 0
-	a := newDataSession(m, "001010000000001", upf.LocalAddr().String(), freeUDPPort(t), 0x11, 0x100, 1)
-	b := newDataSession(m, "001010000000002", upf.LocalAddr().String(), freeUDPPort(t), 0x21, 0x200, 1)
+	a := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), testnet.Addr(testnet.EngineUplinkRetryNoLoop, 11), 0x11, 0x100, 1)
+	b := newDataSessionAt(m, "001010000000002", upf.LocalAddr().String(), testnet.Addr(testnet.EngineUplinkRetryNoLoop, 12), 0x21, 0x200, 1)
 	if _, _, err := a.dataplane(); err != nil {
 		t.Fatal(err)
 	}
@@ -204,9 +204,9 @@ func TestSendUplinkMarksSessionGone(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 0
-	open := newDataSession(m, "001010000000001", upf.LocalAddr().String(), freeUDPPort(t), 0x11, 0x100, 1)
-	a := newDataSession(m, "001010000000002", upf.LocalAddr().String(), freeUDPPort(t), 0x21, 0x200, 1)
-	b := newDataSession(m, "001010000000003", upf.LocalAddr().String(), freeUDPPort(t), 0x31, 0x300, 1)
+	open := newDataSessionAt(m, "001010000000001", upf.LocalAddr().String(), testnet.Addr(testnet.EngineUplinkGone, 11), 0x11, 0x100, 1)
+	a := newDataSessionAt(m, "001010000000002", upf.LocalAddr().String(), testnet.Addr(testnet.EngineUplinkGone, 12), 0x21, 0x200, 1)
+	b := newDataSessionAt(m, "001010000000003", upf.LocalAddr().String(), testnet.Addr(testnet.EngineUplinkGone, 13), 0x31, 0x300, 1)
 	for _, s := range []*Session{open, a, b} {
 		if _, _, err := s.dataplane(); err != nil {
 			t.Fatal(err)

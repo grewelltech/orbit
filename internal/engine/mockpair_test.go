@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) 
 
 // register attaches one UE with a PDU session through the source gNB and
 // returns its session with the data path open.
-func (p *mockPair) register(t *testing.T, m *Manager, supi string) *Session {
+func (p *mockPair) register(t testing.TB, m *Manager, supi string) *Session {
 	t.Helper()
 	id, err := ue.ParseIdentity(supi, "208", "93", "0")
 	if err != nil {
@@ -98,12 +99,8 @@ func (p *mockPair) register(t *testing.T, m *Manager, supi string) *Session {
 	// wait outlasts the pool's grace window; a socket still held after it is
 	// a leak, and fails the test rather than the next run's bind.
 	t.Cleanup(func() {
-		deadline := time.Now().Add(m.n3.grace + 2*time.Second)
-		for m.n3.size() != 0 && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if n := m.n3.size(); n != 0 {
-			t.Errorf("%d N3 socket(s) still held %s after the test (grace window %s)", n, m.n3.grace+2*time.Second, m.n3.grace)
+		if err := n3Released(m, m.n3.grace+2*time.Second); err != nil {
+			t.Error(err)
 		}
 	})
 	t.Cleanup(sess.closeDataPath)
@@ -111,6 +108,77 @@ func (p *mockPair) register(t *testing.T, m *Manager, supi string) *Session {
 		t.Fatal("the UPF never heard about the session")
 	}
 	return sess
+}
+
+// n3Released waits up to within for m's N3 pool to empty, and says how many
+// sockets are still held if it does not.
+func n3Released(m *Manager, within time.Duration) error {
+	deadline := time.Now().Add(within)
+	for m.n3.size() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := m.n3.size(); n != 0 {
+		return fmt.Errorf("%d N3 socket(s) still held %s after the test (grace window %s)", n, within, m.n3.grace)
+	}
+	return nil
+}
+
+// A socket still held after the wait is reported; a released pool is not.
+func TestN3ReleasedReportsAHeldSocket(t *testing.T) {
+	upf := newFakeUPFSocket(t)
+	m := NewManager(testLogger())
+	ref, err := m.n3.acquire("127.0.0.1:0", upf.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n3Released(m, 50*time.Millisecond); err == nil || !strings.Contains(err.Error(), "1 N3 socket(s) still held") {
+		t.Errorf("n3Released with a socket held = %v, want it reported", err)
+	}
+	m.n3.release(ref)
+	if err := n3Released(m, time.Second); err != nil {
+		t.Errorf("n3Released after the release = %v, want nil", err)
+	}
+}
+
+// cleanupRecorder is a testing.TB that keeps the cleanups registered on it,
+// and the errors they report, for a test to run and read.
+type cleanupRecorder struct {
+	testing.TB
+	cleanups []func()
+	errs     []string
+}
+
+func (r *cleanupRecorder) Cleanup(f func())  { r.cleanups = append(r.cleanups, f) }
+func (r *cleanupRecorder) Error(args ...any) { r.errs = append(r.errs, fmt.Sprint(args...)) }
+func (r *cleanupRecorder) Errorf(format string, args ...any) {
+	r.errs = append(r.errs, fmt.Sprintf(format, args...))
+}
+
+// run runs the kept cleanups last-in first-out, as testing does.
+func (r *cleanupRecorder) run() {
+	for i := len(r.cleanups) - 1; i >= 0; i-- {
+		r.cleanups[i]()
+	}
+}
+
+// register's cleanup fails the test when an N3 socket outlives the wait,
+// rather than leaving it for the next run's bind to collide with.
+func TestRegisterCleanupReportsAHeldN3Socket(t *testing.T) {
+	p := newMockPair(t, testnet.EngineRegisterCleanup, mockupf.Options{}, false)
+	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.n3.grace = 0
+	rec := &cleanupRecorder{TB: t}
+	p.register(rec, m, "208930100007800")
+	// A socket the session's teardown does not release: the leak.
+	held, err := m.n3.acquire(p.tgtN3+":2152", p.amfAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.n3.release(held)
+	rec.run()
+	if len(rec.errs) != 1 || !strings.Contains(rec.errs[0], "1 N3 socket(s) still held") {
+		t.Errorf("register's cleanup reported %q, want the held socket", rec.errs)
+	}
 }
 
 // xn switches the UE to gNB 2.

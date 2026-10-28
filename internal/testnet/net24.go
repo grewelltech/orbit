@@ -23,8 +23,20 @@ const (
 	EngineObserveAcrossXn     = 47 // TestObserveDownlinkAcrossXn
 	EngineLatency             = 48 // TestLatencyStopsWhenDeregistered
 	EngineNASAlgorithmPairs   = 49 // TestAttachEveryNASAlgorithmPair
+	EngineN3PoolDistinct      = 50 // TestN3PoolRefcountLifecycle
+	EngineTwoUEsOneGNB        = 51 // TestTwoUEsOneGNBNoEADDRINUSE
+	EngineRebindInterGNB      = 52 // TestRebindDataPathInterGNB
+	EngineRebindLastUEGrace   = 53 // TestRebindDataPathInterGNBLastUEEndMarkerGrace
+	EngineRetargetConcurrent  = 54 // TestRetargetDataPathConcurrentDataplane
+	EngineManagerFleetShare   = 55 // TestManagerAndFleetShareOneGNBSocket
 	EngineHandoverInherit     = 71 // TestHandoverResultReportsPresentedTarget/inherit
 	EngineHandoverExplicitTAC = 72 // TestHandoverResultReportsPresentedTarget/explicit_TAC
+	EngineUplinkRetryStale    = 73 // TestSendUplinkRetriesOnceOnStaleView
+	EngineUplinkTeardown      = 74 // TestSendUplinkTeardownDoesNotRetry
+	EngineUplinkRetryNoLoop   = 75 // TestSendUplinkRetryDoesNotLoop
+	EngineUplinkGone          = 76 // TestSendUplinkMarksSessionGone
+	EngineNetstackInterGNB    = 77 // TestInterGNBMoveResetsNetstackConns
+	EngineRegisterCleanup     = 78 // TestRegisterCleanupReportsAHeldN3Socket
 
 	// internal/conformance
 	ConformanceNonCanonicalV4   = 56 // TestEndMarkerCheckNonCanonicalGNBN3/IPv4-mapped

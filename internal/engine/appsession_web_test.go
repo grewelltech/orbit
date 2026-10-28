@@ -299,6 +299,31 @@ func (h heldHost) Listen(network, address string) (net.Listener, error) {
 	return h.Network.Listen(network, address)
 }
 
+// The held listener goes to the first stream listen on its port, as the
+// origin's bind; a second listen there fails, as a second kernel bind would;
+// other listens are the kernel's.
+func TestHeldOriginHandsOverOnce(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+	h := heldHost{Network: netpath.Host(netip.Addr{}), held: &heldListener{addr: net.JoinHostPort("", fmt.Sprint(port)), ln: ln}}
+	got, err := h.Listen("tcp", net.JoinHostPort("", fmt.Sprint(port)))
+	if err != nil || got != ln {
+		t.Fatalf("first listen on the held port = %v, %v; want the held listener", got, err)
+	}
+	if _, err := h.Listen("tcp", net.JoinHostPort("", fmt.Sprint(port))); err == nil {
+		t.Error("a second listen on the held port succeeded; want it refused")
+	}
+	other, err := h.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("another listen: %v", err)
+	}
+	_ = other.Close()
+}
+
 // newWebTestRig assembles manager + UE session + gateway and returns them
 // with the pinned origin port and the agent option that holds it.
 func newWebTestRig(t *testing.T) (*Manager, *Session, *n6Gateway, int, control.Option) {
