@@ -102,7 +102,9 @@ func TestFleetAppCohortsSharedPlumbing(t *testing.T) {
 		httpSUPI1, httpIP1 = "001010000000103", "192.168.100.103"
 		httpSUPI2, httpIP2 = "001010000000104", "192.168.100.104"
 	)
-	agent := startLoomAgent(t, "v0.11.0-test")
+	// The shared origin's port is held from here until the origin binds it.
+	port, held := heldOrigin(t)
+	agent := startLoomAgent(t, "v0.11.0-test", held)
 	pool := newN3Pool()
 
 	// voip data path: the fakeUPF UDP relay, one tunnel pair per member.
@@ -116,7 +118,6 @@ func TestFleetAppCohortsSharedPlumbing(t *testing.T) {
 	// boundary; the UE side still shares one gNB socket and ONE gVisor
 	// stack, which is what the budget assertion below pins. Both gateways
 	// splice onto the SAME kernel port: the single shared loom origin.
-	port := freeTCPPortInt(t)
 	origin := fmt.Sprintf("127.0.0.1:%d", port)
 	upfH1 := newFakeUPFSocket(t)
 	upfH2 := newFakeUPFSocket(t)

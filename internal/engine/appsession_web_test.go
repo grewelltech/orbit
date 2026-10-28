@@ -7,12 +7,17 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/bgrewell/loom/control"
+	"github.com/bgrewell/loom/core/components"
 	loomdp "github.com/bgrewell/loom/core/datapath"
+	"github.com/bgrewell/loom/core/netpath"
 	"github.com/bgrewell/loom/core/netstack"
+	"github.com/bgrewell/loom/core/registry"
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/gtpu"
@@ -238,26 +243,68 @@ func (g *n6Gateway) splice(ue net.Conn, originAddr string) {
 	kern.Close()
 }
 
-// freeTCPPortInt reserves a currently-free TCP port so the origin (kernel)
-// and the gateway listener (netstack) can agree on it up front via loom's
-// port_min/port_max params — the firewall-determinism knob doing test duty.
-func freeTCPPortInt(t *testing.T) int {
+// heldOrigin binds the origin's kernel listener up front, so the origin
+// (kernel) and the gateway listener (netstack) agree on its port before the
+// session starts, through loom's port_min/port_max params. The listener is
+// never released in between: the agent the returned option builds hands
+// this listener to the origin's bind of that port, so no other process can
+// take the port first (a reserve-then-close pick could lose it).
+func heldOrigin(t *testing.T) (int, control.Option) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = ln.Close() })
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	return port
+	h := &heldListener{addr: net.JoinHostPort("", fmt.Sprint(port)), ln: ln}
+	comps := *components.Default()
+	comps.Networks = registry.New[netpath.Network, netpath.Options]()
+	comps.Networks.Register("host", func(o netpath.Options) (netpath.Network, error) {
+		return heldHost{Network: netpath.Host(o.Local), held: h}, nil
+	})
+	return port, control.WithComponents(&comps)
+}
+
+// heldListener is a listener held for one stream listen on addr.
+type heldListener struct {
+	mu    sync.Mutex
+	addr  string
+	ln    net.Listener
+	given bool
+}
+
+// take hands the held listener over, once.
+func (h *heldListener) take() (net.Listener, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.given {
+		return nil, fmt.Errorf("the held listener for %s was already handed to an origin", h.addr)
+	}
+	h.given = true
+	return h.ln, nil
+}
+
+// heldHost is the kernel network of one flow, except that a stream listen
+// on the held address gets the held listener.
+type heldHost struct {
+	netpath.Network
+	held *heldListener
+}
+
+func (h heldHost) Listen(network, address string) (net.Listener, error) {
+	if network == "tcp" && address == h.held.addr {
+		return h.held.take()
+	}
+	return h.Network.Listen(network, address)
 }
 
 // newWebTestRig assembles manager + UE session + gateway and returns them
-// with the pinned origin port.
-func newWebTestRig(t *testing.T) (*Manager, *Session, *n6Gateway, int) {
+// with the pinned origin port and the agent option that holds it.
+func newWebTestRig(t *testing.T) (*Manager, *Session, *n6Gateway, int, control.Option) {
 	t.Helper()
 	upf := newFakeUPFSocket(t)
-	port := freeTCPPortInt(t)
+	port, origin := heldOrigin(t)
 	gw := newN6Gateway(t, upf, webTestDLTEID, port, fmt.Sprintf("127.0.0.1:%d", port))
 	m := NewManager(testLogger())
 	m.apps.tuning = appTuning{
@@ -271,7 +318,7 @@ func newWebTestRig(t *testing.T) (*Manager, *Session, *n6Gateway, int) {
 	}
 	sess := newDataSession(m, webTestSUPI, upf.LocalAddr().String(), "0", webTestULTEID, webTestDLTEID, webTestQFI)
 	t.Cleanup(sess.closeDataPath)
-	return m, sess, gw, port
+	return m, sess, gw, port, origin
 }
 
 // collectWebSamples drains the session stream until want returns true or the
@@ -315,8 +362,8 @@ func collectWebSamples(t *testing.T, ch <-chan AppSample, deadline time.Duration
 // in-process accessor), so a remote origin cannot be tls_ca-pinned by orbit —
 // tls_insecure is the explicit lab opt-in this test exercises.
 func TestAppSessionHTTPEndToEnd(t *testing.T) {
-	m, _, _, port := newWebTestRig(t)
-	agent := startLoomAgent(t, "v0.11.0-test")
+	m, _, _, port, origin := newWebTestRig(t)
+	agent := startLoomAgent(t, "v0.11.0-test", origin)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -401,8 +448,8 @@ func TestAppSessionHTTPEndToEnd(t *testing.T) {
 // an unthrottled loopback, and the report pairs the player's whole-run QoE
 // with the origin's http FINAL sample.
 func TestAppSessionVideoEndToEnd(t *testing.T) {
-	m, _, _, port := newWebTestRig(t)
-	agent := startLoomAgent(t, "v0.11.0-test")
+	m, _, _, port, origin := newWebTestRig(t)
+	agent := startLoomAgent(t, "v0.11.0-test", origin)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -497,9 +544,9 @@ drain:
 // say so with counted stalls, accumulated stall time, and timestamped stall
 // events (the MediaGapSummary-shaped entries the wire carries).
 func TestAppSessionVideoThrottledStall(t *testing.T) {
-	m, _, gw, port := newWebTestRig(t)
+	m, _, gw, port, origin := newWebTestRig(t)
 	gw.rateBps.Store(25_000) // ~200 kbps against a 400 kbps rung
-	agent := startLoomAgent(t, "v0.11.0-test")
+	agent := startLoomAgent(t, "v0.11.0-test", origin)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
