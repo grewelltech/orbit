@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, createClient, createRouterTransport } from "@connectrpc/connect";
 import { ProbeStepSchema, TargetService } from "@/gen/orbit/v1/target_pb";
-import { endOnPageHide, ended, IDLE, keysBlocked, ProbeRunner, refusedField, summary, varsNote, withStep, type ProbeState } from "./probe";
+import { endOnPageHide, ended, probePageLifecycle, IDLE, keysBlocked, ProbeRunner, refusedField, summary, varsNote, withStep, type ProbeState } from "./probe";
 import { authInterceptor, type AuthRefusal } from "../transport";
 
 const step = (index: number, status: string) => create(ProbeStepSchema, { index, name: `step ${index}`, status });
@@ -196,5 +196,36 @@ describe("ProbeRunner over a server stream", () => {
     endOnPageHide(win, { dispose: () => disposed++ })();
     win.dispatchEvent(new Event("pagehide"));
     expect(disposed).toBe(0);
+  });
+});
+
+describe("the probe's page lifecycle (what useProbe wires)", () => {
+  const show = (persisted: boolean) => Object.assign(new Event("pageshow"), { persisted });
+
+  it("a full page load ends the stream; a page the back/forward cache restores shows the probe idle", () => {
+    const seen: string[] = [];
+    const win = new EventTarget();
+    probePageLifecycle(win, { dispose: () => seen.push("dispose") }, () => seen.push("reset"));
+    win.dispatchEvent(new Event("pagehide"));
+    win.dispatchEvent(show(true));
+    expect(seen).toEqual(["dispose", "reset"]);
+  });
+
+  it("a first load's pageshow (not persisted) leaves the probe as it is", () => {
+    const seen: string[] = [];
+    const win = new EventTarget();
+    probePageLifecycle(win, { dispose: () => seen.push("dispose") }, () => seen.push("reset"));
+    win.dispatchEvent(show(false));
+    win.dispatchEvent(new Event("pageshow"));
+    expect(seen).toEqual([]);
+  });
+
+  it("the remover takes both listeners off", () => {
+    const seen: string[] = [];
+    const win = new EventTarget();
+    probePageLifecycle(win, { dispose: () => seen.push("dispose") }, () => seen.push("reset"))();
+    win.dispatchEvent(new Event("pagehide"));
+    win.dispatchEvent(show(true));
+    expect(seen).toEqual([]);
   });
 });
