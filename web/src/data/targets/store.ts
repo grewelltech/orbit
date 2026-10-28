@@ -77,11 +77,12 @@ export function withoutSecrets(yaml: string): string | undefined {
     const t = all[0];
     if (all.length !== 1 || !t || t.text === undefined) return undefined;
     const clean = moveSecrets(t.doc).length === 0 ? yaml : render(t.doc, t.style);
-    // And check what comes out, rather than trust the cleaning: one target,
-    // nothing shared, every secret a ${VAR}.
-    const again = parseTargets(clean);
-    const [c] = again;
-    if (again.length !== 1 || !c || sharesNodes(c.doc) || secretSlots(c.doc).some((s) => refName(s.value) === undefined)) return undefined;
+    // And check what comes out, rather than trust the cleaning: nothing
+    // shared, every secret a ${VAR}. No input is known to reach a refusal
+    // here (parseTargets has refused anything shared or misshapen, and
+    // moveSecrets leaves only ${VAR}s); it is kept as defence in depth.
+    const [c] = parseTargets(clean);
+    if (!c || sharesNodes(c.doc) || secretSlots(c.doc).some((s) => refName(s.value) === undefined)) return undefined;
     return clean;
   } catch {
     return undefined;

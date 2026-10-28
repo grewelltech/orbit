@@ -7,8 +7,8 @@
 import { describe, expect, it } from "vitest";
 import { importFile } from "./importexport";
 import { parseBlob, saveTargets, storageChange, TARGETS_KEY, withoutSecrets, type KeyValueStore } from "./store";
-import { MAX_FILE_BYTES, parseTargets, SHARED_REFUSED, shapeProblem, strayKey, TOO_LARGE } from "./yamlio";
-import { parseDocument } from "yaml";
+import { MAX_FILE_BYTES, parseTargets, SHARED_REFUSED, shapeProblem, sharesNodes, strayKey, TOO_LARGE } from "./yamlio";
+import { Alias, Document, parseDocument } from "yaml";
 
 const KI = "AAAA1111222233334444555566667777";
 const OPC = "BBBB1111222233334444555566667777";
@@ -35,6 +35,9 @@ const leaks: Record<string, string> = {
   respondersMap: head + `app:\n    responders:\n        name: n6\n        token: orl-${KI}\n`,
   // A key name at a depth no field has.
   kiInCore: head.replace("core:\n", `core:\n    ki: ${KI}\n`),
+  // A merge key with its map inline: no anchor, no alias, but the CLI
+  // merges it, so it is a key.
+  inlineMerge: head + `subscribers:\n${pool}      <<: {ki: ${KI}}\n`,
 };
 
 describe("a key the page cannot see is never kept", () => {
@@ -61,7 +64,7 @@ describe("a key the page cannot see is never kept", () => {
   }
 
   it("anchors, aliases and merge keys are refused with one message", () => {
-    for (const name of ["aliasFromUnknown", "mergeKey", "anchorShared", "anchorOnly"]) {
+    for (const name of ["aliasFromUnknown", "mergeKey", "anchorShared", "anchorOnly", "inlineMerge"]) {
       expect(() => parseTargets(leaks[name] ?? ""), name).toThrow(SHARED_REFUSED);
     }
   });
@@ -70,6 +73,25 @@ describe("a key the page cannot see is never kept", () => {
     const imported = importFile(leaks.listRoot ?? "");
     expect(imported.map((t) => t.target.name)).toEqual(["c", "d"]);
     expect(imported[1]?.moved.map((m) => m.variable)).toEqual(["ORBIT_KI"]);
+  });
+});
+
+describe("sharesNodes, each kind on its own", () => {
+  it("an alias node, with no anchor in the document", () => {
+    const d = new Document({ a: 1 }, { schema: "failsafe" });
+    d.set("b", new Alias("k"));
+    expect(sharesNodes(d)).toBe(true);
+  });
+  it("an anchor alone", () => expect(sharesNodes(parseDocument("a: &k 1\n", { schema: "failsafe" }))).toBe(true));
+  it("a merge key alone (inline map)", () => expect(sharesNodes(parseDocument(leaks.inlineMerge ?? "", { schema: "failsafe" }))).toBe(true));
+  it("none of them", () => expect(sharesNodes(parseDocument(head, { schema: "failsafe" }))).toBe(false));
+});
+
+describe("withoutSecrets' guards", () => {
+  it("a list is no target, though every target in it is clean", () => {
+    const clean = "- version: 1\n  kind: target\n  name: a\n- version: 1\n  kind: target\n  name: b\n";
+    expect(parseTargets(clean)).toHaveLength(2);
+    expect(withoutSecrets(clean)).toBeUndefined();
   });
 });
 
@@ -90,9 +112,10 @@ describe("the two layers, each on its own", () => {
     expect(strayKey(contents(leaks.listInList ?? ""))).toContain("a ki at subscribers[0][0].ki");
     expect(strayKey(contents(leaks.respondersMap ?? ""))).toContain("a token at app.responders.token");
     expect(strayKey(contents(leaks.kiInCore ?? ""))).toContain("a ki at core.ki");
+    expect(strayKey(contents(leaks.inlineMerge ?? ""))).toContain("a ki at subscribers[0].<<.ki");
     expect(strayKey(contents(head.replace("core:\n", "core:\n    ki: ${X}\n")))).toBeUndefined();
     expect(strayKey(contents(head + `subscribers:\n    - name: a\n      ki: ${KI}\n`))).toBeUndefined();
-    for (const name of ["forgottenDash", "listInList", "respondersMap", "kiInCore"]) {
+    for (const name of ["forgottenDash", "listInList", "respondersMap", "kiInCore", "inlineMerge"]) {
       expect(holdsKey(strayKey(contents(leaks[name] ?? "")) ?? "")).toBe(false);
     }
   });
