@@ -319,7 +319,8 @@ func TestResolveSentMasksKeyText(t *testing.T) {
 }
 
 // No caller in internal/cli or internal/server shows a target error's
-// unmasked text: none unwraps one (errors.Unwrap), and none reaches the
+// unmasked text: none unwraps one (errors.Unwrap, or an .Unwrap() method
+// call), and none reaches the
 // yaml error a target error wraps, whose text quotes the value.
 func TestNoUnmaskedTargetErrorShown(t *testing.T) {
 	for _, dir := range []string{"../cli", "../server"} {
@@ -335,7 +336,7 @@ func TestNoUnmaskedTargetErrorShown(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, banned := range []string{"errors.Unwrap(", "yaml.TypeError"} {
+			for _, banned := range []string{"errors.Unwrap(", ".Unwrap()", "yaml.TypeError"} {
 				if strings.Contains(string(b), banned) {
 					t.Errorf("%s uses %s: a target error's unmasked text could be shown", f, banned)
 				}
