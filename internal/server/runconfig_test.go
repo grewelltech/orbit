@@ -39,6 +39,11 @@ var updateRunConfig = flag.Bool("update-runconfig", false, "write TestGetRunConf
 // the dashboard's provenance tests read its masked rows.
 var runConfigKeysFixture = filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig", "keys-and-leases.json")
 
+// runConfigSameValueFixture is a real GetRunConfig answer for an archived
+// run whose notices are same and not, secret and not: the dashboard's
+// notice text claims "(same value)" only where Go's does.
+var runConfigSameValueFixture = filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig", "secrets-and-same-value.json")
+
 // writeNoticeTexts writes, next to a GetRunConfig fixture, the text
 // plan.NoticeText gives each of its notices, in order: the dashboard's
 // noticeText is pinned to say exactly the same. rewrite is the fixture's
@@ -435,5 +440,15 @@ func TestGetRunConfigSameValueOnAnArchivedRun(t *testing.T) {
 	want := map[string]bool{"core.plmn.mcc": true, "core.amf": false, "subscribers[main].ki": false, "subscribers[main].opc": false}
 	if !maps.Equal(same, want) {
 		t.Errorf("same_value by path %v, want %v", same, want)
+	}
+	if *updateRunConfig {
+		b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(got.Msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(runConfigSameValueFixture, []byte(string(b)+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeNoticeTexts(t, runConfigSameValueFixture, got.Msg.GetNotices(), func(s string) string { return s })
 	}
 }

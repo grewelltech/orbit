@@ -85,7 +85,8 @@ export function filterRows(rs: readonly Row[], f: RowFilter): Row[] {
 /** A notice as the panel shows it, worded as the CLI prints it. */
 export function noticeText(n: OverrideNotice): string {
   const text = `${n.path}: ${n.winner?.detail ?? ""} (${n.value}) overrode ${n.overridden?.detail ?? ""} (${n.overriddenValue})`;
-  return n.value === n.overriddenValue ? `${text} (same value)` : text;
+  // sameValue, never the values compared: a secret's are two masks.
+  return n.sameValue ? `${text} (same value)` : text;
 }
 
 /**
