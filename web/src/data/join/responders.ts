@@ -61,8 +61,10 @@ export interface RemoveClient {
 
 /**
  * Removes responder name after confirm (removeConfirm's text) says yes: a
- * declined confirm sends nothing (undefined). Otherwise "removed", or why
- * not, in the server's words.
+ * declined confirm sends nothing (undefined). Otherwise "removed"; "already
+ * removed" when the server no longer has it (NotFound: removed elsewhere,
+ * or by a second click that got through); or why not, in the server's
+ * words.
  */
 export async function removeResponder(client: RemoveClient, name: string, confirm: (text: string) => boolean): Promise<string | undefined> {
   if (!confirm(removeConfirm(name))) return undefined;
@@ -70,7 +72,32 @@ export async function removeResponder(client: RemoveClient, name: string, confir
     await client.removeResponder({ name });
     return "removed";
   } catch (err) {
-    return `not removed: ${ConnectError.from(err).rawMessage}`;
+    const e = ConnectError.from(err);
+    if (e.code === Code.NotFound) return "already removed";
+    return `not removed: ${e.rawMessage}`;
+  }
+}
+
+/**
+ * The keys with an action in flight (a Remove, by responder name): a second
+ * start for a key while one runs is refused, so a double click asks once.
+ */
+export class InFlight {
+  private readonly keys = new Set<string>();
+
+  /** Starts key; false when it is already in flight. */
+  start(key: string): boolean {
+    if (this.keys.has(key)) return false;
+    this.keys.add(key);
+    return true;
+  }
+
+  end(key: string): void {
+    this.keys.delete(key);
+  }
+
+  list(): string[] {
+    return [...this.keys];
   }
 }
 

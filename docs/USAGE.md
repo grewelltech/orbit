@@ -417,6 +417,42 @@ responder list` does:
 No credential or loom token reaches the page: the server sends none, and
 the page shows only the fields it lists.
 
+**Add an N6 host** joins an app host as a responder without a terminal on
+the RAN box, as `orbit target add-responder` does over ssh. Pick a target,
+then **make a join one-liner**:
+- **The spec.** The join token is made for the target's N6 network:
+  `core.ue_pools`, `core.upf_n6` and `core.n6_subnet`, their `${VAR}`s filled
+  from this tab. The address the app host reaches this server at defaults to
+  the server's listen address; give another when the app host reaches it
+  some other way.
+- **Over TLS only.** A join token is a credential, and the server issues one
+  only over TLS, whatever the peer (loopback included). So the panel needs
+  the dashboard on https:// (`orbit serve --tls auto`). From another host it
+  also needs the API token in the tab.
+- **The one-liner holds a live token.** It's shown masked until you
+  **reveal** it. **copy** copies it as it is. It's kept in this tab's memory
+  only, never stored, and dropped when it's used, revoked or expired. Run it
+  on the app host only, since it runs the join script as root. Until then
+  anyone with it can join a host.
+- **It lasts** 5 minutes to an hour (10 by default), with the time left
+  shown. **revoke** ends it now, copied or not.
+- **Before it's shown or copied**, an unused token is revoked when you close
+  the panel, pick another target, or leave the page (that last one is best
+  effort; its expiry ends it anyway).
+- **Once it's shown (revealed) or copied**, it may be on its way to the app
+  host, so the page stops revoking it on its own: "shown or copied: it works
+  until it is used or expires at <time>". That includes a copy made by hand
+  from the shown line. Closing the panel or picking another target asks
+  "Revoke it now?", and the default is no, keep it. Leaving the page keeps
+  it. Its expiry ends it, as with `orbit target add-responder`. So copy,
+  close the panel, and paste on the app host works. Coming back to the page
+  from the browser's back/forward cache checks the token again, and clears
+  it if it was used, revoked or expired meanwhile, or if it can't be checked.
+- **Once the host joins**, the panel says "used by <name>". Then **use <name>
+  in <target>** names the responder in the target's `app.responders`, by name
+  only (the server fills in the rest). The edit goes through the same checks
+  as any edit.
+
 The conformance suite is run from the Launch page. `?conformance` opens
 Launch on the `conformance` template. A suite needs a target, but a target
 made there with **new from AMF + PLMN** needs no keys. It has no subscriber
