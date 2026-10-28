@@ -96,7 +96,7 @@ export function noticeText(n: OverrideNotice): string {
 export function madeBy(prov: readonly FieldProvenance[], resolved: boolean): string {
   if (!resolved) return "started without the resolver (orbit runs start-load, start-fleet): no provenance";
   const commandLine = prov.some((p) => p.source?.layer === ProvenanceLayer.ENV || p.source?.layer === ProvenanceLayer.FLAG);
-  return commandLine ? "this plan has env or flag layers" : "no env or flag layers (as from Launch)";
+  return commandLine ? "this plan has env or flag layers" : "no env or flag layers";
 }
 
 /** The line under Launch's panel: the browser has no env layer. */

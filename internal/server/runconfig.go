@@ -16,16 +16,22 @@ import (
 // registry holds is read from its held spec (peek: the copy is scrubbed,
 // the spec left for archiving), or from its archive once archived; a run
 // the registry no longer holds, from its archive alone. A run the server
-// knows neither way is NotFound, as GetRun answers it; one in the moment
+// knows neither way is NotFound, as GetRun answers it, and so is one the
+// registry still holds, ended, whose archive was evicted; one in the moment
 // between the registry having it and its spec being held, Unavailable.
 func (s *runService) GetRunConfig(_ context.Context, req *connect.Request[orbitv1.GetRunConfigRequest]) (*connect.Response[orbitv1.GetRunConfigResponse], error) {
 	id := req.Msg.GetRunId()
 	var held *orbitv1.RunArchive
-	if _, err := s.reg.Get(id); err == nil {
+	if info, err := s.reg.Get(id); err == nil {
 		if a, ok := s.specs.peek(id); ok {
 			held = a
 		} else if a, ok := s.archive.get(id); ok {
 			held = a
+		} else if info.State.Terminal() {
+			// Ended, archived and let go, and the archive (which evicts in
+			// the order runs end, not start) has since evicted it: there is
+			// nothing left to serve.
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("run %s has ended and its archive was evicted", id))
 		} else {
 			// Started, its spec not yet held (StartRun puts it just after
 			// the registry has the run): ask again in a moment.

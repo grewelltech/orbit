@@ -98,6 +98,36 @@ func (s *specStore) drop(id string) {
 	delete(s.specs, id)
 }
 
+// sweep drops the spec of every run keep says no: a run the registry has
+// evicted. A spec is otherwise dropped only once its archive is saved, so
+// without a sweep a failed save, or every run when there is no state dir
+// to save to, would hold a spec, with the request's secret values, for the
+// life of the process. Swept as each run ends, the specs held are bounded
+// by the registry's history.
+func (s *specStore) sweep(keep func(id string) bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.specs))
+	for id := range s.specs {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+	// keep reads the registry, under its own lock: not called under s.mu.
+	var gone []string
+	for _, id := range ids {
+		if !keep(id) {
+			gone = append(gone, id)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range gone {
+		delete(s.specs, id)
+	}
+}
+
 const redacted = secrets.Masked
 
 // redactArchive is the last step before an archive is stored: every marked

@@ -25,3 +25,12 @@ export function useRunConfig(runId: string | undefined, ended: boolean, baseUrl?
   }, [client, runId, ended]);
   return got;
 }
+
+/**
+ * Whether a run view's state is one the run ended in: the config is read
+ * again then, from the archive. Cancelled is named though the run view
+ * reads a cancelled run as failed, so the two never disagree.
+ */
+export function runEnded(state: string | undefined): boolean {
+  return state === "complete" || state === "failed" || state === "cancelled";
+}

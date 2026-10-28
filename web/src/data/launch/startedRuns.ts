@@ -3,6 +3,8 @@
  * (sessionStorage) so a reload keeps them, listed on Launch with their
  * state and a Stop. A run started elsewhere is stopped from its run view.
  */
+import { Code, ConnectError } from "@connectrpc/connect";
+import { RunState, type GetRunResponse } from "@/gen/orbit/v1/run_pb";
 import type { KeyValueStore } from "../targets/store";
 
 export const STARTED_KEY = "orbit.launch.started";
@@ -34,6 +36,55 @@ export function recordStarted(session: KeyValueStore | undefined, run: StartedRu
     session?.setItem(STARTED_KEY, JSON.stringify(next));
   } catch {
     /* storage unavailable: the list lasts this page */
+  }
+  return next;
+}
+
+const STATE: Partial<Record<RunState, string>> = {
+  [RunState.PENDING]: "starting",
+  [RunState.RUNNING]: "running",
+  [RunState.DRAINING]: "draining",
+  [RunState.COMPLETE]: "complete",
+  [RunState.FAILED]: "failed",
+  [RunState.CANCELLED]: "cancelled",
+};
+
+/** A status that cannot change: the run ended, or the server no longer knows it. */
+export function settled(status: string | undefined): boolean {
+  return status === "complete" || status === "failed" || status === "cancelled" || status === "gone";
+}
+
+/** The part of a RunService client the list reads with. */
+export interface StartedClient {
+  getRun(req: { runId: string }): Promise<GetRunResponse>;
+}
+
+/**
+ * Each started run's status, read again for those not settled; a settled
+ * one keeps its status, unread. A run the server does not know is gone;
+ * a refusal of who is asking is an auth error, and anything else
+ * unreachable, both read again next time.
+ */
+export async function pollStarted(client: StartedClient, runs: readonly StartedRun[], prev: Readonly<Record<string, string>>): Promise<Record<string, string>> {
+  const next: Record<string, string> = {};
+  for (const r of runs) {
+    const was = prev[r.id];
+    if (was !== undefined && settled(was)) {
+      next[r.id] = was;
+      continue;
+    }
+    try {
+      const got = await client.getRun({ runId: r.id });
+      next[r.id] = STATE[got.run?.state ?? RunState.UNSPECIFIED] ?? "?";
+    } catch (err) {
+      const e = ConnectError.from(err);
+      next[r.id] =
+        e.code === Code.NotFound
+          ? "gone"
+          : e.code === Code.Unauthenticated || e.code === Code.PermissionDenied
+            ? `auth error: ${e.rawMessage}`
+            : `unreachable: ${e.rawMessage}`;
+    }
   }
   return next;
 }

@@ -445,13 +445,17 @@ the CLI.
   - A run started here runs on the server: it keeps going when you leave
     the page or close the tab. Launch lists the last 5 runs this tab
     started, each with its state, a link to its run view and, while in
-    flight, Stop.
+    flight, Stop. A run that can't be read for want of a token shows an
+    auth error; one the server no longer knows, gone.
 - **Stop** (on a run's view, and on Launch for this tab's runs) works two
   ways, each after a confirm:
   - **finish run**: the workloads stop and report what they have, and the
     gates are judged on that. The run ends complete, stopped early.
   - **cancel run**: the run ends cancelled, and its gates are failed as
     did-not-complete.
+
+  Once stopped, the control says what the run is, as the server answered:
+  a run that ended while the confirm was open says how it ended.
 
   `orbit runs stop <id>` (add `--finish` for the first) does the same.
 - **Resolved config.** A run's view shows every field the run resolved
@@ -460,7 +464,7 @@ the CLI.
   layers' values it replaced, struck through. Keys show only as
   `<redacted>`, struck through or not. A `notice:` on top marks a field an
   `$ORBIT_*` var set over a file's value, the forgotten export. A line says
-  what the plan holds: env or flag layers, none (as from Launch), or no
+  what the plan holds: env or flag layers, none, or no
   provenance at all for a run started without the resolver
   (`orbit runs start-load`, `start-fleet`). Launch shows the same panel for
   the plan "check the plan" resolved. The browser has no env layer, so
