@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseDocument } from "yaml";
@@ -6,7 +6,7 @@ import { create, fromJson } from "@bufbuild/protobuf";
 import { createClient, createRouterTransport } from "@connectrpc/connect";
 import { ConformanceResultSchema } from "@/gen/orbit/v1/conformance_pb";
 import { GetRunReportResponseSchema, GetRunResponseSchema, RunEventSchema, RunKind, RunService, RunState, type GetRunResponse } from "@/gen/orbit/v1/run_pb";
-import { checkVerdict, failedLabel, SuiteWatch, suitesOf, type CheckVerdict, type Suite } from "./suite";
+import { checkVerdict, failedLabel, SuiteWatch, suitesOf, suiteTally, type CheckVerdict, type Suite } from "./suite";
 
 const result = (id: string, verdict: string) => create(ConformanceResultSchema, { id, verdict });
 const progress = { tally: { passed: 2, failed: 1 }, ran: 3, total: 9, lastCheck: "NGAP-X" };
@@ -34,7 +34,25 @@ const suiteNames = (name: string): string[] => {
 };
 
 describe("a run's suites, as the server answers", () => {
-  it("has all five Launch fixtures' runs", () => expect([...fixtures].sort()).toEqual(["conformance", "conformance-amf-only", "fleet", "load", "mixed"]));
+  it("has all six Launch fixtures' runs", () => expect([...fixtures].sort()).toEqual(["conformance", "conformance-amf-only", "conformance-expected", "fleet", "load", "mixed"]));
+
+  it("a done suite's tally counts the FAILs the expected-failures list tolerates: failed (N expected), as the server's own tally has it", () => {
+    const run = fromJson(GetRunResponseSchema, readRun("conformance-expected", "getrun-final"));
+    const report = fromJson(GetRunReportResponseSchema, readRun("conformance-expected", "report"));
+    const suites = suitesOf(run, report);
+    expect(suites).toHaveLength(1);
+    const suite = suites[0] as Suite;
+    const tally = suiteTally(suite, true);
+    expect(tally).toMatchObject({ pass: 1, fail: 2, expected: 1 });
+    // The count from the results is the server's (its tally, and the run's final progress).
+    const serverTally = report.report.case === "conformance" ? report.report.value.tally : undefined;
+    expect(tally.expected).toBe(serverTally?.expectedFailures);
+    expect(tally.expected).toBe(suiteTally(suite, false).expected);
+    expect(failedLabel(tally.expected, suite.expectedCore)).toBe("failed (1 expected)");
+    // A run with no list: none expected.
+    const plain = suitesOf(fromJson(GetRunResponseSchema, readRun("conformance", "getrun-final")), fromJson(GetRunReportResponseSchema, readRun("conformance", "report")));
+    expect(suiteTally(plain[0] as Suite, true)).toMatchObject({ fail: 2, expected: 0 });
+  });
   for (const name of fixtures) {
     it(`${name}: ended, one suite per conformance workload, each once, with its results`, () => {
       const run = fromJson(GetRunResponseSchema, readRun(name, "getrun-final"));
@@ -155,6 +173,36 @@ describe("SuiteWatch over a server", () => {
     await new SuiteWatch(client, "r", (_s, done) => seen.push(done), 1).start();
     expect(n).toBe(2);
     expect(seen).toEqual([true]);
+  });
+
+  describe("backoff (fake timers)", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("a failing GetRun waits twice as long each time, up to the cap, and the interval again once it answers", async () => {
+      vi.useFakeTimers();
+      const calls: number[] = [];
+      // Six failures, two answers, then a failure and an answer again.
+      const script = [false, false, false, false, false, false, true, true, false, true, true];
+      const client = {
+        getRun: async () => {
+          calls.push(Date.now());
+          if (!(script[calls.length - 1] ?? true)) throw new Error("the server restarting");
+          return create(GetRunResponseSchema, { run: { runId: "r", state: RunState.RUNNING, kind: RunKind.CONFORMANCE }, conformanceProgress: progress });
+        },
+        getRunReport: async () => create(GetRunReportResponseSchema, {}),
+        runEvents: async function* () {},
+      };
+      const w = new SuiteWatch(client, "r", () => undefined, 100, () => undefined, 1000);
+      const done = w.start();
+      await vi.advanceTimersByTimeAsync(100 + 200 + 400 + 800 + 1000 + 1000 + 100 + 100 + 100 + 100);
+      w.dispose();
+      await vi.advanceTimersByTimeAsync(1000);
+      await done;
+      const gaps = calls.slice(1).map((t, i) => t - (calls[i] ?? 0));
+      // 100, 200, 400, 800, then capped at 1000; answered: the interval; the
+      // failure after an answer waits the interval again, not where it left off.
+      expect(gaps.slice(0, 10)).toEqual([100, 200, 400, 800, 1000, 1000, 100, 100, 100, 100]);
+    });
   });
 
   it("a run with no suite (a load run): one GetRun, no more polls, no events read", async () => {

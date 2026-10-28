@@ -134,6 +134,17 @@ func TestOverrideNoticeSameValue(t *testing.T) {
 			t.Errorf("%s: same_value %t, text %q; want same %t", tc.path, n.GetSameValue(), text, tc.same)
 		}
 	}
+	// Two values not secret by path, each holding the mask where a request
+	// secret was scrubbed from it: the texts match, the values may not.
+	scrubbed := OverrideNotices([]*orbitv1.FieldProvenance{{
+		Path:       "core.amf",
+		Source:     &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, Detail: "env $ORBIT_AMF"},
+		Value:      "lab-" + target.Masked + ":38412",
+		Overridden: []*orbitv1.ProvenanceOverride{{Source: &orbitv1.ProvenanceSource{Layer: orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET, Detail: "target lab1.yaml:5"}, Value: "lab-" + target.Masked + ":38412"}},
+	}})
+	if len(scrubbed) != 1 || scrubbed[0].GetSameValue() || strings.Contains(NoticeText(scrubbed[0]), "same value") {
+		t.Errorf("two scrubbed values read as the same: %v", scrubbed)
+	}
 	// A notice built by hand, its values two masks: NoticeText reads
 	// same_value, not the values.
 	masked := &orbitv1.OverrideNotice{Path: "subscribers[main].ki", Value: target.Masked, OverriddenValue: target.Masked}

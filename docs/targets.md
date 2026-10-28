@@ -109,6 +109,15 @@ destination gNB and are never filled from a target; only `--amf` is.
   rules. `--gnb-n3` needs an IP: a host-name entry fills `--n3-bind`, leaves
   `--gnb-n3` unfilled, and says so.
 
+### gNB IDs fit their length
+
+`ran.gnb_ids` must fit `bits` (24 when unset): from `first` to
+`first+count-1`, or `first` alone with no `count`, at most `2^bits-1`. A
+block that overflows is refused when the target resolves, by the CLI and by
+the server alike, naming the range:
+`ran.gnb_ids: 16777200..16777231 does not fit 24 bits (at most 16777215)`.
+A `--gnb-id` that moves the block past the end is refused the same way.
+
 ### gNB IDs for a conformance run
 
 A conformance suite presents three gNB IDs per check: the check's own, a
@@ -151,6 +160,13 @@ the probe 0x9000 above it.
   the variable noted: `target lab1.yaml:16 via ${ORBIT_KI}`. A number takes no
   `${VAR}` (`${TAC} is not expanded in numeric fields`); override one from the
   environment with its `$ORBIT_*` binding, or with a flag.
+- **An error never shows a key.** A secret field's value always shows as
+  `<redacted>`. So does any value shaped like a key or token in a field that
+  isn't secret, a key pasted into the wrong field: 32 or 64 hex digits, or an
+  `oj1_`, `orc1_` or `orl1_` token. For example,
+  `core.slices[0].sd: <redacted> is not 6 hex digits`. A value of the wrong
+  YAML type names the field and the types, not the value:
+  `line 6: core.tac: want a number, not a string`.
 
 ## Precedence
 

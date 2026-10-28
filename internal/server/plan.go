@@ -25,7 +25,7 @@ var errNotYet = errors.New("is not supported yet")
 
 // defaultGNBIDBits is the gNB ID length when the target gives none, as on
 // the CLI (--gnb-id-bits).
-const defaultGNBIDBits = 24
+const defaultGNBIDBits = target.DefaultGNBIDBits
 
 // planRun is a RunPlan translated into today's engine specs (S2): one
 // population workload, run by the load engine when it has no behaviours

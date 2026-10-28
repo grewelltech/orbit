@@ -970,3 +970,20 @@ func TestEmptyTargetFlagIgnoresEnv(t *testing.T) {
 		t.Errorf("-t \"\" under $ORBIT_TARGET: err = %v, want no target (the required --amf)", r.execErr)
 	}
 }
+
+// A target whose gNB ID block overflows its bits is refused by the CLI as
+// the server would refuse it (target.Resolve, which both use), and so is
+// a --gnb-id that moves the block past the end.
+func TestGNBIDsOverflowRefused(t *testing.T) {
+	clearOrbitEnv(t)
+	t.Setenv("ORBIT_TEST_KI", testKi)
+	over := strings.Replace(lab1, "gnb_ids: { first: 100, bits: 24 }", "gnb_ids: { first: 16777200, count: 32, bits: 24 }", 1)
+	r := runOrbit(t, targetDir(t, over), "cell", "ngsetup", "-t", "lab1", "--server", "http://127.0.0.1:1")
+	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "ran.gnb_ids: 16777200..16777231 does not fit 24 bits") {
+		t.Errorf("an overflowing block: %v", r.execErr)
+	}
+	r = runOrbit(t, targetDir(t, lab1), "cell", "ngsetup", "-t", "lab1", "--gnb-id", "16777216", "--server", "http://127.0.0.1:1")
+	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "16777216..16777216 does not fit 24 bits") {
+		t.Errorf("--gnb-id past the end: %v", r.execErr)
+	}
+}

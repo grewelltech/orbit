@@ -271,6 +271,14 @@ func resolve(lenient bool, inputs []Input) (*Resolved, error) {
 		}
 		problems = append(problems, *pr)
 	}
+	// A gNB ID block must fit its ID length: the server refuses one that
+	// does not when a run starts, so the CLI and the page refuse it first.
+	if pr := gnbIDsFit(state); pr != nil {
+		if !lenient {
+			return nil, errors.New(pr.Err)
+		}
+		problems = append(problems, *pr)
+	}
 	res := &Resolved{Run: map[string]any{}, state: state, order: order, Problems: problems}
 	for p, e := range state {
 		res.Provenance = append(res.Provenance, *e.prov)
@@ -325,6 +333,52 @@ func firstSlice(state map[string]*entry) {
 			e.prov.Overridden = append([]Override{{Source: list.src, Value: show(f, listVal)}}, e.prov.Overridden...)
 		}
 	}
+}
+
+// DefaultGNBIDBits is the gNB ID length when ran.gnb_ids.bits is unset,
+// as the server and the CLI's --gnb-id-bits default it.
+const DefaultGNBIDBits = 24
+
+// gnbIDsFit checks that ran.gnb_ids, first to first+count-1 (first alone
+// with no count), fits ran.gnb_ids.bits (DefaultGNBIDBits unset). A bits
+// value out of range is validateValue's to refuse; it is not checked here.
+func gnbIDsFit(state map[string]*entry) *Problem {
+	first, hasFirst := state["ran.gnb_ids.first"]
+	countE, hasCount := state["ran.gnb_ids.count"]
+	if !hasFirst && !hasCount {
+		return nil
+	}
+	num := func(p string) uint64 {
+		if e, ok := state[p]; ok {
+			if v, ok := e.value.(uint64); ok {
+				return v
+			}
+		}
+		return 0
+	}
+	bits := num("ran.gnb_ids.bits")
+	if bits == 0 {
+		bits = DefaultGNBIDBits
+	}
+	if bits > 32 {
+		return nil
+	}
+	start, count := num("ran.gnb_ids.first"), num("ran.gnb_ids.count")
+	end := start
+	if count > 0 {
+		end = start + count - 1
+	}
+	if maxID := uint64(1)<<bits - 1; end > maxID {
+		var src Source
+		if hasCount && count > 0 {
+			src = countE.src
+		} else {
+			src = first.src
+		}
+		return &Problem{Path: "ran.gnb_ids", Source: src,
+			Err: fmt.Sprintf("ran.gnb_ids: %d..%d does not fit %d bits (at most %d) (%s)", start, end, bits, maxID, src)}
+	}
+	return nil
 }
 
 // supiInPLMN checks each pool's first_supi against core.plmn: its leading

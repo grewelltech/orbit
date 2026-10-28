@@ -1,0 +1,10 @@
+{
+  "targetYaml": "version: 1\nkind: target\nname: lab1\ncore:\n    amf: ${LAB_AMF}\n    plmn:\n        mcc: \"208\"\n        mnc: \"93\"\n    slices:\n        - sst: 1\n          sd: \"010203\"\nsubscribers:\n    - name: main\n      first_supi: \"208930100007500\"\n      count: 10\n      ki: ${ORBIT_KI}\n      opc: ${ORBIT_OPC}\nran:\n    n2_source_ips:\n        - 127.0.0.1\n        - 127.0.0.2\n    n3_ips:\n        - 127.0.0.1\n    gnb_ids:\n        first: 7\n        bits: 24\n",
+  "runYaml": "# The conformance suite with an expected-failures list inline: the mock\n# core's reset on an unknown UE is tolerated, the other FAIL is not.\nkind: run\nworkloads:\n  - name: conformance\n    conformance:\n      categories: [negative-ie]\n      per_test_timeout_ms: 3000\n      expected:\n        core: mockamf\n        version: test\n        entries:\n          - check: NGAP-UNKNOWN-UE-SURVIVES\n            observed: association reset\n            finding: EX-1\n            added: 2026-10-28\n            reason: \"example: the mock core resets the association\"\ngates:\n  - name: conformance\n    conformance: true\n",
+  "template": "",
+  "vars": [
+    "LAB_AMF",
+    "ORBIT_KI",
+    "ORBIT_OPC"
+  ]
+}

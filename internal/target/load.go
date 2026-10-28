@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -221,7 +222,7 @@ func parseDoc(name string, d *yaml.Node, env Getenv) (*File, error) {
 	dec.KnownFields(true)
 	var t Target
 	if err := dec.Decode(&t); err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("%s: %w", name, withoutValues(err, pathsByLine(d)))
 	}
 	// The expanded values are what the document holds.
 	res, err := Resolve(f.Input)
@@ -329,7 +330,7 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			return nil, fmt.Errorf("%s is not expanded in numeric fields; set it with a flag or an env-layer binding", v.Value)
 		}
 		if v.Kind == yaml.ScalarNode && v.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle) != 0 {
-			msg := fmt.Sprintf("%q is quoted; write the number unquoted", v.Value)
+			msg := fmt.Sprintf("%s is quoted; write the number unquoted", errValue(f, v.Value))
 			if err := leadingZeroText(v.Value); err != nil {
 				msg += "; " + err.Error()
 			}
@@ -349,7 +350,7 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 				}
 				var m map[string]any
 				if err := e.Decode(&m); err != nil {
-					return nil, err
+					return nil, withoutValues(err, nil)
 				}
 				if sd := mapNode(e, "sd"); sd != nil {
 					if text, ok := scalarText(sd); ok {
@@ -409,6 +410,9 @@ func LeadingZero(s string) error { return leadingZeroText(s) }
 func leadingZeroText(s string) error {
 	if !leadingZeroRe.MatchString(s) {
 		return nil
+	}
+	if keyShaped(s) {
+		return fmt.Errorf("%s has a leading zero", Masked)
 	}
 	dec := strings.TrimLeft(s, "0")
 	if dec == "" {
@@ -566,4 +570,103 @@ func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 		}
 	}
 	return rf, nil
+}
+
+// typeErrorRe is one of a yaml.TypeError's entries: its line, the tag
+// found, the value quoted (a prefix of it), and the Go type wanted.
+var typeErrorRe = regexp.MustCompile("^line ([0-9]+): cannot unmarshal (!![a-z]+)(?: `[^`]*`)? into (.+)$")
+
+// quotedRe is a value a yaml error quotes.
+var quotedRe = regexp.MustCompile("`[^`]*`")
+
+// withoutValues is err with no value from the document in it: each entry
+// of a yaml.TypeError (which quotes a prefix of the value it could not
+// decode: a key pasted into the wrong field) becomes the field's path,
+// when at knows the line's, and the type wanted and found. Any other
+// error is returned as it is.
+func withoutValues(err error, at func(line int) string) error {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return err
+	}
+	msgs := make([]string, 0, len(te.Errors))
+	for _, m := range te.Errors {
+		sub := typeErrorRe.FindStringSubmatch(m)
+		if sub == nil {
+			msgs = append(msgs, quotedRe.ReplaceAllString(m, "a value"))
+			continue
+		}
+		where := ""
+		if line, err := strconv.Atoi(sub[1]); err == nil && at != nil {
+			if p := at(line); p != "" {
+				where = p + ": "
+			}
+		}
+		msgs = append(msgs, fmt.Sprintf("line %s: %swant %s, not %s", sub[1], where, goTypeWord(sub[3]), tagWord(sub[2])))
+	}
+	return errors.New(strings.Join(msgs, "; "))
+}
+
+// goTypeWord is a Go type a yaml error names, as a document's reader has it.
+func goTypeWord(t string) string {
+	switch {
+	case strings.HasPrefix(t, "uint"), strings.HasPrefix(t, "int"), strings.HasPrefix(t, "float"):
+		return "a number"
+	case t == "bool":
+		return "true or false"
+	case t == "string":
+		return "a string"
+	case strings.HasPrefix(t, "[]"):
+		return "a list"
+	default:
+		return "a mapping"
+	}
+}
+
+// tagWord is a YAML tag, as a document's reader has it.
+func tagWord(tag string) string {
+	switch tag {
+	case "!!str":
+		return "a string"
+	case "!!int", "!!float":
+		return "a number"
+	case "!!bool":
+		return "true or false"
+	case "!!seq":
+		return "a list"
+	case "!!map":
+		return "a mapping"
+	case "!!null":
+		return "null"
+	default:
+		return tag
+	}
+}
+
+// pathsByLine is, for document d, the path of the one field whose value
+// is on a line ("" when none is, or more than one: a flow mapping's line).
+func pathsByLine(d *yaml.Node) func(line int) string {
+	byLine := map[int][]string{}
+	var walk func(segs []segment, n *yaml.Node)
+	walk = func(segs []segment, n *yaml.Node) {
+		switch n.Kind {
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				walk(append(append([]segment(nil), segs...), segment{key: n.Content[i].Value}), n.Content[i+1])
+			}
+		case yaml.SequenceNode:
+			for _, e := range n.Content {
+				walk(append(append([]segment(nil), segs...), segment{elem: true, name: mapValue(e, "name")}), e)
+			}
+		default:
+			byLine[n.Line] = append(byLine[n.Line], format(segs))
+		}
+	}
+	walk(nil, d)
+	return func(line int) string {
+		if ps := byLine[line]; len(ps) == 1 {
+			return ps[0]
+		}
+		return ""
+	}
 }

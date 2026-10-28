@@ -10,7 +10,7 @@ import { createClient } from "@connectrpc/connect";
 import { ConformanceService, type ConformanceResult, type ConformanceTestInfo } from "@/gen/orbit/v1/conformance_pb";
 import { RunService } from "@/gen/orbit/v1/run_pb";
 import { Panel } from "@/components/Panel";
-import { failedLabel, SuiteWatch, type CheckVerdict, type Suite } from "@/data/suite";
+import { failedLabel, suiteTally, SuiteWatch, type CheckVerdict, type Suite } from "@/data/suite";
 import { orbitTransport } from "@/data/transport";
 
 const VERDICT_COLOR: Record<string, string> = {
@@ -88,17 +88,7 @@ function SuitePanel({
   info: ReadonlyMap<string, ConformanceTestInfo>;
 }) {
   const p = suite.progress;
-  const count = (v: string) => suite.results.filter((r) => r.verdict === v).length;
-  const tally = done
-    ? {
-        pass: count("PASS"),
-        fail: count("FAIL"),
-        error: count("ERROR"),
-        deviation: count("DEVIATION"),
-        skip: count("SKIP"),
-        expected: suite.results.filter((r) => r.verdict === "FAIL" && r.expectedFailure).length,
-      }
-    : { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0, expected: p?.expected ?? 0 };
+  const tally = suiteTally(suite, done);
   const meta = done ? `${suite.results.length} checks` : p ? `${p.ran} of ${p.total}${p.lastCheck ? ` · ${p.lastCheck}` : ""}` : "starting";
   return (
     <Panel title={named && suite.name ? `conformance · ${suite.name}` : "conformance"} live={!done} meta={meta}>

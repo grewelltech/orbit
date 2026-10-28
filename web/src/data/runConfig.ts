@@ -34,3 +34,13 @@ export function useRunConfig(runId: string | undefined, ended: boolean, baseUrl?
 export function runEnded(state: string | undefined): boolean {
   return state === "complete" || state === "failed" || state === "cancelled";
 }
+
+/**
+ * What the run view says when GetRunConfig refused the run (a run id the
+ * server does not know, one starting, one whose archive was evicted), or
+ * undefined while there is a config or no answer yet: the refusal in the
+ * server's words, not an empty page.
+ */
+export function runConfigRefusal(got: { config?: unknown; error?: string }): string | undefined {
+  return got.config === undefined && got.error ? `no resolved config: ${got.error}` : undefined;
+}
