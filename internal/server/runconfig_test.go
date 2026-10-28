@@ -317,21 +317,27 @@ func registryIDs(s *runService) []string {
 func TestHeldSpecsBoundedByHistory(t *testing.T) {
 	const history = 2
 	for _, tc := range []struct {
-		name  string
-		setup func(t *testing.T) string // the state dir, "" for none
+		name       string
+		stateDir   bool // a state dir to save to
+		breakSaves bool // replaced by a regular file once the store is open: every save fails, whatever the uid
 	}{
-		{"no state dir", func(*testing.T) string { return "" }},
-		{"every save fails", func(t *testing.T) string {
-			dir := t.TempDir()
-			if err := os.Chmod(dir, 0o500); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-			return dir
-		}},
+		{"no state dir", false, false},
+		{"every save fails", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := historyService(t, tc.setup(t), history)
+			dir := ""
+			if tc.stateDir {
+				dir = filepath.Join(t.TempDir(), "state")
+			}
+			s := historyService(t, dir, history)
+			if tc.breakSaves {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(dir, []byte("not a directory\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			for range history + 2 {
 				startEnded(t, s)
 			}
@@ -341,6 +347,13 @@ func TestHeldSpecsBoundedByHistory(t *testing.T) {
 			}
 			if got := heldIDs(s); !slices.Equal(got, want) || len(got) > history {
 				t.Errorf("specs held for %v; want the registry's %d runs %v", got, history, want)
+			}
+			if tc.breakSaves {
+				for _, id := range want {
+					if _, ok := s.archive.get(id); ok {
+						t.Fatalf("%s was archived after all: the case this row is for does not arise", id)
+					}
+				}
 			}
 		})
 	}
