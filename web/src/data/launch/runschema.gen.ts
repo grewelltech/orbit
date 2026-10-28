@@ -134,6 +134,108 @@ export const GATE_OPS: readonly string[] = [
   "\u003e="
 ];
 
+/** An inline expected-failures list's keys (docs/conformance/expected-failures.md). */
+export const EXPECTED_KEYS: readonly string[] = [
+  "core",
+  "version",
+  "entries"
+];
+
+/** One expected-failures entry's keys, each required. */
+export const EXPECTED_ENTRY_KEYS: readonly string[] = [
+  "check",
+  "observed",
+  "finding",
+  "added",
+  "reason"
+];
+
+/** A workload's start: {after: <workload>, phase: one of these}. */
+export const START_PHASES: readonly string[] = [
+  "started",
+  "attached",
+  "complete"
+];
+
+/** The names that hold secrets, normalised (internal/secrets.Names). */
+export const SECRET_NAMES: readonly string[] = [
+  "accesskey",
+  "apikey",
+  "auth",
+  "authorization",
+  "bearer",
+  "credential",
+  "k",
+  "key",
+  "ki",
+  "opc",
+  "passphrase",
+  "passwd",
+  "password",
+  "privatekey",
+  "secret",
+  "token"
+];
+
+/** Runes Go's unicode.ToLower makes an ASCII letter, beyond A-Z (secrets' splitWords lowers with it). */
+export const ASCII_LOWER: Readonly<Record<string, string>> = {
+  "İ": "i",
+  "K": "k"
+};
+
+/** secrets.NameCases: the names secrets.IsSecretName is held to, for the page's port of it. */
+export const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = {
+  "": false,
+  "API_KEY": true,
+  "APİKEY": true,
+  "Authorization": true,
+  "K-İ": true,
+  "Kİ": true,
+  "Password": true,
+  "Private.Key": true,
+  "Tokenizer.Mode": false,
+  "X-Api-Key": true,
+  "a.b": false,
+  "access_key": true,
+  "api-key": true,
+  "api.key": true,
+  "apiKey": true,
+  "authToken": true,
+  "auth_token": true,
+  "bearer": true,
+  "bearer token": true,
+  "credential": true,
+  "k": true,
+  "k-İ": true,
+  "keyboard": false,
+  "ki": true,
+  "kİ": true,
+  "loom_token": true,
+  "monkey": false,
+  "my token": true,
+  "my token count": false,
+  "my-bearer": true,
+  "my.Bearer": true,
+  "name": false,
+  "oauth": false,
+  "object_size": false,
+  "opc": true,
+  "passphrase": true,
+  "passwd": true,
+  "privateKey": true,
+  "routing_indicator": false,
+  "secret": true,
+  "supi": false,
+  "token": true,
+  "token ": true,
+  "tokenizer": false,
+  "tokens_per_s": false,
+  "x.token": true,
+  "x_api_key": true,
+  "x٣Token": true,
+  "xKi": true
+};
+
 /** The built-in templates (orbit test), as written. */
 export const TEMPLATES: Readonly<Record<string, string>> = {
   "conformance": "# The conformance suite against the target's core, every category, gated\n# on no FAIL outside the expected-failures list and no ERROR.\nkind: run\nworkloads:\n  - name: conformance\n    conformance: {categories: []}\ngates:\n  - name: conformance\n    conformance: true\n",

@@ -1,12 +1,13 @@
 /**
  * PageLinks — the dashboard's pages, chosen by query string (main.tsx): the
- * run dashboard, targets and conformance. The current page is marked, not
+ * run dashboard, launch, targets and conformance. The current page is marked, not
  * linked.
  */
-export type Page = "dashboard" | "targets" | "conformance";
+export type Page = "dashboard" | "launch" | "targets" | "conformance";
 
 const PAGES: { page: Page; label: string; href: string }[] = [
   { page: "dashboard", label: "runs", href: "?" },
+  { page: "launch", label: "launch", href: "?launch" },
   { page: "targets", label: "targets", href: "?targets" },
   { page: "conformance", label: "conformance", href: "?conformance" },
 ];

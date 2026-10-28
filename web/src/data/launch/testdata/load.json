@@ -1,0 +1,10 @@
+{
+  "targetYaml": "version: 1\nkind: target\nname: lab1\ncore:\n    amf: ${LAB_AMF}\n    plmn:\n        mcc: \"208\"\n        mnc: \"93\"\n    slices:\n        - sst: 1\n          sd: \"010203\"\nsubscribers:\n    - name: main\n      first_supi: \"208930100007500\"\n      count: 10\n      ki: ${ORBIT_KI}\n      opc: ${ORBIT_OPC}\nran:\n    n2_source_ips:\n        - 127.0.0.1\n        - 127.0.0.2\n    n3_ips:\n        - 127.0.0.1\n    gnb_ids:\n        first: 7\n        bits: 24\n",
+  "runYaml": "# An attach storm: the target's subscribers attached and released at a\n# steady rate. Address-free: the core, keys and addresses come from the\n# target (-t). Gated on attach success at least 0.99 (ADR-0008 resolved\n# question 4); latency is reported, not gated, unless --gate adds it.\nkind: run\nworkloads:\n  - name: load\n    attach: {count: 3, rate: 10, concurrency: 64}\nuntil: {complete: true}\ngates:\n  - name: attach_success_ratio\n    slo: {metric: attach.success_ratio, op: \">=\", threshold: \"0.99\"}\n  - name: registration_p99_ms\n    workload: load\n    slo: {metric: registration.p99_ms, op: \"<=\", threshold: \"500ms\"}\n",
+  "template": "load",
+  "vars": [
+    "LAB_AMF",
+    "ORBIT_KI",
+    "ORBIT_OPC"
+  ]
+}

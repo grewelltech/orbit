@@ -1,0 +1,10 @@
+{
+  "targetYaml": "version: 1\nkind: target\nname: lab1\ncore:\n    amf: ${LAB_AMF}\n    plmn:\n        mcc: \"208\"\n        mnc: \"93\"\n    slices:\n        - sst: 1\n          sd: \"010203\"\nsubscribers:\n    - name: main\n      first_supi: \"208930100007500\"\n      count: 10\n      ki: ${ORBIT_KI}\n      opc: ${ORBIT_OPC}\nran:\n    n2_source_ips:\n        - 127.0.0.1\n        - 127.0.0.2\n    n3_ips:\n        - 127.0.0.1\n    gnb_ids:\n        first: 7\n        bits: 24\n",
+  "runYaml": "# The conformance suite against the target's core, every category, gated\n# on no FAIL outside the expected-failures list and no ERROR.\nkind: run\nworkloads:\n  - name: conformance\n    conformance: {categories: [negative-ie], per_test_timeout_ms: 3000}\ngates:\n  - name: conformance\n    conformance: true\n",
+  "template": "conformance",
+  "vars": [
+    "LAB_AMF",
+    "ORBIT_KI",
+    "ORBIT_OPC"
+  ]
+}

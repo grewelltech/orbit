@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
+	"unicode"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/plan"
 	"github.com/bgrewell/orbit/internal/secrets"
 	"github.com/bgrewell/orbit/internal/target"
@@ -142,6 +146,47 @@ func renderRunSchema(t *testing.T) []byte {
 	}
 	sort.Strings(ops)
 	fmt.Fprintf(&b, "/** An SLO gate's comparisons. */\nexport const GATE_OPS: readonly string[] = %s;\n\n", js(ops))
+	yamlKeys := func(v any) []string {
+		var out []string
+		rt := reflect.TypeOf(v)
+		for i := 0; i < rt.NumField(); i++ {
+			k, _, _ := strings.Cut(rt.Field(i).Tag.Get("yaml"), ",")
+			out = append(out, k)
+		}
+		return out
+	}
+	fmt.Fprintf(&b, "/** An inline expected-failures list's keys (docs/conformance/expected-failures.md). */\nexport const EXPECTED_KEYS: readonly string[] = %s;\n\n", js(yamlKeys(conformance.ExpectedFailures{})))
+	fmt.Fprintf(&b, "/** One expected-failures entry's keys, each required. */\nexport const EXPECTED_ENTRY_KEYS: readonly string[] = %s;\n\n", js(yamlKeys(conformance.ExpectedFailureEntry{})))
+	var phases []string
+	pv := orbitv1.WorkloadPhase(0).Descriptor().Values()
+	for i := 0; i < pv.Len(); i++ {
+		if v := pv.Get(i); v.Number() != 0 {
+			phases = append(phases, strings.ToLower(strings.TrimPrefix(string(v.Name()), "WORKLOAD_PHASE_")))
+		}
+	}
+	fmt.Fprintf(&b, "/** A workload's start: {after: <workload>, phase: one of these}. */\nexport const START_PHASES: readonly string[] = %s;\n\n", js(phases))
+	names := make([]string, 0, len(secrets.Names))
+	for n := range secrets.Names {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	fmt.Fprintf(&b, "/** The names that hold secrets, normalised (internal/secrets.Names). */\nexport const SECRET_NAMES: readonly string[] = %s;\n\n", js(names))
+	vectors := secrets.NameCases
+	// The runes Go lower-cases (unicode.ToLower) to an ASCII letter, beyond
+	// A-Z. A secret name is ASCII, so these are the only lowerings a page
+	// must do as Go does to match it: JS's toLowerCase differs on some
+	// (İ becomes "i̇", two runes).
+	asciiLower := map[string]string{}
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if l := unicode.ToLower(r); l != r && l < 0x80 {
+			asciiLower[string(r)] = string(l)
+		}
+	}
+	fmt.Fprintf(&b, "/** Runes Go's unicode.ToLower makes an ASCII letter, beyond A-Z (secrets' splitWords lowers with it). */\nexport const ASCII_LOWER: Readonly<Record<string, string>> = %s;\n\n", js(asciiLower))
+	fmt.Fprintf(&b, "/** secrets.NameCases: the names secrets.IsSecretName is held to, for the page's port of it. */\nexport const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = %s;\n\n", js(vectors))
 	templates := map[string]string{}
 	for _, n := range plan.Templates() {
 		text, err := plan.TemplateText(n)

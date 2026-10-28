@@ -390,6 +390,56 @@ The **Conformance** page's *use target* menu fills its AMF and network
 identity from a stored target. Keys are not involved, and the form works as
 before without a target.
 
+### Launching a run from the browser (`?launch`)
+
+The **Launch** page builds a run against a stored target and starts it on
+the server. It can also give the same run as a command or a run file for
+the CLI.
+
+- **The run** is a run file ([`kind: run`](run-files.md)). Start from a
+  built-in template (`load`, `fleet`, `conformance`) or an empty file. Then
+  edit it:
+  - workloads: a population (UEs, rate or ramp, gNBs, PDU session, keeping
+    the UEs with latency, mobility or bulk traffic) or a conformance suite
+    (categories, an expected-failures file);
+  - how it stops: every workload completes, a duration, or until stopped;
+  - gates: one-click presets, or any metric, comparison and threshold.
+
+  The **run file** box shows the whole file and takes edits the form has no
+  control for (a traffic mix, a workload's start). **Import YAML** reads a
+  run file.
+
+  Every edit and import is checked against the run-file schema before the
+  page keeps it, as the Targets page checks targets. The checks refuse:
+  - an unknown field, a YAML tag, an alias or anchor;
+  - a file over 1 MiB;
+  - a secret written out (a token in `behaviors` must be a `${VAR}`).
+
+  An expected-failures file is put inline in the run file, since the server
+  reads no file.
+- **Variables.** The target's keys come from the Targets page. Any other
+  `${VAR}` the target or the run file names gets a field here. Values are
+  held in this tab, and Start waits until each has one.
+- **Start** sends the target and the run file, as text, with those values.
+  `RunService.PlanRun` resolves them as `orbit run` resolves the same files
+  and builds the plan. Start then starts exactly that plan.
+  - An edit after the plan was resolved means it is resolved again first.
+  - **Check the plan** resolves without starting.
+  - A field the server refuses is named, with its document and line.
+  - The page then opens the run on the dashboard (`?run=<id>`).
+- **Keys** go only with the plan, under the same rule as Probe: to the
+  server's own host, or over https:// with the API token.
+- **As the CLI runs it.** The panel gives the command and the file to save,
+  from `RunService.RenderRun`, keyless:
+  - `orbit test <template> --set …` when the page started from a template
+    and the flags express the changes;
+  - otherwise `orbit run <target>.run.yaml`, with **Export YAML** for that
+    file.
+
+  Each argument is quoted for a POSIX shell. With the target exported from
+  the Targets page and no `$ORBIT_*` set, the command starts the same plan;
+  `--explain` shows any difference.
+
 ## The server
 
 Most commands are Connect API clients; start the server first:
