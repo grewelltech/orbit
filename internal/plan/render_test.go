@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/bgrewell/orbit/internal/target"
 )
 
 // A run file renders as orbit test <template> --set … when the template
@@ -168,5 +171,22 @@ func TestRenderFleetProbe(t *testing.T) {
 		if got := strings.Contains(r.RunYAML, "behaviors: {latency: {}}"); got != tc.want || r.FileName == "" {
 			t.Errorf("%s: probe in the file %t, want %t (file %q)\n%s", tc.name, got, tc.want, r.FileName, r.RunYAML)
 		}
+	}
+}
+
+// --for bounds a run whatever the lower layers say: over a run file that
+// runs forever, ForSettings (what --for gives, on the CLI and in Render's
+// proof) gives a plan that stops after the duration, forever cleared.
+func TestForSettingsOverForever(t *testing.T) {
+	rf, err := target.ParseRunFile("soak.yaml", []byte("kind: run\nworkloads:\n  - name: load\n    attach: {count: 10}\nuntil: {forever: true}\n"), keepRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := comparablePlan(rf.Input, ForSettings(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.GetUntil(); got.GetDurationMs() != 600000 || got.GetForever() {
+		t.Errorf("until %v, want 10m and not forever", got)
 	}
 }
