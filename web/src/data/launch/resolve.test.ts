@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carriesSecrets, formKey, planRequest, refsOf, refusedAt, renderRequest, startBlocked, type LaunchInput } from "./resolve";
+import { carriesSecrets, formKey, planRequest, refsOf, refusedAt, renderRequest, startBlocked, varsPromptNote, whyNotStart, type LaunchInput, type StartState } from "./resolve";
 import { quickTargetText } from "./useLaunch";
 
 const target = 'version: 1\nkind: target\nname: lab1\n# ${IN_A_COMMENT}\ncore:\n  amf: "${LAB_AMF}"\nsubscribers:\n  - name: main\n    ki: "${ORBIT_KI}"\n    opc: "${ORBIT_OPC}"\n';
@@ -89,5 +89,37 @@ describe("when Start needs keysBlocked's rule", () => {
   });
   it("on loopback, nothing is blocked", () => {
     expect(startBlocked({ protocol: "http:", hostname: "127.0.0.1" }, "", { targetYaml: target, runYaml: run })).toBeUndefined();
+  });
+});
+
+describe("whether Launch may send its run", () => {
+  const ok: StartState = { loc: { protocol: "http:", hostname: "127.0.0.1" }, token: "", hasTarget: true, missingKeys: [], unsetVars: [], workloads: 1, carriesSecrets: true };
+  const rows: [string, Partial<StartState>, string | undefined][] = [
+    ["all set, on loopback", {}, undefined],
+    ["no target", { hasTarget: false }, "make a target first"],
+    // keysBlocked's rule: the run carries the target's keys.
+    ["http from another host", { loc: { protocol: "http:", hostname: "192.0.2.10" } }, "in the clear"],
+    ["https from another host, no token", { loc: { protocol: "https:", hostname: "orbit.lab" } }, "no API token"],
+    ["https from another host, a token", { loc: { protocol: "https:", hostname: "orbit.lab" }, token: "t" }, undefined],
+    // A keyless run (carriesSecrets false) goes from any dashboard.
+    ["a keyless run, http from another host", { loc: { protocol: "http:", hostname: "192.0.2.10" }, carriesSecrets: false }, undefined],
+    ["a key with no value", { missingKeys: ["ORBIT_KI"] }, "set ${ORBIT_KI} on the Targets page"],
+    ["a var with no value", { unsetVars: ["LAB_AMF"] }, "set ${LAB_AMF} first"],
+    ["no workload", { workloads: 0 }, "add a workload"],
+  ];
+  for (const [name, patch, want] of rows) {
+    it(name, () => {
+      const got = whyNotStart({ ...ok, ...patch });
+      if (want === undefined) expect(got).toBeUndefined();
+      else expect(got).toContain(want);
+    });
+  }
+});
+
+describe("the ${VAR} prompt's line", () => {
+  it("held in this tab", () => expect(varsPromptNote(false)).toContain("held in this tab"));
+  it("remembered in this browser when the target remembers its keys", () => {
+    expect(varsPromptNote(true)).toContain("remembered in this browser");
+    expect(varsPromptNote(true)).not.toContain("this tab");
   });
 });

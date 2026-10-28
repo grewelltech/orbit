@@ -73,6 +73,41 @@ export function startBlocked(loc: { protocol: string; hostname: string }, token:
   return carriesSecrets(input) ? keysBlocked(loc, token) : undefined;
 }
 
+/** The line over Launch's ${VAR} prompt: where the values are kept, as the target's keys are. */
+export function varsPromptNote(remembered: boolean): string {
+  return `the target and run file name these; their values are ${remembered ? "remembered in this browser" : "held in this tab"}:`;
+}
+
+/** What decides whether Launch may send its run (Start, check the plan). */
+export interface StartState {
+  loc: { protocol: string; hostname: string };
+  token: string;
+  hasTarget: boolean;
+  /** The target's key ${VAR}s with no value in the tab (set on the Targets page). */
+  missingKeys: readonly string[];
+  /** Any other ${VAR} with no value (asked for on this page). */
+  unsetVars: readonly string[];
+  workloads: number;
+  /** Whether the request carries a secret (carriesSecrets): only then does keysBlocked's rule apply. */
+  carriesSecrets: boolean;
+}
+
+/**
+ * Why Launch may not send its run, or undefined: a target first; then,
+ * for a run that carries a secret, keysBlocked's rule (the server's own
+ * host, or https with the API token); then every ${VAR} with a value;
+ * then a workload. A keyless run goes from any dashboard (startBlocked).
+ */
+export function whyNotStart(s: StartState): string | undefined {
+  if (!s.hasTarget) return "make a target first: new from AMF + PLMN above, or on the Targets page";
+  const blocked = s.carriesSecrets ? keysBlocked(s.loc, s.token) : undefined;
+  if (blocked) return blocked;
+  if (s.missingKeys.length > 0) return `set ${s.missingKeys.map((v) => `\${${v}}`).join(", ")} on the Targets page first`;
+  if (s.unsetVars.length > 0) return `set ${s.unsetVars.map((v) => `\${${v}}`).join(", ")} first: the browser has no environment to take them from`;
+  if (s.workloads === 0) return "add a workload";
+  return undefined;
+}
+
 /** The PlanRun request, or the ${VAR}s it still needs a value for. */
 export function planRequest(input: LaunchInput): { request: PlanRequest; unresolved: [] } | { request?: undefined; unresolved: string[] } {
   const refs = refsOf(input);

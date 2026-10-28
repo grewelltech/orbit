@@ -18,7 +18,7 @@ import { addWorkload, workloads } from "@/data/launch/form";
 import { TEMPLATES } from "@/data/launch/runschema.gen";
 import { useState } from "react";
 import { quickTargetProblem, useLaunch, type QuickTarget } from "@/data/launch/useLaunch";
-import { startBlocked } from "@/data/launch/resolve";
+import { carriesSecrets, varsPromptNote, whyNotStart } from "@/data/launch/resolve";
 import { loadToken } from "@/data/transport";
 import { secretSlots, refName } from "@/data/targets/yamlio";
 import { parseStored } from "@/data/targets/actions";
@@ -78,19 +78,15 @@ export function Launch({ preset }: { preset?: string }) {
   const keyRefs = new Set(parsed ? secretSlots(parsed.doc).map((x) => refName(x.value)).filter((v): v is string => v !== undefined) : []);
   const missingKeys = l.refs.filter((r) => keyRefs.has(r) && !l.values[r]);
   const prompts = l.refs.filter((r) => !keyRefs.has(r));
-  const why = !t
-    ? "make a target first: new from AMF + PLMN above, or on the Targets page"
-    : (startBlocked(window.location, loadToken(), { targetYaml: t.yaml, runYaml: l.runYaml }) ??
-      (missingKeys.length > 0
-        ? `set ${missingKeys.map((v) => `\${${v}}`).join(", ")} on the Targets page first`
-        : prompts.some((r) => !l.values[r])
-          ? `set ${prompts
-              .filter((r) => !l.values[r])
-              .map((v) => `\${${v}}`)
-              .join(", ")} first: the browser has no environment to take them from`
-          : ws.length === 0
-            ? "add a workload"
-            : undefined));
+  const why = whyNotStart({
+    loc: window.location,
+    token: loadToken(),
+    hasTarget: t !== undefined,
+    missingKeys,
+    unsetVars: prompts.filter((r) => !l.values[r]),
+    workloads: ws.length,
+    carriesSecrets: t !== undefined && carriesSecrets({ targetYaml: t.yaml, runYaml: l.runYaml }),
+  });
   const err = s.planError;
 
   return (
@@ -169,7 +165,7 @@ export function Launch({ preset }: { preset?: string }) {
               {prompts.length > 0 && (
                 <div className="flex flex-col gap-1" aria-label="variables">
                   <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-                    {`the target and run file name these; their values are ${l.remembered ? "remembered in this browser" : "held in this tab"}:`}
+                    {varsPromptNote(l.remembered)}
                   </span>
                   {prompts.map((v) => (
                     <label key={v} className="grid grid-cols-[14rem_1fr] items-center gap-2">

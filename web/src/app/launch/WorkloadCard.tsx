@@ -10,10 +10,10 @@ import type { Document } from "yaml";
 import { Panel } from "@/components/Panel";
 import { ConformanceService } from "@/gen/orbit/v1/conformance_pb";
 import { orbitTransport } from "@/data/transport";
-import { EXPECTED_TOO_LARGE, expectedEntries, inlineExpected, removeWorkload, setCategories, setKeepUEs, type WorkloadView } from "@/data/launch/form";
+import { expectedEntries, inlineExpected, pickedFileRefusal, removeWorkload, setCategories, setKeepUEs, type WorkloadView } from "@/data/launch/form";
 import { BEHAVIOR_FIELDS } from "@/data/launch/runschema.gen";
 import { readImportFile } from "@/data/targets/importexport";
-import { getValue, MAX_FILE_BYTES, type Step } from "@/data/targets/yamlio";
+import { getValue, type Step } from "@/data/targets/yamlio";
 import { buttonStyle, FieldRow } from "../targets/fields";
 import { RunCheck, RunChoice, RunText, type Edit } from "./RunFields";
 
@@ -147,7 +147,8 @@ export function WorkloadCard({ doc, edit, w, values, onNotice }: { doc: Document
                       const f = e.target.files?.[0];
                       e.target.value = "";
                       if (!f) return;
-                      if (f.size > MAX_FILE_BYTES) return onNotice(`expected-failures file not read: ${EXPECTED_TOO_LARGE}`);
+                      const tooBig = pickedFileRefusal(f);
+                      if (tooBig) return onNotice(`expected-failures file not read: ${tooBig}`);
                       const r = await readImportFile(f);
                       if ("refusal" in r) return onNotice(`expected-failures file not read: ${r.refusal}`);
                       edit((d) => inlineExpected(d, w.index, r.text));

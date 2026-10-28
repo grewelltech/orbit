@@ -9,6 +9,7 @@ import {
   GATE_PRESETS,
   getUntil,
   inlineExpected,
+  pickedFileRefusal,
   removeGate,
   removeWorkload,
   setCategories,
@@ -121,5 +122,10 @@ describe("the Launch form's edits", () => {
     expect(renderRun(pop)).toContain("behaviors: {}");
     setKeepUEs(pop, 0, false);
     expect(renderRun(pop)).not.toContain("behaviors");
+  });
+
+  it("refuses a picked expected-failures file over 1 MiB by its size, before reading it", () => {
+    expect(pickedFileRefusal({ size: 1024 * 1024 })).toBeUndefined();
+    expect(pickedFileRefusal({ size: 1024 * 1024 + 1 })).toBe(EXPECTED_TOO_LARGE);
   });
 });
