@@ -15,6 +15,7 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/loomgtp"
 	"github.com/bgrewell/orbit/internal/nas"
+	"github.com/free5gc/ngap/ngapType"
 )
 
 // UE lifecycle states reported on StateStream and by Status.
@@ -184,6 +185,9 @@ type Manager struct {
 	// dial opens Register's N2 association; dialN2 in production, swapped
 	// by tests for an in-process AMF.
 	dial n2Dialer
+	// releaseLinger bounds Deregister's wait for the core's UE Context
+	// Release Command (switchOffReleaseLinger; shorter in tests).
+	releaseLinger time.Duration
 }
 
 // NewManager returns an empty session manager.
@@ -195,6 +199,8 @@ func NewManager(log *slog.Logger) *Manager {
 		profile:  coreprofile.Default(),
 		n3:       newN3Pool(),
 		dial:     dialN2,
+
+		releaseLinger: switchOffReleaseLinger,
 	}
 }
 
@@ -316,7 +322,16 @@ func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	if err := sess.deregister(ctx); err != nil {
 		return err
 	}
-	m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: "UE deregistered (switch-off)"})
+	// The association closes (the defer above) only once the core has
+	// released the UE, or the wait is over: closing first lets an AMF take
+	// the SHUTDOWN ahead of the Deregistration Request queued before it, and
+	// keep the UE registered.
+	detail := "UE deregistered (switch-off)"
+	if err := sess.awaitSwitchOffRelease(ctx, m.releaseLinger); err != nil {
+		m.log.Warn("switch-off deregistration: closing the association without the core's release", "supi", supi, "err", err)
+		detail += "; " + err.Error()
+	}
+	m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: detail})
 	m.appMetrics.forgetUE(supi)
 	return nil
 }
@@ -817,6 +832,48 @@ func stateFromResult(r *AttachResult) string {
 
 // deregister sends a UE-originating switch-off Deregistration Request under
 // the session's security context.
+// switchOffReleaseLinger bounds the wait, after a switch-off
+// Deregistration Request, for the AMF's UE Context Release Command. A
+// switch-off gets no Deregistration Accept (TS 24.501 5.5.2.2.1); the
+// release is the AMF's only answer, and it sends it as soon as it has
+// handled the request: well under a second on an idle core. Three seconds
+// leaves room for an AMF working through a load run's teardown burst, is
+// the bound the handover's source release already uses, and stays under
+// the 6s of a NAS retransmission timer such as T3550. The waits of a
+// fleet's UEs run in parallel, so a run's teardown waits once, not once
+// per UE.
+const switchOffReleaseLinger = 3 * time.Second
+
+// errNoUEContextRelease is how awaitSwitchOffRelease reports that the
+// core did not release the UE in time.
+var errNoUEContextRelease = errors.New("the core sent no UE Context Release")
+
+// awaitSwitchOffRelease waits on the UE's association for the UE Context
+// Release Command that answers its switch-off deregistration, and answers
+// it with UE Context Release Complete. The wait ends with ctx, or after
+// linger, as errNoUEContextRelease; other downlink PDUs are skipped.
+func (s *Session) awaitSwitchOffRelease(ctx context.Context, linger time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, linger)
+	defer cancel()
+	for {
+		pdu, err := gnb.ReadPDU(ctx, s.conn)
+		if ctx.Err() != nil {
+			return fmt.Errorf("%w within %s", errNoUEContextRelease, linger)
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %v", errNoUEContextRelease, err)
+		}
+		if code, ok := procedureCode(pdu); !ok || code != ngapType.ProcedureCodeUEContextRelease ||
+			pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
+			continue
+		}
+		if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(s.amfID, s.ranID)); err != nil {
+			return fmt.Errorf("UE Context Release Complete not sent: %w", err)
+		}
+		return nil
+	}
+}
+
 func (s *Session) deregister(ctx context.Context) error {
 	if s.sec == nil {
 		return fmt.Errorf("no security context")

@@ -304,6 +304,9 @@ func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.
 	switch {
 	case timedOut || (err == nil && !pdu.GetSessionActive()):
 		return p.fail(fmt.Sprintf("no PDU session accept within %s (DNN %s, slice %s)", timeout, core.GetDnn(), slice), pduFix)
+	case err != nil && staleNASContext(err):
+		return p.fail(fmt.Sprintf("registering %s again for the PDU session failed on NAS security: %s", supi, connectMsg(err)),
+			fmt.Sprintf("the core still holds an earlier registration of %s (a stale context): wait for it to expire, use another SUPI, or clear it in the core", supi))
 	case err != nil:
 		return p.fail(fmt.Sprintf("the PDU session for DNN %s on slice %s failed: %s (reject cause not reported yet)", core.GetDnn(), slice, connectMsg(err)), pduFix)
 	}
@@ -540,6 +543,16 @@ func sourceToward(host string) string {
 		return a.IP.String()
 	}
 	return "this server"
+}
+
+// staleNASContext is whether a registration failed on NAS security: a
+// downlink that does not decode, or one protected before the security
+// context is. That is what a core still holding an earlier registration of
+// the SUPI sends (its retransmitted Registration Accept, under the old
+// context). The error has crossed the UE service, so its text is matched.
+func staleNASContext(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, engine.ErrNoSecurityContext.Error()) || strings.Contains(msg, engine.ErrDownlinkNASDecode.Error())
 }
 
 func connectMsg(err error) string {

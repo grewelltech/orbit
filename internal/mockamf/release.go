@@ -2,11 +2,12 @@ package mockamf
 
 import "github.com/free5gc/ngap/ngapType"
 
-// WithReleaseOnDeregistration makes the mock answer a UE's Deregistration
-// Request with a UE CONTEXT RELEASE COMMAND, as an AMF does after a
-// switch-off deregistration (cause NAS deregister). By default the mock
-// sends nothing.
-func WithReleaseOnDeregistration() Option { return func(a *AMF) { a.releaseOnDereg = true } }
+// WithNoReleaseOnDeregistration makes the mock leave a UE's switch-off
+// Deregistration Request unanswered. By default it answers with a UE
+// CONTEXT RELEASE COMMAND (cause NAS deregister), as an AMF does: a
+// switch-off gets no Deregistration Accept (TS 24.501 5.5.2.2.1), and the
+// release is the AMF's answer.
+func WithNoReleaseOnDeregistration() Option { return func(a *AMF) { a.noReleaseOnDereg = true } }
 
 // WithIgnoreUEContextReleaseRequest makes the mock leave a UE CONTEXT
 // RELEASE REQUEST unanswered. By default it answers with a UE CONTEXT
@@ -15,10 +16,10 @@ func WithIgnoreUEContextReleaseRequest() Option {
 	return func(a *AMF) { a.ignoreReleaseRequest = true }
 }
 
-// onDeregistration answers a Deregistration Request
-// (WithReleaseOnDeregistration).
+// onDeregistration answers a Deregistration Request with a release,
+// unless WithNoReleaseOnDeregistration.
 func (a *AMF) onDeregistration(p *pipe, st *ueState) error {
-	if !a.releaseOnDereg {
+	if a.noReleaseOnDereg {
 		return nil
 	}
 	return a.send(p, buildUEContextReleaseCommandCause(st.amfID, a.ranIDOf(st), ngapType.CauseNasPresentDeregister))

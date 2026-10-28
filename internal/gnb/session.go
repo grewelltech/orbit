@@ -214,6 +214,16 @@ func ranUENGAPIDOf(pdu *ngapType.NGAPPDU) (int64, bool) {
 			}
 			return 0, false
 		})
+	case ngapType.InitiatingMessagePresentUEContextReleaseCommand:
+		// The release names the UE by its NGAP ID pair; an AMF-only ID
+		// (TS 38.413 9.3.3.18) has no RAN ID to route by and is dropped.
+		return findRANUEID(im.Value.UEContextReleaseCommand.ProtocolIEs.List, func(ie ngapType.UEContextReleaseCommandIEs) (int64, bool) {
+			if ie.Id.Value != ngapType.ProtocolIEIDUENGAPIDs || ie.Value.UENGAPIDs == nil ||
+				ie.Value.UENGAPIDs.Present != ngapType.UENGAPIDsPresentUENGAPIDPair || ie.Value.UENGAPIDs.UENGAPIDPair == nil {
+				return 0, false
+			}
+			return ie.Value.UENGAPIDs.UENGAPIDPair.RANUENGAPID.Value, true
+		})
 	default:
 		return 0, false
 	}

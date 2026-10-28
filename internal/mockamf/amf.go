@@ -88,6 +88,8 @@ type AMF struct {
 	encodeErrs atomic.Int64
 	// deregs counts UE-originating Deregistration Requests received.
 	deregs atomic.Int64
+	// releaseCompletes counts UE CONTEXT RELEASE COMPLETEs received.
+	releaseCompletes atomic.Int64
 	// setups are the gNBs that sent an NG Setup Request, in order (Setups).
 	setups []Setup
 	log    *slog.Logger
@@ -123,7 +125,7 @@ type AMF struct {
 	undecodableAccept bool
 
 	// UE context release options (release.go).
-	releaseOnDereg       bool
+	noReleaseOnDereg     bool
 	ignoreReleaseRequest bool
 
 	// Unknown-DNN options (dnn.go).
@@ -269,6 +271,11 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceSetupResponse {
 		return a.onPDUSessionSetupResponse(pdu.SuccessfulOutcome.Value.PDUSessionResourceSetupResponse)
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentUEContextReleaseComplete {
+		a.releaseCompletes.Add(1)
+		return nil
 	}
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 		return nil // Initial Context Setup Response etc. — no action
@@ -462,6 +469,11 @@ func (a *AMF) send(p *pipe, pdu ngapType.NGAPPDU) error {
 // Deregistrations reports how many UE-originating Deregistration Requests
 // the mock has received.
 func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
+
+// ReleaseCompletes reports how many UE CONTEXT RELEASE COMPLETEs the mock
+// has received: a release it sent on an association the gNB had already
+// closed is never completed.
+func (a *AMF) ReleaseCompletes() int64 { return a.releaseCompletes.Load() }
 
 // Setup is a gNB's NG Setup Request: its gNB ID and RAN node name.
 type Setup struct {

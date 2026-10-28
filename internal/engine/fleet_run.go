@@ -309,6 +309,7 @@ func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh
 	// Deregister. App-cohort members opened lazy data paths on the shared
 	// pool — close them first so the per-gNB sockets (and any netstack
 	// bridge) release with the last UE.
+	var sent []*Session
 	for _, fu := range ues {
 		// Retire the UE's counters BEFORE closing its data path: a closed
 		// session reports zeros, which would empty the run's totals at exactly
@@ -317,10 +318,37 @@ func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh
 		fu.sess.closeDataPath()
 		if err := fu.sess.deregister(context.Background()); err == nil {
 			rep.Deregistered++
+			sent = append(sent, fu.sess)
 		}
 	}
-	ev.Milestone(EventKindAttach, fmt.Sprintf("deregistered %d/%d UEs", rep.Deregistered, len(ues)))
+	// The associations close (f.Close, deferred) only once the core has
+	// released the UEs, or the wait is over.
+	note := ""
+	if n := awaitSwitchOffReleases(context.Background(), sent, switchOffReleaseLinger); n > 0 {
+		note = fmt.Sprintf("; %s for %d of them within %s", errNoUEContextRelease, n, switchOffReleaseLinger)
+		log.Warn("fleet run: closing the associations without the core's release", "ues", n)
+	}
+	ev.Milestone(EventKindAttach, fmt.Sprintf("deregistered %d/%d UEs%s", rep.Deregistered, len(ues), note))
 	return rep, nil
+}
+
+// awaitSwitchOffReleases waits for each session's UE Context Release, all
+// at once, so a run's teardown waits linger at most rather than linger per
+// UE. It returns how many the core did not release.
+func awaitSwitchOffReleases(ctx context.Context, sessions []*Session, linger time.Duration) int {
+	var missing atomic.Int64
+	var wg sync.WaitGroup
+	for _, s := range sessions {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if s.awaitSwitchOffRelease(ctx, linger) != nil {
+				missing.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	return int(missing.Load())
 }
 
 // attachRateNote renders the offered attach rate for a milestone, or "" when
