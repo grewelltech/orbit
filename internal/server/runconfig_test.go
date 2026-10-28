@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -187,8 +189,8 @@ func TestGetRunConfig(t *testing.T) {
 }
 
 // A run the registry has let go (beyond its history) and no archive holds
-// (no state dir) is NotFound, as GetRun answers it: its spec, still held
-// in memory, is not served.
+// (no state dir) is NotFound, as GetRun answers it: a spec of it still held
+// in memory is not served.
 func TestGetRunConfigEvictedRun(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rot, err := engine.OpenGNBRotation("", log)
@@ -221,9 +223,12 @@ func TestGetRunConfigEvictedRun(t *testing.T) {
 	if _, err := s.reg.Get(first); err == nil {
 		t.Fatal("the first run was not evicted")
 	}
-	if _, held := s.specs.peek(first); !held {
-		t.Fatal("the first run's spec is not held: the case this test is for does not arise")
+	// Its spec was let go with it (TestHeldSpecsBoundedByHistory), by the
+	// last run's end: wait for that, then hold one again, as a run whose
+	// spec outlived it, which still must not be served.
+	for deadline := time.Now().Add(5 * time.Second); !slices.Equal(heldIDs(s), registryIDs(s)) && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 	}
+	s.specs.put(first, &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}})
 	if _, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: first})); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("an evicted, never-archived run: %v, want NotFound", err)
 	}
@@ -257,16 +262,139 @@ func onlineResponder(t *testing.T, dir string) (*join.Registry, string) {
 // archivedService is a runService over dir's archive, built by hand.
 func archivedService(t *testing.T, dir string) *runService {
 	t.Helper()
+	return historyService(t, dir, engine.DefaultRunHistory)
+}
+
+// historyService is a runService whose registry and archive (under dir;
+// none if dir is "") each keep history terminal runs.
+func historyService(t *testing.T, dir string, history int) *runService {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rot, err := engine.OpenGNBRotation("", log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	arch, err := newArchiveStore(log, dir, 50)
+	arch, err := newArchiveStore(log, dir, history)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &runService{log: log, reg: engine.NewRunRegistry(log, 0), rotation: rot, specs: newSpecStore(), archive: arch}
+	return &runService{log: log, reg: engine.NewRunRegistry(log, history), rotation: rot, specs: newSpecStore(), archive: arch}
+}
+
+// heldIDs is the ids of the runs whose specs are held, sorted.
+func heldIDs(s *runService) []string {
+	s.specs.mu.Lock()
+	defer s.specs.mu.Unlock()
+	ids := make([]string, 0, len(s.specs.specs))
+	for id := range s.specs.specs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// registryIDs is the ids of the runs the registry holds, sorted.
+func registryIDs(s *runService) []string {
+	var ids []string
+	for _, info := range s.reg.List() {
+		ids = append(ids, info.ID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// A spec that is never saved, after a failed save or on every run when
+// there is no state dir, is let go when the registry lets its run go: the
+// specs held, each with its request's secret values, are bounded by the
+// registry's history, and are exactly its runs'.
+func TestHeldSpecsBoundedByHistory(t *testing.T) {
+	const history = 2
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T) string // the state dir, "" for none
+	}{
+		{"no state dir", func(*testing.T) string { return "" }},
+		{"every save fails", func(t *testing.T) string {
+			dir := t.TempDir()
+			if err := os.Chmod(dir, 0o500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+			return dir
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := historyService(t, tc.setup(t), history)
+			for range history + 2 {
+				startEnded(t, s)
+			}
+			// The last run's end sweeps, just after the registry has it ended.
+			want := registryIDs(s)
+			for deadline := time.Now().Add(5 * time.Second); !slices.Equal(heldIDs(s), want) && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			}
+			if got := heldIDs(s); !slices.Equal(got, want) || len(got) > history {
+				t.Errorf("specs held for %v; want the registry's %d runs %v", got, history, want)
+			}
+		})
+	}
+}
+
+// The registry evicts in the order runs start, the archive in the order
+// they end, so a run can still be in the registry, ended, with its spec let
+// go and its archive evicted. It is NotFound, not "starting; try again".
+// With a history of 2: A starts, B starts, B ends, A ends, C runs. The
+// registry keeps B and C; the archive, A and C.
+func TestGetRunConfigEndedRunWhoseArchiveWasEvicted(t *testing.T) {
+	s := historyService(t, t.TempDir(), 2)
+	ctx := context.Background()
+	start := func() (string, chan struct{}) {
+		release := make(chan struct{})
+		info, err := s.reg.StartLoad(engine.RunOptions{}, func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+			<-release
+			return load.Report{}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.specs.put(info.ID, &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}})
+		s.startSampler(info.ID)
+		return info.ID, release
+	}
+	archived := func(id string) {
+		t.Helper()
+		for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, ok := s.archive.get(id); ok {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s was never archived", id)
+			}
+		}
+	}
+	a, relA := start()
+	b, relB := start()
+	close(relB)
+	archived(b)
+	close(relA)
+	archived(a)
+	c, relC := start()
+	close(relC)
+	archived(c)
+
+	if info, err := s.reg.Get(b); err != nil || !info.State.Terminal() {
+		t.Fatalf("B in the registry: %v %v; the case this test is for does not arise", info.State, err)
+	}
+	if _, ok := s.archive.get(b); ok {
+		t.Fatal("B still archived: the case this test is for does not arise")
+	}
+	_, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: b}))
+	if connect.CodeOf(err) != connect.CodeNotFound || !strings.Contains(err.Error(), "archive was evicted") {
+		t.Errorf("B, ended, its archive evicted: %v, want NotFound", err)
+	}
+	// A, which the registry let go, is served from its archive.
+	if got, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: a})); err != nil || got.Msg.GetPlan() == nil {
+		t.Errorf("A, from its archive: %v", err)
+	}
 }
 
 // startEnded starts a plan run (its AMF unreachable, so it ends at once)

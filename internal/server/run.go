@@ -505,10 +505,16 @@ func (s *runService) sampleRun(id string, log *frameLog) {
 	// Archiving happens BEFORE the log closes, while the registry still holds
 	// the run: the archive needs its report, final snapshot and events, all of
 	// which go away when the record is evicted.
+	// Each run's end is also when the registry evicts beyond its history:
+	// the specs of the runs it let go are let go too (sweep).
 	finish := func() {
 		if done != nil {
 			s.archiveRun(id, *done, log.retained())
 		}
+		s.specs.sweep(func(id string) bool {
+			_, err := s.reg.Get(id)
+			return err == nil
+		})
 		log.close()
 	}
 
