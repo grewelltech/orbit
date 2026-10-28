@@ -11,7 +11,7 @@ import type { RenderRunRequestSchema } from "@/gen/orbit/v1/run_pb";
 import type { KeyValues } from "../targets/store";
 import { isScalar, parseDocument, visit } from "yaml";
 import { keysBlocked } from "../targets/probe";
-import { refName, refsIn, secretSlots } from "../targets/yamlio";
+import { parseTargets, refName, refsIn, secretSlots } from "../targets/yamlio";
 
 export type PlanRequest = MessageInitShape<typeof ResolveRequestSchema>;
 export type RenderRequest = MessageInitShape<typeof RenderRunRequestSchema>;
@@ -106,6 +106,52 @@ export function whyNotStart(s: StartState): string | undefined {
   if (s.unsetVars.length > 0) return `set ${s.unsetVars.map((v) => `\${${v}}`).join(", ")} first: the browser has no environment to take them from`;
   if (s.workloads === 0) return "add a workload";
   return undefined;
+}
+
+/** What Launch has when it decides whether its run may start (startStateFor). */
+export interface StartInput {
+  /** The picked target's document, as stored; undefined for none. */
+  targetYaml: string | undefined;
+  runYaml: string;
+  /** Every ${VAR} the target and run file name (refsOf). */
+  refs: readonly string[];
+  values: Readonly<Record<string, string>>;
+  workloads: number;
+  loc: StartState["loc"];
+  token: string;
+}
+
+/**
+ * The StartState Launch's run is judged by (whyNotStart), and the ${VAR}s
+ * the page asks for: a ${VAR} at one of the target's key slots is set on
+ * the Targets page (missingKeys when it has no value); any other is asked
+ * for here (prompts; unsetVars when it has no value). carriesSecrets is
+ * the target and run file as sent.
+ */
+export function startStateFor(input: StartInput): { state: StartState; prompts: string[] } {
+  const target = input.targetYaml;
+  let keyRefs = new Set<string>();
+  if (target !== undefined) {
+    try {
+      const [p] = parseTargets(target);
+      if (p) keyRefs = new Set(secretSlots(p.doc).map((x) => refName(x.value)).filter((v): v is string => v !== undefined));
+    } catch {
+      /* a target that does not parse has no key slots to read; PlanRun says what is wrong with it */
+    }
+  }
+  const prompts = input.refs.filter((r) => !keyRefs.has(r));
+  return {
+    prompts,
+    state: {
+      loc: input.loc,
+      token: input.token,
+      hasTarget: target !== undefined,
+      missingKeys: input.refs.filter((r) => keyRefs.has(r) && !input.values[r]),
+      unsetVars: prompts.filter((r) => !input.values[r]),
+      workloads: input.workloads,
+      carriesSecrets: target !== undefined && carriesSecrets({ targetYaml: target, runYaml: input.runYaml }),
+    },
+  };
 }
 
 /** The PlanRun request, or the ${VAR}s it still needs a value for. */

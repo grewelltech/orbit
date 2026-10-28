@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,12 +11,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -29,6 +34,37 @@ import (
 	"github.com/bgrewell/orbit/internal/secrets"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
+
+var updateRunConfig = flag.Bool("update-runconfig", false, "write TestGetRunConfig's archived answer for the dashboard's tests")
+
+// runConfigKeysFixture is a real GetRunConfig answer for a run with keys,
+// a key a provenance entry overrode, and the server's own (LEASE) entries:
+// the dashboard's provenance tests read its masked rows.
+var runConfigKeysFixture = filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig", "keys-and-leases.json")
+
+// runConfigSameValueFixture is a real GetRunConfig answer for an archived
+// run whose notices are same and not, secret and not: the dashboard's
+// notice text claims "(same value)" only where Go's does.
+var runConfigSameValueFixture = filepath.Join("..", "..", "web", "src", "data", "testdata", "runconfig", "secrets-and-same-value.json")
+
+// writeNoticeTexts writes, next to a GetRunConfig fixture, the text
+// plan.NoticeText gives each of its notices, in order: the dashboard's
+// noticeText is pinned to say exactly the same. rewrite is the fixture's
+// own rewrite (its temporary paths and addresses), applied to each text.
+func writeNoticeTexts(t *testing.T, fixture string, notices []*orbitv1.OverrideNotice, rewrite func(string) string) {
+	t.Helper()
+	texts := make([]string, 0, len(notices))
+	for _, n := range notices {
+		texts = append(texts, rewrite(plan.NoticeText(n)))
+	}
+	b, err := json.MarshalIndent(texts, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strings.TrimSuffix(fixture, ".json")+".text.json", append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // GetRunConfig serves a run's plan and provenance as the archive holds
 // them: from the held spec while the run is live (read, not taken: the
@@ -111,6 +147,22 @@ func TestGetRunConfig(t *testing.T) {
 		}
 	}
 	archived := read("archived")
+	if *updateRunConfig {
+		b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(archived)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.ReplaceAll(string(b), addr, "192.0.2.10:38412")
+		if err := os.MkdirAll(filepath.Dir(runConfigKeysFixture), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(runConfigKeysFixture, []byte(text+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeNoticeTexts(t, runConfigKeysFixture, archived.GetNotices(), func(s string) string {
+			return strings.ReplaceAll(s, addr, "192.0.2.10:38412")
+		})
+	}
 	// Reading the live spec took nothing from the archive.
 	if len(archived.GetProvenance()) < len(live.GetProvenance()) || archived.GetPlan() == nil {
 		t.Errorf("archived: %d provenance entries and plan %t; live had %d", len(archived.GetProvenance()), archived.GetPlan() != nil, len(live.GetProvenance()))
@@ -145,8 +197,8 @@ func TestGetRunConfig(t *testing.T) {
 }
 
 // A run the registry has let go (beyond its history) and no archive holds
-// (no state dir) is NotFound, as GetRun answers it: its spec, still held
-// in memory, is not served.
+// (no state dir) is NotFound, as GetRun answers it: a spec of it still held
+// in memory is not served.
 func TestGetRunConfigEvictedRun(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rot, err := engine.OpenGNBRotation("", log)
@@ -179,9 +231,12 @@ func TestGetRunConfigEvictedRun(t *testing.T) {
 	if _, err := s.reg.Get(first); err == nil {
 		t.Fatal("the first run was not evicted")
 	}
-	if _, held := s.specs.peek(first); !held {
-		t.Fatal("the first run's spec is not held: the case this test is for does not arise")
+	// Its spec was let go with it (TestHeldSpecsBoundedByHistory), by the
+	// last run's end: wait for that, then hold one again, as a run whose
+	// spec outlived it, which still must not be served.
+	for deadline := time.Now().Add(5 * time.Second); !slices.Equal(heldIDs(s), registryIDs(s)) && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 	}
+	s.specs.put(first, &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}})
 	if _, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: first})); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("an evicted, never-archived run: %v, want NotFound", err)
 	}
@@ -215,16 +270,152 @@ func onlineResponder(t *testing.T, dir string) (*join.Registry, string) {
 // archivedService is a runService over dir's archive, built by hand.
 func archivedService(t *testing.T, dir string) *runService {
 	t.Helper()
+	return historyService(t, dir, engine.DefaultRunHistory)
+}
+
+// historyService is a runService whose registry and archive (under dir;
+// none if dir is "") each keep history terminal runs.
+func historyService(t *testing.T, dir string, history int) *runService {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rot, err := engine.OpenGNBRotation("", log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	arch, err := newArchiveStore(log, dir, 50)
+	arch, err := newArchiveStore(log, dir, history)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &runService{log: log, reg: engine.NewRunRegistry(log, 0), rotation: rot, specs: newSpecStore(), archive: arch}
+	return &runService{log: log, reg: engine.NewRunRegistry(log, history), rotation: rot, specs: newSpecStore(), archive: arch}
+}
+
+// heldIDs is the ids of the runs whose specs are held, sorted.
+func heldIDs(s *runService) []string {
+	s.specs.mu.Lock()
+	defer s.specs.mu.Unlock()
+	ids := make([]string, 0, len(s.specs.specs))
+	for id := range s.specs.specs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// registryIDs is the ids of the runs the registry holds, sorted.
+func registryIDs(s *runService) []string {
+	var ids []string
+	for _, info := range s.reg.List() {
+		ids = append(ids, info.ID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// A spec that is never saved, after a failed save or on every run when
+// there is no state dir, is let go when the registry lets its run go: the
+// specs held, each with its request's secret values, are bounded by the
+// registry's history, and are exactly its runs'.
+func TestHeldSpecsBoundedByHistory(t *testing.T) {
+	const history = 2
+	for _, tc := range []struct {
+		name       string
+		stateDir   bool // a state dir to save to
+		breakSaves bool // replaced by a regular file once the store is open: every save fails, whatever the uid
+	}{
+		{"no state dir", false, false},
+		{"every save fails", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := ""
+			if tc.stateDir {
+				dir = filepath.Join(t.TempDir(), "state")
+			}
+			s := historyService(t, dir, history)
+			if tc.breakSaves {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(dir, []byte("not a directory\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for range history + 2 {
+				startEnded(t, s)
+			}
+			// The last run's end sweeps, just after the registry has it ended.
+			want := registryIDs(s)
+			for deadline := time.Now().Add(5 * time.Second); !slices.Equal(heldIDs(s), want) && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			}
+			if got := heldIDs(s); !slices.Equal(got, want) || len(got) > history {
+				t.Errorf("specs held for %v; want the registry's %d runs %v", got, history, want)
+			}
+			if tc.breakSaves {
+				for _, id := range want {
+					if _, ok := s.archive.get(id); ok {
+						t.Fatalf("%s was archived after all: the case this row is for does not arise", id)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The registry evicts in the order runs start, the archive in the order
+// they end, so a run can still be in the registry, ended, with its spec let
+// go and its archive evicted. It is NotFound, not "starting; try again".
+// With a history of 2: A starts, B starts, B ends, A ends, C runs. The
+// registry keeps B and C; the archive, A and C.
+func TestGetRunConfigEndedRunWhoseArchiveWasEvicted(t *testing.T) {
+	s := historyService(t, t.TempDir(), 2)
+	ctx := context.Background()
+	start := func() (string, chan struct{}) {
+		release := make(chan struct{})
+		info, err := s.reg.StartLoad(engine.RunOptions{}, func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+			<-release
+			return load.Report{}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.specs.put(info.ID, &orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}})
+		s.startSampler(info.ID)
+		return info.ID, release
+	}
+	archived := func(id string) {
+		t.Helper()
+		for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, ok := s.archive.get(id); ok {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s was never archived", id)
+			}
+		}
+	}
+	a, relA := start()
+	b, relB := start()
+	close(relB)
+	archived(b)
+	close(relA)
+	archived(a)
+	c, relC := start()
+	close(relC)
+	archived(c)
+
+	if info, err := s.reg.Get(b); err != nil || !info.State.Terminal() {
+		t.Fatalf("B in the registry: %v %v; the case this test is for does not arise", info.State, err)
+	}
+	if _, ok := s.archive.get(b); ok {
+		t.Fatal("B still archived: the case this test is for does not arise")
+	}
+	_, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: b}))
+	if connect.CodeOf(err) != connect.CodeNotFound || !strings.Contains(err.Error(), "archive was evicted") {
+		t.Errorf("B, ended, its archive evicted: %v, want NotFound", err)
+	}
+	// A, which the registry let go, is served from its archive.
+	if got, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: a})); err != nil || got.Msg.GetPlan() == nil {
+		t.Errorf("A, from its archive: %v", err)
+	}
 }
 
 // startEnded starts a plan run (its AMF unreachable, so it ends at once)
@@ -392,4 +583,68 @@ func TestGetRunConfigSameValueOnAnArchivedRun(t *testing.T) {
 	if !maps.Equal(same, want) {
 		t.Errorf("same_value by path %v, want %v", same, want)
 	}
+	if *updateRunConfig {
+		b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(got.Msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(runConfigSameValueFixture, []byte(string(b)+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeNoticeTexts(t, runConfigSameValueFixture, got.Msg.GetNotices(), func(s string) string { return s })
+	}
+}
+
+// A run's spec outlives its eviction from the registry until its own
+// sampler has archived it: another run's end can evict it, and sweep, in
+// the gap between its sampler seeing it end and archiving it. The hook
+// holds run Y's sampler in that gap while run Z ends (history 1: the
+// registry lets Y go, and Z's sweep runs); Y's archive still has its plan.
+func TestSweepKeepsASpecItsSamplerHasNotArchived(t *testing.T) {
+	s := historyService(t, t.TempDir(), 1)
+	inGap, release := make(chan string, 1), make(chan struct{})
+	var first sync.Once
+	s.beforeArchive = func(id string) {
+		hold := false
+		first.Do(func() { hold = true }) // the first run to end: Y
+		if hold {
+			inGap <- id
+			<-release
+		}
+	}
+	ctx := context.Background()
+	r, err := s.StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	y := r.Msg.GetRun().GetRunId()
+	select {
+	case held := <-inGap:
+		if held != y {
+			t.Fatalf("held %s, want Y %s", held, y)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Y's sampler never reached its archiving")
+	}
+	z := startEnded(t, s)
+	archiveTried(t, s, z) // Z archived, and swept
+	if _, err := s.reg.Get(y); err == nil {
+		t.Fatal("the registry still has Y: the case this row is for does not arise")
+	}
+	if _, held := s.specs.get(y); !held {
+		t.Error("Z's sweep dropped Y's spec while Y's sampler had yet to archive it")
+	}
+	close(release)
+	archiveTried(t, s, y)
+	if a, ok := s.archive.get(y); !ok || a.GetPlan() == nil {
+		t.Errorf("Y's archive: archived %t, plan %t; want its plan", ok, a.GetPlan() != nil)
+	}
+	// Archived, and its sampler done: a later sweep lets it go.
+	startEnded(t, s)
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, held := s.specs.get(y); !held {
+			return
+		}
+	}
+	t.Error("Y's spec is still held after it was archived and its sampler ended")
 }

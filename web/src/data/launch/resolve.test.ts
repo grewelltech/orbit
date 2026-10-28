@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carriesSecrets, formKey, planRequest, refsOf, refusedAt, renderRequest, startBlocked, varsPromptNote, whyNotStart, type LaunchInput, type StartState } from "./resolve";
+import { carriesSecrets, formKey, planRequest, refsOf, refusedAt, renderRequest, startBlocked, startStateFor, varsPromptNote, whyNotStart, type LaunchInput, type StartState } from "./resolve";
 import { quickTargetText } from "./useLaunch";
 
 const target = 'version: 1\nkind: target\nname: lab1\n# ${IN_A_COMMENT}\ncore:\n  amf: "${LAB_AMF}"\nsubscribers:\n  - name: main\n    ki: "${ORBIT_KI}"\n    opc: "${ORBIT_OPC}"\n';
@@ -121,5 +121,48 @@ describe("the ${VAR} prompt's line", () => {
   it("remembered in this browser when the target remembers its keys", () => {
     expect(varsPromptNote(true)).toContain("remembered in this browser");
     expect(varsPromptNote(true)).not.toContain("this tab");
+  });
+});
+
+describe("the StartState Launch judges its run by (startStateFor)", () => {
+  const remoteHttp = { protocol: "http:", hostname: "192.0.2.10" };
+  const quick = quickTargetText({ name: "core", amf: "192.0.2.1:38412", mcc: "001", mnc: "01", sst: "1", sd: "", tac: "" });
+  const keyed = quick + "subscribers:\n    - name: main\n      first_supi: \"001010000000001\"\n      ki: ${ORBIT_KI}\n      opc: ${ORBIT_OPC}\n";
+  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: [\"${CATS}\"]}\n";
+  const input = { runYaml: suite, values: {}, workloads: 1, loc: remoteHttp, token: "" };
+
+  it("a target's key ${VAR}s are set on the Targets page; the rest are asked for here", () => {
+    const { state, prompts } = startStateFor({ ...input, targetYaml: keyed, refs: ["ORBIT_KI", "ORBIT_OPC", "CATS"] });
+    expect(state.missingKeys).toEqual(["ORBIT_KI", "ORBIT_OPC"]);
+    expect(prompts).toEqual(["CATS"]);
+    expect(state.unsetVars).toEqual(["CATS"]);
+    expect(state.hasTarget).toBe(true);
+  });
+
+  it("a value given is neither missing nor unset", () => {
+    const { state } = startStateFor({ ...input, targetYaml: keyed, refs: ["ORBIT_KI", "ORBIT_OPC", "CATS"], values: { ORBIT_KI: "k", CATS: "registration" } });
+    expect(state.missingKeys).toEqual(["ORBIT_OPC"]);
+    expect(state.unsetVars).toEqual([]);
+  });
+
+  it("carriesSecrets is the target and run file as sent: a keyed target carries them, so a remote http dashboard is blocked", () => {
+    const keyedState = startStateFor({ ...input, targetYaml: keyed, refs: [] }).state;
+    expect(keyedState.carriesSecrets).toBe(true);
+    expect(whyNotStart({ ...keyedState, missingKeys: [], unsetVars: [] })).toContain("in the clear");
+    const quickState = startStateFor({ ...input, runYaml: "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: []}\n", targetYaml: quick, refs: [] }).state;
+    expect(quickState.carriesSecrets).toBe(false);
+    expect(whyNotStart(quickState)).toBeUndefined();
+  });
+
+  it("no target: nothing carried, and the first reason is the target", () => {
+    const { state } = startStateFor({ ...input, targetYaml: undefined, refs: ["CATS"] });
+    expect(state).toMatchObject({ hasTarget: false, carriesSecrets: false, missingKeys: [] });
+    expect(whyNotStart(state)).toContain("make a target first");
+  });
+
+  it("a target that does not parse has no key slots: its ${VAR}s are asked for", () => {
+    const { state, prompts } = startStateFor({ ...input, targetYaml: "core: [", refs: ["X"] });
+    expect(prompts).toEqual(["X"]);
+    expect(state.missingKeys).toEqual([]);
   });
 });

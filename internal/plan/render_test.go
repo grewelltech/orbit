@@ -190,3 +190,36 @@ func TestForSettingsOverForever(t *testing.T) {
 		t.Errorf("until %v, want 10m and not forever", got)
 	}
 }
+
+// pasteUnsafe takes out what a terminal may act on when a copied command
+// is pasted, or that shows text other than it runs: among them a zero-width
+// space (U+200B, a format character) and a right-to-left override (U+202E,
+// a bidirectional control), which make an argument read as something else.
+func TestPasteUnsafe(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		s    string
+		want bool
+	}{
+		{"plain", "workloads[pop].attach.count=10", false},
+		{"non-ASCII text", "name=café", false},
+		{"ZWSP", "name=a\u200bb", true},
+		{"ZWSP alone", "\u200b", true},
+		{"RLO", "name=\u202eexe.txt", true},
+		{"LRI (U+2066)", "a\u2066b", true},
+		{"PDI (U+2069)", "a\u2069b", true},
+		{"LRM", "a\u200eb", true},
+		{"ALM (U+061C)", "a\u061cb", true},
+		{"word joiner (U+2060, Cf)", "a\u2060b", true},
+		{"BOM (U+FEFF, Cf)", "\ufeffa", true},
+		{"line separator", "a\u2028b", true},
+		{"tab", "a\tb", true},
+		{"newline", "a\nb", true},
+		{"DEL", "a\x7fb", true},
+		{"C1 (U+0085)", "a\u0085b", true},
+	} {
+		if got := pasteUnsafe(tc.s); got != tc.want {
+			t.Errorf("%s: pasteUnsafe(%q) = %t, want %t", tc.name, tc.s, got, tc.want)
+		}
+	}
+}

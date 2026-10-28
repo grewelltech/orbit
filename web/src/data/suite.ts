@@ -27,8 +27,11 @@ const VERDICTS = new Set(["PASS", "FAIL", "ERROR", "SKIP", "DEVIATION"]);
  * prefixes with "[<workload>] " (a workload's name holds no brackets). Any
  * other event, or a message not of that form, is none.
  */
-export function checkVerdict(ev: Pick<RunEvent, "kind" | "message">): CheckVerdict | undefined {
+export function checkVerdict(ev: Pick<RunEvent, "kind" | "message"> & Partial<Pick<RunEvent, "check">>): CheckVerdict | undefined {
   if (ev.kind !== "CONFORMANCE") return undefined;
+  // A server that sends the verdict as fields (RunEvent.check): those; an
+  // older one, the text.
+  if (ev.check && VERDICTS.has(ev.check.verdict)) return { workload: ev.check.workload, id: ev.check.checkId, verdict: ev.check.verdict };
   const m = /^(?:\[([^\][]+)\] )?(\S+) (\S+)$/.exec(ev.message);
   if (!m || !VERDICTS.has(m[3] ?? "")) return undefined;
   return { workload: m[1] ?? "", id: m[2] ?? "", verdict: m[3] ?? "" };
@@ -103,6 +106,37 @@ export function suitesOf(run: GetRunResponse | undefined, report: GetRunReportRe
     out.push({ name: "", progress: runLevel, ...fromSummary(report?.report.case === "conformance" ? report.report.value : undefined) });
   }
   return out;
+}
+
+/** A suite's counts by verdict, and how many of its FAILs the expected-failures list tolerates. */
+export interface Tally {
+  pass: number;
+  fail: number;
+  error: number;
+  deviation: number;
+  skip: number;
+  expected: number;
+}
+
+/**
+ * A suite's tally: once done, counted from its results (a FAIL the list
+ * tolerates counted in expected as well as in fail); in flight, the
+ * server's running tally.
+ */
+export function suiteTally(suite: Suite, done: boolean): Tally {
+  if (!done) {
+    const p = suite.progress;
+    return { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0, expected: p?.expected ?? 0 };
+  }
+  const count = (v: string) => suite.results.filter((r) => r.verdict === v).length;
+  return {
+    pass: count("PASS"),
+    fail: count("FAIL"),
+    error: count("ERROR"),
+    deviation: count("DEVIATION"),
+    skip: count("SKIP"),
+    expected: suite.results.filter((r) => r.verdict === "FAIL" && r.expectedFailure).length,
+  };
 }
 
 /**

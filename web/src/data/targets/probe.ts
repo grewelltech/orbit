@@ -142,3 +142,21 @@ export function endOnPageHide(win: Pick<EventTarget, "addEventListener" | "remov
   win.addEventListener("pagehide", end);
   return () => win.removeEventListener("pagehide", end);
 }
+
+/**
+ * The probe's page lifecycle, as useProbe wires it: a full page load ends
+ * the stream (endOnPageHide), and a page the back/forward cache restores
+ * (pageshow, persisted), whose stream that ended, shows the probe idle
+ * (reset) rather than as it was left, steps mid-run. Returns the remover.
+ */
+export function probePageLifecycle(win: Pick<EventTarget, "addEventListener" | "removeEventListener">, runner: Pick<ProbeRunner, "dispose">, reset: () => void): () => void {
+  const removeHide = endOnPageHide(win, runner);
+  const show = (e: Event) => {
+    if ((e as Partial<PageTransitionEvent>).persisted === true) reset();
+  };
+  win.addEventListener("pageshow", show);
+  return () => {
+    removeHide();
+    win.removeEventListener("pageshow", show);
+  };
+}

@@ -1,0 +1,4 @@
+[
+  "workloads[pop].attach.seed: env $ORBIT_LOAD_SEED (7) overrode run file soak.yaml:5 (5)",
+  "core.plmn.mcc: env $ORBIT_MCC (001) overrode target lab1.yaml:6 (001) (same value)"
+]

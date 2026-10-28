@@ -13,6 +13,7 @@ import * as act from "../targets/actions";
 import { browserLocal, browserSession, keysFor, loadTargets, remembers, storageChange, type KeyValueStore } from "../targets/store";
 import { newTarget, render, setSlices, setValue } from "../targets/yamlio";
 import { startFrom } from "./form";
+import { loadStarted, recordStarted, type StartedRun } from "./startedRuns";
 import { LAUNCH_IDLE, LaunchRunner, type LaunchState } from "./launch";
 import { formKey, refsOf, type LaunchInput } from "./resolve";
 import { parseRun, renderRun } from "./runyaml";
@@ -62,10 +63,15 @@ export interface QuickTarget {
 /** The largest TAC: 24 bits. */
 export const TAC_MAX = 0xffffff;
 
-/** Why q makes no target yet, or undefined: a name, an AMF and a PLMN, and a TAC (when given) within 1 to TAC_MAX. */
+/**
+ * Why q makes no target yet, or undefined: a name, an AMF and a PLMN, and
+ * a TAC (when given) within 1 to TAC_MAX, written without a leading zero
+ * (as import and the server refuse one: 007 could be octal or decimal).
+ */
 export function quickTargetProblem(q: QuickTarget): string | undefined {
   if (!q.name.trim() || !q.amf.trim() || !q.mcc.trim() || !q.mnc.trim()) return "a name, an AMF and a PLMN";
   const tac = q.tac.trim();
+  if (/^0[0-9]+$/.test(tac)) return `TAC ${tac} has a leading zero; write ${tac.replace(/^0+/, "") || "0"}`;
   if (tac !== "" && !(/^[0-9]+$/.test(tac) && Number(tac) >= 1 && Number(tac) <= TAC_MAX)) return `a TAC is 1 to ${TAC_MAX}`;
   return undefined;
 }
@@ -134,6 +140,7 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
   );
   useEffect(() => dropRetiredKeys(local), [local]);
   const [state, setState] = useState<LaunchState>(LAUNCH_IDLE);
+  const [started, setStarted] = useState<StartedRun[]>(() => loadStarted(session));
 
   const client = useMemo(() => createClient(RunService, orbitTransport(baseUrl)), [baseUrl]);
   const runner = useMemo(() => new LaunchRunner(client, setState), [client]);
@@ -239,10 +246,16 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
       return r.notices;
     },
     state,
+    /** The runs this tab started, newest first. */
+    started,
     plan: () => (input ? runner.plan(input) : Promise.resolve(undefined)),
     start: async () => {
+      const name = state.plan?.response.runName ?? "";
       const id = await runner.start(() => latest.current as LaunchInput, state.plan);
-      if (id) window.location.assign(`?run=${encodeURIComponent(id)}`);
+      if (id) {
+        setStarted(recordStarted(session, { id, name }));
+        window.location.assign(`?run=${encodeURIComponent(id)}`);
+      }
       return id;
     },
   };

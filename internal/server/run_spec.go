@@ -19,6 +19,10 @@ import (
 type specStore struct {
 	mu    sync.Mutex
 	specs map[string]heldSpec
+	// sampled is the runs whose sampler is live: until it has archived its
+	// run, sweep keeps the run's spec even once the registry has let the
+	// run go (another run's end can evict it in between).
+	sampled map[string]bool
 }
 
 // heldSpec is a run's spec, masked, and the secret values masked out of it.
@@ -30,7 +34,7 @@ type heldSpec struct {
 }
 
 func newSpecStore() *specStore {
-	return &specStore{specs: make(map[string]heldSpec)}
+	return &specStore{specs: make(map[string]heldSpec), sampled: make(map[string]bool)}
 }
 
 // put records a run's spec with every secret masked (secrets.Mask: every
@@ -96,6 +100,53 @@ func (s *specStore) drop(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.specs, id)
+}
+
+// sampling marks run id's sampler live (true) or done (false): a live
+// sampler's run keeps its spec through a sweep.
+func (s *specStore) sampling(id string, live bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if live {
+		s.sampled[id] = true
+	} else {
+		delete(s.sampled, id)
+	}
+}
+
+// sweep drops the spec of every run keep says no: a run the registry has
+// evicted. A spec is otherwise dropped only once its archive is saved, so
+// without a sweep a failed save, or every run when there is no state dir
+// to save to, would hold a spec, with the request's secret values, for the
+// life of the process. Swept as each run ends, the specs held are bounded
+// by the registry's history.
+func (s *specStore) sweep(keep func(id string) bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.specs))
+	for id := range s.specs {
+		if !s.sampled[id] {
+			ids = append(ids, id)
+		}
+	}
+	s.mu.Unlock()
+	// keep reads the registry, under its own lock: not called under s.mu.
+	var gone []string
+	for _, id := range ids {
+		if !keep(id) {
+			gone = append(gone, id)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range gone {
+		delete(s.specs, id)
+	}
 }
 
 const redacted = secrets.Masked
