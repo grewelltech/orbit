@@ -163,6 +163,10 @@ func (j *joinService) ListJoinTokens(context.Context, *connect.Request[orbitv1.L
 
 func (j *joinService) RevokeJoinToken(_ context.Context, req *connect.Request[orbitv1.RevokeJoinTokenRequest]) (*connect.Response[orbitv1.RevokeJoinTokenResponse], error) {
 	if err := j.store.Revoke(req.Msg.GetId()); err != nil {
+		if errors.Is(err, join.ErrBurned) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("join token %s was used by a registration, so there is nothing to revoke; it lapses at its expiry", req.Msg.GetId()))
+		}
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
 	j.log.Info("join token revoked", "id", req.Msg.GetId())

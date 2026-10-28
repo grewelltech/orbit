@@ -243,13 +243,18 @@ func (s *Store) List() []Token {
 	return out
 }
 
-// Revoke cancels the pending token with this ID.
+// Revoke cancels the pending token with this ID. A token a registration
+// burned is ErrBurned and left as it is: its record is what tells that
+// registration's retry (the same credential) from another one.
 func (s *Store) Revoke(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweep(s.now())
 	for h, t := range s.tokens {
 		if t.ID == id {
+			if t.burned {
+				return ErrBurned
+			}
 			delete(s.tokens, h)
 			return nil
 		}

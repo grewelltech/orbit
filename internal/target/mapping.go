@@ -174,6 +174,13 @@ var Exclusions = []Exclusion{
 	// target (ADR-0009 §4).
 	{Flag: "ssh", Commands: []string{cmdAddResponder}, Reason: ReasonConnection},
 	{Flag: "yes", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	// The join script's own options, passed through to the app host: how
+	// it sets that host up, not the target.
+	{Flag: "n6-ip", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "bind", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "no-firewall", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "no-route", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "no-systemd", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
 	{Flag: "gate", Reason: ReasonFieldSetter},
 	{Flag: "set", Commands: []string{"orbit run", cmdTest}, Reason: ReasonFieldSetter},
 

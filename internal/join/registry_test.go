@@ -109,6 +109,23 @@ func TestRegister(t *testing.T) {
 			}
 			return err
 		}},
+		// A revoke between the two (add-responder's revokeUnused racing the
+		// registration) is refused, and the retry still gets its answer.
+		{name: "a retry after a refused revoke gets the same answer", run: func(t *testing.T, l regLab) error {
+			tok, c := l.token(t), cred(t)
+			a, err := l.reg.Register(l.store, regReq(tok, c, "app1"))
+			if err != nil {
+				return err
+			}
+			if err := l.store.Revoke(a.JoinTokenID); !errors.Is(err, ErrBurned) {
+				t.Errorf("revoking the used token: %v, want ErrBurned", err)
+			}
+			b, err := l.reg.Register(l.store, regReq(tok, c, "app1"))
+			if err == nil && (a.ID != b.ID || a.LoomToken != b.LoomToken) {
+				t.Errorf("retry: %s/%s, first %s/%s", b.ID, b.LoomToken, a.ID, a.LoomToken)
+			}
+			return err
+		}},
 		{name: "a used token with another credential", want: "unknown or expired", run: func(t *testing.T, l regLab) error {
 			tok := l.token(t)
 			if _, err := l.reg.Register(l.store, regReq(tok, cred(t), "app1")); err != nil {

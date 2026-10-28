@@ -457,6 +457,7 @@ main() {
 		IFACES="$CTL_DEV and $N6_DEV"
 		[ "$CTL_DEV" != "$N6_DEV" ] || IFACES=$CTL_DEV
 		echo "  (firewalld binds interfaces through zones: put $IFACES in the zone these rules go in. $RANGE_WHY)" >&2
+		echo "  (an icmp-block on echo-request in that zone wins over the accept above: check with firewall-cmd --zone=<zone> --query-icmp-block=echo-request, and remove it with --remove-icmp-block=echo-request)" >&2
 		exit 1
 	else
 		# Whether input is filtered, per family. It is provably not only when

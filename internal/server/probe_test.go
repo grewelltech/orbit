@@ -301,16 +301,27 @@ func TestProbeSteps(t *testing.T) {
 func TestProbeLeases(t *testing.T) {
 	f := &probeFakes{}
 	svc, reg := newProbeService(f.env())
-	needs := engine.Needs{GNBs: []engine.GNBKey{{AMF: probeAMF, PLMN: "001/01", ID: 2}}}
-	release, err := reg.Hold("run-7", needs)
-	if err != nil {
-		t.Fatal(err)
+	// Each resource alone: a run holding just it refuses the probe.
+	for _, held := range []struct {
+		name  string
+		needs engine.Needs
+	}{
+		{name: "its third gNB ID", needs: engine.Needs{GNBs: []engine.GNBKey{{AMF: probeAMF, PLMN: "001/01", ID: 3}}}},
+		{name: "its SUPI", needs: engine.Needs{SUPIs: []engine.SUPIBlock{{PLMN: "001/01", First: 1010000000001, Last: 1010000000001}}}},
+		{name: "its N2 source", needs: engine.Needs{N2IPs: []string{"192.0.2.50"}}},
+	} {
+		t.Run(held.name, func(t *testing.T) {
+			release, err := reg.Hold("run-7", held.needs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			steps, err := probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: probeTarget(nil), CoreOnly: true}, nil)
+			if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "run-7") || len(steps) != 0 {
+				t.Fatalf("err = %v after %d steps, want FailedPrecondition naming run-7 before any", err, len(steps))
+			}
+		})
 	}
-	_, err = probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: probeTarget(nil), CoreOnly: true}, nil)
-	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "run-7") {
-		t.Fatalf("err = %v, want FailedPrecondition naming run-7", err)
-	}
-	release()
 	if _, err := probeVia(t, context.Background(), svc, &orbitv1.ProbeRequest{Target: probeTarget(nil), CoreOnly: true}, nil); err != nil {
 		t.Fatal(err)
 	}

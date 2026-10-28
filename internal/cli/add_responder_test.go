@@ -9,9 +9,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -30,27 +32,37 @@ type addResponderLab struct {
 	url    string
 	log    string // the fake ssh's call log
 	stdins string // where it keeps what each call read
+	// onScript, when set, runs as the script is served, before it is.
+	onScript func(*http.Request)
 }
 
 // stubAddJoin answers CreateJoinToken with a URL on its own TLS server,
-// lists that token as pending until a registration would use it (used) or
-// it is revoked, and records revokes.
+// lists that token as pending until a registration uses it (used, or the
+// fake ssh's apply writing usedFile) or it is revoked, and records revokes.
 type stubAddJoin struct {
 	orbitv1connect.UnimplementedJoinServiceHandler
 	create    *orbitv1.CreateJoinTokenRequest
 	base      string
 	pin       string
+	usedFile  string
 	mu        sync.Mutex
 	used      bool
 	revokeErr error
 	revoked   []string
+	// onCreate, when set, runs in CreateJoinToken before it answers.
+	onCreate func()
 }
 
 func (s *stubAddJoin) ListJoinTokens(context.Context, *connect.Request[orbitv1.ListJoinTokensRequest]) (*connect.Response[orbitv1.ListJoinTokensResponse], error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := &orbitv1.ListJoinTokensResponse{Tokens: []*orbitv1.JoinToken{{Id: "jt-other"}}}
-	if !s.used && len(s.revoked) == 0 {
+	used := s.used
+	if s.usedFile != "" {
+		_, err := os.Stat(s.usedFile)
+		used = used || err == nil
+	}
+	if !used && len(s.revoked) == 0 {
 		out.Tokens = append(out.Tokens, &orbitv1.JoinToken{Id: "jt-9"})
 	}
 	return connect.NewResponse(out), nil
@@ -70,6 +82,9 @@ const addSecret = "oj1_SECRETSECRETSECRETSE"
 
 func (s *stubAddJoin) CreateJoinToken(_ context.Context, req *connect.Request[orbitv1.CreateJoinTokenRequest]) (*connect.Response[orbitv1.CreateJoinTokenResponse], error) {
 	s.create = req.Msg
+	if s.onCreate != nil {
+		s.onCreate()
+	}
 	return connect.NewResponse(&orbitv1.CreateJoinTokenResponse{
 		Issued: &orbitv1.JoinToken{Id: "jt-9", ExpiresUnixNano: time.Now().Add(10 * time.Minute).UnixNano()},
 		Secret: addSecret, Url: s.base + "/join/" + addSecret, Pin: s.pin,
@@ -78,7 +93,9 @@ func (s *stubAddJoin) CreateJoinToken(_ context.Context, req *connect.Request[or
 
 // fakeSSH is the fake ssh: it logs its argv (one call per line, args
 // separated by " | ") and each call's stdin, and answers by the remote
-// command. MODE (a file next to it) can make mktemp lie or a step fail.
+// command. MODE (a file next to it) can make mktemp lie or a step fail. An
+// apply registers (writes "registered", which uses the token) unless MODE
+// is noreg: a rerun on a host already joined, nothing to register.
 const fakeSSH = `#!/bin/sh
 dir=$(dirname "$0")
 n=$(($(cat "$dir/n" 2>/dev/null || echo 0) + 1)); echo $n >"$dir/n"
@@ -95,7 +112,7 @@ case $last in
 *mktemp*) [ "$mode" = badpath ] && echo "/tmp/x; rm -rf ~" || echo /tmp/orbit-join.ABCDEFGHIJ ;;
 *"cat > "*) cat >"$dir/stdin.$n" ;;
 *--dry-run*) [ "$mode" = dryfail ] && exit 3; [ "$mode" = slow ] && sleep 10; echo "Plan: (remote dry run)" ;;
-*--yes*) [ "$mode" = applyfail ] && exit 2; echo "orbit join: applied 9 changes." ;;
+*--yes*) [ "$mode" = applyfail ] && exit 2; [ "$mode" = noreg ] || : >"$dir/registered"; echo "orbit join: applied 9 changes." ;;
 *"rm -f "*) echo removed >>"$dir/removed" ;;
 esac
 exit 0
@@ -104,9 +121,13 @@ exit 0
 func newAddResponderLab(t *testing.T, mode string) *addResponderLab {
 	t.Helper()
 	j := &stubAddJoin{}
+	l := &addResponderLab{join: j}
 	// The script over TLS, pinned; the API on loopback.
 	scripts := http.NewServeMux()
-	scripts.HandleFunc("/join/"+addSecret, func(w http.ResponseWriter, _ *http.Request) {
+	scripts.HandleFunc("/join/"+addSecret, func(w http.ResponseWriter, r *http.Request) {
+		if l.onScript != nil {
+			l.onScript(r)
+		}
 		_, _ = io.WriteString(w, "#!/bin/sh\n# join script\nORBIT_TOKEN='"+addSecret+"'\n")
 	})
 	tlsSrv := httptest.NewTLSServer(scripts)
@@ -117,6 +138,7 @@ func newAddResponderLab(t *testing.T, mode string) *addResponderLab {
 	srv := httptest.NewServer(api)
 	t.Cleanup(srv.Close)
 	dir := t.TempDir()
+	j.usedFile = filepath.Join(dir, "registered")
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(fakeSSH), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +148,8 @@ func newAddResponderLab(t *testing.T, mode string) *addResponderLab {
 		}
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return &addResponderLab{join: j, url: srv.URL, log: filepath.Join(dir, "log"), stdins: dir}
+	l.url, l.log, l.stdins = srv.URL, filepath.Join(dir, "log"), dir
+	return l
 }
 
 func (l *addResponderLab) calls(t *testing.T) []string {
@@ -165,6 +188,7 @@ func TestAddResponderSSH(t *testing.T) {
 		wantRemoved bool
 		wantOut     string
 		wantRevoked bool
+		wantNoToken bool // refused before a token was created
 		// exact is each call's whole argv, as the fake ssh logs it.
 		exact []string
 	}{
@@ -172,14 +196,42 @@ func TestAddResponderSSH(t *testing.T) {
 			wantCalls:   []string{"mktemp", "cat > ", "--dry-run", "--yes; fi; rc=$?; rm -f ", "rm -f "},
 			wantRemoved: true, wantOut: "applied 9 changes",
 			exact: []string{
-				`ops@app1 | sh -c 'umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX'`,
-				`ops@app1 | sh -c 'cat > '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
-				`ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; fi'`,
-				`ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; fi; rc=$?; rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\''; exit $rc'`,
-				`ops@app1 | sh -c 'rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+				`-- | ops@app1 | sh -c 'umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX'`,
+				`-- | ops@app1 | sh -c 'cat > '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+				`-- | ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run; fi'`,
+				`-- | ops@app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes; fi; rc=$?; rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\''; exit $rc'`,
+				`-- | ops@app1 | sh -c 'rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
 			}},
-		{name: "no terminal and no --yes", args: []string{"--ssh", "app1"}, wantErr: "pass --yes"},
-		{name: "a host that would be an ssh option", args: []string{"--ssh", "-oProxyCommand=id", "--yes"}, wantErr: "want a host"},
+		{name: "applied, nothing registered (a rerun): the token revoked", mode: "noreg", args: []string{"--ssh", "app1", "--yes"},
+			wantCalls:   []string{"mktemp", "cat > ", "--dry-run", "--yes; fi; rc=$?; rm -f ", "rm -f "},
+			wantRemoved: true, wantOut: "applied 9 changes", wantRevoked: true},
+		{name: "the script options passed through, quoted",
+			args:      []string{"--ssh", "app1", "--yes", "--n6-ip", "198.51.100.20", "--bind", "[2001:db8::20]:9551", "--no-firewall", "--no-route", "--no-systemd"},
+			wantCalls: []string{"mktemp", "cat > ", "--dry-run", "--yes ", "rm -f "}, wantRemoved: true,
+			exact: []string{
+				`-- | app1 | sh -c 'umask 077; mktemp /tmp/orbit-join.XXXXXXXXXX'`,
+				`-- | app1 | sh -c 'cat > '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+				`-- | app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --dry-run --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; fi'`,
+				`-- | app1 | sh -c 'if [ "$(id -u)" = 0 ]; then sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; else sudo sh '\''/tmp/orbit-join.ABCDEFGHIJ'\'' --yes --n6-ip '\''198.51.100.20'\'' --bind '\''[2001:db8::20]:9551'\'' --no-firewall --no-route --no-systemd; fi; rc=$?; rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\''; exit $rc'`,
+				`-- | app1 | sh -c 'rm -f '\''/tmp/orbit-join.ABCDEFGHIJ'\'''`,
+			}},
+		{name: "--n6-ip not an address", args: []string{"--ssh", "app1", "--yes", "--n6-ip", "198.51.100.20; reboot"},
+			wantErr: "--n6-ip", wantNoToken: true},
+		{name: "--bind without a port", args: []string{"--ssh", "app1", "--yes", "--bind", "192.0.2.20"},
+			wantErr: "--bind", wantNoToken: true},
+		{name: "--bind a name, not an address", args: []string{"--ssh", "app1", "--yes", "--bind", "app1:9551"},
+			wantErr: "--bind", wantNoToken: true},
+		{name: "--bind port 0", args: []string{"--ssh", "app1", "--yes", "--bind", "192.0.2.20:0"},
+			wantErr: "--bind", wantNoToken: true},
+		{name: "--n6-ip with a zone", args: []string{"--ssh", "app1", "--yes", "--n6-ip", "fe80::1%eth0';reboot;'"},
+			wantErr: "with no zone", wantNoToken: true},
+		{name: "--bind with a zone", args: []string{"--ssh", "app1", "--yes", "--bind", "[fe80::1%eth0']:9551"},
+			wantErr: "with no zone", wantNoToken: true},
+		{name: "no terminal and no --yes", args: []string{"--ssh", "app1"}, wantErr: "pass --yes", wantNoToken: true},
+		{name: "a host that would be an ssh option", args: []string{"--ssh", "-oProxyCommand=id", "--yes"}, wantErr: "want a host", wantNoToken: true},
+		// No '=' in these: only the leading '-' refuses them.
+		{name: "a host that is an ssh option, no =", args: []string{"--ssh", "-oProxyCommand", "--yes"}, wantErr: "want a host", wantNoToken: true},
+		{name: "a host that is an ssh flag", args: []string{"--ssh", "-x", "--yes"}, wantErr: "want a host", wantNoToken: true},
 		{name: "mktemp answers something else", mode: "badpath", args: []string{"--ssh", "app1", "--yes"},
 			wantErr: "not a /tmp/orbit-join.* path", wantCalls: []string{"mktemp"}, wantRevoked: true},
 		{name: "the plan fails", mode: "dryfail", args: []string{"--ssh", "app1", "--yes"}, wantErr: "the plan (--dry-run) failed",
@@ -221,6 +273,9 @@ func TestAddResponderSSH(t *testing.T) {
 			if tc.wantRevoked && !strings.Contains(r.err, "revoked the unused join token jt-9") {
 				t.Errorf("stderr = %q", r.err)
 			}
+			if tc.wantNoToken && l.join.create != nil {
+				t.Errorf("a token was created before the refusal: %v", l.join.create)
+			}
 			if strings.Contains(strings.Join(calls, "\n"), addSecret) {
 				t.Errorf("the token is on an ssh argv:\n%s", strings.Join(calls, "\n"))
 			}
@@ -249,6 +304,72 @@ func TestAddResponderSSH(t *testing.T) {
 	}
 }
 
+// A Ctrl-C while the script is fetched, after the token exists and before
+// any ssh, cancels the command rather than ending the process, and the
+// token is revoked. The test holds its own SIGINT channel so that, if the
+// command caught nothing then, the process lives and the row fails.
+func TestAddResponderInterruptedFetchRevokes(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	clearOrbitEnv(t)
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+	l := newAddResponderLab(t, "")
+	l.onScript = func(r *http.Request) {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(3 * time.Second):
+		}
+	}
+	doc := strings.Replace(lab1, "  dnn: internet\n",
+		"  dnn: internet\n  ue_pools: [10.250.0.0/16]\n  upf_n6: 198.51.100.1\n  n6_subnet: 198.51.100.0/24\n", 1)
+	r := runOrbit(t, targetDir(t, doc), "--server", l.url, "target", "add-responder", "-t", "lab1", "--ssh", "app1", "--yes")
+	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "fetching the join script") {
+		t.Fatalf("err = %v, want the fetch cancelled", r.execErr)
+	}
+	if calls := l.calls(t); len(calls) != 0 {
+		t.Errorf("ssh ran after the Ctrl-C:\n%s", strings.Join(calls, "\n"))
+	}
+	if len(l.join.revoked) != 1 || !strings.Contains(r.err, "revoked the unused join token jt-9") {
+		t.Errorf("revoked %v; stderr %q", l.join.revoked, r.err)
+	}
+}
+
+// A Ctrl-C while the token is being created does not cancel the call: the
+// command learns the token the server issued, and revokes it.
+func TestAddResponderInterruptedCreateRevokes(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	clearOrbitEnv(t)
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+	l := newAddResponderLab(t, "")
+	l.join.onCreate = func() {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		time.Sleep(300 * time.Millisecond) // the client's Ctrl-C lands mid-call
+	}
+	doc := strings.Replace(lab1, "  dnn: internet\n",
+		"  dnn: internet\n  ue_pools: [10.250.0.0/16]\n  upf_n6: 198.51.100.1\n  n6_subnet: 198.51.100.0/24\n", 1)
+	r := runOrbit(t, targetDir(t, doc), "--server", l.url, "target", "add-responder", "-t", "lab1", "--ssh", "app1", "--yes")
+	if r.execErr == nil {
+		t.Fatal("the interrupted command succeeded")
+	}
+	if calls := l.calls(t); len(calls) != 0 {
+		t.Errorf("ssh ran after the Ctrl-C:\n%s", strings.Join(calls, "\n"))
+	}
+	l.join.mu.Lock()
+	revoked := append([]string(nil), l.join.revoked...)
+	l.join.mu.Unlock()
+	if len(revoked) != 1 || revoked[0] != "jt-9" || !strings.Contains(r.err, "revoked the unused join token jt-9") {
+		t.Errorf("revoked %v; stderr %q", revoked, r.err)
+	}
+}
+
 // A run cancelled mid-way (Ctrl-C) still removes the remote file.
 func TestAddResponderCancelledRemoves(t *testing.T) {
 	l := newAddResponderLab(t, "slow")
@@ -267,8 +388,8 @@ func TestAddResponderCancelledRemoves(t *testing.T) {
 	}
 }
 
-// A plan declined here applies nothing: no apply call, the file removed,
-// and not applied (so the token is revoked).
+// A plan declined here applies nothing: no apply call, the file removed.
+// (The token is then pending, and the command's revokeUnused revokes it.)
 func TestAddResponderDeclined(t *testing.T) {
 	l := newAddResponderLab(t, "")
 	ssh, err := exec.LookPath("ssh")
@@ -277,8 +398,7 @@ func TestAddResponderDeclined(t *testing.T) {
 	}
 	var errOut bytes.Buffer
 	s := &sshSession{ssh: ssh, host: "app1", out: io.Discard, errOut: &errOut}
-	applied, err := s.run(context.Background(), []byte("#!/bin/sh\n"), false, strings.NewReader("n\n"))
-	if err != nil || applied {
+	if applied, err := s.run(context.Background(), []byte("#!/bin/sh\n"), false, strings.NewReader("n\n")); err != nil || applied {
 		t.Fatalf("applied %v, err %v", applied, err)
 	}
 	calls := l.calls(t)
@@ -297,6 +417,7 @@ func TestRevokeUnused(t *testing.T) {
 	tests := []struct {
 		name        string
 		used        bool
+		joined      bool // the apply succeeded
 		revokeErr   error
 		wantRevoked bool
 		wantOut     string
@@ -305,12 +426,17 @@ func TestRevokeUnused(t *testing.T) {
 		{name: "used by a registration: left alone", used: true},
 		{name: "the revoke fails: told, with the ID", revokeErr: connect.NewError(connect.CodeUnavailable, errors.New("down")),
 			wantOut: "could not revoke the unused join token jt-9: unavailable: down; revoke it with orbit join revoke jt-9"},
+		// A registration burned it between the list and the revoke.
+		{name: "used as it was revoked: the host joined", revokeErr: connect.NewError(connect.CodeFailedPrecondition, errors.New("join token jt-9 was used by a registration")),
+			wantOut: "orbit: the join token jt-9 was used: the host joined\n"},
+		{name: "after a good apply, a failed revoke is harmless", joined: true, revokeErr: connect.NewError(connect.CodeUnavailable, errors.New("down")),
+			wantOut: "orbit: the host joined; the join token jt-9 could not be revoked: unavailable: down, it expires in 10m0s\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			j := &stubAddJoin{used: tc.used, revokeErr: tc.revokeErr}
 			var out bytes.Buffer
-			revokeUnused(j, "jt-9", &out)
+			revokeUnused(j, "jt-9", tc.joined, time.Now().Add(10*time.Minute+500*time.Millisecond), &out)
 			if got := len(j.revoked) == 1 && j.revoked[0] == "jt-9"; got != tc.wantRevoked {
 				t.Errorf("revoked %v, want %v", j.revoked, tc.wantRevoked)
 			}

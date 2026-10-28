@@ -12,6 +12,7 @@ orbit join: firewalld manages this host's firewall; this script does not edit it
   firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="198.51.100.0/24" icmp-type name="echo-request" accept'
   firewall-cmd --reload
   (firewalld binds interfaces through zones: put ens5 in the zone these rules go in. data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  (an icmp-block on echo-request in that zone wins over the accept above: check with firewall-cmd --zone=<zone> --query-icmp-block=echo-request, and remove it with --remove-icmp-block=echo-request)
 --- exit: 1
 --- changes:
 

@@ -208,6 +208,21 @@ func TestListRevokeJoinTokens(t *testing.T) {
 	if r, _ := l.get(t, http.MethodGet, "/join/"+res.GetSecret()); r.StatusCode != http.StatusNotFound {
 		t.Errorf("a revoked token's script: %d", r.StatusCode)
 	}
+	// A token a registration burned is not revoked: FailedPrecondition,
+	// naming the ID, and the record stays.
+	used := l.create(t, "app2", "")
+	if err := l.j.store.Burn(used.GetSecret(), [32]byte{1}, "rs-1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.join.RevokeJoinToken(context.Background(), connect.NewRequest(&orbitv1.RevokeJoinTokenRequest{Id: used.GetIssued().GetId()}))
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "join token "+used.GetIssued().GetId()+" was used by a registration") {
+		t.Errorf("revoking a used token: %v", err)
+	}
+	if tok, ok := l.j.store.Lookup(used.GetSecret()); !ok {
+		t.Error("revoking a used token removed its record")
+	} else if burned, _, _ := tok.Burned(); !burned {
+		t.Error("revoking a used token unburned it")
+	}
 }
 
 // The endpoints: over TLS only; the token only as the exact path segment;
