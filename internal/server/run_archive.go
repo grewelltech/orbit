@@ -36,11 +36,15 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 	}
 	// What the run was asked to do, captured at StartRun and masked there;
 	// its secret values are scrubbed from the whole archive below.
-	held, _ := s.specs.take(id)
+	// Read, not taken: until the archive is saved, GetRunConfig still
+	// answers from the held spec. Copied, since redacting the archive below
+	// rewrites what it holds.
+	held, _ := s.specs.get(id)
 	if held.archive != nil {
-		a.Spec = held.archive.GetSpec()
-		a.Plan = held.archive.GetPlan()
-		a.Provenance = held.archive.GetProvenance()
+		c := proto.Clone(held.archive).(*orbitv1.RunArchive)
+		a.Spec = c.GetSpec()
+		a.Plan = c.GetPlan()
+		a.Provenance = c.GetProvenance()
 	}
 	a.Leases = leasesProto(s.reg.Leases(id))
 
@@ -109,9 +113,13 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 	if err := s.archive.save(a); err != nil {
 		// The run itself succeeded; failing to archive it does not change that,
 		// so this is reported and not propagated.
+		// The held spec stays, so the run's config is still served.
 		s.log.Error("could not archive run", "run_id", id, "err", err)
 		return
 	}
+	// Saved: the archive answers for the run from here, and the held spec
+	// goes (the map would otherwise grow for the life of the process).
+	s.specs.drop(id)
 	s.log.Info("archived run", "run_id", id, "frames", len(a.Frames), "events", len(a.Events))
 }
 

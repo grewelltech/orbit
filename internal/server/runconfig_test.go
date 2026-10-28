@@ -20,6 +20,7 @@ import (
 	"github.com/bgrewell/orbit/gen/orbit/v1/orbitv1connect"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/join"
+	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/secrets"
@@ -206,4 +207,112 @@ func onlineResponder(t *testing.T, dir string) (*join.Registry, string) {
 		t.Fatal(err)
 	}
 	return reg, rs.LoomToken
+}
+
+// archivedService is a runService over dir's archive, built by hand.
+func archivedService(t *testing.T, dir string) *runService {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rot, err := engine.OpenGNBRotation("", log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arch, err := newArchiveStore(log, dir, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &runService{log: log, reg: engine.NewRunRegistry(log, 0), rotation: rot, specs: newSpecStore(), archive: arch}
+}
+
+// startEnded starts a plan run (its AMF unreachable, so it ends at once)
+// and returns its id once the registry has it terminal.
+func startEnded(t *testing.T, s *runService) string {
+	t.Helper()
+	r, err := s.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := r.Msg.GetRun().GetRunId()
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if info, err := s.reg.Get(id); err == nil && info.State.Terminal() {
+			return id
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run never ended")
+		}
+	}
+}
+
+// A run whose archive cannot be saved keeps its spec held: its config is
+// still served, resolved, never an empty unresolved answer.
+func TestGetRunConfigSaveFails(t *testing.T) {
+	dir := t.TempDir()
+	s := archivedService(t, dir)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	id := startEnded(t, s)
+	time.Sleep(200 * time.Millisecond) // archiveRun has run, and failed
+	if _, ok := s.archive.get(id); ok {
+		t.Fatal("archived after all: the case this test is for does not arise")
+	}
+	r, err := s.GetRunConfig(context.Background(), connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: id}))
+	if err != nil || !r.Msg.GetResolved() || r.Msg.GetPlan() == nil {
+		t.Errorf("after a failed save: %v, resolved %t, plan %t; want the held config", err, r.Msg.GetResolved(), r.Msg.GetPlan() != nil)
+	}
+}
+
+// Reads straddling a run's end and its archiving (under -race: the held
+// spec is read and copied, never shared) always answer the run's config,
+// resolved: there is no moment between the spec going and the archive
+// being there.
+func TestGetRunConfigDuringArchiving(t *testing.T) {
+	s := archivedService(t, t.TempDir())
+	ctx := context.Background()
+	r, err := s.StartRun(ctx, connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: loadPlan()}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := r.Msg.GetRun().GetRunId()
+	reads := 0
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); reads++ {
+		got, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: id}))
+		if connect.CodeOf(err) == connect.CodeUnavailable && reads == 0 {
+			continue // the moment before StartRun held the spec
+		}
+		if err != nil || !got.Msg.GetResolved() || got.Msg.GetPlan() == nil {
+			t.Fatalf("read %d: %v, resolved %t", reads, err, got.Msg.GetResolved())
+		}
+		if _, archived := s.archive.get(id); archived {
+			if _, held := s.specs.get(id); !held {
+				break // archived and let go: every read before was whole
+			}
+		}
+	}
+	if _, held := s.specs.get(id); held {
+		t.Error("the spec is still held after the archive was saved")
+	}
+	if got, err := s.GetRunConfig(ctx, connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: id})); err != nil || !got.Msg.GetResolved() {
+		t.Errorf("from the archive: %v", err)
+	}
+}
+
+// In the moment the registry has a run and StartRun has not yet held its
+// spec, the answer is Unavailable (try again), not an empty config.
+func TestGetRunConfigBeforeTheSpecIsHeld(t *testing.T) {
+	s := archivedService(t, t.TempDir())
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	info, err := s.reg.StartLoad(engine.RunOptions{}, func(ctx context.Context, _ *load.LiveStats, _ engine.RunEventFunc) (load.Report, error) {
+		<-release
+		return load.Report{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.GetRunConfig(context.Background(), connect.NewRequest(&orbitv1.GetRunConfigRequest{RunId: info.ID}))
+	if connect.CodeOf(err) != connect.CodeUnavailable || !strings.Contains(err.Error(), "starting; try again") {
+		t.Errorf("before the spec is held: %v, want Unavailable", err)
+	}
 }

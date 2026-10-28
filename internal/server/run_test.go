@@ -1166,6 +1166,8 @@ func TestCheckEvent(t *testing.T) {
 		{"CONFORMANCE", "[suite] NAS-X SKIP", &orbitv1.ConformanceCheckEvent{Workload: "suite", CheckId: "NAS-X", Verdict: "SKIP"}},
 		{"CONFORMANCE", "suite started", nil},
 		{"CONFORMANCE", "X MAYBE", nil},
+		{"CONFORMANCE", "NGAP-X PASS junk", nil}, // the verdict ends the text
+		{"CONFORMANCE", "[suite] NGAP-X PASS junk", nil},
 		{"ATTACH", "X PASS", nil},
 	}
 	for _, tc := range tests {

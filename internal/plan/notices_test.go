@@ -2,6 +2,8 @@ package plan
 
 import (
 	"strings"
+
+	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"testing"
 
 	"github.com/bgrewell/orbit/internal/target"
@@ -72,5 +74,34 @@ func TestOverrideNotices(t *testing.T) {
 		if _, ok := got[p]; ok {
 			t.Errorf("%s: a notice, want none", p)
 		}
+	}
+}
+
+// A notice names the highest file value the env beat: the run file's over
+// the target's, when both set the field. An env value equal to the file's
+// is still a notice, marked.
+func TestOverrideNoticeHighestFileAndSameValue(t *testing.T) {
+	src := func(l orbitv1.ProvenanceLayer, d string) *orbitv1.ProvenanceSource {
+		return &orbitv1.ProvenanceSource{Layer: l, Detail: d}
+	}
+	prov := []*orbitv1.FieldProvenance{
+		{Path: "workloads[pop].attach.seed", Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, "env $ORBIT_LOAD_SEED"), Value: "7",
+			Overridden: []*orbitv1.ProvenanceOverride{
+				{Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_DEFAULT, "default built-in"), Value: "0"},
+				{Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET, "target lab1.yaml:9"), Value: "3"},
+				{Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_RUN_FILE, "run file soak.yaml:5"), Value: "5"},
+			}},
+		{Path: "core.plmn.mcc", Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, "env $ORBIT_MCC"), Value: "001",
+			Overridden: []*orbitv1.ProvenanceOverride{{Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET, "target lab1.yaml:6"), Value: "001"}}},
+	}
+	got := OverrideNotices(prov)
+	if len(got) != 2 {
+		t.Fatalf("notices %v", got)
+	}
+	if want := "workloads[pop].attach.seed: env $ORBIT_LOAD_SEED (7) overrode run file soak.yaml:5 (5)"; NoticeText(got[0]) != want {
+		t.Errorf("got %s\nwant %s", NoticeText(got[0]), want)
+	}
+	if want := "core.plmn.mcc: env $ORBIT_MCC (001) overrode target lab1.yaml:6 (001) (same value)"; NoticeText(got[1]) != want {
+		t.Errorf("got %s\nwant %s", NoticeText(got[1]), want)
 	}
 }

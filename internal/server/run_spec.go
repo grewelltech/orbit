@@ -73,18 +73,29 @@ func (s *specStore) put(id string, m *orbitv1.StartRunRequest, extra ...*orbitv1
 	s.specs[id] = held
 }
 
-// take returns and forgets a run's masked spec and its secret values.
-// Forgetting matters: the map would otherwise grow for the life of the
-// process, holding a scenario document and keys per run that was started.
-func (s *specStore) take(id string) (heldSpec, bool) {
+// get returns a run's masked spec and its secret values, leaving them
+// held: archiveRun reads them, and drops them only once the archive is
+// saved, so a run's config is served throughout (GetRunConfig).
+func (s *specStore) get(id string) (heldSpec, bool) {
 	if s == nil {
 		return heldSpec{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h, ok := s.specs[id]
-	delete(s.specs, id)
 	return h, ok
+}
+
+// drop forgets a run's spec, once its archive is saved. Forgetting matters:
+// the map would otherwise grow for the life of the process, holding a
+// scenario document and keys per run that was started.
+func (s *specStore) drop(id string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.specs, id)
 }
 
 const redacted = secrets.Masked

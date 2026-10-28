@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 
@@ -15,7 +16,8 @@ import (
 // registry holds is read from its held spec (peek: the copy is scrubbed,
 // the spec left for archiving), or from its archive once archived; a run
 // the registry no longer holds, from its archive alone. A run the server
-// knows neither way is NotFound, as GetRun answers it.
+// knows neither way is NotFound, as GetRun answers it; one in the moment
+// between the registry having it and its spec being held, Unavailable.
 func (s *runService) GetRunConfig(_ context.Context, req *connect.Request[orbitv1.GetRunConfigRequest]) (*connect.Response[orbitv1.GetRunConfigResponse], error) {
 	id := req.Msg.GetRunId()
 	var held *orbitv1.RunArchive
@@ -25,7 +27,9 @@ func (s *runService) GetRunConfig(_ context.Context, req *connect.Request[orbitv
 		} else if a, ok := s.archive.get(id); ok {
 			held = a
 		} else {
-			held = &orbitv1.RunArchive{} // known, nothing held: started from no spec the store keeps
+			// Started, its spec not yet held (StartRun puts it just after
+			// the registry has the run): ask again in a moment.
+			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("run %s is starting; try again", id))
 		}
 	} else if a, ok := s.archive.get(id); ok {
 		held = a

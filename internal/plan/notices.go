@@ -42,7 +42,13 @@ func OverrideNotices(prov []*orbitv1.FieldProvenance) []*orbitv1.OverrideNotice 
 }
 
 // NoticeText is a notice as the CLI prints it: the field, the env value
-// and the file value it beat, with where each came from.
+// and the file value it beat, with where each came from. An env value the
+// same as the file's is still a notice (an export left in the shell is
+// what it shows), marked "(same value)".
 func NoticeText(n *orbitv1.OverrideNotice) string {
-	return fmt.Sprintf("%s: %s (%s) overrode %s (%s)", n.GetPath(), n.GetWinner().GetDetail(), n.GetValue(), n.GetOverridden().GetDetail(), n.GetOverriddenValue())
+	text := fmt.Sprintf("%s: %s (%s) overrode %s (%s)", n.GetPath(), n.GetWinner().GetDetail(), n.GetValue(), n.GetOverridden().GetDetail(), n.GetOverriddenValue())
+	if n.GetValue() == n.GetOverriddenValue() {
+		text += " (same value)"
+	}
+	return text
 }
