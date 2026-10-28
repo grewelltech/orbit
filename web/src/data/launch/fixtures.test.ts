@@ -15,6 +15,7 @@ import type { Document } from "yaml";
 import { setValue } from "../targets/yamlio";
 import { addWorkload, setCategories, setGate, setUntil, startFrom, GATE_PRESETS } from "./form";
 import { planRequest, refsOf } from "./resolve";
+import { quickTargetText } from "./useLaunch";
 import { renderRun } from "./runyaml";
 
 /** A target as the Targets page keeps one: its AMF and keys as ${VAR}s. */
@@ -46,7 +47,7 @@ ran:
         bits: 24
 `;
 
-const STATES: Record<string, { template: string; build: () => Document }> = {
+const STATES: Record<string, { template: string; build: () => Document; target?: string }> = {
   load: {
     template: "load",
     build: () => {
@@ -75,6 +76,17 @@ const STATES: Record<string, { template: string; build: () => Document }> = {
       return d;
     },
   },
+  // ?conformance with a target made on the page from an AMF and a PLMN:
+  // no keys, so the checks that need a UE SKIP.
+  "conformance-amf-only": {
+    template: "conformance",
+    target: quickTargetText({ name: "core", amf: "\${LAB_AMF}", mcc: "208", mnc: "93", sst: "1", sd: "010203", tac: "" }),
+    build: () => {
+      const d = startFrom("conformance");
+      setValue(d, ["workloads", 0, "conformance", "per_test_timeout_ms"], "3000");
+      return d;
+    },
+  },
   mixed: {
     template: "",
     build: () => {
@@ -98,9 +110,10 @@ describe("the Launch requests the server's tests replay", () => {
   for (const [name, st] of Object.entries(STATES)) {
     it(name, () => {
       const runYaml = renderRun(st.build());
-      const refs = refsOf({ targetYaml: TARGET, runYaml });
+      const targetYaml = st.target ?? TARGET;
+      const refs = refsOf({ targetYaml, runYaml });
       const values = Object.fromEntries(refs.map((r) => [r, "x"]));
-      const { request } = planRequest({ targetName: "lab1", targetYaml: TARGET, runYaml, template: st.template, values });
+      const { request } = planRequest({ targetName: "lab1", targetYaml, runYaml, template: st.template, values });
       expect(request).toBeDefined();
       // Names only: the Go test gives the values.
       const fixture = `${JSON.stringify({ targetYaml: request!.targetYaml, runYaml: request!.runYaml, template: request!.template, vars: refs }, null, 2)}\n`;

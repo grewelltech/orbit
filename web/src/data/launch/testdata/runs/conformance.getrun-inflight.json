@@ -1,0 +1,58 @@
+{
+  "run":  {
+    "runId":  "run-5c2e5ce6",
+    "kind":  "RUN_KIND_CONFORMANCE",
+    "state":  "RUN_STATE_RUNNING",
+    "startedUnixNano":  "1793174968050822774"
+  },
+  "leases":  [
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:54475",
+      "gnbId":  13
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:54475",
+      "gnbId":  14
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:54475",
+      "gnbId":  15
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:54475",
+      "gnbId":  36877
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:54475",
+      "gnbId":  36878
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:54475",
+      "gnbId":  36879
+    },
+    {
+      "resource":  "LEASE_RESOURCE_N2_IP",
+      "n2Ip":  "127.0.0.1"
+    }
+  ],
+  "conformanceProgress":  {
+    "tally":  {
+      "failed":  1
+    },
+    "ran":  1,
+    "total":  3,
+    "lastCheck":  "NGAP-UNKNOWN-UE-SURVIVES"
+  }
+}

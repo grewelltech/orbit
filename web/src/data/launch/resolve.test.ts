@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formKey, planRequest, refsOf, refusedAt, renderRequest, varsPromptNote, whyNotStart, type LaunchInput, type StartState } from "./resolve";
+import { carriesSecrets, formKey, planRequest, refsOf, refusedAt, renderRequest, startBlocked, varsPromptNote, whyNotStart, type LaunchInput, type StartState } from "./resolve";
+import { quickTargetText } from "./useLaunch";
 
 const target = 'version: 1\nkind: target\nname: lab1\n# ${IN_A_COMMENT}\ncore:\n  amf: "${LAB_AMF}"\nsubscribers:\n  - name: main\n    ki: "${ORBIT_KI}"\n    opc: "${ORBIT_OPC}"\n';
 const run = 'kind: run\nworkloads:\n  - name: f\n    behaviors: {latency: {target: "${ECHO}"}}\n';
@@ -68,8 +69,31 @@ describe("what Launch sends", () => {
   });
 });
 
+describe("when Start needs keysBlocked's rule", () => {
+  const remoteHttp = { protocol: "http:", hostname: "192.0.2.10" };
+  const quick = quickTargetText({ name: "core", amf: "192.0.2.1:38412", mcc: "001", mnc: "01", sst: "1", sd: "", tac: "" });
+  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: []}\n";
+  it("a keyless run (a quick target) goes from a remote http dashboard", () => {
+    expect(carriesSecrets({ targetYaml: quick, runYaml: suite })).toBe(false);
+    expect(startBlocked(remoteHttp, "", { targetYaml: quick, runYaml: suite })).toBeUndefined();
+  });
+  it("a ${VAR} that needs a value (all vars are secret) is blocked there", () => {
+    const withVar = quick.replace("192.0.2.1:38412", "${LAB_AMF}");
+    expect(startBlocked(remoteHttp, "", { targetYaml: withVar, runYaml: suite })).toContain("in the clear");
+    expect(startBlocked(remoteHttp, "", { targetYaml: quick, runYaml: suite.replace("categories: []", 'categories: ["${CATS}"]') })).toContain("in the clear");
+  });
+  it("a key written out in a secret slot is blocked there", () => {
+    const keyed = quick + "subscribers:\n    - name: main\n      ki: 00112233445566778899aabbccddeeff\n";
+    expect(carriesSecrets({ targetYaml: keyed, runYaml: suite })).toBe(true);
+    expect(startBlocked(remoteHttp, "", { targetYaml: keyed, runYaml: suite })).toContain("in the clear");
+  });
+  it("on loopback, nothing is blocked", () => {
+    expect(startBlocked({ protocol: "http:", hostname: "127.0.0.1" }, "", { targetYaml: target, runYaml: run })).toBeUndefined();
+  });
+});
+
 describe("whether Launch may send its run", () => {
-  const ok: StartState = { loc: { protocol: "http:", hostname: "127.0.0.1" }, token: "", hasTarget: true, missingKeys: [], unsetVars: [], workloads: 1 };
+  const ok: StartState = { loc: { protocol: "http:", hostname: "127.0.0.1" }, token: "", hasTarget: true, missingKeys: [], unsetVars: [], workloads: 1, carriesSecrets: true };
   const rows: [string, Partial<StartState>, string | undefined][] = [
     ["all set, on loopback", {}, undefined],
     ["no target", { hasTarget: false }, "make a target first"],
@@ -77,6 +101,8 @@ describe("whether Launch may send its run", () => {
     ["http from another host", { loc: { protocol: "http:", hostname: "192.0.2.10" } }, "in the clear"],
     ["https from another host, no token", { loc: { protocol: "https:", hostname: "orbit.lab" } }, "no API token"],
     ["https from another host, a token", { loc: { protocol: "https:", hostname: "orbit.lab" }, token: "t" }, undefined],
+    // A keyless run (carriesSecrets false) goes from any dashboard.
+    ["a keyless run, http from another host", { loc: { protocol: "http:", hostname: "192.0.2.10" }, carriesSecrets: false }, undefined],
     ["a key with no value", { missingKeys: ["ORBIT_KI"] }, "set ${ORBIT_KI} on the Targets page"],
     ["a var with no value", { unsetVars: ["LAB_AMF"] }, "set ${LAB_AMF} first"],
     ["no workload", { workloads: 0 }, "add a workload"],

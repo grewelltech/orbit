@@ -1,0 +1,69 @@
+{
+  "run":  {
+    "runId":  "run-6b9b7873",
+    "kind":  "RUN_KIND_FLEET",
+    "state":  "RUN_STATE_COMPLETE",
+    "startedUnixNano":  "1793174968302423957",
+    "endedUnixNano":  "1793174970513200583"
+  },
+  "fleetProgress":  {
+    "elapsedMs":  "2218",
+    "perGnb":  [
+      {
+        "gnb":  "orbit-gnb"
+      }
+    ],
+    "latency":  [
+      {
+        "procedure":  "attach",
+        "count":  "2",
+        "p50Ms":  3.227,
+        "p90Ms":  105.791,
+        "p99Ms":  105.791,
+        "p999Ms":  105.791,
+        "maxMs":  105.791
+      },
+      {
+        "procedure":  "registration",
+        "count":  "2",
+        "p50Ms":  3.223,
+        "p90Ms":  105.791,
+        "p99Ms":  105.791,
+        "p999Ms":  105.791,
+        "maxMs":  105.791
+      }
+    ]
+  },
+  "fleetReport":  {
+    "attached":  2,
+    "attachElapsedMs":  "207",
+    "perGnb":  [
+      {
+        "gnb":  "orbit-gnb",
+        "attempted":  2,
+        "succeeded":  2
+      }
+    ],
+    "latency":  [
+      {
+        "procedure":  "registration",
+        "count":  "2",
+        "p50Ms":  3.223,
+        "p90Ms":  105.791,
+        "p99Ms":  105.791,
+        "p999Ms":  105.791,
+        "maxMs":  105.791
+      },
+      {
+        "procedure":  "attach",
+        "count":  "2",
+        "p50Ms":  3.227,
+        "p90Ms":  105.791,
+        "p99Ms":  105.791,
+        "p999Ms":  105.791,
+        "maxMs":  105.791
+      }
+    ],
+    "achievedRate":  9.662196937584072
+  }
+}

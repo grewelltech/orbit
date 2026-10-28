@@ -23,6 +23,8 @@ import { MockSource } from "@/data/mock";
 import { attachRateTile, attachRateLabel } from "@/app/attachRateTile";
 import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
+import { StopButton } from "@/app/StopButton";
+import { SuiteResults } from "@/app/SuiteResults";
 import { cpLatencyTile } from "@/app/cpLatencyTile";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
@@ -243,6 +245,7 @@ export function App() {
         {/* Controls: which run, and over what span. */}
         <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
           {!mock && <RunPicker runs={runs} selected={selectedRun} onSelect={selectRun} />}
+          {!mock && <StopButton runId={(selectedRun ?? latest?.run.runId) || undefined} state={latest?.run.state} />}
           <div className="flex items-center gap-1.5">
           <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
             window
@@ -266,6 +269,9 @@ export function App() {
           ))}
           </div>
         </div>
+
+        {/* A conformance suite's verdicts, for a run that has one. */}
+        {!mock && <SuiteResults runId={(selectedRun ?? latest?.run.runId) || undefined} />}
 
         {/* Time series */}
         <section className="grid min-h-0 shrink-0 grid-cols-1 gap-3 xl:grid-cols-2">

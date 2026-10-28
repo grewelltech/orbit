@@ -8,12 +8,17 @@
  * sends; it also gives the command and the file to save
  * (RunService.RenderRun). Keys stay ${VAR}s in the target, their values
  * in this tab, and go to the server only with a plan.
+ *
+ * ?conformance opens it on the conformance template (the suite's own page
+ * before this one): a target made here from an AMF and a network identity
+ * runs it, the checks that need a UE skipped.
  */
 import { Panel } from "@/components/Panel";
 import { addWorkload, workloads } from "@/data/launch/form";
 import { TEMPLATES } from "@/data/launch/runschema.gen";
-import { useLaunch } from "@/data/launch/useLaunch";
-import { varsPromptNote, whyNotStart } from "@/data/launch/resolve";
+import { useState } from "react";
+import { quickTargetProblem, useLaunch, type QuickTarget } from "@/data/launch/useLaunch";
+import { carriesSecrets, varsPromptNote, whyNotStart } from "@/data/launch/resolve";
 import { loadToken } from "@/data/transport";
 import { secretSlots, refName } from "@/data/targets/yamlio";
 import { parseStored } from "@/data/targets/actions";
@@ -23,8 +28,48 @@ import { CommandPanel } from "./launch/CommandPanel";
 import { RunCard } from "./launch/RunCard";
 import { WorkloadCard } from "./launch/WorkloadCard";
 
-export function Launch() {
-  const l = useLaunch();
+/** A target from an AMF and a network identity, for a suite with no UE (and a first target). */
+function QuickTargetForm({ onAdd, taken }: { onAdd: (q: QuickTarget) => void; taken: readonly string[] }) {
+  const [q, setQ] = useState<QuickTarget>({ name: taken.includes("core") ? "" : "core", amf: "", mcc: "", mnc: "", sst: "1", sd: "", tac: "" });
+  const field = (k: keyof QuickTarget, label: string, placeholder: string, width: string) => (
+    <label className="o-label flex flex-col gap-0.5" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
+      {label}
+      <input
+        aria-label={`new target ${label}`}
+        value={q[k]}
+        placeholder={placeholder}
+        onChange={(e) => setQ({ ...q, [k]: e.target.value })}
+        className="o-label px-2 py-0.5"
+        style={{ ...inputStyle, width, textTransform: "none" }}
+      />
+    </label>
+  );
+  const problem = quickTargetProblem(q);
+  const ready = problem === undefined;
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
+        a target from an AMF and its network identity: no keys, so a suite skips the checks that need a UE
+      </span>
+      <div className="flex flex-wrap items-end gap-2">
+        {field("name", "name", "core", "8rem")}
+        {field("amf", "AMF", "host:port", "12rem")}
+        {field("mcc", "MCC", "001", "4rem")}
+        {field("mnc", "MNC", "01", "4rem")}
+        {field("tac", "TAC", "1", "6rem")}
+        {field("sst", "SST", "1", "3rem")}
+        {field("sd", "SD", "hex, optional", "7rem")}
+        <button type="button" disabled={!ready} title={problem} className="o-label cursor-pointer px-2 py-1 disabled:opacity-50" style={buttonStyle} onClick={() => ready && onAdd(q)}>
+          add target
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function Launch({ preset }: { preset?: string }) {
+  const l = useLaunch(undefined, undefined, { preset });
+  const [quick, setQuick] = useState(false);
   const t = l.target;
   const s = l.state;
   const ws = workloads(l.doc);
@@ -40,6 +85,7 @@ export function Launch() {
     missingKeys,
     unsetVars: prompts.filter((r) => !l.values[r]),
     workloads: ws.length,
+    carriesSecrets: t !== undefined && carriesSecrets({ targetYaml: t.yaml, runYaml: l.runYaml }),
   });
   const err = s.planError;
 
@@ -83,7 +129,20 @@ export function Launch() {
                 <a href="?targets" className="o-label" style={{ color: "var(--o-ink-3)" }}>
                   edit targets
                 </a>
+                <button type="button" className="o-label cursor-pointer px-2" style={buttonStyle} onClick={() => setQuick((v) => !v)}>
+                  new from AMF + PLMN
+                </button>
               </label>
+              {(quick || l.targets.length === 0) && (
+                <QuickTargetForm
+                  taken={l.targets.map((x) => x.name)}
+                  onAdd={(q) => {
+                    const notices = l.addTarget(q);
+                    l.notify(notices[0]);
+                    setQuick(false);
+                  }}
+                />
+              )}
               <label className="o-label flex items-center gap-2" style={{ color: "var(--o-ink-2)", textTransform: "none" }}>
                 start from
                 <select

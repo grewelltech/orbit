@@ -11,7 +11,7 @@ import type { RenderRunRequestSchema } from "@/gen/orbit/v1/run_pb";
 import type { KeyValues } from "../targets/store";
 import { isScalar, parseDocument, visit } from "yaml";
 import { keysBlocked } from "../targets/probe";
-import { refsIn } from "../targets/yamlio";
+import { refName, refsIn, secretSlots } from "../targets/yamlio";
 
 export type PlanRequest = MessageInitShape<typeof ResolveRequestSchema>;
 export type RenderRequest = MessageInitShape<typeof RenderRunRequestSchema>;
@@ -50,6 +50,29 @@ export function refsOf(input: Pick<LaunchInput, "targetYaml" | "runYaml">): stri
   return out;
 }
 
+/**
+ * Whether a request built from input carries a secret, as the server's
+ * check reads it: any ${VAR} value (each is marked secret), or a key
+ * written out in the target's secret slots. A run file holds none (the
+ * gate refuses one), and the page sends no --set.
+ */
+export function carriesSecrets(input: Pick<LaunchInput, "targetYaml" | "runYaml">): boolean {
+  if (refsOf(input).length > 0) return true;
+  const doc = parseDocument(input.targetYaml, { schema: "failsafe" });
+  return secretSlots(doc).some((s) => s.value !== "" && refName(s.value) === undefined);
+}
+
+/**
+ * Why this page may not send input's run (Start, check the plan), or
+ * undefined: keysBlocked's rule (loopback, or https with the API token),
+ * but only for a request that carries a secret. A keyless run (a target
+ * made from an AMF and a PLMN, say) goes from any dashboard, as the old
+ * conformance page's did; the server's own check stays the real one.
+ */
+export function startBlocked(loc: { protocol: string; hostname: string }, token: string, input: Pick<LaunchInput, "targetYaml" | "runYaml">): string | undefined {
+  return carriesSecrets(input) ? keysBlocked(loc, token) : undefined;
+}
+
 /** The line over Launch's ${VAR} prompt: where the values are kept, as the target's keys are. */
 export function varsPromptNote(remembered: boolean): string {
   return `the target and run file name these; their values are ${remembered ? "remembered in this browser" : "held in this tab"}:`;
@@ -65,17 +88,19 @@ export interface StartState {
   /** Any other ${VAR} with no value (asked for on this page). */
   unsetVars: readonly string[];
   workloads: number;
+  /** Whether the request carries a secret (carriesSecrets): only then does keysBlocked's rule apply. */
+  carriesSecrets: boolean;
 }
 
 /**
- * Why Launch may not send its run, or undefined: a target first; then
- * keysBlocked's rule (the server's own host, or https with the API
- * token), since the run carries the target's keys; then every ${VAR} with
- * a value; then a workload.
+ * Why Launch may not send its run, or undefined: a target first; then,
+ * for a run that carries a secret, keysBlocked's rule (the server's own
+ * host, or https with the API token); then every ${VAR} with a value;
+ * then a workload. A keyless run goes from any dashboard (startBlocked).
  */
 export function whyNotStart(s: StartState): string | undefined {
-  if (!s.hasTarget) return "make a target first, on the Targets page";
-  const blocked = keysBlocked(s.loc, s.token);
+  if (!s.hasTarget) return "make a target first: new from AMF + PLMN above, or on the Targets page";
+  const blocked = s.carriesSecrets ? keysBlocked(s.loc, s.token) : undefined;
   if (blocked) return blocked;
   if (s.missingKeys.length > 0) return `set ${s.missingKeys.map((v) => `\${${v}}`).join(", ")} on the Targets page first`;
   if (s.unsetVars.length > 0) return `set ${s.unsetVars.map((v) => `\${${v}}`).join(", ")} first: the browser has no environment to take them from`;
