@@ -1,0 +1,47 @@
+{
+  "responders": [
+    {
+      "id": "rs-5ec84c0130de",
+      "name": "app1",
+      "state": "online",
+      "lastSeenUnixNano": "1793188920000000000",
+      "source": "198.51.100.20:40001",
+      "controlAddress": "198.51.100.20:9551",
+      "dataIp": "198.51.100.20",
+      "dataPortLow": 32768,
+      "dataPortHigh": 60999,
+      "version": "v0.9.1",
+      "registeredUnixNano": "1793188800000000000",
+      "registeredFrom": "198.51.100.20:40000",
+      "joinTokenId": "jt-b88348d796b0"
+    },
+    {
+      "id": "rs-e83fa81b39c6",
+      "name": "app2",
+      "state": "offline",
+      "lastSeenUnixNano": "1793188800000000000",
+      "source": "198.51.100.30:40001",
+      "controlAddress": "198.51.100.30:9551",
+      "dataIp": "198.51.100.30",
+      "dataPortLow": 32768,
+      "dataPortHigh": 60999,
+      "version": "v0.9.0",
+      "registeredUnixNano": "1793188800000000000",
+      "registeredFrom": "198.51.100.30:40000",
+      "joinTokenId": "jt-09968ecc7f0f"
+    },
+    {
+      "id": "rs-31aad8972e9a",
+      "name": "app3",
+      "state": "never seen",
+      "controlAddress": "198.51.100.40:9551",
+      "dataIp": "198.51.100.40",
+      "dataPortLow": 32768,
+      "dataPortHigh": 60999,
+      "version": "v0.9.0",
+      "registeredUnixNano": "1793188800000000000",
+      "registeredFrom": "198.51.100.40:40000",
+      "joinTokenId": "jt-99bac3a327e5"
+    }
+  ]
+}

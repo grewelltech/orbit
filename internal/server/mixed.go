@@ -132,7 +132,7 @@ func (s *runService) buildMixed(p *orbitv1.RunPlan, verbosity engine.EventVerbos
 		suiteWork.After, suiteWork.Phase = popName, phase
 	}
 
-	out := &planRun{workload: popName, amf: pop.amf, plmn: pop.plmn,
+	out := &planRun{workload: popName, amf: pop.amf, plmn: pop.plmn, registered: pop.registered,
 		mixed: []engine.MixedWorkload{popWork, suiteWork}, kinds: []engine.RunKind{popWork.Kind(), engine.RunKindConformance}}
 	// Plan order, as the reports follow it.
 	if p.GetWorkloads()[0] == suiteW {

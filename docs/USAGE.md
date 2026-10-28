@@ -188,7 +188,8 @@ orbit target init lab1 --amf <host:port> --mcc 001 --mnc 01 --sd 010203 --first-
 orbit target list                 # ./orbit.yaml and ~/.config/orbit/targets, with any load errors
 orbit target show lab1            # as loaded, keys <redacted>
 orbit target show lab1 --resolved # each field's value after default < target < $ORBIT_*, and where it came from
-orbit target probe lab1           # NG Setup, one registration, one PDU session, through the server
+orbit target probe lab1           # the doctor, on the server: the core, then the user plane to the responder
+orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU session only
 ```
 
 - **`init`** runs one NG Setup through the orbit server, so from the host runs
@@ -200,30 +201,88 @@ orbit target probe lab1           # NG Setup, one registration, one PDU session,
   - Keys are written as `${ORBIT_KI}`/`${ORBIT_OPC}` unless `--write-keys`.
   - A rejected NG Setup writes nothing, and an existing file is not
     overwritten; `--force` overrides both.
-  - Without `--first-supi` there is no subscriber pool, and `probe` stops
-    after NG Setup.
+  - Without `--first-supi` there is no subscriber pool, and `probe` fails at
+    register.
   - On a terminal, `init` asks for the AMF, PLMN and first SUPI when the flags
     leave them out.
 - **`list`** shows every target with its file and line, and the error of any
   that doesn't load. One bad entry in an `./orbit.yaml` list never stops the
   others. A target in the config directory with the same name as one in
-  `./orbit.yaml` is marked shadowed.
-- **`probe`** stops at the first failing step and names what to check. It
-  exits non-zero on a failure. With no subscriber pool, the UE steps are
-  SKIPped and it passes on NG Setup alone.
-  - NG Setup: the AMF address and the N2 route, or the PLMN and TAC the AMF
-    doesn't serve.
-  - Registration: whether the subscriber and its keys are provisioned in the
-    core.
-  - PDU session: the DNN and slice.
+  `./orbit.yaml` is marked shadowed. A target's errors never show a key:
+  text shaped like one is `<redacted>`. A base64 or bearer secret has no
+  such shape and can't be recognised, and an IPv6 address written out in
+  full has a Ki's shape, so it's masked too
+  ([targets.md](targets.md#numbers-and-text)).
+- **`probe`** is the doctor (ADR-0009 §5). The server runs it, from the host
+  runs execute on, and the CLI prints each step as it finishes:
 
-  The core's reject causes aren't reported yet. Until leasing, `init` uses
-  the target range's first gNB ID (or 1), and `probe` uses the first three,
-  one per association, plus the pool's first SUPI. A run using the same ones
-  at the same time collides.
+  | # | Step | A failure names |
+  |---|---|---|
+  | 1 | NG Setup | the AMF address and the N2 route, or the PLMN and TAC the AMF doesn't serve |
+  | 2 | register (the pool's first SUPI) | whether the subscriber and its keys are provisioned in the core; a target with no `subscribers` |
+  | 3 | PDU session | the DNN and slice |
+  | 4 | responder | no responder (`orbit join create -t <target>`), one not registered, or one offline; a static responder (`control` and `token` in the target) is used as written |
+  | 5 | control | the responder's control port unreachable from the server, or its loom token refused |
+  | 6 | UE to N6 echo | three ICMP echoes from the UE to the responder's data IP: the return route on the app host (`ip route replace <ue pool> via <upf n6> dev <n6 if>`) or ICMP blocked |
+  | 7 | data ports | a short UDP flow from the UE to a receiver on the responder: the data ports blocked, or the route |
+
+  It stops at the first failing step, names the fix, and SKIPs the rest. The
+  one exception: after a failed echo it still runs step 7, which tells the
+  two causes apart (UDP that arrives means ICMP is blocked, not the route).
+  The receiver flow is removed on every path, and the UE is deregistered.
+  `--core-only` covers steps 1–3 only, for a target with no app host yet; a
+  failure there SKIPs the rest of those three. A step 7 that passes after a
+  failed echo still leaves the probe failed (exit 1).
+  `--timeout` bounds each step (20s; at most 2m, since the probe holds its
+  leases while a step runs).
+
+  It exits 1 when a step failed (a gate failed: fix the core or the app host)
+  and 3 when it could not start (no server, or a lease another run holds).
+  While it runs it leases the target's first three gNB IDs (one per
+  association), the pool's first SUPI and the N2 source, like a run, so a
+  run and a probe never collide; one that needs them is refused, naming the
+  other. The core's reject causes aren't reported yet. `init` uses the
+  target range's first gNB ID (or 1) and takes no lease.
+
+  The three IDs must fit `ran.gnb_ids.bits`, and the target's block when it
+  has a `count`. Otherwise the probe is refused before it starts, on the CLI
+  and on the Targets page alike: "the probe needs 3 gNB IDs: set
+  ran.gnb_ids.count to 3 or more, or leave count unset". A target with a
+  count of 1 or 2 could be probed before this; it can't now.
+
+  **Behaviour changes** from the three-step probe:
+  - it runs on the server and has seven steps; a target with no responder
+    fails at step 4 (`--core-only` gives the old three steps);
+  - a failure exits 1 (it exited 3 before); a probe that cannot start exits
+    3, and one whose stream breaks exits 2;
+  - a target with no `subscribers` fails at step 2 ("lab1 has no
+    subscribers"), `--core-only` included, where it used to pass on NG Setup
+    alone.
 
   `probe` sends the subscriber keys to `--server`. Until the server has TLS,
   keep it on loopback, or the keys cross the network in plaintext.
+
+  The server resolves the target a probe sends as the CLI loads a file: the
+  built-in defaults fill what it leaves unset, and every field gets the
+  CLI's checks before any lease or step. A bad field is refused at once
+  (exit 3), naming it: `invalid target: core.slices: [1/xyz] SD "xyz" is not
+  6 hex digits`. A target the CLI loaded already passed those checks, so
+  this changes nothing for it, with four exceptions. The wire cannot tell
+  these zeros from an unset field, so the probe takes the default for
+  each:
+
+  | In the file   | Probed as            |
+  |---------------|----------------------|
+  | `tac: 0`      | TAC 1                |
+  | `dnn: ""`     | `internet`           |
+  | `slices: []`  | `[{sst: 1}]`         |
+  | `profile: ""` | `strict-3gpp`        |
+
+  `profile: ""` probes the same either way: the engine reads an empty
+  profile as `strict-3gpp`.
+
+  **Known limit:** a probe can't test "no DNN" (letting the SMF pick its
+  default) or "no slices", since both arrive as unset.
 - `init` never writes through a symlink: a link at `./orbit.yaml` or at
   `targets/<name>.yaml` is refused. A `--force` overwrite replaces the file
   through a temp file and a rename.
@@ -255,6 +314,12 @@ orbit target probe lab1           # NG Setup, one registration, one PDU session,
   target as well, and then it only reports: a value the resolver would
   reject shows as a row marked `⚠`, and the command runs exactly as without
   `--explain`. With a target named, such a value is an error.
+- **An env var over a file.** `orbit run` and `orbit test` print a
+  `notice:` line for each field an `$ORBIT_*` var set over the target's or
+  the run file's value. They do so under `--explain`, and when the run is
+  started without `--detach`, so a forgotten export doesn't pass silently.
+  The run keeps its provenance, and `RunService.GetRunConfig` returns the
+  same notices for it later ([run files](run-files.md#precedence)).
 - **A stale `$ORBIT_TARGET`** naming a target that no longer exists fails
   every command that takes target fields with `target not found`, even when
   every flag is typed: run `unset ORBIT_TARGET`.
@@ -271,6 +336,216 @@ orbit target probe lab1           # NG Setup, one registration, one PDU session,
   to a target or run field (`--tac 0010`, `--count 007`): write `10`, or `0x…`
   for hex. Before, `--tac 0010` was read as octal 8. `0x`, `0o` and plain `0`
   are accepted, as in a target file.
+
+### Targets in the browser (`?targets`)
+
+The dashboard's **Targets** page (`http://<server>:8412/?targets`) creates and
+edits targets in the browser, using the same schema as the CLI's target file.
+It imports and exports those files: a file `orbit target init` wrote,
+imported and then exported unchanged, comes back byte for byte, and a file
+exported from the page loads in the CLI as it is.
+
+What is stored where:
+
+- **Targets** are stored in this browser's localStorage (`orbit.targets.v1`),
+  each as its file's text. A key or token is never stored there: a secret
+  field always holds a `${VAR}` reference, as `target init` writes it without
+  `--write-keys`.
+- **Keys and tokens** (`subscribers[].ki`, `opc`, `app.responders[].token`)
+  are held in this tab only (sessionStorage), and are gone when the tab
+  closes. An imported file that has a key in clear has it moved into the tab.
+  The page says so ("ki … moved to this tab as ${ORBIT_KI}; the file had it in
+  clear"), and puts `${ORBIT_KI}` (or `${ORBIT_KI_1}` for a second pool,
+  `${ORBIT_RESPONDER_TOKEN_0}` for a responder) in the document.
+- **Remember keys in this browser** is a per-target opt-in. It stores that
+  target's keys **unencrypted** in localStorage (`orbit.targets.keys.<name>`),
+  where any script on the dashboard's origin can read them. A marker shows
+  while it is on. **Forget keys** removes them from the browser and the tab.
+- **The server stores nothing** about targets.
+
+**Export** writes `<name>.yaml`. Secrets are written as their `${VAR}` unless
+you tick *include keys in clear*, which has to be ticked again for every
+export.
+
+**The CLI's environment does not apply here.** The browser has no environment:
+the CLI's `$ORBIT_MCC`/`$ORBIT_MNC`/`$ORBIT_KI`/`$ORBIT_OPC` overrides, and the
+`${VAR}` expansion a target file gets when the CLI loads it, do not happen. A
+`${VAR}` in any string field is kept as written. A `${VAR}` in a numeric field
+is refused, as the CLI refuses it.
+
+The editor checks structure only: known keys, numbers written as numbers
+(not quoted, no leading zero), and named pools and responders. Formats (an SD
+of six hex digits, a CIDR) are checked by the CLI, and by the server when the
+target is used.
+
+**Probe** runs the doctor (the seven steps of `orbit target probe`) on the
+server for the target being edited. The steps appear as they run, each with
+what to fix. The target is sent as its file has it, with each `${VAR}`
+replaced by the value this tab holds: keys are set in the target's key
+fields, and any other `${VAR}` (an AMF taken from the shell, say) in the
+probe panel. A `${VAR}` with no value holds the probe back, because the
+browser has no environment to take it from.
+
+- **Keys are sent to a server on the page's own loopback host, or over
+  https:// with an API token in the tab.** Otherwise the button is
+  disabled and says why. On loopback no token is asked for up front: a
+  server that wants one refuses the probe, and the token prompt opens. The
+  server applies its own rule either way.
+  "On loopback" means the server's own host. A plaintext forwarder on
+  127.0.0.1 to a remote orbit (socat, a local nginx) sends the keys in the
+  clear on its far leg; use `ssh -L` or `kubectl port-forward` instead.
+- The server resolves and checks the target as the CLI does (see `orbit
+  target probe` above). A field it refuses is marked in the editor.
+- Leaving the page (a link to another page or a reload included), picking
+  another target, or Cancel ends the probe. The server then deregisters the
+  UE, stops its flow and releases its leases.
+- A probe uses the first subscriber pool and the first responder. Each
+  target's last result in the tab shows beside its name.
+
+**Responders.** The page lists the N6 responders registered with this
+server (by `orbit target add-responder` or a join one-liner), as `orbit
+responder list` does:
+- each one's state (online, offline, or never seen), when its last
+  heartbeat was, its version, and its data and control addresses. The list
+  is read every 5s, and backs off to a minute while the server doesn't
+  answer;
+- **remove**, after a confirm: its credential and loom token stop working,
+  and runs that name it are refused. Rerun the join to re-add it;
+- the join tokens not yet used, with the time each has left and
+  **revoke**. A used token isn't listed: it's spent.
+
+No credential or loom token reaches the page: the server sends none, and
+the page shows only the fields it lists.
+
+**Add an N6 host** joins an app host as a responder without a terminal on
+the RAN box, as `orbit target add-responder` does over ssh. Pick a target,
+then **make a join one-liner**:
+- **The spec.** The join token is made for the target's N6 network:
+  `core.ue_pools`, `core.upf_n6` and `core.n6_subnet`, their `${VAR}`s filled
+  from this tab. The address the app host reaches this server at defaults to
+  the server's listen address; give another when the app host reaches it
+  some other way.
+- **Over TLS only.** A join token is a credential, and the server issues one
+  only over TLS, whatever the peer (loopback included). So the panel needs
+  the dashboard on https:// (`orbit serve --tls auto`). From another host it
+  also needs the API token in the tab.
+- **The one-liner holds a live token.** It's shown masked until you
+  **reveal** it. **copy** copies it as it is. It's kept in this tab's memory
+  only, never stored, and dropped when it's used, revoked or expired. Run it
+  on the app host only, since it runs the join script as root. Until then
+  anyone with it can join a host.
+- **It lasts** 5 minutes to an hour (10 by default), with the time left
+  shown. **revoke** ends it now, copied or not.
+- **Before it's shown or copied**, an unused token is revoked when you close
+  the panel, pick another target, or leave the page (that last one is best
+  effort; its expiry ends it anyway).
+- **Once it's shown (revealed) or copied**, it may be on its way to the app
+  host, so the page stops revoking it on its own: "shown or copied: it works
+  until it is used or expires at <time>". That includes a copy made by hand
+  from the shown line. Closing the panel or picking another target asks
+  "Revoke it now?", and the default is no, keep it. Leaving the page keeps
+  it. Its expiry ends it, as with `orbit target add-responder`. So copy,
+  close the panel, and paste on the app host works. Coming back to the page
+  from the browser's back/forward cache checks the token again, and clears
+  it if it was used, revoked or expired meanwhile, or if it can't be checked.
+- **Once the host joins**, the panel says "used by <name>". Then **use <name>
+  in <target>** names the responder in the target's `app.responders`, by name
+  only (the server fills in the rest). The edit goes through the same checks
+  as any edit.
+
+The conformance suite is run from the Launch page. `?conformance` opens
+Launch on the `conformance` template. A suite needs a target, but a target
+made there with **new from AMF + PLMN** needs no keys. It has no subscriber
+pool, so the checks that need a UE SKIP, as they did on the old Conformance
+page; add a pool on the Targets page to run those. The run view
+(`?run=<id>`) shows a suite's tally as it runs, then every check's verdict,
+spec reference and observation once it ends, with the expected-failures
+list it was judged against ("failed (N expected)" counts the FAILs the list
+tolerates). **cancel run** stops a suite in flight, as the old page's
+cancel did.
+
+### Launching a run from the browser (`?launch`)
+
+The **Launch** page builds a run against a stored target and starts it on
+the server. It can also give the same run as a command or a run file for
+the CLI.
+
+- **The run** is a run file ([`kind: run`](run-files.md)). Start from a
+  built-in template (`load`, `fleet`, `conformance`) or an empty file. Then
+  edit it:
+  - workloads: a population (UEs, rate or ramp, gNBs, PDU session, keeping
+    the UEs with latency, mobility or bulk traffic) or a conformance suite
+    (categories, an expected-failures file);
+  - how it stops: every workload completes, a duration, or until stopped;
+  - gates: one-click presets, or any metric, comparison and threshold.
+
+  The **run file** box shows the whole file and takes edits the form has no
+  control for (a traffic mix, a workload's start). **Import YAML** reads a
+  run file.
+
+  Every edit and import is checked against the run-file schema before the
+  page keeps it, as the Targets page checks targets. The checks refuse:
+  - an unknown field, a YAML tag, an alias or anchor;
+  - a file over 1 MiB;
+  - a secret written out (a token in `behaviors` must be a `${VAR}`).
+
+  An expected-failures file is put inline in the run file, since the server
+  reads no file.
+- **A target.** Pick a stored one, or make one with **new from AMF + PLMN**
+  (an AMF, a PLMN and a slice; no keys).
+- **Variables.** The target's keys come from the Targets page. Any other
+  `${VAR}` the target or the run file names gets a field here. Values are
+  held in this tab, and Start waits until each has one.
+- **Start** sends the target and the run file, as text, with those values.
+  `RunService.PlanRun` resolves them as `orbit run` resolves the same files
+  and builds the plan. Start then starts exactly that plan.
+  - An edit after the plan was resolved means it is resolved again first.
+  - **Check the plan** resolves without starting.
+  - A field the server refuses is named, with its document and line.
+  - The page then opens the run on the dashboard (`?run=<id>`).
+  - A run started here runs on the server: it keeps going when you leave
+    the page or close the tab. Launch lists the last 5 runs this tab
+    started, each with its state, a link to its run view and, while in
+    flight, Stop. A run that can't be read for want of a token shows an
+    auth error; one the server no longer knows, gone.
+- **Stop** (on a run's view, and on Launch for this tab's runs) works two
+  ways, each after a confirm:
+  - **finish run**: the workloads stop and report what they have, and the
+    gates are judged on that. The run ends complete, stopped early.
+  - **cancel run**: the run ends cancelled, and its gates are failed as
+    did-not-complete.
+
+  Once stopped, the control says what the run is, as the server answered:
+  a run that ended while the confirm was open says how it ended.
+
+  `orbit runs stop <id>` (add `--finish` for the first) does the same.
+- **Resolved config.** A run's view shows every field the run resolved
+  to, with the layer and source that set it (`target lab1.yaml:6`,
+  `env $ORBIT_MCC`, a flag, or the server for a lease), and the lower
+  layers' values it replaced, struck through. Keys show only as
+  `<redacted>`, struck through or not. A `notice:` on top marks a field an
+  `$ORBIT_*` var set over a file's value, the forgotten export. A line says
+  what the plan holds: env or flag layers, none, or no
+  provenance at all for a run started without the resolver
+  (`orbit runs start-load`, `start-fleet`). Launch shows the same panel for
+  the plan "check the plan" resolved. The browser has no env layer, so
+  there it can't show what an exported `$ORBIT_*` would change; run the
+  copied command with `--explain` to see that.
+- **Keys** go only with the plan, under the same rule as Probe: to the
+  server's own host, or over https:// with the API token. That rule applies
+  only when the run carries a secret: a key in the target, or any `${VAR}`
+  value. A keyless run (a target made from an AMF and a PLMN) starts from
+  any dashboard.
+- **As the CLI runs it.** The panel gives the command and the file to save,
+  from `RunService.RenderRun`, keyless:
+  - `orbit test <template> --set …` when the page started from a template
+    and the flags express the changes;
+  - otherwise `orbit run <target>.run.yaml`, with **Export YAML** for that
+    file.
+
+  Each argument is quoted for a POSIX shell. With the target exported from
+  the Targets page and no `$ORBIT_*` set, the command starts the same plan;
+  `--explain` shows any difference.
 
 ## The server
 
@@ -394,6 +669,280 @@ loopback only: a non-loopback `--listen` needs TLS and a token (see "TLS and
 tokens" above), which the unit does not yet provision. When it does, export
 `ORBIT_SERVER=https://<listen>` in the shell you run client commands from, so
 they find the service without `--server` on every call.
+
+## N6 app hosts (`orbit join`)
+
+An app host on the N6 side (the far end of user-plane tests) is set up by
+pasting one line on it (ADR-0009). `orbit join create` issues a short-lived
+token and prints that line:
+
+```sh
+orbit join create -t lab1 --name app1
+# join token jt-… for responder app1, expires … (in 10m0s).
+curl -q -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' 'https://ran1:8412/join/oj1_…' | sudo sh
+```
+
+- **Server needs TLS.** The script runs as root, so `orbit serve` offers join
+  only with TLS (`--tls auto`, or `--tls-cert`/`--tls-key`), never in
+  plaintext.
+- **The pin is the check.** The line pins the server's key with
+  `--pinnedpubkey`. `-k` only skips the CA check, which a self-signed
+  `--tls auto` certificate cannot pass: curl still refuses any other key.
+- **What the token carries.** It holds the UE pools (`core.ue_pools`), the
+  UPF's N6 address and subnet (`core.upf_n6`, `core.n6_subnet`) and the
+  address the app host reaches the server at. That address is `--mgmt`, by
+  default the server's `--listen` address, which must then be neither a
+  wildcard nor loopback.
+- **What the script does.** It checks for Linux amd64/arm64, downloads
+  `orbit` into a private directory and refuses it unless its SHA-256
+  matches. Then it **prints a plan and changes nothing until you confirm
+  it** (see [The join script's plan](#the-join-scripts-plan)). The whole
+  script is one function, called on its last line with a sentinel unique to
+  that download, so a download cut short runs nothing.
+- **How to tell it worked.** `curl … | sudo sh` exits with sh's status, not
+  curl's: a failed download (a key that does not match the pin, an expired
+  token) still exits 0, with only curl's error on stderr. Success is the
+  line `orbit join: applied N changes.` (or `orbit join: nothing to
+  change`), not `$?`. In a script or automation, download first and run it
+  only if that worked:
+
+  ```sh
+  curl -q -fsS --proto '=https' -k --pinnedpubkey 'sha256//…' -o join.sh 'https://ran1:8412/join/oj1_…' && sudo sh join.sh --yes
+  ```
+- **Limits.** The join endpoints take the token only as the exact path
+  `/join/<token>` (or `/join/<token>/bin/<arch>`), unencoded. Anything else,
+  including an unknown, expired or revoked token and an arch the server has
+  no binary for, gets the same 404 and counts as a miss.
+  - **Misses:** 10 in 10 s lock the client's address out for 30 s.
+  - **Per address:** at most 30 requests a minute.
+  - **Server-wide:** at most 16 scripts render and 4 binaries download at
+    once.
+  - **A full table:** the server tracks up to 4096 client addresses a
+    minute. When the table is full, new addresses are refused for up to a
+    minute, keeping the server's memory bounded.
+- **The binaries.** `orbit serve` serves its own binary for its own arch.
+  `--join-binaries <dir>` serves `orbit-linux-amd64` and `orbit-linux-arm64`
+  from a directory.
+
+The token is in the line's URL, so treat the line as a credential until it
+expires:
+
+- paste it only on the intended host: it can show up in shell history,
+  briefly in `ps` while curl runs, and in the logs of any HTTP proxy the
+  request passes through (the URL is all a proxy logs; the server logs only
+  the token's ID);
+- keep `--ttl` short (default 10m, at most 1h);
+- revoke a token you do not use.
+
+```sh
+orbit join list            # pending tokens: ID, name, expiry; never the secret
+orbit join revoke jt-…     # cancel one
+```
+
+The server keeps only each token's hash, in memory, so restarting it revokes
+every pending token. A token stays valid until it expires or is revoked:
+fetching the script does not use it up, so a script that fails partway can be
+run again. A token a registration has used can no longer be revoked
+(`orbit join revoke` says so): there is nothing left to cancel, and its
+record lapses at its expiry.
+
+### Over ssh: `orbit target add-responder`
+
+With ssh access to the app host, one command does the join from here:
+
+```sh
+orbit target add-responder --ssh app1.lab -t lab1             # shows the plan, asks, applies
+orbit target add-responder --ssh ops@10.0.0.9 -t lab1 --yes   # no question (needed without a terminal)
+```
+
+It issues the token, fetches the script from the server (pinned to its key)
+and runs it on the app host through your own `ssh`. Your `~/.ssh/config`,
+agent and known_hosts apply as they are; ORBIT reads no key and stores
+nothing about the host. On the app host it:
+
+1. makes a private file (`mktemp`, mode 0600) and copies the script into it
+   over ssh's stdin, so the token is on no command line, here or there;
+2. runs it with `--dry-run` and shows you the plan;
+3. after you confirm (or with `--yes`), runs it with `--yes`, through `sudo`
+   unless you log in as root, with a terminal for sudo's password;
+4. removes the file, whether it succeeded, failed or you pressed Ctrl-C.
+
+The apply in step 3 checks the host again and prints its own plan before it
+changes anything, so if the host changed after the dry run, the plan you see
+there is the one applied. If no registration came of it (you declined, the
+plan or the apply failed, ssh failed, you pressed Ctrl-C at any point after
+the token was issued, or the apply had nothing to register because the host
+was already joined), the command revokes the unused token itself and says
+so; if that revoke fails, it prints the token ID to revoke by hand.
+
+The join script's own options pass through, checked here and quoted for the
+remote shell, to both the dry run and the apply:
+
+```sh
+orbit target add-responder --ssh app1.lab -t lab1 --n6-ip 198.51.100.20 --bind 192.0.2.20:9551
+orbit target add-responder --ssh app1.lab -t lab1 --no-firewall   # rules added by hand (ufw, firewalld)
+```
+
+`--n6-ip IP` and `--bind IP:port` (`[addr]:port` for IPv6) choose the
+addresses the script would otherwise take from the routes; `--no-firewall`,
+`--no-route` and `--no-systemd` skip those parts of the plan. The script
+checks the addresses again against the host's own.
+
+Each remote command is one `sh -c '…'`, so the ssh user's login shell only
+has to pass a single-quoted argument to `sh`, which sh, bash, zsh, fish and
+csh all do. The script runs from a file the ssh user owns, as root: that
+gives nothing beyond the sudo the user already has.
+
+The target's UE pools, UPF and subnet are used as for `orbit join create`.
+
+### The join script's plan
+
+The script works out every change first and prints it: each command exactly
+as it will run, and each file in full. It then asks `Apply N changes? [y/N]`
+on `/dev/tty`. With no terminal it applies only with `--yes` (`… | sudo sh -s
+-- --yes`); otherwise it prints the plan and exits 0 with nothing changed.
+`--dry-run` prints the plan and changes nothing, even with `--yes`, and is
+the only way to run it without root (it then cannot inspect the firewall,
+and says so). Pass options after `sh -s --`:
+
+| Option | Effect |
+|---|---|
+| `--yes` | apply without asking |
+| `--dry-run` | print the plan only |
+| `--n6-ip IP` | the N6 address, instead of the source of this host's route to the UPF's N6 address |
+| `--bind HOST:PORT` | the responder's control address, instead of the source of the route to the server, port 9551 |
+| `--no-route` | leave the UE-pool routes alone |
+| `--no-firewall` | leave the firewall alone |
+| `--no-systemd` | install no unit (required on a host without systemd) |
+| `--reregister` | register again with the new token, rotating the responder's credential and loom token |
+
+The plan's steps:
+
+1. **The binary**, as `/usr/local/lib/orbit/orbit`.
+2. **The return routes:** `ip route replace <ue_pool> via <upf_n6> dev <n6
+   interface>` for each UE pool.
+3. **The firewall**, only where input is filtered. Input counts as not
+   filtered only when every nftables input filter chain has policy accept and
+   no rules, and iptables' `INPUT` has policy `ACCEPT` and no rules. Any rule
+   at all (a jump, a goto or a verdict map included) counts as filtering, and
+   so does a listing the script cannot read, which stops it with the rules to
+   add by hand.
+   - **iptables** (legacy or iptables-nft): its own chain `ORBIT-JOIN`,
+     jumped to first from `INPUT` (`-m comment --comment orbit-join`).
+   - **nftables** with one filtering input chain: rules inserted at the head
+     of that chain, each with a `comment "orbit-join …"`, and the plan says
+     "inserted into … (your ruleset)". (An accept in a separate table would
+     not get past another table's drop.)
+   - **ufw or firewalld:** the script does not edit them. It prints the
+     `ufw allow …` or `firewall-cmd --add-rich-rule …` lines to run and
+     stops; rerun with `--no-firewall` once they are in. With firewalld, an
+     icmp-block on `echo-request` in the zone wins over the rich-rule accept
+     (`firewall-cmd --zone=<zone> --query-icmp-block=echo-request`; remove it
+     with `--remove-icmp-block=echo-request`).
+   - **Several filtering chains, or a listing it cannot read:** the script
+     stops and lists the rules to add where they belong.
+
+   The rules allow tcp to the control port from the server's address on the
+   interface toward the server, and tcp and udp to the data ports from the
+   UE pools and the N6 subnet on the N6 interface. The data ports are the
+   host's ephemeral range (`net.ipv4.ip_local_port_range`), because the
+   responder's receivers bind ephemeral ports.
+
+   Detection looks only at the input hook: a drop in an nftables prerouting
+   or netdev ingress chain, or in iptables' `raw` or `mangle` tables, is not
+   seen. Then nothing is opened there, and the plan's "not filtered" is
+   about the input hook only.
+4. **The unit**, `orbit-responder.service`, runs `orbit responder --config`
+   as the system user `orbit` (created if absent), with systemd's sandboxing
+   on. On systemd 247 and later it reads its config through
+   `LoadCredential` (the file stays root's, mode 0600, which the service can
+   read but not change); on older systemd the file is the `orbit` user's own,
+   mode 0600, and the plan says so. Its `ExecStartPre` runs
+   `/usr/local/lib/orbit/join-net.sh` as root, which re-applies the routes
+   and firewall rules, so they come back at boot. The plan shows the helper
+   and the unit in full.
+5. **The registration** (ADR-0009 §3): the installed `orbit responder
+   register` registers the responder with the server, with the join token
+   read from a mode-0600 file in the script's private directory (never a
+   command line), and writes `/etc/orbit/responder.yaml`.
+6. **The start:** `systemctl enable` and `restart orbit-responder`, then
+   `orbit responder check`, which waits up to 20 s for the server to see the
+   service's own heartbeat. If the service does not come up the script
+   prints the `systemctl status` and `journalctl` lines to look at; the
+   registration stands, so once fixed `systemctl restart orbit-responder` is
+   enough, with no new token.
+
+Nothing on the host changes, and nothing downloaded runs, before the plan is
+confirmed: the downloaded `orbit` first runs (`orbit version`) after the
+confirmation, before the first step.
+
+Every step is checked first, and a step already in place is listed as `ok`,
+so a second run prints `nothing to change`. A rule from an earlier join that
+this plan no longer has (say, after the port range changed) is removed. A
+step that fails stops the run, naming the steps already applied.
+
+The script never picks an address silently: it prints the N6 address and the
+control bind it chose, and where they came from. It refuses, rather than
+guesses, when there is no route to the UPF's N6 address, when the route goes
+through a gateway from outside the N6 subnet, when the N6 interface has
+several addresses in the N6 subnet, or when the server's name has several
+addresses in one family.
+
+**A host that already drops everything inbound**, replies included, cannot
+download the script at all: curl's own replies are dropped. Allow the server
+first, or download the script elsewhere, copy it over, and run it there.
+
+### Registered responders
+
+A responder registers once, with the join token, which that registration
+uses up. The app host generates the responder's credential itself and the
+server keeps only its hash; the server issues the responder's loom control
+token. Both live in `/etc/orbit/responder.yaml` (mode 0600), never on a
+command line or in the journal.
+
+- **Retries.** The credential is written to `responder.yaml.pending` before
+  the request, so a registration whose answer was lost is retried, by the
+  command or by running the one-liner again, with the same credential, and
+  gets the same answer.
+- **Rerunning the one-liner** on a registered host first asks the server
+  (a heartbeat probe, by curl: nothing downloaded runs before confirmation).
+  Known to the server: `nothing to change`. Unknown to it (say, a server
+  restarted without its `--state-dir`) or removed: the plan registers again
+  with the new token. No answer: left as is. `--reregister` registers again
+  anyway, rotating the credential and the loom token.
+- **The heartbeat.** The responder tells the server it is alive every 10 s
+  (±20%); after 30 s without one it shows offline. It backs off on failure,
+  up to 30 s, and keeps trying, also when the server does not know it (the
+  log says so); only a removal stops it.
+- **Names.** A responder takes the token's `--name`, else the host's short
+  name. A name another responder holds is refused, before the token is used.
+
+- **Issue join tokens only to the app host's operator.** A registration
+  states its own control address and data IP, and the server takes them as
+  given: it later dials that control address with the responder's loom
+  token. So whoever holds a join token chooses where that token goes.
+  `orbit responder list -o wide` marks with `!` a responder that registered
+  from a different address than its control address (NAT does that too).
+
+```sh
+orbit responder list               # name, ID, state, last seen, control, data IP, version, token ID
+orbit responder list -o wide       # with the source addresses
+orbit responder remove app1        # revoke it: its credential and loom token stop working, and it stops
+```
+
+A target names a registered responder by name alone (`app.responders:
+[{name: app1}]`): a run resolves it on the server to its control address and
+loom token. A name no responder has registered, and an offline responder, are
+refused when the run starts, by name.
+
+The server keeps registered responders in `--state-dir`
+(`responders.json`, mode 0600); `orbit serve` will not start with one it
+cannot read. Without `--state-dir` they are lost at a restart, and every app
+host must join again.
+
+**Known limit:** loom's control channel is plaintext gRPC with a bearer
+token, so a responder's loom token crosses the network in the clear, as
+`--peer --token` does today. TLS for it is a separate loom change.
 
 ## Server runs (`orbit runs`)
 
@@ -715,10 +1264,18 @@ orbit load ... --gnb-count 2 --bind 172.17.50.21,172.17.50.22
 orbit load ... --duration 10m --sample-interval 15s
 ```
 
-Output is per-procedure latency (P50/P99/P99.9), achieved rate, success/failure
-counts, and (for soak) a goroutine/RSS trend. The `--slo-*` flags and `--gate`
-turn a run into a CI gate ([exit codes](#exit-codes)). With `--local`, gate
-with `--slo-*` only, which the CLI judges itself.
+Output is per-procedure latency (the sample count `n`, then P50/P90/P99/P99.9
+and max), achieved rate, success/failure counts, and (for soak) a goroutine/RSS
+trend. `--local` and server runs print the same columns, so the two compare line
+by line:
+
+```
+  registration  n 50     P50 12.3ms   P90 20.1ms   P99 31.4ms   P99.9 40ms     max 41.2ms
+```
+
+The `--slo-*` flags and `--gate` turn a run into a CI gate
+([exit codes](#exit-codes)). With `--local`, gate with `--slo-*` only, which
+the CLI judges itself.
 
 ## Conformance / regression
 

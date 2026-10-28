@@ -1,0 +1,29 @@
+version: 1
+kind: target
+name: keys-as-vars
+core:
+    amf: 10.0.0.1:38412
+    plmn:
+        mcc: "001"
+        mnc: "01"
+    tac: 1
+    slices:
+        - sst: 1
+          sd: "010203"
+    dnn: internet
+subscribers:
+    - name: main
+      first_supi: "001010000000001"
+      count: 5
+      ki: ${ORBIT_KI}
+      opc: ${ORBIT_OPC}
+ran:
+    n2_source_ips:
+        - 10.0.0.5
+    n3_ips:
+        - 10.0.0.5
+app:
+    responders:
+        - name: n6
+          control: 203.0.113.20:9551
+          data_ip: 203.0.113.21

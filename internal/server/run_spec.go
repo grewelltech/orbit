@@ -19,6 +19,10 @@ import (
 type specStore struct {
 	mu    sync.Mutex
 	specs map[string]heldSpec
+	// sampled is the runs whose sampler is live: until it has archived its
+	// run, sweep keeps the run's spec even once the registry has let the
+	// run go (another run's end can evict it in between).
+	sampled map[string]bool
 }
 
 // heldSpec is a run's spec, masked, and the secret values masked out of it.
@@ -30,7 +34,7 @@ type heldSpec struct {
 }
 
 func newSpecStore() *specStore {
-	return &specStore{specs: make(map[string]heldSpec)}
+	return &specStore{specs: make(map[string]heldSpec), sampled: make(map[string]bool)}
 }
 
 // put records a run's spec with every secret masked (secrets.Mask: every
@@ -73,18 +77,76 @@ func (s *specStore) put(id string, m *orbitv1.StartRunRequest, extra ...*orbitv1
 	s.specs[id] = held
 }
 
-// take returns and forgets a run's masked spec and its secret values.
-// Forgetting matters: the map would otherwise grow for the life of the
-// process, holding a scenario document and keys per run that was started.
-func (s *specStore) take(id string) (heldSpec, bool) {
+// get returns a run's masked spec and its secret values, leaving them
+// held: archiveRun reads them, and drops them only once the archive is
+// saved, so a run's config is served throughout (GetRunConfig).
+func (s *specStore) get(id string) (heldSpec, bool) {
 	if s == nil {
 		return heldSpec{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	h, ok := s.specs[id]
-	delete(s.specs, id)
 	return h, ok
+}
+
+// drop forgets a run's spec, once its archive is saved. Forgetting matters:
+// the map would otherwise grow for the life of the process, holding a
+// scenario document and keys per run that was started.
+func (s *specStore) drop(id string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.specs, id)
+}
+
+// sampling marks run id's sampler live (true) or done (false): a live
+// sampler's run keeps its spec through a sweep.
+func (s *specStore) sampling(id string, live bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if live {
+		s.sampled[id] = true
+	} else {
+		delete(s.sampled, id)
+	}
+}
+
+// sweep drops the spec of every run keep says no: a run the registry has
+// evicted. A spec is otherwise dropped only once its archive is saved, so
+// without a sweep a failed save, or every run when there is no state dir
+// to save to, would hold a spec, with the request's secret values, for the
+// life of the process. Swept as each run ends, the specs held are bounded
+// by the registry's history.
+func (s *specStore) sweep(keep func(id string) bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.specs))
+	for id := range s.specs {
+		if !s.sampled[id] {
+			ids = append(ids, id)
+		}
+	}
+	s.mu.Unlock()
+	// keep reads the registry, under its own lock: not called under s.mu.
+	var gone []string
+	for _, id := range ids {
+		if !keep(id) {
+			gone = append(gone, id)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range gone {
+		delete(s.specs, id)
+	}
 }
 
 const redacted = secrets.Masked
@@ -96,4 +158,25 @@ const redacted = secrets.Masked
 func redactArchive(a *orbitv1.RunArchive, requestSecrets []string) {
 	values := append(secrets.Mask(a), requestSecrets...)
 	secrets.Scrub(a, values)
+}
+
+// peek returns a copy of a run's masked spec, its request's secret values
+// scrubbed from it, leaving the held one as it was: GetRunConfig reads a
+// live run's spec this way, and archiving still takes it after.
+func (s *specStore) peek(id string) (*orbitv1.RunArchive, bool) {
+	if s == nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	h, ok := s.specs[id]
+	var out *orbitv1.RunArchive
+	if ok {
+		out = proto.Clone(h.archive).(*orbitv1.RunArchive)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	redactArchive(out, h.secrets)
+	return out, true
 }

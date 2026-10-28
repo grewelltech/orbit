@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,6 +88,9 @@ var fields = map[string]field{
 	"core.dnn":                        {target: true},
 	"core.profile":                    {target: true},
 	"core.upf_n3":                     {target: true},
+	"core.ue_pools":                   {typ: tStrings, target: true},
+	"core.upf_n6":                     {target: true},
+	"core.n6_subnet":                  {target: true},
 	"subscribers[].name":              {target: true},
 	"subscribers[].first_supi":        {target: true},
 	"subscribers[].count":             {typ: tUint, target: true},
@@ -421,8 +425,15 @@ func convert(f field, v any) (any, error) {
 		// A flag or --set gives text: read it as YAML, so a mapping or a
 		// list can be written inline; a plain word stays a string.
 		if x, ok := v.(string); ok {
-			var parsed any
-			if err := yaml.Unmarshal([]byte(x), &parsed); err != nil {
+			var doc yaml.Node
+			if err := yaml.Unmarshal([]byte(x), &doc); err != nil {
+				return nil, fmt.Errorf("%s is not valid YAML: %w", errValue(f, x), err)
+			}
+			if doc.Kind == 0 || len(doc.Content) == 0 {
+				return x, nil
+			}
+			parsed, err := decodeWhole(doc.Content[0])
+			if err != nil {
 				return nil, fmt.Errorf("%s is not valid YAML: %w", errValue(f, x), err)
 			}
 			if parsed == nil {
@@ -436,13 +447,81 @@ func convert(f field, v any) (any, error) {
 }
 
 // errValue is how an error shows a field's value: masked when the field is
-// secret, quoted when it is a string.
+// secret, or when the value is shaped like a key or token (keyShaped), a
+// secret pasted into the wrong field; quoted when it is a string.
 func errValue(f field, v any) string {
 	if f.secret || f.typ == tAny {
 		return Masked // a subtree's text may hold a token
 	}
 	if s, ok := v.(string); ok {
+		if keyShaped(s) {
+			return Masked
+		}
 		return strconv.Quote(s)
 	}
-	return show(f, v)
+	return maskKeyShaped(show(f, v)) // a list or mapping: a key in an entry
+}
+
+// keyShapePattern is a key or token's shape, unanchored: hex digits with
+// an optional 0x, as a Ki or OPc (32) or a 64-digit key is written, give
+// or take a digit (a key mistyped), whole or in pairs or quads separated
+// by ':', '-' or ' '; or one of orbit's tokens (a join token, a responder
+// credential, a loom token) by its prefix. A base64 or bearer secret has
+// no shape to know it by.
+const keyShapePattern = `(?:0[xX])?(?:` +
+	`[0-9A-Fa-f]{63,65}|[0-9A-Fa-f]{31,33}|` +
+	`[0-9A-Fa-f]{2}(?:[:\- ][0-9A-Fa-f]{2}){14,31}(?:[:\- ][0-9A-Fa-f])?|` +
+	`[0-9A-Fa-f]{4}(?:[:\- ][0-9A-Fa-f]{4}){6,15}(?:[:\- ][0-9A-Fa-f]{1,3})?)` +
+	`|(?:oj1|orc1|orl1)_[A-Za-z0-9_-]+`
+
+// keyShapedRe is a whole value of keyShapePattern's shape.
+var keyShapedRe = regexp.MustCompile(`^(?:` + keyShapePattern + `)$`)
+
+// keyShaped reports whether s, trimmed, is shaped like a key or token. A
+// ${VAR} is not: it names where a secret comes from, and shows as written.
+func keyShaped(s string) bool { return keyShapedRe.MatchString(strings.TrimSpace(s)) }
+
+// keyShapedInRe is keyShapePattern within a longer text, bounded by what
+// is not a hex digit (so '_' splits a token's tail, and a longer run of hex
+// digits is not taken apart).
+var keyShapedInRe = regexp.MustCompile(`(^|[^0-9A-Fa-f])(` + keyShapePattern + `)([^0-9A-Fa-f]|$)`)
+
+// maskedErr is an error whose text has every key- or token-shaped word
+// masked (maskKeyShaped): a key used as a YAML key, a pool's name, or a
+// value an error quotes. errors.Is and errors.As still see the error it
+// wraps, whose own text is NOT masked: a caller must never show an
+// Unwrap()ped target error, or the text of one errors.As found inside it
+// (TestNoUnmaskedTargetErrorShown keeps internal/cli and internal/server to
+// that).
+type maskedErr struct{ err error }
+
+func (e maskedErr) Error() string { return maskKeyShaped(e.err.Error()) }
+func (e maskedErr) Unwrap() error { return e.err }
+
+// MaskErr is err with every key- or token-shaped word in its text masked
+// (errors.Is and errors.As still see err): what a package whose errors may
+// quote a selector or value (plan) returns at its boundary, as target does.
+func MaskErr(err error) error { return maskErr(err) }
+
+// maskErr is err as its callers see it from the target package: masked
+// (maskedErr), nil for nil.
+func maskErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return maskedErr{err}
+}
+
+// maskKeyShaped is text with every key- or token-shaped word in it masked:
+// a value rendered whole (a slice list) or quoted in a reason. A match
+// takes the character after it as its boundary, so a key right after
+// another is masked on the next pass.
+func maskKeyShaped(text string) string {
+	for {
+		out := keyShapedInRe.ReplaceAllString(text, "${1}"+Masked+"${3}")
+		if out == text {
+			return out
+		}
+		text = out
+	}
 }

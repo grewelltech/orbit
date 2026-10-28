@@ -1,0 +1,6 @@
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: the server's name core.example has several addresses in one family (192.0.2.10 192.0.2.11), so this host cannot tell which one the server dials from; issue the token again with orbit join create --mgmt <ip>
+--- exit: 1
+--- changes:
+

@@ -1,0 +1,32 @@
+{
+  "env": {
+    "LAB_AMF": "10.0.0.1:38412",
+    "ORBIT_KI": "5122250214c33e723a5dd523fc145fc0",
+    "ORBIT_OPC": "981d464c7c52eb6e5036234984ad0bcf",
+    "ROAM_KI": "000102030405060708090a0b0c0d0e0f",
+    "ROAM_OPC": "0f0e0d0c0b0a09080706050403020100",
+    "ORBIT_RESPONDER_TOKEN_0": "responder-token-for-the-fixture"
+  },
+  "cases": [
+    {"name": "minimal", "from": "minimal", "edits": []},
+    {"name": "keys-as-vars", "from": "keys-as-vars", "edits": []},
+    {"name": "handwritten", "from": "handwritten", "edits": []},
+    {"name": "keys-written", "from": "keys-written", "edits": [], "note": "imported: the keys moved to the tab, exported as ${ORBIT_KI}/${ORBIT_OPC}"},
+    {"name": "keys-written-with-keys", "from": "keys-written", "edits": [], "keys": true},
+    {"name": "minimal-edited", "from": "minimal", "edits": [
+      {"steps": ["core", "tac"], "path": "core.tac", "value": "9"},
+      {"steps": ["core", "plmn", "mnc"], "path": "core.plmn.mnc", "value": "001"},
+      {"steps": ["core", "dnn"], "path": "core.dnn", "value": ""},
+      {"steps": ["core", "ue_pools"], "path": "core.ue_pools", "value": ["10.251.0.0/16", "10.252.0.0/16"]},
+      {"steps": ["ran", "gnb_name"], "path": "ran.gnb_name", "value": "null"},
+      {"steps": ["ran", "gnb_ids", "first"], "path": "ran.gnb_ids.first", "value": "0x20"}
+    ]},
+    {"name": "handwritten-edited", "from": "handwritten", "edits": [
+      {"steps": ["ran", "gnb_ids", "count"], "path": "ran.gnb_ids.count", "value": "8"},
+      {"steps": ["core", "dnn"], "path": "core.dnn", "value": "ims"},
+      {"steps": ["subscribers", 1, "count"], "path": "subscribers[roaming].count", "value": "3"},
+      {"steps": ["app", "responders", 0, "data_ip"], "path": "app.responders[n6].data_ip", "value": ""},
+      {"steps": ["core", "upf_n3"], "path": "core.upf_n3", "value": "192.0.2.31:2152"}
+    ]}
+  ]
+}

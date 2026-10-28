@@ -1,0 +1,18 @@
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
+orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
+orbit join: firewalld manages this host's firewall; this script does not edit it. Run these, then rerun with --no-firewall:
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="192.0.2.10/32" port port="9551" protocol="tcp" accept'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.250.0.0/16" port port="32768-60999" protocol="udp" accept'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.250.0.0/16" port port="32768-60999" protocol="tcp" accept'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="10.250.0.0/16" icmp-type name="echo-request" accept'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="198.51.100.0/24" port port="32768-60999" protocol="udp" accept'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="198.51.100.0/24" port port="32768-60999" protocol="tcp" accept'
+  firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address="198.51.100.0/24" icmp-type name="echo-request" accept'
+  firewall-cmd --reload
+  (firewalld binds interfaces through zones: put ens4 and ens5 in the zone these rules go in. data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  (an icmp-block on echo-request in that zone wins over the accept above: check with firewall-cmd --zone=<zone> --query-icmp-block=echo-request, and remove it with --remove-icmp-block=echo-request)
+--- exit: 1
+--- changes:
+

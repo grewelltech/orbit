@@ -1,0 +1,3267 @@
+{
+  "run":  {
+    "runId":  "run-5bda255e",
+    "kind":  "RUN_KIND_CONFORMANCE",
+    "state":  "RUN_STATE_COMPLETE",
+    "startedUnixNano":  "1793174964786211258",
+    "endedUnixNano":  "1793174967798725194"
+  },
+  "conformance":  {
+    "tally":  {
+      "passed":  1,
+      "failed":  3,
+      "skipped":  7
+    },
+    "results":  [
+      {
+        "id":  "GTPU-END-MARKER-ON-PATH-SWITCH",
+        "category":  "mobility",
+        "specRef":  "TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag)",
+        "verdict":  "SKIP",
+        "expected":  "GTP-U End Marker on the old F-TEID at the source gNB between Path Switch Request and 5s after its Acknowledge, with no G-PDU on that tunnel after it (TS 23.501 5.8.2.9.1; TS 29.281 7.3.2)",
+        "observed":  "no UE configured",
+        "detail":  "set --supi, --ki/--opc and --gnb-n3 to run mobility checks; requires Rel-15 or later; TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag)",
+        "specRefs":  [
+          {
+            "spec":  "TS 23.501",
+            "clause":  "5.8.2.9.1",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "23501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "23501-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.20.0",
+                "archive":  "23501-gk0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "23501-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.12.0",
+                "archive":  "23501-ic0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.9.0",
+                "archive":  "23501-j90.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19"
+              },
+              {
+                "release":  16,
+                "note":  "surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0"
+              }
+            ],
+            "rendered":  "TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0)"
+          },
+          {
+            "spec":  "TS 29.281",
+            "clause":  "7.3.2",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  8,
+                "version":  "V8.0.0",
+                "archive":  "29281-800.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.2.0",
+                "archive":  "29281-f20.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "29281-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.2.0",
+                "archive":  "29281-g20.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.5.0",
+                "archive":  "29281-h50.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.4.0",
+                "archive":  "29281-i40.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.2.0",
+                "archive":  "29281-j20.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0"
+              },
+              {
+                "release":  16,
+                "note":  "V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0"
+              }
+            ],
+            "rendered":  "TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0)"
+          },
+          {
+            "spec":  "TS 29.244",
+            "clause":  "8.2.31",
+            "strength":  "shall",
+            "since":  14,
+            "verified":  [
+              {
+                "release":  14,
+                "version":  "V14.0.0",
+                "archive":  "29244-e00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.10.0",
+                "archive":  "29244-fa0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.13.0",
+                "archive":  "29244-gd0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.10.0",
+                "archive":  "29244-ha0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.10.0",
+                "archive":  "29244-ia0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.6.0",
+                "archive":  "29244-j60.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag"
+              }
+            ],
+            "rendered":  "TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "GTPU-UNKNOWN-TEID-ERRIND",
+        "category":  "gtpu",
+        "specRef":  "TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without \"PDU Session\"; Rel-15: \"PDU Session\" added in V15.4.0)",
+        "verdict":  "SKIP",
+        "expected":  "GTP-U Error Indication (type 26) echoing the unknown TEID",
+        "observed":  "no N3 params (run from the UPF access network with --upf-n3 / --n3-bind)",
+        "detail":  "requires Rel-15 or later; TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without \"PDU Session\"; Rel-15: \"PDU Session\" added in V15.4.0)",
+        "specRefs":  [
+          {
+            "spec":  "TS 29.281",
+            "clause":  "7.3.1",
+            "strength":  "shall",
+            "since":  8,
+            "verified":  [
+              {
+                "release":  8,
+                "version":  "V8.0.0",
+                "archive":  "29281-800.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.4.0",
+                "archive":  "29281-f40.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "29281-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.2.0",
+                "archive":  "29281-g20.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.5.0",
+                "archive":  "29281-h50.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.4.0",
+                "archive":  "29281-i40.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.2.0",
+                "archive":  "29281-j20.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  8,
+                "note":  "V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0"
+              },
+              {
+                "release":  11,
+                "note":  "the 'all zeros' TEID exception is present by V11.6.0"
+              },
+              {
+                "release":  12,
+                "note":  "current wording from V12.0.0, without \"PDU Session\""
+              },
+              {
+                "release":  15,
+                "note":  "\"PDU Session\" added in V15.4.0"
+              }
+            ],
+            "rendered":  "TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without \"PDU Session\"; Rel-15: \"PDU Session\" added in V15.4.0)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NAS-REG-REJECTED-NSSAI",
+        "category":  "nas",
+        "specRef":  "TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: \"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\"); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds \"shall not include\" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE)",
+        "verdict":  "SKIP",
+        "expected":  "a Registration Reject with 5GMM cause #62 whose Rejected NSSAI IE lists the only requested S-NSSAI, one the core does not serve, from a UE sending NSSAA and ER-NSSAI as not supported (TS 24.501 5.5.1.2.5, condition b) 2)); the Rejected NSSAI IE is required from V16.6.0. An Accept with a default S-NSSAI is SKIP",
+        "observed":  "no UE configured",
+        "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 20s for this check; requires Rel-16 or later; TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: \"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\"); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds \"shall not include\" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE)",
+        "specRefs":  [
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.5.1.2.5 #62",
+            "strength":  "shall",
+            "since":  16,
+            "verified":  [
+              {
+                "release":  16,
+                "version":  "V16.2.0",
+                "archive":  "24501-g20.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.5.1",
+                "archive":  "24501-g51.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.0.0",
+                "archive":  "24501-i00.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  16,
+                "note":  "V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii)"
+              },
+              {
+                "release":  17,
+                "note":  "\"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\""
+              },
+              {
+                "release":  18,
+                "note":  "V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\""
+              }
+            ],
+            "rendered":  "TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: \"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\")"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT",
+            "strength":  "shall",
+            "since":  16,
+            "verified":  [
+              {
+                "release":  16,
+                "version":  "V16.6.0",
+                "archive":  "24501-g60.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.1.0",
+                "archive":  "24501-h10.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.1.0",
+                "archive":  "24501-i10.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  16,
+                "note":  "a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\""
+              },
+              {
+                "release":  17,
+                "note":  "from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped"
+              },
+              {
+                "release":  18,
+                "note":  "from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI"
+              }
+            ],
+            "rendered":  "TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI)"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  16,
+                "note":  "adds \"shall not include\" restrictions"
+              },
+              {
+                "release":  17,
+                "note":  "the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded"
+              },
+              {
+                "release":  19,
+                "note":  "adds a Partially rejected NSSAI IE"
+              }
+            ],
+            "rendered":  "TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds \"shall not include\" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE)"
+          }
+        ],
+        "minRelease":  16
+      },
+      {
+        "id":  "NAS-PDU-UNKNOWN-DNN",
+        "category":  "nas",
+        "specRef":  "TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\"; Rel-18: \"subclause\" becomes \"clause\"); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes); TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19)",
+        "verdict":  "SKIP",
+        "expected":  "a PDU Session Establishment Reject (any 5GSM cause; #27 is typical), or the un-forwarded request returned in a DL NAS Transport with 5GMM cause #90 or #91 (TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1)); the send-back is required from V15.1.0 (a may in V15.0.0)",
+        "observed":  "no UE configured",
+        "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 30s for this check; requires Rel-15 or later; TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\"; Rel-18: \"subclause\" becomes \"clause\"); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes); TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19)",
+        "specRefs":  [
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.4.5.2.5 a) 1)",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.1.0",
+                "archive":  "24501-f10.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.2.0",
+                "archive":  "24501-f20.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.3.0",
+                "archive":  "24501-f30.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.0.0",
+                "archive":  "24501-g00.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.1.0",
+                "archive":  "24501-g10.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.3.0",
+                "archive":  "24501-g30.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.3.0",
+                "archive":  "24501-h30.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.5.0",
+                "archive":  "24501-h50.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure"
+              },
+              {
+                "release":  16,
+                "note":  "from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\""
+              },
+              {
+                "release":  18,
+                "note":  "\"subclause\" becomes \"clause\""
+              }
+            ],
+            "rendered":  "TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\"; Rel-18: \"subclause\" becomes \"clause\")"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.4.5.3.2 (case e) of 5.4.5.3.1)",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.1.0",
+                "archive":  "24501-f10.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.2.0",
+                "archive":  "24501-f20.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.3.0",
+                "archive":  "24501-f30.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.0.0",
+                "archive":  "24501-g00.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.1.0",
+                "archive":  "24501-g10.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.3.0",
+                "archive":  "24501-g30.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.3.0",
+                "archive":  "24501-h30.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.5.0",
+                "archive":  "24501-h50.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\""
+              },
+              {
+                "release":  17,
+                "note":  "V17.3.0 adds an optional Back-off timer value IE with #91"
+              }
+            ],
+            "rendered":  "TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91)"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0)",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.1.0",
+                "archive":  "24501-f10.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.2.0",
+                "archive":  "24501-f20.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.3.0",
+                "archive":  "24501-f30.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.0.0",
+                "archive":  "24501-g00.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.1.0",
+                "archive":  "24501-g10.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.3.0",
+                "archive":  "24501-g30.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.3.0",
+                "archive":  "24501-h30.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.5.0",
+                "archive":  "24501-h50.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes"
+              },
+              {
+                "release":  16,
+                "note":  "6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version"
+              },
+              {
+                "release":  17,
+                "note":  "V17.5.0 adds #86 to the typical causes"
+              }
+            ],
+            "rendered":  "TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes)"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "Annex B.1 #27",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.1.0",
+                "archive":  "24501-f10.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.2.0",
+                "archive":  "24501-f20.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.3.0",
+                "archive":  "24501-f30.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.0.0",
+                "archive":  "24501-g00.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.1.0",
+                "archive":  "24501-g10.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.3.0",
+                "archive":  "24501-g30.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.3.0",
+                "archive":  "24501-h30.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.5.0",
+                "archive":  "24501-h50.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "wordingUnchanged":  true,
+            "rendered":  "TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NAS-T3550-ACCEPT-RETRANSMIT",
+        "category":  "nas",
+        "specRef":  "TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19); TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: \"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers); TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+        "verdict":  "SKIP",
+        "expected":  "with the Registration Complete withheld after a Registration Accept assigning a 5G-GUTI, 4 retransmissions of the Registration Accept at T3550 (6s by default), then none (TS 24.501 5.5.1.2.8 c))",
+        "observed":  "no UE configured",
+        "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 2m25s for this check; requires Rel-15 or later; TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19); TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: \"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers); TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+        "specRefs":  [
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.5.1.2.8 c)",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19"
+              }
+            ],
+            "rendered":  "TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19)"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.5.1.2.4 T3550 start",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added"
+              },
+              {
+                "release":  16,
+                "note":  "the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers"
+              },
+              {
+                "release":  17,
+                "note":  "the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming"
+              },
+              {
+                "release":  18,
+                "note":  "\"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4"
+              },
+              {
+                "release":  19,
+                "note":  "adds LP-WUSPS assistance information and LP-WUS status triggers"
+              }
+            ],
+            "rendered":  "TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: \"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers)"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "Table 10.2.2 T3550",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  16,
+                "note":  "adds a WB-N1/CE mode value of 18s; the normal value stays 6s"
+              },
+              {
+                "release":  17,
+                "note":  "adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s"
+              }
+            ],
+            "rendered":  "TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NAS-T3560-AUTH-RETRANSMIT",
+        "category":  "nas",
+        "specRef":  "TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+        "verdict":  "SKIP",
+        "expected":  "with the Authentication Response withheld, 4 retransmissions of the Authentication Request at T3560 (6s by default), then a UE Context Release Command on the fifth expiry (TS 24.501 5.4.1.3.7 b))",
+        "observed":  "no UE configured",
+        "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 3m10s for this check; requires Rel-15 or later; TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+        "specRefs":  [
+          {
+            "spec":  "TS 24.501",
+            "clause":  "5.4.1.3.7 b)",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "wordingUnchanged":  true,
+            "rendered":  "TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19)"
+          },
+          {
+            "spec":  "TS 24.501",
+            "clause":  "Table 10.2.2 T3560",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "24501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.7.0",
+                "archive":  "24501-f70.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.15.0",
+                "archive":  "24501-gf0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.18.1",
+                "archive":  "24501-hi1.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.14.0",
+                "archive":  "24501-ie0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.8.0",
+                "archive":  "24501-j80.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  16,
+                "note":  "adds a WB-N1/CE mode value of 24s; the normal value stays 6s"
+              },
+              {
+                "release":  17,
+                "note":  "adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s"
+              }
+            ],
+            "rendered":  "TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NGAP-UNKNOWN-UE-SURVIVES",
+        "category":  "negative-ie",
+        "specRef":  "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+        "verdict":  "FAIL",
+        "expected":  "ERROR INDICATION for the unknown UE NGAP IDs, and the NG association keeps working (TS 38.413 10.6, 8.7.5.2)",
+        "observed":  "association reset",
+        "detail":  "sctp read: EOF; requires Rel-15 or later; TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+        "specRefs":  [
+          {
+            "spec":  "TS 38.413",
+            "clause":  "10.6",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "38413-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "38413-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.18.0",
+                "archive":  "38413-gi0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "38413-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.11.0",
+                "archive":  "38413-ib0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.4.0",
+                "archive":  "38413-j40.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message"
+              }
+            ],
+            "rendered":  "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message)"
+          },
+          {
+            "spec":  "TS 38.413",
+            "clause":  "8.7.5.2",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "38413-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "38413-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.18.0",
+                "archive":  "38413-gi0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "38413-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.11.0",
+                "archive":  "38413-ib0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.4.0",
+                "archive":  "38413-j40.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "example cause names replaced in V15.4.0"
+              },
+              {
+                "release":  19,
+                "note":  "V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences"
+              }
+            ],
+            "rendered":  "TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NGAP-NGSETUP-MISSING-TALIST",
+        "category":  "negative-ie",
+        "specRef":  "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+        "verdict":  "FAIL",
+        "expected":  "NG SETUP FAILURE reporting the missing Supported TA List, and the core survives (TS 38.413 10.3.5)",
+        "observed":  "NG SETUP RESPONSE (accepted!)",
+        "detail":  "AMF accepted an NG Setup missing the mandatory Supported TA List; requires Rel-15 or later; TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+        "specRefs":  [
+          {
+            "spec":  "TS 38.413",
+            "clause":  "9.2.6.1 Supported TA List",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "38413-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "38413-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.18.0",
+                "archive":  "38413-gi0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "38413-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.11.0",
+                "archive":  "38413-ib0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.4.0",
+                "archive":  "38413-j40.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0"
+              },
+              {
+                "release":  19,
+                "note":  "semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject"
+              }
+            ],
+            "rendered":  "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject)"
+          },
+          {
+            "spec":  "TS 38.413",
+            "clause":  "10.3.5 Reject IE bullet 1",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "38413-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "38413-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.18.0",
+                "archive":  "38413-gi0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "38413-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.11.0",
+                "archive":  "38413-ib0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.4.0",
+                "archive":  "38413-j40.zip"
+              }
+            ],
+            "wordingUnchanged":  true,
+            "rendered":  "TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NGAP-NGSETUP-UNKNOWN-PLMN",
+        "category":  "negative-ie",
+        "specRef":  "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+        "verdict":  "PASS",
+        "expected":  "NG SETUP FAILURE rejecting a gNB whose PLMNs the AMF does not serve, and the core survives (TS 38.413 8.7.1.4)",
+        "observed":  "NG SETUP FAILURE (rejected)",
+        "detail":  "presented PLMN 999/99, TAC 257 (served: 208/93, TAC 1); cause Misc unknown-PLMN-or-SNPN (recorded, not asserted); requires Rel-15 or later; TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+        "specRefs":  [
+          {
+            "spec":  "TS 38.413",
+            "clause":  "8.7.1.4",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.2.0",
+                "archive":  "38413-f20.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "38413-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.9.0",
+                "archive":  "38413-g90.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.18.0",
+                "archive":  "38413-gi0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "38413-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.11.0",
+                "archive":  "38413-ib0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.4.0",
+                "archive":  "38413-j40.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs"
+              },
+              {
+                "release":  16,
+                "note":  "reworded to the PLMNs/SNPNs form in V16.9.0"
+              },
+              {
+                "release":  19,
+                "note":  "V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged"
+              }
+            ],
+            "rendered":  "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged)"
+          },
+          {
+            "spec":  "TS 38.413",
+            "clause":  "9.3.1.2",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "38413-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "38413-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.18.0",
+                "archive":  "38413-gi0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "38413-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.11.0",
+                "archive":  "38413-ib0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.4.0",
+                "archive":  "38413-j40.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  16,
+                "note":  "Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0"
+              }
+            ],
+            "rendered":  "TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NGAP-NG-RESET-ACK",
+        "category":  "procedural",
+        "specRef":  "TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19)",
+        "verdict":  "FAIL",
+        "expected":  "NG RESET ACKNOWLEDGE (Reset procedure completes)",
+        "observed":  "no response",
+        "detail":  "Reset procedure did not complete (no NG RESET ACKNOWLEDGE); requires Rel-15 or later; TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19)",
+        "specRefs":  [
+          {
+            "spec":  "TS 38.413",
+            "clause":  "8.7.4.2.2",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "38413-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.13.0",
+                "archive":  "38413-fd0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.18.0",
+                "archive":  "38413-gi0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.15.0",
+                "archive":  "38413-hf0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.11.0",
+                "archive":  "38413-ib0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.4.0",
+                "archive":  "38413-j40.zip"
+              }
+            ],
+            "wordingUnchanged":  true,
+            "rendered":  "TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19)"
+          }
+        ],
+        "minRelease":  15
+      },
+      {
+        "id":  "NAS-SMC-NO-NIA0-REPLAYED-CAPS",
+        "category":  "security",
+        "specRef":  "TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0); TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version); TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
+        "verdict":  "SKIP",
+        "expected":  "Normal UE (5G-EA0/1/2, 5G-IA0/1/2): a Security Mode Command that selects no NIA0 and replays the UE security capabilities exactly. UE offering only NIA0 and NIA3: NIA3, a reject or a release. UE offering only NIA0: a reject or a release. For any UE, a Security Mode Command selecting NIA0, or no Security Mode Command, is FAIL (TS 33.501 5.5.2, 6.7.2 step 1b). A non-null algorithm the UE did not offer is PASS, recorded, not scored: no shall requires the selected algorithm to be one the UE offered at initial registration. 5.11.2 b) says only 'dependent on', and 6.7.1.2 (from V19.4.0) covers AMF change.",
+        "observed":  "no UE configured",
+        "detail":  "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks; per-test timeout raised to 50s for this check; requires Rel-15 or later; TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0); TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version); TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
+        "specRefs":  [
+          {
+            "spec":  "TS 33.501",
+            "clause":  "5.5.2",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.1.0",
+                "archive":  "33501-f10.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.20.0",
+                "archive":  "33501-fk0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.20.0",
+                "archive":  "33501-gk0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.16.0",
+                "archive":  "33501-hg0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.12.0",
+                "archive":  "33501-ic0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.7.0",
+                "archive":  "33501-j70.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0"
+              }
+            ],
+            "rendered":  "TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0)"
+          },
+          {
+            "spec":  "TS 33.501",
+            "clause":  "6.7.2 step 1b",
+            "strength":  "shall",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "33501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.20.0",
+                "archive":  "33501-fk0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.20.0",
+                "archive":  "33501-gk0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.16.0",
+                "archive":  "33501-hg0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.12.0",
+                "archive":  "33501-ic0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.7.0",
+                "archive":  "33501-j70.zip"
+              }
+            ],
+            "changed":  [
+              {
+                "release":  15,
+                "note":  "V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version"
+              }
+            ],
+            "rendered":  "TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version)"
+          },
+          {
+            "spec":  "TS 33.501",
+            "clause":  "6.7.1.1",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "33501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.20.0",
+                "archive":  "33501-fk0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.20.0",
+                "archive":  "33501-gk0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.16.0",
+                "archive":  "33501-hg0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.12.0",
+                "archive":  "33501-ic0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.7.0",
+                "archive":  "33501-j70.zip"
+              }
+            ],
+            "wordingUnchanged":  true,
+            "rendered":  "TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19)"
+          },
+          {
+            "spec":  "TS 33.501",
+            "clause":  "5.2.3",
+            "strength":  "descriptive",
+            "since":  15,
+            "verified":  [
+              {
+                "release":  15,
+                "version":  "V15.0.0",
+                "archive":  "33501-f00.zip"
+              },
+              {
+                "release":  15,
+                "version":  "V15.20.0",
+                "archive":  "33501-fk0.zip"
+              },
+              {
+                "release":  16,
+                "version":  "V16.20.0",
+                "archive":  "33501-gk0.zip"
+              },
+              {
+                "release":  17,
+                "version":  "V17.16.0",
+                "archive":  "33501-hg0.zip"
+              },
+              {
+                "release":  18,
+                "version":  "V18.12.0",
+                "archive":  "33501-ic0.zip"
+              },
+              {
+                "release":  19,
+                "version":  "V19.7.0",
+                "archive":  "33501-j70.zip"
+              }
+            ],
+            "wordingUnchanged":  true,
+            "rendered":  "TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19)"
+          }
+        ],
+        "minRelease":  15
+      }
+    ],
+    "total":  11
+  },
+  "gates":  [
+    {
+      "gate":  {
+        "conformance":  {},
+        "name":  "conformance"
+      },
+      "observed":  3,
+      "detail":  "3 unexpected: NGAP-UNKNOWN-UE-SURVIVES FAIL, NGAP-NGSETUP-MISSING-TALIST FAIL, NGAP-NG-RESET-ACK FAIL"
+    }
+  ],
+  "workloads":  [
+    {
+      "workload":  "conformance",
+      "kind":  "RUN_KIND_CONFORMANCE",
+      "conformance":  {
+        "tally":  {
+          "passed":  1,
+          "failed":  3,
+          "skipped":  7
+        },
+        "results":  [
+          {
+            "id":  "GTPU-END-MARKER-ON-PATH-SWITCH",
+            "category":  "mobility",
+            "specRef":  "TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag)",
+            "verdict":  "SKIP",
+            "expected":  "GTP-U End Marker on the old F-TEID at the source gNB between Path Switch Request and 5s after its Acknowledge, with no G-PDU on that tunnel after it (TS 23.501 5.8.2.9.1; TS 29.281 7.3.2)",
+            "observed":  "no UE configured",
+            "detail":  "set --supi, --ki/--opc and --gnb-n3 to run mobility checks; requires Rel-15 or later; TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag)",
+            "specRefs":  [
+              {
+                "spec":  "TS 23.501",
+                "clause":  "5.8.2.9.1",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "23501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "23501-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.20.0",
+                    "archive":  "23501-gk0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "23501-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.12.0",
+                    "archive":  "23501-ic0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.9.0",
+                    "archive":  "23501-j90.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19"
+                  },
+                  {
+                    "release":  16,
+                    "note":  "surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0"
+                  }
+                ],
+                "rendered":  "TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: \"In case of\" reads \"In the case of\" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0)"
+              },
+              {
+                "spec":  "TS 29.281",
+                "clause":  "7.3.2",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  8,
+                    "version":  "V8.0.0",
+                    "archive":  "29281-800.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.2.0",
+                    "archive":  "29281-f20.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "29281-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.2.0",
+                    "archive":  "29281-g20.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.5.0",
+                    "archive":  "29281-h50.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.4.0",
+                    "archive":  "29281-i40.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.2.0",
+                    "archive":  "29281-j20.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0"
+                  },
+                  {
+                    "release":  16,
+                    "note":  "V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0"
+                  }
+                ],
+                "rendered":  "TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0)"
+              },
+              {
+                "spec":  "TS 29.244",
+                "clause":  "8.2.31",
+                "strength":  "shall",
+                "since":  14,
+                "verified":  [
+                  {
+                    "release":  14,
+                    "version":  "V14.0.0",
+                    "archive":  "29244-e00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.10.0",
+                    "archive":  "29244-fa0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.13.0",
+                    "archive":  "29244-gd0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.10.0",
+                    "archive":  "29244-ha0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.10.0",
+                    "archive":  "29244-ia0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.6.0",
+                    "archive":  "29244-j60.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag"
+                  }
+                ],
+                "rendered":  "TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; \"set to 1\" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "GTPU-UNKNOWN-TEID-ERRIND",
+            "category":  "gtpu",
+            "specRef":  "TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without \"PDU Session\"; Rel-15: \"PDU Session\" added in V15.4.0)",
+            "verdict":  "SKIP",
+            "expected":  "GTP-U Error Indication (type 26) echoing the unknown TEID",
+            "observed":  "no N3 params (run from the UPF access network with --upf-n3 / --n3-bind)",
+            "detail":  "requires Rel-15 or later; TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without \"PDU Session\"; Rel-15: \"PDU Session\" added in V15.4.0)",
+            "specRefs":  [
+              {
+                "spec":  "TS 29.281",
+                "clause":  "7.3.1",
+                "strength":  "shall",
+                "since":  8,
+                "verified":  [
+                  {
+                    "release":  8,
+                    "version":  "V8.0.0",
+                    "archive":  "29281-800.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.4.0",
+                    "archive":  "29281-f40.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "29281-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.2.0",
+                    "archive":  "29281-g20.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.5.0",
+                    "archive":  "29281-h50.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.4.0",
+                    "archive":  "29281-i40.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.2.0",
+                    "archive":  "29281-j20.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  8,
+                    "note":  "V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0"
+                  },
+                  {
+                    "release":  11,
+                    "note":  "the 'all zeros' TEID exception is present by V11.6.0"
+                  },
+                  {
+                    "release":  12,
+                    "note":  "current wording from V12.0.0, without \"PDU Session\""
+                  },
+                  {
+                    "release":  15,
+                    "note":  "\"PDU Session\" added in V15.4.0"
+                  }
+                ],
+                "rendered":  "TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without \"PDU Session\"; Rel-15: \"PDU Session\" added in V15.4.0)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NAS-REG-REJECTED-NSSAI",
+            "category":  "nas",
+            "specRef":  "TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: \"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\"); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds \"shall not include\" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE)",
+            "verdict":  "SKIP",
+            "expected":  "a Registration Reject with 5GMM cause #62 whose Rejected NSSAI IE lists the only requested S-NSSAI, one the core does not serve, from a UE sending NSSAA and ER-NSSAI as not supported (TS 24.501 5.5.1.2.5, condition b) 2)); the Rejected NSSAI IE is required from V16.6.0. An Accept with a default S-NSSAI is SKIP",
+            "observed":  "no UE configured",
+            "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 20s for this check; requires Rel-16 or later; TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: \"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\"); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds \"shall not include\" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE)",
+            "specRefs":  [
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.5.1.2.5 #62",
+                "strength":  "shall",
+                "since":  16,
+                "verified":  [
+                  {
+                    "release":  16,
+                    "version":  "V16.2.0",
+                    "archive":  "24501-g20.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.5.1",
+                    "archive":  "24501-g51.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.0.0",
+                    "archive":  "24501-i00.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  16,
+                    "note":  "V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii)"
+                  },
+                  {
+                    "release":  17,
+                    "note":  "\"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\""
+                  },
+                  {
+                    "release":  18,
+                    "note":  "V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\""
+                  }
+                ],
+                "rendered":  "TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: \"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds \"of the REGISTRATION REJECT message\")"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT",
+                "strength":  "shall",
+                "since":  16,
+                "verified":  [
+                  {
+                    "release":  16,
+                    "version":  "V16.6.0",
+                    "archive":  "24501-g60.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.1.0",
+                    "archive":  "24501-h10.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.1.0",
+                    "archive":  "24501-i10.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  16,
+                    "note":  "a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\""
+                  },
+                  {
+                    "release":  17,
+                    "note":  "from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped"
+                  },
+                  {
+                    "release":  18,
+                    "note":  "from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI"
+                  }
+                ],
+                "rendered":  "TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 \"may include the rejected NSSAI\"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the \"if the UE had included requested NSSAI\" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI)"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  16,
+                    "note":  "adds \"shall not include\" restrictions"
+                  },
+                  {
+                    "release":  17,
+                    "note":  "the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded"
+                  },
+                  {
+                    "release":  19,
+                    "note":  "adds a Partially rejected NSSAI IE"
+                  }
+                ],
+                "rendered":  "TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds \"shall not include\" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE)"
+              }
+            ],
+            "minRelease":  16
+          },
+          {
+            "id":  "NAS-PDU-UNKNOWN-DNN",
+            "category":  "nas",
+            "specRef":  "TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\"; Rel-18: \"subclause\" becomes \"clause\"); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes); TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19)",
+            "verdict":  "SKIP",
+            "expected":  "a PDU Session Establishment Reject (any 5GSM cause; #27 is typical), or the un-forwarded request returned in a DL NAS Transport with 5GMM cause #90 or #91 (TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1)); the send-back is required from V15.1.0 (a may in V15.0.0)",
+            "observed":  "no UE configured",
+            "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 30s for this check; requires Rel-15 or later; TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\"; Rel-18: \"subclause\" becomes \"clause\"); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes); TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19)",
+            "specRefs":  [
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.4.5.2.5 a) 1)",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.1.0",
+                    "archive":  "24501-f10.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.2.0",
+                    "archive":  "24501-f20.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.3.0",
+                    "archive":  "24501-f30.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.0.0",
+                    "archive":  "24501-g00.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.1.0",
+                    "archive":  "24501-g10.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.3.0",
+                    "archive":  "24501-g30.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.3.0",
+                    "archive":  "24501-h30.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.5.0",
+                    "archive":  "24501-h50.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure"
+                  },
+                  {
+                    "release":  16,
+                    "note":  "from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\""
+                  },
+                  {
+                    "release":  18,
+                    "note":  "\"subclause\" becomes \"clause\""
+                  }
+                ],
+                "rendered":  "TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be \"MA PDU request\"; Rel-18: \"subclause\" becomes \"clause\")"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.4.5.3.2 (case e) of 5.4.5.3.1)",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.1.0",
+                    "archive":  "24501-f10.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.2.0",
+                    "archive":  "24501-f20.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.3.0",
+                    "archive":  "24501-f30.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.0.0",
+                    "archive":  "24501-g00.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.1.0",
+                    "archive":  "24501-g10.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.3.0",
+                    "archive":  "24501-g30.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.3.0",
+                    "archive":  "24501-h30.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.5.0",
+                    "archive":  "24501-h50.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\""
+                  },
+                  {
+                    "release":  17,
+                    "note":  "V17.3.0 adds an optional Back-off timer value IE with #91"
+                  }
+                ],
+                "rendered":  "TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91)"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0)",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.1.0",
+                    "archive":  "24501-f10.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.2.0",
+                    "archive":  "24501-f20.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.3.0",
+                    "archive":  "24501-f30.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.0.0",
+                    "archive":  "24501-g00.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.1.0",
+                    "archive":  "24501-g10.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.3.0",
+                    "archive":  "24501-g30.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.3.0",
+                    "archive":  "24501-h30.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.5.0",
+                    "archive":  "24501-h50.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes"
+                  },
+                  {
+                    "release":  16,
+                    "note":  "6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version"
+                  },
+                  {
+                    "release":  17,
+                    "note":  "V17.5.0 adds #86 to the typical causes"
+                  }
+                ],
+                "rendered":  "TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes)"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "Annex B.1 #27",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.1.0",
+                    "archive":  "24501-f10.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.2.0",
+                    "archive":  "24501-f20.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.3.0",
+                    "archive":  "24501-f30.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.0.0",
+                    "archive":  "24501-g00.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.1.0",
+                    "archive":  "24501-g10.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.3.0",
+                    "archive":  "24501-g30.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.3.0",
+                    "archive":  "24501-h30.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.5.0",
+                    "archive":  "24501-h50.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "wordingUnchanged":  true,
+                "rendered":  "TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NAS-T3550-ACCEPT-RETRANSMIT",
+            "category":  "nas",
+            "specRef":  "TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19); TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: \"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers); TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+            "verdict":  "SKIP",
+            "expected":  "with the Registration Complete withheld after a Registration Accept assigning a 5G-GUTI, 4 retransmissions of the Registration Accept at T3550 (6s by default), then none (TS 24.501 5.5.1.2.8 c))",
+            "observed":  "no UE configured",
+            "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 2m25s for this check; requires Rel-15 or later; TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19); TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: \"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers); TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+            "specRefs":  [
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.5.1.2.8 c)",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19"
+                  }
+                ],
+                "rendered":  "TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19)"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.5.1.2.4 T3550 start",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added"
+                  },
+                  {
+                    "release":  16,
+                    "note":  "the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers"
+                  },
+                  {
+                    "release":  17,
+                    "note":  "the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming"
+                  },
+                  {
+                    "release":  18,
+                    "note":  "\"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4"
+                  },
+                  {
+                    "release":  19,
+                    "note":  "adds LP-WUSPS assistance information and LP-WUS status triggers"
+                  }
+                ],
+                "rendered":  "TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: \"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers)"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "Table 10.2.2 T3550",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  16,
+                    "note":  "adds a WB-N1/CE mode value of 18s; the normal value stays 6s"
+                  },
+                  {
+                    "release":  17,
+                    "note":  "adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s"
+                  }
+                ],
+                "rendered":  "TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NAS-T3560-AUTH-RETRANSMIT",
+            "category":  "nas",
+            "specRef":  "TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+            "verdict":  "SKIP",
+            "expected":  "with the Authentication Response withheld, 4 retransmissions of the Authentication Request at T3560 (6s by default), then a UE Context Release Command on the fifth expiry (TS 24.501 5.4.1.3.7 b))",
+            "observed":  "no UE configured",
+            "detail":  "set --supi, --ki/--opc and --gnb-n3 to run NAS checks; per-test timeout raised to 3m10s for this check; requires Rel-15 or later; TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)",
+            "specRefs":  [
+              {
+                "spec":  "TS 24.501",
+                "clause":  "5.4.1.3.7 b)",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "wordingUnchanged":  true,
+                "rendered":  "TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19)"
+              },
+              {
+                "spec":  "TS 24.501",
+                "clause":  "Table 10.2.2 T3560",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "24501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.7.0",
+                    "archive":  "24501-f70.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.15.0",
+                    "archive":  "24501-gf0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.18.1",
+                    "archive":  "24501-hi1.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.14.0",
+                    "archive":  "24501-ie0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.8.0",
+                    "archive":  "24501-j80.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  16,
+                    "note":  "adds a WB-N1/CE mode value of 24s; the normal value stays 6s"
+                  },
+                  {
+                    "release":  17,
+                    "note":  "adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s"
+                  }
+                ],
+                "rendered":  "TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NGAP-UNKNOWN-UE-SURVIVES",
+            "category":  "negative-ie",
+            "specRef":  "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+            "verdict":  "FAIL",
+            "expected":  "ERROR INDICATION for the unknown UE NGAP IDs, and the NG association keeps working (TS 38.413 10.6, 8.7.5.2)",
+            "observed":  "association reset",
+            "detail":  "sctp read: EOF; requires Rel-15 or later; TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)",
+            "specRefs":  [
+              {
+                "spec":  "TS 38.413",
+                "clause":  "10.6",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "38413-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "38413-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.18.0",
+                    "archive":  "38413-gi0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "38413-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.11.0",
+                    "archive":  "38413-ib0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.4.0",
+                    "archive":  "38413-j40.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message"
+                  }
+                ],
+                "rendered":  "TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message)"
+              },
+              {
+                "spec":  "TS 38.413",
+                "clause":  "8.7.5.2",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "38413-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "38413-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.18.0",
+                    "archive":  "38413-gi0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "38413-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.11.0",
+                    "archive":  "38413-ib0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.4.0",
+                    "archive":  "38413-j40.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "example cause names replaced in V15.4.0"
+                  },
+                  {
+                    "release":  19,
+                    "note":  "V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences"
+                  }
+                ],
+                "rendered":  "TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NGAP-NGSETUP-MISSING-TALIST",
+            "category":  "negative-ie",
+            "specRef":  "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+            "verdict":  "FAIL",
+            "expected":  "NG SETUP FAILURE reporting the missing Supported TA List, and the core survives (TS 38.413 10.3.5)",
+            "observed":  "NG SETUP RESPONSE (accepted!)",
+            "detail":  "AMF accepted an NG Setup missing the mandatory Supported TA List; requires Rel-15 or later; TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)",
+            "specRefs":  [
+              {
+                "spec":  "TS 38.413",
+                "clause":  "9.2.6.1 Supported TA List",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "38413-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "38413-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.18.0",
+                    "archive":  "38413-gi0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "38413-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.11.0",
+                    "archive":  "38413-ib0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.4.0",
+                    "archive":  "38413-j40.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0"
+                  },
+                  {
+                    "release":  19,
+                    "note":  "semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject"
+                  }
+                ],
+                "rendered":  "TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads \"GLOBAL reject\" in V15.0.0, \"YES reject\" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject)"
+              },
+              {
+                "spec":  "TS 38.413",
+                "clause":  "10.3.5 Reject IE bullet 1",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "38413-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "38413-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.18.0",
+                    "archive":  "38413-gi0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "38413-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.11.0",
+                    "archive":  "38413-ib0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.4.0",
+                    "archive":  "38413-j40.zip"
+                  }
+                ],
+                "wordingUnchanged":  true,
+                "rendered":  "TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NGAP-NGSETUP-UNKNOWN-PLMN",
+            "category":  "negative-ie",
+            "specRef":  "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+            "verdict":  "PASS",
+            "expected":  "NG SETUP FAILURE rejecting a gNB whose PLMNs the AMF does not serve, and the core survives (TS 38.413 8.7.1.4)",
+            "observed":  "NG SETUP FAILURE (rejected)",
+            "detail":  "presented PLMN 999/99, TAC 257 (served: 208/93, TAC 1); cause Misc unknown-PLMN-or-SNPN (recorded, not asserted); requires Rel-15 or later; TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)",
+            "specRefs":  [
+              {
+                "spec":  "TS 38.413",
+                "clause":  "8.7.1.4",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.2.0",
+                    "archive":  "38413-f20.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "38413-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.9.0",
+                    "archive":  "38413-g90.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.18.0",
+                    "archive":  "38413-gi0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "38413-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.11.0",
+                    "archive":  "38413-ib0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.4.0",
+                    "archive":  "38413-j40.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs"
+                  },
+                  {
+                    "release":  16,
+                    "note":  "reworded to the PLMNs/SNPNs form in V16.9.0"
+                  },
+                  {
+                    "release":  19,
+                    "note":  "V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged"
+                  }
+                ],
+                "rendered":  "TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged)"
+              },
+              {
+                "spec":  "TS 38.413",
+                "clause":  "9.3.1.2",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "38413-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "38413-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.18.0",
+                    "archive":  "38413-gi0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "38413-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.11.0",
+                    "archive":  "38413-ib0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.4.0",
+                    "archive":  "38413-j40.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  16,
+                    "note":  "Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0"
+                  }
+                ],
+                "rendered":  "TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause \"Unknown PLMN\" renamed \"Unknown PLMN or SNPN\" in V16.5.0)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NGAP-NG-RESET-ACK",
+            "category":  "procedural",
+            "specRef":  "TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19)",
+            "verdict":  "FAIL",
+            "expected":  "NG RESET ACKNOWLEDGE (Reset procedure completes)",
+            "observed":  "no response",
+            "detail":  "Reset procedure did not complete (no NG RESET ACKNOWLEDGE); requires Rel-15 or later; TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19)",
+            "specRefs":  [
+              {
+                "spec":  "TS 38.413",
+                "clause":  "8.7.4.2.2",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "38413-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.13.0",
+                    "archive":  "38413-fd0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.18.0",
+                    "archive":  "38413-gi0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.15.0",
+                    "archive":  "38413-hf0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.11.0",
+                    "archive":  "38413-ib0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.4.0",
+                    "archive":  "38413-j40.zip"
+                  }
+                ],
+                "wordingUnchanged":  true,
+                "rendered":  "TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19)"
+              }
+            ],
+            "minRelease":  15
+          },
+          {
+            "id":  "NAS-SMC-NO-NIA0-REPLAYED-CAPS",
+            "category":  "security",
+            "specRef":  "TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0); TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version); TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
+            "verdict":  "SKIP",
+            "expected":  "Normal UE (5G-EA0/1/2, 5G-IA0/1/2): a Security Mode Command that selects no NIA0 and replays the UE security capabilities exactly. UE offering only NIA0 and NIA3: NIA3, a reject or a release. UE offering only NIA0: a reject or a release. For any UE, a Security Mode Command selecting NIA0, or no Security Mode Command, is FAIL (TS 33.501 5.5.2, 6.7.2 step 1b). A non-null algorithm the UE did not offer is PASS, recorded, not scored: no shall requires the selected algorithm to be one the UE offered at initial registration. 5.11.2 b) says only 'dependent on', and 6.7.1.2 (from V19.4.0) covers AMF change.",
+            "observed":  "no UE configured",
+            "detail":  "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks; per-test timeout raised to 50s for this check; requires Rel-15 or later; TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0); TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version); TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
+            "specRefs":  [
+              {
+                "spec":  "TS 33.501",
+                "clause":  "5.5.2",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.1.0",
+                    "archive":  "33501-f10.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.20.0",
+                    "archive":  "33501-fk0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.20.0",
+                    "archive":  "33501-gk0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.16.0",
+                    "archive":  "33501-hg0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.12.0",
+                    "archive":  "33501-ic0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.7.0",
+                    "archive":  "33501-j70.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0"
+                  }
+                ],
+                "rendered":  "TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only \"shall be integrity-protected\"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0)"
+              },
+              {
+                "spec":  "TS 33.501",
+                "clause":  "6.7.2 step 1b",
+                "strength":  "shall",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "33501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.20.0",
+                    "archive":  "33501-fk0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.20.0",
+                    "archive":  "33501-gk0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.16.0",
+                    "archive":  "33501-hg0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.12.0",
+                    "archive":  "33501-ic0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.7.0",
+                    "archive":  "33501-j70.zip"
+                  }
+                ],
+                "changed":  [
+                  {
+                    "release":  15,
+                    "note":  "V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version"
+                  }
+                ],
+                "rendered":  "TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, \"selected NAS algorithm\", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version)"
+              },
+              {
+                "spec":  "TS 33.501",
+                "clause":  "6.7.1.1",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "33501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.20.0",
+                    "archive":  "33501-fk0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.20.0",
+                    "archive":  "33501-gk0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.16.0",
+                    "archive":  "33501-hg0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.12.0",
+                    "archive":  "33501-ic0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.7.0",
+                    "archive":  "33501-j70.zip"
+                  }
+                ],
+                "wordingUnchanged":  true,
+                "rendered":  "TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19)"
+              },
+              {
+                "spec":  "TS 33.501",
+                "clause":  "5.2.3",
+                "strength":  "descriptive",
+                "since":  15,
+                "verified":  [
+                  {
+                    "release":  15,
+                    "version":  "V15.0.0",
+                    "archive":  "33501-f00.zip"
+                  },
+                  {
+                    "release":  15,
+                    "version":  "V15.20.0",
+                    "archive":  "33501-fk0.zip"
+                  },
+                  {
+                    "release":  16,
+                    "version":  "V16.20.0",
+                    "archive":  "33501-gk0.zip"
+                  },
+                  {
+                    "release":  17,
+                    "version":  "V17.16.0",
+                    "archive":  "33501-hg0.zip"
+                  },
+                  {
+                    "release":  18,
+                    "version":  "V18.12.0",
+                    "archive":  "33501-ic0.zip"
+                  },
+                  {
+                    "release":  19,
+                    "version":  "V19.7.0",
+                    "archive":  "33501-j70.zip"
+                  }
+                ],
+                "wordingUnchanged":  true,
+                "rendered":  "TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19)"
+              }
+            ],
+            "minRelease":  15
+          }
+        ],
+        "total":  11
+      },
+      "gates":  [
+        {
+          "gate":  {
+            "conformance":  {},
+            "name":  "conformance"
+          },
+          "observed":  3,
+          "detail":  "3 unexpected: NGAP-UNKNOWN-UE-SURVIVES FAIL, NGAP-NGSETUP-MISSING-TALIST FAIL, NGAP-NG-RESET-ACK FAIL"
+        }
+      ]
+    }
+  ]
+}

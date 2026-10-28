@@ -112,12 +112,7 @@ func (f *planFlags) settings(cmd *cobra.Command) ([]target.Setting, error) {
 		out = append(out, target.Setting{Path: strings.TrimSpace(path), Value: value, Source: target.Source{Name: "--set"}})
 	}
 	if f.dur > 0 {
-		src := target.Source{Name: "--for"}
-		out = append(out,
-			target.Setting{Path: "until.duration_ms", Value: uint64(f.dur.Milliseconds()), Source: src},
-			target.Setting{Path: "until.duration", Value: "", Source: src},
-			target.Setting{Path: "until.complete", Value: false, Source: src},
-			target.Setting{Path: "until.forever", Value: false, Source: src})
+		out = append(out, plan.ForSettings(f.dur)...)
 	}
 	return out, nil
 }
@@ -198,6 +193,7 @@ func explainPlan(cmd *cobra.Command, targetName string, res *target.Resolved, re
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", pv.Path, pv.Value, shortSource(pv.Source), dash(strings.Join(over, "; ")))
 	}
 	_ = tw.Flush()
+	printNotices(cmd, res)
 	masked := proto.Clone(req.GetPlan())
 	secrets.Mask(masked)
 	b, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(masked)
@@ -232,7 +228,20 @@ func runPlanFile(cmd *cobra.Command, serverURL *string, o options, path string, 
 	if err := applyServerURL(cmd, serverURL); err != nil {
 		return err
 	}
+	if !detach {
+		printNotices(cmd, res)
+	}
 	return startRun(cmd, runsClient(serverURL), req, !detach, false)
+}
+
+// printNotices prints, to stderr, each field an env var set over a file's
+// value (plan.OverrideNotices; ADR-0008 §3): a forgotten export in the
+// shell, beating the target or the run file. --explain and a waited-for
+// start print them; the run's archive keeps the provenance they come from.
+func printNotices(cmd *cobra.Command, res *target.Resolved) {
+	for _, n := range plan.OverrideNotices(plan.ProvenanceProto(res.Provenance)) {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "notice: %s\n", plan.NoticeText(n))
+	}
 }
 
 // explaining reports whether the root's --explain is set.

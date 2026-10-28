@@ -68,6 +68,8 @@ const (
 	cmdTargetInit   = "orbit target init"
 	cmdResponder    = "orbit responder"
 	cmdTest         = "orbit test"
+	cmdJoinCreate   = "orbit join create"
+	cmdAddResponder = "orbit target add-responder"
 )
 
 var (
@@ -95,6 +97,9 @@ var Bindings = []Binding{
 	{Flag: "sd", Path: "core.slices[0].sd"},
 	{Flag: "dnn", Path: "core.dnn"},
 	{Flag: "upf-n3", Path: "core.upf_n3", Commands: []string{cmdConformance}},
+	{Flag: "ue-pool", Path: "core.ue_pools", Commands: []string{cmdJoinCreate, cmdAddResponder}},
+	{Flag: "upf-n6", Path: "core.upf_n6", Commands: []string{cmdJoinCreate, cmdAddResponder}},
+	{Flag: "n6-subnet", Path: "core.n6_subnet", Commands: []string{cmdJoinCreate, cmdAddResponder}},
 	{Flag: "supi", Path: "subscribers[].first_supi", Commands: []string{cmdConformance, cmdUERegister}},
 	{Flag: "base-imsi", Path: "subscribers[].first_supi"},
 	{Flag: "ki", Path: "subscribers[].ki"},
@@ -159,6 +164,23 @@ var Exclusions = []Exclusion{
 	// --local runs in this process instead of on the server.
 	{Flag: "local", Commands: []string{"orbit run", cmdLoad, cmdConformance}, Reason: ReasonConnection},
 	{Flag: "list", Commands: []string{cmdTest}, Reason: ReasonOutput},
+	// A join token's own settings (ADR-0009 §1): the responder's name, how
+	// long the token lasts, and the address the app host reaches the
+	// server at.
+	{Flag: "name", Commands: []string{cmdJoinCreate, cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "ttl", Commands: []string{cmdJoinCreate, cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "mgmt", Commands: []string{cmdJoinCreate, cmdAddResponder}, Reason: ReasonConnection},
+	// The app host to reach, through the user's own ssh: never part of a
+	// target (ADR-0009 §4).
+	{Flag: "ssh", Commands: []string{cmdAddResponder}, Reason: ReasonConnection},
+	{Flag: "yes", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	// The join script's own options, passed through to the app host: how
+	// it sets that host up, not the target.
+	{Flag: "n6-ip", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "bind", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "no-firewall", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "no-route", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
+	{Flag: "no-systemd", Commands: []string{cmdAddResponder}, Reason: ReasonOperation},
 	{Flag: "gate", Reason: ReasonFieldSetter},
 	{Flag: "set", Commands: []string{"orbit run", cmdTest}, Reason: ReasonFieldSetter},
 
@@ -178,10 +200,26 @@ var Exclusions = []Exclusion{
 	{Flag: "loom-agent", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "loom-token", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "conformance-expected-failures", Commands: []string{cmdServe}, Reason: ReasonProcess},
+	{Flag: "join-binaries", Commands: []string{cmdServe}, Reason: ReasonProcess},
 	{Flag: "bind", Commands: []string{cmdResponder}, Reason: ReasonProcess},
 	{Flag: "token", Commands: []string{cmdResponder}, Reason: ReasonProcess},
 	{Flag: "max-flows", Commands: []string{cmdResponder}, Reason: ReasonProcess},
 	{Flag: "telemetry-interval", Commands: []string{cmdResponder}, Reason: ReasonProcess},
+	{Flag: "token-file", Commands: []string{cmdResponder}, Reason: ReasonProcess},
+	{Flag: "config", Commands: []string{cmdResponder, "orbit responder check", "orbit responder register"}, Reason: ReasonProcess},
+	// The join script's registration of its host's responder (ADR-0009 §3):
+	// what the host is, and where its server and secrets are.
+	{Flag: "server", Commands: []string{"orbit responder register"}, Reason: ReasonConnection},
+	{Flag: "pin", Commands: []string{"orbit responder register"}, Reason: ReasonConnection},
+	{Flag: "token-file", Commands: []string{"orbit responder register"}, Reason: ReasonConnection},
+	{Flag: "name", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "control", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "data-ip", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "data-ports", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "owner", Commands: []string{"orbit responder register"}, Reason: ReasonProcess},
+	{Flag: "fresh", Commands: []string{"orbit responder register"}, Reason: ReasonOperation},
+	{Flag: "wait", Commands: []string{"orbit responder check"}, Reason: ReasonOutput},
+	{Flag: "output", Commands: []string{"orbit responder list"}, Reason: ReasonOutput},
 	{Flag: "metrics-listen", Commands: []string{"orbit run"}, Reason: ReasonProcess},
 
 	// Operations on an existing UE, and one-off cell procedures.
@@ -243,6 +281,7 @@ var Exclusions = []Exclusion{
 	{Flag: "force", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "responder", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "resolved", Commands: []string{"orbit target show"}, Reason: ReasonOutput},
+	{Flag: "core-only", Commands: []string{"orbit target probe"}, Reason: ReasonOperation},
 	// A handover's flags describe its destination gNB, with unset fields
 	// inherited from the serving gNB: one operation's argument, which a
 	// target never supplies. --amf stays bound: the destination gNB

@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package orbit.v1;
+
+import "orbit/v1/options.proto";
+
+option go_package = "github.com/bgrewell/orbit/gen/orbit/v1;orbitv1";
+
+// JoinService issues the join tokens an app host's one-liner presents
+// (ADR-0009 §1). A token is single-purpose and short-lived: the server keeps
+// only its hash, for at most an hour, with the addresses the join script
+// needs. Every procedure needs the server's TLS: a token is a credential and
+// the script it unlocks runs as root.
+service JoinService {
+  // CreateJoinToken issues a token and returns its secret, once.
+  rpc CreateJoinToken(CreateJoinTokenRequest) returns (CreateJoinTokenResponse) {}
+  // ListJoinTokens shows the pending tokens, never their secrets.
+  rpc ListJoinTokens(ListJoinTokensRequest) returns (ListJoinTokensResponse) {}
+  // RevokeJoinToken cancels a pending token by its ID.
+  rpc RevokeJoinToken(RevokeJoinTokenRequest) returns (RevokeJoinTokenResponse) {}
+  // RegisterResponder registers an app host's responder (ADR-0009 §3). It
+  // needs no API token: the join token is its credential, used up by the
+  // first registration. A retry with the same credential gets the same
+  // answer; re-registering an existing responder needs a valid join token
+  // and its current credential.
+  rpc RegisterResponder(RegisterResponderRequest) returns (RegisterResponderResponse) {}
+  // Heartbeat tells the server a registered responder is alive. It needs no
+  // API token: the responder credential goes in the Authorization header,
+  // as "Responder <credential>".
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
+}
+
+// ResponderService lists and removes registered responders (ADR-0009 §3).
+service ResponderService {
+  // ListResponders shows the registered responders, never their
+  // credentials or loom tokens.
+  rpc ListResponders(ListRespondersRequest) returns (ListRespondersResponse) {}
+  // RemoveResponder revokes a responder: its credential and loom token stop
+  // working, and its next heartbeat is told it was removed.
+  rpc RemoveResponder(RemoveResponderRequest) returns (RemoveResponderResponse) {}
+}
+
+// JoinSpec is what the join script needs from the target, kept with the
+// token until it expires (not a target store).
+message JoinSpec {
+  repeated string ue_pools = 1;     // CIDRs routed back through the UPF
+  string upf_n6 = 2;                // the UPF's N6 address, the return route's next hop
+  string n6_subnet = 3;             // the UPF's N6 network (CIDR), which the firewall opens to
+  // The address the app host reaches this server at, host[:port]; the
+  // port defaults to the server's.
+  string management_address = 4;
+}
+
+// JoinToken is a pending token as list shows it: never its secret.
+message JoinToken {
+  string id = 1;                    // the token's handle for list and revoke
+  string name = 2;                  // the responder's name; "" is the app host's hostname, at registration
+  int64 created_unix_nano = 3;
+  int64 expires_unix_nano = 4;
+  JoinSpec spec = 5;
+}
+
+message CreateJoinTokenRequest {
+  string name = 1;                  // optional; the target name charset
+  uint32 ttl_seconds = 2;           // 0 = 600 (10 min); at most 3600
+  JoinSpec spec = 3;
+}
+
+message CreateJoinTokenResponse {
+  JoinToken issued = 1;             // the token as list shows it: never its secret
+  // The token itself: shown once, kept by the server only as a hash.
+  string secret = 2 [(orbit.v1.secret) = true];
+  string url = 3 [(orbit.v1.secret) = true];        // https://<mgmt>/join/<secret>
+  string pin = 4;                                   // the server's key, sha256/<base64>
+  string one_liner = 5 [(orbit.v1.secret) = true];  // the curl | sudo sh line to paste on the app host
+}
+
+message ListJoinTokensRequest {}
+
+message ListJoinTokensResponse {
+  repeated JoinToken tokens = 1;
+}
+
+message RevokeJoinTokenRequest {
+  string id = 1;
+}
+
+message RevokeJoinTokenResponse {}
+
+message RegisterResponderRequest {
+  string join_token = 1 [(orbit.v1.secret) = true];
+  // credential is the responder credential the app host generated (orc1_…);
+  // the server keeps only its hash.
+  string credential = 2 [(orbit.v1.secret) = true];
+  // existing_credential is the responder's current credential, for a
+  // re-registration that rotates it; empty for a new responder.
+  string existing_credential = 3 [(orbit.v1.secret) = true];
+  string name = 4;            // the target name charset
+  string control_address = 5; // the responder's control listen address, host:port
+  string data_ip = 6;         // its N6 data address
+  uint32 data_port_low = 7;   // its data port range
+  uint32 data_port_high = 8;
+  string version = 9;         // the orbit build that registers
+}
+
+message RegisterResponderResponse {
+  string responder_id = 1;
+  string name = 2;
+  // loom_token is the responder's loom control token, which the server
+  // presents when a run uses it.
+  string loom_token = 3 [(orbit.v1.secret) = true];
+  uint32 heartbeat_seconds = 4;
+}
+
+message HeartbeatRequest {
+  string version = 1;
+  bool loom_listening = 2; // the responder's control listener is up
+  uint64 uptime_seconds = 3;
+  // probe asks without counting as a heartbeat: `orbit responder check`
+  // uses it to see whether the service's own heartbeats arrive.
+  bool probe = 4;
+}
+
+message HeartbeatResponse {
+  string responder_id = 1;
+  uint32 heartbeat_seconds = 2;     // the interval to use from now on
+  int64 last_seen_unix_nano = 3;    // the last heartbeat before this one; 0 = none
+}
+
+// RegisteredResponder is a registered responder as listed.
+message RegisteredResponder {
+  string id = 1;
+  string name = 2;
+  string state = 3;                   // "online", "offline" or "never seen"
+  int64 last_seen_unix_nano = 4;      // 0 = not since the server started
+  string source = 5;                  // the last heartbeat's peer address
+  string control_address = 6;
+  string data_ip = 7;
+  uint32 data_port_low = 8;
+  uint32 data_port_high = 9;
+  string version = 10;
+  int64 registered_unix_nano = 11;
+  string registered_from = 12;        // the registration's peer address
+  string join_token_id = 13;          // the join token that registered it
+}
+
+message ListRespondersRequest {}
+
+message ListRespondersResponse {
+  repeated RegisteredResponder responders = 1;
+}
+
+message RemoveResponderRequest {
+  string name = 1; // a name or an ID
+}
+
+message RemoveResponderResponse {
+  string id = 1;
+}

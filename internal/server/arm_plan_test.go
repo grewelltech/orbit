@@ -325,7 +325,7 @@ func TestFleetArmOffThePlan(t *testing.T) {
 // the archive (a plan's own population without behaviours is LOAD).
 func TestFleetArmWithoutBehavioursIsFleet(t *testing.T) {
 	dir := t.TempDir()
-	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir})
+	h := New(slog.New(slog.NewTextHandler(io.Discard, nil)), "test", prometheus.NewRegistry(), Options{StateDir: dir, Responders: openResponders(t, dir)})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	c := orbitv1connect.NewRunServiceClient(srv.Client(), srv.URL)

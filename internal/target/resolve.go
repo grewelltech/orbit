@@ -162,7 +162,10 @@ type entry struct {
 // its first as the lower layers have it, creating one named "default" when
 // there is none. The resolved target's ran.node must be "" (ErrNodeReserved);
 // the document checks of Validate apply to target files, at load.
-func Resolve(inputs ...Input) (*Resolved, error) { return resolve(false, inputs) }
+func Resolve(inputs ...Input) (*Resolved, error) {
+	res, err := resolve(false, inputs)
+	return res, maskErr(err)
+}
 
 // Problem is a value Report found bad: the path, the source that set it
 // and the error, with a secret's value masked as everywhere else.
@@ -177,7 +180,15 @@ type Problem struct {
 // Resolved.Problems instead of failing the call. A value that does not
 // convert is left out, so the field shows what the lower layers set. The
 // structural errors (an unknown field, a reserved ran.node) still fail.
-func Report(inputs ...Input) (*Resolved, error) { return resolve(true, inputs) }
+func Report(inputs ...Input) (*Resolved, error) {
+	res, err := resolve(true, inputs)
+	if res != nil {
+		for i := range res.Problems {
+			res.Problems[i].Err = maskKeyShaped(res.Problems[i].Err)
+		}
+	}
+	return res, maskErr(err)
+}
 
 func resolve(lenient bool, inputs []Input) (*Resolved, error) {
 	var problems []Problem
@@ -242,7 +253,7 @@ func resolve(lenient bool, inputs []Input) (*Resolved, error) {
 				state[p] = &entry{value: n, src: Source{Layer: LayerDefault, Name: "selector"},
 					prov: &FieldProvenance{Path: p, Source: Source{Layer: LayerDefault, Name: "selector"}, Value: n}}
 			} else if state[p].value != n {
-				return nil, fmt.Errorf("%s: name %q does not match its selector %q", p, state[p].value, n)
+				return nil, fmt.Errorf("%s: the name does not match its selector", p)
 			}
 		}
 	}
@@ -266,6 +277,14 @@ func resolve(lenient bool, inputs []Input) (*Resolved, error) {
 	// A pool's first SUPI must be in the target's own PLMN: a mismatch fails
 	// every registration whatever the count.
 	if pr := supiInPLMN(state, order); pr != nil {
+		if !lenient {
+			return nil, errors.New(pr.Err)
+		}
+		problems = append(problems, *pr)
+	}
+	// A gNB ID block must fit its ID length: the server refuses one that
+	// does not when a run starts, so the CLI and the page refuse it first.
+	if pr := gnbIDsFit(state); pr != nil {
 		if !lenient {
 			return nil, errors.New(pr.Err)
 		}
@@ -325,6 +344,52 @@ func firstSlice(state map[string]*entry) {
 			e.prov.Overridden = append([]Override{{Source: list.src, Value: show(f, listVal)}}, e.prov.Overridden...)
 		}
 	}
+}
+
+// DefaultGNBIDBits is the gNB ID length when ran.gnb_ids.bits is unset,
+// as the server and the CLI's --gnb-id-bits default it.
+const DefaultGNBIDBits = 24
+
+// gnbIDsFit checks that ran.gnb_ids, first to first+count-1 (first alone
+// with no count), fits ran.gnb_ids.bits (DefaultGNBIDBits unset). A bits
+// value out of range is validateValue's to refuse; it is not checked here.
+func gnbIDsFit(state map[string]*entry) *Problem {
+	first, hasFirst := state["ran.gnb_ids.first"]
+	countE, hasCount := state["ran.gnb_ids.count"]
+	if !hasFirst && !hasCount {
+		return nil
+	}
+	num := func(p string) uint64 {
+		if e, ok := state[p]; ok {
+			if v, ok := e.value.(uint64); ok {
+				return v
+			}
+		}
+		return 0
+	}
+	bits := num("ran.gnb_ids.bits")
+	if bits == 0 {
+		bits = DefaultGNBIDBits
+	}
+	if bits > 32 {
+		return nil
+	}
+	start, count := num("ran.gnb_ids.first"), num("ran.gnb_ids.count")
+	end := start
+	if count > 0 {
+		end = start + count - 1
+	}
+	if maxID := uint64(1)<<bits - 1; end > maxID {
+		var src Source
+		if hasCount && count > 0 {
+			src = countE.src
+		} else {
+			src = first.src
+		}
+		return &Problem{Path: "ran.gnb_ids", Source: src,
+			Err: fmt.Sprintf("ran.gnb_ids: %d..%d does not fit %d bits (at most %d) (%s)", start, end, bits, maxID, src)}
+	}
+	return nil
 }
 
 // supiInPLMN checks each pool's first_supi against core.plmn: its leading
@@ -518,6 +583,7 @@ func buildTarget(state map[string]*entry, order map[string][]string) (Target, er
 		t.Core.Slices[0].SD = sd.(string)
 	}
 	t.Core.DNN, t.Core.Profile, t.Core.UPFN3 = str("core.dnn"), str("core.profile"), str("core.upf_n3")
+	t.Core.UEPools, t.Core.UPFN6, t.Core.N6Subnet = strs("core.ue_pools"), str("core.upf_n6"), str("core.n6_subnet")
 	for _, n := range order["subscribers"] {
 		b := "subscribers[" + n + "]."
 		t.Subscribers = append(t.Subscribers, Pool{Name: n, FirstSUPI: str(b + "first_supi"), Count: num(b + "count"),

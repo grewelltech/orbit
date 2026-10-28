@@ -12,6 +12,7 @@ package target
 import (
 	"errors"
 	"fmt"
+	"regexp"
 )
 
 // Version is the target schema version this package reads.
@@ -50,6 +51,13 @@ type Core struct {
 	// UPFN3 is the UPF's N3 endpoint, host:port, for checks that reach it
 	// directly.
 	UPFN3 string `yaml:"upf_n3,omitempty" json:"upf_n3,omitempty"`
+	// UEPools are the CIDRs the core gives UEs their addresses from: the N6
+	// side routes them back through the UPF (ADR-0009 §2).
+	UEPools []string `yaml:"ue_pools,omitempty" json:"ue_pools,omitempty"`
+	// UPFN6 is the UPF's N6 address, the return route's next hop, and
+	// N6Subnet the N6 network it sits on, which the firewall opens to.
+	UPFN6    string `yaml:"upf_n6,omitempty" json:"upf_n6,omitempty"`
+	N6Subnet string `yaml:"n6_subnet,omitempty" json:"n6_subnet,omitempty"`
 }
 
 // PLMN is a PLMN identity.
@@ -138,19 +146,38 @@ func (t *Target) Validate() error {
 	if t.RAN.Node != "" {
 		return fmt.Errorf("target %q: %w (got %q)", t.Name, ErrNodeReserved, t.RAN.Node)
 	}
-	seen := map[string]bool{}
-	for _, p := range t.Subscribers {
-		if p.Name == "" || seen[p.Name] {
-			return fmt.Errorf("target %q: subscriber pools need distinct names (got %q)", t.Name, p.Name)
+	// An entry refused is told by its index, never by its name.
+	seen := map[string]int{}
+	for i, p := range t.Subscribers {
+		j, dup := seen[p.Name]
+		if p.Name == "" || dup {
+			return fmt.Errorf("target %q: subscribers[%d] needs a name of its own (subscriber pools need distinct names%s)", t.Name, i, sameAs("subscribers", j, dup))
 		}
-		seen[p.Name] = true
+		seen[p.Name] = i
 	}
-	seen = map[string]bool{}
-	for _, r := range t.App.Responders {
-		if r.Name == "" || seen[r.Name] {
-			return fmt.Errorf("target %q: responders need distinct names (got %q)", t.Name, r.Name)
+	seen = map[string]int{}
+	for i, r := range t.App.Responders {
+		j, dup := seen[r.Name]
+		if r.Name == "" || dup {
+			return fmt.Errorf("target %q: app.responders[%d] needs a name of its own (responders need distinct names%s)", t.Name, i, sameAs("app.responders", j, dup))
 		}
-		seen[r.Name] = true
+		seen[r.Name] = i
 	}
 	return nil
+}
+
+// validName is the name charset: a target's name becomes a file name, and
+// a responder's a target's reference to it.
+var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$`)
+
+// ValidName reports whether s is a valid target or responder name: a
+// letter or digit, then up to 62 letters, digits, '-' or '_'.
+func ValidName(s string) bool { return validName.MatchString(s) }
+
+// sameAs is "; the same as <list>[j]" when dup, else "".
+func sameAs(list string, j int, dup bool) string {
+	if !dup {
+		return ""
+	}
+	return fmt.Sprintf("; the same as %s[%d]", list, j)
 }

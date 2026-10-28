@@ -1,0 +1,29 @@
+{
+  "run":  {
+    "runId":  "run-6b9b7873",
+    "kind":  "RUN_KIND_FLEET",
+    "state":  "RUN_STATE_RUNNING",
+    "startedUnixNano":  "1793174968302423957"
+  },
+  "fleetProgress":  {
+    "elapsedMs":  "4"
+  },
+  "leases":  [
+    {
+      "resource":  "LEASE_RESOURCE_SUPI_BLOCK",
+      "plmn":  "208/93",
+      "firstSupi":  "208930100007500",
+      "lastSupi":  "208930100007501"
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:49197",
+      "gnbId":  7
+    },
+    {
+      "resource":  "LEASE_RESOURCE_N2_IP",
+      "n2Ip":  "127.0.0.1"
+    }
+  ]
+}

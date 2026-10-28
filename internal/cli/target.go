@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -18,10 +17,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/plan"
 	"github.com/bgrewell/orbit/internal/target"
 )
 
@@ -42,11 +41,9 @@ func newTargetCmd(serverURL *string, o options) *cobra.Command {
 	cmd.AddCommand(newTargetListCmd(loc))
 	cmd.AddCommand(newTargetShowCmd(loc))
 	cmd.AddCommand(newTargetProbeCmd(serverURL, loc))
+	cmd.AddCommand(withServerURL(newTargetAddResponderCmd(serverURL), serverURL))
 	return cmd
 }
-
-// targetName is what init accepts as a name: it becomes a file name.
-var targetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$`)
 
 // keyPlaceholders are what init writes for the keys unless --write-keys:
 // the file then holds no key, and loading it expands them from the
@@ -107,7 +104,7 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			if !targetName.MatchString(name) {
+			if !target.ValidName(name) {
 				return fmt.Errorf("target name %q: use letters, digits, '-' and '_'", name)
 			}
 			out := cmd.OutOrStdout()
@@ -179,7 +176,7 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 					_, _ = fmt.Fprintf(out, "NG Setup through the orbit server failed (%v); writing anyway (--force)\n", err)
 				case !res.Msg.GetAccepted() && !force:
 					return fmt.Errorf("AMF rejected NG Setup: %s%s; nothing written (--force writes the target anyway)",
-						res.Msg.GetCause(), plmnHint(res.Msg.GetCause(), mcc, mnc, tac))
+						res.Msg.GetCause(), target.PLMNHint(res.Msg.GetCause(), mcc, mnc, tac))
 				case !res.Msg.GetAccepted():
 					_, _ = fmt.Fprintf(out, "AMF rejected NG Setup: %s; writing anyway (--force)\n", res.Msg.GetCause())
 				default:
@@ -239,7 +236,7 @@ func newTargetInitCmd(serverURL *string, loc targetLocations) *cobra.Command {
 			_, _ = fmt.Fprintf(out, "wrote target %s to %s\n", name, path)
 			switch {
 			case firstSUPI == "":
-				_, _ = fmt.Fprintf(out, "no subscriber pool: `orbit target probe %s` stops after NG Setup (add one with --first-supi)\n", name)
+				_, _ = fmt.Fprintf(out, "no subscriber pool: `orbit target probe %s` fails at register (add one with --first-supi)\n", name)
 			case !writeKeys:
 				_, _ = fmt.Fprintln(out, "keys are ${ORBIT_KI}/${ORBIT_OPC} in the file: export them before a probe or a run")
 			}
@@ -358,15 +355,6 @@ func ask(w io.Writer, in *bufio.Reader, prompt string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(line), nil
-}
-
-// plmnHint adds what to check to an unknown-PLMN NG Setup Failure (misc 4,
-// TS 38.413 9.3.1.2).
-func plmnHint(cause, mcc, mnc string, tac uint32) string {
-	if cause != "misc(4)" {
-		return ""
-	}
-	return fmt.Sprintf(" (unknown PLMN); core.plmn %s/%s or core.tac %d is not one the AMF serves", mcc, mnc, tac)
 }
 
 // listRow is one entry of `target list`.
@@ -530,26 +518,26 @@ func masked(t target.Target) target.Target {
 	return t
 }
 
-// probeStep is one line of `target probe`.
-type probeStep struct {
-	name   string
-	status string // "ok", "FAIL", "SKIP"
-	detail string
-}
-
 func newTargetProbeCmd(serverURL *string, loc targetLocations) *cobra.Command {
-	var timeout time.Duration
+	var (
+		timeout  time.Duration
+		coreOnly bool
+	)
 	cmd := &cobra.Command{
 		Use:   "probe <name>",
-		Short: "Check a target from the orbit server: NG Setup, one registration, one PDU session",
-		Long: "Runs, through the orbit server and so from the host runs execute on, the\n" +
-			"control-plane steps of the doctor (ADR-0009 §5): NG Setup, then registering\n" +
-			"the pool's first SUPI, then a PDU session. It stops at the first failure,\n" +
-			"naming what to check, and exits non-zero. Until leasing, it uses the target's\n" +
-			"first three gNB IDs (one per association) and first SUPI, so a run using them\n" +
-			"at the same time collides. The keys go to --server: until it has TLS, keep it\n" +
-			"on loopback, or the keys cross the network in plaintext.",
-		Args: cobra.ExactArgs(1),
+		Short: "Check a target from the orbit server, step by step: the core, then the user plane to the responder",
+		Long: "Runs the doctor (ADR-0009 §5) on the orbit server, and so from the host runs\n" +
+			"execute on, printing each step as it finishes:\n" +
+			"  1 NG Setup  2 register  3 PDU session  4 responder  5 control  6 UE to N6 echo  7 data ports\n" +
+			"It stops at the first failure, naming what to fix, and SKIPs the rest; a\n" +
+			"failure exits 1, and a probe that could not start (a lease another run holds,\n" +
+			"no server) exits 3. The probe leases the target's first three gNB IDs, its\n" +
+			"first SUPI and its N2 source for as long as it runs, so it never collides with\n" +
+			"a run. --core-only stops after step 3, for a target with no app host yet.\n" +
+			"The keys go to --server: until it has TLS, keep it on loopback, or the keys\n" +
+			"cross the network in plaintext.",
+		Example: "  orbit target probe lab1\n  orbit target probe lab1 --core-only --timeout 5s",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l, err := loc()
 			if err != nil {
@@ -566,185 +554,63 @@ func newTargetProbeCmd(serverURL *string, loc targetLocations) *cobra.Command {
 			if err := applyServerURL(cmd, serverURL); err != nil {
 				return err
 			}
-			return runProbe(cmd, serverURL, f.Target.Name, r.Target, timeout)
+			if timeout <= 0 || timeout > 2*time.Minute {
+				return fmt.Errorf("--timeout %s: want more than 0 and at most 2m (the probe holds its leases for each step)", timeout)
+			}
+			return runProbe(cmd, serverURL, f.Target.Name, r.Target, timeout, coreOnly)
 		},
 	}
-	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "bound on each step")
+	cmd.Flags().DurationVar(&timeout, "timeout", 20*time.Second, "bound on each step, at most 2m")
+	cmd.Flags().BoolVar(&coreOnly, "core-only", false, "stop after the PDU session (steps 1-3): the user plane is not checked")
 	return cmd
 }
 
-// probePlan is what probe sends: the resolved target's first gNB ID, N2
-// source, slice and subscriber.
-type probePlan struct {
-	gnb        *orbitv1.GnbConfig
-	bind, n3   string
-	pool       *target.Pool
-	sst        uint32
-	sd, dnn    string
-	gnbIDShown string
-}
-
-func planProbe(t target.Target) (probePlan, error) {
-	p := probePlan{dnn: t.Core.DNN}
-	if len(t.Core.Slices) > 0 {
-		p.sst, p.sd = t.Core.Slices[0].SST, t.Core.Slices[0].SD
-	}
-	id, bits := t.RAN.GNBIDs.First, t.RAN.GNBIDs.Bits
-	if id == 0 {
-		id = target.DefaultGNBID
-	}
-	if bits == 0 {
-		bits = 24
-	}
-	name := t.RAN.GNBName
-	if name == "" {
-		name = "orbit-probe"
-	}
-	p.gnbIDShown = fmt.Sprintf("%#x, %#x, %#x", id, id+1, id+2)
-	p.gnb = &orbitv1.GnbConfig{Id: id, IdBits: bits, Name: name, Mcc: t.Core.PLMN.MCC, Mnc: t.Core.PLMN.MNC, Tac: t.Core.TAC,
-		Slices: []*orbitv1.Snssai{{Sst: p.sst, Sd: p.sd}}}
-	if len(t.RAN.N2SourceIPs) > 0 {
-		b, _, err := firstAddress("bind", t.RAN.N2SourceIPs)
-		if err != nil {
-			return p, fmt.Errorf("ran.n2_source_ips: %w", err)
-		}
-		p.bind = b
-	}
-	if len(t.RAN.N3IPs) > 0 {
-		if n3, _, err := firstAddress("gnb-n3", t.RAN.N3IPs); err == nil {
-			p.n3 = n3
-		}
-	}
-	if len(t.Subscribers) > 0 && t.Subscribers[0].FirstSUPI != "" {
-		p.pool = &t.Subscribers[0]
-	}
-	return p, nil
-}
-
-// gnbFor is the plan's gNB with the ID for association n (0, 1, 2): each
-// association takes its own, since a core may not cleanly re-key a gNB ID
-// reused from a new association (SD-Core; see conformance.go).
-func (p probePlan) gnbFor(n uint32) *orbitv1.GnbConfig {
-	g := proto.Clone(p.gnb).(*orbitv1.GnbConfig)
-	g.Id += n
-	return g
-}
-
-func runProbe(cmd *cobra.Command, serverURL *string, name string, t target.Target, timeout time.Duration) error {
+// runProbe streams the server's probe steps as they come and sums them up.
+func runProbe(cmd *cobra.Command, serverURL *string, name string, t target.Target, timeout time.Duration, coreOnly bool) error {
 	out := cmd.OutOrStdout()
-	plan, err := planProbe(t)
-	if err != nil {
-		return err
-	}
-	ctx := cmd.Context()
-	ms := uint32(timeout.Milliseconds())
-	var steps []probeStep
-	fail := func(step, detail string) error {
-		steps = append(steps, probeStep{name: step, status: "FAIL", detail: detail})
-		printProbe(out, name, steps)
-		return fmt.Errorf("probe %s failed at %s", name, step)
-	}
-	_, _ = fmt.Fprintf(out, "probe %s through %s (gNB IDs %s, one per association", name, *serverURL, plan.gnbIDShown)
-	if plan.pool != nil {
-		_, _ = fmt.Fprintf(out, ", SUPI %s", plan.pool.FirstSUPI)
-	}
-	_, _ = fmt.Fprintln(out, "; until leasing, a run using them at the same time collides)")
-
-	// 1. NG Setup.
-	start := time.Now()
-	ng, err := cellClient(serverURL).RunNGSetup(ctx, connect.NewRequest(&orbitv1.RunNGSetupRequest{
-		AmfAddress: t.Core.AMF, LocalAddress: plan.bind, Gnb: plan.gnbFor(0), TimeoutMs: ms,
+	_, _ = fmt.Fprintf(out, "probe %s through %s\n", name, *serverURL)
+	stream, err := targetClient(serverURL).Probe(cmd.Context(), connect.NewRequest(&orbitv1.ProbeRequest{
+		Target: plan.TargetProto(t), TargetName: name, CoreOnly: coreOnly, StepTimeoutMs: uint32(timeout.Milliseconds()),
 	}))
-	switch {
-	case err != nil && connect.CodeOf(err) == connect.CodeUnavailable:
-		return fail("NG Setup", fmt.Sprintf("AMF %s is not reachable over SCTP from the orbit server (%v); check core.amf and the N2 route", t.Core.AMF, err))
-	case err != nil:
-		return fail("NG Setup", fmt.Sprintf("NG Setup to AMF %s failed: %v", t.Core.AMF, err))
-	case !ng.Msg.GetAccepted():
-		return fail("NG Setup", fmt.Sprintf("AMF rejected NG Setup: %s%s", ng.Msg.GetCause(),
-			plmnHint(ng.Msg.GetCause(), t.Core.PLMN.MCC, t.Core.PLMN.MNC, t.Core.TAC)))
+	if err != nil {
+		return exitWith(ExitCouldNotStart, fmt.Errorf("probe %s could not start: %w", name, err))
 	}
-	steps = append(steps, probeStep{name: "NG Setup", status: "ok", detail: fmt.Sprintf("accepted by AMF %q from %s in %s",
-		ng.Msg.GetAmfName(), ng.Msg.GetLocalAddress(), since(start))})
-
-	if plan.pool == nil {
-		skip := fmt.Sprintf("no subscribers in target %s; add one with first_supi/ki/opc", name)
-		steps = append(steps, probeStep{name: "register", status: "SKIP", detail: skip},
-			probeStep{name: "PDU session", status: "SKIP", detail: skip})
-		printProbe(out, name, steps)
+	defer func() { _ = stream.Close() }()
+	var passed, skipped, total int
+	failed := ""
+	for stream.Receive() {
+		s := stream.Msg()
+		total++
+		mark := map[string]string{"OK": "✓", "FAIL": "✗", "SKIP": "-"}[s.GetStatus()]
+		_, _ = fmt.Fprintf(out, "%s %d %-15s %-4s  %s\n", mark, s.GetIndex(), s.GetName(), s.GetStatus(), s.GetDetail())
+		if s.GetFix() != "" {
+			_, _ = fmt.Fprintf(out, "      fix: %s\n", s.GetFix())
+		}
+		switch s.GetStatus() {
+		case "OK":
+			passed++
+		case "SKIP":
+			skipped++
+		case "FAIL":
+			if failed == "" {
+				failed = s.GetName()
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		if total == 0 {
+			return exitWith(ExitCouldNotStart, fmt.Errorf("probe %s could not start: %w", name, err))
+		}
+		return exitWith(ExitDidNotComplete, fmt.Errorf("probe %s stopped after %d steps: %w", name, total, err))
+	}
+	if coreOnly && failed == "" {
+		_, _ = fmt.Fprintf(out, "probe %s: core OK; user plane not checked (--core-only)\n", name)
 		return nil
 	}
-	pool := plan.pool
-	if pool.Ki == "" || pool.OPc == "" {
-		return fail("register", fmt.Sprintf("subscribers[%s] has no ki/opc; set them, or ${ORBIT_KI}/${ORBIT_OPC} with the variables exported", pool.Name))
+	_, _ = fmt.Fprintf(out, "probe %s: %d of %d steps passed (%d skipped)\n", name, passed, total, skipped)
+	if failed != "" {
+		return gateFailed("probe %s failed at %s", name, failed)
 	}
-	register := func(withPDU bool) (*orbitv1.RegisterResponse, error) {
-		assoc := uint32(1)
-		if withPDU {
-			assoc = 2
-		}
-		req := &orbitv1.RegisterRequest{
-			AmfAddress: t.Core.AMF, BindAddress: plan.bind, Supi: pool.FirstSUPI, Gnb: plan.gnbFor(assoc),
-			Credentials: &orbitv1.Credentials{Ki: pool.Ki, Opc: pool.OPc}, RoutingIndicator: pool.RoutingIndicator,
-			TimeoutMs: ms,
-		}
-		if req.RoutingIndicator == "" {
-			req.RoutingIndicator = "0"
-		}
-		if withPDU {
-			req.PduSession = &orbitv1.PDUSession{PduSessionId: 1, Sst: plan.sst, Sd: plan.sd, Dnn: plan.dnn}
-			req.GnbN3Addr = plan.n3
-		}
-		res, err := ueClient(serverURL).Register(ctx, connect.NewRequest(req))
-		if err != nil {
-			return nil, err
-		}
-		return res.Msg, nil
-	}
-	deregister := func() {
-		if _, err := ueClient(serverURL).Deregister(ctx, connect.NewRequest(&orbitv1.DeregisterRequest{Supi: pool.FirstSUPI})); err != nil {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "probe: deregistering %s after the probe: %v\n", pool.FirstSUPI, err)
-		}
-	}
-
-	// 2. Register one UE, no PDU session.
-	// TODO(T3 follow-up, "feat(engine): typed 5GMM/5GSM reject causes"):
-	// name the 5GMM reject cause here once the engine reports it.
-	start = time.Now()
-	reg, err := register(false)
-	if err != nil || !reg.GetRegistered() {
-		if err == nil {
-			err = errors.New("not registered")
-		}
-		return fail("register", fmt.Sprintf("registering %s failed: %v (reject cause not reported yet); check that subscribers[%s] (first_supi, ki, opc) is provisioned in the core",
-			pool.FirstSUPI, connectMessage(err), pool.Name))
-	}
-	steps = append(steps, probeStep{name: "register", status: "ok", detail: fmt.Sprintf("%s registered in %s", pool.FirstSUPI, since(start))})
-	deregister()
-
-	// 3. A PDU session.
-	// TODO(T3 follow-up): name the 5GSM reject cause, without waiting out
-	// the timeout, once the engine detects the reject.
-	start = time.Now()
-	slice := fmt.Sprintf("%d/%s", plan.sst, plan.sd)
-	if plan.sd == "" {
-		slice = strconv.Itoa(int(plan.sst))
-	}
-	pdu, err := register(true)
-	timedOut := err != nil && (connect.CodeOf(err) == connect.CodeDeadlineExceeded || strings.Contains(err.Error(), "deadline exceeded"))
-	switch {
-	case timedOut:
-		return fail("PDU session", fmt.Sprintf("no PDU session accept within %s (DNN %s, slice %s)", timeout, plan.dnn, slice))
-	case err != nil:
-		return fail("PDU session", fmt.Sprintf("PDU session for DNN %s on slice %s failed: %v (reject cause not reported yet)", plan.dnn, slice, connectMessage(err)))
-	case !pdu.GetSessionActive():
-		deregister()
-		return fail("PDU session", fmt.Sprintf("no PDU session accept within %s (DNN %s, slice %s)", timeout, plan.dnn, slice))
-	}
-	steps = append(steps, probeStep{name: "PDU session", status: "ok", detail: fmt.Sprintf("UE IP %s via UPF %s in %s",
-		pdu.GetPduAddress(), pdu.GetUpfAddress(), since(start))})
-	deregister()
-	printProbe(out, name, steps)
 	return nil
 }
 
@@ -758,20 +624,6 @@ func connectMessage(err error) string {
 }
 
 func since(t time.Time) string { return time.Since(t).Round(time.Millisecond).String() }
-
-func printProbe(w io.Writer, name string, steps []probeStep) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	passed := 0
-	for _, s := range steps {
-		mark := map[string]string{"ok": "✓", "FAIL": "✗", "SKIP": "-"}[s.status]
-		if s.status == "ok" {
-			passed++
-		}
-		_, _ = fmt.Fprintf(tw, "%s %s\t%s\t%s\n", mark, s.name, s.status, s.detail)
-	}
-	_ = tw.Flush()
-	_, _ = fmt.Fprintf(w, "probe %s: %d of 3 steps passed\n", name, passed)
-}
 
 // printProvenance prints provenance rows: each field's value (masked when
 // secret), the source that set it and what it overrode.

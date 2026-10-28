@@ -23,6 +23,10 @@ orbit conformance -t lab1
 to load, with the error. One bad entry in an `./orbit.yaml` list fails only
 when that target is selected. A YAML syntax error fails the whole file.
 
+The dashboard's Targets page (`?targets`) also keeps targets, in the
+browser. It imports and exports these same files, and keeps keys out of
+what it stores. See USAGE, "Targets in the browser".
+
 ## The document
 
 ```yaml
@@ -38,6 +42,9 @@ core:
   dnn: internet
   profile: strict-3gpp
   upf_n3: 198.51.100.10:2152
+  ue_pools: [10.250.0.0/16]
+  upf_n6: 203.0.113.1
+  n6_subnet: 203.0.113.0/24
 subscribers:
   - name: main
     first_supi: "001010000000001"
@@ -67,6 +74,9 @@ they show as `<redacted>` in `--explain`, `target show` and every error.
 | `core.slices` | S-NSSAIs; the commands use the first | `--sst`, `--sd` set the first slice's fields | |
 | `core.dnn` | data network name | `--dnn` | |
 | `core.upf_n3` | the UPF's N3 endpoint, for GTP-U checks | `--upf-n3` (conformance) | |
+| `core.ue_pools` | the CIDRs the core gives UEs their addresses from, which an N6 host routes back through the UPF | `--ue-pool` (join create) | |
+| `core.upf_n6` | the UPF's N6 address, the N6 host's return route's next hop | `--upf-n6` (join create) | |
+| `core.n6_subnet` | the UPF's N6 network (CIDR), which an N6 host's firewall opens to | `--n6-subnet` (join create) | |
 | `subscribers[].first_supi` | first SUPI of the pool | `--supi` (conformance, ue register), `--base-imsi` | |
 | `subscribers[].count` | subscribers in the pool | | |
 | `subscribers[].ki` / `opc` | keys, 32 hex digits | `--ki` / `--opc` | `$ORBIT_KI` / `$ORBIT_OPC` |
@@ -98,6 +108,15 @@ destination gNB and are never filled from a target; only `--amf` is.
   names, ip:port/host:port, and IP-only ranges and CIDRs, expanded by the same
   rules. `--gnb-n3` needs an IP: a host-name entry fills `--n3-bind`, leaves
   `--gnb-n3` unfilled, and says so.
+
+### gNB IDs fit their length
+
+`ran.gnb_ids` must fit `bits` (24 when unset): from `first` to
+`first+count-1`, or `first` alone with no `count`, at most `2^bits-1`. A
+block that overflows is refused when the target resolves, by the CLI and by
+the server alike, naming the range:
+`ran.gnb_ids: 16777200..16777231 does not fit 24 bits (at most 16777215)`.
+A `--gnb-id` that moves the block past the end is refused the same way.
 
 ### gNB IDs for a conformance run
 
@@ -141,6 +160,31 @@ the probe 0x9000 above it.
   the variable noted: `target lab1.yaml:16 via ${ORBIT_KI}`. A number takes no
   `${VAR}` (`${TAC} is not expanded in numeric fields`); override one from the
   environment with its `$ORBIT_*` binding, or with a flag.
+- **An error never shows a key.** A secret field's value always shows as
+  `<redacted>`. So does any text in an error that's shaped like a key or
+  token, a key pasted into the wrong field, used as a YAML key, or used as a
+  pool's name:
+  - hex digits, 31 to 33 or 63 to 65 of them (a Ki or OPc is 32), with an
+    optional `0x`, whole or in pairs or quads separated by `:`, `-` or a
+    space;
+  - a token with orbit's join, credential or loom token prefix.
+
+  For example, `core.slices[0].sd: <redacted> is not 6 hex digits`, or
+  `unknown key core.<redacted>`. IMSIs, SDs and PLMNs stay readable. A value
+  of the wrong YAML type names the field and the types, not the value:
+  `line 6: core.tac: want a number, not a string`. A number too big for its
+  field is `line 6: core.tac: out of range (at most 4294967295)`.
+
+  **The limits of a shape.** A base64 or bearer secret has no shape to know
+  it by, so a field it is pasted into shows it in an error. An IPv6 address
+  written out in full (eight groups of four hex digits) is a Ki's shape, so
+  it shows as `<redacted>` in an error; the compressed form (`2001:db8::1`)
+  stays readable. Nor does a long list of two-digit numbers (15 or more,
+  separated by `:`, `-` or spaces): it has the shape of a key in pairs.
+- **One YAML document.** A target file is one document: a target, or a list
+  of targets. A second document after `---` is refused, naming its line,
+  whether it parses or not; it used to be ignored. A run file is the same
+  ([run-files.md](run-files.md#the-document)).
 
 ## Precedence
 
@@ -230,7 +274,10 @@ behaviours. It takes its core, keys and addresses from a target.
 - **`orbit target show <name>`** prints the target as loaded, keys masked.
   `--resolved` shows each field after default < target < env, with its source,
   and `--json` gives the same as JSON.
-- **`orbit target probe <name>`** runs, through the server, NG Setup, one
-  registration and one PDU session, using the range's first three gNB IDs and
-  the pool's first SUPI. It stops at the first failure and names what to check.
+- **`orbit target probe <name>`** runs the doctor on the server: NG Setup, one
+  registration, one PDU session, then the responder, its control port, an
+  echo and a UDP flow from the UE to it (`--core-only` stops after the PDU
+  session). It leases the range's first three gNB IDs and the pool's first
+  SUPI while it runs, stops at the first failure, names what to fix, and
+  exits 1.
   - The keys go to `--server`: keep it on loopback until it has TLS.

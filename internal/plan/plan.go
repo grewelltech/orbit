@@ -45,6 +45,11 @@ func WithReadFile(read func(string) ([]byte, error)) Option {
 // workload and one way to stop; the server checks the rest when it builds
 // the run.
 func Build(res *target.Resolved, opts ...Option) (*orbitv1.RunPlan, []*orbitv1.FieldProvenance, error) {
+	p, prov, err := buildPlan(res, opts...)
+	return p, prov, target.MaskErr(err)
+}
+
+func buildPlan(res *target.Resolved, opts ...Option) (*orbitv1.RunPlan, []*orbitv1.FieldProvenance, error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
@@ -71,6 +76,11 @@ func Build(res *target.Resolved, opts ...Option) (*orbitv1.RunPlan, []*orbitv1.F
 // Gates is the plan's gates alone, for a command that builds the rest of
 // its plan another way (start-load, start-fleet).
 func Gates(res *target.Resolved) ([]*orbitv1.Gate, error) {
+	g, err := gatesOf(res)
+	return g, target.MaskErr(err)
+}
+
+func gatesOf(res *target.Resolved) ([]*orbitv1.Gate, error) {
 	b := builder{res: res}
 	var out []*orbitv1.Gate
 	for _, n := range res.Names("gates") {
@@ -331,7 +341,7 @@ func (b builder) expected(v any) (*orbitv1.ExpectedFailures, error) {
 	switch x := v.(type) {
 	case string:
 		if b.o.readFile == nil {
-			return nil, fmt.Errorf("%q: this command does not read files", x)
+			return nil, fmt.Errorf("%q: this command does not read files; give the list inline", x)
 		}
 		data, err := b.o.readFile(x)
 		if err != nil {

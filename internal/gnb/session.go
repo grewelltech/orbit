@@ -101,6 +101,20 @@ func (t *UETransport) ReadMsg(_ []byte) (payload []byte, stream uint16, ppid uin
 	}
 }
 
+// Drain drops the PDUs waiting in the UE's inbox, without blocking, and
+// returns how many: what arrived before a request cannot be its answer.
+func (t *UETransport) Drain() int {
+	n := 0
+	for {
+		select {
+		case <-t.inbox:
+			n++
+		default:
+			return n
+		}
+	}
+}
+
 // Close unregisters the UE from the session demux. It does not close the
 // shared association.
 func (t *UETransport) Close() error {
@@ -213,6 +227,16 @@ func ranUENGAPIDOf(pdu *ngapType.NGAPPDU) (int64, bool) {
 				return ie.Value.RANUENGAPID.Value, true
 			}
 			return 0, false
+		})
+	case ngapType.InitiatingMessagePresentUEContextReleaseCommand:
+		// The release names the UE by its NGAP ID pair; an AMF-only ID
+		// (TS 38.413 9.3.3.18) has no RAN ID to route by and is dropped.
+		return findRANUEID(im.Value.UEContextReleaseCommand.ProtocolIEs.List, func(ie ngapType.UEContextReleaseCommandIEs) (int64, bool) {
+			if ie.Id.Value != ngapType.ProtocolIEIDUENGAPIDs || ie.Value.UENGAPIDs == nil ||
+				ie.Value.UENGAPIDs.Present != ngapType.UENGAPIDsPresentUENGAPIDPair || ie.Value.UENGAPIDs.UENGAPIDPair == nil {
+				return 0, false
+			}
+			return ie.Value.UENGAPIDs.UENGAPIDPair.RANUENGAPID.Value, true
 		})
 	default:
 		return 0, false

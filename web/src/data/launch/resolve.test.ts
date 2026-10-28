@@ -1,0 +1,168 @@
+import { describe, expect, it } from "vitest";
+import { carriesSecrets, formKey, planRequest, refsOf, refusedAt, renderRequest, startBlocked, startStateFor, varsPromptNote, whyNotStart, type LaunchInput, type StartState } from "./resolve";
+import { quickTargetText } from "./useLaunch";
+
+const target = 'version: 1\nkind: target\nname: lab1\n# ${IN_A_COMMENT}\ncore:\n  amf: "${LAB_AMF}"\nsubscribers:\n  - name: main\n    ki: "${ORBIT_KI}"\n    opc: "${ORBIT_OPC}"\n';
+const run = 'kind: run\nworkloads:\n  - name: f\n    behaviors: {latency: {target: "${ECHO}"}}\n';
+const input = (values: Record<string, string>): LaunchInput => ({ targetName: "lab1", targetYaml: target, runYaml: run, template: "fleet", values });
+const all = { LAB_AMF: "192.0.2.10:38412", ORBIT_KI: "k", ORBIT_OPC: "o", ECHO: "198.51.100.9" };
+
+describe("what Launch sends", () => {
+  it("names the values' ${VAR}s, not a comment's", () => {
+    expect(refsOf(input({}))).toEqual(["LAB_AMF", "ORBIT_KI", "ORBIT_OPC", "ECHO"]);
+  });
+
+  it("holds the plan back until every ${VAR} has a value", () => {
+    expect(planRequest(input({ LAB_AMF: "a", ORBIT_KI: "k" }))).toEqual({ unresolved: ["ORBIT_OPC", "ECHO"] });
+    expect(planRequest(input({ ...all, ECHO: "" })).unresolved).toEqual(["ECHO"]);
+  });
+
+  it("sends the documents as text, with each value, and nothing else", () => {
+    const r = planRequest(input({ ...all, UNUSED: "u" })).request;
+    expect(r).toEqual({
+      targetYaml: target,
+      runYaml: run,
+      template: "fleet",
+      vars: [
+        { name: "LAB_AMF", value: "192.0.2.10:38412" },
+        { name: "ORBIT_KI", value: "k" },
+        { name: "ORBIT_OPC", value: "o" },
+        { name: "ECHO", value: "198.51.100.9" },
+      ],
+    });
+  });
+
+  it("renders keyless: the target as kept (its ${VAR}s), no values at all", () => {
+    expect(renderRequest(input(all))).toEqual({ runYaml: run, targetName: "lab1", template: "fleet", targetYaml: target });
+  });
+
+  it("keys the form state: any change of target, run file, template or a value sent", () => {
+    const k = formKey(input(all));
+    expect(formKey(input(all))).toBe(k);
+    expect(formKey(input({ ...all, UNUSED: "u" }))).toBe(k); // a value not sent
+    expect(formKey({ ...input(all), runYaml: run + "until: {forever: true}\n" })).not.toBe(k);
+    expect(formKey({ ...input(all), template: "" })).not.toBe(k);
+    expect(formKey({ ...input(all), targetName: "lab2" })).not.toBe(k);
+    expect(formKey({ ...input(all), targetYaml: target.replace("main", "pool") })).not.toBe(k);
+    expect(formKey(input({ ...all, ORBIT_KI: "k2" }))).not.toBe(k);
+  });
+
+  it("reads where the server's refusal points, as it words a parse and a resolve", () => {
+    expect(refusedAt('invalid run: workloads[load].attach.count: "abc" is not a non-negative integer (run file lab1.run.yaml:8)')).toEqual({
+      doc: "run file",
+      line: 8,
+      path: "workloads[load].attach.count",
+      reason: '"abc" is not a non-negative integer',
+    });
+    expect(refusedAt('invalid run: core.plmn.mcc: "1" is not 3 digits (target lab1.yaml:6)')).toEqual({ doc: "target", line: 6, path: "core.plmn.mcc", reason: '"1" is not 3 digits' });
+    expect(refusedAt("invalid run: lab1.run.yaml:9: workloads[load].behaviors: proto: unknown field")).toEqual({
+      doc: "run file",
+      line: 9,
+      path: "workloads[load].behaviors",
+      reason: "proto: unknown field",
+    });
+    expect(refusedAt("invalid run: lab1.run.yaml:9: unknown key nope")).toEqual({ doc: "run file", line: 9, path: undefined, reason: "unknown key nope" });
+    expect(refusedAt("invalid run: lab1.yaml:5: core.amf: ${LAB_AMF} is not set")).toMatchObject({ doc: "target", path: "core.amf" });
+    expect(refusedAt("invalid run: workloads[s]: give the list inline")).toMatchObject({ doc: "run file", path: "workloads[s]", line: undefined });
+    expect(refusedAt("invalid run: no run file: a plan needs one")).toBeUndefined();
+    expect(refusedAt("held by run-7")).toBeUndefined();
+  });
+});
+
+describe("when Start needs keysBlocked's rule", () => {
+  const remoteHttp = { protocol: "http:", hostname: "192.0.2.10" };
+  const quick = quickTargetText({ name: "core", amf: "192.0.2.1:38412", mcc: "001", mnc: "01", sst: "1", sd: "", tac: "" });
+  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: []}\n";
+  it("a keyless run (a quick target) goes from a remote http dashboard", () => {
+    expect(carriesSecrets({ targetYaml: quick, runYaml: suite })).toBe(false);
+    expect(startBlocked(remoteHttp, "", { targetYaml: quick, runYaml: suite })).toBeUndefined();
+  });
+  it("a ${VAR} that needs a value (all vars are secret) is blocked there", () => {
+    const withVar = quick.replace("192.0.2.1:38412", "${LAB_AMF}");
+    expect(startBlocked(remoteHttp, "", { targetYaml: withVar, runYaml: suite })).toContain("in the clear");
+    expect(startBlocked(remoteHttp, "", { targetYaml: quick, runYaml: suite.replace("categories: []", 'categories: ["${CATS}"]') })).toContain("in the clear");
+  });
+  it("a key written out in a secret slot is blocked there", () => {
+    const keyed = quick + "subscribers:\n    - name: main\n      ki: 00112233445566778899aabbccddeeff\n";
+    expect(carriesSecrets({ targetYaml: keyed, runYaml: suite })).toBe(true);
+    expect(startBlocked(remoteHttp, "", { targetYaml: keyed, runYaml: suite })).toContain("in the clear");
+  });
+  it("on loopback, nothing is blocked", () => {
+    expect(startBlocked({ protocol: "http:", hostname: "127.0.0.1" }, "", { targetYaml: target, runYaml: run })).toBeUndefined();
+  });
+});
+
+describe("whether Launch may send its run", () => {
+  const ok: StartState = { loc: { protocol: "http:", hostname: "127.0.0.1" }, token: "", hasTarget: true, missingKeys: [], unsetVars: [], workloads: 1, carriesSecrets: true };
+  const rows: [string, Partial<StartState>, string | undefined][] = [
+    ["all set, on loopback", {}, undefined],
+    ["no target", { hasTarget: false }, "make a target first"],
+    // keysBlocked's rule: the run carries the target's keys.
+    ["http from another host", { loc: { protocol: "http:", hostname: "192.0.2.10" } }, "in the clear"],
+    ["https from another host, no token", { loc: { protocol: "https:", hostname: "orbit.lab" } }, "no API token"],
+    ["https from another host, a token", { loc: { protocol: "https:", hostname: "orbit.lab" }, token: "t" }, undefined],
+    // A keyless run (carriesSecrets false) goes from any dashboard.
+    ["a keyless run, http from another host", { loc: { protocol: "http:", hostname: "192.0.2.10" }, carriesSecrets: false }, undefined],
+    ["a key with no value", { missingKeys: ["ORBIT_KI"] }, "set ${ORBIT_KI} on the Targets page"],
+    ["a var with no value", { unsetVars: ["LAB_AMF"] }, "set ${LAB_AMF} first"],
+    ["no workload", { workloads: 0 }, "add a workload"],
+  ];
+  for (const [name, patch, want] of rows) {
+    it(name, () => {
+      const got = whyNotStart({ ...ok, ...patch });
+      if (want === undefined) expect(got).toBeUndefined();
+      else expect(got).toContain(want);
+    });
+  }
+});
+
+describe("the ${VAR} prompt's line", () => {
+  it("held in this tab", () => expect(varsPromptNote(false)).toContain("held in this tab"));
+  it("remembered in this browser when the target remembers its keys", () => {
+    expect(varsPromptNote(true)).toContain("remembered in this browser");
+    expect(varsPromptNote(true)).not.toContain("this tab");
+  });
+});
+
+describe("the StartState Launch judges its run by (startStateFor)", () => {
+  const remoteHttp = { protocol: "http:", hostname: "192.0.2.10" };
+  const quick = quickTargetText({ name: "core", amf: "192.0.2.1:38412", mcc: "001", mnc: "01", sst: "1", sd: "", tac: "" });
+  const keyed = quick + "subscribers:\n    - name: main\n      first_supi: \"001010000000001\"\n      ki: ${ORBIT_KI}\n      opc: ${ORBIT_OPC}\n";
+  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: [\"${CATS}\"]}\n";
+  const input = { runYaml: suite, values: {}, workloads: 1, loc: remoteHttp, token: "" };
+
+  it("a target's key ${VAR}s are set on the Targets page; the rest are asked for here", () => {
+    const { state, prompts } = startStateFor({ ...input, targetYaml: keyed, refs: ["ORBIT_KI", "ORBIT_OPC", "CATS"] });
+    expect(state.missingKeys).toEqual(["ORBIT_KI", "ORBIT_OPC"]);
+    expect(prompts).toEqual(["CATS"]);
+    expect(state.unsetVars).toEqual(["CATS"]);
+    expect(state.hasTarget).toBe(true);
+  });
+
+  it("a value given is neither missing nor unset", () => {
+    const { state } = startStateFor({ ...input, targetYaml: keyed, refs: ["ORBIT_KI", "ORBIT_OPC", "CATS"], values: { ORBIT_KI: "k", CATS: "registration" } });
+    expect(state.missingKeys).toEqual(["ORBIT_OPC"]);
+    expect(state.unsetVars).toEqual([]);
+  });
+
+  it("carriesSecrets is the target and run file as sent: a keyed target carries them, so a remote http dashboard is blocked", () => {
+    const keyedState = startStateFor({ ...input, targetYaml: keyed, refs: [] }).state;
+    expect(keyedState.carriesSecrets).toBe(true);
+    expect(whyNotStart({ ...keyedState, missingKeys: [], unsetVars: [] })).toContain("in the clear");
+    const quickState = startStateFor({ ...input, runYaml: "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: []}\n", targetYaml: quick, refs: [] }).state;
+    expect(quickState.carriesSecrets).toBe(false);
+    expect(whyNotStart(quickState)).toBeUndefined();
+  });
+
+  it("no target: nothing carried, and the first reason is the target", () => {
+    const { state } = startStateFor({ ...input, targetYaml: undefined, refs: ["CATS"] });
+    expect(state).toMatchObject({ hasTarget: false, carriesSecrets: false, missingKeys: [] });
+    expect(whyNotStart(state)).toContain("make a target first");
+  });
+
+  it("a target that does not parse has no key slots: its ${VAR}s are asked for", () => {
+    const { state, prompts } = startStateFor({ ...input, targetYaml: "core: [", refs: ["X"] });
+    expect(prompts).toEqual(["X"]);
+    expect(state.missingKeys).toEqual([]);
+  });
+});

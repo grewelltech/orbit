@@ -1,0 +1,23 @@
+version: 1
+kind: target
+name: keys-written
+core:
+    amf: 10.0.0.1:38412
+    plmn:
+        mcc: "001"
+        mnc: "01"
+    tac: 7
+    slices:
+        - sst: 2
+    dnn: ims
+subscribers:
+    - name: main
+      first_supi: "001010000000001"
+      count: 1
+      ki: 5122250214c33e723a5dd523fc145fc0
+      opc: 981d464c7c52eb6e5036234984ad0bcf
+ran:
+    n2_source_ips:
+        - 10.0.0.5
+    n3_ips:
+        - 10.0.0.6

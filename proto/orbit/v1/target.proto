@@ -29,6 +29,9 @@ message TargetCore {
   string dnn = 5;
   string profile = 6;             // core-compatibility profile, e.g. "sdcore"
   string upf_n3 = 7;              // UPF N3 endpoint, host:port
+  repeated string ue_pools = 8;   // CIDRs the core gives UEs their addresses from
+  string upf_n6 = 9;              // the UPF's N6 address: the return route's next hop
+  string n6_subnet = 10;          // the N6 network (CIDR) the UPF sits on
 }
 
 // Plmn is a PLMN ID as typed: leading zeros are significant.
@@ -108,4 +111,53 @@ enum ProvenanceLayer {
 message ProvenanceOverride {
   ProvenanceSource source = 1;
   string value = 2;
+}
+
+// TargetService checks a target from the server (ADR-0009 §5).
+service TargetService {
+  // Probe runs the doctor against a resolved target: NG Setup, a UE's
+  // registration and PDU session, then (unless core_only) the N6 responder:
+  // registered and online, its control port, an echo and a UDP flow from the
+  // UE. It takes its gNB IDs and SUPI as leases, as a run does, streams one
+  // step per message, and stops at the first failure (the rest SKIP).
+  rpc Probe(ProbeRequest) returns (stream ProbeStep) {}
+}
+
+message ProbeRequest {
+  ResolvedTarget target = 1;
+  string target_name = 2;      // for the messages
+  bool core_only = 3;          // steps 1-3 only
+  uint32 step_timeout_ms = 4;  // 0 = 20 s
+}
+
+message ProbeStep {
+  uint32 index = 1;   // 1-7
+  string name = 2;
+  string status = 3;  // "OK", "FAIL" or "SKIP"
+  string detail = 4;  // what was seen
+  string fix = 5;     // what to change, on a FAIL
+}
+
+// ResolveRequest is a run as a client sends it whole (ADR-0008 §3): the
+// target document and the run file as YAML text, which the server parses
+// as the CLI parses its files, and the layers above them. There is no env
+// layer: a ${VAR} takes its value from vars, never from the server's
+// environment, and one with no value is an error naming it.
+message ResolveRequest {
+  string target_yaml = 1 [(orbit.v1.secret_yaml) = true];  // one kind: target document
+  string run_yaml = 2 [(orbit.v1.secret_yaml) = true];     // one kind: run document
+  string template = 3;          // the built-in template run_yaml started from, or ""
+  // The flag layer: --set path=value. Marked secret, so a set is refused
+  // over plaintext off loopback before it is read; the server refuses one
+  // at a secret field (keys go in the target, as ${VAR}s) in any case.
+  repeated string sets = 4 [(orbit.v1.secret) = true];
+  repeated string gates = 5;    // the flag layer: --gate specs
+  repeated Variable vars = 6;   // the ${VAR}s' values
+}
+
+// Variable is one ${VAR}'s value. Every value counts as a secret: a name
+// does not say whether it holds a key.
+message Variable {
+  string name = 1;
+  string value = 2 [(orbit.v1.secret) = true];
 }

@@ -45,7 +45,7 @@ func TestSpecStoreMasksEveryMarkedField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newSpecStore()
 			s.put("run-1", tc.req)
-			held, ok := s.take("run-1")
+			held, ok := s.get("run-1")
 			if !ok {
 				t.Fatal("spec not stored")
 			}
@@ -152,18 +152,23 @@ func TestRedactedScenarioStillParses(t *testing.T) {
 	}
 }
 
-func TestSpecStoreForgetsAfterTake(t *testing.T) {
+func TestSpecStoreForgetsOnDrop(t *testing.T) {
 	// The map would otherwise hold a scenario document and keys per run for
-	// the life of the process.
+	// the life of the process. get leaves the spec held (the run's config
+	// is served until the archive is saved); drop forgets it.
 	s := newSpecStore()
 	s.put("run-1", &orbitv1.StartRunRequest{
 		Spec: &orbitv1.StartRunRequest_Fleet{Fleet: &orbitv1.FleetRunSpec{ScenarioYaml: "kind: fleet"}}, //nolint:staticcheck // the deprecated arm, kept for API clients
 	})
-	if _, ok := s.take("run-1"); !ok {
+	if _, ok := s.get("run-1"); !ok {
 		t.Fatal("spec not stored")
 	}
-	if _, ok := s.take("run-1"); ok {
-		t.Error("spec retained after being taken")
+	if _, ok := s.get("run-1"); !ok {
+		t.Error("get forgot the spec")
+	}
+	s.drop("run-1")
+	if _, ok := s.get("run-1"); ok {
+		t.Error("spec retained after drop")
 	}
 	if len(s.specs) != 0 {
 		t.Errorf("store still holds %d specs", len(s.specs))
@@ -173,7 +178,7 @@ func TestSpecStoreForgetsAfterTake(t *testing.T) {
 func TestSpecStoreIgnoresSpeclessRequest(t *testing.T) {
 	s := newSpecStore()
 	s.put("run-1", &orbitv1.StartRunRequest{})
-	if _, ok := s.take("run-1"); ok {
+	if _, ok := s.get("run-1"); ok {
 		t.Error("stored a spec for a request that had none")
 	}
 }

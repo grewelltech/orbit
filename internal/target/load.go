@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -163,9 +165,20 @@ func LoadFile(path string, env Getenv) ([]*File, error) {
 
 // Parse is LoadFile for bytes already read; name labels errors and sources.
 func Parse(name string, b []byte, env Getenv) ([]*File, error) {
+	files, err := parse(name, b, env)
+	for _, f := range files {
+		f.Err = maskErr(f.Err)
+	}
+	return files, maskErr(err)
+}
+
+func parse(name string, b []byte, env Getenv) ([]*File, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if line, ok := secondDocument(b); ok {
+		return nil, secondDocumentError(name, "a target file", line)
 	}
 	if root.Kind == 0 || len(root.Content) == 0 {
 		return nil, fmt.Errorf("%s: empty", name)
@@ -221,7 +234,7 @@ func parseDoc(name string, d *yaml.Node, env Getenv) (*File, error) {
 	dec.KnownFields(true)
 	var t Target
 	if err := dec.Decode(&t); err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("%s: %w", name, withoutValues(err, pathsByLine(d)))
 	}
 	// The expanded values are what the document holds.
 	res, err := Resolve(f.Input)
@@ -253,19 +266,21 @@ func flatten(file string, prefix []segment, n *yaml.Node, env Getenv, allow func
 			if v.Kind != yaml.SequenceNode {
 				return fmt.Errorf("%s:%d: %s is a list", file, v.Line, pat)
 			}
-			names := map[string]bool{}
-			for _, el := range v.Content {
+			// A name refused is told by its entry's index and line, never
+			// quoted: a key typed as a name stays off the screen.
+			names := map[string]int{}
+			for i, el := range v.Content {
 				elName := mapValue(el, "name")
 				if elName == "" {
 					return fmt.Errorf("%s:%d: %s entries need a name", file, el.Line, pat)
 				}
 				if strings.ContainsAny(elName, ".[]") {
-					return fmt.Errorf("%s:%d: %s name %q may not contain '.', '[' or ']'", file, el.Line, pat, elName)
+					return fmt.Errorf("%s:%d: %s[%d].name may not contain '.', '[' or ']'", file, el.Line, pat, i)
 				}
-				if names[elName] {
-					return fmt.Errorf("%s:%d: %s entries need distinct names (%q twice)", file, el.Line, pat, elName)
+				if j, ok := names[elName]; ok {
+					return fmt.Errorf("%s:%d: %s[%d].name is the same as %s[%d].name; entries need distinct names", file, el.Line, pat, i, pat, j)
 				}
-				names[elName] = true
+				names[elName] = i
 				es := append(append([]segment(nil), segs...), segment{elem: true, name: elName})
 				if err := flatten(file, es, el, env, allow, layer, out); err != nil {
 					return err
@@ -329,7 +344,7 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			return nil, fmt.Errorf("%s is not expanded in numeric fields; set it with a flag or an env-layer binding", v.Value)
 		}
 		if v.Kind == yaml.ScalarNode && v.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle) != 0 {
-			msg := fmt.Sprintf("%q is quoted; write the number unquoted", v.Value)
+			msg := fmt.Sprintf("%s is quoted; write the number unquoted", errValue(f, v.Value))
 			if err := leadingZeroText(v.Value); err != nil {
 				msg += "; " + err.Error()
 			}
@@ -349,7 +364,7 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 				}
 				var m map[string]any
 				if err := e.Decode(&m); err != nil {
-					return nil, err
+					return nil, withoutValues(err, nil)
 				}
 				if sd := mapNode(e, "sd"); sd != nil {
 					if text, ok := scalarText(sd); ok {
@@ -361,6 +376,24 @@ func nodeValue(f field, v *yaml.Node) (any, error) {
 			return out, nil
 		}
 	}
+	return decodeWhole(v)
+}
+
+// decodeWhole decodes a whole-value node as written. A plain scalar that
+// YAML 1.1 would read as a timestamp (2026-10-12) stays its text: a run
+// file's dates (an inline expected-failures list's added) are strings, and
+// a time would come back re-encoded in another form.
+func decodeWhole(v *yaml.Node) (any, error) {
+	var plain func(*yaml.Node)
+	plain = func(n *yaml.Node) {
+		if n.Kind == yaml.ScalarNode && n.Style == 0 && n.ShortTag() == "!!timestamp" {
+			n.Tag = "!!str"
+		}
+		for _, c := range n.Content {
+			plain(c)
+		}
+	}
+	plain(v)
 	var val any
 	if err := v.Decode(&val); err != nil {
 		return nil, err
@@ -391,6 +424,9 @@ func LeadingZero(s string) error { return leadingZeroText(s) }
 func leadingZeroText(s string) error {
 	if !leadingZeroRe.MatchString(s) {
 		return nil
+	}
+	if keyShaped(s) {
+		return fmt.Errorf("%s has a leading zero", Masked)
 	}
 	dec := strings.TrimLeft(s, "0")
 	if dec == "" {
@@ -512,9 +548,17 @@ type RunFile struct {
 // names its target, it does not restate it. ${ENV} expands in string
 // values, as in a target file.
 func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
+	rf, err := parseRunFile(name, b, env)
+	return rf, maskErr(err)
+}
+
+func parseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if line, ok := secondDocument(b); ok {
+		return nil, secondDocumentError(name, "a run file", line)
 	}
 	if root.Kind == 0 || len(root.Content) == 0 {
 		return nil, fmt.Errorf("%s: empty", name)
@@ -548,4 +592,168 @@ func ParseRunFile(name string, b []byte, env Getenv) (*RunFile, error) {
 		}
 	}
 	return rf, nil
+}
+
+// yamlLineRe is the line a yaml error names.
+var yamlLineRe = regexp.MustCompile(`line ([0-9]+)`)
+
+// secondDocument reports whether b holds a second YAML document
+// (yaml.Unmarshal reads the first and ignores the rest), and the line it
+// starts on, or where it fails to parse (0 when yaml names none). A
+// document that is empty, such as a trailing "---", is not one; the
+// first document's own errors are yaml.Unmarshal's to report.
+func secondDocument(b []byte) (int, bool) {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	for n := 0; ; n++ {
+		var doc yaml.Node
+		err := dec.Decode(&doc)
+		switch {
+		case errors.Is(err, io.EOF):
+			return 0, false
+		case err != nil && n == 0:
+			return 0, false
+		case err != nil:
+			// Past the first document: a second one that does not parse.
+			line := 0
+			if m := yamlLineRe.FindStringSubmatch(err.Error()); m != nil {
+				line, _ = strconv.Atoi(m[1])
+			}
+			return line, true
+		case n > 0 && len(doc.Content) > 0 && !emptyNode(doc.Content[0]):
+			return doc.Content[0].Line, true
+		}
+	}
+}
+
+// secondDocumentError is the refusal of a file holding a second YAML
+// document; what is a file of kind what.
+func secondDocumentError(name, what string, line int) error {
+	at := name
+	if line > 0 {
+		at = fmt.Sprintf("%s:%d", name, line)
+	}
+	return fmt.Errorf("%s: a second YAML document (---); %s is one document, and the rest would be ignored", at, what)
+}
+
+// emptyNode reports whether n is a document's nothing: a null scalar with
+// no text, as a trailing --- gives.
+func emptyNode(n *yaml.Node) bool {
+	return n.Kind == yaml.ScalarNode && n.Value == "" && n.ShortTag() == "!!null"
+}
+
+// typeErrorRe is one of a yaml.TypeError's entries: its line, the tag
+// found, the value quoted (a prefix of it), and the Go type wanted.
+var typeErrorRe = regexp.MustCompile("^line ([0-9]+): cannot unmarshal (!![a-z]+)(?: `[^`]*`)? into (.+)$")
+
+// quotedRe is a value a yaml error quotes.
+var quotedRe = regexp.MustCompile("`[^`]*`")
+
+// withoutValues is err with no value from the document in it: each entry
+// of a yaml.TypeError (which quotes a prefix of the value it could not
+// decode: a key pasted into the wrong field) becomes the field's path,
+// when at knows the line's, and the type wanted and found. Any other
+// error is returned as it is.
+func withoutValues(err error, at func(line int) string) error {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return err
+	}
+	msgs := make([]string, 0, len(te.Errors))
+	for _, m := range te.Errors {
+		sub := typeErrorRe.FindStringSubmatch(m)
+		if sub == nil {
+			msgs = append(msgs, quotedRe.ReplaceAllString(m, "a value"))
+			continue
+		}
+		where := ""
+		if line, err := strconv.Atoi(sub[1]); err == nil && at != nil {
+			if p := at(line); p != "" {
+				where = p + ": "
+			}
+		}
+		want, found := goTypeWord(sub[3]), tagWord(sub[2])
+		if want == found {
+			// The type is right and the value is not: a number too big
+			// for its field.
+			msgs = append(msgs, fmt.Sprintf("line %s: %sout of range%s", sub[1], where, rangeOf(sub[3])))
+			continue
+		}
+		msgs = append(msgs, fmt.Sprintf("line %s: %swant %s, not %s", sub[1], where, want, found))
+	}
+	return errors.New(strings.Join(msgs, "; "))
+}
+
+// goTypeWord is a Go type a yaml error names, as a document's reader has it.
+func goTypeWord(t string) string {
+	switch {
+	case strings.HasPrefix(t, "uint"), strings.HasPrefix(t, "int"), strings.HasPrefix(t, "float"):
+		return "a number"
+	case t == "bool":
+		return "true or false"
+	case t == "string":
+		return "a string"
+	case strings.HasPrefix(t, "[]"):
+		return "a list"
+	default:
+		return "a mapping"
+	}
+}
+
+// rangeOf is " (at most N)" for a Go integer type a yaml error names, ""
+// for another.
+func rangeOf(t string) string {
+	bits := map[string]uint{"uint8": 8, "uint16": 16, "uint32": 32, "uint64": 64, "uint": 64, "int8": 7, "int16": 15, "int32": 31, "int64": 63, "int": 63}
+	n, ok := bits[t]
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf(" (at most %d)", uint64(1)<<n-1)
+}
+
+// tagWord is a YAML tag, as a document's reader has it.
+func tagWord(tag string) string {
+	switch tag {
+	case "!!str":
+		return "a string"
+	case "!!int", "!!float":
+		return "a number"
+	case "!!bool":
+		return "true or false"
+	case "!!seq":
+		return "a list"
+	case "!!map":
+		return "a mapping"
+	case "!!null":
+		return "null"
+	default:
+		return tag
+	}
+}
+
+// pathsByLine is, for document d, the path of the one field whose value
+// is on a line ("" when none is, or more than one: a flow mapping's line).
+func pathsByLine(d *yaml.Node) func(line int) string {
+	byLine := map[int][]string{}
+	var walk func(segs []segment, n *yaml.Node)
+	walk = func(segs []segment, n *yaml.Node) {
+		switch n.Kind {
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				walk(append(append([]segment(nil), segs...), segment{key: n.Content[i].Value}), n.Content[i+1])
+			}
+		case yaml.SequenceNode:
+			for _, e := range n.Content {
+				walk(append(append([]segment(nil), segs...), segment{elem: true, name: mapValue(e, "name")}), e)
+			}
+		default:
+			byLine[n.Line] = append(byLine[n.Line], format(segs))
+		}
+	}
+	walk(nil, d)
+	return func(line int) string {
+		if ps := byLine[line]; len(ps) == 1 {
+			return ps[0]
+		}
+		return ""
+	}
 }

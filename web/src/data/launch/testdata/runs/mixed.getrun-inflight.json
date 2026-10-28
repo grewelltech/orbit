@@ -1,0 +1,91 @@
+{
+  "run":  {
+    "runId":  "run-eadfbed8",
+    "kind":  "RUN_KIND_MIXED",
+    "state":  "RUN_STATE_RUNNING",
+    "startedUnixNano":  "1793174970772990707",
+    "workloadKinds":  [
+      "RUN_KIND_LOAD",
+      "RUN_KIND_CONFORMANCE"
+    ]
+  },
+  "leases":  [
+    {
+      "resource":  "LEASE_RESOURCE_SUPI_BLOCK",
+      "plmn":  "208/93",
+      "firstSupi":  "208930100007500",
+      "lastSupi":  "208930100007501"
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:56463",
+      "gnbId":  7
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:56463",
+      "gnbId":  14
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:56463",
+      "gnbId":  15
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:56463",
+      "gnbId":  16
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:56463",
+      "gnbId":  36878
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:56463",
+      "gnbId":  36879
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:56463",
+      "gnbId":  36880
+    },
+    {
+      "resource":  "LEASE_RESOURCE_N2_IP",
+      "n2Ip":  "127.0.0.1"
+    },
+    {
+      "resource":  "LEASE_RESOURCE_N2_IP",
+      "n2Ip":  "127.0.0.2"
+    }
+  ],
+  "workloads":  [
+    {
+      "name":  "pop",
+      "kind":  "RUN_KIND_LOAD",
+      "state":  "running",
+      "load":  {}
+    },
+    {
+      "name":  "suite",
+      "kind":  "RUN_KIND_CONFORMANCE",
+      "state":  "running",
+      "conformance":  {
+        "tally":  {
+          "failed":  2
+        },
+        "ran":  2,
+        "total":  3,
+        "lastCheck":  "NGAP-NGSETUP-MISSING-TALIST"
+      }
+    }
+  ]
+}

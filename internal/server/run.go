@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"sort"
 	"sync"
@@ -17,8 +18,10 @@ import (
 	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/join"
 	"github.com/bgrewell/orbit/internal/load"
 	"github.com/bgrewell/orbit/internal/scenario"
+	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -29,6 +32,10 @@ import (
 type runService struct {
 	log *slog.Logger
 	reg *engine.RunRegistry
+	// responders are the responders registered by join, which a target
+	// names without an address or token; nil in tests that build a runService
+	// by hand.
+	responders *join.Registry
 
 	// frames holds each run's retained telemetry series, produced by one
 	// sampler per run so every subscriber reads the same frames — and so a
@@ -41,6 +48,9 @@ type runService struct {
 	// specs remembers what each run was asked to do, so the archive — and the
 	// report built from it — is self-describing.
 	specs *specStore
+	// beforeArchive, when set (tests only), runs in a run's sampler after
+	// it has seen the run end and before it archives it.
+	beforeArchive func(id string)
 	// archive persists terminal runs so history survives a restart. Never nil;
 	// a disabled store is a no-op rather than a special case at each call site.
 	archive *archiveStore
@@ -58,7 +68,18 @@ type runService struct {
 	expected *conformance.ExpectedFailures
 }
 
+// StartRun starts a run (startRun). Its refusals quote what the request
+// named, a workload, gate or pool, so their text has any key- or
+// token-shaped word masked (maskedRefusal), the code kept.
 func (s *runService) StartRun(
+	ctx context.Context,
+	req *connect.Request[orbitv1.StartRunRequest],
+) (*connect.Response[orbitv1.StartRunResponse], error) {
+	res, err := s.startRun(ctx, req)
+	return res, maskedRefusal(err)
+}
+
+func (s *runService) startRun(
 	ctx context.Context,
 	req *connect.Request[orbitv1.StartRunRequest],
 ) (*connect.Response[orbitv1.StartRunResponse], error) {
@@ -116,6 +137,9 @@ func (s *runService) startPlan(m *orbitv1.StartRunRequest, opts engine.RunOption
 	}
 	if errors.Is(err, engine.ErrRotationPersist) {
 		return engine.RunInfo{}, nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+	if errors.Is(err, errResponderOffline) {
+		return engine.RunInfo{}, nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
 	if err != nil {
 		return engine.RunInfo{}, nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -382,7 +406,26 @@ func runEventProto(ev engine.RunEvent) *orbitv1.RunEvent {
 		Kind:     ev.Kind,
 		Supi:     ev.SUPI,
 		Message:  ev.Message,
+		Check:    checkEvent(ev.Kind, ev.Message),
 	}
+}
+
+// checkText is a conformance check's verdict event as the suite emits it,
+// "<check> <verdict>", which a mixed run's workload prefixes with
+// "[<workload>] " (engine/mixed.go); a workload's name holds no brackets.
+var checkText = regexp.MustCompile(`^(?:\[([^][]+)\] )?(\S+) (PASS|FAIL|ERROR|SKIP|DEVIATION)$`)
+
+// checkEvent is a CONFORMANCE event's verdict as fields, beside its text
+// for older clients; nil for any other event.
+func checkEvent(kind, message string) *orbitv1.ConformanceCheckEvent {
+	if kind != "CONFORMANCE" {
+		return nil
+	}
+	m := checkText.FindStringSubmatch(message)
+	if m == nil {
+		return nil
+	}
+	return &orbitv1.ConformanceCheckEvent{Workload: m[1], CheckId: m[2], Verdict: m[3]}
 }
 
 func eventSeverityProto(s string) orbitv1.EventSeverity {
@@ -435,6 +478,9 @@ func (s *runService) frameLogFor(id string) *frameLog {
 	s.framesMu.Unlock()
 
 	if start {
+		// Until this sampler has archived the run, its spec outlives the
+		// run's eviction from the registry (sweep).
+		s.specs.sampling(id, true)
 		go s.sampleRun(id, l)
 	}
 	return l
@@ -477,10 +523,20 @@ func (s *runService) sampleRun(id string, log *frameLog) {
 	// Archiving happens BEFORE the log closes, while the registry still holds
 	// the run: the archive needs its report, final snapshot and events, all of
 	// which go away when the record is evicted.
+	// Each run's end is also when the registry evicts beyond its history:
+	// the specs of the runs it let go are let go too (sweep).
 	finish := func() {
 		if done != nil {
+			if s.beforeArchive != nil {
+				s.beforeArchive(id)
+			}
 			s.archiveRun(id, *done, log.retained())
 		}
+		s.specs.sampling(id, false)
+		s.specs.sweep(func(id string) bool {
+			_, err := s.reg.Get(id)
+			return err == nil
+		})
 		log.close()
 	}
 
@@ -1251,6 +1307,31 @@ func leasesProto(ls []engine.LeaseInfo) []*orbitv1.Lease {
 			pl.Resource = orbitv1.LeaseResource_LEASE_RESOURCE_N2_IP
 		}
 		out = append(out, pl)
+	}
+	return out
+}
+
+// maskedRefusal is err with any key- or token-shaped word in its text
+// masked (target.MaskErr), as a client is sent it. A *connect.Error is
+// rebuilt around its masked message with its code (and metadata) kept:
+// the Connect handler finds a *connect.Error by errors.As and sends its
+// own message, so a mask wrapped around it would not be what is sent. The
+// rebuilt error carries text only, not the cause chain: it goes straight
+// to the handler, and nothing here unwraps a target error.
+func maskedRefusal(err error) error {
+	if err == nil {
+		return nil
+	}
+	var ce *connect.Error
+	if !errors.As(err, &ce) {
+		return target.MaskErr(err)
+	}
+	out := connect.NewError(ce.Code(), target.MaskErr(errors.New(ce.Message())))
+	for k, v := range ce.Meta() {
+		out.Meta()[k] = v
+	}
+	for _, d := range ce.Details() {
+		out.AddDetail(d)
 	}
 	return out
 }

@@ -23,6 +23,11 @@ import { MockSource } from "@/data/mock";
 import { attachRateTile, attachRateLabel } from "@/app/attachRateTile";
 import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
+import { ProvenancePanel } from "@/app/ProvenancePanel";
+import { Panel } from "@/components/Panel";
+import { StopControl } from "@/app/StopControl";
+import { runConfigRefusal, runEnded, useRunConfig } from "@/data/runConfig";
+import { SuiteResults } from "@/app/SuiteResults";
 import { cpLatencyTile } from "@/app/cpLatencyTile";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
@@ -62,6 +67,8 @@ export function App() {
   }, []);
   const telemetry = useTelemetry(source);
   const { latest, history, events, state, clearEvents } = telemetry;
+  const shownRun = (selectedRun ?? latest?.run.runId) || undefined;
+  const runConfig = useRunConfig(mock ? undefined : shownRun, runEnded(latest?.run.state));
 
   const { setting: themeSetting, theme, cycle: cycleTheme } = useTheme();
   // One span for every panel: the value of these charts is reading them
@@ -243,6 +250,7 @@ export function App() {
         {/* Controls: which run, and over what span. */}
         <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
           {!mock && <RunPicker runs={runs} selected={selectedRun} onSelect={selectRun} />}
+          {!mock && <StopControl runId={(selectedRun ?? latest?.run.runId) || undefined} state={latest?.run.state} />}
           <div className="flex items-center gap-1.5">
           <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
             window
@@ -266,6 +274,21 @@ export function App() {
           ))}
           </div>
         </div>
+
+        {/* What the run resolved to, and what beat what (the Resolved config panel). */}
+        {!mock && runConfig.config && (
+          <ProvenancePanel provenance={runConfig.config.provenance} notices={runConfig.config.notices} resolved={runConfig.config.resolved} />
+        )}
+        {!mock && runConfigRefusal(runConfig) && (
+          <Panel title="resolved config">
+            <span className="o-label" role="status" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
+              {runConfigRefusal(runConfig)}
+            </span>
+          </Panel>
+        )}
+
+        {/* A conformance suite's verdicts, for a run that has one. */}
+        {!mock && <SuiteResults runId={(selectedRun ?? latest?.run.runId) || undefined} />}
 
         {/* Time series */}
         <section className="grid min-h-0 shrink-0 grid-cols-1 gap-3 xl:grid-cols-2">

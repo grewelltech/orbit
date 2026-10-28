@@ -16,6 +16,9 @@ one, as a starting point for your own.
 
 ## The document
 
+A run file is one YAML document. A second one after `---` is refused, naming
+its line, whether it parses or not; `orbit run` used to ignore it.
+
 ```yaml
 kind: run                  # required: this is a run file, not a scenario
 version: 1                 # optional; 1 is the only version
@@ -148,6 +151,44 @@ reach inside one, so to change a field in it, write it in a run file.
 Without gates, exit 0 means the run completed, not that the core passed.
 Add gates to judge it.
 
+## From the dashboard
+
+The dashboard's Launch page sends the server a stored target and the run
+file it builds, as text, with the `${VAR}` values the tab holds.
+`RunService.PlanRun` resolves them as `orbit run` resolves the same files
+(no `$ORBIT_*`, and no file read: give an expected-failures list inline)
+and builds the plan the page starts.
+
+`RunService.RenderRun` gives the same run as a command:
+- `orbit test <template> --set …` when the page started from a template
+  and the flags express the changes. A stop after a duration is said as
+  `--for 10m`, and a threshold on a gate the `--slo-*` flags alias as that
+  flag (`--slo-min-success=0.95`), when the plan they give is the run file's;
+  otherwise as `--set`;
+- otherwise `orbit run <target>.run.yaml`, with the run file to save
+  beside the command.
+
+Each argument is quoted for a POSIX shell. A secret written out in the run
+file is refused: write it as a `${VAR}`.
+
+- **No keys in `--set`.** Both RPCs refuse a `--set` to a key or token
+  field, or a whole value with a key in it. They also refuse a `${VAR}` there,
+  since `--set` expands none. Keys go in the target.
+- **Safe to paste.** A value a terminal would act on when pasted (a control
+  character such as Ctrl-C, ESC, CR or a tab), one that would show other text
+  than it runs (a bidi or zero-width character, U+2028, U+2029), or an
+  argument over 4 KiB never goes in the command:
+  - from the run file, the command becomes `orbit run <file>`, and the file
+    keeps the value;
+  - a `--set` or `--gate` holding one is refused.
+- **The fleet's latency probe.** When the fleet template has to go as
+  `orbit run <file>`, the file keeps its latency probe as
+  `behaviors: {latency: {}}`, as long as the target gives the probe a
+  target (a first responder with a `data_ip`, or one registered by join).
+  The server fills it from that responder when the run starts. It does the
+  same for the plan the page starts. The command gives the same plan
+with no `$ORBIT_*` exported, since `--explain` shows what those change.
+
 ## Precedence
 
 A field's value comes from the highest of these layers that sets it: the
@@ -155,3 +196,16 @@ built-in defaults, the target, the run file (or template), `$ORBIT_*`, then
 the flags. `--explain` lists each field with the layer that set it and the
 values it overrode. Keys, and any whole-value field holding one (a
 `behaviors` cohort's token, say), are masked.
+
+An env var that overrides a value from a file (the target or this run file)
+is easy to miss: a forgotten `export ORBIT_MCC` changes every run from that
+shell. `--explain`, and a run started without `--detach`, print a notice for
+each one:
+
+```text
+notice: core.plmn.mcc: env $ORBIT_MCC (208) overrode target lab/orbit.yaml:6 (001)
+```
+
+A flag is meant, so it gets no notice. The server keeps the provenance with
+the run: `RunService.GetRunConfig` returns a run's plan, every field's
+provenance and these notices, during the run and after it, from its archive.

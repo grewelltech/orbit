@@ -1,0 +1,91 @@
+orbit join: verified orbit for linux/amd64 (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
+orbit join: responder app1; UE pools 10.250.0.0/16 via 198.51.100.1, N6 198.51.100.0/24
+orbit join: N6 IP 198.51.100.20 on ens5 (from the route to the UPF's N6 address 198.51.100.1; override with --n6-ip)
+orbit join: control bind 192.0.2.20:9551 on ens4 (from the route to the server at 192.0.2.10; override with --bind)
+
+Plan:
+  1. install the verified orbit as /usr/local/lib/orbit/orbit (sha256 5727cc2e9e9c9684cd04fb9ae3f255c8ee380752ac82c8e0a65fd9d307c991f6)
+  2. route UE pool 10.250.0.0/16 back through the UPF
+       ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
+  3. firewall: allow control traffic (tcp) on ens4 from 192.0.2.10/32 to port 9551
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"'
+       inserted into inet filter input (your ruleset)
+  4. firewall: allow data traffic (tcp, udp) on ens5 from 10.250.0.0/16 to ports 32768-60999
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
+       inserted into inet filter input (your ruleset)
+       (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  5. firewall: allow ICMP echo on ens5 from 10.250.0.0/16 (for orbit target probe)
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"'
+       inserted into inet filter input (your ruleset)
+  6. firewall: allow data traffic (tcp, udp) on ens5 from 198.51.100.0/24 to ports 32768-60999
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
+       inserted into inet filter input (your ruleset)
+       (data ports 32768-60999: this host's ephemeral range (net.ipv4.ip_local_port_range), since the responder's receivers bind ephemeral ports)
+  7. firewall: allow ICMP echo on ens5 from 198.51.100.0/24 (for orbit target probe)
+       nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"'
+       inserted into inet filter input (your ruleset)
+  8. create the system user orbit, which the responder runs as
+       useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin orbit
+  9. install /usr/local/lib/orbit/join-net.sh (run as root before the responder starts):
+       | #!/bin/sh
+       | # orbit join: re-applies the N6 route and firewall rules for orbit-responder.service.
+       | set -eu
+       | PATH=/usr/sbin:/usr/bin:/sbin:/bin
+       | ip -4 route replace '10.250.0.0/16' via '198.51.100.1' dev 'ens5'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join control ens4 192.0.2.10/32 9551"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 10.250.0.0/16 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join icmp ens5 10.250.0.0/16 echo"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join data ens5 198.51.100.0/24 32768-60999"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"'
+       | nft list chain 'inet' 'filter' 'input' | grep -qF 'comment "orbit-join icmp ens5 198.51.100.0/24 echo"' || nft insert rule 'inet' 'filter' 'input' 'iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"'
+  10. install /etc/systemd/system/orbit-responder.service:
+       | [Unit]
+       | Description=orbit N6 responder (orbit join)
+       | Wants=network-online.target
+       | After=network-online.target nftables.service iptables.service ip6tables.service netfilter-persistent.service
+       | 
+       | [Service]
+       | User=orbit
+       | Group=orbit
+       | LoadCredential=responder.yaml:/etc/orbit/responder.yaml
+       | ExecStartPre=+/usr/local/lib/orbit/join-net.sh
+       | ExecStart=/usr/local/lib/orbit/orbit responder --config ${CREDENTIALS_DIRECTORY}/responder.yaml
+       | Restart=on-failure
+       | RestartPreventExitStatus=78
+       | NoNewPrivileges=yes
+       | ProtectSystem=strict
+       | ProtectHome=yes
+       | PrivateTmp=yes
+       | CapabilityBoundingSet=
+       | RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+       | 
+       | [Install]
+       | WantedBy=multi-user.target
+  11. register the responder on this host with the server as app1 (credential: new)
+       '/usr/local/lib/orbit/orbit' responder register --server 'https://192.0.2.10:8412' --pin 'sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' --token-file '<work>/token' --name 'app1' --control '192.0.2.20:9551' --data-ip '198.51.100.20' --data-ports '32768-60999' --config '/etc/orbit/responder.yaml'
+       (the join token is read from a file in this run's private directory, mode 0600)
+  12. enable and (re)start orbit-responder, then wait for the server to see it online
+       systemctl enable orbit-responder
+       systemctl restart orbit-responder
+       '/usr/local/lib/orbit/orbit' responder check --config '/etc/orbit/responder.yaml' --wait 20s
+
+Apply 12 changes? [y/N] fake orbit ran: version
+fake orbit ran: responder register --server https://192.0.2.10:8412 --pin sha256/47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU= --token-file <work>/token --name app1 --control 192.0.2.20:9551 --data-ip 198.51.100.20 --data-ports 32768-60999 --config /etc/orbit/responder.yaml
+fake orbit ran: responder check --config /etc/orbit/responder.yaml --wait 20s
+orbit join: applied 12 changes.
+--- exit: 0
+--- changes:
+install -d -m 0755 <tmp>/root/usr/local/lib/orbit
+install -m 0755 <work>/orbit <tmp>/root/usr/local/lib/orbit/orbit
+ip -4 route replace 10.250.0.0/16 via 198.51.100.1 dev ens5
+nft insert rule inet filter input iifname "ens4" ip saddr 192.0.2.10/32 tcp dport 9551 accept comment "orbit-join control ens4 192.0.2.10/32 9551"
+nft insert rule inet filter input iifname "ens5" ip saddr 10.250.0.0/16 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 10.250.0.0/16 32768-60999"
+nft insert rule inet filter input iifname "ens5" ip saddr 10.250.0.0/16 icmp type echo-request accept comment "orbit-join icmp ens5 10.250.0.0/16 echo"
+nft insert rule inet filter input iifname "ens5" ip saddr 198.51.100.0/24 meta l4proto { tcp, udp } th dport 32768-60999 accept comment "orbit-join data ens5 198.51.100.0/24 32768-60999"
+nft insert rule inet filter input iifname "ens5" ip saddr 198.51.100.0/24 icmp type echo-request accept comment "orbit-join icmp ens5 198.51.100.0/24 echo"
+useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin orbit
+install -d -m 0755 <tmp>/root/usr/local/lib/orbit
+install -m 0755 <work>/join-net.sh <tmp>/root/usr/local/lib/orbit/join-net.sh
+install -m 0644 <work>/unit <tmp>/root/etc/systemd/system/orbit-responder.service
+systemctl daemon-reload
+systemctl enable orbit-responder
+systemctl restart orbit-responder

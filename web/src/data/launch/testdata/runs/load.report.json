@@ -1,0 +1,129 @@
+{
+  "run":  {
+    "runId":  "run-416ae0df",
+    "kind":  "RUN_KIND_LOAD",
+    "state":  "RUN_STATE_COMPLETE",
+    "startedUnixNano":  "1793174970535028721",
+    "endedUnixNano":  "1793174970752846186"
+  },
+  "load":  {
+    "attempted":  3,
+    "succeeded":  3,
+    "durationMs":  "215",
+    "achievedRate":  13.929103500426425,
+    "latency":  [
+      {
+        "procedure":  "registration",
+        "count":  "3",
+        "p50Ms":  14.079,
+        "p90Ms":  114.239,
+        "p99Ms":  114.239,
+        "p999Ms":  114.239,
+        "maxMs":  114.239
+      },
+      {
+        "procedure":  "attach",
+        "count":  "3",
+        "p50Ms":  14.079,
+        "p90Ms":  114.239,
+        "p99Ms":  114.239,
+        "p999Ms":  114.239,
+        "maxMs":  114.239
+      }
+    ],
+    "distinctSupis":  3
+  },
+  "gates":  [
+    {
+      "gate":  {
+        "slo":  {
+          "metric":  "attach.success_ratio",
+          "op":  "COMPARE_OP_GE",
+          "threshold":  0.99
+        },
+        "name":  "attach_success_ratio"
+      },
+      "passed":  true,
+      "observed":  1,
+      "detail":  "attach.success_ratio = 1, want >= 0.99"
+    },
+    {
+      "gate":  {
+        "workload":  "load",
+        "slo":  {
+          "metric":  "registration.p99_ms",
+          "op":  "COMPARE_OP_LE",
+          "threshold":  500
+        },
+        "name":  "registration_p99_ms"
+      },
+      "passed":  true,
+      "observed":  114.239,
+      "detail":  "registration.p99_ms = 114.2, want <= 500"
+    }
+  ],
+  "gatesPassed":  true,
+  "workloads":  [
+    {
+      "workload":  "load",
+      "kind":  "RUN_KIND_LOAD",
+      "load":  {
+        "attempted":  3,
+        "succeeded":  3,
+        "durationMs":  "215",
+        "achievedRate":  13.929103500426425,
+        "latency":  [
+          {
+            "procedure":  "registration",
+            "count":  "3",
+            "p50Ms":  14.079,
+            "p90Ms":  114.239,
+            "p99Ms":  114.239,
+            "p999Ms":  114.239,
+            "maxMs":  114.239
+          },
+          {
+            "procedure":  "attach",
+            "count":  "3",
+            "p50Ms":  14.079,
+            "p90Ms":  114.239,
+            "p99Ms":  114.239,
+            "p999Ms":  114.239,
+            "maxMs":  114.239
+          }
+        ],
+        "distinctSupis":  3
+      },
+      "gates":  [
+        {
+          "gate":  {
+            "slo":  {
+              "metric":  "attach.success_ratio",
+              "op":  "COMPARE_OP_GE",
+              "threshold":  0.99
+            },
+            "name":  "attach_success_ratio"
+          },
+          "passed":  true,
+          "observed":  1,
+          "detail":  "attach.success_ratio = 1, want >= 0.99"
+        },
+        {
+          "gate":  {
+            "workload":  "load",
+            "slo":  {
+              "metric":  "registration.p99_ms",
+              "op":  "COMPARE_OP_LE",
+              "threshold":  500
+            },
+            "name":  "registration_p99_ms"
+          },
+          "passed":  true,
+          "observed":  114.239,
+          "detail":  "registration.p99_ms = 114.2, want <= 500"
+        }
+      ],
+      "gatesPassed":  true
+    }
+  ]
+}

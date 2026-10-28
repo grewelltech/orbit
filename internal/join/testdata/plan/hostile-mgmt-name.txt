@@ -1,0 +1,4 @@
+orbit join: the server's name a$(touch pwned) is not a host name
+--- exit: 1
+--- changes:
+
