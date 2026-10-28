@@ -71,6 +71,15 @@ describe("the run-file gate", () => {
     // space splits words there too.
     ["an api.key param written out", pop + "    behaviors: {traffic: {mix: [{name: m, app: {app: x, params: {api.key: 00112233445566778899aabbccddeeff}}}]}}\n", "holds a secret"],
     ["a 'my token' param written out", pop + '    behaviors: {traffic: {mix: [{name: m, app: {app: x, params: {"my token": t0k}}}]}}\n', "holds a secret"],
+    // The tester's repro: Go lowers İ (U+0130) to "i", so "kİ" is "ki"
+    // there; JS's toLowerCase gave "ki̇", and the key passed the page.
+    ["a kİ param written out", pop + '    behaviors: {traffic: {mix: [{name: m, app: {app: x, params: {"k\u0130": 00112233445566778899aabbccddeeff}}}]}}\n', "holds a secret"],
+    ["a Kelvin-sign xKi param written out", pop + '    behaviors: {traffic: {mix: [{name: m, app: {app: x, params: {"x\u212Ai": 00112233445566778899aabbccddeeff}}}]}}\n', "holds a secret"],
+    // A secret-named key no schema has is refused as a secret, not only
+    // as unknown: at the top, in a workload, under until.
+    ["a token at the top", "kind: run\ntoken: abc123\n", "holds a secret"],
+    ["an api_key in a workload", pop + "    api_key: abc123\n", "holds a secret"],
+    ["a password under until", "kind: run\nuntil: {password: abc123}\n", "holds a secret"],
     ["a token as a list", pop + "    behaviors: {traffic: {bulk: {token: [a]}}}\n", "is not a single value"],
     ["a bad start phase", pop + "    start: {after: x, phase: never}\n", "is not one of started"],
     ["an unknown start key", pop + "    start: {before: x}\n", "an unknown field under workloads[0].start"],

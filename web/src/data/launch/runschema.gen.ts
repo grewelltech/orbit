@@ -177,11 +177,20 @@ export const SECRET_NAMES: readonly string[] = [
   "token"
 ];
 
+/** Runes Go's unicode.ToLower makes an ASCII letter, beyond A-Z (secrets' splitWords lowers with it). */
+export const ASCII_LOWER: Readonly<Record<string, string>> = {
+  "İ": "i",
+  "K": "k"
+};
+
 /** secrets.NameCases: the names secrets.IsSecretName is held to, for the page's port of it. */
 export const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = {
   "": false,
   "API_KEY": true,
+  "APİKEY": true,
   "Authorization": true,
+  "K-İ": true,
+  "Kİ": true,
   "Password": true,
   "Private.Key": true,
   "Tokenizer.Mode": false,
@@ -197,8 +206,10 @@ export const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = {
   "bearer token": true,
   "credential": true,
   "k": true,
+  "k-İ": true,
   "keyboard": false,
   "ki": true,
+  "kİ": true,
   "loom_token": true,
   "monkey": false,
   "my token": true,
@@ -221,7 +232,8 @@ export const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = {
   "tokens_per_s": false,
   "x.token": true,
   "x_api_key": true,
-  "x٣Token": true
+  "x٣Token": true,
+  "xKi": true
 };
 
 /** The built-in templates (orbit test), as written. */

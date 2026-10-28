@@ -17,4 +17,7 @@ var NameCases = map[string]bool{
 	"api.key": true, "x.token": true, "my token": true, "bearer token": true, "Private.Key": true,
 	"my.Bearer": true, "token ": true, "x٣Token": true, "a.b": false, "tokenizer": false,
 	"my token count": false, "Tokenizer.Mode": false,
+	// Runes Go lowers to ASCII though JS's toLowerCase does not do the
+	// same: U+0130 İ (to "i") and U+212A, the Kelvin sign (to "k").
+	"k\u0130": true, "K\u0130": true, "k-\u0130": true, "K-\u0130": true, "AP\u0130KEY": true, "x\u212Ai": true,
 }

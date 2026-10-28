@@ -171,6 +171,11 @@ export const GATE_PRESETS: readonly { label: string; gate: (workload: string) =>
 /** Why an expected-failures file is not inlined. */
 export const EXPECTED_TOO_LARGE = "larger than 1 MiB; an expected-failures list is a few KiB";
 
+/** Why a picked expected-failures file is not read at all, by its size alone, or undefined. */
+export function pickedFileRefusal(f: { size: number }): string | undefined {
+  return f.size > MAX_FILE_BYTES ? EXPECTED_TOO_LARGE : undefined;
+}
+
 /**
  * Puts an expected-failures file's list inline at workload i, as the
  * server takes it (it reads no file). The file is capped at 1 MiB and goes

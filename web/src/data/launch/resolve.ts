@@ -10,6 +10,7 @@ import type { ResolveRequestSchema } from "@/gen/orbit/v1/target_pb";
 import type { RenderRunRequestSchema } from "@/gen/orbit/v1/run_pb";
 import type { KeyValues } from "../targets/store";
 import { isScalar, parseDocument, visit } from "yaml";
+import { keysBlocked } from "../targets/probe";
 import { refsIn } from "../targets/yamlio";
 
 export type PlanRequest = MessageInitShape<typeof ResolveRequestSchema>;
@@ -47,6 +48,39 @@ export function refsOf(input: Pick<LaunchInput, "targetYaml" | "runYaml">): stri
     });
   }
   return out;
+}
+
+/** The line over Launch's ${VAR} prompt: where the values are kept, as the target's keys are. */
+export function varsPromptNote(remembered: boolean): string {
+  return `the target and run file name these; their values are ${remembered ? "remembered in this browser" : "held in this tab"}:`;
+}
+
+/** What decides whether Launch may send its run (Start, check the plan). */
+export interface StartState {
+  loc: { protocol: string; hostname: string };
+  token: string;
+  hasTarget: boolean;
+  /** The target's key ${VAR}s with no value in the tab (set on the Targets page). */
+  missingKeys: readonly string[];
+  /** Any other ${VAR} with no value (asked for on this page). */
+  unsetVars: readonly string[];
+  workloads: number;
+}
+
+/**
+ * Why Launch may not send its run, or undefined: a target first; then
+ * keysBlocked's rule (the server's own host, or https with the API
+ * token), since the run carries the target's keys; then every ${VAR} with
+ * a value; then a workload.
+ */
+export function whyNotStart(s: StartState): string | undefined {
+  if (!s.hasTarget) return "make a target first, on the Targets page";
+  const blocked = keysBlocked(s.loc, s.token);
+  if (blocked) return blocked;
+  if (s.missingKeys.length > 0) return `set ${s.missingKeys.map((v) => `\${${v}}`).join(", ")} on the Targets page first`;
+  if (s.unsetVars.length > 0) return `set ${s.unsetVars.map((v) => `\${${v}}`).join(", ")} first: the browser has no environment to take them from`;
+  if (s.workloads === 0) return "add a workload";
+  return undefined;
 }
 
 /** The PlanRun request, or the ${VAR}s it still needs a value for. */

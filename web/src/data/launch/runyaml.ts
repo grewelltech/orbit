@@ -8,7 +8,7 @@
  */
 import { Document, isAlias, isMap, isPair, isScalar, isSeq, parseAllDocuments, visit, type Node } from "yaml";
 import { refName, render as renderDoc, utf8Length, MAX_FILE_BYTES, TOO_LARGE, SHARED_REFUSED, type Step, type WriteStyle } from "../targets/yamlio";
-import { BEHAVIOR_FIELDS, EXPECTED_ENTRY_KEYS, EXPECTED_KEYS, RUN_FIELDS, RUN_NAMED_LISTS, SECRET_NAMES, START_PHASES, type RunFieldSpec } from "./runschema.gen";
+import { ASCII_LOWER, BEHAVIOR_FIELDS, EXPECTED_ENTRY_KEYS, EXPECTED_KEYS, RUN_FIELDS, RUN_NAMED_LISTS, SECRET_NAMES, START_PHASES, type RunFieldSpec } from "./runschema.gen";
 
 /** How the page writes a run file: the CLI's two-space indents. */
 export const RUN_STYLE: WriteStyle = { indent: 2 };
@@ -50,9 +50,24 @@ const BEHAVIOR_LISTS = new Set(
 );
 
 /**
+ * A rune lowered as Go's unicode.ToLower lowers it, where that matters:
+ * a secret name is ASCII, so a word can match one only if each of its
+ * runes lowers to an ASCII letter. A-Z lower to a-z; ASCII_LOWER (from
+ * Go) holds every other rune Go lowers to one (İ to "i", the Kelvin sign
+ * to "k"). Any other rune is kept as it is: no lowering of it could make a
+ * match in Go, so none may here. JS's toLowerCase is not used: it lowers
+ * İ to "i̇", two runes, which Go does not.
+ */
+function lowerRune(r: string): string {
+  if (r >= "A" && r <= "Z") return String.fromCharCode(r.charCodeAt(0) + 32);
+  return ASCII_LOWER[r] ?? r;
+}
+
+/**
  * Splits a name into lower-case words as internal/secrets' splitWords
  * does: at '-', '_', '.' and ' ', and before an upper-case letter that
- * follows a lower-case letter or a digit, each in Unicode's sense.
+ * follows a lower-case letter or a digit, each in Unicode's sense; each
+ * rune lowered as Go lowers it (lowerRune).
  */
 function words(name: string): string[] {
   const out: string[] = [];
@@ -62,16 +77,16 @@ function words(name: string): string[] {
   const lowerOrDigit = /^[\p{Ll}\p{Nd}]$/u;
   rs.forEach((r, i) => {
     if (r === "-" || r === "_" || r === "." || r === " ") {
-      if (cur) out.push(cur.toLowerCase());
+      if (cur) out.push(cur);
       cur = "";
     } else if (upper.test(r) && i > 0 && lowerOrDigit.test(rs[i - 1] ?? "")) {
-      if (cur) out.push(cur.toLowerCase());
-      cur = r;
+      if (cur) out.push(cur);
+      cur = lowerRune(r);
     } else {
-      cur += r;
+      cur += lowerRune(r);
     }
   });
-  if (cur) out.push(cur.toLowerCase());
+  if (cur) out.push(cur);
   return out;
 }
 
@@ -228,6 +243,11 @@ export function runProblem(root: unknown): string | undefined {
     for (const { key, value } of ps) {
       const pat = pattern ? `${pattern}.${key}` : key;
       const here = [...path, key];
+      // A secret-named key, wherever it is (a field, or one no schema
+      // has), is a secret before it is anything else: refused as one
+      // unless it is a ${VAR}.
+      const secret = secretProblem(key, value, here);
+      if (secret) return secret;
       if (pattern === "" && (key === "kind" || key === "version")) {
         if (!scalar(value)) return `${key} is not a single value`;
         if (key === "kind" && text(value) !== "run") return "kind is not run: this page reads run files (kind: run)";
@@ -254,8 +274,6 @@ export function runProblem(root: unknown): string | undefined {
         } else if (f.type === "strings") {
           if (!(scalar(value) || (isSeq(value) && value.items.every(scalar)))) return `${show(here)} is not a list of values`;
         } else if (!scalar(value)) return `${show(here)} is not a single value`;
-        const why = secretProblem(key, value, here);
-        if (why) return why;
       } else if (MAPPINGS.has(pat)) {
         const why = walk(value, pat, here);
         if (why) return why;

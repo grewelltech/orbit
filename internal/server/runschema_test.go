@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
@@ -171,6 +172,20 @@ func renderRunSchema(t *testing.T) []byte {
 	sort.Strings(names)
 	fmt.Fprintf(&b, "/** The names that hold secrets, normalised (internal/secrets.Names). */\nexport const SECRET_NAMES: readonly string[] = %s;\n\n", js(names))
 	vectors := secrets.NameCases
+	// The runes Go lower-cases (unicode.ToLower) to an ASCII letter, beyond
+	// A-Z. A secret name is ASCII, so these are the only lowerings a page
+	// must do as Go does to match it: JS's toLowerCase differs on some
+	// (İ becomes "i̇", two runes).
+	asciiLower := map[string]string{}
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if l := unicode.ToLower(r); l != r && l < 0x80 {
+			asciiLower[string(r)] = string(l)
+		}
+	}
+	fmt.Fprintf(&b, "/** Runes Go's unicode.ToLower makes an ASCII letter, beyond A-Z (secrets' splitWords lowers with it). */\nexport const ASCII_LOWER: Readonly<Record<string, string>> = %s;\n\n", js(asciiLower))
 	fmt.Fprintf(&b, "/** secrets.NameCases: the names secrets.IsSecretName is held to, for the page's port of it. */\nexport const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = %s;\n\n", js(vectors))
 	templates := map[string]string{}
 	for _, n := range plan.Templates() {
