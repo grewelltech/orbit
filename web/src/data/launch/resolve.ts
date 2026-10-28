@@ -213,3 +213,13 @@ export function refusedAt(message: string): { doc: "target" | "run file"; line?:
   }
   return undefined;
 }
+
+/**
+ * Why Launch may not send its run now, as its buttons say it
+ * (whyNotStart over startStateFor): what start and plan check themselves
+ * before anything is sent, so a button the page failed to disable still
+ * sends nothing. The server's checks stay the real ones.
+ */
+export function blockedNow(input: StartInput): string | undefined {
+  return whyNotStart(startStateFor(input).state);
+}

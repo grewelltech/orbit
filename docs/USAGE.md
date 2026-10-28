@@ -477,7 +477,11 @@ the CLI.
     the UEs with latency, mobility or bulk traffic) or a conformance suite
     (categories, an expected-failures file);
   - how it stops: every workload completes, a duration, or until stopped;
-  - gates: one-click presets, or any metric, comparison and threshold.
+  - gates: one-click presets, or any metric, comparison and threshold. The
+    attach-success, registration p99 and attach p99 presets come twice: on
+    the first population, or for the whole run. The whole-run ones are the
+    gates the `--slo-*` flags give, so the copied command says
+    `--slo-reg-p99=500ms`.
 
   The **run file** box shows the whole file and takes edits the form has no
   control for (a traffic mix, a workload's start). **Import YAML** reads a

@@ -168,6 +168,18 @@ export const GATE_PRESETS: readonly { label: string; gate: (workload: string) =>
   { label: "conformance", gate: (w) => ({ name: w ? `${w}_conformance` : "conformance", workload: w, kind: "conformance", metric: "", op: "", threshold: "" }) },
 ];
 
+/**
+ * The SLO presets for the whole run: the same gates with no workload, as
+ * the --slo-* flags give them (their name is the metric's, gates[<name>]
+ * with no workload), so the copied command says --slo-reg-p99 and the like.
+ * A workload's gate of the same name and this one are one gate: either
+ * takes the name.
+ */
+export const RUN_GATE_PRESETS: readonly { label: string; gate: () => Gate }[] = GATE_PRESETS.filter((p) => p.gate("").kind === "slo").map((p) => ({
+  label: `${p.label}, the whole run`,
+  gate: () => ({ ...p.gate(""), workload: "" }),
+}));
+
 /** Why an expected-failures file is not inlined. */
 export const EXPECTED_TOO_LARGE = "larger than 1 MiB; an expected-failures list is a few KiB";
 

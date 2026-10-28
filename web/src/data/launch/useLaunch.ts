@@ -8,14 +8,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@connectrpc/connect";
 import type { Document } from "yaml";
 import { RunService } from "@/gen/orbit/v1/run_pb";
-import { orbitTransport } from "../transport";
+import { loadToken, orbitTransport } from "../transport";
 import * as act from "../targets/actions";
 import { browserLocal, browserSession, keysFor, loadTargets, remembers, storageChange, type KeyValueStore } from "../targets/store";
 import { newTarget, render, setSlices, setValue } from "../targets/yamlio";
-import { startFrom } from "./form";
+import { startFrom, workloads } from "./form";
 import { loadStarted, recordStarted, type StartedRun } from "./startedRuns";
 import { LAUNCH_IDLE, LaunchRunner, type LaunchState } from "./launch";
-import { formKey, refsOf, type LaunchInput } from "./resolve";
+import { blockedNow, formKey, refsOf, type LaunchInput } from "./resolve";
 import { parseRun, renderRun } from "./runyaml";
 
 /** The draft run file, kept per tab so a reload keeps the form (never a key: a run file holds none). */
@@ -200,6 +200,19 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
     [doc],
   );
 
+  // Why the run may not be sent now (the buttons' own reason), checked by
+  // start and plan themselves before anything is sent.
+  const blocked = () =>
+    blockedNow({
+      targetYaml: target?.yaml,
+      runYaml,
+      refs: input ? refsOf(input) : [],
+      values,
+      workloads: workloads(doc).length,
+      loc: window.location,
+      token: loadToken(),
+    });
+
   return {
     targets,
     target,
@@ -250,8 +263,20 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
     state,
     /** The runs this tab started, newest first. */
     started,
-    plan: () => (input ? runner.plan(input) : Promise.resolve(undefined)),
+    plan: () => {
+      const why = blocked();
+      if (why !== undefined) {
+        setNotice(why);
+        return Promise.resolve(undefined);
+      }
+      return input ? runner.plan(input) : Promise.resolve(undefined);
+    },
     start: async () => {
+      const why = blocked();
+      if (why !== undefined) {
+        setNotice(why);
+        return undefined;
+      }
       const name = state.plan?.response.runName ?? "";
       const id = await runner.start(() => latest.current as LaunchInput, state.plan);
       if (id) {
