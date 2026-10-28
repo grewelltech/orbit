@@ -172,14 +172,16 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
 
   // Each change: the plan held is for another state now; the command is rendered again.
   const key = input ? formKey(input) : "";
+  // key covers input (formKey): the effect reads it from latest, so a new
+  // input object with the same contents does not render again.
   useEffect(() => {
     runner.invalidate();
-    if (!input) return;
-    saveDraft(session, { target: input.targetName, template: input.template, yaml: input.runYaml });
-    const t = setTimeout(() => void runner.render(input), 150);
+    const now = latest.current;
+    if (!now) return;
+    saveDraft(session, { target: now.targetName, template: now.template, yaml: now.runYaml });
+    const t = setTimeout(() => void runner.render(now), 150);
     return () => clearTimeout(t);
-    // key covers input.
-  }, [key, runner]);
+  }, [key, runner, session]);
 
   /** Makes change on a copy of the document, kept only when the run-file gate passes it. */
   const edit = useCallback(

@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint --max-warnings 0 src"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.1",
@@ -29,7 +30,10 @@
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@typescript-eslint/parser": "8.71.2",
     "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "9.39.5",
+    "eslint-plugin-react-hooks": "7.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.0",
     "vite": "^8.1.6",

@@ -208,7 +208,11 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
 - **`list`** shows every target with its file and line, and the error of any
   that doesn't load. One bad entry in an `./orbit.yaml` list never stops the
   others. A target in the config directory with the same name as one in
-  `./orbit.yaml` is marked shadowed.
+  `./orbit.yaml` is marked shadowed. A target's errors never show a key:
+  text shaped like one is `<redacted>`. A base64 or bearer secret has no
+  such shape and can't be recognised, and an IPv6 address written out in
+  full has a Ki's shape, so it's masked too
+  ([targets.md](targets.md#numbers-and-text)).
 - **`probe`** is the doctor (ADR-0009 §5). The server runs it, from the host
   runs execute on, and the CLI prints each step as it finishes:
 
@@ -239,6 +243,12 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   run and a probe never collide; one that needs them is refused, naming the
   other. The core's reject causes aren't reported yet. `init` uses the
   target range's first gNB ID (or 1) and takes no lease.
+
+  The three IDs must fit `ran.gnb_ids.bits`, and the target's block when it
+  has a `count`. Otherwise the probe is refused before it starts, on the CLI
+  and on the Targets page alike: "the probe needs 3 gNB IDs: set
+  ran.gnb_ids.count to 3 or more, or leave count unset". A target with a
+  count of 1 or 2 could be probed before this; it can't now.
 
   **Behaviour changes** from the three-step probe:
   - it runs on the server and has seven steps; a target with no responder
@@ -406,6 +416,42 @@ responder list` does:
 
 No credential or loom token reaches the page: the server sends none, and
 the page shows only the fields it lists.
+
+**Add an N6 host** joins an app host as a responder without a terminal on
+the RAN box, as `orbit target add-responder` does over ssh. Pick a target,
+then **make a join one-liner**:
+- **The spec.** The join token is made for the target's N6 network:
+  `core.ue_pools`, `core.upf_n6` and `core.n6_subnet`, their `${VAR}`s filled
+  from this tab. The address the app host reaches this server at defaults to
+  the server's listen address; give another when the app host reaches it
+  some other way.
+- **Over TLS only.** A join token is a credential, and the server issues one
+  only over TLS, whatever the peer (loopback included). So the panel needs
+  the dashboard on https:// (`orbit serve --tls auto`). From another host it
+  also needs the API token in the tab.
+- **The one-liner holds a live token.** It's shown masked until you
+  **reveal** it. **copy** copies it as it is. It's kept in this tab's memory
+  only, never stored, and dropped when it's used, revoked or expired. Run it
+  on the app host only, since it runs the join script as root. Until then
+  anyone with it can join a host.
+- **It lasts** 5 minutes to an hour (10 by default), with the time left
+  shown. **revoke** ends it now, copied or not.
+- **Before it's shown or copied**, an unused token is revoked when you close
+  the panel, pick another target, or leave the page (that last one is best
+  effort; its expiry ends it anyway).
+- **Once it's shown (revealed) or copied**, it may be on its way to the app
+  host, so the page stops revoking it on its own: "shown or copied: it works
+  until it is used or expires at <time>". That includes a copy made by hand
+  from the shown line. Closing the panel or picking another target asks
+  "Revoke it now?", and the default is no, keep it. Leaving the page keeps
+  it. Its expiry ends it, as with `orbit target add-responder`. So copy,
+  close the panel, and paste on the app host works. Coming back to the page
+  from the browser's back/forward cache checks the token again, and clears
+  it if it was used, revoked or expired meanwhile, or if it can't be checked.
+- **Once the host joins**, the panel says "used by <name>". Then **use <name>
+  in <target>** names the responder in the target's `app.responders`, by name
+  only (the server fills in the rest). The edit goes through the same checks
+  as any edit.
 
 The conformance suite is run from the Launch page. `?conformance` opens
 Launch on the `conformance` template. A suite needs a target, but a target

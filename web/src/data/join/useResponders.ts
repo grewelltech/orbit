@@ -9,7 +9,7 @@ import { ConnectError, createClient } from "@connectrpc/connect";
 import { JoinService, ResponderService, type JoinToken, type RegisteredResponder } from "@/gen/orbit/v1/join_pb";
 import { orbitTransport } from "../transport";
 import { pollWithBackoff } from "./poll";
-import { removeResponder, revokeToken } from "./responders";
+import { InFlight, removeResponder, revokeToken } from "./responders";
 
 export interface RespondersState {
   responders: RegisteredResponder[];
@@ -36,13 +36,23 @@ export function useResponders(baseUrl?: string) {
     );
     return () => ctrl.abort();
   }, [responders, joins, reads]);
+  // A Remove in flight: its button is busy, and a second click asks nothing.
+  const inflight = useMemo(() => new InFlight(), []);
+  const [removing, setRemoving] = useState<string[]>([]);
   const remove = useCallback(
     async (name: string) => {
-      const said = await removeResponder(responders, name, (text) => window.confirm(text));
-      if (said !== undefined) setReads((n) => n + 1);
-      return said;
+      if (!inflight.start(name)) return undefined;
+      setRemoving(inflight.list());
+      try {
+        const said = await removeResponder(responders, name, (text) => window.confirm(text));
+        if (said !== undefined) setReads((n) => n + 1);
+        return said;
+      } finally {
+        inflight.end(name);
+        setRemoving(inflight.list());
+      }
     },
-    [responders],
+    [responders, inflight],
   );
   const revoke = useCallback(
     async (id: string) => {
@@ -52,5 +62,5 @@ export function useResponders(baseUrl?: string) {
     },
     [joins],
   );
-  return { state, remove, revoke };
+  return { state, removing, remove, revoke };
 }

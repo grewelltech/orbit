@@ -51,6 +51,11 @@ var ErrLiteralSecret = errors.New("holds a literal secret; write it as a ${VAR}"
 // otherwise `orbit run <file>`. Every argument but the command words is
 // quoted for a POSIX shell (ShellQuote).
 func Render(in RenderInput) (*Rendered, error) {
+	r, err := renderRun(in)
+	return r, target.MaskErr(err)
+}
+
+func renderRun(in RenderInput) (*Rendered, error) {
 	if paths := secrets.YAMLSecrets(string(in.RunYAML)); len(paths) > 0 {
 		return nil, fmt.Errorf("%s: %w", strings.Join(paths, ", "), ErrLiteralSecret)
 	}

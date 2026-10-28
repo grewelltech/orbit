@@ -306,14 +306,24 @@ function patternOf(steps: readonly Step[]): string {
   return out;
 }
 
-/** The canonical path of steps in doc: named-list elements by name (subscribers[main].ki), others by index. */
+/**
+ * The canonical path of steps in doc: named-list elements by name
+ * (subscribers[main].ki), others by index; so is an element whose name is
+ * not a plain selector (with '.', '[' or ']') or is shared with another
+ * entry, so a name refused is never quoted in a path.
+ */
 export function canonicalPath(doc: Document, steps: readonly Step[]): string {
   let out = "";
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     if (typeof s === "number") {
       const list = patternOf(steps.slice(0, i));
-      const name = LISTS.has(list) ? scalarText(doc.getIn([...steps.slice(0, i + 1), "name"], true)) : undefined;
+      let name = LISTS.has(list) ? scalarText(doc.getIn([...steps.slice(0, i + 1), "name"], true)) : undefined;
+      if (name !== undefined) {
+        const all = doc.getIn(steps.slice(0, i), true);
+        const shared = isSeq(all) && all.items.filter((el) => isMap(el) && scalarText(el.get("name", true)) === name).length > 1;
+        if (shared || /[.[\]]/.test(name)) name = undefined;
+      }
       out += `[${name ?? s}]`;
     } else {
       out += (out === "" ? "" : ".") + s;
@@ -382,16 +392,20 @@ export function checkTarget(doc: Document): Issue[] {
           at(here, `${pat} is a list`);
           continue;
         }
-        const names = new Set<string>();
+        // A name refused is told by its entry's index, never quoted: a key
+        // typed as a name stays out of the problem list (the field itself
+        // shows what was typed).
+        const names = new Map<string, number>();
         v.items.forEach((el, i) => {
           const name = isMap(el) ? scalarText(el.get("name", true)) : undefined;
           if (!name) {
             at([...here, i], `${pat} entries need a name`);
             return;
           }
-          if (/[.[\]]/.test(name)) at([...here, i], `${pat} name ${JSON.stringify(name)} may not contain '.', '[' or ']'`);
-          if (names.has(name)) at([...here, i], `${pat} entries need distinct names (${JSON.stringify(name)} twice)`);
-          names.add(name);
+          if (/[.[\]]/.test(name)) at([...here, i], `${pat}[${i}].name may not contain '.', '[' or ']'`);
+          const first = names.get(name);
+          if (first !== undefined) at([...here, i], `${pat}[${i}].name is the same as ${pat}[${first}].name; entries need distinct names`);
+          else names.set(name, i);
           if (isMap(el)) walk(el, [...here, i]);
         });
         continue;

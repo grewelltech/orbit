@@ -9,13 +9,13 @@ import { useState } from "react";
 import { Panel } from "@/components/Panel";
 import { StatusDot, type Status } from "@/components/StatusDot";
 import { responderRows, tokenRows } from "@/data/join/responders";
-import { useResponders } from "@/data/join/useResponders";
+import type { useResponders } from "@/data/join/useResponders";
 import { buttonStyle } from "./fields";
 
 const STATUS: Record<string, Status> = { online: "ok", offline: "error", "never seen": "idle" };
 
-export function RespondersPanel() {
-  const { state, remove, revoke } = useResponders();
+export function RespondersPanel({ responders }: { responders: ReturnType<typeof useResponders> }) {
+  const { state, removing, remove, revoke } = responders;
   const [said, setSaid] = useState<Record<string, string>>({});
   const now = state.at ?? Date.now();
   const rows = responderRows(state.responders, now);
@@ -42,11 +42,12 @@ export function RespondersPanel() {
                 <StatusDot status={STATUS[r.state] ?? "warn"} label={`${r.name} · ${r.state}`} />
                 <button
                   type="button"
-                  className="o-label cursor-pointer px-2 py-0.5"
+                  disabled={removing.includes(r.name)}
+                  className="o-label cursor-pointer px-2 py-0.5 disabled:cursor-not-allowed disabled:opacity-50"
                   style={{ ...buttonStyle, color: "var(--o-error)" }}
                   onClick={() => void remove(r.name).then((t) => note(`r:${r.name}`, t))}
                 >
-                  remove
+                  {removing.includes(r.name) ? "removing…" : "remove"}
                 </button>
               </div>
               <span className="o-label" style={label}>
