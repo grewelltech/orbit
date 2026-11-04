@@ -164,6 +164,8 @@ export interface Imported {
   targets: StoredTarget[];
   /** The last target imported, to select. */
   last?: string;
+  /** The names actually imported, in order, for a caller that acts on each (e.g. remember keys). */
+  imported: string[];
   notices: string[];
 }
 
@@ -180,10 +182,11 @@ export function importInto(s: Stores, targets: readonly StoredTarget[], text: st
     read = importFile(text);
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).split("\n")[0] ?? "";
-    return { targets: [...targets], notices: [`import: ${msg}`] };
+    return { targets: [...targets], imported: [], notices: [`import: ${msg}`] };
   }
   let out = [...targets];
   const notices: string[] = [];
+  const imported: string[] = [];
   let last: string | undefined;
   for (const r of read) {
     let { name, yaml } = r.target;
@@ -209,10 +212,11 @@ export function importInto(s: Stores, targets: readonly StoredTarget[], text: st
     notices.push(...r.moved.map((m) => `${name}: ${movedNotice(m)}`));
     if (r.issues.length > 0) notices.push(`${name}: ${r.issues.length} problem${r.issues.length === 1 ? "" : "s"} to fix in the editor`);
     out.push({ name, yaml });
+    imported.push(name);
     last = name;
   }
   saveTargets(s.local, out);
-  return { targets: out, last, notices };
+  return { targets: out, last, imported, notices };
 }
 
 /** A file to hand the user. */

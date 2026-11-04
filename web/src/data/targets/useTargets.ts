@@ -132,6 +132,22 @@ export function useTargets(local: KeyValueStore | undefined = browserLocal(), se
       setKeysVersion((v) => v + 1);
       setNotices(r.notices);
     },
+    /**
+     * Imports a target file a `#import=` link carried, replacing any target of
+     * the same name (a link re-run updates its targets in place). When remember
+     * is set, each imported target's keys are kept in this browser, not just
+     * this tab — the viewer has already approved that in the confirm banner, so
+     * no further dialog is raised. Returns how many targets were imported.
+     */
+    importLink: (text: string, remember: boolean): number => {
+      const r = act.importInto(stores, targets, text, true);
+      if (remember) for (const name of r.imported) act.setRemember(stores, name, true, () => true);
+      setTargets(r.targets);
+      if (r.last) setSelected(r.last);
+      setKeysVersion((v) => v + 1);
+      setNotices(r.notices);
+      return r.imported.length;
+    },
     exportCurrent: (withKeys: boolean): act.ExportOnce =>
       editing ? act.exportOnce(stores, targets, editing.name, withKeys) : { file: undefined, withKeys: false },
   };

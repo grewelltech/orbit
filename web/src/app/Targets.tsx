@@ -15,6 +15,7 @@ import { StatusDot, type Status } from "@/components/StatusDot";
 import { useProbe } from "@/data/targets/useProbe";
 import { useTargets, type ExportFile } from "@/data/targets/useTargets";
 import { readImportFile } from "@/data/targets/importexport";
+import { readPendingImport, type PendingImport } from "@/data/targets/importlink";
 import { documentRefs, refName, secretSlots } from "@/data/targets/yamlio";
 import { PageLinks } from "./PageLinks";
 import { buttonStyle, inputStyle } from "./targets/fields";
@@ -42,6 +43,19 @@ export function Targets() {
   const [replace, setReplace] = useState(false);
   const [withKeys, setWithKeys] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // A ?targets#import=<base64url> link's payload, decoded once on mount. The
+  // hash is cleared immediately so a reload does not re-prompt; the page never
+  // imports it without the viewer saying so (the banner below).
+  const [pending, setPending] = useState<PendingImport | undefined>(undefined);
+  useEffect(() => {
+    const r = readPendingImport(window.location.hash);
+    if (window.location.hash) history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (!r) return;
+    if ("refusal" in r) t.notify([r.refusal]);
+    else setPending(r);
+    // Mount only: the hash is read and cleared once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const e = t.editing;
   const probe = useProbe(e?.name);
   // The registered responders: listed on the left, and they mark a join token used.
@@ -76,6 +90,52 @@ export function Targets() {
           kept in this browser; keys in this tab. The CLI's $ORBIT_* overrides do not apply here.
         </span>
       </header>
+
+      {pending && (
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2.5"
+          role="alertdialog"
+          aria-label="import targets from this link"
+          style={{ borderColor: "var(--o-accent)", background: "var(--o-surface-2)" }}
+        >
+          <span className="o-label flex-1" style={{ color: "var(--o-ink)", textTransform: "none" }}>
+            This link wants to add {pending.names.length} target{pending.names.length === 1 ? "" : "s"} to this browser
+            {": "}
+            <span style={{ fontFamily: "var(--o-font-mono)" }}>{pending.names.join(", ")}</span>
+            {pending.hasKeys ? ". It carries their keys in clear; anyone with the link can read them." : "."}
+            {" Any target of the same name here is replaced."}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="o-label cursor-pointer px-2 py-1"
+              style={{ color: "var(--o-bg)", background: "var(--o-accent)", borderRadius: "var(--o-radius)" }}
+              onClick={() => {
+                t.importLink(pending.text, false);
+                setPending(undefined);
+              }}
+            >
+              import
+            </button>
+            {pending.hasKeys && (
+              <button
+                type="button"
+                className="o-label cursor-pointer px-2 py-1"
+                style={buttonStyle}
+                onClick={() => {
+                  t.importLink(pending.text, true);
+                  setPending(undefined);
+                }}
+              >
+                import and remember keys
+              </button>
+            )}
+            <button type="button" className="o-label cursor-pointer px-2 py-1" style={buttonStyle} onClick={() => setPending(undefined)}>
+              dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {t.notices.length > 0 && (
         <div className="flex items-start gap-3 border-b px-4 py-2" role="status" style={{ borderColor: "var(--o-border)", background: "var(--o-surface-2)" }}>
