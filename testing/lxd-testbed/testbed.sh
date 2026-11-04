@@ -202,7 +202,7 @@ make_net() {
         return
     fi
     info "creating network $name — $desc"
-    lxc_do network create "$name" ipv4.address=none ipv6.address=none >/dev/null
+    lxc_do network create "$name" ipv4.address=none ipv6.address=none bridge.mtu="$TESTBED_MTU" >/dev/null
 }
 
 cmd_networks() {
@@ -266,9 +266,12 @@ mac_of() { lxc config get "$1" "volatile.$2.hwaddr"; }
 eth_block() { # <name> <mac> [dhcp]
     printf '  %s:\n    match:\n      macaddress: "%s"\n    set-name: %s\n' "$1" "$2" "$1"
     if [ "${3:-}" = dhcp ]; then
+        # The uplink: the Internet edge is almost certainly 1500, so it keeps
+        # the image default rather than TESTBED_MTU — a jumbo frame out there
+        # would be dropped.
         printf '    dhcp4: true\n'
     else
-        printf '    dhcp4: false\n    link-local: []\n'
+        printf '    dhcp4: false\n    link-local: []\n    mtu: %s\n' "$TESTBED_MTU"
     fi
     printf '    dhcp6: false\n    accept-ra: false\n'
 }
@@ -278,7 +281,9 @@ eth_block() { # <name> <mac> [dhcp]
 # path off the testbed, and the 3GPP reference points are deliberately not it.
 vlan_block() {
     local name=$1 id=$2 link=$3 addrs=$4 gw=$5; shift 5
-    printf '  %s:\n    id: %s\n    link: %s\n    link-local: []\n' "$name" "$id" "$link"
+    # mtu matches the link's (TESTBED_MTU): a VLAN interface may not exceed its
+    # parent, and the parent trunk/WAN NIC carries TESTBED_MTU from eth_block.
+    printf '  %s:\n    id: %s\n    link: %s\n    link-local: []\n    mtu: %s\n' "$name" "$id" "$link" "$TESTBED_MTU"
     if [ -n "$addrs" ]; then printf '    addresses: [%s]\n' "$addrs"; fi
     if [ -n "$gw" ] || [ $# -gt 0 ]; then
         printf '    routes:\n'
@@ -308,7 +313,7 @@ netplan_for() {
         # A bump in the wire: the two WAN ports bridged, no address, no STP
         # delay. wanemd shapes what crosses this bridge.
         echo "bridges:"
-        printf '  br-wan:\n    interfaces: [wan-a, wan-b]\n    dhcp4: false\n    dhcp6: false\n    accept-ra: false\n    link-local: []\n    parameters:\n      stp: false\n      forward-delay: 0\n'
+        printf '  br-wan:\n    interfaces: [wan-a, wan-b]\n    mtu: %s\n    dhcp4: false\n    dhcp6: false\n    accept-ra: false\n    link-local: []\n    parameters:\n      stp: false\n      forward-delay: 0\n' "$TESTBED_MTU"
     fi
     echo "vlans:"
     case "$node" in
