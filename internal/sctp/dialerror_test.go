@@ -63,7 +63,11 @@ func TestDialErrorTyped(t *testing.T) {
 			opts:     func(*testing.T) []DialOption { return []DialOption{fail(syscall.ECONNREFUSED)} },
 			wantText: `sctp dial "127.0.0.1:38412" from "127.0.0.1:0": context canceled`, wantSource: "127.0.0.1:0", wantIs: context.Canceled},
 		{name: "refused", laddr: "127.0.0.1", raddr: "127.0.0.1:38412",
-			opts:     func(*testing.T) []DialOption { return []DialOption{fail(syscall.ECONNREFUSED)} },
+			opts:       func(*testing.T) []DialOption { return []DialOption{fail(syscall.ECONNREFUSED)} },
+			wantText:   `sctp dial "127.0.0.1:38412" from "127.0.0.1:0": connection refused (3 attempts: ECONNREFUSED, ECONNREFUSED, ECONNREFUSED)`,
+			wantSource: "127.0.0.1:0", wantIs: syscall.ECONNREFUSED},
+		{name: "refused, without retry", laddr: "127.0.0.1", raddr: "127.0.0.1:38412",
+			opts:     func(*testing.T) []DialOption { return []DialOption{fail(syscall.ECONNREFUSED), WithoutRetry()} },
 			wantText: `sctp dial "127.0.0.1:38412" from "127.0.0.1:0": connection refused`, wantSource: "127.0.0.1:0", wantIs: syscall.ECONNREFUSED},
 		{name: "refused, route-selected", raddr: "127.0.0.1:38412",
 			opts: func(*testing.T) []DialOption {
