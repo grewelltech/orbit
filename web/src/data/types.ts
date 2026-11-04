@@ -182,6 +182,12 @@ export interface TestEvent {
   /** Subject of the event, when it concerns one UE. */
   supi?: string;
   message: string;
+  /**
+   * A conformance check verdict (the wire event carried a check). These are
+   * the verdict stream that belongs on the conformance view, so the
+   * performance view filters them out rather than letting them flood its log.
+   */
+  conformance?: boolean;
 }
 
 /** Connection state of the dashboard to its telemetry source. */

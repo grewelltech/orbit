@@ -75,6 +75,21 @@ export function App() {
   const shownRun = (selectedRun ?? latest?.run.runId) || undefined;
   const runConfig = useRunConfig(mock ? undefined : shownRun, runEnded(latest?.run.state));
 
+  // Tailor the view to the kind of run. A conformance run is about verdicts,
+  // not throughput, so its view drops the load charts and leads with the suite
+  // results; a load, fleet or scenario run keeps the performance charts; a
+  // mixed run shows both. The kind comes from the run list; until it resolves
+  // (or in mock, which is always a load soak) we default to the performance
+  // view so charts are never hidden by accident.
+  const runKind = useMemo(() => runs.find((r) => r.runId === shownRun)?.kind, [runs, shownRun]);
+  const isConformanceRun = !mock && runKind === "conformance";
+  const isMixedRun = !mock && runKind === "mixed";
+  const showPerf = !isConformanceRun; // perf for load/fleet/scenario/mixed/unknown and all mock
+  const showConformance = isConformanceRun || isMixedRun;
+  // Conformance verdicts are the suite view's job; keep them out of every
+  // event log so a verdict burst can't bury the registration and error lines.
+  const logEvents = useMemo(() => events.filter((e) => !e.conformance), [events]);
+
   const { setting: themeSetting, theme, cycle: cycleTheme } = useTheme();
   // One span for every panel: the value of these charts is reading them
   // against each other, which a per-panel window would quietly break.
@@ -205,7 +220,9 @@ export function App() {
       />
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 pb-11">
-        {/* Headline numbers */}
+        {/* Headline numbers — performance view only; a conformance run has no
+            attach rate or throughput to headline. */}
+        {showPerf && (
         <section className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
           <StatTile
             label="sessions active"
@@ -257,6 +274,7 @@ export function App() {
             detail={handoverDetail(latest)}
           />
         </section>
+        )}
 
         {/* Controls: which run, and over what span. */}
         <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
@@ -315,8 +333,13 @@ export function App() {
         </div>
 
         {/* A conformance suite's verdicts, for a run that has one. */}
-        {!mock && <SuiteResults runId={(selectedRun ?? latest?.run.runId) || undefined} />}
+        {/* Conformance verdicts lead the conformance view (and sit above the
+            charts on a mixed run); a pure load run has no suite to show. */}
+        {showConformance && <SuiteResults runId={shownRun} />}
 
+        {/* Performance charts and app cohorts — hidden on a conformance run. */}
+        {showPerf && (
+        <>
         {/* Time series */}
         <section className="grid min-h-0 shrink-0 grid-cols-1 gap-3 xl:grid-cols-2">
           <TimeSeriesPanel
@@ -371,18 +394,27 @@ export function App() {
             return of.map((c) => <CohortSlot key={c.name} app={app} cohort={c} history={cohortHistory} />);
           })}
         </section>
+        </>
+        )}
 
-        {/* Flows + distribution + events */}
-        <section className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[320px_1fr_1fr]">
-          <GnbDistribution frame={latest} className="min-h-[540px]" />
-          <FlowTable
-            flows={flowsActive ? (latest?.flows ?? []) : []}
-            total={flowsActive ? (latest?.flowsTotal ?? 0) : 0}
-            active={flowsActive}
-            className="min-h-[540px]"
-          />
-          <EventStream events={events} onClear={clearEvents} className="min-h-[540px]" />
-        </section>
+        {/* Flows + distribution + events (performance), or just the event log
+            on a conformance run where the suites above carry the verdicts. */}
+        {showPerf ? (
+          <section className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[320px_1fr_1fr]">
+            <GnbDistribution frame={latest} className="min-h-[540px]" />
+            <FlowTable
+              flows={flowsActive ? (latest?.flows ?? []) : []}
+              total={flowsActive ? (latest?.flowsTotal ?? 0) : 0}
+              active={flowsActive}
+              className="min-h-[540px]"
+            />
+            <EventStream events={logEvents} onClear={clearEvents} className="min-h-[540px]" />
+          </section>
+        ) : (
+          <section className="grid min-h-0 flex-1 grid-cols-1 gap-3">
+            <EventStream events={logEvents} onClear={clearEvents} className="min-h-[320px]" />
+          </section>
+        )}
       </main>
 
       {showConfig && !mock && (
