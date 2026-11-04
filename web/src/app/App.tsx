@@ -25,6 +25,7 @@ import { useRuns } from "@/data/runs";
 import { RunPicker } from "@/app/RunPicker";
 import { ProvenancePanel } from "@/app/ProvenancePanel";
 import { Panel } from "@/components/Panel";
+import { Modal } from "@/components/Modal";
 import { StopControl } from "@/app/StopControl";
 import { runConfigRefusal, runEnded, useRunConfig } from "@/data/runConfig";
 import { SuiteResults } from "@/app/SuiteResults";
@@ -48,6 +49,10 @@ export function App() {
   const [selectedRun, setSelectedRun] = useState<string | undefined>(
     () => new URLSearchParams(window.location.search).get("run") ?? undefined,
   );
+  // The resolved-config detail is off-view until asked for: it matters to few
+  // people and rarely, so it opens in a modal rather than taking a band across
+  // the dashboard.
+  const [showConfig, setShowConfig] = useState(false);
   const runs = useRuns();
 
   // Switching runs replaces the source outright rather than mutating it: a
@@ -279,19 +284,35 @@ export function App() {
             </button>
           ))}
           </div>
-        </div>
 
-        {/* What the run resolved to, and what beat what (the Resolved config panel). */}
-        {!mock && runConfig.config && (
-          <ProvenancePanel provenance={runConfig.config.provenance} notices={runConfig.config.notices} resolved={runConfig.config.resolved} />
-        )}
-        {!mock && runConfigRefusal(runConfig) && (
-          <Panel title="resolved config">
-            <span className="o-label" role="status" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-              {runConfigRefusal(runConfig)}
-            </span>
-          </Panel>
-        )}
+          {/*
+            How this run resolved every config field, and what overrode what.
+            It opens a modal rather than sitting on the dashboard: few runs are
+            watched for it, and a surprising override is the one thing worth a
+            glance, so any notices are flagged in amber on the button itself.
+          */}
+          {!mock && (runConfig.config || runConfigRefusal(runConfig)) && (
+            <button
+              type="button"
+              onClick={() => setShowConfig(true)}
+              className="o-label ml-auto flex cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 transition-colors"
+              style={{
+                color: "var(--o-ink-3)",
+                borderColor: "var(--o-border)",
+                borderRadius: "var(--o-radius)",
+                transitionDuration: "var(--o-dur-fast)",
+              }}
+              title="How this run resolved every config field, and what overrode what"
+            >
+              resolved config
+              {(runConfig.config?.notices.length ?? 0) > 0 && (
+                <span style={{ color: "var(--o-amber)" }}>
+                  {runConfig.config!.notices.length} notice{runConfig.config!.notices.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
 
         {/* A conformance suite's verdicts, for a run that has one. */}
         {!mock && <SuiteResults runId={(selectedRun ?? latest?.run.runId) || undefined} />}
@@ -363,6 +384,24 @@ export function App() {
           <EventStream events={events} onClear={clearEvents} className="min-h-[540px]" />
         </section>
       </main>
+
+      {showConfig && !mock && (
+        <Modal label="resolved config" onClose={() => setShowConfig(false)}>
+          {runConfig.config ? (
+            <ProvenancePanel
+              provenance={runConfig.config.provenance}
+              notices={runConfig.config.notices}
+              resolved={runConfig.config.resolved}
+            />
+          ) : (
+            <Panel title="resolved config">
+              <span className="o-label" role="status" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
+                {runConfigRefusal(runConfig)}
+              </span>
+            </Panel>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
