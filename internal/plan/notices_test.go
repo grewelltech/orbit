@@ -185,6 +185,46 @@ func TestOverrideNoticeHighestFileAndSameValue(t *testing.T) {
 	}
 }
 
+// An env var that beat a file value expanded from that same ${VAR} is not a
+// notice: the two are equal by construction (the file read $VAR to get its
+// value), so it is the variable matching its own expansion, not a stale
+// export beating a different file value. A file value expanded from a
+// different variable, or not expanded at all, still notices.
+func TestOverrideNoticeExpandedVia(t *testing.T) {
+	src := func(l orbitv1.ProvenanceLayer, d string) *orbitv1.ProvenanceSource {
+		return &orbitv1.ProvenanceSource{Layer: l, Detail: d}
+	}
+	prov := []*orbitv1.FieldProvenance{
+		// ki: env $ORBIT_KI beat the target's ki, which was expanded from
+		// ${ORBIT_KI}. No notice.
+		{Path: "subscribers[main].ki", Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, "env $ORBIT_KI"), Value: target.Masked,
+			Overridden: []*orbitv1.ProvenanceOverride{{Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET, "target lab1.yaml:9 via ${ORBIT_KI}"), Value: target.Masked}}},
+		// mcc: env $ORBIT_MCC beat a plain literal in the target. A notice.
+		{Path: "core.plmn.mcc", Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, "env $ORBIT_MCC"), Value: "999",
+			Overridden: []*orbitv1.ProvenanceOverride{{Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET, "target lab1.yaml:6"), Value: "001"}}},
+		// mnc: env $ORBIT_MNC beat a value expanded from a DIFFERENT variable
+		// (${ORBIT_PLMN_MNC}). Not the same variable, so still a notice.
+		{Path: "core.plmn.mnc", Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_ENV, "env $ORBIT_MNC"), Value: "02",
+			Overridden: []*orbitv1.ProvenanceOverride{{Source: src(orbitv1.ProvenanceLayer_PROVENANCE_LAYER_TARGET, "target lab1.yaml:6 via ${ORBIT_PLMN_MNC}"), Value: "01"}}},
+	}
+	got := map[string]string{}
+	for _, n := range OverrideNotices(prov) {
+		got[n.GetPath()] = NoticeText(n)
+	}
+	if _, ok := got["subscribers[main].ki"]; ok {
+		t.Errorf("ki expanded from ${ORBIT_KI} should raise no notice, got %q", got["subscribers[main].ki"])
+	}
+	if _, ok := got["core.plmn.mcc"]; !ok {
+		t.Error("mcc literal beaten by env should raise a notice")
+	}
+	if _, ok := got["core.plmn.mnc"]; !ok {
+		t.Error("mnc expanded from a different variable should still raise a notice")
+	}
+	if len(got) != 2 {
+		t.Errorf("notices %v, want mcc and mnc only", got)
+	}
+}
+
 var updateRunConfig = flag.Bool("update-runconfig", false, "write TestOverrideNoticeHighestFileAndSameValue's notices for the dashboard's tests")
 
 // writeRunConfigFixture writes a GetRunConfig answer for the dashboard's

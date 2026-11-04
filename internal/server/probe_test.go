@@ -227,7 +227,8 @@ func TestProbeSteps(t *testing.T) {
 				"allow icmp echo-request from 10.250.0.0/16", "no UDP datagram arrived at 203.0.113.20:40123", "allow udp 40000-40999 from 10.250.0.0/16 and 198.51.100.0/24"}},
 		{name: "UDP but no echo: ICMP blocked", target: probeTarget(named), want: "OK OK OK OK OK FAIL OK", token: probeLoom,
 			change: func(e *probeEnv) { e.echo = func(context.Context, string, string) (int, error) { return 0, nil } },
-			texts:  []string{"though UDP reaches it: ICMP is blocked on the app host"}},
+			texts:  []string{"though UDP reaches it: ICMP is being dropped on the path", "if that is already open, the UPF is dropping ICMP"},
+			absent: []string{"ICMP is blocked on the app host"}},
 		{name: "echo but no UDP: the data ports", target: probeTarget(static), want: "OK OK OK OK OK OK FAIL",
 			change: func(e *probeEnv) {
 				e.udp = func(context.Context, string, string, string, string) (uint64, uint32, error) { return 0, 40123, nil }

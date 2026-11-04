@@ -400,9 +400,13 @@ func (s *targetService) Probe(ctx context.Context, req *connect.Request[orbitv1.
 			return err
 		}
 	case udpOK:
-		// UDP reaches the receiver, so the route is there: ICMP is blocked.
-		if err := p.send(probeFail, fmt.Sprintf("no echo from %s, though UDP reaches it: ICMP is blocked on the app host", dataIP),
-			fmt.Sprintf("allow icmp echo-request from %s on the app host (rerun the join one-liner)", src)); err != nil {
+		// UDP reaches the receiver, so the forward path and the return route
+		// are good: ICMP alone is being dropped. UDP and ICMP share the path,
+		// so the drop is somewhere on it — the app host's firewall is the
+		// usual cause, but the UPF can drop ICMP too, so do not name the app
+		// host as the only one.
+		if err := p.send(probeFail, fmt.Sprintf("no echo from %s, though UDP reaches it: ICMP is being dropped on the path", dataIP),
+			fmt.Sprintf("allow icmp echo-request from %s on the app host (rerun the join one-liner); if that is already open, the UPF is dropping ICMP", src)); err != nil {
 			return err
 		}
 	default:
