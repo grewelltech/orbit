@@ -9,6 +9,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockupf"
+	"github.com/bgrewell/orbit/internal/testnet"
 )
 
 // A completed handover reports the identity it presented: a target with no
@@ -22,11 +23,11 @@ func TestHandoverResultReportsPresentedTarget(t *testing.T) {
 		target gnb.Config
 		want   func(serving gnb.Config) gnb.Config
 	}{
-		{name: "inherit", net24: 71, target: gnb.Config{ID: 2, Name: "orbit-gnb-2"},
+		{name: "inherit", net24: testnet.EngineHandoverInherit, target: gnb.Config{ID: 2, Name: "orbit-gnb-2"},
 			want: func(s gnb.Config) gnb.Config {
 				return gnb.Config{ID: 2, Name: "orbit-gnb-2", MCC: s.MCC, MNC: s.MNC, TAC: s.TAC, Slices: s.Slices}
 			}},
-		{name: "explicit TAC", net24: 72, target: gnb.Config{ID: 2, Name: "orbit-gnb-2", TAC: 7},
+		{name: "explicit TAC", net24: testnet.EngineHandoverExplicitTAC, target: gnb.Config{ID: 2, Name: "orbit-gnb-2", TAC: 7},
 			want: func(s gnb.Config) gnb.Config {
 				return gnb.Config{ID: 2, Name: "orbit-gnb-2", MCC: s.MCC, MNC: s.MNC, TAC: 7, Slices: s.Slices}
 			}},
@@ -35,6 +36,9 @@ func TestHandoverResultReportsPresentedTarget(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := newMockPair(t, tc.net24, mockupf.Options{}, false)
 			m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+			// A test-speed grace window, as the other mock-pair handovers
+			// use: the source socket is released soon after the move.
+			m.n3.grace = 250 * time.Millisecond
 			const supi = "208930100007500"
 			p.register(t, m, supi)
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

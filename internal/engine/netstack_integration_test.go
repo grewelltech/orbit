@@ -12,6 +12,7 @@ import (
 	"github.com/bgrewell/loom/core/netpath/dgram"
 
 	"github.com/bgrewell/orbit/internal/gtpu"
+	"github.com/bgrewell/orbit/internal/testnet"
 )
 
 // hairpinUPF reflects every uplink G-PDU's inner packet straight back down
@@ -179,8 +180,8 @@ func TestInterGNBMoveResetsNetstackConns(t *testing.T) {
 	upf := newFakeUPFSocket(t)
 	m := NewManager(testLogger())
 	m.n3.grace = 0
-	portSrc, portTgt := freeUDPPort(t), freeUDPPort(t)
-	sess := newDataSession(m, "001010000000043", upf.LocalAddr().String(), portSrc, 0x11, 0x100, 1)
+	src, tgt := testnet.Addr(testnet.EngineNetstackInterGNB, 11), testnet.Addr(testnet.EngineNetstackInterGNB, 12)
+	sess := newDataSessionAt(m, "001010000000043", upf.LocalAddr().String(), src, 0x11, 0x100, 1)
 	t.Cleanup(sess.closeDataPath)
 	ueIP := net.ParseIP(sess.Result.PDUAddress)
 	var dlTEID atomic.Uint32
@@ -236,9 +237,8 @@ func TestInterGNBMoveResetsNetstackConns(t *testing.T) {
 	}
 
 	// The inter-gNB move (same shape as runXnHandover after the ack).
-	sess.n3Port = portTgt
 	dlTEID.Store(0x300) // the UPF switches its downlink FAR with the path
-	if err := sess.retargetDataPath(dataPathMove{gnbN3: "127.0.0.1", dlTEID: 0x300}); err != nil {
+	if err := sess.retargetDataPath(dataPathMove{gnbN3: tgt, dlTEID: 0x300}); err != nil {
 		t.Fatalf("inter-gNB retarget: %v", err)
 	}
 

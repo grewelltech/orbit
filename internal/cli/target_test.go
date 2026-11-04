@@ -28,6 +28,7 @@ import (
 	"github.com/bgrewell/orbit/internal/observability"
 	"github.com/bgrewell/orbit/internal/server"
 	"github.com/bgrewell/orbit/internal/target"
+	"github.com/bgrewell/orbit/internal/testnet"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
@@ -41,16 +42,14 @@ type probeLab struct {
 
 func newProbeLab(t *testing.T, net int, withUPF bool) probeLab {
 	t.Helper()
-	base := "127.0." + itoa(net) + "."
+	base := testnet.Base(net)
 	ki, _ := auth.ParseHexKey("Ki", testKi)
 	opc, _ := auth.ParseHexKey("OPc", testOPc)
 	cfg := mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
 		MCC: "208", MNC: "93", SST: 1, SD: "010203"}
 	if withUPF {
 		upf, err := mockupf.Listen(base+"10:2152", mockupf.Options{})
-		if err != nil {
-			t.Skipf("cannot bind the stub UPF on %s10:2152: %v", base, err)
-		}
+		testnet.RequireBind(t, base+"10:2152", err)
 		t.Cleanup(func() { _ = upf.Close() })
 		cfg.UPF, cfg.UPFAddress = upf, base+"10"
 	}
@@ -64,8 +63,6 @@ func newProbeLab(t *testing.T, net int, withUPF bool) probeLab {
 	t.Cleanup(srv.Close)
 	return probeLab{server: srv.URL, amf: front.Addr, net: base, mock: amf}
 }
-
-func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
 
 // labTarget is a target for the lab: its AMF, PLMN, slice, pool and
 // addresses.
@@ -86,9 +83,7 @@ func poolWith(ki string) string {
 func startProbeLoom(t *testing.T, host, token string) string {
 	t.Helper()
 	lis, err := net.Listen("tcp", host+":0")
-	if err != nil {
-		t.Skipf("cannot listen on %s: %v", host, err)
-	}
+	testnet.RequireBind(t, host+":0", err)
 	gs := control.NewGRPCServer(control.NewServer("test", control.WithAuthToken(token)))
 	go func() { _ = gs.Serve(lis) }()
 	t.Cleanup(gs.Stop)
@@ -100,7 +95,7 @@ func startProbeLoom(t *testing.T, host, token string) string {
 // session; --core-only ends there, passing.
 func TestTargetProbePasses(t *testing.T) {
 	clearOrbitEnv(t)
-	lab := newProbeLab(t, 83, true)
+	lab := newProbeLab(t, testnet.CLIProbePasses, true)
 	r := runOrbit(t, targetDir(t, lab.target("lab1", servedPLMN, poolWith(testKi))), "--server", lab.server, "target", "probe", "lab1", "--core-only")
 	if r.execErr != nil {
 		t.Fatalf("probe: %v\n%s", r.execErr, r.out)
@@ -128,7 +123,7 @@ func TestTargetProbePasses(t *testing.T) {
 // in no output.
 func TestTargetProbeUserPlane(t *testing.T) {
 	clearOrbitEnv(t)
-	lab := newProbeLab(t, 85, true)
+	lab := newProbeLab(t, testnet.CLIProbeUserPlane, true)
 	const tok = "orl1_CLIPROBESECRETCLIPROBE"
 	ctl := startProbeLoom(t, lab.net+"20", tok)
 	app := func(token string) string {
@@ -175,7 +170,7 @@ func TestTargetProbeUserPlane(t *testing.T) {
 // pool; each exits 1. A probe that cannot start exits 3.
 func TestTargetProbeFailures(t *testing.T) {
 	clearOrbitEnv(t)
-	lab := newProbeLab(t, 84, false)
+	lab := newProbeLab(t, testnet.CLIProbeFailures, false)
 	tests := []struct {
 		name, doc string
 		want      []string
@@ -228,7 +223,7 @@ func TestTargetProbeFailures(t *testing.T) {
 // over or written after a rejected NG Setup without --force.
 func TestTargetInit(t *testing.T) {
 	clearOrbitEnv(t)
-	lab := newProbeLab(t, 84, false)
+	lab := newProbeLab(t, testnet.CLITargetInit, false)
 	loc := targetDir(t, "") // an empty ./orbit.yaml exists: --here must refuse
 	if err := os.Remove(filepath.Join(loc.Dir, "orbit.yaml")); err != nil {
 		t.Fatal(err)
