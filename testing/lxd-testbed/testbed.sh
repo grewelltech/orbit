@@ -743,10 +743,157 @@ check_ue_pool_fits() {
     fi
 }
 
+# ── SD-Core from main ────────────────────────────────────────────────────────
+# The NF images are built here, on the host, and loaded into the core node's
+# containerd: the core node needs no registry, the build reuses this host's
+# docker cache across rebuilds, and an image built at the same commit is not
+# built again.
+
+SDCORE_IMAGES_LIST="$TESTBED_CACHE_DIR/sdcore-images"   # "<image name> <full ref>" per line
+SDCORE_VERSIONS="$TESTBED_CACHE_DIR/sdcore-versions"    # what each component resolved to
+SDCORE_BUILD_LOG="$TESTBED_CACHE_DIR/sdcore-build.log"
+
+# sdcore_nf_ref <nf> -> the git ref to build it at: SDCORE_REF_<NF>, else SDCORE_NF_REF.
+sdcore_nf_ref() {
+    local v
+    v="SDCORE_REF_$(echo "$1" | tr '[:lower:]-' '[:upper:]_')"
+    echo "${!v:-$SDCORE_NF_REF}"
+}
+
+# sdcore_nf_images <nf> -> the image names its `make docker-build` produces,
+# without registry or tag. The chart's tags name images the same way.
+sdcore_nf_images() {
+    case "$1" in
+        upf)        echo "upf-bess upf-pfcp" ;;
+        webconsole) echo "5gc-webui" ;;
+        metricfunc|simapp) echo "$1" ;;
+        *)          echo "5gc-$1" ;;
+    esac
+}
+
+# build_sdcore_images builds every NF in SDCORE_NFS at its ref and writes
+# SDCORE_IMAGES_LIST. Each repository's own docker-build target is used, so
+# the image is the one upstream CI would publish from that commit.
+build_sdcore_images() {
+    local src="$TESTBED_CACHE_DIR/sdcore-src" nf ref sha tag img all have
+    command -v docker >/dev/null 2>&1 \
+        || die "docker not found on this host; it builds the SD-Core images (set SDCORE_NF_REF= to run the charts' released images instead)"
+    mkdir -p "$src"
+    : > "$SDCORE_IMAGES_LIST"
+    : > "$SDCORE_BUILD_LOG"
+    for nf in $SDCORE_NFS; do
+        ref=$(sdcore_nf_ref "$nf")
+        if [ ! -d "$src/$nf/.git" ]; then
+            git clone -q "$SDCORE_NF_ORG/$nf.git" "$src/$nf" || die "could not clone $SDCORE_NF_ORG/$nf"
+        fi
+        git -C "$src/$nf" fetch -q --tags --force origin || die "could not fetch $nf"
+        git -C "$src/$nf" checkout -q --detach "origin/$ref" 2>/dev/null \
+            || git -C "$src/$nf" checkout -q --detach "$ref" 2>/dev/null \
+            || die "no such $nf ref: $ref"
+        git -C "$src/$nf" clean -qfdx
+        sha=$(git -C "$src/$nf" rev-parse HEAD)
+        tag="tb-${sha:0:12}"
+        all=$(sdcore_nf_images "$nf")
+        have=1
+        for img in $all; do docker image inspect "$SDCORE_IMAGE_PREFIX$img:$tag" >/dev/null 2>&1 || have=0; done
+        if [ $have = 1 ]; then
+            info "SD-Core $nf at $ref (${sha:0:12}): already built"
+        else
+            info "building SD-Core $nf at $ref (${sha:0:12})"
+            # The Makefiles split SDCORE_IMAGE_PREFIX as registry + repository;
+            # only their concatenation matters.
+            ( cd "$src/$nf" && make docker-build \
+                DOCKER_REGISTRY="$SDCORE_IMAGE_PREFIX" DOCKER_REPOSITORY= DOCKER_TAG="$tag" \
+                CPU="$SDCORE_UPF_CPU" ) >>"$SDCORE_BUILD_LOG" 2>&1 \
+                || { tail -n 30 "$SDCORE_BUILD_LOG" >&2; die "building $nf failed; the full log is $SDCORE_BUILD_LOG"; }
+        fi
+        for img in $all; do
+            docker image inspect "$SDCORE_IMAGE_PREFIX$img:$tag" >/dev/null 2>&1 \
+                || die "$nf built, but not as $SDCORE_IMAGE_PREFIX$img:$tag — its Makefile's image naming changed"
+            echo "$img $SDCORE_IMAGE_PREFIX$img:$tag" >> "$SDCORE_IMAGES_LIST"
+        done
+        echo "nf/$nf $ref $sha" >> "$SDCORE_VERSIONS"
+    done
+}
+
+# load_sdcore_images copies the built images into the core node's containerd,
+# where the kubelet finds them (the charts pull IfNotPresent). Needs the
+# cluster, so it runs after k8s-install.
+load_sdcore_images() {
+    local tar="$TESTBED_CACHE_DIR/sdcore-images.tar" refs
+    refs=$(awk '{print $2}' "$SDCORE_IMAGES_LIST" | tr '\n' ' ')
+    info "loading $(wc -l < "$SDCORE_IMAGES_LIST") SD-Core images into $NODE_CORE's containerd"
+    # shellcheck disable=SC2086 # one word per image ref
+    docker save -o "$tar" $refs || die "docker save failed"
+    push_file "$NODE_CORE" "$tar" /var/tmp/sdcore-images.tar 600
+    rm -f "$tar"
+    on_core "/var/lib/rancher/rke2/bin/ctr --address /run/k3s/containerd/containerd.sock -n k8s.io images import /var/tmp/sdcore-images.tar >/dev/null && rm -f /var/tmp/sdcore-images.tar" \
+        || die "could not import the SD-Core images on $NODE_CORE"
+}
+
+# sdcore_image_overrides <values template> <chart values root> rewrites the
+# image tags in the OnRamp values template so every image built here is the
+# one deployed, and every other image keeps the chart's own reference.
+#
+# The charts compose an image as images.repository + images.tags.<x>, one
+# repository per chart. Built images live under a different repository, so
+# the override sets repository to "" and writes every tag of that chart as a
+# full reference. An image built here that no chart names is an error: it
+# means the build list and the charts disagree, and a run would silently use
+# the released image.
+sdcore_image_overrides() {
+    local vf=$1 root=$2
+    push_file "$NODE_CORE" "$SDCORE_IMAGES_LIST" /tmp/sdcore-images.txt
+    on_core "python3 - '$vf' '$root' <<'PY'
+import sys, yaml
+vf, root = sys.argv[1], sys.argv[2]
+built = dict(l.split() for l in open('/tmp/sdcore-images.txt') if l.strip())
+used = set()
+# OnRamp values key -> the chart directory holding that subchart's defaults.
+charts = {'5g-control-plane': '5g-control-plane', 'omec-sub-provision': 'omec-sub-provision', 'omec-user-plane': 'bess-upf'}
+lines = open(vf).read().split(chr(10))
+for key, chart in charts.items():
+    images = (yaml.safe_load(open('%s/%s/values.yaml' % (root, chart))) or {}).get('images') or {}
+    repo, tags = images.get('repository') or '', images.get('tags') or {}
+    out = {}
+    for k, v in tags.items():
+        name = str(v).split(':')[0]
+        if name in built:
+            out[k] = built[name]; used.add(name)
+        else:
+            out[k] = repo + str(v)
+    if not any(n in built for n in (str(v).split(':')[0] for v in tags.values())):
+        continue
+    try:
+        at = lines.index(key + ':')
+    except ValueError:
+        sys.exit('values template: no top-level %s: -- OnRamp layout changed' % key)
+    end = next((i for i in range(at + 1, len(lines)) if lines[i] and not lines[i][0].isspace() and not lines[i].startswith('#')), len(lines))
+    if any(l.startswith('  images:') for l in lines[at + 1:end]):
+        sys.exit('values template: %s already sets images -- refusing to override it' % key)
+    block = ['  images:', '    repository: \"\"', '    tags:'] + ['      %s: \"%s\"' % (k, v) for k, v in out.items()]
+    lines[at + 1:at + 1] = block
+unused = sorted(set(built) - used)
+if unused:
+    sys.exit('built images no chart names: %s' % ' '.join(unused))
+open(vf, 'w').write(chr(10).join(lines))
+PY" || die "could not point the charts at the images built from $SDCORE_NF_REF"
+}
+
 cmd_core() {
     require_lxd
     exists_instance "$NODE_CORE" || die "$NODE_CORE not found — run '$PROG up' first"
     check_ue_pool_fits
+
+    # Built first: a failed build costs nothing on the core, and the images are
+    # ready to load as soon as the cluster is.
+    mkdir -p "$TESTBED_CACHE_DIR"
+    : > "$SDCORE_VERSIONS"
+    if [ -n "$SDCORE_NF_REF" ]; then
+        build_sdcore_images
+    else
+        info "SDCORE_NF_REF is empty: running the images the charts name"
+    fi
 
     info "installing OnRamp prerequisites on $NODE_CORE"
     on_core "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git make ansible >/dev/null" \
@@ -765,6 +912,7 @@ cmd_core() {
     on_core "rm -rf $TESTBED_ONRAMP_DIR && git clone -q $ONRAMP_REPO $TESTBED_ONRAMP_DIR" \
         || die "could not clone OnRamp from $ONRAMP_REPO"
     on_core "cd $TESTBED_ONRAMP_DIR && git checkout -q $ONRAMP_VERSION" || die "no such OnRamp ref: $ONRAMP_VERSION"
+    echo "onramp $ONRAMP_VERSION $(on_core "git -C $TESTBED_ONRAMP_DIR rev-parse HEAD" | tr -d '\r')" >> "$SDCORE_VERSIONS"
 
     # Which values template this OnRamp ships is not stable: the fork renamed
     # radio-5g-values.yaml to sdcore-5g-values.yaml when it merged upstream,
@@ -777,12 +925,30 @@ cmd_core() {
         || die "no known values template in $TESTBED_ONRAMP_DIR/$vf_dir (looked for sdcore-5g-values.yaml, radio-5g-values.yaml) — OnRamp layout changed"
     info "values template: $vf"
 
-    # Empty SDCORE_CHART_VERSION keeps whatever OnRamp pins; the whole core:
-    # block is replaced below, so the pin has to be read out first.
-    local chart=$SDCORE_CHART_VERSION
-    if [ -z "$chart" ]; then
-        chart=$(on_core "cd $TESTBED_ONRAMP_DIR && sed -n '/^core:/,/^gnbsim:/p' vars/main.yml | sed -n 's/^ *chart_version: *\([^ #]*\).*/\1/p' | head -1" | tr -d '\r')
-        [ -n "$chart" ] || die "could not read OnRamp's chart_version pin; set SDCORE_CHART_VERSION"
+    # The charts: a published version when SDCORE_CHART_VERSION is set, else
+    # sdcore-helm-charts at SDCORE_CHARTS_REF, installed as local charts.
+    # Either way the subcharts' own values.yaml end up under $chart_root, which
+    # is where the image overrides read each chart's image references from.
+    local helm_block chart_root
+    if [ -n "$SDCORE_CHART_VERSION" ]; then
+        info "SD-Core chart: published $SDCORE_CHART_VERSION"
+        chart_root=/opt/sd-core-chart/sd-core/charts
+        on_core "rm -rf /opt/sd-core-chart && helm pull oci://ghcr.io/omec-project/sd-core --version $SDCORE_CHART_VERSION --untar --untardir /opt/sd-core-chart >/dev/null && cd $chart_root && for t in *.tgz; do [ ! -e \"\$t\" ] || tar xzf \"\$t\" || exit 1; done" \
+            || die "could not fetch SD-Core chart $SDCORE_CHART_VERSION"
+        helm_block="    local_charts: false
+    chart_ref: oci://ghcr.io/omec-project/sd-core
+    chart_version: $SDCORE_CHART_VERSION"
+        echo "charts $SDCORE_CHART_VERSION oci://ghcr.io/omec-project/sd-core" >> "$SDCORE_VERSIONS"
+    else
+        info "SD-Core charts: $SDCORE_CHARTS_REPO at $SDCORE_CHARTS_REF"
+        chart_root=/opt/sdcore-helm-charts
+        on_core "rm -rf $chart_root && git clone -q $SDCORE_CHARTS_REPO $chart_root && cd $chart_root && git checkout -q $SDCORE_CHARTS_REF" \
+            || die "could not fetch sdcore-helm-charts at $SDCORE_CHARTS_REF"
+        # OnRamp archives the parent of chart_ref and installs the last path
+        # element, so the umbrella's file:// siblings come along.
+        helm_block="    local_charts: true
+    chart_ref: $chart_root/sdcore-helm-charts"
+        echo "charts $SDCORE_CHARTS_REF $(on_core "git -C $chart_root rev-parse HEAD" | tr -d '\r')" >> "$SDCORE_VERSIONS"
     fi
 
     # Ansible runs on the node against itself, so there are no SSH keys to manage.
@@ -813,9 +979,7 @@ core:
       gateway: $GW_N6
       attach: macvlan
   helm:
-    local_charts: false
-    chart_ref: oci://ghcr.io/omec-project/sd-core
-    chart_version: $chart
+$helm_block
   upf:
     mode: af_packet
     instances:
@@ -886,6 +1050,11 @@ open(p,'w').write(chr(10).join(out))
 PY" || die "could not enable End Markers in the values template"
     fi
 
+    if [ -n "$SDCORE_NF_REF" ]; then
+        info "pointing the charts at the images built from $SDCORE_NF_REF"
+        sdcore_image_overrides "$TESTBED_ONRAMP_DIR/$vf_dir/$vf" "$chart_root"
+    fi
+
     info "UPF networking as configured:"
     # Everything a wrong deployment turns on, printed before the 15 minutes
     # are spent: which VLAN interface carries which plane, the gateways, the
@@ -895,6 +1064,7 @@ PY" || die "could not enable End Markers in the values template"
 
     info "installing Kubernetes (slow)"
     on_core "cd $TESTBED_ONRAMP_DIR && make k8s-install" || die "k8s install failed"
+    [ -z "$SDCORE_NF_REF" ] || load_sdcore_images
 
     # OnRamp's install task does not upgrade an existing release — a re-run
     # leaves helm at the same revision and silently keeps the old values, so a
@@ -914,8 +1084,18 @@ PY" || die "could not enable End Markers in the values template"
 
     check_mongo_cpu
     report_subscribers
+    record_versions
 
     cmd_core_status
+}
+
+# record_versions writes what every core component resolved to, beside the
+# core (/etc/orbit/testbed-versions) and into the log: with the core following
+# main, these SHAs are the only record of what a run measured.
+record_versions() {
+    push_file "$NODE_CORE" "$SDCORE_VERSIONS" /etc/orbit/testbed-versions
+    info "core components (/etc/orbit/testbed-versions on $NODE_CORE):"
+    sed 's/^/    /' "$SDCORE_VERSIONS" >&2
 }
 
 # check_mongo_cpu warns if MongoDB is capped low enough to cap the attach rate.
