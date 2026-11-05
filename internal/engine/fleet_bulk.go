@@ -35,6 +35,18 @@ type FleetBulkTraffic struct {
 // isTCP reports whether this bulk workload runs over TCP.
 func (c FleetBulkTraffic) isTCP() bool { return c.Transport == "tcp" }
 
+// bulkResult is a bulk run's outcome: UEs with at least one active flow and
+// the goodput each direction carried (counted where the bytes land — the UE's
+// uplink send and downlink receive).
+type bulkResult struct {
+	Flows         int
+	UplinkBytes   uint64
+	DownlinkBytes uint64
+}
+
+// Bytes is the total goodput across both directions.
+func (r bulkResult) Bytes() uint64 { return r.UplinkBytes + r.DownlinkBytes }
+
 const bulkDownlinkPort = 5001
 
 func validateFleetBulk(cfg FleetBulkTraffic) error {
@@ -73,9 +85,9 @@ func validateFleetBulk(cfg FleetBulkTraffic) error {
 // loom agent to drive downlink toward each UE's PDU address. The members are
 // reserved by runFleetBehaviors, so bulk does not overlap mobility or apps.
 func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, cfg FleetBulkTraffic,
-	members []*fleetUE, duration time.Duration, live *FleetLiveStats) (int, uint64) {
+	members []*fleetUE, duration time.Duration, live *FleetLiveStats) bulkResult {
 	if len(members) == 0 || pool == nil || cfg.Peer == "" {
-		return 0, 0
+		return bulkResult{}
 	}
 	if cfg.isTCP() {
 		return runFleetBulkTCP(ctx, log, pool, cfg, members, duration, live)
@@ -83,7 +95,7 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 	a, err := pool.acquire(ctx, cfg.Peer, cfg.Token)
 	if err != nil {
 		log.Warn("fleet bulk traffic: N6 agent unavailable", "peer", cfg.Peer, "err", err)
-		return 0, 0
+		return bulkResult{}
 	}
 	defer pool.release(a)
 
@@ -96,7 +108,7 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 		dataHost, _, err = net.SplitHostPort(cfg.Peer)
 		if err != nil {
 			log.Warn("fleet bulk traffic: invalid N6 peer", "peer", cfg.Peer, "err", err)
-			return 0, 0
+			return bulkResult{}
 		}
 	}
 
@@ -116,7 +128,7 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 	}
 
 	var wg sync.WaitGroup
-	var bytes atomic.Uint64
+	var upBytes, downBytes atomic.Uint64
 	remoteIDs := make([]string, 0, len(members))
 	downlinkBase := make(map[*fleetUE]uint64, len(members))
 	started := 0
@@ -142,7 +154,7 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 					log.Warn("fleet bulk traffic: uplink flow failed", "supi", fu.sess.SUPI, "err", err)
 					return
 				}
-				bytes.Add(res.Bytes)
+				upBytes.Add(res.Bytes)
 			}(fu)
 		}
 
@@ -174,10 +186,10 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 	for fu, before := range downlinkBase {
 		_, _, _, after := fu.sess.Totals()
 		if after >= before {
-			bytes.Add(after - before)
+			downBytes.Add(after - before)
 		}
 	}
-	return started, bytes.Load()
+	return bulkResult{Flows: started, UplinkBytes: upBytes.Load(), DownlinkBytes: downBytes.Load()}
 }
 
 func configureBulkReceiver(ctx context.Context, pool *fleetAgentPool, a *fleetAgent,

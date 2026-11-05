@@ -29,14 +29,14 @@ const bulkTCPWriteBuf = 32 * 1024
 //   - downlink: each UE listens in its netstack and a loom TCP sender on N6
 //     streams toward it.
 //
-// It returns the number of UEs with at least one active flow and the total
-// goodput bytes (uplink bytes written plus downlink bytes read).
+// It returns the per-direction goodput and the number of UEs with at least one
+// active flow.
 func runFleetBulkTCP(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, cfg FleetBulkTraffic,
-	members []*fleetUE, duration time.Duration, live *FleetLiveStats) (int, uint64) {
+	members []*fleetUE, duration time.Duration, live *FleetLiveStats) bulkResult {
 	a, err := pool.acquire(ctx, cfg.Peer, cfg.Token)
 	if err != nil {
 		log.Warn("fleet bulk traffic: N6 agent unavailable", "peer", cfg.Peer, "err", err)
-		return 0, 0
+		return bulkResult{}
 	}
 	defer pool.release(a)
 
@@ -49,7 +49,7 @@ func runFleetBulkTCP(ctx context.Context, log *slog.Logger, pool *fleetAgentPool
 		dataHost, _, err = net.SplitHostPort(cfg.Peer)
 		if err != nil {
 			log.Warn("fleet bulk traffic: invalid N6 peer", "peer", cfg.Peer, "err", err)
-			return 0, 0
+			return bulkResult{}
 		}
 	}
 
@@ -68,7 +68,7 @@ func runFleetBulkTCP(ctx context.Context, log *slog.Logger, pool *fleetAgentPool
 	}
 
 	var wg sync.WaitGroup
-	var bytes atomic.Uint64
+	var upBytes, downBytes atomic.Uint64
 	remoteIDs := make([]string, 0, len(members))
 	started := 0
 	for _, fu := range members {
@@ -93,7 +93,7 @@ func runFleetBulkTCP(ctx context.Context, log *slog.Logger, pool *fleetAgentPool
 				if err != nil {
 					log.Warn("fleet bulk traffic: uplink flow failed", "supi", supi, "err", err)
 				}
-				bytes.Add(n)
+				upBytes.Add(n)
 			}(nw, fu.sess.SUPI)
 		}
 
@@ -113,7 +113,7 @@ func runFleetBulkTCP(ctx context.Context, log *slog.Logger, pool *fleetAgentPool
 					wg.Add(1)
 					go func(ln net.Listener, supi string) {
 						defer wg.Done()
-						bytes.Add(bulkTCPDrain(ctx, ln, duration+pool.tun.serverSlack))
+						downBytes.Add(bulkTCPDrain(ctx, ln, duration+pool.tun.serverSlack))
 					}(ln, fu.sess.SUPI)
 				}
 			}
@@ -130,7 +130,7 @@ func runFleetBulkTCP(ctx context.Context, log *slog.Logger, pool *fleetAgentPool
 	for _, id := range remoteIDs {
 		pool.destroyFlow(a, id)
 	}
-	return started, bytes.Load()
+	return bulkResult{Flows: started, UplinkBytes: upBytes.Load(), DownlinkBytes: downBytes.Load()}
 }
 
 // bulkTCPSend dials target through the UE's netstack and writes a paced byte

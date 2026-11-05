@@ -1244,19 +1244,21 @@ func resourceSamples(rs []load.ResourceSample) []*orbitv1.ResourceSample {
 
 func fleetReportProto(r engine.FleetReport) *orbitv1.FleetReport {
 	return &orbitv1.FleetReport{
-		Attached:        uint32(r.Attached),
-		AttachFailed:    uint32(r.AttachFailed),
-		Abandoned:       uint32(r.Abandoned),
-		AttachElapsedMs: r.AttachElapsed.Milliseconds(),
-		Handovers:       uint32(r.Handovers),
-		HandoverErrors:  uint32(r.HandoverErr),
-		TrafficFlows:    uint32(r.TrafficFlows),
-		TrafficBytes:    r.TrafficBytes,
-		Deregistered:    uint32(r.Deregistered),
-		PerGnb:          gnbProgressProtos(r.PerGNB),
-		Latency:         procedureLatencies(r.Latencies),
-		AchievedRate:    r.AchievedRate,
-		Resources:       resourceSamples(r.Resources),
+		Attached:          uint32(r.Attached),
+		AttachFailed:      uint32(r.AttachFailed),
+		Abandoned:         uint32(r.Abandoned),
+		AttachElapsedMs:   r.AttachElapsed.Milliseconds(),
+		Handovers:         uint32(r.Handovers),
+		HandoverErrors:    uint32(r.HandoverErr),
+		TrafficFlows:      uint32(r.TrafficFlows),
+		TrafficBytes:      r.TrafficBytes,
+		BulkUplinkBytes:   r.BulkUplinkBytes,
+		BulkDownlinkBytes: r.BulkDownlinkBytes,
+		Deregistered:      uint32(r.Deregistered),
+		PerGnb:            gnbProgressProtos(r.PerGNB),
+		Latency:           procedureLatencies(r.Latencies),
+		AchievedRate:      r.AchievedRate,
+		Resources:         resourceSamples(r.Resources),
 	}
 }
 
