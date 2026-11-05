@@ -1567,7 +1567,7 @@ behaviors:
       peer: 172.17.192.2:9551       # N6 loomd control address
       token: ${LOOM_TOKEN}          # omit for an unauthenticated loomd
       # peer_data_ip: 172.17.192.2  # when control and data addresses differ
-      # packet_size: 1200           # UDP payload bytes; default 1200
+      # packet_size: 0              # inner UDP payload bytes; 0 (default) auto-picks the largest the GTP-U tunnel carries (<=1350)
 ```
 
 The N6 loom agent runs one shared uplink receiver and one downlink sender per

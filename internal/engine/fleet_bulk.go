@@ -30,6 +30,36 @@ type FleetBulkTraffic struct {
 
 const bulkDownlinkPort = 5001
 
+// maxBulkPacketSize is the largest inner UDP payload fleet bulk traffic may
+// request. Fleet bulk rides the GTP-U tunnel in both directions (uplink through
+// each UE's tunnel, downlink from the N6 responder to the PDU address through
+// the core), so its payload is bounded by the tunnel's inner MTU, not by any
+// NIC. The inner MTU is loomgtp.DefaultInnerMTU (1400); subtracting the inner
+// IPv4+UDP headers (28) leaves 1372, and this ceiling keeps headroom under that
+// for stacked encapsulation. Jumbo-sized payloads only help on direct,
+// non-tunnel datapaths, which clamp against their own egress MTU instead.
+const maxBulkPacketSize = 1350
+
+// resolveBulkPacketSize maps a requested inner UDP payload size to the size a
+// tunnel bulk flow will use. Zero (the default) means "auto": the largest the
+// GTP-U tunnel safely carries. A NIC's MTU is deliberately not consulted here
+// because it does not bound inner tunnel payloads.
+func resolveBulkPacketSize(requested int) int {
+	if requested <= 0 {
+		return maxBulkPacketSize
+	}
+	return requested
+}
+
+// ValidateBulkPacketSize rejects a negative or over-MTU bulk payload size. Zero
+// is valid and selects the auto-detected default (see resolveBulkPacketSize).
+func ValidateBulkPacketSize(n int) error {
+	if n < 0 || n > maxBulkPacketSize {
+		return fmt.Errorf("bulk packet size must be between 1 and %d bytes (or 0 to auto-detect the largest the tunnel carries)", maxBulkPacketSize)
+	}
+	return nil
+}
+
 func validateFleetBulk(cfg FleetBulkTraffic) error {
 	if cfg.UEs == 0 && cfg.UplinkRate == "" && cfg.DownlinkRate == "" && cfg.Peer == "" {
 		return nil
@@ -51,8 +81,8 @@ func validateFleetBulk(cfg FleetBulkTraffic) error {
 			return fmt.Errorf("bulk %s rate %q is not a positive bit rate", direction, value)
 		}
 	}
-	if cfg.PacketSize < 0 || cfg.PacketSize > 1350 {
-		return fmt.Errorf("bulk packet size must be between 1 and 1350 bytes (or 0 for the default)")
+	if err := ValidateBulkPacketSize(cfg.PacketSize); err != nil {
+		return err
 	}
 	return nil
 }
@@ -72,10 +102,7 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 	}
 	defer pool.release(a)
 
-	packetSize := cfg.PacketSize
-	if packetSize == 0 {
-		packetSize = 1200
-	}
+	packetSize := resolveBulkPacketSize(cfg.PacketSize)
 	dataHost := cfg.PeerDataIP
 	if dataHost == "" {
 		dataHost, _, err = net.SplitHostPort(cfg.Peer)
