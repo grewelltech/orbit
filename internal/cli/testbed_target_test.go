@@ -40,7 +40,7 @@ func TestTestbedWritesALoadableTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := string(b)
-	fns := shellFunc(t, script, "ip_in") + shellFunc(t, script, "target_for")
+	fns := shellFunc(t, script, "ip_in") + shellFunc(t, script, "supi_at") + shellFunc(t, script, "target_for")
 	vars := map[string]string{
 		"TESTBED_NET_N2": "10.102.0.0/24", "TESTBED_NET_N3": "10.103.0.0/24",
 		"TESTBED_NET_FAR_N2": "10.112.0.0/24", "TESTBED_NET_FAR_N3": "10.113.0.0/24",
@@ -49,8 +49,10 @@ func TestTestbedWritesALoadableTarget(t *testing.T) {
 		"TESTBED_DNN": "internet", "UPF_N3": "10.103.0.100", "TESTBED_SUB_START": "001010100007500",
 		"TESTBED_SUB_COUNT": "1000", "AMF_N2": "10.102.0.10:38412", "RESPONDER": "10.106.0.30:9551", "APP_N6": "10.106.0.30",
 	}
+	// mcc/mnc are ${ORBIT_MCC}/${ORBIT_MNC} in the target, like ki/opc, so the
+	// node's /etc/orbit/env supplies them; the test stands in for that env.
 	env := func(k string) (string, bool) {
-		v, ok := map[string]string{"ORBIT_KI": testKi, "ORBIT_OPC": testOPc, "ORBIT_RESPONDER_TOKEN": "tok"}[k]
+		v, ok := map[string]string{"ORBIT_KI": testKi, "ORBIT_OPC": testOPc, "ORBIT_RESPONDER_TOKEN": "tok", "ORBIT_MCC": "001", "ORBIT_MNC": "01"}[k]
 		return v, ok
 	}
 	for node, nets := range map[string][2]string{"orbit-ran-near": {"10.102.0.", "10.103.0."}, "orbit-ran-far": {"10.112.0.", "10.113.0."}} {
