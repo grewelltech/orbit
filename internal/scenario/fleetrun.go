@@ -93,6 +93,7 @@ func BuildFleetRun(f *FleetScenario, ki, opc []byte) (engine.FleetRunSpec, engin
 			beh.Bulk = engine.FleetBulkTraffic{
 				UEs: b.UEs, UplinkRate: b.UplinkRate, DownlinkRate: b.DownlinkRate,
 				Peer: b.Peer, Token: b.Token, PeerDataIP: b.PeerDataIP, PacketSize: b.PacketSize,
+				Transport: b.Transport,
 			}
 		}
 		// Synthetic profiles → loom constant-rate flows (first synthetic entry's

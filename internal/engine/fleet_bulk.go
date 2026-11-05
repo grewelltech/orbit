@@ -16,8 +16,11 @@ import (
 	"github.com/bgrewell/orbit/internal/loomgtp"
 )
 
-// FleetBulkTraffic drives constant-rate UDP load through a fixed number of
+// FleetBulkTraffic drives constant-rate load through a fixed number of
 // non-mobile UEs. Rates are per UE and either direction may be omitted.
+// Transport selects UDP (the default) or TCP; TCP rides each UE's gVisor
+// netstack so the transport's congestion control, retransmission and RTT are
+// exercised across the GTP-U tunnel.
 type FleetBulkTraffic struct {
 	UEs          int
 	UplinkRate   string
@@ -26,7 +29,11 @@ type FleetBulkTraffic struct {
 	Token        string
 	PeerDataIP   string
 	PacketSize   int
+	Transport    string // "" or "udp" (default) | "tcp"
 }
+
+// isTCP reports whether this bulk workload runs over TCP.
+func (c FleetBulkTraffic) isTCP() bool { return c.Transport == "tcp" }
 
 const bulkDownlinkPort = 5001
 
@@ -54,6 +61,11 @@ func validateFleetBulk(cfg FleetBulkTraffic) error {
 	if cfg.PacketSize < 0 || cfg.PacketSize > 1350 {
 		return fmt.Errorf("bulk packet size must be between 1 and 1350 bytes (or 0 for the default)")
 	}
+	switch cfg.Transport {
+	case "", "udp", "tcp":
+	default:
+		return fmt.Errorf("bulk transport %q is not udp or tcp", cfg.Transport)
+	}
 	return nil
 }
 
@@ -64,6 +76,9 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 	members []*fleetUE, duration time.Duration, live *FleetLiveStats) (int, uint64) {
 	if len(members) == 0 || pool == nil || cfg.Peer == "" {
 		return 0, 0
+	}
+	if cfg.isTCP() {
+		return runFleetBulkTCP(ctx, log, pool, cfg, members, duration, live)
 	}
 	a, err := pool.acquire(ctx, cfg.Peer, cfg.Token)
 	if err != nil {
@@ -91,7 +106,7 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 	uplinkTarget := ""
 	receiverID := ""
 	if cfg.UplinkRate != "" {
-		receiverID, uplinkTarget, err = configureBulkReceiver(ctx, pool, a, dataHost, packetSize)
+		receiverID, uplinkTarget, err = configureBulkReceiver(ctx, pool, a, dataHost, packetSize, "udp")
 		if err != nil {
 			log.Warn("fleet bulk traffic: uplink receiver setup failed", "peer", cfg.Peer, "err", err)
 		}
@@ -133,7 +148,7 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 
 		if cfg.DownlinkRate != "" {
 			target := net.JoinHostPort(fu.sess.Result.PDUAddress, fmt.Sprint(bulkDownlinkPort))
-			id, err := configureBulkSender(ctx, pool, a, target, cfg.DownlinkRate, packetSize, duration)
+			id, err := configureBulkSender(ctx, pool, a, target, cfg.DownlinkRate, packetSize, duration, "udp")
 			if err != nil {
 				log.Warn("fleet bulk traffic: downlink sender setup failed", "supi", fu.sess.SUPI, "err", err)
 			} else {
@@ -166,24 +181,24 @@ func runFleetBulk(ctx context.Context, log *slog.Logger, pool *fleetAgentPool, c
 }
 
 func configureBulkReceiver(ctx context.Context, pool *fleetAgentPool, a *fleetAgent,
-	host string, packetSize int) (string, string, error) {
+	host string, packetSize int, datapath string) (string, string, error) {
 	cfg, err := bulkConfigure(ctx, pool, a, &loomv1.FlowSpec{
-		Role: loomv1.FlowRole_FLOW_ROLE_RECEIVER, Datapath: "udp", PacketSize: uint32(packetSize),
+		Role: loomv1.FlowRole_FLOW_ROLE_RECEIVER, Datapath: datapath, PacketSize: uint32(packetSize),
 	})
 	if err != nil {
 		return "", "", err
 	}
 	if cfg.GetDataPort() == 0 {
 		pool.destroyFlow(a, cfg.GetFlowId())
-		return "", "", fmt.Errorf("loomd at %s advertised no UDP receiver port", a.addr)
+		return "", "", fmt.Errorf("loomd at %s advertised no %s receiver port", a.addr, datapath)
 	}
 	return cfg.GetFlowId(), net.JoinHostPort(host, fmt.Sprint(cfg.GetDataPort())), nil
 }
 
 func configureBulkSender(ctx context.Context, pool *fleetAgentPool, a *fleetAgent,
-	target, rate string, packetSize int, duration time.Duration) (string, error) {
+	target, rate string, packetSize int, duration time.Duration, datapath string) (string, error) {
 	cfg, err := bulkConfigure(ctx, pool, a, &loomv1.FlowSpec{
-		Generator: "stream", Payload: "random", Datapath: "udp", Target: target,
+		Generator: "stream", Payload: "random", Datapath: datapath, Target: target,
 		PacketSize: uint32(packetSize), Rate: rate, Duration: durationpb.New(duration + pool.tun.serverSlack),
 	})
 	if err != nil {

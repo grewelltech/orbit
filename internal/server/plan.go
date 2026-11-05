@@ -519,7 +519,8 @@ func planBehaviors(t *orbitv1.ResolvedTarget, b *orbitv1.Behaviors) (scenario.Be
 		}
 		if bk := tr.GetBulk(); bk != nil {
 			bt := &scenario.BulkTraffic{UEs: int(bk.GetUes()), Peer: bk.GetPeer(), Token: bk.GetToken(),
-				PeerDataIP: bk.GetPeerDataIp(), PacketSize: int(bk.GetPacketSize())}
+				PeerDataIP: bk.GetPeerDataIp(), PacketSize: int(bk.GetPacketSize()),
+				Transport: scenario.TransportName(bk.GetTransport())}
 			if bk.GetUplinkBps() > 0 {
 				bt.UplinkRate = bitRate(bk.GetUplinkBps())
 			}

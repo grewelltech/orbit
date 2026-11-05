@@ -101,7 +101,7 @@ export function WorkloadCard({ doc, edit, w, values, onNotice }: { doc: Document
                 {["latency.target", "latency.interval_ms", "latency.ues", "mobility.model", "mobility.speed_mps", "mobility.handover"].map((p) => (
                   <BehaviorField key={p} doc={doc} edit={edit} base={[...base, "behaviors"]} path={p} values={values} />
                 ))}
-                {["traffic.bulk.ues", "traffic.bulk.uplink_bps", "traffic.bulk.downlink_bps", "traffic.bulk.responder", "traffic.bulk.token"].map((p) => (
+                {["traffic.bulk.ues", "traffic.bulk.transport", "traffic.bulk.uplink_bps", "traffic.bulk.downlink_bps", "traffic.bulk.responder", "traffic.bulk.token"].map((p) => (
                   <BehaviorField key={p} doc={doc} edit={edit} base={[...base, "behaviors"]} path={p} values={values} />
                 ))}
                 <span className="o-label py-1" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>

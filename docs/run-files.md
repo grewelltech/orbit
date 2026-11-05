@@ -99,6 +99,15 @@ has no `data_ip`, runs the fleet idle with a note. A `data_ip` that is a
 host name, not an IPv4 address, fails the run before it starts, as it does
 in a scenario.
 
+Bulk traffic (`behaviors.traffic.bulk`) drives constant-rate load on a set of
+non-mobile UEs: `ues`, per-UE `uplink_bps`/`downlink_bps`, `responder` or an
+explicit `peer`/`token`/`peer_data_ip`, and `packet_size`. `transport` selects
+the protocol — `TRANSPORT_UDP` (the default) or `TRANSPORT_TCP`; TCP runs
+through each UE's netstack so congestion control, retransmission and RTT are
+exercised. (The `fleet` scenario form of this block uses the friendlier
+`uplink_rate`/`downlink_rate` strings and `transport: tcp`; see
+[USAGE](USAGE.md).)
+
 `start: {after: <workload>, phase: started | attached | complete}` holds a
 workload back until another reaches that phase.
 

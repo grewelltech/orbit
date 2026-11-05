@@ -24,13 +24,13 @@ func TestBulkRemoteFlows(t *testing.T) {
 	}
 	defer pool.release(a)
 
-	receiverID, target, err := configureBulkReceiver(ctx, pool, a, "127.0.0.1", 512)
+	receiverID, target, err := configureBulkReceiver(ctx, pool, a, "127.0.0.1", 512, "udp")
 	if err != nil {
 		t.Fatalf("configure receiver: %v", err)
 	}
 	defer pool.destroyFlow(a, receiverID)
 
-	senderID, err := configureBulkSender(ctx, pool, a, target, "5Mbps", 512, 200*time.Millisecond)
+	senderID, err := configureBulkSender(ctx, pool, a, target, "5Mbps", 512, 200*time.Millisecond, "udp")
 	if err != nil {
 		t.Fatalf("configure sender: %v", err)
 	}

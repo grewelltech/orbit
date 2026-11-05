@@ -98,6 +98,7 @@ export const BEHAVIOR_FIELDS: readonly BehaviorField[] = [
   {"path":"traffic.bulk.token","type":"string","secret":true},
   {"path":"traffic.bulk.peer_data_ip","type":"string"},
   {"path":"traffic.bulk.packet_size","type":"uint"},
+  {"path":"traffic.bulk.transport","type":"enum","values":["TRANSPORT_UDP","TRANSPORT_TCP"]},
   {"path":"latency.target","type":"string"},
   {"path":"latency.interval_ms","type":"uint"},
   {"path":"latency.ues","type":"uint"},
