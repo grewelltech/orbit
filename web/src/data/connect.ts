@@ -237,6 +237,7 @@ export class ConnectSource implements TelemetrySource {
       kind: ev.kind,
       supi: ev.supi || undefined,
       message: ev.message,
+      ...(ev.check ? { conformance: true } : {}),
     };
   }
 
