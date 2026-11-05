@@ -3488,9 +3488,14 @@ type FleetReport struct {
 	Resources    []*ResourceSample   `protobuf:"bytes,12,rep,name=resources,proto3" json:"resources,omitempty"`
 	// Attaches a finish cut off: neither attached nor failed, and not in
 	// the success ratio.
-	Abandoned     uint32 `protobuf:"varint,13,opt,name=abandoned,proto3" json:"abandoned,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Abandoned uint32 `protobuf:"varint,13,opt,name=abandoned,proto3" json:"abandoned,omitempty"`
+	// Bulk goodput per direction (bytes), counted where it lands: the UE's
+	// uplink send and downlink receive. Zero with no bulk workload. The rate is
+	// these over the run's traffic window.
+	BulkUplinkBytes   uint64 `protobuf:"varint,14,opt,name=bulk_uplink_bytes,json=bulkUplinkBytes,proto3" json:"bulk_uplink_bytes,omitempty"`
+	BulkDownlinkBytes uint64 `protobuf:"varint,15,opt,name=bulk_downlink_bytes,json=bulkDownlinkBytes,proto3" json:"bulk_downlink_bytes,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *FleetReport) Reset() {
@@ -3610,6 +3615,20 @@ func (x *FleetReport) GetResources() []*ResourceSample {
 func (x *FleetReport) GetAbandoned() uint32 {
 	if x != nil {
 		return x.Abandoned
+	}
+	return 0
+}
+
+func (x *FleetReport) GetBulkUplinkBytes() uint64 {
+	if x != nil {
+		return x.BulkUplinkBytes
+	}
+	return 0
+}
+
+func (x *FleetReport) GetBulkDownlinkBytes() uint64 {
+	if x != nil {
+		return x.BulkDownlinkBytes
 	}
 	return 0
 }
@@ -4269,7 +4288,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\n" +
 	"goroutines\x18\x02 \x01(\rR\n" +
 	"goroutines\x12\x1b\n" +
-	"\trss_bytes\x18\x03 \x01(\x04R\brssBytes\"\x90\x04\n" +
+	"\trss_bytes\x18\x03 \x01(\x04R\brssBytes\"\xec\x04\n" +
 	"\vFleetReport\x12\x1a\n" +
 	"\battached\x18\x01 \x01(\rR\battached\x12#\n" +
 	"\rattach_failed\x18\x02 \x01(\rR\fattachFailed\x12*\n" +
@@ -4284,7 +4303,9 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	" \x03(\v2\x1a.orbit.v1.ProcedureLatencyR\alatency\x12#\n" +
 	"\rachieved_rate\x18\v \x01(\x01R\fachievedRate\x126\n" +
 	"\tresources\x18\f \x03(\v2\x18.orbit.v1.ResourceSampleR\tresources\x12\x1c\n" +
-	"\tabandoned\x18\r \x01(\rR\tabandoned\"\xe0\x02\n" +
+	"\tabandoned\x18\r \x01(\rR\tabandoned\x12*\n" +
+	"\x11bulk_uplink_bytes\x18\x0e \x01(\x04R\x0fbulkUplinkBytes\x12.\n" +
+	"\x13bulk_downlink_bytes\x18\x0f \x01(\x04R\x11bulkDownlinkBytes\"\xe0\x02\n" +
 	"\x14GetRunReportResponse\x12\x1f\n" +
 	"\x03run\x18\x01 \x01(\v2\r.orbit.v1.RunR\x03run\x12*\n" +
 	"\x04load\x18\x02 \x01(\v2\x14.orbit.v1.LoadReportH\x00R\x04load\x12-\n" +

@@ -120,6 +120,56 @@ func (HandoverKind) EnumDescriptor() ([]byte, []int) {
 	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{1}
 }
 
+// Transport selects the L4 protocol bulk traffic runs over.
+type Transport int32
+
+const (
+	Transport_TRANSPORT_UNSPECIFIED Transport = 0 // treated as UDP
+	Transport_TRANSPORT_UDP         Transport = 1
+	Transport_TRANSPORT_TCP         Transport = 2
+)
+
+// Enum value maps for Transport.
+var (
+	Transport_name = map[int32]string{
+		0: "TRANSPORT_UNSPECIFIED",
+		1: "TRANSPORT_UDP",
+		2: "TRANSPORT_TCP",
+	}
+	Transport_value = map[string]int32{
+		"TRANSPORT_UNSPECIFIED": 0,
+		"TRANSPORT_UDP":         1,
+		"TRANSPORT_TCP":         2,
+	}
+)
+
+func (x Transport) Enum() *Transport {
+	p := new(Transport)
+	*p = x
+	return p
+}
+
+func (x Transport) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Transport) Descriptor() protoreflect.EnumDescriptor {
+	return file_orbit_v1_plan_proto_enumTypes[2].Descriptor()
+}
+
+func (Transport) Type() protoreflect.EnumType {
+	return &file_orbit_v1_plan_proto_enumTypes[2]
+}
+
+func (x Transport) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Transport.Descriptor instead.
+func (Transport) EnumDescriptor() ([]byte, []int) {
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{2}
+}
+
 type WorkloadPhase int32
 
 const (
@@ -156,11 +206,11 @@ func (x WorkloadPhase) String() string {
 }
 
 func (WorkloadPhase) Descriptor() protoreflect.EnumDescriptor {
-	return file_orbit_v1_plan_proto_enumTypes[2].Descriptor()
+	return file_orbit_v1_plan_proto_enumTypes[3].Descriptor()
 }
 
 func (WorkloadPhase) Type() protoreflect.EnumType {
-	return &file_orbit_v1_plan_proto_enumTypes[2]
+	return &file_orbit_v1_plan_proto_enumTypes[3]
 }
 
 func (x WorkloadPhase) Number() protoreflect.EnumNumber {
@@ -169,7 +219,7 @@ func (x WorkloadPhase) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WorkloadPhase.Descriptor instead.
 func (WorkloadPhase) EnumDescriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{2}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{3}
 }
 
 type CompareOp int32
@@ -211,11 +261,11 @@ func (x CompareOp) String() string {
 }
 
 func (CompareOp) Descriptor() protoreflect.EnumDescriptor {
-	return file_orbit_v1_plan_proto_enumTypes[3].Descriptor()
+	return file_orbit_v1_plan_proto_enumTypes[4].Descriptor()
 }
 
 func (CompareOp) Type() protoreflect.EnumType {
-	return &file_orbit_v1_plan_proto_enumTypes[3]
+	return &file_orbit_v1_plan_proto_enumTypes[4]
 }
 
 func (x CompareOp) Number() protoreflect.EnumNumber {
@@ -224,7 +274,7 @@ func (x CompareOp) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use CompareOp.Descriptor instead.
 func (CompareOp) EnumDescriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{3}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{4}
 }
 
 type LeaseResource int32
@@ -263,11 +313,11 @@ func (x LeaseResource) String() string {
 }
 
 func (LeaseResource) Descriptor() protoreflect.EnumDescriptor {
-	return file_orbit_v1_plan_proto_enumTypes[4].Descriptor()
+	return file_orbit_v1_plan_proto_enumTypes[5].Descriptor()
 }
 
 func (LeaseResource) Type() protoreflect.EnumType {
-	return &file_orbit_v1_plan_proto_enumTypes[4]
+	return &file_orbit_v1_plan_proto_enumTypes[5]
 }
 
 func (x LeaseResource) Number() protoreflect.EnumNumber {
@@ -276,7 +326,7 @@ func (x LeaseResource) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use LeaseResource.Descriptor instead.
 func (LeaseResource) EnumDescriptor() ([]byte, []int) {
-	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{4}
+	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{5}
 }
 
 // RunPlan is what a run is asked to do (ADR-0008 §2): a resolved target, one
@@ -1312,7 +1362,11 @@ func (x *AppCohort) GetParams() map[string]string {
 	return nil
 }
 
-// BulkTraffic is constant-rate UDP load in either or both directions.
+// BulkTraffic is constant-rate load in either or both directions, over UDP
+// (the default) or TCP. TCP runs through each UE's gVisor netstack so the
+// transport's own congestion control, retransmission and RTT are exercised
+// across the GTP-U tunnel; a zero rate under TCP means full-buffer — send as
+// fast as congestion control allows rather than at a fixed rate.
 type BulkTraffic struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ues           uint32                 `protobuf:"varint,1,opt,name=ues,proto3" json:"ues,omitempty"`
@@ -1323,6 +1377,7 @@ type BulkTraffic struct {
 	Token         string                 `protobuf:"bytes,6,opt,name=token,proto3" json:"token,omitempty"`
 	PeerDataIp    string                 `protobuf:"bytes,7,opt,name=peer_data_ip,json=peerDataIp,proto3" json:"peer_data_ip,omitempty"`
 	PacketSize    uint32                 `protobuf:"varint,8,opt,name=packet_size,json=packetSize,proto3" json:"packet_size,omitempty"`
+	Transport     Transport              `protobuf:"varint,9,opt,name=transport,proto3,enum=orbit.v1.Transport" json:"transport,omitempty"` // udp (default) | tcp
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1411,6 +1466,13 @@ func (x *BulkTraffic) GetPacketSize() uint32 {
 		return x.PacketSize
 	}
 	return 0
+}
+
+func (x *BulkTraffic) GetTransport() Transport {
+	if x != nil {
+		return x.Transport
+	}
+	return Transport_TRANSPORT_UNSPECIFIED
 }
 
 // LatencyProbe echoes from a sample of UEs through their sessions.
@@ -2435,7 +2497,7 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\x06params\x18\a \x03(\v2\x1f.orbit.v1.AppCohort.ParamsEntryR\x06params\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf2\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa5\x02\n" +
 	"\vBulkTraffic\x12\x10\n" +
 	"\x03ues\x18\x01 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
@@ -2447,7 +2509,8 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\fpeer_data_ip\x18\a \x01(\tR\n" +
 	"peerDataIp\x12\x1f\n" +
 	"\vpacket_size\x18\b \x01(\rR\n" +
-	"packetSize\"x\n" +
+	"packetSize\x121\n" +
+	"\ttransport\x18\t \x01(\x0e2\x13.orbit.v1.TransportR\ttransport\"x\n" +
 	"\fLatencyProbe\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x1f\n" +
 	"\vinterval_ms\x18\x02 \x01(\x04R\n" +
@@ -2525,7 +2588,11 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\fHandoverKind\x12\x1d\n" +
 	"\x19HANDOVER_KIND_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10HANDOVER_KIND_XN\x10\x01\x12\x14\n" +
-	"\x10HANDOVER_KIND_N2\x10\x02*\x85\x01\n" +
+	"\x10HANDOVER_KIND_N2\x10\x02*L\n" +
+	"\tTransport\x12\x19\n" +
+	"\x15TRANSPORT_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rTRANSPORT_UDP\x10\x01\x12\x11\n" +
+	"\rTRANSPORT_TCP\x10\x02*\x85\x01\n" +
 	"\rWorkloadPhase\x12\x1e\n" +
 	"\x1aWORKLOAD_PHASE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16WORKLOAD_PHASE_STARTED\x10\x01\x12\x1b\n" +
@@ -2555,85 +2622,87 @@ func file_orbit_v1_plan_proto_rawDescGZIP() []byte {
 	return file_orbit_v1_plan_proto_rawDescData
 }
 
-var file_orbit_v1_plan_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_orbit_v1_plan_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
 var file_orbit_v1_plan_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_orbit_v1_plan_proto_goTypes = []any{
 	(Arrival)(0),                // 0: orbit.v1.Arrival
 	(HandoverKind)(0),           // 1: orbit.v1.HandoverKind
-	(WorkloadPhase)(0),          // 2: orbit.v1.WorkloadPhase
-	(CompareOp)(0),              // 3: orbit.v1.CompareOp
-	(LeaseResource)(0),          // 4: orbit.v1.LeaseResource
-	(*RunPlan)(nil),             // 5: orbit.v1.RunPlan
-	(*Workload)(nil),            // 6: orbit.v1.Workload
-	(*PopulationWorkload)(nil),  // 7: orbit.v1.PopulationWorkload
-	(*AttachProfile)(nil),       // 8: orbit.v1.AttachProfile
-	(*Ramp)(nil),                // 9: orbit.v1.Ramp
-	(*Topology)(nil),            // 10: orbit.v1.Topology
-	(*GNBIDSelection)(nil),      // 11: orbit.v1.GNBIDSelection
-	(*Behaviors)(nil),           // 12: orbit.v1.Behaviors
-	(*Mobility)(nil),            // 13: orbit.v1.Mobility
-	(*Traffic)(nil),             // 14: orbit.v1.Traffic
-	(*TrafficShare)(nil),        // 15: orbit.v1.TrafficShare
-	(*SyntheticProfile)(nil),    // 16: orbit.v1.SyntheticProfile
-	(*AppCohort)(nil),           // 17: orbit.v1.AppCohort
-	(*BulkTraffic)(nil),         // 18: orbit.v1.BulkTraffic
-	(*LatencyProbe)(nil),        // 19: orbit.v1.LatencyProbe
-	(*ConformanceWorkload)(nil), // 20: orbit.v1.ConformanceWorkload
-	(*ExpectedFailures)(nil),    // 21: orbit.v1.ExpectedFailures
-	(*ExpectedFailure)(nil),     // 22: orbit.v1.ExpectedFailure
-	(*NASAlgorithms)(nil),       // 23: orbit.v1.NASAlgorithms
-	(*StepsWorkload)(nil),       // 24: orbit.v1.StepsWorkload
-	(*StartCondition)(nil),      // 25: orbit.v1.StartCondition
-	(*Until)(nil),               // 26: orbit.v1.Until
-	(*Gate)(nil),                // 27: orbit.v1.Gate
-	(*SLOGate)(nil),             // 28: orbit.v1.SLOGate
-	(*ConformanceGate)(nil),     // 29: orbit.v1.ConformanceGate
-	(*GateResult)(nil),          // 30: orbit.v1.GateResult
-	(*Lease)(nil),               // 31: orbit.v1.Lease
-	nil,                         // 32: orbit.v1.AppCohort.ParamsEntry
-	(*ResolvedTarget)(nil),      // 33: orbit.v1.ResolvedTarget
-	(*FieldProvenance)(nil),     // 34: orbit.v1.FieldProvenance
+	(Transport)(0),              // 2: orbit.v1.Transport
+	(WorkloadPhase)(0),          // 3: orbit.v1.WorkloadPhase
+	(CompareOp)(0),              // 4: orbit.v1.CompareOp
+	(LeaseResource)(0),          // 5: orbit.v1.LeaseResource
+	(*RunPlan)(nil),             // 6: orbit.v1.RunPlan
+	(*Workload)(nil),            // 7: orbit.v1.Workload
+	(*PopulationWorkload)(nil),  // 8: orbit.v1.PopulationWorkload
+	(*AttachProfile)(nil),       // 9: orbit.v1.AttachProfile
+	(*Ramp)(nil),                // 10: orbit.v1.Ramp
+	(*Topology)(nil),            // 11: orbit.v1.Topology
+	(*GNBIDSelection)(nil),      // 12: orbit.v1.GNBIDSelection
+	(*Behaviors)(nil),           // 13: orbit.v1.Behaviors
+	(*Mobility)(nil),            // 14: orbit.v1.Mobility
+	(*Traffic)(nil),             // 15: orbit.v1.Traffic
+	(*TrafficShare)(nil),        // 16: orbit.v1.TrafficShare
+	(*SyntheticProfile)(nil),    // 17: orbit.v1.SyntheticProfile
+	(*AppCohort)(nil),           // 18: orbit.v1.AppCohort
+	(*BulkTraffic)(nil),         // 19: orbit.v1.BulkTraffic
+	(*LatencyProbe)(nil),        // 20: orbit.v1.LatencyProbe
+	(*ConformanceWorkload)(nil), // 21: orbit.v1.ConformanceWorkload
+	(*ExpectedFailures)(nil),    // 22: orbit.v1.ExpectedFailures
+	(*ExpectedFailure)(nil),     // 23: orbit.v1.ExpectedFailure
+	(*NASAlgorithms)(nil),       // 24: orbit.v1.NASAlgorithms
+	(*StepsWorkload)(nil),       // 25: orbit.v1.StepsWorkload
+	(*StartCondition)(nil),      // 26: orbit.v1.StartCondition
+	(*Until)(nil),               // 27: orbit.v1.Until
+	(*Gate)(nil),                // 28: orbit.v1.Gate
+	(*SLOGate)(nil),             // 29: orbit.v1.SLOGate
+	(*ConformanceGate)(nil),     // 30: orbit.v1.ConformanceGate
+	(*GateResult)(nil),          // 31: orbit.v1.GateResult
+	(*Lease)(nil),               // 32: orbit.v1.Lease
+	nil,                         // 33: orbit.v1.AppCohort.ParamsEntry
+	(*ResolvedTarget)(nil),      // 34: orbit.v1.ResolvedTarget
+	(*FieldProvenance)(nil),     // 35: orbit.v1.FieldProvenance
 }
 var file_orbit_v1_plan_proto_depIdxs = []int32{
-	33, // 0: orbit.v1.RunPlan.target:type_name -> orbit.v1.ResolvedTarget
-	6,  // 1: orbit.v1.RunPlan.workloads:type_name -> orbit.v1.Workload
-	26, // 2: orbit.v1.RunPlan.until:type_name -> orbit.v1.Until
-	27, // 3: orbit.v1.RunPlan.gates:type_name -> orbit.v1.Gate
-	34, // 4: orbit.v1.RunPlan.provenance:type_name -> orbit.v1.FieldProvenance
-	25, // 5: orbit.v1.Workload.start:type_name -> orbit.v1.StartCondition
-	7,  // 6: orbit.v1.Workload.population:type_name -> orbit.v1.PopulationWorkload
-	20, // 7: orbit.v1.Workload.conformance:type_name -> orbit.v1.ConformanceWorkload
-	24, // 8: orbit.v1.Workload.steps:type_name -> orbit.v1.StepsWorkload
-	8,  // 9: orbit.v1.PopulationWorkload.attach:type_name -> orbit.v1.AttachProfile
-	10, // 10: orbit.v1.PopulationWorkload.topology:type_name -> orbit.v1.Topology
-	12, // 11: orbit.v1.PopulationWorkload.behaviors:type_name -> orbit.v1.Behaviors
-	9,  // 12: orbit.v1.AttachProfile.ramp:type_name -> orbit.v1.Ramp
+	34, // 0: orbit.v1.RunPlan.target:type_name -> orbit.v1.ResolvedTarget
+	7,  // 1: orbit.v1.RunPlan.workloads:type_name -> orbit.v1.Workload
+	27, // 2: orbit.v1.RunPlan.until:type_name -> orbit.v1.Until
+	28, // 3: orbit.v1.RunPlan.gates:type_name -> orbit.v1.Gate
+	35, // 4: orbit.v1.RunPlan.provenance:type_name -> orbit.v1.FieldProvenance
+	26, // 5: orbit.v1.Workload.start:type_name -> orbit.v1.StartCondition
+	8,  // 6: orbit.v1.Workload.population:type_name -> orbit.v1.PopulationWorkload
+	21, // 7: orbit.v1.Workload.conformance:type_name -> orbit.v1.ConformanceWorkload
+	25, // 8: orbit.v1.Workload.steps:type_name -> orbit.v1.StepsWorkload
+	9,  // 9: orbit.v1.PopulationWorkload.attach:type_name -> orbit.v1.AttachProfile
+	11, // 10: orbit.v1.PopulationWorkload.topology:type_name -> orbit.v1.Topology
+	13, // 11: orbit.v1.PopulationWorkload.behaviors:type_name -> orbit.v1.Behaviors
+	10, // 12: orbit.v1.AttachProfile.ramp:type_name -> orbit.v1.Ramp
 	0,  // 13: orbit.v1.AttachProfile.arrival:type_name -> orbit.v1.Arrival
-	11, // 14: orbit.v1.Topology.gnb_ids:type_name -> orbit.v1.GNBIDSelection
-	13, // 15: orbit.v1.Behaviors.mobility:type_name -> orbit.v1.Mobility
-	14, // 16: orbit.v1.Behaviors.traffic:type_name -> orbit.v1.Traffic
-	19, // 17: orbit.v1.Behaviors.latency:type_name -> orbit.v1.LatencyProbe
+	12, // 14: orbit.v1.Topology.gnb_ids:type_name -> orbit.v1.GNBIDSelection
+	14, // 15: orbit.v1.Behaviors.mobility:type_name -> orbit.v1.Mobility
+	15, // 16: orbit.v1.Behaviors.traffic:type_name -> orbit.v1.Traffic
+	20, // 17: orbit.v1.Behaviors.latency:type_name -> orbit.v1.LatencyProbe
 	1,  // 18: orbit.v1.Mobility.handover:type_name -> orbit.v1.HandoverKind
-	15, // 19: orbit.v1.Traffic.mix:type_name -> orbit.v1.TrafficShare
-	18, // 20: orbit.v1.Traffic.bulk:type_name -> orbit.v1.BulkTraffic
-	16, // 21: orbit.v1.TrafficShare.synthetic:type_name -> orbit.v1.SyntheticProfile
-	17, // 22: orbit.v1.TrafficShare.app:type_name -> orbit.v1.AppCohort
-	32, // 23: orbit.v1.AppCohort.params:type_name -> orbit.v1.AppCohort.ParamsEntry
-	21, // 24: orbit.v1.ConformanceWorkload.expected:type_name -> orbit.v1.ExpectedFailures
-	23, // 25: orbit.v1.ConformanceWorkload.nas:type_name -> orbit.v1.NASAlgorithms
-	11, // 26: orbit.v1.ConformanceWorkload.gnb_ids:type_name -> orbit.v1.GNBIDSelection
-	22, // 27: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
-	2,  // 28: orbit.v1.StartCondition.phase:type_name -> orbit.v1.WorkloadPhase
-	28, // 29: orbit.v1.Gate.slo:type_name -> orbit.v1.SLOGate
-	29, // 30: orbit.v1.Gate.conformance:type_name -> orbit.v1.ConformanceGate
-	3,  // 31: orbit.v1.SLOGate.op:type_name -> orbit.v1.CompareOp
-	27, // 32: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
-	4,  // 33: orbit.v1.Lease.resource:type_name -> orbit.v1.LeaseResource
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	16, // 19: orbit.v1.Traffic.mix:type_name -> orbit.v1.TrafficShare
+	19, // 20: orbit.v1.Traffic.bulk:type_name -> orbit.v1.BulkTraffic
+	17, // 21: orbit.v1.TrafficShare.synthetic:type_name -> orbit.v1.SyntheticProfile
+	18, // 22: orbit.v1.TrafficShare.app:type_name -> orbit.v1.AppCohort
+	33, // 23: orbit.v1.AppCohort.params:type_name -> orbit.v1.AppCohort.ParamsEntry
+	2,  // 24: orbit.v1.BulkTraffic.transport:type_name -> orbit.v1.Transport
+	22, // 25: orbit.v1.ConformanceWorkload.expected:type_name -> orbit.v1.ExpectedFailures
+	24, // 26: orbit.v1.ConformanceWorkload.nas:type_name -> orbit.v1.NASAlgorithms
+	12, // 27: orbit.v1.ConformanceWorkload.gnb_ids:type_name -> orbit.v1.GNBIDSelection
+	23, // 28: orbit.v1.ExpectedFailures.entries:type_name -> orbit.v1.ExpectedFailure
+	3,  // 29: orbit.v1.StartCondition.phase:type_name -> orbit.v1.WorkloadPhase
+	29, // 30: orbit.v1.Gate.slo:type_name -> orbit.v1.SLOGate
+	30, // 31: orbit.v1.Gate.conformance:type_name -> orbit.v1.ConformanceGate
+	4,  // 32: orbit.v1.SLOGate.op:type_name -> orbit.v1.CompareOp
+	28, // 33: orbit.v1.GateResult.gate:type_name -> orbit.v1.Gate
+	5,  // 34: orbit.v1.Lease.resource:type_name -> orbit.v1.LeaseResource
+	35, // [35:35] is the sub-list for method output_type
+	35, // [35:35] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_orbit_v1_plan_proto_init() }
@@ -2670,7 +2739,7 @@ func file_orbit_v1_plan_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orbit_v1_plan_proto_rawDesc), len(file_orbit_v1_plan_proto_rawDesc)),
-			NumEnums:      5,
+			NumEnums:      6,
 			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,

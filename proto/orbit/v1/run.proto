@@ -631,6 +631,11 @@ message FleetReport {
   // Attaches a finish cut off: neither attached nor failed, and not in
   // the success ratio.
   uint32 abandoned = 13;
+  // Bulk goodput per direction (bytes), counted where it lands: the UE's
+  // uplink send and downlink receive. Zero with no bulk workload. The rate is
+  // these over the run's traffic window.
+  uint64 bulk_uplink_bytes = 14;
+  uint64 bulk_downlink_bytes = 15;
 }
 
 message GetRunReportResponse {

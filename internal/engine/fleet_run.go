@@ -115,7 +115,11 @@ type FleetReport struct {
 	Handovers, HandoverErr int
 	TrafficFlows           int
 	TrafficBytes           uint64
-	Deregistered           int
+	// Bulk goodput per direction, counted where the bytes land (the UE's
+	// uplink send and downlink receive). Zero for a run with no bulk workload.
+	BulkUplinkBytes   uint64
+	BulkDownlinkBytes uint64
+	Deregistered      int
 	// PerGNB is the attach phase's outcome per gNB, keyed by the gNB's
 	// attribution label (its name, or "gnb-<id>"), as the load run's per-gNB
 	// counts are: the totals the attach milestone reports, split by gNB.
@@ -525,8 +529,7 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 	if len(bulkUEs) > 0 || appTotal > 0 {
 		agents = newFleetAgentPool(appTuning{})
 	}
-	bulkStarted := 0
-	var bulkBytes uint64
+	var bulkRes bulkResult
 	if len(bulkUEs) > 0 {
 		ev.Traffic(fmt.Sprintf("bulk traffic started: %d UEs → %s%s%s",
 			len(bulkUEs), beh.Bulk.Peer, trafficDirectionNote("UL", beh.Bulk.UplinkRate),
@@ -534,10 +537,8 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			flows, bytes := runFleetBulk(dctx, log, agents, beh.Bulk, bulkUEs, beh.Duration, live)
-			bulkStarted = flows
-			rep.TrafficFlows += flows
-			bulkBytes = bytes
+			bulkRes = runFleetBulk(dctx, log, agents, beh.Bulk, bulkUEs, beh.Duration, live)
+			rep.TrafficFlows += bulkRes.Flows
 		}()
 	}
 
@@ -635,14 +636,17 @@ func runFleetBehaviors(ctx context.Context, f *Fleet, spec FleetRunSpec, pool *n
 		// Until the deadline, or a finish or cancel (which end ctx).
 		<-dctx.Done()
 	}
-	rep.TrafficBytes = trafficBytes.Load() + bulkBytes
+	rep.TrafficBytes = trafficBytes.Load() + bulkRes.Bytes()
+	rep.BulkUplinkBytes = bulkRes.UplinkBytes
+	rep.BulkDownlinkBytes = bulkRes.DownlinkBytes
 	rep.AppCohorts = appReports
 	if beh.Traffic && spec.PDUSession != nil && len(trafficUEs) > 0 {
 		ev.Traffic(fmt.Sprintf("synthetic traffic stopped: %d flows, %s",
 			syntheticFlows, byteSize(rep.TrafficBytes)))
 	}
 	if len(bulkUEs) > 0 {
-		ev.Traffic(fmt.Sprintf("bulk traffic stopped: %d UEs, %s", bulkStarted, byteSize(bulkBytes)))
+		ev.Traffic(fmt.Sprintf("bulk traffic stopped: %d UEs, %s (UL %s, DL %s)",
+			bulkRes.Flows, byteSize(bulkRes.Bytes()), byteSize(bulkRes.UplinkBytes), byteSize(bulkRes.DownlinkBytes)))
 	}
 	for _, r := range appReports {
 		msg := fmt.Sprintf("cohort %s (%s) stopped: %d UEs", r.Name, r.App, r.UEs)

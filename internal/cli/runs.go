@@ -376,6 +376,9 @@ func printFleetRunReport(out io.Writer, r *orbitv1.FleetReport) {
 	if r.GetTrafficFlows() > 0 {
 		_, _ = fmt.Fprintf(out, "  traffic       %d flow(s), %s\n", r.GetTrafficFlows(), byteCount(r.GetTrafficBytes()))
 	}
+	if r.GetBulkUplinkBytes()+r.GetBulkDownlinkBytes() > 0 {
+		_, _ = fmt.Fprintf(out, "  bulk          UL %s, DL %s\n", byteCount(r.GetBulkUplinkBytes()), byteCount(r.GetBulkDownlinkBytes()))
+	}
 	_, _ = fmt.Fprintf(out, "  deregistered  %d/%d\n", r.GetDeregistered(), r.GetAttached())
 	for _, g := range r.GetPerGnb() {
 		_, _ = fmt.Fprintf(out, "  %-16s %d/%d attached", g.GetGnb(), g.GetSucceeded(), g.GetAttempted())

@@ -85,7 +85,8 @@ func (b Behaviors) Proto() (*orbitv1.Behaviors, error) {
 				return nil, fmt.Errorf("bulk ues or packet_size below zero: %w", ErrNotTyped)
 			}
 			pt.Bulk = &orbitv1.BulkTraffic{Ues: uint32(k.UEs), UplinkBps: up, DownlinkBps: down,
-				Peer: k.Peer, Token: k.Token, PeerDataIp: k.PeerDataIP, PacketSize: uint32(k.PacketSize)}
+				Peer: k.Peer, Token: k.Token, PeerDataIp: k.PeerDataIP, PacketSize: uint32(k.PacketSize),
+				Transport: transportToProto(k.Transport)}
 		}
 		out.Traffic = pt
 	}
@@ -129,6 +130,33 @@ var bitRateUnits = []struct {
 // typedBitRate is a bit rate's text ("8Mbps") as bits per second ("" is 0),
 // when the typed form writes it back the same: a whole number in the largest
 // unit that divides it.
+// transportToProto maps a "udp"/"tcp" bulk-transport name onto its proto enum;
+// anything else (including "") becomes UNSPECIFIED, which the server treats as
+// UDP.
+func transportToProto(s string) orbitv1.Transport {
+	switch s {
+	case "tcp":
+		return orbitv1.Transport_TRANSPORT_TCP
+	case "udp":
+		return orbitv1.Transport_TRANSPORT_UDP
+	default:
+		return orbitv1.Transport_TRANSPORT_UNSPECIFIED
+	}
+}
+
+// TransportName renders a BulkTraffic transport enum as its lower-case name,
+// or "" for the unspecified default (UDP).
+func TransportName(t orbitv1.Transport) string {
+	switch t {
+	case orbitv1.Transport_TRANSPORT_TCP:
+		return "tcp"
+	case orbitv1.Transport_TRANSPORT_UDP:
+		return "udp"
+	default:
+		return ""
+	}
+}
+
 func typedBitRate(s string) (uint64, error) {
 	if s == "" {
 		return 0, nil

@@ -147,7 +147,18 @@ message AppCohort {
   map<string, string> params = 7;
 }
 
-// BulkTraffic is constant-rate UDP load in either or both directions.
+// Transport selects the L4 protocol bulk traffic runs over.
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;  // treated as UDP
+  TRANSPORT_UDP = 1;
+  TRANSPORT_TCP = 2;
+}
+
+// BulkTraffic is constant-rate load in either or both directions, over UDP
+// (the default) or TCP. TCP runs through each UE's gVisor netstack so the
+// transport's own congestion control, retransmission and RTT are exercised
+// across the GTP-U tunnel; a zero rate under TCP means full-buffer — send as
+// fast as congestion control allows rather than at a fixed rate.
 message BulkTraffic {
   uint32 ues = 1;
   uint64 uplink_bps = 2;
@@ -157,6 +168,7 @@ message BulkTraffic {
   string token = 6 [(orbit.v1.secret) = true];
   string peer_data_ip = 7;
   uint32 packet_size = 8;
+  Transport transport = 9;  // udp (default) | tcp
 }
 
 // LatencyProbe echoes from a sample of UEs through their sessions.
