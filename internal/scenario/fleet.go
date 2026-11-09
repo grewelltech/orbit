@@ -104,6 +104,10 @@ type BulkTraffic struct {
 	Token        string `yaml:"token"`
 	PeerDataIP   string `yaml:"peer_data_ip"`
 	PacketSize   int    `yaml:"packet_size"`
+	// Transport is "udp" (the default) or "tcp". TCP runs through each UE's
+	// netstack so congestion control, retransmission and RTT are exercised;
+	// a zero rate under TCP means full-buffer.
+	Transport string `yaml:"transport"`
 }
 
 // TrafficShare assigns a fraction of the fleet to either a synthetic traffic
@@ -323,6 +327,11 @@ func (f *FleetScenario) validate() error {
 			}
 			if b.PacketSize < 0 || b.PacketSize > 1350 {
 				return fmt.Errorf("traffic.bulk.packet_size must be between 1 and 1350 bytes (or 0 for the 1200-byte default)")
+			}
+			switch b.Transport {
+			case "", "udp", "tcp":
+			default:
+				return fmt.Errorf("traffic.bulk.transport %q is not udp or tcp", b.Transport)
 			}
 		}
 		var sum float64

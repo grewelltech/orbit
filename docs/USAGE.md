@@ -1550,9 +1550,9 @@ its gNB's shared N3 socket) for `run.duration`, then reports (attach / handovers
 
 #### Bulk uplink and downlink
 
-`traffic.bulk` reserves an exact number of non-mobile UEs for constant-rate UDP
-load. The rates are **per UE**, so this example offers 200 Mbps uplink and
-500 Mbps downlink in aggregate:
+`traffic.bulk` reserves an exact number of non-mobile UEs for constant-rate
+load over UDP (the default) or TCP. The rates are **per UE**, so this example
+offers 200 Mbps uplink and 500 Mbps downlink in aggregate:
 
 ```yaml
 fleet:
@@ -1566,15 +1566,26 @@ behaviors:
       downlink_rate: 50Mbps
       peer: 172.17.192.2:9551       # N6 loomd control address
       token: ${LOOM_TOKEN}          # omit for an unauthenticated loomd
+      # transport: tcp              # udp (default) | tcp
       # peer_data_ip: 172.17.192.2  # when control and data addresses differ
       # packet_size: 1200           # UDP payload bytes; default 1200
 ```
 
-The N6 loom agent runs one shared uplink receiver and one downlink sender per
-UE. Downlink senders target the UEs' PDU addresses, so the N6 host must have the
-normal route to the UE pool through the UPF. Bulk UEs are reserved before the
-optional percentage-based `mix`; mix shares still sum to 1.0 and divide the
-remaining non-mobile UEs. At least one direction must be configured.
+For UDP, the N6 loom agent runs one shared uplink receiver and one downlink
+sender per UE; downlink senders target the UEs' PDU addresses, so the N6 host
+must have the normal route to the UE pool through the UPF.
+
+Set `transport: tcp` to run the same load over TCP, exercising congestion
+control, retransmission and RTT across the GTP-U tunnel. TCP rides each UE's
+gVisor netstack (the same path the `http`/`video` cohorts use): for uplink the
+UE dials a TCP sink on the N6 agent and streams at the rate; for downlink the
+UE listens in its netstack and an N6 TCP sender streams toward it. Each
+direction is a separate connection, and its goodput is measured where the bytes
+land (the UE drains downlink; the UE writes uplink).
+
+Bulk UEs are reserved before the optional percentage-based `mix`; mix shares
+still sum to 1.0 and divide the remaining non-mobile UEs. At least one direction
+must be configured.
 
 #### App cohorts (real application traffic at fleet scale)
 

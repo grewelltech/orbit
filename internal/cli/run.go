@@ -253,6 +253,10 @@ func printFleetReport(out io.Writer, r engine.FleetReport) {
 		fmt.Fprintf(out, "traffic:      %d flow(s) (per UE, shared N3 socket per gNB), %.1f MB total\n",
 			r.TrafficFlows, float64(r.TrafficBytes)/1e6)
 	}
+	if r.BulkUplinkBytes+r.BulkDownlinkBytes > 0 {
+		fmt.Fprintf(out, "bulk:         UL %.1f MB, DL %.1f MB\n",
+			float64(r.BulkUplinkBytes)/1e6, float64(r.BulkDownlinkBytes)/1e6)
+	}
 	for _, c := range r.AppCohorts {
 		line := fmt.Sprintf("app %-10s %s: %d UE(s), %d server(s)", c.Name, c.App, c.UEs, c.Servers)
 		if c.Failed > 0 {

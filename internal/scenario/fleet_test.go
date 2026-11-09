@@ -140,6 +140,7 @@ func TestBuildFleetRunBulkTraffic(t *testing.T) {
 			Bulk: &BulkTraffic{
 				UEs: 2, UplinkRate: "5Mbps", DownlinkRate: "20Mbps",
 				Peer: "10.106.0.30:9551", Token: "secret", PeerDataIP: "10.106.0.31", PacketSize: 1000,
+				Transport: "tcp",
 			},
 			Mix: []TrafficShare{
 				{App: "http", Name: "web", Share: 0.5, Peer: "10.106.0.30:9551"},
@@ -156,7 +157,8 @@ func TestBuildFleetRunBulkTraffic(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	if beh.Bulk.UEs != 2 || beh.Bulk.UplinkRate != "5Mbps" || beh.Bulk.DownlinkRate != "20Mbps" ||
-		beh.Bulk.Peer != "10.106.0.30:9551" || beh.Bulk.PeerDataIP != "10.106.0.31" || beh.Bulk.PacketSize != 1000 {
+		beh.Bulk.Peer != "10.106.0.30:9551" || beh.Bulk.PeerDataIP != "10.106.0.31" || beh.Bulk.PacketSize != 1000 ||
+		beh.Bulk.Transport != "tcp" {
 		t.Errorf("bulk mapping = %+v", beh.Bulk)
 	}
 	if len(beh.Apps) != 2 || beh.Apps[0].Count != 4 || beh.Apps[1].Count != 4 {
@@ -192,6 +194,7 @@ func TestFleetBulkTrafficValidation(t *testing.T) {
 		{"no direction", func(b *BulkTraffic, _ *FleetScenario) { b.UplinkRate = "" }},
 		{"bad rate", func(b *BulkTraffic, _ *FleetScenario) { b.UplinkRate = "fast" }},
 		{"oversize packet", func(b *BulkTraffic, _ *FleetScenario) { b.PacketSize = 1400 }},
+		{"bad transport", func(b *BulkTraffic, _ *FleetScenario) { b.Transport = "sctp" }},
 		{"no PDU session", func(_ *BulkTraffic, f *FleetScenario) { f.Fleet.PDUSession = false }},
 	}
 	for _, tc := range tests {
@@ -293,5 +296,28 @@ func TestGenGNBsBareIPv6Bind(t *testing.T) {
 	}
 	if got[1].GNB.Bind != "fd00::22" || got[1].GNB.N3 != "fd00::22" {
 		t.Errorf("gNB 1 bind/N3 = %q/%q, want the bare IPv6 source", got[1].GNB.Bind, got[1].GNB.N3)
+	}
+}
+
+// TestBulkTransportProtoRoundTrip covers the transport ↔ proto-enum mapping on
+// the plan path: the YAML name becomes the enum (Behaviors.Proto) and the enum
+// renders back to the name (TransportName).
+func TestBulkTransportProtoRoundTrip(t *testing.T) {
+	for _, name := range []string{"", "udp", "tcp"} {
+		b := Behaviors{Traffic: &TrafficBehavior{Bulk: &BulkTraffic{
+			UEs: 1, UplinkRate: "5Mbps", Peer: "10.0.0.1:9551", Transport: name,
+		}}}
+		pb, err := b.Proto()
+		if err != nil {
+			t.Fatalf("transport %q: Proto: %v", name, err)
+		}
+		got := TransportName(pb.GetTraffic().GetBulk().GetTransport())
+		want := name
+		if name == "" {
+			want = "" // UNSPECIFIED renders back as ""
+		}
+		if got != want {
+			t.Errorf("transport %q round-tripped to %q", name, got)
+		}
 	}
 }
