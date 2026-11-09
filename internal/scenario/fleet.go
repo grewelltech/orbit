@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/target"
 	"github.com/bgrewell/orbit/internal/ue"
@@ -325,8 +326,8 @@ func (f *FleetScenario) validate() error {
 					return fmt.Errorf("traffic.bulk.%s %q is not a positive bit rate", field, value)
 				}
 			}
-			if b.PacketSize < 0 || b.PacketSize > 1350 {
-				return fmt.Errorf("traffic.bulk.packet_size must be between 1 and 1350 bytes (or 0 for the 1200-byte default)")
+			if err := engine.ValidateBulkPacketSize(b.PacketSize); err != nil {
+				return fmt.Errorf("traffic.bulk.packet_size: %w", err)
 			}
 			switch b.Transport {
 			case "", "udp", "tcp":
