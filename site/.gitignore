@@ -1,0 +1,9 @@
+# build output and deps
+node_modules/
+dist/
+.astro/
+
+# the install scripts are copied in from the repo at build time (single source
+# of truth); never commit the copies.
+public/install.sh
+public/orbit.sh

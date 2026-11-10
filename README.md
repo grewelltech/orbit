@@ -45,12 +45,26 @@ so the ceiling you hit is the core's, not the tool's.
 
 ## Install
 
-ORBIT is a CLI (`orbit`) that talks to a small local API server. The easiest
-setup installs both and runs the server as a background service — one script
-does install, upgrade, and uninstall (needs `sudo`):
+ORBIT is a CLI (`orbit`) that talks to a small local API server.
+
+**Just the CLI** — download the verified release binary and put it on your
+`PATH` (re-run to upgrade):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/grewelltech/orbit/main/scripts/orbit.sh | sudo bash -s -- install
+curl -fsSL https://orbit.grewelltech.com/install.sh | sh
+```
+
+The installer checks each download's SHA-256 against the release's
+cosign-signed `checksums.txt`, and verifies the signature when `cosign` is
+installed. See <https://orbit.grewelltech.com/install/> for pinned versions and
+the full verification steps.
+
+**CLI + server as a service** — the opinionated setup installs both and runs
+the server as a background service; one script does install, upgrade, and
+uninstall (needs `sudo`):
+
+```sh
+curl -fsSL https://orbit.grewelltech.com/orbit.sh | sudo bash -s -- install
 # or, from a checkout of this repo:
 sudo bash scripts/orbit.sh install
 ```
@@ -138,7 +152,7 @@ N2 and N3).
 **1 — Install ORBIT and aim it at the core.**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/grewelltech/orbit/main/scripts/orbit.sh | sudo bash -s -- install
+curl -fsSL https://orbit.grewelltech.com/orbit.sh | sudo bash -s -- install
 echo 'ORBIT_ARGS="--listen 127.0.0.1:8412 --core-profile sdcore"' | sudo tee /etc/orbit/orbit.env
 sudo systemctl restart orbit
 systemctl status orbit          # active (running) on 127.0.0.1:8412
