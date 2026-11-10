@@ -3,7 +3,7 @@ title: Deploying a responder
 description: Set up the N6 host that answers user-plane and application traffic from ORBIT's UEs.
 ---
 
-A **responder** is the far end of every traffic run. ORBIT's simulated UEs send traffic through the
+A **responder** is the far end of application and bulk traffic runs. ORBIT's simulated UEs send traffic through the
 core's user plane; the responder sits on the data network (N6) behind the UPF, receives it, and
 answers. It is the `orbit` binary running as a service on a host you choose.
 
@@ -12,7 +12,8 @@ answers. It is the `orbit` binary running as a service on a host you choose.
 | Conformance suite | no |
 | Attach storm (`orbit load`) | no |
 | Application sessions (`orbit ue app voip`, `http`, `video`) | yes |
-| Fleet latency probing, bulk uplink/downlink, app cohorts | yes |
+| Fleet bulk uplink/downlink and app cohorts | yes |
+| Fleet latency probing | only without an explicit `behaviors.latency.target`: it then echoes the responder's data address |
 | `orbit target probe` beyond `--core-only` | yes |
 
 ## Before you start
@@ -122,8 +123,8 @@ Options go after `sh -s --` on the one-liner; `add-responder` takes the same one
 | `--no-systemd` | install no unit (required on a host without systemd) |
 | `--reregister` | register again with a new token, rotating the responder's credentials |
 
-`--yes` and `--dry-run` on `add-responder` are its own: it always shows the dry run first.
-`--reregister` is a script option only.
+`--dry-run` and `--reregister` are script options only: `add-responder` has neither flag. It
+always shows the script's dry run first, and its own `--yes` skips the question that follows.
 
 ## Use it in a target
 
@@ -176,7 +177,13 @@ default, and a routable address needs a token:
 orbit responder --bind 203.0.113.20:9551 --token-file loom-token
 ```
 
-Then give the target its control address, token and data address:
+Then give the target its control address, token and data address. The token is read from the
+environment of the shell that runs `orbit` commands, so copy it there over a channel you trust
+(`scp`, not a chat window) and export it:
+
+```sh
+export ORBIT_LOOM_TOKEN="$(cat loom-token)"
+```
 
 ```yaml
 app:

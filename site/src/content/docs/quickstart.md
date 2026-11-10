@@ -55,8 +55,17 @@ orbit server trust https://10.0.0.5:8412 --token-file ~/.config/orbit/api-token
 export ORBIT_SERVER=https://10.0.0.5:8412
 ```
 
-On another machine, copy the token file over first (or export the token as `ORBIT_TOKEN`).
-Without this, commands fail with `dial tcp 127.0.0.1:8412: connect: connection refused`.
+On another machine, copy the token file over first. Or export the token as `ORBIT_TOKEN` and
+leave `--token-file` off:
+
+```sh
+export ORBIT_TOKEN=<the token>
+orbit server trust https://10.0.0.5:8412
+```
+
+Without `ORBIT_SERVER`, commands still go to loopback and fail with
+`dial tcp 127.0.0.1:8412: connect: connection refused`. Without the token, the server answers
+`unauthenticated`.
 
 The dashboard moves to `https://10.0.0.5:8412/`. Accept the self-signed certificate once; it asks
 for the token the first time and keeps it for that browser tab.
@@ -90,10 +99,11 @@ export ORBIT_KI=<hex> ORBIT_OPC=<hex>
 
 ## 4. Add a responder
 
-Conformance suites and attach storms need only the core. Anything that sends user-plane traffic —
-application sessions (VoIP, HTTP, video), fleet probing, bulk uplink and downlink — also needs a
-**responder**: the far end of the traffic, running on a host in the data network (N6) behind the
-UPF. Skip this step if you only run conformance or attach tests.
+Conformance suites and attach storms need only the core. Application sessions (VoIP, HTTP,
+video), fleet bulk traffic and app cohorts, and the user-plane half of `orbit target probe` also
+need a **responder**: the far end of the traffic, running on a host in the data network (N6)
+behind the UPF. Skip this step if you only run conformance or attach tests. Fleet latency probing
+needs one only when the scenario gives no `behaviors.latency.target` of its own to echo.
 
 The server sets the host up for you. It must be serving TLS on a non-loopback address
 ([step 2](#serving-on-a-lab-server)), and the target needs the N6 side of the core, which
