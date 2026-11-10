@@ -37,6 +37,84 @@ P="$TESTBED_PREFIX"
 # longest suffix below.
 [ ${#P} -le 8 ] || { echo "$PROG: TESTBED_PREFIX '$P' is longer than 8 characters" >&2; exit 1; }
 
+# ── core kinds ───────────────────────────────────────────────────────────────
+#
+# TESTBED_CORE_KIND names the 5G core the testbed is built around. Everything
+# outside the core node is the same for every kind; what differs is how the
+# core is deployed and two facts about the topology. Both come from
+# cores/<kind>.sh, sourced here, after the configuration and before anything
+# else is defined.
+#
+# A core file sets, at source time (assignments only — the helpers below do
+# not exist yet, so it must not call anything):
+#
+#   CORE_NAME           the core's name for messages and usage text.
+#   CORE_HAS_CTRL       true: the testbed has a control node (aether-ops) and
+#                       the `ctrl` and `keys` steps. false: no such node is
+#                       created and those steps refuse to run.
+#   CORE_UPF_ATTACH     macvlan: the UPF attaches to the core node's n3 and n6
+#                       itself, so those interfaces are up with no address.
+#                       host: the UPF runs on the core node's host network, so
+#                       the core node holds UPF_N3 on n3 and UPF_N6 on n6, with
+#                       the far site's N3 subnet routed via the N3 gateway.
+#   CORE_NODE_PACKAGES  extra packages cloud-init installs on the core node at
+#                       first boot (space-separated; may be empty).
+#
+# It may also give defaults for settings of its own, in testbed.conf's form
+# (`: "${FREE5GC_VERSION:=v4.0.0}"`), so the environment, the local overrides
+# and the profile still win.
+#
+# And it defines five functions, called with no arguments:
+#
+#   core_<kind>_deploy       Installs and starts the core on NODE_CORE. Called
+#                            by `core` once the node exists and the UE pool is
+#                            known to hold the subscribers. Repeatable: a
+#                            second run applies the current configuration.
+#                            Afterwards the AMF serves NGAP on AMF_N2
+#                            (CORE_N2:38412, SCTP), the UPF serves GTP-U on
+#                            UPF_N3:2152 and forwards between it and UPF_N6,
+#                            UE addresses come from TESTBED_UE_POOL and leave
+#                            N6 unNATed (r-site routes the pool to UPF_N6), and
+#                            TESTBED_SUB_COUNT subscribers from
+#                            TESTBED_SUB_START exist with TESTBED_KI and
+#                            TESTBED_OPC, in PLMN TESTBED_MCC/TESTBED_MNC, TAC
+#                            TESTBED_TAC, slice TESTBED_SST/TESTBED_SD, DNN
+#                            TESTBED_DNN. Dies on failure.
+#   core_<kind>_status       Prints the core's health for `core-status`: its
+#                            processes or pods, the core node's interfaces,
+#                            where the UPF is attached. Read-only, and must
+#                            not fail when the core is not deployed.
+#   core_<kind>_reprovision  Restores the subscriber population on a deployed
+#                            core without redeploying it, for `reprovision`.
+#   core_<kind>_keys         Prints "<ki> <opc>" as the deployed core holds
+#                            them, `-` for one it cannot read. Called only
+#                            while NODE_CORE is running; ORBIT is handed these,
+#                            or TESTBED_KI/TESTBED_OPC in place of a `-`.
+#   core_<kind>_versions     Prints one "<component> <ref> <resolved commit or
+#                            version>" line per component of the core as last
+#                            deployed. `core` stores it on the core node as
+#                            /etc/orbit/testbed-versions.
+#
+# Those functions may use anything defined in this file. The parts meant for
+# them: on_core and on (run a shell command on a node as root), push_file,
+# lxc_do and lxc_long, exists_instance, is_running, wait_cloud_init, info, warn,
+# die, ip_in, cidr_in; the node names NODE_CORE, NODE_RSITE and the rest; the
+# addresses CORE_OAM, CORE_N2, AMF_N2, UPF_N3, UPF_N6, GW_OAM, GW_N2, GW_N3,
+# GW_N6, APP_N6; every TESTBED_* setting; and TESTBED_CACHE_DIR, this testbed's
+# own scratch directory on the host. On the core node the interfaces are named
+# oam, n2, n3 and n6.
+CORE_KIND=$TESTBED_CORE_KIND
+case "$CORE_KIND" in
+    ''|*[!a-z0-9]*) echo "$PROG: TESTBED_CORE_KIND '$CORE_KIND' is not a core kind name" >&2; exit 1 ;;
+esac
+[ -f "$HERE/cores/$CORE_KIND.sh" ] \
+    || { echo "$PROG: unknown TESTBED_CORE_KIND '$CORE_KIND' (no cores/$CORE_KIND.sh)" >&2; exit 1; }
+CORE_NAME=$CORE_KIND; CORE_HAS_CTRL=false; CORE_UPF_ATTACH=host; CORE_NODE_PACKAGES=""
+# shellcheck disable=SC1090
+source "$HERE/cores/$CORE_KIND.sh"
+case "$CORE_HAS_CTRL" in true|false) ;; *) echo "$PROG: cores/$CORE_KIND.sh: CORE_HAS_CTRL must be true or false" >&2; exit 1 ;; esac
+case "$CORE_UPF_ATTACH" in macvlan|host) ;; *) echo "$PROG: cores/$CORE_KIND.sh: CORE_UPF_ATTACH must be macvlan or host" >&2; exit 1 ;; esac
+
 # Four bridges with no address, no DHCP and no NAT: they are 802.1Q switches,
 # and every gateway lives on a router VM. The site trunk carries the core-site
 # VLANs, the far trunk the far-site VLANs, and the two WAN segments are the
@@ -48,8 +126,10 @@ NODE_RSITE="$P-rsite"; NODE_WANEM="$P-wanem"; NODE_RRAN="$P-rran"
 NODE_CTRL="$P-ctrl"; NODE_CORE="$P-core"; NODE_RANN="$P-ran-near"; NODE_RANF="$P-ran-far"; NODE_APP="$P-app"
 # Every node, in the order a status table should read them: the path off the
 # testbed first, then the operator's entry point, the core under test, and the
-# load that exercises it.
-NODES=("$NODE_RSITE" "$NODE_WANEM" "$NODE_RRAN" "$NODE_CTRL" "$NODE_CORE" "$NODE_RANN" "$NODE_RANF" "$NODE_APP")
+# load that exercises it. The control node exists only for a core that has one.
+NODES=("$NODE_RSITE" "$NODE_WANEM" "$NODE_RRAN")
+if [ "$CORE_HAS_CTRL" = true ]; then NODES+=("$NODE_CTRL"); fi
+NODES+=("$NODE_CORE" "$NODE_RANN" "$NODE_RANF" "$NODE_APP")
 PROFILE="$P"
 IMAGE_ALIAS="$P-base"
 
@@ -61,6 +141,26 @@ die()  { echo "$PROG: $*" >&2; exit 1; }
 # and a stray progress line would be captured as part of it.
 info() { echo "==> $*" >&2; }
 warn() { echo "$PROG: warning: $*" >&2; }
+
+# node_names <separator> [last-separator] -> the short names of this testbed's
+# nodes, as `console`, `ssh` and `addrs` take them.
+node_names() {
+    local sep=$1 last=${2:-$1} out="" i n=${#NODES[@]}
+    for ((i = 0; i < n; i++)); do
+        if [ "$i" -gt 0 ]; then
+            if [ "$i" -eq $((n - 1)) ]; then out+=$last; else out+=$sep; fi
+        fi
+        out+=${NODES[i]#"$P-"}
+    done
+    echo "$out"
+}
+
+# core_call <function> [args] runs core_<kind>_<function> from cores/<kind>.sh.
+core_call() { local fn="core_${CORE_KIND}_$1"; shift; "$fn" "$@"; }
+
+require_ctrl() {
+    [ "$CORE_HAS_CTRL" = true ] || die "a $CORE_NAME testbed has no control node"
+}
 
 # Every segment is a /24 (the WAN a /30), so an address is the subnet's first
 # three octets plus a host octet.
@@ -186,6 +286,8 @@ cmd_image() {
     info "pulling $TESTBED_IMAGE (cached by LXD after the first use)"
     lxc image copy "$TESTBED_IMAGE" local: --alias "$IMAGE_ALIAS" --vm >/dev/null 2>&1 \
         || info "image already present locally"
+    exists_image "$IMAGE_ALIAS" \
+        || die "no local image '$IMAGE_ALIAS' after copying $TESTBED_IMAGE — check 'lxc image list'"
     info "image ready: $IMAGE_ALIAS"
 }
 
@@ -339,13 +441,23 @@ netplan_for() {
         "$NODE_CTRL")
             vlan_block oam "$V_OAM" trunk "$(cidr_in "$oam" "$TESTBED_HOST_CTRL")" "$GW_OAM" ;;
         "$NODE_CORE")
-            # n3 and n6 are UP with no address: they are the macvlan parents
-            # for the UPF pod. The far site's N2 is reached via the N2 gateway
-            # so the AMF answers far gNBs from its N2 address, not via OAM.
+            # The far site's N2 is reached via the N2 gateway so the AMF
+            # answers far gNBs from its N2 address, not via OAM.
             vlan_block oam "$V_OAM" trunk "$(cidr_in "$oam" "$TESTBED_HOST_CORE")" "$GW_OAM"
             vlan_block n2  "$V_N2"  trunk "$(cidr_in "$n2" "$TESTBED_HOST_CORE")" "" "$fn2 $GW_N2"
-            vlan_block n3  "$V_N3"  trunk "" ""
-            vlan_block n6  "$V_N6"  trunk "" "" ;;
+            if [ "$CORE_UPF_ATTACH" = host ]; then
+                # The UPF is a process on this node, so the node holds the
+                # UPF's addresses. The far site's N3 is reached via the N3
+                # gateway, as its N2 is via the N2 gateway, so downlink GTP-U
+                # to a far gNB leaves from the N3 address.
+                vlan_block n3  "$V_N3"  trunk "$(cidr_in "$n3" "$TESTBED_UPF_ACCESS_IP")" "" "$fn3 $GW_N3"
+                vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" "$TESTBED_UPF_CORE_IP")" ""
+            else
+                # n3 and n6 are UP with no address: they are the macvlan
+                # parents for the UPF pod.
+                vlan_block n3  "$V_N3"  trunk "" ""
+                vlan_block n6  "$V_N6"  trunk "" ""
+            fi ;;
         "$NODE_RANN")
             vlan_block oam "$V_OAM" trunk "$(cidr_in "$oam" "$TESTBED_HOST_RAN")" "$GW_OAM"
             vlan_block n2  "$V_N2"  trunk "$(addr_list "$n2" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" ""
@@ -465,11 +577,13 @@ $(nft_ruleset | indent '      ')
   - ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 " ;;
         "$NODE_CORE")
-            # The af_packet UPF drops receive-aggregated frames (sdcore-lab
-            # UPF-14), and aggregation happens on the trunk NIC, below the n3/n6
-            # VLAN interfaces OnRamp turns GRO off on (ONR-4). Both software GRO
-            # and the NIC's own (rx-gro-hw) have to be off, at every boot.
-            files+="  - path: /etc/systemd/system/testbed-upf-offloads.service
+            if [ -n "$CORE_NODE_PACKAGES" ]; then packages+=" $CORE_NODE_PACKAGES"; fi
+            if [ "$CORE_UPF_ATTACH" = macvlan ]; then
+                # The af_packet UPF drops receive-aggregated frames (sdcore-lab
+                # UPF-14), and aggregation happens on the trunk NIC, below the n3/n6
+                # VLAN interfaces OnRamp turns GRO off on (ONR-4). Both software GRO
+                # and the NIC's own (rx-gro-hw) have to be off, at every boot.
+                files+="  - path: /etc/systemd/system/testbed-upf-offloads.service
     content: |
       [Unit]
       Description=Turn off receive aggregation on the UPF's trunk NIC (UPF-14 / ONR-4)
@@ -485,8 +599,9 @@ $(nft_ruleset | indent '      ')
       [Install]
       WantedBy=multi-user.target
 "
-            runcmd+="  - systemctl daemon-reload && systemctl enable --now testbed-upf-offloads.service
-" ;;
+                runcmd+="  - systemctl daemon-reload && systemctl enable --now testbed-upf-offloads.service
+"
+            fi ;;
         "$NODE_RANN"|"$NODE_RANF") packages+=" iputils-arping" ;;
         "$NODE_APP") packages+=" iperf3" ;;
     esac
@@ -656,14 +771,16 @@ oam_of() {
 
 # expect_for <node> -> "interface count" lines: how many IPv4 addresses each
 # VLAN interface must carry once netplan has applied. The core's n3/n6 are
-# deliberately 0: they are the UPF's macvlan parents.
+# deliberately 0 when they are the UPF's macvlan parents, and carry the UPF's
+# addresses when the UPF runs on the node itself.
 expect_for() {
     local g=$TESTBED_RAN_GNBS
     case "$1" in
         "$NODE_RSITE") printf 'oam 1\nn2 1\nn3 1\nn6 1\nwan 1\n' ;;
         "$NODE_WANEM"|"$NODE_CTRL") printf 'oam 1\n' ;;
         "$NODE_RRAN")  printf 'wan 1\noam 1\nn2 1\nn3 1\n' ;;
-        "$NODE_CORE")  printf 'oam 1\nn2 1\nn3 0\nn6 0\n' ;;
+        "$NODE_CORE")  if [ "$CORE_UPF_ATTACH" = host ]; then printf 'oam 1\nn2 1\nn3 1\nn6 1\n'
+                       else printf 'oam 1\nn2 1\nn3 0\nn6 0\n'; fi ;;
         "$NODE_RANN"|"$NODE_RANF") printf 'oam 1\nn2 %s\nn3 %s\n' "$g" "$g" ;;
         "$NODE_APP")   printf 'oam 1\nn6 1\n' ;;
     esac
@@ -723,7 +840,7 @@ addrs_one() {
     info "addressing verified on $name"
 }
 
-# ── core (SD-Core via OnRamp) ────────────────────────────────────────────────
+# ── core ─────────────────────────────────────────────────────────────────────
 
 # check_ue_pool_fits refuses a subscriber count the UE address pool cannot hold.
 #
@@ -746,6 +863,42 @@ check_ue_pool_fits() {
             "TESTBED_SUB_COUNT is $TESTBED_SUB_COUNT — widen the pool, or those" \
             "UEs will register and then fail PDU session establishment"
     fi
+}
+
+# The core commands. Each does what is common to every core kind and hands
+# the rest to that kind's function (see "core kinds" at the top).
+cmd_core() {
+    require_lxd
+    exists_instance "$NODE_CORE" || die "$NODE_CORE not found — run '$PROG up' first"
+    check_ue_pool_fits
+    mkdir -p "$TESTBED_CACHE_DIR"
+
+    core_call deploy
+    record_versions
+
+    cmd_core_status
+}
+
+# record_versions writes what every core component resolved to, beside the
+# core (/etc/orbit/testbed-versions) and into the log: with the core following
+# main, these SHAs are the only record of what a run measured.
+record_versions() {
+    local f="$TESTBED_CACHE_DIR/versions.$NODE_CORE"
+    core_call versions > "$f"
+    push_file "$NODE_CORE" "$f" /etc/orbit/testbed-versions
+    info "core components (/etc/orbit/testbed-versions on $NODE_CORE):"
+    sed 's/^/    /' "$f" >&2
+    rm -f "$f"
+}
+
+cmd_reprovision() {
+    require_lxd
+    core_call reprovision
+}
+
+cmd_core_status() {
+    require_lxd
+    core_call status
 }
 
 # ── SD-Core from main ────────────────────────────────────────────────────────
@@ -885,14 +1038,9 @@ open(vf, 'w').write(chr(10).join(lines))
 PY" || die "could not point the charts at the images built from $SDCORE_NF_REF"
 }
 
-cmd_core() {
-    require_lxd
-    exists_instance "$NODE_CORE" || die "$NODE_CORE not found — run '$PROG up' first"
-    check_ue_pool_fits
-
+core_sdcore_deploy() {
     # Built first: a failed build costs nothing on the core, and the images are
     # ready to load as soon as the cluster is.
-    mkdir -p "$TESTBED_CACHE_DIR"
     : > "$SDCORE_VERSIONS"
     if [ -n "$SDCORE_NF_REF" ]; then
         build_sdcore_images
@@ -1089,19 +1237,11 @@ PY" || die "could not enable End Markers in the values template"
 
     check_mongo_cpu
     report_subscribers
-    record_versions
-
-    cmd_core_status
 }
 
-# record_versions writes what every core component resolved to, beside the
-# core (/etc/orbit/testbed-versions) and into the log: with the core following
-# main, these SHAs are the only record of what a run measured.
-record_versions() {
-    push_file "$NODE_CORE" "$SDCORE_VERSIONS" /etc/orbit/testbed-versions
-    info "core components (/etc/orbit/testbed-versions on $NODE_CORE):"
-    sed 's/^/    /' "$SDCORE_VERSIONS" >&2
-}
+# core_sdcore_versions prints what OnRamp, the charts and each NF resolved to
+# in the last deploy.
+core_sdcore_versions() { cat "$SDCORE_VERSIONS"; }
 
 # check_mongo_cpu warns if MongoDB is capped low enough to cap the attach rate.
 #
@@ -1137,7 +1277,7 @@ check_mongo_cpu() {
     esac
 }
 
-# cmd_reprovision repopulates a core whose MongoDB has been emptied.
+# core_sdcore_reprovision repopulates a core whose MongoDB has been emptied.
 #
 # Mongo's datadir is an emptyDir, which is destroyed when the POD is recreated —
 # patching the StatefulSet, deleting the pod, or reinstalling the release. It
@@ -1147,8 +1287,7 @@ check_mongo_cpu() {
 # subscriber population, and the NRF's registry of which NFs exist.
 #
 # Cheaper than `testbed.sh core`, which reinstalls the whole helm release.
-cmd_reprovision() {
-    require_lxd
+core_sdcore_reprovision() {
     info "reprovisioning subscribers into MongoDB"
     on_core "kubectl -n aether-5gc rollout restart deploy/simapp" >/dev/null 2>&1 || true
     on_core "kubectl -n aether-5gc rollout status deploy/simapp --timeout=300s" >/dev/null 2>&1 || true
@@ -1187,8 +1326,7 @@ report_subscribers() {
     esac
 }
 
-cmd_core_status() {
-    require_lxd
+core_sdcore_status() {
     echo "core pods"
     lxc exec "$NODE_CORE" -- bash -lc 'kubectl -n aether-5gc get pods --no-headers 2>/dev/null' 2>/dev/null | sed 's/^/  /' || echo "  (kubectl not answering)"
     echo
@@ -1219,6 +1357,7 @@ github_token() {
 }
 
 cmd_ctrl() {
+    require_ctrl
     require_lxd
     exists_instance "$NODE_CTRL" || die "$NODE_CTRL not found — run '$PROG up' first"
     wait_cloud_init "$NODE_CTRL"
@@ -1291,6 +1430,7 @@ CTRL_PUBKEY_PATHS="/var/lib/aether-ops/keys/aether_ed25519.pub /etc/aether-ops/a
 #
 # Idempotent, and safe to re-run after `ctrl` regenerates a key.
 cmd_keys() {
+    require_ctrl
     require_lxd
     exists_instance "$NODE_CTRL" || die "$NODE_CTRL not found — run '$PROG up' first"
 
@@ -1502,16 +1642,25 @@ api_token() {
 # test values when the core is not up. A mismatch presents as a 5G-AKA MAC
 # failure at registration, not as a rejected authentication.
 core_keys() {
-    local ki="" opc="" tpl="$TESTBED_ONRAMP_DIR/deps/5gc/roles/core/templates"
+    local ki="" opc=""
     if exists_instance "$NODE_CORE" && is_running "$NODE_CORE"; then
-        # One file, no filename prefixes, first match only: the 4G template
-        # beside it carries its own keys.
-        ki=$(on_core "cat $tpl/sdcore-5g-values.yaml $tpl/radio-5g-values.yaml 2>/dev/null | grep -m1 -oE '^\s*key: *\"?[0-9a-fA-F]{32}' | grep -oE '[0-9a-fA-F]{32}' | head -1" 2>/dev/null | tr -d '\r') || ki=""
-        opc=$(on_core "cat $tpl/sdcore-5g-values.yaml $tpl/radio-5g-values.yaml 2>/dev/null | grep -m1 -oE '^\s*opc: *\"?[0-9a-fA-F]{32}' | grep -oE '[0-9a-fA-F]{32}' | head -1" 2>/dev/null | tr -d '\r') || opc=""
+        read -r ki opc <<<"$(core_call keys)" || true
+        if [ "$ki" = - ]; then ki=""; fi
+        if [ "$opc" = - ]; then opc=""; fi
     fi
     if [ -n "$ki" ] && [ "$ki" != "$TESTBED_KI" ]; then warn "deployed Ki differs from TESTBED_KI; using the deployed value"; fi
     if [ -n "$opc" ] && [ "$opc" != "$TESTBED_OPC" ]; then warn "deployed OPc differs from TESTBED_OPC; using the deployed value"; fi
     echo "${ki:-$TESTBED_KI} ${opc:-$TESTBED_OPC}"
+}
+
+# core_sdcore_keys reads Ki/OPc out of the OnRamp values template the core was
+# deployed from. One file, no filename prefixes, first match only: the 4G
+# template beside it carries its own keys.
+core_sdcore_keys() {
+    local ki="" opc="" tpl="$TESTBED_ONRAMP_DIR/deps/5gc/roles/core/templates"
+    ki=$(on_core "cat $tpl/sdcore-5g-values.yaml $tpl/radio-5g-values.yaml 2>/dev/null | grep -m1 -oE '^\s*key: *\"?[0-9a-fA-F]{32}' | grep -oE '[0-9a-fA-F]{32}' | head -1" 2>/dev/null | tr -d '\r') || ki=""
+    opc=$(on_core "cat $tpl/sdcore-5g-values.yaml $tpl/radio-5g-values.yaml 2>/dev/null | grep -m1 -oE '^\s*opc: *\"?[0-9a-fA-F]{32}' | grep -oE '[0-9a-fA-F]{32}' | head -1" 2>/dev/null | tr -d '\r') || opc=""
+    echo "${ki:--} ${opc:--}"
 }
 
 # orbit_env_for <node> -> /etc/orbit/env. Read by the units (EnvironmentFile)
@@ -1889,10 +2038,17 @@ cmd_check() {
         "$PING $far_n2 || exit 1; for try in 1 2 3; do t=\$(traceroute -n -q3 -N1 -w2 $far_n2 | $HOP_ADDRS | tr '\n' ' '); echo \"\$t\"; [ \"\$t\" = '$GW_N2 $WAN_RRAN $far_n2 ' ] && exit 0; sleep 1; done; exit 1"
     check "$NODE_CORE" "1472-byte DF ping to the far site (MTU 1500 end to end)" "ping -c2 -W2 -q -M do -s 1472 $far_n2"
     check "$NODE_CORE" "Internet via r-site NAT" "$PING 8.8.8.8"
-    check "$NODE_CORE" "receive aggregation off on trunk (gro, rx-gro-hw)" \
-        "ethtool -k trunk | grep -E '^(generic-receive-offload|rx-gro-hw):' | grep -qv ': on'"
-    check "$NODE_CORE" "n3/n6 up with no address (macvlan parents)" \
-        "! ip -4 -o addr show dev n3 | grep -q inet && ! ip -4 -o addr show dev n6 | grep -q inet && ip -br link show n3 | grep -q UP && ip -br link show n6 | grep -q UP"
+    if [ "$CORE_UPF_ATTACH" = host ]; then
+        check "$NODE_CORE" "n3/n6 carry the UPF addresses $UPF_N3, $UPF_N6" \
+            "ip -4 -o addr show dev n3 | grep -q 'inet $UPF_N3/' && ip -4 -o addr show dev n6 | grep -q 'inet $UPF_N6/'"
+        check "$NODE_CORE" "far N3 subnet routed via r-site on n3" \
+            "ip route get $(ip_in "$TESTBED_NET_FAR_N3" "$s") | grep -q 'via $GW_N3 dev n3 src $UPF_N3'"
+    else
+        check "$NODE_CORE" "receive aggregation off on trunk (gro, rx-gro-hw)" \
+            "ethtool -k trunk | grep -E '^(generic-receive-offload|rx-gro-hw):' | grep -qv ': on'"
+        check "$NODE_CORE" "n3/n6 up with no address (macvlan parents)" \
+            "! ip -4 -o addr show dev n3 | grep -q inet && ! ip -4 -o addr show dev n6 | grep -q inet && ip -br link show n3 | grep -q UP && ip -br link show n6 | grep -q UP"
+    fi
 
     check "$NODE_RANF" "ping the AMF's N2 $CORE_N2" "$PING $CORE_N2"
     check "$NODE_RANF" "ping r-site N3 $GW_N3 (the UPF's gateway)" "$PING $GW_N3"
@@ -1991,8 +2147,10 @@ cmd_all() {
     # The control node comes up before the core: it is what deploys and manages
     # the core, and distributing its key is a precondition for it reaching any
     # node at all.
-    cmd_ctrl
-    cmd_keys
+    if [ "$CORE_HAS_CTRL" = true ]; then
+        cmd_ctrl
+        cmd_keys
+    fi
     cmd_wanem
     cmd_core
     cmd_apps
@@ -2019,7 +2177,7 @@ cmd_status() {
     echo
     echo "access:  lxc exec <node> -- bash;  $PROG console <node>  (autologin root)"
     [ -n "${TESTBED_SSH_PUBKEY:-}" ] && echo "         $PROG ssh <node>  (via $NODE_RSITE)"
-    echo "node is one of: rsite wanem rran ctrl core ran-near ran-far app"
+    echo "node is one of: $(node_names ' ')"
     true
 }
 
@@ -2028,19 +2186,20 @@ node_for() {
         rsite|r-site) echo "$NODE_RSITE" ;;
         wanem)        echo "$NODE_WANEM" ;;
         rran|r-ran)   echo "$NODE_RRAN" ;;
-        ctrl)         echo "$NODE_CTRL" ;;
+        ctrl)         require_ctrl; echo "$NODE_CTRL" ;;
         core)         echo "$NODE_CORE" ;;
         ran-near|near|ran) echo "$NODE_RANN" ;;
         ran-far|far)  echo "$NODE_RANF" ;;
         app)          echo "$NODE_APP" ;;
-        *) die "unknown node '$1' (expected rsite, wanem, rran, ctrl, core, ran-near, ran-far or app)" ;;
+        *) die "unknown node '$1' (expected $(node_names ', ' ' or '))" ;;
     esac
 }
 
 cmd_console() {
     [ $# -ge 1 ] || die "usage: $PROG console <node>"
+    local n; n=$(node_for "$1")
     echo "(detach with ctrl-a q)" >&2
-    lxc console "$(node_for "$1")"
+    lxc console "$n"
 }
 
 # The host has no address on any site VLAN (the bridges are switches), so SSH
@@ -2078,6 +2237,16 @@ cmd_down() {
 }
 
 usage() {
+    local ctrl_help="" all_steps="image + up + wanem + core + apps + check"
+    if [ "$CORE_HAS_CTRL" = true ]; then
+        all_steps="image + up + ctrl + keys + wanem + core + apps + check"
+        ctrl_help="
+  $PROG ctrl               install aether-ops on the control node
+  $PROG keys               authorize the control node's managed SSH key on
+                                the core, RAN and app nodes (aether-ops
+                                cannot do this itself — see AO-2 in its
+                                KNOWN_ISSUES.md)"
+    fi
     cat <<EOF
 $PROG — LXD testbed for ORBIT in the Ref 2 small-site shape
             (VLAN-trunked OAM/N2/N3/N6, site routers, routed UE pool, far site over a WAN)
@@ -2086,27 +2255,21 @@ $PROG — LXD testbed for ORBIT in the Ref 2 small-site shape
   $PROG up                 create networks and nodes, start them (r-site first)
   $PROG status             show networks, nodes and addresses
   $PROG check              assert the site routes as designed (gateways, hops,
-                                NAT, isolation); exit status = failures
-  $PROG ctrl               install aether-ops on the control node
-  $PROG keys               authorize the control node's managed SSH key on
-                                the core, RAN and app nodes (aether-ops
-                                cannot do this itself — see AO-2 in its
-                                KNOWN_ISSUES.md)
+                                NAT, isolation); exit status = failures$ctrl_help
   $PROG wanem              build wanemd on this host and install it on the
                                 WAN emulator node
-  $PROG core               deploy SD-Core onto the core node via OnRamp
-  $PROG core-status        show the core pods, interfaces and UPF attachments
+  $PROG core               deploy the core ($CORE_NAME) onto the core node
+  $PROG core-status        show the core's health, the core node's interfaces
+                                and where the UPF is attached
   $PROG app                install the ORBIT responder on the app node (N6)
   $PROG ran [near|far]     install ORBIT on the RAN node(s) (default both)
   $PROG apps               app + ran
   $PROG verify [near|far]  drive ORBIT through the whole path from each site:
                                 NG Setup, registration + PDU session, UE ping,
                                 traffic, deregistration
-  $PROG all                image + up + ctrl + keys + wanem + core + apps + check
-  $PROG reprovision        repopulate MongoDB after a mongo or core-node
-                                restart (its datadir is an emptyDir, so a
-                                restart empties both the subscribers and the
-                                NRF registry)
+  $PROG all                $all_steps
+  $PROG reprovision        restore the subscriber population on a deployed
+                                core without redeploying it
   $PROG addrs [node...]    re-apply addressing to running nodes, attaching any
                                 NIC whose network was removed (default: both
                                 RAN nodes)
@@ -2116,11 +2279,19 @@ $PROG — LXD testbed for ORBIT in the Ref 2 small-site shape
   $PROG down [--image]     remove everything this script created
   $PROG networks           create only the networks
 
-node is one of: rsite, wanem, rran, ctrl, core, ran-near, ran-far, app
+node is one of: $(node_names ', ')
+This testbed: prefix '$P', core $CORE_NAME (TESTBED_CORE_KIND=$CORE_KIND).
 Configuration: testbed.conf, overridden by env or testbed.local.conf.
 See README.md.
 EOF
 }
+
+# A core file that leaves part of the contract out fails here, not half-way
+# through a deploy.
+for fn in deploy status reprovision keys versions; do
+    declare -F "core_${CORE_KIND}_$fn" >/dev/null \
+        || die "core kind '$CORE_KIND' does not define core_${CORE_KIND}_$fn (see cores/$CORE_KIND.sh)"
+done
 
 case "${1:-}" in
     image)    shift; cmd_image "$@" ;;
