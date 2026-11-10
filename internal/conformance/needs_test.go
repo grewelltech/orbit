@@ -68,12 +68,14 @@ func usesOf(t *testing.T, names ...string) map[string]map[string]bool {
 	return out
 }
 
-// Every check that registers a UE declares one, and every check that hands
-// over to the harness's target gNB declares that offset: a run leases what
-// the declarations say, so a missing one is a check running on a resource
-// no lease covers.
+// Every check that registers a UE declares one, every check that hands
+// over to the harness's target gNB declares that offset, and a check
+// declares the second N2 source address exactly when it dials from it: a
+// run leases what the declarations say, so a missing one is a check running
+// on a resource no lease covers.
 func TestEveryCheckDeclaresItsNeeds(t *testing.T) {
-	uses := usesOf(t, "NewUEHarness", "TargetGNB")
+	uses := usesOf(t, "NewUEHarness", "TargetGNB", "DialSecond")
+	second := 0
 	for _, c := range NewRegistry().Tests() {
 		typ := reflect.TypeOf(c).Name()
 		n := NeedsOf(c)
@@ -86,6 +88,15 @@ func TestEveryCheckDeclaresItsNeeds(t *testing.T) {
 		if n.UEs > 1 {
 			t.Errorf("%s declares %d UEs; the harness registers one at a time", c.ID(), n.UEs)
 		}
+		if uses[typ]["DialSecond"] != n.SecondN2Source {
+			t.Errorf("%s (%s) dials from the second N2 source: %v, declares it: %v", c.ID(), typ, uses[typ]["DialSecond"], n.SecondN2Source)
+		}
+		if n.SecondN2Source {
+			second++
+		}
+	}
+	if second == 0 {
+		t.Error("no check declares the second N2 source; the walk for DialSecond is broken")
 	}
 	if len(uses) == 0 {
 		t.Fatal("found no UE harness use; the walk is broken")
@@ -115,6 +126,9 @@ func TestRegistryNeeds(t *testing.T) {
 			if all.UEs != 1 {
 				t.Errorf("all checks: %d UEs, want 1", all.UEs)
 			}
+			if !all.SecondN2Source {
+				t.Error("all checks: no second N2 source, though a registered check dials from one")
+			}
 			for _, want := range tc.want {
 				if !slices.Contains(all.GNBIDs, want) {
 					t.Errorf("no gNB ID %d in %v", want, all.GNBIDs)
@@ -128,11 +142,11 @@ func TestRegistryNeeds(t *testing.T) {
 				t.Errorf("%d IDs, want %d", len(all.GNBIDs), 2*n+1)
 			}
 			// A category whose checks register no UE needs none.
-			if ng := r.Needs(700, tc.packed, NegativeIE); ng.UEs != 0 || len(ng.GNBIDs) == 0 {
+			if ng := r.Needs(700, tc.packed, NegativeIE); ng.UEs != 0 || len(ng.GNBIDs) == 0 || ng.SecondN2Source {
 				t.Errorf("negative-ie only: %+v", ng)
 			}
 			// Procedural holds a check that registers one.
-			if ng := r.Needs(700, tc.packed, Procedural); ng.UEs != 1 || len(ng.GNBIDs) == 0 {
+			if ng := r.Needs(700, tc.packed, Procedural); ng.UEs != 1 || len(ng.GNBIDs) == 0 || !ng.SecondN2Source {
 				t.Errorf("procedural only: %+v", ng)
 			}
 		})

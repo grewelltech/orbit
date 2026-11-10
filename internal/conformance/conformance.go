@@ -15,6 +15,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -139,6 +140,10 @@ func budget(t Test, perTest time.Duration) (time.Duration, bool) {
 // one from the same Bind, and only an ephemeral port gives the two distinct
 // ports. ValidateBind enforces this; callers run it before a suite.
 //
+// SecondBind is an optional second local N2 source address, in Bind's form
+// and on another IP, for a check that holds two associations from two
+// addresses at once (DialSecond). Empty, such a check SKIPs.
+//
 // UPFN3/N3Bind are optional and used only by user-plane (GTP-U) checks: UPFN3
 // is the UPF's N3 endpoint (host:port) and N3Bind the local N3 source
 // (host:port) — both must be set, from a host on the UPF access network, or
@@ -155,6 +160,7 @@ func budget(t Test, perTest time.Duration) (time.Duration, bool) {
 type Env struct {
 	AMFAddr       string
 	Bind          string
+	SecondBind    string
 	GNB           gnb.Config
 	UPFN3         string
 	N3Bind        string
@@ -217,6 +223,38 @@ func (e Env) NarrowingSpecTargets() map[string]Release {
 // bounded by ctx (see sctp.Dial).
 func (e Env) Dial(ctx context.Context) (*sctp.Conn, error) {
 	return sctp.Dial(ctx, e.Bind, e.AMFAddr)
+}
+
+// DialSecond opens a raw SCTP association to the AMF (no NG Setup) from
+// SecondBind, bounded by ctx. It is an error when no second address is
+// configured: a check asks HasSecondSource first.
+func (e Env) DialSecond(ctx context.Context) (*sctp.Conn, error) {
+	if e.SecondBind == "" {
+		return nil, errors.New("no second N2 source address configured")
+	}
+	return sctp.Dial(ctx, e.SecondBind, e.AMFAddr)
+}
+
+// HasSecondSource reports whether SecondBind names an address on another
+// IP than the one Bind's associations leave from (N2Source), so that two
+// associations can come from two source addresses.
+func (e Env) HasSecondSource() bool {
+	if e.SecondBind == "" {
+		return false
+	}
+	return bindHost(e.SecondBind) != bindHost(e.N2Source())
+}
+
+// bindHost is the host of a bind address written as host or host:port.
+func bindHost(bind string) string {
+	n, err := sctp.NormalizeLocal(bind)
+	if err != nil {
+		return bind
+	}
+	if host, _, err := net.SplitHostPort(n); err == nil {
+		return host
+	}
+	return n
 }
 
 // ValidateBind checks a conformance bind address up front: it must

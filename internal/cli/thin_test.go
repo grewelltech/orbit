@@ -139,7 +139,10 @@ func TestThinLoadPlan(t *testing.T) {
 
 // `orbit conformance` on the server gives what --local gives for the same
 // suite: the same checks and verdicts, and the same exit. Each side has its
-// own mock AMF, which keeps state between runs.
+// own mock AMF, which keeps state between runs. The one difference is the
+// check that needs a second N2 source address: the server takes it from
+// the target's pool and runs the check, and --local, which has the one
+// --bind address, SKIPs it.
 func TestThinConformanceMatchesLocal(t *testing.T) {
 	clearOrbitEnv(t)
 	run := func(local, jsonOut bool) orbitRun {
@@ -164,10 +167,28 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 		}
 		return sum.Results
 	}
+	const secondSource = "NGAP-DUPLICATE-RAN-NODE-ID"
+	// apart removes the second-source check's result, returning its verdict.
+	apart := func(rs []result) ([]result, string) {
+		var out []result
+		verdict := ""
+		for _, r := range rs {
+			if r.ID == secondSource {
+				verdict = r.Verdict
+				continue
+			}
+			out = append(out, r)
+		}
+		return out, verdict
+	}
 	local, thin := run(true, true), run(false, true)
-	lr, tr := parse("--local", local), parse("thin", thin)
+	lr, lv := apart(parse("--local", local))
+	tr, tv := apart(parse("thin", thin))
 	if len(lr) < 3 {
 		t.Fatalf("only %d results: %+v", len(lr), lr)
+	}
+	if lv != "SKIP" || tv != "INFO" {
+		t.Errorf("%s: --local %q, thin %q; want SKIP with one N2 source and INFO with the pool's second", secondSource, lv, tv)
 	}
 	if !reflect.DeepEqual(lr, tr) {
 		t.Errorf("the server's suite differs from --local's:\nlocal %+v\nthin  %+v", lr, tr)
@@ -188,6 +209,9 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 		var out []string
 		for _, l := range strings.Split(r.out, "\n") {
 			if f := strings.Fields(l); len(f) > 0 && regexp.MustCompile(`^(PASS|FAIL|ERROR|SKIP|DEVIATION|INFO|INFO-DIFF)$`).MatchString(f[0]) {
+				if strings.Contains(l, secondSource) {
+					continue
+				}
 				out = append(out, strings.Join(f[:min(4, len(f))], " "))
 			} else if strings.HasPrefix(l, "network:") || strings.HasPrefix(l, "target-release:") {
 				out = append(out, l)

@@ -220,13 +220,19 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if tac == 0 {
 		tac = 1
 	}
-	n2, err := target.ExpandPool(t.GetRan().GetN2SourceIps(), 1)
+	// The suite's associations leave from the pool's first address; the
+	// second, when the pool has one, is for the checks that hold two
+	// associations from two addresses.
+	n2, err := target.ExpandPool(t.GetRan().GetN2SourceIps(), 2)
 	if err != nil {
 		return nil, fmt.Errorf("ran.n2_source_ips: %w", err)
 	}
-	var bind string
+	var bind, secondBind string
 	if len(n2) > 0 {
 		bind = n2[0]
+	}
+	if len(n2) > 1 {
+		secondBind = n2[1]
 	}
 	if err := conformance.ValidateBind(bind); err != nil {
 		return nil, fmt.Errorf("ran.n2_source_ips: %w", err)
@@ -261,6 +267,15 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	}
 	env.PackedGNBIDs = ranged
 	needs := reg.Needs(0, ranged, cats...)
+	// The second address is taken, and leased, only for a selection with a
+	// check that uses it.
+	if !needs.SecondN2Source {
+		secondBind = ""
+	}
+	if err := conformance.ValidateBind(secondBind); err != nil {
+		return nil, fmt.Errorf("ran.n2_source_ips: %w", err)
+	}
+	env.SecondBind = secondBind
 	ueSpec, block, err := suiteUE(t, cw, env.GNB, core.GetDnn(), needs.UEs)
 	if err != nil {
 		return nil, err
@@ -328,8 +343,10 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	for _, off := range pattern {
 		out.needs.GNBs = append(out.needs.GNBs, engine.GNBKey{AMF: core.GetAmf(), PLMN: plmn, ID: base + off})
 	}
-	if bind != "" {
-		out.needs.N2IPs = []string{bind}
+	for _, b := range []string{bind, secondBind} {
+		if b != "" {
+			out.needs.N2IPs = append(out.needs.N2IPs, b)
+		}
 	}
 	if block != nil {
 		out.needs.SUPIs = []engine.SUPIBlock{*block}

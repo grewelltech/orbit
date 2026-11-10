@@ -64,6 +64,12 @@ be a bare IP or `ip:0`, two gNBs may not name the same fixed `ip:port`, and
 liveness probe opens a second association from the same address. These are
 rejected before anything is dialled.
 
+A conformance check that holds two associations from two source addresses at
+once (`NGAP-DUPLICATE-RAN-NODE-ID`) takes the second from the target: the
+suite uses the first address of `ran.n2_source_ips`, and such a check the
+second, which this host must hold. `--bind` names one address, so with it
+alone, with `--local`, or in a run that also has a population, the check SKIPs.
+
 `--bind` is the **N2** source; the user plane has its own flags (`--gnb-n3` on
 the UE and load commands, `--n3-bind` on `conformance`, whose `--upf-n3` must be
 the UPF's primary N3 address: the GTP-U checks send GTP-U Echo Requests, one

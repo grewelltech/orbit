@@ -159,6 +159,10 @@ type AMF struct {
 	dropTAs      bool
 	dropTAsCause uint8
 	droppedTAs   map[*pipe]bool
+	// duplicateRANNode is WithDuplicateRANNodeID; ranNodes, guarded by mu,
+	// holds the gNB ID each association that completed NG Setup presented.
+	duplicateRANNode DuplicateRANNodeAnswer
+	ranNodes         map[*pipe]uint32
 
 	// undecodable is the reaction to an uplink PDU that does not decode
 	// (undecodable.go).
@@ -206,7 +210,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log, droppedTAs: make(map[*pipe]bool)}
+		ues: make(map[int64]*ueState), log: log, droppedTAs: make(map[*pipe]bool), ranNodes: make(map[*pipe]uint32)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -286,11 +290,15 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
+		setup := setupOf(pdu.InitiatingMessage.Value.NGSetupRequest)
 		a.mu.Lock()
-		a.setups = append(a.setups, setupOf(pdu.InitiatingMessage.Value.NGSetupRequest))
+		a.setups = append(a.setups, setup)
 		a.mu.Unlock()
 		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.served) {
 			return a.send(p, buildNGSetupFailureUnknownPLMN())
+		}
+		if answered, err := a.onRANNode(p, setup.GNBID); answered {
+			return err
 		}
 		resp, err := buildNGSetupResponse(a.served, a.cfg.SST, a.sdBytes)
 		if err != nil {

@@ -81,6 +81,9 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		{name: "a fixed N2 port", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.N2SourceIps = []string{"127.0.0.1:5000"}
 		}, wantErr: "ran.n2_source_ips"},
+		{name: "a fixed port on the second N2 source", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.1", "127.0.0.2:5000"}
+		}, wantErr: "ran.n2_source_ips"},
 		{name: "a pool without the gNB N3", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Ran.N3Ips = nil }, wantErr: "ran.n3_ips"},
 		{name: "traffic without a pool", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Subscribers = nil
@@ -111,8 +114,9 @@ func TestSuiteShapeRefusals(t *testing.T) {
 }
 
 // A suite leases what its selected checks declare: their gNB IDs from the
-// base, its one N2 source, and the UE checks' subscriber only when one is
-// selected and the target has a pool.
+// base, its N2 source, the pool's second N2 address only when a selected
+// check holds a second association from it, and the UE checks' subscriber
+// only when one is selected and the target has a pool.
 func TestSuiteLeases(t *testing.T) {
 	reg := conformance.NewRegistry()
 	tests := []struct {
@@ -121,7 +125,16 @@ func TestSuiteLeases(t *testing.T) {
 		cats     []conformance.Category
 		wantSUPI bool
 		noUE     bool // the suite has no UE (its UE checks SKIP)
+		// wantSecond is the second N2 source the suite takes, "" for none.
+		wantSecond string
 	}{
+		{name: "a two-address pool: the second for the check that needs it", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.1-127.0.0.3"}
+		}, wantSUPI: true, wantSecond: "127.0.0.2"},
+		{name: "a two-address pool, no check that needs the second", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.1", "127.0.0.2"}
+			cw.Categories = []string{"negative-ie"}
+		}, cats: []conformance.Category{conformance.NegativeIE}},
 		{name: "every check", wantSUPI: true},
 		{name: "negative-ie only, a valid pool: no SUPI lease", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"negative-ie"} },
 			cats: []conformance.Category{conformance.NegativeIE}},
@@ -150,8 +163,15 @@ func TestSuiteLeases(t *testing.T) {
 			if want := reg.Needs(defaultSuiteGNBBase, false, tc.cats...).GNBIDs; !slices.Equal(got, want) {
 				t.Errorf("gNB IDs = %v, want %v", got, want)
 			}
-			if !slices.Equal(pr.needs.N2IPs, []string{"127.0.0.1"}) {
-				t.Errorf("N2 = %v", pr.needs.N2IPs)
+			wantN2 := []string{"127.0.0.1"}
+			if tc.wantSecond != "" {
+				wantN2 = append(wantN2, tc.wantSecond)
+			}
+			if !slices.Equal(pr.needs.N2IPs, wantN2) {
+				t.Errorf("N2 = %v, want %v", pr.needs.N2IPs, wantN2)
+			}
+			if env := pr.suiteLive.spec.env; env.Bind != "127.0.0.1" || env.SecondBind != tc.wantSecond {
+				t.Errorf("suite binds %q and %q, want 127.0.0.1 and %q", env.Bind, env.SecondBind, tc.wantSecond)
 			}
 			// A selection with no UE check leases no SUPI, even from a
 			// valid pool: leases follow the checks' needs, and an unused

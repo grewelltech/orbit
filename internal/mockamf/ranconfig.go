@@ -50,6 +50,7 @@ func (a *AMF) tasDropped(p *pipe) bool {
 func (a *AMF) forgetAssociation(p *pipe) {
 	a.mu.Lock()
 	delete(a.droppedTAs, p)
+	delete(a.ranNodes, p)
 	a.mu.Unlock()
 }
 
