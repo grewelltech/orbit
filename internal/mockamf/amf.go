@@ -115,7 +115,7 @@ type AMF struct {
 	t3550Retries      int
 	assignGUTI        bool
 	crashAfterT3550   bool
-	crashed           atomic.Bool // set once a crashAfterRelease release or crashAfterT3550 abort happened
+	crashed           atomic.Bool // set once a crashAfterRelease release, a crashAfterT3550 abort or a CrashOnUndecodable PDU happened
 
 	// Security Mode Command options (smc.go).
 	integrityOrder  []uint8
@@ -149,11 +149,26 @@ type AMF struct {
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
 	regReqs [][]byte
+
+	// RAN Configuration Update (ranconfig.go): the answer, and the updates
+	// received, guarded by mu.
+	ranConfigAnswer  RANConfigUpdateAnswer
+	ranConfigUpdates []RANConfigUpdate
+	// dropTAs and dropTAsCause are WithRANConfigUpdateDroppingTAs;
+	// droppedTAs, guarded by mu, holds the associations it has applied to.
+	dropTAs      bool
+	dropTAsCause uint8
+	droppedTAs   map[*pipe]bool
+
+	// undecodable is the reaction to an uplink PDU that does not decode
+	// (undecodable.go).
+	undecodable UndecodableAnswer
 }
 
-// errCrashed ends every association of a mock that crashed after a release
-// (WithCrashAfterRelease).
-var errCrashed = errors.New("mockamf: crashed after the T3560 release")
+// errCrashed ends every association of a mock that crashed: after a release
+// (WithCrashAfterRelease), a T3550 abort (WithCrashAfterT3550Abort) or an
+// undecodable PDU (CrashOnUndecodable).
+var errCrashed = errors.New("mockamf: crashed")
 
 // New validates config and returns a mock AMF, adjusted by opts.
 func New(cfg Config, opts ...Option) (*AMF, error) {
@@ -191,7 +206,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log}
+		ues: make(map[int64]*ueState), log: log, droppedTAs: make(map[*pipe]bool)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -238,6 +253,7 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			st.t3560.stop()
 			st.t3550.stop()
 		}
+		a.forgetAssociation(p)
 	}()
 	buf := make([]byte, 65536)
 	for {
@@ -249,11 +265,14 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			return err
 		}
 		if a.crashed.Load() {
-			return errCrashed // WithCrashAfterRelease: the core is gone
+			return errCrashed // the core is gone
 		}
 		pdu, err := ngap.Decode(raw)
 		if err != nil {
-			return fmt.Errorf("mock amf decode: %w", err)
+			if err := a.onUndecodable(p, fmt.Errorf("mock amf decode: %w", err)); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := a.dispatch(p, states, pdu); err != nil {
 			return err
@@ -261,8 +280,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 	}
 }
 
-// dispatch routes one gNB→AMF PDU: NG Setup is answered once; UE-associated
-// messages go to their per-RAN-UE-NGAP-ID state.
+// dispatch routes one gNB→AMF PDU: NG Setup is answered once, a RAN
+// Configuration Update as configured; UE-associated messages go to their
+// per-RAN-UE-NGAP-ID state.
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
@@ -303,6 +323,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	}
 	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentPathSwitchRequest {
 		return a.onPathSwitchRequest(p, states, pdu.InitiatingMessage.Value.PathSwitchRequest)
+	}
+	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentRANConfigurationUpdate {
+		return a.onRANConfigUpdate(p, pdu.InitiatingMessage.Value.RANConfigurationUpdate)
 	}
 	up, err := parseUplink(pdu)
 	if err != nil {
@@ -366,6 +389,9 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	a.ues[st.amfID] = st
 	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
 	a.mu.Unlock()
+	if a.tasDropped(p) {
+		return a.rejectRegistration(p, st, a.dropTAsCause)
+	}
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
 	var randv [16]byte

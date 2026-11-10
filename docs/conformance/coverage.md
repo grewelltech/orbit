@@ -81,7 +81,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
 | NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ⬜ bad TAC | the densest entry point |
-| RAN Configuration Update | RAN→AMF | ⬜ | 🎯 malformed IE (high-value set) | |
+| RAN Configuration Update | RAN→AMF | ✅ `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (an absent Supported TA List keeps the TAs) | ✅ `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (transfer syntax error) | every IE but Message Type is optional, so there is no missing-mandatory-IE case |
 | NG Reset | RAN→AMF | ✅ `NGAP-NG-RESET-ACK` (live PASS) | ⬜ | RAN-initiated reset-all → NG RESET ACKNOWLEDGE |
 | Error Indication | both | ✅ (we assert the core *sends* it) | — | |
 | AMF Configuration Update | AMF→RAN | — | — | ORBIT receives |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**11 checks today** (the first four live on the SD-Core testbed):
+**14 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -155,11 +155,36 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   another PDU, a silent drop or a reset is FAIL. It never presents a served
   PLMN with an unknown TAC, which an AMF rejects with the same cause. Predicted
   PASS on SD-Core from source; not yet run live.
+- `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (procedural, FAIL-class) — after NG
+  Setup, a RAN CONFIGURATION UPDATE carrying only the RAN Node Name; the UE
+  then registers over the same association. An IE the update does not
+  include leaves that configuration unchanged (TS 38.413 8.7.2.2, a shall
+  from V15.3.0), so after a RAN CONFIGURATION UPDATE ACKNOWLEDGE the AMF
+  must still serve the NG Setup tracking area: a registration is PASS, a
+  Registration Reject with #12, #13 or #15 is FAIL, any other registration
+  failure is ERROR. A RAN CONFIGURATION UPDATE FAILURE is SKIP, and no
+  outcome within 5 s is ERROR. Needs a UE, else SKIP. Not yet run on Ref 2.
+- `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (negative-ie, DEVIATION-class) — a
+  RAN CONFIGURATION UPDATE whose Supported TA Item is cut off after its TAC,
+  so the item's mandatory Broadcast PLMN List is missing: a transfer syntax
+  error, for which the receiver **should** initiate the Error Indication
+  procedure (TS 38.413 10.2). An ERROR INDICATION is PASS. A silent drop,
+  another PDU, or a dropped association with the core still running is
+  DEVIATION; a core that stops completing NG Setup is FAIL. It is the only
+  check that cites a should and no shall. Not yet run on Ref 2.
 - `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, FAIL-class) — G-PDU with a non-zero
   unknown TEID → TS 29.281 §7.3.1 says the UPF **shall** return an Error
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
   UPF, nothing back), so it scores FAIL; a lab that tolerates it lists it on
   its expected-failures list. See interop/sdcore.md.
+- `GTPU-ECHO-RESPONSE` (gtpu, FAIL-class) — a GTP-U Echo Request to the
+  UPF's N3 address, with no session → the UPF **shall** reply with an Echo
+  Response (TS 29.281 7.2.1, 7.2.2) that copies the request's sequence number
+  (4.3.1). Up to three requests, each with its own sequence number, so one
+  lost datagram is not a FAIL. No response, or a response with a sequence
+  number that was not sent, is FAIL. Silence cannot tell a UPF without Echo
+  handling from one `--upf-n3` does not reach. Needs `--upf-n3` and
+  `--n3-bind`, else SKIP. Not yet run on Ref 2.
 - `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
@@ -264,5 +289,5 @@ Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
 - **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`).
-- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
+- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ✅ Echo Request → Echo Response with the sequence number copied (`GTPU-ECHO-RESPONSE`).
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

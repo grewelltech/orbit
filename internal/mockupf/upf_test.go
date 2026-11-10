@@ -153,3 +153,54 @@ func TestUplinkRecordedAndDownlinkSent(t *testing.T) {
 		t.Errorf("downlink to an unknown session: err = %v", err)
 	}
 }
+
+// An Echo Request is answered from the stub's socket to the sender with an
+// Echo Response carrying the request's sequence number; with NoEcho the
+// stub stays silent. Either way the request is not recorded as uplink.
+func TestEchoRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		opts       Options
+		wantAnswer bool
+	}{
+		{name: "answered", wantAnswer: true},
+		{name: "NoEcho", opts: Options{NoEcho: true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gnb := gnbSocket(t, "127.0.0.1")
+			u := newStub(t, tc.opts, gnb)
+			if _, err := gnb.WriteToUDP(gtpu.EncodeEchoRequest(0xBEEF), u.Addr()); err != nil {
+				t.Fatal(err)
+			}
+			// A G-PDU after the request marks the point by which the stub
+			// has handled it.
+			if _, err := gnb.WriteToUDP(gtpu.EncodeGPDU(0x99, 1, []byte{0x45, 0, 0, 4}), u.Addr()); err != nil {
+				t.Fatal(err)
+			}
+			if !u.WaitFor(2*time.Second, func(u *UPF) bool { return len(u.Uplink()) == 1 }) {
+				t.Fatalf("uplink = %+v, want the G-PDU only", u.Uplink())
+			}
+			if err := gnb.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+				t.Fatal(err)
+			}
+			buf := make([]byte, 2048)
+			n, from, err := gnb.ReadFromUDP(buf)
+			if !tc.wantAnswer {
+				if err == nil {
+					t.Fatalf("NoEcho stub answered: % x", buf[:n])
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("no Echo Response: %v", err)
+			}
+			if seq, ok := gtpu.EchoResponseSeq(buf[:n]); !ok || seq != 0xBEEF {
+				t.Errorf("answer % x: sequence %#x ok %v, want an Echo Response with 0xbeef", buf[:n], seq, ok)
+			}
+			if from.Port != u.Addr().Port {
+				t.Errorf("answer came from port %d, want the stub's %d", from.Port, u.Addr().Port)
+			}
+		})
+	}
+}

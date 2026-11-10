@@ -151,6 +151,11 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	if err != nil {
 		return nil, err
 	}
+	if p := ueCfg.Probe; p != nil && p.BeforeRegistration != nil {
+		if err := p.BeforeRegistration(ctx, conn); err != nil {
+			return nil, fmt.Errorf("before registration: %w", err)
+		}
+	}
 	if err := gnb.SendPDU(conn, ueStream, initial); err != nil {
 		return nil, fmt.Errorf("send Initial UE Message: %w", err)
 	}

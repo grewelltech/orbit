@@ -3,6 +3,8 @@
 // request, and reacts to an Xn path switch the way a UPF configured for it
 // would, by sending a GTP-U End Marker on the old downlink tunnel (TS 29.281
 // §7.3.2, TS 29.244 §8.2.31) and, when asked, a late G-PDU after it. It
+// answers a GTP-U Echo Request with an Echo Response carrying the request's
+// sequence number (TS 29.281 §7.2, §4.3.1) unless told not to. It
 // implements mockamf.UPF, so the mock AMF tells it about sessions and path
 // switches and it needs no NGAP of its own.
 //
@@ -23,7 +25,8 @@ import (
 	"github.com/bgrewell/orbit/internal/mockamf"
 )
 
-// Options select how the stub behaves on a path switch and on downlink.
+// Options select how the stub behaves on a path switch, on downlink and on
+// a GTP-U Echo Request.
 type Options struct {
 	// EndMarker sends one End Marker to the old downlink tunnel after each
 	// path switch; false models a UPF with End Marker disabled.
@@ -38,6 +41,9 @@ type Options struct {
 	QFI bool
 	// GTPUPort is the gNB's GTP-U port; 0 means 2152.
 	GTPUPort int
+	// NoEcho leaves GTP-U Echo Requests unanswered, modelling a UPF without
+	// Echo handling; by default each gets an Echo Response.
+	NoEcho bool
 }
 
 // Uplink is one G-PDU the stub received.
@@ -261,6 +267,13 @@ func (u *UPF) serve() {
 		n, from, err := u.conn.ReadFromUDP(buf)
 		if err != nil {
 			return
+		}
+		if seq, ok := gtpu.EchoRequestSeq(buf[:n]); ok {
+			if !u.opts.NoEcho {
+				// The reply goes to the sender's own address and port.
+				_, _ = u.conn.WriteToUDP(gtpu.EncodeEchoResponse(seq), from)
+			}
+			continue
 		}
 		g, err := gtpu.DecodeGPDU(buf[:n])
 		if err != nil || g.MsgType != gtpu.MsgTypeGPDU {

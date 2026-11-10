@@ -87,6 +87,14 @@ type AttachProbe struct {
 	// attach waits for the Accept any downlink that does not decode counts;
 	// one whose MAC fails cannot be identified at all.
 	DeregisterUndecodableAccept bool
+	// BeforeRegistration, when set, is called with the gNB's association
+	// before the Initial UE Message is sent, for a check whose stimulus is
+	// a non-UE-associated procedure on the association the UE then
+	// registers over. It runs on the attach's goroutine and may read from
+	// the association; a read it abandons takes the next downlink PDU, so
+	// after one it must return an error. An error ends the attach, wrapped,
+	// with nothing of the UE sent.
+	BeforeRegistration func(ctx context.Context, conn gnb.Transport) error
 }
 
 // UndecodableAcceptError is the error Attach returns when

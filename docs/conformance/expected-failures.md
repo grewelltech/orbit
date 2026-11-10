@@ -89,6 +89,11 @@ and still sent nothing.
 - **No Echo Response after:** FAIL with the unresponsive text, which no entry
   matches.
 
+`GTPU-ECHO-RESPONSE` asserts the Echo Response itself, so there its absence
+is the finding: FAIL, `no Echo Response`, which can be listed for a UPF
+without Echo handling. That check has nothing else to probe the UPF with, so
+such an entry also tolerates a UPF that `--upf-n3` does not reach.
+
 `observed` must be the exact text the check reports, as it appears in the
 text output and in the JSON's `observed` field. Some FAIL texts carry values
 that change between runs, such as End Marker's `N G-PDU(s) after`; those cannot

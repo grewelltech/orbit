@@ -76,28 +76,11 @@ func BuildNGSetupRequest(cfg Config) (ngapType.NGAPPDU, error) {
 		ie.Id.Value = ngapType.ProtocolIEIDSupportedTAList
 		ie.Criticality.Value = ngapType.CriticalityPresentReject
 		ie.Value.Present = ngapType.NGSetupRequestIEsPresentSupportedTAList
-		ie.Value.SupportedTAList = new(ngapType.SupportedTAList)
-
-		item := ngapType.SupportedTAItem{}
-		item.TAC.Value = aper.OctetString{byte(cfg.TAC >> 16), byte(cfg.TAC >> 8), byte(cfg.TAC)}
-
-		bp := ngapType.BroadcastPLMNItem{}
-		bp.PLMNIdentity.Value = aper.OctetString(plmn[:])
-		for _, s := range cfg.Slices {
-			sd, err := s.sdBytes()
-			if err != nil {
-				return pdu, err
-			}
-			si := ngapType.SliceSupportItem{}
-			si.SNSSAI.SST.Value = aper.OctetString{s.SST}
-			if sd != nil {
-				si.SNSSAI.SD = new(ngapType.SD)
-				si.SNSSAI.SD.Value = aper.OctetString(sd)
-			}
-			bp.TAISliceSupportList.List = append(bp.TAISliceSupportList.List, si)
+		ta, err := supportedTAList(cfg, plmn)
+		if err != nil {
+			return pdu, err
 		}
-		item.BroadcastPLMNList.List = append(item.BroadcastPLMNList.List, bp)
-		ie.Value.SupportedTAList.List = append(ie.Value.SupportedTAList.List, item)
+		ie.Value.SupportedTAList = ta
 		ies.List = append(ies.List, ie)
 	}
 
@@ -113,6 +96,31 @@ func BuildNGSetupRequest(cfg Config) (ngapType.NGAPPDU, error) {
 	}
 
 	return pdu, nil
+}
+
+// supportedTAList builds the Supported TA List a gNB presents for cfg: one
+// tracking area (cfg.TAC) broadcasting plmn with cfg's slices.
+func supportedTAList(cfg Config, plmn [3]byte) (*ngapType.SupportedTAList, error) {
+	item := ngapType.SupportedTAItem{}
+	item.TAC.Value = aper.OctetString{byte(cfg.TAC >> 16), byte(cfg.TAC >> 8), byte(cfg.TAC)}
+
+	bp := ngapType.BroadcastPLMNItem{}
+	bp.PLMNIdentity.Value = aper.OctetString(plmn[:])
+	for _, s := range cfg.Slices {
+		sd, err := s.sdBytes()
+		if err != nil {
+			return nil, err
+		}
+		si := ngapType.SliceSupportItem{}
+		si.SNSSAI.SST.Value = aper.OctetString{s.SST}
+		if sd != nil {
+			si.SNSSAI.SD = new(ngapType.SD)
+			si.SNSSAI.SD.Value = aper.OctetString(sd)
+		}
+		bp.TAISliceSupportList.List = append(bp.TAISliceSupportList.List, si)
+	}
+	item.BroadcastPLMNList.List = append(item.BroadcastPLMNList.List, bp)
+	return &ngapType.SupportedTAList{List: []ngapType.SupportedTAItem{item}}, nil
 }
 
 // gnbIDBitString left-aligns the gNB ID into an APER BIT STRING of bits
