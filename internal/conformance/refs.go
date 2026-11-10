@@ -203,3 +203,28 @@ var ts24501RejectedNSSAIVerified = []SpecVersion{
 	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
 	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
 }
+
+// ts29281QFIContainerVerified covers TS 29.281 5.2.2.7 (PDU Session
+// Container): V15.2.0, where the clause first appears, as a may; V15.5.0,
+// where it becomes a shall; and the latest version of Rel-15 to Rel-19.
+var ts29281QFIContainerVerified = []SpecVersion{
+	{Release: 15, Version: "V15.2.0", Archive: "29281-f20.zip"},
+	{Release: 15, Version: "V15.5.0", Archive: "29281-f50.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "29281-f70.zip"},
+	{Release: 16, Version: "V16.2.0", Archive: "29281-g20.zip"},
+	{Release: 17, Version: "V17.5.0", Archive: "29281-h50.zip"},
+	{Release: 18, Version: "V18.4.0", Archive: "29281-i40.zip"},
+	{Release: 19, Version: "V19.2.0", Archive: "29281-j20.zip"},
+}
+
+// ts38415Verified covers TS 38.415 (PDU session user plane protocol):
+// V15.0.0, where the DL PDU SESSION INFORMATION frame and its QFI field
+// first appear, and the latest version of Rel-15 to Rel-19.
+var ts38415Verified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38415-f00.zip"},
+	{Release: 15, Version: "V15.3.0", Archive: "38415-f30.zip"},
+	{Release: 16, Version: "V16.6.0", Archive: "38415-g60.zip"},
+	{Release: 17, Version: "V17.1.0", Archive: "38415-h10.zip"},
+	{Release: 18, Version: "V18.2.0", Archive: "38415-i20.zip"},
+	{Release: 19, Version: "V19.1.0", Archive: "38415-j10.zip"},
+}

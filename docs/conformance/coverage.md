@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**14 checks today** (the first four live on the SD-Core testbed):
+**15 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -160,6 +160,14 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
   UPF, nothing back), so it scores FAIL; a lab that tolerates it lists it on
   its expected-failures list. See interop/sdcore.md.
+- `N3-DL-QFI-CONTAINER` (gtpu, FAIL-class) — a UE with a PDU session sends
+  to the `--traffic` echo peer, and every downlink G-PDU that comes back on
+  N3 must carry the PDU Session Container extension header (TS 29.281
+  5.2.2.7, a shall from V15.5.0; "may" in V15.2.0 to V15.4.0), whose DL PDU
+  SESSION INFORMATION frame has the QFI (TS 38.415 5.4.1.1, 5.5.2.1). Up to
+  50 G-PDUs are sampled within 3 s; one without the container is FAIL. The
+  QFI values are recorded. Needs a UE and `--traffic`, else SKIP; an echo
+  peer that returns nothing is ERROR. Not yet run on Ref 2.
 - `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
@@ -298,5 +306,5 @@ Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
 - **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`).
-- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
+- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ✅ PDU Session Container on downlink G-PDUs (`N3-DL-QFI-CONTAINER`, §5.2.2.7); ⬜ Echo Request/Response.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

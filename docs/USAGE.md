@@ -1435,6 +1435,14 @@ FAIL, when it does not (TS 38.413 8.3.2.2 says "should"). The released UE is
 still registered, so the check then deregisters it with an initial NAS
 message; the detail says how that went.
 
+One `gtpu` check runs through the UE as well: `N3-DL-QFI-CONTAINER` registers
+the UE with a PDU session, sends to the `--traffic` echo peer, and samples the
+downlink G-PDUs that come back (up to 50, within 3 s). It passes when every
+one carries the PDU Session Container extension header with a QFI (TS 29.281
+5.2.2.7) and FAILs when any does not. It needs `--traffic` as well as the UE
+flags and SKIPs without either; it does not use `--upf-n3` or `--n3-bind`. An
+echo peer that returns nothing is an ERROR, since nothing was sampled.
+
 The `nas` category also needs the UE flags (`--supi`, the keys and
 `--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
 UE without a PDU session and withholds its Authentication Response. It passes

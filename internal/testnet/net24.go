@@ -97,6 +97,12 @@ const (
 	ConformanceRelIgnored = 231 // TestUECtxReleaseCheckAgainstMock/command_withheld
 	ConformanceRelNoGUTI  = 232 // TestUECtxReleaseCheckAgainstMock/command,_no_5G-GUTI
 	ConformanceRelRegFail = 233 // TestUECtxReleaseCheckRegistrationFailure
+
+	ConformanceQFIPresent = 235 // TestQFIContainerCheckAgainstMockPair/container_present
+	ConformanceQFIAbsent  = 236 // TestQFIContainerCheckAgainstMockPair/container_absent
+	ConformanceQFISilent  = 237 // TestQFIContainerCheckAgainstMockPair/echo_peer_silent
+	ConformanceQFIRegFail = 238 // TestQFIContainerCheckErrors/registration_refused
+	ConformanceQFITimeout = 239 // TestQFIContainerCheckErrors/timeout_while_sampling
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

@@ -144,6 +144,7 @@ func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
 func (ngapUECtxReleaseOnRequest) Needs() CheckNeeds { return ueNeeds }
+func (n3DLQFIContainer) Needs() CheckNeeds          { return ueNeeds }
 func (nasSMCNoNIA0) Needs() CheckNeeds              { return ueNeeds }
 func (nasPDUUnknownDNN) Needs() CheckNeeds          { return ueNeeds }
 func (nasRegRejectedNSSAI) Needs() CheckNeeds       { return ueNeeds }

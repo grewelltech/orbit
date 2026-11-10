@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/bgrewell/orbit/internal/datapath"
@@ -209,4 +211,141 @@ func gtpuEcho(ctx context.Context, conn *net.UDPConn, raddr *net.UDPAddr, seq ui
 			return true, nil
 		}
 	}
+}
+
+func init() {
+	builtins = append(builtins, n3DLQFIContainer{})
+}
+
+const (
+	// qfiSampleTarget is how many downlink G-PDUs the QFI check samples
+	// before it judges, and qfiSampleWindow how long it waits for them.
+	qfiSampleTarget = 50
+	qfiSampleWindow = 3 * time.Second
+)
+
+// qfiContainerFailure is the QFI check's failure message.
+const qfiContainerFailure = "downlink G-PDU on N3 without a PDU Session Container. TS 29.281 5.2.2.7 (Rel-15 V15.5.0 onward; V15.2.0-V15.4.0 said \"may\"). Likely cause: UPF not adding the extension header."
+
+// n3DLQFIContainer registers a UE with a PDU session, has it send to the
+// echo peer on the data network (UESpec.Traffic) so the UPF has downlink to
+// send, and asserts TS 29.281 5.2.2.7: every downlink G-PDU on N3 carries
+// the PDU Session Container extension header, whose DL PDU SESSION
+// INFORMATION frame has the QFI (TS 38.415 5.4.1.1, 5.5.2.1).
+//
+// The G-PDUs are those the gNB's N3 demux delivers to the UE's downlink
+// lane: every one that arrives until qfiSampleTarget have, or
+// qfiSampleWindow has passed. One without the container is FAIL. The QFI
+// values are recorded, not asserted. The downlink comes only from the echo
+// peer, so without one the check SKIPs, and with one that returns nothing
+// it is an ERROR: no G-PDU was sampled.
+type n3DLQFIContainer struct {
+	// target and window override qfiSampleTarget and qfiSampleWindow (tests
+	// only).
+	target int
+	window time.Duration
+}
+
+func (n3DLQFIContainer) ID() string         { return "N3-DL-QFI-CONTAINER" }
+func (n3DLQFIContainer) Category() Category { return GTPU }
+func (n3DLQFIContainer) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 29.281", Clause: "5.2.2.7", Strength: Shall, Since: 15, Verified: ts29281QFIContainerVerified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "the clause is introduced in V15.2.0 as \"may be transmitted\"; \"shall be transmitted\" from V15.5.0"},
+				{Release: 17, Note: "from V17.3.0 a bulleted list, adding N3mb/N19mb and End Marker bullets; the shall for G-PDUs over N3 and N9 is the same"},
+				{Release: 19, Note: "from V19.1.0 \"between NG-RAN and UPF\" reads \"between 5G-AN and UPF\""},
+			}},
+		{Spec: "TS 38.415", Clause: "5.4.1.1", Strength: Descriptive, Since: 15, Verified: ts38415Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "V15.0.0 writes \"DL PDU Session Information frame\"; \"DL PDU SESSION INFORMATION\" by V15.3.0 (editorial); the wording is otherwise unchanged Rel-15 through Rel-19"},
+			}},
+		{Spec: "TS 38.415", Clause: "5.5.2.1", Strength: Descriptive, Since: 15, Verified: ts38415Verified, WordingUnchanged: true},
+	}
+}
+
+func (c n3DLQFIContainer) sampling() (target int, window time.Duration) {
+	target, window = qfiSampleTarget, qfiSampleWindow
+	if c.target > 0 {
+		target = c.target
+	}
+	if c.window > 0 {
+		window = c.window
+	}
+	return target, window
+}
+
+func (c n3DLQFIContainer) Run(ctx context.Context, env Env) Result {
+	target, window := c.sampling()
+	r := Result{Expected: "every downlink G-PDU on N3 carries the PDU Session Container extension header with a QFI (TS 29.281 5.2.2.7; TS 38.415 5.4.1.1)"}
+	if !env.UE.Configured() {
+		r.Verdict, r.Observed = Skip, "no UE configured"
+		r.Detail = "set --supi, --ki/--opc, --gnb-n3 and --traffic to run this check"
+		return r
+	}
+	if env.UE.Traffic == "" {
+		r.Verdict, r.Observed = Skip, "no downlink traffic source configured"
+		r.Detail = "set --traffic host:port (a UDP echo peer on the data network): its echoes are the downlink G-PDUs the check samples"
+		return r
+	}
+	h, err := NewUEHarness(env, nil)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
+		return r
+	}
+	defer h.Close()
+	if _, err := h.Register(ctx); err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed", err.Error()
+		return r
+	}
+	h.StartTraffic(ctx)
+	deadline := time.Now().Add(window)
+	for len(h.Observe().GPDUs) < target && time.Now().Before(deadline) {
+		if !sleepCtx(ctx, 20*time.Millisecond) {
+			r.Verdict, r.Observed = Error, "timed out while sampling downlink"
+			r.Detail = "raise --per-test-timeout above the registration and " + window.String()
+			return r
+		}
+	}
+	r.Verdict, r.Observed, r.Detail = classifyQFIContainer(h.Observe().GPDUs, env.UE.Traffic, window)
+	return r
+}
+
+// classifyQFIContainer judges the sampled downlink G-PDUs: ERROR when there
+// are none, FAIL when any lacks the PDU Session Container, else PASS. The
+// detail records the counts and the QFI values seen.
+func classifyQFIContainer(gpdus []datapath.GPDUArrival, peer string, window time.Duration) (Verdict, string, string) {
+	if len(gpdus) == 0 {
+		return Error, "no downlink G-PDU arrived",
+			fmt.Sprintf("the echo peer %s returned nothing within %s, so no downlink G-PDU was sampled; check that it answers UDP from the UE's data network", peer, window)
+	}
+	without := 0
+	seen := map[int]bool{}
+	for _, g := range gpdus {
+		if !g.HasQFI {
+			without++
+			continue
+		}
+		seen[int(g.QFI)] = true
+	}
+	values := make([]int, 0, len(seen))
+	for q := range seen {
+		values = append(values, q)
+	}
+	sort.Ints(values)
+	qfis := make([]string, len(values))
+	for i, q := range values {
+		qfis[i] = fmt.Sprint(q)
+	}
+	qfiText := "QFI values seen: none"
+	if len(qfis) > 0 {
+		qfiText = "QFI values seen: " + strings.Join(qfis, ", ") + " (recorded only)"
+	}
+	detail := fmt.Sprintf("%d downlink G-PDUs sampled from the echoes of %s, %d with a PDU Session Container and %d without; %s",
+		len(gpdus), peer, len(gpdus)-without, without, qfiText)
+	if without > 0 {
+		return Fail, fmt.Sprintf("%d of %d downlink G-PDUs without a PDU Session Container", without, len(gpdus)),
+			qfiContainerFailure + " Recorded: " + detail
+	}
+	return Pass, fmt.Sprintf("%d downlink G-PDUs, each with a PDU Session Container", len(gpdus)), detail
 }
