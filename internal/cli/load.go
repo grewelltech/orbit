@@ -70,28 +70,6 @@ func newLoadCmd(serverURL *string, o options) *cobra.Command {
 			if err := id.resolve(true); err != nil {
 				return err
 			}
-			// $ORBIT_COUNT / $ORBIT_RATE fill --count / --rate when unset, the
-			// same convenience $ORBIT_LOAD_SEED gives the arrival seed; an
-			// explicit flag wins. The default (server) path takes these from
-			// the env layer through the plan; this is the --local fallback.
-			if !cmd.Flags().Changed("count") {
-				if v := strings.TrimSpace(os.Getenv("ORBIT_COUNT")); v != "" {
-					n, err := strconv.Atoi(v)
-					if err != nil || n < 0 {
-						return fmt.Errorf("ORBIT_COUNT must be a non-negative integer, got %q", v)
-					}
-					count = n
-				}
-			}
-			if !cmd.Flags().Changed("rate") {
-				if v := strings.TrimSpace(os.Getenv("ORBIT_RATE")); v != "" {
-					r, err := strconv.ParseFloat(v, 64)
-					if err != nil {
-						return fmt.Errorf("ORBIT_RATE must be a number, got %q", v)
-					}
-					rate = r
-				}
-			}
 			kiB, err := auth.ParseHexKey("Ki", ki)
 			if err != nil {
 				return err

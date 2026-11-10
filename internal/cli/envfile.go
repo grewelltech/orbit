@@ -82,24 +82,26 @@ func cutExport(s string) (string, bool) {
 // double-quoted value is its literal content up to the matching quote; an
 // unquoted value is trimmed and loses a trailing ` # comment`.
 func parseEnvValue(v string) (string, error) {
-	v = strings.TrimLeft(v, " \t")
-	if v == "" {
+	t := strings.TrimLeft(v, " \t")
+	switch {
+	case t == "":
 		return "", nil
-	}
-	switch v[0] {
-	case '\'':
-		if i := strings.IndexByte(v[1:], '\''); i >= 0 {
-			return v[1 : 1+i], nil
+	case t[0] == '\'':
+		if i := strings.IndexByte(t[1:], '\''); i >= 0 {
+			return t[1 : 1+i], nil
 		}
 		return "", fmt.Errorf("unterminated single quote")
-	case '"':
-		if i := strings.IndexByte(v[1:], '"'); i >= 0 {
-			return v[1 : 1+i], nil
+	case t[0] == '"':
+		if i := strings.IndexByte(t[1:], '"'); i >= 0 {
+			return t[1 : 1+i], nil
 		}
 		return "", fmt.Errorf("unterminated double quote")
 	}
-	// Unquoted: a `#` after whitespace begins a comment, as in a shell; a
-	// `#` without a space before it (pass#word) is part of the value.
+	// Unquoted: a `#` after whitespace begins a comment, as in a shell —
+	// including a leading one, so `KEY= # c` is an empty value — while a `#`
+	// with no space before it (`pa#ss`, or `KEY=#lit` right after the `=`) is
+	// part of the value. Scan the raw value, where the leading space is still
+	// present, then trim.
 	end := len(v)
 	for i := 1; i < len(v); i++ {
 		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
@@ -107,7 +109,7 @@ func parseEnvValue(v string) (string, error) {
 			break
 		}
 	}
-	return strings.TrimRight(v[:end], " \t"), nil
+	return strings.TrimSpace(v[:end]), nil
 }
 
 // selectEnv is the pairs that loadEnvFiles should set, in the order to set

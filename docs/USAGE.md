@@ -392,7 +392,7 @@ orbit load -t lab1 --env-file testbed.env --count 500
 The `ORBIT_*` variables that drive config (the env layer, `default < target <
 $ORBIT_* < flag`) are: `ORBIT_TARGET` (the target to use), `ORBIT_MCC`,
 `ORBIT_MNC`, `ORBIT_KI`, `ORBIT_OPC`, `ORBIT_TAC`, `ORBIT_SST`, `ORBIT_SD`,
-`ORBIT_DNN`, `ORBIT_COUNT`, `ORBIT_RATE` and `ORBIT_LOAD_SEED`. `ORBIT_SERVER`
+`ORBIT_DNN` and `ORBIT_LOAD_SEED`. `ORBIT_SERVER`
 and `ORBIT_TOKEN` are connection, not config (see [The server](#the-server)),
 and are left as they are. An env file is handy for any of them; `--env-file`
 is not limited to `ORBIT_*`, so a value a target file reads as `${AMF_ADDR}`

@@ -81,6 +81,16 @@ func TestParseEnvFile(t *testing.T) {
 			want:  []envPair{{"FOO", "pa#ss"}},
 		},
 		{
+			name:  "a hash right after = is a literal value",
+			input: "FOO=#lit\n",
+			want:  []envPair{{"FOO", "#lit"}},
+		},
+		{
+			name:  "an empty value with a trailing comment is empty",
+			input: "FOO= # a comment\n",
+			want:  []envPair{{"FOO", ""}},
+		},
+		{
 			name:  "empty value",
 			input: "FOO=\n",
 			want:  []envPair{{"FOO", ""}},

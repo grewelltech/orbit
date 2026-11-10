@@ -51,7 +51,7 @@ Keeping a testbed's settings in a file instead? Put the `KEY=VALUE` lines in a
 dotenv file and pass `--env-file`, which loads them before the run — in place
 of `set -a; . file; set +a`. It feeds both the `${ORBIT_KI}`/`${ORBIT_OPC}`
 expansion above and the `ORBIT_*` config layer (`ORBIT_MCC`, `ORBIT_TAC`,
-`ORBIT_COUNT`, …); an already-exported variable still wins. See
+`ORBIT_SD`, …); an already-exported variable still wins. See
 [Config from an env file](https://github.com/bgrewell/orbit/blob/main/docs/USAGE.md#config-from-an-env-file---env-file).
 
 ```sh

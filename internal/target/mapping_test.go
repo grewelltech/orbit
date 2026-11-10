@@ -114,12 +114,10 @@ func TestEnvInput(t *testing.T) {
 // that names the ORBIT_* variable (what `orbit target show --resolved` shows).
 func TestNewEnvBindingsResolve(t *testing.T) {
 	in := EnvInput(envOf(map[string]string{
-		"ORBIT_TAC":   "7",
-		"ORBIT_SST":   "2",
-		"ORBIT_SD":    "0a0b0c",
-		"ORBIT_DNN":   "ims",
-		"ORBIT_COUNT": "500",
-		"ORBIT_RATE":  "12.5",
+		"ORBIT_TAC": "7",
+		"ORBIT_SST": "2",
+		"ORBIT_SD":  "0a0b0c",
+		"ORBIT_DNN": "ims",
 	}))
 	r, err := Resolve(DefaultInput(), in)
 	if err != nil {
@@ -134,8 +132,6 @@ func TestNewEnvBindingsResolve(t *testing.T) {
 		{"core.slices[0].sst", uint64(2), "env $ORBIT_SST"},
 		{"core.slices[0].sd", "0a0b0c", "env $ORBIT_SD"},
 		{"core.dnn", "ims", "env $ORBIT_DNN"},
-		{"workloads[].attach.count", uint64(500), "env $ORBIT_COUNT"},
-		{"workloads[].attach.rate", 12.5, "env $ORBIT_RATE"},
 	}
 	for _, c := range cases {
 		f, ok := r.Lookup(c.path)
@@ -152,7 +148,7 @@ func TestNewEnvBindingsResolve(t *testing.T) {
 	}
 	// None of the new bindings collides with an exclusion, and Covered sees
 	// each as mapped.
-	for _, name := range []string{"ORBIT_TAC", "ORBIT_SST", "ORBIT_SD", "ORBIT_DNN", "ORBIT_COUNT", "ORBIT_RATE"} {
+	for _, name := range []string{"ORBIT_TAC", "ORBIT_SST", "ORBIT_SD", "ORBIT_DNN"} {
 		if !Covered(name) {
 			t.Errorf("%s is not Covered", name)
 		}

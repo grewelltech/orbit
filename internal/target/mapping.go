@@ -95,8 +95,6 @@ var Bindings = []Binding{
 	{Env: "ORBIT_SST", Path: "core.slices[0].sst"},
 	{Env: "ORBIT_SD", Path: "core.slices[0].sd"},
 	{Env: "ORBIT_DNN", Path: "core.dnn"},
-	{Env: "ORBIT_COUNT", Path: "workloads[].attach.count"},
-	{Env: "ORBIT_RATE", Path: "workloads[].attach.rate"},
 
 	// The target.
 	{Flag: "target", Path: "target"},
