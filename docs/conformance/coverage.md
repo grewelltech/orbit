@@ -284,6 +284,17 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   (the T3550 check grades that). Needs a UE and up to 118 s (about 25 s at
   the default timer). The UE is left registered, as by the T3550 check.
   Mock-only so far.
+- `NAS-BADMAC-REGISTRATION-AFTER-SMC` (security, FAIL-class) — with one PDU
+  session established, the UE sends a REGISTRATION REQUEST for mobility
+  registration updating with a corrupted MAC on the secured connection.
+  TS 24.501 4.4.4.3 can be read as "discard" or as "authenticate first", so
+  an answer is FAIL only when both readings forbid it: a Registration Accept,
+  Registration Reject, Security Mode Command or 5GMM STATUS with no
+  authentication first. No answer or a release is PASS; an Authentication
+  Request (or an Identity Request) is SKIP, with the ambiguity in Observed.
+  No PDU session is ERROR. The session is released and the UE deregistered
+  best effort; after a re-authentication the core may keep the UE until its
+  timers expire. Mock-only so far.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure

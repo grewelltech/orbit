@@ -172,3 +172,19 @@ var ts24501CountEstimateVerified = []SpecVersion{
 	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
 	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
 }
+
+// ts24501BadMACRegistrationVerified covers TS 24.501 4.4.4.3's rules for a
+// REGISTRATION REQUEST that fails the integrity check: V15.0.0; V16.3.0,
+// which splits them by registration type; V18.0.0, which adds the
+// unsuccessful-authentication sentence; and the latest version of Rel-15 to
+// Rel-19.
+var ts24501BadMACRegistrationVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "24501-f00.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "24501-f70.zip"},
+	{Release: 16, Version: "V16.3.0", Archive: "24501-g30.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.0.0", Archive: "24501-i00.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}

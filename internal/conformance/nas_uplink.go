@@ -130,6 +130,9 @@ type uplinkDriver struct {
 	// established are the PDU sessions the core set up, for the cleanup.
 	established []uint8
 	gone        bool
+	// ngKSI is the NAS key set identifier of the UE's security context,
+	// from the Security Mode Command.
+	ngKSI uint8
 }
 
 // errNIA0Selected is the registration error of a core that selected 5G-IA0:
@@ -159,8 +162,9 @@ func newUplinkDriver(ctx context.Context, h *UEHarness, waits uplinkWaits) (*upl
 			}
 		},
 	}, func(cfg *engine.UEConfig) { cfg.GNBN3Addr = h.env.UE.GNBN3 })
+	selected, smcErr := parseSMC(smc)
 	if err != nil {
-		if f, perr := parseSMC(smc); errors.Is(err, engine.ErrUnsupportedAlgorithms) && perr == nil && f.integrity == nas.NIA0 {
+		if errors.Is(err, engine.ErrUnsupportedAlgorithms) && smcErr == nil && selected.integrity == nas.NIA0 {
 			return nil, errNIA0Selected
 		}
 		return nil, fmt.Errorf("registration: %w", err)
@@ -169,7 +173,7 @@ func newUplinkDriver(ctx context.Context, h *UEHarness, waits uplinkWaits) (*upl
 	if err != nil {
 		return nil, err
 	}
-	return &uplinkDriver{h: h, p: p, waits: waits, psi: h.pdu.PDUSessionID}, nil
+	return &uplinkDriver{h: h, p: p, waits: waits, psi: h.pdu.PDUSessionID, ngKSI: selected.ngKSI}, nil
 }
 
 // request builds a PDU Session Establishment Request for a fresh PDU
@@ -206,6 +210,35 @@ func (d *uplinkDriver) sendRequest() (sessionRequest, error) {
 		return r, err
 	}
 	return r, d.p.Send(r.pdu)
+}
+
+// mobilityRegistration builds a REGISTRATION REQUEST for mobility
+// registration updating, naming the UE by its 5G-GUTI and its security
+// context by ngKSI, with the UE's security capability and the harness's
+// slice as requested NSSAI and no EPS NAS message container. It is
+// protected at the UE's next uplink NAS COUNT and not sent.
+func (d *uplinkDriver) mobilityRegistration() ([]byte, error) {
+	guti := d.p.GUTI()
+	if len(guti) == 0 {
+		return nil, errors.New("the Registration Accept assigned no 5G-GUTI to name the UE by")
+	}
+	requested, err := ue.BuildRequestedNSSAI([]ue.SNSSAI{d.h.pdu.Slice()})
+	if err != nil {
+		return nil, err
+	}
+	caps := ue.SecurityCapability()
+	if d.h.caps != nil {
+		caps = *d.h.caps
+	}
+	plain, err := ue.BuildRegistrationRequest(guti, caps, requested, ue.WithMobilityRegistration(d.ngKSI))
+	if err != nil {
+		return nil, err
+	}
+	msg, err := nas.DecodePlain(plain)
+	if err != nil {
+		return nil, err
+	}
+	return d.p.Protect(msg)
 }
 
 // corruptMAC returns nasPDU with its message authentication code (octets 3

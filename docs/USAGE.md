@@ -1514,6 +1514,14 @@ Accept the AMF retransmits. Each must be higher than the one before
 (TS 24.501 4.4.3.1), so an AMF that resends the stored PDU fails. It SKIPs
 when the AMF does not retransmit, and can take up to 118 s.
 
+`NAS-BADMAC-REGISTRATION-AFTER-SMC` sets up one PDU session and then sends a
+Registration Request (mobility registration updating) with a corrupted MAC.
+It passes when the AMF stays silent or releases the UE, and fails when the
+AMF answers with a Registration Accept, a Registration Reject, a Security
+Mode Command or a 5GMM STATUS without authenticating first. An Authentication
+Request is SKIP: TS 24.501 4.4.4.3 can be read either way, and the result
+says so.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the
