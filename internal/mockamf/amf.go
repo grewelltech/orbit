@@ -138,6 +138,7 @@ type AMF struct {
 
 	// UE context release options (release.go).
 	noReleaseOnDereg     bool
+	deregReleaseIDs      ReleaseIDs
 	noiseBeforeRelease   bool
 	releaseDelay         time.Duration
 	staleRelease         time.Duration

@@ -26,6 +26,51 @@ func WithNoDeregistrationAccept() Option { return func(a *AMF) { a.noDeregAccept
 // has sent.
 func (a *AMF) DeregistrationAccepts() int64 { return a.deregAccepts.Load() }
 
+// ReleaseIDs selects the UE NGAP IDs the release answering a
+// deregistration names.
+type ReleaseIDs int
+
+const (
+	// ReleaseIDPair names the UE by its AMF and RAN UE NGAP ID pair, as
+	// TS 38.413 8.3.3.2 requires when both are available. The default.
+	ReleaseIDPair ReleaseIDs = iota
+	// ReleaseAMFIDOnly names the UE by its AMF UE NGAP ID alone.
+	ReleaseAMFIDOnly
+	// ReleaseOtherPair names a pair no UE of the association has.
+	ReleaseOtherPair
+)
+
+// WithDeregistrationReleaseIDs makes the release answering a
+// deregistration name the UE as ids selects.
+func WithDeregistrationReleaseIDs(ids ReleaseIDs) Option {
+	return func(a *AMF) { a.deregReleaseIDs = ids }
+}
+
+// otherPairOffset is added to both IDs of a ReleaseOtherPair release.
+const otherPairOffset = 1000
+
+// deregistrationRelease builds the release answering a deregistration of
+// the UE (amfID, ranID), naming it as WithDeregistrationReleaseIDs selects.
+func (a *AMF) deregistrationRelease(amfID, ranID int64) ngapType.NGAPPDU {
+	switch a.deregReleaseIDs {
+	case ReleaseOtherPair:
+		return buildUEContextReleaseCommandCause(amfID+otherPairOffset, ranID+otherPairOffset, ngapType.CauseNasPresentDeregister)
+	case ReleaseAMFIDOnly:
+		pdu := buildUEContextReleaseCommandCause(amfID, ranID, ngapType.CauseNasPresentDeregister)
+		list := pdu.InitiatingMessage.Value.UEContextReleaseCommand.ProtocolIEs.List
+		for i := range list {
+			if list[i].Id.Value == ngapType.ProtocolIEIDUENGAPIDs {
+				list[i].Value.UENGAPIDs = &ngapType.UENGAPIDs{
+					Present:     ngapType.UENGAPIDsPresentAMFUENGAPID,
+					AMFUENGAPID: &ngapType.AMFUENGAPID{Value: amfID},
+				}
+			}
+		}
+		return pdu
+	}
+	return buildUEContextReleaseCommandCause(amfID, ranID, ngapType.CauseNasPresentDeregister)
+}
+
 // WithNoiseBeforeRelease makes the mock send two PDUs that are not a UE
 // CONTEXT RELEASE COMMAND ahead of the one answering a switch-off: a
 // Downlink NAS Transport (a plain 5GMM Status) and a successful outcome of
@@ -87,7 +132,7 @@ func (a *AMF) onDeregistration(p *pipe, st *ueState, msg *f5nas.Message) error {
 		a.mu.Lock()
 		a.deregReleases = append(a.deregReleases, [2]int64{amfID, ranID})
 		a.mu.Unlock()
-		return a.send(p, buildUEContextReleaseCommandCause(amfID, ranID, ngapType.CauseNasPresentDeregister))
+		return a.send(p, a.deregistrationRelease(amfID, ranID))
 	}
 	if a.releaseDelay > 0 {
 		go func() {

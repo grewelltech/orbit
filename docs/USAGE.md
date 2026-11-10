@@ -1476,6 +1476,16 @@ The release after the Accept is recorded, not judged. If nothing answers, a
 switch-off Deregistration Request follows, so the core is not left holding the
 UE. The check can take up to 40 s, so it raises its own timeout.
 
+`NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` registers the UE the same way and
+deregisters it with a switch-off, which gets no Deregistration Accept. It
+passes when the AMF then sends a UE Context Release Command naming the
+connection by both UE NGAP IDs (TS 38.413 8.3.3.2), and fails when the command
+names the UE by its AMF UE NGAP ID alone. No specification requires the
+release with a shall (TS 23.502 4.2.2.3.2 only describes it), so a core that
+sends none within 5 s is not failed: the check SKIPs with
+`no UE CONTEXT RELEASE COMMAND within 5s; not scored`, and the detail names the
+likely cause.
+
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
 flags. It registers the UE three times, each time stopping at the Security
 Mode Command. The first registration offers the usual algorithms, and the AMF

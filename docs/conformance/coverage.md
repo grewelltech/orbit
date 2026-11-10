@@ -102,7 +102,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 |---|---|---|---|---|
 | Initial Context Setup | AMF→RAN | ✅ (attach) | — | timing angle (bad/late response) |
 | UE Context Release Request | RAN→AMF | ⬜ | ⬜ | |
-| UE Context Release (Command/Complete) | AMF→RAN | ✅ | — | |
+| UE Context Release (Command/Complete) | AMF→RAN | ✅ `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (UE NGAP IDs of the release after a switch-off) | — | the release after a deregistration is descriptive (TS 23.502), so its absence is not scored |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
 
 ### PDU session management
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**12 checks today** (the first four live on the SD-Core testbed):
+**13 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -251,6 +251,16 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   described by TS 23.502 4.2.2.3.2, not required by a shall, so it is recorded
   only. A core that answers nothing is sent a switch-off deregistration
   before the association closes. Needs a UE, else SKIP. Not yet run on Ref 2.
+
+- `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (procedural, FAIL-class) — the UE
+  registers without a PDU session and sends a switch-off Deregistration
+  Request. A UE Context Release Command naming the connection's AMF and RAN
+  UE NGAP IDs is PASS; one naming the UE by its AMF UE NGAP ID alone is FAIL
+  (TS 38.413 8.3.3.2, both IDs "if available"). The release itself is only
+  described (TS 23.502 4.2.2.3.2 step 8; nothing in TS 24.501 5.5.2.2.2), so
+  no command within 5 s is **not scored**: SKIP, with the likely cause (the
+  AMF leaves the N2 UE context) in the detail. Needs a UE, else SKIP. Not
+  yet run on Ref 2.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
