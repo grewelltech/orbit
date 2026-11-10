@@ -34,6 +34,15 @@ orbit target init lab1 --amf 127.0.0.1:38412 --mcc 001 --mnc 01 --sd 010203 \
   --first-supi 001010000000001
 ```
 
+Subscriber keys stay out of the target file — `target init` writes `${ORBIT_KI}`
+and `${ORBIT_OPC}` in their place, expanded from your shell when the target
+loads. Export them before a run, or loading the target will fail on the unset
+references:
+
+```sh
+export ORBIT_KI=<hex> ORBIT_OPC=<hex>
+```
+
 ## 4. Run a test
 
 ```sh

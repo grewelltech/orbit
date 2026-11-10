@@ -73,6 +73,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# --require-signature demands verification; --no-verify-signature disables it.
+# Together they are contradictory, so reject rather than silently skip.
+if [ "$REQUIRE_SIG" -eq 1 ] && [ "$VERIFY_SIG" -eq 0 ]; then
+  die "--require-signature and --no-verify-signature cannot be used together"
+fi
+
 # --- tools -----------------------------------------------------------------
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -131,7 +137,7 @@ os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)
 case "$os" in
   linux) ;;
-  darwin) die "macOS builds are not published yet (linux only); build from source: go install github.com/${REPO}/cmd/orbit@latest" ;;
+  darwin) die "macOS builds are not published yet (linux only); build from source: git clone https://github.com/${REPO} && (cd orbit && go build ./cmd/orbit)" ;;
   *) die "unsupported OS: $os (linux only)" ;;
 esac
 case "$arch" in
@@ -198,7 +204,16 @@ if [ -z "$BIN_DIR" ]; then
     BIN_DIR="${HOME}/.local/bin"
   fi
 fi
-mkdir -p "$BIN_DIR" 2>/dev/null || die "cannot create ${BIN_DIR}"
+if ! mkdir -p "$BIN_DIR" 2>/dev/null; then
+  # A protected --bin-dir (e.g. /opt/orbit/bin) that does not exist yet needs
+  # sudo to create, the same as it needs sudo to install into.
+  if have sudo; then
+    log "creating ${BIN_DIR} with sudo"
+    sudo mkdir -p "$BIN_DIR" || die "cannot create ${BIN_DIR} (even with sudo)"
+  else
+    die "cannot create ${BIN_DIR} and sudo not found; set --bin-dir to a writable directory"
+  fi
+fi
 
 dest="${BIN_DIR}/${BIN}"
 if [ -w "$BIN_DIR" ]; then

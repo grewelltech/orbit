@@ -9,6 +9,7 @@ on:
     paths:
       - "site/**"
       - "install.sh"
+      - "scripts/orbit.sh"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

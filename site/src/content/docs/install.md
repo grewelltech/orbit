@@ -79,6 +79,11 @@ orbit version
 
 ## From source
 
+The module path and its replace directives mean `go install @version` won't
+work; clone and build instead:
+
 ```sh
-go install github.com/grewelltech/orbit/cmd/orbit@latest
+git clone https://github.com/grewelltech/orbit
+cd orbit
+go build -o orbit ./cmd/orbit
 ```
