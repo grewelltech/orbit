@@ -336,6 +336,9 @@ type uplinkCase struct {
 	// wantDereg and wantReleases are the Deregistration Requests and PDU
 	// Session Release Requests the mock must have received.
 	wantDereg, wantReleases int64
+	// wantReplays is how many uplinks the mock must have seen repeat an
+	// accepted NAS COUNT.
+	wantReplays int64
 }
 
 // runUplinkCases runs check for each row against its own mock.
@@ -367,6 +370,9 @@ func runUplinkCases(t *testing.T, check Test, tests []uplinkCase) {
 			}
 			if got := amf.PDUSessionReleaseRequests(); got != tc.wantReleases {
 				t.Errorf("mock saw %d PDU Session Release Requests, want %d", got, tc.wantReleases)
+			}
+			if got := amf.ReplayedUplinks(); got != tc.wantReplays {
+				t.Errorf("mock saw %d replayed uplinks, want %d", got, tc.wantReplays)
 			}
 			if amf.EncodeErrors() != 0 {
 				t.Errorf("mock dropped %d downlink PDUs that did not encode", amf.EncodeErrors())
@@ -409,6 +415,60 @@ func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
 		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error, wantObserved: "UE setup failed"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	})
+}
+
+// Every verdict branch of the replay discard check against the mock AMF
+// over a real SCTP listener: the conformant mock PASSes; one that processes
+// the repeat, answers it with a 5GMM STATUS, or stops answering after it
+// FAILs; a release after it and an unanswered first request are ERROR;
+// 5G-IA0 and no UE SKIP. The mock counts exactly one repeated NAS COUNT.
+func TestReplayDiscardAgainstMock(t *testing.T) {
+	replay := func(act mockamf.UplinkAction) []mockamf.Option {
+		return []mockamf.Option{mockamf.WithReplayedUplink(act)}
+	}
+	const failure = "AMF accepted a replayed NAS message (repeated NAS COUNT). TS 33.501 6.4.3.2. Likely cause: NAS COUNT replay check missing."
+	runUplinkCases(t, nasReplayDiscard{waits: testUplinkWaits}, []uplinkCase{
+		{name: "discarded", want: Pass, wantObserved: "replayed request discarded; a valid request after it was answered",
+			wantDetail: []string{"nothing answered the replayed request within 300ms", "PDU Session Release Request sent for session 2, 3", cleanReleased}, wantDereg: 1, wantReleases: 2, wantReplays: 1},
+		{name: "processed", opts: replay(mockamf.ProcessUplink), want: Fail, wantObserved: "replayed request answered: PDU Session Resource Setup Request",
+			wantDetail: []string{failure, cleanReleased}, wantDereg: 1, wantReleases: 1, wantReplays: 1},
+		{name: "5GMM STATUS", opts: replay(mockamf.StatusOnUplink), want: Fail, wantObserved: "5GMM STATUS after the replayed request",
+			wantDetail: []string{failure, cleanReleased}, wantDereg: 1, wantReleases: 1, wantReplays: 1},
+		{name: "state changed", opts: replay(mockamf.MuteOnUplink), want: Fail, wantObserved: "valid request not answered after the replayed request",
+			wantDetail: []string{failure, "the message changed the AMF's state", cleanDropped}, wantReplays: 1},
+		{name: "released", opts: replay(mockamf.ReleaseOnUplink), want: Error, wantObserved: "UE released after the replayed request; discard not confirmed",
+			wantDetail: []string{cleanGone}, wantReplays: 1},
+		{name: "first request unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: a valid PDU Session Establishment Request got no answer",
+			wantDetail: []string{cleanReleased}, wantDereg: 1},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0"},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	})
+}
+
+// The replay check's texts name the replay, and its failure message cites
+// the pinned clause.
+func TestJudgeDiscardReplay(t *testing.T) {
+	w := uplinkWaits{}.withDefaults()
+	tests := []struct {
+		name         string
+		o            discardOutcome
+		want         Verdict
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "answered again", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Accept"}}, want: Fail,
+			wantObserved: "replayed request answered: PDU Session Establishment Accept", wantDetail: "TS 33.501 6.4.3.2."},
+		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: Fail, wantObserved: "valid request not answered after the replayed request", wantDetail: "NAS COUNT replay check missing"},
+		{name: "pass", o: discardOutcome{first: "a", followUp: "b"}, want: Pass, wantObserved: "replayed request discarded; a valid request after it was answered", wantDetail: "nothing answered the replayed request within 5s"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v, observed, detail := judgeDiscard(tc.o, replayStimulus, w)
+			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s %q (%s), want %s %q with %q", v, observed, detail, tc.want, tc.wantObserved, tc.wantDetail)
+			}
+		})
+	}
 }
 
 // Every branch of the discard verdict from a constructed outcome.

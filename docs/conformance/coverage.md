@@ -251,15 +251,22 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   (neither a discard nor an answer); a core that selects 5G-IA0 SKIPs. The
   sessions are released and the UE deregistered at the end, best effort.
   Needs a UE and a DNN the core serves. Not yet run on a live core.
+- `NAS-REPLAY-DISCARD` (security, FAIL-class) — after the security mode
+  control procedure the UE sends a valid PDU Session Establishment Request
+  (which must be answered), the same NAS PDU again, and a second, valid
+  request. The repeat carries the NAS COUNT the AMF accepted last, which it
+  shall accept only once (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2): a further
+  answer to the first request, a 5GMM STATUS after the repeat, or a second
+  request left unanswered is FAIL. A UE released after the repeat is ERROR;
+  a core that selects 5G-IA0 SKIPs. Cleanup as for
+  `NAS-INTEGRITY-FAIL-DISCARD`. Needs a UE and a DNN the core serves. Not
+  yet run on a live core.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
 that a lab tolerates goes on that core's expected-failures list, which keeps it
 FAIL in the report but out of the gate. See
 [expected-failures.md](expected-failures.md).
-
-**Highest-value next batch** (remaining):
-1. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
 
 > **Tooling note:** the testbed has no tshark, so wire disambiguation currently
 > uses a byte-level PPID scan that reads uplink cleanly but misses downlink

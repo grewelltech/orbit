@@ -1494,6 +1494,12 @@ bad MAC is ERROR, and one that selected 5G-IA0 is SKIP. The check needs a DNN
 the core serves (`--dnn`), since the first request must be answered. It
 releases the sessions it set up and deregisters the UE at the end.
 
+`NAS-REPLAY-DISCARD` works the same way, but its second message is the first
+request sent again byte for byte, so with the NAS COUNT the AMF has just
+accepted. It passes when nothing more answers the first request and the next
+valid request is answered (TS 33.501 6.4.3.2). It fails when the repeat is
+answered.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the

@@ -18,7 +18,7 @@ import (
 )
 
 func init() {
-	builtins = append(builtins, nasSMCNoNIA0{}, nasIntegrityFailDiscard{})
+	builtins = append(builtins, nasSMCNoNIA0{}, nasIntegrityFailDiscard{}, nasReplayDiscard{})
 }
 
 // smcWait bounds each registration's wait for the Security Mode Command, a
@@ -450,20 +450,33 @@ const (
 	// badMACStimulus is a fresh PDU Session Establishment Request whose
 	// MAC is corrupted.
 	badMACStimulus discardStimulus = iota
+	// replayStimulus is the first, already answered PDU Session
+	// Establishment Request sent again byte for byte, so at the NAS COUNT
+	// the AMF accepted last.
+	replayStimulus
 )
 
 // name is how Observed and Detail call the stimulus.
 func (k discardStimulus) name() string {
+	if k == replayStimulus {
+		return "replayed request"
+	}
 	return "bad-MAC request"
 }
 
 // expected is the check's Expected line.
 func (k discardStimulus) expected() string {
+	if k == replayStimulus {
+		return "after the security mode control procedure, an answered PDU Session Establishment Request sent again byte for byte (the same NAS COUNT) gets no answer and changes nothing: a valid request sent after it is answered (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2)"
+	}
 	return "after the security mode control procedure, a PDU Session Establishment Request sent with a corrupted MAC gets no answer and changes nothing: a valid request sent after it is answered like the one before it (TS 24.501 4.4.4.3, TS 33.501 6.4.3.3)"
 }
 
 // failure is the check's failure message.
 func (k discardStimulus) failure() string {
+	if k == replayStimulus {
+		return "AMF accepted a replayed NAS message (repeated NAS COUNT). TS 33.501 6.4.3.2. Likely cause: NAS COUNT replay check missing."
+	}
 	return "AMF processed an uplink NAS message that failed integrity check. TS 24.501 4.4.4.3. Likely cause: AMF integrity check not enforced on this message type."
 }
 
@@ -502,6 +515,36 @@ func (c nasIntegrityFailDiscard) Budget() time.Duration { return c.waits.total(2
 
 func (c nasIntegrityFailDiscard) Run(ctx context.Context, env Env) Result {
 	return runDiscard(ctx, env, badMACStimulus, c.waits)
+}
+
+// nasReplayDiscard registers the UE and, on the secured NAS signalling
+// connection, sends a valid PDU Session Establishment Request (which must
+// be answered), then the same NAS PDU again, then a second, valid request.
+// The repeat carries the NAS COUNT the AMF accepted last, which it shall
+// accept at most once (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2): a further
+// answer to the first request, or a 5GMM STATUS after the repeat, is FAIL,
+// and so is a second request that goes unanswered. A UE the AMF releases
+// after the repeat is ERROR. The UE is deregistered at the end.
+type nasReplayDiscard struct {
+	// waits override the default bounds (tests only).
+	waits uplinkWaits
+}
+
+func (nasReplayDiscard) ID() string         { return "NAS-REPLAY-DISCARD" }
+func (nasReplayDiscard) Category() Category { return Security }
+func (nasReplayDiscard) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 33.501", Clause: "6.4.3.2", Strength: Shall, Since: 15, Verified: ts33501Verified, WordingUnchanged: true},
+		{Spec: "TS 24.501", Clause: "4.4.3.2", Strength: Shall, Since: 15, Verified: ts24501Verified, WordingUnchanged: true},
+	}
+}
+
+// Budget covers the registration, two requests, the quiet watch, the
+// cleanup and the liveness probe.
+func (c nasReplayDiscard) Budget() time.Duration { return c.waits.total(2) }
+
+func (c nasReplayDiscard) Run(ctx context.Context, env Env) Result {
+	return runDiscard(ctx, env, replayStimulus, c.waits)
 }
 
 // runDiscard runs a discard check for stimulus k.
@@ -581,8 +624,12 @@ func probeDiscard(ctx context.Context, d *uplinkDriver, k discardStimulus) disca
 		return o
 	}
 
-	stimulus, err := d.request()
-	if err == nil {
+	// A replay repeats the first request, whose answers so far were read
+	// above, so any further answer to it is the replay's.
+	stimulus := first
+	if k == replayStimulus {
+		err = d.p.Send(first.pdu)
+	} else if stimulus, err = d.request(); err == nil {
 		err = d.p.Send(corruptMAC(stimulus.pdu))
 	}
 	if err != nil {
