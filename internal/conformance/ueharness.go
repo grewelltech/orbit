@@ -61,8 +61,8 @@ const (
 
 // UEHarness drives one UE through engine.Manager for the mobility checks: it
 // registers the UE with a PDU session on Env.GNB (gNB A), observes its
-// downlink lane, runs an optional echo flow, hands it over by Xn to gNB B
-// (Env.TargetGNBID, same PLMN, TAC and slices) and records what
+// downlink lane, runs an optional echo flow, hands it over by Xn or N2 to
+// gNB B (Env.TargetGNBID, same PLMN, TAC and slices) and records what
 // arrived on the old path. Both gNB associations come from Env.Bind, which
 // must leave the port to the kernel. Close releases everything.
 type UEHarness struct {
@@ -337,6 +337,22 @@ drain:
 	h.obs.NewTEID, h.obs.Switched = sess.Result.DLTEID, res.PathSwitchAck
 	h.mu.Unlock()
 	return nil
+}
+
+// N2Handover hands the UE over to gNB B by N2 (Handover Required on gNB
+// A's association, Handover Request and Notify on a second one) and returns
+// the HANDOVER COMMAND's PDU Session Resource Handover List as received. It
+// is nil when the handover failed before the command, and set along with
+// the error when it failed after it. The harness's Manager runs the
+// strict-3gpp core profile: no core-specific quirk shapes what gNB B sends.
+func (h *UEHarness) N2Handover(ctx context.Context) (*gnb.HandoverCommandInfo, error) {
+	res, err := h.m.Handover(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	})
+	if err != nil {
+		return res.Command, fmt.Errorf("handover (N2) to gNB %#x: %w", h.TargetGNB().ID, err)
+	}
+	return res.Command, nil
 }
 
 // Observe returns what has been seen so far, with the switch's timing.

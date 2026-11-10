@@ -37,7 +37,7 @@ type Config struct {
 
 	// UPF, when set, makes the mock establish PDU sessions (answering a UE's
 	// PDU Session Establishment Request with a PDU Session Resource Setup
-	// Request) and report sessions and path switches to it. Nil keeps the
+	// Request) and report sessions, path switches and N2 handovers to it. Nil keeps the
 	// mock's registration-only behaviour: PDU session requests go
 	// unanswered. A PathSwitchRequest is always answered: with an
 	// Acknowledge when at least one listed session is known, else with a
@@ -149,6 +149,14 @@ type AMF struct {
 	// Path switch answer (pathswitch.go).
 	pathSwitchAnswer PathSwitchAnswer
 
+	// N2 handover (handover.go). assocs are the associations that completed
+	// NG Setup, by gNB ID, and handovers those in preparation, by
+	// AMF-UE-NGAP-ID: both guarded by mu.
+	handoverAnswer HandoverAnswer
+	assocs         map[uint32]*pipe
+	handovers      map[int64]*handover
+	handoversDone  atomic.Int64
+
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
 	regReqs [][]byte
@@ -194,7 +202,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log}
+		ues: make(map[int64]*ueState), log: log, assocs: make(map[uint32]*pipe), handovers: make(map[int64]*handover)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -241,6 +249,7 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			st.t3560.stop()
 			st.t3550.stop()
 		}
+		a.forgetAssociation(p)
 	}()
 	buf := make([]byte, 65536)
 	for {
@@ -269,8 +278,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
+		setup := setupOf(pdu.InitiatingMessage.Value.NGSetupRequest)
 		a.mu.Lock()
-		a.setups = append(a.setups, setupOf(pdu.InitiatingMessage.Value.NGSetupRequest))
+		a.setups = append(a.setups, setup)
 		a.mu.Unlock()
 		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.served) {
 			return a.send(p, buildNGSetupFailureUnknownPLMN())
@@ -279,7 +289,14 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		if err != nil {
 			return err
 		}
+		a.mu.Lock()
+		a.assocs[setup.GNBID] = p
+		a.mu.Unlock()
 		return a.send(p, resp)
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentHandoverRequestAcknowledge {
+		return a.onHandoverRequestAcknowledge(p, pdu.SuccessfulOutcome.Value.HandoverRequestAcknowledge)
 	}
 	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceSetupResponse {
@@ -304,8 +321,13 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 		return nil // Initial Context Setup Response etc. — no action
 	}
-	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentPathSwitchRequest {
+	switch pdu.InitiatingMessage.Value.Present {
+	case ngapType.InitiatingMessagePresentPathSwitchRequest:
 		return a.onPathSwitchRequest(p, states, pdu.InitiatingMessage.Value.PathSwitchRequest)
+	case ngapType.InitiatingMessagePresentHandoverRequired:
+		return a.onHandoverRequired(p, pdu.InitiatingMessage.Value.HandoverRequired)
+	case ngapType.InitiatingMessagePresentHandoverNotify:
+		return a.onHandoverNotify(p, states, pdu.InitiatingMessage.Value.HandoverNotify)
 	}
 	up, err := parseUplink(pdu)
 	if err != nil {

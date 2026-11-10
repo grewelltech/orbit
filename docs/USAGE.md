@@ -1418,6 +1418,15 @@ endpoint and the echo peer, which answered before the handover, no longer
 answers, the check FAILs. Without `--traffic`, or with a peer that never
 answered, the detail says the uplink was not probed.
 
+`NGAP-HANDOVER-COMMAND-TRANSFER` hands the UE over to the second gNB by N2
+instead, and judges the HANDOVER COMMAND the source gNB receives. It passes
+when the command carries the PDU Session Resource Handover List and every
+item in it has a Handover Command Transfer that decodes (TS 38.413 8.4.1.2,
+9.2.3.2). The check always runs under the `strict-3gpp` core profile,
+whatever profile other commands use, so it reports how the core handles the
+conformant Handover Request Acknowledge. It is an ERROR when the handover
+does not reach the command within 8 s.
+
 The `nas` category also needs the UE flags (`--supi`, the keys and
 `--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
 UE without a PDU session and withholds its Authentication Response. It passes

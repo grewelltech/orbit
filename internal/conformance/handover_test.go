@@ -255,3 +255,186 @@ func TestPathSwitchAckCheckErrors(t *testing.T) {
 		c.assertClosed(t, env)
 	})
 }
+
+// classifyHandoverCommand fails a command without the list and an item
+// whose transfer is missing or does not decode; a session left out of the
+// list is recorded and never fails.
+func TestClassifyHandoverCommand(t *testing.T) {
+	item := func(id int64, n int, decodeErr string) gnb.HandoverCommandItem {
+		return gnb.HandoverCommandItem{PDUSessionID: id, TransferLen: n, TransferErr: decodeErr}
+	}
+	list := func(items ...gnb.HandoverCommandItem) gnb.HandoverCommandInfo {
+		return gnb.HandoverCommandInfo{ListPresent: true, Items: items}
+	}
+	tests := []struct {
+		name         string
+		cmd          gnb.HandoverCommandInfo
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+	}{
+		{name: "one session with a transfer", cmd: list(item(1, 1, "")), want: Pass,
+			wantObserved: "HANDOVER COMMAND lists 1 PDU session(s), each with a Handover Command Transfer",
+			wantDetail:   []string{"Handover List: PDU session 1: transfer of 1 octets", "strict-3gpp profile"}},
+		{name: "two sessions with transfers", cmd: list(item(1, 1, ""), item(2, 7, "")), want: Pass,
+			wantObserved: "HANDOVER COMMAND lists 2 PDU session(s), each with a Handover Command Transfer"},
+		{name: "the UE's session not listed", cmd: list(item(2, 1, "")), want: Pass,
+			wantDetail: []string{"the UE's PDU session 1 is not listed (not required; recorded only)"}},
+		{name: "no list", cmd: gnb.HandoverCommandInfo{}, want: Fail,
+			wantObserved: "HANDOVER COMMAND without a PDU Session Resource Handover List", wantDetail: []string{"Handover List: none"}},
+		{name: "list without items", cmd: list(), want: Fail,
+			wantObserved: "HANDOVER COMMAND without a PDU Session Resource Handover List"},
+		{name: "empty transfer", cmd: list(item(1, 0, "")), want: Fail,
+			wantObserved: "PDU session 1 listed without a Handover Command Transfer", wantDetail: []string{"PDU session 1: no transfer"}},
+		{name: "transfer does not decode", cmd: list(item(1, 1, "bad bits")), want: Fail,
+			wantObserved: "PDU session 1 listed with a Handover Command Transfer that does not decode",
+			wantDetail:   []string{"PDU session 1: transfer of 1 octets does not decode (bad bits)"}},
+		{name: "second item without a transfer", cmd: list(item(1, 1, ""), item(2, 0, "")), want: Fail,
+			wantObserved: "PDU session 2 listed without a Handover Command Transfer"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v, observed, detail := classifyHandoverCommand(tc.cmd, 1)
+			if v != tc.want {
+				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
+			}
+			if tc.wantObserved != "" && observed != tc.wantObserved {
+				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
+			}
+			for _, w := range tc.wantDetail {
+				if !strings.Contains(detail, w) {
+					t.Errorf("detail %q lacks %q", detail, w)
+				}
+			}
+			if (v == Fail) != strings.HasPrefix(detail, handoverCommandFailure+" Recorded: ") {
+				t.Errorf("detail %q: the failure message leads a FAIL and only a FAIL", detail)
+			}
+		})
+	}
+}
+
+// The failure message is the issue's, word for word.
+func TestHandoverCommandFailureMessage(t *testing.T) {
+	const want = "HANDOVER COMMAND lacks the PDU Session Resource Handover List / per-item Handover Command Transfer. TS 38.413 8.4.1.2 (Rel-15 V15.5.0 onward), 9.3.4.10. Likely cause: the known SD-Core transfer-IE issue (docs/interop)."
+	if handoverCommandFailure != want {
+		t.Errorf("failure message = %q", handoverCommandFailure)
+	}
+}
+
+// Without a UE the check SKIPs, as it does for a target release older than
+// Rel-15; an env the harness refuses is an ERROR before anything is dialled.
+func TestHandoverCommandCheckWithoutHarness(t *testing.T) {
+	env := ueEnv("192.0.2.1:38412", "", "127.0.0.1")
+	noUE := env
+	noUE.UE = UESpec{}
+	fixed := env
+	fixed.Bind = "127.0.0.1:38999"
+	old := env
+	old.TargetRelease = 14
+	tests := []struct {
+		name         string
+		env          Env
+		want         Verdict
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "no UE", env: noUE, want: Skip, wantObserved: "no UE configured", wantDetail: "--supi"},
+		{name: "fixed bind port", env: fixed, want: Error, wantObserved: "harness setup failed", wantDetail: "fixes a port"},
+		{name: "target release before Rel-15", env: old, want: Skip, wantObserved: "requires a newer release than the target",
+			wantDetail: "requires Rel-15 (TS 38.413 8.4.1.2); target release is Rel-14"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := runOne(context.Background(), ngapHandoverCommandTransfer{}, tc.env, time.Second)
+			if r.Verdict != tc.want || r.Observed != tc.wantObserved || !strings.Contains(r.Detail, tc.wantDetail) {
+				t.Errorf("result %s / %q / %q, want %s / %q / containing %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved, tc.wantDetail)
+			}
+		})
+	}
+}
+
+// The check's verdicts over the real-SCTP mock pair: a HANDOVER COMMAND
+// with the list and a transfer per item PASSes; the list dropped, and an
+// item whose transfer is empty or does not decode, FAIL; a handover that
+// never reaches the command is an ERROR. The UE is deregistered from
+// whichever gNB it ends on, and no association stays open.
+func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
+	tests := []struct {
+		name         string
+		net24        int
+		answer       mockamf.HandoverAnswer
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+		completed    int64
+	}{
+		{name: "command with the list", net24: testnet.ConformanceHOCmdPass, want: Pass, completed: 1,
+			wantObserved: "HANDOVER COMMAND lists 1 PDU session(s), each with a Handover Command Transfer",
+			wantDetail:   []string{"Handover List: PDU session 1: transfer of 1 octets"}},
+		{name: "list dropped", net24: testnet.ConformanceHOCmdNoList, answer: mockamf.CommandWithoutList, want: Fail, completed: 1,
+			wantObserved: "HANDOVER COMMAND without a PDU Session Resource Handover List",
+			wantDetail:   []string{handoverCommandFailure, "Handover List: none"}},
+		{name: "transfer omitted", net24: testnet.ConformanceHOCmdNoTransfer, answer: mockamf.CommandWithoutTransfer, want: Fail, completed: 1,
+			wantObserved: "PDU session 1 listed without a Handover Command Transfer",
+			wantDetail:   []string{handoverCommandFailure, "PDU session 1: no transfer"}},
+		{name: "transfer undecodable", net24: testnet.ConformanceHOCmdBadTransfe, answer: mockamf.CommandWithBadTransfer, want: Fail, completed: 1,
+			wantObserved: "PDU session 1 listed with a Handover Command Transfer that does not decode",
+			wantDetail:   []string{handoverCommandFailure, "PDU session 1: transfer of 1 octets does not decode"}},
+		{name: "preparation failure", net24: testnet.ConformanceHOCmdPrepFail, answer: mockamf.FailHandoverPreparation, want: Error,
+			wantObserved: "handover did not reach Handover Command",
+			wantDetail:   []string{"no HANDOVER COMMAND within 1s of starting the handover", "await HandoverRequest"}},
+		{name: "handover required unanswered", net24: testnet.ConformanceHOCmdUnanswered, answer: mockamf.IgnoreHandoverRequired, want: Error,
+			wantObserved: "handover did not reach Handover Command"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newMockCore(t, tc.net24, mockupf.Options{}, testKi, mockamf.WithHandoverAnswer(tc.answer), mockamf.WithGUTI())
+			env := ueEnv(c.front.Addr, "", c.n3)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			check := ngapHandoverCommandTransfer{}
+			if tc.want == Error {
+				check.wait = time.Second
+			}
+			r := check.Run(ctx, env)
+			if r.Verdict != tc.want {
+				t.Fatalf("verdict %s (%s; %s), want %s", r.Verdict, r.Observed, r.Detail, tc.want)
+			}
+			if r.Observed != tc.wantObserved {
+				t.Errorf("observed %q, want %q", r.Observed, tc.wantObserved)
+			}
+			for _, w := range tc.wantDetail {
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			if strings.Contains(r.Detail, "did not complete after the command") {
+				t.Errorf("detail %q: the handover did not complete", r.Detail)
+			}
+			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
+				t.Error("detail carries key material")
+			}
+			if got := c.amf.HandoversCompleted(); got != tc.completed {
+				t.Errorf("mock AMF completed %d handovers, want %d", got, tc.completed)
+			}
+			if got := c.amf.Deregistrations(); got != 1 {
+				t.Errorf("mock AMF saw %d deregistrations, want 1", got)
+			}
+			c.assertClosed(t, env)
+		})
+	}
+}
+
+// A registration the core refuses is an ERROR naming the step, with no
+// association left open.
+func TestHandoverCommandCheckRegistrationFailure(t *testing.T) {
+	c := newMockCore(t, testnet.ConformanceHOCmdRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
+	env := ueEnv(c.front.Addr, "", c.n3)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	r := ngapHandoverCommandTransfer{}.Run(ctx, env)
+	if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+	}
+	c.assertClosed(t, env)
+}

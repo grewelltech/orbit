@@ -117,7 +117,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Mobility management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) | ⬜ | transfer-IE bug already documented (interop) |
+| Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) · ✅ `NGAP-HANDOVER-COMMAND-TRANSFER` (Handover List with a transfer per item) | ⬜ | transfer-IE bug already documented (interop); the check runs under strict-3gpp |
 | Handover Resource Allocation (Request→Ack) | AMF→RAN | ✅ | — | ORBIT admits/rejects |
 | Handover Notification | RAN→AMF | ✅ | ⬜ | |
 | Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) | 🎯 malformed transfer / unknown IDs | |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**12 checks today** (the first four live on the SD-Core testbed):
+**13 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -189,6 +189,18 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   sent after the switch, and FAILs without one when the peer answered before
   the switch. Without `--traffic` the uplink is recorded as not probed. A
   PATH SWITCH REQUEST FAILURE, or no answer within 5 s, is FAIL. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
+
+- `NGAP-HANDOVER-COMMAND-TRANSFER` (mobility, FAIL-class) — a UE with a PDU
+  session hands over by N2; for an intra-system handover the HANDOVER
+  COMMAND must carry the PDU Session Resource Handover List (TS 38.413
+  8.4.1.2, a shall from V15.5.0), each item with a Handover Command Transfer
+  (9.2.3.2) that decodes. Nothing inside the transfer is asserted (every IE
+  of 9.3.4.10 is optional), and a session missing from the list is recorded
+  only. The target gNB sends the conformant Handover Request Acknowledge
+  Transfer (strict-3gpp, never the `sdcore` profile), so the check measures
+  what [interop/sdcore.md](../interop/sdcore.md) Finding 1 does to the
+  command. A handover that never reaches the command is ERROR. Needs a UE,
   else SKIP. Not yet run on Ref 2.
 
 - `NAS-T3560-AUTH-RETRANSMIT` (nas, FAIL-class) — the UE withholds its

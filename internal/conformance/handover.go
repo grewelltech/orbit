@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/bgrewell/orbit/internal/engine"
+	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 func init() {
-	builtins = append(builtins, ngapPathSwitchAckTransfer{})
+	builtins = append(builtins, ngapPathSwitchAckTransfer{}, ngapHandoverCommandTransfer{})
 }
 
 const (
@@ -250,4 +251,133 @@ func classifyPathSwitchAck(o PathObservation, session int64, window time.Duratio
 		observed += "; UL NG-U UP TNL Information absent, uplink not probed"
 	}
 	return Pass, observed, detail
+}
+
+// n2HandoverWait bounds the N2 handover, target NG Setup included. The
+// engine waits up to 3 s of it for the source's release after the Handover
+// Notify.
+const n2HandoverWait = 8 * time.Second
+
+// handoverCommandFailure is the check's failure message.
+const handoverCommandFailure = "HANDOVER COMMAND lacks the PDU Session Resource Handover List / per-item Handover Command Transfer. TS 38.413 8.4.1.2 (Rel-15 V15.5.0 onward), 9.3.4.10. Likely cause: the known SD-Core transfer-IE issue (docs/interop)."
+
+// ngapHandoverCommandTransfer registers a UE with a PDU session on gNB A,
+// hands it over by N2 to gNB B, and asserts TS 38.413 8.4.1.2 for an
+// intra-system handover: the HANDOVER COMMAND carries the PDU Session
+// Resource Handover List, and each item in it a Handover Command Transfer
+// (9.2.3.2: mandatory per item) that decodes.
+//
+// Nothing inside the transfer is asserted: every IE of 9.3.4.10 is
+// optional, forwarding tunnels included. Nor is every session required to
+// be listed. The target gNB's Handover Request Acknowledge is the conformant
+// encoding (the strict-3gpp core profile), so a core that needs a quirk to
+// read it is measured as it behaves without one.
+type ngapHandoverCommandTransfer struct {
+	// wait overrides n2HandoverWait (tests only).
+	wait time.Duration
+}
+
+func (ngapHandoverCommandTransfer) ID() string         { return "NGAP-HANDOVER-COMMAND-TRANSFER" }
+func (ngapHandoverCommandTransfer) Category() Category { return Mobility }
+func (ngapHandoverCommandTransfer) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 38.413", Clause: "8.4.1.2", Strength: Shall, Since: 15, Verified: ts38413HandoverCommandVerified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "the intra-system \"shall include\" sentence is added in V15.5.0; before it V15.0.0 has a PDU Session Resource Subject to Forwarding List (0..1), V15.1.0 to V15.3.0 a mandatory PDU Session Resource Handover List, and V15.4.0 the list as 0..1 with no obligation in the text; the cited sentences are unchanged Rel-16 through Rel-19"},
+			}},
+		{Spec: "TS 38.413", Clause: "9.2.3.2", Strength: Descriptive, Since: 15, Verified: ts38413HandoverCommandVerified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "Handover Command Transfer is O per item in V15.0.0 and M from V15.1.0"},
+				{Release: 18, Note: "\"subclause 9.3.4.10\" reads \"clause 9.3.4.10\" from Rel-18 (editorial)"},
+			}},
+		{Spec: "TS 38.413", Clause: "9.3.4.10", Strength: Descriptive, Since: 15, Verified: ts38413HandoverCommandVerified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "UL forwarding and additional tunnels are added within Rel-15; every IE of the transfer is optional in every version read"},
+				{Release: 16, Note: "adds the Data Forwarding Response E-RAB List"},
+				{Release: 19, Note: "the QoS Flow Failed to Setup List is present by V19.4.0"},
+			}},
+	}
+}
+
+func (c ngapHandoverCommandTransfer) waitHandover() time.Duration {
+	if c.wait > 0 {
+		return c.wait
+	}
+	return n2HandoverWait
+}
+
+func (c ngapHandoverCommandTransfer) Run(ctx context.Context, env Env) Result {
+	r := Result{Expected: "HANDOVER COMMAND to an intra-system N2 handover carrying the PDU Session Resource Handover List, each item with a Handover Command Transfer that decodes (TS 38.413 8.4.1.2, 9.2.3.2)"}
+	if !env.UE.Configured() {
+		r.Verdict, r.Observed = Skip, "no UE configured"
+		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run mobility checks"
+		return r
+	}
+	h, err := NewUEHarness(env, nil)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
+		return r
+	}
+	defer h.Close()
+	if _, err := h.Register(ctx); err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "UE setup on the source gNB failed", err.Error()
+		return r
+	}
+	hctx, cancel := context.WithTimeout(ctx, c.waitHandover())
+	cmd, err := h.N2Handover(hctx)
+	cancel()
+	if cmd == nil {
+		r.Verdict, r.Observed = Error, "handover did not reach Handover Command"
+		r.Detail = fmt.Sprintf("no HANDOVER COMMAND within %s of starting the handover: %v", c.waitHandover(), err)
+		return r
+	}
+	r.Verdict, r.Observed, r.Detail = classifyHandoverCommand(*cmd, int64(h.pdu.PDUSessionID))
+	if err != nil {
+		r.Detail = joinDetail(r.Detail, "the handover did not complete after the command: "+err.Error())
+	}
+	return r
+}
+
+// classifyHandoverCommand judges a HANDOVER COMMAND's PDU Session Resource
+// Handover List. FAIL: no list (or one without items), or an item whose
+// Handover Command Transfer is empty or does not decode. Otherwise PASS;
+// whether the UE's session is among the items is recorded only.
+func classifyHandoverCommand(cmd gnb.HandoverCommandInfo, session int64) (Verdict, string, string) {
+	var items []string
+	found := false
+	missing := ""
+	for _, it := range cmd.Items {
+		switch {
+		case it.TransferLen == 0:
+			items = append(items, fmt.Sprintf("PDU session %d: no transfer", it.PDUSessionID))
+			if missing == "" {
+				missing = fmt.Sprintf("PDU session %d listed without a Handover Command Transfer", it.PDUSessionID)
+			}
+		case it.TransferErr != "":
+			items = append(items, fmt.Sprintf("PDU session %d: transfer of %d octets does not decode (%s)", it.PDUSessionID, it.TransferLen, it.TransferErr))
+			if missing == "" {
+				missing = fmt.Sprintf("PDU session %d listed with a Handover Command Transfer that does not decode", it.PDUSessionID)
+			}
+		default:
+			items = append(items, fmt.Sprintf("PDU session %d: transfer of %d octets", it.PDUSessionID, it.TransferLen))
+		}
+		found = found || it.PDUSessionID == session
+	}
+	list := "Handover List: none"
+	if len(items) > 0 {
+		list = "Handover List: " + strings.Join(items, ", ")
+	}
+	facts := []string{list}
+	if len(items) > 0 && !found {
+		facts = append(facts, fmt.Sprintf("the UE's PDU session %d is not listed (not required; recorded only)", session))
+	}
+	facts = append(facts, "target gNB under the strict-3gpp profile (conformant Handover Request Acknowledge Transfer)")
+	detail := strings.Join(facts, "; ")
+	switch {
+	case !cmd.ListPresent || len(cmd.Items) == 0:
+		return Fail, "HANDOVER COMMAND without a PDU Session Resource Handover List", handoverCommandFailure + " Recorded: " + detail
+	case missing != "":
+		return Fail, missing, handoverCommandFailure + " Recorded: " + detail
+	}
+	return Pass, fmt.Sprintf("HANDOVER COMMAND lists %d PDU session(s), each with a Handover Command Transfer", len(cmd.Items)), detail
 }

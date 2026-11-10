@@ -61,7 +61,8 @@ type UPF interface {
 	// Resource Setup with its downlink tunnel.
 	SessionUp(s SessionInfo)
 	// PathSwitched is called after the PathSwitchRequestAcknowledge has
-	// been sent, once per switched session.
+	// been sent, once per switched session, and after an N2 handover's
+	// HANDOVER NOTIFY, once per session handed over.
 	PathSwitched(p PathSwitch)
 }
 
@@ -403,6 +404,51 @@ func buildDLNASTransportN1SM(sm []byte, id uint8) (*f5nas.Message, error) {
 // the slice, and a transfer with the session AMBR, the UPF uplink tunnel,
 // PDU session type IPv4 and one QoS flow (5QI 9).
 func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []byte, ul Tunnel, sst uint8, sd []byte) (ngapType.NGAPPDU, error) {
+	transfer, err := encodeSetupRequestTransfer(ul)
+	if err != nil {
+		return ngapType.NGAPPDU{}, err
+	}
+
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
+	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
+	pdu.InitiatingMessage.ProcedureCode.Value = ngapType.ProcedureCodePDUSessionResourceSetup
+	pdu.InitiatingMessage.Criticality.Value = ngapType.CriticalityPresentReject
+	pdu.InitiatingMessage.Value.Present = ngapType.InitiatingMessagePresentPDUSessionResourceSetupRequest
+	pdu.InitiatingMessage.Value.PDUSessionResourceSetupRequest = new(ngapType.PDUSessionResourceSetupRequest)
+	list := &pdu.InitiatingMessage.Value.PDUSessionResourceSetupRequest.ProtocolIEs.List
+	add := func(ieID int64, crit aper.Enumerated, fill func(*ngapType.PDUSessionResourceSetupRequestIEs)) {
+		ie := ngapType.PDUSessionResourceSetupRequestIEs{}
+		ie.Id.Value = ieID
+		ie.Criticality.Value = crit
+		fill(&ie)
+		*list = append(*list, ie)
+	}
+	add(ngapType.ProtocolIEIDAMFUENGAPID, ngapType.CriticalityPresentReject, func(ie *ngapType.PDUSessionResourceSetupRequestIEs) {
+		ie.Value.Present = ngapType.PDUSessionResourceSetupRequestIEsPresentAMFUENGAPID
+		ie.Value.AMFUENGAPID = &ngapType.AMFUENGAPID{Value: amfID}
+	})
+	add(ngapType.ProtocolIEIDRANUENGAPID, ngapType.CriticalityPresentReject, func(ie *ngapType.PDUSessionResourceSetupRequestIEs) {
+		ie.Value.Present = ngapType.PDUSessionResourceSetupRequestIEsPresentRANUENGAPID
+		ie.Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranID}
+	})
+	add(ngapType.ProtocolIEIDPDUSessionResourceSetupListSUReq, ngapType.CriticalityPresentReject, func(ie *ngapType.PDUSessionResourceSetupRequestIEs) {
+		ie.Value.Present = ngapType.PDUSessionResourceSetupRequestIEsPresentPDUSessionResourceSetupListSUReq
+		item := ngapType.PDUSessionResourceSetupItemSUReq{}
+		item.PDUSessionID.Value = int64(id)
+		item.PDUSessionNASPDU = &ngapType.NASPDU{Value: nasPDU}
+		item.SNSSAI = snssai(sst, sd)
+		item.PDUSessionResourceSetupRequestTransfer = transfer
+		ie.Value.PDUSessionResourceSetupListSUReq = &ngapType.PDUSessionResourceSetupListSUReq{List: []ngapType.PDUSessionResourceSetupItemSUReq{item}}
+	})
+	return pdu, nil
+}
+
+// encodeSetupRequestTransfer builds a PDU Session Resource Setup Request
+// Transfer (TS 38.413 §9.3.4.1) naming the UPF uplink tunnel ul: the session
+// AMBR, the tunnel, PDU session type IPv4 and one QoS flow (5QI 9). A
+// Handover Request carries the same transfer.
+func encodeSetupRequestTransfer(ul Tunnel) (aper.OctetString, error) {
 	var tr ngapType.PDUSessionResourceSetupRequestTransfer
 	addTr := func(ieID int64, crit aper.Enumerated, fill func(*ngapType.PDUSessionResourceSetupRequestTransferIEs)) {
 		ie := ngapType.PDUSessionResourceSetupRequestTransferIEs{}
@@ -440,42 +486,9 @@ func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []
 	})
 	transfer, err := aper.MarshalWithParams(tr, "valueExt")
 	if err != nil {
-		return ngapType.NGAPPDU{}, fmt.Errorf("mock amf encode setup request transfer: %w", err)
+		return nil, fmt.Errorf("mock amf encode setup request transfer: %w", err)
 	}
-
-	var pdu ngapType.NGAPPDU
-	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
-	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
-	pdu.InitiatingMessage.ProcedureCode.Value = ngapType.ProcedureCodePDUSessionResourceSetup
-	pdu.InitiatingMessage.Criticality.Value = ngapType.CriticalityPresentReject
-	pdu.InitiatingMessage.Value.Present = ngapType.InitiatingMessagePresentPDUSessionResourceSetupRequest
-	pdu.InitiatingMessage.Value.PDUSessionResourceSetupRequest = new(ngapType.PDUSessionResourceSetupRequest)
-	list := &pdu.InitiatingMessage.Value.PDUSessionResourceSetupRequest.ProtocolIEs.List
-	add := func(ieID int64, crit aper.Enumerated, fill func(*ngapType.PDUSessionResourceSetupRequestIEs)) {
-		ie := ngapType.PDUSessionResourceSetupRequestIEs{}
-		ie.Id.Value = ieID
-		ie.Criticality.Value = crit
-		fill(&ie)
-		*list = append(*list, ie)
-	}
-	add(ngapType.ProtocolIEIDAMFUENGAPID, ngapType.CriticalityPresentReject, func(ie *ngapType.PDUSessionResourceSetupRequestIEs) {
-		ie.Value.Present = ngapType.PDUSessionResourceSetupRequestIEsPresentAMFUENGAPID
-		ie.Value.AMFUENGAPID = &ngapType.AMFUENGAPID{Value: amfID}
-	})
-	add(ngapType.ProtocolIEIDRANUENGAPID, ngapType.CriticalityPresentReject, func(ie *ngapType.PDUSessionResourceSetupRequestIEs) {
-		ie.Value.Present = ngapType.PDUSessionResourceSetupRequestIEsPresentRANUENGAPID
-		ie.Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranID}
-	})
-	add(ngapType.ProtocolIEIDPDUSessionResourceSetupListSUReq, ngapType.CriticalityPresentReject, func(ie *ngapType.PDUSessionResourceSetupRequestIEs) {
-		ie.Value.Present = ngapType.PDUSessionResourceSetupRequestIEsPresentPDUSessionResourceSetupListSUReq
-		item := ngapType.PDUSessionResourceSetupItemSUReq{}
-		item.PDUSessionID.Value = int64(id)
-		item.PDUSessionNASPDU = &ngapType.NASPDU{Value: nasPDU}
-		item.SNSSAI = snssai(sst, sd)
-		item.PDUSessionResourceSetupRequestTransfer = transfer
-		ie.Value.PDUSessionResourceSetupListSUReq = &ngapType.PDUSessionResourceSetupListSUReq{List: []ngapType.PDUSessionResourceSetupItemSUReq{item}}
-	})
-	return pdu, nil
+	return transfer, nil
 }
 
 // switchedItem is one session in a PathSwitchRequestAcknowledge; newUL is

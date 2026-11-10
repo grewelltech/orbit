@@ -86,3 +86,73 @@ func TestHandoverAckTransferSDCoreQuirk(t *testing.T) {
 		t.Errorf("strict transfer changed: %s", hex.EncodeToString(strict))
 	}
 }
+
+// handoverCommand builds a HANDOVER COMMAND whose PDU Session Resource
+// Handover List carries transfers as given, one item per entry, session IDs
+// from 1. withList false leaves the list out.
+func handoverCommand(transfers []aper.OctetString, withList bool) *ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentSuccessfulOutcome
+	pdu.SuccessfulOutcome = new(ngapType.SuccessfulOutcome)
+	pdu.SuccessfulOutcome.ProcedureCode.Value = ngapType.ProcedureCodeHandoverPreparation
+	pdu.SuccessfulOutcome.Value.Present = ngapType.SuccessfulOutcomePresentHandoverCommand
+	cmd := new(ngapType.HandoverCommand)
+	pdu.SuccessfulOutcome.Value.HandoverCommand = cmd
+	if !withList {
+		return &pdu
+	}
+	ie := ngapType.HandoverCommandIEs{}
+	ie.Id.Value = ngapType.ProtocolIEIDPDUSessionResourceHandoverList
+	ie.Value.Present = ngapType.HandoverCommandIEsPresentPDUSessionResourceHandoverList
+	ie.Value.PDUSessionResourceHandoverList = new(ngapType.PDUSessionResourceHandoverList)
+	for i, tr := range transfers {
+		item := ngapType.PDUSessionResourceHandoverItem{}
+		item.PDUSessionID.Value = int64(i + 1)
+		item.HandoverCommandTransfer = tr
+		ie.Value.PDUSessionResourceHandoverList.List = append(ie.Value.PDUSessionResourceHandoverList.List, item)
+	}
+	cmd.ProtocolIEs.List = append(cmd.ProtocolIEs.List, ie)
+	return &pdu
+}
+
+// ParseHandoverCommandItems keeps every item of the Handover List and says
+// of each whether its transfer is there and decodes, with or without a
+// forwarding tunnel in it; a command without the list, or another PDU, has
+// none.
+func TestParseHandoverCommandItems(t *testing.T) {
+	plain, err := aper.MarshalWithParams(ngapType.HandoverCommandTransfer{}, "valueExt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := gtpTunnelUP(GNBTunnel{Address: "10.0.0.9", TEID: 0x77})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwarding, err := aper.MarshalWithParams(ngapType.HandoverCommandTransfer{DLForwardingUPTNLInformation: &up}, "valueExt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ParseHandoverCommandItems(handoverCommand([]aper.OctetString{plain, forwarding, {}, {0xf8}}, true))
+	if !got.ListPresent || len(got.Items) != 4 {
+		t.Fatalf("parsed %+v, want a list of 4 items", got)
+	}
+	want := []struct{ transfer, decodeErr bool }{{true, false}, {true, false}, {false, false}, {false, true}}
+	for i, w := range want {
+		it := got.Items[i]
+		if it.PDUSessionID != int64(i+1) || it.HasTransfer() != w.transfer || (it.TransferErr != "") != w.decodeErr {
+			t.Errorf("item %d = %+v, want transfer %v, decode error %v", i+1, it, w.transfer, w.decodeErr)
+		}
+	}
+	if got.Items[2].TransferLen != 0 || got.Items[3].TransferLen != 1 {
+		t.Errorf("transfer lengths %d and %d, want 0 and 1", got.Items[2].TransferLen, got.Items[3].TransferLen)
+	}
+	if got := ParseHandoverCommandItems(handoverCommand(nil, false)); got.ListPresent || len(got.Items) != 0 {
+		t.Errorf("without the list: %+v", got)
+	}
+	var other ngapType.NGAPPDU
+	other.Present = ngapType.NGAPPDUPresentInitiatingMessage
+	other.InitiatingMessage = new(ngapType.InitiatingMessage)
+	if got := ParseHandoverCommandItems(&other); got.ListPresent || len(got.Items) != 0 {
+		t.Errorf("another PDU: %+v", got)
+	}
+}

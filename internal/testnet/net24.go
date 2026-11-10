@@ -67,6 +67,10 @@ const (
 	EngineXnAckNoTransfer = 202 // TestXnHandoverReportsTheAcknowledge/transfer_omitted
 	EngineXnNotAckFailure = 203 // TestXnHandoverNotAcknowledged/failure
 	EngineXnNotAckSilence = 204 // TestXnHandoverNotAcknowledged/no_answer
+	EngineN2Completes     = 205 // TestN2HandoverOverMockPair/completes
+	EngineN2NoList        = 206 // TestN2HandoverOverMockPair/command_without_the_list
+	EngineN2PrepFailure   = 207 // TestN2HandoverPreparationFails/preparation_failure
+	EngineN2Unanswered    = 208 // TestN2HandoverPreparationFails/no_answer
 
 	ConformancePSAckPlain      = 190 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_no_traffic
 	ConformancePSAckEcho       = 191 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_uplink_answered
@@ -78,6 +82,14 @@ const (
 	ConformancePSAckIgnored    = 197 // TestPathSwitchAckCheckAgainstMockPair/path_switch_request_unanswered
 	ConformancePSAckRegFail    = 198 // TestPathSwitchAckCheckErrors/registration_refused
 	ConformancePSAckTimeout    = 199 // TestPathSwitchAckCheckErrors/timeout_in_the_uplink_window
+
+	ConformanceHOCmdPass       = 210 // TestHandoverCommandCheckAgainstMockPair/command_with_the_list
+	ConformanceHOCmdNoList     = 211 // TestHandoverCommandCheckAgainstMockPair/list_dropped
+	ConformanceHOCmdNoTransfer = 212 // TestHandoverCommandCheckAgainstMockPair/transfer_omitted
+	ConformanceHOCmdBadTransfe = 213 // TestHandoverCommandCheckAgainstMockPair/transfer_undecodable
+	ConformanceHOCmdPrepFail   = 214 // TestHandoverCommandCheckAgainstMockPair/preparation_failure
+	ConformanceHOCmdUnanswered = 215 // TestHandoverCommandCheckAgainstMockPair/handover_required_unanswered
+	ConformanceHOCmdRegFail    = 216 // TestHandoverCommandCheckRegistrationFailure
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

@@ -140,6 +140,9 @@ func (endMarkerOnPathSwitch) Needs() CheckNeeds {
 func (ngapPathSwitchAckTransfer) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
+func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
+}
 func (nasSMCNoNIA0) Needs() CheckNeeds        { return ueNeeds }
 func (nasPDUUnknownDNN) Needs() CheckNeeds    { return ueNeeds }
 func (nasRegRejectedNSSAI) Needs() CheckNeeds { return ueNeeds }
