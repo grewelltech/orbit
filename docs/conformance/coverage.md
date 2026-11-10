@@ -81,7 +81,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
 | NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ⬜ bad TAC | the densest entry point |
-| RAN Configuration Update | RAN→AMF | ✅ `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (an absent Supported TA List keeps the TAs) | ✅ `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (transfer syntax error) | every IE but Message Type is optional, so there is no missing-mandatory-IE case |
+| RAN Configuration Update | RAN→AMF | ✅ `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (an absent Supported TA List keeps the TAs) · ✅ `NGAP-RAN-CONFIG-UPDATE-ACK` (informational: is a valid update acknowledged?) | ✅ `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (transfer syntax error) | every IE but Message Type is optional, so there is no missing-mandatory-IE case |
 | NG Reset | RAN→AMF | ✅ `NGAP-NG-RESET-ACK` (live PASS) | ⬜ | RAN-initiated reset-all → NG RESET ACKNOWLEDGE |
 | Error Indication | both | ✅ (we assert the core *sends* it) | — | |
 | AMF Configuration Update | AMF→RAN | — | — | ORBIT receives |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**14 checks today** (the first four live on the SD-Core testbed):
+**15 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -164,6 +164,15 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Registration Reject with #12, #13 or #15 is FAIL, any other registration
   failure is ERROR. A RAN CONFIGURATION UPDATE FAILURE is SKIP, and no
   outcome within 5 s is ERROR. Needs a UE, else SKIP. Not yet run on Ref 2.
+- `NGAP-RAN-CONFIG-UPDATE-ACK` (procedural, INFO-class) — after NG Setup, a
+  valid RAN CONFIGURATION UPDATE restating the Supported TA List the NG Setup
+  presented. TS 38.413 8.7.2.2 describes the answer ("The AMF responds with a
+  RAN CONFIGURATION UPDATE ACKNOWLEDGE message") without requiring it, and
+  8.7.2.3 requires a FAILURE only of an AMF that cannot accept the update, so
+  the check is informational: an ACKNOWLEDGE is INFO; a RAN CONFIGURATION
+  UPDATE FAILURE, an ERROR INDICATION, no answer within 5 s or a lost
+  association is INFO-DIFF, with a fresh NG Setup tried afterwards and its
+  result recorded. It never gates. Not yet run on Ref 2.
 - `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (negative-ie, DEVIATION-class) — a
   RAN CONFIGURATION UPDATE whose Supported TA Item is cut off after its TAC,
   so the item's mandatory Broadcast PLMN List is missing: a transfer syntax

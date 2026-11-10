@@ -147,25 +147,30 @@ func errorIndicationCause(pdu *ngapType.NGAPPDU) string {
 		return "absent"
 	}
 	for _, ie := range ei.ProtocolIEs.List {
-		if ie.Id.Value != ngapType.ProtocolIEIDCause || ie.Value.Cause == nil {
-			continue
+		if ie.Id.Value == ngapType.ProtocolIEIDCause && ie.Value.Cause != nil {
+			return causeText(ie.Value.Cause)
 		}
-		c := ie.Value.Cause
-		switch c.Present {
-		case ngapType.CausePresentProtocol:
-			if c.Protocol.Value == ngapType.CauseProtocolPresentTransferSyntaxError {
-				return "Protocol transfer-syntax-error"
-			}
-			return fmt.Sprintf("Protocol %d", c.Protocol.Value)
-		case ngapType.CausePresentRadioNetwork:
-			return fmt.Sprintf("RadioNetwork %d", c.RadioNetwork.Value)
-		case ngapType.CausePresentTransport:
-			return fmt.Sprintf("Transport %d", c.Transport.Value)
-		case ngapType.CausePresentNas:
-			return fmt.Sprintf("NAS %d", c.Nas.Value)
-		case ngapType.CausePresentMisc:
-			return fmt.Sprintf("Misc %d", c.Misc.Value)
+	}
+	return "absent"
+}
+
+// causeText renders a Cause IE (TS 38.413 9.3.1.2) as its group and value,
+// naming the Protocol cause "Transfer Syntax Error".
+func causeText(c *ngapType.Cause) string {
+	switch c.Present {
+	case ngapType.CausePresentProtocol:
+		if c.Protocol.Value == ngapType.CauseProtocolPresentTransferSyntaxError {
+			return "Protocol transfer-syntax-error"
 		}
+		return fmt.Sprintf("Protocol %d", c.Protocol.Value)
+	case ngapType.CausePresentRadioNetwork:
+		return fmt.Sprintf("RadioNetwork %d", c.RadioNetwork.Value)
+	case ngapType.CausePresentTransport:
+		return fmt.Sprintf("Transport %d", c.Transport.Value)
+	case ngapType.CausePresentNas:
+		return fmt.Sprintf("NAS %d", c.Nas.Value)
+	case ngapType.CausePresentMisc:
+		return fmt.Sprintf("Misc %d", c.Misc.Value)
 	}
 	return "absent"
 }

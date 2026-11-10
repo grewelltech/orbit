@@ -180,7 +180,7 @@ var shouldOnly = map[string]bool{"NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX": true}
 
 // informational are the registered checks that cite descriptive references
 // only and declare themselves informational, so they are never graded.
-var informational = map[string]bool{}
+var informational = map[string]bool{"NGAP-RAN-CONFIG-UPDATE-ACK": true}
 
 // Every registered check's worst verdict follows what it cites: DEVIATION
 // for the should-only checks named in shouldOnly, INFO-DIFF for the

@@ -408,6 +408,37 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 	return r
 }
 
+// observedNoFreshSetup ends the Observed text of an informational result
+// after which a fresh NG Setup did not complete.
+const observedNoFreshSetup = "; a fresh NG Setup afterwards did not complete"
+
+// observeAlive is the liveness probe of an informational check. It tries a
+// fresh NG Setup after the stimulus, which after names ("the RAN
+// CONFIGURATION UPDATE"), and records the result in r's detail. The verdict
+// is left as it is: an informational check reports a core that stopped
+// answering (Observed then ends with observedNoFreshSetup) and never fails
+// it. A probe that could not be made, or that the per-test timeout cut
+// short, is recorded as such.
+func observeAlive(ctx context.Context, env Env, r Result, after string) Result {
+	if cutShort(ctx) {
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards was not tried: the per-test timeout had expired")
+		return r
+	}
+	alive, err := env.Alive(ctx)
+	switch {
+	case err != nil:
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards could not be tried: "+err.Error())
+	case alive:
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards completes")
+	case cutShort(ctx):
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards was cut short by the per-test timeout")
+	default:
+		r.Observed += observedNoFreshSetup
+		r.Detail = joinDetail(r.Detail, "the AMF no longer completes NG Setup after "+after)
+	}
+	return r
+}
+
 type setupError struct{ s string }
 
 func (e *setupError) Error() string { return e.s }
