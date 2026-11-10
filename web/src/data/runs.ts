@@ -48,6 +48,8 @@ function runKindName(k: RunKind): string {
       return "scenario";
     case RunKind.CONFORMANCE:
       return "conformance";
+    case RunKind.MIXED:
+      return "mixed";
     default:
       // A kind added to the proto after this build. Showing the raw value beats
       // mislabelling it as one of the kinds above.
