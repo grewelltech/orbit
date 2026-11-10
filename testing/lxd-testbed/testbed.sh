@@ -1196,7 +1196,7 @@ cmd_core_status() {
     lxc exec "$NODE_CORE" -- ip -br -4 addr show 2>/dev/null | sed 's/^/  /'
     echo
     echo "UPF attachments"
-    lxc exec "$NODE_CORE" -- bash -lc 'kubectl -n aether-5gc exec upf-0 -c bessd -- ip -br -4 addr show 2>/dev/null | grep -E "^(access|core) "' 2>/dev/null | sed 's/^/  /' || echo "  (upf-0 not answering)"
+    lxc exec "$NODE_CORE" -- bash -lc 'kubectl -n aether-5gc exec upf-0 -c bessd -- ip -br -4 addr show 2>/dev/null | grep -E "^(access|core)(@[^ ]*)? "' 2>/dev/null | sed 's/^/  /' || echo "  (upf-0 not answering)"
 }
 
 # ── control node (aether-ops) ────────────────────────────────────────────────
