@@ -150,6 +150,17 @@ func TestExportRaw(t *testing.T) {
 		}
 	})
 
+	t.Run("a multi-document file is refused", func(t *testing.T) {
+		loc := newLoc(t)
+		// The first document is the named target, but a second follows: the
+		// file's own bytes are not a single-target file the dashboard accepts.
+		writeConfigTarget(t, loc, "tb1", singleTarget+"\n---\n"+singleTarget)
+		_, _, err := ExportRaw("tb1", loc)
+		if err == nil || !strings.Contains(err.Error(), "second YAML document") {
+			t.Fatalf("err = %v, want a second-document refusal", err)
+		}
+	})
+
 	t.Run("a config-dir file whose target is named differently is refused", func(t *testing.T) {
 		loc := newLoc(t)
 		// File tb1.yaml, but the document inside is named other.

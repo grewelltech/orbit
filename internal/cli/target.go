@@ -558,8 +558,8 @@ func newTargetExportCmd(serverURL *string, loc targetLocations) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if !link {
-				_, _ = out.Write(b)
-				return nil
+				_, err = out.Write(b)
+				return err
 			}
 			base := dashboard
 			if base == "" {
@@ -573,8 +573,8 @@ func newTargetExportCmd(serverURL *string, loc targetLocations) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintln(out, u)
-			return nil
+			_, err = fmt.Fprintln(out, u)
+			return err
 		},
 	}
 	f := cmd.Flags()

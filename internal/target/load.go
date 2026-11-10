@@ -207,6 +207,12 @@ func ExportRaw(name string, loc Locations) (raw []byte, path string, err error) 
 // a list. A file that is not YAML, is empty, or is neither a target nor a list
 // of targets is an error.
 func scanTargetNames(file string, b []byte, name string) (found, single bool, err error) {
+	// yaml.Unmarshal reads only the first document, so a second one would be
+	// silently dropped and the file taken for a single target; refuse it as
+	// parse does, since an export carries the file's own bytes.
+	if line, ok := secondDocument(b); ok {
+		return false, false, secondDocumentError(file, "a target file", line)
+	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return false, false, fmt.Errorf("%s: %w", file, err)

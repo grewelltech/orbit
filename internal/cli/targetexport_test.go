@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,11 @@ import (
 
 	"github.com/bgrewell/orbit/internal/target"
 )
+
+// errWriter fails every write, standing in for a full disk on a redirect.
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("disk full") }
 
 // cliFixture reads one of the byte-for-byte files `orbit target init` wrote,
 // the same files web/src/data/targets/roundtrip.test.ts imports unchanged, so
@@ -184,5 +191,21 @@ func TestTargetExportNotFound(t *testing.T) {
 	r := runOrbit(t, loc, "target", "export", "nope")
 	if r.execErr == nil || !strings.Contains(r.execErr.Error(), "nope") {
 		t.Fatalf("err = %v, want an error naming the missing target", r.execErr)
+	}
+}
+
+// A failing stdout write is returned (not swallowed), so a redirect to a full
+// disk fails loudly instead of leaving a truncated file and exit 0.
+func TestTargetExportStdoutWriteError(t *testing.T) {
+	clearOrbitEnv(t)
+	loc, write := exportLoc(t)
+	write("keys-as-vars", cliFixture(t, "keys-as-vars"))
+
+	root := New("test", WithTargetLocations(loc))
+	root.SetOut(errWriter{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"target", "export", "keys-as-vars"})
+	if err := root.Execute(); err == nil {
+		t.Fatal("export reported success despite a failing stdout write")
 	}
 }
