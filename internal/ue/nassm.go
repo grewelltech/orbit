@@ -60,10 +60,15 @@ func BuildRequestedNSSAI(slices []SNSSAI) (*nasType.RequestedNSSAI, error) {
 }
 
 // BuildPDUSessionEstablishmentRequest builds the 5GSM PDU Session
-// Establishment Request (TS 24.501 §8.3.1). PTI is 0 for a UE-requested
-// session per §9.6. The Integrity Protection Maximum Data Rate IE is
+// Establishment Request (TS 24.501 §8.3.1). The UE allocates a PTI not in
+// use (§6.4.1.2): the PDU session ID, 1 to 15, which is distinct for each
+// session a UE has in establishment and never 0, "no procedure transaction
+// identity assigned". The Integrity Protection Maximum Data Rate IE is
 // mandatory; PDU session type IPv4 and SSC mode 1 are the common defaults.
 func BuildPDUSessionEstablishmentRequest(p PDUSessionParams) ([]byte, error) {
+	if p.PDUSessionID < 1 || p.PDUSessionID > 15 {
+		return nil, fmt.Errorf("PDU session ID %d: want 1 to 15", p.PDUSessionID)
+	}
 	m := f5nas.NewMessage()
 	m.GsmMessage = f5nas.NewGsmMessage()
 	m.GsmHeader.SetMessageType(f5nas.MsgTypePDUSessionEstablishmentRequest)
@@ -71,7 +76,7 @@ func BuildPDUSessionEstablishmentRequest(p PDUSessionParams) ([]byte, error) {
 	req := nasMessage.NewPDUSessionEstablishmentRequest(f5nas.MsgTypePDUSessionEstablishmentRequest)
 	req.ExtendedProtocolDiscriminator.SetExtendedProtocolDiscriminator(nasMessage.Epd5GSSessionManagementMessage)
 	req.PDUSessionID.SetPDUSessionID(p.PDUSessionID)
-	req.PTI.SetPTI(0x00)
+	req.PTI.SetPTI(p.PDUSessionID)
 	req.PDUSESSIONESTABLISHMENTREQUESTMessageIdentity.SetMessageType(f5nas.MsgTypePDUSessionEstablishmentRequest)
 	// Integrity Protection Maximum Data Rate: "full data rate" both ways
 	// (0xFF) — the conventional value (TS 24.501 §9.11.4.7).
