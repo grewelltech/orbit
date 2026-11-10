@@ -149,6 +149,11 @@ type AMF struct {
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
 	regReqs [][]byte
+
+	// RAN Configuration Update (ranconfig.go): the answer, and the updates
+	// received, guarded by mu.
+	ranConfigAnswer  RANConfigUpdateAnswer
+	ranConfigUpdates []RANConfigUpdate
 }
 
 // errCrashed ends every association of a mock that crashed after a release
@@ -261,8 +266,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 	}
 }
 
-// dispatch routes one gNB→AMF PDU: NG Setup is answered once; UE-associated
-// messages go to their per-RAN-UE-NGAP-ID state.
+// dispatch routes one gNB→AMF PDU: NG Setup is answered once, a RAN
+// Configuration Update as configured; UE-associated messages go to their
+// per-RAN-UE-NGAP-ID state.
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
@@ -303,6 +309,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	}
 	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentPathSwitchRequest {
 		return a.onPathSwitchRequest(p, states, pdu.InitiatingMessage.Value.PathSwitchRequest)
+	}
+	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentRANConfigurationUpdate {
+		return a.onRANConfigUpdate(p, pdu.InitiatingMessage.Value.RANConfigurationUpdate)
 	}
 	up, err := parseUplink(pdu)
 	if err != nil {
