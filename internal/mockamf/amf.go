@@ -154,6 +154,16 @@ type AMF struct {
 
 	// Initial NAS message options (initialnas.go).
 	rejectNonCleartext bool
+
+	// Identification options and what the UEs answered, the answers
+	// guarded by mu (identity.go).
+	requestIMEISV     bool
+	identityAfterSMC  bool
+	identityType      uint8
+	plainIdentity     bool
+	plainIdentityType uint8
+	smcIMEISVs        [][]byte
+	identityResponses [][]byte
 }
 
 // errCrashed ends every association of a mock that crashed after a release
@@ -354,6 +364,8 @@ type ueState struct {
 	kamf      []byte                       // KAMF from authentication, for the SMC's keys
 	requested []byte                       // the Requested NSSAI IE's value, nil when absent
 	regIdx    int                          // the UE's entry in AMF.regReqs
+	// awaitingIdentity marks a WithIdentityRequest request not yet answered.
+	awaitingIdentity bool
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -413,6 +425,11 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 		}
 		return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), rej))
 	}
+	if a.plainIdentity {
+		if err := a.sendIdentityRequest(p, st, a.plainIdentityType, false); err != nil {
+			return err
+		}
+	}
 	arBytes, err := buildAuthenticationRequest(randv, autn, st.ngksi)
 	if err != nil {
 		return err
@@ -447,8 +464,10 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		st.t3560.stop()
 		// Accept without checking RES* (sim only), send Security Mode Command.
 		return false, a.onAuthenticated(p, st)
-	case f5nas.MsgTypeSecurityModeComplete:
-		a.adoptCompleteRegistration(st, msg.SecurityModeComplete)
+	case f5nas.MsgTypeSecurityModeComplete, f5nas.MsgTypeIdentityResponse:
+		if due, err := a.beforeAccept(p, st, msg); err != nil || !due {
+			return false, err
+		}
 		if a.nssaiAnswer != AcceptAnyNSSAI && !a.servesRequested(st) {
 			return false, a.answerUnservedNSSAI(p, st)
 		}

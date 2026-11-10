@@ -200,9 +200,10 @@ func BuildAuthenticationResponse(resStar []byte) ([]byte, error) {
 // (TS 24.501 §8.2.26). The complete Registration Request, with the
 // non-cleartext IEs the initial NAS message left out, goes in the NAS
 // Message Container (TS 24.501 §4.4.6 a), and the AMF takes it as the
-// message that triggered the registration. Returns the plain message for
-// the caller to wrap with the new security context.
-func BuildSecurityModeComplete(fullRegistrationRequest []byte) (*f5nas.Message, error) {
+// message that triggered the registration. Each opt adjusts the result
+// (WithIMEISV). Returns the plain message for the caller to wrap with the
+// new security context.
+func BuildSecurityModeComplete(fullRegistrationRequest []byte, opts ...SecurityModeCompleteOption) (*f5nas.Message, error) {
 	m, gmm := newGmm(f5nas.MsgTypeSecurityModeComplete)
 	c := nasMessage.NewSecurityModeComplete(f5nas.MsgTypeSecurityModeComplete)
 	setGmmHeader(&c.ExtendedProtocolDiscriminator, &c.SpareHalfOctetAndSecurityHeaderType,
@@ -213,6 +214,11 @@ func BuildSecurityModeComplete(fullRegistrationRequest []byte) (*f5nas.Message, 
 		nmc.SetLen(uint16(len(fullRegistrationRequest)))
 		nmc.Buffer = fullRegistrationRequest
 		c.NASMessageContainer = nmc
+	}
+	for _, o := range opts {
+		if err := o(c); err != nil {
+			return nil, err
+		}
 	}
 
 	gmm.SecurityModeComplete = c
@@ -258,6 +264,9 @@ func ParseAuthenticationRequest(m *f5nas.Message) (*AuthChallenge, error) {
 type SelectedAlgorithms struct {
 	Ciphering uint8 // NEA identity
 	Integrity uint8 // NIA identity
+	// IMEISVRequested reports an IMEISV request IE set to "IMEISV
+	// requested": the Security Mode Complete must carry the IMEISV.
+	IMEISVRequested bool
 }
 
 // ParseSecurityModeCommand extracts the selected NAS algorithms.
@@ -269,6 +278,8 @@ func ParseSecurityModeCommand(m *f5nas.Message) (*SelectedAlgorithms, error) {
 	return &SelectedAlgorithms{
 		Ciphering: smc.SelectedNASSecurityAlgorithms.GetTypeOfCipheringAlgorithm(),
 		Integrity: smc.SelectedNASSecurityAlgorithms.GetTypeOfIntegrityProtectionAlgorithm(),
+		IMEISVRequested: smc.IMEISVRequest != nil &&
+			smc.GetIMEISVRequestValue() == nasMessage.IMEISVRequested,
 	}, nil
 }
 

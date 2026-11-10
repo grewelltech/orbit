@@ -198,6 +198,9 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 	if err != nil {
 		return err
 	}
+	if a.requestIMEISV {
+		smc.IMEISVRequest = imeisvRequest()
+	}
 	wrapped, err := st.encodeSecure(smc, nas.SecHdrIntegrityNewContext)
 	if err != nil {
 		return err

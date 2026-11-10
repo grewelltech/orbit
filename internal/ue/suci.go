@@ -35,6 +35,9 @@ type Identity struct {
 	// 1-4 decimal digits. "0" is the common default and what the ATB-01
 	// core accepts.
 	RoutingIndicator string
+	// IMEISV is the UE's equipment identity, 16 decimal digits; empty
+	// derives one from the SUPI (DefaultIMEISV).
+	IMEISV string
 }
 
 // SUPI length bounds per TS 23.003 §2.2: an IMSI is MCC (3) + MNC (2 or 3)
