@@ -71,6 +71,8 @@ const (
 	EngineN2NoList        = 206 // TestN2HandoverOverMockPair/command_without_the_list
 	EngineN2PrepFailure   = 207 // TestN2HandoverPreparationFails/preparation_failure
 	EngineN2Unanswered    = 208 // TestN2HandoverPreparationFails/no_answer
+	EngineReleaseOnReq    = 227 // TestRequestContextReleaseOverMockPair/released
+	EngineReleaseIgnored  = 228 // TestRequestContextReleaseOverMockPair/request_ignored
 
 	ConformancePSAckPlain      = 190 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_no_traffic
 	ConformancePSAckEcho       = 191 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_uplink_answered
@@ -90,6 +92,11 @@ const (
 	ConformanceHOCmdPrepFail   = 214 // TestHandoverCommandCheckAgainstMockPair/preparation_failure
 	ConformanceHOCmdUnanswered = 215 // TestHandoverCommandCheckAgainstMockPair/handover_required_unanswered
 	ConformanceHOCmdRegFail    = 216 // TestHandoverCommandCheckRegistrationFailure
+
+	ConformanceRelOnReq   = 230 // TestUECtxReleaseCheckAgainstMock/command
+	ConformanceRelIgnored = 231 // TestUECtxReleaseCheckAgainstMock/command_withheld
+	ConformanceRelNoGUTI  = 232 // TestUECtxReleaseCheckAgainstMock/command,_no_5G-GUTI
+	ConformanceRelRegFail = 233 // TestUECtxReleaseCheckRegistrationFailure
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

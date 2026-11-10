@@ -110,6 +110,16 @@ type Session struct {
 	// notify publishes correlation-visible data-path events onto the
 	// Manager's hub (nil for sessions built outside a Manager).
 	notify func(StateEvent)
+
+	// idle is set once the AMF has released the UE's context at the gNB's
+	// request (RequestContextRelease): the UE is registered with no NG
+	// connection, and amfID names a context the AMF no longer holds.
+	idle atomic.Bool
+
+	// pending is a read of the association that its caller stopped waiting
+	// for (readPDU), guarded by readMu.
+	readMu  sync.Mutex
+	pending *pendingRead
 }
 
 // SendUplink sends one inner IP packet up the session's CURRENT tunnel,
@@ -856,7 +866,7 @@ func (s *Session) awaitSwitchOffRelease(parent context.Context, linger time.Dura
 	ctx, cancel := context.WithTimeout(parent, linger)
 	defer cancel()
 	for {
-		pdu, err := gnb.ReadPDU(ctx, s.conn)
+		pdu, err := s.readPDU(ctx)
 		if parent.Err() != nil {
 			return fmt.Errorf("%w: waited %s: %v", errNoUEContextRelease, time.Since(start).Round(time.Millisecond), parent.Err())
 		}
@@ -874,7 +884,15 @@ func (s *Session) awaitSwitchOffRelease(parent context.Context, linger time.Dura
 			}
 			continue
 		}
-		if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(s.amfID, s.ranID)); err != nil {
+		amfID, ranID := s.amfID, s.ranID
+		if s.idle.Load() {
+			// The deregistration opened a new NG connection, and the AMF
+			// names its own ID for it here first.
+			if cmd, ok := gnb.ParseUEContextReleaseCommand(pdu); ok && cmd.HasPair {
+				amfID, ranID = cmd.AMFUENGAPID, cmd.RANUENGAPID
+			}
+		}
+		if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(amfID, ranID)); err != nil {
 			return fmt.Errorf("UE Context Release Complete not sent: %w", err)
 		}
 		return nil
@@ -899,6 +917,9 @@ func (s *Session) deregister(ctx context.Context) error {
 	msg, err := ueBuildDeregistration(s.guti)
 	if err != nil {
 		return err
+	}
+	if s.idle.Load() {
+		return s.deregisterFromIdle(msg)
 	}
 	wrapped, err := s.sec.EncodeSecure(msg, nas.SecHdrIntegrityCiphered)
 	if err != nil {

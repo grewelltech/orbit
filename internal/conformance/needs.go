@@ -143,9 +143,10 @@ func (ngapPathSwitchAckTransfer) Needs() CheckNeeds {
 func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
-func (nasSMCNoNIA0) Needs() CheckNeeds        { return ueNeeds }
-func (nasPDUUnknownDNN) Needs() CheckNeeds    { return ueNeeds }
-func (nasRegRejectedNSSAI) Needs() CheckNeeds { return ueNeeds }
+func (ngapUECtxReleaseOnRequest) Needs() CheckNeeds { return ueNeeds }
+func (nasSMCNoNIA0) Needs() CheckNeeds              { return ueNeeds }
+func (nasPDUUnknownDNN) Needs() CheckNeeds          { return ueNeeds }
+func (nasRegRejectedNSSAI) Needs() CheckNeeds       { return ueNeeds }
 
 // The NAS timer checks measure retransmissions against tmax windows, which
 // a loaded AMF's scheduling jitter would push out.

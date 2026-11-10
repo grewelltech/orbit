@@ -95,7 +95,7 @@ type AMF struct {
 	completeIDs      [][2]int64
 	deregReleases    [][2]int64
 	// strayCompletes counts Completes that came before any switch-off
-	// release named their UE.
+	// release or release on request named their UE.
 	strayCompletes atomic.Int64
 	// setups are the gNBs that sent an NG Setup Request, in order (Setups).
 	setups []Setup
@@ -137,6 +137,13 @@ type AMF struct {
 	releaseDelay         time.Duration
 	staleRelease         time.Duration
 	ignoreReleaseRequest bool
+	// releaseRequests counts the UE CONTEXT RELEASE REQUESTs received,
+	// requestReleases (under mu) are the NGAP ID pairs of the releases sent
+	// to answer them, and idleDeregs counts the Deregistration Requests
+	// that came in an Initial UE Message.
+	releaseRequests atomic.Int64
+	requestReleases [][2]int64
+	idleDeregs      atomic.Int64
 
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
@@ -311,6 +318,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		for _, r := range a.deregReleases {
 			answered = answered || r == ids
 		}
+		for _, r := range a.requestReleases {
+			answered = answered || r == ids
+		}
 		a.mu.Unlock()
 		if !answered {
 			a.strayCompletes.Add(1)
@@ -340,6 +350,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	}
 	switch up.procedure {
 	case ngapType.ProcedureCodeInitialUEMessage:
+		if handled, err := a.onIdleDeregistration(p, states, up); handled || err != nil {
+			return err
+		}
 		return a.onInitialUE(p, st, up)
 	case ngapType.ProcedureCodeUplinkNASTransport:
 		_, err := a.onUplinkNAS(p, st, up.nasPDU)
@@ -525,8 +538,9 @@ func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
 func (a *AMF) ReleaseCompletes() int64 { return a.releaseCompletes.Load() }
 
 // StrayReleaseCompletes reports how many UE CONTEXT RELEASE COMPLETEs
-// arrived before any switch-off release named their UE: a gNB that took
-// some other PDU, or an older release, for the answer.
+// arrived before any release the mock sent named their UE (for a
+// switch-off, or on the gNB's request): a gNB that took some other PDU, or
+// an older release, for the answer.
 func (a *AMF) StrayReleaseCompletes() int64 { return a.strayCompletes.Load() }
 
 // ReleaseCompleteIDs reports the (AMF, RAN) UE NGAP ID pair each UE

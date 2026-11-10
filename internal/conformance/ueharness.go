@@ -355,6 +355,14 @@ func (h *UEHarness) N2Handover(ctx context.Context) (*gnb.HandoverCommandInfo, e
 	return res.Command, nil
 }
 
+// RequestContextRelease sends a UE CONTEXT RELEASE REQUEST for the UE from
+// gNB A and waits up to wait for the AMF's UE CONTEXT RELEASE COMMAND. A
+// released UE stays registered, and Deregister (or Close) then sends its
+// Deregistration Request as an initial NAS message.
+func (h *UEHarness) RequestContextRelease(ctx context.Context, wait time.Duration) (engine.ContextReleaseResult, error) {
+	return h.m.RequestContextRelease(ctx, h.supi, wait)
+}
+
 // Observe returns what has been seen so far, with the switch's timing.
 func (h *UEHarness) Observe() PathObservation {
 	h.mu.Lock()

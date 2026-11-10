@@ -1,9 +1,13 @@
 package mockamf
 
 import (
+	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/free5gc/ngap/ngapType"
+
+	"github.com/bgrewell/orbit/internal/nas"
 )
 
 // WithNoReleaseOnDeregistration makes the mock leave a UE's switch-off
@@ -119,8 +123,62 @@ func releaseCompleteIDs(c *ngapType.UEContextReleaseComplete) [2]int64 {
 // unless WithIgnoreUEContextReleaseRequest. A request for a UE the
 // association never registered is ignored.
 func (a *AMF) onUEContextReleaseRequest(p *pipe, st *ueState) error {
+	a.releaseRequests.Add(1)
 	if a.ignoreReleaseRequest || st.amfID == 0 {
 		return nil
 	}
-	return a.send(p, buildUEContextReleaseCommandCause(st.amfID, a.ranIDOf(st), ngapType.CauseNasPresentNormalRelease))
+	amfID, ranID := st.amfID, a.ranIDOf(st)
+	a.mu.Lock()
+	a.requestReleases = append(a.requestReleases, [2]int64{amfID, ranID})
+	a.mu.Unlock()
+	return a.send(p, buildUEContextReleaseCommandCause(amfID, ranID, ngapType.CauseNasPresentNormalRelease))
+}
+
+// ReleaseRequests reports how many UE CONTEXT RELEASE REQUESTs the mock has
+// received.
+func (a *AMF) ReleaseRequests() int64 { return a.releaseRequests.Load() }
+
+// IdleDeregistrations reports how many of the Deregistration Requests the
+// mock received came as an initial NAS message, in an Initial UE Message
+// (Deregistrations counts them too).
+func (a *AMF) IdleDeregistrations() int64 { return a.idleDeregs.Load() }
+
+// onIdleDeregistration handles an Initial UE Message that carries, instead
+// of a Registration Request, the switch-off Deregistration Request of a
+// registered UE with no NG connection: integrity protected and not
+// ciphered, naming the UE by the 5G-GUTI the mock assigned (WithGUTI). The
+// UE is found by the GUTI's 5G-TMSI, the message's integrity is checked
+// under the UE's NAS security context, the UE takes the message's
+// RAN-UE-NGAP-ID on this association, and the request is answered as any
+// switch-off is. It reports false for any other NAS message, which is then
+// handled as a registration. A request naming no known UE is dropped.
+func (a *AMF) onIdleDeregistration(p *pipe, states map[int64]*ueState, up *uplinkMessage) (bool, error) {
+	const secured = 7 // EPD, security header type, MAC (4), sequence number
+	if len(up.nasPDU) <= secured || up.nasPDU[1]&0x0f != nas.SecHdrIntegrity {
+		return false, nil
+	}
+	msg, err := nas.DecodePlain(up.nasPDU[secured:])
+	if err != nil || msg.GmmMessage == nil || msg.DeregistrationRequestUEOriginatingDeregistration == nil {
+		return false, nil
+	}
+	id := msg.DeregistrationRequestUEOriginatingDeregistration.Buffer
+	if len(id) != 11 {
+		return true, nil
+	}
+	a.mu.Lock()
+	st := a.ues[int64(binary.BigEndian.Uint32(id[7:11]))]
+	a.mu.Unlock()
+	if st == nil {
+		return true, nil
+	}
+	if _, err := st.decodeSecure(up.nasPDU); err != nil {
+		return true, fmt.Errorf("mock amf initial Deregistration Request: %w", err)
+	}
+	a.mu.Lock()
+	st.ranID = up.ranID
+	a.mu.Unlock()
+	states[up.ranID] = st
+	a.deregs.Add(1)
+	a.idleDeregs.Add(1)
+	return true, a.onDeregistration(p, st)
 }

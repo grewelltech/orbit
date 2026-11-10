@@ -101,7 +101,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
 | Initial Context Setup | AMF→RAN | ✅ (attach) | — | timing angle (bad/late response) |
-| UE Context Release Request | RAN→AMF | ⬜ | ⬜ | |
+| UE Context Release Request | RAN→AMF | ✅ `NGAP-UE-CTX-RELEASE-ON-REQUEST` (DEVIATION-class) | ⬜ | 8.3.2.2 is a "should" |
 | UE Context Release (Command/Complete) | AMF→RAN | ✅ | — | |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
 
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**13 checks today** (the first four live on the SD-Core testbed):
+**14 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -201,6 +201,16 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Transfer (strict-3gpp, never the `sdcore` profile), so the check measures
   what [interop/sdcore.md](../interop/sdcore.md) Finding 1 does to the
   command. A handover that never reaches the command is ERROR. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
+
+- `NGAP-UE-CTX-RELEASE-ON-REQUEST` (procedural, DEVIATION-class) — a
+  registered UE's gNB sends a UE CONTEXT RELEASE REQUEST, cause radio network
+  "release due to NG-RAN generated reason" (never "User inactivity", which
+  from V18.1.0 makes the release conditional). A UE CONTEXT RELEASE COMMAND
+  within 5 s is PASS; none is a DEVIATION, never a FAIL, since TS 38.413
+  8.3.2.2 says "should". A released UE is still registered, so the check
+  deregisters it with an initial NAS message on a new NG connection; that
+  needs the 5G-GUTI, and the detail says how the cleanup went. Needs a UE,
   else SKIP. Not yet run on Ref 2.
 
 - `NAS-T3560-AUTH-RETRANSMIT` (nas, FAIL-class) — the UE withholds its

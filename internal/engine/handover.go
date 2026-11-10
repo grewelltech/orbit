@@ -272,7 +272,7 @@ func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target G
 	}
 
 	// 4. AMF → source: HandoverCommand.
-	cmdPDU, err := gnb.ReadPDU(ctx, sess.conn)
+	cmdPDU, err := sess.readPDU(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("await HandoverCommand: %w", err)
 	}

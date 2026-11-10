@@ -133,7 +133,11 @@ func TestRegistryNeeds(t *testing.T) {
 			if handovers < 2 || len(all.GNBIDs) != int(2*n)+handovers {
 				t.Errorf("%d IDs with %d handover checks, want 2N+%d = %d", len(all.GNBIDs), handovers, handovers, int(2*n)+handovers)
 			}
-			if ng := r.Needs(700, tc.packed, Procedural); ng.UEs != 0 || len(ng.GNBIDs) == 0 {
+			if ng := r.Needs(700, tc.packed, NegativeIE); ng.UEs != 0 || len(ng.GNBIDs) == 0 {
+				t.Errorf("negative-ie only: %+v", ng)
+			}
+			// NGAP-UE-CTX-RELEASE-ON-REQUEST registers a UE.
+			if ng := r.Needs(700, tc.packed, Procedural); ng.UEs != 1 || len(ng.GNBIDs) == 0 {
 				t.Errorf("procedural only: %+v", ng)
 			}
 		})

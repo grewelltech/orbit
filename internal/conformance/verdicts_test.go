@@ -174,12 +174,25 @@ func TestRunOneVerdictRule(t *testing.T) {
 	}
 }
 
-// Every registered check cites a shall, so its worst verdict is FAIL: no
-// check is should-only today. A should-only check changes this on purpose.
+// Every registered check cites a shall, so its worst verdict is FAIL,
+// except the should-only checks listed here, whose worst is DEVIATION. A
+// should-only check is added to the list on purpose.
 func TestEveryCheckWorstVerdictFail(t *testing.T) {
+	shouldOnly := map[string]bool{
+		"NGAP-UE-CTX-RELEASE-ON-REQUEST": true,
+	}
+	seen := 0
 	for _, c := range NewRegistry().Tests() {
-		if got := WorstVerdict(c); got != Fail {
-			t.Errorf("%s: WorstVerdict = %s; a should-only check must update this test", c.ID(), got)
+		want := Fail
+		if shouldOnly[c.ID()] {
+			want = Deviation
+			seen++
 		}
+		if got := WorstVerdict(c); got != want {
+			t.Errorf("%s: WorstVerdict = %s, want %s; a should-only check must be listed in this test", c.ID(), got, want)
+		}
+	}
+	if seen != len(shouldOnly) {
+		t.Errorf("%d of the %d should-only checks listed here are registered", seen, len(shouldOnly))
 	}
 }

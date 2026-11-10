@@ -1427,6 +1427,14 @@ whatever profile other commands use, so it reports how the core handles the
 conformant Handover Request Acknowledge. It is an ERROR when the handover
 does not reach the command within 8 s.
 
+One `procedural` check needs the UE flags too, and SKIPs without them:
+`NGAP-UE-CTX-RELEASE-ON-REQUEST` registers the UE without a PDU session and
+has its gNB send a UE CONTEXT RELEASE REQUEST. It passes when the AMF answers
+with a UE CONTEXT RELEASE COMMAND within 5 s, and reports a DEVIATION, never a
+FAIL, when it does not (TS 38.413 8.3.2.2 says "should"). The released UE is
+still registered, so the check then deregisters it with an initial NAS
+message; the detail says how that went.
+
 The `nas` category also needs the UE flags (`--supi`, the keys and
 `--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
 UE without a PDU session and withholds its Authentication Response. It passes
