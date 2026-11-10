@@ -252,6 +252,20 @@ message StopRunResponse {
   Run run = 1;                    // state as of the stop request
 }
 
+// RunSummary is a run's identity plus the few headline numbers a list or home
+// view shows, so a client need not fetch each run's progress or report to draw
+// a row. Counts are cumulative; for a run still in flight they are the latest
+// snapshot, and for a terminal run the final values.
+message RunSummary {
+  Run run = 1;
+  // Workload kinds present, in plan order (same as Run.workload_kinds, but
+  // always populated: a single-workload run lists its one kind).
+  repeated RunKind kinds = 2;
+  uint64 attempted = 3;
+  uint64 succeeded = 4;
+  uint64 failed = 5;
+}
+
 message ListRunsRequest {
   // Optional filter; RUN_KIND_UNSPECIFIED returns all kinds.
   RunKind kind = 1;
