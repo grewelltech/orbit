@@ -1467,6 +1467,15 @@ S-NSSAI appears only in the Extended rejected NSSAI IE. A core that falls
 back to a default slice accepts the UE; the check then SKIPs and deregisters
 the UE.
 
+The `procedural` category's `NAS-DEREG-ACCEPT-NOT-SWITCH-OFF` also needs the
+UE flags, and SKIPs without them. It registers the UE without a PDU session
+and deregisters it with a Deregistration Request that does not indicate
+switch-off. It passes on a Deregistration Accept (TS 24.501 5.5.2.2.2). It
+fails on none within 15 s, or on a UE Context Release Command in its place.
+The release after the Accept is recorded, not judged. If nothing answers, a
+switch-off Deregistration Request follows, so the core is not left holding the
+UE. The check can take up to 40 s, so it raises its own timeout.
+
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
 flags. It registers the UE three times, each time stopping at the Security
 Mode Command. The first registration offers the usual algorithms, and the AMF

@@ -39,6 +39,9 @@ func TestUELevelChecksUnderNEA2(t *testing.T) {
 		// the row reaches the IE walk on the deciphered message.
 		{name: "NAS-REG-REJECTED-NSSAI", check: nasRegRejectedNSSAI{wait: 500 * time.Millisecond},
 			opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}},
+		// The Deregistration Accept is read through the security context.
+		{name: "NAS-DEREG-ACCEPT-NOT-SWITCH-OFF", check: nasDeregAcceptNotSwitchOff{registerWait: 3 * time.Second, acceptWait: 2 * time.Second, releaseWait: 2 * time.Second},
+			opts: []mockamf.Option{mockamf.WithGUTI()}},
 		{name: "GTPU-END-MARKER-ON-PATH-SWITCH", check: endMarkerOnPathSwitch{window: 300 * time.Millisecond},
 			net24: testnet.ConformanceCipherNEA0, nea2: testnet.ConformanceCipherNEA2, upfOpt: mockupf.Options{EndMarker: true}},
 	}
