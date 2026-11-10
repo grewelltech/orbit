@@ -153,3 +153,88 @@ func TestUplinkRecordedAndDownlinkSent(t *testing.T) {
 		t.Errorf("downlink to an unknown session: err = %v", err)
 	}
 }
+
+// A released session is forgotten: SendDownlink refuses it and its uplink
+// is no longer known. With GPDUAfterRelease the stub sends one G-PDU on the
+// released downlink tunnel after that delay; without it, nothing.
+func TestSessionReleased(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     Options
+		wantGPDU bool
+	}{
+		{name: "the tunnel goes quiet"},
+		{name: "a late g-pdu", opts: Options{GPDUAfterRelease: 50 * time.Millisecond}, wantGPDU: true},
+		{name: "a late g-pdu with QFI", opts: Options{GPDUAfterRelease: 50 * time.Millisecond, QFI: true}, wantGPDU: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gnb := gnbSocket(t, "127.0.0.1")
+			u := newStub(t, tc.opts, gnb)
+			s := mockamf.SessionInfo{SUPI: "208930100000001", PDUSessionID: 1, UEIP: net.IPv4(10, 60, 0, 1), QFI: 5,
+				UL: mockamf.Tunnel{Addr: "127.0.0.1", TEID: 0x10001}, DL: mockamf.Tunnel{Addr: "127.0.0.1", TEID: 0x77}}
+			u.SessionUp(s)
+			released := time.Now()
+			u.SessionReleased(s)
+			if _, ok := u.Session(s.SUPI, 1); ok {
+				t.Error("the released session is still known")
+			}
+			if err := u.SendDownlink(s.SUPI, 1, []byte{0x45}); err == nil {
+				t.Error("SendDownlink to a released session succeeded")
+			}
+			if got := u.Releases(); len(got) != 1 || got[0].DL != s.DL {
+				t.Errorf("releases = %+v, want the session", got)
+			}
+			if !tc.wantGPDU {
+				if err := gnb.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+					t.Fatal(err)
+				}
+				if n, _, err := gnb.ReadFromUDP(make([]byte, 2048)); err == nil {
+					t.Errorf("%d bytes arrived on the released tunnel", n)
+				}
+				if len(u.Sent()) != 0 {
+					t.Errorf("sent %+v, want nothing", u.Sent())
+				}
+				return
+			}
+			g, err := gtpu.DecodeGPDU(read(t, gnb))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after := time.Since(released); after < tc.opts.GPDUAfterRelease {
+				t.Errorf("the G-PDU came %s after the release, before %s", after, tc.opts.GPDUAfterRelease)
+			}
+			if g.MsgType != gtpu.MsgTypeGPDU || g.TEID != 0x77 || g.HasQFI != tc.opts.QFI || (g.HasQFI && g.QFI != 5) {
+				t.Errorf("G-PDU %+v, want TEID 0x77 with QFI header %v", g, tc.opts.QFI)
+			}
+			if !u.WaitFor(time.Second, func(u *UPF) bool { return len(u.Sent()) == 1 }) || u.Sent()[0].Kind != KindGPDU {
+				t.Errorf("sent %+v, want one G-PDU", u.Sent())
+			}
+			if errs := u.SendErrors(); len(errs) != 0 {
+				t.Errorf("send errors %v", errs)
+			}
+		})
+	}
+}
+
+// A stub closed before the late G-PDU is due sends nothing and records no
+// error.
+func TestSessionReleasedThenClosed(t *testing.T) {
+	gnb := gnbSocket(t, "127.0.0.1")
+	opts := Options{GPDUAfterRelease: 100 * time.Millisecond, GTPUPort: gnb.LocalAddr().(*net.UDPAddr).Port}
+	u, err := Listen("127.0.0.1:0", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := mockamf.SessionInfo{SUPI: "208930100000001", PDUSessionID: 1, UEIP: net.IPv4(10, 60, 0, 1), QFI: 5,
+		DL: mockamf.Tunnel{Addr: "127.0.0.1", TEID: 0x77}}
+	u.SessionUp(s)
+	u.SessionReleased(s)
+	if err := u.Close(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(250 * time.Millisecond)
+	if len(u.Sent()) != 0 || len(u.SendErrors()) != 0 {
+		t.Errorf("after Close: sent %+v, errors %v", u.Sent(), u.SendErrors())
+	}
+}

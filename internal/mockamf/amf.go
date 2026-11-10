@@ -144,6 +144,13 @@ type AMF struct {
 	staleRelease         time.Duration
 	ignoreReleaseRequest bool
 
+	// PDU session release options and counters (pdurelease.go).
+	pduReleaseAnswer        PDUReleaseAnswer
+	pduReleaseKeepsUP       bool
+	pduReleaseReqs          atomic.Int64
+	pduReleaseCompletes     atomic.Int64
+	pduResourceReleaseResps atomic.Int64
+
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
 	dnnAnswer  DNNAnswer
@@ -302,6 +309,11 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 			a.strayCompletes.Add(1)
 		}
 		a.releaseCompletes.Add(1)
+		return nil
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceReleaseResponse {
+		a.pduResourceReleaseResps.Add(1)
 		return nil
 	}
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {

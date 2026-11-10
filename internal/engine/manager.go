@@ -109,6 +109,12 @@ type Session struct {
 	// notify publishes correlation-visible data-path events onto the
 	// Manager's hub (nil for sessions built outside a Manager).
 	notify func(StateEvent)
+
+	// held is a read of heldConn that a procedure's wait gave up on, still
+	// in flight or finished and unclaimed (readPDU). Like conn, it belongs
+	// to whoever holds the procedure lock.
+	held     chan pduRead
+	heldConn gnb.Transport
 }
 
 // SendUplink sends one inner IP packet up the session's CURRENT tunnel,
@@ -893,6 +899,7 @@ func (s *Session) deregister(ctx context.Context, switchOff bool) error {
 	if d, ok := s.conn.(interface{ Drain() int }); ok {
 		d.Drain()
 	}
+	s.dropHeld()
 	if s.sec == nil {
 		return fmt.Errorf("no security context")
 	}

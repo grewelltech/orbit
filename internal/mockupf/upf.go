@@ -38,6 +38,10 @@ type Options struct {
 	QFI bool
 	// GTPUPort is the gNB's GTP-U port; 0 means 2152.
 	GTPUPort int
+	// GPDUAfterRelease, when positive, sends one G-PDU to a released
+	// session's downlink tunnel that long after the release: a UPF that
+	// keeps forwarding on a tunnel it should have removed.
+	GPDUAfterRelease time.Duration
 }
 
 // Uplink is one G-PDU the stub received.
@@ -76,6 +80,7 @@ type UPF struct {
 	uplink   []Uplink
 	sent     []Sent
 	switches []mockamf.PathSwitch
+	releases []mockamf.SessionInfo
 	sendErrs []error       // sends that failed inside PathSwitched, which cannot return them
 	changed  chan struct{} // closed and replaced on every state change
 
@@ -87,7 +92,10 @@ type sessionKey struct {
 	id   uint8
 }
 
-var _ mockamf.UPF = (*UPF)(nil)
+var (
+	_ mockamf.UPF             = (*UPF)(nil)
+	_ mockamf.SessionReleaser = (*UPF)(nil)
+)
 
 // Listen opens the stub's N3 socket on addr (host:port; ":2152" style ports
 // are what a gNB derives from an NGAP tunnel address) and starts reading.
@@ -155,8 +163,37 @@ func (u *UPF) PathSwitched(p mockamf.PathSwitch) {
 	}
 }
 
-// SendErrors returns the sends that failed inside PathSwitched, which the
-// mockamf.UPF interface gives no way to return.
+// SessionReleased forgets a session, so its uplink is no longer known and
+// SendDownlink refuses it, and, with Options.GPDUAfterRelease, sends one
+// late G-PDU on its downlink tunnel (mockamf.SessionReleaser).
+func (u *UPF) SessionReleased(s mockamf.SessionInfo) {
+	u.mu.Lock()
+	delete(u.sessions, sessionKey{s.SUPI, s.PDUSessionID})
+	u.releases = append(u.releases, s)
+	u.notifyLocked()
+	u.mu.Unlock()
+	if u.opts.GPDUAfterRelease <= 0 {
+		return
+	}
+	time.AfterFunc(u.opts.GPDUAfterRelease, func() {
+		select {
+		case <-u.done:
+			return
+		default:
+		}
+		u.recordErr(u.send(KindGPDU, s.DL, encodeDLGPDU(s.DL.TEID, s.QFI, u.opts.QFI, lateInner(s.UEIP))))
+	})
+}
+
+// Releases returns the sessions released so far, as they were.
+func (u *UPF) Releases() []mockamf.SessionInfo {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return append([]mockamf.SessionInfo(nil), u.releases...)
+}
+
+// SendErrors returns the sends that failed inside PathSwitched or after a
+// release, which the mockamf interfaces give no way to return.
 func (u *UPF) SendErrors() []error {
 	u.mu.Lock()
 	defer u.mu.Unlock()

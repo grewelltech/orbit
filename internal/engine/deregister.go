@@ -102,7 +102,7 @@ func (s *Session) awaitRelease(parent context.Context, linger time.Duration, log
 	ctx, cancel := context.WithTimeout(parent, linger)
 	defer cancel()
 	for {
-		pdu, err := gnb.ReadPDU(ctx, s.conn)
+		pdu, err := s.readPDU(ctx)
 		if parent.Err() != nil {
 			return nil, fmt.Errorf("%w: waited %s: %v", errNoUEContextRelease, time.Since(start).Round(time.Millisecond), parent.Err())
 		}
@@ -164,92 +164,43 @@ func releaseCommandOf(pdu *ngapType.NGAPPDU) (*UEContextRelease, bool) {
 	return rel, true
 }
 
-// pduReader reads one association's downlink PDUs on a goroutine of its
-// own, so a wait that times out leaves no read behind to take the next PDU
-// from a later wait.
-type pduReader struct {
-	ch   chan pduRead
-	done chan struct{}
-}
-
-type pduRead struct {
-	pdu *ngapType.NGAPPDU
-	err error
-}
-
-// newPDUReader starts reading conn. The goroutine ends at the first read
-// error (the association closing among them) or, between reads, once stop
-// has been called.
-func newPDUReader(conn gnb.Transport) *pduReader {
-	r := &pduReader{ch: make(chan pduRead), done: make(chan struct{})}
-	go func() {
-		for {
-			pdu, err := gnb.ReadPDU(context.Background(), conn)
-			select {
-			case r.ch <- pduRead{pdu, err}:
-			case <-r.done:
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return r
-}
-
-// next is the next PDU, or ctx's error.
-func (r *pduReader) next(ctx context.Context) (*ngapType.NGAPPDU, error) {
-	select {
-	case rd := <-r.ch:
-		return rd.pdu, rd.err
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-// stop ends the reader once its read in flight returns.
-func (r *pduReader) stop() { close(r.done) }
-
 // awaitDeregistrationAccept waits for the answer to a normal deregistration
 // and records it in res: the Deregistration Accept, within acceptWait, then
 // the UE Context Release Command, within linger of the Accept. A release
 // that comes without an Accept ends the wait, since no Accept follows it.
 // When neither comes, the core may still hold the UE as registered, so a
 // switch-off Deregistration Request follows and its release is awaited for
-// linger (res.SwitchOffFallback).
+// linger (res.SwitchOffFallback). The waits read through readPDU, so the
+// read the Accept wait gives up on is the one the next wait resumes.
 func (s *Session) awaitDeregistrationAccept(parent context.Context, acceptWait, linger time.Duration, log *slog.Logger, res *DeregisterResult) {
 	if acceptWait <= 0 {
 		acceptWait = DefaultDeregistrationAcceptWait
 	}
-	r := newPDUReader(s.conn)
-	defer r.stop()
-
-	res.AcceptErr = s.awaitAnswer(parent, r, acceptWait, true, log, res)
+	res.AcceptErr = s.awaitAnswer(parent, acceptWait, true, log, res)
 	switch {
 	case res.Release != nil || res.ReleaseErr != nil || parent.Err() != nil:
 	case res.Accepted:
-		res.ReleaseErr = s.awaitAnswer(parent, r, linger, false, log, res)
+		res.ReleaseErr = s.awaitAnswer(parent, linger, false, log, res)
 	default:
 		res.SwitchOffFallback = true
 		if err := s.deregister(parent, true); err != nil {
 			res.ReleaseErr = fmt.Errorf("%w: the switch-off Deregistration Request that followed was not sent: %v", errNoUEContextRelease, err)
 			return
 		}
-		res.ReleaseErr = s.awaitAnswer(parent, r, linger, false, log, res)
+		res.ReleaseErr = s.awaitAnswer(parent, linger, false, log, res)
 	}
 	if res.Release == nil && res.ReleaseErr == nil {
 		res.ReleaseErr = fmt.Errorf("%w: %v", errNoUEContextRelease, parent.Err())
 	}
 }
 
-// awaitAnswer reads from r for up to wait: until the Deregistration Accept
+// awaitAnswer reads the association for up to wait: until the Deregistration Accept
 // when wantAccept is set, until the UE Context Release Command (which it
 // completes and records in res.Release) otherwise. A release always ends
 // it. The error says why what it waited for did not come: the Accept, as
 // errNoDeregistrationAccept, or the release, as errNoUEContextRelease. A
 // failure to send the Release Complete is recorded in res.ReleaseErr.
-func (s *Session) awaitAnswer(parent context.Context, r *pduReader, wait time.Duration, wantAccept bool, log *slog.Logger, res *DeregisterResult) error {
+func (s *Session) awaitAnswer(parent context.Context, wait time.Duration, wantAccept bool, log *slog.Logger, res *DeregisterResult) error {
 	missing := errNoUEContextRelease
 	if wantAccept {
 		missing = errNoDeregistrationAccept
@@ -258,7 +209,7 @@ func (s *Session) awaitAnswer(parent context.Context, r *pduReader, wait time.Du
 	ctx, cancel := context.WithTimeout(parent, wait)
 	defer cancel()
 	for {
-		pdu, err := r.next(ctx)
+		pdu, err := s.readPDU(ctx)
 		switch {
 		case err == nil:
 		case parent.Err() != nil:
