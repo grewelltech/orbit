@@ -273,6 +273,17 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   release and deregistration may not be accepted: the association is
   dropped, and the core may keep a half-registered UE until its timers
   expire. Mock-only so far.
+- `NAS-RETRANSMIT-NEW-COUNT` (security, FAIL-class) — the stimulus of
+  `NAS-T3550-ACCEPT-RETRANSMIT`: the UE withholds its Registration Complete.
+  Each retransmitted Registration Accept must be protected at a NAS COUNT
+  higher than the transmission before it (TS 24.501 4.4.3.1); a
+  byte-identical resend or a lower COUNT is FAIL. The COUNT is the one of two
+  candidates (the sequence number with the stored overflow counter, or the
+  next) the MAC verifies at, so a wrap counts as an increase; a
+  retransmission that verifies at neither is ERROR. No retransmission SKIPs
+  (the T3550 check grades that). Needs a UE and up to 118 s (about 25 s at
+  the default timer). The UE is left registered, as by the T3550 check.
+  Mock-only so far.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure

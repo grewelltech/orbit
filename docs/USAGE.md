@@ -1508,6 +1508,12 @@ not, the check fails, and the AMF can no longer verify anything this UE
 sends: the check then drops the association, and the core may keep the UE and
 its sessions until its own timers expire.
 
+`NAS-RETRANSMIT-NEW-COUNT` withholds the Registration Complete, like
+`NAS-T3550-ACCEPT-RETRANSMIT`, and reads the NAS COUNT of each Registration
+Accept the AMF retransmits. Each must be higher than the one before
+(TS 24.501 4.4.3.1), so an AMF that resends the stored PDU fails. It SKIPs
+when the AMF does not retransmit, and can take up to 118 s.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the
