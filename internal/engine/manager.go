@@ -238,9 +238,17 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 		return nil, fmt.Errorf("NG Setup rejected: %s", ng.Cause)
 	}
 
-	sess, err := Attach(ctx, conn, gnbCfg, ueCfg, m.log, m.hub.publish)
+	// One reader owns the association from here (gnb.Dedicated): every
+	// procedure reads its PDUs from the UE's lane, and a wait that ends on
+	// a context leaves no read behind.
+	ranID := ueCfg.RANUENGAPID
+	if ranID == 0 {
+		ranID = 1
+	}
+	lane := gnb.Dedicated(conn, gnbCfg, ranID)
+	sess, err := Attach(ctx, lane, gnbCfg, ueCfg, m.log, m.hub.publish)
 	if err != nil {
-		conn.Close()
+		_ = lane.Close()
 		return nil, err
 	}
 	sess.setState(stateFromResult(sess.Result))

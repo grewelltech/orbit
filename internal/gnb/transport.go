@@ -35,7 +35,15 @@ func SendPDU(conn Transport, stream uint16, pdu ngapType.NGAPPDU) error {
 // ReadPDU blocks for one NGAP PDU from the association, honouring ctx for
 // cancellation/timeout. It verifies the SCTP PPID is NGAP (accepting the
 // byte-reversed form the omec AMF emits; see internal/sctp) before decoding.
+//
+// A lane of a Session (UETransport) is read directly, with no goroutine, so
+// a wait that ends on ctx leaves no read behind to take the next PDU.
 func ReadPDU(ctx context.Context, conn Transport) (*ngapType.NGAPPDU, error) {
+	if r, ok := conn.(interface {
+		ReadPDU(context.Context) (*ngapType.NGAPPDU, error)
+	}); ok {
+		return r.ReadPDU(ctx)
+	}
 	type result struct {
 		pdu *ngapType.NGAPPDU
 		err error

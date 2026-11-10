@@ -71,9 +71,10 @@ type AttachProbe struct {
 	// Stop, once closed, ends the attach where it would next wait for the
 	// core. A REGISTERED UE's attach returns its Session without the PDU
 	// sessions not yet established, for the caller to deregister; an
-	// earlier one fails with ErrProbeStopped. A read in flight when Stop
-	// closes is abandoned and the PDU it later takes is lost, so the next
-	// step should be the deregistration.
+	// earlier one fails with ErrProbeStopped. Over a gNB lane (every
+	// Manager and fleet attach) a read in flight when Stop closes ends with
+	// nothing lost; over a raw transport it is abandoned and the PDU it
+	// later takes is lost, so the next step should be the deregistration.
 	Stop <-chan struct{}
 	// DeregisterUndecodableAccept, with OnNAS set, ends the attach at a
 	// Registration Accept that does not decode (or fails the integrity

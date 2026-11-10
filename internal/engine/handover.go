@@ -180,6 +180,9 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 		tgtConn.Close()
 		return fmt.Errorf("target NG Setup: %w", err)
 	}
+	// The target association's reads go through one reader too
+	// (gnb.Dedicated); its lane is the UE's on the target.
+	tgt := gnb.Dedicated(tgtConn, target.Config, targetHandoverRANID)
 
 	pduIDs := sessionIDs(sess.Result)
 
@@ -189,23 +192,23 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 		AMFUENGAPID: sess.amfID, RANUENGAPID: sess.ranID, PDUSessionIDs: pduIDs,
 	})
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return err
 	}
 	if err := gnb.SendPDU(sess.conn, ueStream, ho); err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return fmt.Errorf("send HandoverRequired: %w", err)
 	}
 
 	// 2. AMF → target: HandoverRequest.
-	reqPDU, err := gnb.ReadPDU(ctx, tgtConn)
+	reqPDU, err := gnb.ReadPDU(ctx, tgt)
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return fmt.Errorf("await HandoverRequest: %w", err)
 	}
 	hr, err := gnb.ParseHandoverRequest(reqPDU)
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return fmt.Errorf("HandoverRequest not delivered to target (AMF drove preparation): %w", err)
 	}
 
@@ -225,22 +228,22 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	}
 	ack, err := gnb.BuildHandoverRequestAcknowledge(hr.AMFUENGAPID, targetHandoverRANID, admitted, m.profile.Quirks)
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return err
 	}
-	if err := gnb.SendPDU(tgtConn, ueStream, ack); err != nil {
-		tgtConn.Close()
+	if err := gnb.SendPDU(tgt, ueStream, ack); err != nil {
+		_ = tgt.Close()
 		return fmt.Errorf("send HandoverRequestAcknowledge: %w", err)
 	}
 
 	// 4. AMF → source: HandoverCommand.
 	cmdPDU, err := gnb.ReadPDU(ctx, sess.conn)
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return fmt.Errorf("await HandoverCommand: %w", err)
 	}
 	if _, err := gnb.ParseHandoverCommand(cmdPDU); err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return fmt.Errorf("HandoverCommand: %w", err)
 	}
 
@@ -249,11 +252,11 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	// Xn's PathSwitchRequestAcknowledge), so no PATH_SWITCH_COMPLETE here.
 	notify, err := gnb.BuildHandoverNotify(target.Config, hr.AMFUENGAPID, targetHandoverRANID)
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return err
 	}
-	if err := gnb.SendPDU(tgtConn, ueStream, notify); err != nil {
-		tgtConn.Close()
+	if err := gnb.SendPDU(tgt, ueStream, notify); err != nil {
+		_ = tgt.Close()
 		return fmt.Errorf("send HandoverNotify: %w", err)
 	}
 
@@ -265,7 +268,7 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 
 	// Move the session onto the target gNB.
 	m.mu.Lock()
-	sess.conn = tgtConn
+	sess.conn = tgt
 	sess.setServingGNB(target.Config)
 	sess.setN2Source(localAddrString(tgtConn))
 	sess.ranID = targetHandoverRANID
