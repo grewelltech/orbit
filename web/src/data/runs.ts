@@ -48,6 +48,10 @@ function runKindName(k: RunKind): string {
       return "scenario";
     case RunKind.CONFORMANCE:
       return "conformance";
+    case RunKind.MIXED:
+      // A plan with more than one workload (ADR-0008 §2). Without this case a
+      // mixed run fell through to "kind-5" and lost its conformance half.
+      return "mixed";
     default:
       // A kind added to the proto after this build. Showing the raw value beats
       // mislabelling it as one of the kinds above.

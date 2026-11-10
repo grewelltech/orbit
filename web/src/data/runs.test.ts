@@ -16,6 +16,9 @@ describe("summarise", () => {
     expect(summarise(run({ kind: RunKind.FLEET })).kind).toBe("fleet");
     expect(summarise(run({ kind: RunKind.SCENARIO })).kind).toBe("scenario");
     expect(summarise(run({ kind: RunKind.CONFORMANCE })).kind).toBe("conformance");
+    // MIXED must not fall through to "kind-5", which dropped a mixed run's
+    // conformance half in the dashboard.
+    expect(summarise(run({ kind: RunKind.MIXED })).kind).toBe("mixed");
   });
 
   it("treats pending, running and draining as active", () => {

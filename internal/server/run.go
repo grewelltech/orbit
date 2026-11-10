@@ -206,7 +206,17 @@ func (s *runService) ListRuns(
 		if filter != "" && info.Kind != filter && !slices.Contains(info.WorkloadKinds, filter) {
 			continue
 		}
-		out = append(out, runProto(info))
+		r := runProto(info)
+		// A terminal run lingers in the registry (its 50-run cap) while also
+		// archived; the live record has no summary, so attach the archived
+		// one. It is absent only in the brief window before the run is
+		// archived, and for a run that produced no report.
+		if info.State.Terminal() {
+			if a, ok := s.archive.get(info.ID); ok {
+				r.Summary = a.GetRun().GetSummary()
+			}
+		}
+		out = append(out, r)
 	}
 	// Then runs that exist only on disk. The registry's list is already
 	// newest-first and every archived run predates every live one, so appending
@@ -248,7 +258,13 @@ func (s *runService) GetRun(
 		return nil, runLookupError(err)
 	}
 	resp := &orbitv1.GetRunResponse{Run: runProto(info)}
-	if !info.State.Terminal() {
+	if info.State.Terminal() {
+		// Match ListRuns: a terminal run still in the registry carries the
+		// archived summary so a reopened dashboard labels it the same way.
+		if a, ok := s.archive.get(id); ok {
+			resp.Run.Summary = a.GetRun().GetSummary()
+		}
+	} else {
 		resp.Leases = leasesProto(s.reg.Leases(id))
 	}
 	switch info.Kind {

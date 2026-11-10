@@ -156,6 +156,14 @@ func readArchive(path string) (*orbitv1.RunArchive, error) {
 	// key in a marked field. Values elsewhere in it are beyond reach: the
 	// request that carried them is gone.
 	secrets.Mask(&a)
+	// Backfill the outcome digest for an archive written before Run.summary
+	// existed (or by a build that did not set it): the field is nil on disk,
+	// but the per-workload reports it is computed from are present, so a
+	// restored run still labels its outcome in ListRuns/GetRun. A run that
+	// produced no report stays nil, as runSummary returns nil for it.
+	if run := a.GetRun(); run != nil && run.GetSummary() == nil {
+		run.Summary = runSummary(&a)
+	}
 	return &a, nil
 }
 
