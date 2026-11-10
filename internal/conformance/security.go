@@ -18,7 +18,7 @@ import (
 )
 
 func init() {
-	builtins = append(builtins, nasSMCNoNIA0{})
+	builtins = append(builtins, nasSMCNoNIA0{}, nasIntegrityFailDiscard{})
 }
 
 // smcWait bounds each registration's wait for the Security Mode Command, a
@@ -441,4 +441,215 @@ func capsString(c nasType.UESecurityCapability) string {
 // algorithm ea.
 func offers(c nasType.UESecurityCapability, ia, ea uint8) bool {
 	return len(c.Buffer) > 1 && ia < 8 && ea < 8 && c.Buffer[1]&(0x80>>ia) != 0 && c.Buffer[0]&(0x80>>ea) != 0
+}
+
+// discardStimulus is the uplink NAS message an AMF shall discard.
+type discardStimulus int
+
+const (
+	// badMACStimulus is a fresh PDU Session Establishment Request whose
+	// MAC is corrupted.
+	badMACStimulus discardStimulus = iota
+)
+
+// name is how Observed and Detail call the stimulus.
+func (k discardStimulus) name() string {
+	return "bad-MAC request"
+}
+
+// expected is the check's Expected line.
+func (k discardStimulus) expected() string {
+	return "after the security mode control procedure, a PDU Session Establishment Request sent with a corrupted MAC gets no answer and changes nothing: a valid request sent after it is answered like the one before it (TS 24.501 4.4.4.3, TS 33.501 6.4.3.3)"
+}
+
+// failure is the check's failure message.
+func (k discardStimulus) failure() string {
+	return "AMF processed an uplink NAS message that failed integrity check. TS 24.501 4.4.4.3. Likely cause: AMF integrity check not enforced on this message type."
+}
+
+// nasIntegrityFailDiscard registers the UE and, on the secured NAS
+// signalling connection, sends a valid PDU Session Establishment Request
+// (which must be answered), then a second one with a corrupted MAC, then a
+// third, valid one. The AMF shall discard the second (TS 24.501 4.4.4.3,
+// TS 33.501 6.4.3.3): an answer to it, or a 5GMM STATUS after it, is FAIL,
+// and so is a third request that goes unanswered, which shows the discarded
+// message changed the AMF's state. A UE the AMF releases after the bad MAC
+// is ERROR: the message was not answered, but a release is not a discard,
+// and the third request cannot be judged. Each request names a fresh PDU
+// session identity and procedure transaction identity, so an answer names
+// its request. The UE is deregistered at the end.
+type nasIntegrityFailDiscard struct {
+	// waits override the default bounds (tests only).
+	waits uplinkWaits
+}
+
+func (nasIntegrityFailDiscard) ID() string         { return "NAS-INTEGRITY-FAIL-DISCARD" }
+func (nasIntegrityFailDiscard) Category() Category { return Security }
+func (nasIntegrityFailDiscard) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 24.501", Clause: "4.4.4.3", Strength: Shall, Since: 15, Verified: ts24501Verified,
+			Changed: []SpecChange{
+				{Release: 16, Note: "V16.3.0 splits the REGISTRATION REQUEST rule into initial and mobility registration; the discard paragraph is unchanged from V15.0.0 through V19.8.0"},
+				{Release: 18, Note: "V18.0.0 adds the unsuccessful-authentication sentence to the REGISTRATION REQUEST rules; the discard paragraph is unchanged"},
+			}},
+		{Spec: "TS 33.501", Clause: "6.4.3.3", Strength: Shall, Since: 15, Verified: ts33501Verified, WordingUnchanged: true},
+	}
+}
+
+// Budget covers the registration, three requests, the quiet watch, the
+// cleanup and the liveness probe.
+func (c nasIntegrityFailDiscard) Budget() time.Duration { return c.waits.total(2) }
+
+func (c nasIntegrityFailDiscard) Run(ctx context.Context, env Env) Result {
+	return runDiscard(ctx, env, badMACStimulus, c.waits)
+}
+
+// runDiscard runs a discard check for stimulus k.
+func runDiscard(ctx context.Context, env Env, k discardStimulus, waits uplinkWaits) Result {
+	r := Result{Expected: k.expected()}
+	if !env.UE.Configured() {
+		r.Verdict, r.Observed = Skip, "no UE configured"
+		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks"
+		return r
+	}
+	h, err := NewUEHarness(env, nil)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
+		return r
+	}
+	defer h.Close()
+	d, err := newUplinkDriver(ctx, h, waits)
+	switch {
+	case errors.Is(err, errNIA0Selected):
+		return nia0Skip(r)
+	case err != nil:
+		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed", err.Error()
+		return r
+	}
+	o := probeDiscard(ctx, d, k)
+	r.Verdict, r.Observed, r.Detail = judgeDiscard(o, k, d.waits)
+	r.Detail = joinDetail(r.Detail, d.cleanup())
+	if r.Verdict == Error && ctx.Err() != nil {
+		return r
+	}
+	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the "+k.name())
+}
+
+// discardOutcome is what a discard check saw.
+type discardOutcome struct {
+	err error // the harness could not send or read
+	// first is the answer to the first, valid request, "" when none came;
+	// goneFirst says how the UE went while it was awaited.
+	first, goneFirst string
+	// reply is an answer to the stimulus, and status a 5GMM STATUS after
+	// it; gone says how the UE went after it.
+	reply  *smReply
+	status bool
+	gone   string
+	// followUp is the answer to the valid request sent after the stimulus,
+	// "" when none came.
+	followUp string
+	// undecoded are downlink NAS PDUs after the stimulus that did not
+	// verify or decode.
+	undecoded []string
+}
+
+// probeDiscard sends the valid request, the stimulus and the follow-up
+// request, and records the answers.
+func probeDiscard(ctx context.Context, d *uplinkDriver, k discardStimulus) discardOutcome {
+	var o discardOutcome
+	first, err := d.sendRequest()
+	if err != nil {
+		o.err = fmt.Errorf("send the first PDU Session Establishment Request: %w", err)
+		return o
+	}
+	l, err := d.awaitAnswer(ctx, first)
+	if err == nil && l.answer(first) != nil {
+		o.first = l.answer(first).name
+		// Anything more the core sends for the first request arrives
+		// before the stimulus.
+		l, err = d.watch(ctx, d.waits.settle, nil)
+	}
+	switch {
+	case err != nil:
+		o.err = err
+		return o
+	case l.gone():
+		o.goneFirst = l.goneNote()
+		return o
+	case o.first == "":
+		return o
+	}
+
+	stimulus, err := d.request()
+	if err == nil {
+		err = d.p.Send(corruptMAC(stimulus.pdu))
+	}
+	if err != nil {
+		o.err = fmt.Errorf("send the %s: %w", k.name(), err)
+		return o
+	}
+	processed := func(l downlinkLog) bool { return l.answer(stimulus) != nil || l.has(f5nas.MsgTypeStatus5GMM) }
+	note := func(l downlinkLog) bool {
+		o.reply, o.status = l.answer(stimulus), l.has(f5nas.MsgTypeStatus5GMM)
+		o.undecoded = append(o.undecoded, l.undecoded...)
+		if l.gone() {
+			o.gone = l.goneNote()
+		}
+		return processed(l) || l.gone()
+	}
+	if l, err = d.watch(ctx, d.waits.quiet, processed); err != nil {
+		o.err = err
+		return o
+	}
+	if note(l) {
+		return o
+	}
+
+	followUp, err := d.sendRequest()
+	if err != nil {
+		o.err = fmt.Errorf("send the PDU Session Establishment Request after the %s: %w", k.name(), err)
+		return o
+	}
+	l, err = d.watch(ctx, d.waits.answer, func(l downlinkLog) bool { return l.answer(followUp) != nil || processed(l) })
+	if err != nil {
+		o.err = err
+		return o
+	}
+	if a := l.answer(followUp); a != nil {
+		o.followUp = a.name
+	}
+	note(l)
+	return o
+}
+
+// judgeDiscard turns a discard check's outcome into a verdict, Observed and
+// Detail.
+func judgeDiscard(o discardOutcome, k discardStimulus, w uplinkWaits) (Verdict, string, string) {
+	name := k.name()
+	undecoded := ""
+	if len(o.undecoded) > 0 {
+		undecoded = fmt.Sprintf("; %d downlink NAS PDU(s) after the %s did not decode: %s", len(o.undecoded), name, strings.Join(o.undecoded, ", "))
+	}
+	switch {
+	case o.err != nil:
+		return Error, "harness failure", o.err.Error()
+	case o.goneFirst != "":
+		return Error, "UE released before the " + name, o.goneFirst + " while the first, valid PDU Session Establishment Request was being answered"
+	case o.first == "":
+		return Error, "precondition failed: a valid PDU Session Establishment Request got no answer",
+			fmt.Sprintf("no 5GSM answer and no PDU Session Resource Setup Request within %s; the check needs a core that answers the request (DNN and slice from the UE configuration)", w.answer)
+	case o.reply != nil:
+		return Fail, fmt.Sprintf("%s answered: %s", name, o.reply.name), k.failure() + undecoded
+	case o.status:
+		return Fail, "5GMM STATUS after the " + name, k.failure() + " A 5GMM STATUS is an answer: the message was not discarded." + undecoded
+	case o.gone != "":
+		return Error, fmt.Sprintf("UE released after the %s; discard not confirmed", name),
+			fmt.Sprintf("the %s got no answer, but %s, so the valid request after it could not be judged; a release is neither the discard the clause requires nor an answer", name, o.gone) + undecoded
+	case o.followUp == "":
+		return Fail, "valid request not answered after the " + name,
+			fmt.Sprintf("%s The %s itself got no answer, but a valid PDU Session Establishment Request sent after it got none within %s, while the one before it was answered (%s): the message changed the AMF's state.", k.failure(), name, w.answer, o.first) + undecoded
+	}
+	return Pass, fmt.Sprintf("%s discarded; a valid request after it was answered", name),
+		fmt.Sprintf("the request before it was answered (%s); nothing answered the %s within %s; the request after it was answered (%s)", o.first, name, w.quiet, o.followUp) + undecoded
 }

@@ -76,9 +76,11 @@ type UEHarness struct {
 	caps *nasType.UESecurityCapability
 
 	registered bool
-	stopObs    func()
-	stopTraf   context.CancelFunc
-	trafDone   chan error
+	// probe is the NAS probe that took the UE over (ProbeNAS), nil if none.
+	probe    *engine.NASProbe
+	stopObs  func()
+	stopTraf context.CancelFunc
+	trafDone chan error
 
 	mu      sync.Mutex
 	markers []datapath.EndMarker
@@ -237,6 +239,20 @@ func (h *UEHarness) RegisterWithProbe(ctx context.Context, probe *engine.AttachP
 	return res, nil
 }
 
+// ProbeNAS opens an engine.NASProbe on the registered UE, for a check that
+// drives its NAS signalling connection by hand. The probe owns the UE from
+// then on: its Close drops the association, and the harness's Close and
+// Deregister no longer signal for the UE.
+func (h *UEHarness) ProbeNAS(ctx context.Context) (*engine.NASProbe, error) {
+	p, err := h.m.ProbeNAS(ctx, h.supi)
+	if err != nil {
+		return nil, err
+	}
+	h.registered = false
+	h.probe = p
+	return p, nil
+}
+
 // boundN3 is gNB A's N3 socket as the engine bound it, in canonical form,
 // so the check never compares against the operator's spelling of --gnb-n3.
 func (h *UEHarness) boundN3() (netip.AddrPort, error) {
@@ -355,6 +371,10 @@ func (h *UEHarness) Close() {
 	if h.stopObs != nil {
 		h.stopObs()
 		h.stopObs = nil
+	}
+	if h.probe != nil {
+		h.probe.Close()
+		h.probe = nil
 	}
 	if h.registered {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

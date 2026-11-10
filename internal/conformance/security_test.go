@@ -1,7 +1,9 @@
 package conformance
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -284,5 +286,180 @@ func TestSMCCheckAgainstMock(t *testing.T) {
 				t.Errorf("%d associations still open after the check", front.Active())
 			}
 		})
+	}
+}
+
+// testUplinkWaits are an uplink check's bounds scaled for the mock.
+var testUplinkWaits = uplinkWaits{register: 3 * time.Second, answer: 1500 * time.Millisecond, quiet: 300 * time.Millisecond, settle: 30 * time.Millisecond, cleanup: 400 * time.Millisecond}
+
+// uplinkMock starts a mock AMF behind a real SCTP listener for the checks
+// that drive uplink NAS by hand: it assigns a 5G-GUTI, and with upf it
+// answers PDU session requests.
+func uplinkMock(t *testing.T, upf bool, opts ...mockamf.Option) (*mockamf.AMF, *sctpfront.Front) {
+	t.Helper()
+	k, _ := auth.ParseHexKey("Ki", testKi)
+	opc, _ := auth.ParseHexKey("OPc", testOPc)
+	cfg := mockamf.Config{
+		Ki: k, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203",
+	}
+	if upf {
+		cfg.UPF, cfg.UPFAddress = nopUPF{}, "127.0.0.1"
+	}
+	amf, err := mockamf.New(cfg, append([]mockamf.Option{mockamf.WithGUTI()}, opts...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return amf, sctpfront.Start(t, amf)
+}
+
+// assertNoAssociations waits for every association of front to close.
+func assertNoAssociations(t *testing.T, front *sctpfront.Front) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for front.Active() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if front.Active() != 0 {
+		t.Errorf("%d associations still open after the check", front.Active())
+	}
+}
+
+// uplinkCase is one row of an uplink check's table against the mock.
+type uplinkCase struct {
+	name         string
+	opts         []mockamf.Option
+	noUPF, noUE  bool
+	want         Verdict
+	wantObserved string
+	wantDetail   []string
+	// wantDereg and wantReleases are the Deregistration Requests and PDU
+	// Session Release Requests the mock must have received.
+	wantDereg, wantReleases int64
+}
+
+// runUplinkCases runs check for each row against its own mock.
+func runUplinkCases(t *testing.T, check Test, tests []uplinkCase) {
+	t.Helper()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amf, front := uplinkMock(t, !tc.noUPF, tc.opts...)
+			env := ueEnv(front.Addr, "", "127.0.0.1")
+			if tc.noUE {
+				env.UE = UESpec{}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			r := runOne(ctx, check, env, 15*time.Second)
+			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
+				t.Errorf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			for _, w := range tc.wantDetail {
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
+				t.Error("detail carries key material")
+			}
+			if got := amf.Deregistrations(); got != tc.wantDereg {
+				t.Errorf("mock saw %d Deregistration Requests, want %d", got, tc.wantDereg)
+			}
+			if got := amf.PDUSessionReleaseRequests(); got != tc.wantReleases {
+				t.Errorf("mock saw %d PDU Session Release Requests, want %d", got, tc.wantReleases)
+			}
+			if amf.EncodeErrors() != 0 {
+				t.Errorf("mock dropped %d downlink PDUs that did not encode", amf.EncodeErrors())
+			}
+			assertNoAssociations(t, front)
+		})
+	}
+}
+
+const (
+	cleanReleased = "Deregistration Request sent and the core released the UE context"
+	cleanDropped  = "the association was dropped, and the core may keep a half-registered UE until its own timers expire"
+	cleanGone     = "cleanup: the UE was already released, so the association was only dropped"
+)
+
+// Every verdict branch of the bad-MAC discard check against the mock AMF
+// over a real SCTP listener: the conformant mock PASSes; one that processes
+// the message, answers it with a 5GMM STATUS, or stops answering after it
+// FAILs; a release after it, an unanswered first request and a failed
+// registration are ERROR; 5G-IA0 and no UE SKIP. The UE is deregistered and
+// its sessions released wherever it still can be.
+func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
+	bad := func(b mockamf.UplinkAction) []mockamf.Option { return []mockamf.Option{mockamf.WithBadMACUplink(b)} }
+	const failure = "AMF processed an uplink NAS message that failed integrity check. TS 24.501 4.4.4.3. Likely cause: AMF integrity check not enforced on this message type."
+	runUplinkCases(t, nasIntegrityFailDiscard{waits: testUplinkWaits}, []uplinkCase{
+		{name: "discarded", want: Pass, wantObserved: "bad-MAC request discarded; a valid request after it was answered",
+			wantDetail: []string{"nothing answered the bad-MAC request within 300ms", "PDU Session Release Request sent for session 2, 4", cleanReleased}, wantDereg: 1, wantReleases: 2},
+		{name: "processed", opts: bad(mockamf.ProcessUplink), want: Fail, wantObserved: "bad-MAC request answered: PDU Session Resource Setup Request",
+			wantDetail: []string{failure, "session 2, 3", cleanReleased}, wantDereg: 1, wantReleases: 2},
+		{name: "5GMM STATUS", opts: bad(mockamf.StatusOnUplink), want: Fail, wantObserved: "5GMM STATUS after the bad-MAC request",
+			wantDetail: []string{failure, "A 5GMM STATUS is an answer", cleanReleased}, wantDereg: 1, wantReleases: 1},
+		{name: "state changed", opts: bad(mockamf.MuteOnUplink), want: Fail, wantObserved: "valid request not answered after the bad-MAC request",
+			wantDetail: []string{failure, "got none within 1.5s", "the message changed the AMF's state", "no UE Context Release Command within 400ms", cleanDropped}},
+		{name: "released", opts: bad(mockamf.ReleaseOnUplink), want: Error, wantObserved: "UE released after the bad-MAC request; discard not confirmed",
+			wantDetail: []string{"the AMF sent a UE Context Release Command", "neither the discard the clause requires nor an answer", cleanGone}},
+		{name: "first request unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: a valid PDU Session Establishment Request got no answer",
+			wantDetail: []string{"within 1.5s", cleanReleased}, wantDereg: 1},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
+			wantDetail: []string{"not applicable when 5G-IA0 is used"}},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error, wantObserved: "UE setup failed"},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	})
+}
+
+// Every branch of the discard verdict from a constructed outcome.
+func TestJudgeDiscard(t *testing.T) {
+	w := uplinkWaits{}.withDefaults()
+	tests := []struct {
+		name         string
+		o            discardOutcome
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+	}{
+		{name: "harness failure", o: discardOutcome{err: errors.New("write failed")}, want: Error, wantObserved: "harness failure", wantDetail: []string{"write failed"}},
+		{name: "released before", o: discardOutcome{goneFirst: "the AMF sent a UE Context Release Command"}, want: Error, wantObserved: "UE released before the bad-MAC request"},
+		{name: "no first answer", o: discardOutcome{}, want: Error, wantObserved: "precondition failed: a valid PDU Session Establishment Request got no answer", wantDetail: []string{"within 10s"}},
+		{name: "answered", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN"}}, want: Fail,
+			wantObserved: "bad-MAC request answered: PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN", wantDetail: []string{"TS 24.501 4.4.4.3."}},
+		{name: "answer wins over a release", o: discardOutcome{first: "a", reply: &smReply{name: "x"}, gone: "gone"}, want: Fail, wantObserved: "bad-MAC request answered: x"},
+		{name: "status", o: discardOutcome{first: "a", status: true}, want: Fail, wantObserved: "5GMM STATUS after the bad-MAC request"},
+		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: Error,
+			wantObserved: "UE released after the bad-MAC request; discard not confirmed", wantDetail: []string{"the association was lost (EOF)"}},
+		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: Fail, wantObserved: "valid request not answered after the bad-MAC request", wantDetail: []string{"got none within 10s"}},
+		{name: "pass", o: discardOutcome{first: "a", followUp: "b", undecoded: []string{"bad (NAS 7e02)"}}, want: Pass,
+			wantObserved: "bad-MAC request discarded; a valid request after it was answered", wantDetail: []string{"within 5s", "1 downlink NAS PDU(s) after the bad-MAC request did not decode: bad (NAS 7e02)"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v, observed, detail := judgeDiscard(tc.o, badMACStimulus, w)
+			if v != tc.want || observed != tc.wantObserved {
+				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			}
+			for _, want := range tc.wantDetail {
+				if !strings.Contains(detail, want) {
+					t.Errorf("detail %q lacks %q", detail, want)
+				}
+			}
+		})
+	}
+}
+
+// corruptMAC inverts octets 3 to 6 and nothing else, on a copy.
+func TestCorruptMAC(t *testing.T) {
+	tests := []struct{ in, want []byte }{
+		{[]byte{0x7e, 0x02, 1, 2, 3, 4, 9, 0x7e}, []byte{0x7e, 0x02, 0xfe, 0xfd, 0xfc, 0xfb, 9, 0x7e}},
+		{[]byte{0x7e, 0x02, 1}, []byte{0x7e, 0x02, 0xfe}},
+		{nil, nil},
+	}
+	for _, tc := range tests {
+		in := append([]byte(nil), tc.in...)
+		if got := corruptMAC(in); !bytes.Equal(got, tc.want) || !bytes.Equal(in, tc.in) {
+			t.Errorf("corruptMAC(%x) = %x (input now %x), want %x", tc.in, got, in, tc.want)
+		}
 	}
 }

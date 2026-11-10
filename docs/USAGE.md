@@ -1484,6 +1484,16 @@ clear and, if the core does not release it, sends a UE Context Release
 Request; the detail says what the cleanup achieved. A Ctrl-C or run deadline
 during this check's cleanup can delay the return by up to 5 s.
 
+`NAS-INTEGRITY-FAIL-DISCARD` registers the UE and sends three PDU Session
+Establishment Requests on the secured connection: a valid one, one with a
+corrupted MAC, and another valid one. It passes when the AMF answers the
+first and the third and stays silent on the second (TS 24.501 4.4.4.3). It
+fails when the bad-MAC request is answered, when a 5GMM STATUS follows it, or
+when the third request gets no answer. An AMF that releases the UE after the
+bad MAC is ERROR, and one that selected 5G-IA0 is SKIP. The check needs a DNN
+the core serves (`--dnn`), since the first request must be answered. It
+releases the sessions it set up and deregisters the UE at the end.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the

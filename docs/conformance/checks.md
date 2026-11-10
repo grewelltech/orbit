@@ -21,6 +21,7 @@ Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-rel
 | [NGAP-NGSETUP-UNKNOWN-PLMN](provenance/NGAP-NGSETUP-UNKNOWN-PLMN.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause "Unknown PLMN" renamed "Unknown PLMN or SNPN" in V16.5.0) |
 | [NGAP-NG-RESET-ACK](provenance/NGAP-NG-RESET-ACK.md) | procedural | FAIL | Rel-15 | 15s | TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NAS-SMC-NO-NIA0-REPLAYED-CAPS](provenance/NAS-SMC-NO-NIA0-REPLAYED-CAPS.md) | security | FAIL | Rel-15 | 50s | TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only "shall be integrity-protected"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0); TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, "selected NAS algorithm", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version); TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-INTEGRITY-FAIL-DISCARD](provenance/NAS-INTEGRITY-FAIL-DISCARD.md) | security | FAIL | Rel-15 | 46s | TS 24.501 4.4.4.3 (Rel-15 onward; Rel-16: V16.3.0 splits the REGISTRATION REQUEST rule into initial and mobility registration; the discard paragraph is unchanged from V15.0.0 through V19.8.0; Rel-18: V18.0.0 adds the unsuccessful-authentication sentence to the REGISTRATION REQUEST rules; the discard paragraph is unchanged); TS 33.501 6.4.3.3 (Rel-15 onward, wording unchanged through Rel-19) |
 
 ## Verified versions
 
@@ -83,3 +84,8 @@ Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-rel
 - TS 33.501 6.7.2 step 1b (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
 - TS 33.501 6.7.1.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
 - TS 33.501 5.2.3 (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+
+### NAS-INTEGRITY-FAIL-DISCARD
+
+- TS 24.501 4.4.4.3 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 33.501 6.4.3.3 (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)

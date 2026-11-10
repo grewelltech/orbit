@@ -242,6 +242,15 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   wins. The selected algorithms are recorded. Needs a UE, else SKIP. Not yet
   run on Ref 2; the source analyst predicts the capabilities replay PASSes,
   and the NIA0-only UE is predicted to FAIL on EX-1.
+- `NAS-INTEGRITY-FAIL-DISCARD` (security, FAIL-class) — after the security
+  mode control procedure the UE sends a valid PDU Session Establishment
+  Request (which must be answered), a second one with a corrupted MAC, and a
+  third, valid one. The AMF shall discard the second (TS 24.501 4.4.4.3,
+  TS 33.501 6.4.3.3): an answer to it, a 5GMM STATUS after it, or a third
+  request left unanswered is FAIL. A UE released after the bad MAC is ERROR
+  (neither a discard nor an answer); a core that selects 5G-IA0 SKIPs. The
+  sessions are released and the UE deregistered at the end, best effort.
+  Needs a UE and a DNN the core serves. Not yet run on a live core.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure
