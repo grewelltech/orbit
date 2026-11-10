@@ -147,10 +147,13 @@ type AMF struct {
 	nssaiAnswer NSSAIAnswer
 
 	// Uplink NAS security options (uplinksec.go). badMACs counts protected
-	// uplinks that failed the integrity check, smReleases the PDU Session
-	// Release Requests received.
+	// uplinks that failed the integrity check, replays those that repeated
+	// an accepted NAS COUNT, smReleases the PDU Session Release Requests
+	// received.
 	badMAC     UplinkAction
 	badMACs    atomic.Int64
+	replayed   UplinkAction
+	replays    atomic.Int64
 	smReleases atomic.Int64
 
 	// regReqs records every Registration Request received, guarded by mu
@@ -395,7 +398,7 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 	// The 128-NIA2/NEA0 context protects what precedes or replaces the
 	// Security Mode Command; the command derives the selected pair's.
-	st.setSec(&nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true})
+	st.setSec(&nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true, RejectReplay: true})
 	st.kamf = vec.KAmf
 
 	if a.noAuthRequest {

@@ -192,6 +192,42 @@ func TestNASProbeAlteredUplink(t *testing.T) {
 	}
 }
 
+// A request sent twice is, the second time, what the mock's option makes of
+// a repeated NAS COUNT: dropped by default, answered again by a mock
+// without replay protection.
+func TestNASProbeReplayedUplink(t *testing.T) {
+	tests := []struct {
+		name         string
+		act          mockamf.UplinkAction
+		wantAnswered bool
+	}{
+		{name: "discarded", act: mockamf.DiscardUplink},
+		{name: "processed", act: mockamf.ProcessUplink, wantAnswered: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProbeFixture(t, mockamf.WithReplayedUplink(tc.act))
+			pdu := f.sessionRequest(t, 2, 1)
+			if err := f.p.Send(pdu); err != nil {
+				t.Fatal(err)
+			}
+			if d, err := f.p.Next(context.Background(), 2*time.Second); err != nil || len(d.Sessions) != 1 {
+				t.Fatalf("first send: %+v, %v", d, err)
+			}
+			if err := f.p.Send(pdu); err != nil {
+				t.Fatal(err)
+			}
+			d, err := f.p.Next(context.Background(), 300*time.Millisecond)
+			if answered := err == nil && len(d.Sessions) == 1; answered != tc.wantAnswered || (!answered && !errors.Is(err, ErrProbeQuiet)) {
+				t.Errorf("repeat: %+v, %v, want answered %v", d, err, tc.wantAnswered)
+			}
+			if got := f.amf.ReplayedUplinks(); got != 1 {
+				t.Errorf("mock counted %d replayed uplinks, want 1", got)
+			}
+		})
+	}
+}
+
 // Deregister reports whether the core released the UE, and Close drops the
 // session: the Manager no longer knows the UE, and a second Close is a
 // no-op.

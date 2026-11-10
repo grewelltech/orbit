@@ -192,7 +192,7 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 		if err != nil {
 			return fmt.Errorf("mock amf NAS key derivation: %w", err)
 		}
-		st.setSec(&nas.SecurityContext{IntegrityAlg: alg, CipheringAlg: enc, KNASint: kInt, KNASenc: kEnc, Network: true})
+		st.setSec(&nas.SecurityContext{IntegrityAlg: alg, CipheringAlg: enc, KNASint: kInt, KNASenc: kEnc, Network: true, RejectReplay: true})
 	}
 	smc, err := buildSecurityModeCommand(alg, enc, st.ngksi, replayed)
 	if err != nil {

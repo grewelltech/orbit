@@ -34,8 +34,17 @@ type SecurityContext struct {
 	// framing are identical, so one implementation serves both.
 	Network bool
 
+	// RejectReplay makes DecodeSecure refuse, with ErrReplay, a message
+	// whose NAS COUNT the context has already accepted (TS 24.501 4.4.3.2).
+	// The mock AMF sets it for uplinks; a UE context leaves it unset and
+	// accepts a downlink repeated at the stored COUNT.
+	RejectReplay bool
+
 	txCount uint32 // NAS COUNT of the next message to send
 	rxCount uint32 // NAS COUNT tracking received messages
+	// rxAccepted reports whether rxCount is an accepted COUNT, rather than
+	// the zero a fresh context starts at.
+	rxAccepted bool
 }
 
 func (s *SecurityContext) txDir() uint8 {
@@ -96,7 +105,7 @@ func (s *SecurityContext) EncodeSecureRaw(plain []byte, secHdr uint8) ([]byte, e
 	// A "new 5G NAS security context" header activates the fresh context:
 	// both NAS COUNTs restart at 0 (TS 33.501 §6.4.3.1). Matches gnbsim.
 	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
-		s.txCount, s.rxCount = 0, 0
+		s.txCount, s.rxCount, s.rxAccepted = 0, 0, false
 	}
 
 	seq := byte(s.txCount & 0xFF)
@@ -131,6 +140,28 @@ func (s *SecurityContext) EncodeSecureRaw(plain []byte, secHdr uint8) ([]byte, e
 // not verify.
 var ErrIntegrity = errors.New("NAS integrity check failed")
 
+// ErrReplay is the error DecodeSecure wraps, under RejectReplay, for a
+// message whose MAC verifies at a NAS COUNT the context already accepted.
+// The stored COUNT is left as it was.
+var ErrReplay = errors.New("NAS COUNT already accepted")
+
+// replayed reports whether a verified message at count repeats an accepted
+// COUNT under RejectReplay: "a given NAS COUNT value shall be accepted at
+// most one time and only if message integrity verifies correctly" (TS
+// 24.501 4.4.3.2). A message under a new-context header starts a context
+// and is exempt, and so is every message under 5G-IA0 ("Replay protection
+// is not applicable when 5G-IA0 is used"). The first COUNT a context
+// accepts is never a replay, COUNT 0 included.
+func (s *SecurityContext) replayed(secHdr uint8, count uint32) bool {
+	if !s.RejectReplay || s.IntegrityAlg == NIA0 || !s.rxAccepted {
+		return false
+	}
+	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
+		return false
+	}
+	return count <= s.rxCount
+}
+
 // DecodeSecure verifies and unwraps a security-protected downlink NAS
 // message, returning the decoded plain message. It checks the received MAC
 // against a recomputation over seq‖payload with the downlink NAS COUNT,
@@ -157,9 +188,12 @@ func (s *SecurityContext) DecodeSecurePlain(data []byte) (*f5nas.Message, []byte
 	if err := s.verifyAt(data, count); err != nil {
 		return nil, nil, err
 	}
+	if s.replayed(data[1], count) {
+		return nil, nil, fmt.Errorf("%w: NAS COUNT %d", ErrReplay, count)
+	}
 	// The MAC proved the COUNT: track the last-received sequence number as
 	// the rx COUNT state, even if deciphering or decoding fails below.
-	s.rxCount = count
+	s.rxCount, s.rxAccepted = count, true
 	return s.unwrapAt(data, count)
 }
 
@@ -243,6 +277,7 @@ func (s *SecurityContext) unwrapAt(data []byte, count uint32) (*f5nas.Message, [
 func (s *SecurityContext) ResetCounts() {
 	s.txCount = 0
 	s.rxCount = 0
+	s.rxAccepted = false
 }
 
 // UplinkCount reports the next uplink NAS COUNT (for observability/tests).

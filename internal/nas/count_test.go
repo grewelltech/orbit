@@ -65,3 +65,72 @@ func TestDecodeUnverified(t *testing.T) {
 		})
 	}
 }
+
+// Under RejectReplay a PDU decoded twice is ErrReplay the second time, the
+// stored COUNT stays where it was, and the next PDU still verifies. A fresh
+// context accepts its first PDU at COUNT 0. A new-context header and 5G-IA0
+// are exempt, and a context without RejectReplay accepts the repeat.
+func TestDecodeSecureReplay(t *testing.T) {
+	tests := []struct {
+		name       string
+		reject     bool
+		ia         uint8
+		hdr        uint8
+		wantReplay bool
+	}{
+		{name: "repeat refused", reject: true, ia: nas.NIA2, hdr: nas.SecHdrIntegrityCiphered, wantReplay: true},
+		{name: "integrity only, repeat refused", reject: true, ia: nas.NIA1, hdr: nas.SecHdrIntegrity, wantReplay: true},
+		{name: "new-context header exempt", reject: true, ia: nas.NIA2, hdr: nas.SecHdrIntegrityCipheredNewCtx},
+		{name: "5G-IA0 exempt", reject: true, ia: nas.NIA0, hdr: nas.SecHdrIntegrityCiphered},
+		{name: "not rejecting", reject: false, ia: nas.NIA2, hdr: nas.SecHdrIntegrityCiphered},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ue, amf := pairCtx(nas.NEA0)
+			ue.IntegrityAlg, amf.IntegrityAlg = tc.ia, tc.ia
+			amf.RejectReplay = tc.reject
+			// The first PDU of a fresh context is at COUNT 0.
+			first, err := ue.EncodeSecure(plainMsg(), tc.hdr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := amf.DecodeSecure(first); err != nil {
+				t.Fatalf("first PDU at COUNT 0: %v", err)
+			}
+			_, err = amf.DecodeSecure(first)
+			if got := errors.Is(err, nas.ErrReplay); got != tc.wantReplay || (!got && err != nil) {
+				t.Fatalf("second decode = %v, want ErrReplay %v", err, tc.wantReplay)
+			}
+			second, err := ue.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := amf.DecodeSecure(second); err != nil {
+				t.Fatalf("the next PDU after the repeat: %v", err)
+			}
+			// The second PDU has an ordinary header, so only 5G-IA0 and
+			// a context that does not reject let its repeat through.
+			wantRepeat := tc.reject && tc.ia != nas.NIA0
+			if _, err := amf.DecodeSecure(second); errors.Is(err, nas.ErrReplay) != wantRepeat || (!wantRepeat && err != nil) {
+				t.Errorf("repeat of the second PDU = %v, want ErrReplay %v", err, wantRepeat)
+			}
+		})
+	}
+}
+
+// ResetCounts makes the next COUNT 0 a first COUNT again.
+func TestResetCountsClearsReplayState(t *testing.T) {
+	ue, amf := pairCtx(nas.NEA0)
+	amf.RejectReplay = true
+	pdu, err := ue.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := amf.DecodeSecure(pdu); err != nil {
+		t.Fatal(err)
+	}
+	amf.ResetCounts()
+	if _, err := amf.DecodeSecure(pdu); err != nil {
+		t.Errorf("COUNT 0 after ResetCounts = %v, want accepted", err)
+	}
+}
