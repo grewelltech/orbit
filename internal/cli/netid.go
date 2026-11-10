@@ -188,21 +188,25 @@ func (id *netIdentity) envFallback() error {
 
 // envUint32 reads $name as a 32-bit unsigned integer with the same
 // leading-zero rule a target file and the env layer apply (0010 is an error,
-// 0x0a and plain 0 are fine). ok is false when the variable is unset or
-// empty; the error names the variable, never leaks a key-shaped value.
+// 0x0a and plain 0 are fine). ok is false only when the variable is unset; a
+// present-but-empty value is an error, matching the env layer. The error names
+// the variable and never echoes its value, which could be a key or token.
 func envUint32(name string) (uint32, bool, error) {
-	v := strings.TrimSpace(os.Getenv(name))
-	if v == "" {
+	raw, ok := os.LookupEnv(name)
+	if !ok {
 		return 0, false, nil
+	}
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return 0, false, fmt.Errorf("$%s is set but empty", name)
 	}
 	if err := target.LeadingZero(v); err != nil {
 		return 0, false, fmt.Errorf("$%s: %w", name, err)
 	}
-	n, err := strconv.ParseUint(v, 0, 32)
-	if err != nil {
-		return 0, false, fmt.Errorf("$%s: %q is not a non-negative integer below 2^32", name, v)
+	if n, err := strconv.ParseUint(v, 0, 32); err == nil {
+		return uint32(n), true, nil
 	}
-	return uint32(n), true, nil
+	return 0, false, fmt.Errorf("$%s is not a non-negative integer below 2^32", name)
 }
 
 // sliceGiven reports whether the operator set --sst or --sd. In inherit mode

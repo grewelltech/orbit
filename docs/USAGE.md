@@ -367,8 +367,12 @@ ORBIT_DNN=ims
 AMF_ADDR=10.0.0.5:38412       # referenced as ${AMF_ADDR} in a target file
 ```
 
+With target `lab1`'s `core.amf` set to `${AMF_ADDR}`, orbit expands it from the
+loaded file (the shell would expand a bare `$AMF_ADDR` to empty before orbit
+even starts):
+
 ```sh
-orbit conformance --env-file testbed.env --amf "$AMF_ADDR"
+orbit conformance -t lab1 --env-file testbed.env
 orbit load -t lab1 --env-file testbed.env --count 500
 ```
 

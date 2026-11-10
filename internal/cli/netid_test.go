@@ -111,10 +111,18 @@ func TestNetIdentityEnvFallback(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("ORBIT_MCC", "")
 			t.Setenv("ORBIT_MNC", "")
-			t.Setenv("ORBIT_TAC", tc.tac)
-			t.Setenv("ORBIT_SST", tc.sst)
-			t.Setenv("ORBIT_SD", tc.sd)
-			t.Setenv("ORBIT_DNN", tc.dnn)
+			// "" in the table means unset, not present-but-empty (which the
+			// numeric readers now reject): register for restore, then unset.
+			setOrUnset := func(name, val string) {
+				t.Setenv(name, val)
+				if val == "" {
+					_ = os.Unsetenv(name)
+				}
+			}
+			setOrUnset("ORBIT_TAC", tc.tac)
+			setOrUnset("ORBIT_SST", tc.sst)
+			setOrUnset("ORBIT_SD", tc.sd)
+			setOrUnset("ORBIT_DNN", tc.dnn)
 			var id netIdentity
 			fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
 			opts := []netIDOption{withDNN()}
@@ -143,6 +151,42 @@ func TestNetIdentityEnvFallback(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnvUint32(t *testing.T) {
+	const name = "ORBIT_TEST_UINT"
+
+	t.Run("unset is (0, false, nil)", func(t *testing.T) {
+		t.Setenv(name, "x")
+		_ = os.Unsetenv(name)
+		n, ok, err := envUint32(name)
+		if n != 0 || ok || err != nil {
+			t.Fatalf("got (%d, %v, %v), want (0, false, nil)", n, ok, err)
+		}
+	})
+
+	t.Run("present but empty is rejected", func(t *testing.T) {
+		t.Setenv(name, "")
+		_, ok, err := envUint32(name)
+		if err == nil {
+			t.Fatal("a present-but-empty value must be rejected, not defaulted")
+		}
+		if ok {
+			t.Error("ok must be false on error")
+		}
+	})
+
+	t.Run("a bad value is not echoed in the error", func(t *testing.T) {
+		const v = "sekret-token-abcdef"
+		t.Setenv(name, v)
+		_, _, err := envUint32(name)
+		if err == nil {
+			t.Fatal("want an error for a non-numeric value")
+		}
+		if strings.Contains(err.Error(), v) {
+			t.Errorf("error leaked the raw value: %v", err)
+		}
+	})
 }
 
 func TestNetIdentityDefaults(t *testing.T) {
