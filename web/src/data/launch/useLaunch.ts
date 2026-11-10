@@ -151,6 +151,11 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
   // an unmounted editor to the new run's page when the response finally lands.
   const mounted = useRef(true);
   useEffect(() => {
+    // Set it true in setup, not only via the initial ref value: under
+    // StrictMode the effect runs setup → cleanup → setup, and without this the
+    // re-setup would leave it false and a mounted editor would skip the
+    // redirect after a successful start.
+    mounted.current = true;
     return () => {
       mounted.current = false;
     };
