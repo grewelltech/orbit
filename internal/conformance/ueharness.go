@@ -84,6 +84,8 @@ type UEHarness struct {
 	markers []datapath.EndMarker
 	gpdus   []datapath.GPDUArrival
 	obs     PathObservation
+	// gpduSeen is signalled, without blocking, for each downlink G-PDU.
+	gpduSeen chan struct{}
 }
 
 // PathObservation is what a harness saw on the old path around an Xn path
@@ -154,6 +156,7 @@ func NewUEHarness(env Env, log *slog.Logger) (*UEHarness, error) {
 	return &UEHarness{
 		env: env, m: engine.NewManager(log), supi: supi, id: id,
 		sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}, pdu: pdu, caps: caps,
+		gpduSeen: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -274,6 +277,10 @@ func (h *UEHarness) noteGPDU(g datapath.GPDUArrival) {
 	h.mu.Lock()
 	h.gpdus = append(h.gpdus, g)
 	h.mu.Unlock()
+	select {
+	case h.gpduSeen <- struct{}{}:
+	default:
+	}
 }
 
 // StartTraffic starts the optional echo flow to UESpec.Traffic in the
@@ -382,6 +389,76 @@ func (h *UEHarness) AwaitPaging(ctx context.Context, wait time.Duration) ([]engi
 // ServiceRequest brings the idle UE back (engine.Manager.ServiceRequest).
 func (h *UEHarness) ServiceRequest(ctx context.Context, opts ...engine.ServiceOption) (*engine.ServiceResult, error) {
 	return h.m.ServiceRequest(ctx, h.supi, opts...)
+}
+
+// PDUSessionID is the ID of the PDU session the harness establishes.
+func (h *UEHarness) PDUSessionID() uint8 { return h.pdu.PDUSessionID }
+
+// WatchDownlink installs the downlink observers on the UE's current data
+// path, opening it if needed. Register does this for the tunnel of the
+// registration; a tunnel reactivated by a Service Request has a new lane,
+// which this observes.
+func (h *UEHarness) WatchDownlink() error {
+	if h.stopObs != nil {
+		h.stopObs()
+		h.stopObs = nil
+	}
+	stop, err := h.m.ObserveDownlink(h.supi, h.noteEndMarker, h.noteGPDU)
+	if err != nil {
+		return fmt.Errorf("data path: %w", err)
+	}
+	h.stopObs = stop
+	return nil
+}
+
+// AwaitDownlink waits up to wait, or until ctx ends, for a downlink G-PDU
+// on the gNB tunnel teid and returns the first one seen, nil when none
+// came in the wait. The error is ctx's when ctx ended first.
+func (h *UEHarness) AwaitDownlink(ctx context.Context, wait time.Duration, teid uint32) (*datapath.GPDUArrival, error) {
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
+		h.mu.Lock()
+		for _, g := range h.gpdus {
+			if g.TEID == teid && !g.Stale {
+				h.mu.Unlock()
+				return &g, nil
+			}
+		}
+		h.mu.Unlock()
+		select {
+		case <-h.gpduSeen:
+		case <-timer.C:
+			return nil, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// AwaitDownlinkQuiet waits until no downlink G-PDU has arrived for quiet,
+// for at most limit, and reports whether the downlink went quiet. The
+// error is ctx's when ctx ended first.
+func (h *UEHarness) AwaitDownlinkQuiet(ctx context.Context, quiet, limit time.Duration) (bool, error) {
+	deadline := time.Now().Add(limit)
+	for {
+		h.mu.Lock()
+		var last time.Time
+		if n := len(h.gpdus); n > 0 {
+			last = h.gpdus[n-1].Arrival
+		}
+		h.mu.Unlock()
+		idle := time.Since(last)
+		if idle >= quiet {
+			return true, nil
+		}
+		if !time.Now().Before(deadline) {
+			return false, nil
+		}
+		if !sleepCtx(ctx, min(quiet-idle, time.Until(deadline))) {
+			return false, ctx.Err()
+		}
+	}
 }
 
 // Observe returns what has been seen so far, with the switch's timing.

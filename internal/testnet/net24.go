@@ -46,6 +46,7 @@ const (
 	EngineIdleWrongIdentity   = 126 // TestObservePaging/another_identity
 	EngineIdleNoPaging        = 127 // TestObservePaging/no_paging
 	EngineIdleNoGUTI          = 128 // TestIdleNeedsGUTI
+	EngineIdleUPFNotTold      = 129 // TestServiceRequestAnswers/UPF_not_told
 
 	// internal/conformance
 	ConformanceNonCanonicalV4   = 56  // TestEndMarkerCheckNonCanonicalGNBN3/IPv4-mapped
@@ -66,6 +67,17 @@ const (
 	ConformancePagingNoGUTI     = 134 // TestPagingCheckAgainstMockPair/no_5G-GUTI
 	ConformancePagingNoTrigger  = 135 // TestPagingCheckAgainstMockPair/trigger_fails
 	ConformancePagingCutShort   = 136 // TestPagingCheckCutShort
+	ConformanceServicePass      = 140 // TestServiceCheckAgainstMockPair/reactivated
+	ConformanceServiceReject    = 141 // TestServiceCheckAgainstMockPair/reject
+	ConformanceServiceNoUP      = 142 // TestServiceCheckAgainstMockPair/accept_without_user_plane
+	ConformanceServiceUPFStale  = 143 // TestServiceCheckAgainstMockPair/UPF_not_told
+	ConformanceServiceIgnored   = 144 // TestServiceCheckAgainstMockPair/unanswered
+	ConformanceServiceNoTraffic = 145 // TestServiceCheckAgainstMockPair/no_traffic_before_the_release
+	ConformanceServiceNoTrigger = 146 // TestServiceCheckAgainstMockPair/trigger_fails
+	ConformanceServiceBusy      = 147 // TestServiceCheckAgainstMockPair/traffic_never_stops
+	ConformanceServiceNoRelease = 148 // TestServiceCheckAgainstMockPair/release_request_ignored
+	ConformanceServiceNoGUTI    = 149 // TestServiceCheckAgainstMockPair/no_5G-GUTI
+	ConformanceServiceCutShort  = 150 // TestServiceCheckCutShort
 
 	// internal/cli
 	CLIProbePasses    = 83 // TestTargetProbePasses

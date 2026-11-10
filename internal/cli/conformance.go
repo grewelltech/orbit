@@ -163,7 +163,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringVar(&ueFlags.ki, "ki", "", kiFlagHelp)
 	f.StringVar(&ueFlags.opc, "opc", "", opcFlagHelp)
 	f.StringVar(&ueFlags.gnbN3, "gnb-n3", "", "gNB N3 IP for the mobility checks' data path (reachable from the UPF; both gNBs use it)")
-	f.StringVar(&responder, "responder", "", "target responder (by name) on the N6 network that sends downlink data to an idle UE, for the checks that need the core to page; without one they SKIP")
+	f.StringVar(&responder, "responder", "", "target responder (by name) on the N6 network that sends downlink data to the UE, for the checks that need the core to page or downlink to flow; without one they SKIP")
 	f.StringVar(&ueFlags.traffic, "traffic", "", "optional echo peer host:port the mobility checks' UE sends to across the handover")
 	tf.add(f, "run the suite in this process, not on the server (deprecated: goes after this release)")
 	f.StringArrayVar(&gates, "gate", nil, "add a gate: conformance (the default one), or name=conformance; repeat for more")

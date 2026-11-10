@@ -100,7 +100,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### UE context management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| Initial Context Setup | AMF→RAN | ✅ (attach) | — | timing angle (bad/late response) |
+| Initial Context Setup | AMF→RAN | ✅ (attach; with the Service Accept in `NAS-SERVICE-REQUEST-REACTIVATES`) | — | timing angle (bad/late response) |
 | UE Context Release Request | RAN→AMF | ✅ (the AN release of `NGAP-PAGING-ON-DL-DATA`; its failure is an ERROR, not a verdict) | ⬜ | |
 | UE Context Release (Command/Complete) | AMF→RAN | ✅ | — | |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**12 checks today** (the first four live on the SD-Core testbed):
+**13 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -166,6 +166,17 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   within 10 s (TS 24.501 5.6.2.2.1, a "shall"; TS 23.502 4.2.3.3 step 4b and
   TS 38.413 8.5.1.2 describe it). Needs a UE and a target responder as the
   downlink trigger; SKIPs without either. Not yet run live.
+- `NAS-SERVICE-REQUEST-REACTIVATES` (procedural, FAIL-class) — a UE with a PDU
+  session is released to CM-IDLE by an AN release and sends a Service Request
+  with the session in its Uplink data status; the core must answer Service
+  Accept and re-establish the session's user plane: the N3 tunnel set up
+  again on N2, and downlink data from a responder on N6 arriving on the gNB's
+  new tunnel (TS 24.501 5.6.1.4.1, 5.6.1.4 in Rel-15, a "shall"; TS 23.502
+  4.2.3.2 describes it). A Service Reject, no answer, an Accept without the
+  tunnel and a tunnel without downlink all FAIL. The same downlink is sent
+  once before the release; when it does not arrive the run is an ERROR, not
+  a verdict. Needs a UE and a target responder; SKIPs without either. Not yet
+  run live.
 - `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
@@ -269,6 +280,6 @@ FAIL in the report but out of the gate. See
 Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
-- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`).
+- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`); ✅ Service Request from CM-IDLE re-establishing a PDU session's user plane (`NAS-SERVICE-REQUEST-REACTIVATES`).
 - **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ⬜ Echo Request/Response.
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

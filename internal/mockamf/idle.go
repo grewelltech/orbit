@@ -38,6 +38,10 @@ const (
 	// ServiceAcceptNoUserPlane answers with Service Accept and sets up no
 	// session.
 	ServiceAcceptNoUserPlane
+	// ServiceAcceptUPFNotTold answers as ServiceAccept does and sets the
+	// sessions up on N2, and never tells the UPF the gNB's new downlink
+	// tunnels: its downlink stays buffered.
+	ServiceAcceptUPFNotTold
 	// ServiceReject answers with Service Reject and releases the UE.
 	ServiceReject
 	// ServiceIgnore leaves the request unanswered.
@@ -278,7 +282,7 @@ func (a *AMF) onServiceRequest(p *pipe, st *ueState, req *nasMessage.ServiceRequ
 	a.mu.Lock()
 	for id, s := range st.sessions {
 		status |= 1 << (id & 0x0f)
-		if a.serviceAnswer == ServiceAccept && (uplink&(1<<(id&0x0f)) != 0 || s.pending) {
+		if (a.serviceAnswer == ServiceAccept || a.serviceAnswer == ServiceAcceptUPFNotTold) && (uplink&(1<<(id&0x0f)) != 0 || s.pending) {
 			activate = append(activate, item{id, s.ul})
 		}
 	}
@@ -334,7 +338,7 @@ func (a *AMF) onInitialContextSetupResponse(resp *ngapType.InitialContextSetupRe
 			}
 		}
 	}
-	if len(dls) > 0 {
+	if len(dls) > 0 && a.serviceAnswer != ServiceAcceptUPFNotTold {
 		a.sessionsUp(amfID, dls)
 	}
 }

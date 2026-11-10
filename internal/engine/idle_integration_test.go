@@ -212,6 +212,15 @@ func TestServiceRequestAnswers(t *testing.T) {
 					t.Error("the data path opened on a tunnel the core never set up again")
 				}
 			}},
+		{name: "UPF not told", net24: testnet.EngineIdleUPFNotTold, answer: mockamf.ServiceAcceptUPFNotTold,
+			check: func(t *testing.T, res *ServiceResult, err error, sess *Session) {
+				if err != nil || !res.Accepted || !res.ContextSetup || !res.UserPlane(1) {
+					t.Errorf("result %+v, err %v; want an Accept with session 1 set up on N2", res, err)
+				}
+				if sess.State() != StateSessionActive {
+					t.Errorf("state %s, want %s", sess.State(), StateSessionActive)
+				}
+			}},
 		{name: "unanswered", net24: testnet.EngineIdleUnanswered, answer: mockamf.ServiceIgnore, idle: true,
 			check: func(t *testing.T, res *ServiceResult, err error, _ *Session) {
 				if !errors.Is(err, ErrServiceUnanswered) || !errors.Is(err, context.DeadlineExceeded) || res != nil {
@@ -244,6 +253,14 @@ func TestServiceRequestAnswers(t *testing.T) {
 				t.Errorf("idle = %v afterwards, want %v", sess.Idle(), tc.idle)
 			}
 
+			if tc.answer == mockamf.ServiceAcceptUPFNotTold {
+				// The mock AMF reads the Initial Context Setup Response on
+				// its own goroutine: the pause lets a UPF told late show.
+				time.Sleep(100 * time.Millisecond)
+				if _, buffering := p.upf.Buffered(idleSUPI, 1); !buffering {
+					t.Error("the stub UPF stopped buffering: it was told the new downlink tunnel")
+				}
+			}
 			if tc.answer == mockamf.ServiceReject {
 				// The mock holds the UE idle again only once the gNB has
 				// completed the release.

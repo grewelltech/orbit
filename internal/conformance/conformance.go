@@ -164,7 +164,8 @@ type Env struct {
 	PackedGNBIDs bool
 	// Downlink, when set, is something on the N6 side that can send
 	// downlink traffic to a UE's address unasked (a responder): the
-	// stimulus of the checks that need a CM-IDLE UE paged. Nil, they SKIP.
+	// stimulus of the checks that need a CM-IDLE UE paged, and the traffic
+	// of the ones that need downlink on a UE's N3 tunnel. Nil, they SKIP.
 	Downlink engine.DownlinkTrigger
 	// Load, when set, names a population that is putting load on the core
 	// right now ("" when none is active): a run with conformance under
