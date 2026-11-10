@@ -31,7 +31,7 @@ func (s *attachState) fail(err error) error {
 	// The attach's own context may be what expired.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), failDeregisterTimeout)
 	defer cancel()
-	if derr := sess.deregister(ctx); derr != nil {
+	if derr := sess.deregister(ctx, true); derr != nil {
 		s.log.WarnContext(ctx, "attach failed after registration; deregistering the UE failed", "supi", sess.SUPI, "err", derr)
 		return fmt.Errorf("%w (the UE was registered, and deregistering it failed: %v)", err, derr)
 	}

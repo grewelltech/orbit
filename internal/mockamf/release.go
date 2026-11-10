@@ -3,15 +3,28 @@ package mockamf
 import (
 	"time"
 
+	f5nas "github.com/free5gc/nas"
 	"github.com/free5gc/ngap/ngapType"
+
+	"github.com/bgrewell/orbit/internal/nas"
 )
 
-// WithNoReleaseOnDeregistration makes the mock leave a UE's switch-off
-// Deregistration Request unanswered. By default it answers with a UE
-// CONTEXT RELEASE COMMAND (cause NAS deregister), as an AMF does: a
-// switch-off gets no Deregistration Accept (TS 24.501 5.5.2.2.1), and the
-// release is the AMF's answer.
+// WithNoReleaseOnDeregistration makes the mock send no UE CONTEXT RELEASE
+// COMMAND after a Deregistration Request. By default it sends one (cause
+// NAS deregister), as an AMF does: a switch-off gets no Deregistration
+// Accept (TS 24.501 5.5.2.2.2), so the release is its only answer, and a
+// normal deregistration gets the release after its Accept.
 func WithNoReleaseOnDeregistration() Option { return func(a *AMF) { a.noReleaseOnDereg = true } }
+
+// WithNoDeregistrationAccept makes the mock answer a normal (not
+// switch-off) Deregistration Request as it answers a switch-off: with no
+// Deregistration Accept. By default it sends one, which TS 24.501 5.5.2.2.2
+// requires.
+func WithNoDeregistrationAccept() Option { return func(a *AMF) { a.noDeregAccept = true } }
+
+// DeregistrationAccepts reports how many Deregistration Accepts the mock
+// has sent.
+func (a *AMF) DeregistrationAccepts() int64 { return a.deregAccepts.Load() }
 
 // WithNoiseBeforeRelease makes the mock send two PDUs that are not a UE
 // CONTEXT RELEASE COMMAND ahead of the one answering a switch-off: a
@@ -37,9 +50,26 @@ func WithIgnoreUEContextReleaseRequest() Option {
 	return func(a *AMF) { a.ignoreReleaseRequest = true }
 }
 
-// onDeregistration answers a Deregistration Request with a release,
-// unless WithNoReleaseOnDeregistration.
-func (a *AMF) onDeregistration(p *pipe, st *ueState) error {
+// onDeregistration answers a Deregistration Request: a normal one with a
+// Deregistration Accept under the UE's security context (unless
+// WithNoDeregistrationAccept), and either kind with a release (unless
+// WithNoReleaseOnDeregistration).
+func (a *AMF) onDeregistration(p *pipe, st *ueState, msg *f5nas.Message) error {
+	req := msg.DeregistrationRequestUEOriginatingDeregistration
+	if req != nil && req.GetSwitchOff() == 0 && !a.noDeregAccept {
+		acc, err := buildDeregistrationAccept()
+		if err != nil {
+			return err
+		}
+		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
+		if err != nil {
+			return err
+		}
+		if err := a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), wrapped)); err != nil {
+			return err
+		}
+		a.deregAccepts.Add(1)
+	}
 	if a.noReleaseOnDereg {
 		return nil
 	}

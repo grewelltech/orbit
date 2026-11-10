@@ -131,6 +131,11 @@ type AMF struct {
 	// Accept options (accept.go).
 	undecodableAccept bool
 
+	// Deregistration options (release.go): no Deregistration Accept for a
+	// normal deregistration, and how many were sent.
+	noDeregAccept bool
+	deregAccepts  atomic.Int64
+
 	// UE context release options (release.go).
 	noReleaseOnDereg     bool
 	noiseBeforeRelease   bool
@@ -469,8 +474,8 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
-		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
-		return false, a.onDeregistration(p, st)
+		a.deregs.Add(1)
+		return false, a.onDeregistration(p, st, msg)
 	default:
 		return false, nil
 	}

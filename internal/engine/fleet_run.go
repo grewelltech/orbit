@@ -320,7 +320,7 @@ func runPersistent(ctx context.Context, log *slog.Logger, spec FleetRunSpec, beh
 		// the moment the final report is taken.
 		live.Detached(gnbAttributionLabel(f.gnbConfigFor(fu.gnbIdx)), fu.sess)
 		fu.sess.closeDataPath()
-		if err := fu.sess.deregister(context.Background()); err == nil {
+		if err := fu.sess.deregister(context.Background(), true); err == nil {
 			rep.Deregistered++
 			sent = append(sent, fu.sess)
 		}
