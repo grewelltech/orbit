@@ -17,6 +17,7 @@ export default defineConfig({
       sidebar: [
         { label: "Install", link: "/install/" },
         { label: "Quickstart", link: "/quickstart/" },
+        { label: "Deploying a responder", link: "/responder/" },
         {
           label: "Reference",
           items: [
