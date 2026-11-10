@@ -54,11 +54,17 @@ func (l UELocation) userLocationInformation() *ngapType.UserLocationInformation 
 	return uli
 }
 
-// BuildInitialUEMessage wraps a UE's first NAS message (the Registration
-// Request) for the AMF (TS 38.413 §8.6.1, §9.2.5.1). It requests a UE
-// context so the AMF runs Initial Context Setup.
-func BuildInitialUEMessage(cfg Config, ranUENGAPID int64, nasPDU []byte) (ngapType.NGAPPDU, error) {
+// BuildInitialUEMessage wraps a UE's first NAS message on a new NAS
+// signalling connection (a Registration Request, or a CM-IDLE UE's Service
+// or Deregistration Request) for the AMF (TS 38.413 §8.6.1, §9.2.5.1). It
+// requests a UE context so the AMF runs Initial Context Setup. opts add the
+// 5G-S-TMSI and change the RRC Establishment Cause from mo-Signalling.
+func BuildInitialUEMessage(cfg Config, ranUENGAPID int64, nasPDU []byte, opts ...InitialUEOption) (ngapType.NGAPPDU, error) {
 	var pdu ngapType.NGAPPDU
+	m := initialUE{cause: ngapType.RRCEstablishmentCausePresentMoSignalling}
+	for _, o := range opts {
+		o(&m)
+	}
 	loc, err := locationFrom(cfg)
 	if err != nil {
 		return pdu, err
@@ -101,7 +107,15 @@ func BuildInitialUEMessage(cfg Config, ranUENGAPID int64, nasPDU []byte) (ngapTy
 		ie.Id.Value = ngapType.ProtocolIEIDRRCEstablishmentCause
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
 		ie.Value.Present = ngapType.InitialUEMessageIEsPresentRRCEstablishmentCause
-		ie.Value.RRCEstablishmentCause = &ngapType.RRCEstablishmentCause{Value: ngapType.RRCEstablishmentCausePresentMoSignalling}
+		ie.Value.RRCEstablishmentCause = &ngapType.RRCEstablishmentCause{Value: m.cause}
+		*list = append(*list, ie)
+	}
+	if m.stmsi != nil {
+		ie := ngapType.InitialUEMessageIEs{}
+		ie.Id.Value = ngapType.ProtocolIEIDFiveGSTMSI
+		ie.Criticality.Value = ngapType.CriticalityPresentReject
+		ie.Value.Present = ngapType.InitialUEMessageIEsPresentFiveGSTMSI
+		ie.Value.FiveGSTMSI = m.stmsi.ngap()
 		*list = append(*list, ie)
 	}
 	{

@@ -1,6 +1,7 @@
 package mockamf
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/free5gc/aper"
@@ -262,6 +263,10 @@ type uplinkMessage struct {
 	procedure int64
 	ranID     int64
 	nasPDU    []byte
+	// tmsi is the 5G-TMSI of an Initial UE Message's 5G-S-TMSI IE, hasTMSI
+	// false without one.
+	tmsi    uint32
+	hasTMSI bool
 }
 
 // parseUplink extracts the RAN UE NGAP ID and NAS PDU from an Initial UE
@@ -280,6 +285,10 @@ func parseUplink(pdu *ngapType.NGAPPDU) (*uplinkMessage, error) {
 				out.ranID = ie.Value.RANUENGAPID.Value
 			case ngapType.ProtocolIEIDNASPDU:
 				out.nasPDU = ie.Value.NASPDU.Value
+			case ngapType.ProtocolIEIDFiveGSTMSI:
+				if t := ie.Value.FiveGSTMSI; t != nil && len(t.FiveGTMSI.Value) == 4 {
+					out.tmsi, out.hasTMSI = binary.BigEndian.Uint32(t.FiveGTMSI.Value), true
+				}
 			}
 		}
 	case ngapType.InitiatingMessagePresentUEContextReleaseRequest:

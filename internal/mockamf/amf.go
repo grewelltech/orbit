@@ -138,6 +138,17 @@ type AMF struct {
 	staleRelease         time.Duration
 	ignoreReleaseRequest bool
 
+	// CM-IDLE options and state (idle.go): assocs are the live associations
+	// that completed NG Setup, each with its first supported TAC, guarded
+	// by mu.
+	noPaging        bool
+	pagingTMSIXor   uint32
+	serviceAnswer   ServiceAnswer
+	serviceCause    uint8
+	assocs          map[*pipe][]byte
+	pagings         atomic.Int64
+	serviceRequests atomic.Int64
+
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
 	dnnAnswer  DNNAnswer
@@ -191,7 +202,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log}
+		ues: make(map[int64]*ueState), log: log, assocs: make(map[*pipe][]byte)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -238,6 +249,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			st.t3560.stop()
 			st.t3550.stop()
 		}
+		a.mu.Lock()
+		delete(a.assocs, p)
+		a.mu.Unlock()
 	}()
 	buf := make([]byte, 65536)
 	for {
@@ -276,7 +290,15 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		if err != nil {
 			return err
 		}
+		a.mu.Lock()
+		a.assocs[p] = firstTAC(pdu.InitiatingMessage.Value.NGSetupRequest)
+		a.mu.Unlock()
 		return a.send(p, resp)
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentInitialContextSetupResponse {
+		a.onInitialContextSetupResponse(pdu.SuccessfulOutcome.Value.InitialContextSetupResponse)
+		return nil
 	}
 	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceSetupResponse {
@@ -296,6 +318,7 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 			a.strayCompletes.Add(1)
 		}
 		a.releaseCompletes.Add(1)
+		a.onANReleaseComplete(states, ids)
 		return nil
 	}
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
@@ -307,6 +330,11 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	up, err := parseUplink(pdu)
 	if err != nil {
 		return err
+	}
+	if up.procedure == ngapType.ProcedureCodeInitialUEMessage && len(up.nasPDU) >= 2 &&
+		f5nas.GetSecurityHeaderType(up.nasPDU) != f5nas.SecurityHeaderTypePlainNas {
+		// A protected initial NAS message: a CM-IDLE UE coming back.
+		return a.onIdleInitialUE(p, states, up)
 	}
 	st := states[up.ranID]
 	if st == nil {
@@ -339,15 +367,19 @@ type ueState struct {
 	// sec is the NAS security context; secMu guards it and its counts,
 	// since after a path switch two associations hold the UE. Never held
 	// across a send.
-	secMu     sync.Mutex
-	sec       *nas.SecurityContext
-	ngksi     uint8
-	sessions  map[uint8]*pduSession        // guarded by AMF.mu
-	t3560     *retransmitter               // running T3560 (WithT3560), nil otherwise
-	t3550     *retransmitter               // running T3550 (WithT3550), nil otherwise
-	ueCaps    nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
-	kamf      []byte                       // KAMF from authentication, for the SMC's keys
-	requested []byte                       // the Requested NSSAI IE's value, nil when absent
+	secMu    sync.Mutex
+	sec      *nas.SecurityContext
+	ngksi    uint8
+	sessions map[uint8]*pduSession        // guarded by AMF.mu
+	t3560    *retransmitter               // running T3560 (WithT3560), nil otherwise
+	t3550    *retransmitter               // running T3550 (WithT3550), nil otherwise
+	ueCaps   nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
+	kamf     []byte                       // KAMF from authentication, for the SMC's keys
+	// releasing is set once the mock answered the UE's UE CONTEXT RELEASE
+	// REQUEST, and idle once that release completed (CM-IDLE); both are
+	// guarded by AMF.mu.
+	releasing, idle bool
+	requested       []byte // the Requested NSSAI IE's value, nil when absent
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {

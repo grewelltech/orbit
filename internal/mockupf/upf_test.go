@@ -153,3 +153,95 @@ func TestUplinkRecordedAndDownlinkSent(t *testing.T) {
 		t.Errorf("downlink to an unknown session: err = %v", err)
 	}
 }
+
+// After an AN release the stub buffers a session's downlink from N6 and
+// raises one downlink data notification per buffering period; when the
+// session comes up again it sends what it held to the new tunnel, in
+// order, and routes later packets straight there. Packets that are not
+// IPv4, or for no session's UE, are refused.
+func TestDownlinkBufferedWhileIdle(t *testing.T) {
+	gnb := gnbSocket(t, "127.0.0.1")
+	u := newStub(t, Options{}, gnb)
+	ueIP := net.IPv4(10, 60, 0, 9)
+	s := mockamf.SessionInfo{SUPI: "208930100000001", PDUSessionID: 1, UEIP: ueIP, QFI: 1,
+		UL: mockamf.Tunnel{Addr: "127.0.0.1", TEID: 0x10001}, DL: mockamf.Tunnel{Addr: "127.0.0.1", TEID: 0x21}}
+	u.SessionUp(s)
+	type note struct {
+		supi string
+		id   uint8
+	}
+	notes := make(chan note, 8)
+	u.OnDownlinkData(func(supi string, id uint8) { notes <- note{supi, id} })
+	packet := func(marker byte) []byte {
+		p := make([]byte, 21)
+		p[0] = 0x45
+		copy(p[16:20], ueIP.To4())
+		p[20] = marker
+		return p
+	}
+
+	// Connected: straight down the tunnel, no notification.
+	if err := u.DownlinkFromN6(packet('a')); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := gtpu.DecodeGPDU(read(t, gnb)); err != nil || g.TEID != 0x21 || g.Payload[20] != 'a' {
+		t.Fatalf("downlink while connected: %+v, %v", g, err)
+	}
+	if n, buffering := u.Buffered(s.SUPI, 1); n != 0 || buffering {
+		t.Errorf("Buffered = %d, %v before the release", n, buffering)
+	}
+
+	u.ANReleased(s)
+	for _, m := range []byte{'b', 'c'} {
+		if err := u.DownlinkFromN6(packet(m)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, buffering := u.Buffered(s.SUPI, 1); n != 2 || !buffering {
+		t.Errorf("Buffered = %d, %v after two packets, want 2 buffered", n, buffering)
+	}
+	select {
+	case got := <-notes:
+		if got != (note{s.SUPI, 1}) {
+			t.Errorf("notification for %+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no downlink data notification")
+	}
+	select {
+	case got := <-notes:
+		t.Errorf("a second notification in one buffering period: %+v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	up := s
+	up.DL.TEID = 0x22
+	u.SessionUp(up)
+	for _, want := range []byte{'b', 'c'} {
+		if g, err := gtpu.DecodeGPDU(read(t, gnb)); err != nil || g.TEID != 0x22 || g.Payload[20] != want {
+			t.Fatalf("flushed packet: %+v, %v; want %c on the new tunnel", g, err, want)
+		}
+	}
+	if _, buffering := u.Buffered(s.SUPI, 1); buffering {
+		t.Error("still buffering after the session came up")
+	}
+	if err := u.DownlinkFromN6(packet('d')); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := gtpu.DecodeGPDU(read(t, gnb)); err != nil || g.TEID != 0x22 || g.Payload[20] != 'd' {
+		t.Fatalf("downlink after reactivation: %+v, %v", g, err)
+	}
+
+	for name, pkt := range map[string][]byte{
+		"short":              {0x45, 0},
+		"IPv6":               append([]byte{0x60}, make([]byte, 40)...),
+		"no such UE address": append([]byte{0x45, 0, 0, 20, 0, 0, 0, 0, 64, 1, 0, 0, 8, 8, 8, 8}, 10, 60, 0, 200),
+	} {
+		if err := u.DownlinkFromN6(pkt); err == nil {
+			t.Errorf("%s packet accepted", name)
+		}
+	}
+	if errs := u.SendErrors(); len(errs) != 0 {
+		t.Errorf("send errors: %v", errs)
+	}
+}

@@ -122,5 +122,8 @@ func (a *AMF) onUEContextReleaseRequest(p *pipe, st *ueState) error {
 	if a.ignoreReleaseRequest || st.amfID == 0 {
 		return nil
 	}
+	a.mu.Lock()
+	st.releasing = true
+	a.mu.Unlock()
 	return a.send(p, buildUEContextReleaseCommandCause(st.amfID, a.ranIDOf(st), ngapType.CauseNasPresentNormalRelease))
 }

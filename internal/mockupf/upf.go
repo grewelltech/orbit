@@ -2,9 +2,12 @@
 // UDP socket on the N3 side that records uplink G-PDUs, sends downlink on
 // request, and reacts to an Xn path switch the way a UPF configured for it
 // would, by sending a GTP-U End Marker on the old downlink tunnel (TS 29.281
-// §7.3.2, TS 29.244 §8.2.31) and, when asked, a late G-PDU after it. It
-// implements mockamf.UPF, so the mock AMF tells it about sessions and path
-// switches and it needs no NGAP of its own.
+// §7.3.2, TS 29.244 §8.2.31) and, when asked, a late G-PDU after it. After
+// an AN release it buffers a session's downlink (DownlinkFromN6) and raises
+// a downlink data notification (OnDownlinkData), until the session comes
+// up again. It implements mockamf.UPF and mockamf.ANReleaser, so the mock
+// AMF tells it about sessions, path switches and releases, and it needs no
+// NGAP of its own.
 //
 // It is not a UPF: no N6, no QoS enforcement, no ICMP engine. Production code
 // never imports it.
@@ -73,6 +76,11 @@ type UPF struct {
 
 	mu       sync.Mutex
 	sessions map[sessionKey]mockamf.SessionInfo
+	// buffered holds, per session of a CM-IDLE UE, the downlink that
+	// arrived from N6 since its AN release; the key is present while the
+	// session buffers. notify is the downlink data notification hook.
+	buffered map[sessionKey][][]byte
+	notify   func(supi string, pduSessionID uint8)
 	uplink   []Uplink
 	sent     []Sent
 	switches []mockamf.PathSwitch
@@ -87,7 +95,10 @@ type sessionKey struct {
 	id   uint8
 }
 
-var _ mockamf.UPF = (*UPF)(nil)
+var (
+	_ mockamf.UPF        = (*UPF)(nil)
+	_ mockamf.ANReleaser = (*UPF)(nil)
+)
 
 // Listen opens the stub's N3 socket on addr (host:port; ":2152" style ports
 // are what a gNB derives from an NGAP tunnel address) and starts reading.
@@ -103,7 +114,7 @@ func Listen(addr string, opts Options) (*UPF, error) {
 	if opts.GTPUPort == 0 {
 		opts.GTPUPort = 2152
 	}
-	u := &UPF{conn: conn, opts: opts, sessions: map[sessionKey]mockamf.SessionInfo{},
+	u := &UPF{conn: conn, opts: opts, sessions: map[sessionKey]mockamf.SessionInfo{}, buffered: map[sessionKey][][]byte{},
 		changed: make(chan struct{}), done: make(chan struct{})}
 	go u.serve()
 	return u, nil
@@ -119,12 +130,93 @@ func (u *UPF) Close() error {
 	return err
 }
 
-// SessionUp records a session (mockamf.UPF).
+// SessionUp records a session (mockamf.UPF). For a session that was
+// buffering since an AN release, it ends the buffering and sends what was
+// buffered to the new downlink tunnel.
 func (u *UPF) SessionUp(s mockamf.SessionInfo) {
+	k := sessionKey{s.SUPI, s.PDUSessionID}
 	u.mu.Lock()
-	u.sessions[sessionKey{s.SUPI, s.PDUSessionID}] = s
+	u.sessions[k] = s
+	held := u.buffered[k]
+	delete(u.buffered, k)
 	u.notifyLocked()
 	u.mu.Unlock()
+	for _, inner := range held {
+		u.recordErr(u.send(KindGPDU, s.DL, encodeDLGPDU(s.DL.TEID, s.QFI, u.opts.QFI, inner)))
+	}
+}
+
+// ANReleased starts buffering downlink for a session whose UE became
+// CM-IDLE (mockamf.ANReleaser).
+func (u *UPF) ANReleased(s mockamf.SessionInfo) {
+	k := sessionKey{s.SUPI, s.PDUSessionID}
+	u.mu.Lock()
+	if _, ok := u.buffered[k]; !ok {
+		u.buffered[k] = [][]byte{}
+	}
+	u.notifyLocked()
+	u.mu.Unlock()
+}
+
+// OnDownlinkData sets the downlink data notification hook: fn is called,
+// outside the stub's lock, when the first downlink packet arrives for a
+// buffering session (once per buffering period, as a UPF's notification is
+// de-duplicated). Wire it to mockamf.AMF.DownlinkData.
+func (u *UPF) OnDownlinkData(fn func(supi string, pduSessionID uint8)) {
+	u.mu.Lock()
+	u.notify = fn
+	u.mu.Unlock()
+}
+
+// DownlinkFromN6 takes one inner IPv4 packet as if it arrived on N6 and
+// routes it by its destination address: sent down the session's tunnel, or
+// buffered (with the downlink data notification on the first) while the UE
+// is CM-IDLE. A packet for no session's UE address is an error.
+func (u *UPF) DownlinkFromN6(inner []byte) error {
+	if len(inner) < 20 || inner[0]>>4 != 4 {
+		return fmt.Errorf("mockupf: not an IPv4 packet (%d bytes)", len(inner))
+	}
+	dst := net.IP(inner[16:20])
+	u.mu.Lock()
+	var key sessionKey
+	var s mockamf.SessionInfo
+	found := false
+	for k, cand := range u.sessions {
+		if cand.UEIP.Equal(dst) {
+			key, s, found = k, cand, true
+			break
+		}
+	}
+	if !found {
+		u.mu.Unlock()
+		return fmt.Errorf("mockupf: no session with UE address %s", dst)
+	}
+	held, buffering := u.buffered[key]
+	var notify func(string, uint8)
+	if buffering {
+		if len(held) == 0 {
+			notify = u.notify
+		}
+		u.buffered[key] = append(held, append([]byte(nil), inner...))
+		u.notifyLocked()
+	}
+	u.mu.Unlock()
+	if !buffering {
+		return u.send(KindGPDU, s.DL, encodeDLGPDU(s.DL.TEID, s.QFI, u.opts.QFI, inner))
+	}
+	if notify != nil {
+		notify(key.supi, key.id)
+	}
+	return nil
+}
+
+// Buffered reports how many downlink packets a session holds, and whether
+// it is buffering at all.
+func (u *UPF) Buffered(supi string, pduSessionID uint8) (n int, buffering bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	held, ok := u.buffered[sessionKey{supi, pduSessionID}]
+	return len(held), ok
 }
 
 // PathSwitched moves a session to its new tunnels and, per Options, sends

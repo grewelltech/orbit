@@ -205,6 +205,9 @@ func BuildRegistrationComplete() (*f5nas.Message, error) {
 type AuthChallenge struct {
 	RAND [16]byte
 	AUTN [16]byte
+	// NgKSI is the key set identifier the AMF gave the keys this challenge
+	// derives (TS 24.501 9.11.3.32).
+	NgKSI uint8
 }
 
 // ParseAuthenticationRequest extracts the challenge from a decoded plain NAS
@@ -218,8 +221,9 @@ func ParseAuthenticationRequest(m *f5nas.Message) (*AuthChallenge, error) {
 		return nil, fmt.Errorf("Authentication Request missing RAND/AUTN (EAP-AKA' not supported in Phase 1a)")
 	}
 	return &AuthChallenge{
-		RAND: ar.AuthenticationParameterRAND.GetRANDValue(),
-		AUTN: ar.AuthenticationParameterAUTN.GetAUTN(),
+		RAND:  ar.GetRANDValue(),
+		AUTN:  ar.GetAUTN(),
+		NgKSI: ar.GetNasKeySetIdentifiler(),
 	}, nil
 }
 

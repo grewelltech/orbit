@@ -14,29 +14,38 @@ import "fmt"
 // Blocks, one per test (or table row) that binds fixed addresses in it.
 const (
 	// internal/engine
-	EngineUserPlane           = 41 // TestMockPairPDUSessionCarriesUserPlane
-	EngineXnEndMarker         = 42 // TestMockPairXnPathSwitch/end_marker
-	EngineXnNoEndMarker       = 43 // TestMockPairXnPathSwitch/no_end_marker
-	EngineXnLateGPDU          = 44 // TestMockPairXnPathSwitch/late_g-pdu_after_the_end_marker
-	EngineXnEndMarkerQFI      = 45 // TestMockPairXnPathSwitch/end_marker_with_QFI_header
-	EngineXnULReallocated     = 46 // TestMockPairXnPathSwitch/uplink_tunnel_reallocated
-	EngineObserveAcrossXn     = 47 // TestObserveDownlinkAcrossXn
-	EngineLatency             = 48 // TestLatencyStopsWhenDeregistered
-	EngineNASAlgorithmPairs   = 49 // TestAttachEveryNASAlgorithmPair
-	EngineN3PoolDistinct      = 50 // TestN3PoolRefcountLifecycle
-	EngineTwoUEsOneGNB        = 51 // TestTwoUEsOneGNBNoEADDRINUSE
-	EngineRebindInterGNB      = 52 // TestRebindDataPathInterGNB
-	EngineRebindLastUEGrace   = 53 // TestRebindDataPathInterGNBLastUEEndMarkerGrace
-	EngineRetargetConcurrent  = 54 // TestRetargetDataPathConcurrentDataplane
-	EngineManagerFleetShare   = 55 // TestManagerAndFleetShareOneGNBSocket
-	EngineHandoverInherit     = 71 // TestHandoverResultReportsPresentedTarget/inherit
-	EngineHandoverExplicitTAC = 72 // TestHandoverResultReportsPresentedTarget/explicit_TAC
-	EngineUplinkRetryStale    = 73 // TestSendUplinkRetriesOnceOnStaleView
-	EngineUplinkTeardown      = 74 // TestSendUplinkTeardownDoesNotRetry
-	EngineUplinkRetryNoLoop   = 75 // TestSendUplinkRetryDoesNotLoop
-	EngineUplinkGone          = 76 // TestSendUplinkMarksSessionGone
-	EngineNetstackInterGNB    = 77 // TestInterGNBMoveResetsNetstackConns
-	EngineRegisterCleanup     = 78 // TestRegisterCleanupReportsAHeldN3Socket
+	EngineUserPlane           = 41  // TestMockPairPDUSessionCarriesUserPlane
+	EngineXnEndMarker         = 42  // TestMockPairXnPathSwitch/end_marker
+	EngineXnNoEndMarker       = 43  // TestMockPairXnPathSwitch/no_end_marker
+	EngineXnLateGPDU          = 44  // TestMockPairXnPathSwitch/late_g-pdu_after_the_end_marker
+	EngineXnEndMarkerQFI      = 45  // TestMockPairXnPathSwitch/end_marker_with_QFI_header
+	EngineXnULReallocated     = 46  // TestMockPairXnPathSwitch/uplink_tunnel_reallocated
+	EngineObserveAcrossXn     = 47  // TestObserveDownlinkAcrossXn
+	EngineLatency             = 48  // TestLatencyStopsWhenDeregistered
+	EngineNASAlgorithmPairs   = 49  // TestAttachEveryNASAlgorithmPair
+	EngineN3PoolDistinct      = 50  // TestN3PoolRefcountLifecycle
+	EngineTwoUEsOneGNB        = 51  // TestTwoUEsOneGNBNoEADDRINUSE
+	EngineRebindInterGNB      = 52  // TestRebindDataPathInterGNB
+	EngineRebindLastUEGrace   = 53  // TestRebindDataPathInterGNBLastUEEndMarkerGrace
+	EngineRetargetConcurrent  = 54  // TestRetargetDataPathConcurrentDataplane
+	EngineManagerFleetShare   = 55  // TestManagerAndFleetShareOneGNBSocket
+	EngineHandoverInherit     = 71  // TestHandoverResultReportsPresentedTarget/inherit
+	EngineHandoverExplicitTAC = 72  // TestHandoverResultReportsPresentedTarget/explicit_TAC
+	EngineUplinkRetryStale    = 73  // TestSendUplinkRetriesOnceOnStaleView
+	EngineUplinkTeardown      = 74  // TestSendUplinkTeardownDoesNotRetry
+	EngineUplinkRetryNoLoop   = 75  // TestSendUplinkRetryDoesNotLoop
+	EngineUplinkGone          = 76  // TestSendUplinkMarksSessionGone
+	EngineNetstackInterGNB    = 77  // TestInterGNBMoveResetsNetstackConns
+	EngineRegisterCleanup     = 78  // TestRegisterCleanupReportsAHeldN3Socket
+	EngineIdlePaging          = 120 // TestIdlePagingServiceRequest/NEA0
+	EngineIdlePagingNEA2      = 121 // TestIdlePagingServiceRequest/NEA2
+	EngineIdleReject          = 122 // TestServiceRequestAnswers/reject
+	EngineIdleNoUserPlane     = 123 // TestServiceRequestAnswers/accept_without_user_plane
+	EngineIdleUnanswered      = 124 // TestServiceRequestAnswers/unanswered
+	EngineIdleSignalling      = 125 // TestServiceRequestAnswers/signalling_only
+	EngineIdleWrongIdentity   = 126 // TestObservePaging/another_identity
+	EngineIdleNoPaging        = 127 // TestObservePaging/no_paging
+	EngineIdleNoGUTI          = 128 // TestIdleNeedsGUTI
 
 	// internal/conformance
 	ConformanceNonCanonicalV4   = 56 // TestEndMarkerCheckNonCanonicalGNBN3/IPv4-mapped

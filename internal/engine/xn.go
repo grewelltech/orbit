@@ -37,6 +37,9 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 		return HandoverResult{}, err
 	}
 	defer release()
+	if sess.Idle() {
+		return HandoverResult{}, fmt.Errorf("UE %s is CM-IDLE: a handover needs a connected UE", supi)
+	}
 
 	if target.Config, err = inheritIdentity(target.Config, sess.ServingGNB()); err != nil {
 		return HandoverResult{}, err
