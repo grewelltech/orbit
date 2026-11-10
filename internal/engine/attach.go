@@ -459,6 +459,8 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		return s.onSecurityModeCommand(msg)
 	case f5nas.MsgTypeRegistrationAccept:
 		return s.onRegistrationAccept(msg)
+	case f5nas.MsgTypeConfigurationUpdateCommand:
+		return s.onConfigurationUpdateCommand(msg, f5nas.GetSecurityHeaderType(raw) != f5nas.SecurityHeaderTypePlainNas)
 	case f5nas.MsgTypeIdentityRequest:
 		return s.onIdentityRequest(msg, f5nas.GetSecurityHeaderType(raw) != f5nas.SecurityHeaderTypePlainNas)
 	case f5nas.MsgTypeAuthenticationReject:

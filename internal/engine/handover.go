@@ -235,6 +235,9 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 
 	// 4. AMF → source: HandoverCommand.
 	cmdPDU, err := gnb.ReadPDU(ctx, sess.conn)
+	for err == nil && sess.absorbDownlinkNAS(ctx, m.log, cmdPDU) {
+		cmdPDU, err = gnb.ReadPDU(ctx, sess.conn)
+	}
 	if err != nil {
 		tgtConn.Close()
 		return fmt.Errorf("await HandoverCommand: %w", err)

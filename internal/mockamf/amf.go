@@ -155,6 +155,12 @@ type AMF struct {
 	// Initial NAS message options (initialnas.go).
 	rejectNonCleartext bool
 
+	// Configuration update option and what it drew, and the identities of
+	// the Deregistration Requests, guarded by mu (configupdate.go).
+	configUpdate          *ConfigurationUpdate
+	configUpdateCompletes atomic.Int64
+	deregIdentities       [][]byte
+
 	// Path switch UE security capability check (pathswitchcaps.go).
 	capsInAck      bool
 	capsMismatches atomic.Int64
@@ -505,11 +511,18 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if a.staleRelease > 0 {
 			a.sendStaleRelease(p, st)
 		}
+		if a.configUpdate != nil {
+			return true, a.sendConfigurationUpdate(p, st)
+		}
 		return true, nil // UE is REGISTERED
+	case f5nas.MsgTypeConfigurationUpdateComplete:
+		a.configUpdateCompletes.Add(1)
+		return false, nil
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
 		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
+		a.recordDeregistration(msg.DeregistrationRequestUEOriginatingDeregistration)
 		return false, a.onDeregistration(p, st)
 	default:
 		return false, nil
