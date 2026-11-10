@@ -140,7 +140,10 @@ func (id *netIdentity) resolve(required bool) error {
 		return fmt.Errorf("on handover --sd needs --sst, or omit both to inherit the serving slice")
 	}
 	if err := gnb.ValidateSNSSAI(id.SST, id.SD); err != nil {
-		return err
+		// Mask a key-shaped value: an ORBIT_SD (or --sd) holding a misplaced
+		// Ki/OPc must not be echoed, and this path (e.g. cell ngsetup without
+		// a target) bypasses the resolver's own masking.
+		return target.MaskErr(err)
 	}
 	if id.hasDNN && id.DNN == "" {
 		return fmt.Errorf("--dnn must not be empty")
@@ -179,7 +182,10 @@ func (id *netIdentity) envFallback() error {
 		}
 	}
 	if id.hasDNN && !id.fs.Changed("dnn") {
-		if v := strings.TrimSpace(os.Getenv("ORBIT_DNN")); v != "" {
+		// LookupEnv and preserve the value (no trim), as the resolver does, so
+		// a present-but-empty ORBIT_DNN reaches the "--dnn must not be empty"
+		// check rather than silently keeping the default.
+		if v, ok := os.LookupEnv("ORBIT_DNN"); ok {
 			id.DNN = v
 		}
 	}

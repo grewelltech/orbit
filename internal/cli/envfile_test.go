@@ -86,6 +86,11 @@ func TestParseEnvFile(t *testing.T) {
 			want:  []envPair{{"FOO", "#lit"}},
 		},
 		{
+			name:  "a trailing comment after a quoted value is allowed",
+			input: "FOO=\"abc\"  # note\n",
+			want:  []envPair{{"FOO", "abc"}},
+		},
+		{
 			name:  "an empty value with a trailing comment is empty",
 			input: "FOO= # a comment\n",
 			want:  []envPair{{"FOO", ""}},
@@ -135,6 +140,8 @@ func TestParseEnvFileErrors(t *testing.T) {
 		{name: "invalid name dash", input: "A-B=c\n", wantErr: `line 1: "A-B" is not a valid variable name`},
 		{name: "unterminated double quote", input: "FOO=\"abc\n", wantErr: "line 1: unterminated double quote"},
 		{name: "unterminated single quote", input: "FOO='abc\n", wantErr: "line 1: unterminated single quote"},
+		{name: "text after a closing double quote", input: "FOO=\"abc\"def\n", wantErr: "line 1: unexpected text after closing double quote"},
+		{name: "text after a closing single quote", input: "FOO='abc'x\n", wantErr: "line 1: unexpected text after closing single quote"},
 		{name: "error reports the right line", input: "A=1\nB=2\n=bad\n", wantErr: `line 3: "" is not a valid variable name`},
 	}
 	for _, tc := range tests {

@@ -87,15 +87,9 @@ func parseEnvValue(v string) (string, error) {
 	case t == "":
 		return "", nil
 	case t[0] == '\'':
-		if i := strings.IndexByte(t[1:], '\''); i >= 0 {
-			return t[1 : 1+i], nil
-		}
-		return "", fmt.Errorf("unterminated single quote")
+		return quotedValue(t, '\'', "single")
 	case t[0] == '"':
-		if i := strings.IndexByte(t[1:], '"'); i >= 0 {
-			return t[1 : 1+i], nil
-		}
-		return "", fmt.Errorf("unterminated double quote")
+		return quotedValue(t, '"', "double")
 	}
 	// Unquoted: a `#` after whitespace begins a comment, as in a shell —
 	// including a leading one, so `KEY= # c` is an empty value — while a `#`
@@ -110,6 +104,22 @@ func parseEnvValue(v string) (string, error) {
 		}
 	}
 	return strings.TrimSpace(v[:end]), nil
+}
+
+// quotedValue reads a quoted value (t begins with the quote q): its literal
+// content up to the matching quote. Only whitespace or a trailing ` # comment`
+// may follow the closing quote, so `"abc"def` is rejected rather than silently
+// truncated to `abc`.
+func quotedValue(t string, q byte, name string) (string, error) {
+	i := strings.IndexByte(t[1:], q)
+	if i < 0 {
+		return "", fmt.Errorf("unterminated %s quote", name)
+	}
+	rest := strings.TrimLeft(t[i+2:], " \t\r")
+	if rest != "" && rest[0] != '#' {
+		return "", fmt.Errorf("unexpected text after closing %s quote", name)
+	}
+	return t[1 : 1+i], nil
 }
 
 // selectEnv is the pairs that loadEnvFiles should set, in the order to set

@@ -189,6 +189,49 @@ func TestEnvUint32(t *testing.T) {
 	})
 }
 
+// A present-but-empty ORBIT_DNN reaches the --dnn validation on the flag/local
+// path (and fails) instead of silently keeping the default.
+func TestEnvDNNEmptyRejected(t *testing.T) {
+	for _, n := range []string{"ORBIT_MCC", "ORBIT_MNC", "ORBIT_TAC", "ORBIT_SST", "ORBIT_SD"} {
+		t.Setenv(n, "")
+		_ = os.Unsetenv(n)
+	}
+	t.Setenv("ORBIT_DNN", "") // present but empty
+	var id netIdentity
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	addNetIdentityFlags(fs, &id, withDNN())
+	if err := fs.Parse([]string{"--mcc", "001", "--mnc", "01"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := id.resolve(true); err == nil || !strings.Contains(err.Error(), "dnn") {
+		t.Fatalf("resolve = %v, want a --dnn validation error", err)
+	}
+}
+
+// A Ki/OPc-shaped value misplaced in ORBIT_SD is masked in the SNSSAI
+// validation error on the direct path, never echoed.
+func TestEnvSDMasked(t *testing.T) {
+	for _, n := range []string{"ORBIT_MCC", "ORBIT_MNC", "ORBIT_TAC", "ORBIT_DNN"} {
+		t.Setenv(n, "")
+		_ = os.Unsetenv(n)
+	}
+	key := strings.Repeat("ab", 16) // 32 hex chars
+	t.Setenv("ORBIT_SD", key)
+	var id netIdentity
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	addNetIdentityFlags(fs, &id, withDNN())
+	if err := fs.Parse([]string{"--mcc", "001", "--mnc", "01", "--sst", "1", "--dnn", "internet"}); err != nil {
+		t.Fatal(err)
+	}
+	err := id.resolve(true)
+	if err == nil {
+		t.Fatal("want a SNSSAI error for a 32-char SD")
+	}
+	if strings.Contains(err.Error(), key) {
+		t.Errorf("error leaked the SD value: %v", err)
+	}
+}
+
 func TestNetIdentityDefaults(t *testing.T) {
 	var id netIdentity
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
