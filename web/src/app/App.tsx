@@ -8,38 +8,20 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { Header } from "./Header";
-import { StatTile } from "@/components/StatTile";
-import { EventStream } from "@/panels/EventStream";
-import { CohortSlot } from "@/panels/CohortCard";
-import { FlowTable } from "@/panels/FlowTable";
-import { GnbDistribution } from "@/panels/GnbDistribution";
-import {
-  DEFAULT_WINDOW_MS,
-  TIME_WINDOWS,
-  TimeSeriesPanel,
-  type SeriesDef,
-} from "@/panels/TimeSeriesPanel";
+import { DEFAULT_WINDOW_MS, TIME_WINDOWS } from "@/panels/TimeSeriesPanel";
 import { MockSource } from "@/data/mock";
-import { attachRateTile, attachRateLabel } from "@/app/attachRateTile";
 import { useRuns } from "@/data/runs";
+import { RunDashboard } from "@/app/dashboards/RunDashboard";
 import { RunPicker } from "@/app/RunPicker";
 import { ProvenancePanel } from "@/app/ProvenancePanel";
 import { Panel } from "@/components/Panel";
 import { Modal } from "@/components/Modal";
 import { StopControl } from "@/app/StopControl";
 import { runConfigRefusal, runEnded, useRunConfig } from "@/data/runConfig";
-import { SuiteResults } from "@/app/SuiteResults";
-import { cpLatencyTile } from "@/app/cpLatencyTile";
 import { ConnectSource } from "@/data/connect";
 import type { TelemetrySource } from "@/data/source";
-import type { TelemetryFrame } from "@/data/types";
 import { useTheme } from "@/theme/useTheme";
 import { useTelemetry } from "@/hooks/useTelemetry";
-import { tokens } from "@/theme/tokens";
-import { bps, count, ms, pct } from "@/lib/format";
-
-/** Fixed slot order for the cohort panels — voice, web, then video. */
-const COHORT_APPS = ["voip", "http", "video"] as const;
 
 export function App() {
   // ?mock forces the offline demo generator; ?run=<id> pins a run, and is kept
@@ -71,7 +53,7 @@ export function App() {
     window.history.replaceState(null, "", url);
   }, []);
   const telemetry = useTelemetry(source);
-  const { latest, history, events, state, clearEvents } = telemetry;
+  const { latest, events, state } = telemetry;
   const shownRun = (selectedRun ?? latest?.run.runId) || undefined;
   const runConfig = useRunConfig(mock ? undefined : shownRun, runEnded(latest?.run.state));
 
@@ -82,10 +64,8 @@ export function App() {
   // (or in mock, which is always a load soak) we default to the performance
   // view so charts are never hidden by accident.
   const runKind = useMemo(() => runs.find((r) => r.runId === shownRun)?.kind, [runs, shownRun]);
-  const isConformanceRun = !mock && runKind === "conformance";
-  const isMixedRun = !mock && runKind === "mixed";
-  const showPerf = !isConformanceRun; // perf for load/fleet/scenario/mixed/unknown and all mock
-  const showConformance = isConformanceRun || isMixedRun;
+  // The dashboard follows the kind; in mock (always a load soak) that is the performance view.
+  const kind = mock ? undefined : runKind;
   // Conformance verdicts are the suite view's job; keep them out of every
   // event log so a verdict burst can't bury the registration and error lines.
   const logEvents = useMemo(() => events.filter((e) => !e.conformance), [events]);
@@ -94,119 +74,6 @@ export function App() {
   // One span for every panel: the value of these charts is reading them
   // against each other, which a per-panel window would quietly break.
   const [windowMs, setWindowMs] = useState(DEFAULT_WINDOW_MS);
-  const t = tokens();
-
-  // Sessions in context: a bare count says nothing about whether it is all of
-  // them. Prefer the run's declared target; otherwise the funnel total, which
-  // is every UE seen including the ones that failed.
-  const sessionsDetail = (f: TelemetryFrame | null): string => {
-    if (f?.run.targetUes) return `target ${count(f.run.targetUes)}`;
-    const u = f?.ues;
-    // Always a string: an omitted detail collapses the tile and leaves it
-    // shorter than the row, and the idle case — no run yet — is exactly when
-    // the earlier version returned nothing.
-    if (!u) return "awaiting run";
-    const total = u.sessionActive + u.registered + u.registering + u.failed;
-    return total > 0 ? `of ${count(total)} UEs` : "no UEs yet";
-  };
-
-  // Mobility, stated as what happened: no handovers at all is a different
-  // fact from every handover succeeding, and the tile should not blur them.
-  const handoverDetail = (f: TelemetryFrame | null): string => {
-    const h = f?.mobility.handovers ?? 0;
-    const bad = f?.mobility.failed ?? 0;
-    if (h + bad === 0) return "no handovers";
-    return bad > 0 ? `handovers ${h} ok · ${bad} failed` : `handovers ${h} ok`;
-  };
-
-  // Stack order is bottom-first, and `failed` goes at the bottom deliberately.
-  // Stacked on top it draws its band at the population's ceiling, so a healthy
-  // run of 100 UEs renders a red line across the top of the chart and reads as
-  // 100 failures. At the bottom the red band is the height of the failure
-  // count — invisible when nothing has failed, which is the honest picture.
-  // The rest ascend by progress through attach, so the chart fills upward as
-  // the population advances.
-  const ueSeries = useMemo<SeriesDef[]>(
-    () => [
-      { name: "failed", color: t.series[4] as string, value: (f) => f.ues.failed, area: true },
-      { name: "registering", color: t.series[1] as string, value: (f) => f.ues.registering, area: true },
-      { name: "registered", color: t.series[3] as string, value: (f) => f.ues.registered, area: true },
-      { name: "session active", color: t.series[0] as string, value: (f) => f.ues.sessionActive, area: true },
-    ],
-    [t.series],
-  );
-
-  const rateSeries = useMemo<SeriesDef[]>(
-    () => [
-      { name: "attach/s", color: t.series[0] as string, value: (f) => f.rates.attachPerSec },
-      { name: "handover/s", color: t.series[2] as string, value: (f) => f.rates.handoverPerSec },
-    ],
-    [t.series],
-  );
-
-  const throughputSeries = useMemo<SeriesDef[]>(
-    () => [
-      { name: "downlink", color: t.series[0] as string, value: (f) => f.throughput.downlinkBps, area: true },
-      { name: "uplink", color: t.series[1] as string, value: (f) => f.throughput.uplinkBps, area: true },
-    ],
-    [t.series],
-  );
-
-  const latencySeries = useMemo<SeriesDef[]>(
-    () => [
-      { name: "p50", color: t.series[0] as string, value: (f) => f.cpLatency.p50 },
-      { name: "p90", color: t.series[1] as string, value: (f) => f.cpLatency.p90 },
-      { name: "p99", color: t.series[4] as string, value: (f) => f.cpLatency.p99 },
-    ],
-    [t.series],
-  );
-
-  // Sparkline history. Recomputed per publish, not per sample.
-  // history is a ring buffer, appended to in place: latest, which each
-  // publish replaces, is what says it changed.
-  const spark = useMemo(() => {
-    void latest;
-    const recent = history.toArray().slice(-60);
-    return {
-      sessions: recent.map((f) => f.ues.sessionActive),
-      attach: recent.map((f) => f.rates.attachPerSec),
-      downlink: recent.map((f) => f.throughput.downlinkBps),
-      p99: recent.map((f) => f.cpLatency.p99),
-    };
-  }, [history, latest]);
-
-  // Cohort cards use the same selected time window as the large charts. Bound
-  // SVG complexity by sampling at most 180 frames; these are shape summaries,
-  // while the adjacent values retain the exact latest percentiles.
-  const cohortHistory = useMemo(() => {
-    // In follow mode a completed run is no longer live, so do not leave its
-    // cohort trends looking active indefinitely. An explicitly selected run
-    // is historical analysis and keeps its archived charts.
-    if (!selectedRun && latest && ["complete", "failed"].includes(latest.run.state)) return [];
-    const cutoff = (latest?.t ?? Date.now()) - windowMs;
-    const frames = history.toArray().filter((f) => f.t >= cutoff);
-    const stride = Math.max(1, Math.ceil(frames.length / 180));
-    return frames.filter((_, i) => i % stride === 0 || i === frames.length - 1);
-  }, [history, latest, selectedRun, windowMs]);
-
-  // Peak and average over the WHOLE run, not the visible window: the attach
-  // burst is over in seconds, and a shorter span would scroll it out of view
-  // and take the headline number with it.
-  const atTile = useMemo(() => {
-    void latest; // a publish (history changes in place)
-    return attachRateTile(history.toArray(), (v) => pct(v, 1));
-  }, [history, latest]);
-
-  // The tile names the procedure it is reporting and flags a value that has
-  // stopped advancing — see cpLatencyTile.
-  const cpTile = useMemo(() => {
-    void latest; // a publish (history changes in place)
-    return cpLatencyTile(history.toArray().slice(-60), ms);
-  }, [history, latest]);
-
-  const dl = bps(latest?.throughput.downlinkBps ?? 0);
-  const attachOk = latest ? latest.rates.attachSuccess : 1;
-  const flowsActive = latest?.run.state === "starting" || latest?.run.state === "running" || latest?.run.state === "draining";
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -220,201 +87,70 @@ export function App() {
       />
 
       <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 pb-11">
-        {/* Headline numbers — performance view only; a conformance run has no
-            attach rate or throughput to headline. */}
-        {showPerf && (
-        <section className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          <StatTile
-            label="sessions active"
-            value={count(latest?.ues.sessionActive ?? 0)}
-            tone="accent"
-            history={spark.sessions}
-            // Always present, so the tile matches the height of its
-            // neighbours: the run target when declared, else the population
-            // the sessions are drawn from, else why there is nothing yet.
-            detail={sessionsDetail(latest)}
-          />
-          <StatTile
-            label={attachRateLabel(atTile)}
-            value={atTile.value}
-            unit="/s"
-            history={spark.attach}
-            detail={atTile.detail}
-            tone={attachOk < 0.95 ? "warn" : "neutral"}
-          />
-          <StatTile
-            label="downlink"
-            value={dl.value}
-            unit={dl.unit}
-            history={spark.downlink}
-            detail={`uplink ${(() => { const u = bps(latest?.throughput.uplinkBps ?? 0); return `${u.value} ${u.unit}`; })()}`}
-          />
-          <StatTile
-            label={cpTile.label}
-            value={ms(latest?.cpLatency.p99 ?? 0)}
-            unit="ms"
-            history={spark.p99}
-            detail={cpTile.detail}
-            // A stale value is not a warning about the control plane — it is a
-            // measurement from earlier in the run, so it stays neutral however
-            // large it is. Warning on it is what made a finished attach burst
-            // read as a live problem.
-            tone={!cpTile.stale && (latest?.cpLatency.p99 ?? 0) > 150 ? "warn" : "neutral"}
-          />
-          {/*
-            The value is ATTACH failures and the detail is MOBILITY — two
-            different failure domains, so both are named. The detail reports
-            counts rather than a success ratio: "100% ok" over zero handovers
-            reads as a healthy statistic about something that never happened.
-          */}
-          <StatTile
-            label="attach failures"
-            value={count(latest?.ues.failed ?? 0)}
-            tone={(latest?.ues.failed ?? 0) > 0 ? "error" : "ok"}
-            detail={handoverDetail(latest)}
-          />
-        </section>
-        )}
+        <RunDashboard
+          kind={kind}
+          telemetry={telemetry}
+          selectedRun={selectedRun}
+          runId={shownRun}
+          windowMs={windowMs}
+          logEvents={logEvents}
+          controls={
+          <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+            {!mock && <RunPicker runs={runs} selected={selectedRun} onSelect={selectRun} />}
+            {!mock && <StopControl runId={(selectedRun ?? latest?.run.runId) || undefined} state={latest?.run.state} />}
+            <div className="flex items-center gap-1.5">
+            <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
+              window
+            </span>
+            {TIME_WINDOWS.map((w) => (
+              <button
+                key={w.label}
+                type="button"
+                onClick={() => setWindowMs(w.ms)}
+                className="o-label cursor-pointer border px-1.5 py-0.5 transition-colors"
+                style={{
+                  color: windowMs === w.ms ? "var(--o-accent)" : "var(--o-ink-3)",
+                  borderColor: windowMs === w.ms ? "var(--o-border-accent)" : "var(--o-border)",
+                  borderRadius: "var(--o-radius)",
+                  transitionDuration: "var(--o-dur-fast)",
+                }}
+                aria-pressed={windowMs === w.ms}
+              >
+                {w.label}
+              </button>
+            ))}
+            </div>
 
-        {/* Controls: which run, and over what span. */}
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
-          {!mock && <RunPicker runs={runs} selected={selectedRun} onSelect={selectRun} />}
-          {!mock && <StopControl runId={(selectedRun ?? latest?.run.runId) || undefined} state={latest?.run.state} />}
-          <div className="flex items-center gap-1.5">
-          <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
-            window
-          </span>
-          {TIME_WINDOWS.map((w) => (
-            <button
-              key={w.label}
-              type="button"
-              onClick={() => setWindowMs(w.ms)}
-              className="o-label cursor-pointer border px-1.5 py-0.5 transition-colors"
-              style={{
-                color: windowMs === w.ms ? "var(--o-accent)" : "var(--o-ink-3)",
-                borderColor: windowMs === w.ms ? "var(--o-border-accent)" : "var(--o-border)",
-                borderRadius: "var(--o-radius)",
-                transitionDuration: "var(--o-dur-fast)",
-              }}
-              aria-pressed={windowMs === w.ms}
-            >
-              {w.label}
-            </button>
-          ))}
+            {/*
+              How this run resolved every config field, and what overrode what.
+              It opens a modal rather than sitting on the dashboard: few runs are
+              watched for it, and a surprising override is the one thing worth a
+              glance, so any notices are flagged in amber on the button itself.
+            */}
+            {!mock && (runConfig.config || runConfigRefusal(runConfig)) && (
+              <button
+                type="button"
+                onClick={() => setShowConfig(true)}
+                className="o-label ml-auto flex cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 transition-colors"
+                style={{
+                  color: "var(--o-ink-3)",
+                  borderColor: "var(--o-border)",
+                  borderRadius: "var(--o-radius)",
+                  transitionDuration: "var(--o-dur-fast)",
+                }}
+                title="How this run resolved every config field, and what overrode what"
+              >
+                resolved config
+                {(runConfig.config?.notices.length ?? 0) > 0 && (
+                  <span style={{ color: "var(--o-amber)" }}>
+                    {runConfig.config!.notices.length} notice{runConfig.config!.notices.length === 1 ? "" : "s"}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
-
-          {/*
-            How this run resolved every config field, and what overrode what.
-            It opens a modal rather than sitting on the dashboard: few runs are
-            watched for it, and a surprising override is the one thing worth a
-            glance, so any notices are flagged in amber on the button itself.
-          */}
-          {!mock && (runConfig.config || runConfigRefusal(runConfig)) && (
-            <button
-              type="button"
-              onClick={() => setShowConfig(true)}
-              className="o-label ml-auto flex cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 transition-colors"
-              style={{
-                color: "var(--o-ink-3)",
-                borderColor: "var(--o-border)",
-                borderRadius: "var(--o-radius)",
-                transitionDuration: "var(--o-dur-fast)",
-              }}
-              title="How this run resolved every config field, and what overrode what"
-            >
-              resolved config
-              {(runConfig.config?.notices.length ?? 0) > 0 && (
-                <span style={{ color: "var(--o-amber)" }}>
-                  {runConfig.config!.notices.length} notice{runConfig.config!.notices.length === 1 ? "" : "s"}
-                </span>
-              )}
-            </button>
-          )}
-        </div>
-
-        {/* A conformance suite's verdicts, for a run that has one. */}
-        {/* Conformance verdicts lead the conformance view (and sit above the
-            charts on a mixed run); a pure load run has no suite to show. */}
-        {showConformance && <SuiteResults runId={shownRun} />}
-
-        {/* Performance charts and app cohorts — hidden on a conformance run. */}
-        {showPerf && (
-        <>
-        {/* Time series */}
-        <section className="grid min-h-0 shrink-0 grid-cols-1 gap-3 xl:grid-cols-2">
-          <TimeSeriesPanel
-            title="UE population by state"
-            meta="stacked"
-            telemetry={telemetry}
-            series={ueSeries}
-            stack
-            format={count}
-            windowMs={windowMs}
-            className="h-[260px]"
-          />
-          <TimeSeriesPanel
-            title="N3 throughput"
-            telemetry={telemetry}
-            series={throughputSeries}
-            format={(v) => { const b = bps(v); return `${b.value} ${b.unit}`; }}
-            windowMs={windowMs}
-            className="h-[260px]"
-          />
-          <TimeSeriesPanel
-            title="Procedure rate"
-            meta="per second"
-            telemetry={telemetry}
-            series={rateSeries}
-            format={(v) => v.toFixed(1)}
-            windowMs={windowMs}
-            className="h-[220px]"
-          />
-          <TimeSeriesPanel
-            title="Control-plane latency"
-            meta="ms"
-            telemetry={telemetry}
-            series={latencySeries}
-            format={ms}
-            windowMs={windowMs}
-            className="h-[220px]"
-          />
-        </section>
-
-        {/*
-          Application quality, one fixed slot per app kind. Always rendered and
-          always in this order: showing only the cohorts a run happens to have
-          moved the panels around between runs, so their position carried no
-          meaning. A run with several cohorts of one app widens that slot
-          rather than reordering the rest.
-        */}
-        <section className="grid min-h-0 shrink-0 grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          {COHORT_APPS.map((app) => {
-            const of = latest?.cohorts.filter((c) => c.app === app) ?? [];
-            if (of.length === 0) return <CohortSlot key={app} app={app} cohort={null} history={cohortHistory} />;
-            return of.map((c) => <CohortSlot key={c.name} app={app} cohort={c} history={cohortHistory} />);
-          })}
-        </section>
-        </>
-        )}
-
-        {/* Flows + distribution + events (performance), or just the event log
-            on a conformance run where the suites above carry the verdicts. */}
-        {showPerf ? (
-          <section className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[320px_1fr_1fr]">
-            <GnbDistribution frame={latest} className="min-h-[540px]" />
-            <FlowTable
-              flows={flowsActive ? (latest?.flows ?? []) : []}
-              total={flowsActive ? (latest?.flowsTotal ?? 0) : 0}
-              active={flowsActive}
-              className="min-h-[540px]"
-            />
-            <EventStream events={logEvents} onClear={clearEvents} className="min-h-[540px]" />
-          </section>
-        ) : (
-          <section className="grid min-h-0 flex-1 grid-cols-1 gap-3">
-            <EventStream events={logEvents} onClear={clearEvents} className="min-h-[320px]" />
-          </section>
-        )}
+          }
+        />
       </main>
 
       {showConfig && !mock && (
