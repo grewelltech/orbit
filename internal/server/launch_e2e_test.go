@@ -202,7 +202,7 @@ func TestLaunchRequestsRunEndToEnd(t *testing.T) {
 }
 
 // checkEventText is a check's verdict event: "<check ID> <verdict>".
-var checkEventText = regexp.MustCompile(`^(\[[^][]+\] )?\S+ (PASS|FAIL|ERROR|SKIP|DEVIATION)$`)
+var checkEventText = regexp.MustCompile(`^(\[[^][]+\] )?\S+ (PASS|FAIL|ERROR|SKIP|DEVIATION|INFO|INFO-DIFF)$`)
 
 // countResults is the conformance results a report holds: its workloads'
 // for a plan (the run-level summary repeats a lone suite's), else its own.

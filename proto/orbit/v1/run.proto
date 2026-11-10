@@ -149,6 +149,12 @@ message RunSummary {
   // True only when the run had at least one gate and every gate passed.
   // Read with gates_total: zero gates means "no gates", not "all passed".
   bool gates_ok = 14;
+
+  // Informational conformance verdicts, summed like the headline above:
+  // INFO (the described behaviour was observed) and INFO-DIFF (anything
+  // else). Neither gates.
+  uint32 conformance_info = 15;
+  uint32 conformance_info_diffs = 16;
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
@@ -602,7 +608,7 @@ message RunEvent {
 // ConformanceCheckEvent is one conformance check's verdict as it lands.
 message ConformanceCheckEvent {
   string check_id = 1;
-  string verdict = 2;   // PASS | FAIL | ERROR | SKIP | DEVIATION
+  string verdict = 2;   // PASS | FAIL | ERROR | SKIP | DEVIATION | INFO | INFO-DIFF
   string workload = 3;  // the workload whose suite ran it; "" in a run with one suite
 }
 

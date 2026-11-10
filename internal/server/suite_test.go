@@ -266,6 +266,10 @@ func TestJudgeSuite(t *testing.T) {
 	}{
 		{name: "clean", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
 			res("A", "PASS", false), res("B", "SKIP", false), res("C", "DEVIATION", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL or ERROR"},
+		{name: "informational verdicts never gate", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "PASS", false), res("B", "INFO", false), res("C", "INFO-DIFF", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL or ERROR"},
+		{name: "an informational verdict beside a FAIL does not hide it", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
+			res("A", "INFO-DIFF", false), res("B", "FAIL", false)}}, wantDetail: "1 unexpected: B FAIL"},
 		{name: "an expected FAIL", summary: &orbitv1.ConformanceSummary{Total: 1, Results: []*orbitv1.ConformanceResult{
 			res("A", "FAIL", true)}}, wantPass: true},
 		{name: "an unexpected FAIL and an ERROR", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{

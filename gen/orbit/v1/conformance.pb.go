@@ -373,10 +373,12 @@ type ConformanceResult struct {
 	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Category string                 `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
 	SpecRef  string                 `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
-	Verdict  string                 `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"` // PASS | FAIL | ERROR | SKIP | DEVIATION
-	Expected string                 `protobuf:"bytes,5,opt,name=expected,proto3" json:"expected,omitempty"`
-	Observed string                 `protobuf:"bytes,6,opt,name=observed,proto3" json:"observed,omitempty"`
-	Detail   string                 `protobuf:"bytes,7,opt,name=detail,proto3" json:"detail,omitempty"` // ends with the requirement line ("requires Rel-15 or later; <spec_ref>")
+	// PASS | FAIL | ERROR | SKIP | DEVIATION, or, from an informational
+	// check (descriptive references only; never gates), INFO | INFO-DIFF.
+	Verdict  string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
+	Expected string `protobuf:"bytes,5,opt,name=expected,proto3" json:"expected,omitempty"`
+	Observed string `protobuf:"bytes,6,opt,name=observed,proto3" json:"observed,omitempty"`
+	Detail   string `protobuf:"bytes,7,opt,name=detail,proto3" json:"detail,omitempty"` // ends with the requirement line ("requires Rel-15 or later; <spec_ref>")
 	// The references spec_ref renders, structured with their provenance.
 	SpecRefs   []*SpecRef `protobuf:"bytes,8,rep,name=spec_refs,json=specRefs,proto3" json:"spec_refs,omitempty"`
 	MinRelease uint32     `protobuf:"varint,9,opt,name=min_release,json=minRelease,proto3" json:"min_release,omitempty"` // oldest release the check applies to
@@ -792,8 +794,12 @@ type ConformanceTally struct {
 	Deviations uint32                 `protobuf:"varint,5,opt,name=deviations,proto3" json:"deviations,omitempty"`
 	// FAILs the expected-failures list tolerates; they are in `failed` too.
 	ExpectedFailures uint32 `protobuf:"varint,6,opt,name=expected_failures,json=expectedFailures,proto3" json:"expected_failures,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The informational checks' outcomes: INFO (the described behaviour was
+	// observed) and INFO-DIFF (anything else). Neither gates.
+	Info          uint32 `protobuf:"varint,7,opt,name=info,proto3" json:"info,omitempty"`
+	InfoDiffs     uint32 `protobuf:"varint,8,opt,name=info_diffs,json=infoDiffs,proto3" json:"info_diffs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConformanceTally) Reset() {
@@ -864,6 +870,20 @@ func (x *ConformanceTally) GetDeviations() uint32 {
 func (x *ConformanceTally) GetExpectedFailures() uint32 {
 	if x != nil {
 		return x.ExpectedFailures
+	}
+	return 0
+}
+
+func (x *ConformanceTally) GetInfo() uint32 {
+	if x != nil {
+		return x.Info
+	}
+	return 0
+}
+
+func (x *ConformanceTally) GetInfoDiffs() uint32 {
+	if x != nil {
+		return x.InfoDiffs
 	}
 	return 0
 }
@@ -1103,7 +1123,7 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
 	"SpecChange\x12\x18\n" +
 	"\arelease\x18\x01 \x01(\rR\arelease\x12\x12\n" +
-	"\x04note\x18\x02 \x01(\tR\x04note\"\xc3\x01\n" +
+	"\x04note\x18\x02 \x01(\tR\x04note\"\xf6\x01\n" +
 	"\x10ConformanceTally\x12\x16\n" +
 	"\x06passed\x18\x01 \x01(\rR\x06passed\x12\x16\n" +
 	"\x06failed\x18\x02 \x01(\rR\x06failed\x12\x18\n" +
@@ -1112,7 +1132,10 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
 	"deviations\x18\x05 \x01(\rR\n" +
 	"deviations\x12+\n" +
-	"\x11expected_failures\x18\x06 \x01(\rR\x10expectedFailures\"\x1d\n" +
+	"\x11expected_failures\x18\x06 \x01(\rR\x10expectedFailures\x12\x12\n" +
+	"\x04info\x18\a \x01(\rR\x04info\x12\x1d\n" +
+	"\n" +
+	"info_diffs\x18\b \x01(\rR\tinfoDiffs\"\x1d\n" +
 	"\x1bListConformanceTestsRequest\"\xad\x01\n" +
 	"\x13ConformanceTestInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +

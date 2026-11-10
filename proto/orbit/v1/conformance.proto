@@ -105,7 +105,9 @@ message ConformanceResult {
   string id = 1;
   string category = 2;
   string spec_ref = 3;
-  string verdict = 4;             // PASS | FAIL | ERROR | SKIP | DEVIATION
+  // PASS | FAIL | ERROR | SKIP | DEVIATION, or, from an informational
+  // check (descriptive references only; never gates), INFO | INFO-DIFF.
+  string verdict = 4;
   string expected = 5;
   string observed = 6;
   string detail = 7;             // ends with the requirement line ("requires Rel-15 or later; <spec_ref>")
@@ -163,6 +165,10 @@ message ConformanceTally {
   uint32 deviations = 5;
   // FAILs the expected-failures list tolerates; they are in `failed` too.
   uint32 expected_failures = 6;
+  // The informational checks' outcomes: INFO (the described behaviour was
+  // observed) and INFO-DIFF (anything else). Neither gates.
+  uint32 info = 7;
+  uint32 info_diffs = 8;
 }
 
 message ListConformanceTestsRequest {}
