@@ -101,7 +101,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
 | Initial Context Setup | AMF→RAN | ✅ (attach; with the Service Accept in `NAS-SERVICE-REQUEST-REACTIVATES`) | — | timing angle (bad/late response) |
-| UE Context Release Request | RAN→AMF | ✅ (the AN release of `NGAP-PAGING-ON-DL-DATA`; its failure is an ERROR, not a verdict) | ⬜ | |
+| UE Context Release Request | RAN→AMF | ✅ `NGAP-UE-CTX-RELEASE-ON-REQUEST` (DEVIATION-class); also the AN release of `NGAP-PAGING-ON-DL-DATA` (its failure is an ERROR, not a verdict) | ⬜ | 8.3.2.2 is a "should" |
 | UE Context Release (Command/Complete) | AMF→RAN | ✅ `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (UE NGAP IDs of the release after a switch-off) | — | the release after a deregistration is descriptive (TS 23.502), so its absence is not scored |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
 
@@ -117,10 +117,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Mobility management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) | ⬜ | transfer-IE bug already documented (interop) |
+| Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) · ✅ `NGAP-HANDOVER-COMMAND-TRANSFER` (Handover List with a transfer per item) | ⬜ | transfer-IE bug already documented (interop); the check runs under strict-3gpp |
 | Handover Resource Allocation (Request→Ack) | AMF→RAN | ✅ | — | ORBIT admits/rejects |
 | Handover Notification | RAN→AMF | ✅ | ⬜ | |
-| Path Switch Request | RAN→AMF | ✅ (Xn) | 🎯 malformed transfer / unknown IDs | |
+| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) | 🎯 malformed transfer / unknown IDs | |
 | Handover Cancellation | RAN→AMF | ⬜ | ⬜ | |
 | Uplink/Downlink RAN Status Transfer | both | ⬜ | ⬜ | |
 
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**19 checks today** (the first four live on the SD-Core testbed):
+**23 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -170,8 +170,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   error, for which the receiver **should** initiate the Error Indication
   procedure (TS 38.413 10.2). An ERROR INDICATION is PASS. A silent drop,
   another PDU, or a dropped association with the core still running is
-  DEVIATION; a core that stops completing NG Setup is FAIL. It is the only
-  check that cites a should and no shall. Not yet run on Ref 2.
+  DEVIATION; a core that stops completing NG Setup is FAIL. It cites a
+  should and no shall, as `NGAP-UE-CTX-RELEASE-ON-REQUEST` does. Not yet run on Ref 2.
 - `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, FAIL-class) — G-PDU with a non-zero
   unknown TEID → TS 29.281 §7.3.1 says the UPF **shall** return an Error
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
@@ -202,6 +202,14 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   once before the release; when it does not arrive the run is an ERROR, not
   a verdict. Needs a UE and a target responder; SKIPs without either. Not yet
   run live.
+- `N3-DL-QFI-CONTAINER` (gtpu, FAIL-class) — a UE with a PDU session sends
+  to the `--traffic` echo peer, and every downlink G-PDU that comes back on
+  N3 must carry the PDU Session Container extension header (TS 29.281
+  5.2.2.7, a shall from V15.5.0; "may" in V15.2.0 to V15.4.0), whose DL PDU
+  SESSION INFORMATION frame has the QFI (TS 38.415 5.4.1.1, 5.5.2.1). Up to
+  50 G-PDUs are sampled within 3 s; one without the container is FAIL. The
+  QFI values are recorded. Needs a UE and `--traffic`, else SKIP; an echo
+  peer that returns nothing is ERROR. Not yet run on Ref 2.
 - `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
@@ -220,6 +228,40 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   after the last old-path G-PDU. Evidence for both runs is on #126. Under the verdict rule, a lab that runs with it off
   lists `no End Marker on the old F-TEID` on its expected-failures list
   ([expected-failures.md](expected-failures.md)).
+
+- `NGAP-PATH-SWITCH-ACK-TRANSFER` (mobility, FAIL-class) — a UE with a PDU
+  session hands over by Xn; the AMF must answer the Path Switch Request with
+  a PATH SWITCH REQUEST ACKNOWLEDGE (TS 38.413 8.4.4.2) whose Switched List
+  carries a Path Switch Request Acknowledge Transfer for the session
+  (9.2.3.9). UL NG-U UP TNL Information inside the transfer is optional from
+  V15.1.0 (9.3.4.9) and never required: absent, it means the uplink endpoint
+  is unchanged, so with `--traffic` the check also expects an echo of uplink
+  sent after the switch, and FAILs without one when the peer answered before
+  the switch. Without `--traffic` the uplink is recorded as not probed. A
+  PATH SWITCH REQUEST FAILURE, or no answer within 5 s, is FAIL. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
+
+- `NGAP-HANDOVER-COMMAND-TRANSFER` (mobility, FAIL-class) — a UE with a PDU
+  session hands over by N2; for an intra-system handover the HANDOVER
+  COMMAND must carry the PDU Session Resource Handover List (TS 38.413
+  8.4.1.2, a shall from V15.5.0), each item with a Handover Command Transfer
+  (9.2.3.2) that decodes. Nothing inside the transfer is asserted (every IE
+  of 9.3.4.10 is optional), and a session missing from the list is recorded
+  only. The target gNB sends the conformant Handover Request Acknowledge
+  Transfer (strict-3gpp, never the `sdcore` profile), so the check measures
+  what [interop/sdcore.md](../interop/sdcore.md) Finding 1 does to the
+  command. A handover that never reaches the command is ERROR. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
+
+- `NGAP-UE-CTX-RELEASE-ON-REQUEST` (procedural, DEVIATION-class) — a
+  registered UE's gNB sends a UE CONTEXT RELEASE REQUEST, cause radio network
+  "release due to NG-RAN generated reason" (never "User inactivity", which
+  from V18.1.0 makes the release conditional). A UE CONTEXT RELEASE COMMAND
+  within 5 s is PASS; none is a DEVIATION, never a FAIL, since TS 38.413
+  8.3.2.2 says "should". A released UE is still registered, so the check
+  deregisters it with an initial NAS message on a new NG connection; that
+  needs the 5G-GUTI, and the detail says how the cleanup went. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
 
 - `NAS-T3560-AUTH-RETRANSMIT` (nas, FAIL-class) — the UE withholds its
   Authentication Response; the AMF must retransmit the Authentication
@@ -339,5 +381,5 @@ Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
 - **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`). ✅ Deregistration Accept for a deregistration that is not switch-off (`NAS-DEREG-ACCEPT-NOT-SWITCH-OFF`). ✅ UE-requested PDU session release (`NAS-PDU-RELEASE-UE-REQUESTED`). ✅ Service Request from CM-IDLE re-establishing a PDU session's user plane (`NAS-SERVICE-REQUEST-REACTIVATES`).
-- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ✅ Echo Request → Echo Response with the sequence number copied (`GTPU-ECHO-RESPONSE`).
+- **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ✅ Echo Request → Echo Response with the sequence number copied (`GTPU-ECHO-RESPONSE`). ✅ PDU Session Container on downlink G-PDUs (`N3-DL-QFI-CONTAINER`, §5.2.2.7).
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

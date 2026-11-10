@@ -45,14 +45,6 @@ func (a *AMF) tasDropped(p *pipe) bool {
 	return a.droppedTAs[p]
 }
 
-// forgetAssociation drops what the mock holds for p's association once it
-// has ended.
-func (a *AMF) forgetAssociation(p *pipe) {
-	a.mu.Lock()
-	delete(a.droppedTAs, p)
-	a.mu.Unlock()
-}
-
 // RANConfigUpdate is one RAN CONFIGURATION UPDATE the mock received.
 type RANConfigUpdate struct {
 	// IEs are the protocol IE IDs the message carried, in order.

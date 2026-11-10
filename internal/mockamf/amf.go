@@ -37,7 +37,7 @@ type Config struct {
 
 	// UPF, when set, makes the mock establish PDU sessions (answering a UE's
 	// PDU Session Establishment Request with a PDU Session Resource Setup
-	// Request) and report sessions and path switches to it. Nil keeps the
+	// Request) and report sessions, path switches and N2 handovers to it. Nil keeps the
 	// mock's registration-only behaviour: PDU session requests go
 	// unanswered. A PathSwitchRequest is always answered: with an
 	// Acknowledge when at least one listed session is known, else with a
@@ -95,7 +95,7 @@ type AMF struct {
 	completeIDs      [][2]int64
 	deregReleases    [][2]int64
 	// strayCompletes counts Completes that came before any switch-off
-	// release named their UE.
+	// release or release on request named their UE.
 	strayCompletes atomic.Int64
 	// setups are the gNBs that sent an NG Setup Request, in order (Setups).
 	setups []Setup
@@ -143,6 +143,13 @@ type AMF struct {
 	releaseDelay         time.Duration
 	staleRelease         time.Duration
 	ignoreReleaseRequest bool
+	// releaseRequests counts the UE CONTEXT RELEASE REQUESTs received,
+	// requestReleases (under mu) are the NGAP ID pairs of the releases sent
+	// to answer them, and idleDeregs counts the Deregistration Requests
+	// that came in an Initial UE Message.
+	releaseRequests atomic.Int64
+	requestReleases [][2]int64
+	idleDeregs      atomic.Int64
 
 	// PDU session release options and counters (pdurelease.go).
 	pduReleaseAnswer        PDUReleaseAnswer
@@ -150,14 +157,11 @@ type AMF struct {
 	pduReleaseReqs          atomic.Int64
 	pduReleaseCompletes     atomic.Int64
 	pduResourceReleaseResps atomic.Int64
-	// CM-IDLE options and state (idle.go): assocs are the live associations
-	// that completed NG Setup, each with its first supported TAC, guarded
-	// by mu.
+	// CM-IDLE options and state (idle.go).
 	noPaging        bool
 	pagingTMSIXor   uint32
 	serviceAnswer   ServiceAnswer
 	serviceCause    uint8
-	assocs          map[*pipe][]byte
 	pagings         atomic.Int64
 	serviceRequests atomic.Int64
 
@@ -168,6 +172,21 @@ type AMF struct {
 
 	// Unserved-NSSAI answer (nssai.go).
 	nssaiAnswer NSSAIAnswer
+
+	// Path switch answer (pathswitch.go).
+	pathSwitchAnswer PathSwitchAnswer
+
+	// assocs are the live associations that completed NG Setup, guarded by
+	// mu: paging goes out on each (idle.go), and an N2 handover finds its
+	// target among them by gNB ID (handover.go). assocSeq orders them.
+	assocs   map[*pipe]association
+	assocSeq uint64
+
+	// N2 handover (handover.go). handovers are those in preparation, by
+	// AMF-UE-NGAP-ID, guarded by mu.
+	handoverAnswer HandoverAnswer
+	handovers      map[int64]*handover
+	handoversDone  atomic.Int64
 
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
@@ -229,7 +248,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log, droppedTAs: make(map[*pipe]bool), assocs: make(map[*pipe][]byte)}
+		ues: make(map[int64]*ueState), log: log, droppedTAs: make(map[*pipe]bool), assocs: make(map[*pipe]association), handovers: make(map[int64]*handover)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -277,9 +296,6 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			st.t3550.stop()
 		}
 		a.forgetAssociation(p)
-		a.mu.Lock()
-		delete(a.assocs, p)
-		a.mu.Unlock()
 	}()
 	buf := make([]byte, 65536)
 	for {
@@ -312,8 +328,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
+		setup := setupOf(pdu.InitiatingMessage.Value.NGSetupRequest)
 		a.mu.Lock()
-		a.setups = append(a.setups, setupOf(pdu.InitiatingMessage.Value.NGSetupRequest))
+		a.setups = append(a.setups, setup)
 		a.mu.Unlock()
 		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.served) {
 			return a.send(p, buildNGSetupFailureUnknownPLMN())
@@ -323,7 +340,8 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 			return err
 		}
 		a.mu.Lock()
-		a.assocs[p] = firstTAC(pdu.InitiatingMessage.Value.NGSetupRequest)
+		a.assocSeq++
+		a.assocs[p] = association{gnbID: setup.GNBID, tac: firstTAC(pdu.InitiatingMessage.Value.NGSetupRequest), seq: a.assocSeq}
 		a.mu.Unlock()
 		return a.send(p, resp)
 	}
@@ -331,6 +349,10 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentInitialContextSetupResponse {
 		a.onInitialContextSetupResponse(pdu.SuccessfulOutcome.Value.InitialContextSetupResponse)
 		return nil
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentHandoverRequestAcknowledge {
+		return a.onHandoverRequestAcknowledge(p, pdu.SuccessfulOutcome.Value.HandoverRequestAcknowledge)
 	}
 	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceSetupResponse {
@@ -343,6 +365,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		a.completeIDs = append(a.completeIDs, ids)
 		answered := false
 		for _, r := range a.deregReleases {
+			answered = answered || r == ids
+		}
+		for _, r := range a.requestReleases {
 			answered = answered || r == ids
 		}
 		a.mu.Unlock()
@@ -361,8 +386,13 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 		return nil // Initial Context Setup Response etc. — no action
 	}
-	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentPathSwitchRequest {
+	switch pdu.InitiatingMessage.Value.Present {
+	case ngapType.InitiatingMessagePresentPathSwitchRequest:
 		return a.onPathSwitchRequest(p, states, pdu.InitiatingMessage.Value.PathSwitchRequest)
+	case ngapType.InitiatingMessagePresentHandoverRequired:
+		return a.onHandoverRequired(p, pdu.InitiatingMessage.Value.HandoverRequired)
+	case ngapType.InitiatingMessagePresentHandoverNotify:
+		return a.onHandoverNotify(p, states, pdu.InitiatingMessage.Value.HandoverNotify)
 	}
 	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentRANConfigurationUpdate {
 		return a.onRANConfigUpdate(p, pdu.InitiatingMessage.Value.RANConfigurationUpdate)
@@ -575,8 +605,9 @@ func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
 func (a *AMF) ReleaseCompletes() int64 { return a.releaseCompletes.Load() }
 
 // StrayReleaseCompletes reports how many UE CONTEXT RELEASE COMPLETEs
-// arrived before any switch-off release named their UE: a gNB that took
-// some other PDU, or an older release, for the answer.
+// arrived before any release the mock sent named their UE (for a
+// switch-off, or on the gNB's request): a gNB that took some other PDU, or
+// an older release, for the answer.
 func (a *AMF) StrayReleaseCompletes() int64 { return a.strayCompletes.Load() }
 
 // ReleaseCompleteIDs reports the (AMF, RAN) UE NGAP ID pair each UE

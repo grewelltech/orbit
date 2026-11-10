@@ -176,7 +176,10 @@ func TestRunOneVerdictRule(t *testing.T) {
 
 // shouldOnly are the registered checks that cite a should and no shall, so
 // their worst verdict is DEVIATION.
-var shouldOnly = map[string]bool{"NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX": true}
+var shouldOnly = map[string]bool{
+	"NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX": true,
+	"NGAP-UE-CTX-RELEASE-ON-REQUEST":         true,
+}
 
 // Every registered check's worst verdict follows what it cites: DEVIATION
 // for the should-only checks named in shouldOnly, FAIL for every other. A

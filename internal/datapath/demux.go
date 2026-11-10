@@ -314,12 +314,12 @@ func (d *Demux) run() {
 				// (the late-G-PDU-after-End-Marker evidence).
 				if d.tombsLive.Load() > 0 {
 					if trx := d.tombstoneLane(g.TEID, arrival); trx != nil {
-						trx.noteStaleGPDU(GPDUArrival{Arrival: arrival, TEID: g.TEID, GNB: d.local, Stale: true})
+						trx.noteStaleGPDU(GPDUArrival{Arrival: arrival, TEID: g.TEID, GNB: d.local, Stale: true, HasQFI: g.HasQFI, QFI: g.QFI})
 					}
 				}
 				continue
 			}
-			rx.noteDownlink(g.QFI, g.HasQFI, len(g.Payload), GPDUArrival{Arrival: arrival, TEID: g.TEID, GNB: d.local})
+			rx.noteDownlink(g.QFI, g.HasQFI, len(g.Payload), GPDUArrival{Arrival: arrival, TEID: g.TEID, GNB: d.local, HasQFI: g.HasQFI, QFI: g.QFI})
 			pkt := make([]byte, len(g.Payload))
 			copy(pkt, g.Payload)
 			rx.dispatch(pkt, arrival)
@@ -496,6 +496,11 @@ type GPDUArrival struct {
 	TEID    uint32 // the TEID the G-PDU arrived on
 	GNB     string // the gNB N3 socket address it arrived on
 	Stale   bool   // arrived on a tombstoned (vacated) TEID
+	// HasQFI reports whether the G-PDU carried a PDU Session Container
+	// extension header (TS 29.281 5.2.2.7), and QFI is its QoS Flow
+	// Identifier.
+	HasQFI bool
+	QFI    uint8
 }
 
 // SetGPDUFunc installs a callback fired (from the reader goroutine, must not

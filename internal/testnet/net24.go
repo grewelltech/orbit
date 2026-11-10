@@ -101,6 +101,52 @@ const (
 	CLIScenariosRun   = 87 // TestScenariosRunWithTarget
 )
 
+// Blocks of the mobility conformance checks' tests, in internal/engine and
+// internal/conformance.
+const (
+	EngineXnAckKeptUL     = 200 // TestXnHandoverReportsTheAcknowledge/uplink_tunnel_kept
+	EngineXnAckNewUL      = 201 // TestXnHandoverReportsTheAcknowledge/uplink_tunnel_reallocated
+	EngineXnAckNoTransfer = 202 // TestXnHandoverReportsTheAcknowledge/transfer_omitted
+	EngineXnNotAckFailure = 203 // TestXnHandoverNotAcknowledged/failure
+	EngineXnNotAckSilence = 204 // TestXnHandoverNotAcknowledged/no_answer
+	EngineN2Completes     = 205 // TestN2HandoverOverMockPair/completes
+	EngineN2NoList        = 206 // TestN2HandoverOverMockPair/command_without_the_list
+	EngineN2PrepFailure   = 207 // TestN2HandoverPreparationFails/preparation_failure
+	EngineN2Unanswered    = 208 // TestN2HandoverPreparationFails/no_answer
+	EngineReleaseOnReq    = 227 // TestRequestContextReleaseOverMockPair/released
+	EngineReleaseIgnored  = 228 // TestRequestContextReleaseOverMockPair/request_ignored
+
+	ConformancePSAckPlain      = 190 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_no_traffic
+	ConformancePSAckEcho       = 191 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_uplink_answered
+	ConformancePSAckNewUL      = 192 // TestPathSwitchAckCheckAgainstMockPair/new_uplink_endpoint,_uplink_answered
+	ConformancePSAckSilentPeer = 193 // TestPathSwitchAckCheckAgainstMockPair/echo_peer_silent
+	ConformancePSAckNoTransfer = 194 // TestPathSwitchAckCheckAgainstMockPair/transfer_omitted
+	ConformancePSAckHiddenUL   = 195 // TestPathSwitchAckCheckAgainstMockPair/uplink_endpoint_moved_without_UL_TNL
+	ConformancePSAckFailure    = 196 // TestPathSwitchAckCheckAgainstMockPair/path_switch_request_failure
+	ConformancePSAckIgnored    = 197 // TestPathSwitchAckCheckAgainstMockPair/path_switch_request_unanswered
+	ConformancePSAckRegFail    = 198 // TestPathSwitchAckCheckErrors/registration_refused
+	ConformancePSAckTimeout    = 199 // TestPathSwitchAckCheckErrors/timeout_in_the_uplink_window
+
+	ConformanceHOCmdPass       = 210 // TestHandoverCommandCheckAgainstMockPair/command_with_the_list
+	ConformanceHOCmdNoList     = 211 // TestHandoverCommandCheckAgainstMockPair/list_dropped
+	ConformanceHOCmdNoTransfer = 212 // TestHandoverCommandCheckAgainstMockPair/transfer_omitted
+	ConformanceHOCmdBadTransfe = 213 // TestHandoverCommandCheckAgainstMockPair/transfer_undecodable
+	ConformanceHOCmdPrepFail   = 214 // TestHandoverCommandCheckAgainstMockPair/preparation_failure
+	ConformanceHOCmdUnanswered = 215 // TestHandoverCommandCheckAgainstMockPair/handover_required_unanswered
+	ConformanceHOCmdRegFail    = 216 // TestHandoverCommandCheckRegistrationFailure
+
+	ConformanceRelOnReq   = 230 // TestUECtxReleaseCheckAgainstMock/command
+	ConformanceRelIgnored = 231 // TestUECtxReleaseCheckAgainstMock/command_withheld
+	ConformanceRelNoGUTI  = 232 // TestUECtxReleaseCheckAgainstMock/command,_no_5G-GUTI
+	ConformanceRelRegFail = 233 // TestUECtxReleaseCheckRegistrationFailure
+
+	ConformanceQFIPresent = 235 // TestQFIContainerCheckAgainstMockPair/container_present
+	ConformanceQFIAbsent  = 236 // TestQFIContainerCheckAgainstMockPair/container_absent
+	ConformanceQFISilent  = 237 // TestQFIContainerCheckAgainstMockPair/echo_peer_silent
+	ConformanceQFIRegFail = 238 // TestQFIContainerCheckErrors/registration_refused
+	ConformanceQFITimeout = 239 // TestQFIContainerCheckErrors/timeout_while_sampling
+)
+
 // Base is block n's address prefix, "127.0.n." (append the host part).
 func Base(n int) string { return fmt.Sprintf("127.0.%d.", n) }
 

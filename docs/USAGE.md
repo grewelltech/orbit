@@ -1442,6 +1442,41 @@ arrives on. The check takes up to 46 s. The detail records the Service
 Accept's PDU session status and PDU session reactivation result, the new
 tunnel's endpoints and the delays, and asserts none of them.
 
+`NGAP-PATH-SWITCH-ACK-TRANSFER` makes the same Xn handover and judges the
+AMF's answer. It passes when a PATH SWITCH REQUEST ACKNOWLEDGE arrives within
+5 s and its Switched List carries a Path Switch Request Acknowledge Transfer
+for the UE's PDU session (TS 38.413 8.4.4.2, 9.2.3.9). The transfer's UL NG-U
+UP TNL Information is optional and never required. With `--traffic` the check
+also watches for 2 s after the Acknowledge: when the transfer kept the uplink
+endpoint and the echo peer, which answered before the handover, no longer
+answers, the check FAILs. Without `--traffic`, or with a peer that never
+answered, the detail says the uplink was not probed.
+
+`NGAP-HANDOVER-COMMAND-TRANSFER` hands the UE over to the second gNB by N2
+instead, and judges the HANDOVER COMMAND the source gNB receives. It passes
+when the command carries the PDU Session Resource Handover List and every
+item in it has a Handover Command Transfer that decodes (TS 38.413 8.4.1.2,
+9.2.3.2). The check always runs under the `strict-3gpp` core profile,
+whatever profile other commands use, so it reports how the core handles the
+conformant Handover Request Acknowledge. It is an ERROR when the handover
+does not reach the command within 8 s.
+
+One `procedural` check needs the UE flags too, and SKIPs without them:
+`NGAP-UE-CTX-RELEASE-ON-REQUEST` registers the UE without a PDU session and
+has its gNB send a UE CONTEXT RELEASE REQUEST. It passes when the AMF answers
+with a UE CONTEXT RELEASE COMMAND within 5 s, and reports a DEVIATION, never a
+FAIL, when it does not (TS 38.413 8.3.2.2 says "should"). The released UE is
+still registered, so the check then deregisters it with an initial NAS
+message; the detail says how that went.
+
+One `gtpu` check runs through the UE as well: `N3-DL-QFI-CONTAINER` registers
+the UE with a PDU session, sends to the `--traffic` echo peer, and samples the
+downlink G-PDUs that come back (up to 50, within 3 s). It passes when every
+one carries the PDU Session Container extension header with a QFI (TS 29.281
+5.2.2.7) and FAILs when any does not. It needs `--traffic` as well as the UE
+flags and SKIPs without either; it does not use `--upf-n3` or `--n3-bind`. An
+echo peer that returns nothing is an ERROR, since nothing was sampled.
+
 The `nas` category also needs the UE flags (`--supi`, the keys and
 `--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
 UE without a PDU session and withholds its Authentication Response. It passes

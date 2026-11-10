@@ -194,11 +194,23 @@ func releaseCompleteIDs(c *ngapType.UEContextReleaseComplete) [2]int64 {
 // unless WithIgnoreUEContextReleaseRequest. A request for a UE the
 // association never registered is ignored.
 func (a *AMF) onUEContextReleaseRequest(p *pipe, st *ueState) error {
+	a.releaseRequests.Add(1)
 	if a.ignoreReleaseRequest || st.amfID == 0 {
 		return nil
 	}
+	amfID, ranID := st.amfID, a.ranIDOf(st)
 	a.mu.Lock()
 	st.releasing = true
+	a.requestReleases = append(a.requestReleases, [2]int64{amfID, ranID})
 	a.mu.Unlock()
-	return a.send(p, buildUEContextReleaseCommandCause(st.amfID, a.ranIDOf(st), ngapType.CauseNasPresentNormalRelease))
+	return a.send(p, buildUEContextReleaseCommandCause(amfID, ranID, ngapType.CauseNasPresentNormalRelease))
 }
+
+// ReleaseRequests reports how many UE CONTEXT RELEASE REQUESTs the mock has
+// received.
+func (a *AMF) ReleaseRequests() int64 { return a.releaseRequests.Load() }
+
+// IdleDeregistrations reports how many of the Deregistration Requests the
+// mock received came as an initial NAS message, in an Initial UE Message
+// (Deregistrations counts them too).
+func (a *AMF) IdleDeregistrations() int64 { return a.idleDeregs.Load() }

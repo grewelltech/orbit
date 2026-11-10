@@ -149,6 +149,15 @@ func (nasPDUReleaseUERequested) Needs() CheckNeeds     { return ueNeeds }
 // Needs is one UE: the check registers it after the update.
 func (ranConfigUpdateKeepsTA) Needs() CheckNeeds { return ueNeeds }
 
+func (ngapPathSwitchAckTransfer) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
+}
+func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
+}
+func (ngapUECtxReleaseOnRequest) Needs() CheckNeeds { return ueNeeds }
+func (n3DLQFIContainer) Needs() CheckNeeds          { return ueNeeds }
+
 // The NAS timer checks measure retransmissions against tmax windows, which
 // a loaded AMF's scheduling jitter would push out.
 func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return timerNeeds }

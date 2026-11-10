@@ -2,6 +2,7 @@ package datapath
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"sync"
@@ -913,5 +914,63 @@ func TestDemuxGPDUObserver(t *testing.T) {
 	}
 	if n := count(); n != 2 {
 		t.Errorf("observer saw %d G-PDUs, want 2", n)
+	}
+}
+
+// The G-PDU observer reports whether each G-PDU carried a PDU Session
+// Container and its QFI, on the live TEID and on a vacated one alike.
+func TestDemuxGPDUObserverReportsTheQFIContainer(t *testing.T) {
+	const oldTEID, newTEID = 0x300, 0x400
+	r := newDemuxRig(t, 1, oldTEID, 1)
+	rx := r.d.Register(oldTEID)
+	var mu sync.Mutex
+	var seen []GPDUArrival
+	rx.SetGPDUFunc(func(g GPDUArrival) {
+		mu.Lock()
+		seen = append(seen, g)
+		mu.Unlock()
+	})
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen)
+	}
+	// plain is a G-PDU with the mandatory header only.
+	plain := func(teid uint32, inner []byte) []byte {
+		b := make([]byte, 8, 8+len(inner))
+		b[0], b[1] = 0x30, gtpu.MsgTypeGPDU
+		binary.BigEndian.PutUint16(b[2:], uint16(len(inner)))
+		binary.BigEndian.PutUint32(b[4:], teid)
+		return append(b, inner...)
+	}
+	send := func(pkt []byte) {
+		t.Helper()
+		if _, err := r.upf.WriteToUDP(pkt, r.tun.conn.LocalAddr().(*net.UDPAddr)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	r.sendDL(t, oldTEID, 9, icmpPkt(t, 3, 1))
+	waitFor(t, "G-PDU with a container", func() bool { return count() == 1 })
+	send(plain(oldTEID, icmpPkt(t, 3, 2)))
+	waitFor(t, "G-PDU without a container", func() bool { return count() == 2 })
+	if err := r.d.Rebind(oldTEID, newTEID); err != nil {
+		t.Fatal(err)
+	}
+	r.sendDL(t, oldTEID, 5, icmpPkt(t, 3, 3))
+	waitFor(t, "stale G-PDU with a container", func() bool { return count() == 3 })
+	send(plain(oldTEID, icmpPkt(t, 3, 4)))
+	waitFor(t, "stale G-PDU without a container", func() bool { return count() == 4 })
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []struct {
+		hasQFI, stale bool
+		qfi           uint8
+	}{{true, false, 9}, {false, false, 0}, {true, true, 5}, {false, true, 0}}
+	for i, w := range want {
+		if g := seen[i]; g.HasQFI != w.hasQFI || g.QFI != w.qfi || g.Stale != w.stale {
+			t.Errorf("G-PDU %d = %+v, want container %v (QFI %d), stale %v", i+1, g, w.hasQFI, w.qfi, w.stale)
+		}
 	}
 }

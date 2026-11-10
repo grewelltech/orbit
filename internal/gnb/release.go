@@ -1,6 +1,9 @@
 package gnb
 
-import "github.com/free5gc/ngap/ngapType"
+import (
+	"github.com/free5gc/aper"
+	"github.com/free5gc/ngap/ngapType"
+)
 
 // BuildUEContextReleaseRequest asks the AMF to release a UE's context
 // (TS 38.413 §8.3.2, §9.2.2.4), cause radio network "release due to NG-RAN
@@ -74,4 +77,106 @@ func BuildUEContextReleaseComplete(amfUENGAPID, ranUENGAPID int64) ngapType.NGAP
 		*list = append(*list, ie)
 	}
 	return pdu
+}
+
+// UEContextReleaseCommandInfo is what a UE CONTEXT RELEASE COMMAND names.
+type UEContextReleaseCommandInfo struct {
+	// AMFUENGAPID and RANUENGAPID are the UE NGAP ID pair; HasPair is false
+	// when the command names the UE by its AMF-UE-NGAP-ID alone, and
+	// RANUENGAPID is then zero.
+	AMFUENGAPID, RANUENGAPID int64
+	HasPair                  bool
+	// Cause is the command's cause, "" when it carries none.
+	Cause string
+}
+
+// ParseUEContextReleaseCommand reads a UE CONTEXT RELEASE COMMAND's UE NGAP
+// IDs and cause; false for any other PDU.
+func ParseUEContextReleaseCommand(pdu *ngapType.NGAPPDU) (UEContextReleaseCommandInfo, bool) {
+	var out UEContextReleaseCommandInfo
+	if !IsUEContextReleaseCommand(pdu) || pdu.InitiatingMessage.Value.UEContextReleaseCommand == nil {
+		return out, false
+	}
+	for _, ie := range pdu.InitiatingMessage.Value.UEContextReleaseCommand.ProtocolIEs.List {
+		switch ie.Id.Value {
+		case ngapType.ProtocolIEIDUENGAPIDs:
+			ids := ie.Value.UENGAPIDs
+			switch {
+			case ids == nil:
+			case ids.Present == ngapType.UENGAPIDsPresentUENGAPIDPair && ids.UENGAPIDPair != nil:
+				out.AMFUENGAPID, out.RANUENGAPID, out.HasPair = ids.UENGAPIDPair.AMFUENGAPID.Value, ids.UENGAPIDPair.RANUENGAPID.Value, true
+			case ids.Present == ngapType.UENGAPIDsPresentAMFUENGAPID && ids.AMFUENGAPID != nil:
+				out.AMFUENGAPID = ids.AMFUENGAPID.Value
+			}
+		case ngapType.ProtocolIEIDCause:
+			if ie.Value.Cause != nil {
+				out.Cause = causeString(ie.Value.Cause)
+			}
+		}
+	}
+	return out, true
+}
+
+// BuildInitialUEMessageFromIdle wraps the initial NAS message of a
+// registered UE that has no NG connection (TS 38.413 §8.6.1): the NAS PDU,
+// the location, establishment cause mo-Signalling and, when guti is a
+// 5G-GUTI mobile identity value (TS 24.501 9.11.3.4), the 5G-S-TMSI taken
+// from it, by which the AMF finds the UE. It requests no UE context.
+func BuildInitialUEMessageFromIdle(cfg Config, ranUENGAPID int64, nasPDU, guti []byte) (ngapType.NGAPPDU, error) {
+	var pdu ngapType.NGAPPDU
+	loc, err := locationFrom(cfg)
+	if err != nil {
+		return pdu, err
+	}
+	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
+	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
+	pdu.InitiatingMessage.ProcedureCode.Value = ngapType.ProcedureCodeInitialUEMessage
+	pdu.InitiatingMessage.Criticality.Value = ngapType.CriticalityPresentIgnore
+	pdu.InitiatingMessage.Value.Present = ngapType.InitiatingMessagePresentInitialUEMessage
+	pdu.InitiatingMessage.Value.InitialUEMessage = new(ngapType.InitialUEMessage)
+	list := &pdu.InitiatingMessage.Value.InitialUEMessage.ProtocolIEs.List
+	add := func(id int64, crit aper.Enumerated, fill func(*ngapType.InitialUEMessageIEs)) {
+		ie := ngapType.InitialUEMessageIEs{}
+		ie.Id.Value = id
+		ie.Criticality.Value = crit
+		fill(&ie)
+		*list = append(*list, ie)
+	}
+	add(ngapType.ProtocolIEIDRANUENGAPID, ngapType.CriticalityPresentReject, func(ie *ngapType.InitialUEMessageIEs) {
+		ie.Value.Present = ngapType.InitialUEMessageIEsPresentRANUENGAPID
+		ie.Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranUENGAPID}
+	})
+	add(ngapType.ProtocolIEIDNASPDU, ngapType.CriticalityPresentReject, func(ie *ngapType.InitialUEMessageIEs) {
+		ie.Value.Present = ngapType.InitialUEMessageIEsPresentNASPDU
+		ie.Value.NASPDU = &ngapType.NASPDU{Value: nasPDU}
+	})
+	add(ngapType.ProtocolIEIDUserLocationInformation, ngapType.CriticalityPresentReject, func(ie *ngapType.InitialUEMessageIEs) {
+		ie.Value.Present = ngapType.InitialUEMessageIEsPresentUserLocationInformation
+		ie.Value.UserLocationInformation = loc.userLocationInformation()
+	})
+	add(ngapType.ProtocolIEIDRRCEstablishmentCause, ngapType.CriticalityPresentIgnore, func(ie *ngapType.InitialUEMessageIEs) {
+		ie.Value.Present = ngapType.InitialUEMessageIEsPresentRRCEstablishmentCause
+		ie.Value.RRCEstablishmentCause = &ngapType.RRCEstablishmentCause{Value: ngapType.RRCEstablishmentCausePresentMoSignalling}
+	})
+	// A 5G-GUTI mobile identity value: the type octet, the PLMN (3), the
+	// AMF Region ID (1), the AMF Set ID and Pointer (10 and 6 bits) and the
+	// 5G-TMSI (4). The 5G-S-TMSI is the last six octets.
+	if len(guti) == 11 && guti[0]&0x07 == 0x02 {
+		add(ngapType.ProtocolIEIDFiveGSTMSI, ngapType.CriticalityPresentReject, func(ie *ngapType.InitialUEMessageIEs) {
+			ie.Value.Present = ngapType.InitialUEMessageIEsPresentFiveGSTMSI
+			t := new(ngapType.FiveGSTMSI)
+			t.AMFSetID.Value = aper.BitString{Bytes: []byte{guti[5], guti[6] & 0xc0}, BitLength: 10}
+			t.AMFPointer.Value = aper.BitString{Bytes: []byte{guti[6] << 2}, BitLength: 6}
+			t.FiveGTMSI.Value = aper.OctetString(append([]byte(nil), guti[7:11]...))
+			ie.Value.FiveGSTMSI = t
+		})
+	}
+	return pdu, nil
+}
+
+// IsUEContextReleaseCommand reports whether pdu is a UE CONTEXT RELEASE
+// COMMAND (TS 38.413 8.3.3).
+func IsUEContextReleaseCommand(pdu *ngapType.NGAPPDU) bool {
+	return pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
+		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentUEContextReleaseCommand
 }

@@ -146,8 +146,8 @@ func (a *AMF) DownlinkData(supi string, pduSessionID uint8) {
 			s.pending = true
 		}
 		tmsi = uint32(st.amfID)
-		for p, tac := range a.assocs {
-			targets = append(targets, target{p, tac})
+		for p, as := range a.assocs {
+			targets = append(targets, target{p, as.tac})
 		}
 	}
 	a.mu.Unlock()
@@ -228,6 +228,7 @@ func (a *AMF) onIdleInitialUE(p *pipe, states map[int64]*ueState, up *uplinkMess
 		return a.onServiceRequest(p, st, msg.ServiceRequest)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
 		a.deregs.Add(1)
+		a.idleDeregs.Add(1)
 		return a.onDeregistration(p, st, msg)
 	}
 	return nil

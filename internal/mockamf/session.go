@@ -61,7 +61,8 @@ type UPF interface {
 	// Resource Setup with its downlink tunnel.
 	SessionUp(s SessionInfo)
 	// PathSwitched is called after the PathSwitchRequestAcknowledge has
-	// been sent, once per switched session.
+	// been sent, once per switched session, and after an N2 handover's
+	// HANDOVER NOTIFY, once per session handed over.
 	PathSwitched(p PathSwitch)
 }
 
@@ -223,7 +224,7 @@ func (a *AMF) sessionsUp(amfID int64, dls map[uint8]Tunnel) {
 // the listed sessions is known (always so without a UPF), it answers a
 // PathSwitchRequestFailure listing the requested sessions (TS 38.413
 // §8.4.4.3), as a real AMF would, so the caller fails at once instead of
-// waiting out its timeout.
+// waiting out its timeout. WithPathSwitchAnswer changes the answer.
 func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapType.PathSwitchRequest) error {
 	var ranID, srcAMFID int64
 	newDL := map[uint8]Tunnel{}
@@ -252,6 +253,12 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 	for id := range newDL {
 		requested = append(requested, id)
 	}
+	switch a.pathSwitchAnswer {
+	case IgnorePathSwitch:
+		return nil
+	case FailPathSwitch:
+		return a.send(p, buildPathSwitchRequestFailure(srcAMFID, ranID, requested))
+	}
 	var switches []PathSwitch
 	var switched []switchedItem
 	a.mu.Lock()
@@ -266,11 +273,13 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 			continue
 		}
 		ps := PathSwitch{SUPI: st.supi, PDUSessionID: id, OldUL: s.ul, NewUL: s.ul, OldDL: s.dl, NewDL: dl}
-		si := switchedItem{id: id}
-		if a.cfg.ReallocateULOnPathSwitch {
+		si := switchedItem{id: id, noTransfer: a.pathSwitchAnswer == AckWithoutTransfer}
+		if a.cfg.ReallocateULOnPathSwitch || a.pathSwitchAnswer == AckWithNewUL || a.pathSwitchAnswer == AckHidingULChange {
 			ps.NewUL = Tunnel{Addr: s.ul.Addr, TEID: a.nextULTEID()}
-			ul := ps.NewUL
-			si.newUL = &ul
+			if a.pathSwitchAnswer != AckHidingULChange {
+				ul := ps.NewUL
+				si.newUL = &ul
+			}
 		}
 		s.dl, s.ul = ps.NewDL, ps.NewUL
 		switches = append(switches, ps)
@@ -510,10 +519,12 @@ func setupRequestPDU(amfID, ranID int64, id uint8, nasPDU []byte, transfer aper.
 }
 
 // switchedItem is one session in a PathSwitchRequestAcknowledge; newUL is
-// set when the UPF's uplink tunnel was reallocated.
+// set when the transfer names a reallocated UPF uplink tunnel, and
+// noTransfer leaves the item's transfer empty.
 type switchedItem struct {
-	id    uint8
-	newUL *Tunnel
+	id         uint8
+	newUL      *Tunnel
+	noTransfer bool
 }
 
 // buildPathSwitchRequestAcknowledge builds the AMF's PathSwitchRequest
@@ -562,6 +573,9 @@ func buildPathSwitchRequestAcknowledge(amfID, ranID int64, switched []switchedIt
 		b, err := aper.MarshalWithParams(tr, "valueExt")
 		if err != nil {
 			return ngapType.NGAPPDU{}, fmt.Errorf("mock amf encode path switch ack transfer: %w", err)
+		}
+		if s.noTransfer {
+			b = aper.OctetString{}
 		}
 		item := ngapType.PDUSessionResourceSwitchedItem{}
 		item.PDUSessionID.Value = int64(s.id)

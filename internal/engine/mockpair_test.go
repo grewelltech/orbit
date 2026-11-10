@@ -34,9 +34,9 @@ type mockPair struct {
 	cfg     gnb.Config // source gNB; the target is ID 2
 }
 
-func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) *mockPair {
+func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool, amfOpts ...mockamf.Option) *mockPair {
 	t.Helper()
-	return newMockPairWith(t, net24, opts, reallocUL)
+	return newMockPairWith(t, net24, opts, reallocUL, amfOpts...)
 }
 
 // newMockPairWith is newMockPair with mock AMF options; the stub UPF's

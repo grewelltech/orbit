@@ -123,9 +123,15 @@ func TestRegistryNeeds(t *testing.T) {
 			if !slices.IsSorted(all.GNBIDs) || all.GNBIDs[len(all.GNBIDs)-1]-700 > tc.span {
 				t.Errorf("gNB IDs %v not ascending within %d of the base", all.GNBIDs, tc.span)
 			}
-			// One handover target, every check's own and probe: 2N+1.
-			if len(all.GNBIDs) != int(2*n+1) {
-				t.Errorf("%d IDs, want %d", len(all.GNBIDs), 2*n+1)
+			// Every check's own and probe, and a target per handover check.
+			handovers := 0
+			for _, c := range r.Tests() {
+				if slices.Contains(NeedsOf(c).GNBRoles, RoleHandover) {
+					handovers++
+				}
+			}
+			if handovers < 2 || len(all.GNBIDs) != int(2*n)+handovers {
+				t.Errorf("%d IDs with %d handover checks, want 2N+%d = %d", len(all.GNBIDs), handovers, handovers, int(2*n)+handovers)
 			}
 			// A category whose checks register no UE needs none.
 			if ng := r.Needs(700, tc.packed, NegativeIE); ng.UEs != 0 || len(ng.GNBIDs) == 0 {

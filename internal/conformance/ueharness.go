@@ -61,8 +61,8 @@ const (
 
 // UEHarness drives one UE through engine.Manager for the mobility checks: it
 // registers the UE with a PDU session on Env.GNB (gNB A), observes its
-// downlink lane, runs an optional echo flow, hands it over by Xn to gNB B
-// (Env.TargetGNBID, same PLMN, TAC and slices) and records what
+// downlink lane, runs an optional echo flow, hands it over by Xn or N2 to
+// gNB B (Env.TargetGNBID, same PLMN, TAC and slices) and records what
 // arrived on the old path. Both gNB associations come from Env.Bind, which
 // must leave the port to the kernel. Close releases everything.
 type UEHarness struct {
@@ -106,6 +106,12 @@ type PathObservation struct {
 	GPDUs        []datapath.GPDUArrival
 	// Traffic is the configured echo peer ("" none).
 	Traffic string
+	// NewTEID is the downlink TEID gNB B gave the core in the Path Switch
+	// Request.
+	NewTEID uint32
+	// Switched is the PDU Session Resource Switched List of the Path Switch
+	// Request Acknowledge, as received; nil before the switch.
+	Switched *gnb.PathSwitchAck
 }
 
 // NewUEHarness validates env for a UE-level check and builds a harness. It
@@ -299,8 +305,9 @@ func (h *UEHarness) StartTraffic(ctx context.Context) {
 }
 
 // XnHandover hands the UE over to gNB B by Xn (Path Switch Request on a
-// second association) and records the switch's timing and the vacated
-// tunnel.
+// second association) and records the switch's timing, the vacated tunnel
+// and the Acknowledge's Switched List. A Path Switch Request that went
+// unacknowledged is an error wrapping engine.ErrPathSwitchNotAcknowledged.
 func (h *UEHarness) XnHandover(ctx context.Context) error {
 	sess, err := h.m.Status(h.supi)
 	if err != nil {
@@ -310,7 +317,7 @@ func (h *UEHarness) XnHandover(ctx context.Context) error {
 	defer unsub()
 	started := time.Now()
 	src := sess.Result.DLTEID
-	_, err = h.m.XnHandover(ctx, h.supi, engine.GNBEndpoint{
+	res, err := h.m.XnHandover(ctx, h.supi, engine.GNBEndpoint{
 		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
 	})
 	returned := time.Now()
@@ -334,6 +341,7 @@ drain:
 	h.mu.Lock()
 	h.obs.OldTEID = src
 	h.obs.Started, h.obs.Ack, h.obs.AckFromEvent = started, ack, fromEvent
+	h.obs.NewTEID, h.obs.Switched = sess.Result.DLTEID, res.PathSwitchAck
 	h.mu.Unlock()
 	return nil
 }
@@ -459,6 +467,30 @@ func (h *UEHarness) AwaitDownlinkQuiet(ctx context.Context, quiet, limit time.Du
 			return false, ctx.Err()
 		}
 	}
+}
+
+// N2Handover hands the UE over to gNB B by N2 (Handover Required on gNB
+// A's association, Handover Request and Notify on a second one) and returns
+// the HANDOVER COMMAND's PDU Session Resource Handover List as received. It
+// is nil when the handover failed before the command, and set along with
+// the error when it failed after it. The harness's Manager runs the
+// strict-3gpp core profile: no core-specific quirk shapes what gNB B sends.
+func (h *UEHarness) N2Handover(ctx context.Context) (*gnb.HandoverCommandInfo, error) {
+	res, err := h.m.Handover(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	})
+	if err != nil {
+		return res.Command, fmt.Errorf("handover (N2) to gNB %#x: %w", h.TargetGNB().ID, err)
+	}
+	return res.Command, nil
+}
+
+// RequestContextRelease sends a UE CONTEXT RELEASE REQUEST for the UE from
+// gNB A and waits up to wait for the AMF's UE CONTEXT RELEASE COMMAND. A
+// released UE stays registered, and Deregister (or Close) then sends its
+// Deregistration Request as an initial NAS message.
+func (h *UEHarness) RequestContextRelease(ctx context.Context, wait time.Duration) (engine.ContextReleaseResult, error) {
+	return h.m.RequestContextRelease(ctx, h.supi, wait)
 }
 
 // Observe returns what has been seen so far, with the switch's timing.

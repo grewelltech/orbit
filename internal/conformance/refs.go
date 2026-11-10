@@ -44,6 +44,48 @@ var ts38413RANConfigUnchangedVerified = []SpecVersion{
 	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
 }
 
+// ts38413PathSwitchAckVerified covers TS 38.413 9.2.3.9 and 9.3.4.9 (Path
+// Switch Request Acknowledge and its transfer): V15.0.0; V15.1.0, where UL
+// NG-U UP TNL Information becomes optional and the Switched List takes its
+// present form; and the latest version of Rel-15 to Rel-19.
+var ts38413PathSwitchAckVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38413-f00.zip"},
+	{Release: 15, Version: "V15.1.0", Archive: "38413-f10.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
+// ts38413HandoverCommandVerified covers TS 38.413 8.4.1.2, 9.2.3.2 and
+// 9.3.4.10 (Handover Command and its transfer): V15.0.0; V15.1.0, where the
+// transfer becomes mandatory per item; V15.5.0, which adds the intra-system
+// "shall include" sentence; and the latest version of Rel-15 to Rel-19.
+var ts38413HandoverCommandVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38413-f00.zip"},
+	{Release: 15, Version: "V15.1.0", Archive: "38413-f10.zip"},
+	{Release: 15, Version: "V15.5.0", Archive: "38413-f50.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
+// ts38413ReleaseRequestVerified covers TS 38.413 8.3.2.2 (UE Context
+// Release Request): V15.0.0, where the should first appears; V18.1.0, which
+// splits it by cause; and the latest version of Rel-15 to Rel-19.
+var ts38413ReleaseRequestVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38413-f00.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.1.0", Archive: "38413-i10.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
 // ts29281Verified covers TS 29.281 (GTP-U): V8.0.0, where the Error
 // Indication requirement first appears; V15.4.0, which adds "PDU Session";
 // and the latest version of Rel-15 to Rel-19.
@@ -209,4 +251,29 @@ var ts23502ReleaseN2Verified = []SpecVersion{
 	{Release: 17, Version: "V17.15.0", Archive: "23502-hf0.zip"},
 	{Release: 18, Version: "V18.14.0", Archive: "23502-ie0.zip"},
 	{Release: 19, Version: "V19.9.0", Archive: "23502-j90.zip"},
+}
+
+// ts29281QFIContainerVerified covers TS 29.281 5.2.2.7 (PDU Session
+// Container): V15.2.0, where the clause first appears, as a may; V15.5.0,
+// where it becomes a shall; and the latest version of Rel-15 to Rel-19.
+var ts29281QFIContainerVerified = []SpecVersion{
+	{Release: 15, Version: "V15.2.0", Archive: "29281-f20.zip"},
+	{Release: 15, Version: "V15.5.0", Archive: "29281-f50.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "29281-f70.zip"},
+	{Release: 16, Version: "V16.2.0", Archive: "29281-g20.zip"},
+	{Release: 17, Version: "V17.5.0", Archive: "29281-h50.zip"},
+	{Release: 18, Version: "V18.4.0", Archive: "29281-i40.zip"},
+	{Release: 19, Version: "V19.2.0", Archive: "29281-j20.zip"},
+}
+
+// ts38415Verified covers TS 38.415 (PDU session user plane protocol):
+// V15.0.0, where the DL PDU SESSION INFORMATION frame and its QFI field
+// first appear, and the latest version of Rel-15 to Rel-19.
+var ts38415Verified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38415-f00.zip"},
+	{Release: 15, Version: "V15.3.0", Archive: "38415-f30.zip"},
+	{Release: 16, Version: "V16.6.0", Archive: "38415-g60.zip"},
+	{Release: 17, Version: "V17.1.0", Archive: "38415-h10.zip"},
+	{Release: 18, Version: "V18.2.0", Archive: "38415-i20.zip"},
+	{Release: 19, Version: "V19.1.0", Archive: "38415-j10.zip"},
 }

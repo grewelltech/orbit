@@ -68,6 +68,14 @@ type GNBEndpoint struct {
 type HandoverResult struct {
 	Elapsed time.Duration
 	Target  gnb.Config
+	// PathSwitchAck is the PDU Session Resource Switched List of the PATH
+	// SWITCH REQUEST ACKNOWLEDGE that completed an Xn handover, as received;
+	// nil for an N2 handover.
+	PathSwitchAck *gnb.PathSwitchAck
+	// Command is the PDU Session Resource Handover List of the HANDOVER
+	// COMMAND of an N2 handover, as received; nil for an Xn handover. It is
+	// also set on a handover that failed after the command arrived.
+	Command *gnb.HandoverCommandInfo
 }
 
 // ErrInvalidTarget marks a handover target whose network identity, after
@@ -157,10 +165,11 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 		Detail: fmt.Sprintf("N2 handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},
 		"type", "n2", "source_gnb", sess.ServingGNB().Name, "target_gnb", target.Config.Name)
 
-	if err := m.runHandover(ctx, sess, target); err != nil {
+	cmd, err := m.runHandover(ctx, sess, target)
+	if err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: err.Error()},
 			"type", "n2", "target_gnb", target.Config.Name)
-		return HandoverResult{}, err
+		return HandoverResult{Command: cmd}, err
 	}
 
 	elapsed := time.Since(start)
@@ -169,19 +178,55 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 			elapsed.Round(time.Millisecond))},
 		"type", "n2", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID,
 		"elapsed_ms", elapsed.Milliseconds())
-	return HandoverResult{Elapsed: elapsed, Target: target.Config}, nil
+	return HandoverResult{Elapsed: elapsed, Target: target.Config, Command: cmd}, nil
 }
 
-func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndpoint) error {
+// preparedHandover is an N2 handover whose preparation the AMF has
+// answered with a HANDOVER COMMAND: the target association, what the target
+// admitted, and the command's PDU Session Resource Handover List.
+type preparedHandover struct {
+	tgtConn  n2Conn
+	tgt      *gnb.UETransport // the UE's lane on tgtConn
+	hr       *gnb.HandoverRequestInfo
+	admitted []gnb.AdmittedSession
+	dlTEIDs  map[int64]uint32
+	command  gnb.HandoverCommandInfo
+}
+
+// runHandover prepares and completes an N2 handover. It returns the
+// HANDOVER COMMAND's PDU Session Resource Handover List once the command
+// has arrived, also when a later step fails.
+func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndpoint) (*gnb.HandoverCommandInfo, error) {
+	prep, err := m.prepareHandover(ctx, sess, target)
+	if err != nil {
+		return nil, err
+	}
+	return &prep.command, m.completeHandover(ctx, sess, target, prep)
+}
+
+// prepareHandover runs Handover Preparation and Handover Resource
+// Allocation (TS 38.413 8.4.1, 8.4.2) up to the HANDOVER COMMAND. On an
+// error the target association is closed and the UE stays on its source.
+func (m *Manager) prepareHandover(ctx context.Context, sess *Session, target GNBEndpoint) (*preparedHandover, error) {
 	// Bring up the target association.
 	tgtConn, err := sctp.Dial(ctx, target.BindAddr, target.AMFAddr)
 	if err != nil {
-		return fmt.Errorf("dial target gNB: %w", err)
+		return nil, fmt.Errorf("dial target gNB: %w", err)
 	}
+	prep, err := m.prepareHandoverOn(ctx, sess, target, tgtConn)
+	if err != nil {
+		_ = tgtConn.Close()
+		return nil, err
+	}
+	return prep, nil
+}
+
+// prepareHandoverOn is prepareHandover on a dialled target association,
+// which the caller closes on an error.
+func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target GNBEndpoint, tgtConn n2Conn) (*preparedHandover, error) {
 	ng, err := gnb.NGSetup(ctx, tgtConn, target.Config)
 	if err != nil || !ng.Accepted {
-		tgtConn.Close()
-		return fmt.Errorf("target NG Setup: %w", err)
+		return nil, fmt.Errorf("target NG Setup: %w", err)
 	}
 	// The target association's reads go through one reader too
 	// (gnb.Dedicated); its lane is the UE's on the target.
@@ -195,24 +240,20 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 		AMFUENGAPID: sess.amfID, RANUENGAPID: sess.ranID, PDUSessionIDs: pduIDs,
 	})
 	if err != nil {
-		_ = tgt.Close()
-		return err
+		return nil, err
 	}
 	if err := gnb.SendPDU(sess.conn, ueStream, ho); err != nil {
-		_ = tgt.Close()
-		return fmt.Errorf("send HandoverRequired: %w", err)
+		return nil, fmt.Errorf("send HandoverRequired: %w", err)
 	}
 
 	// 2. AMF → target: HandoverRequest.
 	reqPDU, err := gnb.ReadPDU(ctx, tgt)
 	if err != nil {
-		_ = tgt.Close()
-		return fmt.Errorf("await HandoverRequest: %w", err)
+		return nil, fmt.Errorf("await HandoverRequest: %w", err)
 	}
 	hr, err := gnb.ParseHandoverRequest(reqPDU)
 	if err != nil {
-		_ = tgt.Close()
-		return fmt.Errorf("HandoverRequest not delivered to target (AMF drove preparation): %w", err)
+		return nil, fmt.Errorf("HandoverRequest not delivered to target (AMF drove preparation): %w", err)
 	}
 
 	// 3. target → AMF: HandoverRequestAcknowledge (target DL N3 tunnel).
@@ -231,25 +272,28 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	}
 	ack, err := gnb.BuildHandoverRequestAcknowledge(hr.AMFUENGAPID, targetHandoverRANID, admitted, m.profile.Quirks)
 	if err != nil {
-		_ = tgt.Close()
-		return err
+		return nil, err
 	}
 	if err := gnb.SendPDU(tgt, ueStream, ack); err != nil {
-		_ = tgt.Close()
-		return fmt.Errorf("send HandoverRequestAcknowledge: %w", err)
+		return nil, fmt.Errorf("send HandoverRequestAcknowledge: %w", err)
 	}
 
 	// 4. AMF → source: HandoverCommand.
 	cmdPDU, err := sess.readPDU(ctx)
 	if err != nil {
-		_ = tgt.Close()
-		return fmt.Errorf("await HandoverCommand: %w", err)
+		return nil, fmt.Errorf("await HandoverCommand: %w", err)
 	}
 	if _, err := gnb.ParseHandoverCommand(cmdPDU); err != nil {
-		_ = tgt.Close()
-		return fmt.Errorf("HandoverCommand: %w", err)
+		return nil, fmt.Errorf("HandoverCommand: %w", err)
 	}
+	return &preparedHandover{tgtConn: tgtConn, tgt: tgt, hr: hr, admitted: admitted, dlTEIDs: dlTEIDs,
+		command: gnb.ParseHandoverCommandItems(cmdPDU)}, nil
+}
 
+// completeHandover sends the HANDOVER NOTIFY of a prepared handover and
+// moves the session onto the target gNB.
+func (m *Manager) completeHandover(ctx context.Context, sess *Session, target GNBEndpoint, prep *preparedHandover) error {
+	tgtConn, tgt, hr, admitted, dlTEIDs := prep.tgtConn, prep.tgt, prep.hr, prep.admitted, prep.dlTEIDs
 	// 5. target → AMF: HandoverNotify (UE arrived → AMF drives N4 path switch).
 	// N2 gives the RAN no path-switch confirmation (nothing corresponding to
 	// Xn's PathSwitchRequestAcknowledge), so no PATH_SWITCH_COMPLETE here.

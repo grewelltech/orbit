@@ -58,12 +58,7 @@ func setupOf(req *ngapType.NGSetupRequest) Setup {
 		switch ie.Id.Value {
 		case ngapType.ProtocolIEIDGlobalRANNodeID:
 			if g := ie.Value.GlobalRANNodeID; g != nil && g.GlobalGNBID != nil && g.GlobalGNBID.GNBID.GNBID != nil {
-				bs := g.GlobalGNBID.GNBID.GNBID
-				var id uint64
-				for _, b := range bs.Bytes {
-					id = id<<8 | uint64(b)
-				}
-				out.GNBID = uint32(id >> (uint64(len(bs.Bytes))*8 - bs.BitLength))
+				out.GNBID = gnbIDOf(g.GlobalGNBID.GNBID.GNBID)
 			}
 		case ngapType.ProtocolIEIDRANNodeName:
 			if n := ie.Value.RANNodeName; n != nil {
