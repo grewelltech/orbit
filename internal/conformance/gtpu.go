@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	builtins = append(builtins, gtpuUnknownTEID{})
+	builtins = append(builtins, gtpuUnknownTEID{}, gtpuEchoResponse{})
 }
 
 // bogusN3TEID is a non-zero TEID (required by §7.3.1 to trigger an Error
@@ -209,4 +209,139 @@ func gtpuEcho(ctx context.Context, conn *net.UDPConn, raddr *net.UDPAddr, seq ui
 			return true, nil
 		}
 	}
+}
+
+// echoAttempts is how many Echo Requests GTPU-ECHO-RESPONSE sends, each
+// with its own sequence number, before it reports no response: one lost
+// datagram is not a missing Echo Response.
+const echoAttempts = 3
+
+// echoSeqBase is the first sequence number GTPU-ECHO-RESPONSE sends; each
+// later request adds one. It is far from 0 and 1, so a UPF that answers
+// with a constant or its own counter does not match by accident.
+const echoSeqBase = uint16(0x5A01)
+
+// Observed texts of GTPU-ECHO-RESPONSE's two FAILs.
+const (
+	observedNoEchoResponse = "no Echo Response"
+	observedEchoSeqDiffers = "Echo Response with a sequence number that was not sent"
+)
+
+// echoFailText is the detail both FAILs of GTPU-ECHO-RESPONSE end with.
+const echoFailText = "no GTP-U Echo Response / sequence number not copied. TS 29.281 7.2.1, 7.2.2, 4.3.1 (Rel-8 onward). " +
+	"Likely cause: UPF echo handling."
+
+// gtpuEchoResponse sends a GTP-U Echo Request to the UPF's N3 address and
+// asserts an Echo Response that carries the request's sequence number. TS
+// 29.281 7.2.1: a GTP-U peer "shall be prepared to receive an Echo Request
+// at any time and it shall reply with an Echo Response"; 4.3.1: the
+// sequence number of a response "shall be copied from" its request. No
+// session or tunnel is needed.
+//
+// It sends up to echoAttempts requests, each with its own sequence number
+// and its own wait. An Echo Response carrying any sequence number sent so
+// far is PASS, so a late answer to an earlier request counts. An Echo
+// Response carrying any other sequence number is FAIL, and so is no Echo
+// Response to any request. Silence cannot tell a UPF without Echo handling
+// from one that --upf-n3 does not reach, and the detail says so. The
+// response's S flag and Recovery IE are not asserted. Runs only when N3
+// params are set (from the UPF access network).
+type gtpuEchoResponse struct {
+	// wait overrides echoWait; tests shorten it.
+	wait time.Duration
+}
+
+func (c gtpuEchoResponse) echoWait() time.Duration {
+	if c.wait > 0 {
+		return c.wait
+	}
+	return echoWait
+}
+
+func (gtpuEchoResponse) ID() string         { return "GTPU-ECHO-RESPONSE" }
+func (gtpuEchoResponse) Category() Category { return GTPU }
+func (gtpuEchoResponse) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 29.281", Clause: "7.2.1", Strength: Shall, Since: 8, Verified: ts29281EchoVerified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "V15.0.0 adds the prefix \"Even if there is no path in use,\" (absent in V8.0.0 and V14.1.0); unchanged through Rel-19"},
+			}},
+		{Spec: "TS 29.281", Clause: "7.2.2", Strength: Shall, Since: 8, Verified: ts29281EchoVerified, WordingUnchanged: true},
+		{Spec: "TS 29.281", Clause: "4.3.1", Strength: Shall, Since: 8, Verified: ts29281EchoVerified,
+			Changed: []SpecChange{
+				{Release: 11, Note: "\"the GSN or RNC\" (V8.0.0, V9.0.0) reads \"the GTP-U entity\" by V11.0.0 (Rel-10 not read); unchanged through Rel-19"},
+			}},
+	}
+}
+
+// MinRelease is Rel-15: the three requirements date from Rel-8, but the
+// check addresses a UPF's N3 interface, which exists from Rel-15.
+func (gtpuEchoResponse) MinRelease() Release { return 15 }
+
+func (c gtpuEchoResponse) Run(ctx context.Context, env Env) Result {
+	r := Result{Expected: "GTP-U Echo Response (type 2) carrying the Echo Request's sequence number"}
+	if env.UPFN3 == "" || env.N3Bind == "" {
+		r.Verdict, r.Observed = Skip,
+			"no N3 params (run from the UPF access network with --upf-n3 / --n3-bind)"
+		return r
+	}
+	laddr, err := net.ResolveUDPAddr("udp", env.N3Bind)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "bad N3 bind", err.Error()
+		return r
+	}
+	raddr, err := net.ResolveUDPAddr("udp", env.UPFN3)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "bad UPF N3", err.Error()
+		return r
+	}
+	conn, err := net.ListenUDP("udp", laddr)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "bind N3 socket", err.Error()
+		return r
+	}
+	defer func() { _ = conn.Close() }()
+	wait := c.echoWait()
+
+	buf := make([]byte, 2048)
+	for i := 0; i < echoAttempts; i++ {
+		seq := echoSeqBase + uint16(i)
+		if _, err := conn.WriteToUDP(gtpu.EncodeEchoRequest(seq), raddr); err != nil {
+			r.Verdict, r.Observed, r.Detail = Error, "GTP-U Echo Request", err.Error()
+			return r
+		}
+		deadline := time.Now().Add(wait)
+		if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+			deadline = d
+		}
+		_ = conn.SetReadDeadline(deadline)
+		for {
+			n, _, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				break
+			}
+			got, ok := gtpu.EchoResponseSeq(buf[:n])
+			if !ok {
+				continue // not an Echo Response; keep waiting for one
+			}
+			if got >= echoSeqBase && got <= seq {
+				r.Verdict, r.Observed = Pass, "Echo Response (sequence number copied)"
+				r.Detail = fmt.Sprintf("sequence number 0x%04X, answering request %d of %d sent", got, int(got-echoSeqBase)+1, i+1)
+				return r
+			}
+			r.Verdict, r.Observed = Fail, observedEchoSeqDiffers
+			r.Detail = joinDetail(fmt.Sprintf("Echo Response from %s carries sequence number 0x%04X; the %d request(s) sent carried 0x%04X to 0x%04X",
+				env.UPFN3, got, i+1, echoSeqBase, seq), echoFailText)
+			return r
+		}
+		if cutShort(ctx) {
+			r.Observed = observedNoEchoResponse
+			return cutShortResult(r, (echoAttempts * wait).String())
+		}
+	}
+	r.Verdict, r.Observed = Fail, observedNoEchoResponse
+	r.Detail = joinDetail(fmt.Sprintf("no GTP-U Echo Response from %s to %d Echo Requests, each waited %s (absence inferred within this bound); "+
+		"silence cannot tell a UPF without Echo handling from one this address does not reach: --upf-n3 must be the UPF's primary N3 address",
+		env.UPFN3, echoAttempts, wait), echoFailText)
+	return r
 }

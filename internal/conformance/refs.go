@@ -44,6 +44,18 @@ var ts29281Verified = []SpecVersion{
 	{Release: 19, Version: "V19.2.0", Archive: "29281-j20.zip"},
 }
 
+// ts29281EchoVerified covers TS 29.281 7.2.1, 7.2.2 and 4.3.1 (Echo Request,
+// Echo Response and sequence number handling): V8.0.0, where the three
+// requirements first appear, and the latest version of Rel-15 to Rel-19.
+var ts29281EchoVerified = []SpecVersion{
+	{Release: 8, Version: "V8.0.0", Archive: "29281-800.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "29281-f70.zip"},
+	{Release: 16, Version: "V16.2.0", Archive: "29281-g20.zip"},
+	{Release: 17, Version: "V17.5.0", Archive: "29281-h50.zip"},
+	{Release: 18, Version: "V18.4.0", Archive: "29281-i40.zip"},
+	{Release: 19, Version: "V19.2.0", Archive: "29281-j20.zip"},
+}
+
 // ts23501Verified covers TS 23.501 (5GS architecture): V15.0.0, where the
 // End Marker construction requirement (5.8.2.9.1) first appears, and the
 // latest version of Rel-15 to Rel-19.
