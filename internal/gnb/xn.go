@@ -1,6 +1,7 @@
 package gnb
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -19,8 +20,16 @@ import (
 // BuildPathSwitchRequest builds the target gNB's PathSwitchRequest (TS 38.413
 // §9.2.3.10): it names the UE by its source AMF-UE-NGAP-ID, assigns a target
 // RAN-UE-NGAP-ID, and carries the target's new downlink tunnel per session.
-func BuildPathSwitchRequest(cfg Config, sourceAMFUENGAPID, targetRANID int64, sessions []AdmittedSession) (ngapType.NGAPPDU, error) {
+// ueSecCaps is the UE's 5G security capabilities as the RAN holds them, from
+// the AMF (Initial Context Setup Request, Handover Request, or a Path Switch
+// Request Acknowledge that corrected them): the target sends the AMF what
+// the source handed it, and the AMF checks it against its own copy
+// (TS 33.501 §6.7.3.1). A UE without them cannot be switched.
+func BuildPathSwitchRequest(cfg Config, sourceAMFUENGAPID, targetRANID int64, ueSecCaps *ngapType.UESecurityCapabilities, sessions []AdmittedSession) (ngapType.NGAPPDU, error) {
 	var pdu ngapType.NGAPPDU
+	if ueSecCaps == nil {
+		return pdu, fmt.Errorf("path switch: no UE security capabilities held for the UE")
+	}
 	loc, err := locationFrom(cfg)
 	if err != nil {
 		return pdu, err
@@ -55,7 +64,7 @@ func BuildPathSwitchRequest(cfg Config, sourceAMFUENGAPID, targetRANID int64, se
 	})
 	add(ngapType.ProtocolIEIDUESecurityCapabilities, ngapType.CriticalityPresentIgnore, func(ie *ngapType.PathSwitchRequestIEs) {
 		ie.Value.Present = ngapType.PathSwitchRequestIEsPresentUESecurityCapabilities
-		ie.Value.UESecurityCapabilities = ueSecurityCapabilities()
+		ie.Value.UESecurityCapabilities = CloneUESecurityCapabilities(ueSecCaps)
 	})
 	add(ngapType.ProtocolIEIDPDUSessionResourceToBeSwitchedDLList, ngapType.CriticalityPresentReject, func(ie *ngapType.PathSwitchRequestIEs) {
 		ie.Value.Present = ngapType.PathSwitchRequestIEsPresentPDUSessionResourceToBeSwitchedDLList
@@ -94,17 +103,67 @@ func encodePathSwitchTransfer(tun GNBTunnel, qfis []int64) (aper.OctetString, er
 	return aper.MarshalWithParams(t, "valueExt")
 }
 
-// ueSecurityCapabilities reports the UE's NR algorithms (NEA1-3 / NIA1-3), a
-// static capability advertised at path switch.
-func ueSecurityCapabilities() *ngapType.UESecurityCapabilities {
-	nr := aper.BitString{Bytes: []byte{0xE0, 0x00}, BitLength: 16} // NEA1/2/3, NIA1/2/3
-	eutra := aper.BitString{Bytes: []byte{0x00, 0x00}, BitLength: 16}
+// NewUESecurityCapabilities builds the NGAP UE Security Capabilities IE from
+// its four 16-bit algorithm bitmaps, each with the first algorithm after the
+// null one (NEA1, NIA1, EEA1, EIA1) in the most significant bit.
+func NewUESecurityCapabilities(nrEnc, nrInt, eutraEnc, eutraInt uint16) *ngapType.UESecurityCapabilities {
+	bitmap := func(v uint16) aper.BitString {
+		return aper.BitString{Bytes: []byte{byte(v >> 8), byte(v)}, BitLength: 16}
+	}
 	c := &ngapType.UESecurityCapabilities{}
-	c.NRencryptionAlgorithms.Value = nr
-	c.NRintegrityProtectionAlgorithms.Value = nr
-	c.EUTRAencryptionAlgorithms.Value = eutra
-	c.EUTRAintegrityProtectionAlgorithms.Value = eutra
+	c.NRencryptionAlgorithms.Value = bitmap(nrEnc)
+	c.NRintegrityProtectionAlgorithms.Value = bitmap(nrInt)
+	c.EUTRAencryptionAlgorithms.Value = bitmap(eutraEnc)
+	c.EUTRAintegrityProtectionAlgorithms.Value = bitmap(eutraInt)
 	return c
+}
+
+// CloneUESecurityCapabilities copies c with its bitmaps, nil for nil.
+func CloneUESecurityCapabilities(c *ngapType.UESecurityCapabilities) *ngapType.UESecurityCapabilities {
+	if c == nil {
+		return nil
+	}
+	clone := func(b aper.BitString) aper.BitString {
+		return aper.BitString{Bytes: append([]byte(nil), b.Bytes...), BitLength: b.BitLength}
+	}
+	out := &ngapType.UESecurityCapabilities{}
+	out.NRencryptionAlgorithms.Value = clone(c.NRencryptionAlgorithms.Value)
+	out.NRintegrityProtectionAlgorithms.Value = clone(c.NRintegrityProtectionAlgorithms.Value)
+	out.EUTRAencryptionAlgorithms.Value = clone(c.EUTRAencryptionAlgorithms.Value)
+	out.EUTRAintegrityProtectionAlgorithms.Value = clone(c.EUTRAintegrityProtectionAlgorithms.Value)
+	return out
+}
+
+// SameUESecurityCapabilities reports whether a and b hold the same four
+// bitmaps; a nil is equal only to a nil.
+func SameUESecurityCapabilities(a, b *ngapType.UESecurityCapabilities) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	same := func(x, y aper.BitString) bool {
+		return x.BitLength == y.BitLength && bytes.Equal(x.Bytes, y.Bytes)
+	}
+	return same(a.NRencryptionAlgorithms.Value, b.NRencryptionAlgorithms.Value) &&
+		same(a.NRintegrityProtectionAlgorithms.Value, b.NRintegrityProtectionAlgorithms.Value) &&
+		same(a.EUTRAencryptionAlgorithms.Value, b.EUTRAencryptionAlgorithms.Value) &&
+		same(a.EUTRAintegrityProtectionAlgorithms.Value, b.EUTRAintegrityProtectionAlgorithms.Value)
+}
+
+// PathSwitchAcknowledgeUESecurityCapabilities returns the UE Security
+// Capabilities IE of a PathSwitchRequestAcknowledge, nil when absent: the
+// AMF's stored copy, sent when the request's differed from it (TS 33.501
+// §6.7.3.1), which the target gNB takes over.
+func PathSwitchAcknowledgeUESecurityCapabilities(pdu *ngapType.NGAPPDU) *ngapType.UESecurityCapabilities {
+	if pdu.Present != ngapType.NGAPPDUPresentSuccessfulOutcome ||
+		pdu.SuccessfulOutcome.Value.Present != ngapType.SuccessfulOutcomePresentPathSwitchRequestAcknowledge {
+		return nil
+	}
+	for _, ie := range pdu.SuccessfulOutcome.Value.PathSwitchRequestAcknowledge.ProtocolIEs.List {
+		if ie.Id.Value == ngapType.ProtocolIEIDUESecurityCapabilities {
+			return CloneUESecurityCapabilities(ie.Value.UESecurityCapabilities)
+		}
+	}
+	return nil
 }
 
 // PathSwitchOutcome classifies the AMF's response to a PathSwitchRequest.

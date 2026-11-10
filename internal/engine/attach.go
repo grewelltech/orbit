@@ -192,6 +192,9 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		if dl.HasAMFID {
 			st.amfID = dl.AMFUENGAPID
 		}
+		if dl.UESecurityCapabilities != nil {
+			st.ueSecCaps = dl.UESecurityCapabilities
+		}
 		if err := st.handle(dl); err != nil {
 			return nil, st.fail(err)
 		}
@@ -201,14 +204,15 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		return nil, ErrProbeStopped
 	}
 	return &Session{
-		SUPI:   ueCfg.Sub.SUPI,
-		gnbCfg: gnbCfg,
-		conn:   conn,
-		sec:    st.sec,
-		amfID:  st.amfID,
-		ranID:  ranID,
-		guti:   st.guti,
-		Result: st.result(ueCfg.Sub.SUPI, ranID),
+		SUPI:      ueCfg.Sub.SUPI,
+		gnbCfg:    gnbCfg,
+		conn:      conn,
+		sec:       st.sec,
+		amfID:     st.amfID,
+		ranID:     ranID,
+		guti:      st.guti,
+		ueSecCaps: st.ueSecCaps,
+		Result:    st.result(ueCfg.Sub.SUPI, ranID),
 	}, nil
 }
 
@@ -246,7 +250,8 @@ type attachState struct {
 	emit   func(StateEvent)
 
 	amfID      int64
-	caps       nasType.UESecurityCapability // what the Registration Request advertised
+	ueSecCaps  *ngapType.UESecurityCapabilities // from the Initial Context Setup Request
+	caps       nasType.UESecurityCapability     // what the Registration Request advertised
 	vec        *auth.Vector
 	sec        *nas.SecurityContext
 	guti       []byte

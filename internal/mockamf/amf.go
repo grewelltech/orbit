@@ -155,6 +155,10 @@ type AMF struct {
 	// Initial NAS message options (initialnas.go).
 	rejectNonCleartext bool
 
+	// Path switch UE security capability check (pathswitchcaps.go).
+	capsInAck      bool
+	capsMismatches atomic.Int64
+
 	// Identification options and what the UEs answered, the answers
 	// guarded by mu (identity.go).
 	requestIMEISV     bool
@@ -366,6 +370,9 @@ type ueState struct {
 	regIdx    int                          // the UE's entry in AMF.regReqs
 	// awaitingIdentity marks a WithIdentityRequest request not yet answered.
 	awaitingIdentity bool
+	// ranCaps is the UE Security Capabilities IE the mock last gave the RAN
+	// for the UE, guarded by AMF.mu; nil before the first.
+	ranCaps *ngapType.UESecurityCapabilities
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -483,7 +490,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if err := a.send(p, buildInitialContextSetupRequest(st.amfID, a.ranIDOf(st), wrapped, a.plmn, a.cfg.SST, a.sdBytes)); err != nil {
+		if err := a.send(p, a.initialContextSetup(st, wrapped)); err != nil {
 			return false, err
 		}
 		if a.t3550 > 0 && a.assignGUTI {

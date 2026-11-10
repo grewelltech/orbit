@@ -191,6 +191,9 @@ func (p *mockPair) xn(t *testing.T, m *Manager, supi string) {
 	if _, err := m.XnHandover(ctx, supi, GNBEndpoint{Config: tgt, AMFAddr: p.amfAddr, N3Addr: p.tgtN3}); err != nil {
 		t.Fatalf("Xn handover: %v", err)
 	}
+	if n := p.amf.PathSwitchCapabilityMismatches(); n != 0 {
+		t.Errorf("%d Path Switch Requests carried UE security capabilities other than the AMF's", n)
+	}
 }
 
 // endMarkers collects the End Markers a lane's callback sees.

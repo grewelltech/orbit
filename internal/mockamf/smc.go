@@ -146,7 +146,7 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 		if err != nil {
 			return err
 		}
-		return a.send(p, buildInitialContextSetupRequest(st.amfID, a.ranIDOf(st), wrapped, a.plmn, a.cfg.SST, a.sdBytes))
+		return a.send(p, a.initialContextSetup(st, wrapped))
 	}
 	alg, ok := a.selectIntegrity(st.ueCaps)
 	if !ok {

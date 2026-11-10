@@ -717,7 +717,7 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	// derived scheme (0x1000+ranID) could collide with a TEID a fleet attach
 	// already handed out on the target gNB.
 	newTEID := allocDLTEID()
-	ps, err := gnb.BuildPathSwitchRequest(f.gnbConfigFor(target), fu.sess.amfID, ranIDT,
+	ps, err := gnb.BuildPathSwitchRequest(f.gnbConfigFor(target), fu.sess.amfID, ranIDT, fu.sess.ueSecCaps,
 		[]gnb.AdmittedSession{{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: spec.GNBs[target].N3Addr, TEID: newTEID}, QFIs: []int64{1}}})
 	if err != nil {
 		return err
@@ -747,6 +747,9 @@ func fleetHandover(ctx context.Context, f *Fleet, spec FleetRunSpec, fu *fleetUE
 	}
 	if newAMFID != 0 {
 		fu.sess.amfID = newAMFID
+	}
+	if caps := gnb.PathSwitchAcknowledgeUESecurityCapabilities(resp); caps != nil {
+		fu.sess.ueSecCaps = caps
 	}
 	// The serving cell moves with the UE. Without this the session keeps
 	// reporting the cell it attached to, so ServingGNB would be wrong for
