@@ -25,3 +25,4 @@ the amended ADR's body is never edited, only its status line), or
 | [0007](0007-orbit-hosted-loom-responder.md) | ORBIT hosts the loom responder; stock loomd stays supported | Accepted; amended by ADR-0009 (install and bootstrap) |
 | [0008](0008-targets-and-runs.md) | Targets (where) and one Run (what): client-held targets, layered config with provenance, leasing, TLS + token | Accepted |
 | [0009](0009-responder-join.md) | App-side setup by join: token one-liner, outbound registration, client-side SSH, doctor | Accepted |
+| [0010](0010-ui-cli-peer-redesign.md) | Home, test chooser and per-kind dashboards; a `Run.summary` outcome digest; a colour CLI conformance table | Accepted |

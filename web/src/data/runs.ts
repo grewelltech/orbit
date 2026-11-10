@@ -13,6 +13,28 @@ import { orbitTransport } from "./transport";
 import { RunKind, RunService, RunState, type Run as PbRun } from "@/gen/orbit/v1/run_pb";
 
 /** One selectable run. */
+/**
+ * RunOutcome is the headline digest the server attaches to a terminal run
+ * (Run.summary), so the home page labels a run's result without fetching its
+ * report. Each sub-object is present only when the run ran that kind of
+ * workload. Absent entirely while a run is live or when it produced no report.
+ */
+export interface RunOutcome {
+  /** Every workload kind in the run, named (always non-empty). */
+  kinds: string[];
+  conformance?: {
+    total: number;
+    passed: number;
+    failed: number;
+    errored: number;
+    skipped: number;
+    deviations: number;
+    expectedFailures: number;
+  };
+  attach?: { attempted: number; succeeded: number; failed: number };
+  gates?: { total: number; passed: number; ok: boolean };
+}
+
 export interface RunSummary {
   runId: string;
   name: string;
@@ -21,6 +43,10 @@ export interface RunSummary {
   /** Still producing frames — a live run, as opposed to reviewable history. */
   active: boolean;
   startedAt: number;
+  /** Epoch ms the run ended; 0 while it has not. */
+  endedAt: number;
+  /** Outcome digest for a terminal run; undefined while live / no report. */
+  outcome?: RunOutcome;
 }
 
 const POLL_MS = 3000;
@@ -35,7 +61,38 @@ function summarise(r: PbRun): RunSummary {
     state: runStateName(r.state),
     active,
     startedAt: Number(r.startedUnixNano / 1_000_000n),
+    endedAt: Number(r.endedUnixNano / 1_000_000n),
+    outcome: outcomeOf(r),
   };
+}
+
+/**
+ * outcomeOf maps the proto Run.summary digest to RunOutcome, keeping only the
+ * sub-objects the run actually produced (a load-only run has no conformance
+ * tally, a gate-less run no gates). Returns undefined when no summary is set.
+ */
+function outcomeOf(r: PbRun): RunOutcome | undefined {
+  const s = r.summary;
+  if (!s) return undefined;
+  const out: RunOutcome = { kinds: s.kinds.map(runKindName) };
+  if (s.conformanceTotal > 0) {
+    out.conformance = {
+      total: s.conformanceTotal,
+      passed: s.conformancePassed,
+      failed: s.conformanceFailed,
+      errored: s.conformanceErrored,
+      skipped: s.conformanceSkipped,
+      deviations: s.conformanceDeviations,
+      expectedFailures: s.conformanceExpectedFailures,
+    };
+  }
+  if (s.attachAttempted > 0) {
+    out.attach = { attempted: s.attachAttempted, succeeded: s.attachSucceeded, failed: s.attachFailed };
+  }
+  if (s.gatesTotal > 0) {
+    out.gates = { total: s.gatesTotal, passed: s.gatesPassed, ok: s.gatesOk };
+  }
+  return out;
 }
 
 function runKindName(k: RunKind): string {

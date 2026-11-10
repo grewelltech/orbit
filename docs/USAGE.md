@@ -181,6 +181,12 @@ orbit cell ngsetup -t lab1 --tac 9             # a flag still overrides one fiel
 orbit conformance -t lab1 --supi ""            # an empty flag clears a field: here, no mobility UE
 ```
 
+On an interactive terminal `orbit conformance` prints its results as a
+colour-coded table — `verdict · test · category · spec · observed`, with a
+tally — mirroring the dashboard's suite view. Piped, redirected or in CI it
+falls back to plain borderless text, and `--json` and the exit codes are
+unchanged, so scripts are unaffected.
+
 Four commands manage targets:
 
 ```sh
@@ -337,9 +343,27 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   for hex. Before, `--tac 0010` was read as octal 8. `0x`, `0o` and plain `0`
   are accepted, as in a target file.
 
-### Targets in the browser (`?targets`)
+### Navigating the dashboard
 
-The dashboard's **Targets** page (`http://<server>:8412/?targets`) creates and
+The dashboard is one page with these routes (ADR-0010):
+
+- **`/`** — **home**: a history of runs (live and finished), both kinds,
+  filterable by kind. Each row shows the run's outcome digest and opens the run
+  at `/runs/:id`; **New test** opens the chooser.
+- **`/new`** — the **chooser**: pick conformance or a performance template,
+  then land in the Launch editor pre-filled.
+- **`/runs`** and **`/runs/:id`** — the **run dashboard**; `/runs/:id` pins a
+  run (a shareable link). A conformance run leads with the suite verdicts, a
+  load or fleet run with the performance charts, a mixed run shows both.
+- **`/launch`**, **`/conformance`**, **`/targets`** — the Launch editor, the
+  conformance preset, and the Targets editor.
+
+The pre-router links still work: `?run=<id>`, `?mock`, `?conformance`,
+`?targets` and `#import=` redirect to the paths above.
+
+### Targets in the browser (`/targets`)
+
+The dashboard's **Targets** page (`http://<server>:8412/targets`) creates and
 edits targets in the browser, using the same schema as the CLI's target file.
 It imports and exports those files: a file `orbit target init` wrote,
 imported and then exported unchanged, comes back byte for byte, and a file
@@ -453,18 +477,18 @@ then **make a join one-liner**:
   only (the server fills in the rest). The edit goes through the same checks
   as any edit.
 
-The conformance suite is run from the Launch page. `?conformance` opens
-Launch on the `conformance` template. A suite needs a target, but a target
-made there with **new from AMF + PLMN** needs no keys. It has no subscriber
-pool, so the checks that need a UE SKIP, as they did on the old Conformance
-page; add a pool on the Targets page to run those. The run view
-(`?run=<id>`) shows a suite's tally as it runs, then every check's verdict,
+The conformance suite is run from the Launch page. `/conformance` (or **New
+test → Conformance**) opens Launch on the `conformance` template. A suite needs
+a target, but a target made there with **new from AMF + PLMN** needs no keys.
+It has no subscriber pool, so the checks that need a UE SKIP; add a pool on the
+Targets page to run those. The run view (`/runs/:id`) shows a suite's tally as
+it runs, then every check's verdict,
 spec reference and observation once it ends, with the expected-failures
 list it was judged against ("failed (N expected)" counts the FAILs the list
 tolerates). **cancel run** stops a suite in flight, as the old page's
 cancel did.
 
-### Launching a run from the browser (`?launch`)
+### Launching a run from the browser (`/new` → Launch)
 
 The **Launch** page builds a run against a stored target and starts it on
 the server. It can also give the same run as a command or a run file for
@@ -506,7 +530,7 @@ the CLI.
   - An edit after the plan was resolved means it is resolved again first.
   - **Check the plan** resolves without starting.
   - A field the server refuses is named, with its document and line.
-  - The page then opens the run on the dashboard (`?run=<id>`).
+  - The page then opens the run on the dashboard (`/runs/:id`).
   - A run started here runs on the server: it keeps going when you leave
     the page or close the tab. Launch lists the last 5 runs this tab
     started, each with its state, a link to its run view and, while in

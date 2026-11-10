@@ -5,6 +5,7 @@
  * again (pollStarted), and once all are, the polling stops.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { createClient } from "@connectrpc/connect";
 import { RunService } from "@/gen/orbit/v1/run_pb";
 import { Panel } from "@/components/Panel";
@@ -40,9 +41,9 @@ export function StartedRuns({ runs }: { runs: readonly StartedRun[] }) {
       <ul className="flex flex-col gap-1">
         {runs.map((r) => (
           <li key={r.id} className="flex flex-wrap items-center gap-3">
-            <a href={`?run=${encodeURIComponent(r.id)}`} className="o-label" style={{ color: "var(--o-accent)", textTransform: "none" }}>
+            <Link to={`/runs/${encodeURIComponent(r.id)}`} className="o-label" style={{ color: "var(--o-accent)", textTransform: "none" }}>
               {r.id}
-            </a>
+            </Link>
             <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
               {r.name ? `${r.name} · ` : ""}
               {states[r.id] ?? "…"}
