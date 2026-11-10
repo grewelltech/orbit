@@ -274,6 +274,16 @@ that a lab tolerates goes on that core's expected-failures list, which keeps it
 FAIL in the report but out of the gate. See
 [expected-failures.md](expected-failures.md).
 
+**Legend, check classes:** a `FAIL-class` check cites a shall; a
+`DEVIATION-class` check cites only shoulds; an `INFO-class` check is
+informational. An informational check cites descriptive text only (a response
+the specification describes without requiring, or a case it is silent on). It
+reports `INFO` when the core did what the text describes and `INFO-DIFF` when
+it did anything else, with both in Expected and Observed, so a table of runs
+shows where cores differ. Neither verdict gates, counts as a pass or a failure,
+or can be put on an expected-failures list; `ERROR` and `SKIP` mean what they
+mean for every check.
+
 **Highest-value next batch** (remaining):
 1. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
 

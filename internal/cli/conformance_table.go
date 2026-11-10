@@ -52,6 +52,10 @@ func verdictStyle(re *lipgloss.Renderer, v conformance.Verdict, tolerated bool) 
 		return s.Foreground(lipgloss.Color("3")) // yellow
 	case conformance.Skip:
 		return re.NewStyle().Foreground(lipgloss.Color("8")) // dim
+	case conformance.Info:
+		return re.NewStyle().Foreground(lipgloss.Color("4")) // blue: informational, as described
+	case conformance.InfoDiff:
+		return s.Foreground(lipgloss.Color("4")) // bold blue: informational, not as described
 	default:
 		return re.NewStyle()
 	}
@@ -127,9 +131,9 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 	// Per-check detail for anything that needs explaining: an ERROR's Detail is
 	// often the only account of why (Observed can be empty), and a SKIP's names
 	// the flags that would exercise it (e.g. --supi/--ki/--opc/--gnb-n3). Only
-	// PASS rows are self-explanatory, so only they stay out of the way.
+	// PASS and INFO rows are self-explanatory, so only they stay out of the way.
 	for _, r := range sum.Results {
-		if r.Verdict == conformance.Pass || r.Detail == "" {
+		if r.Verdict == conformance.Pass || r.Verdict == conformance.Info || r.Detail == "" {
 			continue
 		}
 		_, _ = fmt.Fprintf(out, "%s %s\n",
@@ -158,11 +162,13 @@ func conformanceTally(re *lipgloss.Renderer, sum conformance.Summary) string {
 	if sum.ExpectedFail > 0 {
 		passFail += re.NewStyle().Foreground(lipgloss.Color("8")).Render(fmt.Sprintf(" (%d expected)", sum.ExpectedFail))
 	}
-	return fmt.Sprintf("%d checks: %s, %s, %s, %s",
+	return fmt.Sprintf("%d checks: %s, %s, %s, %s, %s, %s",
 		sum.Total, passFail,
 		col("3", fmt.Sprintf("%d deviation", sum.Deviation)),
 		col("9", fmt.Sprintf("%d error", sum.Error)),
 		col("8", fmt.Sprintf("%d skip", sum.Skip)),
+		col("4", fmt.Sprintf("%d info", sum.Info)),
+		col("4", fmt.Sprintf("%d info-diff", sum.InfoDiff)),
 	)
 }
 

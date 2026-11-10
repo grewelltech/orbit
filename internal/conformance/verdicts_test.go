@@ -178,22 +178,34 @@ func TestRunOneVerdictRule(t *testing.T) {
 // their worst verdict is DEVIATION.
 var shouldOnly = map[string]bool{"NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX": true}
 
+// informational are the registered checks that cite descriptive references
+// only and declare themselves informational, so they are never graded.
+var informational = map[string]bool{}
+
 // Every registered check's worst verdict follows what it cites: DEVIATION
-// for the should-only checks named in shouldOnly, FAIL for every other. A
+// for the should-only checks named in shouldOnly, INFO-DIFF for the
+// informational checks named in informational, FAIL for every other. A
 // check that changes class changes this on purpose.
 func TestEveryCheckWorstVerdict(t *testing.T) {
 	seen := 0
 	for _, c := range NewRegistry().Tests() {
 		want := Fail
-		if shouldOnly[c.ID()] {
+		switch {
+		case shouldOnly[c.ID()]:
 			want = Deviation
+			seen++
+		case informational[c.ID()]:
+			want = InfoDiff
 			seen++
 		}
 		if got := WorstVerdict(c); got != want {
 			t.Errorf("%s: WorstVerdict = %s, want %s; a check that changes class must update this test", c.ID(), got, want)
 		}
+		if got := IsInformational(c); got != informational[c.ID()] {
+			t.Errorf("%s: IsInformational = %v, want %v; a check that changes class must update this test", c.ID(), got, informational[c.ID()])
+		}
 	}
-	if seen != len(shouldOnly) {
-		t.Errorf("%d of the %d should-only checks are registered", seen, len(shouldOnly))
+	if seen != len(shouldOnly)+len(informational) {
+		t.Errorf("%d of the %d should-only and informational checks are registered", seen, len(shouldOnly)+len(informational))
 	}
 }

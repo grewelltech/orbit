@@ -1499,7 +1499,13 @@ runs every check. The output and `--json` record the targets
 The evidence and caveats are in
 [docs/conformance/target-release.md](conformance/target-release.md).
 Every missed **shall** is FAIL and DEVIATION is reserved for a missed
-**should**. `--expected-failures <file>` names the core's list of known,
+**should**. An informational check, one that cites only descriptive text,
+reports INFO (the core did what the text describes) or INFO-DIFF (it did
+anything else); neither is a pass or a failure, and neither changes the exit
+code, a gate or the expected-failures accounting. The tally counts them apart
+(`... 0 skip, 2 info, 1 info-diff`; `Info` and `InfoDiff` in `--json`), and
+`--list` and the checks table name each check's class (FAIL, DEVIATION or
+INFO). `--expected-failures <file>` names the core's list of known,
 tolerated FAILs, each matched exactly on check and observed text. A listed
 FAIL still prints FAIL, tagged `(expected: <finding>)`, but does not fail the
 gate. Entries whose check now gives something else print as stale. With no

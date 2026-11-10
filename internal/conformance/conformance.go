@@ -38,6 +38,14 @@ const (
 	// a known, tolerated failure goes on the core's expected-failures list,
 	// not into a softer verdict.
 	Deviation Verdict = "DEVIATION"
+	// Info and InfoDiff are the two outcomes of an informational check (see
+	// Informer): one that reports behaviour the specifications describe but
+	// do not require. Info is the described behaviour, observed; InfoDiff is
+	// anything else the core did. Neither is a judgement of the core and
+	// neither gates: the exit code, the suite gate and the expected-failures
+	// list ignore both.
+	Info     Verdict = "INFO"
+	InfoDiff Verdict = "INFO-DIFF"
 )
 
 // Category groups tests for reporting and selective runs.
@@ -497,9 +505,12 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 // result. The verdict follows the check's references (WorstVerdict): a FAIL
 // from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
 // check that cites no should becomes FAIL, since DEVIATION is reserved for a
-// missed should. A crash (the core stopped answering) is never demoted. Every
-// result's detail ends with the requirement line; when the target is newer
-// than the releases the wording was verified through, the detail says so.
+// missed should. A crash (the core stopped answering) is never demoted. An
+// informational check is scored by scoreInformational instead and never
+// gives PASS, FAIL or DEVIATION; INFO or INFO-DIFF from any other check is
+// an ERROR. Every result's detail ends with the requirement line; when the
+// target is newer than the releases the wording was verified through, the
+// detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	min := MinRelease(t)
 	var res Result
@@ -518,6 +529,11 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("per-test timeout raised to %s for this check", d))
 		}
 		switch {
+		case IsInformational(t):
+			res.Verdict = scoreInformational(res.Verdict)
+		case res.Verdict == Info || res.Verdict == InfoDiff:
+			res.Detail = joinDetail(res.Detail, fmt.Sprintf("scored ERROR: %s is reserved for an informational check", res.Verdict))
+			res.Verdict = Error
 		case res.Verdict == Fail && WorstVerdict(t) == Deviation && !hasPrefixAny(res.Observed, crashTexts):
 			res.Verdict = Deviation
 		case res.Verdict == Deviation && !cites(t, Should):
@@ -532,8 +548,29 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	res.SpecRefs = t.SpecRefs()
 	res.SpecRef = RenderRefs(res.SpecRefs)
 	res.MinRelease = min
+	if IsInformational(t) {
+		res.Detail = joinDetail(res.Detail, informationalNote)
+	}
 	res.Detail = joinDetail(res.Detail, requirementLine(t))
 	return res
+}
+
+// informationalNote is what every result of an informational check says
+// ahead of its requirement line, whatever its verdict.
+const informationalNote = "informational: reported, not graded; it does not gate"
+
+// scoreInformational is the verdict an informational check's result is
+// reported with: INFO for the described behaviour (the check's INFO or
+// PASS), INFO-DIFF for anything else it observed (its INFO-DIFF, FAIL or
+// DEVIATION). ERROR and SKIP keep their meaning.
+func scoreInformational(v Verdict) Verdict {
+	switch v {
+	case Info, Pass:
+		return Info
+	case Error, Skip:
+		return v
+	}
+	return InfoDiff
 }
 
 // skipReason reports whether a check SKIPs under e's targets, and why. A
@@ -629,7 +666,10 @@ func (r *Registry) indexOf(t Test) int {
 // Summary tallies a suite run for reporting and CI gating.
 type Summary struct {
 	Total, Pass, Fail, Error, Skip, Deviation int
-	Results                                   []Result
+	// Info and InfoDiff count the informational checks' two outcomes
+	// (INFO, INFO-DIFF); neither gates (OK).
+	Info, InfoDiff int
+	Results        []Result
 	// N2Source records which address the checks were taken from: the
 	// configured Env.Bind in sctp.NormalizeLocal's ip:0 form, or, unbound,
 	// the route-selected IP alone. It is never a bound ip:port: every check
@@ -712,6 +752,10 @@ func Summarize(results []Result) Summary {
 			s.Skip++
 		case Deviation:
 			s.Deviation++
+		case Info:
+			s.Info++
+		case InfoDiff:
+			s.InfoDiff++
 		}
 	}
 	return s
@@ -719,7 +763,8 @@ func Summarize(results []Result) Summary {
 
 // OK reports a clean run: no FAIL beyond those the expected-failures list
 // tolerates, and no harness errors. This is the integration-CI gate.
-// Deviations (missed shoulds) and stale entries do not fail it.
+// Deviations (missed shoulds), the informational verdicts (INFO, INFO-DIFF)
+// and stale entries do not fail it.
 func (s Summary) OK() bool { return s.Fail-s.ExpectedFail == 0 && s.Error == 0 }
 
 // builtins is the registered test set (populated in the tests_*.go files).

@@ -56,8 +56,9 @@ type StaleExpectation struct {
 }
 
 // LoadExpectedFailures reads and validates a list. Every entry must name a
-// registered check, an observed text, a finding, an added date (YYYY-MM-DD)
-// and a reason; (check, observed) must be unique; unknown keys are refused.
+// registered, graded check (an informational one never FAILs, so it is
+// refused), an observed text, a finding, an added date (YYYY-MM-DD) and a
+// reason; (check, observed) must be unique; unknown keys are refused.
 // An observed text from a liveness probe (a core that stopped answering, or
 // one that could not be checked) is refused: those always gate.
 // Errors name the file and, for an entry, its index.
@@ -66,11 +67,19 @@ func LoadExpectedFailures(path string) (*ExpectedFailures, error) {
 	if err != nil {
 		return nil, fmt.Errorf("expected failures: %w", err)
 	}
-	known := map[string]bool{}
-	for _, t := range NewRegistry().Tests() {
-		known[t.ID()] = true
-	}
+	known := listableChecks(NewRegistry().Tests())
 	return parseExpectedFailures(path, b, known)
+}
+
+// listableChecks maps every check in tests to whether an expected-failures
+// entry may name it: true for a graded check, false for an informational
+// one, which never FAILs.
+func listableChecks(tests []Test) map[string]bool {
+	known := map[string]bool{}
+	for _, t := range tests {
+		known[t.ID()] = !IsInformational(t)
+	}
+	return known
 }
 
 func parseExpectedFailures(path string, b []byte, known map[string]bool) (*ExpectedFailures, error) {
@@ -87,7 +96,7 @@ func parseExpectedFailures(path string, b []byte, known map[string]bool) (*Expec
 }
 
 // validate checks a list as parseExpectedFailures does; path names it in
-// errors.
+// errors, and known is listableChecks of the registry.
 func (x *ExpectedFailures) validate(path string, known map[string]bool) error {
 	if strings.TrimSpace(x.Core) == "" {
 		return fmt.Errorf("%s: core is required", path)
@@ -108,8 +117,11 @@ func (x *ExpectedFailures) validate(path string, known map[string]bool) error {
 		if hasPrefixAny(e.Observed, livenessTexts) {
 			return fmt.Errorf("%s: observed %q reports a core that stopped answering or could not be checked; it cannot be listed", where, e.Observed)
 		}
-		if !known[e.Check] {
+		switch listable, ok := known[e.Check]; {
+		case !ok:
 			return fmt.Errorf("%s: unknown check %q", where, e.Check)
+		case !listable:
+			return fmt.Errorf("%s: check %q is informational and never FAILs; it cannot be listed", where, e.Check)
 		}
 		if _, err := time.Parse(time.DateOnly, e.Added); err != nil {
 			return fmt.Errorf("%s: added %q is not a YYYY-MM-DD date", where, e.Added)
@@ -127,10 +139,7 @@ func (x *ExpectedFailures) validate(path string, known map[string]bool) error {
 // workload) rather than read from a file, validated as a file is; where
 // names it in errors.
 func NewExpectedFailures(where string, x ExpectedFailures) (*ExpectedFailures, error) {
-	known := map[string]bool{}
-	for _, t := range NewRegistry().Tests() {
-		known[t.ID()] = true
-	}
+	known := listableChecks(NewRegistry().Tests())
 	if err := x.validate(where, known); err != nil {
 		return nil, err
 	}

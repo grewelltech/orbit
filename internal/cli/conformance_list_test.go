@@ -22,7 +22,7 @@ func TestConformanceList(t *testing.T) {
 		wantErr string
 	}{
 		{name: "all checks", args: []string{"--list"},
-			want: []string{"CHECK", "UP TO", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
+			want: []string{"CHECK", "CLASS", "UP TO", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
 		{name: "nas only", args: []string{"--list", "--category", "nas"},
 			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "4 checks, up to 6m25s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "longer per-test timeout", args: []string{"--list", "--category", "procedural", "--per-test-timeout", "40s"},

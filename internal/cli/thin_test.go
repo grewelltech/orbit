@@ -187,7 +187,7 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 	lines := func(r orbitRun) []string {
 		var out []string
 		for _, l := range strings.Split(r.out, "\n") {
-			if f := strings.Fields(l); len(f) > 0 && regexp.MustCompile(`^(PASS|FAIL|ERROR|SKIP|DEVIATION)$`).MatchString(f[0]) {
+			if f := strings.Fields(l); len(f) > 0 && regexp.MustCompile(`^(PASS|FAIL|ERROR|SKIP|DEVIATION|INFO|INFO-DIFF)$`).MatchString(f[0]) {
 				out = append(out, strings.Join(f[:min(4, len(f))], " "))
 			} else if strings.HasPrefix(l, "network:") || strings.HasPrefix(l, "target-release:") {
 				out = append(out, l)

@@ -281,15 +281,16 @@ func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
 }
 
 // printConformanceList prints --list: one line per check with its category,
-// required release and the longest it can take at perTest, then the total.
+// verdict class (conformance.VerdictClass), required release and the longest
+// it can take at perTest, then the total.
 func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tREQUIRES\tUP TO")
+	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tCLASS\tREQUIRES\tUP TO")
 	var total time.Duration
 	for _, t := range tests {
 		d := conformance.ExpectedDuration(t, perTest)
 		total += d
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.ID(), t.Category(), conformance.MinRelease(t), d)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.ID(), t.Category(), conformance.VerdictClass(t), conformance.MinRelease(t), d)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
@@ -406,8 +407,8 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 	for _, st := range sum.Stale {
 		_, _ = fmt.Fprintf(out, "stale expected failure: %s %s: now %s %q\n", st.Check, st.Finding, st.Verdict, st.Observed)
 	}
-	_, _ = fmt.Fprintf(out, "\n%d checks: %d pass, %d fail (%d expected), %d deviation, %d error, %d skip\n",
-		sum.Total, sum.Pass, sum.Fail, sum.ExpectedFail, sum.Deviation, sum.Error, sum.Skip)
+	_, _ = fmt.Fprintf(out, "\n%d checks: %d pass, %d fail (%d expected), %d deviation, %d error, %d skip, %d info, %d info-diff\n",
+		sum.Total, sum.Pass, sum.Fail, sum.ExpectedFail, sum.Deviation, sum.Error, sum.Skip, sum.Info, sum.InfoDiff)
 }
 
 // conformanceUEFlags are the conformance flags describing the UE the

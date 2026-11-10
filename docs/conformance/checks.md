@@ -4,6 +4,8 @@
 
 Every check names the clauses it asserts and the 3GPP releases they come from, verified in the [3GPP archive](https://www.3gpp.org/ftp/Specs/archive/) through Rel-19. A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. The quoted normative text for each check is in [provenance/](provenance/).
 
+**Verdict class** is the worst a check can say of a core: `FAIL` for a missed shall, `DEVIATION` for a missed should. A check of class `INFO` is informational: it cites descriptive text only, reports `INFO` (the described behaviour) or `INFO-DIFF` (anything else), and never gates.
+
 Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-release.md).
 
 **Up to** is the longest a check can take at the default `--per-test-timeout` (15s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.
