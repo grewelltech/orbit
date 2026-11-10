@@ -209,6 +209,28 @@ func (s *SecurityContext) DecodeSecurePlain(data []byte) (*f5nas.Message, []byte
 	return m, plain, nil
 }
 
+// CipherContainer ciphers b in place with the NAS COUNT of the next message
+// to send: the NAS message container of an initial NAS message, which is
+// ciphered with the COUNT of the message that carries it (TS 24.501 4.4.6;
+// TS 33.501 6.4.6). Call it just before EncodeSecure of that message. NEA0
+// leaves b as it is.
+func (s *SecurityContext) CipherContainer(b []byte) error {
+	if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, s.txCount, security.Bearer3GPP, s.txDir(), b); err != nil {
+		return fmt.Errorf("nas container encrypt: %w", err)
+	}
+	return nil
+}
+
+// DecipherContainer deciphers b in place with the NAS COUNT of the last
+// message whose MAC verified: the NAS message container of the initial NAS
+// message DecodeSecure just returned.
+func (s *SecurityContext) DecipherContainer(b []byte) error {
+	if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, s.rxCount, security.Bearer3GPP, s.rxDir(), b); err != nil {
+		return fmt.Errorf("nas container decrypt: %w", err)
+	}
+	return nil
+}
+
 // ResetCounts zeroes the NAS COUNTs, as when a fresh security context is
 // activated by Security Mode Command (TS 33.501 §6.4.3.1).
 func (s *SecurityContext) ResetCounts() {

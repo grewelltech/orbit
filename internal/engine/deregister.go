@@ -121,16 +121,16 @@ func (s *Session) awaitRelease(parent context.Context, linger time.Duration, log
 			}
 			continue
 		}
-		if err := s.completeRelease(); err != nil {
+		if err := s.answerRelease(pdu); err != nil {
 			return nil, err
 		}
 		return rel, nil
 	}
 }
 
-// completeRelease answers a UE Context Release Command.
-func (s *Session) completeRelease() error {
-	if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(s.amfID, s.ranID)); err != nil {
+// answerRelease answers the UE Context Release Command cmd (completeRelease).
+func (s *Session) answerRelease(cmd *ngapType.NGAPPDU) error {
+	if err := s.completeRelease(cmd); err != nil {
 		return fmt.Errorf("UE Context Release Complete not sent: %w", err)
 	}
 	return nil
@@ -220,7 +220,7 @@ func (s *Session) awaitAnswer(parent context.Context, wait time.Duration, wantAc
 			return fmt.Errorf("%w: %v", missing, err)
 		}
 		if rel, ok := releaseCommandOf(pdu); ok {
-			if err := s.completeRelease(); err != nil {
+			if err := s.answerRelease(pdu); err != nil {
 				res.ReleaseErr = err
 			} else {
 				res.Release = rel

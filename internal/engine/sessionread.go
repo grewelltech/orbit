@@ -16,12 +16,19 @@ type pduRead struct {
 }
 
 // readPDU reads the next downlink PDU of the session's association,
-// honouring ctx. A read that ctx gives up on stays in flight and is kept:
-// the next readPDU resumes it, so the PDU it eventually returns is not lost
-// to a reader nobody waits for (as it is after gnb.ReadPDU times out). A
-// kept read of an association the session has since left is abandoned.
-// Callers hold the procedure lock, or own the session outright.
+// honouring ctx. Over a gNB lane (gnb.UETransport) the read is direct: a
+// wait that ends on ctx leaves nothing in flight, and the next PDU stays
+// queued on the lane. Over any other transport a read that ctx gives up on
+// stays in flight and is kept: the next readPDU resumes it, so the PDU it
+// eventually returns is not lost to a reader nobody waits for (as it is
+// after gnb.ReadPDU times out). A kept read of an association the session
+// has since left is abandoned. Callers hold the procedure lock, or own the
+// session outright.
 func (s *Session) readPDU(ctx context.Context) (*ngapType.NGAPPDU, error) {
+	if _, lane := s.conn.(*gnb.UETransport); lane {
+		s.held, s.heldConn = nil, nil
+		return gnb.ReadPDU(ctx, s.conn)
+	}
 	ch := s.held
 	if ch == nil || s.heldConn != s.conn {
 		ch = make(chan pduRead, 1)

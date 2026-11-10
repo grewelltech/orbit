@@ -142,6 +142,7 @@ var Bindings = []Binding{
 	{Flag: "expected-failures", Path: "workloads[].conformance.expected", Commands: []string{cmdConformance}},
 	{Flag: "per-test-timeout", Path: "workloads[].conformance.per_test_timeout_ms"},
 	{Flag: "traffic", Path: "workloads[].conformance.traffic", Commands: []string{cmdConformance}},
+	{Flag: "responder", Path: "workloads[].conformance.responder", Commands: []string{cmdConformance}},
 	{Flag: "nas-integrity", Path: "workloads[].conformance.nas.integrity", Commands: []string{cmdConformance}},
 	{Flag: "nas-ciphering", Path: "workloads[].conformance.nas.ciphering", Commands: []string{cmdConformance}},
 }

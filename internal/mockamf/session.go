@@ -76,6 +76,9 @@ type pduSession struct {
 	ueIP net.IP
 	ul   Tunnel
 	dl   Tunnel
+	// pending is set while downlink data waits for a CM-IDLE UE
+	// (DownlinkData), guarded by AMF.mu.
+	pending bool
 }
 
 // onPDUSessionRequest handles the 5GSM message of a UL NAS Transport. A PDU
@@ -182,13 +185,24 @@ func (a *AMF) onPDUSessionSetupResponse(resp *ngapType.PDUSessionResourceSetupRe
 			}
 		}
 	}
+	dls := make(map[uint8]Tunnel, len(items))
+	for _, it := range items {
+		dls[it.id] = it.dl
+	}
+	a.sessionsUp(amfID, dls)
+	return nil
+}
+
+// sessionsUp records the gNB's downlink tunnel dls gives for each of a
+// UE's sessions, clears their pending downlink, and tells the UPF.
+func (a *AMF) sessionsUp(amfID int64, dls map[uint8]Tunnel) {
 	var up []SessionInfo
 	a.mu.Lock()
 	st := a.ues[amfID]
 	if st != nil {
-		for _, it := range items {
-			if s := st.sessions[it.id]; s != nil {
-				s.dl = it.dl
+		for id, dl := range dls {
+			if s := st.sessions[id]; s != nil {
+				s.dl, s.pending = dl, false
 				up = append(up, SessionInfo{SUPI: st.supi, PDUSessionID: s.id, UEIP: s.ueIP, QFI: defaultQFI, UL: s.ul, DL: s.dl})
 			}
 		}
@@ -199,7 +213,6 @@ func (a *AMF) onPDUSessionSetupResponse(resp *ngapType.PDUSessionResourceSetupRe
 			a.cfg.UPF.SessionUp(s)
 		}
 	}
-	return nil
 }
 
 // onPathSwitchRequest answers a target gNB's PathSwitchRequest on its own
@@ -405,6 +418,17 @@ func buildDLNASTransportN1SM(sm []byte, id uint8) (*f5nas.Message, error) {
 // the slice, and a transfer with the session AMBR, the UPF uplink tunnel,
 // PDU session type IPv4 and one QoS flow (5QI 9).
 func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []byte, ul Tunnel, sst uint8, sd []byte) (ngapType.NGAPPDU, error) {
+	transfer, err := setupRequestTransfer(ul)
+	if err != nil {
+		return ngapType.NGAPPDU{}, err
+	}
+	return setupRequestPDU(amfID, ranID, id, nasPDU, transfer, sst, sd), nil
+}
+
+// setupRequestTransfer encodes a PDU Session Resource Setup Request
+// Transfer: the session AMBR, the UPF uplink tunnel ul, PDU session type
+// IPv4 and one QoS flow (5QI 9).
+func setupRequestTransfer(ul Tunnel) (aper.OctetString, error) {
 	var tr ngapType.PDUSessionResourceSetupRequestTransfer
 	addTr := func(ieID int64, crit aper.Enumerated, fill func(*ngapType.PDUSessionResourceSetupRequestTransferIEs)) {
 		ie := ngapType.PDUSessionResourceSetupRequestTransferIEs{}
@@ -442,9 +466,14 @@ func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []
 	})
 	transfer, err := aper.MarshalWithParams(tr, "valueExt")
 	if err != nil {
-		return ngapType.NGAPPDU{}, fmt.Errorf("mock amf encode setup request transfer: %w", err)
+		return nil, fmt.Errorf("mock amf encode setup request transfer: %w", err)
 	}
+	return transfer, nil
+}
 
+// setupRequestPDU wraps one session's NAS PDU and transfer in a PDU Session
+// Resource Setup Request.
+func setupRequestPDU(amfID, ranID int64, id uint8, nasPDU []byte, transfer aper.OctetString, sst uint8, sd []byte) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
 	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
@@ -477,7 +506,7 @@ func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []
 		item.PDUSessionResourceSetupRequestTransfer = transfer
 		ie.Value.PDUSessionResourceSetupListSUReq = &ngapType.PDUSessionResourceSetupListSUReq{List: []ngapType.PDUSessionResourceSetupItemSUReq{item}}
 	})
-	return pdu, nil
+	return pdu
 }
 
 // switchedItem is one session in a PathSwitchRequestAcknowledge; newUL is

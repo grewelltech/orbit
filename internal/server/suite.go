@@ -189,9 +189,6 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if until.GetForever() {
 		return nil, errors.New("a conformance workload finishes on its own: use until.complete or until.duration, not until.forever")
 	}
-	if cw.GetResponder() != "" {
-		return nil, errors.New("conformance responder is not supported yet: give traffic (an echo peer host:port)")
-	}
 	// The NAS algorithms the UE advertises, checked as the CLI's
 	// --nas-integrity and --nas-ciphering are (suiteNAS).
 	if _, _, err := suiteNAS(cw); err != nil {
@@ -266,6 +263,18 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		return nil, err
 	}
 	env.UE = ueSpec
+	// The responder is the N6-side downlink trigger of the checks that
+	// need a CM-IDLE UE paged; without one they SKIP.
+	if name := cw.GetResponder(); name != "" {
+		r, err := responderFor(t, name)
+		if err != nil {
+			return nil, fmt.Errorf("conformance responder: %w", err)
+		}
+		if r.GetControl() == "" {
+			return nil, fmt.Errorf("conformance responder %q has no control address", name)
+		}
+		env.Downlink = engine.ResponderDownlink{Peer: r.GetControl(), Token: r.GetToken()}
+	}
 
 	spec := &suiteSpec{env: env, cats: cats, total: len(selectedChecks(reg, cats)),
 		deadline: time.Duration(until.GetDurationMs()) * time.Millisecond}

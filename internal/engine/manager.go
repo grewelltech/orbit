@@ -25,6 +25,10 @@ const (
 	StateRegistered          = "REGISTERED"
 	StateSessionActive       = "SESSION_ACTIVE"
 	StateDeregistered        = "DEREGISTERED"
+	// StateIdle is a registered UE in CM-IDLE: its NAS signalling
+	// connection and N3 tunnels are released (Manager.Idle), its PDU
+	// sessions kept by the core.
+	StateIdle = "CM_IDLE"
 )
 
 // StateEvent is one UE FSM transition, streamed to StateStream subscribers.
@@ -46,6 +50,7 @@ type Session struct {
 	amfID int64
 	ranID int64
 	guti  []byte
+	ngksi uint8 // key set identifier of the NAS security context
 	gnbN3 string
 
 	// proc serialises the UE's control-plane procedures — handover and
@@ -70,6 +75,8 @@ type Session struct {
 	mobState string    // last mobility phase; empty until the UE first moves
 	mobAt    time.Time // when mobState was recorded
 	released bool      // deregistered: no further procedure may run
+	idle     bool      // CM-IDLE: no NAS signalling connection (idle.go)
+	upDown   bool      // the user plane is released and not yet reactivated
 
 	// N3 data path, created lazily on first use over the per-gNB shared
 	// tunnel pool (design §6, Phase 5): ONE socket per gNB N3 address,
@@ -243,9 +250,17 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 		return nil, fmt.Errorf("NG Setup rejected: %s", ng.Cause)
 	}
 
-	sess, err := Attach(ctx, conn, gnbCfg, ueCfg, m.log, m.hub.publish)
+	// One reader owns the association from here (gnb.Dedicated): every
+	// procedure reads its PDUs from the UE's lane, and a wait that ends on
+	// a context leaves no read behind.
+	ranID := ueCfg.RANUENGAPID
+	if ranID == 0 {
+		ranID = 1
+	}
+	lane := gnb.Dedicated(conn, gnbCfg, ranID)
+	sess, err := Attach(ctx, lane, gnbCfg, ueCfg, m.log, m.hub.publish)
 	if err != nil {
-		conn.Close()
+		_ = lane.Close()
 		return nil, err
 	}
 	sess.setState(stateFromResult(sess.Result))
@@ -652,6 +667,9 @@ func (s *Session) dataplane() (*datapath.UETunnel, *datapath.UERx, error) {
 	if s.ue != nil {
 		return s.ue, s.rx, nil
 	}
+	if s.userPlaneDown() {
+		return nil, nil, fmt.Errorf("UE %s has no user plane: its N3 tunnel was released (CM-IDLE) and has not been reactivated", s.SUPI)
+	}
 	ref, ue, err := s.openViewLocked(nil, nil)
 	if err != nil {
 		return nil, nil, err
@@ -910,9 +928,21 @@ func (s *Session) deregister(ctx context.Context, switchOff bool) error {
 	if err != nil {
 		return err
 	}
-	wrapped, err := s.sec.EncodeSecure(msg, nas.SecHdrIntegrityCiphered)
+	// An initial NAS message opens the NAS signalling connection, and
+	// ciphering starts only once it is established (TS 24.501 4.4.5): a
+	// CM-IDLE UE's request is integrity-protected only.
+	hdr := uint8(nas.SecHdrIntegrityCiphered)
+	if s.Idle() {
+		hdr = nas.SecHdrIntegrity
+	}
+	wrapped, err := s.sec.EncodeSecure(msg, hdr)
 	if err != nil {
 		return fmt.Errorf("wrap Deregistration Request: %w", err)
+	}
+	if s.Idle() {
+		// A CM-IDLE UE has no NAS signalling connection: the request opens
+		// one, in an Initial UE Message that names the UE by its 5G-S-TMSI.
+		return s.sendInitial(wrapped)
 	}
 	pdu, err := gnb.BuildUplinkNASTransport(s.ServingGNB(), s.amfID, s.ranID, wrapped)
 	if err != nil {

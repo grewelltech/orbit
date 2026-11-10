@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
 )
@@ -161,6 +162,11 @@ type Env struct {
 	// target that bounds its gNB IDs (see Registry.gnbIDsOf); unset, the
 	// legacy layout applies.
 	PackedGNBIDs bool
+	// Downlink, when set, is something on the N6 side that can send
+	// downlink traffic to a UE's address unasked (a responder): the
+	// stimulus of the checks that need a CM-IDLE UE paged, and the traffic
+	// of the ones that need downlink on a UE's N3 tunnel. Nil, they SKIP.
+	Downlink engine.DownlinkTrigger
 	// Load, when set, names a population that is putting load on the core
 	// right now ("" when none is active): a run with conformance under
 	// load (ADR-0008 §2). A liveness miss under load is not attributable

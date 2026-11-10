@@ -54,7 +54,15 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		{name: "an slo gate", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
 		}, wantErr: `an slo gate judges a population; "suite" is a conformance workload`},
-		{name: "a responder", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Responder = "n6" }, wantErr: "responder is not supported yet"},
+		{name: "a responder the target lacks", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Responder = "nope" }, wantErr: `conformance responder: the target has no responder "nope"`},
+		{name: "a responder with no control address", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.App = &orbitv1.TargetApp{Responders: []*orbitv1.Responder{{Name: "bare", Token: "t"}}}
+			cw.Responder = "bare"
+		}, wantErr: `conformance responder "bare" has no control address`},
+		{name: "a responder nobody registered", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.App = &orbitv1.TargetApp{Responders: []*orbitv1.Responder{{Name: "bare"}}}
+			cw.Responder = "bare"
+		}, wantErr: `no responder named "bare" is registered`},
 		{name: "nas NIA0", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Nas = &orbitv1.NASAlgorithms{Integrity: []string{"NIA0"}}
 		}, wantErr: "conformance.nas.integrity: NIA0 is refused"},
@@ -604,6 +612,32 @@ func TestSuiteNASAlgorithms(t *testing.T) {
 			u := pr.suiteLive.spec.env.UE
 			if u.NASIntegrity != tc.ia || u.NASCiphering != tc.ea {
 				t.Errorf("UE NAS = %#02x/%#02x, want %#02x/%#02x", u.NASIntegrity, u.NASCiphering, tc.ia, tc.ea)
+			}
+		})
+	}
+}
+
+// A conformance workload's responder becomes the suite's downlink trigger,
+// with the target responder's control address and token; without one the
+// suite has no trigger and the checks that need one SKIP.
+func TestSuiteResponderIsTheDownlinkTrigger(t *testing.T) {
+	s := planService(t)
+	tests := []struct {
+		name      string
+		responder string
+		want      engine.DownlinkTrigger
+	}{
+		{"named", "n6", engine.ResponderDownlink{Peer: "127.0.0.1:9", Token: archToken}},
+		{"none", "", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pr, err := s.buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Responder = tc.responder }), engine.EventsNormal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := pr.suiteLive.spec.env.Downlink; got != tc.want {
+				t.Errorf("Downlink = %#v, want %#v", got, tc.want)
 			}
 		})
 	}

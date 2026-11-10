@@ -155,6 +155,9 @@ func referencedResponders(p *orbitv1.RunPlan) map[string]bool {
 		if n := tr.GetBulk().GetResponder(); n != "" {
 			names[n] = true
 		}
+		if n := w.GetConformance().GetResponder(); n != "" {
+			names[n] = true
+		}
 	}
 	return names
 }

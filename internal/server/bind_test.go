@@ -109,6 +109,7 @@ func TestRunConformanceRejectsBadBindAddress(t *testing.T) {
 // A valid port-0 bind reaches every check's dial. The AMF is unroutable, so
 // every check ERRORs — on the dial from that bind, not on validation. The
 // negative-ie checks all dial without a UE.
+// A check that needs a UE would SKIP first: the request configures none.
 func TestRunConformanceAcceptsEphemeralBind(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
@@ -121,7 +122,7 @@ func TestRunConformanceAcceptsEphemeralBind(t *testing.T) {
 	for stream.Receive() {
 		if r := stream.Msg().GetResult(); r != nil {
 			results++
-			if r.GetVerdict() != "ERROR" {
+			if r.GetVerdict() != "ERROR" && r.GetObserved() != "no UE configured" {
 				t.Errorf("%s: verdict %s against an unroutable AMF", r.GetId(), r.GetVerdict())
 			}
 		}

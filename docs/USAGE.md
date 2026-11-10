@@ -1409,6 +1409,39 @@ old and new tunnels indistinguishable. The detail records the old tunnel, the
 End Marker counts, whether the marker carried a QFI (recorded, not asserted),
 and the downlink seen before the switch. It never records the keys.
 
+`NGAP-PAGING-ON-DL-DATA` (category `procedural`) needs the UE flags and
+`--responder <name>`, a responder of the target on the N6 network; it SKIPs
+without either. It registers the UE with a PDU session, releases it to
+CM-IDLE with a UE Context Release Request, waits a second for the core to
+tell its UPF to buffer, and asks the responder for a one-second UDP flow to
+the UE's address (port 5001; nothing listens there). It passes when an NGAP
+PAGING naming the UE's 5G-S-TMSI arrives on the gNB's association within
+10 s (TS 24.501 5.6.2.2.1). The responder needs a route to the UE pool
+through the UPF's N6, as `orbit target probe` checks. The check sends one
+trigger per run: a UPF de-duplicates its downlink data notifications (SD-Core
+for 20 s per session), so leave at least that long between runs on one
+subscriber. The check takes up to 30 s. After a PAGING the UE answers with
+a Service Request and then deregisters; the detail records the TAI List for
+Paging and that answer, and asserts neither.
+
+`NAS-SERVICE-REQUEST-REACTIVATES` (category `procedural`) needs the same: the
+UE flags and `--responder <name>`, and SKIPs without either. It registers the
+UE with a PDU session and asks the responder for its one-second UDP flow to
+the UE's address while the UE is connected. That flow must arrive on the UE's
+N3 tunnel within 5 s; when it does not, the verdict is an ERROR that names
+the responder's route, since the same traffic missing later would say nothing
+about the core. Once the flow has stopped the check releases the UE to
+CM-IDLE with a UE Context Release Request, waits a second, and sends a
+Service Request with the PDU session in its Uplink data status. It passes
+when the core answers Service Accept, sets the session's N3 tunnel up again
+(Initial Context Setup or PDU Session Resource Setup), and a second flow from
+the responder arrives on the gNB's new downlink tunnel within 5 s (TS 24.501
+5.6.1.4.1, 5.6.1.4 in Rel-15). It fails on a Service Reject, on no answer
+within 15 s, on an Accept without the tunnel, and on a tunnel no downlink
+arrives on. The check takes up to 46 s. The detail records the Service
+Accept's PDU session status and PDU session reactivation result, the new
+tunnel's endpoints and the delays, and asserts none of them.
+
 The `nas` category also needs the UE flags (`--supi`, the keys and
 `--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
 UE without a PDU session and withholds its Authentication Response. It passes

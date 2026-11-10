@@ -86,6 +86,10 @@ type AttachResult struct {
 	UPFTEID    uint32
 	DLTEID     uint32
 	QFI        uint8
+	// Registration is what the Registration Accept said about the UE's
+	// idle behaviour: T3512, a MICO indication, the service area list and
+	// the TAI list. Zero when the Accept did not parse.
+	Registration ue.RegistrationInfo
 	// N2Source is the local address of the N2 association the UE attached
 	// over, as actually bound. Set by Manager.Register (which owns the
 	// association); empty when the caller supplied its own transport.
@@ -206,6 +210,7 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		amfID:  st.amfID,
 		ranID:  ranID,
 		guti:   st.guti,
+		ngksi:  st.ngksi,
 		Result: st.result(ueCfg.Sub.SUPI, ranID),
 	}, nil
 }
@@ -219,6 +224,7 @@ func (s *attachState) result(supi string, ranID int64) *AttachResult {
 		AMFUENGAPID:   s.amfID,
 		RANUENGAPID:   ranID,
 		SessionActive: len(s.sessions) > 0,
+		Registration:  s.regInfo,
 	}
 	for _, w := range s.wanted { // stable order = requested order
 		if sr, ok := s.sessions[w.PDUSessionID]; ok {
@@ -248,6 +254,8 @@ type attachState struct {
 	vec        *auth.Vector
 	sec        *nas.SecurityContext
 	guti       []byte
+	ngksi      uint8 // the key set identifier of the Authentication Request
+	regInfo    ue.RegistrationInfo
 	registered bool
 
 	wanted   []ue.PDUSessionParams   // sessions to establish
@@ -480,7 +488,7 @@ func (s *attachState) onAuthRequest(msg *f5nas.Message) error {
 	if err != nil {
 		return fmt.Errorf("5G-AKA derivation: %w", err)
 	}
-	s.vec = vec
+	s.vec, s.ngksi = vec, ch.NgKSI
 
 	resp, err := ue.BuildAuthenticationResponse(vec.ResStar)
 	if err != nil {
@@ -533,6 +541,9 @@ func (s *attachState) onRegistrationAccept(msg *f5nas.Message) error {
 		s.log.WarnContext(s.ctx, "could not parse Registration Accept", "err", err)
 	} else if guti != nil {
 		s.guti = guti.Raw
+	}
+	if info, err := ue.ParseRegistrationInfo(msg); err == nil {
+		s.regInfo = info
 	}
 
 	complete, err := ue.BuildRegistrationComplete()
