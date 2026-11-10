@@ -107,11 +107,12 @@ func TestRunConformanceRejectsBadBindAddress(t *testing.T) {
 }
 
 // A valid port-0 bind reaches every check's dial. The AMF is unroutable, so
-// every check ERRORs — on the dial from that bind, not on validation.
+// every check ERRORs — on the dial from that bind, not on validation. The
+// negative-ie checks all dial without a UE.
 func TestRunConformanceAcceptsEphemeralBind(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", BindAddress: "127.0.0.1", PerTestSeconds: 2, Categories: []string{"procedural"},
+		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", BindAddress: "127.0.0.1", PerTestSeconds: 2, Categories: []string{"negative-ie"},
 	}))
 	if err != nil {
 		t.Fatal(err)

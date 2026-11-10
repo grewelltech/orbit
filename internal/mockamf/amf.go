@@ -154,6 +154,11 @@ type AMF struct {
 	// received, guarded by mu.
 	ranConfigAnswer  RANConfigUpdateAnswer
 	ranConfigUpdates []RANConfigUpdate
+	// dropTAs and dropTAsCause are WithRANConfigUpdateDroppingTAs;
+	// droppedTAs, guarded by mu, holds the associations it has applied to.
+	dropTAs      bool
+	dropTAsCause uint8
+	droppedTAs   map[*pipe]bool
 
 	// undecodable is the reaction to an uplink PDU that does not decode
 	// (undecodable.go).
@@ -201,7 +206,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log}
+		ues: make(map[int64]*ueState), log: log, droppedTAs: make(map[*pipe]bool)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -248,6 +253,7 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			st.t3560.stop()
 			st.t3550.stop()
 		}
+		a.forgetAssociation(p)
 	}()
 	buf := make([]byte, 65536)
 	for {
@@ -383,6 +389,9 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	a.ues[st.amfID] = st
 	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
 	a.mu.Unlock()
+	if a.tasDropped(p) {
+		return a.rejectRegistration(p, st, a.dropTAsCause)
+	}
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
 	var randv [16]byte

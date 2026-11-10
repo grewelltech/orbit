@@ -44,7 +44,7 @@ const (
 type Category string
 
 const (
-	Procedural Category = "procedural"  // well-formed procedures complete
+	Procedural Category = "procedural"  // well-formed procedures complete (one check needs Env.UE)
 	NegativeIE Category = "negative-ie" // malformed / unexpected messages are rejected gracefully
 	Security   Category = "security"    // NAS security-context violations
 	GTPU       Category = "gtpu"        // user-plane error handling

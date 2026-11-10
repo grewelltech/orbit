@@ -17,11 +17,40 @@ const (
 	FailRANConfigUpdate
 	// IgnoreRANConfigUpdate sends nothing.
 	IgnoreRANConfigUpdate
+	// CrashOnRANConfigUpdate ends the association and every other one, and
+	// answers nothing afterwards: a core the update brought down.
+	CrashOnRANConfigUpdate
 )
 
 // WithRANConfigUpdate sets how the mock answers a RAN CONFIGURATION UPDATE.
 func WithRANConfigUpdate(answer RANConfigUpdateAnswer) Option {
 	return func(a *AMF) { a.ranConfigAnswer = answer }
+}
+
+// WithRANConfigUpdateDroppingTAs makes an acknowledged RAN CONFIGURATION
+// UPDATE that carries no Supported TA List clear the association's tracking
+// areas, where by default they are kept (TS 38.413 8.7.2.2): every later
+// registration on that association is answered with a plain REGISTRATION
+// REJECT carrying the 5GMM cause given (12 is "Tracking area not allowed").
+// It stands in for a core that takes an absent list for an empty one.
+func WithRANConfigUpdateDroppingTAs(cause uint8) Option {
+	return func(a *AMF) { a.dropTAs, a.dropTAsCause = true, cause }
+}
+
+// tasDropped reports whether p's association lost its tracking areas to a
+// RAN CONFIGURATION UPDATE (WithRANConfigUpdateDroppingTAs).
+func (a *AMF) tasDropped(p *pipe) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.droppedTAs[p]
+}
+
+// forgetAssociation drops what the mock holds for p's association once it
+// has ended.
+func (a *AMF) forgetAssociation(p *pipe) {
+	a.mu.Lock()
+	delete(a.droppedTAs, p)
+	a.mu.Unlock()
 }
 
 // RANConfigUpdate is one RAN CONFIGURATION UPDATE the mock received.
@@ -68,9 +97,27 @@ func (a *AMF) onRANConfigUpdate(p *pipe, req *ngapType.RANConfigurationUpdate) e
 		return a.send(p, buildRANConfigUpdateFailure())
 	case IgnoreRANConfigUpdate:
 		return nil
+	case CrashOnRANConfigUpdate:
+		a.crashed.Store(true)
+		return errCrashed
 	default:
+		if a.dropTAs && !got.HasIE(ngapType.ProtocolIEIDSupportedTAList) {
+			a.mu.Lock()
+			a.droppedTAs[p] = true
+			a.mu.Unlock()
+		}
 		return a.send(p, buildRANConfigUpdateAcknowledge())
 	}
+}
+
+// rejectRegistration answers st's Registration Request with a plain
+// REGISTRATION REJECT carrying cause.
+func (a *AMF) rejectRegistration(p *pipe, st *ueState, cause uint8) error {
+	rej, err := buildRegistrationReject(cause)
+	if err != nil {
+		return err
+	}
+	return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), rej))
 }
 
 // buildRANConfigUpdateAcknowledge builds a RAN CONFIGURATION UPDATE

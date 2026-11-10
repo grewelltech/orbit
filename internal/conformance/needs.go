@@ -141,6 +141,9 @@ func (nasSMCNoNIA0) Needs() CheckNeeds        { return ueNeeds }
 func (nasPDUUnknownDNN) Needs() CheckNeeds    { return ueNeeds }
 func (nasRegRejectedNSSAI) Needs() CheckNeeds { return ueNeeds }
 
+// Needs is one UE: the check registers it after the update.
+func (ranConfigUpdateKeepsTA) Needs() CheckNeeds { return ueNeeds }
+
 // The NAS timer checks measure retransmissions against tmax windows, which
 // a loaded AMF's scheduling jitter would push out.
 func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return timerNeeds }
