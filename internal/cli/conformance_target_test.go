@@ -35,7 +35,9 @@ func TestConformanceTargetReleaseSkipsAndPrintsRequirement(t *testing.T) {
 			t.Errorf("output lacks %s", id)
 		}
 	}
-	if strings.Count(out, "requires Rel-15 or later; TS ") < 3 || strings.Contains(out, "FAIL ") {
+	// A verdict starts its line, so a check ID that ends in "-FAIL" is not
+	// taken for one.
+	if strings.Count(out, "requires Rel-15 or later; TS ") < 3 || strings.Contains(out, "\nFAIL ") {
 		t.Errorf("each check must print its requirement line and none may FAIL:\n%s", out)
 	}
 	if !strings.Contains(out, "0 fail") {

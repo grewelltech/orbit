@@ -140,6 +140,7 @@ func (endMarkerOnPathSwitch) Needs() CheckNeeds {
 func (nasSMCNoNIA0) Needs() CheckNeeds            { return ueNeeds }
 func (nasIntegrityFailDiscard) Needs() CheckNeeds { return ueNeeds }
 func (nasReplayDiscard) Needs() CheckNeeds        { return ueNeeds }
+func (nasCountNotAdvanced) Needs() CheckNeeds     { return ueNeeds }
 func (nasPDUUnknownDNN) Needs() CheckNeeds        { return ueNeeds }
 func (nasRegRejectedNSSAI) Needs() CheckNeeds     { return ueNeeds }
 

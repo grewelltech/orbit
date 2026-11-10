@@ -261,6 +261,18 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   a core that selects 5G-IA0 SKIPs. Cleanup as for
   `NAS-INTEGRITY-FAIL-DISCARD`. Needs a UE and a DNN the core serves. Not
   yet run on a live core.
+- `NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL` (security, FAIL-class) — the UE sends
+  two valid PDU Session Establishment Requests, A and B (both must be
+  answered), then A's bytes again, then a valid request C. The re-sent A has
+  a sequence number lower than the last accepted one, so it fails the MAC at
+  the AMF's estimated NAS COUNT, and the stored COUNT shall not move
+  (TS 24.501 4.4.3.3). C answered is PASS; C unanswered with the association
+  up is FAIL; an answer to the re-sent A is FAIL under 4.4.3.2. A or B
+  unanswered, or a release before C is answered, is ERROR; 5G-IA0 SKIPs. On
+  the FAIL path the UE's security context is unusable, so the cleanup's
+  release and deregistration may not be accepted: the association is
+  dropped, and the core may keep a half-registered UE until its timers
+  expire. Mock-only so far.
 
 **Verdict note:** every missed **shall** is FAIL, including one that leaves the
 core running; `DEVIATION` is reserved for a missed **should**. A known failure

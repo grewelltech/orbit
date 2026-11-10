@@ -1500,6 +1500,14 @@ accepted. It passes when nothing more answers the first request and the next
 valid request is answered (TS 33.501 6.4.3.2). It fails when the repeat is
 answered.
 
+`NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL` sends two valid requests, then the first
+one's bytes again, then a third valid request. The old bytes fail the
+integrity check, and the AMF must not have moved its stored uplink NAS COUNT
+for them (TS 24.501 4.4.3.3), so the third request must be answered. If it is
+not, the check fails, and the AMF can no longer verify anything this UE
+sends: the check then drops the association, and the core may keep the UE and
+its sessions until its own timers expire.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the

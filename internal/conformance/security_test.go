@@ -339,6 +339,9 @@ type uplinkCase struct {
 	// wantReplays is how many uplinks the mock must have seen repeat an
 	// accepted NAS COUNT.
 	wantReplays int64
+	// wantBadMACs, when set, is how many uplinks the mock must have seen
+	// fail the integrity check.
+	wantBadMACs int64
 }
 
 // runUplinkCases runs check for each row against its own mock.
@@ -370,6 +373,9 @@ func runUplinkCases(t *testing.T, check Test, tests []uplinkCase) {
 			}
 			if got := amf.PDUSessionReleaseRequests(); got != tc.wantReleases {
 				t.Errorf("mock saw %d PDU Session Release Requests, want %d", got, tc.wantReleases)
+			}
+			if got := amf.BadMACUplinks(); tc.wantBadMACs != 0 && got != tc.wantBadMACs {
+				t.Errorf("mock saw %d bad-MAC uplinks, want %d", got, tc.wantBadMACs)
 			}
 			if got := amf.ReplayedUplinks(); got != tc.wantReplays {
 				t.Errorf("mock saw %d replayed uplinks, want %d", got, tc.wantReplays)
@@ -411,7 +417,7 @@ func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
 		{name: "first request unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: a valid PDU Session Establishment Request got no answer",
 			wantDetail: []string{"within 1.5s", cleanReleased}, wantDereg: 1},
 		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
-			wantDetail: []string{"not applicable when 5G-IA0 is used"}},
+			wantDetail: []string{"is not applicable when 5G-IA0 is used"}},
 		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error, wantObserved: "UE setup failed"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	})
@@ -468,6 +474,85 @@ func TestJudgeDiscardReplay(t *testing.T) {
 				t.Errorf("= %s %q (%s), want %s %q with %q", v, observed, detail, tc.want, tc.wantObserved, tc.wantDetail)
 			}
 		})
+	}
+}
+
+// Every verdict branch of the NAS COUNT check against the mock AMF over a
+// real SCTP listener: the conformant mock PASSes, and so does one that
+// checks the old sequence number at its original COUNT and then discards
+// the repeat; a mock that stores the COUNT before the MAC check FAILs (C
+// unanswered), and one that answers the re-sent A FAILs under 4.4.3.2; A or
+// B unanswered and a release after the bad MAC are ERROR; 5G-IA0 and no UE
+// SKIP. Where the security context still works the UE is deregistered;
+// where it does not, the association is dropped.
+func TestCountNotAdvancedAgainstMock(t *testing.T) {
+	runUplinkCases(t, nasCountNotAdvanced{waits: testUplinkWaits}, []uplinkCase{
+		{name: "count kept", want: Pass, wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
+			wantDetail: []string{"A sent again got no answer within 300ms", "PDU Session Release Request sent for session 2, 3, 4", cleanReleased}, wantDereg: 1, wantReleases: 3, wantBadMACs: 1},
+		{name: "old COUNT verified, then discarded", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate()}, want: Pass,
+			wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced", wantDetail: []string{cleanReleased}, wantDereg: 1, wantReleases: 3, wantReplays: 1},
+		{name: "count stored before the MAC check", opts: []mockamf.Option{mockamf.WithUplinkCountBeforeMAC()}, want: Fail, wantObserved: countFailObserved,
+			wantDetail: []string{countFailure, "got none within 1.5s with the association up", "no UE Context Release Command within 400ms", cleanDropped}, wantBadMACs: 5},
+		{name: "re-sent request answered", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate(), mockamf.WithReplayedUplink(mockamf.ProcessUplink)}, want: Fail,
+			wantObserved: "re-sent request answered (PDU Session Resource Setup Request): an already accepted NAS COUNT was accepted again",
+			wantDetail:   []string{"TS 24.501 4.4.3.2.", "The request sent after it was not judged.", cleanReleased}, wantDereg: 1, wantReleases: 2, wantReplays: 1},
+		{name: "A unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request A got no answer",
+			wantDetail: []string{cleanReleased}, wantDereg: 1},
+		{name: "B unanswered", opts: []mockamf.Option{mockamf.WithPDUSessionAnswers(1)}, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request B got no answer",
+			wantDetail: []string{"PDU Session Release Request sent for session 2;", cleanReleased}, wantDereg: 1, wantReleases: 1},
+		{name: "released after the bad MAC", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Error,
+			wantObserved: "UE released after the re-sent request; the stored NAS COUNT could not be judged",
+			wantDetail:   []string{"the AMF sent a UE Context Release Command", cleanGone}, wantBadMACs: 1},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
+			wantDetail: []string{"Integrity verification", "5G-IA0"}},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	})
+}
+
+// Every branch of the NAS COUNT verdict from a constructed outcome.
+func TestJudgeCount(t *testing.T) {
+	w := uplinkWaits{}.withDefaults()
+	both := [2]string{"a", "b"}
+	tests := []struct {
+		name         string
+		o            countOutcome
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+	}{
+		{name: "harness failure", o: countOutcome{err: errors.New("write failed")}, want: Error, wantObserved: "harness failure"},
+		{name: "released early", o: countOutcome{answers: [2]string{"a", ""}, goneEarly: "the AMF sent a UE Context Release Command"}, want: Error, wantObserved: "UE released before the re-sent request"},
+		{name: "A unanswered", o: countOutcome{}, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request A got no answer", wantDetail: []string{"within 10s"}},
+		{name: "B unanswered", o: countOutcome{answers: [2]string{"a", ""}}, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request B got no answer"},
+		{name: "re-sent answered", o: countOutcome{answers: both, replayed: &smReply{name: "PDU Session Establishment Accept"}, third: "c"}, want: Fail,
+			wantObserved: "re-sent request answered (PDU Session Establishment Accept): an already accepted NAS COUNT was accepted again", wantDetail: []string{"TS 24.501 4.4.3.2."}},
+		{name: "C answered", o: countOutcome{answers: both, third: "c"}, want: Pass, wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
+			wantDetail: []string{"within 5s", "C was answered (c)"}},
+		{name: "C answered, then released", o: countOutcome{answers: both, third: "c", gone: "gone"}, want: Pass},
+		{name: "released before C", o: countOutcome{answers: both, gone: "the association was lost (EOF)"}, want: Error,
+			wantObserved: "UE released after the re-sent request; the stored NAS COUNT could not be judged", wantDetail: []string{"the association was lost (EOF)"}},
+		{name: "C unanswered", o: countOutcome{answers: both}, want: Fail, wantObserved: countFailObserved, wantDetail: []string{countFailure, "got none within 10s"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v, observed, detail := judgeCount(tc.o, w)
+			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			}
+			for _, want := range tc.wantDetail {
+				if !strings.Contains(detail, want) {
+					t.Errorf("detail %q lacks %q", detail, want)
+				}
+			}
+		})
+	}
+}
+
+// The failure message is the one the check's issue fixes.
+func TestCountFailureMessage(t *testing.T) {
+	const want = "AMF did not process a valid uplink NAS message sent after a MAC-failed message with a lower sequence number. TS 24.501 4.4.3.3. Likely cause: the stored uplink NAS COUNT is advanced before the integrity check passes."
+	if countFailure != want {
+		t.Errorf("countFailure = %q", countFailure)
 	}
 }
 

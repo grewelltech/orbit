@@ -161,3 +161,14 @@ var ts24501RejectedNSSAIVerified = []SpecVersion{
 	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
 	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
 }
+
+// ts24501CountEstimateVerified covers TS 24.501 4.4.3.1's stored-COUNT
+// sentence and NAS COUNT estimation rules: V16.5.1, where they first
+// appear, and the latest version of Rel-16 to Rel-19.
+var ts24501CountEstimateVerified = []SpecVersion{
+	{Release: 16, Version: "V16.5.1", Archive: "24501-g51.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}

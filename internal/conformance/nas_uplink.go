@@ -140,7 +140,7 @@ var errNIA0Selected = errors.New("the core selected 5G-IA0")
 // nia0Skip is the SKIP of a check that needs integrity protection.
 func nia0Skip(r Result) Result {
 	r.Verdict, r.Observed = Skip, "the core selected 5G-IA0"
-	r.Detail = "integrity and replay protection are not applicable when 5G-IA0 is used (TS 24.501 4.4.3.2, 4.4.3.3), and the UE harness refuses 5G-IA0, so the UE did not register"
+	r.Detail = "\"Integrity verification is not applicable when 5G-IA0 is used\" (TS 24.501 4.4.3.3), and neither is replay protection (4.4.3.2); the UE harness refuses 5G-IA0, so the UE did not register"
 	return r
 }
 
