@@ -218,13 +218,20 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 		results []conformance.Result
 		last    *orbitv1.ConformanceUpdate
 	)
+	// Live progress to stderr as updates arrive: a line per verdict, plus a
+	// spinner on a terminal. stdout stays the report (or JSON); silent off a
+	// terminal.
+	prog := newStreamProgress(cmd.ErrOrStderr(), isTerminal(cmd.ErrOrStderr()))
+	prog.start()
 	for stream.Receive() {
 		u := stream.Msg()
+		prog.update(u)
 		if r := u.GetResult(); r != nil {
 			results = append(results, resultFromProto(r))
 		}
 		last = u
 	}
+	prog.stop()
 	if err := stream.Err(); err != nil {
 		if last.GetRunId() == "" {
 			return noServer(exitWith(ExitCouldNotStart, err), *serverURL)
