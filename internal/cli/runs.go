@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"connectrpc.com/connect"
@@ -64,7 +63,7 @@ func newRunsListCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+			w := newTable(cmd.OutOrStdout())
 			fmt.Fprintln(w, "RUN-ID\tKIND\tSTATE\tNAME\tAGE")
 			for _, r := range res.Msg.GetRuns() {
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",

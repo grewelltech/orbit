@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -160,7 +159,7 @@ func newServerListCmd() *cobra.Command {
 				_, _ = fmt.Fprintln(out, "no trusted servers (orbit server trust <https-url>)")
 				return nil
 			}
-			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+			tw := newTable(out)
 			_, _ = fmt.Fprintln(tw, "SERVER\tPIN\tTOKEN")
 			for _, s := range f.Servers {
 				tok := "-"

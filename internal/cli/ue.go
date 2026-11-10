@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"text/tabwriter"
 	"time"
 
 	"connectrpc.com/connect"
@@ -45,7 +44,7 @@ func newUEStatsCmd(serverURL *string) *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), "no data-path activity yet (counters start with the first ping/traffic/latency run)")
 				return nil
 			}
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+			w := newTable(cmd.OutOrStdout())
 			fmt.Fprintln(w, "QFI\tUL-PKTS\tUL-BYTES\tDL-PKTS\tDL-BYTES")
 			for _, f := range flows {
 				fmt.Fprintf(w, "%d\t%d\t%d\t%d\t%d\n", f.GetQfi(),
@@ -356,7 +355,7 @@ func newUEListCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+			w := newTable(cmd.OutOrStdout())
 			fmt.Fprintln(w, "SUPI\tSTATE\tIP\tAMF-UE-NGAP-ID\tSERVING-GNB\tMOBILITY")
 			for _, u := range res.Msg.GetUes() {
 				mob := u.GetMobilityState()

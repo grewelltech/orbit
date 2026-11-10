@@ -8,7 +8,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"text/tabwriter"
 	"time"
 
 	"connectrpc.com/connect"
@@ -276,7 +275,7 @@ func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
 // printConformanceList prints --list: one line per check with its category,
 // required release and the longest it can take at perTest, then the total.
 func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	tw := newTable(w)
 	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tREQUIRES\tUP TO")
 	var total time.Duration
 	for _, t := range tests {

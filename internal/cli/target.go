@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"connectrpc.com/connect"
@@ -418,7 +417,7 @@ func newTargetListCmd(loc targetLocations) *cobra.Command {
 					shortPath(filepath.Join(l.Dir, "orbit.yaml")), shortPath(filepath.Join(l.ConfigDir, "targets")))
 				return nil
 			}
-			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+			tw := newTable(out)
 			_, _ = fmt.Fprintln(tw, "NAME\tFILE\tAMF\tPLMN\tSTATUS")
 			for _, r := range rows {
 				file := r.File
@@ -628,7 +627,7 @@ func since(t time.Time) string { return time.Since(t).Round(time.Millisecond).St
 // printProvenance prints provenance rows: each field's value (masked when
 // secret), the source that set it and what it overrode.
 func printProvenance(w io.Writer, rows []target.FieldProvenance) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	tw := newTable(w)
 	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE\tSET BY\tOVERRODE")
 	for _, p := range rows {
 		var over []string

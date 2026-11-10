@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"connectrpc.com/connect"
@@ -92,7 +91,7 @@ func newJoinListCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			tw := newTable(cmd.OutOrStdout())
 			_, _ = fmt.Fprintln(tw, "ID\tNAME\tEXPIRES\tMGMT\tUE POOLS")
 			for _, t := range res.Msg.GetTokens() {
 				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.GetId(), dash(t.GetName()),

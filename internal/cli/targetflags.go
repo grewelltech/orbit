@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -554,7 +553,7 @@ func explain(w io.Writer, cmd, name string, bound map[string]target.Binding, r *
 		name = "(none)"
 	}
 	_, _ = fmt.Fprintf(w, "%s: target %s\n", cmd, name)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	tw := newTable(w)
 	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE\tSET BY\tOVERRODE\tFLAG")
 	for _, p := range paths {
 		pv := byPath[p]

@@ -8,7 +8,6 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"connectrpc.com/connect"
@@ -151,7 +150,7 @@ func newResponderListCmd(serverURL *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			tw := newTable(cmd.OutOrStdout())
 			head := "NAME\tID\tSTATE\tLAST SEEN\tCONTROL\tDATA IP\tVERSION\tTOKEN\tREGISTERED"
 			if output == "wide" {
 				head += "\tSOURCE\tREGISTERED FROM"

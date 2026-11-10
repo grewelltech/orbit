@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -183,7 +182,7 @@ func findTarget(o options, name string) (*target.File, error) {
 func explainPlan(cmd *cobra.Command, targetName string, res *target.Resolved, req *orbitv1.StartRunRequest) error {
 	w := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintf(w, "%s: target %s\n", cmd.CommandPath(), targetName)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	tw := newTable(w)
 	_, _ = fmt.Fprintln(tw, "FIELD\tVALUE\tSET BY\tOVERRODE")
 	for _, pv := range res.Provenance {
 		var over []string
