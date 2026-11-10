@@ -124,7 +124,7 @@ export function Launch({ preset }: { preset?: string }) {
                     </option>
                   ))}
                 </select>
-                <a href="?targets" className="o-label" style={{ color: "var(--o-ink-3)" }}>
+                <a href="/targets" className="o-label" style={{ color: "var(--o-ink-3)" }}>
                   edit targets
                 </a>
                 <button type="button" className="o-label cursor-pointer px-2" style={buttonStyle} onClick={() => setQuick((v) => !v)}>

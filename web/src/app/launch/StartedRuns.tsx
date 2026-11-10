@@ -40,7 +40,7 @@ export function StartedRuns({ runs }: { runs: readonly StartedRun[] }) {
       <ul className="flex flex-col gap-1">
         {runs.map((r) => (
           <li key={r.id} className="flex flex-wrap items-center gap-3">
-            <a href={`?run=${encodeURIComponent(r.id)}`} className="o-label" style={{ color: "var(--o-accent)", textTransform: "none" }}>
+            <a href={`/?run=${encodeURIComponent(r.id)}`} className="o-label" style={{ color: "var(--o-accent)", textTransform: "none" }}>
               {r.id}
             </a>
             <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
