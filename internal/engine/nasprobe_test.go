@@ -228,6 +228,65 @@ func TestNASProbeReplayedUplink(t *testing.T) {
 	}
 }
 
+// An old request sent again has a sequence number below the last accepted
+// one. The conformant mock fails its MAC at the higher estimate and keeps
+// its COUNT, so the next request is answered. A mock that stores the COUNT
+// first no longer answers; one that tries the old COUNT finds a repeat,
+// and discards or processes it as told. A mock limited to one PDU session
+// answer ignores the second request.
+func TestNASProbeOldUplinkAgain(t *testing.T) {
+	tests := []struct {
+		name                    string
+		opts                    []mockamf.Option
+		wantAgain, wantNext     bool
+		wantBadMACs, wantReplay int64
+	}{
+		{name: "count kept", wantNext: true, wantBadMACs: 1},
+		{name: "count stored before the MAC check", opts: []mockamf.Option{mockamf.WithUplinkCountBeforeMAC()}, wantBadMACs: 2},
+		{name: "old COUNT tried, discarded", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate()}, wantNext: true, wantReplay: 1},
+		{name: "old COUNT tried, processed", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate(), mockamf.WithReplayedUplink(mockamf.ProcessUplink)},
+			wantAgain: true, wantNext: true, wantReplay: 1},
+		{name: "one answer only", opts: []mockamf.Option{mockamf.WithPDUSessionAnswers(1)}, wantBadMACs: 1},
+	}
+	answered := func(f *probeFixture) bool {
+		d, err := f.p.Next(context.Background(), 300*time.Millisecond)
+		return err == nil && len(d.Sessions) == 1
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProbeFixture(t, tc.opts...)
+			old := f.sessionRequest(t, 2, 1)
+			if err := f.p.Send(old); err != nil {
+				t.Fatal(err)
+			}
+			if !answered(f) {
+				t.Fatal("the first request was not answered")
+			}
+			if err := f.p.Send(f.sessionRequest(t, 3, 2)); err != nil {
+				t.Fatal(err)
+			}
+			if limited := tc.name == "one answer only"; answered(f) == limited {
+				t.Fatalf("second request answered = %v", !limited)
+			}
+			if err := f.p.Send(old); err != nil {
+				t.Fatal(err)
+			}
+			if got := answered(f); got != tc.wantAgain {
+				t.Errorf("old request answered again = %v, want %v", got, tc.wantAgain)
+			}
+			if err := f.p.Send(f.sessionRequest(t, 4, 3)); err != nil {
+				t.Fatal(err)
+			}
+			if got := answered(f); got != tc.wantNext {
+				t.Errorf("next request answered = %v, want %v", got, tc.wantNext)
+			}
+			if b, r := f.amf.BadMACUplinks(), f.amf.ReplayedUplinks(); b != tc.wantBadMACs || r != tc.wantReplay {
+				t.Errorf("mock counted %d bad MACs and %d replays, want %d and %d", b, r, tc.wantBadMACs, tc.wantReplay)
+			}
+		})
+	}
+}
+
 // Deregister reports whether the core released the UE, and Close drops the
 // session: the Manager no longer knows the UE, and a second Close is a
 // no-op.

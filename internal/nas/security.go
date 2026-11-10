@@ -211,6 +211,35 @@ func (s *SecurityContext) DecodeUnverified(data []byte) (*f5nas.Message, error) 
 	return m, err
 }
 
+// EstimateRxCount is the NAS COUNT DecodeSecure would check the protected
+// PDU data at: its sequence number with the overflow counter estimated from
+// the stored receive COUNT. Nothing is verified or stored.
+func (s *SecurityContext) EstimateRxCount(data []byte) (uint32, error) { return s.estimateRx(data) }
+
+// RxCount is the stored receive NAS COUNT: the last one accepted, or 0
+// before any.
+func (s *SecurityContext) RxCount() uint32 { return s.rxCount }
+
+// ForceRxCount stores count as the last accepted receive NAS COUNT with no
+// check. It stands in for a receiver that stores the COUNT of a message
+// before its integrity check passes (a mock's non-conformant option);
+// nothing else may use it.
+func (s *SecurityContext) ForceRxCount(count uint32) { s.rxCount, s.rxAccepted = count, true }
+
+// DecodeSecureAt verifies the protected PDU data at count and unwraps it,
+// leaving the stored receive COUNT as it was. A MAC that does not verify
+// there wraps ErrIntegrity.
+func (s *SecurityContext) DecodeSecureAt(data []byte, count uint32) (*f5nas.Message, error) {
+	if _, err := s.estimateRx(data); err != nil {
+		return nil, err
+	}
+	if err := s.verifyAt(data, count); err != nil {
+		return nil, err
+	}
+	m, _, err := s.unwrapAt(data, count)
+	return m, err
+}
+
 // estimateRx is the NAS COUNT a received protected PDU is checked at. A
 // "new context" message restarts the COUNT (TS 33.501 §6.4.3.1). Otherwise
 // the 24-bit COUNT is recovered from the received sequence byte, bumping the

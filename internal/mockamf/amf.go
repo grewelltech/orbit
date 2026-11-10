@@ -150,11 +150,18 @@ type AMF struct {
 	// uplinks that failed the integrity check, replays those that repeated
 	// an accepted NAS COUNT, smReleases the PDU Session Release Requests
 	// received.
-	badMAC     UplinkAction
-	badMACs    atomic.Int64
-	replayed   UplinkAction
-	replays    atomic.Int64
-	smReleases atomic.Int64
+	badMAC   UplinkAction
+	badMACs  atomic.Int64
+	replayed UplinkAction
+	replays  atomic.Int64
+	// countBeforeMAC, laxEstimate and the PDU session answer limit are
+	// WithUplinkCountBeforeMAC, WithLaxUplinkCountEstimate and
+	// WithPDUSessionAnswers.
+	countBeforeMAC bool
+	laxEstimate    bool
+	smAnswers      int
+	smLimited      bool
+	smReleases     atomic.Int64
 
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
@@ -359,6 +366,7 @@ type ueState struct {
 	kamf      []byte                       // KAMF from authentication, for the SMC's keys
 	requested []byte                       // the Requested NSSAI IE's value, nil when absent
 	muted     bool                         // MuteOnUplink: every NAS message is dropped
+	smSeen    int                          // PDU Session Establishment Requests received (WithPDUSessionAnswers)
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {

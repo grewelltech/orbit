@@ -104,6 +104,9 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 	if sm.GsmMessage == nil || sm.PDUSessionEstablishmentRequest == nil {
 		return nil
 	}
+	if st.smSeen++; a.smLimited && st.smSeen > a.smAnswers {
+		return nil
+	}
 	req := sm.PDUSessionEstablishmentRequest
 	id := req.GetPDUSessionID()
 	pti := req.GetPTI()
