@@ -150,6 +150,86 @@ func Find(name string, loc Locations, env Getenv) (*File, error) {
 	return files[0], nil
 }
 
+// ExportRaw returns the target named name as its file holds it on disk, with
+// every ${VAR} left as written: no secret is resolved, so a file written
+// without --write-keys exports with ${ORBIT_KI}/${ORBIT_OPC} intact. The bytes
+// are the file's own, so the dashboard's Targets page imports them back byte
+// for byte (docs/USAGE.md). Location precedence is Find's: a target in
+// ./orbit.yaml shadows <ConfigDir>/targets/<name>.yaml.
+//
+// The named target must be the whole file, one target document as
+// `orbit target init` writes. A target that is one entry of a multi-target
+// list is refused, naming the file: a byte-faithful single export cannot be
+// sliced out of a list. path is where the bytes came from.
+func ExportRaw(name string, loc Locations) (raw []byte, path string, err error) {
+	if name == "" {
+		return nil, "", errors.New("no target named")
+	}
+	local := filepath.Join(loc.Dir, "orbit.yaml")
+	switch b, err := os.ReadFile(local); {
+	case err == nil:
+		switch found, single, err := scanTargetNames(local, b, name); {
+		case err != nil:
+			return nil, "", err
+		case found && single:
+			return b, local, nil
+		case found:
+			return nil, "", fmt.Errorf("%s: target %q is one entry of a list; export reads a single-target file as `orbit target init` writes — split it into its own file first", local, name)
+		}
+		// Not in ./orbit.yaml: fall through to the config directory.
+	case !errors.Is(err, os.ErrNotExist):
+		return nil, "", err
+	}
+	p := filepath.Join(loc.ConfigDir, "targets", name+".yaml")
+	b, err := os.ReadFile(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, "", fmt.Errorf("%w: %q is in neither %s nor %s", ErrNotFound, name, local, p)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	switch found, single, err := scanTargetNames(p, b, name); {
+	case err != nil:
+		return nil, "", err
+	case found && single:
+		return b, p, nil
+	case found:
+		return nil, "", fmt.Errorf("%s: want the one target %q, not a list", p, name)
+	default:
+		return nil, "", fmt.Errorf("%s: want the one target %q", p, name)
+	}
+}
+
+// scanTargetNames reads a target file's top-level shape without expanding
+// ${VAR} or validating, so a file whose secrets are ${VAR} placeholders scans
+// without an environment: it reports whether a target named name is in the
+// file, and whether the file is that one target document (single) rather than
+// a list. A file that is not YAML, is empty, or is neither a target nor a list
+// of targets is an error.
+func scanTargetNames(file string, b []byte, name string) (found, single bool, err error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(b, &root); err != nil {
+		return false, false, fmt.Errorf("%s: %w", file, err)
+	}
+	if root.Kind == 0 || len(root.Content) == 0 {
+		return false, false, fmt.Errorf("%s: empty", file)
+	}
+	doc := root.Content[0]
+	switch doc.Kind {
+	case yaml.MappingNode:
+		return mapValue(doc, "name") == name, true, nil
+	case yaml.SequenceNode:
+		for _, el := range doc.Content {
+			if mapValue(el, "name") == name {
+				return true, false, nil
+			}
+		}
+		return false, false, nil
+	default:
+		return false, false, fmt.Errorf("%s:%d: want a target or a list of targets", file, doc.Line)
+	}
+}
+
 // LoadFile reads a target file: one target document, or a list of them.
 // Unknown keys are errors, as are a version other than 1, a kind other
 // than target, a ran.node other than "", and a ${VAR} that is not set. A

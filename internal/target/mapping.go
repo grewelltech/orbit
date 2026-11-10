@@ -281,6 +281,11 @@ var Exclusions = []Exclusion{
 	{Flag: "force", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "responder", Commands: []string{cmdTargetInit}, Reason: ReasonOperation},
 	{Flag: "resolved", Commands: []string{"orbit target show"}, Reason: ReasonOutput},
+	// export prints an existing target to move it into the web UI: --link
+	// chooses the import-URL form over the raw YAML, --dashboard names where
+	// that link points. Neither changes the target.
+	{Flag: "link", Commands: []string{"orbit target export"}, Reason: ReasonOutput},
+	{Flag: "dashboard", Commands: []string{"orbit target export"}, Reason: ReasonConnection},
 	{Flag: "core-only", Commands: []string{"orbit target probe"}, Reason: ReasonOperation},
 	// A handover's flags describe its destination gNB, with unset fields
 	// inherited from the serving gNB: one operation's argument, which a
