@@ -337,9 +337,9 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   for hex. Before, `--tac 0010` was read as octal 8. `0x`, `0o` and plain `0`
   are accepted, as in a target file.
 
-### Targets in the browser (`?targets`)
+### Targets in the browser (`/targets`)
 
-The dashboard's **Targets** page (`http://<server>:8412/?targets`) creates and
+The dashboard's **Targets** page (`http://<server>:8412/targets`; the old `?targets` link still redirects) creates and
 edits targets in the browser, using the same schema as the CLI's target file.
 It imports and exports those files: a file `orbit target init` wrote,
 imported and then exported unchanged, comes back byte for byte, and a file
@@ -453,20 +453,34 @@ then **make a join one-liner**:
   only (the server fills in the rest). The edit goes through the same checks
   as any edit.
 
-The conformance suite is run from the Launch page. `?conformance` opens
+The conformance suite is run from the Launch page. `/conformance` (and the old `?conformance`) opens
 Launch on the `conformance` template. A suite needs a target, but a target
 made there with **new from AMF + PLMN** needs no keys. It has no subscriber
 pool, so the checks that need a UE SKIP, as they did on the old Conformance
 page; add a pool on the Targets page to run those. The run view
-(`?run=<id>`) shows a suite's tally as it runs, then every check's verdict,
+(`/runs?run=<id>`) shows a suite's tally as it runs, then every check's verdict,
 spec reference and observation once it ends, with the expected-failures
 list it was judged against ("failed (N expected)" counts the FAILs the list
 tolerates). **cancel run** stops a suite in flight, as the old page's
 cancel did.
 
-### Launching a run from the browser (`?launch`)
+### The web UI's pages
 
-The **Launch** page builds a run against a stored target and starts it on
+- `/` is **Home**: counts of live, total and failed runs, a "Live now" table
+  and the last 10 finished runs. Each row opens that run.
+- `/runs?run=<id>` is the run dashboard. It picks its layout from the run's
+  kind: a conformance run shows the suite results, a mixed run shows the
+  suite results above the performance charts, and any other run shows the
+  performance charts. Old `/?run=<id>` and `/?mock` links redirect here.
+- `/launch` is the run kind chooser; `/targets` is the Targets page.
+
+### Launching a run from the browser (`/launch`)
+
+The **Launch** page first asks what kind of run to build: a population attach
+storm (`/launch/load`), a population fleet (`/launch/fleet`), a conformance
+suite (`/conformance`) or a mixed run that starts from an empty run file
+(`/launch/mixed`). The chooser also links to the tab's unfinished draft
+(`/launch/edit`). Then it builds a run against a stored target and starts it on
 the server. It can also give the same run as a command or a run file for
 the CLI.
 
@@ -506,7 +520,7 @@ the CLI.
   - An edit after the plan was resolved means it is resolved again first.
   - **Check the plan** resolves without starting.
   - A field the server refuses is named, with its document and line.
-  - The page then opens the run on the dashboard (`?run=<id>`).
+  - The page then opens the run on the dashboard (`/runs?run=<id>`).
   - A run started here runs on the server: it keeps going when you leave
     the page or close the tab. Launch lists the last 5 runs this tab
     started, each with its state, a link to its run view and, while in

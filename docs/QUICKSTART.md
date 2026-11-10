@@ -152,6 +152,10 @@ The commands above are ad-hoc: they act immediately and create no *run*. The
 dashboard watches **runs**, so it shows nothing until one exists. `orbit runs
 list` returning an empty table is the tell.
 
+CLI tables (`runs list`, `target list`, `ue list`, …) print a borderless table
+with a bold header row. Open a run from the dashboard's Home page (`/`) or
+`/runs?run=<id>`.
+
 **A load run** — a rate-controlled attach storm:
 
 ```sh
