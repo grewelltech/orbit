@@ -31,8 +31,12 @@ A target is where a run points: a core's AMF, PLMN and (optionally) a subscriber
 
 ```sh
 orbit target init lab1 --amf 127.0.0.1:38412 --mcc 001 --mnc 01 --sd 010203 \
-  --first-supi 001010000000001
+  --first-supi 001010000000001 --count 100
 ```
+
+`--count` sizes the subscriber pool; it defaults to 1, so set it to at least
+the `--count` your load test uses (100 below) or the run is rejected for a pool
+that is too small.
 
 Subscriber keys stay out of the target file — `target init` writes `${ORBIT_KI}`
 and `${ORBIT_OPC}` in their place, expanded from your shell when the target
@@ -54,12 +58,17 @@ orbit load -t lab1 --count 100 --rate 20
 ```
 
 Conformance results print as a colored table on a terminal (plain output when piped, `--json` for
-machines). Watch any run from the terminal or the dashboard:
+machines). `orbit conformance` and `orbit load` each wait for the run to finish, so review the
+results afterward:
 
 ```sh
-orbit runs watch
-orbit runs list
+orbit runs list            # every run, newest first
+orbit runs get <run-id>    # the full result of a finished run
 ```
+
+To follow a run live, run `orbit runs watch` in a second terminal *while* a test is in flight — with
+no id it follows the active run, or pass a `<run-id>`. It fails with "no active run" if nothing is
+running, which is expected once the commands above have completed.
 
 ## Next
 
