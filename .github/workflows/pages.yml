@@ -3,6 +3,13 @@ name: Pages
 # Build the Starlight site in site/ and deploy it to GitHub Pages (source:
 # GitHub Actions). install.sh is copied from the repo root into the site so it
 # is served at https://orbit.grewelltech.com/install.sh from a single source.
+#
+# The custom domain (orbit.grewelltech.com) is configured in repo Settings →
+# Pages, which owns it for an Actions-published site and provisions its TLS
+# certificate. Do NOT add a CNAME file to the published artifact: with this
+# source, a CNAME in each deploy re-asserts the domain, which re-runs the DNS
+# check and resets certificate provisioning (dropping "Enforce HTTPS") on every
+# deploy. Settings is the single source of truth for the domain.
 on:
   push:
     branches: [main]
