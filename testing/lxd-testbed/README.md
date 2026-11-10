@@ -500,6 +500,100 @@ version. The script installs it, having watched the stock path fail with
 `Failed to find required executable "helm"`. (The Aether reference host carries
 a `get_helm.sh` for the same reason.)
 
+## The free5GC core (`-p free5gc`)
+
+```sh
+./testbed.sh -p free5gc core           # build and start free5GC, provision subscribers
+./testbed.sh -p free5gc core-status    # units, listeners, the UPF's attachment, subscriber count
+./testbed.sh -p free5gc reprovision    # restore the subscriber population
+```
+
+[`cores/free5gc.sh`](cores/free5gc.sh) builds free5GC from source on the core
+node and runs it natively: one systemd unit per NF (`free5gc-nrf`,
+`free5gc-amf`, … `free5gc-upf`, `free5gc-webconsole`, grouped by
+`free5gc.target`), no containers. The node's own addresses are the core's:
+
+| | Where | |
+|---|---|---|
+| AMF, NGAP | `CORE_N2:38412` SCTP on `n2` | `10.141.0.10` |
+| UPF, GTP-U | `UPF_N3:2152` on `n3` | `10.142.0.100` |
+| UPF, N6 | `UPF_N6` on `n6`; UE addresses leave it un-NATed | `10.143.0.100` |
+| PFCP (N4), SBI, MongoDB, webconsole API | loopback | `127.0.0.x` |
+
+The first `core` takes about 6 minutes, most of it package installs and the Go
+build; a re-run at the same refs rebuilds nothing, re-renders the
+configuration, restarts the NFs and re-provisions in about a minute. It is
+automatic from a fresh `up`.
+
+**Versions.** Pinned by variables at the top of `cores/free5gc.sh`, overridable
+like any other setting (environment, `testbed.free5gc.local.conf`); what each
+resolved to is recorded in `/etc/orbit/testbed-versions` on the core node.
+
+| Variable | Default | |
+|---|---|---|
+| `FREE5GC_REF` | `v4.3.0` | free5GC release (git ref of `FREE5GC_REPO`); every NF is the submodule commit that release pins |
+| `GTP5G_REF` | `v0.10.2` | gtp5g kernel module (git ref of `GTP5G_REPO`); go-upf at v4.3.0 accepts `>= 0.9.3, < 0.10.3` |
+| `FREE5GC_GO_VERSION` | `1.26.11` | Go toolchain from go.dev (the release's modules need 1.26.2 or later) |
+| `FREE5GC_MONGO_SERIES` | `8.0` | MongoDB series from repo.mongodb.org |
+| `FREE5GC_NFS` | `nrf udr udm ausf nssf pcf chf amf smf` | control-plane NFs to build and run; the UPF and the webconsole backend always run |
+| `FREE5GC_NIA_ORDER` / `FREE5GC_NEA_ORDER` | `NIA2 NIA1 NIA3` / `NEA0 NEA2 NEA1 NEA3` | the AMF's NAS algorithm preference |
+| `FREE5GC_GTP_MTU` | `TESTBED_MTU - 64` | MTU of the UPF's GTP device |
+| `FREE5GC_AMBR` | `10 Gbps` | session and UE AMBR of every subscriber |
+| `FREE5GC_N6_GATEWAY` | *(empty: `GW_N6` if it answers)* | next hop for UE traffic beyond the N6 subnet; `none` for no next hop |
+| `FREE5GC_LOG_LEVEL` | `info` | log level of every NF (`journalctl -u free5gc-amf`) |
+| `FREE5GC_DIR` | `/opt/free5gc` | source tree, binaries and helper scripts on the core node |
+
+**3GPP release.** free5GC describes itself as a Release 15 core "and beyond".
+v4.3.0's NAS and NGAP codecs (`free5gc/nas` v1.3.0, `free5gc/ngap` v1.2.0)
+follow TS 24.501 and TS 38.413 at Release 15/16 level. Run the conformance
+suite against it with `--target-release Rel-15`, so a check that needs a later
+release SKIPs; under ORBIT's default (Rel-18, the SD-Core release) such a check
+runs and FAILs.
+
+**ORBIT must send its IMEISV.** free5GC's AMF asks for the IMEISV in the
+Security Mode Command and, if the Security Mode Complete carries none, sends an
+Identity Request for the IMEI before it accepts the registration; there is no
+setting for this. An ORBIT whose UE does neither stops at
+`AMF requested an Identity … Identity Response not yet implemented`: NG Setup
+works, and `verify` and every check that registers a UE fail.
+
+**Configuration.** The NF configuration in `/etc/free5gc` is the pinned
+release's own `config/*.yaml` with only the testbed's values replaced — PLMN,
+TAC, slice, DNN, the UE pool, the N2 and N3 addresses, the NAS algorithm order
+— so a newer release brings its new settings along, and a changed layout fails
+the render with a message instead of starting a half-configured core. The NAS
+timers are the release's defaults, which are the specification's (T3550, T3560,
+T3570 6 s; T3591, T3592 16 s). The SMF sets the End Marker flag on a path
+switch and gtp5g sends the End Markers; there is no switch for it.
+
+**The UPF** is go-upf with the `gtp5g` kernel module, built on the node through
+DKMS (so a kernel upgrade rebuilds it) and loaded at boot. LXD VMs boot with
+Secure Boot on, and a module built on the node is unsigned, so the first `core`
+turns Secure Boot off for the core VM and restarts it once. The UPF routes
+`TESTBED_UE_POOL` to its GTP device, and `ip_forward` is on. Nothing is NATed
+and no firewall rule is added: free5GC's guides add a MASQUERADE rule, this
+does not. UE traffic leaves through N6 and nowhere else — a routing rule sends
+anything *from* a UE address to a table that holds the N6 subnet and, when the
+site has a router there, a default route via it (`core-status` prints both).
+The return path is the site's: r-site routes the pool to `UPF_N6`.
+
+**Subscribers** are written through the webconsole's API
+(`http://127.0.0.1:5000` on the core node, account `admin` / `free5gc`), which
+creates `TESTBED_SUB_COUNT` consecutive IMSIs from `TESTBED_SUB_START` in one
+request and writes every collection the UDR and PCF read in the pinned
+release's own schema: 5G-AKA with `TESTBED_KI` and `TESTBED_OPC` (an OPc), one
+slice and DNN, IPv4, default 5QI 9, offline charging. `reprovision` deletes
+whatever subscribers exist and creates the population again; it does not
+restart anything. MongoDB keeps its data on the node's disk, so subscribers
+survive a restart of the core or the node. Only the webconsole's backend runs;
+its web frontend is not built.
+
+**After a reboot** of the core node everything returns by itself: `mongod`, the
+module, the routing and `free5gc.target`. An NF registers with the NRF once, at
+start, so the control-plane units restart together with `free5gc-nrf`
+(`systemctl restart free5gc-nrf`); `systemctl restart free5gc.target` or
+`./testbed.sh -p free5gc core` restarts the UPF and the webconsole as well.
+
 ## Installing ORBIT and the responder
 
 ```sh
