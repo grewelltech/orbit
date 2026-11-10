@@ -81,7 +81,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
 | NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ⬜ bad TAC | the densest entry point |
-| RAN Configuration Update | RAN→AMF | ⬜ | 🎯 malformed IE (high-value set) | |
+| RAN Configuration Update | RAN→AMF | ⬜ | ✅ `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (transfer syntax error) | every IE but Message Type is optional, so there is no missing-mandatory-IE case |
 | NG Reset | RAN→AMF | ✅ `NGAP-NG-RESET-ACK` (live PASS) | ⬜ | RAN-initiated reset-all → NG RESET ACKNOWLEDGE |
 | Error Indication | both | ✅ (we assert the core *sends* it) | — | |
 | AMF Configuration Update | AMF→RAN | — | — | ORBIT receives |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**12 checks today** (the first four live on the SD-Core testbed):
+**13 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -155,6 +155,14 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   another PDU, a silent drop or a reset is FAIL. It never presents a served
   PLMN with an unknown TAC, which an AMF rejects with the same cause. Predicted
   PASS on SD-Core from source; not yet run live.
+- `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (negative-ie, DEVIATION-class) — a
+  RAN CONFIGURATION UPDATE whose Supported TA Item is cut off after its TAC,
+  so the item's mandatory Broadcast PLMN List is missing: a transfer syntax
+  error, for which the receiver **should** initiate the Error Indication
+  procedure (TS 38.413 10.2). An ERROR INDICATION is PASS. A silent drop,
+  another PDU, or a dropped association with the core still running is
+  DEVIATION; a core that stops completing NG Setup is FAIL. It is the only
+  check that cites a should and no shall. Not yet run on Ref 2.
 - `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, FAIL-class) — G-PDU with a non-zero
   unknown TEID → TS 29.281 §7.3.1 says the UPF **shall** return an Error
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the

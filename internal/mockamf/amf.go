@@ -115,7 +115,7 @@ type AMF struct {
 	t3550Retries      int
 	assignGUTI        bool
 	crashAfterT3550   bool
-	crashed           atomic.Bool // set once a crashAfterRelease release or crashAfterT3550 abort happened
+	crashed           atomic.Bool // set once a crashAfterRelease release, a crashAfterT3550 abort or a CrashOnUndecodable PDU happened
 
 	// Security Mode Command options (smc.go).
 	integrityOrder  []uint8
@@ -154,11 +154,16 @@ type AMF struct {
 	// received, guarded by mu.
 	ranConfigAnswer  RANConfigUpdateAnswer
 	ranConfigUpdates []RANConfigUpdate
+
+	// undecodable is the reaction to an uplink PDU that does not decode
+	// (undecodable.go).
+	undecodable UndecodableAnswer
 }
 
-// errCrashed ends every association of a mock that crashed after a release
-// (WithCrashAfterRelease).
-var errCrashed = errors.New("mockamf: crashed after the T3560 release")
+// errCrashed ends every association of a mock that crashed: after a release
+// (WithCrashAfterRelease), a T3550 abort (WithCrashAfterT3550Abort) or an
+// undecodable PDU (CrashOnUndecodable).
+var errCrashed = errors.New("mockamf: crashed")
 
 // New validates config and returns a mock AMF, adjusted by opts.
 func New(cfg Config, opts ...Option) (*AMF, error) {
@@ -254,11 +259,14 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			return err
 		}
 		if a.crashed.Load() {
-			return errCrashed // WithCrashAfterRelease: the core is gone
+			return errCrashed // the core is gone
 		}
 		pdu, err := ngap.Decode(raw)
 		if err != nil {
-			return fmt.Errorf("mock amf decode: %w", err)
+			if err := a.onUndecodable(p, fmt.Errorf("mock amf decode: %w", err)); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := a.dispatch(p, states, pdu); err != nil {
 			return err

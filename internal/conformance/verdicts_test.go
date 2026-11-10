@@ -174,12 +174,26 @@ func TestRunOneVerdictRule(t *testing.T) {
 	}
 }
 
-// Every registered check cites a shall, so its worst verdict is FAIL: no
-// check is should-only today. A should-only check changes this on purpose.
-func TestEveryCheckWorstVerdictFail(t *testing.T) {
+// shouldOnly are the registered checks that cite a should and no shall, so
+// their worst verdict is DEVIATION.
+var shouldOnly = map[string]bool{"NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX": true}
+
+// Every registered check's worst verdict follows what it cites: DEVIATION
+// for the should-only checks named in shouldOnly, FAIL for every other. A
+// check that changes class changes this on purpose.
+func TestEveryCheckWorstVerdict(t *testing.T) {
+	seen := 0
 	for _, c := range NewRegistry().Tests() {
-		if got := WorstVerdict(c); got != Fail {
-			t.Errorf("%s: WorstVerdict = %s; a should-only check must update this test", c.ID(), got)
+		want := Fail
+		if shouldOnly[c.ID()] {
+			want = Deviation
+			seen++
 		}
+		if got := WorstVerdict(c); got != want {
+			t.Errorf("%s: WorstVerdict = %s, want %s; a check that changes class must update this test", c.ID(), got, want)
+		}
+	}
+	if seen != len(shouldOnly) {
+		t.Errorf("%d of the %d should-only checks are registered", seen, len(shouldOnly))
 	}
 }
