@@ -1,18 +1,20 @@
 /**
- * PageLinks — the dashboard's pages, chosen by query string (main.tsx): the
- * run dashboard, launch and targets (?conformance opens launch on the
- * conformance suite). The current page is marked, not
- * linked.
+ * PageLinks — the top-level navigation, as router links (ADR-0010): home (run
+ * history), runs (the dashboard), new test (the chooser) and targets. The
+ * current page is marked, not linked.
  */
-export type Page = "dashboard" | "launch" | "targets";
+import { Link } from "react-router";
 
-const PAGES: { page: Page; label: string; href: string }[] = [
-  { page: "dashboard", label: "runs", href: "?" },
-  { page: "launch", label: "launch", href: "?launch" },
-  { page: "targets", label: "targets", href: "?targets" },
+export type Page = "home" | "dashboard" | "launch" | "targets";
+
+const PAGES: { page: Page; label: string; to: string }[] = [
+  { page: "home", label: "home", to: "/" },
+  { page: "dashboard", label: "runs", to: "/runs" },
+  { page: "launch", label: "new test", to: "/new" },
+  { page: "targets", label: "targets", to: "/targets" },
 ];
 
-export function PageLinks({ current }: { current: Page }) {
+export function PageLinks({ current }: { current?: Page }) {
   return (
     <nav aria-label="pages" className="flex items-center gap-3">
       {PAGES.map((p) =>
@@ -21,9 +23,9 @@ export function PageLinks({ current }: { current: Page }) {
             {p.label}
           </span>
         ) : (
-          <a key={p.page} href={p.href} className="o-label" style={{ color: "var(--o-ink-3)" }}>
+          <Link key={p.page} to={p.to} className="o-label" style={{ color: "var(--o-ink-3)" }}>
             {p.label}
-          </a>
+          </Link>
         ),
       )}
     </nav>

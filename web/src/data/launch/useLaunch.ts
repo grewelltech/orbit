@@ -146,6 +146,21 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
   const runner = useMemo(() => new LaunchRunner(client, setState), [client]);
   useEffect(() => () => runner.dispose(), [runner]);
 
+  // Start is async: the editor can unmount (the user clicks Home or Targets)
+  // while the run is being created. Record the run regardless, but don't yank
+  // an unmounted editor to the new run's page when the response finally lands.
+  const mounted = useRef(true);
+  useEffect(() => {
+    // Set it true in setup, not only via the initial ref value: under
+    // StrictMode the effect runs setup → cleanup → setup, and without this the
+    // re-setup would leave it false and a mounted editor would skip the
+    // redirect after a successful start.
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   // Targets and keys changed in another tab (the Targets page).
   useEffect(() => {
     const on = (ev: StorageEvent) => {
@@ -281,7 +296,9 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
       const id = await runner.start(() => latest.current as LaunchInput, state.plan);
       if (id) {
         setStarted(recordStarted(session, { id, name }));
-        window.location.assign(`?run=${encodeURIComponent(id)}`);
+        // Only navigate if the editor is still mounted — otherwise the user
+        // has moved on and StartedRuns carries the link to the new run.
+        if (mounted.current) window.location.assign(`/runs/${encodeURIComponent(id)}`);
       }
       return id;
     },

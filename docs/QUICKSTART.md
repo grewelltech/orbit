@@ -197,7 +197,9 @@ Once it has completed, it shows the end-of-run report instead: the attach
 totals overall and per gNB, handovers, traffic and deregistrations. The live
 count has fallen to zero by then, because every UE deregistered.
 
-…or open `http://<host>:8412/`.
+…or open `http://<host>:8412/` — the home page lists every run, live and
+finished, with its outcome; click one to open its dashboard at `/runs/:id`, or
+**New test** to start another.
 
 ## 7. The far end for application traffic
 
