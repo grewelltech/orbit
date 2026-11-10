@@ -37,7 +37,7 @@ const CHOICES: Choice[] = [
     id: "blank",
     title: "Custom / mixed",
     blurb: "Start from a blank run file and add population and conformance workloads yourself.",
-    to: "/launch",
+    to: "/launch/blank",
   },
 ];
 

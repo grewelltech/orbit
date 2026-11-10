@@ -23,7 +23,9 @@ if (!host) throw new Error("#root not found");
 // "/targets" edits the CLI's target files. The ?mock demo rides "/runs?mock".
 function LaunchPreset() {
   const { preset } = useParams();
-  return <Launch preset={preset} />;
+  // "blank" is the chooser's Custom choice: an explicit empty run file, not a
+  // resumed draft. Launch treats preset="" as "start from an empty run".
+  return <Launch preset={preset === "blank" ? "" : preset} />;
 }
 
 // RootGate preserves the pre-router query-string URLs: the old app put every

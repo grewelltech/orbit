@@ -17,6 +17,7 @@ import { Panel } from "@/components/Panel";
 import { addWorkload, workloads } from "@/data/launch/form";
 import { TEMPLATES } from "@/data/launch/runschema.gen";
 import { useState } from "react";
+import { Link } from "react-router";
 import { quickTargetProblem, useLaunch, type QuickTarget } from "@/data/launch/useLaunch";
 import { startStateFor, varsPromptNote, whyNotStart } from "@/data/launch/resolve";
 import { loadToken } from "@/data/transport";
@@ -124,9 +125,9 @@ export function Launch({ preset }: { preset?: string }) {
                     </option>
                   ))}
                 </select>
-                <a href="?targets" className="o-label" style={{ color: "var(--o-ink-3)" }}>
+                <Link to="/targets" className="o-label" style={{ color: "var(--o-ink-3)" }}>
                   edit targets
-                </a>
+                </Link>
                 <button type="button" className="o-label cursor-pointer px-2" style={buttonStyle} onClick={() => setQuick((v) => !v)}>
                   new from AMF + PLMN
                 </button>
