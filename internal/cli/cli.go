@@ -48,6 +48,13 @@ func New(version string, opts ...Option) *cobra.Command {
 		opt(&o)
 	}
 	var serverURL string
+	var envFiles []string
+
+	// Run the root's persistent pre-run even when a subcommand group has its
+	// own (withServerURL): --env-file must load before any hook resolves the
+	// server URL or a command builds its config layers. Cobra runs the root's
+	// hook first, then the group's.
+	cobra.EnableTraverseRunHooks = true
 
 	root := &cobra.Command{
 		Use:           "orbit",
@@ -55,8 +62,15 @@ func New(version string, opts ...Option) *cobra.Command {
 		Long:          "A PHY-less software gNB and UE for 5G SA, and a test harness built on them.\nSee docs/DESIGN.md for the architecture and phased plan.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// Load --env-file(s) into the environment before anything resolves
+		// config, so a dotenv file feeds both the ${VAR} expansion in target
+		// and run files and the ORBIT_* env layer (ADR-0008 §3).
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			return loadEnvFiles(envFiles, os.LookupEnv, os.Setenv)
+		},
 	}
 	root.PersistentFlags().StringVar(&serverURL, "server", "", serverFlagHelp)
+	root.PersistentFlags().StringArrayVar(&envFiles, "env-file", nil, envFileHelp)
 
 	root.AddCommand(newVersionCmd(version))
 	root.AddCommand(newServeCmd(version))

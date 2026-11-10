@@ -97,6 +97,17 @@ references:
 export ORBIT_KI=<hex> ORBIT_OPC=<hex>
 ```
 
+Keeping a testbed's settings in a file instead? Put the `KEY=VALUE` lines in a
+dotenv file and pass `--env-file`, which loads them before the run — in place
+of `set -a; . file; set +a`. It feeds both the `${ORBIT_KI}`/`${ORBIT_OPC}`
+expansion above and the `ORBIT_*` config layer (`ORBIT_MCC`, `ORBIT_TAC`,
+`ORBIT_SD`, …); an already-exported variable still wins. See
+[Config from an env file](https://github.com/bgrewell/orbit/blob/main/docs/USAGE.md#config-from-an-env-file---env-file).
+
+```sh
+orbit conformance -t lab1 --env-file testbed.env
+```
+
 ## 4. Add a responder
 
 Conformance suites and attach storms need only the core. Application sessions (VoIP, HTTP,
