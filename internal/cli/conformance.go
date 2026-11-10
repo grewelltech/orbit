@@ -218,11 +218,9 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 		results []conformance.Result
 		last    *orbitv1.ConformanceUpdate
 	)
-	// The stream only accumulated silently before, so a suite that runs for
-	// minutes looked like a hang until the whole table dumped at once. Render
-	// each verdict as it lands, plus a spinner line on a terminal, so the run
-	// visibly makes progress. Progress goes to stderr only; stdout stays the
-	// report (or JSON). isTerminal keeps pipes and CI quiet.
+	// Live progress to stderr as updates arrive: a line per verdict, plus a
+	// spinner on a terminal. stdout stays the report (or JSON); silent off a
+	// terminal.
 	prog := newStreamProgress(cmd.ErrOrStderr(), isTerminal(cmd.ErrOrStderr()))
 	prog.start()
 	for stream.Receive() {

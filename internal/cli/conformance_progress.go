@@ -17,15 +17,12 @@ const conformanceSpinnerEvery = 100 * time.Millisecond
 var conformanceSpinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
 // streamProgress renders a server conformance run's progress to w (stderr) as
-// each ConformanceUpdate arrives, so a suite that takes minutes does not look
-// like a hang before the results dump. On a terminal (live) it prints a line
-// as each check's verdict lands and animates a one-line spinner carrying the
-// running count; off a terminal (a pipe, a file or CI) it stays quiet, so
-// logs are not filled with spinner frames and piped output is unchanged.
+// each ConformanceUpdate arrives. On a terminal (live) it prints a line as each
+// check's verdict lands and animates a one-line spinner carrying the running
+// count; off a terminal it stays quiet, leaving piped output unchanged.
 //
-// All writes to w are serialised under mu, so the ticker goroutine and the
-// receive loop that calls update never race. live is passed in rather than
-// derived from w, so a test can force the terminal branch without a real TTY.
+// Writes to w are serialised under mu, shared by the ticker goroutine and the
+// receive loop that calls update.
 type streamProgress struct {
 	w     io.Writer
 	live  bool
@@ -119,8 +116,7 @@ func (p *streamProgress) checkLine(r *orbitv1.ConformanceResult) string {
 }
 
 // statusLine is the spinner line's text: the current frame and the running
-// count. It is deterministic given frame/count/total, so a test can assert
-// its format without the ticker's timing.
+// count.
 func (p *streamProgress) statusLine() string {
 	frame := conformanceSpinnerFrames[p.frame%len(conformanceSpinnerFrames)]
 	if p.total != 0 {
