@@ -108,11 +108,15 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 	case sm.GsmMessage == nil:
 		return nil
 	case sm.PDUSessionReleaseRequest != nil:
+		a.smReleases.Add(1)
 		return a.onPDUSessionReleaseRequest(p, st, sm.PDUSessionReleaseRequest)
 	case sm.PDUSessionReleaseComplete != nil:
 		a.pduReleaseCompletes.Add(1)
 		return nil
 	case sm.PDUSessionEstablishmentRequest == nil:
+		return nil
+	}
+	if st.smSeen++; a.smLimited && st.smSeen > a.smAnswers {
 		return nil
 	}
 	req := sm.PDUSessionEstablishmentRequest

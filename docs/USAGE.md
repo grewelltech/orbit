@@ -1584,6 +1584,44 @@ clear and, if the core does not release it, sends a UE Context Release
 Request; the detail says what the cleanup achieved. A Ctrl-C or run deadline
 during this check's cleanup can delay the return by up to 5 s.
 
+`NAS-INTEGRITY-FAIL-DISCARD` registers the UE and sends three PDU Session
+Establishment Requests on the secured connection: a valid one, one with a
+corrupted MAC, and another valid one. It passes when the AMF answers the
+first and the third and stays silent on the second (TS 24.501 4.4.4.3). It
+fails when the bad-MAC request is answered, when a 5GMM STATUS follows it, or
+when the third request gets no answer. An AMF that releases the UE after the
+bad MAC is ERROR, and one that selected 5G-IA0 is SKIP. The check needs a DNN
+the core serves (`--dnn`), since the first request must be answered. It
+releases the sessions it set up and deregisters the UE at the end.
+
+`NAS-REPLAY-DISCARD` works the same way, but its second message is the first
+request sent again byte for byte, so with the NAS COUNT the AMF has just
+accepted. It passes when nothing more answers the first request and the next
+valid request is answered (TS 33.501 6.4.3.2). It fails when the repeat is
+answered.
+
+`NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL` sends two valid requests, then the first
+one's bytes again, then a third valid request. The old bytes fail the
+integrity check, and the AMF must not have moved its stored uplink NAS COUNT
+for them (TS 24.501 4.4.3.3), so the third request must be answered. If it is
+not, the check fails, and the AMF can no longer verify anything this UE
+sends: the check then drops the association, and the core may keep the UE and
+its sessions until its own timers expire.
+
+`NAS-RETRANSMIT-NEW-COUNT` withholds the Registration Complete, like
+`NAS-T3550-ACCEPT-RETRANSMIT`, and reads the NAS COUNT of each Registration
+Accept the AMF retransmits. Each must be higher than the one before
+(TS 24.501 4.4.3.1), so an AMF that resends the stored PDU fails. It SKIPs
+when the AMF does not retransmit, and can take up to 118 s.
+
+`NAS-BADMAC-REGISTRATION-AFTER-SMC` sets up one PDU session and then sends a
+Registration Request (mobility registration updating) with a corrupted MAC.
+It passes when the AMF stays silent or releases the UE, and fails when the
+AMF answers with a Registration Accept, a Registration Reject, a Security
+Mode Command or a 5GMM STATUS without authenticating first. An Authentication
+Request is SKIP: TS 24.501 4.4.4.3 can be read either way, and the result
+says so.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the

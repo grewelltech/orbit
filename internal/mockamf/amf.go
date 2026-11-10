@@ -2,7 +2,6 @@ package mockamf
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"github.com/free5gc/nas/nasConvert"
 	"github.com/free5gc/nas/nasType"
 	"github.com/free5gc/ngap/ngapType"
-	"github.com/free5gc/util/milenage"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -115,6 +113,9 @@ type AMF struct {
 	t3550Retries      int
 	assignGUTI        bool
 	crashAfterT3550   bool
+	t3550Protection   T3550Protection
+	acceptCount       uint32
+	acceptCountSet    bool
 	crashed           atomic.Bool // set once a crashAfterRelease release, a crashAfterT3550 abort or a CrashOnUndecodable PDU happened
 
 	// Security Mode Command options (smc.go).
@@ -187,6 +188,23 @@ type AMF struct {
 	handoverAnswer HandoverAnswer
 	handovers      map[int64]*handover
 	handoversDone  atomic.Int64
+	// Uplink NAS security options (uplinksec.go). badMACs counts protected
+	// uplinks that failed the integrity check, replays those that repeated
+	// an accepted NAS COUNT, smReleases the PDU Session Release Requests
+	// received.
+	badMAC   UplinkAction
+	badMACs  atomic.Int64
+	replayed UplinkAction
+	replays  atomic.Int64
+	// badMACReg, countBeforeMAC, laxEstimate and the PDU session answer
+	// limit are WithBadMACRegistration, WithUplinkCountBeforeMAC,
+	// WithLaxUplinkCountEstimate and WithPDUSessionAnswers.
+	badMACReg      BadMACRegistration
+	countBeforeMAC bool
+	laxEstimate    bool
+	smAnswers      int
+	smLimited      bool
+	smReleases     atomic.Int64
 
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
@@ -450,6 +468,8 @@ type ueState struct {
 	// guarded by AMF.mu.
 	releasing, idle bool
 	requested       []byte // the Requested NSSAI IE's value, nil when absent
+	muted           bool   // MuteOnUplink: every NAS message is dropped
+	smSeen          int    // PDU Session Establishment Requests received (WithPDUSessionAnswers)
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -473,16 +493,10 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
-	var randv [16]byte
-	if _, err := rand.Read(randv[:]); err != nil {
+	randv, autn, err := a.challenge()
+	if err != nil {
 		return err
 	}
-	_, _, _, autnSlice, err := milenage.GenerateAKAParameters(a.cfg.OPc, a.cfg.Ki, randv[:], a.cfg.SQN, a.cfg.AMF)
-	if err != nil {
-		return fmt.Errorf("mock amf AKA: %w", err)
-	}
-	var autn [16]byte
-	copy(autn[:], autnSlice)
 
 	// Derive the same key hierarchy the UE will, for later SMC/RegAccept.
 	sub := auth.Subscription{SUPI: supi, Ki: a.cfg.Ki, OPc: a.cfg.OPc}
@@ -492,7 +506,7 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 	// The 128-NIA2/NEA0 context protects what precedes or replaces the
 	// Security Mode Command; the command derives the selected pair's.
-	st.setSec(&nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true})
+	st.setSec(&nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true, RejectReplay: true})
 	st.kamf = vec.KAmf
 
 	if a.noAuthRequest {
@@ -523,15 +537,21 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	if len(nasPDU) < 2 {
 		return false, fmt.Errorf("uplink NAS too short")
 	}
+	if st.muted {
+		return false, nil
+	}
 	var msg *f5nas.Message
 	var err error
 	if f5nas.GetSecurityHeaderType(nasPDU) == f5nas.SecurityHeaderTypePlainNas {
 		msg, err = nas.DecodePlain(nasPDU)
 	} else {
-		msg, err = st.decodeSecure(nasPDU)
+		msg, err = a.decodeUplink(p, st, nasPDU)
 	}
 	if err != nil {
 		return false, fmt.Errorf("mock amf uplink NAS decode: %w", err)
+	}
+	if msg == nil {
+		return false, nil // dropped (decodeUplink)
 	}
 
 	switch msg.GmmHeader.GetMessageType() {
@@ -551,6 +571,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		if a.acceptCountSet {
+			st.forceTxCount(a.acceptCount)
+		}
 		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
 		if err != nil {
 			return false, err
@@ -560,7 +583,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		}
 		if a.t3550 > 0 && a.assignGUTI {
 			st.t3550.stop() // a repeated Security Mode Complete: never orphan a running timer
-			if st.t3550, err = a.startT3550(p, st); err != nil {
+			if st.t3550, err = a.startT3550(p, st, wrapped); err != nil {
 				return false, err
 			}
 		}

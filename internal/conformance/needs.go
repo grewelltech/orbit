@@ -157,6 +157,11 @@ func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
 }
 func (ngapUECtxReleaseOnRequest) Needs() CheckNeeds { return ueNeeds }
 func (n3DLQFIContainer) Needs() CheckNeeds          { return ueNeeds }
+func (nasIntegrityFailDiscard) Needs() CheckNeeds   { return ueNeeds }
+func (nasReplayDiscard) Needs() CheckNeeds          { return ueNeeds }
+func (nasCountNotAdvanced) Needs() CheckNeeds       { return ueNeeds }
+func (nasRetransmitNewCount) Needs() CheckNeeds     { return ueNeeds }
+func (nasBadMACRegistration) Needs() CheckNeeds     { return ueNeeds }
 
 // The NAS timer checks measure retransmissions against tmax windows, which
 // a loaded AMF's scheduling jitter would push out.

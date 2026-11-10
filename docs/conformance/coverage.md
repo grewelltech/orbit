@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**23 checks today** (the first four live on the SD-Core testbed):
+**28 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -326,6 +326,59 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   wins. The selected algorithms are recorded. Needs a UE, else SKIP. Not yet
   run on Ref 2; the source analyst predicts the capabilities replay PASSes,
   and the NIA0-only UE is predicted to FAIL on EX-1.
+- `NAS-INTEGRITY-FAIL-DISCARD` (security, FAIL-class) — after the security
+  mode control procedure the UE sends a valid PDU Session Establishment
+  Request (which must be answered), a second one with a corrupted MAC, and a
+  third, valid one. The AMF shall discard the second (TS 24.501 4.4.4.3,
+  TS 33.501 6.4.3.3): an answer to it, a 5GMM STATUS after it, or a third
+  request left unanswered is FAIL. A UE released after the bad MAC is ERROR
+  (neither a discard nor an answer); a core that selects 5G-IA0 SKIPs. The
+  sessions are released and the UE deregistered at the end, best effort.
+  Needs a UE and a DNN the core serves. Not yet run on a live core.
+- `NAS-REPLAY-DISCARD` (security, FAIL-class) — after the security mode
+  control procedure the UE sends a valid PDU Session Establishment Request
+  (which must be answered), the same NAS PDU again, and a second, valid
+  request. The repeat carries the NAS COUNT the AMF accepted last, which it
+  shall accept only once (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2): a further
+  answer to the first request, a 5GMM STATUS after the repeat, or a second
+  request left unanswered is FAIL. A UE released after the repeat is ERROR;
+  a core that selects 5G-IA0 SKIPs. Cleanup as for
+  `NAS-INTEGRITY-FAIL-DISCARD`. Needs a UE and a DNN the core serves. Not
+  yet run on a live core.
+- `NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL` (security, FAIL-class) — the UE sends
+  two valid PDU Session Establishment Requests, A and B (both must be
+  answered), then A's bytes again, then a valid request C. The re-sent A has
+  a sequence number lower than the last accepted one, so it fails the MAC at
+  the AMF's estimated NAS COUNT, and the stored COUNT shall not move
+  (TS 24.501 4.4.3.3). C answered is PASS; C unanswered with the association
+  up is FAIL; an answer to the re-sent A is FAIL under 4.4.3.2. A or B
+  unanswered, or a release before C is answered, is ERROR; 5G-IA0 SKIPs. On
+  the FAIL path the UE's security context is unusable, so the cleanup's
+  release and deregistration may not be accepted: the association is
+  dropped, and the core may keep a half-registered UE until its timers
+  expire. Mock-only so far.
+- `NAS-RETRANSMIT-NEW-COUNT` (security, FAIL-class) — the stimulus of
+  `NAS-T3550-ACCEPT-RETRANSMIT`: the UE withholds its Registration Complete.
+  Each retransmitted Registration Accept must be protected at a NAS COUNT
+  higher than the transmission before it (TS 24.501 4.4.3.1); a
+  byte-identical resend or a lower COUNT is FAIL. The COUNT is the one of two
+  candidates (the sequence number with the stored overflow counter, or the
+  next) the MAC verifies at, so a wrap counts as an increase; a
+  retransmission that verifies at neither is ERROR. No retransmission SKIPs
+  (the T3550 check grades that). Needs a UE and up to 118 s (about 25 s at
+  the default timer). The UE is left registered, as by the T3550 check.
+  Mock-only so far.
+- `NAS-BADMAC-REGISTRATION-AFTER-SMC` (security, FAIL-class) — with one PDU
+  session established, the UE sends a REGISTRATION REQUEST for mobility
+  registration updating with a corrupted MAC on the secured connection.
+  TS 24.501 4.4.4.3 can be read as "discard" or as "authenticate first", so
+  an answer is FAIL only when both readings forbid it: a Registration Accept,
+  Registration Reject, Security Mode Command or 5GMM STATUS with no
+  authentication first. No answer or a release is PASS; an Authentication
+  Request (or an Identity Request) is SKIP, with the ambiguity in Observed.
+  No PDU session is ERROR. The session is released and the UE deregistered
+  best effort; after a re-authentication the core may keep the UE until its
+  timers expire. Mock-only so far.
 
 - `NAS-DEREG-ACCEPT-NOT-SWITCH-OFF` (procedural, FAIL-class) — the UE
   registers without a PDU session and sends a Deregistration Request that
@@ -365,9 +418,6 @@ core running; `DEVIATION` is reserved for a missed **should**. A known failure
 that a lab tolerates goes on that core's expected-failures list, which keeps it
 FAIL in the report but out of the gate. See
 [expected-failures.md](expected-failures.md).
-
-**Highest-value next batch** (remaining):
-1. **NAS replay** (security) — TS 33.501; repeat a secured NAS message → expect rejection.
 
 > **Tooling note:** the testbed has no tshark, so wire disambiguation currently
 > uses a byte-level PPID scan that reads uplink cleanly but misses downlink
