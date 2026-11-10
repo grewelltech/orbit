@@ -140,6 +140,13 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	if err != nil {
 		return nil, fmt.Errorf("build Registration Request: %w", err)
 	}
+	// Without a 5G NAS security context the initial NAS message carries the
+	// cleartext IEs only; regReq, the complete message, follows in the
+	// Security Mode Complete (TS 24.501 4.4.6 a).
+	initialNAS, err := ue.CleartextRegistrationRequest(regReq)
+	if err != nil {
+		return nil, fmt.Errorf("build initial Registration Request: %w", err)
+	}
 
 	st := &attachState{
 		ctx: ctx, conn: conn, gnbCfg: gnbCfg, ueCfg: ueCfg, caps: caps,
@@ -147,7 +154,7 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		wanted: sessionsToEstablish(ueCfg), sessions: map[uint8]SessionResult{},
 	}
 
-	initial, err := gnb.BuildInitialUEMessage(gnbCfg, ranID, regReq)
+	initial, err := gnb.BuildInitialUEMessage(gnbCfg, ranID, initialNAS)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +241,7 @@ type attachState struct {
 	ueCfg  UEConfig
 	snn    string
 	ranID  int64
-	regReq []byte
+	regReq []byte // the complete Registration Request, for the Security Mode Complete
 	log    *slog.Logger
 	emit   func(StateEvent)
 
@@ -499,7 +506,7 @@ func (s *attachState) onSecurityModeCommand(msg *f5nas.Message) error {
 		return err
 	}
 
-	// Security Mode Complete echoes the full initial Registration Request in
+	// Security Mode Complete carries the complete Registration Request in
 	// the NAS Message Container (TS 24.501 §4.4.6), sent integrity-protected
 	// and ciphered under the new context.
 	complete, err := ue.BuildSecurityModeComplete(s.regReq)

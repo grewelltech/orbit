@@ -193,7 +193,9 @@ func (a *AMF) acceptWithNSSAI(p *pipe, st *ueState) error {
 }
 
 // RegistrationRequests returns the plain Registration Requests the mock has
-// received, oldest first, so a test can check what a UE sent.
+// received, oldest first, so a test can check what a UE sent: for each
+// registration the complete request from the Security Mode Complete's NAS
+// message container, or the initial NAS message until that arrives.
 func (a *AMF) RegistrationRequests() [][]byte {
 	a.mu.Lock()
 	defer a.mu.Unlock()
