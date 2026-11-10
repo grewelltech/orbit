@@ -3,14 +3,14 @@ package cli
 import (
 	"strings"
 	"testing"
+	"time"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 )
 
-// update of a result on a live (terminal) renderer prints a per-check line as
-// each verdict lands, while off a terminal it stays completely quiet so pipes
-// and CI logs are unchanged. The spinner frames are animated by a goroutine
-// and so are not asserted here; the deterministic per-check lines are.
+// A live (terminal) renderer prints a per-check line as each verdict lands and
+// no line for the final done/no-result update; a non-terminal renderer stays
+// silent.
 func TestStreamProgressUpdate(t *testing.T) {
 	updates := []*orbitv1.ConformanceUpdate{
 		{Total: 3, Result: &orbitv1.ConformanceResult{Id: "AUTH-1", Verdict: "PASS"}},
@@ -56,9 +56,10 @@ func TestStreamProgressUpdate(t *testing.T) {
 					t.Errorf("progress output lacks %q:\n%q", want, out)
 				}
 			}
-			// The final (done, no result) update must not add a fourth line.
-			if n := strings.Count(out, "]"); n < 3 {
-				t.Errorf("want at least 3 per-check lines, got %d:\n%q", n, out)
+			// Exactly three per-check lines (each newline-terminated); the
+			// final done/no-result update must not render as a fourth.
+			if n := strings.Count(out, "\n"); n != 3 {
+				t.Errorf("want exactly 3 per-check lines, got %d:\n%q", n, out)
 			}
 		})
 	}
@@ -111,4 +112,31 @@ func TestStreamProgressStopClears(t *testing.T) {
 			t.Errorf("non-terminal stop wrote %q", w.String())
 		}
 	})
+}
+
+// A live renderer animates the spinner on its own ticker even when no updates
+// arrive, and writes nothing more once stopped.
+func TestStreamProgressSpinnerTicks(t *testing.T) {
+	var w syncBuffer
+	p := newStreamProgress(&w, true)
+	p.every = 2 * time.Millisecond // tick fast so the test is quick
+	p.start()
+
+	// Bounded wait for the ticker to paint at least one spinner frame.
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.ContainsAny(w.String(), string(conformanceSpinnerFrames)) {
+		if time.Now().After(deadline) {
+			p.stop()
+			t.Fatal("spinner did not paint a frame within the timeout")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	p.stop()
+	// The ticker goroutine has exited: no further bytes are written.
+	settled := len(w.String())
+	time.Sleep(20 * time.Millisecond)
+	if n := len(w.String()); n != settled {
+		t.Errorf("writes continued after stop(): %d -> %d bytes", settled, n)
+	}
 }
