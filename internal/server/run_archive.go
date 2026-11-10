@@ -109,6 +109,10 @@ func (s *runService) archiveRun(id string, info engine.RunInfo, frames []*orbitv
 	}
 	markStoppedEarly(rs, info.StoppedEarly)
 	a.Reports = rs
+	// The headline digest a list/home view reads without fetching the report.
+	// Built from the reports just assembled, before redaction (which touches
+	// only secret-bearing fields, never these counts).
+	a.Run.Summary = runSummary(a)
 	redactArchive(a, held.secrets)
 	if err := s.archive.save(a); err != nil {
 		// The run itself succeeded; failing to archive it does not change that,

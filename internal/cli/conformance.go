@@ -132,7 +132,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				b, _ := json.MarshalIndent(sum, "", "  ")
 				fmt.Fprintln(out, string(b))
 			} else {
-				printConformanceText(out, id.String(), sum, expectedPath)
+				writeConformanceReport(out, id.String(), sum, expectedPath)
 			}
 			if !sum.OK() {
 				return gateFailed("conformance gate failed: %d fail (%d expected), %d error", sum.Fail, sum.ExpectedFail, sum.Error)
@@ -255,7 +255,7 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 		_, _ = fmt.Fprintln(out, string(b))
 		judged = cmd.ErrOrStderr() // stdout is the JSON alone
 	} else {
-		printConformanceText(out, planNetwork(p.GetTarget()), sum, expectedPath)
+		writeConformanceReport(out, planNetwork(p.GetTarget()), sum, expectedPath)
 	}
 	// The run's gates judged it: its report gives the exit, as --wait's.
 	runs := *serverURL

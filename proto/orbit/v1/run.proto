@@ -108,6 +108,47 @@ message Run {
   // A run ended by StopRun{finish}: COMPLETE, its reports judged on the
   // results so far.
   bool stopped_early = 9;
+  // A digest of the run's outcome — conformance tally, attach headline and
+  // gate result — so a list or home view labels a run without fetching its
+  // report. Filled at archive time for a terminal run; unset while the run
+  // is live or for a run with no stored report (FAILED/CANCELLED).
+  RunSummary summary = 10;
+}
+
+// RunSummary is the few headline numbers a run list or home page shows, so a
+// client need not fetch each run's full report to draw a row. It is computed
+// from the run's per-workload reports when the run is archived; a run that
+// never produced a report (FAILED, CANCELLED) carries no summary, and the
+// client renders such a row from Run.state alone.
+message RunSummary {
+  // Every workload kind present in the run, in plan order. Unlike
+  // Run.workload_kinds this is always populated — a single-workload run
+  // lists its one kind — so the row's kind label comes from the summary.
+  repeated RunKind kinds = 1;
+
+  // Conformance headline, summed across the run's conformance workloads.
+  // All zero when the run ran no conformance workload.
+  uint32 conformance_total = 2;       // checks selected
+  uint32 conformance_passed = 3;
+  uint32 conformance_failed = 4;
+  uint32 conformance_errored = 5;
+  uint32 conformance_skipped = 6;
+  uint32 conformance_deviations = 7;
+  // FAILs the expected-failures list tolerates; counted in failed too.
+  uint32 conformance_expected_failures = 8;
+
+  // Attach headline, summed across the run's load and fleet workloads.
+  // All zero when the run ran no population workload.
+  uint32 attach_attempted = 9;
+  uint32 attach_succeeded = 10;
+  uint32 attach_failed = 11;
+
+  // Gate headline across every workload's gates (ADR-0008 §2).
+  uint32 gates_total = 12;
+  uint32 gates_passed = 13;
+  // True only when the run had at least one gate and every gate passed.
+  // Read with gates_total: zero gates means "no gates", not "all passed".
+  bool gates_ok = 14;
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
