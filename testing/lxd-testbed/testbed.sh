@@ -142,6 +142,13 @@ P="$TESTBED_PREFIX"
 # GW_N6, APP_N6; every TESTBED_* setting; and TESTBED_CACHE_DIR, this testbed's
 # own scratch directory on the host. On the core node the interfaces are named
 # oam, n2, n3 and n6.
+#
+# The shape (see "shape" below) changes what surrounds the core node, and a
+# deploy has to hold in each: without the site router there is no oam interface
+# and no gateway on N2, N3 or N6 — the node reaches the Internet through
+# `uplink` (DHCP), `oam_of "$NODE_CORE"` gives its management address in every
+# shape (CORE_OAM only with the router), and UPF_N3_GW, UPF_RAN_SUBNET and
+# UPF_N6_GW name the UPF's next hops.
 CORE_KIND=$TESTBED_CORE_KIND
 case "$CORE_KIND" in
     ''|*[!a-z0-9]*) echo "$PROG: TESTBED_CORE_KIND '$CORE_KIND' is not a core kind name" >&2; exit 1 ;;
@@ -154,21 +161,67 @@ source "$HERE/cores/$CORE_KIND.sh"
 case "$CORE_HAS_CTRL" in true|false) ;; *) echo "$PROG: cores/$CORE_KIND.sh: CORE_HAS_CTRL must be true or false" >&2; exit 1 ;; esac
 case "$CORE_UPF_ATTACH" in macvlan|host) ;; *) echo "$PROG: cores/$CORE_KIND.sh: CORE_UPF_ATTACH must be macvlan or host" >&2; exit 1 ;; esac
 
+# ── shape ────────────────────────────────────────────────────────────────────
+#
+# Which parts of the site exist. TESTBED_SHAPE gives all four their default
+# (site: all present; minimal: none), and each TESTBED_WITH_* overrides one.
+#
+#   WITH_ROUTER  r-site: the gateways, the OAM VLAN and the NAT to the Internet.
+#                Without it every node has an `uplink` NIC on TESTBED_UPLINK_NET
+#                instead (DHCP, default route) as its management address and
+#                Internet path, there is no OAM VLAN, and N2/N3/N6 have no
+#                gateway: everything on them is on-link.
+#   WITH_FAR     the far site: r-ran, the WAN emulator, the far RAN node and
+#                their three bridges. Needs the router. Without it the one RAN
+#                node is <prefix>-ran.
+#   WITH_APP     the app node. Without it the RAN node also sits on N6, holds
+#                the app's address there and runs the responder.
+#   WITH_CTRL    the control node, for a core kind that has one. Needs the
+#                router.
+case "$TESTBED_SHAPE" in
+    site)    shape_default=true ;;
+    minimal) shape_default=false ;;
+    *) echo "$PROG: TESTBED_SHAPE '$TESTBED_SHAPE' is not site or minimal" >&2; exit 1 ;;
+esac
+WITH_ROUTER=${TESTBED_WITH_ROUTER:-$shape_default}; WITH_FAR=${TESTBED_WITH_FAR:-$shape_default}
+WITH_APP=${TESTBED_WITH_APP:-$shape_default};       WITH_CTRL=${TESTBED_WITH_CTRL:-$shape_default}
+for flag in WITH_ROUTER WITH_FAR WITH_APP WITH_CTRL; do
+    case "${!flag}" in true|false) ;; *) echo "$PROG: TESTBED_$flag must be true or false, not '${!flag}'" >&2; exit 1 ;; esac
+done
+HAS_CTRL=false
+if [ "$CORE_HAS_CTRL" = true ] && [ "$WITH_CTRL" = true ]; then HAS_CTRL=true; fi
+if [ "$WITH_ROUTER" != true ] && { [ "$WITH_FAR" = true ] || [ "$HAS_CTRL" = true ]; }; then
+    echo "$PROG: the far site and the control node need the site router (TESTBED_WITH_ROUTER=true)" >&2; exit 1
+fi
+
 # Four bridges with no address, no DHCP and no NAT: they are 802.1Q switches,
 # and every gateway lives on a router VM. The site trunk carries the core-site
 # VLANs, the far trunk the far-site VLANs, and the two WAN segments are the
 # cables on either side of the WAN emulator.
 NET_TRUNK="$P-trunk"; NET_FTRUNK="$P-ftrunk"; NET_WAN_A="$P-wan-a"; NET_WAN_B="$P-wan-b"
-NETS=("$NET_TRUNK" "$NET_FTRUNK" "$NET_WAN_A" "$NET_WAN_B")
+ALL_NETS=("$NET_TRUNK" "$NET_FTRUNK" "$NET_WAN_A" "$NET_WAN_B")
+NETS=("$NET_TRUNK")
+if [ "$WITH_FAR" = true ]; then NETS+=("$NET_FTRUNK" "$NET_WAN_A" "$NET_WAN_B"); fi
 
 NODE_RSITE="$P-rsite"; NODE_WANEM="$P-wanem"; NODE_RRAN="$P-rran"
 NODE_CTRL="$P-ctrl"; NODE_CORE="$P-core"; NODE_RANN="$P-ran-near"; NODE_RANF="$P-ran-far"; NODE_APP="$P-app"
+# Every name a testbed with this prefix can have used, whatever its shape, so
+# `down` removes one that was built in another shape.
+ALL_NODES=("$NODE_RSITE" "$NODE_WANEM" "$NODE_RRAN" "$NODE_CTRL" "$NODE_CORE" "$P-ran" "$NODE_RANN" "$NODE_RANF" "$NODE_APP")
+if [ "$WITH_FAR" != true ]; then NODE_RANN="$P-ran"; fi
+# The node the responder runs on: the app node, or the RAN node standing in.
+NODE_RESP=$NODE_APP
+if [ "$WITH_APP" != true ]; then NODE_RESP=$NODE_RANN; fi
 # Every node, in the order a status table should read them: the path off the
 # testbed first, then the operator's entry point, the core under test, and the
-# load that exercises it. The control node exists only for a core that has one.
-NODES=("$NODE_RSITE" "$NODE_WANEM" "$NODE_RRAN")
-if [ "$CORE_HAS_CTRL" = true ]; then NODES+=("$NODE_CTRL"); fi
-NODES+=("$NODE_CORE" "$NODE_RANN" "$NODE_RANF" "$NODE_APP")
+# load that exercises it. Only the nodes this shape and core kind have.
+NODES=()
+if [ "$WITH_ROUTER" = true ]; then NODES+=("$NODE_RSITE"); fi
+if [ "$WITH_FAR" = true ]; then NODES+=("$NODE_WANEM" "$NODE_RRAN"); fi
+if [ "$HAS_CTRL" = true ]; then NODES+=("$NODE_CTRL"); fi
+NODES+=("$NODE_CORE" "$NODE_RANN")
+if [ "$WITH_FAR" = true ]; then NODES+=("$NODE_RANF"); fi
+if [ "$WITH_APP" = true ]; then NODES+=("$NODE_APP"); fi
 PROFILE="$P"
 IMAGE_ALIAS="$P-base"
 
@@ -198,7 +251,14 @@ node_names() {
 core_call() { local fn="core_${CORE_KIND}_$1"; shift; "$fn" "$@"; }
 
 require_ctrl() {
-    [ "$CORE_HAS_CTRL" = true ] || die "a $CORE_NAME testbed has no control node"
+    [ "$HAS_CTRL" = true ] || die "this testbed has no control node"
+}
+
+# in_nodes <node> — whether this testbed's shape has that node.
+in_nodes() {
+    local n
+    for n in "${NODES[@]}"; do [ "$n" = "$1" ] && return 0; done
+    return 1
 }
 
 # Every segment is a /24 (the WAN a /30), so an address is the subnet's first
@@ -234,6 +294,23 @@ APP_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_APP"); APP_N6=$(ip_in "$TESTBE
 RANN_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_RAN"); RANF_OAM=$(ip_in "$TESTBED_NET_FAR_OAM" "$TESTBED_HOST_RAN")
 CTRL_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_CTRL"); WANEM_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_WANEM")
 AMF_N2="$CORE_N2:38412"; RESPONDER="$APP_N6:9551"; ORBIT_PORT=8412
+
+# What the UPF and the responder's host use as next hops, which is where the
+# shapes differ. With the router they are its gateways. Without it nothing
+# routes: the UPF's N6 next hop is the responder itself, UE-bound replies go
+# straight back to the UPF, and the gNBs are on-link on N3.
+#
+#   UPF_N6_GW       the UPF's default next hop on N6.
+#   UPF_N3_GW       the UPF's next hop for UPF_RAN_SUBNET on N3. With no far
+#                   site that subnet is N3 itself and the next hop is the RAN
+#                   node's first N3 address — every gNB address is on that one
+#                   interface, so one neighbour reaches them all.
+#   UPF_RAN_SUBNET  the gNB subnet the UPF reaches through UPF_N3_GW.
+#   POOL_RETURN_VIA where the responder's host sends traffic for the UE pool.
+UPF_N6_GW=$GW_N6; POOL_RETURN_VIA=$GW_N6
+if [ "$WITH_ROUTER" != true ]; then UPF_N6_GW=$APP_N6; POOL_RETURN_VIA=$UPF_N6; fi
+UPF_N3_GW=$GW_N3; UPF_RAN_SUBNET=$TESTBED_NET_FAR_N3
+if [ "$WITH_FAR" != true ]; then UPF_N3_GW=$(ip_in "$TESTBED_NET_N3" "$TESTBED_HOST_RAN"); UPF_RAN_SUBNET=$TESTBED_NET_N3; fi
 
 require_lxd() {
     command -v lxc >/dev/null 2>&1 || die "lxc not found — LXD is a prerequisite (see README)"
@@ -350,7 +427,12 @@ cmd_networks() {
     require_lxd
     exists_net "$TESTBED_UPLINK_NET" \
         || die "uplink network '$TESTBED_UPLINK_NET' not found — it is the site router's path to the Internet (set TESTBED_UPLINK_NET)"
-    make_net "$NET_TRUNK"  "core-site 802.1Q trunk: VLANs $V_OAM-$V_N6 (oam, n2, n3, n6)"
+    if [ "$WITH_ROUTER" = true ]; then
+        make_net "$NET_TRUNK"  "core-site 802.1Q trunk: VLANs $V_OAM-$V_N6 (oam, n2, n3, n6)"
+    else
+        make_net "$NET_TRUNK"  "802.1Q trunk: VLANs $V_N2-$V_N6 (n2, n3, n6)"
+    fi
+    [ "$WITH_FAR" = true ] || return 0
     make_net "$NET_FTRUNK" "far-site 802.1Q trunk: VLANs $V_FN2-$V_FOAM (n2, n3, oam)"
     make_net "$NET_WAN_A"  "WAN cable: r-site <-> wanem (VLAN $V_WAN)"
     make_net "$NET_WAN_B"  "WAN cable: wanem <-> r-ran (VLAN $V_WAN)"
@@ -367,21 +449,31 @@ cmd_networks() {
 # The WAN emulator must see the WAN untagged: wanemd's tc classifier is
 # `protocol ip`, so 802.1Q-tagged frames would silently skip every impairment
 # rule. Its two ports are access ports; the routers' WAN ports are trunks.
+#
+# Without the site router a node's first NIC is `uplink`, on the uplink
+# network, and its trunk port carries no OAM VLAN. Without the app node the RAN
+# node's trunk port is also a member of N6.
 nics_for() {
+    local oam="$V_OAM," n6=""
+    if [ "$WITH_ROUTER" != true ]; then
+        oam=""
+        echo "uplink $TESTBED_UPLINK_NET -"
+    fi
+    if [ "$WITH_APP" != true ]; then n6=",$V_N6"; fi
     case "$1" in
         "$NODE_RSITE") echo "uplink $TESTBED_UPLINK_NET -"
                        echo "trunk $NET_TRUNK t:$V_OAM,$V_N2,$V_N3,$V_N6"
-                       echo "wanlink $NET_WAN_A t:$V_WAN" ;;
+                       if [ "$WITH_FAR" = true ]; then echo "wanlink $NET_WAN_A t:$V_WAN"; fi ;;
         "$NODE_WANEM") echo "trunk $NET_TRUNK t:$V_OAM"
                        echo "wan-a $NET_WAN_A u:$V_WAN"
                        echo "wan-b $NET_WAN_B u:$V_WAN" ;;
         "$NODE_RRAN")  echo "wanlink $NET_WAN_B t:$V_WAN"
                        echo "trunk $NET_FTRUNK t:$V_FN2,$V_FN3,$V_FOAM" ;;
         "$NODE_CTRL")  echo "trunk $NET_TRUNK t:$V_OAM" ;;
-        "$NODE_CORE")  echo "trunk $NET_TRUNK t:$V_OAM,$V_N2,$V_N3,$V_N6" ;;
-        "$NODE_RANN")  echo "trunk $NET_TRUNK t:$V_OAM,$V_N2,$V_N3" ;;
+        "$NODE_CORE")  echo "trunk $NET_TRUNK t:$oam$V_N2,$V_N3,$V_N6" ;;
+        "$NODE_RANN")  echo "trunk $NET_TRUNK t:$oam$V_N2,$V_N3$n6" ;;
         "$NODE_RANF")  echo "trunk $NET_FTRUNK t:$V_FN2,$V_FN3,$V_FOAM" ;;
-        "$NODE_APP")   echo "trunk $NET_TRUNK t:$V_OAM,$V_N6" ;;
+        "$NODE_APP")   echo "trunk $NET_TRUNK t:$oam$V_N6" ;;
         *) die "no NIC definition for $1" ;;
     esac
 }
@@ -444,6 +536,15 @@ netplan_for() {
     local node=$1 dev net vl dhcp
     local n2=$TESTBED_NET_N2 n3=$TESTBED_NET_N3 n6=$TESTBED_NET_N6 oam=$TESTBED_NET_OAM
     local fn2=$TESTBED_NET_FAR_N2 fn3=$TESTBED_NET_FAR_N3 foam=$TESTBED_NET_FAR_OAM wan=$TESTBED_NET_WAN
+    # Routes that exist only with the far site, and the management VLAN that
+    # exists only with the router (without it, `uplink` is the management
+    # interface and takes its address and default route from DHCP).
+    local far_n2=() far_n3=()
+    if [ "$WITH_FAR" = true ]; then far_n2=("$fn2 $GW_N2"); far_n3=("$fn3 $GW_N3"); fi
+    oam_block() { # <host octet>
+        [ "$WITH_ROUTER" = true ] || return 0
+        vlan_block oam "$V_OAM" trunk "$(cidr_in "$oam" "$1")" "$GW_OAM"
+    }
     echo "version: 2"
     echo "ethernets:"
     while read -r dev net vl; do
@@ -466,6 +567,7 @@ netplan_for() {
             vlan_block n2  "$V_N2"  trunk "$(cidr_in "$n2" 1)"  ""
             vlan_block n3  "$V_N3"  trunk "$(cidr_in "$n3" 1)"  ""
             vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" 1)"  "" "$TESTBED_UE_POOL $UPF_N6"
+            [ "$WITH_FAR" = true ] || return 0
             vlan_block wan "$V_WAN" wanlink "$(cidr_in "$wan" 1)" "" \
                 "$fn2 $WAN_RRAN" "$fn3 $WAN_RRAN" "$foam $WAN_RRAN" ;;
         "$NODE_WANEM")
@@ -482,14 +584,14 @@ netplan_for() {
         "$NODE_CORE")
             # The far site's N2 is reached via the N2 gateway so the AMF
             # answers far gNBs from its N2 address, not via OAM.
-            vlan_block oam "$V_OAM" trunk "$(cidr_in "$oam" "$TESTBED_HOST_CORE")" "$GW_OAM"
-            vlan_block n2  "$V_N2"  trunk "$(cidr_in "$n2" "$TESTBED_HOST_CORE")" "" "$fn2 $GW_N2"
+            oam_block "$TESTBED_HOST_CORE"
+            vlan_block n2  "$V_N2"  trunk "$(cidr_in "$n2" "$TESTBED_HOST_CORE")" "" "${far_n2[@]}"
             if [ "$CORE_UPF_ATTACH" = host ]; then
                 # The UPF is a process on this node, so the node holds the
                 # UPF's addresses. The far site's N3 is reached via the N3
                 # gateway, as its N2 is via the N2 gateway, so downlink GTP-U
                 # to a far gNB leaves from the N3 address.
-                vlan_block n3  "$V_N3"  trunk "$(cidr_in "$n3" "$TESTBED_UPF_ACCESS_IP")" "" "$fn3 $GW_N3"
+                vlan_block n3  "$V_N3"  trunk "$(cidr_in "$n3" "$TESTBED_UPF_ACCESS_IP")" "" "${far_n3[@]}"
                 vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" "$TESTBED_UPF_CORE_IP")" ""
             else
                 # n3 and n6 are UP with no address: they are the macvlan
@@ -498,9 +600,17 @@ netplan_for() {
                 vlan_block n6  "$V_N6"  trunk "" ""
             fi ;;
         "$NODE_RANN")
-            vlan_block oam "$V_OAM" trunk "$(cidr_in "$oam" "$TESTBED_HOST_RAN")" "$GW_OAM"
+            oam_block "$TESTBED_HOST_RAN"
             vlan_block n2  "$V_N2"  trunk "$(addr_list "$n2" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" ""
-            vlan_block n3  "$V_N3"  trunk "$(addr_list "$n3" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" "" ;;
+            vlan_block n3  "$V_N3"  trunk "$(addr_list "$n3" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" ""
+            if [ "$WITH_APP" != true ]; then
+                # Standing in for the app node: the responder's address on N6,
+                # and the UE pool routed back the way it came. A UE's packets
+                # are built by ORBIT in user space and leave inside GTP-U on
+                # N3, so they reach this address only through the UPF, arrive
+                # on n6, and are answered out of n6.
+                vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" "$TESTBED_HOST_APP")" "" "$TESTBED_UE_POOL $POOL_RETURN_VIA"
+            fi ;;
         "$NODE_RANF")
             # Two routed hops from the core: N2 and N3 traffic leaves by the
             # right interface because the core-site subnets are routed via the
@@ -511,8 +621,8 @@ netplan_for() {
         "$NODE_APP")
             # Return traffic to UEs goes back via r-site, which routes it to
             # the UPF — the app knows nothing about the UPF, as on a real site.
-            vlan_block oam "$V_OAM" trunk "$(cidr_in "$oam" "$TESTBED_HOST_APP")" "$GW_OAM"
-            vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" "$TESTBED_HOST_APP")" "" "$TESTBED_UE_POOL $GW_N6" ;;
+            oam_block "$TESTBED_HOST_APP"
+            vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" "$TESTBED_HOST_APP")" "" "$TESTBED_UE_POOL $POOL_RETURN_VIA" ;;
     esac
 }
 
@@ -641,7 +751,9 @@ $(nft_ruleset | indent '      ')
                 runcmd+="  - systemctl daemon-reload && systemctl enable --now testbed-upf-offloads.service
 "
             fi ;;
-        "$NODE_RANN"|"$NODE_RANF") packages+=" iputils-arping" ;;
+        "$NODE_RANN"|"$NODE_RANF")
+            packages+=" iputils-arping"
+            if [ "$node" = "$NODE_RESP" ]; then packages+=" iperf3"; fi ;;
         "$NODE_APP") packages+=" iperf3" ;;
     esac
 
@@ -752,18 +864,20 @@ cmd_up() {
     local n
     for n in "${NODES[@]}"; do make_node "$n"; done
 
-    # The site router first: every other node's packages, toolchains and
-    # OnRamp downloads go through its NAT, so a node that boots before it
-    # simply fails its first-boot provisioning.
-    if ! is_running "$NODE_RSITE"; then
-        info "starting $NODE_RSITE (the Internet edge; the rest follow once it routes)"
-        lxc_do start "$NODE_RSITE"
+    if [ "$WITH_ROUTER" = true ]; then
+        # The site router first: every other node's packages, toolchains and
+        # OnRamp downloads go through its NAT, so a node that boots before it
+        # simply fails its first-boot provisioning.
+        if ! is_running "$NODE_RSITE"; then
+            info "starting $NODE_RSITE (the Internet edge; the rest follow once it routes)"
+            lxc_do start "$NODE_RSITE"
+        fi
+        wait_agent "$NODE_RSITE"
+        wait_cloud_init "$NODE_RSITE"
+        wait_internet "$NODE_RSITE" || die "$NODE_RSITE has no Internet via $TESTBED_UPLINK_NET"
+        lxc exec "$NODE_RSITE" -- nft list ruleset 2>/dev/null | grep -q masquerade \
+            || die "$NODE_RSITE has no NAT ruleset — check 'lxc exec $NODE_RSITE -- cloud-init status --long'"
     fi
-    wait_agent "$NODE_RSITE"
-    wait_cloud_init "$NODE_RSITE"
-    wait_internet "$NODE_RSITE" || die "$NODE_RSITE has no Internet via $TESTBED_UPLINK_NET"
-    lxc exec "$NODE_RSITE" -- nft list ruleset 2>/dev/null | grep -q masquerade \
-        || die "$NODE_RSITE has no NAT ruleset — check 'lxc exec $NODE_RSITE -- cloud-init status --long'"
 
     for n in "${NODES[@]}"; do
         is_running "$n" && continue
@@ -776,12 +890,15 @@ cmd_up() {
     while [ $SECONDS -lt $deadline ]; do
         ready=0
         for n in "${NODES[@]}"; do
-            lxc list "^$n\$" -c 4 --format csv 2>/dev/null | grep -qF "$(oam_of "$n")" && ready=$((ready + 1))
+            has_mgmt_addr "$n" && ready=$((ready + 1))
         done
         [ "$ready" -eq ${#NODES[@]} ] && break
         sleep 5
     done
     [ "$ready" -eq ${#NODES[@]} ] || warn "not every node reported its address; check '$PROG status' and the consoles"
+    if [ "$WITH_ROUTER" != true ]; then
+        for n in "${NODES[@]}"; do pin_uplink "$n"; done
+    fi
 
     # The control node's toolchain download is the slow one and `ctrl` waits
     # for it itself; everything else is a package install.
@@ -793,9 +910,41 @@ cmd_up() {
     cmd_status
 }
 
+# uplink_addr <node> -> the address DHCP gave the node's uplink NIC, or nothing
+# while the node is down or has no lease yet.
+uplink_addr() {
+    lxc exec "$1" -- sh -c "ip -4 -o addr show dev uplink scope global 2>/dev/null | awk '{print \$4}' | cut -d/ -f1 | head -1" 2>/dev/null | tr -d '\r' || true
+}
+
+# pin_uplink <node> makes the address DHCP gave the node's uplink its static
+# lease, so it is the same after every restart: the core's Kubernetes node
+# address, the ORBIT server's listen address and its pinned certificate all
+# name it. This sets a key on the node's own NIC device, nothing on the uplink
+# network.
+pin_uplink() {
+    local a; a=$(uplink_addr "$1")
+    [ -n "$a" ] || { warn "$1 has no uplink address to pin"; return 0; }
+    [ "$(lxc config device get "$1" uplink ipv4.address 2>/dev/null)" = "$a" ] && return 0
+    lxc_do config device set "$1" uplink ipv4.address="$a" >/dev/null 2>&1 \
+        || warn "could not pin $1's uplink address $a; it may change when the node restarts"
+}
+
+# has_mgmt_addr <node> — whether the node is up far enough to hold its
+# management address.
+has_mgmt_addr() {
+    if [ "$WITH_ROUTER" = true ]; then
+        lxc list "^$1\$" -c 4 --format csv 2>/dev/null | grep -qF "$(oam_of "$1")"
+    else
+        [ -n "$(oam_of "$1")" ]
+    fi
+}
+
 # oam_of <node> -> the node's management address (far-site nodes are on the
-# far OAM VLAN; the routers answer on their first segment).
+# far OAM VLAN; the routers answer on their first segment). Without the site
+# router it is the uplink's DHCP address, read from the running node, and
+# empty when there is none to read.
 oam_of() {
+    if [ "$WITH_ROUTER" != true ]; then uplink_addr "$1"; return 0; fi
     case "$1" in
         "$NODE_RSITE") echo "$GW_OAM" ;;
         "$NODE_WANEM") echo "$WANEM_OAM" ;;
@@ -813,6 +962,13 @@ oam_of() {
 # deliberately 0 when they are the UPF's macvlan parents, and carry the UPF's
 # addresses when the UPF runs on the node itself.
 expect_for() {
+    {
+        expect_vlans "$1"
+        if [ "$1" = "$NODE_RANN" ] && [ "$WITH_APP" != true ]; then printf 'n6 1\n'; fi
+    } | if [ "$WITH_ROUTER" = true ]; then cat; else grep -v '^oam ' || true; fi
+}
+
+expect_vlans() {
     local g=$TESTBED_RAN_GNBS
     case "$1" in
         "$NODE_RSITE") printf 'oam 1\nn2 1\nn3 1\nn6 1\nwan 1\n' ;;
@@ -837,7 +993,10 @@ expect_for() {
 cmd_addrs() {
     require_lxd
     local nodes=("$@")
-    [ ${#nodes[@]} -gt 0 ] || nodes=("$NODE_RANN" "$NODE_RANF")
+    if [ ${#nodes[@]} -eq 0 ]; then
+        nodes=("$NODE_RANN")
+        if [ "$WITH_FAR" = true ]; then nodes+=("$NODE_RANF"); fi
+    fi
     local target
     for target in "${nodes[@]}"; do
         case "$target" in "$P-"*) : ;; *) target=$(node_for "$target") ;; esac
@@ -1089,7 +1248,7 @@ core_sdcore_deploy() {
 
     info "installing OnRamp prerequisites on $NODE_CORE"
     on_core "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git make ansible >/dev/null" \
-        || die "could not install prerequisites (does $NODE_CORE reach the Internet via $NODE_RSITE? try '$PROG check')"
+        || die "could not install prerequisites (does $NODE_CORE reach the Internet? try '$PROG check')"
 
     # OnRamp expects helm on PATH but does not install it — its k8s role only
     # pins a version. The Aether reference host carries a get_helm.sh for the
@@ -1154,7 +1313,8 @@ core_sdcore_deploy() {
     # the router role builds no overlay and installs no NAT, and the UPF's N3
     # and N6 are different VLANs by construction. ran_subnet is the far site's
     # N3: the UPF routes downlink to those gNBs via the N3 gateway, while the
-    # near site's gNBs are on-link.
+    # near site's gNBs are on-link. A shape without the router or the far site
+    # has other next hops: see UPF_N3_GW, UPF_RAN_SUBNET and UPF_N6_GW.
     on_core "cat > /tmp/onramp-core.yml <<'YML'
 core:
   values_file: \"$vf_dir/$vf\"
@@ -1162,13 +1322,13 @@ core:
     access:
       iface: n3
       subnet: $TESTBED_NET_N3
-      gateway: $GW_N3                 # the site router, not this host
+      gateway: $UPF_N3_GW
       attach: macvlan
-      ran_subnet: $TESTBED_NET_FAR_N3   # far-site gNBs; near-site gNBs are on-link
+      ran_subnet: $UPF_RAN_SUBNET
     core:
       iface: n6
       subnet: $TESTBED_NET_N6
-      gateway: $GW_N6
+      gateway: $UPF_N6_GW
       attach: macvlan
   helm:
 $helm_block
@@ -1488,6 +1648,7 @@ REMOTE
 
     local n
     for n in "$NODE_CORE" "$NODE_RANN" "$NODE_RANF" "$NODE_APP"; do
+        in_nodes "$n" || continue
         exists_instance "$n" || { warn "$n not found; skipping"; continue; }
         wait_cloud_init "$n"
         info "authorizing the managed key on $n as '$AETHER_OPS_USER'"
@@ -1535,6 +1696,7 @@ build_wanemd() {
 }
 
 cmd_wanem() {
+    [ "$WITH_FAR" = true ] || die "this testbed has no far site, so no WAN emulator"
     require_lxd
     exists_instance "$NODE_WANEM" || die "$NODE_WANEM not found — run '$PROG up' first"
     wait_cloud_init "$NODE_WANEM"
@@ -1652,8 +1814,8 @@ push_orbit() {
 # it across an app rebuild.
 responder_token() {
     local f="$TESTBED_CACHE_DIR/$P.responder-token" t=""
-    if exists_instance "$NODE_APP"; then
-        t=$(lxc exec "$NODE_APP" -- sh -c 'sed -n "s/^ORBIT_RESPONDER_TOKEN=//p" /etc/orbit/env 2>/dev/null' 2>/dev/null | tr -d '\r') || t=""
+    if exists_instance "$NODE_RESP"; then
+        t=$(lxc exec "$NODE_RESP" -- sh -c 'sed -n "s/^ORBIT_RESPONDER_TOKEN=//p" /etc/orbit/env 2>/dev/null' 2>/dev/null | tr -d '\r') || t=""
     fi
     if [ -z "$t" ] && [ -s "$f" ]; then t=$(cat "$f"); fi
     if [ -z "$t" ]; then t=$(openssl rand -hex 16); info "generated a new responder token"; fi
@@ -1736,6 +1898,7 @@ EOF
             echo "# (--tls auto, pinned in /root/.config/orbit/servers.yaml) with a bearer"
             echo "# token; API client commands (cell, ue, runs) default to it when --server"
             echo "# is omitted."
+            [ -n "$oam" ] || die "$node has no management address yet — is it running?"
             echo "ORBIT_LISTEN=$oam:$ORBIT_PORT"
             echo "ORBIT_SERVER=https://$oam:$ORBIT_PORT"
             echo "ORBIT_TOKEN=$(api_token)" ;;
@@ -1919,17 +2082,17 @@ install_orbit_env() {
 
 cmd_app() {
     require_lxd
-    exists_instance "$NODE_APP" || die "$NODE_APP not found — run '$PROG up' first"
+    exists_instance "$NODE_RESP" || die "$NODE_RESP not found — run '$PROG up' first"
     local bin; bin=$(build_orbit)
-    push_orbit "$NODE_APP" "$bin"
-    install_orbit_env "$NODE_APP"
+    push_orbit "$NODE_RESP" "$bin"
+    install_orbit_env "$NODE_RESP"
 
     # Bound to the N6 address specifically, not 0.0.0.0, and behind a token:
     # the responder is a remotely-aimable traffic generator and has no business
     # on the management network. Return routing to the UE pool is in the
     # node's netplan (via r-site), so there is no route unit here.
     info "starting the responder on $RESPONDER"
-    lxc_do exec "$NODE_APP" -- bash -c "cat > /etc/systemd/system/orbit-responder.service <<'EOF'
+    lxc_do exec "$NODE_RESP" -- bash -c "cat > /etc/systemd/system/orbit-responder.service <<'EOF'
 [Unit]
 Description=ORBIT responder (loom agent) on N6
 After=network-online.target
@@ -1945,7 +2108,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload && systemctl enable orbit-responder >/dev/null 2>&1 && systemctl restart orbit-responder" >/dev/null
-    lxc_do exec "$NODE_APP" -- systemctl is-active orbit-responder >/dev/null \
+    lxc_do exec "$NODE_RESP" -- systemctl is-active orbit-responder >/dev/null \
         && info "responder active" || warn "responder did not come up; check journalctl -u orbit-responder"
 }
 
@@ -1954,9 +2117,10 @@ cmd_ran() {
     require_lxd
     local targets=()
     case "${1:-}" in
-        ''|all) targets=("$NODE_RANN" "$NODE_RANF") ;;
+        ''|all) targets=("$NODE_RANN"); if [ "$WITH_FAR" = true ]; then targets+=("$NODE_RANF"); fi ;;
         near)   targets=("$NODE_RANN") ;;
-        far)    targets=("$NODE_RANF") ;;
+        far)    [ "$WITH_FAR" = true ] || die "this testbed has no far site"
+                targets=("$NODE_RANF") ;;
         *) die "usage: $PROG ran [near|far]" ;;
     esac
     check_targets_fit
@@ -2057,31 +2221,46 @@ cmd_check() {
     local far_n2; far_n2=$(ip_in "$TESTBED_NET_FAR_N2" "$s")
     local near_n3; near_n3=$(ip_in "$TESTBED_NET_N3" "$s")
 
-    check "$NODE_RSITE" "forwarding on, masquerade only on the uplink" \
-        "sysctl -n net.ipv4.ip_forward | grep -qx 1 && nft list ruleset | grep -q 'oifname \"uplink\" ip saddr @internal masquerade'"
-    check "$NODE_RSITE" "UE pool $TESTBED_UE_POOL routed to the UPF N6 $UPF_N6" \
-        "ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $UPF_N6 dev n6'"
-    check "$NODE_RRAN" "forwarding on, no NAT" \
-        "sysctl -n net.ipv4.ip_forward | grep -qx 1 && ! nft list ruleset 2>/dev/null | grep -q masquerade"
+    if [ "$WITH_ROUTER" = true ]; then
+        check "$NODE_RSITE" "forwarding on, masquerade only on the uplink" \
+            "sysctl -n net.ipv4.ip_forward | grep -qx 1 && nft list ruleset | grep -q 'oifname \"uplink\" ip saddr @internal masquerade'"
+        check "$NODE_RSITE" "UE pool $TESTBED_UE_POOL routed to the UPF N6 $UPF_N6" \
+            "ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $UPF_N6 dev n6'"
+    fi
+    if [ "$WITH_FAR" = true ]; then
+        check "$NODE_RRAN" "forwarding on, no NAT" \
+            "sysctl -n net.ipv4.ip_forward | grep -qx 1 && ! nft list ruleset 2>/dev/null | grep -q masquerade"
+    fi
 
-    local gw; for gw in "$GW_OAM" "$GW_N2" "$GW_N3" "$GW_N6" "$WAN_RSITE"; do
+    local gw gws=()
+    if [ "$WITH_ROUTER" = true ]; then gws=("$GW_OAM" "$GW_N2" "$GW_N3" "$GW_N6"); fi
+    if [ "$WITH_FAR" = true ]; then gws+=("$WAN_RSITE"); fi
+    for gw in "${gws[@]}"; do
         check "$NODE_CORE" "ping r-site $gw" "$PING $gw"
     done
     check "$NODE_CORE" "near gNB N2 $near_n2 is on-link" \
         "$PING $near_n2 && ip route get $near_n2 | grep -q 'dev n2 src $CORE_N2' && ! ip route get $near_n2 | grep -q via"
-    # Three probes per hop, sent one at a time (-N1): the default sends every
-    # TTL at once, and the destination rate-limits the burst of port-unreachable
-    # replies it owes, so the probe that identifies the last hop can go
-    # unanswered. The whole trace is retried before the hop list is judged.
-    check "$NODE_CORE" "far gNB N2 $far_n2 via r-site, WAN, r-ran" \
-        "$PING $far_n2 || exit 1; for try in 1 2 3; do t=\$(traceroute -n -q3 -N1 -w2 $far_n2 | $HOP_ADDRS | tr '\n' ' '); echo \"\$t\"; [ \"\$t\" = '$GW_N2 $WAN_RRAN $far_n2 ' ] && exit 0; sleep 1; done; exit 1"
-    check "$NODE_CORE" "1472-byte DF ping to the far site (MTU 1500 end to end)" "ping -c2 -W2 -q -M do -s 1472 $far_n2"
-    check "$NODE_CORE" "Internet via r-site NAT" "$PING 8.8.8.8"
+    if [ "$WITH_FAR" = true ]; then
+        # Three probes per hop, sent one at a time (-N1): the default sends every
+        # TTL at once, and the destination rate-limits the burst of port-unreachable
+        # replies it owes, so the probe that identifies the last hop can go
+        # unanswered. The whole trace is retried before the hop list is judged.
+        check "$NODE_CORE" "far gNB N2 $far_n2 via r-site, WAN, r-ran" \
+            "$PING $far_n2 || exit 1; for try in 1 2 3; do t=\$(traceroute -n -q3 -N1 -w2 $far_n2 | $HOP_ADDRS | tr '\n' ' '); echo \"\$t\"; [ \"\$t\" = '$GW_N2 $WAN_RRAN $far_n2 ' ] && exit 0; sleep 1; done; exit 1"
+        check "$NODE_CORE" "1472-byte DF ping to the far site (MTU 1500 end to end)" "ping -c2 -W2 -q -M do -s 1472 $far_n2"
+    fi
+    if [ "$WITH_ROUTER" = true ]; then
+        check "$NODE_CORE" "Internet via r-site NAT" "$PING 8.8.8.8"
+    else
+        check "$NODE_CORE" "Internet via the uplink" "$PING 8.8.8.8"
+    fi
     if [ "$CORE_UPF_ATTACH" = host ]; then
         check "$NODE_CORE" "n3/n6 carry the UPF addresses $UPF_N3, $UPF_N6" \
             "ip -4 -o addr show dev n3 | grep -q 'inet $UPF_N3/' && ip -4 -o addr show dev n6 | grep -q 'inet $UPF_N6/'"
-        check "$NODE_CORE" "far N3 subnet routed via r-site on n3" \
-            "ip route get $(ip_in "$TESTBED_NET_FAR_N3" "$s") | grep -q 'via $GW_N3 dev n3 src $UPF_N3'"
+        if [ "$WITH_FAR" = true ]; then
+                check "$NODE_CORE" "far N3 subnet routed via r-site on n3" \
+                    "ip route get $(ip_in "$TESTBED_NET_FAR_N3" "$s") | grep -q 'via $GW_N3 dev n3 src $UPF_N3'"
+        fi
     else
         check "$NODE_CORE" "receive aggregation off on trunk (gro, rx-gro-hw)" \
             "ethtool -k trunk | grep -E '^(generic-receive-offload|rx-gro-hw):' | grep -qv ': on'"
@@ -2089,31 +2268,52 @@ cmd_check() {
             "! ip -4 -o addr show dev n3 | grep -q inet && ! ip -4 -o addr show dev n6 | grep -q inet && ip -br link show n3 | grep -q UP && ip -br link show n6 | grep -q UP"
     fi
 
-    check "$NODE_RANF" "ping the AMF's N2 $CORE_N2" "$PING $CORE_N2"
-    check "$NODE_RANF" "ping r-site N3 $GW_N3 (the UPF's gateway)" "$PING $GW_N3"
-    check "$NODE_RANF" "every far N2 slot .$s-.$e reaches the AMF" \
-        "for i in \$(seq $s $e); do $PING -I $(ip_in "$TESTBED_NET_FAR_N2" '')\$i $CORE_N2 || exit 1; done"
-    check "$NODE_RANF" "core N3 subnet routed via r-ran on n3" "ip route get $GW_N3 | grep -q 'via $GW_FN3 dev n3'"
-    check "$NODE_RANF" "Internet via two routers" "$PING 8.8.8.8"
+    if [ "$WITH_FAR" = true ]; then
+        check "$NODE_RANF" "ping the AMF's N2 $CORE_N2" "$PING $CORE_N2"
+        check "$NODE_RANF" "ping r-site N3 $GW_N3 (the UPF's gateway)" "$PING $GW_N3"
+        check "$NODE_RANF" "every far N2 slot .$s-.$e reaches the AMF" \
+            "for i in \$(seq $s $e); do $PING -I $(ip_in "$TESTBED_NET_FAR_N2" '')\$i $CORE_N2 || exit 1; done"
+        check "$NODE_RANF" "core N3 subnet routed via r-ran on n3" "ip route get $GW_N3 | grep -q 'via $GW_FN3 dev n3'"
+        check "$NODE_RANF" "Internet via two routers" "$PING 8.8.8.8"
+    fi
 
-    check "$NODE_RANN" "ping r-site OAM and the Internet" "$PING $GW_OAM && $PING 8.8.8.8"
+    if [ "$WITH_ROUTER" = true ]; then
+        check "$NODE_RANN" "ping r-site OAM and the Internet" "$PING $GW_OAM && $PING 8.8.8.8"
+    else
+        check "$NODE_RANN" "Internet via the uplink" "$PING 8.8.8.8"
+    fi
     check "$NODE_RANN" "every near N2 slot .$s-.$e reaches the AMF on-link" \
         "for i in \$(seq $s $e); do $PING -I $(ip_in "$TESTBED_NET_N2" '')\$i $CORE_N2 || exit 1; done"
-    # VLAN isolation: the app's N6 address must not answer ARP on N3 or N2, and
-    # N3 -> N6 traffic is routed through r-site (hop 1), not switched.
-    check "$NODE_RANN" "isolation: no ARP reply for app N6 $APP_N6 on n3" "! arping -c2 -w3 -I n3 -s $near_n3 $APP_N6"
-    check "$NODE_RANN" "isolation: no ARP reply for app N6/OAM on n2" \
-        "! arping -c2 -w3 -I n2 -s $near_n2 $APP_N6 && ! arping -c2 -w3 -I n2 -s $near_n2 $APP_OAM"
-    check "$NODE_RANN" "N3 -> app N6 is routed (hop 1 r-site, hop 2 app)" \
-        "$PING -I $near_n3 $APP_N6 && t=\$(traceroute -I -n -q2 -w2 -s $near_n3 $APP_N6 | awk 'NR>1{print \$2}' | tr '\n' ' '); echo \"\$t\"; [ \"\$t\" = '$GW_N3 $APP_N6 ' ]"
+    if [ "$WITH_APP" = true ]; then
+        # VLAN isolation: the app's N6 address must not answer ARP on N3 or N2, and
+        # N3 -> N6 traffic is routed through r-site (hop 1), not switched.
+        check "$NODE_RANN" "isolation: no ARP reply for app N6 $APP_N6 on n3" "! arping -c2 -w3 -I n3 -s $near_n3 $APP_N6"
+        check "$NODE_RANN" "isolation: no ARP reply for app N6/OAM on n2" \
+            "! arping -c2 -w3 -I n2 -s $near_n2 $APP_N6 && ! arping -c2 -w3 -I n2 -s $near_n2 $APP_OAM"
+    fi
+    if [ "$WITH_ROUTER" = true ] && [ "$WITH_APP" = true ]; then
+        check "$NODE_RANN" "N3 -> app N6 is routed (hop 1 r-site, hop 2 app)" \
+            "$PING -I $near_n3 $APP_N6 && t=\$(traceroute -I -n -q2 -w2 -s $near_n3 $APP_N6 | awk 'NR>1{print \$2}' | tr '\n' ' '); echo \"\$t\"; [ \"\$t\" = '$GW_N3 $APP_N6 ' ]"
+    fi
+    if [ "$WITH_APP" != true ]; then
+        check "$NODE_RANN" "responder address $APP_N6 on n6, UE pool routed back via $POOL_RETURN_VIA" \
+            "ip -4 -o addr show dev n6 | grep -q 'inet $APP_N6/' && ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $POOL_RETURN_VIA dev n6'"
+    fi
 
-    check "$NODE_APP" "ping r-site N6 $GW_N6 and the Internet" "$PING $GW_N6 && $PING 8.8.8.8"
-    check "$NODE_APP" "UE pool routed back via r-site" "ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $GW_N6 dev n6'"
+    if [ "$WITH_APP" = true ] && [ "$WITH_ROUTER" = true ]; then
+        check "$NODE_APP" "ping r-site N6 $GW_N6 and the Internet" "$PING $GW_N6 && $PING 8.8.8.8"
+        check "$NODE_APP" "UE pool routed back via r-site" "ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $GW_N6 dev n6'"
+    elif [ "$WITH_APP" = true ]; then
+        check "$NODE_APP" "Internet via the uplink" "$PING 8.8.8.8"
+        check "$NODE_APP" "UE pool routed back via the UPF N6 $UPF_N6" "ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $UPF_N6 dev n6'"
+    fi
 
-    check "$NODE_WANEM" "ping r-site OAM and the Internet" "$PING $GW_OAM && $PING 8.8.8.8"
-    check "$NODE_WANEM" "br-wan has no address and two ports" \
-        "! ip -o addr show dev br-wan | grep -q inet; ip -br link show master br-wan | grep -c . | grep -qx 2"
-    check "$NODE_WANEM" "wanemd active, gRPC :6201 listening" "systemctl is-active -q wanemd && ss -ltn | grep -q :6201"
+    if [ "$WITH_FAR" = true ]; then
+        check "$NODE_WANEM" "ping r-site OAM and the Internet" "$PING $GW_OAM && $PING 8.8.8.8"
+        check "$NODE_WANEM" "br-wan has no address and two ports" \
+            "! ip -o addr show dev br-wan | grep -q inet; ip -br link show master br-wan | grep -c . | grep -qx 2"
+        check "$NODE_WANEM" "wanemd active, gRPC :6201 listening" "systemctl is-active -q wanemd && ss -ltn | grep -q :6201"
+    fi
 
     echo "---- $CHECK_PASS passed, $CHECK_FAIL failed"
     return "$CHECK_FAIL"
@@ -2171,7 +2371,8 @@ cmd_verify() {
     if [ "$which" = all ] || [ "$which" = near ]; then
         verify_from "$NODE_RANN" "near site, on-link with the UPF" "$base" "$(ip_in "$TESTBED_NET_N3" "$TESTBED_HOST_RAN")" "$supi_near" || rc=1
     fi
-    if [ "$which" = all ] || [ "$which" = far ]; then
+    if [ "$which" = far ] && [ "$WITH_FAR" != true ]; then die "this testbed has no far site"; fi
+    if [ "$WITH_FAR" = true ] && { [ "$which" = all ] || [ "$which" = far ]; }; then
         verify_from "$NODE_RANF" "far site, two routed hops" "$((base + 100))" "$(ip_in "$TESTBED_NET_FAR_N3" "$TESTBED_HOST_RAN")" "$supi_far" || rc=1
     fi
     [ $rc -eq 0 ] && info "verify: every step passed on every site" \
@@ -2186,17 +2387,17 @@ cmd_all() {
     # The control node comes up before the core: it is what deploys and manages
     # the core, and distributing its key is a precondition for it reaching any
     # node at all.
-    if [ "$CORE_HAS_CTRL" = true ]; then
+    if [ "$HAS_CTRL" = true ]; then
         cmd_ctrl
         cmd_keys
     fi
-    cmd_wanem
+    if [ "$WITH_FAR" = true ]; then cmd_wanem; fi
     cmd_core
     cmd_apps
     echo
     cmd_check || true
     echo
-    info "testbed ready — '$PROG verify' drives ORBIT through it from both sites"
+    info "testbed ready — '$PROG verify' drives ORBIT through it$(if [ "$WITH_FAR" = true ]; then echo " from both sites"; fi)"
     cmd_status
 }
 
@@ -2211,27 +2412,37 @@ cmd_status() {
     local n
     for n in "${NODES[@]}"; do
         local st; st=$(lxc list "^$n\$" -c s --format csv 2>/dev/null); st=${st:-ABSENT}
-        printf '  %-16s %-8s oam %s\n' "$n" "$st" "$(oam_of "$n")"
+        if [ "$WITH_ROUTER" = true ]; then
+            printf '  %-16s %-8s oam %s\n' "$n" "$st" "$(oam_of "$n")"
+        else
+            local a; a=$(oam_of "$n")
+            printf '  %-16s %-8s uplink %s\n' "$n" "$st" "${a:--}"
+        fi
     done
     echo
     echo "access:  lxc exec <node> -- bash;  $PROG console <node>  (autologin root)"
-    [ -n "${TESTBED_SSH_PUBKEY:-}" ] && echo "         $PROG ssh <node>  (via $NODE_RSITE)"
+    if [ -n "${TESTBED_SSH_PUBKEY:-}" ]; then
+        if [ "$WITH_ROUTER" = true ]; then echo "         $PROG ssh <node>  (via $NODE_RSITE)"; else echo "         $PROG ssh <node>"; fi
+    fi
     echo "node is one of: $(node_names ' ')"
     true
 }
 
 node_for() {
+    local n
     case "$1" in
-        rsite|r-site) echo "$NODE_RSITE" ;;
-        wanem)        echo "$NODE_WANEM" ;;
-        rran|r-ran)   echo "$NODE_RRAN" ;;
-        ctrl)         require_ctrl; echo "$NODE_CTRL" ;;
-        core)         echo "$NODE_CORE" ;;
-        ran-near|near|ran) echo "$NODE_RANN" ;;
-        ran-far|far)  echo "$NODE_RANF" ;;
-        app)          echo "$NODE_APP" ;;
+        rsite|r-site) n=$NODE_RSITE ;;
+        wanem)        n=$NODE_WANEM ;;
+        rran|r-ran)   n=$NODE_RRAN ;;
+        ctrl)         n=$NODE_CTRL ;;
+        core)         n=$NODE_CORE ;;
+        ran-near|near|ran) n=$NODE_RANN ;;
+        ran-far|far)  n=$NODE_RANF ;;
+        app)          n=$NODE_APP ;;
         *) die "unknown node '$1' (expected $(node_names ', ' ' or '))" ;;
     esac
+    in_nodes "$n" || die "this testbed has no '$1' node (it has $(node_names ', '))"
+    echo "$n"
 }
 
 cmd_console() {
@@ -2246,6 +2457,13 @@ cmd_console() {
 cmd_ssh() {
     [ $# -ge 1 ] || die "usage: $PROG ssh <node> [cmd]"
     local n jump; n=$(node_for "$1"); shift
+    if [ "$WITH_ROUTER" != true ]; then
+        # The uplink address is on a network the host is on too.
+        jump=$(oam_of "$n")
+        [ -n "$jump" ] || die "$n has no uplink address yet"
+        ssh -o StrictHostKeyChecking=accept-new "ubuntu@$jump" "$@"
+        return
+    fi
     jump=$(lxc exec "$NODE_RSITE" -- sh -c 'ip -4 -o addr show dev uplink | awk "{print \$4}" | cut -d/ -f1' 2>/dev/null | tr -d '\r')
     [ -n "$jump" ] || die "$NODE_RSITE has no uplink address yet"
     if [ "$n" = "$NODE_RSITE" ]; then
@@ -2258,14 +2476,14 @@ cmd_ssh() {
 cmd_down() {
     require_lxd
     local n
-    for n in "${NODES[@]}"; do
+    for n in "${ALL_NODES[@]}"; do
         if exists_instance "$n"; then
             info "deleting $n"
             lxc_do delete --force "$n" >/dev/null
         fi
     done
     exists_profile "$PROFILE" && { info "deleting profile $PROFILE"; lxc profile delete "$PROFILE" >/dev/null; }
-    for n in "${NETS[@]}"; do
+    for n in "${ALL_NETS[@]}"; do
         exists_net "$n" && { info "deleting network $n"; lxc network delete "$n" >/dev/null; }
     done
     if [ "${1:-}" = "--image" ] && exists_image "$IMAGE_ALIAS"; then
@@ -2276,9 +2494,14 @@ cmd_down() {
 }
 
 usage() {
-    local ctrl_help="" all_steps="image + up + wanem + core + apps + check"
-    if [ "$CORE_HAS_CTRL" = true ]; then
-        all_steps="image + up + ctrl + keys + wanem + core + apps + check"
+    local ctrl_help="" wanem_help="" all_steps="image + up"
+    if [ "$WITH_FAR" = true ]; then
+        wanem_help="
+  $PROG wanem              build wanemd on this host and install it on the
+                                WAN emulator node"
+    fi
+    if [ "$HAS_CTRL" = true ]; then
+        all_steps+=" + ctrl + keys"
         ctrl_help="
   $PROG ctrl               install aether-ops on the control node
   $PROG keys               authorize the control node's managed SSH key on
@@ -2286,24 +2509,33 @@ usage() {
                                 cannot do this itself — see AO-2 in its
                                 KNOWN_ISSUES.md)"
     fi
+    if [ "$WITH_FAR" = true ]; then all_steps+=" + wanem"; fi
+    all_steps+=" + core + apps + check"
+    local sites="each site" ran_args="[near|far]" ran_help="install ORBIT on the RAN node(s) (default both)"
+    if [ "$WITH_FAR" != true ]; then sites="the RAN node"; ran_args="          "; ran_help="install ORBIT on the RAN node"; fi
+    local up_help="create networks and nodes, start them (r-site first)" ssh_help="ssh to a node via r-site (needs TESTBED_SSH_PUBKEY"
+    if [ "$WITH_ROUTER" != true ]; then up_help="create the network and nodes, start them"; ssh_help="ssh to a node (needs TESTBED_SSH_PUBKEY"; fi
+    local shape="site"
+    if [ "$WITH_ROUTER$WITH_FAR$WITH_APP$WITH_CTRL" != truetruetruetrue ]; then
+        shape="router=$WITH_ROUTER far=$WITH_FAR app=$WITH_APP ctrl=$WITH_CTRL"
+        if [ "$WITH_ROUTER$WITH_FAR$WITH_APP$WITH_CTRL" = falsefalsefalsefalse ]; then shape="minimal (core + RAN on N2/N3/N6)"; fi
+    fi
     cat <<EOF
 $PROG — LXD testbed for ORBIT in the Ref 2 small-site shape
             (VLAN-trunked OAM/N2/N3/N6, site routers, routed UE pool, far site over a WAN)
 
   $PROG image              cache the base image locally (once)
-  $PROG up                 create networks and nodes, start them (r-site first)
+  $PROG up                 $up_help
   $PROG status             show networks, nodes and addresses
   $PROG check              assert the site routes as designed (gateways, hops,
-                                NAT, isolation); exit status = failures$ctrl_help
-  $PROG wanem              build wanemd on this host and install it on the
-                                WAN emulator node
+                                NAT, isolation); exit status = failures$ctrl_help$wanem_help
   $PROG core               deploy the core ($CORE_NAME) onto the core node
   $PROG core-status        show the core's health, the core node's interfaces
                                 and where the UPF is attached
   $PROG app                install the ORBIT responder on the app node (N6)
-  $PROG ran [near|far]     install ORBIT on the RAN node(s) (default both)
+  $PROG ran $ran_args     $ran_help
   $PROG apps               app + ran
-  $PROG verify [near|far]  drive ORBIT through the whole path from each site:
+  $PROG verify $ran_args  drive ORBIT through the whole path from $sites:
                                 NG Setup, registration + PDU session, UE ping,
                                 traffic, deregistration
   $PROG all                $all_steps
@@ -2313,7 +2545,7 @@ $PROG — LXD testbed for ORBIT in the Ref 2 small-site shape
                                 NIC whose network was removed (default: both
                                 RAN nodes)
   $PROG console <node>     attach to a node's console (autologin root)
-  $PROG ssh <node> [cmd]   ssh to a node via r-site (needs TESTBED_SSH_PUBKEY
+  $PROG ssh <node> [cmd]   $ssh_help
                                 at build time)
   $PROG down [--image]     remove everything this script created
   $PROG networks           create only the networks
@@ -2321,7 +2553,7 @@ $PROG — LXD testbed for ORBIT in the Ref 2 small-site shape
 node is one of: $(node_names ', ')
 Every command takes a profile first: $(basename "$0") -p <profile> <command>
   profiles:$(for f in "$HERE"/profiles/*.conf; do [ -f "$f" ] && printf ' %s' "$(basename "$f" .conf)"; done)  (none: the default testbed)
-This testbed: ${TESTBED_PROFILE:+profile '$TESTBED_PROFILE', }prefix '$P', core $CORE_NAME (TESTBED_CORE_KIND=$CORE_KIND).
+This testbed: ${TESTBED_PROFILE:+profile '$TESTBED_PROFILE', }prefix '$P', core $CORE_NAME (TESTBED_CORE_KIND=$CORE_KIND), shape $shape.
 Configuration: testbed.conf, overridden by a profile, then testbed.local.conf
 (testbed.<profile>.local.conf for one profile), then the environment.
 See README.md.

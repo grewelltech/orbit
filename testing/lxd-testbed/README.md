@@ -192,12 +192,12 @@ The same site can be built around three cores. A **profile** selects a whole
 testbed in one word — its own prefix, VLAN block, UE pool and core — so several
 run side by side on one host:
 
-| Profile | Prefix | VLANs / subnets | UE pool | Core (`TESTBED_CORE_KIND`) | Control node |
+| Profile | Prefix | VLAN block / subnets | UE pool | Core (`TESTBED_CORE_KIND`) | Shape |
 |---|---|---|---|---|---|
-| *(none)* | `orbit` | 130–137, `10.130`–`10.137.0.0/24` | `100.65.0.0/16` | SD-Core (`sdcore`) | yes |
-| `sdcore` | `sdcore` | 160–167, `10.160`–`10.167.0.0/24` | `100.68.0.0/16` | SD-Core (`sdcore`) | yes |
-| `free5gc` | `free5gc` | 140–147, `10.140`–`10.147.0.0/24` | `100.66.0.0/16` | free5GC (`free5gc`) | no |
-| `open5gs` | `open5gs` | 150–157, `10.150`–`10.157.0.0/24` | `100.67.0.0/16` | Open5GS (`open5gs`) | no |
+| *(none)* | `orbit` | 130–137, `10.130`–`10.137.0.0/24` | `100.65.0.0/16` | SD-Core (`sdcore`) | site |
+| `sdcore` | `sdcore` | 160–167, `10.160`–`10.167.0.0/24` | `100.68.0.0/16` | SD-Core (`sdcore`) | minimal |
+| `free5gc` | `free5gc` | 140–147, `10.140`–`10.147.0.0/24` | `100.66.0.0/16` | free5GC (`free5gc`) | minimal |
+| `open5gs` | `open5gs` | 150–157, `10.150`–`10.157.0.0/24` | `100.67.0.0/16` | Open5GS (`open5gs`) | minimal |
 
 ```sh
 ./testbed.sh -p free5gc all        # or: TESTBED_PROFILE=free5gc ./testbed.sh all
@@ -212,12 +212,55 @@ applies with the profile's prefix and addresses in place of `orbit` and
 `lxd-conformance`, `lxd-load`) and the host octets are identical; only the core
 step differs. A profile is a short file in [`profiles/`](profiles); the free5GC
 and Open5GS ones also size the core, RAN and app nodes down, since those cores
-are run for conformance rather than load.
+are run for conformance rather than load. All three default to the minimal
+shape described next.
+
+### Shapes
+
+`TESTBED_SHAPE` says how much of the site is built. `site` is everything in
+this document. `minimal`, the profiles' default, is what conformance runs need
+and nothing else: **two VMs and one bridge**.
+
+| Node | Interfaces |
+|---|---|
+| `<prefix>-core` | `uplink` (DHCP on `TESTBED_UPLINK_NET`: management, Internet); `n2` `.10` (AMF); `n3`/`n6`: the UPF at `.100` on each |
+| `<prefix>-ran` | `uplink` (DHCP; the ORBIT API and dashboard listen here); `n2` and `n3` `.21`–`.30` (ten gNB slots); `n6` `.30` (the responder) |
+
+- One trunk, `<prefix>-trunk`, carries the N2, N3 and N6 VLANs (the block's
+  +1, +2, +3). There is no OAM VLAN, router, far site, WAN emulator, app node
+  or control node, and no NAT: the UE pool is reachable only inside the testbed.
+- The RAN node stands in for the app node: it holds the app's N6 address and
+  runs the responder (`app` installs it there). A UE's packets are built by
+  ORBIT in user space and leave inside GTP-U on N3, so they still cross
+  N3 → UPF → N6 to reach it, and the replies return through the UPF.
+- The UPF's N6 next hop is the responder's address, and the gNBs are on-link
+  on N3.
+- The `uplink` address is on the host's own LXD bridge, so the dashboard is
+  reachable from the host with no route or jump: `status` prints it, and `up`
+  makes the DHCP lease static so it survives restarts.
+- The RAN node's `lxd-conformance` and `lxd-load` targets take the low half of
+  the subscriber pool, as the near site's do; `lxd` spans all of it.
+
+```sh
+./testbed.sh -p sdcore all                      # core + RAN, about as fast as the core deploys
+TESTBED_SHAPE=site ./testbed.sh -p sdcore all   # the full site around the same profile
+```
+
+The parts can also be chosen one by one — `TESTBED_WITH_ROUTER`,
+`TESTBED_WITH_FAR`, `TESTBED_WITH_APP`, `TESTBED_WITH_CTRL` (`true`/`false`;
+see [`testbed.conf`](testbed.conf)). The far site and the control node need the
+router. Every command honours them: `all` skips the steps for absent nodes,
+`check` asserts what the shape has, `verify` runs from the RAN nodes that
+exist. Build and tear down a testbed with the same settings; `down` removes
+every node and bridge carrying the prefix whatever the shape.
+
+### Core kinds
 
 What a core kind changes, beyond how `core` deploys it:
 
 - **Control node.** aether-ops manages SD-Core only. Other kinds have no `ctrl`
-  node and no `ctrl`/`keys` steps; `all` skips them.
+  node and no `ctrl`/`keys` steps; `all` skips them. (Nor does the minimal
+  shape, for any kind.)
 - **Where the UPF sits.** SD-Core's UPF is a pod attached to the core node's
   `n3`/`n6` by macvlan, so the node has no address there. free5GC and Open5GS
   run the UPF on the core node's host network, so the node itself holds the
