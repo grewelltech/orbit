@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,7 @@ func newTargetCmd(serverURL *string, o options) *cobra.Command {
 	cmd.AddCommand(newTargetInitCmd(serverURL, loc))
 	cmd.AddCommand(newTargetListCmd(loc))
 	cmd.AddCommand(newTargetShowCmd(loc))
+	cmd.AddCommand(newTargetExportCmd(serverURL, loc))
 	cmd.AddCommand(newTargetProbeCmd(serverURL, loc))
 	cmd.AddCommand(withServerURL(newTargetAddResponderCmd(serverURL), serverURL))
 	return cmd
@@ -516,6 +518,81 @@ func masked(t target.Target) target.Target {
 		}
 	}
 	return t
+}
+
+// newTargetExportCmd is `orbit target export <name>`: move a CLI target into
+// the dashboard's Targets page. The CLI and the browser keep separate target
+// stores (the filesystem and localStorage; the server stores none, ADR-0008),
+// so this is the one-step bridge from one to the other.
+func newTargetExportCmd(serverURL *string, loc targetLocations) *cobra.Command {
+	var (
+		link      bool
+		dashboard string
+	)
+	cmd := &cobra.Command{
+		Use:   "export <name>",
+		Short: "Print a target's YAML, or a dashboard import link, to move it into the web UI",
+		Long: "Prints the target file as it is on disk, so\n" +
+			"  orbit target export <name> > <name>.yaml\n" +
+			"writes a file the dashboard's Targets page imports unchanged, byte for\n" +
+			"byte. With --link it prints a ready-to-open URL instead\n" +
+			"(<dashboard>/targets#import=<base64url>); opening it offers the target\n" +
+			"for import on the Targets page. The payload rides in the URL fragment,\n" +
+			"which a browser never sends to the server, so a key in it stays off the\n" +
+			"dashboard's access log.\n\n" +
+			"Secrets are never resolved: ${ORBIT_KI}/${ORBIT_OPC} (and any other\n" +
+			"${VAR}) are kept as written. The browser has no environment, so those\n" +
+			"placeholders do not expand there — supply the keys on the Targets page.\n" +
+			"A target written with --write-keys carries its keys in clear, in the\n" +
+			"exported file and in a --link URL alike.",
+		Example: "  orbit target export tb1 > tb1.yaml\n  orbit target export tb1 --link",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			l, err := loc()
+			if err != nil {
+				return err
+			}
+			b, _, err := target.ExportRaw(args[0], l)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if !link {
+				_, err = out.Write(b)
+				return err
+			}
+			base := dashboard
+			if base == "" {
+				// The dashboard is served from the API server's own origin
+				// (internal/webui), so --server / $ORBIT_SERVER names it.
+				if base, _, err = resolveServerURL(*serverURL); err != nil {
+					return err
+				}
+			}
+			u, err := importURL(base, b)
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(out, u)
+			return err
+		},
+	}
+	f := cmd.Flags()
+	f.BoolVar(&link, "link", false, "print a dashboard import URL (<dashboard>/targets#import=<base64url>) instead of the YAML")
+	f.StringVar(&dashboard, "dashboard", "", "base URL of the dashboard for --link (default: --server / $ORBIT_SERVER, then http://"+DefaultListen+")")
+	return cmd
+}
+
+// importURL is the dashboard link that carries a target file to the Targets
+// page: base64url-encoded (RFC 4648 §5, no padding) in the URL fragment after
+// `#import=`, the exact shape the web app reads
+// (web/src/data/targets/importlink.ts). The fragment is URL-safe as written,
+// so it needs no further escaping.
+func importURL(base string, b []byte) (string, error) {
+	if err := validateServerURL(base); err != nil {
+		return "", fmt.Errorf("invalid dashboard URL %q: want http://host:port or https://host:port", base)
+	}
+	return strings.TrimRight(base, "/") + "/targets#import=" + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func newTargetProbeCmd(serverURL *string, loc targetLocations) *cobra.Command {

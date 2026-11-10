@@ -391,6 +391,44 @@ What is stored where:
 you tick *include keys in clear*, which has to be ticked again for every
 export.
 
+#### Moving a CLI target into the browser (`orbit target export`)
+
+The CLI and the browser keep separate target stores — the filesystem
+(`~/.config/orbit/targets/<name>.yaml`) and this browser's localStorage — and
+the server stores none (ADR-0008). `orbit target export` bridges the two, so a
+target made with `orbit target init` reaches the Targets page in one step:
+
+- **A file.** `orbit target export <name>` prints the target file as it is on
+  disk; redirect it and import the file on the Targets page:
+
+  ```
+  orbit target export tb1 > tb1.yaml   # then: Targets → Import → tb1.yaml
+  ```
+
+  The output is the stored file byte for byte, so it imports back unchanged.
+
+- **A link.** `orbit target export <name> --link` prints a ready-to-open URL
+  instead:
+
+  ```
+  orbit target export tb1 --link
+  # http://127.0.0.1:8412/targets#import=<base64url>
+  ```
+
+  Opening it on the dashboard offers the target for import. The payload is the
+  file base64url-encoded in the URL fragment, which the browser never sends to
+  the server, so a key in it stays off the dashboard's access log. The base URL
+  is `--server`/`$ORBIT_SERVER` (the dashboard shares that origin), or
+  `--dashboard <url>` when the dashboard is reached at another address.
+
+**Keys do not travel.** `export` never resolves secrets:
+`${ORBIT_KI}`/`${ORBIT_OPC}` (and any other `${VAR}`) are written out exactly as
+the file holds them. The browser has no environment, so those placeholders do
+not expand there — supply the keys on the Targets page as above. A target
+written with `--write-keys` is the exception: its keys are in the file in
+clear, and `export` carries them as they are, in the file and in a `--link` URL
+alike.
+
 **The CLI's environment does not apply here.** The browser has no environment:
 the CLI's `$ORBIT_MCC`/`$ORBIT_MNC`/`$ORBIT_KI`/`$ORBIT_OPC` overrides, and the
 `${VAR}` expansion a target file gets when the CLI loads it, do not happen. A
