@@ -115,6 +115,9 @@ type AMF struct {
 	t3550Retries      int
 	assignGUTI        bool
 	crashAfterT3550   bool
+	t3550Protection   T3550Protection
+	acceptCount       uint32
+	acceptCountSet    bool
 	crashed           atomic.Bool // set once a crashAfterRelease release or crashAfterT3550 abort happened
 
 	// Security Mode Command options (smc.go).
@@ -471,6 +474,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		if a.acceptCountSet {
+			st.forceTxCount(a.acceptCount)
+		}
 		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
 		if err != nil {
 			return false, err
@@ -480,7 +486,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		}
 		if a.t3550 > 0 && a.assignGUTI {
 			st.t3550.stop() // a repeated Security Mode Complete: never orphan a running timer
-			if st.t3550, err = a.startT3550(p, st); err != nil {
+			if st.t3550, err = a.startT3550(p, st, wrapped); err != nil {
 				return false, err
 			}
 		}

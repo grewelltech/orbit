@@ -150,29 +150,92 @@ func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *retransmitter {
 	})
 }
 
-// startT3550 runs T3550 for st. Each retransmission is the Registration
-// Accept encoded afresh under st.sec (its own NAS COUNT), done here, before
-// the timer starts, because the serve goroutine owns st.sec; a retransmission
-// left unsent when the Registration Complete arrives only leaves a gap in
-// the COUNT, which the UE resynchronises on.
-func (a *AMF) startT3550(p *pipe, st *ueState) (*retransmitter, error) {
+// T3550Protection is how the mock protects the Registration Accepts it
+// retransmits on T3550 (WithT3550Retransmission).
+type T3550Protection int
+
+const (
+	// ReprotectT3550 protects each retransmission afresh, at its own NAS
+	// COUNT (the default; TS 24.501 4.4.3.1).
+	ReprotectT3550 T3550Protection = iota
+	// IdenticalT3550 resends the first Accept's NAS PDU byte for byte, so
+	// at the same NAS COUNT.
+	IdenticalT3550
+	// LowerCountT3550 protects each retransmission at a NAS COUNT one below
+	// the transmission before it (never below 0).
+	LowerCountT3550
+	// BadMACT3550 protects each retransmission at its own NAS COUNT and
+	// then corrupts its MAC.
+	BadMACT3550
+)
+
+// WithT3550Retransmission sets how the Registration Accepts retransmitted
+// on T3550 are protected.
+func WithT3550Retransmission(p T3550Protection) Option { return func(a *AMF) { a.t3550Protection = p } }
+
+// WithAcceptDownlinkCount makes the mock protect the first Registration
+// Accept at downlink NAS COUNT n instead of the next one (1, after the
+// Security Mode Command at 0): 255 puts the sequence number's wrap between
+// the Accept and its first retransmission.
+func WithAcceptDownlinkCount(n uint32) Option {
+	return func(a *AMF) { a.acceptCount, a.acceptCountSet = n, true }
+}
+
+// startT3550 runs T3550 for st, whose first Registration Accept went out as
+// the NAS PDU first. Each retransmission is encoded here, before the timer
+// starts, because the serve goroutine owns st.sec: by default the Accept
+// protected afresh at its own NAS COUNT, else as WithT3550Retransmission
+// says. A retransmission left unsent when the Registration Complete arrives
+// only leaves a gap in the COUNT, which the UE resynchronises on.
+func (a *AMF) startT3550(p *pipe, st *ueState, first []byte) (*retransmitter, error) {
 	resend := make([]ngapType.NGAPPDU, a.t3550Retries)
+	// firstCount is the NAS COUNT the first Accept was protected at.
+	firstCount := st.txCount() - 1
 	for i := range resend {
-		acc, err := a.registrationAccept(st)
-		if err != nil {
-			return nil, err
-		}
-		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
-		if err != nil {
-			return nil, err
+		wrapped := first
+		if a.t3550Protection != IdenticalT3550 {
+			if a.t3550Protection == LowerCountT3550 {
+				lower := uint32(0)
+				if n := uint32(i + 1); n < firstCount {
+					lower = firstCount - n
+				}
+				st.forceTxCount(lower)
+			}
+			acc, err := a.registrationAccept(st)
+			if err != nil {
+				return nil, err
+			}
+			if wrapped, err = st.encodeSecure(acc, nas.SecHdrIntegrityCiphered); err != nil {
+				return nil, err
+			}
+			if a.t3550Protection == BadMACT3550 {
+				wrapped[2] ^= 0xff
+			}
 		}
 		resend[i] = buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), wrapped)
+	}
+	if a.t3550Protection == LowerCountT3550 {
+		st.forceTxCount(firstCount + 1) // what follows continues after the first Accept
 	}
 	return a.startRetransmit(p, a.t3550, 0, resend, func() {
 		if a.crashAfterT3550 {
 			a.crashed.Store(true)
 		}
 	}), nil
+}
+
+// txCount and forceTxCount read and set the NAS COUNT of st's next downlink
+// under secMu.
+func (st *ueState) txCount() uint32 {
+	st.secMu.Lock()
+	defer st.secMu.Unlock()
+	return st.sec.TxCount()
+}
+
+func (st *ueState) forceTxCount(count uint32) {
+	st.secMu.Lock()
+	defer st.secMu.Unlock()
+	st.sec.ForceTxCount(count)
 }
 
 // registrationAccept builds st's Registration Accept, with a 5G-GUTI when

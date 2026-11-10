@@ -181,6 +181,62 @@ type NASEvent struct {
 	// under NEA1-3 that is ciphertext.
 	Plain []byte
 	Err   error
+	// Count is the NAS COUNT evidence of a protected PDU checked under an
+	// installed security context: nil for a plain PDU, for a Security Mode
+	// Command (whose new-context header restarts the COUNT) and before any
+	// context. It does not depend on Err.
+	Count *NASCount
+}
+
+// NASCount is what the UE's NAS security context makes of a protected
+// downlink PDU's NAS COUNT, worked out without changing the context. The
+// PDU carries only the COUNT's sequence number, so the full COUNT is one
+// of two candidates: that sequence number with the stored overflow counter,
+// or with the counter after it. Together they cover every COUNT from 255
+// below the stored one to 256 above it.
+type NASCount struct {
+	// Stored is the context's stored downlink NAS COUNT before this PDU.
+	Stored uint32
+	// Candidates are the PDU's sequence number with the stored overflow
+	// counter, and with that counter plus one.
+	Candidates [2]uint32
+	// Verified reports, per candidate, whether the PDU's MAC verifies
+	// there.
+	Verified [2]bool
+	// Types is, per verified candidate, the 5GMM message type the PDU
+	// deciphers to there, 0 when unreadable.
+	Types [2]uint8
+}
+
+// Verifies returns the candidate COUNT the PDU's MAC verifies at and the
+// message type it deciphers to there; ok is false when it verifies at
+// neither.
+func (c NASCount) Verifies() (count uint32, msgType uint8, ok bool) {
+	for i, v := range c.Verified {
+		if v {
+			return c.Candidates[i], c.Types[i], true
+		}
+	}
+	return 0, 0, false
+}
+
+// nasCount works out raw's NASCount under sec.
+func nasCount(sec *nas.SecurityContext, raw []byte) *NASCount {
+	if len(raw) < 7 {
+		return nil
+	}
+	c := &NASCount{Stored: sec.RxCount()}
+	overflow := c.Stored &^ 0xff
+	c.Candidates = [2]uint32{overflow | uint32(raw[6]), (overflow + 0x100) | uint32(raw[6])}
+	for i, cand := range c.Candidates {
+		m, plain, err := sec.DecodeSecurePlainAt(raw, cand)
+		if errors.Is(err, nas.ErrIntegrity) || (err != nil && plain == nil) {
+			continue
+		}
+		c.Verified[i] = true
+		c.Types[i] = NASEvent{Msg: m, Plain: plain}.MessageType()
+	}
+	return c
 }
 
 // MessageType is the PDU's 5GMM message type: the decoded message's when it

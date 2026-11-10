@@ -1,6 +1,7 @@
 package nas_test
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -220,6 +221,34 @@ func TestDecodeSecureAt(t *testing.T) {
 		}
 		if _, err := amf.DecodeSecure(next); !errors.Is(err, nas.ErrIntegrity) {
 			t.Errorf("NEA%d: after ForceRxCount the next PDU = %v, want ErrIntegrity", ea, err)
+		}
+	}
+}
+
+// ForceTxCount sets the COUNT the next message is protected at, and
+// DecodeSecurePlainAt returns the plain message it verified there.
+func TestForceTxCount(t *testing.T) {
+	tests := []struct{ count uint32 }{{0}, {5}, {255}, {0x1234}}
+	for _, tc := range tests {
+		ue, amf := pairCtx(nas.NEA2)
+		amf.ForceTxCount(tc.count)
+		if amf.TxCount() != tc.count {
+			t.Fatalf("TxCount = %d after ForceTxCount(%d)", amf.TxCount(), tc.count)
+		}
+		pdu, err := amf.EncodeSecure(plainMsg(), nas.SecHdrIntegrityCiphered)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pdu[6] != byte(tc.count) || amf.TxCount() != tc.count+1 {
+			t.Errorf("COUNT %d: sequence number %d, next COUNT %d", tc.count, pdu[6], amf.TxCount())
+		}
+		m, plain, err := ue.DecodeSecurePlainAt(pdu, tc.count)
+		want, _ := plainMsg().PlainNasEncode()
+		if err != nil || m == nil || !bytes.Equal(plain, want) {
+			t.Errorf("COUNT %d: DecodeSecurePlainAt = %x, %v, want %x", tc.count, plain, err, want)
+		}
+		if _, _, err := ue.DecodeSecurePlainAt(pdu, tc.count+1); !errors.Is(err, nas.ErrIntegrity) {
+			t.Errorf("COUNT %d: decode at the next COUNT = %v, want ErrIntegrity", tc.count, err)
 		}
 	}
 }

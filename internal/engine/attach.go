@@ -398,6 +398,7 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	typ := nasMessageType(raw, s.readableCipher())
 	var msg *f5nas.Message
 	var plain []byte // a protected PDU's verified, deciphered message
+	var count *NASCount
 	var err error
 	switch hdr := f5nas.GetSecurityHeaderType(raw); {
 	case hdr == f5nas.SecurityHeaderTypePlainNas:
@@ -416,10 +417,13 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		// the type-only read (readableCipher) with the error.
 		err = ErrNoSecurityContext
 	default:
+		if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
+			count = nasCount(s.sec, raw) // before the decode stores the COUNT
+		}
 		msg, plain, err = s.sec.DecodeSecurePlain(raw)
 	}
 	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
-		ev := NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Plain: plain, Err: err}
+		ev := NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Plain: plain, Err: err, Count: count}
 		p.OnNAS(ev)
 		// The readable type (a deciphered Plain's included): a Reject the
 		// codec refused must not draw a switch-off Deregistration.

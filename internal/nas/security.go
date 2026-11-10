@@ -230,15 +230,30 @@ func (s *SecurityContext) ForceRxCount(count uint32) { s.rxCount, s.rxAccepted =
 // leaving the stored receive COUNT as it was. A MAC that does not verify
 // there wraps ErrIntegrity.
 func (s *SecurityContext) DecodeSecureAt(data []byte, count uint32) (*f5nas.Message, error) {
-	if _, err := s.estimateRx(data); err != nil {
-		return nil, err
-	}
-	if err := s.verifyAt(data, count); err != nil {
-		return nil, err
-	}
-	m, _, err := s.unwrapAt(data, count)
+	m, _, err := s.DecodeSecurePlainAt(data, count)
 	return m, err
 }
+
+// DecodeSecurePlainAt is DecodeSecureAt that also returns the plain NAS
+// message inside the security header, set once the MAC verified and
+// deciphering succeeded, even when the codec then refuses the message.
+func (s *SecurityContext) DecodeSecurePlainAt(data []byte, count uint32) (*f5nas.Message, []byte, error) {
+	if _, err := s.estimateRx(data); err != nil {
+		return nil, nil, err
+	}
+	if err := s.verifyAt(data, count); err != nil {
+		return nil, nil, err
+	}
+	return s.unwrapAt(data, count)
+}
+
+// ForceTxCount sets the NAS COUNT of the next message to send. It stands in
+// for a sender that does not increase the COUNT by one per message (a
+// mock's option); nothing else may use it.
+func (s *SecurityContext) ForceTxCount(count uint32) { s.txCount = count }
+
+// TxCount is the NAS COUNT of the next message to send.
+func (s *SecurityContext) TxCount() uint32 { return s.txCount }
 
 // estimateRx is the NAS COUNT a received protected PDU is checked at. A
 // "new context" message restarts the COUNT (TS 33.501 §6.4.3.1). Otherwise
