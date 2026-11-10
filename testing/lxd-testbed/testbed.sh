@@ -1841,6 +1841,15 @@ cmd_apps() { cmd_app; cmd_ran; }
 # and the VLANs are actually separate (an address on one is not on-link from
 # another). One line per assertion; exit status is the number of failures.
 CHECK_PASS=0; CHECK_FAIL=0
+
+# Reduces `traceroute -n` output to one word per hop: the address that answered
+# at that hop, `*` when no probe was answered, or every distinct address joined
+# by commas when more than one router answered. A hop therefore reads as its
+# address as long as one probe to it got through.
+HOP_ADDRS=$(cat <<'AWK'
+awk 'NR>1{o=""; for(i=2;i<=NF;i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && index(","o",", ","$i",")==0) o=o (o==""?"":",") $i; print (o==""?"*":o)}'
+AWK
+)
 check() { # check <node> <description> <shell command>
     local node=$1 desc=$2; shift 2
     local out
@@ -1872,8 +1881,12 @@ cmd_check() {
     done
     check "$NODE_CORE" "near gNB N2 $near_n2 is on-link" \
         "$PING $near_n2 && ip route get $near_n2 | grep -q 'dev n2 src $CORE_N2' && ! ip route get $near_n2 | grep -q via"
+    # Three probes per hop, sent one at a time (-N1): the default sends every
+    # TTL at once, and the destination rate-limits the burst of port-unreachable
+    # replies it owes, so the probe that identifies the last hop can go
+    # unanswered. The whole trace is retried before the hop list is judged.
     check "$NODE_CORE" "far gNB N2 $far_n2 via r-site, WAN, r-ran" \
-        "$PING $far_n2 && t=\$(traceroute -n -q1 -w2 $far_n2 | awk 'NR>1{print \$2}' | tr '\n' ' '); echo \"\$t\"; [ \"\$t\" = '$GW_N2 $WAN_RRAN $far_n2 ' ]"
+        "$PING $far_n2 || exit 1; for try in 1 2 3; do t=\$(traceroute -n -q3 -N1 -w2 $far_n2 | $HOP_ADDRS | tr '\n' ' '); echo \"\$t\"; [ \"\$t\" = '$GW_N2 $WAN_RRAN $far_n2 ' ] && exit 0; sleep 1; done; exit 1"
     check "$NODE_CORE" "1472-byte DF ping to the far site (MTU 1500 end to end)" "ping -c2 -W2 -q -M do -s 1472 $far_n2"
     check "$NODE_CORE" "Internet via r-site NAT" "$PING 8.8.8.8"
     check "$NODE_CORE" "receive aggregation off on trunk (gro, rx-gro-hw)" \
