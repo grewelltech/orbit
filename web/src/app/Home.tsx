@@ -158,7 +158,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 export function Home() {
-  const runs = useRuns();
+  const { runs, loaded, error } = useRuns();
   const [filter, setFilter] = useState<Filter>("all");
 
   const active = useMemo(() => runs.filter((r) => r.active && matchesFilter(r, filter)), [runs, filter]);
@@ -199,8 +199,26 @@ export function Home() {
           </Link>
         </div>
 
+        {error && (
+          <div
+            className="o-label shrink-0 border px-3 py-2"
+            role="status"
+            style={{
+              textTransform: "none",
+              color: loaded ? "var(--o-warn, #c9820c)" : "var(--o-error)",
+              borderColor: "var(--o-border)",
+              background: "var(--o-surface)",
+              borderRadius: "var(--o-radius)",
+            }}
+          >
+            {loaded
+              ? "server unreachable — showing the last known runs (reconnecting…)"
+              : "can't reach the server — retrying…"}
+          </div>
+        )}
+
         {/* Filter by kind. */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <span className="o-label" style={{ color: "var(--o-ink-3)" }}>
             show
           </span>
@@ -223,22 +241,28 @@ export function Home() {
           ))}
         </div>
 
-        <Panel title="Live now">
+        <Panel title="Live now" className="shrink-0">
           {active.length > 0 ? (
             <RunTable runs={active} />
           ) : (
             <p className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-              nothing running — <Link to="/new" style={{ color: "var(--o-accent)" }}>start a test</Link>
+              {!loaded && error ? (
+                "waiting for the server…"
+              ) : (
+                <>
+                  nothing running — <Link to="/new" style={{ color: "var(--o-accent)" }}>start a test</Link>
+                </>
+              )}
             </p>
           )}
         </Panel>
 
-        <Panel title="Recent runs">
+        <Panel title="Recent runs" className="shrink-0">
           {past.length > 0 ? (
             <RunTable runs={past} />
           ) : (
             <p className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-              no finished runs match this filter yet
+              {!loaded && error ? "—" : "no finished runs match this filter yet"}
             </p>
           )}
         </Panel>

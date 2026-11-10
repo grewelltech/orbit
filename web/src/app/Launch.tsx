@@ -95,7 +95,7 @@ export function Launch({ preset }: { preset?: string }) {
         style={{ borderColor: "var(--o-border)", background: "var(--o-surface)" }}
       >
         <span style={{ fontFamily: "var(--o-font-mono)", fontWeight: 600, letterSpacing: "var(--o-tracking-title)", color: "var(--o-ink)" }}>ORBIT</span>
-        <PageLinks current="launch" />
+        <PageLinks />
         <span className="o-label ml-auto" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
           the server resolves this as `orbit run` resolves the same files; the CLI's $ORBIT_* overrides do not apply here.
         </span>

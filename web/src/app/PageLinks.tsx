@@ -14,7 +14,7 @@ const PAGES: { page: Page; label: string; to: string }[] = [
   { page: "targets", label: "targets", to: "/targets" },
 ];
 
-export function PageLinks({ current }: { current: Page }) {
+export function PageLinks({ current }: { current?: Page }) {
   return (
     <nav aria-label="pages" className="flex items-center gap-3">
       {PAGES.map((p) =>

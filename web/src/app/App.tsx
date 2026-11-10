@@ -37,7 +37,7 @@ export function App() {
   // The resolved-config detail is off-view until asked for: it matters to few
   // people and rarely, so it opens in a modal rather than taking a band.
   const [showConfig, setShowConfig] = useState(false);
-  const runs = useRuns();
+  const { runs } = useRuns();
 
   // Switching runs replaces the source outright rather than mutating it: a
   // stream carries one run's series, and tearing it down is how the hook knows

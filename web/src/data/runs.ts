@@ -142,7 +142,17 @@ function runStateName(s: RunState): string {
  * starting and finishing, not on the order of frames — a stream here would cost
  * a connection to learn something that changes every few minutes.
  */
-export function useRuns(baseUrl?: string): RunSummary[] {
+export interface RunsState {
+  runs: RunSummary[];
+  /** True once a ListRuns call has succeeded at least once — tells an empty
+   * list ("no runs") apart from never having reached the server. */
+  loaded: boolean;
+  /** True when the most recent poll failed: the server is unreachable and the
+   * list (if any) is stale. */
+  error: boolean;
+}
+
+export function useRuns(baseUrl?: string): RunsState {
   const client = useMemo(
     () =>
       createClient(
@@ -151,17 +161,19 @@ export function useRuns(baseUrl?: string): RunSummary[] {
       ),
     [baseUrl],
   );
-  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [state, setState] = useState<RunsState>({ runs: [], loaded: false, error: false });
 
   useEffect(() => {
     let stop = false;
     const tick = async () => {
       try {
         const { runs: got } = await client.listRuns({});
-        if (!stop) setRuns(got.map(summarise));
+        if (!stop) setState({ runs: got.map(summarise), loaded: true, error: false });
       } catch {
-        // The picker is not worth failing the page over; keep the last list and
-        // try again. The header's own status dot already reports reachability.
+        // Keep the last list and retry, but flag that this poll failed so the
+        // caller can distinguish an unreachable server from an empty list
+        // instead of presenting a down server as "nothing running".
+        if (!stop) setState((s) => ({ ...s, error: true }));
       }
     };
     void tick();
@@ -172,7 +184,7 @@ export function useRuns(baseUrl?: string): RunSummary[] {
     };
   }, [client]);
 
-  return runs;
+  return state;
 }
 
 /** Internals under test. */
