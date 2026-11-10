@@ -560,6 +560,39 @@ func waitLocalRx(t *testing.T, ch <-chan AppSample, min uint64, what string) uin
 	}
 }
 
+// waitPostHandoverWithEndMarker drains ch until UE media has resumed past min
+// AND the End Marker correlation event has been observed on the stream. The
+// End Marker rides the demux tombstone asynchronously, so observing it here
+// guarantees its publish is in flight before the caller stops the session:
+// finalize's drainPublishes then settles the still-open window WITH the marker
+// (see publishDrainWait in appsession.go). Without this wait the marker can
+// land in the report's Events yet miss its "End Marker @" annotation join — a
+// real teardown race that makes the annotation assertion flaky. Returns the
+// first media RxPackets seen past min.
+func waitPostHandoverWithEndMarker(t *testing.T, ch <-chan AppSample, min uint64, what string) uint64 {
+	t.Helper()
+	deadline := time.After(20 * time.Second)
+	var rx uint64
+	sawMarker, sawMedia := false, false
+	for !(sawMarker && sawMedia) {
+		select {
+		case s, ok := <-ch:
+			if !ok {
+				t.Fatalf("event stream closed while waiting for %s", what)
+			}
+			if s.Event == AppEventEndMarker {
+				sawMarker = true
+			}
+			if !sawMedia && s.VoIP != nil && s.End == AppEndUE && s.VoIP.RxPackets > min {
+				rx, sawMedia = s.VoIP.RxPackets, true
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %s (media=%v, end marker=%v)", what, sawMedia, sawMarker)
+		}
+	}
+	return rx
+}
+
 // TestAppSessionTwoUEsConcurrentMedia is the Phase-5 demo in test form
 // (design §12): TWO UEs on ONE gNB N3 address hold concurrent VoIP calls over
 // the single shared socket — no port collision — plus an ICMP latency probe
@@ -638,8 +671,10 @@ func TestAppSessionTwoUEsConcurrentMedia(t *testing.T) {
 	m.publishMobility(StateEvent{SUPI: appTestSUPI, State: StateHandoverComplete,
 		Detail: "UE on gNB gnb2 via Xn"})
 
-	// A's media resumes on the rebound TEID; B never stops flowing.
-	waitLocalRx(t, chA, preA+20, "UE A post-handover media")
+	// A's media resumes on the rebound TEID; B never stops flowing. Waiting on
+	// A's End Marker here (not just media) keeps the annotation join from racing
+	// teardown — see waitPostHandoverWithEndMarker.
+	waitPostHandoverWithEndMarker(t, chA, preA+20, "UE A post-handover media + End Marker")
 	waitLocalRx(t, chB, preB+20, "UE B media across A's handover")
 	if m.n3.size() != 1 {
 		t.Errorf("pool size after intra-gNB rebind = %d, want 1", m.n3.size())
