@@ -1517,6 +1517,11 @@ report_subscribers() {
 
     local subs=""
     subs=$(on_core "kubectl -n aether-5gc exec mongodb-1 -c mongodb -- mongosh --quiet --eval 'print(db.getSiblingDB(\"authentication\")[\"subscriptionData.authenticationData.authenticationSubscription\"].countDocuments({}))'" 2>/dev/null | tr -d '\r') || subs=""
+    # A MongoDB that requires authentication refuses that query. The webconsole
+    # lists the same subscribers on its configuration API.
+    case "$subs" in
+        ''|*[!0-9]*) subs=$(on_core "curl -s --max-time 10 http://\$(kubectl -n aether-5gc get svc webui -o jsonpath='{.spec.clusterIP}'):5000/api/subscriber | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'" 2>/dev/null | tr -d '\r') || subs="" ;;
+    esac
 
     case "$subs" in
         ''|*[!0-9]*) warn "could not read the subscriber count from MongoDB; check '$PROG core-status'" ;;
