@@ -125,11 +125,11 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 	_, _ = fmt.Fprintln(out, tbl)
 
 	// Per-check detail for anything that needs explaining: an ERROR's Detail is
-	// often the only account of why (Observed can be empty), and the plain
-	// output always carries it. PASS/SKIP rows are self-explanatory, so they
-	// stay out of the way.
+	// often the only account of why (Observed can be empty), and a SKIP's names
+	// the flags that would exercise it (e.g. --supi/--ki/--opc/--gnb-n3). Only
+	// PASS rows are self-explanatory, so only they stay out of the way.
 	for _, r := range sum.Results {
-		if r.Verdict == conformance.Pass || r.Verdict == conformance.Skip || r.Detail == "" {
+		if r.Verdict == conformance.Pass || r.Detail == "" {
 			continue
 		}
 		_, _ = fmt.Fprintf(out, "%s %s\n",

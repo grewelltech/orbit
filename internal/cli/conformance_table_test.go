@@ -19,13 +19,14 @@ func TestIsTerminalBuffer(t *testing.T) {
 
 func TestPrintConformanceTable(t *testing.T) {
 	sum := conformance.Summary{
-		Total: 3, Pass: 1, Fail: 1, Deviation: 1, Error: 0, Skip: 0, ExpectedFail: 1,
+		Total: 4, Pass: 1, Fail: 1, Deviation: 1, Error: 0, Skip: 1, ExpectedFail: 1,
 		N2Source:         "10.0.0.1:0",
 		ExpectedFailures: "Rel-18",
 		Results: []conformance.Result{
 			{ID: "AUTH-1", Category: conformance.Procedural, SpecRef: "TS 24.501", Verdict: conformance.Pass, Observed: "registration completed"},
 			{ID: "SEC-2", Category: conformance.Security, SpecRef: "TS 33.501", Verdict: conformance.Fail, Observed: "accepted replayed NAS", ExpectedFailure: &conformance.ExpectedFailure{Finding: "known"}},
 			{ID: "GTPU-3", Category: conformance.GTPU, SpecRef: "TS 29.281", Verdict: conformance.Deviation, Observed: strings.Repeat("x", 90), Detail: "requires Rel-18; TS 29.281 clause 5"},
+			{ID: "NAS-4", Category: conformance.NAS, SpecRef: "TS 24.501", Verdict: conformance.Skip, Observed: "no UE configured", Detail: "set --supi, --ki/--opc and --gnb-n3 to exercise this check"},
 		},
 	}
 
@@ -36,7 +37,7 @@ func TestPrintConformanceTable(t *testing.T) {
 	for _, want := range []string{
 		"VERDICT", "TEST", "CATEGORY", "SPEC", "OBSERVED",
 		"AUTH-1", "SEC-2", "GTPU-3",
-		"3 checks", "1 pass", "1 fail", "1 deviation",
+		"4 checks", "1 pass", "1 fail", "1 deviation", "1 skip",
 		"001-01", "10.0.0.1:0",
 	} {
 		if !strings.Contains(out, want) {
@@ -59,5 +60,9 @@ func TestPrintConformanceTable(t *testing.T) {
 	// user can still diagnose it.
 	if !strings.Contains(out, "requires Rel-18; TS 29.281 clause 5") {
 		t.Errorf("expected the deviation's Detail to be shown\n%s", out)
+	}
+	// A SKIP's Detail names how to exercise the check, so it must be shown too.
+	if !strings.Contains(out, "set --supi, --ki/--opc and --gnb-n3") {
+		t.Errorf("expected the skip's Detail to be shown\n%s", out)
 	}
 }
