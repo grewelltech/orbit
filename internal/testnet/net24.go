@@ -51,6 +51,20 @@ const (
 	ConformanceCipherNEA0       = 68 // TestUELevelChecksUnderNEA2, the End Marker row under NEA0
 	ConformanceCipherNEA2       = 69 // TestUELevelChecksUnderNEA2, the End Marker row under NEA2
 
+	// internal/conformance, the UE-requested PDU session release check
+	ConformancePDURelease       = 131 // TestPDUReleaseCheckAgainstMockPair/released
+	ConformancePDUReleaseApart  = 132 // TestPDUReleaseCheckAgainstMockPair/released,_the_commands_apart
+	ConformancePDUReleaseSilent = 133 // TestPDUReleaseCheckAgainstMockPair/no_answer
+	ConformancePDUReleaseNAS    = 134 // TestPDUReleaseCheckAgainstMockPair/the_NAS_command_alone
+	ConformancePDUReleaseNGAP   = 135 // TestPDUReleaseCheckAgainstMockPair/the_NGAP_command_alone
+	ConformancePDUReleaseReject = 136 // TestPDUReleaseCheckAgainstMockPair/rejected
+	ConformancePDUReleaseLate   = 137 // TestPDUReleaseCheckAgainstMockPair/downlink_continues
+	ConformancePDUReleaseGrace  = 138 // TestPDUReleaseCheckAgainstMockPair/downlink_in_flight_at_the_release
+	ConformancePDUReleaseFlow   = 139 // TestPDUReleaseCheckAgainstMockPair/traffic_configured
+	ConformancePDUReleaseCut    = 140 // TestPDUReleaseCheckCutShort
+	ConformancePDUReleaseNEA0   = 141 // TestUELevelChecksUnderNEA2, the PDU release row under NEA0
+	ConformancePDUReleaseNEA2   = 142 // TestUELevelChecksUnderNEA2, the PDU release row under NEA2
+
 	// internal/cli
 	CLIProbePasses    = 83 // TestTargetProbePasses
 	CLIProbeFailures  = 84 // TestTargetProbeFailures

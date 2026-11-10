@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	builtins = append(builtins, nasPDUUnknownDNN{})
+	builtins = append(builtins, nasPDUUnknownDNN{}, nasPDUReleaseUERequested{})
 }
 
 // stimulusDNN is the DNN the check requests: one no core provisions.
@@ -453,4 +453,237 @@ func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
 		got += "; that cause points at a malformed request: check the stimulus"
 	}
 	return Fail, "unexpected answer: " + sm.name, unknownDNNFail(got, "an answer other than a reject or the returned request")
+}
+
+const (
+	// pduReleaseRegisterWait bounds the registration and PDU session
+	// establishment that precede the release.
+	pduReleaseRegisterWait = 10 * time.Second
+	// pduReleaseWait bounds the wait for the network's answer to the PDU
+	// SESSION RELEASE REQUEST: 16 s, the default of T3582 (TS 24.501 Table
+	// 10.3.1), on whose expiry a UE retransmits the request.
+	pduReleaseWait = engine.DefaultPDUReleaseWait
+	// pduReleaseSettle bounds the wait for the second of the NAS and NGAP
+	// release commands after the first.
+	pduReleaseSettle = engine.DefaultPDUReleaseSettle
+	// pduReleaseGrace is how long after the release downlink already in
+	// flight may still arrive on the released tunnel without counting.
+	pduReleaseGrace = time.Second
+	// pduReleaseWatch is how long past the grace the released tunnel is
+	// watched for downlink.
+	pduReleaseWatch = 3 * time.Second
+	// pduReleaseTrafficLead lets the optional echo flow put downlink on the
+	// tunnel before the release.
+	pduReleaseTrafficLead = time.Second
+	// pduReleaseDeregisterWait bounds the deregistration that ends the
+	// check.
+	pduReleaseDeregisterWait = 5 * time.Second
+)
+
+// nasPDUReleaseUERequested registers the UE with a PDU session, starts the
+// optional echo flow, and sends a PDU SESSION RELEASE REQUEST. The SMF
+// shall then perform the network-requested release (TS 24.501 6.4.3.3),
+// which starts with a PDU SESSION RELEASE COMMAND (6.3.3.2), read through
+// the UE's NAS security context whether it comes inside the NGAP command or
+// in a DOWNLINK NAS TRANSPORT. With the user plane active, the SMF's answer
+// shall include the N2 release (TS 23.502 4.3.4.2 step 3), seen as a PDU
+// SESSION RESOURCE RELEASE COMMAND listing the session (TS 38.413 8.2.2.2),
+// and the UPF shall drop the session's packets (TS 23.502 4.3.4.2 step 2a),
+// so no downlink G-PDU may arrive on the released tunnel once
+// pduReleaseGrace has passed. Both commands and a quiet tunnel are PASS; a
+// missing command, or downlink after the grace, is FAIL. A PDU SESSION
+// RELEASE REJECT leaves nothing to judge: SKIP. The echo flow keeps sending
+// uplink on the released tunnel, which is what would draw downlink from a
+// UPF that kept the session; without it the tunnel is only watched. The UE
+// is deregistered at the end.
+type nasPDUReleaseUERequested struct {
+	// registerWait, wait, settle, grace and watch override the constants
+	// above (tests only).
+	registerWait, wait, settle, grace, watch time.Duration
+}
+
+func (nasPDUReleaseUERequested) ID() string         { return "NAS-PDU-RELEASE-UE-REQUESTED" }
+func (nasPDUReleaseUERequested) Category() Category { return Procedural }
+func (nasPDUReleaseUERequested) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 24.501", Clause: "6.4.3.3", Strength: Shall, Since: 15, Verified: ts24501Verified,
+			Changed: []SpecChange{
+				{Release: 18, Note: "\"subclause 6.3.3\" becomes \"clause 6.3.3\"; the sentence is otherwise unchanged from V15.0.0 through V19.8.0"},
+			}},
+		{Spec: "TS 24.501", Clause: "6.3.3.2", Strength: Shall, Since: 15, Verified: ts24501Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "V15.0.0 names the \"SM cause IE\", \"5GSM cause IE\" by V15.7.0; \"the SMF shall create a PDU SESSION RELEASE COMMAND message\" is unchanged from V15.0.0 through V19.8.0"},
+				{Release: 17, Note: "the PTI sentence adds \"and shall not include the Access type IE in the PDU SESSION RELEASE COMMAND\""},
+			}},
+		{Spec: "TS 23.502", Clause: "4.3.4.2 step 2a", Strength: Shall, Since: 15, Verified: ts23502Verified, WordingUnchanged: true},
+		{Spec: "TS 23.502", Clause: "4.3.4.2 step 3", Strength: Shall, Since: 15, Verified: ts23502ReleaseN2Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "the shall first appears in V15.5.0; V15.0.0 to V15.4.1 only list the N2 SM Resource Release request in step 3a's message"},
+			}},
+		{Spec: "TS 38.413", Clause: "8.2.2.2", Strength: Descriptive, Since: 15, Verified: ts38413Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "V15.0.0 ends the second sentence \"to release at least one PDU session in the PDU Session Resource to Release List IE\"; reworded during Rel-15, with the NAS-PDU sentence a paragraph of its own from V15.1.0 and \"over Uu and over NG, if any\" from V15.4.0"},
+				{Release: 18, Note: "a Downlink TL Container sentence is added; the quoted sentences are unchanged from Rel-16 through Rel-19"},
+			}},
+		{Spec: "TS 24.501", Clause: "Table 10.3.1 T3582", Strength: Descriptive, Since: 15, Verified: ts24501Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "the value is TBD in V15.0.0 and 16s by V15.7.0"},
+				{Release: 16, Note: "adds a WB-N1/CE mode value of 24s; the normal value stays 16s"},
+				{Release: 17, Note: "adds 21s for access via a satellite NG-RAN cell; the normal value stays 16s"},
+			}},
+	}
+}
+
+func (c nasPDUReleaseUERequested) registerTimeout() time.Duration {
+	return orDefault(c.registerWait, pduReleaseRegisterWait)
+}
+func (c nasPDUReleaseUERequested) waitTimeout() time.Duration {
+	return orDefault(c.wait, pduReleaseWait)
+}
+func (c nasPDUReleaseUERequested) settleTimeout() time.Duration {
+	return orDefault(c.settle, pduReleaseSettle)
+}
+func (c nasPDUReleaseUERequested) graceWindow() time.Duration {
+	return orDefault(c.grace, pduReleaseGrace)
+}
+func (c nasPDUReleaseUERequested) watchWindow() time.Duration {
+	return orDefault(c.watch, pduReleaseWatch)
+}
+
+// Budget covers the registration, the echo flow's lead, the answer wait and
+// its settle, the grace and watch windows, the deregistration and the
+// liveness probe.
+func (c nasPDUReleaseUERequested) Budget() time.Duration {
+	return c.registerTimeout() + pduReleaseTrafficLead + c.waitTimeout() + c.settleTimeout() +
+		c.graceWindow() + c.watchWindow() + pduReleaseDeregisterWait + 5*time.Second
+}
+
+func (c nasPDUReleaseUERequested) Run(ctx context.Context, env Env) Result {
+	r := Result{Expected: fmt.Sprintf("after a PDU Session Release Request, a PDU Session Release Command (TS 24.501 6.4.3.3, 6.3.3.2) and a PDU SESSION RESOURCE RELEASE COMMAND listing the session (TS 23.502 4.3.4.2 step 3; TS 38.413 8.2.2.2), and no downlink G-PDU on the released tunnel from %s after them (TS 23.502 4.3.4.2 step 2a)", c.graceWindow())}
+	if !env.UE.Configured() {
+		r.Verdict, r.Observed = Skip, "no UE configured"
+		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run checks that register a UE"
+		return r
+	}
+	h, err := NewUEHarness(env, nil)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
+		return r
+	}
+	defer h.Close()
+	rctx, cancel := context.WithTimeout(ctx, c.registerTimeout())
+	_, err = h.Register(rctx)
+	cancel()
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed", err.Error()
+		return r
+	}
+	h.StartTraffic(ctx)
+	if env.UE.Traffic != "" && !sleepCtx(ctx, pduReleaseTrafficLead) {
+		r.Verdict, r.Observed, r.Detail = Error, "timed out before the release", ctx.Err().Error()
+		return r
+	}
+
+	res, err := h.ReleasePDUSession(ctx, engine.WithPDUReleaseWait(c.waitTimeout()), engine.WithPDUReleaseSettle(c.settleTimeout()))
+	cut := ctx.Err() != nil
+	if err == nil && res.Released() && !cut {
+		// Wait out the grace and the watch, plus a moment for packets
+		// already read to reach the observers.
+		cut = !sleepCtx(ctx, time.Until(pduReleasedAt(res).Add(c.graceWindow()+c.watchWindow()))+50*time.Millisecond)
+	}
+	r.Verdict, r.Observed, r.Detail = judgePDURelease(res, err, h.Observe(), cut, c)
+
+	dctx, dcancel := context.WithTimeout(context.Background(), pduReleaseDeregisterWait)
+	derr := h.Deregister(dctx)
+	dcancel()
+	if derr != nil {
+		r.Detail = joinDetail(r.Detail, fmt.Sprintf("deregistration failed (%v); the association was dropped", derr))
+	} else {
+		r.Detail = joinDetail(r.Detail, "UE deregistered")
+	}
+	if r.Verdict == Error {
+		return r
+	}
+	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the PDU session release")
+}
+
+// pduReleasedAt is when the later of the two release commands arrived.
+func pduReleasedAt(res *engine.PDUReleaseResult) time.Time {
+	if res.ResourceReleaseAt.After(res.NASCommandAt) {
+		return res.ResourceReleaseAt
+	}
+	return res.NASCommandAt
+}
+
+// pduReleaseFail is the FAIL message of NAS-PDU-RELEASE-UE-REQUESTED.
+const pduReleaseFail = "PDU session not released on UE request. TS 24.501 6.4.3.3, 6.3.3.2; TS 23.502 4.3.4.2; TS 38.413 8.2.2.2. Likely cause: SMF release path."
+
+// judgePDURelease turns a release's outcome and the downlink seen on the
+// session's tunnel into a verdict, Observed and Detail. cut reports that
+// the check's own time ran out before its waits ended.
+func judgePDURelease(res *engine.PDUReleaseResult, err error, o PathObservation, cut bool, c nasPDUReleaseUERequested) (Verdict, string, string) {
+	if err != nil || res == nil {
+		return Error, "PDU session release procedure failed", fmt.Sprint(err)
+	}
+	sinceSent := func(t time.Time) time.Duration { return t.Sub(res.SentAt).Round(time.Millisecond) }
+	switch {
+	case res.Rejected:
+		return Skip, fmt.Sprintf("core rejected the release (PDU Session Release Reject, 5GSM cause #%d)", res.RejectCause),
+			"TS 24.501 6.4.3.4 lets the SMF refuse the request with a PDU SESSION RELEASE REJECT, so there is no release to judge; the session was left established"
+	case !res.NASCommand && res.DecodeErr != nil:
+		return Error, "downlink NAS after the request did not decode", fmt.Sprintf("%v; %s", res.DecodeErr, codecGap)
+	case cut:
+		return Error, "timed out before the release was judged", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget())
+	case !res.NASCommand && !res.ResourceRelease:
+		return Fail, fmt.Sprintf("no answer to the PDU Session Release Request within %s", c.waitTimeout()),
+			joinDetail(pduReleaseFail, "neither a PDU Session Release Command nor a PDU SESSION RESOURCE RELEASE COMMAND came")
+	case !res.NASCommand:
+		return Fail, "PDU SESSION RESOURCE RELEASE COMMAND without a PDU Session Release Command",
+			joinDetail(pduReleaseFail, fmt.Sprintf("the NGAP command came after %s; no PDU Session Release Command came with it or within %s of it (TS 24.501 6.3.3.2)", sinceSent(res.ResourceReleaseAt), c.settleTimeout()))
+	case !res.ResourceRelease:
+		return Fail, "PDU Session Release Command without a PDU SESSION RESOURCE RELEASE COMMAND",
+			joinDetail(pduReleaseFail, fmt.Sprintf("the NAS command came after %s; no PDU SESSION RESOURCE RELEASE COMMAND listing session %d came within %s of it, with the session's user plane active (TS 23.502 4.3.4.2 step 3)", sinceSent(res.NASCommandAt), res.PDUSessionID, c.settleTimeout()))
+	}
+
+	released := pduReleasedAt(res)
+	cutoff := released.Add(c.graceWindow())
+	var before, inGrace, after int
+	var lastAfter time.Time
+	for _, g := range o.GPDUs {
+		if g.TEID != res.DLTEID || !sameSocket(o.SourceN3, g.GNB) {
+			continue
+		}
+		switch {
+		case g.Arrival.Before(res.SentAt):
+			before++
+		case !g.Arrival.After(cutoff):
+			inGrace++
+		default:
+			after++
+			lastAfter = g.Arrival
+		}
+	}
+	carried := "inside the PDU SESSION RESOURCE RELEASE COMMAND"
+	if !res.NASInResourceRelease {
+		carried = "in a DOWNLINK NAS TRANSPORT"
+	}
+	pti := fmt.Sprintf("PTI %d echoed", res.PTI)
+	if res.CommandPTI != res.PTI {
+		pti = fmt.Sprintf("PTI %d, where the request's is %d (TS 24.501 6.3.3.2 has the SMF echo it; recorded, not scored)", res.CommandPTI, res.PTI)
+	}
+	detail := fmt.Sprintf("PDU Session Release Command after %s, %s, 5GSM cause #%d, %s; PDU SESSION RESOURCE RELEASE COMMAND after %s; PDU Session Release Complete and PDU SESSION RESOURCE RELEASE RESPONSE sent; downlink on TEID %#x: %d G-PDUs before the request, %d up to %s after the release, %d after that",
+		sinceSent(res.NASCommandAt), carried, res.CommandCause, pti, sinceSent(res.ResourceReleaseAt), res.DLTEID, before, inGrace, c.graceWindow(), after)
+	if o.Traffic == "" {
+		detail = joinDetail(detail, fmt.Sprintf("no echo peer (--traffic): the released tunnel was watched for %s, with no uplink sent to draw downlink", c.graceWindow()+c.watchWindow()))
+	} else {
+		detail = joinDetail(detail, fmt.Sprintf("echo flow to %s kept sending uplink on the released tunnel", o.Traffic))
+		if before == 0 {
+			detail = joinDetail(detail, "no downlink arrived before the release either, so the quiet tunnel shows little: check the echo peer")
+		}
+	}
+	if after > 0 {
+		return Fail, fmt.Sprintf("%d downlink G-PDUs on the released tunnel after the release", after),
+			joinDetail(joinDetail(pduReleaseFail, fmt.Sprintf("downlink continues: the last G-PDU came %s after the release (TS 23.502 4.3.4.2 step 2a)", lastAfter.Sub(released).Round(time.Millisecond))), detail)
+	}
+	return Pass, "PDU session released on N1 and N2; the released tunnel stayed quiet", detail
 }

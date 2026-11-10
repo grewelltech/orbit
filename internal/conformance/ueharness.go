@@ -388,6 +388,14 @@ func (h *UEHarness) DeregisterWith(ctx context.Context, opts ...engine.Deregiste
 	return h.m.DeregisterWith(ctx, h.supi, opts...)
 }
 
+// ReleasePDUSession runs the UE-requested PDU session release for the
+// session Register established, as engine.Manager.ReleasePDUSession does
+// with opts. The downlink observers and the echo flow stay as they are, so
+// Observe shows what arrived on the released tunnel afterwards.
+func (h *UEHarness) ReleasePDUSession(ctx context.Context, opts ...engine.PDUReleaseOption) (*engine.PDUReleaseResult, error) {
+	return h.m.ReleasePDUSession(ctx, h.supi, opts...)
+}
+
 // ParseNASAlgorithms turns a list of algorithm names (prefix followed by a
 // digit, case-insensitive) into the UE security capability bitmap, bit 8
 // for algorithm 0 (TS 24.501 9.11.3.54). Algorithms 0 to 3 exist; min is

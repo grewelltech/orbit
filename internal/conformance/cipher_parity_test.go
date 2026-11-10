@@ -46,6 +46,10 @@ func TestUELevelChecksUnderNEA2(t *testing.T) {
 			opts: []mockamf.Option{mockamf.WithGUTI()}},
 		{name: "GTPU-END-MARKER-ON-PATH-SWITCH", check: endMarkerOnPathSwitch{window: 300 * time.Millisecond},
 			net24: testnet.ConformanceCipherNEA0, nea2: testnet.ConformanceCipherNEA2, upfOpt: mockupf.Options{EndMarker: true}},
+		// The PDU Session Release Command is read through the security
+		// context, from the NGAP command's NAS-PDU.
+		{name: "NAS-PDU-RELEASE-UE-REQUESTED", check: pduReleaseTestCheck, opts: []mockamf.Option{mockamf.WithGUTI()},
+			net24: testnet.ConformancePDUReleaseNEA0, nea2: testnet.ConformancePDUReleaseNEA2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

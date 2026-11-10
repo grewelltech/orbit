@@ -1486,6 +1486,18 @@ sends none within 5 s is not failed: the check SKIPs with
 `no UE CONTEXT RELEASE COMMAND within 5s; not scored`, and the detail names the
 likely cause.
 
+`NAS-PDU-RELEASE-UE-REQUESTED` registers the UE with a PDU session and sends
+a PDU Session Release Request. It passes when the core answers with a PDU
+Session Release Command (inside the NGAP command or in a Downlink NAS
+Transport) and a PDU Session Resource Release Command listing the session, and
+no downlink G-PDU arrives on the released tunnel from 1 s after them
+(TS 24.501 6.4.3.3 and 6.3.3.2; TS 23.502 4.3.4.2). It fails when neither
+command comes within 16 s, when one comes without the other, or when downlink
+continues. A PDU Session Release Reject SKIPs. `--traffic` names an optional
+UDP echo peer: the UE keeps sending to it on the released tunnel, which a UPF
+that kept the session would answer. Without it the tunnel is only watched.
+The UE is deregistered at the end, and the check can take up to 43 s.
+
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
 flags. It registers the UE three times, each time stopping at the Security
 Mode Command. The first registration offers the usual algorithms, and the AMF
