@@ -42,6 +42,7 @@ jobs:
           cache-dependency-path: site/package-lock.json
       - name: Serve the install scripts from the site root
         run: |
+          mkdir -p site/public   # git tracks no empty dir; CNAME was its only tracked file
           cp install.sh site/public/install.sh         # verified binary installer
           cp scripts/orbit.sh site/public/orbit.sh      # host service installer
       - name: Install deps
