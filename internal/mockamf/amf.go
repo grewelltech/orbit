@@ -146,6 +146,9 @@ type AMF struct {
 	// Unserved-NSSAI answer (nssai.go).
 	nssaiAnswer NSSAIAnswer
 
+	// Path switch answer (pathswitch.go).
+	pathSwitchAnswer PathSwitchAnswer
+
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
 	regReqs [][]byte

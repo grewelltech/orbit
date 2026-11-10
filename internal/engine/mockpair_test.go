@@ -34,7 +34,7 @@ type mockPair struct {
 	cfg     gnb.Config // source gNB; the target is ID 2
 }
 
-func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) *mockPair {
+func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool, amfOpts ...mockamf.Option) *mockPair {
 	t.Helper()
 	base := testnet.Base(net24)
 	upf, err := mockupf.Listen(base+"10:2152", opts)
@@ -46,7 +46,7 @@ func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) 
 		Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
 		MCC: "208", MNC: "93", SST: 1, SD: "010203",
 		UPF: upf, UPFAddress: base + "10", ReallocateULOnPathSwitch: reallocUL,
-	})
+	}, amfOpts...)
 	if err != nil {
 		t.Fatal(err)
 	}

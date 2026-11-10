@@ -31,6 +31,20 @@ var ts38413NGSetupAbnormalVerified = []SpecVersion{
 	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
 }
 
+// ts38413PathSwitchAckVerified covers TS 38.413 9.2.3.9 and 9.3.4.9 (Path
+// Switch Request Acknowledge and its transfer): V15.0.0; V15.1.0, where UL
+// NG-U UP TNL Information becomes optional and the Switched List takes its
+// present form; and the latest version of Rel-15 to Rel-19.
+var ts38413PathSwitchAckVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38413-f00.zip"},
+	{Release: 15, Version: "V15.1.0", Archive: "38413-f10.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
 // ts29281Verified covers TS 29.281 (GTP-U): V8.0.0, where the Error
 // Indication requirement first appears; V15.4.0, which adds "PDU Session";
 // and the latest version of Rel-15 to Rel-19.

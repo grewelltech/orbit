@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -46,7 +47,8 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 		Detail: fmt.Sprintf("Xn handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},
 		"type", "xn", "source_gnb", sess.ServingGNB().Name, "target_gnb", target.Config.Name)
 
-	if err := m.runXnHandover(ctx, sess, target); err != nil {
+	ack, err := m.runXnHandover(ctx, sess, target)
+	if err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: "Xn: " + err.Error()},
 			"type", "xn", "target_gnb", target.Config.Name)
 		return HandoverResult{}, err
@@ -58,17 +60,25 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 			elapsed.Round(time.Millisecond))},
 		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID,
 		"elapsed_ms", elapsed.Milliseconds())
-	return HandoverResult{Elapsed: elapsed, Target: target.Config}, nil
+	return HandoverResult{Elapsed: elapsed, Target: target.Config, PathSwitchAck: ack}, nil
 }
 
-func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEndpoint) error {
+// ErrPathSwitchNotAcknowledged marks an Xn handover whose PATH SWITCH REQUEST
+// was sent and not answered with a PATH SWITCH REQUEST ACKNOWLEDGE: the core
+// answered with something else, or the wait for its answer ended. The UE
+// stays on its source gNB.
+var ErrPathSwitchNotAcknowledged = errors.New("path switch not acknowledged")
+
+// runXnHandover runs the handover and returns the Switched List of the
+// Acknowledge that completed it.
+func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEndpoint) (*gnb.PathSwitchAck, error) {
 	tgtConn, err := sctp.Dial(ctx, target.BindAddr, target.AMFAddr)
 	if err != nil {
-		return fmt.Errorf("dial target gNB: %w", err)
+		return nil, fmt.Errorf("dial target gNB: %w", err)
 	}
 	if ng, err := gnb.NGSetup(ctx, tgtConn, target.Config); err != nil || !ng.Accepted {
 		tgtConn.Close()
-		return fmt.Errorf("target NG Setup: %w", err)
+		return nil, fmt.Errorf("target NG Setup: %w", err)
 	}
 
 	// Per-session PathSwitch with the target's new downlink tunnels. Each
@@ -88,22 +98,23 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	ps, err := gnb.BuildPathSwitchRequest(target.Config, sess.amfID, targetHandoverRANID, admitted)
 	if err != nil {
 		tgtConn.Close()
-		return err
+		return nil, err
 	}
 	if err := gnb.SendPDU(tgtConn, ueStream, ps); err != nil {
 		tgtConn.Close()
-		return fmt.Errorf("send PathSwitchRequest: %w", err)
+		return nil, fmt.Errorf("send PathSwitchRequest: %w", err)
 	}
 
 	pdu, err := gnb.ReadPDU(ctx, tgtConn)
 	if err != nil {
 		tgtConn.Close()
-		return fmt.Errorf("await PathSwitch response: %w", err)
+		return nil, fmt.Errorf("%w: await PathSwitch response: %w", ErrPathSwitchNotAcknowledged, err)
 	}
 	if gnb.ClassifyPathSwitch(pdu) != gnb.PathSwitchAcknowledged {
 		tgtConn.Close()
-		return fmt.Errorf("path switch not acknowledged")
+		return nil, fmt.Errorf("%w: the core answered with %s", ErrPathSwitchNotAcknowledged, gnb.DescribePathSwitchAnswer(pdu))
 	}
+	ack := gnb.ParsePathSwitchAcknowledgeItems(pdu)
 	newAMFID, _ := gnb.ParsePathSwitchAcknowledge(pdu)
 	// The ack's switched list may carry NEW UPF UL F-TEIDs (re-anchoring at
 	// path switch, TS 38.413) — subsequent uplink must go there, or the UPF
@@ -143,7 +154,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	m.mu.Unlock()
 
 	oldConn.Close() // AMF releases the source after the switch
-	return nil
+	return &ack, nil
 }
 
 // firstSessionID is the PDU session mirrored into the AttachResult's

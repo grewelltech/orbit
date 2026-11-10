@@ -1408,6 +1408,16 @@ old and new tunnels indistinguishable. The detail records the old tunnel, the
 End Marker counts, whether the marker carried a QFI (recorded, not asserted),
 and the downlink seen before the switch. It never records the keys.
 
+`NGAP-PATH-SWITCH-ACK-TRANSFER` makes the same Xn handover and judges the
+AMF's answer. It passes when a PATH SWITCH REQUEST ACKNOWLEDGE arrives within
+5 s and its Switched List carries a Path Switch Request Acknowledge Transfer
+for the UE's PDU session (TS 38.413 8.4.4.2, 9.2.3.9). The transfer's UL NG-U
+UP TNL Information is optional and never required. With `--traffic` the check
+also watches for 2 s after the Acknowledge: when the transfer kept the uplink
+endpoint and the echo peer, which answered before the handover, no longer
+answers, the check FAILs. Without `--traffic`, or with a peer that never
+answered, the detail says the uplink was not probed.
+
 The `nas` category also needs the UE flags (`--supi`, the keys and
 `--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
 UE without a PDU session and withholds its Authentication Response. It passes

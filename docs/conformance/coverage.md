@@ -120,7 +120,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) | ⬜ | transfer-IE bug already documented (interop) |
 | Handover Resource Allocation (Request→Ack) | AMF→RAN | ✅ | — | ORBIT admits/rejects |
 | Handover Notification | RAN→AMF | ✅ | ⬜ | |
-| Path Switch Request | RAN→AMF | ✅ (Xn) | 🎯 malformed transfer / unknown IDs | |
+| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) | 🎯 malformed transfer / unknown IDs | |
 | Handover Cancellation | RAN→AMF | ⬜ | ⬜ | |
 | Uplink/Downlink RAN Status Transfer | both | ⬜ | ⬜ | |
 
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**11 checks today** (the first four live on the SD-Core testbed):
+**12 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -178,6 +178,18 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   after the last old-path G-PDU. Evidence for both runs is on #126. Under the verdict rule, a lab that runs with it off
   lists `no End Marker on the old F-TEID` on its expected-failures list
   ([expected-failures.md](expected-failures.md)).
+
+- `NGAP-PATH-SWITCH-ACK-TRANSFER` (mobility, FAIL-class) — a UE with a PDU
+  session hands over by Xn; the AMF must answer the Path Switch Request with
+  a PATH SWITCH REQUEST ACKNOWLEDGE (TS 38.413 8.4.4.2) whose Switched List
+  carries a Path Switch Request Acknowledge Transfer for the session
+  (9.2.3.9). UL NG-U UP TNL Information inside the transfer is optional from
+  V15.1.0 (9.3.4.9) and never required: absent, it means the uplink endpoint
+  is unchanged, so with `--traffic` the check also expects an echo of uplink
+  sent after the switch, and FAILs without one when the peer answered before
+  the switch. Without `--traffic` the uplink is recorded as not probed. A
+  PATH SWITCH REQUEST FAILURE, or no answer within 5 s, is FAIL. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
 
 - `NAS-T3560-AUTH-RETRANSMIT` (nas, FAIL-class) — the UE withholds its
   Authentication Response; the AMF must retransmit the Authentication

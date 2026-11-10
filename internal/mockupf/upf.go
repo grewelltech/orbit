@@ -1,10 +1,10 @@
 // Package mockupf is a stub UPF for tests and the conformance harness: one
 // UDP socket on the N3 side that records uplink G-PDUs, sends downlink on
-// request, and reacts to an Xn path switch the way a UPF configured for it
-// would, by sending a GTP-U End Marker on the old downlink tunnel (TS 29.281
-// §7.3.2, TS 29.244 §8.2.31) and, when asked, a late G-PDU after it. It
-// implements mockamf.UPF, so the mock AMF tells it about sessions and path
-// switches and it needs no NGAP of its own.
+// request (or as a UDP echo of the uplink), and reacts to an Xn path switch
+// the way a UPF configured for it would, by sending a GTP-U End Marker on the
+// old downlink tunnel (TS 29.281 §7.3.2, TS 29.244 §8.2.31) and, when asked,
+// a late G-PDU after it. It implements mockamf.UPF, so the mock AMF tells it
+// about sessions and path switches and it needs no NGAP of its own.
 //
 // It is not a UPF: no N6, no QoS enforcement, no ICMP engine. Production code
 // never imports it.
@@ -36,6 +36,12 @@ type Options struct {
 	// session's QFI to downlink G-PDUs and End Markers (TS 29.281 §5.2.2.7);
 	// without it they carry the mandatory header only.
 	QFI bool
+	// Echo answers each uplink G-PDU that arrives on a current session's
+	// uplink TEID and carries an IPv4 UDP datagram with the same datagram,
+	// its addresses and ports swapped, on the session's downlink tunnel: a
+	// UDP echo peer on the data network. An uplink G-PDU on any other TEID
+	// is recorded and not answered.
+	Echo bool
 	// GTPUPort is the gNB's GTP-U port; 0 means 2152.
 	GTPUPort int
 }
@@ -76,7 +82,7 @@ type UPF struct {
 	uplink   []Uplink
 	sent     []Sent
 	switches []mockamf.PathSwitch
-	sendErrs []error       // sends that failed inside PathSwitched, which cannot return them
+	sendErrs []error       // sends that failed inside PathSwitched or an echo, which cannot return them
 	changed  chan struct{} // closed and replaced on every state change
 
 	done chan struct{}
@@ -156,7 +162,7 @@ func (u *UPF) PathSwitched(p mockamf.PathSwitch) {
 }
 
 // SendErrors returns the sends that failed inside PathSwitched, which the
-// mockamf.UPF interface gives no way to return.
+// mockamf.UPF interface gives no way to return, and the echoes that failed.
 func (u *UPF) SendErrors() []error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -268,9 +274,10 @@ func (u *UPF) serve() {
 		}
 		u.mu.Lock()
 		known := false
+		var sess mockamf.SessionInfo
 		for _, s := range u.sessions {
 			if s.UL.TEID == g.TEID {
-				known = true
+				known, sess = true, s
 				break
 			}
 		}
@@ -278,7 +285,31 @@ func (u *UPF) serve() {
 			QFI: g.QFI, HasQFI: g.HasQFI, Payload: append([]byte(nil), g.Payload...)})
 		u.notifyLocked()
 		u.mu.Unlock()
+		if u.opts.Echo && known {
+			if reply, ok := echoUDP(g.Payload); ok {
+				u.recordErr(u.send(KindGPDU, sess.DL, encodeDLGPDU(sess.DL.TEID, sess.QFI, u.opts.QFI, reply)))
+			}
+		}
 	}
+}
+
+// echoUDP returns the IPv4 UDP datagram pkt with its addresses and ports
+// swapped, or false when pkt is not one. Both checksums stay valid: each
+// sums the swapped fields, in either order.
+func echoUDP(pkt []byte) ([]byte, bool) {
+	if len(pkt) < 20 || pkt[0]>>4 != 4 || pkt[9] != 17 {
+		return nil, false
+	}
+	ihl := int(pkt[0]&0x0f) * 4
+	if ihl < 20 || len(pkt) < ihl+8 {
+		return nil, false
+	}
+	out := append([]byte(nil), pkt...)
+	copy(out[12:16], pkt[16:20])
+	copy(out[16:20], pkt[12:16])
+	copy(out[ihl:ihl+2], pkt[ihl+2:ihl+4])
+	copy(out[ihl+2:ihl+4], pkt[ihl:ihl+2])
+	return out, true
 }
 
 // pduSessDL is the PDU Session Container's first octet for DL PDU SESSION

@@ -68,6 +68,10 @@ type GNBEndpoint struct {
 type HandoverResult struct {
 	Elapsed time.Duration
 	Target  gnb.Config
+	// PathSwitchAck is the PDU Session Resource Switched List of the PATH
+	// SWITCH REQUEST ACKNOWLEDGE that completed an Xn handover, as received;
+	// nil for an N2 handover.
+	PathSwitchAck *gnb.PathSwitchAck
 }
 
 // ErrInvalidTarget marks a handover target whose network identity, after

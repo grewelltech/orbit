@@ -59,6 +59,27 @@ const (
 	CLIScenariosRun   = 87 // TestScenariosRunWithTarget
 )
 
+// Blocks of the mobility conformance checks' tests, in internal/engine and
+// internal/conformance.
+const (
+	EngineXnAckKeptUL     = 200 // TestXnHandoverReportsTheAcknowledge/uplink_tunnel_kept
+	EngineXnAckNewUL      = 201 // TestXnHandoverReportsTheAcknowledge/uplink_tunnel_reallocated
+	EngineXnAckNoTransfer = 202 // TestXnHandoverReportsTheAcknowledge/transfer_omitted
+	EngineXnNotAckFailure = 203 // TestXnHandoverNotAcknowledged/failure
+	EngineXnNotAckSilence = 204 // TestXnHandoverNotAcknowledged/no_answer
+
+	ConformancePSAckPlain      = 190 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_no_traffic
+	ConformancePSAckEcho       = 191 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_uplink_answered
+	ConformancePSAckNewUL      = 192 // TestPathSwitchAckCheckAgainstMockPair/new_uplink_endpoint,_uplink_answered
+	ConformancePSAckSilentPeer = 193 // TestPathSwitchAckCheckAgainstMockPair/echo_peer_silent
+	ConformancePSAckNoTransfer = 194 // TestPathSwitchAckCheckAgainstMockPair/transfer_omitted
+	ConformancePSAckHiddenUL   = 195 // TestPathSwitchAckCheckAgainstMockPair/uplink_endpoint_moved_without_UL_TNL
+	ConformancePSAckFailure    = 196 // TestPathSwitchAckCheckAgainstMockPair/path_switch_request_failure
+	ConformancePSAckIgnored    = 197 // TestPathSwitchAckCheckAgainstMockPair/path_switch_request_unanswered
+	ConformancePSAckRegFail    = 198 // TestPathSwitchAckCheckErrors/registration_refused
+	ConformancePSAckTimeout    = 199 // TestPathSwitchAckCheckErrors/timeout_in_the_uplink_window
+)
+
 // Base is block n's address prefix, "127.0.n." (append the host part).
 func Base(n int) string { return fmt.Sprintf("127.0.%d.", n) }
 

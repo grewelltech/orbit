@@ -104,6 +104,12 @@ type PathObservation struct {
 	GPDUs        []datapath.GPDUArrival
 	// Traffic is the configured echo peer ("" none).
 	Traffic string
+	// NewTEID is the downlink TEID gNB B gave the core in the Path Switch
+	// Request.
+	NewTEID uint32
+	// Switched is the PDU Session Resource Switched List of the Path Switch
+	// Request Acknowledge, as received; nil before the switch.
+	Switched *gnb.PathSwitchAck
 }
 
 // NewUEHarness validates env for a UE-level check and builds a harness. It
@@ -292,8 +298,9 @@ func (h *UEHarness) StartTraffic(ctx context.Context) {
 }
 
 // XnHandover hands the UE over to gNB B by Xn (Path Switch Request on a
-// second association) and records the switch's timing and the vacated
-// tunnel.
+// second association) and records the switch's timing, the vacated tunnel
+// and the Acknowledge's Switched List. A Path Switch Request that went
+// unacknowledged is an error wrapping engine.ErrPathSwitchNotAcknowledged.
 func (h *UEHarness) XnHandover(ctx context.Context) error {
 	sess, err := h.m.Status(h.supi)
 	if err != nil {
@@ -303,7 +310,7 @@ func (h *UEHarness) XnHandover(ctx context.Context) error {
 	defer unsub()
 	started := time.Now()
 	src := sess.Result.DLTEID
-	_, err = h.m.XnHandover(ctx, h.supi, engine.GNBEndpoint{
+	res, err := h.m.XnHandover(ctx, h.supi, engine.GNBEndpoint{
 		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
 	})
 	returned := time.Now()
@@ -327,6 +334,7 @@ drain:
 	h.mu.Lock()
 	h.obs.OldTEID = src
 	h.obs.Started, h.obs.Ack, h.obs.AckFromEvent = started, ack, fromEvent
+	h.obs.NewTEID, h.obs.Switched = sess.Result.DLTEID, res.PathSwitchAck
 	h.mu.Unlock()
 	return nil
 }
