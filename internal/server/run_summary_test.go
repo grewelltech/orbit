@@ -1,6 +1,8 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
@@ -180,4 +182,86 @@ func assertUint(t *testing.T, field string, got, want uint32) {
 	if got != want {
 		t.Errorf("%s: got %d want %d", field, got, want)
 	}
+}
+
+// TestReadArchiveBackfillsSummary covers an archive written before Run.summary
+// existed: readArchive computes the summary from the stored reports so a
+// restored run still labels its outcome in ListRuns/GetRun.
+func TestReadArchiveBackfillsSummary(t *testing.T) {
+	dir := t.TempDir()
+
+	write := func(name string, a *orbitv1.RunArchive) string {
+		t.Helper()
+		b, err := marshalArchive(a)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		p := filepath.Join(dir, name+archiveExt)
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		return p
+	}
+
+	t.Run("backfills from a stored report", func(t *testing.T) {
+		p := write("run-old", &orbitv1.RunArchive{
+			Version: archiveVersion,
+			Run: &orbitv1.Run{
+				RunId: "run-old",
+				Kind:  orbitv1.RunKind_RUN_KIND_LOAD,
+				State: orbitv1.RunState_RUN_STATE_COMPLETE,
+				// Summary deliberately nil: the pre-upgrade on-disk shape.
+			},
+			Report: &orbitv1.RunArchive_LoadReport{LoadReport: &orbitv1.LoadReport{Attempted: 10, Succeeded: 9, Failed: 1}},
+		})
+		got, err := readArchive(p)
+		if err != nil {
+			t.Fatalf("readArchive: %v", err)
+		}
+		s := got.GetRun().GetSummary()
+		if s == nil {
+			t.Fatal("summary was not backfilled")
+		}
+		if s.GetAttachSucceeded() != 9 || s.GetAttachAttempted() != 10 || s.GetAttachFailed() != 1 {
+			t.Errorf("attach = %d/%d/%d, want 10/9/1", s.GetAttachAttempted(), s.GetAttachSucceeded(), s.GetAttachFailed())
+		}
+	})
+
+	t.Run("no report leaves summary nil", func(t *testing.T) {
+		p := write("run-failed", &orbitv1.RunArchive{
+			Version: archiveVersion,
+			Run: &orbitv1.Run{
+				RunId: "run-failed",
+				Kind:  orbitv1.RunKind_RUN_KIND_LOAD,
+				State: orbitv1.RunState_RUN_STATE_FAILED,
+			},
+		})
+		got, err := readArchive(p)
+		if err != nil {
+			t.Fatalf("readArchive: %v", err)
+		}
+		if s := got.GetRun().GetSummary(); s != nil {
+			t.Errorf("want nil summary for a run with no report, got %+v", s)
+		}
+	})
+
+	t.Run("keeps an already-set summary", func(t *testing.T) {
+		p := write("run-new", &orbitv1.RunArchive{
+			Version: archiveVersion,
+			Run: &orbitv1.Run{
+				RunId:   "run-new",
+				Kind:    orbitv1.RunKind_RUN_KIND_LOAD,
+				State:   orbitv1.RunState_RUN_STATE_COMPLETE,
+				Summary: &orbitv1.RunSummary{AttachSucceeded: 42},
+			},
+			Report: &orbitv1.RunArchive_LoadReport{LoadReport: &orbitv1.LoadReport{Attempted: 10, Succeeded: 9}},
+		})
+		got, err := readArchive(p)
+		if err != nil {
+			t.Fatalf("readArchive: %v", err)
+		}
+		if got.GetRun().GetSummary().GetAttachSucceeded() != 42 {
+			t.Errorf("an already-set summary must be preserved, got %+v", got.GetRun().GetSummary())
+		}
+	})
 }

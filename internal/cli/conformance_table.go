@@ -90,12 +90,22 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 		rows = append(rows, row{
 			verdict:   r.Verdict,
 			tolerated: tolerated,
-			cells:     []string{verdict, r.ID, string(r.Category), r.SpecRef, truncate(r.Observed, 56)},
+			cells:     []string{verdict, r.ID, string(r.Category), r.SpecRef, r.Observed},
 		})
 	}
 
 	border := re.NewStyle().Foreground(lipgloss.Color("8"))
+	// Fit the table to the terminal so long SpecRef/Observed cells wrap inside
+	// it rather than overflowing and breaking the borders and alignment.
+	// isTerminal already guaranteed out is a terminal file.
+	width := 100
+	if f, ok := out.(*os.File); ok {
+		if w, _, err := term.GetSize(int(f.Fd())); err == nil && w > 20 {
+			width = w
+		}
+	}
 	tbl := table.New().
+		Width(width).
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(border).
 		Headers("VERDICT", "TEST", "CATEGORY", "SPEC", "OBSERVED").
@@ -113,6 +123,19 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 		tbl.Row(rw.cells...)
 	}
 	_, _ = fmt.Fprintln(out, tbl)
+
+	// Per-check detail for anything that needs explaining: an ERROR's Detail is
+	// often the only account of why (Observed can be empty), and the plain
+	// output always carries it. PASS/SKIP rows are self-explanatory, so they
+	// stay out of the way.
+	for _, r := range sum.Results {
+		if r.Verdict == conformance.Pass || r.Verdict == conformance.Skip || r.Detail == "" {
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "%s %s\n",
+			verdictStyle(re, r.Verdict, r.ExpectedFailure != nil).Render(r.ID),
+			faint.Render(r.Detail))
+	}
 
 	// Stale expected-failures warn (they do not gate), as in the plain output.
 	for _, st := range sum.Stale {
@@ -150,16 +173,4 @@ func hasTolerated(sum conformance.Summary) bool {
 		}
 	}
 	return false
-}
-
-// truncate shortens s to at most n runes, marking a cut with an ellipsis.
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if n <= 1 {
-		return string(r[:n])
-	}
-	return string(r[:n-1]) + "…"
 }
