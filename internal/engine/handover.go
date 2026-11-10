@@ -234,7 +234,7 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 	}
 
 	// 4. AMF → source: HandoverCommand.
-	cmdPDU, err := gnb.ReadPDU(ctx, sess.conn)
+	cmdPDU, err := sess.readPDU(ctx)
 	if err != nil {
 		tgtConn.Close()
 		return fmt.Errorf("await HandoverCommand: %w", err)
@@ -259,7 +259,7 @@ func (m *Manager) runHandover(ctx context.Context, sess *Session, target GNBEndp
 
 	// The AMF releases the source; drain it briefly (best effort) then close.
 	relCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	_, _ = gnb.ReadPDU(relCtx, sess.conn)
+	_, _ = sess.readPDU(relCtx)
 	cancel()
 	oldConn := sess.conn
 

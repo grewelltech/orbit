@@ -78,8 +78,10 @@ type pduSession struct {
 	dl   Tunnel
 }
 
-// onPDUSessionRequest answers a PDU Session Establishment Request carried in
-// a UL NAS Transport: it allocates the UE address and the UPF uplink TEID,
+// onPDUSessionRequest handles the 5GSM message of a UL NAS Transport. A PDU
+// Session Release Request is answered by onPDUSessionReleaseRequest and a
+// PDU Session Release Complete is counted. A PDU Session Establishment
+// Request is answered here: it allocates the UE address and the UPF uplink TEID,
 // and sends a PDU Session Resource Setup Request carrying the secured DL NAS
 // Transport with the Establishment Accept. Without a UPF the request is
 // ignored, which is the mock's behaviour from before sessions existed. A
@@ -98,7 +100,15 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 	if err := sm.PlainNasDecode(&buf); err != nil {
 		return fmt.Errorf("mock amf decode 5GSM: %w", err)
 	}
-	if sm.GsmMessage == nil || sm.PDUSessionEstablishmentRequest == nil {
+	switch {
+	case sm.GsmMessage == nil:
+		return nil
+	case sm.PDUSessionReleaseRequest != nil:
+		return a.onPDUSessionReleaseRequest(p, st, sm.PDUSessionReleaseRequest)
+	case sm.PDUSessionReleaseComplete != nil:
+		a.pduReleaseCompletes.Add(1)
+		return nil
+	case sm.PDUSessionEstablishmentRequest == nil:
 		return nil
 	}
 	req := sm.PDUSessionEstablishmentRequest

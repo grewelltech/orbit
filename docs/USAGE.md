@@ -1468,6 +1468,37 @@ S-NSSAI appears only in the Extended rejected NSSAI IE. A core that falls
 back to a default slice accepts the UE; the check then SKIPs and deregisters
 the UE.
 
+The `procedural` category's `NAS-DEREG-ACCEPT-NOT-SWITCH-OFF` also needs the
+UE flags, and SKIPs without them. It registers the UE without a PDU session
+and deregisters it with a Deregistration Request that does not indicate
+switch-off. It passes on a Deregistration Accept (TS 24.501 5.5.2.2.2). It
+fails on none within 15 s, or on a UE Context Release Command in its place.
+The release after the Accept is recorded, not judged. If nothing answers, a
+switch-off Deregistration Request follows, so the core is not left holding the
+UE. The check can take up to 40 s, so it raises its own timeout.
+
+`NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` registers the UE the same way and
+deregisters it with a switch-off, which gets no Deregistration Accept. It
+passes when the AMF then sends a UE Context Release Command naming the
+connection by both UE NGAP IDs (TS 38.413 8.3.3.2), and fails when the command
+names the UE by its AMF UE NGAP ID alone. No specification requires the
+release with a shall (TS 23.502 4.2.2.3.2 only describes it), so a core that
+sends none within 5 s is not failed: the check SKIPs with
+`no UE CONTEXT RELEASE COMMAND within 5s; not scored`, and the detail names the
+likely cause.
+
+`NAS-PDU-RELEASE-UE-REQUESTED` registers the UE with a PDU session and sends
+a PDU Session Release Request. It passes when the core answers with a PDU
+Session Release Command (inside the NGAP command or in a Downlink NAS
+Transport) and a PDU Session Resource Release Command listing the session, and
+no downlink G-PDU arrives on the released tunnel from 1 s after them
+(TS 24.501 6.4.3.3 and 6.3.3.2; TS 23.502 4.3.4.2). It fails when neither
+command comes within 16 s, when one comes without the other, or when downlink
+continues. A PDU Session Release Reject SKIPs. `--traffic` names an optional
+UDP echo peer: the UE keeps sending to it on the released tunnel, which a UPF
+that kept the session would answer. Without it the tunnel is only watched.
+The UE is deregistered at the end, and the check can take up to 43 s.
+
 The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
 flags. It registers the UE three times, each time stopping at the Security
 Mode Command. The first registration offers the usual algorithms, and the AMF

@@ -15,6 +15,7 @@ import (
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
@@ -123,6 +124,59 @@ func TestSkipNoCommonIntegrity(t *testing.T) {
 			}
 			if !bytes.HasPrefix(accept, []byte{0x7e, 0x00, 0x42}) {
 				t.Errorf("Registration Accept = %x, want a plain one starting 7e0042", accept)
+			}
+		})
+	}
+}
+
+// The release answering a switch-off names the UE as
+// WithDeregistrationReleaseIDs selects: the ID pair by default, the AMF UE
+// NGAP ID alone, or a pair no UE has.
+func TestDeregistrationReleaseIDs(t *testing.T) {
+	tests := []struct {
+		name             string
+		opts             []mockamf.Option
+		wantAMF, wantRAN bool
+		offset           int64
+	}{
+		{name: "the pair", wantAMF: true, wantRAN: true},
+		{name: "the AMF ID alone", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseAMFIDOnly)}, wantAMF: true},
+		{name: "another pair", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseOtherPair)}, wantAMF: true, wantRAN: true, offset: 1000},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amf := testAMFWith(t, append([]mockamf.Option{mockamf.WithGUTI()}, tc.opts...)...)
+			ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
+			opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
+			const supi = "208930100007500"
+			id, err := ue.ParseIdentity(supi, "208", "93", "0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := engine.NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+			front := sctpfront.Start(t, amf)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			reg, err := m.Register(ctx, engine.GNBSpec{
+				Config:  gnb.Config{ID: 1, Name: "orbit-gnb", MCC: "208", MNC: "93", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}},
+				AMFAddr: front.Addr,
+			}, engine.UEConfig{Identity: id, Sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}})
+			if err != nil {
+				t.Fatalf("Register: %v", err)
+			}
+			res, err := m.DeregisterWith(ctx, supi)
+			if err != nil {
+				t.Fatalf("DeregisterWith: %v", err)
+			}
+			r := res.Release
+			if r == nil {
+				t.Fatalf("no release: %v", res.ReleaseErr)
+			}
+			if r.HasAMFUENGAPID != tc.wantAMF || r.HasRANUENGAPID != tc.wantRAN {
+				t.Fatalf("release %+v, want AMF ID %v, RAN ID %v", r, tc.wantAMF, tc.wantRAN)
+			}
+			if r.AMFUENGAPID != reg.AMFUENGAPID+tc.offset || (tc.wantRAN && r.RANUENGAPID != reg.RANUENGAPID+tc.offset) {
+				t.Errorf("release names (%d, %d), want the UE's (%d, %d) plus %d", r.AMFUENGAPID, r.RANUENGAPID, reg.AMFUENGAPID, reg.RANUENGAPID, tc.offset)
 			}
 		})
 	}

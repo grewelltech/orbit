@@ -137,9 +137,12 @@ func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds 
 func (endMarkerOnPathSwitch) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
-func (nasSMCNoNIA0) Needs() CheckNeeds        { return ueNeeds }
-func (nasPDUUnknownDNN) Needs() CheckNeeds    { return ueNeeds }
-func (nasRegRejectedNSSAI) Needs() CheckNeeds { return ueNeeds }
+func (nasSMCNoNIA0) Needs() CheckNeeds                 { return ueNeeds }
+func (nasPDUUnknownDNN) Needs() CheckNeeds             { return ueNeeds }
+func (nasRegRejectedNSSAI) Needs() CheckNeeds          { return ueNeeds }
+func (nasDeregAcceptNotSwitchOff) Needs() CheckNeeds   { return ueNeeds }
+func (ngapCtxReleaseAfterSwitchOff) Needs() CheckNeeds { return ueNeeds }
+func (nasPDUReleaseUERequested) Needs() CheckNeeds     { return ueNeeds }
 
 // Needs is one UE: the check registers it after the update.
 func (ranConfigUpdateKeepsTA) Needs() CheckNeeds { return ueNeeds }

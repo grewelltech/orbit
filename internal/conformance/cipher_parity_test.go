@@ -39,8 +39,17 @@ func TestUELevelChecksUnderNEA2(t *testing.T) {
 		// the row reaches the IE walk on the deciphered message.
 		{name: "NAS-REG-REJECTED-NSSAI", check: nasRegRejectedNSSAI{wait: 500 * time.Millisecond},
 			opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}},
+		// The Deregistration Accept is read through the security context.
+		{name: "NAS-DEREG-ACCEPT-NOT-SWITCH-OFF", check: nasDeregAcceptNotSwitchOff{registerWait: 3 * time.Second, acceptWait: 2 * time.Second, releaseWait: 2 * time.Second},
+			opts: []mockamf.Option{mockamf.WithGUTI()}},
+		{name: "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF", check: ngapCtxReleaseAfterSwitchOff{registerWait: 3 * time.Second, releaseWait: 2 * time.Second},
+			opts: []mockamf.Option{mockamf.WithGUTI()}},
 		{name: "GTPU-END-MARKER-ON-PATH-SWITCH", check: endMarkerOnPathSwitch{window: 300 * time.Millisecond},
 			net24: testnet.ConformanceCipherNEA0, nea2: testnet.ConformanceCipherNEA2, upfOpt: mockupf.Options{EndMarker: true}},
+		// The PDU Session Release Command is read through the security
+		// context, from the NGAP command's NAS-PDU.
+		{name: "NAS-PDU-RELEASE-UE-REQUESTED", check: pduReleaseTestCheck, opts: []mockamf.Option{mockamf.WithGUTI()},
+			net24: testnet.ConformancePDUReleaseNEA0, nea2: testnet.ConformancePDUReleaseNEA2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

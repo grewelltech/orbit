@@ -131,12 +131,25 @@ type AMF struct {
 	// Accept options (accept.go).
 	undecodableAccept bool
 
+	// Deregistration options (release.go): no Deregistration Accept for a
+	// normal deregistration, and how many were sent.
+	noDeregAccept bool
+	deregAccepts  atomic.Int64
+
 	// UE context release options (release.go).
 	noReleaseOnDereg     bool
+	deregReleaseIDs      ReleaseIDs
 	noiseBeforeRelease   bool
 	releaseDelay         time.Duration
 	staleRelease         time.Duration
 	ignoreReleaseRequest bool
+
+	// PDU session release options and counters (pdurelease.go).
+	pduReleaseAnswer        PDUReleaseAnswer
+	pduReleaseKeepsUP       bool
+	pduReleaseReqs          atomic.Int64
+	pduReleaseCompletes     atomic.Int64
+	pduResourceReleaseResps atomic.Int64
 
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
@@ -318,6 +331,11 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		a.releaseCompletes.Add(1)
 		return nil
 	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceReleaseResponse {
+		a.pduResourceReleaseResps.Add(1)
+		return nil
+	}
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 		return nil // Initial Context Setup Response etc. — no action
 	}
@@ -495,8 +513,8 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
-		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
-		return false, a.onDeregistration(p, st)
+		a.deregs.Add(1)
+		return false, a.onDeregistration(p, st, msg)
 	default:
 		return false, nil
 	}

@@ -376,6 +376,26 @@ func (h *UEHarness) Deregister(ctx context.Context) error {
 	return h.m.Deregister(ctx, h.supi)
 }
 
+// DeregisterWith deregisters a registered UE as engine.Manager.DeregisterWith
+// does with opts, which closes its association, and returns what the core
+// answered. Close after it does not deregister again. With no UE registered
+// it returns an error.
+func (h *UEHarness) DeregisterWith(ctx context.Context, opts ...engine.DeregisterOption) (*engine.DeregisterResult, error) {
+	if !h.registered {
+		return nil, errors.New("no UE registered")
+	}
+	h.registered = false
+	return h.m.DeregisterWith(ctx, h.supi, opts...)
+}
+
+// ReleasePDUSession runs the UE-requested PDU session release for the
+// session Register established, as engine.Manager.ReleasePDUSession does
+// with opts. The downlink observers and the echo flow stay as they are, so
+// Observe shows what arrived on the released tunnel afterwards.
+func (h *UEHarness) ReleasePDUSession(ctx context.Context, opts ...engine.PDUReleaseOption) (*engine.PDUReleaseResult, error) {
+	return h.m.ReleasePDUSession(ctx, h.supi, opts...)
+}
+
 // ParseNASAlgorithms turns a list of algorithm names (prefix followed by a
 // digit, case-insensitive) into the UE security capability bitmap, bit 8
 // for algorithm 0 (TS 24.501 9.11.3.54). Algorithms 0 to 3 exist; min is

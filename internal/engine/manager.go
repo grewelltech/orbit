@@ -15,7 +15,6 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/loomgtp"
 	"github.com/bgrewell/orbit/internal/nas"
-	"github.com/free5gc/ngap/ngapType"
 )
 
 // UE lifecycle states reported on StateStream and by Status.
@@ -110,6 +109,12 @@ type Session struct {
 	// notify publishes correlation-visible data-path events onto the
 	// Manager's hub (nil for sessions built outside a Manager).
 	notify func(StateEvent)
+
+	// held is a read of heldConn that a procedure's wait gave up on, still
+	// in flight or finished and unclaimed (readPDU). Like conn, it belongs
+	// to whoever holds the procedure lock.
+	held     chan pduRead
+	heldConn gnb.Transport
 }
 
 // SendUplink sends one inner IP packet up the session's CURRENT tunnel,
@@ -282,11 +287,23 @@ func (m *Manager) List() []*Session {
 // tears down the association (TS 24.501 §5.5.2.2). Switch-off means the
 // network sends no Deregistration Accept, so this does not block on one.
 func (m *Manager) Deregister(ctx context.Context, supi string) error {
+	_, err := m.DeregisterWith(ctx, supi)
+	return err
+}
+
+// DeregisterWith is Deregister adjusted by opts, reporting what the core
+// answered. Without options it is the switch-off deregistration Deregister
+// performs. The result is nil when the request was never sent.
+func (m *Manager) DeregisterWith(ctx context.Context, supi string, opts ...DeregisterOption) (*DeregisterResult, error) {
+	var o deregisterOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
 	m.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("UE %s is not registered", supi)
+		return nil, fmt.Errorf("UE %s is not registered", supi)
 	}
 
 	// Wait for any in-flight procedure before touching the session: removing it
@@ -301,7 +318,7 @@ func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	// no way to retry.
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer release()
 
@@ -319,21 +336,40 @@ func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	defer sess.conn.Close()
 	sess.closeDataPath()
 
-	if err := sess.deregister(ctx); err != nil {
-		return err
+	if err := sess.deregister(ctx, !o.normal); err != nil {
+		return nil, err
 	}
+	res := &DeregisterResult{SwitchOff: !o.normal, AMFUENGAPID: sess.amfID, RANUENGAPID: sess.ranID, SentAt: time.Now()}
 	// The association closes (the defer above) only once the core has
 	// released the UE, or the wait is over: closing first lets an AMF take
 	// the SHUTDOWN ahead of the Deregistration Request queued before it, and
 	// keep the UE registered.
+	linger := m.releaseLinger
+	if o.releaseWait > 0 {
+		linger = o.releaseWait
+	}
 	detail := "UE deregistered (switch-off)"
-	if err := sess.awaitSwitchOffRelease(ctx, m.releaseLinger, m.log); err != nil {
-		m.log.Warn("switch-off deregistration: closing the association without the core's release", "supi", supi, "err", err)
-		detail += "; " + err.Error()
+	if o.normal {
+		detail = "UE deregistered"
+		sess.awaitDeregistrationAccept(ctx, o.acceptWait, linger, m.log, res)
+		if res.AcceptErr != nil {
+			m.log.Warn("deregistration: no Deregistration Accept", "supi", supi, "err", res.AcceptErr)
+			detail += "; " + res.AcceptErr.Error()
+		}
+	} else {
+		res.Release, res.ReleaseErr = sess.awaitRelease(ctx, linger, m.log)
+	}
+	if res.ReleaseErr != nil {
+		what := "switch-off deregistration"
+		if o.normal {
+			what = "deregistration"
+		}
+		m.log.Warn(what+": closing the association without the core's release", "supi", supi, "err", res.ReleaseErr)
+		detail += "; " + res.ReleaseErr.Error()
 	}
 	m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: detail})
 	m.appMetrics.forgetUE(supi)
-	return nil
+	return res, nil
 }
 
 // Subscribe returns a channel of state events and a cancel func to stop it.
@@ -842,61 +878,35 @@ func stateFromResult(r *AttachResult) string {
 // per UE.
 const switchOffReleaseLinger = 3 * time.Second
 
-// errNoUEContextRelease is how awaitSwitchOffRelease reports that the
-// core did not release the UE in time.
+// errNoUEContextRelease is how awaitRelease reports that the core did not
+// release the UE in time.
 var errNoUEContextRelease = errors.New("the core sent no UE Context Release")
 
-// awaitSwitchOffRelease waits on the UE's association for the UE Context
-// Release Command that answers its switch-off deregistration, and answers
-// it with UE Context Release Complete. The wait ends with ctx, or after
-// linger, as errNoUEContextRelease; other downlink PDUs are skipped (and
-// logged at debug).
+// awaitSwitchOffRelease is awaitRelease for a caller that needs only whether
+// the release came.
 func (s *Session) awaitSwitchOffRelease(parent context.Context, linger time.Duration, log *slog.Logger) error {
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(parent, linger)
-	defer cancel()
-	for {
-		pdu, err := gnb.ReadPDU(ctx, s.conn)
-		if parent.Err() != nil {
-			return fmt.Errorf("%w: waited %s: %v", errNoUEContextRelease, time.Since(start).Round(time.Millisecond), parent.Err())
-		}
-		if ctx.Err() != nil {
-			return fmt.Errorf("%w within %s", errNoUEContextRelease, linger)
-		}
-		if err != nil {
-			return fmt.Errorf("%w: %v", errNoUEContextRelease, err)
-		}
-		code, ok := procedureCode(pdu)
-		if !ok || code != ngapType.ProcedureCodeUEContextRelease || pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
-			if log != nil {
-				log.Debug("switch-off deregistration: skipping a downlink PDU while waiting for the release",
-					"supi", s.SUPI, "procedure", procedureName(code), "present", pdu.Present)
-			}
-			continue
-		}
-		if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(s.amfID, s.ranID)); err != nil {
-			return fmt.Errorf("UE Context Release Complete not sent: %w", err)
-		}
-		return nil
-	}
+	_, err := s.awaitRelease(parent, linger, log)
+	return err
 }
 
-// deregister sends a UE-originating switch-off Deregistration Request under
-// the session's security context.
-func (s *Session) deregister(ctx context.Context) error {
+// deregister sends a UE-originating Deregistration Request under the
+// session's security context: switch-off, or a normal one, which the AMF
+// answers with a Deregistration Accept.
+func (s *Session) deregister(ctx context.Context, switchOff bool) error {
 	// A downlink PDU already waiting (a release the core sent mid-run, an
 	// AN or inactivity release) predates this request: dropped, so only a
-	// release that answers it ends awaitSwitchOffRelease.
+	// release that answers it ends the wait for the core's answer.
 	if d, ok := s.conn.(interface{ Drain() int }); ok {
 		d.Drain()
 	}
+	s.dropHeld()
 	if s.sec == nil {
 		return fmt.Errorf("no security context")
 	}
 	if len(s.guti) == 0 {
 		return fmt.Errorf("no 5G-GUTI (AMF assigned none in Registration Accept)")
 	}
-	msg, err := ueBuildDeregistration(s.guti)
+	msg, err := ueBuildDeregistration(s.guti, switchOff)
 	if err != nil {
 		return err
 	}

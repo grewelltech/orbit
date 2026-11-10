@@ -148,7 +148,7 @@ func TestAwaitSwitchOffReleasesParallel(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = s.conn.Close() }()
-		if err := s.deregister(ctx); err != nil {
+		if err := s.deregister(ctx, true); err != nil {
 			t.Fatal(err)
 		}
 		sessions = append(sessions, s)

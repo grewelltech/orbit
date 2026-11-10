@@ -186,3 +186,27 @@ var ts24501RejectedNSSAIVerified = []SpecVersion{
 	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
 	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
 }
+
+// ts23502Verified covers TS 23.502 (5GS procedures): V15.0.0 and the latest
+// version of Rel-15 to Rel-19 read.
+var ts23502Verified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "23502-f00.zip"},
+	{Release: 15, Version: "V15.17.0", Archive: "23502-fh0.zip"},
+	{Release: 16, Version: "V16.19.0", Archive: "23502-gj0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "23502-hf0.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "23502-ie0.zip"},
+	{Release: 19, Version: "V19.9.0", Archive: "23502-j90.zip"},
+}
+
+// ts23502ReleaseN2Verified covers TS 23.502 4.3.4.2's rule that the SMF's
+// answer includes the N2 SM Resource Release request when the user plane is
+// active: V15.5.0, where it first appears (V15.4.1 lacks it), and the
+// latest version of Rel-15 to Rel-19.
+var ts23502ReleaseN2Verified = []SpecVersion{
+	{Release: 15, Version: "V15.5.0", Archive: "23502-f50.zip"},
+	{Release: 15, Version: "V15.17.0", Archive: "23502-fh0.zip"},
+	{Release: 16, Version: "V16.19.0", Archive: "23502-gj0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "23502-hf0.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "23502-ie0.zip"},
+	{Release: 19, Version: "V19.9.0", Archive: "23502-j90.zip"},
+}
