@@ -13,6 +13,34 @@ set -euo pipefail
 PROG=$(basename "$0")
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
+# A profile selects a whole testbed in one word: `-p <name>` before the
+# command, or TESTBED_PROFILE. It names profiles/<name>.conf, which carries
+# what makes that testbed its own — prefix, VLAN block, UE pool, core kind.
+# With no profile the testbed is testbed.conf's.
+TESTBED_PROFILE=${TESTBED_PROFILE:-}
+case "${1:-}" in
+    -p|--profile)
+        [ $# -ge 2 ] || { echo "$PROG: $1 needs a profile name" >&2; exit 1; }
+        TESTBED_PROFILE=$2; shift 2
+        # Hints and usage then name commands that reach this testbed.
+        PROG="$PROG -p $TESTBED_PROFILE" ;;
+esac
+PROFILE_CONF=""
+if [ -n "$TESTBED_PROFILE" ]; then
+    PROFILE_CONF="$HERE/profiles/$TESTBED_PROFILE.conf"
+    case "$TESTBED_PROFILE" in *[!a-z0-9_-]*) PROFILE_CONF="" ;; esac
+    if [ ! -f "$PROFILE_CONF" ]; then
+        echo "$PROG: no profile '$TESTBED_PROFILE' (have:$(for f in "$HERE"/profiles/*.conf; do [ -f "$f" ] && printf ' %s' "$(basename "$f" .conf)"; done))" >&2
+        exit 1
+    fi
+fi
+
+# Four files, read in this order: testbed.<profile>.local.conf,
+# testbed.local.conf, profiles/<profile>.conf, testbed.conf (the first and
+# third only when a profile is selected). So a profile replaces testbed.conf's
+# defaults, a local override replaces either, and the override for one profile
+# replaces the override for all of them.
+#
 # Local overrides are sourced BEFORE testbed.conf, and the order is the whole
 # mechanism: every assignment in both files is `: "${VAR:=...}"`, which sets a
 # variable only when it is unset. So whichever file is read first wins, and
@@ -24,10 +52,21 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # succeeds, and it has used the tracked default throughout. Environment
 # variables still take precedence over both, since they are set before this
 # script starts.
+if [ -n "$TESTBED_PROFILE" ]; then
+    : "${TESTBED_PROFILE_LOCAL_CONF:=$HERE/testbed.$TESTBED_PROFILE.local.conf}"
+    if [ -f "$TESTBED_PROFILE_LOCAL_CONF" ]; then
+        # shellcheck disable=SC1090
+        source "$TESTBED_PROFILE_LOCAL_CONF"
+    fi
+fi
 : "${TESTBED_LOCAL_CONF:=$HERE/testbed.local.conf}"
 if [ -f "$TESTBED_LOCAL_CONF" ]; then
     # shellcheck disable=SC1090
     source "$TESTBED_LOCAL_CONF"
+fi
+if [ -n "$PROFILE_CONF" ]; then
+    # shellcheck disable=SC1090
+    source "$PROFILE_CONF"
 fi
 # shellcheck source=testbed.conf
 source "$HERE/testbed.conf"
@@ -2280,8 +2319,11 @@ $PROG — LXD testbed for ORBIT in the Ref 2 small-site shape
   $PROG networks           create only the networks
 
 node is one of: $(node_names ', ')
-This testbed: prefix '$P', core $CORE_NAME (TESTBED_CORE_KIND=$CORE_KIND).
-Configuration: testbed.conf, overridden by env or testbed.local.conf.
+Every command takes a profile first: $(basename "$0") -p <profile> <command>
+  profiles:$(for f in "$HERE"/profiles/*.conf; do [ -f "$f" ] && printf ' %s' "$(basename "$f" .conf)"; done)  (none: the default testbed)
+This testbed: ${TESTBED_PROFILE:+profile '$TESTBED_PROFILE', }prefix '$P', core $CORE_NAME (TESTBED_CORE_KIND=$CORE_KIND).
+Configuration: testbed.conf, overridden by a profile, then testbed.local.conf
+(testbed.<profile>.local.conf for one profile), then the environment.
 See README.md.
 EOF
 }

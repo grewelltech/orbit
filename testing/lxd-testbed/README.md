@@ -124,7 +124,8 @@ cd testing/lxd-testbed
 ./testbed.sh status    # what is running, and where
 ```
 
-Then, in order: `ctrl` and `keys` to stand up the management plane, `wanem` for
+Then, in order: `ctrl` and `keys` to stand up the management plane (SD-Core
+only), `wanem` for
 the WAN emulator, `core` to deploy the 5G core, `apps` to install ORBIT, and
 `verify` to drive a UE through the whole path from both sites. `all` runs the
 lot up to `check`.
@@ -184,6 +185,53 @@ orbit server trust https://10.130.0.21:8412 --token-file ~/.config/orbit/testbed
 #   compare the fingerprint with: lxc exec orbit-ran-near -- journalctl -u orbit | grep spki
 export ORBIT_SERVER=https://10.130.0.21:8412
 ```
+
+## Profiles and core kinds
+
+The same site can be built around three cores. A **profile** selects a whole
+testbed in one word — its own prefix, VLAN block, UE pool and core — so several
+run side by side on one host:
+
+| Profile | Prefix | VLANs / subnets | UE pool | Core (`TESTBED_CORE_KIND`) | Control node |
+|---|---|---|---|---|---|
+| *(none)* | `orbit` | 130–137, `10.130`–`10.137.0.0/24` | `100.65.0.0/16` | SD-Core (`sdcore`) | yes |
+| `sdcore` | `sdcore` | 160–167, `10.160`–`10.167.0.0/24` | `100.68.0.0/16` | SD-Core (`sdcore`) | yes |
+| `free5gc` | `free5gc` | 140–147, `10.140`–`10.147.0.0/24` | `100.66.0.0/16` | free5GC (`free5gc`) | no |
+| `open5gs` | `open5gs` | 150–157, `10.150`–`10.157.0.0/24` | `100.67.0.0/16` | Open5GS (`open5gs`) | no |
+
+```sh
+./testbed.sh -p free5gc all        # or: TESTBED_PROFILE=free5gc ./testbed.sh all
+./testbed.sh -p free5gc status
+./testbed.sh -p free5gc verify
+./testbed.sh -p free5gc down
+```
+
+Every subcommand works the same under `-p`, and everything in this document
+applies with the profile's prefix and addresses in place of `orbit` and
+`10.13x`. The topology, the checks, the ORBIT targets on the RAN nodes (`lxd`,
+`lxd-conformance`, `lxd-load`) and the host octets are identical; only the core
+step differs. A profile is a short file in [`profiles/`](profiles); the free5GC
+and Open5GS ones also size the core, RAN and app nodes down, since those cores
+are run for conformance rather than load.
+
+What a core kind changes, beyond how `core` deploys it:
+
+- **Control node.** aether-ops manages SD-Core only. Other kinds have no `ctrl`
+  node and no `ctrl`/`keys` steps; `all` skips them.
+- **Where the UPF sits.** SD-Core's UPF is a pod attached to the core node's
+  `n3`/`n6` by macvlan, so the node has no address there. free5GC and Open5GS
+  run the UPF on the core node's host network, so the node itself holds the
+  UPF's `.100` on `n3` and `n6` (and routes the far site's N3 via r-site).
+  Either way the UPF is at the same addresses, so r-site's UE-pool route, the
+  app's return route, the targets and `check` do not change shape.
+
+Testbeds share nothing on the host but the uplink bridge and the SD-Core image
+builds (tagged by commit): LXD objects carry the prefix, and each testbed has
+its own cache directory, `~/.cache/<prefix>-lxd-testbed`, for its tokens, built
+binaries and version record.
+
+A core kind is one file in [`cores/`](cores) implementing the contract described
+at the top of [`testbed.sh`](testbed.sh) ("core kinds").
 
 ## From nothing to ready
 
@@ -545,16 +593,26 @@ core so the env is regenerated from the deployed file.
 ## Configuration
 
 [`testbed.conf`](testbed.conf) holds every tunable with its default and the
-reasoning behind it. Three ways to override, in increasing precedence:
+reasoning behind it. Ways to override, in increasing precedence:
 
 1. edit `testbed.conf` (tracked — only for changes that suit everyone)
-2. `testbed.local.conf` beside it (gitignored — for one machine's specifics)
-3. environment variables
+2. a profile, `-p <name>` (tracked — a whole testbed; see
+   [Profiles and core kinds](#profiles-and-core-kinds))
+3. `testbed.local.conf` beside it (gitignored — for one machine's specifics)
+4. `testbed.<profile>.local.conf` (gitignored — one machine's specifics for one
+   profile)
+5. environment variables
 
 ```sh
-# a second testbed alongside the first: its own prefix and its own VLAN block
-TESTBED_PREFIX=orbit2 TESTBED_VLAN_BASE=140 ./testbed.sh up
+# another testbed alongside the others, without a profile: its own prefix,
+# VLAN block and UE pool
+TESTBED_PREFIX=orbit2 TESTBED_VLAN_BASE=170 TESTBED_UE_POOL=100.69.0.0/16 ./testbed.sh up
 ```
+
+Keep what identifies a testbed (`TESTBED_PREFIX`, `TESTBED_VLAN_BASE`,
+`TESTBED_UE_POOL`, `TESTBED_CORE_KIND`, `TESTBED_CACHE_DIR`) out of
+`testbed.local.conf` and the environment when using profiles: both outrank a
+profile, so a value set there applies to every testbed.
 
 Nothing site-specific is committed. Addresses, paths, sizes and keys are all
 parameters, so this file describes a topology rather than one host's setup.
