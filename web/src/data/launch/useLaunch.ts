@@ -281,7 +281,7 @@ export function useLaunch(local: KeyValueStore | undefined = browserLocal(), ses
       const id = await runner.start(() => latest.current as LaunchInput, state.plan);
       if (id) {
         setStarted(recordStarted(session, { id, name }));
-        window.location.assign(`/?run=${encodeURIComponent(id)}`);
+        window.location.assign(`/runs?run=${encodeURIComponent(id)}`);
       }
       return id;
     },

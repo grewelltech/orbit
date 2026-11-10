@@ -1,13 +1,14 @@
 /**
- * PageLinks — the dashboard's pages, routes (main.tsx): the
- * run dashboard, launch and targets (/conformance opens launch on the
+ * PageLinks — the dashboard's pages, routes (main.tsx): home,
+ * the run dashboard (/runs), launch and targets (/conformance opens launch on the
  * conformance suite). The current page is marked, not
  * linked.
  */
-export type Page = "dashboard" | "launch" | "targets";
+export type Page = "home" | "dashboard" | "launch" | "targets";
 
 const PAGES: { page: Page; label: string; href: string }[] = [
-  { page: "dashboard", label: "runs", href: "/" },
+  { page: "home", label: "home", href: "/" },
+  { page: "dashboard", label: "runs", href: "/runs" },
   { page: "launch", label: "launch", href: "/launch" },
   { page: "targets", label: "targets", href: "/targets" },
 ];

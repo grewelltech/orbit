@@ -17,6 +17,8 @@ export interface RunSummary {
   runId: string;
   name: string;
   kind: string;
+  /** Workload kinds in plan order; a single-workload run lists its one kind. */
+  kinds: string[];
   state: string;
   /** Still producing frames — a live run, as opposed to reviewable history. */
   active: boolean;
@@ -32,6 +34,7 @@ function summarise(r: PbRun): RunSummary {
     runId: r.runId,
     name: r.name,
     kind: runKindName(r.kind),
+    kinds: (r.workloadKinds.length > 0 ? r.workloadKinds : [r.kind]).map(runKindName),
     state: runStateName(r.state),
     active,
     startedAt: Number(r.startedUnixNano / 1_000_000n),

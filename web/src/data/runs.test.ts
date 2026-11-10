@@ -42,3 +42,13 @@ describe("summarise", () => {
     expect(summarise(run({ name: "" })).runId).toBe("run-1");
   });
 });
+
+describe("summarise kinds", () => {
+  it("lists workload kinds in plan order, else the single kind", () => {
+    expect(summarise(run({ kind: RunKind.MIXED, workloadKinds: [RunKind.LOAD, RunKind.CONFORMANCE] })).kinds).toEqual([
+      "load",
+      "conformance",
+    ]);
+    expect(summarise(run({ kind: RunKind.FLEET })).kinds).toEqual(["fleet"]);
+  });
+});
