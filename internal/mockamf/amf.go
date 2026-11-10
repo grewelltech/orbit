@@ -2,7 +2,6 @@ package mockamf
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"github.com/free5gc/nas/nasConvert"
 	"github.com/free5gc/nas/nasType"
 	"github.com/free5gc/ngap/ngapType"
-	"github.com/free5gc/util/milenage"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -157,9 +155,10 @@ type AMF struct {
 	badMACs  atomic.Int64
 	replayed UplinkAction
 	replays  atomic.Int64
-	// countBeforeMAC, laxEstimate and the PDU session answer limit are
-	// WithUplinkCountBeforeMAC, WithLaxUplinkCountEstimate and
-	// WithPDUSessionAnswers.
+	// badMACReg, countBeforeMAC, laxEstimate and the PDU session answer
+	// limit are WithBadMACRegistration, WithUplinkCountBeforeMAC,
+	// WithLaxUplinkCountEstimate and WithPDUSessionAnswers.
+	badMACReg      BadMACRegistration
 	countBeforeMAC bool
 	laxEstimate    bool
 	smAnswers      int
@@ -390,16 +389,10 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	a.mu.Unlock()
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
-	var randv [16]byte
-	if _, err := rand.Read(randv[:]); err != nil {
+	randv, autn, err := a.challenge()
+	if err != nil {
 		return err
 	}
-	_, _, _, autnSlice, err := milenage.GenerateAKAParameters(a.cfg.OPc, a.cfg.Ki, randv[:], a.cfg.SQN, a.cfg.AMF)
-	if err != nil {
-		return fmt.Errorf("mock amf AKA: %w", err)
-	}
-	var autn [16]byte
-	copy(autn[:], autnSlice)
 
 	// Derive the same key hierarchy the UE will, for later SMC/RegAccept.
 	sub := auth.Subscription{SUPI: supi, Ki: a.cfg.Ki, OPc: a.cfg.OPc}

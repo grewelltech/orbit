@@ -100,11 +100,28 @@ func WithCapability5GMM(value []byte) RegistrationOption {
 	}
 }
 
+// WithMobilityRegistration makes the request a registration update on an
+// existing security context: registration type "mobility registration
+// updating", the native key set ngKSI and no follow-on request. The caller
+// passes the UE's 5G-GUTI as the identity.
+func WithMobilityRegistration(ngKSI uint8) RegistrationOption {
+	return func(req *nasMessage.RegistrationRequest) error {
+		if ngKSI > 6 {
+			return fmt.Errorf("ngKSI %d is not a key set identifier (0 to 6)", ngKSI)
+		}
+		req.NgksiAndRegistrationType5GS.SetNasKeySetIdentifiler(ngKSI)
+		req.NgksiAndRegistrationType5GS.SetFOR(0)
+		req.NgksiAndRegistrationType5GS.SetRegistrationType5GS(nasMessage.RegistrationType5GSMobilityRegistrationUpdating)
+		return nil
+	}
+}
+
 // BuildRegistrationRequest builds an initial Registration Request carrying
-// the UE's SUCI (TS 24.501 §8.2.6). ngKSI is set to "no key available" (7)
-// on the first registration. Mandatory IEs plus the UE security capability
-// (so the AMF can run Security Mode Command) and requested NSSAI; each opt
-// adjusts the result.
+// the UE's identity, a 5GS mobile identity value: its SUCI, or its 5G-GUTI
+// with WithMobilityRegistration (TS 24.501 §8.2.6). ngKSI is set to "no key
+// available" (7) on the first registration. Mandatory IEs plus the UE
+// security capability (so the AMF can run Security Mode Command) and
+// requested NSSAI; each opt adjusts the result.
 func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, requestedNSSAI *nasType.RequestedNSSAI, opts ...RegistrationOption) ([]byte, error) {
 	m, gmm := newGmm(f5nas.MsgTypeRegistrationRequest)
 	req := nasMessage.NewRegistrationRequest(f5nas.MsgTypeRegistrationRequest)
