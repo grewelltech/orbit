@@ -500,6 +500,139 @@ version. The script installs it, having watched the stock path fail with
 `Failed to find required executable "helm"`. (The Aether reference host carries
 a `get_helm.sh` for the same reason.)
 
+## Deploying the core: Open5GS (`-p open5gs`)
+
+```sh
+./testbed.sh -p open5gs core           # MongoDB + Open5GS built from source, ~10 min the first time
+./testbed.sh -p open5gs core-status    # units, version, interfaces, listeners, subscriber count
+./testbed.sh -p open5gs reprovision    # re-apply the subscriber population
+```
+
+[`cores/open5gs.sh`](cores/open5gs.sh) builds [Open5GS](https://open5gs.org)
+from source on the core node at `OPEN5GS_REF` (default the release tag
+`v2.8.0`; any tag, branch or sha) with meson/ninja, installs it under
+`/opt/open5gs`, and runs the eleven 5G SA network functions — NRF, SCP, AMF,
+SMF, UPF, AUSF, UDM, UDR, PCF, NSSF, BSF — as systemd units
+(`open5gs-amfd.service` and so on, the names the Open5GS packages use) on the
+node's host network. MongoDB (`OPEN5GS_MONGODB_SERIES`, default 8.0) comes from
+MongoDB's own apt repository. No EPC daemon (MME, SGW-C/U, HSS, PCRF) is given
+a unit, so nothing but the AMF listens on N2 and nothing but the UPF on N3.
+
+`core` is repeatable and fast to re-run: a node already built at the resolved
+commit is not built again (the commit is kept in `/opt/open5gs/.testbed-built`),
+so a second run only rewrites the configuration, restarts the NFs and upserts
+the subscribers — about 20 seconds. What it resolved is recorded in
+`/etc/orbit/testbed-versions` like every core kind's:
+
+```
+open5gs v2.8.0 157f611a530e292e40ec50f9d23f0ef5d4fcd6a6
+open5gs-3gpp-release v2.8.0 Release-19
+mongodb 8.0 8.0.38
+```
+
+**Claimed 3GPP release.** Open5GS v2.8.0 describes itself as Release-19
+compliant (`docs/_pages/features.md` in its tree, which is where the
+`open5gs-3gpp-release` line is read from), and its codecs are generated from
+TS 38.413 (NGAP) 19.2.0 and TS 24.501 (5GS NAS) 19.6.2. For ORBIT's
+conformance suite that is `--target-release Rel-19`; the suite's default
+(Rel-18) only skips checks that need something newer, so it is a safe
+under-claim.
+
+### How the site is expressed
+
+Every 3GPP interface is bound by address, from the same variables the rest of
+the testbed derives:
+
+| What | Where | From |
+|---|---|---|
+| AMF NGAP (SCTP 38412) | the core node's N2 address | `CORE_N2` |
+| UPF GTP-U (UDP 2152) | the UPF's N3 address | `UPF_N3` |
+| SBI, PFCP (SMF `127.0.0.4` ↔ UPF `127.0.0.7`), metrics | loopback, Open5GS's default addresses | — |
+| UE pool, on the tun device `ogstun` (gateway = the pool's first address) | `ogstun` | `TESTBED_UE_POOL` |
+| PLMN, TAC, slice, DNN | AMF `guami`/`tai`/`plmn_support`, NRF `serving`, NSSF `nsi`, SMF/UPF `session` | `TESTBED_MCC`/`MNC`/`TAC`/`SST`/`SD`/`DNN` |
+
+The UPF is a router between `ogstun` and the node's interfaces:
+`net.ipv4.ip_forward` is on and **nothing is NATed** — the MASQUERADE rule of
+the Open5GS quickstart is deliberately not added, so a UE's address appears
+unchanged on N6, r-site's route for the pool brings the replies back to
+`UPF_N6`, and `core-status` prints the number of NAT rules on the node (0).
+The tun device, its address and the pool route belong to systemd-networkd
+(`/etc/systemd/network/99-open5gs.*`), so they are there before the UPF starts
+and after a reboot. UE traffic leaves by the core node's ordinary routing table:
+the N6 subnet (the app) is on-link on `n6`.
+
+Nothing in the core file names an interface other than `ogstun`, assumes a
+router, or uses the management network: the build needs the node's default
+route to reach the Internet (GitHub, Ubuntu's and MongoDB's apt repositories),
+whichever interface that is.
+
+### Conformance-relevant settings
+
+- **NAS security.** `security.integrity_order` is `NIA2, NIA1, NIA0` and
+  `ciphering_order` `NEA0, NEA2, NEA1` (`OPEN5GS_INTEGRITY_ORDER`,
+  `OPEN5GS_CIPHERING_ORDER`), so a UE is given NIA2/NEA0 as on the SD-Core
+  testbed.
+- **NAS timers** are Open5GS's built-in, spec-default values; only T3512
+  (540 s, Open5GS's own default) is written to the configuration.
+- **End Marker.** Open5GS has no switch for it: the SMF always asks the UPF to
+  send End Markers on the old tunnel after an Xn path switch or an N2 handover.
+- **Subscribers** carry OPc (not OP), AMF field `8000`, one slice
+  (`TESTBED_SST`/`TESTBED_SD`) with one IPv4 session on `TESTBED_DNN`, 5QI 9,
+  ARP 8, 1 Gbps AMBR; SUCI null scheme and profiles A/B (Open5GS's stock home
+  network keys) are accepted.
+- **Sizing.** `OPEN5GS_MAX_UE` (4096) replaces Open5GS's default of 1024 UE
+  contexts per NF, which is no margin over 1000 subscribers.
+
+### Subscribers
+
+`TESTBED_SUB_COUNT` consecutive IMSIs from `TESTBED_SUB_START` are written
+straight into MongoDB's `subscribers` collection in one bulk upsert, in the
+document shape (`schema_version: 1`) that `open5gs-dbctl add_ue_with_slice`
+writes — about a second for 1000, where 1000 `open5gs-dbctl` calls take
+minutes. It is an upsert keyed on the IMSI, so `core` and `reprovision` can be
+run any number of times, apply a changed key, slice or DNN, and leave any
+subscriber outside the range alone (with a warning that it is there). The UDR
+reads MongoDB on every request, so no NF is restarted. MongoDB's data is on the
+node's disk (`/var/lib/mongodb`) and survives a restart and a reboot.
+
+### ORBIT's UE does not register yet
+
+Open5GS enforces the protection of the initial NAS message (TS 24.501 4.4.6,
+TS 33.501 6.4.6): a REGISTRATION REQUEST sent without a NAS security context
+may carry only the cleartext IEs, and the AMF answers anything else with
+Registration Reject, 5GMM cause #95 (`Non cleartext IEs is included` in the
+AMF's journal). Every release from v2.6.6 to v2.8.0 does this and there is no
+configuration switch for it. ORBIT's UE puts the 5GMM capability and the
+Requested NSSAI in that first message (`internal/ue/nasmm.go`,
+`BuildRegistrationRequest`), so on this testbed:
+
+- `verify` gets NG Setup accepted and then fails at `register` on both sites
+  with `AMF rejected registration`. The user-plane hint it prints after that
+  (a UPF routing fault) does not apply: the UE never registered.
+- `orbit conformance -t lxd-conformance` passes the checks that need no
+  registered UE (NG Setup, NG Reset, unknown-UE, GTP-U Error Indication) and
+  reports ERROR or FAIL for every check that needs one.
+
+The core itself is sound: a UE that sends the cleartext IEs only and the whole
+message in the Security Mode Complete's NAS message container (UERANSIM v3.2.7,
+run from `ran-far` with a subscriber from this population) registers with
+NIA2/NEA0, gets a PDU session and an address from `TESTBED_UE_POOL`, and
+exchanges traffic with the app over N3 → UPF → N6, the app seeing the UE's
+own address.
+
+### Looking at it
+
+```sh
+lxc exec open5gs-core -- journalctl -u open5gs-amfd -f      # NF logs are in the journal
+lxc exec open5gs-core -- systemctl status 'open5gs-*'
+lxc exec open5gs-core -- cat /opt/open5gs/etc/open5gs/amf.yaml
+lxc exec open5gs-core -- mongosh --quiet open5gs --eval 'db.subscribers.countDocuments({})'
+```
+
+`/opt/open5gs-testbed` on the core node holds what `core` staged: the settings
+(`env`), `install.sh`, `apply.sh`, `subscribers.js`, the build log and the
+version record.
+
 ## Installing ORBIT and the responder
 
 ```sh
