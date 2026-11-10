@@ -150,57 +150,86 @@ func (s *SecurityContext) DecodeSecure(data []byte) (*f5nas.Message, error) {
 // can read IEs the codec does not know. It is nil when the PDU did not
 // verify or decipher.
 func (s *SecurityContext) DecodeSecurePlain(data []byte) (*f5nas.Message, []byte, error) {
+	count, err := s.estimateRx(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := s.verifyAt(data, count); err != nil {
+		return nil, nil, err
+	}
+	// The MAC proved the COUNT: track the last-received sequence number as
+	// the rx COUNT state, even if deciphering or decoding fails below.
+	s.rxCount = count
+	return s.unwrapAt(data, count)
+}
+
+// DecodeUnverified deciphers and decodes a security-protected NAS message
+// at the COUNT DecodeSecure would estimate for it, without checking its MAC
+// and without storing the COUNT. It stands in for a receiver that does not
+// enforce integrity (a mock's non-conformant option); nothing else may use
+// it.
+func (s *SecurityContext) DecodeUnverified(data []byte) (*f5nas.Message, error) {
+	count, err := s.estimateRx(data)
+	if err != nil {
+		return nil, err
+	}
+	m, _, err := s.unwrapAt(data, count)
+	return m, err
+}
+
+// estimateRx is the NAS COUNT a received protected PDU is checked at. A
+// "new context" message restarts the COUNT (TS 33.501 §6.4.3.1). Otherwise
+// the 24-bit COUNT is recovered from the received sequence byte, bumping the
+// overflow counter on wrap (TS 24.501 §4.4.3.1). Matches gnbsim. The
+// estimate is a candidate until the MAC verifies, and only then is stored,
+// since "The value of the downlink NAS COUNT that is stored or read out of
+// the USIM or non-volatile memory as described in annex C, is the largest
+// downlink NAS COUNT used in a successfully integrity checked NAS message."
+// (TS 24.501 4.4.3.1, V15.0.0 onward). A message that fails the check
+// leaves the stored COUNT as it was.
+func (s *SecurityContext) estimateRx(data []byte) (uint32, error) {
 	if len(data) < 7 {
-		return nil, nil, fmt.Errorf("secured NAS too short: %d bytes", len(data))
+		return 0, fmt.Errorf("secured NAS too short: %d bytes", len(data))
 	}
 	if data[0] != epd5GMM {
-		return nil, nil, fmt.Errorf("unexpected EPD %#x", data[0])
+		return 0, fmt.Errorf("unexpected EPD %#x", data[0])
 	}
-	secHdr := data[1]
-	recvMAC := data[2:6]
 	seq := data[6]
-	payload := append([]byte(nil), data[7:]...)
-
-	// A "new context" downlink message restarts the downlink COUNT
-	// (TS 33.501 §6.4.3.1). Otherwise, recover the 24-bit COUNT from the
-	// received sequence byte, bumping the overflow counter on wrap
-	// (TS 24.501 §4.4.3.1). Matches gnbsim. The estimate is a candidate
-	// until the MAC verifies, and only then is stored, since "The value of
-	// the downlink NAS COUNT that is stored or read out of the USIM or
-	// non-volatile memory as described in annex C, is the largest downlink
-	// NAS COUNT used in a successfully integrity checked NAS message."
-	// (TS 24.501 4.4.3.1, V15.0.0 onward). A message that fails the check
-	// leaves the stored COUNT as it was.
 	est := s.rxCount
-	if secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
+	if secHdr := data[1]; secHdr == SecHdrIntegrityNewContext || secHdr == SecHdrIntegrityCipheredNewCtx {
 		est = 0
 	}
 	if byte(est&0xFF) > seq {
 		est += 1 << 8 // overflow++
 	}
-	count := est&0xFFFFFF00 | uint32(seq)
+	return est&0xFFFFFF00 | uint32(seq), nil
+}
 
-	macInput := append([]byte{seq}, payload...)
+// verifyAt checks a protected PDU's MAC over seq‖payload at count. A
+// mismatch wraps ErrIntegrity.
+func (s *SecurityContext) verifyAt(data []byte, count uint32) error {
 	wantMAC, err := security.NASMacCalculate(s.IntegrityAlg, s.KNASint, count,
-		security.Bearer3GPP, s.rxDir(), macInput)
+		security.Bearer3GPP, s.rxDir(), data[6:])
 	if err != nil {
-		return nil, nil, fmt.Errorf("nas mac calculate: %w", err)
+		return fmt.Errorf("nas mac calculate: %w", err)
 	}
-	if !equalMAC(recvMAC, wantMAC) {
-		return nil, nil, fmt.Errorf("%w: mac %x != %x", ErrIntegrity, recvMAC, wantMAC)
+	if recvMAC := data[2:6]; !equalMAC(recvMAC, wantMAC) {
+		return fmt.Errorf("%w: mac %x != %x", ErrIntegrity, recvMAC, wantMAC)
 	}
-	// The MAC proved the COUNT: track the last-received sequence number as
-	// the rx COUNT state, even if deciphering or decoding fails below.
-	s.rxCount = count
+	return nil
+}
 
-	ciphered := secHdr == SecHdrIntegrityCiphered || secHdr == SecHdrIntegrityCipheredNewCtx
-	if ciphered {
+// unwrapAt deciphers a protected PDU at count and decodes its plain NAS
+// message. The plain bytes come back even when the codec refuses them.
+func (s *SecurityContext) unwrapAt(data []byte, count uint32) (*f5nas.Message, []byte, error) {
+	secHdr := data[1]
+	payload := append([]byte(nil), data[7:]...)
+	if secHdr == SecHdrIntegrityCiphered || secHdr == SecHdrIntegrityCipheredNewCtx {
 		if err := security.NASEncrypt(s.CipheringAlg, s.KNASenc, count,
 			security.Bearer3GPP, s.rxDir(), payload); err != nil {
 			return nil, nil, fmt.Errorf("nas decrypt: %w", err)
 		}
 	}
-
 	plain := append([]byte(nil), payload...)
 	m := f5nas.NewMessage()
 	if err := m.PlainNasDecode(&payload); err != nil {

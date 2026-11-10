@@ -27,6 +27,10 @@ type PDUSessionParams struct {
 	SST          uint8  // slice/service type
 	SD           string // 6 hex digits, optional
 	DNN          string // data network name, e.g. "internet"
+	// PTI is the procedure transaction identity of the establishment
+	// request (TS 24.501 §9.6), which the network echoes in its answer.
+	// Zero keeps the request's PTI at 0.
+	PTI uint8
 }
 
 // Slice returns the session's S-NSSAI.
@@ -60,9 +64,10 @@ func BuildRequestedNSSAI(slices []SNSSAI) (*nasType.RequestedNSSAI, error) {
 }
 
 // BuildPDUSessionEstablishmentRequest builds the 5GSM PDU Session
-// Establishment Request (TS 24.501 §8.3.1). PTI is 0 for a UE-requested
-// session per §9.6. The Integrity Protection Maximum Data Rate IE is
-// mandatory; PDU session type IPv4 and SSC mode 1 are the common defaults.
+// Establishment Request (TS 24.501 §8.3.1), with p.PTI as its procedure
+// transaction identity (0 by default). The Integrity Protection Maximum
+// Data Rate IE is mandatory; PDU session type IPv4 and SSC mode 1 are the
+// common defaults.
 func BuildPDUSessionEstablishmentRequest(p PDUSessionParams) ([]byte, error) {
 	m := f5nas.NewMessage()
 	m.GsmMessage = f5nas.NewGsmMessage()
@@ -71,7 +76,7 @@ func BuildPDUSessionEstablishmentRequest(p PDUSessionParams) ([]byte, error) {
 	req := nasMessage.NewPDUSessionEstablishmentRequest(f5nas.MsgTypePDUSessionEstablishmentRequest)
 	req.ExtendedProtocolDiscriminator.SetExtendedProtocolDiscriminator(nasMessage.Epd5GSSessionManagementMessage)
 	req.PDUSessionID.SetPDUSessionID(p.PDUSessionID)
-	req.PTI.SetPTI(0x00)
+	req.PTI.SetPTI(p.PTI)
 	req.PDUSESSIONESTABLISHMENTREQUESTMessageIdentity.SetMessageType(f5nas.MsgTypePDUSessionEstablishmentRequest)
 	// Integrity Protection Maximum Data Rate: "full data rate" both ways
 	// (0xFF) — the conventional value (TS 24.501 §9.11.4.7).
@@ -136,6 +141,53 @@ func BuildULNASTransportForPDUSession(sm []byte, p PDUSessionParams) (*f5nas.Mes
 	dnn := nasType.NewDNN(nasMessage.ULNASTransportDNNType)
 	dnn.SetDNN(p.DNN)
 	t.DNN = dnn
+
+	gmm.ULNASTransport = t
+	return m, nil
+}
+
+// BuildPDUSessionReleaseRequest builds the 5GSM PDU Session Release Request
+// (TS 24.501 §8.3.12) for session psi with procedure transaction identity
+// pti, carrying no optional IE.
+func BuildPDUSessionReleaseRequest(psi, pti uint8) ([]byte, error) {
+	m := f5nas.NewMessage()
+	m.GsmMessage = f5nas.NewGsmMessage()
+	m.GsmHeader.SetMessageType(f5nas.MsgTypePDUSessionReleaseRequest)
+
+	req := nasMessage.NewPDUSessionReleaseRequest(f5nas.MsgTypePDUSessionReleaseRequest)
+	req.SetExtendedProtocolDiscriminator(nasMessage.Epd5GSSessionManagementMessage)
+	req.SetPDUSessionID(psi)
+	req.SetPTI(pti)
+	req.SetMessageType(f5nas.MsgTypePDUSessionReleaseRequest)
+
+	m.PDUSessionReleaseRequest = req
+	return m.PlainNasEncode()
+}
+
+// BuildULNASTransportForSM wraps a 5GSM payload for the existing PDU
+// session psi in a 5GMM UL NAS Transport (TS 24.501 §8.2.10): payload
+// container type N1 SM information and the PDU session ID, with no request
+// type, S-NSSAI or DNN, which only a request for a new session carries.
+// Returns the plain 5GMM message for the caller to wrap in the NAS security
+// context.
+func BuildULNASTransportForSM(sm []byte, psi uint8) (*f5nas.Message, error) {
+	if len(sm) == 0 {
+		return nil, fmt.Errorf("empty 5GSM payload")
+	}
+	m, gmm := newGmm(f5nas.MsgTypeULNASTransport)
+	t := nasMessage.NewULNASTransport(f5nas.MsgTypeULNASTransport)
+	t.SetExtendedProtocolDiscriminator(nasMessage.Epd5GSMobilityManagementMessage)
+	t.SetSecurityHeaderType(f5nas.SecurityHeaderTypePlainNas)
+	t.SetSpareHalfOctet(0)
+	t.SetMessageType(f5nas.MsgTypeULNASTransport)
+
+	t.SetPayloadContainerType(nasMessage.PayloadContainerTypeN1SMInfo)
+	t.PayloadContainer.SetLen(uint16(len(sm)))
+	t.SetPayloadContainerContents(sm)
+
+	pid := nasType.NewPduSessionID2Value(nasMessage.ULNASTransportPduSessionID2ValueType)
+	pid.SetPduSessionID2Value(psi)
+	t.PduSessionID2Value = pid
 
 	gmm.ULNASTransport = t
 	return m, nil

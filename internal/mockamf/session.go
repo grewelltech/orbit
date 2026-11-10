@@ -98,6 +98,9 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 	if err := sm.PlainNasDecode(&buf); err != nil {
 		return fmt.Errorf("mock amf decode 5GSM: %w", err)
 	}
+	if sm.GsmMessage != nil && sm.PDUSessionReleaseRequest != nil {
+		a.smReleases.Add(1)
+	}
 	if sm.GsmMessage == nil || sm.PDUSessionEstablishmentRequest == nil {
 		return nil
 	}

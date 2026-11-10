@@ -427,25 +427,9 @@ type pduResult struct {
 	err error
 }
 
-// readPDUs reads downlink PDUs on one goroutine until a read fails or done
-// closes, so a wait that runs out never leaves a read behind to swallow the
-// next PDU.
+// readPDUs reads the attach's association (readAssociation).
 func (s *attachState) readPDUs(done <-chan struct{}) <-chan pduResult {
-	ch := make(chan pduResult)
-	go func() {
-		for {
-			pdu, err := gnb.ReadPDU(context.Background(), s.conn)
-			select {
-			case ch <- pduResult{pdu, err}:
-			case <-done:
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return ch
+	return readAssociation(s.conn, done)
 }
 
 // awaitRelease takes downlink PDUs from pdus, each reported to the probe,

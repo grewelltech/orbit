@@ -146,6 +146,13 @@ type AMF struct {
 	// Unserved-NSSAI answer (nssai.go).
 	nssaiAnswer NSSAIAnswer
 
+	// Uplink NAS security options (uplinksec.go). badMACs counts protected
+	// uplinks that failed the integrity check, smReleases the PDU Session
+	// Release Requests received.
+	badMAC     UplinkAction
+	badMACs    atomic.Int64
+	smReleases atomic.Int64
+
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests).
 	regReqs [][]byte
@@ -348,6 +355,7 @@ type ueState struct {
 	ueCaps    nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
 	kamf      []byte                       // KAMF from authentication, for the SMC's keys
 	requested []byte                       // the Requested NSSAI IE's value, nil when absent
+	muted     bool                         // MuteOnUplink: every NAS message is dropped
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -418,15 +426,21 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	if len(nasPDU) < 2 {
 		return false, fmt.Errorf("uplink NAS too short")
 	}
+	if st.muted {
+		return false, nil
+	}
 	var msg *f5nas.Message
 	var err error
 	if f5nas.GetSecurityHeaderType(nasPDU) == f5nas.SecurityHeaderTypePlainNas {
 		msg, err = nas.DecodePlain(nasPDU)
 	} else {
-		msg, err = st.decodeSecure(nasPDU)
+		msg, err = a.decodeUplink(p, st, nasPDU)
 	}
 	if err != nil {
 		return false, fmt.Errorf("mock amf uplink NAS decode: %w", err)
+	}
+	if msg == nil {
+		return false, nil // dropped (decodeUplink)
 	}
 
 	switch msg.GmmHeader.GetMessageType() {
