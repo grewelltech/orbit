@@ -101,7 +101,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
 | Initial Context Setup | AMF→RAN | ✅ (attach) | — | timing angle (bad/late response) |
-| UE Context Release Request | RAN→AMF | ⬜ | ⬜ | |
+| UE Context Release Request | RAN→AMF | ✅ (the AN release of `NGAP-PAGING-ON-DL-DATA`; its failure is an ERROR, not a verdict) | ⬜ | |
 | UE Context Release (Command/Complete) | AMF→RAN | ✅ | — | |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
 
@@ -127,7 +127,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Lower-priority families (enumerate, then prioritise)
 | Family | Dir | Status | Notes |
 |---|---|---|---|
-| Paging | AMF→RAN | — | ORBIT receives; timing angle only |
+| Paging | AMF→RAN | ✅ `NGAP-PAGING-ON-DL-DATA` (downlink data to a CM-IDLE UE → PAGING with its 5G-S-TMSI) | needs an N6 responder as the downlink trigger; the TAI List for Paging is recorded only |
 | Location Reporting (Control / Report / Failure) | mixed | ⬜ | Report is RAN→AMF |
 | UE Radio Capability (Info Indication / Check) | mixed | ⬜ | Info Indication is RAN→AMF |
 | Trace (Start / Deactivate / Failure / Cell Traffic Trace) | mixed | ⬜ | low value for core conformance |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**11 checks today** (the first four live on the SD-Core testbed):
+**12 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -160,6 +160,12 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Indication; SD-Core's BESS-UPF returns none. Wire-confirmed (G-PDU reached the
   UPF, nothing back), so it scores FAIL; a lab that tolerates it lists it on
   its expected-failures list. See interop/sdcore.md.
+- `NGAP-PAGING-ON-DL-DATA` (procedural, FAIL-class) — a UE with a PDU session is
+  released to CM-IDLE by an AN release, a responder on N6 sends downlink data
+  to its address, and the core must send NGAP PAGING naming the UE's 5G-S-TMSI
+  within 10 s (TS 24.501 5.6.2.2.1, a "shall"; TS 23.502 4.2.3.3 step 4b and
+  TS 38.413 8.5.1.2 describe it). Needs a UE and a target responder as the
+  downlink trigger; SKIPs without either. Not yet run live.
 - `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501

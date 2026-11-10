@@ -48,17 +48,24 @@ const (
 	EngineIdleNoGUTI          = 128 // TestIdleNeedsGUTI
 
 	// internal/conformance
-	ConformanceNonCanonicalV4   = 56 // TestEndMarkerCheckNonCanonicalGNBN3/IPv4-mapped
-	ConformanceNonCanonicalHex  = 57 // TestEndMarkerCheckNonCanonicalGNBN3/IPv4-mapped,_expanded
-	ConformanceNoEndMarker      = 61 // TestEndMarkerCheckAgainstMockPair/end_marker_disabled
-	ConformanceEndMarker        = 62 // TestEndMarkerCheckAgainstMockPair/end_marker
-	ConformanceEndMarkerQFI     = 63 // TestEndMarkerCheckAgainstMockPair/end_marker_with_QFI
-	ConformanceLateGPDU         = 64 // TestEndMarkerCheckAgainstMockPair/late_g-pdu_after_the_end_marker
-	ConformanceRegistrationFail = 65 // TestEndMarkerCheckRegistrationFailure
-	ConformanceTimeoutBefore    = 66 // TestEndMarkerCheckTimeoutBeforeWindow
-	ConformanceTraffic          = 67 // TestEndMarkerCheckAgainstMockPair/traffic_configured
-	ConformanceCipherNEA0       = 68 // TestUELevelChecksUnderNEA2, the End Marker row under NEA0
-	ConformanceCipherNEA2       = 69 // TestUELevelChecksUnderNEA2, the End Marker row under NEA2
+	ConformanceNonCanonicalV4   = 56  // TestEndMarkerCheckNonCanonicalGNBN3/IPv4-mapped
+	ConformanceNonCanonicalHex  = 57  // TestEndMarkerCheckNonCanonicalGNBN3/IPv4-mapped,_expanded
+	ConformanceNoEndMarker      = 61  // TestEndMarkerCheckAgainstMockPair/end_marker_disabled
+	ConformanceEndMarker        = 62  // TestEndMarkerCheckAgainstMockPair/end_marker
+	ConformanceEndMarkerQFI     = 63  // TestEndMarkerCheckAgainstMockPair/end_marker_with_QFI
+	ConformanceLateGPDU         = 64  // TestEndMarkerCheckAgainstMockPair/late_g-pdu_after_the_end_marker
+	ConformanceRegistrationFail = 65  // TestEndMarkerCheckRegistrationFailure
+	ConformanceTimeoutBefore    = 66  // TestEndMarkerCheckTimeoutBeforeWindow
+	ConformanceTraffic          = 67  // TestEndMarkerCheckAgainstMockPair/traffic_configured
+	ConformanceCipherNEA0       = 68  // TestUELevelChecksUnderNEA2, the End Marker row under NEA0
+	ConformanceCipherNEA2       = 69  // TestUELevelChecksUnderNEA2, the End Marker row under NEA2
+	ConformancePagingPass       = 130 // TestPagingCheckAgainstMockPair/paging
+	ConformancePagingWithheld   = 131 // TestPagingCheckAgainstMockPair/paging_withheld
+	ConformancePagingWrongID    = 132 // TestPagingCheckAgainstMockPair/another_identity
+	ConformancePagingNoRelease  = 133 // TestPagingCheckAgainstMockPair/release_request_ignored
+	ConformancePagingNoGUTI     = 134 // TestPagingCheckAgainstMockPair/no_5G-GUTI
+	ConformancePagingNoTrigger  = 135 // TestPagingCheckAgainstMockPair/trigger_fails
+	ConformancePagingCutShort   = 136 // TestPagingCheckCutShort
 
 	// internal/cli
 	CLIProbePasses    = 83 // TestTargetProbePasses

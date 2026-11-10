@@ -127,8 +127,8 @@ func TestRegistryNeeds(t *testing.T) {
 			if len(all.GNBIDs) != int(2*n+1) {
 				t.Errorf("%d IDs, want %d", len(all.GNBIDs), 2*n+1)
 			}
-			if ng := r.Needs(700, tc.packed, Procedural); ng.UEs != 0 || len(ng.GNBIDs) == 0 {
-				t.Errorf("procedural only: %+v", ng)
+			if ng := r.Needs(700, tc.packed, NegativeIE); ng.UEs != 0 || len(ng.GNBIDs) == 0 {
+				t.Errorf("negative-ie only: %+v", ng)
 			}
 		})
 	}

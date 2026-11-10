@@ -331,6 +331,59 @@ drain:
 	return nil
 }
 
+// Idle moves the registered UE to CM-IDLE by an AN release (engine.Manager.Idle).
+func (h *UEHarness) Idle(ctx context.Context) (*engine.IdleResult, error) {
+	return h.m.Idle(ctx, h.supi)
+}
+
+// TriggerDownlink asks Env.Downlink to send downlink traffic to the UE's
+// PDU address.
+func (h *UEHarness) TriggerDownlink(ctx context.Context) error {
+	if h.env.Downlink == nil {
+		return errors.New("no downlink trigger configured")
+	}
+	sess, err := h.m.Status(h.supi)
+	if err != nil {
+		return err
+	}
+	ip, err := netip.ParseAddr(sess.Result.PDUAddress)
+	if err != nil {
+		return fmt.Errorf("UE address %q: %w", sess.Result.PDUAddress, err)
+	}
+	return h.env.Downlink.SendDownlink(ctx, ip)
+}
+
+// AwaitPaging reads NGAP PAGING on the idle UE's association for up to
+// wait, or until ctx ends, and returns every one it saw: it stops at the
+// first that names the UE's 5G-S-TMSI. The error is ctx's when ctx, not
+// the wait, ended it, or the read's when the association failed.
+func (h *UEHarness) AwaitPaging(ctx context.Context, wait time.Duration) ([]engine.PagingEvent, error) {
+	wctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	var seen []engine.PagingEvent
+	for {
+		ev, err := h.m.ObservePaging(wctx, h.supi)
+		if err != nil {
+			switch {
+			case ctx.Err() != nil:
+				return seen, ctx.Err()
+			case wctx.Err() != nil:
+				return seen, nil
+			}
+			return seen, err
+		}
+		seen = append(seen, *ev)
+		if ev.ForUE {
+			return seen, nil
+		}
+	}
+}
+
+// ServiceRequest brings the idle UE back (engine.Manager.ServiceRequest).
+func (h *UEHarness) ServiceRequest(ctx context.Context, opts ...engine.ServiceOption) (*engine.ServiceResult, error) {
+	return h.m.ServiceRequest(ctx, h.supi, opts...)
+}
+
 // Observe returns what has been seen so far, with the switch's timing.
 func (h *UEHarness) Observe() PathObservation {
 	h.mu.Lock()
