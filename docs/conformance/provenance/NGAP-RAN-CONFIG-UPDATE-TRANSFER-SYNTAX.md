@@ -2,7 +2,7 @@
 
 Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/38_series/38.413/](https://www.3gpp.org/ftp/Specs/archive/38_series/38.413/). Versions read: V15.0.0 (`38413-f00.zip`), V15.13.0 (`38413-fd0.zip`), V16.18.0 (`38413-gi0.zip`), V17.15.0 (`38413-hf0.zip`), V18.11.0 (`38413-ib0.zip`), V19.0.0, V19.4.0 (`38413-j40.zip`).
 
-## TS 38.413 10.2 (Transfer Syntax Error), should
+## TS 38.413 10.2 (Transfer Syntax Error), should, primary
 
 > "Missing mandatory elements in ASN.1 SEQUENCE definitions"
 
@@ -21,10 +21,11 @@ is one of the cases 10.2 lists as a Transfer Syntax Error, and for one the recei
 
 ## Verdict
 
-- **Verdict class:** DEVIATION, derived from the should: the check cites no shall.
-- **Stimulus:** on an association that has completed NG Setup, a RAN CONFIGURATION UPDATE (stream 0) whose only IE is a Supported TA List with one Supported TA Item cut off after its TAC, the IE's and the message's lengths stating the shortened sizes. For TAC 1 the PDU is `00 23 00 0c 00 00 01 00 66 00 05 00 00 00 00 01`. Everything before the cut is what the encoder produces for the well-formed message.
-- **PASS:** an ERROR INDICATION within 3 s, and a fresh NG Setup completes. The cause (10.2 points at Protocol "Transfer Syntax Error") is recorded, not asserted.
-- **DEVIATION:** no ERROR INDICATION and the core still runs. Observed says which: `silently dropped; association survived`, the PDU that came instead (`RAN CONFIGURATION UPDATE FAILURE`, `RAN CONFIGURATION UPDATE ACKNOWLEDGE (accepted!)`, or another), or `association reset` when the AMF dropped the association and a fresh NG Setup still completes. The detail ends with: "no ERROR INDICATION for a transfer-syntax error in RAN CONFIGURATION UPDATE. TS 38.413 10.2 (should). Likely cause: AMF silently drops malformed PDUs."
-- **FAIL:** `AMF unresponsive after the message (...)`: after the stimulus a fresh NG Setup no longer completes. A crash is FAIL whatever a check cites.
-- **A lost association with a running core** is returned by the check as FAIL and scored DEVIATION by the suite, since no shall is cited that it would miss.
-- **SKIP:** category not selected.
+- **Class:** conformance, one should (10.2): the check cites no shall, so its worst verdict is DEVIATION.
+- **Stimulus:** on an association that has completed NG Setup, a RAN CONFIGURATION UPDATE (stream 0) whose only IE is a Supported TA List with one Supported TA Item cut off after its TAC, the IE's and the message's lengths stating the shortened sizes. For TAC 1 the PDU is `00 23 00 0c 00 00 01 00 66 00 05 00 00 00 00 01`. Everything before the cut is what the encoder produces for the well-formed message. The answer is awaited for 3 s.
+- **PASS** `error-indication`: an ERROR INDICATION. The cause (10.2 points at Protocol "Transfer Syntax Error") is recorded, not asserted.
+- **DEVIATION** (10.2), each its own outcome: `silent-drop` (`silently dropped; association survived`: nothing within 3 s, a bound of the check, as TS 38.413 sets no timer for the ERROR INDICATION; the absence is inferred within it), `other-pdu` (the PDU that came instead: `RAN CONFIGURATION UPDATE FAILURE`, `RAN CONFIGURATION UPDATE ACKNOWLEDGE (accepted!)`, or another), `association-lost` (`association reset`: the AMF dropped the association and a fresh NG Setup still completes). The detail ends with: "no ERROR INDICATION for a transfer-syntax error in RAN CONFIGURATION UPDATE. TS 38.413 10.2 (should). Likely cause: AMF silently drops malformed PDUs."
+- **CRASH:** after every outcome, a lost association included, a fresh NG Setup with another gNB ID is tried; a core that no longer completes it did not survive the stimulus (`AMF unresponsive after the message (...)`).
+- **BLOCKED:** the check's NG Setup did not complete (`blocked-ng-setup`; `NGAP-NG-SETUP` owns whether it completes).
+- **ERROR:** the stimulus could not be built or sent, the per-test timeout expired before the 3 s wait, or the liveness probe could not run.
+- **SKIP:** a target release older than Rel-15.

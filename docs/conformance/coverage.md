@@ -197,7 +197,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   error, for which the receiver **should** initiate the Error Indication
   procedure (TS 38.413 10.2). An ERROR INDICATION is PASS. A silent drop,
   another PDU, or a dropped association with the core still running is
-  DEVIATION; a core that stops completing NG Setup is FAIL. It cites a
+  DEVIATION; a core that stops completing NG Setup is CRASH. It cites a
   should and no shall, as `NGAP-UE-CTX-RELEASE-ON-REQUEST` does. Not yet run on Ref 2.
 - `GTPU-UNKNOWN-TEID-ERRIND` (gtpu, FAIL-class) — G-PDU with a non-zero
   unknown TEID → TS 29.281 §7.3.1 says the UPF **shall** return an Error

@@ -240,7 +240,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX
 
-- TS 38.413 10.2 (should, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 10.2 (should, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 
 ### NGAP-NG-RESET-ACK
 
@@ -632,6 +632,18 @@ Needs: NG Setup.
 | `error-indication` | WARN | availability | answered the valid RAN CONFIGURATION UPDATE with an ERROR INDICATION |
 | `no-answer` | WARN | availability; absence within 5s (check bound; TS 38.413 sets no timer for the RAN Configuration Update outcome) | sent neither RAN CONFIGURATION UPDATE ACKNOWLEDGE nor FAILURE; the association survived |
 | `association-lost` | WARN | availability | dropped the association instead of answering the valid RAN CONFIGURATION UPDATE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `error-indication` | PASS | TS 38.413 10.2 (should) | answered the RAN CONFIGURATION UPDATE with a transfer syntax error with an ERROR INDICATION |
+| `other-pdu` | DEVIATION | TS 38.413 10.2 (should) | answered with another PDU instead of an ERROR INDICATION; the association survived |
+| `silent-drop` | DEVIATION | TS 38.413 10.2 (should); absence within 3s (check bound; TS 38.413 sets no timer for the ERROR INDICATION) | sent no ERROR INDICATION; the association survived |
+| `association-lost` | DEVIATION | TS 38.413 10.2 (should) | dropped the association instead of sending an ERROR INDICATION, and kept running |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 
 ### NGAP-NG-RESET-ACK outcomes

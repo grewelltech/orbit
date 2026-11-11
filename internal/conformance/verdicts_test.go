@@ -220,8 +220,7 @@ func TestRunOneVerdictRule(t *testing.T) {
 // shouldOnly are the registered checks that cite a should and no shall, so
 // their worst verdict is DEVIATION.
 var shouldOnly = map[string]bool{
-	"NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX": true,
-	"NGAP-UE-CTX-RELEASE-ON-REQUEST":         true,
+	"NGAP-UE-CTX-RELEASE-ON-REQUEST": true,
 }
 
 // informational are the registered checks that cite descriptive references

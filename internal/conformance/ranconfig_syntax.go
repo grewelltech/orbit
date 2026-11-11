@@ -35,17 +35,37 @@ const ranConfigSyntaxText = "no ERROR INDICATION for a transfer-syntax error in 
 // receiver "should initiate Error Indication procedure".
 //
 // An ERROR INDICATION is PASS, its cause recorded and not asserted. Anything
-// else with the association still up misses the should and is DEVIATION,
-// with Observed saying which: a silent drop within ranConfigSyntaxWait, or
-// another PDU (a RAN CONFIGURATION UPDATE FAILURE or ACKNOWLEDGE included).
-// A lost association is returned as FAIL; a fresh NG Setup then tells a core
-// that only dropped the association from one that is gone. The check cites
-// no shall, so the registry scores the first DEVIATION (runOne) and keeps
-// the second, the crash, FAIL. The same fresh NG Setup confirms the core
-// after every other outcome.
+// else misses the should and is DEVIATION, with its own outcome: no answer
+// within ranConfigSyntaxWait, another PDU (a RAN CONFIGURATION UPDATE
+// FAILURE or ACKNOWLEDGE included), or a lost association. After every
+// outcome, a lost association included, a fresh NG Setup confirms the core
+// (confirmAlive): one that no longer completes it is CRASH, which tells a
+// core that only dropped the association from one that is gone.
 type ranConfigUpdateTransferSyntax struct {
 	// wait overrides ranConfigSyntaxWait; tests shorten it.
 	wait time.Duration
+}
+
+// ranConfigSyntaxRef is the key of the should every outcome of the check
+// rests on.
+const ranConfigSyntaxRef = "TS 38.413 10.2"
+
+// The outcomes of NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX.
+var (
+	ranConfigSyntaxIndicated = Outcome{ID: "error-indication", Verdict: Pass, Refs: []string{ranConfigSyntaxRef},
+		Summary: "answered the RAN CONFIGURATION UPDATE with a transfer syntax error with an ERROR INDICATION"}
+	ranConfigSyntaxOtherPDU = Outcome{ID: "other-pdu", Verdict: Deviation, Refs: []string{ranConfigSyntaxRef},
+		Summary: "answered with another PDU instead of an ERROR INDICATION; the association survived"}
+	ranConfigSyntaxSilent = Outcome{ID: "silent-drop", Verdict: Deviation, Refs: []string{ranConfigSyntaxRef},
+		Bound:   &Bound{Wait: ranConfigSyntaxWait, Source: "check bound; TS 38.413 sets no timer for the ERROR INDICATION"},
+		Summary: "sent no ERROR INDICATION; the association survived"}
+	ranConfigSyntaxLost = Outcome{ID: "association-lost", Verdict: Deviation, Refs: []string{ranConfigSyntaxRef},
+		Summary: "dropped the association instead of sending an ERROR INDICATION, and kept running"}
+)
+
+// Outcomes declares what the check can report.
+func (ranConfigUpdateTransferSyntax) Outcomes() []Outcome {
+	return []Outcome{ranConfigSyntaxIndicated, ranConfigSyntaxOtherPDU, ranConfigSyntaxSilent, ranConfigSyntaxLost}
 }
 
 func (c ranConfigUpdateTransferSyntax) errIndWait() time.Duration {
@@ -63,7 +83,7 @@ func (ranConfigUpdateTransferSyntax) Category() Category { return NegativeIE }
 // 8.7.2.3) are in the provenance file only: the check asserts neither.
 func (ranConfigUpdateTransferSyntax) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "10.2", Strength: Should, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
+		{Spec: "TS 38.413", Clause: "10.2", Strength: Should, Since: 15, Verified: ts38413Verified, WordingUnchanged: true, Primary: true},
 	}
 }
 
@@ -71,57 +91,57 @@ func (c ranConfigUpdateTransferSyntax) Run(ctx context.Context, env Env) Result 
 	r := Result{Expected: "ERROR INDICATION for a RAN CONFIGURATION UPDATE with a transfer syntax error, and the NG association keeps working (TS 38.413 10.2)"}
 	stim, err := truncatedTAListUpdate(env.GNB)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "stimulus could not be built", err.Error()
-		return r
+		return r.Errored("stimulus could not be built", err.Error())
 	}
 	conn, err := env.DialSetup(ctx)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "setup failed", err.Error()
-		return r
+		return r.SetupFailed("setup failed", err)
 	}
 	defer func() { _ = conn.Close() }()
 
 	// RAN CONFIGURATION UPDATE is non-UE-associated: stream 0.
 	if err := conn.WriteNGAP(sctp.StreamNonUEAssociated, stim); err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("stimulus could not be sent", err.Error())
 	}
 	sent := time.Now()
 	wait := c.errIndWait()
 	rctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
-	var survived bool
-	r.Verdict, r.Observed, r.Detail, survived = classifyRANConfigSyntax(resp, err, time.Since(sent), wait)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return r.Errored("timed out waiting for the ERROR INDICATION",
+			fmt.Sprintf("the per-test timeout expired before the %s the check waits; raise --per-test-timeout", wait))
+	}
+	o, observed, detail, survived := classifyRANConfigSyntax(resp, err, time.Since(sent), wait)
+	r = r.As(o, observed, detail)
 
 	// The fresh NG Setup runs after a lost association too: there it is
 	// what tells a dropped association from a core that is gone.
-	lost := r
 	r = confirmAlive(ctx, env, r, true, "fresh NG Setup failed — the core did not survive the malformed RAN CONFIGURATION UPDATE")
-	if !survived && r.Observed == lost.Observed {
+	if !survived && r.Outcome == ranConfigSyntaxLost.ID {
 		r.Detail = joinDetail("a fresh NG Setup still completes, so the AMF dropped the association and kept running", r.Detail)
 	}
 	return r
 }
 
 // classifyRANConfigSyntax maps the AMF's reaction to the malformed RAN
-// CONFIGURATION UPDATE onto a verdict; after is how long after the stimulus
-// the reaction came and wait the bound a silent drop is inferred within.
-// survived reports whether the association is still up.
-func classifyRANConfigSyntax(resp *ngapType.NGAPPDU, err error, after, wait time.Duration) (v Verdict, observed, detail string, survived bool) {
+// CONFIGURATION UPDATE onto an outcome; after is how long after the
+// stimulus the reaction came and wait the bound a silent drop is inferred
+// within. survived reports whether the association is still up.
+func classifyRANConfigSyntax(resp *ngapType.NGAPPDU, err error, after, wait time.Duration) (o Outcome, observed, detail string, survived bool) {
 	switch {
 	case err == nil && isErrorIndication(resp):
-		return Pass, "ERROR INDICATION", "cause " + errorIndicationCause(resp) + " (recorded, not asserted)", true
+		return ranConfigSyntaxIndicated, "ERROR INDICATION", "cause " + errorIndicationCause(resp) + " (recorded, not asserted)", true
 	case err == nil:
 		name := ranConfigOutcomeName(resp)
-		return Deviation, name, joinDetail(fmt.Sprintf("answered with %s %s after the malformed RAN CONFIGURATION UPDATE; the association survived",
+		return ranConfigSyntaxOtherPDU, name, joinDetail(fmt.Sprintf("answered with %s %s after the malformed RAN CONFIGURATION UPDATE; the association survived",
 			name, after.Round(time.Millisecond)), ranConfigSyntaxText), true
 	case errors.Is(err, context.DeadlineExceeded):
-		return Deviation, "silently dropped; association survived",
+		return ranConfigSyntaxSilent, "silently dropped; association survived",
 			joinDetail(fmt.Sprintf("no ERROR INDICATION within %s of the malformed RAN CONFIGURATION UPDATE (absence inferred within this bound); the association survived", wait),
 				ranConfigSyntaxText), true
 	default:
-		return Fail, "association reset",
+		return ranConfigSyntaxLost, "association reset",
 			joinDetail(fmt.Sprintf("the association was lost %s after the malformed RAN CONFIGURATION UPDATE (%v)", after.Round(time.Millisecond), err),
 				ranConfigSyntaxText), false
 	}
