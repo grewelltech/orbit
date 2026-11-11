@@ -105,7 +105,9 @@ func (r *PDUReleaseResult) Released() bool { return r.NASCommand && r.ResourceRe
 // its N3 data path are left as they are until Deregister, so a caller can
 // watch whether the core still sends downlink on the released tunnel. It
 // holds the UE's procedure lock, like a handover or a deregistration, and
-// expects the UE on an association of its own, as Register gives it.
+// expects the UE on an association of its own, as Register gives it. A
+// CM-IDLE UE is refused before anything is sent: it has no NAS signalling
+// connection to carry the request, and ServiceRequest restores one.
 func (m *Manager) ReleasePDUSession(ctx context.Context, supi string, opts ...PDUReleaseOption) (*PDUReleaseResult, error) {
 	o := pduReleaseOptions{}
 	for _, opt := range opts {
@@ -128,6 +130,9 @@ func (m *Manager) ReleasePDUSession(ctx context.Context, supi string, opts ...PD
 		return nil, err
 	}
 	defer release()
+	if sess.Idle() {
+		return nil, fmt.Errorf("UE %s is CM-IDLE: a UE-requested PDU session release needs a connected UE", supi)
+	}
 	return sess.releasePDUSession(ctx, o)
 }
 
