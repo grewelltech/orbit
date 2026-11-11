@@ -34,6 +34,9 @@ type HandoverRequestInfo struct {
 	// lineage cores encode the transfer as a PDU Session Resource Setup
 	// Request Transfer, which is what this parser understands).
 	ULTunnels map[int64]GNBTunnel
+	// UESecurityCapabilities is the request's UE Security Capabilities IE,
+	// which the target gNB holds for the UE from then on; nil when absent.
+	UESecurityCapabilities *ngapType.UESecurityCapabilities
 }
 
 // ParseHandoverRequest extracts what the target needs to acknowledge.
@@ -48,6 +51,8 @@ func ParseHandoverRequest(pdu *ngapType.NGAPPDU) (*HandoverRequestInfo, error) {
 		switch ie.Id.Value {
 		case ngapType.ProtocolIEIDAMFUENGAPID:
 			out.AMFUENGAPID = ie.Value.AMFUENGAPID.Value
+		case ngapType.ProtocolIEIDUESecurityCapabilities:
+			out.UESecurityCapabilities = CloneUESecurityCapabilities(ie.Value.UESecurityCapabilities)
 		case ngapType.ProtocolIEIDPDUSessionResourceSetupListHOReq:
 			for _, item := range ie.Value.PDUSessionResourceSetupListHOReq.List {
 				out.PDUSessionIDs = append(out.PDUSessionIDs, item.PDUSessionID.Value)

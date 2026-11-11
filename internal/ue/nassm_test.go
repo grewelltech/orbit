@@ -68,3 +68,42 @@ func TestRegistrationRequestCarriesNSSAI(t *testing.T) {
 		t.Errorf("decoded Requested NSSAI = %x", rr.RequestedNSSAI.Buffer)
 	}
 }
+
+// The PDU Session Establishment Request carries an allocated PTI, the PDU
+// session ID, never 0 (TS 24.501 6.4.1.2); a PDU session ID outside 1 to 15
+// is refused.
+func TestPDUSessionEstablishmentRequestPTI(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      uint8
+		wantErr bool
+	}{
+		{name: "session 1", id: 1},
+		{name: "session 5", id: 5},
+		{name: "session 15", id: 15},
+		{name: "session 0", id: 0, wantErr: true},
+		{name: "session 16", id: 16, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := BuildPDUSessionEstablishmentRequest(PDUSessionParams{PDUSessionID: tc.id, SST: 1, DNN: "internet"})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("built a request for PDU session %d", tc.id)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := nas.DecodePlain(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := m.PDUSessionEstablishmentRequest
+			if req == nil || req.GetPDUSessionID() != tc.id || req.GetPTI() != tc.id {
+				t.Errorf("request = %+v, want PDU session ID and PTI %d", req, tc.id)
+			}
+		})
+	}
+}

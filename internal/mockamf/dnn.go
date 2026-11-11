@@ -54,6 +54,10 @@ const (
 	BadMACDNN
 	// IgnoreDNN sends nothing back.
 	IgnoreDNN
+	// Status5GMMDNN answers with a 5GMM STATUS alone, the request not sent
+	// back. The 5GMM cause is #91 DNN not supported or not subscribed in
+	// the slice unless one is given.
+	Status5GMMDNN
 )
 
 // WithUnknownDNN makes the mock answer a PDU Session Establishment Request
@@ -95,6 +99,12 @@ func (a *AMF) answerUnknownDNN(p *pipe, st *ueState, id, pti uint8, request []by
 	case UndecodableDNN:
 	case IgnoreDNN:
 		return nil
+	case Status5GMMDNN:
+		status, err := st.encodeSecureRaw([]byte{nasMessage.Epd5GSMobilityManagementMessage, 0x00, f5nas.MsgTypeStatus5GMM, routing}, nas.SecHdrIntegrityCiphered)
+		if err != nil {
+			return err
+		}
+		return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), status))
 	default:
 		return fmt.Errorf("mock amf: unknown DNN answer %d", a.dnnAnswer)
 	}

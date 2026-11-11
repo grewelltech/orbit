@@ -20,7 +20,7 @@ import (
 func pathSwitch(t *testing.T, ctx context.Context, conn gnb.Transport, srcAMFID int64) *ngapType.NGAPPDU {
 	t.Helper()
 	cfg := gnb.Config{ID: 2, Name: "orbit-gnb-2", MCC: "208", MNC: "93", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}}
-	ps, err := gnb.BuildPathSwitchRequest(cfg, srcAMFID, 7, []gnb.AdmittedSession{
+	ps, err := gnb.BuildPathSwitchRequest(cfg, srcAMFID, 7, gnb.NewUESecurityCapabilities(0, 0x4000, 0, 0), []gnb.AdmittedSession{
 		{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: "127.0.0.2", TEID: 0x99}, QFIs: []int64{1}},
 	})
 	if err != nil {

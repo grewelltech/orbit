@@ -69,6 +69,7 @@ Formats checked by orbit-conformance-test-writer, 2026-10-26: V18.14.0 for the l
   - The UE sends octets 3 to 5, all zero.
   - NSSAA is octet 4 bit 7 (from V16.2.0) and ER-NSSAI is octet 5 bit 5 (from V17.0.0), so both are sent explicitly as "not supported".
   - The spec gives an omitted octet no meaning, so the check does not rely on omission.
+- **How they reach the core (4.4.6 a, V15.7.0 and V19.8.0):** the UE has no 5G NAS security context, so its initial REGISTRATION REQUEST carries cleartext IEs only. The Requested NSSAI and the 5GMM capability are in the complete REGISTRATION REQUEST, sent in the NAS message container IE of the SECURITY MODE COMPLETE.
 - **REGISTRATION REJECT IEs (8.2.9.1):**
   - Rejected NSSAI is IEI 0x69, present from V16.2.0. Its layout (9.11.3.46) is a [length | cause] octet, then the SST and an optional SD.
   - Extended rejected NSSAI is IEI 0x68, present from V17.0.0. Its layout (9.11.3.75) is a series of partial lists:

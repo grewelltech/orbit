@@ -84,7 +84,7 @@ func TestLivePathSwitchDataContinuity(t *testing.T) {
 
 	// Target gNB requests the path switch to its own DL tunnel.
 	const targetDLTEID = uint32(0x300)
-	ps, err := gnb.BuildPathSwitchRequest(tgtCfg, r.AMFUENGAPID, 1, []gnb.AdmittedSession{
+	ps, err := gnb.BuildPathSwitchRequest(tgtCfg, r.AMFUENGAPID, 1, sess.UESecurityCapabilities(), []gnb.AdmittedSession{
 		{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: tgtN3, TEID: targetDLTEID}, QFIs: []int64{1}},
 	})
 	if err != nil {

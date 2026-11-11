@@ -285,6 +285,7 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 		name         string
 		opts         []mockamf.Option
 		noUE         bool
+		noComplete   bool // the registration ends before the Security Mode Complete
 		want         Verdict
 		wantObserved string
 		wantDetail   []string
@@ -310,7 +311,7 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 		{name: "default mock: no allowed NSSAI", want: Skip, wantObserved: "core allowed default S-NSSAI(s); the #62 rule did not apply",
 			wantDetail: []string{"allowed NSSAI []", dereg}},
 		{name: "no answer", opts: nssai(mockamf.IgnoreNSSAI), want: Error, wantObserved: "no Registration Reject or Accept"},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error, wantObserved: "Authentication Reject"},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, noComplete: true, want: Error, wantObserved: "Authentication Reject"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
@@ -356,6 +357,9 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 				t.Errorf("mock dropped %d downlink PDUs that did not encode", amf.EncodeErrors())
 			}
 			if !tc.noUE {
+				checkInitialRequest(t, amf.InitialRegistrationRequests())
+			}
+			if !tc.noUE && !tc.noComplete {
 				checkStimulusRequest(t, amf.RegistrationRequests())
 			}
 			deadline := time.Now().Add(3 * time.Second)
@@ -369,8 +373,22 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 	}
 }
 
-// checkStimulusRequest checks the check's Registration Request (the first
-// the mock saw; the liveness probe sends none): only the stimulus S-NSSAI
+// checkInitialRequest checks the check's initial NAS message (the first the
+// mock saw): cleartext IEs only (TS 24.501 4.4.6), so the stimulus S-NSSAI
+// reaches the core in the Security Mode Complete alone.
+func checkInitialRequest(t *testing.T, reqs [][]byte) {
+	t.Helper()
+	if len(reqs) == 0 {
+		t.Fatal("the mock saw no Registration Request")
+	}
+	if iei, found, err := nas.NonCleartextRegistrationIE(reqs[0]); err != nil || found {
+		t.Errorf("initial Registration Request: non-cleartext IE 0x%02X (found %t, err %v)", iei, found, err)
+	}
+}
+
+// checkStimulusRequest checks the check's complete Registration Request
+// (the first the mock saw; the liveness probe sends none), which the mock
+// takes from the Security Mode Complete: only the stimulus S-NSSAI
 // requested, and the 5GMM capability's octets 3 to 5 sent, all zero.
 func checkStimulusRequest(t *testing.T, reqs [][]byte) {
 	t.Helper()

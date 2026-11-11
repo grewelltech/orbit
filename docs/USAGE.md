@@ -1174,6 +1174,24 @@ registered as `imsi-001010100007500` is the same session as `001010100007500`
 and is stored and shown as digits. The same holds for `--base-imsi` and for
 scenario `supi`, `range.base` and `supi_base` values.
 
+What the simulated UE does with the core's 5GMM messages after it has
+registered:
+
+- A CONFIGURATION UPDATE COMMAND is processed while a procedure is reading
+  the UE's downlink (the attach and its PDU session wait, the N2 handover): a
+  new 5G-GUTI is taken, and a CONFIGURATION UPDATE COMPLETE is sent when the
+  command requests acknowledgement. A new TAI list or allowed NSSAI is only
+  logged.
+- **Not supported:** the registration procedure for mobility and periodic
+  registration update. A command with "registration requested" set
+  (TS 24.501 5.4.4.3) is still acknowledged when it asks for that, but the UE
+  starts no registration and stays registered as it was. `orbit serve` logs
+  a warning ("requests a registration update ... which the UE cannot
+  perform"), and the engine records it on the session
+  (`Session.RegistrationUpdateRequested`) and on an attach's result.
+- An IDENTITY REQUEST is answered (SUCI, IMEISV, IMEI, 5G-GUTI, 5G-S-TMSI);
+  a 5GMM STATUS is logged and otherwise ignored.
+
 `watch` streams lifecycle states (`REGISTERING`, `AUTHENTICATED`,
 `SECURITY_ESTABLISHED`, `REGISTERED`, `SESSION_ACTIVE`, `DEREGISTERED`) and
 mobility states (`HANDOVER_STARTED`, `PATH_SWITCH_COMPLETE`, `HANDED_OVER`,

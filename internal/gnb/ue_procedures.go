@@ -205,6 +205,9 @@ type DownlinkMessage struct {
 	RANUENGAPID int64
 	HasAMFID    bool
 	NASPDU      []byte
+	// UESecurityCapabilities is the Initial Context Setup Request's UE
+	// Security Capabilities IE, nil for any other message.
+	UESecurityCapabilities *ngapType.UESecurityCapabilities
 }
 
 // ParseDownlink extracts the fields ORBIT's attach FSM needs from a decoded
@@ -219,7 +222,13 @@ func ParseDownlink(pdu *ngapType.NGAPPDU) (*DownlinkMessage, error) {
 		case ngapType.InitiatingMessagePresentDownlinkNASTransport:
 			return parseUEIEs(ngapType.ProcedureCodeDownlinkNASTransport, dlNASIEs(im.Value.DownlinkNASTransport)), nil
 		case ngapType.InitiatingMessagePresentInitialContextSetupRequest:
-			return parseUEIEs(ngapType.ProcedureCodeInitialContextSetup, icsIEs(im.Value.InitialContextSetupRequest)), nil
+			out := parseUEIEs(ngapType.ProcedureCodeInitialContextSetup, icsIEs(im.Value.InitialContextSetupRequest))
+			for _, ie := range im.Value.InitialContextSetupRequest.ProtocolIEs.List {
+				if ie.Id.Value == ngapType.ProtocolIEIDUESecurityCapabilities {
+					out.UESecurityCapabilities = CloneUESecurityCapabilities(ie.Value.UESecurityCapabilities)
+				}
+			}
+			return out, nil
 		default:
 			return &DownlinkMessage{Procedure: im.ProcedureCode.Value}, nil
 		}
