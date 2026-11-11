@@ -34,7 +34,7 @@ func TestClassifyUECtxRelease(t *testing.T) {
 			wantDetail: []string{"other PDUs while waiting: DownlinkNASTransport",
 				"cleanup: the UE was not deregistered with an initial NAS message, the UE having no NG connection: no 5G-GUTI"}},
 		{name: "no command", rel: engine.ContextReleaseResult{}, want: Deviation,
-			wantObserved: "no UE CONTEXT RELEASE COMMAND within 5s",
+			wantObserved: "no UE CONTEXT RELEASE COMMAND within 5s (absence inferred within this bound)",
 			wantDetail:   []string{ueCtxReleaseFailure, "cleanup: the UE was deregistered over its NG connection"}},
 		{name: "no command, an Error Indication instead", rel: engine.ContextReleaseResult{Skipped: []string{"ErrorIndication"}}, want: Deviation,
 			derr:       errors.New("write failed"),
@@ -42,8 +42,8 @@ func TestClassifyUECtxRelease(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := classifyUECtxRelease(tc.rel, 5*time.Second, tc.derr)
-			if v != tc.want {
+			o, observed, detail := classifyUECtxRelease(tc.rel, 5*time.Second, tc.derr)
+			if v := covers(o).Verdict; v != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
 			}
 			if tc.wantObserved != "" && observed != tc.wantObserved {
@@ -72,6 +72,9 @@ func TestUECtxReleaseFailureMessage(t *testing.T) {
 func TestUECtxReleaseCheckWithoutHarness(t *testing.T) {
 	if got := WorstVerdict(ngapUECtxReleaseOnRequest{}); got != Deviation {
 		t.Errorf("WorstVerdict = %s, want DEVIATION", got)
+	}
+	if got := OwnsOf(ngapUECtxReleaseOnRequest{}); len(got) != 1 || got[0] != ProcANRelease || ueCtxReleaseNoCommand.NotCompleted != ProcANRelease {
+		t.Errorf("owns %v, want the AN release, reported as not completed by the missing command", got)
 	}
 	if got := (ngapUECtxReleaseOnRequest{}).Category(); got != Procedural {
 		t.Errorf("category = %s, want procedural", got)
@@ -105,8 +108,8 @@ func TestUECtxReleaseCheckAgainstMock(t *testing.T) {
 		{name: "command", net24: testnet.ConformanceRelOnReq, opts: []mockamf.Option{mockamf.WithGUTI()}, want: Pass, deregs: 1, idle: 1,
 			wantDetail: []string{"the command's cause is nas(", "cleanup: the UE was deregistered with an initial NAS message"}},
 		{name: "command withheld", net24: testnet.ConformanceRelIgnored, opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithIgnoreUEContextReleaseRequest()},
-			want: Deviation, deregs: 1, wantObserved: "no UE CONTEXT RELEASE COMMAND within 400ms",
-			wantDetail: []string{ueCtxReleaseFailure, "cleanup: the UE was deregistered over its NG connection"}},
+			want: Deviation, deregs: 1, wantObserved: "no UE CONTEXT RELEASE COMMAND within 400ms (absence inferred within this bound)",
+			wantDetail: []string{ueCtxReleaseFailure, "cleanup: the UE was deregistered over its NG connection", "does not follow TS 38.413 8.3.2.2 (should)"}},
 		{name: "command, no 5G-GUTI", net24: testnet.ConformanceRelNoGUTI, want: Pass,
 			wantDetail: []string{"cleanup: the UE was not deregistered with an initial NAS message", "no 5G-GUTI"}},
 	}
@@ -148,16 +151,16 @@ func TestUECtxReleaseCheckAgainstMock(t *testing.T) {
 	}
 }
 
-// A registration the core refuses is an ERROR naming the step, with no
-// association left open.
+// A registration the core refuses is BLOCKED on the registration, naming
+// the step, with no association left open.
 func TestUECtxReleaseCheckRegistrationFailure(t *testing.T) {
 	c := newMockCore(t, testnet.ConformanceRelRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
 	env := ueEnv(c.front.Addr, "", c.n3)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	r := ngapUECtxReleaseOnRequest{}.Run(ctx, env)
-	if r.Verdict != Error || r.Observed != "UE registration failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
-		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+	r := runOne(ctx, ngapUECtxReleaseOnRequest{}, env, 15*time.Second)
+	if r.Verdict != Blocked || r.BlockedOn != ProcRegistration || r.Observed != "UE registration failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+		t.Errorf("result %s on %q / %q / %q, want BLOCKED on the registration, naming the step", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
 	}
 	if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
 		t.Error("detail carries key material")

@@ -30,11 +30,34 @@ type errorIndicationOnUnknownUE struct{}
 // detail says so.
 const unknownUEWait = 3 * time.Second
 
+// unknownUERefs are the keys of the two shalls the check's outcomes rest
+// on: the ERROR INDICATION for an unknown UE NGAP ID pair (10.6) and the
+// error indication procedure itself (8.7.5.2).
+var unknownUERefs = []string{"TS 38.413 10.6", "TS 38.413 8.7.5.2"}
+
+// The outcomes of NGAP-UNKNOWN-UE-SURVIVES.
+var (
+	unknownUEIndicated = Outcome{ID: "error-indication", Verdict: Pass, Refs: unknownUERefs,
+		Summary: "answered the message for unknown UE NGAP IDs with an ERROR INDICATION"}
+	unknownUEOtherPDU = Outcome{ID: "other-pdu", Verdict: Fail, Refs: unknownUERefs,
+		Summary: "answered with another PDU; the association survived"}
+	unknownUESilent = Outcome{ID: "silent-drop", Verdict: Fail, Refs: unknownUERefs,
+		Bound:   &Bound{Wait: unknownUEWait, Source: "check bound; TS 38.413 sets no timer for the ERROR INDICATION"},
+		Summary: "sent no ERROR INDICATION; the association survived"}
+	unknownUEReset = Outcome{ID: "association-reset", Verdict: Fail, Refs: unknownUERefs,
+		Summary: "reset the association instead of sending an ERROR INDICATION"}
+)
+
+// Outcomes declares what the check can report.
+func (errorIndicationOnUnknownUE) Outcomes() []Outcome {
+	return []Outcome{unknownUEIndicated, unknownUEOtherPDU, unknownUESilent, unknownUEReset}
+}
+
 func (errorIndicationOnUnknownUE) ID() string         { return "NGAP-UNKNOWN-UE-SURVIVES" }
 func (errorIndicationOnUnknownUE) Category() Category { return NegativeIE }
 func (errorIndicationOnUnknownUE) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, Verified: ts38413Verified,
+		{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, Verified: ts38413Verified, Primary: true,
 			Changed: []SpecChange{{Release: 15, Note: "V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message"}}},
 		{Spec: "TS 38.413", Clause: "8.7.5.2", Strength: Shall, Since: 15, Verified: ts38413Verified,
 			Changed: []SpecChange{
@@ -48,8 +71,7 @@ func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "ERROR INDICATION for the unknown UE NGAP IDs, and the NG association keeps working (TS 38.413 10.6, 8.7.5.2)"}
 	conn, err := env.DialSetup(ctx)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "setup failed", err.Error()
-		return r
+		return r.SetupFailed("setup failed", err)
 	}
 	defer conn.Close()
 
@@ -58,20 +80,22 @@ func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 	// looking at it.
 	pdu, err := gnb.BuildUplinkNASTransport(env.GNB, 0x7fffffff, 0x00ffffff, []byte{0x7e, 0x00, 0x5c})
 	if err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("stimulus could not be built", err.Error())
 	}
 	if err := gnb.SendPDU(conn, 1, pdu); err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("stimulus could not be sent", err.Error())
 	}
 
 	sent := time.Now()
 	rctx, cancel := context.WithTimeout(ctx, unknownUEWait)
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
-	var survived bool
-	r.Verdict, r.Observed, r.Detail, survived = classifyUnknownUE(resp, err, time.Since(sent))
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return r.Errored("timed out waiting for the ERROR INDICATION",
+			fmt.Sprintf("the per-test timeout expired before the %s the check waits; raise --per-test-timeout", unknownUEWait))
+	}
+	o, observed, detail, survived := classifyUnknownUE(resp, err, time.Since(sent))
+	r = r.As(o, observed, detail)
 
 	// Crash-safety confirmation: whenever the association survived, the AMF
 	// must still complete a fresh NG Setup. If not, the core did not survive.
@@ -79,7 +103,7 @@ func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 }
 
 // classifyUnknownUE maps the AMF's reaction to an Uplink NAS Transport for
-// unknown UE NGAP IDs onto a verdict; after is how long after the stimulus
+// unknown UE NGAP IDs onto an outcome; after is how long after the stimulus
 // the reaction came. The stimulus is not the last message on a UE-associated
 // connection, so 10.6 requires an ERROR INDICATION (not just a local
 // release): that is PASS. Surviving without one (a silent drop, or another
@@ -87,18 +111,18 @@ func (errorIndicationOnUnknownUE) Run(ctx context.Context, env Env) Result {
 // other and from an association reset. survived reports whether the
 // association is still up, so the caller confirms the core with a fresh NG
 // Setup.
-func classifyUnknownUE(resp *ngapType.NGAPPDU, err error, after time.Duration) (v Verdict, observed, detail string, survived bool) {
+func classifyUnknownUE(resp *ngapType.NGAPPDU, err error, after time.Duration) (o Outcome, observed, detail string, survived bool) {
 	switch {
 	case err == nil && isErrorIndication(resp):
-		return Pass, "ERROR INDICATION", "", true
+		return unknownUEIndicated, "ERROR INDICATION", "", true
 	case err == nil:
-		return Fail, ngapName(resp), fmt.Sprintf("answered with %s %s after the UPLINK NAS TRANSPORT instead of an ERROR INDICATION; the association survived",
+		return unknownUEOtherPDU, ngapName(resp), fmt.Sprintf("answered with %s %s after the UPLINK NAS TRANSPORT instead of an ERROR INDICATION; the association survived",
 			ngapName(resp), after.Round(time.Millisecond)), true
 	case errors.Is(err, context.DeadlineExceeded):
-		return Fail, "silently dropped; association survived",
+		return unknownUESilent, "silently dropped; association survived",
 			fmt.Sprintf("no ERROR INDICATION within %s of the UPLINK NAS TRANSPORT (absence inferred within this bound); the association survived", unknownUEWait), true
 	default:
-		return Fail, "association reset", err.Error(), false
+		return unknownUEReset, "association reset", err.Error(), false
 	}
 }
 

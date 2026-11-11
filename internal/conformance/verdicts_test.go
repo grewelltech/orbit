@@ -66,8 +66,8 @@ func TestClassifyUnknownUE(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail, survived := classifyUnknownUE(tc.resp, tc.err, 1234*time.Millisecond)
-			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
+			o, observed, detail, survived := classifyUnknownUE(tc.resp, tc.err, 1234*time.Millisecond)
+			if v := covers(o).Verdict; v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
 				t.Errorf("= %s %q %q survived=%v, want %s %q with detail containing %q, survived=%v",
 					v, observed, detail, survived, tc.want, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
 			}
@@ -75,6 +75,44 @@ func TestClassifyUnknownUE(t *testing.T) {
 	}
 	if unknownUEWait != 3*time.Second {
 		t.Errorf("unknownUEWait = %s; the bound the detail names changed", unknownUEWait)
+	}
+}
+
+func pduNGResetAcknowledge() *ngapType.NGAPPDU {
+	return &ngapType.NGAPPDU{Present: ngapType.NGAPPDUPresentSuccessfulOutcome,
+		SuccessfulOutcome: &ngapType.SuccessfulOutcome{ProcedureCode: ngapType.ProcedureCode{Value: ngapType.ProcedureCodeNGReset},
+			Value: ngapType.SuccessfulOutcomeValue{Present: ngapType.SuccessfulOutcomePresentNGResetAcknowledge, NGResetAcknowledge: &ngapType.NGResetAcknowledge{}}}}
+}
+
+// NGAP-NG-RESET-ACK asserts the NG RESET ACKNOWLEDGE 8.7.4.2.2 requires:
+// PASS only for it. Another PDU, no answer within ngResetWait and a lost
+// association each miss the shall and are FAIL, with their own outcome.
+func TestClassifyNGReset(t *testing.T) {
+	tests := []struct {
+		name         string
+		resp         *ngapType.NGAPPDU
+		err          error
+		want         Outcome
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "acknowledge", resp: pduNGResetAcknowledge(), want: ngResetAcked, wantObserved: "NG RESET ACKNOWLEDGE"},
+		{name: "another PDU", resp: pduErrorIndication(), want: ngResetOtherPDU, wantObserved: "InitiatingMessage(procedure 9)", wantDetail: "expected NG RESET ACKNOWLEDGE"},
+		{name: "no answer", err: context.DeadlineExceeded, want: ngResetNoAnswer, wantObserved: "no response",
+			wantDetail: "no NG RESET ACKNOWLEDGE within " + ngResetWait.String() + " of the NG RESET (absence inferred within this bound)"},
+		{name: "association lost", err: errReset, want: ngResetAssociationLost, wantObserved: "association reset", wantDetail: "connection reset"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := classifyNGReset(tc.resp, tc.err)
+			if covers(o).ID != tc.want.ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s (%s) %q %q, want %s (%s) %q with detail containing %q",
+					o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved, tc.wantDetail)
+			}
+		})
+	}
+	if ngResetAcked.Verdict != Pass || ngResetNoAnswer.Verdict != Fail || ngResetOtherPDU.Verdict != Fail || ngResetAssociationLost.Verdict != Fail {
+		t.Error("the verdicts of the NG RESET outcomes changed")
 	}
 }
 

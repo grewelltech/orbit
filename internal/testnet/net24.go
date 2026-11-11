@@ -183,6 +183,22 @@ const (
 	ConformancePreflightBlocked    = 173 // TestSetupFailsAfterPassedPreflight
 )
 
+// internal/conformance: the declared outcomes of the NGAP checks (group A),
+// in blocks 1 to 10 and 88 to 95.
+const ()
+
+// internal/conformance: the declared outcomes of the GTP-U and mobility
+// checks (group B), in blocks 11 to 20 and 96 to 103.
+const ()
+
+// internal/conformance: the declared outcomes of the NAS registration
+// checks (group C), in blocks 21 to 30 and 104 to 111.
+const ()
+
+// internal/conformance: the declared outcomes of the NAS security, session
+// and idle-mode checks (group D), in blocks 31 to 40 and 112 to 119.
+const ()
+
 // Base is block n's address prefix, "127.0.n." (append the host part).
 func Base(n int) string { return fmt.Sprintf("127.0.%d.", n) }
 

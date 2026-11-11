@@ -32,16 +32,37 @@ const ueCtxReleaseFailure = "no UE CONTEXT RELEASE COMMAND after UE CONTEXT RELE
 // signalling. A released UE is still registered; the check then
 // deregisters it with an initial NAS message, and says in the detail how
 // that went.
+//
+// The check owns the AN release: the checks that need a UE moved to
+// CM-IDLE report BLOCKED, naming it, when the core does not release.
 type ngapUECtxReleaseOnRequest struct {
 	// wait overrides ueCtxReleaseWait (tests only).
 	wait time.Duration
+}
+
+// ueCtxReleaseRef is the key of the should the check's outcomes rest on.
+const ueCtxReleaseRef = "TS 38.413 8.3.2.2"
+
+// The outcomes of NGAP-UE-CTX-RELEASE-ON-REQUEST.
+var (
+	ueCtxReleaseCommanded = Outcome{ID: "release-command", Verdict: Pass, Refs: []string{ueCtxReleaseRef},
+		Summary: "answered the UE CONTEXT RELEASE REQUEST with a UE CONTEXT RELEASE COMMAND"}
+	ueCtxReleaseNoCommand = Outcome{ID: "no-release-command", Verdict: Deviation, Refs: []string{ueCtxReleaseRef},
+		Bound:        &Bound{Wait: ueCtxReleaseWait, Source: "check bound; TS 38.413 sets no timer for the command"},
+		NotCompleted: ProcANRelease,
+		Summary:      "sent no UE CONTEXT RELEASE COMMAND for the UE CONTEXT RELEASE REQUEST"}
+)
+
+// Outcomes declares what the check can report.
+func (ngapUECtxReleaseOnRequest) Outcomes() []Outcome {
+	return []Outcome{ueCtxReleaseCommanded, ueCtxReleaseNoCommand}
 }
 
 func (ngapUECtxReleaseOnRequest) ID() string         { return "NGAP-UE-CTX-RELEASE-ON-REQUEST" }
 func (ngapUECtxReleaseOnRequest) Category() Category { return Procedural }
 func (ngapUECtxReleaseOnRequest) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "8.3.2.2", Strength: Should, Since: 15, Verified: ts38413ReleaseRequestVerified,
+		{Spec: "TS 38.413", Clause: "8.3.2.2", Strength: Should, Since: 15, Verified: ts38413ReleaseRequestVerified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 18, Note: "V18.1.0 splits the should by cause: with \"User inactivity\" the release should be initiated when there is no downlink signalling; Rel-15 to Rel-17 have one unconditional sentence"},
 				{Release: 19, Note: "the cited text is unchanged; V19.1.0 adds a GW Context Release Indication sentence"},
@@ -60,44 +81,37 @@ func (c ngapUECtxReleaseOnRequest) Run(ctx context.Context, env Env) Result {
 	wait := c.waitCommand()
 	r := Result{Expected: fmt.Sprintf("UE CONTEXT RELEASE COMMAND within %s of a UE CONTEXT RELEASE REQUEST whose cause is not \"User inactivity\" (TS 38.413 8.3.2.2)", wait)}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run this check"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run this check")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	res, err := h.RegisterWithProbe(ctx, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "UE registration failed", fmt.Sprintf("registration on gNB %#x: %v", env.GNB.ID, err)
-		return r
+		return r.SetupFailed("UE registration failed", fmt.Errorf("registration on gNB %#x: %w", env.GNB.ID, err))
 	}
 	if !res.Registered {
-		r.Verdict, r.Observed, r.Detail = Error, "UE registration failed", fmt.Sprintf("registration on gNB %#x: not registered", env.GNB.ID)
-		return r
+		return r.SetupFailed("UE registration failed", fmt.Errorf("registration on gNB %#x: not registered", env.GNB.ID))
 	}
 	rel, err := h.RequestContextRelease(ctx, wait)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "UE Context Release Request could not be sent or waited for", err.Error()
-		return r
+		return r.Errored("UE Context Release Request could not be sent or waited for", err.Error())
 	}
 	// Deregister here rather than in Close, so the detail says how the
 	// cleanup went; the check's own context may be nearly spent.
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	derr := h.Deregister(dctx)
 	cancel()
-	r.Verdict, r.Observed, r.Detail = classifyUECtxRelease(rel, wait, derr)
-	return r
+	return r.As(classifyUECtxRelease(rel, wait, derr))
 }
 
 // classifyUECtxRelease judges the answer to a UE CONTEXT RELEASE REQUEST:
 // PASS with the command, DEVIATION without it. The detail records the
 // command's cause, what else was read while waiting, and how the UE's
 // deregistration afterwards went (derr).
-func classifyUECtxRelease(rel engine.ContextReleaseResult, wait time.Duration, derr error) (Verdict, string, string) {
+func classifyUECtxRelease(rel engine.ContextReleaseResult, wait time.Duration, derr error) (Outcome, string, string) {
 	var facts []string
 	if rel.Released {
 		facts = append(facts, "the command's cause is "+rel.Cause+" (recorded only)", "UE Context Release Complete sent")
@@ -116,7 +130,7 @@ func classifyUECtxRelease(rel engine.ContextReleaseResult, wait time.Duration, d
 	}
 	detail := strings.Join(facts, "; ")
 	if rel.Released {
-		return Pass, fmt.Sprintf("UE CONTEXT RELEASE COMMAND after %s", rel.After.Round(time.Millisecond)), detail
+		return ueCtxReleaseCommanded, fmt.Sprintf("UE CONTEXT RELEASE COMMAND after %s", rel.After.Round(time.Millisecond)), detail
 	}
-	return Deviation, fmt.Sprintf("no UE CONTEXT RELEASE COMMAND within %s", wait), ueCtxReleaseFailure + " Recorded: " + detail
+	return ueCtxReleaseNoCommand, fmt.Sprintf("no UE CONTEXT RELEASE COMMAND within %s (absence inferred within this bound)", wait), ueCtxReleaseFailure + " Recorded: " + detail
 }
