@@ -446,7 +446,8 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 	return r
 }
 
-// observeAlive is the liveness probe of an informational check. It tries a
+// observeAlive is the liveness probe of a check whose stimulus no shall
+// answers, so it has no PASS or FAIL to keep. It tries a
 // fresh NG Setup after the stimulus, which after names ("the RAN
 // CONFIGURATION UPDATE"), and records the result in r's detail. A core that
 // no longer completes it did not survive the stimulus: the result becomes
@@ -490,13 +491,32 @@ type Registry struct {
 	only map[string]bool
 }
 
-// NewRegistry returns a registry preloaded with the built-in tests.
+// NewRegistry returns a registry preloaded with the built-in tests. It
+// panics when they break a registry rule (newRegistry): a built-in check
+// that declares no outcomes, a procedure with two owners or a needed
+// procedure with none is a programming error, which fails at start-up.
 func NewRegistry() *Registry {
-	r := &Registry{}
-	for _, t := range builtins {
-		r.Register(t)
+	r, err := newRegistry(builtins)
+	if err != nil {
+		panic("conformance: the built-in checks: " + err.Error())
 	}
 	return r
+}
+
+// newRegistry returns a registry of tests, or an error when a test declares
+// no outcomes (Declarer) or the set fails Registry.Validate.
+func newRegistry(tests []Test) (*Registry, error) {
+	r := &Registry{}
+	for _, t := range tests {
+		if _, ok := declared(t); !ok {
+			return nil, fmt.Errorf("%s: declares no outcomes; every check declares what it can report (Declarer)", t.ID())
+		}
+		r.Register(t)
+	}
+	if err := r.Validate(); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // Register adds a test.
@@ -669,19 +689,15 @@ func (r *Registry) run(ctx context.Context, env Env, perTest time.Duration, pref
 // runOne runs one check, or SKIPs it when it requires a release newer than
 // the target (see skipReason) or an idle core under load, or reports ERROR
 // without running it when a step of the run's preflight it depends on did
-// not complete, and stamps identity and provenance onto the result. A check that declares its
-// outcomes (Declarer) is held to them (enforceDeclared). For one that does
-// not, the verdict follows the check's references (WorstVerdict): a FAIL
-// from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
-// check that cites no should becomes FAIL; an informational check is scored
-// by scoreInformational, and INFO from any other is an ERROR. Every
-// result's detail ends with the requirement line; when the target is newer
-// than the releases the wording was verified through, the detail says so.
+// not complete, and stamps identity and provenance onto the result. The
+// result of Run is held to the check's declared outcomes
+// (enforceDeclared). Every result's detail ends with the requirement line;
+// when the target is newer than the releases the wording was verified
+// through, the detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	min := MinRelease(t)
 	var res Result
 	n := NeedsOf(t)
-	_, declares := declared(t)
 	if why, skip := skipReason(t, e); skip {
 		res = Result{}.As(Outcome{ID: OutcomeSkipRelease, Verdict: Skip, Skip: SkipRelease}, "requires a newer release than the target", why)
 	} else if pop := e.loadedBy(); n.RequiresIdleCore && pop != "" {
@@ -696,20 +712,7 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		if raised {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("per-test timeout raised to %s for this check", d))
 		}
-		switch {
-		case declares:
-			res = enforceDeclared(t, res, e.owners)
-		case IsInformational(t):
-			res.Verdict = scoreInformational(res)
-		case res.Verdict == Info || res.Verdict == infoDiffers:
-			res.Detail = joinDetail(res.Detail, "scored ERROR: INFO is reserved for an informational check")
-			res.Verdict = Error
-		case res.Verdict == Fail && WorstVerdict(t) == Deviation:
-			res.Verdict = Deviation
-		case res.Verdict == Deviation && !cites(t, Should):
-			res.Verdict = Fail
-			res.Detail = joinDetail(res.Detail, "scored FAIL: DEVIATION is reserved for a missed should")
-		}
+		res = enforceDeclared(t, res, e.owners)
 		if e.TargetRelease > LatestRelease {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("wording verified through %s", LatestRelease))
 		}
@@ -721,9 +724,6 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	res.SpecRefs = t.SpecRefs()
 	res.SpecRef = RenderRefs(res.SpecRefs)
 	res.MinRelease = min
-	if !declares && IsInformational(t) {
-		res.Detail = joinDetail(res.Detail, informationalNote)
-	}
 	res.Detail = joinDetail(res.Detail, requirementLine(t))
 	return res
 }
@@ -778,27 +778,6 @@ func enforceDeclared(t Test, res Result, owners map[Procedure]string) Result {
 		res.Detail = joinDetail(res.Detail, "absence inferred within "+o.Bound.String())
 	}
 	return res
-}
-
-// informationalNote is what every result of an informational check says
-// ahead of its requirement line, whatever its verdict.
-const informationalNote = "informational: reported, not graded"
-
-// infoDiffers is what an informational check that has not declared its
-// outcomes returns for behaviour other than the described one. It never
-// leaves runOne, which reports it as INFO (scoreInformational).
-const infoDiffers Verdict = "info-differs"
-
-// scoreInformational is the verdict an informational check's result is
-// reported with: INFO for whatever the core did (the check's INFO,
-// infoDiffers, PASS, FAIL or DEVIATION), the observed text saying whether
-// it is the described behaviour. Every other verdict keeps its meaning.
-func scoreInformational(res Result) Verdict {
-	switch res.Verdict {
-	case Pass, Fail, Deviation, infoDiffers:
-		return Info
-	}
-	return res.Verdict
 }
 
 // skipReason reports whether a check SKIPs under e's targets, and why. A

@@ -122,8 +122,8 @@ func TestRANConfigAckDeclaration(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if IsInformational(c) || WorstVerdict(c) != Warn || ranConfigAcked.Verdict != Info || MinRelease(c) != 15 {
-		t.Errorf("informational %v, worst %s, acknowledged %s, min %s", IsInformational(c), WorstVerdict(c), ranConfigAcked.Verdict, MinRelease(c))
+	if WorstVerdict(c) != Warn || ranConfigAcked.Verdict != Info || MinRelease(c) != 15 {
+		t.Errorf("worst %s, acknowledged %s, min %s", WorstVerdict(c), ranConfigAcked.Verdict, MinRelease(c))
 	}
 	for _, r := range c.SpecRefs() {
 		if r.Strength != Descriptive || !r.Primary {

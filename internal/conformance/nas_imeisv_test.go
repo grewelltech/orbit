@@ -148,8 +148,8 @@ func TestIMEISVCheckDeclaration(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if IsInformational(c) || VerdictClass(c) != Warn || imeisvOutAccepted.Criterion != CriterionSecurity || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
-		t.Errorf("informational %v, class %s, min %s, up to %s", IsInformational(c), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
+	if VerdictClass(c) != Warn || imeisvOutAccepted.Criterion != CriterionSecurity || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
+		t.Errorf("class %s, min %s, up to %s", VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
 	}
 	for _, r := range c.SpecRefs() {
 		if r.Strength != Descriptive {

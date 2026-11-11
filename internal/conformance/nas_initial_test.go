@@ -278,8 +278,8 @@ func TestInitialMsgContainerWinsClass(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if VerdictClass(c) != Fail || IsInformational(c) || c.Budget() != 52*time.Second || NeedsOf(c).UEs != 1 || NeedsOf(c).Subscribers != 3 || !NeedsOf(c).needs(ProcRegistration) {
-		t.Errorf("class %s, informational %v, budget %s, needs %+v", VerdictClass(c), IsInformational(c), c.Budget(), NeedsOf(c))
+	if VerdictClass(c) != Fail || c.Budget() != 52*time.Second || NeedsOf(c).UEs != 1 || NeedsOf(c).Subscribers != 3 || !NeedsOf(c).needs(ProcRegistration) {
+		t.Errorf("class %s, budget %s, needs %+v", VerdictClass(c), c.Budget(), NeedsOf(c))
 	}
 }
 
@@ -529,8 +529,8 @@ func TestInitialMsgCharacterisationChecks(t *testing.T) {
 		if err := ValidateTest(c); err != nil {
 			t.Error(err)
 		}
-		if IsInformational(c) || VerdictClass(c) != Warn || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
-			t.Errorf("%s: informational %v, class %s, min %s, up to %s", c.ID(), IsInformational(c), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
+		if VerdictClass(c) != Warn || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
+			t.Errorf("%s: class %s, min %s, up to %s", c.ID(), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
 		}
 		primaries := 0
 		for _, r := range c.SpecRefs() {

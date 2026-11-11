@@ -83,34 +83,11 @@ const (
 	// Should is a recommendation; a check resting on it reports DEVIATION.
 	Should Strength = "should"
 	// Descriptive is definitional text (a message's IE table, a procedure
-	// description) cited for context. It carries no PASS or FAIL: a check
-	// citing nothing stronger must be informational (Informer) and reports
-	// INFO.
+	// description) cited for context. It carries no PASS or FAIL: an
+	// outcome resting on it alone is INFO, or WARN with a criterion
+	// (validateOutcomes).
 	Descriptive Strength = "descriptive"
 )
-
-// Informer is implemented by an informational check: one that reports how a
-// core behaves where the specifications describe a behaviour without
-// requiring it (a Class 1 response described as "the AMF responds with"),
-// or are silent. Such a check cites descriptive references only and is
-// never graded: runOne reports INFO, the observed text saying whether the
-// core did what the text describes, and it does not gate. A core that does
-// not survive the stimulus (observeAlive) is CRASH and gates, as in every
-// class. A check declares itself by adding
-//
-//	func (myCheck) Informational() bool { return true }
-//
-// and may return Info from Run, or Pass/Fail, which runOne maps to it.
-// ValidateTest refuses an informational check that cites a shall or a
-// should, so a requirement is always graded, and a descriptive-only check
-// that is not informational.
-type Informer interface{ Informational() bool }
-
-// IsInformational reports whether t declares itself informational.
-func IsInformational(t Test) bool {
-	i, ok := t.(Informer)
-	return ok && i.Informational()
-}
 
 // SpecVersion is one version of a specification whose wording was read in
 // the 3GPP archive.
@@ -209,38 +186,18 @@ func MinRelease(t Test) Release {
 	return max
 }
 
-// WorstVerdict is the worst verdict a check can give a core, derived from
-// what it cites: FAIL when it cites a shall, DEVIATION when it cites only
-// shoulds. A missed shall is a failure and DEVIATION is reserved for a missed
-// should. An informational check grades nothing, so its worst is INFO.
-// runOne enforces this whatever a check's Run returns. A core that stops
+// WorstVerdict is the worst verdict a check's declared outcomes can give a
+// core, in the order FAIL, DEVIATION, WARN, INFO, PASS. A core that stops
 // answering is outside the classes: it is CRASH for every check.
 func WorstVerdict(t Test) Verdict {
-	if outs, ok := declared(t); ok {
-		return declaredWorst(outs)
-	}
-	switch {
-	case IsInformational(t):
-		return Info
-	case cites(t, Shall):
-		return Fail
-	}
-	return Deviation
+	outs, _ := declared(t)
+	return declaredWorst(outs)
 }
 
-// VerdictClass names a check's class for --list and checks.md: FAIL or
-// DEVIATION, the worst verdict of a graded check, or INFO for an
-// informational one. The class says nothing of a crash, which is CRASH in
-// all three.
-func VerdictClass(t Test) Verdict {
-	if _, ok := declared(t); ok {
-		return WorstVerdict(t)
-	}
-	if IsInformational(t) {
-		return Info
-	}
-	return WorstVerdict(t)
-}
+// VerdictClass names a check's class for --list and checks.md: the worst
+// verdict among its declared outcomes (WorstVerdict). The class says
+// nothing of a crash, which is CRASH in every class.
+func VerdictClass(t Test) Verdict { return WorstVerdict(t) }
 
 // cites reports whether a check cites a reference of strength s.
 func cites(t Test, s Strength) bool {
@@ -263,18 +220,15 @@ var (
 	archiveRE = regexp.MustCompile(`^\d{5}-[0-9a-z]{3}\.zip$`)
 )
 
-// ValidateTest checks a test's provenance and verdict class against the
-// rules every registered check must meet; the invariant test runs it over
-// the registry, so a check without verified provenance cannot merge. The
-// class it ties to the references (graded for a shall or should,
-// informational for descriptive text alone) is about the behaviour a check
-// reports; a core that does not survive is CRASH in either.
+// ValidateTest checks a test's provenance and declared outcomes against
+// the rules every registered check must meet; the invariant test runs it
+// over the registry, so a check without verified provenance, or one that
+// does not declare what it can report, cannot merge.
 func ValidateTest(t Test) error {
 	refs := t.SpecRefs()
 	if len(refs) == 0 {
 		return fmt.Errorf("%s: no spec references", t.ID())
 	}
-	hasRequirement := false
 	// floor is the newest Since among the refs that carry a requirement
 	// (shall or should), or among all refs when none does: a check cannot
 	// apply to a release older than a requirement it asserts.
@@ -283,9 +237,6 @@ func ValidateTest(t Test) error {
 		where := fmt.Sprintf("%s ref %d (%s %s)", t.ID(), i+1, r.Spec, r.Clause)
 		if err := validateRef(r); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
-		}
-		if r.Strength == Shall || r.Strength == Should {
-			hasRequirement = true
 		}
 		if r.Since > floorAll {
 			floorAll = r.Since
@@ -297,14 +248,11 @@ func ValidateTest(t Test) error {
 	if floor == 0 {
 		floor = floorAll
 	}
-	if _, ok := declared(t); ok {
-		if err := validateDeclaration(t); err != nil {
-			return err
-		}
-	} else if info := IsInformational(t); !hasRequirement && !info {
-		return fmt.Errorf("%s: cites no shall or should; descriptive references alone carry no verdict, so the check must declare itself informational (Informer)", t.ID())
-	} else if hasRequirement && info {
-		return fmt.Errorf("%s: informational, but cites a shall or should; a requirement is graded, never reported as information", t.ID())
+	if _, ok := declared(t); !ok {
+		return fmt.Errorf("%s: declares no outcomes; every check declares what it can report (Declarer)", t.ID())
+	}
+	if err := validateDeclaration(t); err != nil {
+		return err
 	}
 	if m := MinRelease(t); m < floor || m > LatestRelease {
 		return fmt.Errorf("%s: MinRelease %s outside %s..%s: it must be at least the newest Since among the requirements it asserts", t.ID(), m, floor, LatestRelease)

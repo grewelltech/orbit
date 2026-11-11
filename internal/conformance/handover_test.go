@@ -622,8 +622,8 @@ func TestHandoverCancelCheckIsCharacterisation(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if IsInformational(c) || VerdictClass(c) != Warn || WorstVerdict(c) != Warn || MinRelease(c) != 15 {
-		t.Errorf("informational %v, class %s, worst %s, min %s", IsInformational(c), VerdictClass(c), WorstVerdict(c), MinRelease(c))
+	if VerdictClass(c) != Warn || WorstVerdict(c) != Warn || MinRelease(c) != 15 {
+		t.Errorf("class %s, worst %s, min %s", VerdictClass(c), WorstVerdict(c), MinRelease(c))
 	}
 	for _, r := range c.SpecRefs() {
 		if r.Strength != Descriptive {

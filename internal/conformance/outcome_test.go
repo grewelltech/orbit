@@ -22,8 +22,16 @@ type declTest struct {
 }
 
 func (d declTest) Outcomes() []Outcome { return d.outs }
-func (d declTest) Needs() CheckNeeds   { return d.needs }
-func (d declTest) Owns() []Procedure   { return d.owned }
+
+// Run reports the result as given, without the outcome provTest names.
+func (d declTest) Run(context.Context, Env) Result {
+	if d.ran != nil {
+		*d.ran = true
+	}
+	return d.result
+}
+func (d declTest) Needs() CheckNeeds { return d.needs }
+func (d declTest) Owns() []Procedure { return d.owned }
 
 // The references the declaration tests cite, by strength; the shall is the
 // primary one.
@@ -294,7 +302,7 @@ func TestRegistryValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "an owner for every need", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), check("REG", []Procedure{ProcRegistration}, ProcNGSetup),
-			check("USER", nil, ProcNGSetup, ProcRegistration), provTest{id: "LEGACY"}}},
+			check("USER", nil, ProcNGSetup, ProcRegistration), undeclaredTest{id: "LEGACY"}}},
 		{name: "an owned procedure nobody needs", tests: []Test{check("SETUP", []Procedure{ProcNGSetup})}},
 		{name: "two owners", tests: []Test{check("A", []Procedure{ProcNGSetup}), check("B", []Procedure{ProcNGSetup})},
 			wantErr: `procedure "NG Setup" has two owners: A and B`},
@@ -322,6 +330,53 @@ func TestRegistryValidate(t *testing.T) {
 				t.Errorf("OwnerOf(NG Setup) = %q", r.OwnerOf(ProcNGSetup))
 			}
 		})
+	}
+}
+
+// newRegistry, which NewRegistry builds the built-in set with, refuses a
+// set with two owners of one procedure, a need no check owns, or a check
+// that declares no outcomes, and accepts a valid set.
+func TestNewRegistry(t *testing.T) {
+	out := []Outcome{{ID: "seen", Verdict: Info, Summary: "did something"}}
+	check := func(id string, owned []Procedure, needs ...Procedure) Test {
+		return declTest{provTest: provTest{id: id}, outs: out, owned: owned, needs: CheckNeeds{Procedures: needs}}
+	}
+	tests := []struct {
+		name    string
+		tests   []Test
+		wantErr string
+	}{
+		{name: "valid", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), check("USER", nil, ProcNGSetup)}},
+		{name: "two owners", tests: []Test{check("A", []Procedure{ProcNGSetup}), check("B", []Procedure{ProcNGSetup})},
+			wantErr: `procedure "NG Setup" has two owners: A and B`},
+		{name: "a need with no owner", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), check("USER", nil, ProcNGSetup, ProcRegistration)},
+			wantErr: `no registered check owns a needed procedure: USER needs "registration"`},
+		{name: "a check that declares no outcomes", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), undeclaredTest{id: "BARE"}},
+			wantErr: "BARE: declares no outcomes"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := newRegistry(tc.tests)
+			switch {
+			case tc.wantErr == "" && (err != nil || len(r.Tests()) != len(tc.tests)):
+				t.Errorf("refused: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr) || r != nil):
+				t.Errorf("registry %v, err = %v, want no registry and an error containing %q", r, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// Every built-in check declares the outcomes it can report: the built-in
+// set is a valid registry, so NewRegistry does not panic.
+func TestEveryBuiltinDeclaresOutcomes(t *testing.T) {
+	for _, c := range builtins {
+		if outs, ok := declared(c); !ok || len(outs) == 0 {
+			t.Errorf("%s declares no outcomes", c.ID())
+		}
+	}
+	if _, err := newRegistry(builtins); err != nil {
+		t.Fatalf("the built-in checks: %v", err)
 	}
 }
 
@@ -385,7 +440,7 @@ func TestChecksMarkdownOutcomes(t *testing.T) {
 		{ID: "violated", Verdict: Fail, Summary: "did not", Refs: []string{declShall.Key()}},
 		{ID: "allowed", Verdict: Skip, Skip: SkipPermitted, Summary: "chose the alternative", Refs: []string{declShall.Key()}},
 	}}
-	doc := ChecksMarkdown([]Test{owner, user, provTest{id: "LEGACY", refs: []SpecRef{declShall}}})
+	doc := ChecksMarkdown([]Test{owner, user, undeclaredTest{id: "LEGACY", refs: []SpecRef{declShall}}})
 	for _, want := range []string{
 		"## Declared outcomes",
 		"### OWNER outcomes\n\nOwns: NG Setup. Needs no procedure first.",
@@ -409,7 +464,7 @@ func TestChecksMarkdownOutcomes(t *testing.T) {
 	if strings.Contains(doc, "### LEGACY outcomes") {
 		t.Error("a check that declares no outcomes has an outcomes table")
 	}
-	if none := ChecksMarkdown([]Test{provTest{id: "LEGACY", refs: []SpecRef{declShall}}}); strings.Contains(none, "## Declared outcomes") {
+	if none := ChecksMarkdown([]Test{undeclaredTest{id: "LEGACY", refs: []SpecRef{declShall}}}); strings.Contains(none, "## Declared outcomes") {
 		t.Error("an outcomes section with no declaring check")
 	}
 }

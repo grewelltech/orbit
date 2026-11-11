@@ -99,19 +99,16 @@ func listableChecks(tests []Test) map[string][]Verdict {
 // CRASH, BLOCKED and ERROR always gate.
 var listableVerdicts = []Verdict{Fail, Deviation, Warn}
 
-// canReport reports whether t can report verdict v: a declared outcome has
-// it, or, for a check that declares none, its references allow it (FAIL
-// and DEVIATION for a graded check).
+// canReport reports whether t can report verdict v: one of its declared
+// outcomes has it.
 func canReport(t Test, v Verdict) bool {
-	if outs, ok := declared(t); ok {
-		for _, o := range outs {
-			if o.Verdict == v {
-				return true
-			}
+	outs, _ := declared(t)
+	for _, o := range outs {
+		if o.Verdict == v {
+			return true
 		}
-		return false
 	}
-	return (v == Fail || v == Deviation) && !IsInformational(t)
+	return false
 }
 
 // Expects is the verdict e expects: its Verdict, or FAIL when it gives

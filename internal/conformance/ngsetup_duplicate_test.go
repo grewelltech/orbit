@@ -107,8 +107,8 @@ func TestDuplicateRANNodeDeclaration(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if IsInformational(c) || WorstVerdict(c) != Deviation || MinRelease(c) != 15 {
-		t.Errorf("informational %v, worst %s, min %s", IsInformational(c), WorstVerdict(c), MinRelease(c))
+	if WorstVerdict(c) != Deviation || MinRelease(c) != 15 {
+		t.Errorf("worst %s, min %s", WorstVerdict(c), MinRelease(c))
 	}
 	for _, o := range []Outcome{duplicateAcceptedDropped, duplicateRejectedDropped} {
 		if o.Verdict != Warn || o.Criterion != CriterionAvailability {

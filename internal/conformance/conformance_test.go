@@ -24,7 +24,12 @@ func (f fakeTest) SpecRefs() []SpecRef {
 	return []SpecRef{{Spec: "TS 00.000", Clause: "0", Strength: s, Since: 15, Verified: ts38413Verified, WordingUnchanged: true}}
 }
 func (f fakeTest) Run(context.Context, Env) Result {
-	return Result{Verdict: f.verdict, Observed: "fake"}
+	return Result{Verdict: f.verdict, Outcome: verdictOutcomeID(f.verdict), Observed: "fake"}
+}
+
+// Outcomes declares the one outcome f reports.
+func (f fakeTest) Outcomes() []Outcome {
+	return []Outcome{{ID: verdictOutcomeID(f.verdict), Verdict: f.verdict, Summary: "fake"}}
 }
 
 func TestRegistryRunStampsAndOrders(t *testing.T) {
@@ -95,7 +100,7 @@ func (d deadlineTest) Run(ctx context.Context, _ Env) Result {
 	if dl, ok := ctx.Deadline(); ok {
 		*d.got = time.Until(dl)
 	}
-	return Result{Verdict: Pass}
+	return Result{Verdict: Pass, Outcome: verdictOutcomeID(Pass)}
 }
 
 type budgetedTest struct {

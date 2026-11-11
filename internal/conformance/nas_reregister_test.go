@@ -212,8 +212,8 @@ func TestRegistrationAfterReleaseClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := NeedsOf(c)
-	if VerdictClass(c) != Fail || IsInformational(c) || PhaseOf(c) != PhaseMain || n.UEs != 1 || subscribersOf(c) != 1 || MinRelease(c) != 15 || !n.needs(ProcRegistration) {
-		t.Errorf("class %s, informational %v, phase %s, needs %+v, min release %s", VerdictClass(c), IsInformational(c), PhaseOf(c), n, MinRelease(c))
+	if VerdictClass(c) != Fail || PhaseOf(c) != PhaseMain || n.UEs != 1 || subscribersOf(c) != 1 || MinRelease(c) != 15 || !n.needs(ProcRegistration) {
+		t.Errorf("class %s, phase %s, needs %+v, min release %s", VerdictClass(c), PhaseOf(c), n, MinRelease(c))
 	}
 	// 10 s to register, four attempts of 5 s + 10 s + 1 s + 10 s plus
 	// their gaps, 5 s to deregister and 5 s for the liveness probe.

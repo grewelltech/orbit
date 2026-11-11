@@ -141,7 +141,18 @@ type verdictCheck struct {
 	v Verdict
 }
 
-func (c verdictCheck) Run(context.Context, Env) Result { return Result{Verdict: c.v} }
+func (c verdictCheck) Run(context.Context, Env) Result {
+	return Result{Verdict: c.v, Outcome: verdictOutcomeID(c.v)}
+}
+
+// Outcomes declares the check's one outcome when it is not one every
+// check has.
+func (c verdictCheck) Outcomes() []Outcome {
+	if c.v == Error {
+		return nil
+	}
+	return []Outcome{{ID: verdictOutcomeID(c.v), Verdict: c.v, Summary: "did it"}}
+}
 
 // An ERROR from a check that registered a subscriber an earlier check of
 // the run registered says so; a check with its own subscriber, the first

@@ -157,97 +157,31 @@ func TestClassifyMissingTAList(t *testing.T) {
 	}
 }
 
-// The worst verdict follows the references: FAIL when a check cites a shall,
-// DEVIATION when it cites only shoulds.
-func TestWorstVerdict(t *testing.T) {
-	ref := func(s Strength) SpecRef { return SpecRef{Spec: "TS 38.413", Clause: "10.6", Strength: s, Since: 15} }
-	tests := []struct {
-		name string
-		refs []SpecRef
-		want Verdict
-	}{
-		{name: "shall only", refs: []SpecRef{ref(Shall)}, want: Fail},
-		{name: "should only", refs: []SpecRef{ref(Should)}, want: Deviation},
-		{name: "shall and should", refs: []SpecRef{ref(Should), ref(Shall)}, want: Fail},
-		{name: "descriptive and shall", refs: []SpecRef{ref(Descriptive), ref(Shall)}, want: Fail},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := WorstVerdict(provTest{id: "X", refs: tc.refs}); got != tc.want {
-				t.Errorf("WorstVerdict = %s, want %s", got, tc.want)
-			}
-		})
-	}
-}
-
-// runOne enforces the rule whatever Run returns: a FAIL from a check citing
-// no shall is a DEVIATION, and a DEVIATION from a check citing no should is
-// a FAIL that says why; a check citing a should may deviate.
-func TestRunOneVerdictRule(t *testing.T) {
-	shall := SpecRef{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, WordingUnchanged: true}
-	should := SpecRef{Spec: "TS 38.413", Clause: "10.3.5", Strength: Should, Since: 15, WordingUnchanged: true}
+// runOne holds every result to the check's declaration: a check that
+// declares no outcomes cannot report a verdict on a core, and a result whose
+// verdict is not its outcome's is an ERROR.
+func TestRunOneHoldsResultsToTheDeclaration(t *testing.T) {
+	shall := SpecRef{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, WordingUnchanged: true, Primary: true}
 	tests := []struct {
 		name       string
-		refs       []SpecRef
-		run        Verdict
-		observed   string
+		test       Test
 		want       Verdict
 		wantDetail string
 	}{
-		{name: "FAIL from a should-only check", refs: []SpecRef{should}, run: Fail, want: Deviation},
-		{name: "a crash on a should-only check stays CRASH", refs: []SpecRef{should}, run: Crash, observed: ObservedAMFUnresponsive + " (x)", want: Crash},
-		{name: "a dead UPF on a should-only check stays CRASH", refs: []SpecRef{should}, run: Crash, observed: ObservedUPFUnresponsive, want: Crash},
-		{name: "DEVIATION from a shall-only check", refs: []SpecRef{shall}, run: Deviation, want: Fail,
-			wantDetail: "scored FAIL: DEVIATION is reserved for a missed should"},
-		{name: "DEVIATION from a check citing a should", refs: []SpecRef{shall, should}, run: Deviation, want: Deviation},
-		{name: "FAIL from a shall check", refs: []SpecRef{shall}, run: Fail, want: Fail},
-		{name: "PASS", refs: []SpecRef{shall}, run: Pass, want: Pass},
+		{name: "a declared FAIL", test: provTest{id: "X", refs: []SpecRef{shall}, result: Result{Verdict: Fail}}, want: Fail},
+		{name: "a check that declares nothing", test: undeclaredTest{id: "X", refs: []SpecRef{shall}}, want: Error,
+			wantDetail: "without one of the check's declared outcomes"},
+		{name: "a DEVIATION from a check citing no should", test: provTest{id: "X", refs: []SpecRef{shall}, result: Result{Verdict: Deviation}}, want: Error,
+			wantDetail: "which the check neither declares nor has from its needs"},
+		{name: "an outcome with another verdict", test: provTest{id: "X", refs: []SpecRef{shall}, result: Result{Verdict: Pass, Outcome: verdictOutcomeID(Fail)}}, want: Error,
+			wantDetail: "it is declared FAIL"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			c := provTest{id: "X", refs: tc.refs, result: Result{Verdict: tc.run, Observed: tc.observed}}
-			res := runOne(context.Background(), c, Env{}, time.Second)
-			if res.Verdict != tc.want {
-				t.Errorf("verdict = %s, want %s", res.Verdict, tc.want)
-			}
-			if tc.wantDetail != "" && !strings.Contains(res.Detail, tc.wantDetail) {
-				t.Errorf("detail %q lacks %q", res.Detail, tc.wantDetail)
+			res := runOne(context.Background(), tc.test, Env{}, time.Second)
+			if res.Verdict != tc.want || !strings.Contains(res.Detail, tc.wantDetail) {
+				t.Errorf("= %s (%s), want %s with detail containing %q", res.Verdict, res.Detail, tc.want, tc.wantDetail)
 			}
 		})
-	}
-}
-
-// shouldOnly are the registered checks that cite a should and no shall, so
-// their worst verdict is DEVIATION.
-var shouldOnly = map[string]bool{
-	"NGAP-UE-CTX-RELEASE-ON-REQUEST": true,
-}
-
-// informational are the registered checks that cite descriptive references
-// only and declare themselves informational, so they are never graded.
-var informational = map[string]bool{}
-
-// Every registered check's worst verdict follows what it cites: DEVIATION
-// for the should-only checks named in shouldOnly, INFO for the
-// informational checks named in informational, FAIL for every other. A
-// check that changes class changes this on purpose.
-func TestEveryCheckWorstVerdict(t *testing.T) {
-	for _, c := range NewRegistry().Tests() {
-		if _, ok := declared(c); ok {
-			continue // its class is its declared outcomes', in checks.md
-		}
-		want := Fail
-		switch {
-		case shouldOnly[c.ID()]:
-			want = Deviation
-		case informational[c.ID()]:
-			want = Info
-		}
-		if got := WorstVerdict(c); got != want {
-			t.Errorf("%s: WorstVerdict = %s, want %s; a check that changes class must update this test", c.ID(), got, want)
-		}
-		if got := IsInformational(c); got != informational[c.ID()] {
-			t.Errorf("%s: IsInformational = %v, want %v; a check that changes class must update this test", c.ID(), got, informational[c.ID()])
-		}
 	}
 }

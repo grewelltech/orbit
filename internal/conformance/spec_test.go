@@ -27,8 +27,54 @@ func (p provTest) Run(context.Context, Env) Result {
 	if p.ran != nil {
 		*p.ran = true
 	}
-	return p.result
+	r := p.result
+	if r.Outcome == "" {
+		r.Outcome = verdictOutcomeID(r.Verdict)
+	}
+	return r
 }
+
+// Outcomes declares one outcome per verdict p's references allow, each
+// named by its verdict (verdictOutcomeID): PASS beside a shall or should,
+// FAIL for a shall, DEVIATION for a should, and always INFO and WARN.
+func (p provTest) Outcomes() []Outcome { return verdictOutcomes(p.refs) }
+
+// verdictOutcomeID is the ID of the outcome verdictOutcomes declares for v,
+// and the ERROR or CRASH every check has.
+func verdictOutcomeID(v Verdict) string { return slug(string(v)) }
+
+// verdictOutcomes is what provTest declares for refs.
+func verdictOutcomes(refs []SpecRef) []Outcome {
+	keys := map[Strength][]string{}
+	for _, r := range refs {
+		keys[r.Strength] = append(keys[r.Strength], r.Key())
+	}
+	out := []Outcome{
+		{ID: verdictOutcomeID(Info), Verdict: Info, Summary: "did something"},
+		{ID: verdictOutcomeID(Warn), Verdict: Warn, Criterion: CriterionAvailability, Summary: "did something risky"},
+	}
+	if req := append(append([]string(nil), keys[Shall]...), keys[Should]...); len(req) > 0 {
+		out = append(out, Outcome{ID: verdictOutcomeID(Pass), Verdict: Pass, Refs: req, Summary: "met it"})
+	}
+	if len(keys[Shall]) > 0 {
+		out = append(out, Outcome{ID: verdictOutcomeID(Fail), Verdict: Fail, Refs: keys[Shall], Summary: "missed a shall"})
+	}
+	if len(keys[Should]) > 0 {
+		out = append(out, Outcome{ID: verdictOutcomeID(Deviation), Verdict: Deviation, Refs: keys[Should], Summary: "missed a should"})
+	}
+	return out
+}
+
+// undeclaredTest is a check that declares no outcomes.
+type undeclaredTest struct {
+	id   string
+	refs []SpecRef
+}
+
+func (u undeclaredTest) ID() string                      { return u.id }
+func (u undeclaredTest) Category() Category              { return Procedural }
+func (u undeclaredTest) SpecRefs() []SpecRef             { return u.refs }
+func (u undeclaredTest) Run(context.Context, Env) Result { return Result{Verdict: Pass} }
 
 // provTestMin is provTest with a declared MinRelease.
 type provTestMin struct{ provTest }
@@ -36,7 +82,7 @@ type provTestMin struct{ provTest }
 func (p provTestMin) MinRelease() Release { return p.min }
 
 func goodRef() SpecRef {
-	return SpecRef{Spec: "TS 38.413", Clause: "10.3.5", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true}
+	return SpecRef{Spec: "TS 38.413", Clause: "10.3.5", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true, Primary: true}
 }
 
 // The gate: every registered check carries verified provenance that meets
@@ -87,7 +133,7 @@ func TestValidateTestRejects(t *testing.T) {
 	}{
 		{name: "valid", test: provTest{id: "OK", refs: []SpecRef{goodRef()}}},
 		{name: "Since before Rel-15 needs only its own release plus 15..19", test: provTest{id: "OLD",
-			refs: []SpecRef{{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, Verified: ts29281Verified, WordingUnchanged: true}}}},
+			refs: []SpecRef{{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, Verified: ts29281Verified, WordingUnchanged: true, Primary: true}}}},
 		{name: "no refs", test: provTest{id: "X"}, wantErr: "no spec references"},
 		{name: "missing a release in the range", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Verified = without(17) })}, wantErr: "no verified version for Rel-17"},
 		{name: "missing the latest release", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Verified = without(19) })}, wantErr: "no verified version for Rel-19"},
@@ -108,7 +154,8 @@ func TestValidateTestRejects(t *testing.T) {
 		{name: "neither unchanged nor changed", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.WordingUnchanged = false })}, wantErr: "neither WordingUnchanged"},
 		{name: "change outside the range", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Changed = []SpecChange{{Release: 20, Note: "x"}} })}, wantErr: "change entry"},
 		{name: "should-only check", test: provTest{id: "OK", refs: mod(func(r *SpecRef) { r.Strength = Should })}},
-		{name: "descriptive only", test: provTest{id: "X", refs: mod(func(r *SpecRef) { r.Strength = Descriptive })}, wantErr: "cites no shall or should"},
+		{name: "descriptive only, INFO and WARN outcomes", test: provTest{id: "OK", refs: mod(func(r *SpecRef) { r.Strength = Descriptive })}},
+		{name: "declares no outcomes", test: undeclaredTest{id: "X", refs: []SpecRef{goodRef()}}, wantErr: "X: declares no outcomes"},
 		{name: "declared MinRelease beyond Latest", test: provTestMin{provTest{id: "X", refs: []SpecRef{goodRef()}, min: 20}}, wantErr: "MinRelease Rel-20"},
 		{name: "declared MinRelease older than a requirement's Since", test: provTestMin{provTest{id: "X", min: 15,
 			refs: []SpecRef{goodRef(), {Spec: "TS 24.501", Clause: "5.4.1.3.7", Strength: Shall, Since: 17, Verified: ts38413Verified[3:], WordingUnchanged: true}}}},
@@ -229,7 +276,7 @@ func TestRunOneDeclaredMin(t *testing.T) {
 	if res.Verdict != Fail {
 		t.Errorf("verdict = %s, want FAIL", res.Verdict)
 	}
-	if res.MinRelease != 15 || !strings.HasPrefix(res.Detail, "requires Rel-15 or later; TS 29.281 7.3.1 (Rel-8 onward") {
+	if res.MinRelease != 15 || !strings.Contains(res.Detail, "requires Rel-15 or later; TS 29.281 7.3.1 (Rel-8 onward") {
 		t.Errorf("MinRelease %s, detail %q", res.MinRelease, res.Detail)
 	}
 	if res := runOne(context.Background(), c, Env{TargetRelease: 14}, time.Second); res.Verdict != Skip {

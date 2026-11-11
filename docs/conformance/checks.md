@@ -4,7 +4,7 @@
 
 Every check names the clauses it asserts and the 3GPP releases they come from, verified in the [3GPP archive](https://www.3gpp.org/ftp/Specs/archive/) through Rel-19. A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. The quoted normative text for each check is in [provenance/](provenance/).
 
-**Verdict class** is the worst a check can say of a core: `FAIL` for a missed shall, `DEVIATION` for a missed should. A check of class `INFO` is informational: it cites descriptive text only, reports `INFO` with what the core did, and does not gate. In every class a core that does not survive a check's stimulus is `CRASH` and gates.
+**Verdict class** is the worst a check's declared outcomes can say of a core: `FAIL` for a missed shall, `DEVIATION` for a missed should, `WARN` for behaviour no requirement covers that meets a criterion (security, availability or interoperability), `INFO` for behaviour that is only recorded. In every class a core that does not survive a check's stimulus is `CRASH`. Each check's outcomes are listed below, under Declared outcomes.
 
 Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-release.md).
 
