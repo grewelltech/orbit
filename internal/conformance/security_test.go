@@ -62,73 +62,88 @@ func TestParseSMC(t *testing.T) {
 }
 
 // Each sub-result: NIA0, differing capabilities and a skipped command FAIL
-// every UE; a reject or release passes the two non-conforming UEs but is
-// ERROR for the normal one; an algorithm the UE did not offer is recorded
-// only. A FAIL of the NIA0-only UE notes that the core's algorithm order
-// decides which FAIL it gives, and a cleanup is recorded.
+// every UE; a reject, a release or no answer passes the two non-conforming
+// UEs but is BLOCKED on the registration for the normal one; an attach that
+// fails first is the setup's to judge; an algorithm the UE did not offer is
+// recorded only. A FAIL of the NIA0-only UE notes that the core's algorithm
+// order decides which FAIL it gives, and a cleanup is recorded.
 func TestJudgeSMC(t *testing.T) {
 	tampered := append([]byte(nil), normalUECaps.Buffer...)
 	tampered[0] ^= 0x01
+	blocked := classifiedBlocked(ProcRegistration)
 	tests := []struct {
 		name         string
 		o            smcOutcome
 		u            smcStimulus
-		want         Verdict
+		want         Outcome
+		wantVerdict  Verdict
 		wantObserved string
 		wantDetail   []string
 	}{
-		{name: "normal: NIA2", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, normalUECaps.Buffer)}, want: Pass,
+		{name: "normal: NIA2", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, normalUECaps.Buffer)}, want: smcSecured,
 			wantObserved: "NIA2 selected, capabilities replayed", wantDetail: []string{"selected 128-NIA2 and NEA0"}},
-		{name: "normal: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, normalUECaps.Buffer)}, want: Fail,
+		{name: "normal: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, normalUECaps.Buffer)}, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected",
 			wantDetail:   []string{"AMF selected NIA0 for a normal registration (UE offered NEA0/NEA1/NEA2, NIA0/NIA1/NIA2). TS 33.501 5.5.2."}},
-		{name: "normal: capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, tampered)}, want: Fail,
+		{name: "normal: capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, tampered)}, want: smcCapsDiffer,
 			wantObserved: "replayed UE security capabilities differ",
 			wantDetail:   []string{"Replayed UE security capabilities differ from those sent. TS 33.501 6.7.2 step 1b.", "Sent e0e0, replayed e1e0."}},
-		{name: "normal: NIA0 and capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, tampered)}, want: Fail,
+		{name: "normal: NIA0 and capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, tampered)}, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected", wantDetail: []string{"TS 33.501 5.5.2", "TS 33.501 6.7.2 step 1b"}},
-		{name: "normal: skipped", o: smcOutcome{acceptFirst: true}, want: Fail, wantObserved: "Security Mode Command skipped",
+		{name: "normal: skipped", o: smcOutcome{acceptFirst: true}, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command before the Registration Accept (UE offered NEA0/NEA1/NEA2, NIA0/NIA1/NIA2). TS 33.501 5.5.2. " + noEmergencyNote}},
-		{name: "normal: skipped, plain Accept", o: smcOutcome{acceptFirst: true, plainAccept: true, cleanup: "x"}, want: Fail,
+		{name: "normal: skipped, plain Accept", o: smcOutcome{acceptFirst: true, plainAccept: true, cleanup: "x"}, want: smcSkipped,
 			wantObserved: "Security Mode Command skipped",
 			wantDetail:   []string{"no Security Mode Command; registration proceeded without NAS security (UE offered", "Cleanup: x."}},
-		{name: "normal: rejected", o: smcOutcome{reject: "Registration Reject"}, want: Error, wantObserved: "Registration Reject before the Security Mode Command"},
-		{name: "normal: released", o: smcOutcome{released: true}, want: Error, wantObserved: "released before the Security Mode Command"},
-		{name: "normal: nothing", o: smcOutcome{noAnswer: true}, want: Error, wantObserved: "no Security Mode Command, reject or release"},
-		{name: "NIA0/NIA3: NIA3", o: smcOutcome{smc: smcPDU(t, nas.NIA3, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: Pass,
+		{name: "normal: rejected", o: smcOutcome{reject: "Registration Reject"}, want: blocked, wantObserved: "Registration Reject before the Security Mode Command"},
+		{name: "normal: released", o: smcOutcome{released: true}, want: blocked, wantObserved: "released before the Security Mode Command"},
+		{name: "normal: nothing", o: smcOutcome{noAnswer: true}, want: blocked, wantObserved: "no Security Mode Command, reject or release"},
+		{name: "normal: attach failed", o: smcOutcome{setupErr: engine.ErrRegistrationRejected}, wantVerdict: Blocked,
+			wantObserved: "registration failed before the Security Mode Command"},
+		{name: "normal: harness failure", o: smcOutcome{err: errors.New("x")}, want: classifiedError, wantObserved: "UE setup failed"},
+		{name: "normal: undecodable command", o: smcOutcome{smc: []byte{0x7e, 0x00, 0x56}}, want: classifiedError, wantObserved: "Security Mode Command did not decode"},
+		{name: "NIA0/NIA3: NIA3", o: smcOutcome{smc: smcPDU(t, nas.NIA3, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: smcSecured,
 			wantObserved: "NIA3 selected, capabilities replayed"},
-		{name: "NIA0/NIA3: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: Pass,
+		{name: "NIA0/NIA3: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: smcSecured,
 			wantDetail: []string{"an algorithm the UE did not offer (recorded, not scored)"}},
-		{name: "NIA0/NIA3: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: Fail,
+		{name: "NIA0/NIA3: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected", wantDetail: []string{"UE offered NEA0/NEA3, NIA0/NIA3"}},
-		{name: "NIA0/NIA3: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0nia3UE, want: Pass, wantObserved: "Registration Reject"},
-		{name: "NIA0/NIA3: released", o: smcOutcome{released: true}, u: nia0nia3UE, want: Pass, wantObserved: "UE Context Release Command"},
-		{name: "NIA0/NIA3: skipped", o: smcOutcome{acceptFirst: true}, u: nia0nia3UE, want: Fail, wantObserved: "Security Mode Command skipped"},
-		{name: "NIA0-only: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0OnlyUE, want: Pass, wantObserved: "Registration Reject",
+		{name: "NIA0/NIA3: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0nia3UE, want: smcSecured, wantObserved: "Registration Reject"},
+		{name: "NIA0/NIA3: released", o: smcOutcome{released: true}, u: nia0nia3UE, want: smcSecured, wantObserved: "UE Context Release Command"},
+		{name: "NIA0/NIA3: skipped", o: smcOutcome{acceptFirst: true}, u: nia0nia3UE, want: smcSkipped, wantObserved: "Security Mode Command skipped"},
+		{name: "NIA0-only: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0OnlyUE, want: smcSecured, wantObserved: "Registration Reject",
 			wantDetail: []string{"rejected the UE offering NEA0/NEA1/NEA2, NIA0"}},
-		{name: "NIA0-only: released", o: smcOutcome{released: true}, u: nia0OnlyUE, want: Pass, wantObserved: "UE Context Release Command"},
-		{name: "NIA0-only: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA2, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: Fail,
+		{name: "NIA0-only: released", o: smcOutcome{released: true}, u: nia0OnlyUE, want: smcSecured, wantObserved: "UE Context Release Command"},
+		{name: "NIA0-only: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA2, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected", wantDetail: []string{"AMF selected NIA0", noEmergencyNote, nia0OnlyOrderNote}},
 		{name: "NIA0-only: plain Accept", o: smcOutcome{acceptFirst: true, plainAccept: true, cleanup: "plain switch-off Deregistration Request sent; the core released the UE context (UE Context Release Complete sent)"},
-			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			u: nia0OnlyUE, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command; registration proceeded without NAS security (UE offered NEA0/NEA1/NEA2, NIA0). TS 33.501 5.5.2.",
 				nia0OnlyOrderNote, "Cleanup: plain switch-off Deregistration Request sent; the core released the UE context (UE Context Release Complete sent)."}},
 		{name: "NIA0-only: plain Accept that did not decode", o: smcOutcome{acceptFirst: true, plainAccept: true,
 			noCleanup: fmt.Errorf("%w: bad", engine.ErrDownlinkNASDecode)},
-			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			u: nia0OnlyUE, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"Cleanup: skipped, the plain Registration Accept did not decode: decode downlink NAS: bad."}},
 		{name: "NIA0-only: attach ended before the cleanup", o: smcOutcome{acceptFirst: true, plainAccept: true, noCleanup: context.DeadlineExceeded},
-			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			u: nia0OnlyUE, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"Cleanup: skipped, the attach ended before cleanup: context deadline exceeded."}},
-		{name: "NIA0-only: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: Pass,
+		{name: "NIA0-only: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: smcSecured,
 			wantDetail: []string{"an algorithm the UE did not offer (recorded, not scored)"}},
-		{name: "NIA0-only: nothing", o: smcOutcome{noAnswer: true}, u: nia0OnlyUE, want: Error, wantObserved: "no Security Mode Command, reject or release"},
+		{name: "NIA0-only: nothing", o: smcOutcome{noAnswer: true}, u: nia0OnlyUE, want: smcSecured, wantObserved: "no Security Mode Command, reject or release",
+			wantDetail: []string{"no NIA0 was selected and no command skipped"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := judgeSMC(tc.o, tc.u)
-			if s.v != tc.want || (tc.wantObserved != "" && s.observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", s.v, s.observed, s.detail, tc.want, tc.wantObserved)
+			want := tc.wantVerdict
+			if want == "" {
+				want = covers(tc.want).Verdict
+				if s.o.ID != tc.want.ID {
+					t.Errorf("outcome %q, want %q", s.o.ID, tc.want.ID)
+				}
+			}
+			if s.verdict() != want || (tc.wantObserved != "" && s.observed != tc.wantObserved) {
+				t.Errorf("= %s %q (%s), want %s %q", s.verdict(), s.observed, s.detail, want, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(s.detail, w) {
@@ -142,11 +157,13 @@ func TestJudgeSMC(t *testing.T) {
 	}
 }
 
-// FAIL beats ERROR beats PASS, Observed names the first sub-result with the
-// worst verdict, and Detail says when the two non-conforming UEs failed the
-// same way.
+// FAIL beats BLOCKED and ERROR, which beat PASS; Observed names the first
+// sub-result that decides, and Detail says when the two non-conforming UEs
+// failed the same way.
 func TestCombineSMC(t *testing.T) {
-	sub := func(n string, v Verdict, obs string) subResult { return subResult{name: n, v: v, observed: obs} }
+	sub := func(n string, o Outcome, obs string) subResult { return subResult{name: n, o: o, observed: obs} }
+	notRun := func(n string) subResult { return subResult{name: n, notRun: true, observed: "not run"} }
+	blocked := classifiedBlocked(ProcRegistration)
 	const same = "failed the same way"
 	tests := []struct {
 		name         string
@@ -155,31 +172,37 @@ func TestCombineSMC(t *testing.T) {
 		wantObserved string
 		wantSame     bool
 	}{
-		{name: "all pass", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Pass, "ok"), sub("NIA0-only UE", Pass, "ok")},
+		{name: "all pass", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcSecured, "ok"), sub("NIA0-only UE", smcSecured, "ok")},
 			want: Pass, wantObserved: "normal UE: ok; NIA0/NIA3 UE: ok; NIA0-only UE: ok"},
-		{name: "second fails", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Fail, "NIA0 selected"), sub("NIA0-only UE", Pass, "ok")},
+		{name: "second fails", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcNIA0Selected, "NIA0 selected"), sub("NIA0-only UE", smcSecured, "ok")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: NIA0 selected"},
-		{name: "only the last fails", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Pass, "ok"), sub("NIA0-only UE", Fail, "Security Mode Command skipped")},
+		{name: "only the last fails", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcSecured, "ok"), sub("NIA0-only UE", smcSkipped, "Security Mode Command skipped")},
 			want: Fail, wantObserved: "NIA0-only UE: Security Mode Command skipped"},
-		{name: "error then fail", subs: []subResult{sub("normal UE", Error, "x"), sub("NIA0/NIA3 UE", Fail, "y"), sub("NIA0-only UE", Pass, "ok")},
+		{name: "error then fail", subs: []subResult{sub("normal UE", classifiedError, "x"), sub("NIA0/NIA3 UE", smcNIA0Selected, "y"), sub("NIA0-only UE", smcSecured, "ok")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: y"},
-		{name: "error, rest not run", subs: []subResult{sub("normal UE", Error, "x"), sub("NIA0/NIA3 UE", Skip, "not run"), sub("NIA0-only UE", Skip, "not run")},
-			want: Error, wantObserved: "normal UE: x"},
-		{name: "last two fail the same way", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Fail, "Security Mode Command skipped"), sub("NIA0-only UE", Fail, "Security Mode Command skipped")},
+		{name: "blocked, rest not run", subs: []subResult{sub("normal UE", blocked, "x"), notRun("NIA0/NIA3 UE"), notRun("NIA0-only UE")},
+			want: Blocked, wantObserved: "normal UE: x"},
+		{name: "pass, then an error", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", classifiedError, "x"), sub("NIA0-only UE", smcSecured, "ok")},
+			want: Error, wantObserved: "NIA0/NIA3 UE: x"},
+		{name: "last two fail the same way", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcSkipped, "Security Mode Command skipped"), sub("NIA0-only UE", smcSkipped, "Security Mode Command skipped")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: Security Mode Command skipped", wantSame: true},
-		{name: "last two fail differently", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Fail, "NIA0 selected"), sub("NIA0-only UE", Fail, "Security Mode Command skipped")},
+		{name: "last two fail differently", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcNIA0Selected, "NIA0 selected"), sub("NIA0-only UE", smcSkipped, "Security Mode Command skipped")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: NIA0 selected"},
-		{name: "normal and last fail the same way", subs: []subResult{sub("normal UE", Fail, "NIA0 selected"), sub("NIA0/NIA3 UE", Pass, "ok"), sub("NIA0-only UE", Fail, "NIA0 selected")},
+		{name: "normal and last fail the same way", subs: []subResult{sub("normal UE", smcNIA0Selected, "NIA0 selected"), sub("NIA0/NIA3 UE", smcSecured, "ok"), sub("NIA0-only UE", smcNIA0Selected, "NIA0 selected")},
 			want: Fail, wantObserved: "normal UE: NIA0 selected"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := combineSMC(tc.subs...)
-			if v != tc.want || observed != tc.wantObserved {
-				t.Errorf("= %s %q, want %s %q", v, observed, tc.want, tc.wantObserved)
+			s, observed, detail := combineSMC(tc.subs...)
+			if s.verdict() != tc.want || observed != tc.wantObserved {
+				t.Errorf("= %s %q, want %s %q", s.verdict(), observed, tc.want, tc.wantObserved)
 			}
 			for _, s := range tc.subs {
-				if !strings.Contains(detail, s.name+": "+string(s.v)) {
+				label := string(s.verdict())
+				if s.notRun {
+					label = "NOT RUN"
+				}
+				if !strings.Contains(detail, s.name+": "+label) {
 					t.Errorf("detail %q lacks %s", detail, s.name)
 				}
 			}
@@ -195,8 +218,8 @@ func TestCombineSMC(t *testing.T) {
 // in its order it rejects or releases both non-conforming UEs (PASS), falls
 // back to NIA0 (FAIL) or skips the command with a plain Accept (FAIL, the
 // UE cleaned up); forcing NIA0, tampering the capabilities or skipping the
-// command FAILs; an Authentication Reject or no answer is ERROR; a core that
-// dies at the release is the crash FAIL; no UE SKIPs.
+// command FAILs; an Authentication Reject or no answer is BLOCKED on the
+// registration; a core that dies at the release is CRASH; no UE SKIPs.
 func TestSMCCheckAgainstMock(t *testing.T) {
 	noNIA3 := mockamf.WithIntegrityOrder(nas.NIA2, nas.NIA1)
 	skip := mockamf.WithNoCommonIntegrity(mockamf.SkipNoCommonIntegrity)
@@ -230,23 +253,23 @@ func TestSMCCheckAgainstMock(t *testing.T) {
 			}},
 		{name: "plain Accept for the NIA0-only UE", opts: []mockamf.Option{skip}, want: Fail,
 			wantObserved: "NIA0-only UE: Security Mode Command skipped",
-			wantDetail:   []string{"NIA0/NIA3 UE: PASS NIA3 selected", "Cleanup: plain switch-off Deregistration Request sent; " + released + "; requires Rel-15"}},
+			wantDetail:   []string{"NIA0/NIA3 UE: PASS NIA3 selected", "Cleanup: plain switch-off Deregistration Request sent; " + released + "; violates TS 33.501 5.5.2 (shall)"}},
 		{name: "plain Accept, release request ignored", opts: []mockamf.Option{skip, mockamf.WithNoReleaseOnDeregistration(), mockamf.WithIgnoreUEContextReleaseRequest()}, want: Fail,
 			wantObserved: "NIA0-only UE: Security Mode Command skipped",
-			wantDetail:   []string{"UE Context Release Request sent; no UE Context Release Command within 500ms; the association is closed with the UE context still held; requires Rel-15"}},
+			wantDetail:   []string{"UE Context Release Request sent; no UE Context Release Command within 500ms; the association is closed with the UE context still held; violates TS 33.501 5.5.2 (shall)"}},
 		{name: "NIA0 always", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Fail, wantObserved: "normal UE: NIA0 selected"},
 		{name: "tampered capabilities", opts: []mockamf.Option{mockamf.WithSMCTamperCaps()}, want: Fail,
 			wantObserved: "normal UE: replayed UE security capabilities differ"},
 		{name: "skipped", opts: []mockamf.Option{mockamf.WithSkipSMC()}, want: Fail, wantObserved: "normal UE: Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command before the Registration Accept (UE offered NEA0/NEA1/NEA2, NIA0/NIA1/NIA2)"}},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error,
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
 			wantObserved: "normal UE: Authentication Reject before the Security Mode Command",
-			wantDetail:   []string{"NIA0/NIA3 UE: SKIP not run", "NIA0-only UE: SKIP not run"}},
-		{name: "no answer", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Error,
+			wantDetail:   []string{"NIA0/NIA3 UE: NOT RUN not run", "NIA0-only UE: NOT RUN not run", "blocked: the core did not complete a registration"}},
+		{name: "no answer", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Blocked,
 			wantObserved: "normal UE: no Security Mode Command, reject or release"},
 		{name: "core dies at the release", dead: true, want: Crash,
 			opts:         []mockamf.Option{noNIA3, mockamf.WithNoCommonIntegrity(mockamf.ReleaseNoCommonIntegrity), mockamf.WithCrashAfterRelease()},
-			wantObserved: ObservedAMFUnresponsive + " (NIA0-only UE: UE setup failed)"},
+			wantObserved: ObservedAMFUnresponsive + " (NIA0-only UE: registration failed before the Security Mode Command)"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {

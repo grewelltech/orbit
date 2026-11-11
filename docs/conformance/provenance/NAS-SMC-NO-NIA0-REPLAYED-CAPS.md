@@ -2,7 +2,7 @@
 
 Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/33_series/33.501/](https://www.3gpp.org/ftp/Specs/archive/33_series/33.501/). Versions read (orbit-architect, 2026-10-12 and 2026-10-18; issue #136): V15.0.0 (`33501-f00.zip`) to V15.5.0 (`33501-f50.zip`), including V15.1.0 (`33501-f10.zip`); V15.20.0 (`33501-fk0.zip`); V16.20.0 (`33501-gk0.zip`); V17.16.0 (`33501-hg0.zip`); V18.12.0 (`33501-ic0.zip`); and V19.7.0 (`33501-j70.zip`).
 
-## TS 33.501 5.5.2 (Signalling data integrity), shall
+## TS 33.501 5.5.2 (Signalling data integrity), shall, primary
 
 > "All NAS signalling messages except those explicitly listed in TS 24.501 [35] as exceptions shall be integrity-protected with an algorithm different to NIA-0 except for emergency calls."
 
@@ -37,13 +37,19 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/33_series
 - **Third stimulus (issue #180):** a UE offering only NIA0 (with 5G-EA0/1/2). It is doubly non-conforming, since UEs shall implement 128-NIA1 and 128-NIA2. As for the NIA0/NIA3 UE, the requirement under test is on the AMF, not the UE. With no non-null integrity algorithm in common, the expected answer is a reject or a release. For any UE, a Security Mode Command selecting NIA0, or no Security Mode Command, is FAIL (TS 33.501 5.5.2, 6.7.2 step 1b). A non-null algorithm the UE did not offer is PASS, recorded, not scored: no shall requires the selected algorithm to be one the UE offered at initial registration. 5.11.2 b) says only 'dependent on', and 6.7.1.2 (from V19.4.0) covers AMF change. This UE runs last.
 - **Not-offered algorithms:** 5.11.2 b) requires the serving network to select the algorithms 'dependent on' the UE security capabilities, but does not require the selected algorithm to be one the UE offered; only 6.7.1.2 (AMF change, added in V19.4.0 by CR 2172) does. An algorithm the UE did not offer is therefore recorded, not scored.
 
-## Verdicts
+## Verdict
 
-Each UE is judged separately, and the check's verdict is the worst of the three (FAIL, then ERROR, then PASS). A UE that was not run is SKIP and does not affect the verdict. The second and third UEs run only when the normal UE's result is not ERROR. When the NIA0/NIA3 UE and the NIA0-only UE fail the same way, the detail says so.
-
-- **A Registration Accept with no Security Mode Command:** FAIL for any UE. The detail says "no Security Mode Command; registration proceeded without NAS security" when the Accept is plain (security header type 0), and does not claim NIA0 was selected.
-- **A Security Mode Command selecting NIA0:** FAIL for any UE.
+- **Class:** conformance, two shalls (5.5.2, 6.7.2 step 1b).
+- **Stimulus:** three registrations, each its own subscriber, with the Security Mode Complete and the Registration Complete withheld: a normal UE (5G-EA0/1/2, 5G-IA0/1/2), a UE offering only NIA0 and NIA3, and last a UE offering only NIA0. Each waits 10 s for a Security Mode Command, a reject, a release or a Registration Accept without the command. The two non-conforming UEs run only when the normal UE's result is a verdict on the command (PASS or FAIL). Each UE is judged on its own; the check reports the first FAIL in run order, else the first UE that is not PASS (BLOCKED or ERROR), else PASS. When the NIA0/NIA3 UE and the NIA0-only UE fail the same way, the detail says so.
+- **PASS** `secured`: the normal UE got a Security Mode Command selecting a non-null integrity algorithm with its capabilities replayed exactly, and each non-conforming UE got NIA3 (or another non-null algorithm), a reject, a release or no answer within 10 s: nothing selected NIA0 and no command was skipped. A non-null algorithm the UE did not offer is recorded, not scored.
+- **FAIL** `nia0-selected` (5.5.2): a Security Mode Command selecting NIA0, for any UE.
+- **FAIL** `capabilities-not-replayed` (6.7.2 step 1b): replayed UE security capabilities that differ byte for byte from those the UE sent.
+- **FAIL** `command-skipped` (5.5.2): a Registration Accept with no Security Mode Command before it, for any UE. The detail says "no Security Mode Command; registration proceeded without NAS security" when the Accept is plain (security header type 0), and does not claim NIA0 was selected.
 - **Emergency exception:** the detail of every NIA0 or no-command FAIL says: "The check never requests an emergency registration, so the emergency exception in 5.5.2 does not apply." The UEs always send an initial registration.
 - **A FAIL of the NIA0-only UE:** the detail adds: "Which of the two FAILs a core gives can depend on its configured NAS algorithm order (for example, a core may skip the Security Mode Command when only NEA0 is configured, and send one selecting NIA0 otherwise). Both are FAIL."
+- **BLOCKED** (registration): the core rejected or released the normal UE, or sent it none of the answers within 10 s, before the Security Mode Command; or a UE's attach failed before the command. The run's preflight registered a UE with the same configuration, so this is the core not taking the registration as far as the command.
+- **CRASH:** the AMF no longer completes an NG Setup after the three registrations.
+- **ERROR:** the harness could not set up a UE, the Security Mode Command did not decode, the per-test timeout expired before an answer, or a local socket failed.
+- **SKIP:** no UE configured, or a target release older than Rel-15.
 - **Cleanup after a plain Registration Accept:** the UE has no NAS security context, so it sends a switch-off Deregistration Request in the clear. TS 24.501 4.4.4.3 allows this, unchanged from V15.0.0 to V20.1.0: its list of messages processed before secure exchange is established includes "f) DEREGISTRATION REQUEST", and NOTE 2 reads "The DEREGISTRATION REQUEST message can be sent by the UE without integrity protection, e.g. if ... there is no valid 5G NAS security context available, ...". No Security Mode Command ran, so secure exchange was never established. The request names itself by the 5G-GUTI the Accept assigned, else by its SUCI. If no UE Context Release Command arrives within 2 s, the gNB sends a UE Context Release Request and waits 2 s again. A command is answered with UE Context Release Complete. The detail records each step, including a release that never came.
-- The liveness probe after the three registrations is unchanged.
+- **Limits:** which non-null algorithm wins is operator policy (6.7.1.1) and is not asserted. A non-conforming UE the core leaves unanswered passes: silence selects no NIA0 and skips no command, but says nothing more.

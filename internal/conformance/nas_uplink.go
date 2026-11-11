@@ -140,16 +140,54 @@ type uplinkDriver struct {
 // apply under it (TS 24.501 4.4.3.2, 4.4.3.3).
 var errNIA0Selected = errors.New("the core selected 5G-IA0")
 
-// nia0Skip is the SKIP of a check that needs integrity protection.
+// errNASProbe marks the error of a NAS probe that could not be opened on a
+// registered UE: the harness's failure, not the core's.
+var errNASProbe = errors.New("open the NAS probe")
+
+// uplinkSetupFailed is the result of a check whose newUplinkDriver failed
+// with err: SKIP when the core selected 5G-IA0, ERROR when the NAS probe
+// could not be opened, otherwise the registration's failure
+// (Result.SetupFailed).
+func uplinkSetupFailed(r Result, err error) Result {
+	switch {
+	case errors.Is(err, errNIA0Selected):
+		return nia0Skip(r)
+	case errors.Is(err, errNASProbe):
+		return r.Errored("the NAS probe could not be opened", err.Error())
+	}
+	return r.SetupFailed("UE registration failed", err)
+}
+
+// nia0Skip is the SKIP of a check that needs integrity protection
+// (InputIntegrity).
 func nia0Skip(r Result) Result {
-	r.Verdict, r.Observed = Skip, "the core selected 5G-IA0"
-	r.Detail = "\"Integrity verification is not applicable when 5G-IA0 is used\" (TS 24.501 4.4.3.3), and neither is replay protection (4.4.3.2); the UE harness refuses 5G-IA0, so the UE did not register"
-	return r
+	return r.Skipped(InputIntegrity, "the core selected 5G-IA0",
+		"\"Integrity verification is not applicable when 5G-IA0 is used\" (TS 24.501 4.4.3.3), and neither is replay protection (4.4.3.2); the UE harness refuses 5G-IA0, so the UE did not register")
+}
+
+// classifiedError is the ERROR a classifier returns: the tool could not
+// judge what it saw.
+var classifiedError = Outcome{ID: OutcomeError, Verdict: Error}
+
+// classifiedBlocked is the BLOCKED a classifier returns when the core did
+// not complete procedure p, which the check needs first.
+func classifiedBlocked(p Procedure) Outcome {
+	return Outcome{ID: blockedID(p), Verdict: Blocked, blocked: p}
+}
+
+// asClassified returns r reporting what a classifier returned: a declared
+// outcome, classifiedError or a classifiedBlocked.
+func asClassified(r Result, o Outcome, observed, detail string) Result {
+	if o.Verdict == Blocked {
+		return r.BlockedBy(o.blocked, observed, detail)
+	}
+	return r.As(o, observed, detail)
 }
 
 // newUplinkDriver registers h's UE (no PDU session) and opens a NAS probe
 // on it. errNIA0Selected is the error when the Security Mode Command
-// selected 5G-IA0. On an error nothing stays open.
+// selected 5G-IA0, and errNASProbe when the UE registered and the NAS probe
+// could not be opened. On an error nothing stays open.
 func newUplinkDriver(ctx context.Context, h *UEHarness, waits uplinkWaits) (*uplinkDriver, error) {
 	waits = waits.withDefaults()
 	rctx, cancel := context.WithTimeout(ctx, waits.register)
@@ -171,7 +209,7 @@ func newUplinkDriver(ctx context.Context, h *UEHarness, waits uplinkWaits) (*upl
 	}
 	p, err := h.ProbeNAS(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errNASProbe, err)
 	}
 	return &uplinkDriver{h: h, p: p, waits: waits, psi: h.pdu.PDUSessionID, ngKSI: selected.ngKSI}, nil
 }

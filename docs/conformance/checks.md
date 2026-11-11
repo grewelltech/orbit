@@ -249,7 +249,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NAS-SMC-NO-NIA0-REPLAYED-CAPS
 
-- TS 33.501 5.5.2 (shall, since Rel-15): Rel-15 V15.1.0 (`33501-f10.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+- TS 33.501 5.5.2 (shall, since Rel-15): Rel-15 V15.1.0 (`33501-f10.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`); primary
 - TS 33.501 6.7.2 step 1b (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
 - TS 33.501 6.7.1.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
 - TS 33.501 5.2.3 (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
@@ -702,3 +702,17 @@ Needs: NG Setup.
 | `no-answer` | FAIL | TS 38.413 8.7.4.2.2 (shall); absence within 5s (check bound; TS 38.413 sets no timer for the acknowledge) | sent no NG RESET ACKNOWLEDGE |
 | `association-lost` | FAIL | TS 38.413 8.7.4.2.2 (shall) | dropped the association instead of acknowledging the NG RESET |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NAS-SMC-NO-NIA0-REPLAYED-CAPS outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `secured` | PASS | TS 33.501 5.5.2 (shall); TS 33.501 6.7.2 step 1b (shall) | sent the normal UE a Security Mode Command with a non-null integrity algorithm and its capabilities replayed, and neither selected NIA0 for nor skipped the command with the non-conforming UEs |
+| `nia0-selected` | FAIL | TS 33.501 5.5.2 (shall) | selected the null integrity algorithm NIA0 in a Security Mode Command |
+| `capabilities-not-replayed` | FAIL | TS 33.501 6.7.2 step 1b (shall) | replayed UE security capabilities that differ from those the UE sent |
+| `command-skipped` | FAIL | TS 33.501 5.5.2 (shall) | sent a Registration Accept with no Security Mode Command before it |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
