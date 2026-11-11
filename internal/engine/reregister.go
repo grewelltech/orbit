@@ -85,28 +85,16 @@ func (m *Manager) ReregisterAfterRelease(ctx context.Context, supi string, ueCfg
 		return nil, fmt.Errorf("UE %s: %w", supi, err)
 	}
 
-	// The old registration ends here whatever follows, as in DeregisterWith.
-	m.mu.Lock()
-	delete(m.sessions, supi)
-	m.mu.Unlock()
-	sess.markReleased()
-	m.releaseAppSessions(supi)
-	sess.closeDataPath()
-	m.appMetrics.forgetUE(supi)
-
-	if err := sess.deregister(ctx, true); err != nil {
+	dres, completedAt, err := m.switchOffForRegistration(ctx, sess, linger)
+	if dres == nil {
 		_ = lane.Close()
-		return nil, fmt.Errorf("%w: %v", ErrNoReregistration, err)
+		return nil, err
 	}
-	res := &Reregistration{Deregistration: &DeregisterResult{SwitchOff: true, AMFUENGAPID: sess.amfID, RANUENGAPID: sess.ranID, SentAt: time.Now()}}
-	res.Deregistration.Release, res.Deregistration.ReleaseErr = sess.awaitRelease(ctx, linger, m.log)
-	res.CompletedAt = time.Now()
-	if err := res.Deregistration.ReleaseErr; err != nil {
+	res := &Reregistration{Deregistration: dres, CompletedAt: completedAt}
+	if err != nil {
 		_ = lane.Close()
-		m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: "UE deregistered (switch-off); " + err.Error()})
-		return res, fmt.Errorf("%w: %v", ErrNoReregistration, err)
+		return res, err
 	}
-	m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: "UE deregistered (switch-off)"})
 
 	if gap > 0 {
 		t := time.NewTimer(gap)
@@ -139,4 +127,37 @@ func (m *Manager) ReregisterAfterRelease(ctx context.Context, supi string, ueCfg
 	m.adopt(again, sess.N2Source(), ueCfg.GNBN3Addr)
 	res.Attach = again.Result
 	return res, nil
+}
+
+// switchOffForRegistration ends sess's registration as DeregisterWith does
+// with a switch-off, and waits up to linger for the core's UE CONTEXT
+// RELEASE COMMAND, which the gNB answers with the UE CONTEXT RELEASE
+// COMPLETE. It returns the deregistration and when the complete had been
+// written. The deregistration is nil when the request could not be sent;
+// the error, wrapping ErrNoReregistration, is set then and when no release
+// came. It closes no association, and the caller holds sess's procedure
+// lock.
+func (m *Manager) switchOffForRegistration(ctx context.Context, sess *Session, linger time.Duration) (*DeregisterResult, time.Time, error) {
+	supi := sess.SUPI
+	// The registration ends here whatever follows, as in DeregisterWith.
+	m.mu.Lock()
+	delete(m.sessions, supi)
+	m.mu.Unlock()
+	sess.markReleased()
+	m.releaseAppSessions(supi)
+	sess.closeDataPath()
+	m.appMetrics.forgetUE(supi)
+
+	if err := sess.deregister(ctx, true); err != nil {
+		return nil, time.Time{}, fmt.Errorf("%w: %v", ErrNoReregistration, err)
+	}
+	res := &DeregisterResult{SwitchOff: true, AMFUENGAPID: sess.amfID, RANUENGAPID: sess.ranID, SentAt: time.Now()}
+	res.Release, res.ReleaseErr = sess.awaitRelease(ctx, linger, m.log)
+	completedAt := time.Now()
+	if err := res.ReleaseErr; err != nil {
+		m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: "UE deregistered (switch-off); " + err.Error()})
+		return res, completedAt, fmt.Errorf("%w: %v", ErrNoReregistration, err)
+	}
+	m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: "UE deregistered (switch-off)"})
+	return res, completedAt, nil
 }
