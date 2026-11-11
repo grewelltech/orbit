@@ -16,13 +16,20 @@ import (
 // acceptConfigurationUpdate is the UE's side of the generic UE configuration
 // update procedure (TS 24.501 5.4.4.3) for one Configuration Update Command.
 // A new 5G-GUTI replaces *guti, the only parameter of the command the UE
-// keeps: a new TAI list or allowed NSSAI is noted in the log, and so is a
-// registration request, which the UE does not act on. With acknowledgement
-// requested, the Configuration Update Complete goes out through send,
-// protected by sec. A command that is not integrity protected is not
-// processed (4.4.4.2).
+// keeps: a new TAI list or allowed NSSAI is noted in the log. With
+// acknowledgement requested, the Configuration Update Complete goes out
+// through send, protected by sec. A command that is not integrity protected
+// is not processed (4.4.4.2).
+//
+// Limit: with "registration requested" set, 5.4.4.3 has the UE start a
+// registration procedure for mobility and periodic registration update
+// (5.5.1.3) once this procedure completes, in most cases after the N1 NAS
+// signalling connection is released. The engine has no such procedure, so
+// the UE stays registered as it was: the command's other parts are still
+// applied and acknowledged, *registrationRequested is set, and a warning is
+// logged.
 func acceptConfigurationUpdate(ctx context.Context, log *slog.Logger, msg *f5nas.Message, protected bool,
-	sec *nas.SecurityContext, guti *[]byte, send func([]byte) error) error {
+	sec *nas.SecurityContext, guti *[]byte, registrationRequested *bool, send func([]byte) error) error {
 	if !protected || sec == nil {
 		log.WarnContext(ctx, "not processing a Configuration Update Command that is not integrity protected")
 		return nil
@@ -35,7 +42,9 @@ func acceptConfigurationUpdate(ctx context.Context, log *slog.Logger, msg *f5nas
 		*guti = cu.GUTI.Raw
 	}
 	if cu.RegistrationRequested {
-		log.WarnContext(ctx, "Configuration Update Command requests a registration; the UE starts none")
+		*registrationRequested = true
+		log.WarnContext(ctx, "Configuration Update Command requests a registration update (TS 24.501 5.4.4.3), which the UE cannot perform: it stays registered as it was",
+			"ack_requested", cu.AckRequested)
 	}
 	if cu.AckRequested {
 		complete, err := ue.BuildConfigurationUpdateComplete()
@@ -50,8 +59,8 @@ func acceptConfigurationUpdate(ctx context.Context, log *slog.Logger, msg *f5nas
 			return fmt.Errorf("send Configuration Update Complete: %w", err)
 		}
 	}
-	log.InfoContext(ctx, "accepted Configuration Update Command",
-		"ack_requested", cu.AckRequested, "new_guti", cu.GUTI != nil,
+	log.InfoContext(ctx, "processed Configuration Update Command",
+		"ack_requested", cu.AckRequested, "registration_requested_not_performed", cu.RegistrationRequested, "new_guti", cu.GUTI != nil,
 		"new_tai_list", cu.HasTAIList, "new_allowed_nssai", cu.HasAllowedNSSAI)
 	return nil
 }
@@ -59,15 +68,14 @@ func acceptConfigurationUpdate(ctx context.Context, log *slog.Logger, msg *f5nas
 // onConfigurationUpdateCommand accepts a Configuration Update Command that
 // arrives during the attach.
 func (s *attachState) onConfigurationUpdateCommand(msg *f5nas.Message, protected bool) error {
-	return acceptConfigurationUpdate(s.ctx, s.log, msg, protected, s.sec, &s.guti, s.sendUL)
+	return acceptConfigurationUpdate(s.ctx, s.log, msg, protected, s.sec, &s.guti, &s.registrationRequested, s.sendUL)
 }
 
 // absorbDownlinkNAS handles a Downlink NAS Transport that reaches a
 // registered UE while one of its procedures waits for another PDU, and
 // reports whether pdu was one, so the wait reads on. A Configuration Update
-// Command is accepted (TS 24.501 5.4.4.3: the network may send one at any
-// time in 5GMM-CONNECTED mode); any other NAS message is logged and
-// dropped.
+// Command is processed (acceptConfigurationUpdate, with its limit); any
+// other NAS message is logged and dropped.
 func (s *Session) absorbDownlinkNAS(ctx context.Context, log *slog.Logger, pdu *ngapType.NGAPPDU) bool {
 	if pdu == nil || pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage ||
 		pdu.InitiatingMessage.Value.Present != ngapType.InitiatingMessagePresentDownlinkNASTransport {
@@ -95,8 +103,12 @@ func (s *Session) absorbDownlinkNAS(ctx context.Context, log *slog.Logger, pdu *
 		}
 		return gnb.SendPDU(s.conn, ueStream, ul)
 	}
-	if err := acceptConfigurationUpdate(ctx, log, msg, true, s.sec, &s.guti, send); err != nil {
+	var registrationRequested bool
+	if err := acceptConfigurationUpdate(ctx, log, msg, true, s.sec, &s.guti, &registrationRequested, send); err != nil {
 		log.WarnContext(ctx, "Configuration Update Command not accepted", "supi", s.SUPI, "err", err)
+	}
+	if registrationRequested {
+		s.setRegistrationUpdateRequested()
 	}
 	return true
 }

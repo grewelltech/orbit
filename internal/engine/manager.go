@@ -53,9 +53,6 @@ type Session struct {
 	guti  []byte
 	ngksi uint8 // key set identifier of the NAS security context
 	gnbN3 string
-	// ueSecCaps is the UE's 5G security capabilities as the serving gNB
-	// holds them, from the AMF; a path switch sends them back to it.
-	ueSecCaps *ngapType.UESecurityCapabilities
 
 	// proc serialises the UE's control-plane procedures — handover and
 	// deregistration — which rewrite the association (conn, amfID, ranID) and
@@ -81,6 +78,13 @@ type Session struct {
 	released bool      // deregistered: no further procedure may run
 	idle     bool      // CM-IDLE: no NAS signalling connection (idle.go)
 	upDown   bool      // the user plane is released and not yet reactivated
+	// registrationRequested records a Configuration Update Command that
+	// requested a registration update, which the UE did not perform.
+	registrationRequested bool
+	// ueSecCaps is the UE's 5G security capabilities as the serving gNB
+	// holds them, from the AMF; a path switch sends them back to it. The
+	// value pointed to is never modified, only replaced.
+	ueSecCaps *ngapType.UESecurityCapabilities
 
 	// N3 data path, created lazily on first use over the per-gNB shared
 	// tunnel pool (design §6, Phase 5): ONE socket per gNB N3 address,
@@ -967,5 +971,38 @@ func (s *Session) deregister(ctx context.Context, switchOff bool) error {
 // Setup Request, a later Handover Request, or a Path Switch Request
 // Acknowledge. Nil when the AMF sent none.
 func (s *Session) UESecurityCapabilities() *ngapType.UESecurityCapabilities {
-	return gnb.CloneUESecurityCapabilities(s.ueSecCaps)
+	return gnb.CloneUESecurityCapabilities(s.heldUESecCaps())
+}
+
+// RegistrationUpdateRequested reports whether the network has requested a
+// registration update in a Configuration Update Command (TS 24.501 5.4.4.3)
+// since the UE registered. The UE performs none, so true means its
+// registration no longer reflects what the network asked for.
+func (s *Session) RegistrationUpdateRequested() bool {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.registrationRequested
+}
+
+// setRegistrationUpdateRequested records a requested registration update.
+func (s *Session) setRegistrationUpdateRequested() {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.registrationRequested = true
+}
+
+// heldUESecCaps returns the held UE security capabilities, for the Path
+// Switch Request builder, which copies them.
+func (s *Session) heldUESecCaps() *ngapType.UESecurityCapabilities {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.ueSecCaps
+}
+
+// setUESecCaps replaces the held UE security capabilities with caps, which
+// the caller hands over.
+func (s *Session) setUESecCaps(caps *ngapType.UESecurityCapabilities) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.ueSecCaps = caps
 }

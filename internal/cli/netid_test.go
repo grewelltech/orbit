@@ -80,6 +80,158 @@ func TestNetIdentityResolve(t *testing.T) {
 	}
 }
 
+// $ORBIT_TAC/$ORBIT_SST/$ORBIT_SD/$ORBIT_DNN fill the slice and area fields
+// when the flag is unset, the same convenience $ORBIT_MCC/$ORBIT_MNC give the
+// PLMN; an explicit flag wins, a handover (inherit) target ignores them, and
+// a malformed number is one error naming the variable.
+func TestNetIdentityEnvFallback(t *testing.T) {
+	tests := []struct {
+		name              string
+		args              []string
+		tac, sst, sd, dnn string // env values ("" = unset)
+		inherit           bool
+		wantTAC, wantSST  uint32
+		wantSD, wantDNN   string
+		wantErr           string
+	}{
+		{name: "env fills unset fields", tac: "7", sst: "2", sd: "0a0b0c", dnn: "ims",
+			args: []string{"--mcc", "001", "--mnc", "01"}, wantTAC: 7, wantSST: 2, wantSD: "0a0b0c", wantDNN: "ims"},
+		{name: "explicit flags win over env", tac: "7", sst: "2", sd: "0a0b0c", dnn: "ims",
+			args:    []string{"--mcc", "001", "--mnc", "01", "--tac", "9", "--sst", "3", "--sd", "ffffff", "--dnn", "internet"},
+			wantTAC: 9, wantSST: 3, wantSD: "ffffff", wantDNN: "internet"},
+		{name: "unset env leaves the defaults", args: []string{"--mcc", "001", "--mnc", "01"},
+			wantTAC: 1, wantSST: 1, wantSD: "", wantDNN: "internet"},
+		{name: "hex tac from env", tac: "0x0a", args: []string{"--mcc", "001", "--mnc", "01"}, wantTAC: 10, wantSST: 1, wantDNN: "internet"},
+		{name: "leading-zero tac is refused naming the variable", tac: "0010", args: []string{"--mcc", "001", "--mnc", "01"}, wantErr: "$ORBIT_TAC"},
+		{name: "non-numeric sst is refused naming the variable", sst: "abc", args: []string{"--mcc", "001", "--mnc", "01"}, wantErr: "$ORBIT_SST"},
+		{name: "out-of-range tac is still validated", tac: "16777216", args: []string{"--mcc", "001", "--mnc", "01"}, wantErr: "tac"},
+		{name: "inherit ignores the env", tac: "7", sst: "2", sd: "0a0b0c", inherit: true, wantTAC: 0, wantSST: 0, wantSD: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ORBIT_MCC", "")
+			t.Setenv("ORBIT_MNC", "")
+			// "" in the table means unset, not present-but-empty (which the
+			// numeric readers now reject): register for restore, then unset.
+			setOrUnset := func(name, val string) {
+				t.Setenv(name, val)
+				if val == "" {
+					_ = os.Unsetenv(name)
+				}
+			}
+			setOrUnset("ORBIT_TAC", tc.tac)
+			setOrUnset("ORBIT_SST", tc.sst)
+			setOrUnset("ORBIT_SD", tc.sd)
+			setOrUnset("ORBIT_DNN", tc.dnn)
+			var id netIdentity
+			fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+			opts := []netIDOption{withDNN()}
+			if tc.inherit {
+				opts = append(opts, withInherit())
+			}
+			addNetIdentityFlags(fs, &id, opts...)
+			if err := fs.Parse(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			err := id.resolve(!tc.inherit)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("resolve = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			if id.TAC != tc.wantTAC || id.SST != tc.wantSST || id.SD != tc.wantSD {
+				t.Errorf("tac/sst/sd = %d/%d/%q, want %d/%d/%q", id.TAC, id.SST, id.SD, tc.wantTAC, tc.wantSST, tc.wantSD)
+			}
+			if tc.wantDNN != "" && id.DNN != tc.wantDNN {
+				t.Errorf("dnn = %q, want %q", id.DNN, tc.wantDNN)
+			}
+		})
+	}
+}
+
+func TestEnvUint32(t *testing.T) {
+	const name = "ORBIT_TEST_UINT"
+
+	t.Run("unset is (0, false, nil)", func(t *testing.T) {
+		t.Setenv(name, "x")
+		_ = os.Unsetenv(name)
+		n, ok, err := envUint32(name)
+		if n != 0 || ok || err != nil {
+			t.Fatalf("got (%d, %v, %v), want (0, false, nil)", n, ok, err)
+		}
+	})
+
+	t.Run("present but empty is rejected", func(t *testing.T) {
+		t.Setenv(name, "")
+		_, ok, err := envUint32(name)
+		if err == nil {
+			t.Fatal("a present-but-empty value must be rejected, not defaulted")
+		}
+		if ok {
+			t.Error("ok must be false on error")
+		}
+	})
+
+	t.Run("a bad value is not echoed in the error", func(t *testing.T) {
+		const v = "sekret-token-abcdef"
+		t.Setenv(name, v)
+		_, _, err := envUint32(name)
+		if err == nil {
+			t.Fatal("want an error for a non-numeric value")
+		}
+		if strings.Contains(err.Error(), v) {
+			t.Errorf("error leaked the raw value: %v", err)
+		}
+	})
+}
+
+// A present-but-empty ORBIT_DNN reaches the --dnn validation on the flag/local
+// path (and fails) instead of silently keeping the default.
+func TestEnvDNNEmptyRejected(t *testing.T) {
+	for _, n := range []string{"ORBIT_MCC", "ORBIT_MNC", "ORBIT_TAC", "ORBIT_SST", "ORBIT_SD"} {
+		t.Setenv(n, "")
+		_ = os.Unsetenv(n)
+	}
+	t.Setenv("ORBIT_DNN", "") // present but empty
+	var id netIdentity
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	addNetIdentityFlags(fs, &id, withDNN())
+	if err := fs.Parse([]string{"--mcc", "001", "--mnc", "01"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := id.resolve(true); err == nil || !strings.Contains(err.Error(), "dnn") {
+		t.Fatalf("resolve = %v, want a --dnn validation error", err)
+	}
+}
+
+// A Ki/OPc-shaped value misplaced in ORBIT_SD is masked in the SNSSAI
+// validation error on the direct path, never echoed.
+func TestEnvSDMasked(t *testing.T) {
+	for _, n := range []string{"ORBIT_MCC", "ORBIT_MNC", "ORBIT_TAC", "ORBIT_DNN"} {
+		t.Setenv(n, "")
+		_ = os.Unsetenv(n)
+	}
+	key := strings.Repeat("ab", 16) // 32 hex chars
+	t.Setenv("ORBIT_SD", key)
+	var id netIdentity
+	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
+	addNetIdentityFlags(fs, &id, withDNN())
+	if err := fs.Parse([]string{"--mcc", "001", "--mnc", "01", "--sst", "1", "--dnn", "internet"}); err != nil {
+		t.Fatal(err)
+	}
+	err := id.resolve(true)
+	if err == nil {
+		t.Fatal("want a SNSSAI error for a 32-char SD")
+	}
+	if strings.Contains(err.Error(), key) {
+		t.Errorf("error leaked the SD value: %v", err)
+	}
+}
+
 func TestNetIdentityDefaults(t *testing.T) {
 	var id netIdentity
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)

@@ -334,7 +334,7 @@ func (m *Manager) completeHandover(ctx context.Context, sess *Session, target GN
 	sess.ranID = targetHandoverRANID
 	sess.amfID = hr.AMFUENGAPID
 	if hr.UESecurityCapabilities != nil {
-		sess.ueSecCaps = hr.UESecurityCapabilities
+		sess.setUESecCaps(hr.UESecurityCapabilities)
 	}
 	// Per-session bookkeeping: new DL TEIDs, plus any UL F-TEID the core
 	// re-anchored (carried in the HandoverRequest's per-session transfer).

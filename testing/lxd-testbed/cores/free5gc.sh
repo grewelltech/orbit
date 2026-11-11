@@ -110,8 +110,16 @@ free5gc_push() {
 # boot with Secure Boot on, and the kernel then refuses such a module; the
 # only unattended way round it is to turn Secure Boot off for this VM, which
 # takes a restart of the node.
+# free5gc_secure_boot_on succeeds when the core node booted with Secure Boot
+# enforced. It reads the firmware's SecureBoot variable, whose fifth byte is 1
+# when enforcement is on; a node without the variable has it off.
+free5gc_secure_boot_on() {
+    on_core 'f=$(ls /sys/firmware/efi/efivars/SecureBoot-* 2>/dev/null | head -n1)
+[ -n "$f" ] && [ "$(od -An -t u1 -j4 -N1 "$f" | tr -d " ")" = 1 ]'
+}
+
 free5gc_modules_loadable() {
-    on_core "mokutil --sb-state 2>/dev/null | grep -q 'SecureBoot enabled'" || return 0
+    free5gc_secure_boot_on || return 0
     info "turning Secure Boot off on $NODE_CORE (gtp5g is built here and unsigned); restarting the node"
     # The setting was renamed: boot.mode on current LXD, security.secureboot
     # before it.
@@ -126,7 +134,7 @@ free5gc_modules_loadable() {
         sleep 3
     done
     wait_cloud_init "$NODE_CORE"
-    ! on_core "mokutil --sb-state 2>/dev/null | grep -q 'SecureBoot enabled'" \
+    ! free5gc_secure_boot_on \
         || die "Secure Boot is still on in $NODE_CORE; gtp5g cannot be loaded"
 }
 

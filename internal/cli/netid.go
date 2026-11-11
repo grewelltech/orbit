@@ -3,12 +3,14 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/pflag"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/gnb"
+	"github.com/bgrewell/orbit/internal/target"
 )
 
 // Help text for the network-identity flags, defined once so every command
@@ -102,6 +104,14 @@ func (id *netIdentity) resolve(required bool) error {
 		if id.MNC == "" {
 			id.MNC = os.Getenv("ORBIT_MNC")
 		}
+		// The slice/area fields take their $ORBIT_* fallback only when the
+		// operator did not set the flag: unlike MCC/MNC (default ""), --tac
+		// and --sst have a non-empty default, so "did the flag change?" is
+		// the test, not "is it empty?". An explicit flag always wins, and
+		// the env is never read for a handover (inherit) target.
+		if err := id.envFallback(); err != nil {
+			return err
+		}
 	}
 	switch {
 	case id.MCC == "" && id.MNC == "":
@@ -130,12 +140,79 @@ func (id *netIdentity) resolve(required bool) error {
 		return fmt.Errorf("on handover --sd needs --sst, or omit both to inherit the serving slice")
 	}
 	if err := gnb.ValidateSNSSAI(id.SST, id.SD); err != nil {
-		return err
+		// Mask a key-shaped value: an ORBIT_SD (or --sd) holding a misplaced
+		// Ki/OPc must not be echoed, and this path (e.g. cell ngsetup without
+		// a target) bypasses the resolver's own masking.
+		return target.MaskErr(err)
 	}
 	if id.hasDNN && id.DNN == "" {
 		return fmt.Errorf("--dnn must not be empty")
 	}
 	return nil
+}
+
+// envFallback fills --tac, --sst, --sd and --dnn from $ORBIT_TAC, $ORBIT_SST,
+// $ORBIT_SD and $ORBIT_DNN when the operator did not set the flag, the same
+// convenience $ORBIT_MCC/$ORBIT_MNC give the PLMN. These are the fields a
+// testbed env file pins beside the PLMN and keys (ADR-0008 §3: the env layer).
+// With no flag set it does nothing, so a command runs exactly as before. A
+// malformed number is one error naming the variable; the value is still
+// validated below.
+func (id *netIdentity) envFallback() error {
+	if id.fs == nil {
+		return nil
+	}
+	if !id.fs.Changed("tac") {
+		if n, ok, err := envUint32("ORBIT_TAC"); err != nil {
+			return err
+		} else if ok {
+			id.TAC = n
+		}
+	}
+	if !id.fs.Changed("sst") {
+		if n, ok, err := envUint32("ORBIT_SST"); err != nil {
+			return err
+		} else if ok {
+			id.SST = n
+		}
+	}
+	if !id.fs.Changed("sd") {
+		if v, ok := os.LookupEnv("ORBIT_SD"); ok {
+			id.SD = v
+		}
+	}
+	if id.hasDNN && !id.fs.Changed("dnn") {
+		// LookupEnv and preserve the value (no trim), as the resolver does, so
+		// a present-but-empty ORBIT_DNN reaches the "--dnn must not be empty"
+		// check rather than silently keeping the default.
+		if v, ok := os.LookupEnv("ORBIT_DNN"); ok {
+			id.DNN = v
+		}
+	}
+	return nil
+}
+
+// envUint32 reads $name as a 32-bit unsigned integer with the same
+// leading-zero rule a target file and the env layer apply (0010 is an error,
+// 0x0a and plain 0 are fine). ok is false only when the variable is unset; a
+// present-but-empty value is an error, matching the env layer. The error names
+// the variable and never echoes its value, which could be a key or token.
+func envUint32(name string) (uint32, bool, error) {
+	raw, ok := os.LookupEnv(name)
+	if !ok {
+		return 0, false, nil
+	}
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return 0, false, fmt.Errorf("$%s is set but empty", name)
+	}
+	if err := target.LeadingZero(v); err != nil {
+		return 0, false, fmt.Errorf("$%s: %w", name, err)
+	}
+	if n, err := strconv.ParseUint(v, 0, 32); err == nil {
+		return uint32(n), true, nil
+	}
+	return 0, false, fmt.Errorf("$%s is not a non-negative integer below 2^32", name)
 }
 
 // sliceGiven reports whether the operator set --sst or --sd. In inherit mode

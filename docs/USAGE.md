@@ -128,7 +128,9 @@ network: plmn=001/01 tac=1 snssai=1/010203 dnn=internet
 - **Defaults for the rest:** `--tac 1`, `--sst 1`, `--sd ""` (no slice
   differentiator), `--dnn internet` (where a PDU session is involved). SD-Core
   wants `--sd 010203`; pass it explicitly, as every example here does. The
-  values are whatever your core is configured with.
+  values are whatever your core is configured with. When the flag is left at
+  its default, `$ORBIT_TAC`, `$ORBIT_SST`, `$ORBIT_SD` and `$ORBIT_DNN` fill
+  it (an env file is the easy way to set them); an explicit flag wins.
 - **Handover inherits.** `ue handover` / `xn-handover` take the same flags but
   with no defaults and no environment fallback: anything left unset is copied
   from the UE's serving gNB (`$ORBIT_MCC`/`$ORBIT_MNC` are ignored here, since
@@ -349,6 +351,63 @@ orbit target probe lab1 --core-only  # NG Setup, one registration, one PDU sessi
   to a target or run field (`--tac 0010`, `--count 007`): write `10`, or `0x…`
   for hex. Before, `--tac 0010` was read as octal 8. `0x`, `0o` and plain `0`
   are accepted, as in a target file.
+
+### Config from an env file (`--env-file`)
+
+`--env-file <path>` loads a dotenv-style file into the environment before a
+command resolves its config, in place of the `set -a; . file; set +a` dance.
+It is a persistent flag, so it works on every command, and it is repeatable
+(`--env-file base.env --env-file lab.env`).
+
+```sh
+# testbed.env
+ORBIT_SERVER=https://10.0.0.5:8412
+ORBIT_TOKEN=…                 # connection, not config
+ORBIT_MCC=001
+ORBIT_MNC=01
+ORBIT_KI=${LAB_KI}            # plain KEY=VALUE only; no shell expansion inside the file
+ORBIT_OPC=…
+ORBIT_TAC=7
+ORBIT_SST=2
+ORBIT_SD=0a0b0c
+ORBIT_DNN=ims
+AMF_ADDR=10.0.0.5:38412       # referenced as ${AMF_ADDR} in a target file
+```
+
+With target `lab1`'s `core.amf` set to `${AMF_ADDR}`, orbit expands it from the
+loaded file (the shell would expand a bare `$AMF_ADDR` to empty before orbit
+even starts):
+
+```sh
+orbit conformance -t lab1 --env-file testbed.env
+orbit load -t lab1 --env-file testbed.env --count 500
+```
+
+- **Format.** One `KEY=VALUE` per line, with an optional leading `export`.
+  Blank lines and lines beginning with `#` are skipped, and an unquoted value
+  loses a trailing ` # comment`, as a shell sourcing the file would. A value
+  may contain `=`. Single or double quotes keep spaces, `=` and `#` literal
+  (`FOO="a = b # c"`); quotes are literal, with no escape processing and no
+  shell/`${VAR}` expansion *inside* the file.
+- **Precedence.** A variable already set in the real environment wins over the
+  file — the file only fills gaps — so an exported shell variable still
+  overrides it. With several `--env-file`, they are read in order and the
+  first definition of a variable wins. Because the file is loaded with
+  `os.Setenv` before resolution, it feeds **both** `${VAR}` expansion in target
+  and run files **and** the `ORBIT_*` env layer below, so `--explain` and
+  `orbit target show --resolved` attribute each value to `$ORBIT_X` (or to the
+  file field it expanded, `… via ${AMF_ADDR}`) exactly as an exported variable.
+- **No auto-loading.** Only files named with `--env-file` are read; ORBIT does
+  not pick up a conventional per-target `.env` on its own.
+
+The `ORBIT_*` variables that drive config (the env layer, `default < target <
+$ORBIT_* < flag`) are: `ORBIT_TARGET` (the target to use), `ORBIT_MCC`,
+`ORBIT_MNC`, `ORBIT_KI`, `ORBIT_OPC`, `ORBIT_TAC`, `ORBIT_SST`, `ORBIT_SD`,
+`ORBIT_DNN` and `ORBIT_LOAD_SEED`. `ORBIT_SERVER`
+and `ORBIT_TOKEN` are connection, not config (see [The server](#the-server)),
+and are left as they are. An env file is handy for any of them; `--env-file`
+is not limited to `ORBIT_*`, so a value a target file reads as `${AMF_ADDR}`
+can live there too.
 
 ### Navigating the dashboard
 
@@ -1121,6 +1180,24 @@ orbit ue deregister --supi <imsi>        # UE-originated switch-off deregistrati
 registered as `imsi-001010100007500` is the same session as `001010100007500`
 and is stored and shown as digits. The same holds for `--base-imsi` and for
 scenario `supi`, `range.base` and `supi_base` values.
+
+What the simulated UE does with the core's 5GMM messages after it has
+registered:
+
+- A CONFIGURATION UPDATE COMMAND is processed while a procedure is reading
+  the UE's downlink (the attach and its PDU session wait, the N2 handover): a
+  new 5G-GUTI is taken, and a CONFIGURATION UPDATE COMPLETE is sent when the
+  command requests acknowledgement. A new TAI list or allowed NSSAI is only
+  logged.
+- **Not supported:** the registration procedure for mobility and periodic
+  registration update. A command with "registration requested" set
+  (TS 24.501 5.4.4.3) is still acknowledged when it asks for that, but the UE
+  starts no registration and stays registered as it was. `orbit serve` logs
+  a warning ("requests a registration update ... which the UE cannot
+  perform"), and the engine records it on the session
+  (`Session.RegistrationUpdateRequested`) and on an attach's result.
+- An IDENTITY REQUEST is answered (SUCI, IMEISV, IMEI, 5G-GUTI, 5G-S-TMSI);
+  a 5GMM STATUS is logged and otherwise ignored.
 
 `watch` streams lifecycle states (`REGISTERING`, `AUTHENTICATED`,
 `SECURITY_ESTABLISHED`, `REGISTERED`, `SESSION_ACTIVE`, `DEREGISTERED`) and

@@ -112,6 +112,52 @@ func TestEnvInput(t *testing.T) {
 	}
 }
 
+// The env bindings added for env-file-driven testbed config resolve through
+// EnvInput onto their canonical paths, typed by the field, with provenance
+// that names the ORBIT_* variable (what `orbit target show --resolved` shows).
+func TestNewEnvBindingsResolve(t *testing.T) {
+	in := EnvInput(envOf(map[string]string{
+		"ORBIT_TAC": "7",
+		"ORBIT_SST": "2",
+		"ORBIT_SD":  "0a0b0c",
+		"ORBIT_DNN": "ims",
+	}))
+	r, err := Resolve(DefaultInput(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		path   string
+		value  any
+		source string
+	}{
+		{"core.tac", uint64(7), "env $ORBIT_TAC"},
+		{"core.slices[0].sst", uint64(2), "env $ORBIT_SST"},
+		{"core.slices[0].sd", "0a0b0c", "env $ORBIT_SD"},
+		{"core.dnn", "ims", "env $ORBIT_DNN"},
+	}
+	for _, c := range cases {
+		f, ok := r.Lookup(c.path)
+		if !ok {
+			t.Errorf("%s: not resolved", c.path)
+			continue
+		}
+		if f.Value != c.value {
+			t.Errorf("%s = %#v, want %#v", c.path, f.Value, c.value)
+		}
+		if f.Source.String() != c.source {
+			t.Errorf("%s source = %q, want %q", c.path, f.Source.String(), c.source)
+		}
+	}
+	// None of the new bindings collides with an exclusion, and Covered sees
+	// each as mapped.
+	for _, name := range []string{"ORBIT_TAC", "ORBIT_SST", "ORBIT_SD", "ORBIT_DNN"} {
+		if !Covered(name) {
+			t.Errorf("%s is not Covered", name)
+		}
+	}
+}
+
 // An env var holds a number by the same rule as a file: a leading zero is
 // an error naming the variable, while 0x, 0o and plain 0 resolve.
 func TestEnvNumberLeadingZero(t *testing.T) {

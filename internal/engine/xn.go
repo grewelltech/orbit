@@ -133,7 +133,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		})
 	}
 	firstTEID := admitted[0].GNBTunnel.TEID
-	reqCaps := sess.ueSecCaps
+	reqCaps := sess.heldUESecCaps()
 	if o.pathSwitchCaps != nil {
 		reqCaps = o.pathSwitchCaps
 	}
@@ -181,7 +181,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	}
 	ackCaps := gnb.PathSwitchAcknowledgeUESecurityCapabilities(pdu)
 	if ackCaps != nil {
-		sess.ueSecCaps = gnb.CloneUESecurityCapabilities(ackCaps)
+		sess.setUESecCaps(gnb.CloneUESecurityCapabilities(ackCaps))
 	}
 	// Record per-session endpoints (multi-session bookkeeping).
 	applySwitchedSessions(sess.Result, dlTEIDs, switched)

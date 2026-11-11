@@ -478,7 +478,7 @@ func (r *serviceRun) handle(pdu *ngapType.NGAPPDU) error {
 			return nil
 		}
 		if dl.UESecurityCapabilities != nil {
-			s.ueSecCaps = dl.UESecurityCapabilities
+			s.setUESecCaps(dl.UESecurityCapabilities)
 		}
 		sessions, err := gnb.ParseInitialContextSetupSessions(pdu)
 		if err != nil {
