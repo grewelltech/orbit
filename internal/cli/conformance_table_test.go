@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,6 +66,44 @@ func TestPrintConformanceTable(t *testing.T) {
 	// A SKIP's Detail names how to exercise the check, so it must be shown too.
 	if !strings.Contains(out, "set --supi, --ki/--opc and --gnb-n3") {
 		t.Errorf("expected the skip's Detail to be shown\n%s", out)
+	}
+}
+
+// The preflight is its own section in both renderings, ahead of the
+// checks, a line per step with its status and detail; a run without one
+// has no section.
+func TestConformanceReportPreflight(t *testing.T) {
+	pre := conformance.Preflight{
+		{Step: conformance.StepNGSetup, Status: conformance.PreflightOK, Detail: "gNB ID 700, PLMN 208/93, TAC 1"},
+		{Step: conformance.StepRegistration, Status: conformance.PreflightFailed, Detail: "registration on gNB 0x2bc: rejected"},
+		{Step: conformance.StepPDUSession, Status: conformance.PreflightNotRun},
+	}
+	want := []string{"preflight:", "  ok      NG Setup: gNB ID 700, PLMN 208/93, TAC 1", "  failed  registration: registration on gNB 0x2bc: rejected", "  not run PDU session establishment"}
+	if got := preflightLines(pre); !slices.Equal(got, want) {
+		t.Errorf("preflightLines = %q, want %q", got, want)
+	}
+	if got := preflightLines(nil); got != nil {
+		t.Errorf("no preflight: %q, want no lines", got)
+	}
+	sum := conformance.Summary{Total: 1, Error: 1, Preflight: pre, Results: []conformance.Result{
+		{ID: "NAS-1", Category: conformance.NAS, Verdict: conformance.Error, Observed: conformance.ObservedPreflightFailed + " (registration failed)"}}}
+	render := map[string]func(*bytes.Buffer){
+		"text":  func(b *bytes.Buffer) { printConformanceText(b, "208-93", sum, "") },
+		"table": func(b *bytes.Buffer) { printConformanceTable(b, "208-93", sum, "") },
+	}
+	for name, r := range render {
+		var b bytes.Buffer
+		r(&b)
+		out := b.String()
+		at := strings.Index(out, "preflight:")
+		for _, line := range want[1:] {
+			if !strings.Contains(out, line) {
+				t.Errorf("%s: lacks %q:\n%s", name, line, out)
+			}
+		}
+		if at < 0 || at > strings.Index(out, "NAS-1") {
+			t.Errorf("%s: the preflight section is not ahead of the checks:\n%s", name, out)
+		}
 	}
 }
 

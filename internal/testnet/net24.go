@@ -168,6 +168,21 @@ const (
 	EngineXnCapsOption       = 247 // TestXnHandoverWithPathSwitchCapabilities
 )
 
+// internal/conformance: the run's preflight (ADR-0011 rule 6).
+const (
+	ConformancePreflightUE         = 163 // TestRunPreflight/registers_and_deregisters
+	ConformancePreflightSession    = 164 // TestRunPreflight/establishes_a_PDU_session
+	ConformancePreflightRefused    = 165 // TestRunPreflight/registration_refused
+	ConformancePreflightNoSession  = 166 // TestRunPreflight/registers_a_UE_it_cannot_deregister
+	ConformancePreflightEcho       = 167 // TestRunPreflight/UPF_answers_Echo
+	ConformancePreflightNoEcho     = 168 // TestRunPreflight/UPF_does_not_answer_Echo
+	ConformancePreflightSuite      = 169 // TestRunSuitePreflight/passes
+	ConformancePreflightSuiteFail  = 170 // TestRunSuitePreflight/registration_refused
+	ConformancePreflightNoPDU      = 171 // TestRunPreflight/PDU_session_not_answered
+	ConformancePreflightSuiteNoPDU = 172 // TestRunSuitePreflight/PDU_session_not_answered
+	ConformancePreflightBlocked    = 173 // TestSetupFailsAfterPassedPreflight
+)
+
 // Base is block n's address prefix, "127.0.n." (append the host part).
 func Base(n int) string { return fmt.Sprintf("127.0.%d.", n) }
 

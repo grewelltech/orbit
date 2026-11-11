@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/conformance.proto.
  */
 export const file_orbit_v1_conformance: GenFile = /*@__PURE__*/
-  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEihwMKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCRIWCg50YXJnZXRfcmVsZWFzZRgNIAEoDRIMCgRzdXBpGA4gASgJEioKC2NyZWRlbnRpYWxzGA8gASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSCwoDZG5uGBAgASgJEg4KBmduYl9uMxgRIAEoCRIPCgd0cmFmZmljGBIgASgJEh8KBHBsYW4YEyABKAsyES5vcmJpdC52MS5SdW5QbGFuIpgDChFDb25mb3JtYW5jZVVwZGF0ZRIrCgZyZXN1bHQYASABKAsyGy5vcmJpdC52MS5Db25mb3JtYW5jZVJlc3VsdBIMCgRkb25lGAIgASgIEikKBXRhbGx5GAMgASgLMhoub3JiaXQudjEuQ29uZm9ybWFuY2VUYWxseRINCgVpbmRleBgEIAEoDRINCgV0b3RhbBgFIAEoDRIWCg50YXJnZXRfcmVsZWFzZRgGIAEoDRJRChRzcGVjX3RhcmdldF9yZWxlYXNlcxgHIAMoCzIzLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlLlNwZWNUYXJnZXRSZWxlYXNlc0VudHJ5Eh4KFmV4cGVjdGVkX2ZhaWx1cmVzX2NvcmUYCCABKAkSKQoFc3RhbGUYCSADKAsyGi5vcmJpdC52MS5TdGFsZUV4cGVjdGF0aW9uEg4KBnJ1bl9pZBgKIAEoCRo5ChdTcGVjVGFyZ2V0UmVsZWFzZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKA06AjgBIuwCChFDb25mb3JtYW5jZVJlc3VsdBIKCgJpZBgBIAEoCRIQCghjYXRlZ29yeRgCIAEoCRIQCghzcGVjX3JlZhgDIAEoCRIPCgd2ZXJkaWN0GAQgASgJEhAKCGV4cGVjdGVkGAUgASgJEhAKCG9ic2VydmVkGAYgASgJEg4KBmRldGFpbBgHIAEoCRIkCglzcGVjX3JlZnMYCCADKAsyES5vcmJpdC52MS5TcGVjUmVmEhMKC21pbl9yZWxlYXNlGAkgASgNEjMKEGV4cGVjdGVkX2ZhaWx1cmUYCiABKAsyGS5vcmJpdC52MS5FeHBlY3RlZEZhaWx1cmUSDwoHb3V0Y29tZRgLIAEoCRIRCgljcml0ZXJpb24YDCABKAkSFAoMb3V0Y29tZV9yZWZzGA0gAygJEhIKCmJsb2NrZWRfb24YDiABKAkSDQoFb3duZXIYDyABKAkSFQoNbm90X2NvbXBsZXRlZBgQIAEoCSJwChBTdGFsZUV4cGVjdGF0aW9uEg0KBWNoZWNrGAEgASgJEg8KB2ZpbmRpbmcYAiABKAkSGQoRZXhwZWN0ZWRfb2JzZXJ2ZWQYAyABKAkSDwoHdmVyZGljdBgEIAEoCRIQCghvYnNlcnZlZBgFIAEoCSLWAQoHU3BlY1JlZhIMCgRzcGVjGAEgASgJEg4KBmNsYXVzZRgCIAEoCRIQCghzdHJlbmd0aBgDIAEoCRINCgVzaW5jZRgEIAEoDRInCgh2ZXJpZmllZBgFIAMoCzIVLm9yYml0LnYxLlNwZWNWZXJzaW9uEiUKB2NoYW5nZWQYBiADKAsyFC5vcmJpdC52MS5TcGVjQ2hhbmdlEhkKEXdvcmRpbmdfdW5jaGFuZ2VkGAcgASgIEhAKCHJlbmRlcmVkGAggASgJEg8KB3ByaW1hcnkYCSABKAgiQAoLU3BlY1ZlcnNpb24SDwoHcmVsZWFzZRgBIAEoDRIPCgd2ZXJzaW9uGAIgASgJEg8KB2FyY2hpdmUYAyABKAkiKwoKU3BlY0NoYW5nZRIPCgdyZWxlYXNlGAEgASgNEgwKBG5vdGUYAiABKAki2wEKEENvbmZvcm1hbmNlVGFsbHkSDgoGcGFzc2VkGAEgASgNEg4KBmZhaWxlZBgCIAEoDRIPCgdlcnJvcmVkGAMgASgNEg8KB3NraXBwZWQYBCABKA0SEgoKZGV2aWF0aW9ucxgFIAEoDRIZChFleHBlY3RlZF9mYWlsdXJlcxgGIAEoDRIMCgRpbmZvGAcgASgNEhYKCmluZm9fZGlmZnMYCCABKA1CAhgBEg4KBndhcm5lZBgJIAEoDRIPCgdibG9ja2VkGAogASgNEg8KB2NyYXNoZWQYCyABKA0iHQobTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0IoABChNDb25mb3JtYW5jZVRlc3RJbmZvEgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEiQKCXNwZWNfcmVmcxgEIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYBSABKA0iTAocTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZRIsCgV0ZXN0cxgBIAMoCzIdLm9yYml0LnYxLkNvbmZvcm1hbmNlVGVzdEluZm8y0QEKEkNvbmZvcm1hbmNlU2VydmljZRJSCg5SdW5Db25mb3JtYW5jZRIfLm9yYml0LnYxLlJ1bkNvbmZvcm1hbmNlUmVxdWVzdBobLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlIgAwARJnChRMaXN0Q29uZm9ybWFuY2VUZXN0cxIlLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVxdWVzdBomLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM", [file_orbit_v1_plan, file_orbit_v1_ue]);
+  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEihwMKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCRIWCg50YXJnZXRfcmVsZWFzZRgNIAEoDRIMCgRzdXBpGA4gASgJEioKC2NyZWRlbnRpYWxzGA8gASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSCwoDZG5uGBAgASgJEg4KBmduYl9uMxgRIAEoCRIPCgd0cmFmZmljGBIgASgJEh8KBHBsYW4YEyABKAsyES5vcmJpdC52MS5SdW5QbGFuIsQDChFDb25mb3JtYW5jZVVwZGF0ZRIrCgZyZXN1bHQYASABKAsyGy5vcmJpdC52MS5Db25mb3JtYW5jZVJlc3VsdBIMCgRkb25lGAIgASgIEikKBXRhbGx5GAMgASgLMhoub3JiaXQudjEuQ29uZm9ybWFuY2VUYWxseRINCgVpbmRleBgEIAEoDRINCgV0b3RhbBgFIAEoDRIWCg50YXJnZXRfcmVsZWFzZRgGIAEoDRJRChRzcGVjX3RhcmdldF9yZWxlYXNlcxgHIAMoCzIzLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlLlNwZWNUYXJnZXRSZWxlYXNlc0VudHJ5Eh4KFmV4cGVjdGVkX2ZhaWx1cmVzX2NvcmUYCCABKAkSKQoFc3RhbGUYCSADKAsyGi5vcmJpdC52MS5TdGFsZUV4cGVjdGF0aW9uEg4KBnJ1bl9pZBgKIAEoCRIqCglwcmVmbGlnaHQYCyADKAsyFy5vcmJpdC52MS5QcmVmbGlnaHRTdGVwGjkKF1NwZWNUYXJnZXRSZWxlYXNlc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDToCOAEiPQoNUHJlZmxpZ2h0U3RlcBIMCgRzdGVwGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAki7AIKEUNvbmZvcm1hbmNlUmVzdWx0EgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIZXhwZWN0ZWQYBSABKAkSEAoIb2JzZXJ2ZWQYBiABKAkSDgoGZGV0YWlsGAcgASgJEiQKCXNwZWNfcmVmcxgIIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYCSABKA0SMwoQZXhwZWN0ZWRfZmFpbHVyZRgKIAEoCzIZLm9yYml0LnYxLkV4cGVjdGVkRmFpbHVyZRIPCgdvdXRjb21lGAsgASgJEhEKCWNyaXRlcmlvbhgMIAEoCRIUCgxvdXRjb21lX3JlZnMYDSADKAkSEgoKYmxvY2tlZF9vbhgOIAEoCRINCgVvd25lchgPIAEoCRIVCg1ub3RfY29tcGxldGVkGBAgASgJInAKEFN0YWxlRXhwZWN0YXRpb24SDQoFY2hlY2sYASABKAkSDwoHZmluZGluZxgCIAEoCRIZChFleHBlY3RlZF9vYnNlcnZlZBgDIAEoCRIPCgd2ZXJkaWN0GAQgASgJEhAKCG9ic2VydmVkGAUgASgJItYBCgdTcGVjUmVmEgwKBHNwZWMYASABKAkSDgoGY2xhdXNlGAIgASgJEhAKCHN0cmVuZ3RoGAMgASgJEg0KBXNpbmNlGAQgASgNEicKCHZlcmlmaWVkGAUgAygLMhUub3JiaXQudjEuU3BlY1ZlcnNpb24SJQoHY2hhbmdlZBgGIAMoCzIULm9yYml0LnYxLlNwZWNDaGFuZ2USGQoRd29yZGluZ191bmNoYW5nZWQYByABKAgSEAoIcmVuZGVyZWQYCCABKAkSDwoHcHJpbWFyeRgJIAEoCCJACgtTcGVjVmVyc2lvbhIPCgdyZWxlYXNlGAEgASgNEg8KB3ZlcnNpb24YAiABKAkSDwoHYXJjaGl2ZRgDIAEoCSIrCgpTcGVjQ2hhbmdlEg8KB3JlbGVhc2UYASABKA0SDAoEbm90ZRgCIAEoCSLbAQoQQ29uZm9ybWFuY2VUYWxseRIOCgZwYXNzZWQYASABKA0SDgoGZmFpbGVkGAIgASgNEg8KB2Vycm9yZWQYAyABKA0SDwoHc2tpcHBlZBgEIAEoDRISCgpkZXZpYXRpb25zGAUgASgNEhkKEWV4cGVjdGVkX2ZhaWx1cmVzGAYgASgNEgwKBGluZm8YByABKA0SFgoKaW5mb19kaWZmcxgIIAEoDUICGAESDgoGd2FybmVkGAkgASgNEg8KB2Jsb2NrZWQYCiABKA0SDwoHY3Jhc2hlZBgLIAEoDSIdChtMaXN0Q29uZm9ybWFuY2VUZXN0c1JlcXVlc3QigAEKE0NvbmZvcm1hbmNlVGVzdEluZm8SCgoCaWQYASABKAkSEAoIY2F0ZWdvcnkYAiABKAkSEAoIc3BlY19yZWYYAyABKAkSJAoJc3BlY19yZWZzGAQgAygLMhEub3JiaXQudjEuU3BlY1JlZhITCgttaW5fcmVsZWFzZRgFIAEoDSJMChxMaXN0Q29uZm9ybWFuY2VUZXN0c1Jlc3BvbnNlEiwKBXRlc3RzGAEgAygLMh0ub3JiaXQudjEuQ29uZm9ybWFuY2VUZXN0SW5mbzLRAQoSQ29uZm9ybWFuY2VTZXJ2aWNlElIKDlJ1bkNvbmZvcm1hbmNlEh8ub3JiaXQudjEuUnVuQ29uZm9ybWFuY2VSZXF1ZXN0Ghsub3JiaXQudjEuQ29uZm9ybWFuY2VVcGRhdGUiADABEmcKFExpc3RDb25mb3JtYW5jZVRlc3RzEiUub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0GiYub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZSIAQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_plan, file_orbit_v1_ue]);
 
 /**
  * @generated from message orbit.v1.RunConformanceRequest
@@ -266,6 +266,14 @@ export type ConformanceUpdate = Message<"orbit.v1.ConformanceUpdate"> & {
    * @generated from field: string run_id = 10;
    */
   runId: string;
+
+  /**
+   * The run's preflight, on every update once it has run: the setup the
+   * selected checks need, done once before any check. It is not a check.
+   *
+   * @generated from field: repeated orbit.v1.PreflightStep preflight = 11;
+   */
+  preflight: PreflightStep[];
 };
 
 /**
@@ -274,6 +282,44 @@ export type ConformanceUpdate = Message<"orbit.v1.ConformanceUpdate"> & {
  */
 export const ConformanceUpdateSchema: GenMessage<ConformanceUpdate> = /*@__PURE__*/
   messageDesc(file_orbit_v1_conformance, 1);
+
+/**
+ * PreflightStep is one step of a conformance run's preflight (ADR-0011
+ * rule 6). A check that depends on a step that did not complete reports
+ * ERROR without running; a step that completed makes a later failure of
+ * the same setup inside a check the core's (BLOCKED).
+ *
+ * @generated from message orbit.v1.PreflightStep
+ */
+export type PreflightStep = Message<"orbit.v1.PreflightStep"> & {
+  /**
+   * NG Setup | registration | PDU session establishment | UPF probe
+   *
+   * @generated from field: string step = 1;
+   */
+  step: string;
+
+  /**
+   * ok | failed | not run
+   *
+   * @generated from field: string status = 2;
+   */
+  status: string;
+
+  /**
+   * what was done, or why the step failed
+   *
+   * @generated from field: string detail = 3;
+   */
+  detail: string;
+};
+
+/**
+ * Describes the message orbit.v1.PreflightStep.
+ * Use `create(PreflightStepSchema)` to create a new message.
+ */
+export const PreflightStepSchema: GenMessage<PreflightStep> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_conformance, 2);
 
 /**
  * @generated from message orbit.v1.ConformanceResult
@@ -393,7 +439,7 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
  * Use `create(ConformanceResultSchema)` to create a new message.
  */
 export const ConformanceResultSchema: GenMessage<ConformanceResult> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 2);
+  messageDesc(file_orbit_v1_conformance, 3);
 
 /**
  * StaleExpectation is an expected-failures entry whose check ran without the
@@ -437,7 +483,7 @@ export type StaleExpectation = Message<"orbit.v1.StaleExpectation"> & {
  * Use `create(StaleExpectationSchema)` to create a new message.
  */
 export const StaleExpectationSchema: GenMessage<StaleExpectation> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 3);
+  messageDesc(file_orbit_v1_conformance, 4);
 
 /**
  * SpecRef is one clause a conformance check asserts, with the 3GPP release
@@ -509,7 +555,7 @@ export type SpecRef = Message<"orbit.v1.SpecRef"> & {
  * Use `create(SpecRefSchema)` to create a new message.
  */
 export const SpecRefSchema: GenMessage<SpecRef> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 4);
+  messageDesc(file_orbit_v1_conformance, 5);
 
 /**
  * SpecVersion is one specification version whose wording was read.
@@ -542,7 +588,7 @@ export type SpecVersion = Message<"orbit.v1.SpecVersion"> & {
  * Use `create(SpecVersionSchema)` to create a new message.
  */
 export const SpecVersionSchema: GenMessage<SpecVersion> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 5);
+  messageDesc(file_orbit_v1_conformance, 6);
 
 /**
  * SpecChange is one release whose wording or clause number differs from the
@@ -567,7 +613,7 @@ export type SpecChange = Message<"orbit.v1.SpecChange"> & {
  * Use `create(SpecChangeSchema)` to create a new message.
  */
 export const SpecChangeSchema: GenMessage<SpecChange> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 6);
+  messageDesc(file_orbit_v1_conformance, 7);
 
 /**
  * @generated from message orbit.v1.ConformanceTally
@@ -647,7 +693,7 @@ export type ConformanceTally = Message<"orbit.v1.ConformanceTally"> & {
  * Use `create(ConformanceTallySchema)` to create a new message.
  */
 export const ConformanceTallySchema: GenMessage<ConformanceTally> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 7);
+  messageDesc(file_orbit_v1_conformance, 8);
 
 /**
  * @generated from message orbit.v1.ListConformanceTestsRequest
@@ -660,7 +706,7 @@ export type ListConformanceTestsRequest = Message<"orbit.v1.ListConformanceTests
  * Use `create(ListConformanceTestsRequestSchema)` to create a new message.
  */
 export const ListConformanceTestsRequestSchema: GenMessage<ListConformanceTestsRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 8);
+  messageDesc(file_orbit_v1_conformance, 9);
 
 /**
  * @generated from message orbit.v1.ConformanceTestInfo
@@ -697,7 +743,7 @@ export type ConformanceTestInfo = Message<"orbit.v1.ConformanceTestInfo"> & {
  * Use `create(ConformanceTestInfoSchema)` to create a new message.
  */
 export const ConformanceTestInfoSchema: GenMessage<ConformanceTestInfo> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 9);
+  messageDesc(file_orbit_v1_conformance, 10);
 
 /**
  * @generated from message orbit.v1.ListConformanceTestsResponse
@@ -714,7 +760,7 @@ export type ListConformanceTestsResponse = Message<"orbit.v1.ListConformanceTest
  * Use `create(ListConformanceTestsResponseSchema)` to create a new message.
  */
 export const ListConformanceTestsResponseSchema: GenMessage<ListConformanceTestsResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 10);
+  messageDesc(file_orbit_v1_conformance, 11);
 
 /**
  * ConformanceService runs the core conformance / regression suite server-side,

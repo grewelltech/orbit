@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -196,11 +198,16 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 		return runOrbit(t, loc, args...)
 	}
 	type result struct{ ID, Verdict string }
+	preflights := map[string]conformance.Preflight{}
 	parse := func(name string, r orbitRun) []result {
-		var sum struct{ Results []result }
+		var sum struct {
+			Results   []result
+			Preflight conformance.Preflight
+		}
 		if err := json.Unmarshal([]byte(r.out), &sum); err != nil {
 			t.Fatalf("%s: JSON: %v (err %v)\n%s\n%s", name, err, r.execErr, r.out, r.err)
 		}
+		preflights[name] = sum.Preflight
 		return sum.Results
 	}
 	const secondSource = "NGAP-DUPLICATE-RAN-NODE-ID"
@@ -229,6 +236,12 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 	if !reflect.DeepEqual(lr, tr) {
 		t.Errorf("the server's suite differs from --local's:\nlocal %+v\nthin  %+v", lr, tr)
 	}
+	// Both run the preflight: the NG Setup alone, with no UE configured.
+	for name, p := range preflights {
+		if len(p) != 1 || p[0].Step != conformance.StepNGSetup || p[0].Status != conformance.PreflightOK {
+			t.Errorf("%s: preflight %+v, want the NG Setup completed", name, p)
+		}
+	}
 	if ExitCode(local.execErr) != ExitCode(thin.execErr) {
 		t.Errorf("exit differs: --local %v, thin %v", local.execErr, thin.execErr)
 	}
@@ -249,16 +262,24 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 					continue
 				}
 				out = append(out, strings.Join(f[:min(4, len(f))], " "))
-			} else if strings.HasPrefix(l, "network:") || strings.HasPrefix(l, "target-release:") {
+			} else if strings.HasPrefix(l, "network:") || strings.HasPrefix(l, "target-release:") || preflightLine.MatchString(l) {
 				out = append(out, l)
 			}
 		}
 		return out
 	}
-	if l, th := lines(run(true, false)), lines(run(false, false)); len(l) == 0 || !reflect.DeepEqual(l, th) {
+	l, th := lines(run(true, false)), lines(run(false, false))
+	if len(l) == 0 || !reflect.DeepEqual(l, th) {
 		t.Errorf("text differs:\nlocal %q\nthin  %q", l, th)
 	}
+	// The preflight is its own section, ahead of the checks.
+	if !slices.Contains(l, "preflight:") || !slices.ContainsFunc(l, func(s string) bool { return strings.HasPrefix(s, "  ok      NG Setup: gNB ID ") }) {
+		t.Errorf("the text lacks the preflight section: %q", l)
+	}
 }
+
+// preflightLine is a line of the text report's preflight section.
+var preflightLine = regexp.MustCompile(`^(preflight:$|  (ok|failed|not run) )`)
 
 // A check failing (an AMF that is not there: every check ERRORs) fails the
 // conformance gate, exit 1, as --local exits.

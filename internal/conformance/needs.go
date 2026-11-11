@@ -83,6 +83,17 @@ const (
 	legacyLivenessOffset = 0x9000
 )
 
+// preflightGNBID is the gNB ID the run's preflight presents from base, the
+// one after the last check's liveness probe in either layout: base+3N
+// packed, base+0x9000+N otherwise.
+func (r *Registry) preflightGNBID(base uint32, packed bool) uint32 {
+	n := uint32(len(r.tests))
+	if packed {
+		return base + 3*n
+	}
+	return base + legacyLivenessOffset + n
+}
+
 // gnbIDsOf is the IDs check idx (its position in the full registry, so
 // stable across category filters) presents from base. Packed, for a
 // target that bounds its IDs, the suite's N checks take base..base+3N-1:
@@ -100,8 +111,8 @@ func (r *Registry) gnbIDsOf(base uint32, idx int, packed bool) (own, target, liv
 }
 
 // PackedSpan is how many gNB IDs a packed suite's block needs: three per
-// registered check.
-func (r *Registry) PackedSpan() int { return 3 * len(r.tests) }
+// registered check, and the preflight's one.
+func (r *Registry) PackedSpan() int { return 3*len(r.tests) + 1 }
 
 // targetGNBID and livenessGNBID are the check's IDs for those roles: as
 // RunStream assigned them, or (for a check run outside RunStream) the
@@ -175,8 +186,9 @@ func NeedsOf(t Test) CheckNeeds {
 
 // SuiteNeeds is what a run of the selected checks takes: UEs is the most
 // any one check needs, since checks run one after another; GNBIDs is every
-// ID a selected check presents, ascending; SecondN2Source is set when any
-// of them uses a second N2 source address.
+// ID a selected check presents and, when one of them signals on N2, the
+// preflight's, ascending; SecondN2Source is set when any of them uses a
+// second N2 source address.
 type SuiteNeeds struct {
 	UEs    int
 	GNBIDs []uint32
@@ -190,8 +202,10 @@ type SuiteNeeds struct {
 func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds {
 	var out SuiteNeeds
 	seen := map[uint32]bool{}
+	preflight := false
 	for _, t := range r.Select(cats...) {
 		n := NeedsOf(t)
+		preflight = preflight || n.usesN2()
 		out.UEs = max(out.UEs, n.UEs)
 		out.SecondN2Source = out.SecondN2Source || n.SecondN2Source
 		own, target, liveness := r.gnbIDsOf(base, r.indexOf(t), packed)
@@ -202,6 +216,9 @@ func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds 
 				out.GNBIDs = append(out.GNBIDs, id)
 			}
 		}
+	}
+	if id := r.preflightGNBID(base, packed); preflight && !seen[id] {
+		out.GNBIDs = append(out.GNBIDs, id)
 	}
 	slices.Sort(out.GNBIDs)
 	return out

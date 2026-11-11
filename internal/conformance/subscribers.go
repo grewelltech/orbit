@@ -31,14 +31,21 @@ func (r *Registry) subscriberBlock(idx int) (off, span int) {
 	return 0, 0
 }
 
-// SubscriberSpan is how many subscribers the registered checks take when
-// each has its own: what a pool must hold for no check to reuse another's.
+// SubscriberSpan is how many subscribers the registered checks and the
+// run's preflight take when each has its own: what a pool must hold for
+// none to reuse another's.
 func (r *Registry) SubscriberSpan() int {
-	n := 0
+	off, span := r.preflightSubscriber()
+	return off + span
+}
+
+// preflightSubscriber is where the preflight's one subscriber sits in the
+// suite's subscriber pool: after every check's block.
+func (r *Registry) preflightSubscriber() (off, span int) {
 	for _, t := range r.tests {
-		n += subscribersOf(t)
+		off += subscribersOf(t)
 	}
-	return n
+	return off, 1
 }
 
 // forCheck is the UE of a check whose block starts off subscribers into

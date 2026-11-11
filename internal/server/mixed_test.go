@@ -249,13 +249,14 @@ func TestMixedRunAgainstMock(t *testing.T) {
 // Stopped, a mixed run archives each workload's partial report: the
 // suite's results so far, and its gate failed as an incomplete suite's.
 func TestMixedStoppedArchivesPartials(t *testing.T) {
-	amfAddr := idleAMF(t) // nothing completes, so the stop finds both running
+	amfAddr := silentAMF(t) // nothing after the NG Setup completes, so the stop finds both running
 	dir, runs, _ := suiteServer(t)
 	p := mixedPlan(func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
 		p.Target.Core.Amf = amfAddr
 		p.Target.Ran.N2SourceIps = nil
 		p.Workloads[1].Start.Phase = orbitv1.WorkloadPhase_WORKLOAD_PHASE_STARTED
 		cw.PerTestTimeoutMs = 1000
+		cw.Categories = nil // every check, so the suite outlasts the stop
 		p.Gates = []*orbitv1.Gate{{Name: "suite", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
 	})
 	resp, err := runs.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))

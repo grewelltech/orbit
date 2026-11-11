@@ -123,13 +123,15 @@ func (s *syncBuffer) String() string {
 
 // The announcer prints the suite total, each check before it runs, and a
 // progress line every period for a check that can run longer than that;
-// a short check gets none, and done stops the lines.
+// a short check gets none, and done stops the lines. The preflight is a
+// line per step.
 func TestAnnouncer(t *testing.T) {
 	reg := conformance.NewRegistry()
 	nas := reg.Select(conformance.NAS)
 	var w syncBuffer
 	a := newAnnouncer(&w, 20*time.Millisecond)
 	a.suite(nas, conformance.DefaultPerTestTimeout)
+	a.preflight(conformance.Preflight{{Step: conformance.StepNGSetup, Status: conformance.PreflightOK}, {Step: conformance.StepRegistration, Status: conformance.PreflightFailed}})
 	a.start(nas[0], 100*time.Millisecond, 0, 2)
 	time.Sleep(70 * time.Millisecond)
 	a.done()
@@ -144,6 +146,7 @@ func TestAnnouncer(t *testing.T) {
 	out := w.String()
 	for _, want := range []string{
 		"Running 5 checks, up to 8m29s in total\n",
+		"preflight: NG Setup ok\npreflight: registration failed\n",
 		"[1/2] " + nas[0].ID() + " (nas): up to 100ms\n",
 		"[2/2] " + nas[1].ID() + " (nas): up to 10ms\n",
 	} {

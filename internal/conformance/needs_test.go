@@ -117,8 +117,8 @@ func TestRegistryNeeds(t *testing.T) {
 		want []uint32
 		span uint32
 	}{
-		{name: "legacy, unbounded", want: []uint32{700, 700 + em, 700 + em + 0x8000, 700 + em + 0x9000}, span: n - 1 + 0x9000},
-		{name: "packed, in a bounded block", packed: true, want: []uint32{700, 700 + em, 700 + n + em, 700 + 2*n + em}, span: 3*n - 1},
+		{name: "legacy, unbounded", want: []uint32{700, 700 + em, 700 + em + 0x8000, 700 + em + 0x9000, 700 + 0x9000 + n}, span: n + 0x9000},
+		{name: "packed, in a bounded block", packed: true, want: []uint32{700, 700 + em, 700 + n + em, 700 + 2*n + em, 700 + 3*n}, span: 3 * n},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -137,15 +137,16 @@ func TestRegistryNeeds(t *testing.T) {
 			if !slices.IsSorted(all.GNBIDs) || all.GNBIDs[len(all.GNBIDs)-1]-700 > tc.span {
 				t.Errorf("gNB IDs %v not ascending within %d of the base", all.GNBIDs, tc.span)
 			}
-			// Every check's own and probe, and a target per handover check.
+			// Every check's own and probe, a target per handover check, and
+			// the preflight's.
 			handovers := 0
 			for _, c := range r.Tests() {
 				if slices.Contains(NeedsOf(c).GNBRoles, RoleHandover) {
 					handovers++
 				}
 			}
-			if handovers < 2 || len(all.GNBIDs) != int(2*n)+handovers {
-				t.Errorf("%d IDs with %d handover checks, want 2N+%d = %d", len(all.GNBIDs), handovers, handovers, int(2*n)+handovers)
+			if handovers < 2 || len(all.GNBIDs) != int(2*n)+handovers+1 {
+				t.Errorf("%d IDs with %d handover checks, want 2N+%d+1 = %d", len(all.GNBIDs), handovers, handovers, int(2*n)+handovers+1)
 			}
 			// A category whose checks register no UE needs none.
 			if ng := r.Needs(700, tc.packed, NegativeIE); ng.UEs != 0 || len(ng.GNBIDs) == 0 || ng.SecondN2Source {
@@ -157,8 +158,8 @@ func TestRegistryNeeds(t *testing.T) {
 			}
 		})
 	}
-	if r.PackedSpan() != int(3*n) {
-		t.Errorf("packed span = %d, want 3N = %d", r.PackedSpan(), 3*n)
+	if r.PackedSpan() != int(3*n)+1 {
+		t.Errorf("packed span = %d, want 3N+1 = %d", r.PackedSpan(), 3*n+1)
 	}
 }
 

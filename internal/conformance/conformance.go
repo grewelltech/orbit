@@ -188,6 +188,9 @@ type Env struct {
 	// owners names the registered check that owns each procedure, for a
 	// BLOCKED result (RunWithStart sets it).
 	owners map[Procedure]string
+	// preflight is the run's preflight (RunSuite sets it): a check that
+	// depends on a step of it that did not complete reports ERROR.
+	preflight Preflight
 }
 
 // loadedBy is the population loading the core now, "" for none.
@@ -576,10 +579,41 @@ func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration
 
 // RunWithStart is RunStream with start, if non-nil, called just before each
 // selected test runs, with the time it may take (ExpectedDuration), so a
-// caller can announce a long check rather than appear to hang.
+// caller can announce a long check rather than appear to hang. It runs the
+// checks without a preflight; RunSuite is a run as a user starts one.
 func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Duration,
 	start func(t Test, expected time.Duration, index, total int),
 	emit func(res Result, index, total int), cats ...Category) {
+	r.run(ctx, env, perTest, false, Hooks{Start: start, Result: emit}, cats...)
+}
+
+// Hooks are the callbacks of a suite run (RunSuite). Any may be nil.
+type Hooks struct {
+	// Preflight is called once, before any check, with the run's
+	// preflight.
+	Preflight func(Preflight)
+	// Start is called just before each selected check runs, with the time
+	// it may take (ExpectedDuration), its 0-based position among the
+	// selected checks and their count.
+	Start func(t Test, expected time.Duration, index, total int)
+	// Result is called with each check's result, position and the count.
+	Result func(res Result, index, total int)
+}
+
+// RunSuite is a conformance run: the preflight the selected checks' needs
+// call for (ADR-0011 rule 6; see runPreflight), then the checks in cats
+// (every check when empty) in run order, each with its own timeout. A check
+// that depends on a preflight step that did not complete reports ERROR
+// without running; the rest are judged. It returns the preflight, which is
+// empty when no selected check needs anything from the core.
+func (r *Registry) RunSuite(ctx context.Context, env Env, perTest time.Duration, hooks Hooks, cats ...Category) Preflight {
+	return r.run(ctx, env, perTest, true, hooks, cats...)
+}
+
+// run is the one per-check loop: it assigns each selected check its gNB
+// IDs and subscribers, runs it, and reports the result. With preflight set
+// it first runs the preflight and holds the checks to it.
+func (r *Registry) run(ctx context.Context, env Env, perTest time.Duration, preflight bool, hooks Hooks, cats ...Category) Preflight {
 	if perTest <= 0 {
 		perTest = DefaultPerTestTimeout
 	}
@@ -589,12 +623,26 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 	// registeredBy is the last check to register each subscriber.
 	registeredBy := map[string]string{}
 	owners := r.owners()
+	var pre Preflight
+	if preflight {
+		pe := env
+		pe.GNB.ID = r.preflightGNBID(env.GNB.ID, env.PackedGNBIDs)
+		pe.GNB.Name = "orbit-conf-preflight"
+		pe.UE = env.UE.forCheck(r.preflightSubscriber())
+		pre = runPreflight(ctx, pe, selected, perTest)
+		if _, registered := pre.step(StepRegistration); registered {
+			registeredBy[pe.UE.SUPI] = "the preflight"
+		}
+		if hooks.Preflight != nil {
+			hooks.Preflight(pre)
+		}
+	}
 	for i, t := range selected {
 		if err := ctx.Err(); err != nil {
-			return // client went away; stop rather than keep dialling the core
+			return pre // client went away; stop rather than keep dialling the core
 		}
-		if start != nil {
-			start(t, ExpectedDuration(t, perTest), i, len(selected))
+		if hooks.Start != nil {
+			hooks.Start(t, ExpectedDuration(t, perTest), i, len(selected))
 		}
 		// Give each test a distinct gNB ID — the AMF does not cleanly re-key a
 		// reused gNB ID from a new association (docs/interop/sdcore.md). Indexed
@@ -605,17 +653,23 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 		// And its own subscribers, when the suite has a pool of them.
 		e.UE = env.UE.forCheck(r.subscriberBlock(r.indexOf(t)))
 		e.owners = owners
+		e.preflight = pre
 		if e.UE.Configured() && subscribersOf(t) > 0 {
 			e.sharedWith = registeredBy[e.UE.SUPI]
 			registeredBy[e.UE.SUPI] = t.ID()
 		}
-		emit(runOne(ctx, t, e, perTest), i, len(selected))
+		res := runOne(ctx, t, e, perTest)
+		if hooks.Result != nil {
+			hooks.Result(res, i, len(selected))
+		}
 	}
+	return pre
 }
 
 // runOne runs one check, or SKIPs it when it requires a release newer than
-// the target (see skipReason) or an idle core under load, and stamps
-// identity and provenance onto the result. A check that declares its
+// the target (see skipReason) or an idle core under load, or reports ERROR
+// without running it when a step of the run's preflight it depends on did
+// not complete, and stamps identity and provenance onto the result. A check that declares its
 // outcomes (Declarer) is held to them (enforceDeclared). For one that does
 // not, the verdict follows the check's references (WorstVerdict): a FAIL
 // from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
@@ -632,6 +686,8 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		res = Result{}.As(Outcome{ID: OutcomeSkipRelease, Verdict: Skip, Skip: SkipRelease}, "requires a newer release than the target", why)
 	} else if pop := e.loadedBy(); n.RequiresIdleCore && pop != "" {
 		res = Result{}.Skipped(InputIdleCore, ObservedNeedsIdleCore, fmt.Sprintf("%s; population %s is active", n.IdleCoreReason, pop))
+	} else if step, failed := e.preflight.blockedBy(t, e); failed {
+		res = preflightError(step)
 	} else {
 		d, raised := budget(t, perTest)
 		tctx, cancel := context.WithTimeout(ctx, d)
@@ -869,6 +925,9 @@ type Summary struct {
 	// ExpectedFailures is the core line of the list the run used, "" when
 	// none was given.
 	ExpectedFailures string `json:",omitempty"`
+	// Preflight is the run's preflight, the setup its checks need, done
+	// once before any of them; empty when the run had none.
+	Preflight Preflight `json:",omitempty"`
 }
 
 // TargetLine renders the run's targets for the text output: "Rel-18 (TS

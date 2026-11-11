@@ -122,12 +122,14 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			ann := newAnnouncer(cmd.ErrOrStderr(), progressEvery)
 			ann.suite(reg.Select(cats...), perTest)
 			var results []conformance.Result
-			reg.RunWithStart(cmd.Context(), env, perTest, ann.start, func(res conformance.Result, _, _ int) {
-				ann.done()
-				results = append(results, res)
-			}, cats...)
+			preflight := reg.RunSuite(cmd.Context(), env, perTest, conformance.Hooks{Preflight: ann.preflight, Start: ann.start,
+				Result: func(res conformance.Result, _, _ int) {
+					ann.done()
+					results = append(results, res)
+				}}, cats...)
 			expected.Apply(results)
 			sum := conformance.Summarize(results)
+			sum.Preflight = preflight
 			sum.Stale = expected.Stale(results)
 			sum.ExpectedFailures = expected.Label()
 			sum.N2Source = env.N2Source()
@@ -262,6 +264,10 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 		sum.Stale = append(sum.Stale, conformance.StaleExpectation{Check: st.GetCheck(), Finding: st.GetFinding(),
 			ExpectedObserved: st.GetExpectedObserved(), Verdict: conformance.Verdict(st.GetVerdict()), Observed: st.GetObserved()})
 	}
+	for _, step := range last.GetPreflight() {
+		sum.Preflight = append(sum.Preflight, conformance.PreflightResult{Step: conformance.PreflightStep(step.GetStep()),
+			Status: conformance.PreflightStatus(step.GetStatus()), Detail: step.GetDetail()})
+	}
 	core := p.GetTarget().GetCore()
 	sum.Network = &conformance.NetworkIdentity{MCC: core.GetPlmn().GetMcc(), MNC: core.GetPlmn().GetMnc(), TAC: core.GetTac()}
 	if sl := core.GetSlices(); len(sl) > 0 {
@@ -350,6 +356,13 @@ func (a *announcer) suite(tests []conformance.Test, perTest time.Duration) {
 	a.printf("Running %d checks, up to %s in total\n", len(tests), total)
 }
 
+// preflight announces the run's preflight, a line per step.
+func (a *announcer) preflight(p conformance.Preflight) {
+	for _, step := range p {
+		a.printf("preflight: %s %s\n", step.Step, step.Status)
+	}
+}
+
 // start announces a check; a long one gets a progress line every a.every.
 func (a *announcer) start(t conformance.Test, expected time.Duration, index, total int) {
 	a.printf("[%d/%d] %s (%s): up to %s\n", index+1, total, t.ID(), t.Category(), expected)
@@ -407,6 +420,9 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 	if sum.ExpectedFailures != "" {
 		_, _ = fmt.Fprintf(out, "expected-failures: %s (%s)\n", sum.ExpectedFailures, expectedPath)
 	}
+	for _, line := range preflightLines(sum.Preflight) {
+		_, _ = fmt.Fprintln(out, line)
+	}
 	for _, r := range sum.Results {
 		verdict := string(r.Verdict)
 		if r.ExpectedFailure != nil {
@@ -422,6 +438,24 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 		_, _ = fmt.Fprintf(out, "stale expected failure: %s %s: now %s %q\n", st.Check, st.Finding, st.Verdict, st.Observed)
 	}
 	_, _ = fmt.Fprintf(out, "\n%s\n", sum.TallyLine())
+}
+
+// preflightLines renders a run's preflight for the report: a "preflight:"
+// heading and one line per step with its status and detail. None for a run
+// without one.
+func preflightLines(p conformance.Preflight) []string {
+	if len(p) == 0 {
+		return nil
+	}
+	lines := []string{"preflight:"}
+	for _, step := range p {
+		line := fmt.Sprintf("  %-7s %s", step.Status, step.Step)
+		if step.Detail != "" {
+			line += ": " + step.Detail
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // conformanceUEFlags are the conformance flags describing the UE the

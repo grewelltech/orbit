@@ -26,7 +26,8 @@ func layoutRegistry(needs ...CheckNeeds) *Registry {
 }
 
 // Each check's block follows the one before it, a check with no UE takes
-// none, and a check that registers several UEs in turn takes one each.
+// none, and a check that registers several UEs in turn takes one each; the
+// preflight's one subscriber follows the last block.
 func TestSubscriberBlocks(t *testing.T) {
 	r := layoutRegistry(CheckNeeds{UEs: 1}, CheckNeeds{}, CheckNeeds{UEs: 1, Subscribers: 3}, CheckNeeds{UEs: 2})
 	want := []struct{ off, span int }{{0, 1}, {1, 0}, {1, 3}, {4, 2}}
@@ -35,8 +36,11 @@ func TestSubscriberBlocks(t *testing.T) {
 			t.Errorf("check %d: block (%d, %d), want (%d, %d)", i, off, span, w.off, w.span)
 		}
 	}
-	if got := r.SubscriberSpan(); got != 6 {
-		t.Errorf("SubscriberSpan = %d, want 6", got)
+	if got := r.SubscriberSpan(); got != 7 {
+		t.Errorf("SubscriberSpan = %d, want 7", got)
+	}
+	if off, span := r.preflightSubscriber(); off != 6 || span != 1 {
+		t.Errorf("preflight subscriber (%d, %d), want (6, 1)", off, span)
 	}
 	if off, span := r.subscriberBlock(9); off != 0 || span != 0 {
 		t.Errorf("unknown check: block (%d, %d), want none", off, span)

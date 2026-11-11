@@ -99,6 +99,19 @@ message ConformanceUpdate {
   // The run the suite runs as (ADR-0008 §2), on every update, so a client
   // can follow it in the run history.
   string run_id = 10;
+  // The run's preflight, on every update once it has run: the setup the
+  // selected checks need, done once before any check. It is not a check.
+  repeated PreflightStep preflight = 11;
+}
+
+// PreflightStep is one step of a conformance run's preflight (ADR-0011
+// rule 6). A check that depends on a step that did not complete reports
+// ERROR without running; a step that completed makes a later failure of
+// the same setup inside a check the core's (BLOCKED).
+message PreflightStep {
+  string step = 1;                // NG Setup | registration | PDU session establishment | UPF probe
+  string status = 2;              // ok | failed | not run
+  string detail = 3;              // what was done, or why the step failed
 }
 
 message ConformanceResult {

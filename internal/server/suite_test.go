@@ -80,8 +80,8 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		}, wantErr: "do not fit 22 bits"},
 		{name: "a block narrower than three IDs a check", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 20}
-		}, wantErr: fmt.Sprintf("the suite needs a block of %d gNB IDs (3 for each of its %d checks); the target's ran.gnb_ids 700..719 holds 20",
-			3*len(conformance.NewRegistry().Tests()), len(conformance.NewRegistry().Tests()))},
+		}, wantErr: fmt.Sprintf("the suite needs a block of %d gNB IDs (3 for each of its %d checks and 1 for its preflight); the target's ran.gnb_ids 700..719 holds 20",
+			3*len(conformance.NewRegistry().Tests())+1, len(conformance.NewRegistry().Tests()))},
 		{name: "a pin outside the target's block", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 200}
 			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 890}}
@@ -369,23 +369,37 @@ func TestRunConformanceIsARun(t *testing.T) {
 	}
 	var id string
 	var final *orbitv1.ConformanceUpdate
-	n := 0
+	n, results, preflightFirst := 0, 0, false
 	for stream.Receive() {
 		u := stream.Msg()
 		if u.GetRunId() == "" || id != "" && u.GetRunId() != id {
 			t.Fatalf("update %d names run %q (first %q)", n, u.GetRunId(), id)
 		}
 		id = u.GetRunId()
+		if n == 0 {
+			preflightFirst = u.GetResult() == nil && len(u.GetPreflight()) > 0
+		}
 		if u.GetDone() {
 			final = u
+		}
+		if u.GetResult() != nil {
+			results++
 		}
 		n++
 	}
 	if err := stream.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if final == nil || n < 2 {
-		t.Fatalf("%d updates, final %v", n, final)
+	if final == nil || results < 1 {
+		t.Fatalf("%d updates with %d results, final %v", n, results, final)
+	}
+	// The AMF is not there: the preflight's NG Setup fails, ahead of any
+	// result, and every check reports ERROR without running.
+	if !preflightFirst {
+		t.Error("the first update is not the preflight on its own")
+	}
+	if p := final.GetPreflight(); len(p) != 1 || p[0].GetStep() != "NG Setup" || p[0].GetStatus() != "failed" {
+		t.Errorf("final update's preflight = %v, want the NG Setup failed", p)
 	}
 	run := waitRunState(t, runs, id, orbitv1.RunState_RUN_STATE_COMPLETE)
 	if run.GetKind() != orbitv1.RunKind_RUN_KIND_CONFORMANCE {
@@ -396,18 +410,24 @@ func TestRunConformanceIsARun(t *testing.T) {
 		t.Errorf("ListRuns(CONFORMANCE) = %v, %v", l.Msg.GetRuns(), err)
 	}
 	g, err := runs.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
-	if err != nil || g.Msg.GetConformanceProgress().GetRan() != uint32(n-1) || g.Msg.GetConformanceProgress().GetTotal() != uint32(n-1) {
-		t.Errorf("GetRun progress = %v, %v; want %d of %d", g.Msg.GetConformanceProgress(), err, n-1, n-1)
+	if err != nil || g.Msg.GetConformanceProgress().GetRan() != uint32(results) || g.Msg.GetConformanceProgress().GetTotal() != uint32(results) ||
+		len(g.Msg.GetConformanceProgress().GetPreflight()) != 1 {
+		t.Errorf("GetRun progress = %v, %v; want %d of %d and the preflight", g.Msg.GetConformanceProgress(), err, results, results)
 	}
 	r, err := runs.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := r.Msg.GetConformance(); c == nil || len(c.GetResults()) != n-1 || c.GetIncomplete() || len(r.Msg.GetWorkloads()) != 1 {
+	if c := r.Msg.GetConformance(); c == nil || len(c.GetResults()) != results || c.GetIncomplete() || len(r.Msg.GetWorkloads()) != 1 || len(c.GetPreflight()) != 1 {
 		t.Errorf("report = %v", r.Msg)
 	}
+	for _, res := range r.Msg.GetConformance().GetResults() {
+		if res.GetVerdict() != "ERROR" || !strings.HasPrefix(res.GetObserved(), conformance.ObservedPreflightFailed+" (NG Setup failed)") {
+			t.Errorf("%s = %s %q, want the preflight's ERROR", res.GetId(), res.GetVerdict(), res.GetObserved())
+		}
+	}
 	a := waitArchive(t, dir, id)
-	if rs := a.GetReports(); len(rs) != 1 || len(rs[0].GetConformance().GetResults()) != n-1 {
+	if rs := a.GetReports(); len(rs) != 1 || len(rs[0].GetConformance().GetResults()) != results {
 		t.Errorf("archived reports = %v", rs)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, id+archiveExt))
@@ -425,7 +445,7 @@ func TestRunConformanceIsARun(t *testing.T) {
 // partial results are archived with the conformance gate failed as an
 // incomplete suite's.
 func TestRunConformanceClientGoneCancels(t *testing.T) {
-	amf := idleAMF(t) // checks wait out their timeouts, so the suite is still running
+	amf := silentAMF(t) // checks wait out their timeouts, so the suite is still running
 	dir, runs, conf := suiteServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := conf.RunConformance(ctx, connect.NewRequest(&orbitv1.RunConformanceRequest{
@@ -536,7 +556,7 @@ func TestRunConformanceUnknownCategory(t *testing.T) {
 // A suite stopped by another client ends its stream with an error saying
 // so, not a summary that reads finished.
 func TestRunConformanceStoppedElsewhere(t *testing.T) {
-	amf := idleAMF(t)
+	amf := silentAMF(t)
 	_, runs, conf := suiteServer(t)
 	stream, err := conf.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
 		AmfAddress: amf, Mcc: "208", Mnc: "93", PerTestSeconds: 1,

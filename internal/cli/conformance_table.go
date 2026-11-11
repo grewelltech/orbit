@@ -79,6 +79,15 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 	if sum.ExpectedFailures != "" {
 		_, _ = fmt.Fprintln(out, label.Render("expected-failures:"), sum.ExpectedFailures+faint.Render(" ("+expectedPath+")"))
 	}
+	// The preflight is the run's setup, not a check: its own lines, ahead of
+	// the table.
+	for i, text := range preflightLines(sum.Preflight) {
+		if i == 0 {
+			_, _ = fmt.Fprintln(out, label.Render(text))
+			continue
+		}
+		_, _ = fmt.Fprintln(out, text)
+	}
 
 	// Rows, keeping the verdict and tolerated flag per row so the verdict cell
 	// can be colored in the StyleFunc (which only gets row/col indexes).

@@ -534,6 +534,7 @@ message ConformanceProgress {
   uint32 ran = 2;                 // checks finished
   uint32 total = 3;               // checks selected
   string last_check = 4;          // the most recent check's ID
+  repeated PreflightStep preflight = 5;  // the run's preflight, once it has run
 }
 
 message RunTelemetryRequest {
@@ -732,4 +733,7 @@ message ConformanceSummary {
   // off (stopped, or at a deadline) and incomplete is set.
   uint32 total = 6;
   bool incomplete = 7;
+  // The run's preflight: the setup the selected checks need, done once
+  // before any check.
+  repeated PreflightStep preflight = 8;
 }

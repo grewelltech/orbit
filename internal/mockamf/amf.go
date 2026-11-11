@@ -141,6 +141,7 @@ type AMF struct {
 
 	// UE context release options (release.go).
 	noReleaseOnDereg     bool
+	silent               bool // answers NG Setup and nothing else (WithSilentAfterNGSetup)
 	deregReleaseIDs      ReleaseIDs
 	noiseBeforeRelease   bool
 	releaseDelay         time.Duration
@@ -394,6 +395,9 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 		}
 		pdu, err := ngap.Decode(raw)
 		if err != nil {
+			if a.silent {
+				continue
+			}
 			if err := a.onUndecodable(p, fmt.Errorf("mock amf decode: %w", err)); err != nil {
 				return err
 			}
@@ -430,6 +434,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		a.assocs[p] = association{gnbID: setup.GNBID, tac: firstTAC(pdu.InitiatingMessage.Value.NGSetupRequest), seq: a.assocSeq}
 		a.mu.Unlock()
 		return a.send(p, resp)
+	}
+	if a.silent {
+		return nil
 	}
 	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentInitialContextSetupResponse {

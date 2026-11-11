@@ -44,7 +44,8 @@ func (e *localError) Unwrap() error { return e.err }
 
 // setupProcedure is the procedure a setup error names: the one it was
 // marked with (during), the NG Setup for an attach that failed before it
-// began (engine.ErrNGSetup), else the registration.
+// began (engine.ErrNGSetup), the PDU session for one that failed after the
+// UE registered (engine.ErrAfterRegistration), else the registration.
 func setupProcedure(err error) Procedure {
 	var pe *procedureError
 	switch {
@@ -52,6 +53,8 @@ func setupProcedure(err error) Procedure {
 		return pe.proc
 	case errors.Is(err, engine.ErrNGSetup):
 		return ProcNGSetup
+	case errors.Is(err, engine.ErrAfterRegistration):
+		return ProcPDUSession
 	}
 	return ProcRegistration
 }

@@ -58,14 +58,31 @@ type suiteSpec struct {
 type suiteLive struct {
 	spec *suiteSpec
 
-	mu      sync.Mutex
-	results []conformance.Result
-	done    bool          // the suite returned, run to the end or cut off
-	wake    chan struct{} // closed and replaced on every change
+	mu        sync.Mutex
+	preflight conformance.Preflight // the run's preflight, once it has run
+	results   []conformance.Result
+	done      bool          // the suite returned, run to the end or cut off
+	wake      chan struct{} // closed and replaced on every change
 }
 
 func newSuiteLive(spec *suiteSpec) *suiteLive {
 	return &suiteLive{spec: spec, wake: make(chan struct{})}
+}
+
+// setPreflight records the run's preflight.
+func (l *suiteLive) setPreflight(p conformance.Preflight) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.preflight = p
+	l.signalLocked()
+}
+
+// preflightSteps is the run's preflight so far, for the wire; nil before
+// it has run and for a run with none.
+func (l *suiteLive) preflightSteps() []*orbitv1.PreflightStep {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return preflightProto(l.preflight)
 }
 
 // add records one result.
@@ -110,7 +127,8 @@ func (l *suiteLive) snapshot() ([]conformance.Result, bool) {
 // progress is the suite so far, for GetRun and telemetry.
 func (l *suiteLive) progress() *orbitv1.ConformanceProgress {
 	rs, _ := l.snapshot()
-	p := &orbitv1.ConformanceProgress{Tally: &orbitv1.ConformanceTally{}, Ran: uint32(len(rs)), Total: uint32(l.spec.total)}
+	p := &orbitv1.ConformanceProgress{Tally: &orbitv1.ConformanceTally{}, Ran: uint32(len(rs)), Total: uint32(l.spec.total),
+		Preflight: l.preflightSteps()}
 	for _, r := range rs {
 		addToTally(p.Tally, r)
 	}
@@ -131,6 +149,7 @@ func (l *suiteLive) summary() *orbitv1.ConformanceSummary {
 		Stale:                  staleProto(l.spec.expected.Stale(rs)),
 		Total:                  uint32(l.spec.total),
 		Incomplete:             len(rs) < l.spec.total,
+		Preflight:              l.preflightSteps(),
 	}
 	for _, r := range rs {
 		addToTally(s.Tally, r)
@@ -139,8 +158,9 @@ func (l *suiteLive) summary() *orbitv1.ConformanceSummary {
 	return s
 }
 
-// suiteRun is the conformance run's launcher: the suite, one check at a
-// time, each result judged against the expected list and published. At
+// suiteRun is the conformance run's launcher: the preflight, then the
+// suite, one check at a time, each result judged against the expected list
+// and published. At
 // the plan's deadline the suite stops where it is and the run completes,
 // incomplete; a stop cancels it.
 func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
@@ -161,7 +181,19 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 		if err := reg.Only(spec.checks...); err != nil {
 			return nil, err // buildSuite refused it already
 		}
-		reg.RunStream(suiteCtx, spec.env, spec.perTest, func(r conformance.Result, _, _ int) {
+		reg.RunSuite(suiteCtx, spec.env, spec.perTest, conformance.Hooks{Preflight: func(p conformance.Preflight) {
+			live.setPreflight(p)
+			if emit == nil {
+				return
+			}
+			for _, step := range p {
+				sev := "info"
+				if step.Status != conformance.PreflightOK {
+					sev = "error"
+				}
+				emit(sev, "PREFLIGHT", "", fmt.Sprintf("%s %s", step.Step, step.Status))
+			}
+		}, Result: func(r conformance.Result, _, _ int) {
 			one := []conformance.Result{r}
 			spec.expected.Apply(one)
 			live.add(one[0])
@@ -173,7 +205,7 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 				}
 				emit(sev, "CONFORMANCE", "", fmt.Sprintf("%s %s", one[0].ID, one[0].Verdict))
 			}
-		}, spec.cats...)
+		}}, spec.cats...)
 		if rs, _ := live.snapshot(); ctx.Err() != nil && len(rs) < spec.total && !engine.Finishing(ctx) {
 			return nil, ctx.Err() // stopped: CANCELLED, partial results in live
 		}
@@ -276,8 +308,8 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		return nil, err
 	}
 	if span := reg.PackedSpan(); ranged && uint64(hi)-uint64(lo)+1 < uint64(span) {
-		return nil, fmt.Errorf("the suite needs a block of %d gNB IDs (3 for each of its %d checks); the target's ran.gnb_ids %d..%d holds %d",
-			span, span/3, lo, hi, uint64(hi)-uint64(lo)+1)
+		return nil, fmt.Errorf("the suite needs a block of %d gNB IDs (3 for each of its %d checks and 1 for its preflight); the target's ran.gnb_ids %d..%d holds %d",
+			span, (span-1)/3, lo, hi, uint64(hi)-uint64(lo)+1)
 	}
 	env.PackedGNBIDs = ranged
 	needs := reg.Needs(0, ranged, cats...)
@@ -366,7 +398,7 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 			return nil, fmt.Errorf("the suite's gNB IDs %d..%d fall outside the target's ran.gnb_ids %d..%d", low, last, lo, hi)
 		}
 		if last > uint64(1)<<gnbBits(t)-1 {
-			return nil, fmt.Errorf("the suite's gNB IDs %d..%d (its checks, handover targets and liveness probes) do not fit %d bits", low, last, gnbBits(t))
+			return nil, fmt.Errorf("the suite's gNB IDs %d..%d (its checks, handover targets, liveness probes and preflight) do not fit %d bits", low, last, gnbBits(t))
 		}
 	}
 	env.GNB.ID = base

@@ -120,16 +120,29 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 	}
 	core := spec.expected.Label()
 	var tally orbitv1.ConformanceTally
-	sent := 0
+	sent, sentPreflight := 0, false
 	for {
 		rs, done, wake := live.since(sent)
+		// The preflight goes out on its own as soon as it has run, ahead of
+		// the first check's result.
+		if steps := live.preflightSteps(); len(steps) > 0 && !sentPreflight {
+			sentPreflight = true
+			if err := stream.Send(&orbitv1.ConformanceUpdate{
+				Tally: cloneTally(&tally), Total: uint32(spec.total),
+				TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
+				ExpectedFailuresCore: core, RunId: id, Preflight: steps,
+			}); err != nil {
+				_, _ = s.runs.reg.Stop(id)
+				return err
+			}
+		}
 		for _, r := range rs {
 			addToTally(&tally, r)
 			if err := stream.Send(&orbitv1.ConformanceUpdate{
 				Result: resultProto(r), Tally: cloneTally(&tally),
 				Index: uint32(sent), Total: uint32(spec.total),
 				TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
-				ExpectedFailuresCore: core, RunId: id,
+				ExpectedFailuresCore: core, RunId: id, Preflight: live.preflightSteps(),
 			}); err != nil {
 				_, _ = s.runs.reg.Stop(id) // the client is gone; so is its run
 				return err
@@ -162,7 +175,7 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 	return stream.Send(&orbitv1.ConformanceUpdate{
 		Done: true, Tally: cloneTally(&tally),
 		TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
-		ExpectedFailuresCore: core, RunId: id,
+		ExpectedFailuresCore: core, RunId: id, Preflight: live.preflightSteps(),
 		Stale: staleProto(spec.expected.Stale(results)),
 	})
 }
@@ -243,6 +256,15 @@ func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 		Owner:           r.Owner,
 		NotCompleted:    string(r.NotCompleted),
 	}
+}
+
+// preflightProto carries a run's preflight on the wire, nil for none.
+func preflightProto(p conformance.Preflight) []*orbitv1.PreflightStep {
+	var out []*orbitv1.PreflightStep
+	for _, step := range p {
+		out = append(out, &orbitv1.PreflightStep{Step: string(step.Step), Status: string(step.Status), Detail: step.Detail})
+	}
+	return out
 }
 
 // expectedFailureProto carries a tolerated FAIL's entry, nil for none.

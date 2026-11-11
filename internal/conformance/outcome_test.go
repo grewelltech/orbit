@@ -342,6 +342,8 @@ func TestSetupFailed(t *testing.T) {
 		{name: "an NG Setup the engine could not complete", err: fmt.Errorf("registration on gNB 0x100: %w", engine.ErrNGSetup), want: Blocked, wantProc: ProcNGSetup},
 		{name: "an NG Setup the check's own association did not complete", err: during(ProcNGSetup, errors.New("NG Setup rejected: misc/5")), want: Blocked, wantProc: ProcNGSetup},
 		{name: "a refused association", err: during(ProcNGSetup, &syscallError{syscall.ECONNREFUSED}), want: Blocked, wantProc: ProcNGSetup},
+		{name: "a PDU session the core left unanswered after the registration", err: fmt.Errorf("registration on gNB 0x100: %w", fmt.Errorf("%w: %w", engine.ErrAfterRegistration, context.DeadlineExceeded)),
+			want: Blocked, wantProc: ProcPDUSession, wantDetail: "the core did not complete a PDU session establishment before the check's time ran out"},
 		{name: "a PDU session the core did not establish", err: during(ProcPDUSession, errors.New("PDU session establishment: no active session")), want: Blocked, wantProc: ProcPDUSession},
 		{name: "a source address this host cannot bind", err: during(ProcNGSetup, fmt.Errorf("SCTP dial: %w", bind)), want: Error},
 		{name: "a data path that could not be opened", err: &localError{errors.New("data path: no bound N3 socket")}, want: Error},
