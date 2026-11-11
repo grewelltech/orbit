@@ -51,7 +51,8 @@ func (m *Manager) RequestContextRelease(ctx context.Context, supi string, wait t
 
 	var res ContextReleaseResult
 	sent := time.Now()
-	if err := gnb.SendPDU(sess.conn, ueStream, gnb.BuildUEContextReleaseRequest(sess.amfID, sess.ranID)); err != nil {
+	active := sess.activeSessionIDs()
+	if err := gnb.SendPDU(sess.conn, ueStream, gnb.BuildUEContextReleaseRequest(sess.amfID, sess.ranID, active...)); err != nil {
 		return res, fmt.Errorf("send UEContextReleaseRequest: %w", err)
 	}
 	wctx, cancel := context.WithTimeout(ctx, wait)
@@ -74,7 +75,7 @@ func (m *Manager) RequestContextRelease(ctx context.Context, supi string, wait t
 			continue
 		}
 		res.Released, res.After, res.Cause = true, time.Since(sent), cmd.Cause
-		if err := sess.answerRelease(pdu); err != nil {
+		if err := sess.answerRelease(pdu, active...); err != nil {
 			return res, err
 		}
 		m.releaseAppSessions(supi)

@@ -1,6 +1,7 @@
 package gnb
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/free5gc/ngap/ngapType"
@@ -266,5 +267,65 @@ func TestBuildInitialUEMessageFromIdle(t *testing.T) {
 	bad.MCC = "20"
 	if _, err := BuildInitialUEMessageFromIdle(bad, 5, []byte{0x7e}, guti); err == nil {
 		t.Error("a gNB with an invalid PLMN built an Initial UE Message")
+	}
+}
+
+// The PDU sessions with an active N3 user plane go out as the PDU Session
+// Resource List of both release messages, and the IE is left out when there
+// are none.
+func TestUEContextReleaseSessionLists(t *testing.T) {
+	requestList := func(p *ngapType.NGAPPDU) (ids []int64, present bool) {
+		for _, ie := range p.InitiatingMessage.Value.UEContextReleaseRequest.ProtocolIEs.List {
+			if ie.Id.Value == ngapType.ProtocolIEIDPDUSessionResourceListCxtRelReq {
+				present = true
+				for _, it := range ie.Value.PDUSessionResourceListCxtRelReq.List {
+					ids = append(ids, it.PDUSessionID.Value)
+				}
+			}
+		}
+		return ids, present
+	}
+	completeList := func(p *ngapType.NGAPPDU) (ids []int64, present bool) {
+		for _, ie := range p.SuccessfulOutcome.Value.UEContextReleaseComplete.ProtocolIEs.List {
+			if ie.Id.Value == ngapType.ProtocolIEIDPDUSessionResourceListCxtRelCpl {
+				present = true
+				for _, it := range ie.Value.PDUSessionResourceListCxtRelCpl.List {
+					ids = append(ids, it.PDUSessionID.Value)
+				}
+			}
+		}
+		return ids, present
+	}
+	for _, tc := range []struct {
+		name     string
+		sessions []int64
+	}{
+		{name: "no session"},
+		{name: "one session", sessions: []int64{1}},
+		{name: "two sessions", sessions: []int64{1, 5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, m := range []struct {
+				what string
+				pdu  ngapType.NGAPPDU
+				list func(*ngapType.NGAPPDU) ([]int64, bool)
+			}{
+				{"request", BuildUEContextReleaseRequest(7, 9, tc.sessions...), requestList},
+				{"complete", BuildUEContextReleaseComplete(7, 9, tc.sessions...), completeList},
+			} {
+				b, err := ngap.Encode(m.pdu)
+				if err != nil {
+					t.Fatalf("%s: encode: %v", m.what, err)
+				}
+				got, err := ngap.Decode(b)
+				if err != nil {
+					t.Fatalf("%s: decode: %v", m.what, err)
+				}
+				ids, present := m.list(got)
+				if present != (len(tc.sessions) > 0) || !slices.Equal(ids, tc.sessions) {
+					t.Errorf("%s: list present %v with %v, want %v", m.what, present, ids, tc.sessions)
+				}
+			}
+		})
 	}
 }

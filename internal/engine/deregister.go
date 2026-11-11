@@ -129,8 +129,8 @@ func (s *Session) awaitRelease(parent context.Context, linger time.Duration, log
 }
 
 // answerRelease answers the UE Context Release Command cmd (completeRelease).
-func (s *Session) answerRelease(cmd *ngapType.NGAPPDU) error {
-	if err := s.completeRelease(cmd); err != nil {
+func (s *Session) answerRelease(cmd *ngapType.NGAPPDU, sessions ...int64) error {
+	if err := s.completeRelease(cmd, sessions...); err != nil {
 		return fmt.Errorf("UE Context Release Complete not sent: %w", err)
 	}
 	return nil
