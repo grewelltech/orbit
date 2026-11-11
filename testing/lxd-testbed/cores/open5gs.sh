@@ -435,7 +435,10 @@ fi
 cd "$OPEN5GS_SRC_DIR"
 git remote set-url origin "$OPEN5GS_REPO"
 git fetch -q --tags --force origin '+refs/heads/*:refs/remotes/origin/*'
+# A branch or a tag is known after the fetch above. A commit no branch or tag
+# reaches is asked for by name.
 sha=$(git rev-parse -q --verify "origin/$OPEN5GS_REF^{commit}" || git rev-parse -q --verify "$OPEN5GS_REF^{commit}") \
+    || { git fetch -q origin "$OPEN5GS_REF" 2>/dev/null && sha=$(git rev-parse -q --verify 'FETCH_HEAD^{commit}'); } \
     || { echo "no such Open5GS ref: $OPEN5GS_REF" >&2; exit 1; }
 git checkout -q --detach "$sha"
 
