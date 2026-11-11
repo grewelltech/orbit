@@ -230,7 +230,7 @@ and nothing else: **two VMs and one bridge**.
   +1, +2, +3). There is no OAM VLAN, router, far site, WAN emulator, app node
   or control node, and no NAT: the UE pool is reachable only inside the testbed.
 - The RAN node stands in for the app node: it holds the app's N6 address and
-  runs the responder (`app` installs it there). A UE's packets are built by
+  runs the responder and the UDP echo peer (`app` installs them there). A UE's packets are built by
   ORBIT in user space and leave inside GTP-U on N3, so they still cross
   N3 → UPF → N6 to reach it, and the replies return through the UPF.
 - The UPF's N6 next hop is the responder's address, and the gNBs are on-link
@@ -307,6 +307,8 @@ status = failures:
   routed (hop 1 is r-site) rather than switched
 - the app routes the UE pool back via r-site; wanem's bridge has two ports and
   no address and wanemd is listening
+- the UDP echo peer answers on the app's N6 address (`orbit-n6-echo`, installed
+  by `app`; before `app` has run this one fails and says so)
 
 Run it after `up` (before the core exists) and again whenever a measurement
 looks wrong: a FAIL here means the site is miswired and the core is not the
@@ -774,7 +776,7 @@ version record.
 
 ```sh
 ./testbed.sh apps          # both of the below
-./testbed.sh app           # responder on orbit-app, bound to N6
+./testbed.sh app           # responder and UDP echo peer on orbit-app, bound to N6
 ./testbed.sh ran           # ORBIT on both RAN nodes (or: ran near, ran far)
 ```
 
@@ -784,7 +786,8 @@ toolchain on each node. `ORBIT_VERSION` selects the ref; empty builds the
 working tree as-is, which is what you want mid-change.
 
 Every ORBIT node gets `/etc/orbit/env` (mode 600): PLMN, the subscriber keys as
-the deployed core has them, the core's coordinates and the responder token, and
+the deployed core has them, the core's coordinates, the responder and its
+token, the UDP echo peer (`TESTBED_ECHO`), and
 on the RAN nodes the server's listen address, `https://` URL and API token
 (`ORBIT_TOKEN`). The units read it, and so does a shell:
 
@@ -815,6 +818,7 @@ computed from the certificate on the node), so the client verifies it.
 |---|---|---|
 | `orbit-ctrl` | `aether-ops` | `0.0.0.0:8186` — API **and** UI |
 | `orbit-app` | `orbit-responder` | `10.133.0.30:9551` — **N6 only**, bearer token |
+| `orbit-app` | `orbit-n6-echo` | `10.133.0.30:7777/udp` — **N6 only**, UDP echo |
 | `orbit-ran-near` | `orbit` | `10.130.0.21:8412` — API **and** dashboard, OAM only, TLS + bearer token |
 | `orbit-ran-far` | `orbit` | `10.137.0.21:8412` — API **and** dashboard, far OAM only, TLS + bearer token |
 
@@ -830,6 +834,24 @@ and `--token-file /etc/orbit/api-token`. The responder token is generated once
 per testbed and kept on the app node (and in the host cache), so reinstalling a
 RAN node keeps working against a running responder; the API token likewise,
 kept on the RAN nodes and in the host cache.
+
+`app` also installs a **UDP echo peer** beside the responder, the
+`orbit-n6-echo` unit: a small Python program (`/usr/local/bin/orbit-n6-echo`)
+that sends every datagram back to its sender. It binds the app's N6 address
+on `TESTBED_ECHO_PORT` (7777), and `/etc/orbit/env` names it as
+`TESTBED_ECHO`. It is what the conformance checks' `--traffic` wants: a peer
+whose replies give a UE downlink traffic on its tunnel. In the `minimal`
+shape it runs on the RAN node, with the responder. `check` asserts that it
+answers.
+
+A target has no field for an echo peer, and a conformance run names its
+responder itself, so both go on the command line. The `lxd-conformance`
+target carries the responder as `n6`:
+
+```sh
+set -a; . /etc/orbit/env; set +a
+orbit conformance -t lxd-conformance --responder n6 --traffic $TESTBED_ECHO
+```
 
 Return routing for the UE pool is in the app node's **netplan** (via r-site),
 not in a unit: the app knows nothing about the UPF, as on a real site.
@@ -848,7 +870,7 @@ serves a placeholder at `/`.
 From each RAN node in turn, with its own `/etc/orbit/env`: NG Setup over N2; a
 registration with a PDU session (5G-AKA, NAS security, SMF/UPF session); a ping
 from the UE through N3 → UPF → N6 to the app; five seconds of traffic to the
-responder; deregistration. Fresh gNB IDs per run — the AMF does not cleanly
+responder; two seconds to the UDP echo peer (`TESTBED_ECHO`); deregistration. Fresh gNB IDs per run — the AMF does not cleanly
 re-key a reused gNB ID from a new association. The far run is the one that
 exercises UPF downlink routing (two hops, `ran_subnet`), which the near run
 cannot.
