@@ -49,8 +49,12 @@ check's place in the suite, without reading a justification per check.
 - **Characterisation.** Checks where the specification is descriptive or
   silent. They record what a core does. Part of the default run.
 - **Core regression packs.** Checks for the behaviour of one named core. A pack
-  is selected by the target's core kind, is never part of the default run, and
-  never reports a conformance verdict.
+  is never part of the default run and never reports a conformance verdict. A
+  pack is keyed by the target's existing core-compatibility profile
+  (`core.profile`, ADR-0002), and runs only when the user names it. A pack
+  named for a profile other than the target's is refused. A target with no
+  profile, or with `strict-3gpp`, has no pack, and naming one is an error
+  rather than an empty run.
 
 The test for the first two layers is that the check's provenance file can be
 written without naming any core. A check that fails this test belongs in a
@@ -65,7 +69,13 @@ descriptive or silent text allows WARN or INFO.
 The rule is enforced per outcome, not per check. Every outcome a check can
 report is declared with its verdict, and a FAIL or DEVIATION outcome names the
 reference it violates. The suite refuses to register a check with a FAIL
-outcome that cites no "shall". A FAIL without a clause cannot exist.
+outcome that cites no "shall", or a DEVIATION outcome that cites no "should".
+Neither verdict can exist without its clause.
+
+Every check cites at least one reference, including a characterisation check:
+where the specification is silent on the behaviour observed, the check cites,
+as descriptive, the clause of the procedure its stimulus belongs to. Exactly
+one of a check's references is marked primary in its declaration.
 
 ### 3. One vocabulary
 
@@ -117,11 +127,18 @@ the owner check. The same breakage is graded once, in one place.
 
 ### 6. Attribution is decided once per run
 
-A run starts with a preflight: register, establish a PDU session, deregister,
-with the run's own configuration. If the preflight fails, the run reports ERROR
-and judges nothing else. If it passes, a later failure of the same kind of
-setup inside a check is attributed to the core and reported BLOCKED. Checks do
-not carry their own attribution heuristics.
+A run starts with a preflight built from what the selected checks declare
+they need. Every run completes an NG Setup. A run that selects a check needing
+a registered UE also registers and deregisters one; a PDU session is
+established only if a selected check needs one, and the UPF is probed only if
+one needs the user plane. A run with no UE configured, or that selects only
+checks needing none, does the NG Setup alone, and checks that need a UE SKIP
+for the missing input as they do today.
+
+If a preflight step fails, the run reports ERROR for the checks that depend on
+that step and judges the rest. If it passes, a later failure of the same kind
+of setup inside a check is attributed to the core and reported BLOCKED. Checks
+do not carry their own attribution heuristics.
 
 ### 7. Absence is judged against a declared bound
 
@@ -137,19 +154,26 @@ The verdict word never changes with the policy. Only the gate does.
 - **spec** (`--gate spec`) gates on FAIL, CRASH, BLOCKED and ERROR.
 
 The summary line separates the two, for example "3 spec failures, 2 warnings",
-so a run that is red with no violated requirement says so on its face. An
-expected-failures list may name FAIL, DEVIATION and WARN outcomes; it may not
-name CRASH, BLOCKED or ERROR.
+so a run that is red with no violated requirement says so on its face.
+
+An expected-failures list may name FAIL, DEVIATION and WARN outcomes; it may
+not name CRASH, BLOCKED or ERROR. A result that matches an entry keeps its
+verdict word, is marked expected, and is left out of the gate count, as a
+listed FAIL is today.
 
 ### 9. Checks are grouped by the specification's own titles
 
-A check's group is derived from its primary citation: specification, then the
-procedure family, then the procedure, using the clause titles. For example
+A check's group is derived from its primary reference (rule 2): specification,
+then the procedure family, then the procedure, using the clause titles. For example
 `NGAP / UE Mobility Management / Handover Preparation` or
 `NAS / 5GMM common procedures / Security mode control`.
 
 - The mapping from clause to title lives in one table in the repository, taken
-  from the specification text per release. No check assigns its own group.
+  from the specification text per release. A check marks which reference is
+  primary; it does not name its group.
+- The title is the one in the run's target release. When that release has no
+  such clause, the latest release in which the reference was read is used, so
+  a check has one group in any run.
 - A check whose primary citation is not a procedure (handling of erroneous
   protocol data, NAS security, TS 33.501) is grouped under that clause's title.
 - These groups replace the `--category` values. Selection is by group path or
