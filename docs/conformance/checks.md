@@ -16,6 +16,8 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 **Tags** say what kind of stimulus a check uses (`negative`: malformed, unknown or unexpected input; `security`: a security procedure or protection; `timing`: a timer or the time between messages); they select checks with `--tag` and never affect a verdict.
 
+The table is the default run. A core regression pack (`--pack`, ADR-0011 rule 1) runs only when a run names it, for a target with the pack's `core.profile`, and is not listed here; there are 0.
+
 | Check | Group | Tags | Verdict class | Requires | Up to | Clauses |
 |---|---|---|---|---|---|---|
 | [NGAP-UE-CTX-RELEASE-ON-REQUEST](provenance/NGAP-UE-CTX-RELEASE-ON-REQUEST.md) | NGAP / UE Context Management Procedures / UE Context Release Request (NG-RAN node initiated) |  | DEVIATION | Rel-15 | 15s | TS 38.413 8.3.2.2 (Rel-15 onward; Rel-18: V18.1.0 splits the should by cause: with "User inactivity" the release should be initiated when there is no downlink signalling; Rel-15 to Rel-17 have one unconditional sentence; Rel-19: the cited text is unchanged; V19.1.0 adds a GW Context Release Indication sentence) |

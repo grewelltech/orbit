@@ -33,7 +33,7 @@ workloads:
     topology: {gnb_count: 4}
   - name: suite
     start: {after: pop, phase: attached}
-    conformance: {categories: [registration], expected: expected-failures.yaml}
+    conformance: {groups: [NAS], expected: expected-failures.yaml}
 gates:
   - name: reg
     workload: pop
@@ -83,14 +83,22 @@ without it is a storm: each UE attaches and is released. One with
 `until.duration`.
 
 A **conformance** workload runs the suite, its fields under `conformance`:
-`categories`, `checks` (check IDs, as `--check` gives them: the named
-checks alone run, on top of `categories`, each with the gNB IDs and
-subscribers it has in the full suite), `target_release`, `per_test_timeout_ms`, `traffic`,
+`groups` (group paths or prefixes of them, as `--group` gives them, such
+as `NGAP` or `NAS / 5GMM common procedures`, read in the target release),
+`tags` (`negative`, `security`, `timing`, as `--tag` gives them), `checks`
+(check IDs, as `--check` gives them; each of the three narrows the run on
+top of the others, and every check keeps the gNB IDs and subscribers it
+has in the full suite), `pack` (a core regression pack for the target's
+`core.profile`, as `--pack` gives it; refused for a target with no profile
+or `strict-3gpp`), `target_release`, `per_test_timeout_ms`, `traffic`,
 `responder`, `subscriber_pool`, `n3_bind`, `gnb_ids` (as above),
 `nas.integrity` and `nas.ciphering` (the UE's NAS algorithms, as
 `--nas-integrity` and `--nas-ciphering` give them; a list left out, or
 empty, is the default, NIA2 or NEA0), and
-`expected`. `expected` is the
+`expected`. `categories` was replaced by `groups` (ADR-0011): a run file
+that names one is refused with the groups and checks that replace each
+category; see [USAGE.md](USAGE.md#selecting-checks-groups-tags-and-ids).
+`expected` is the
 [expected-failures list](conformance/expected-failures.md): a path, read
 relative to the run file, or the list inline.
 

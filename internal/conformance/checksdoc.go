@@ -26,6 +26,7 @@ func ChecksMarkdown(tests []Test) string {
 	b.WriteString(runOrderNote(tests))
 	b.WriteString("**Group** is derived from the check's primary reference: the specification, the procedure family and the procedure, by the specification's own clause titles in the latest release (ADR-0011 rule 9).\n\n")
 	b.WriteString("**Tags** say what kind of stimulus a check uses (`negative`: malformed, unknown or unexpected input; `security`: a security procedure or protection; `timing`: a timer or the time between messages); they select checks with `--tag` and never affect a verdict.\n\n")
+	fmt.Fprintf(&b, "The table is the default run. A core regression pack (`--pack`, ADR-0011 rule 1) runs only when a run names it, for a target with the pack's `core.profile`, and is not listed here; there are %d.\n\n", len(builtinPacks))
 	b.WriteString("| Check | Group | Tags | Verdict class | Requires | Up to | Clauses |\n")
 	b.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, t := range tests {
