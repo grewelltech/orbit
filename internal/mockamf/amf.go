@@ -266,13 +266,17 @@ type AMF struct {
 	capsMismatches atomic.Int64
 
 	// Registration after release (reregistration.go): the window in which
-	// a released SUPI's next Registration Request is dropped, when each
-	// SUPI's UE context was last released (guarded by mu), how many
-	// requests were dropped, and whether a dropped one crashes the mock.
-	dropAfterRelease time.Duration
-	crashOnDrop      bool
-	releasedAt       map[string]time.Time
-	droppedRegs      atomic.Int64
+	// a released SUPI's next Registration Request is dropped, and the one
+	// in which any Registration Request is after any release; when each
+	// SUPI's UE context, and any UE context, was last released (guarded by
+	// mu), how many requests were dropped, and whether a dropped one
+	// crashes the mock.
+	dropAfterRelease    time.Duration
+	dropAfterAnyRelease time.Duration
+	crashOnDrop         bool
+	releasedAt          map[string]time.Time
+	lastRelease         time.Time
+	droppedRegs         atomic.Int64
 
 	// Identification options and what the UEs answered, the answers
 	// guarded by mu (identity.go).
