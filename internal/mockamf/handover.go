@@ -41,6 +41,10 @@ const (
 	FailHandoverPreparation
 	// IgnoreHandoverRequired leaves the request unanswered.
 	IgnoreHandoverRequired
+	// FailHandoverAfterAcknowledge prepares the target and, on its HANDOVER
+	// REQUEST ACKNOWLEDGE, answers the source with a HANDOVER PREPARATION
+	// FAILURE.
+	FailHandoverAfterAcknowledge
 )
 
 // WithHandoverAnswer makes the mock answer a HANDOVER REQUIRED as ans says.
@@ -238,6 +242,13 @@ func (a *AMF) onHandoverRequestAcknowledge(p *pipe, ack *ngapType.HandoverReques
 	h := a.handovers[amfID]
 	if h == nil || h.tgt != p {
 		a.mu.Unlock()
+		return nil
+	}
+	if a.handoverAnswer == FailHandoverAfterAcknowledge {
+		delete(a.handovers, amfID)
+		src, srcRanID := h.src, h.srcRanID
+		a.mu.Unlock()
+		a.sendTo(src, buildHandoverPreparationFailure(amfID, srcRanID))
 		return nil
 	}
 	h.tgtRanID, h.newDL, h.acked = ranID, newDL, true
