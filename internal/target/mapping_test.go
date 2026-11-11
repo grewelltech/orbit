@@ -38,6 +38,7 @@ func TestFlagInput(t *testing.T) {
 		fs.String("ki", "", "")
 		fs.String("supi", "", "")
 		fs.StringSlice("category", nil, "")
+		fs.StringSlice("check", nil, "")
 		fs.Bool("json", false, "")
 		fs.Duration("per-test-timeout", 15*time.Second, "")
 		return fs
@@ -64,6 +65,8 @@ func TestFlagInput(t *testing.T) {
 			want: map[string]any{"workloads[].conformance.per_test_timeout_ms": uint64(2500)}},
 		{name: "slice flag", cmd: "orbit conformance", args: []string{"--category", "nas,security"},
 			want: map[string]any{"workloads[].conformance.categories": []string{"nas", "security"}}},
+		{name: "checks, repeated and comma-separated", cmd: "orbit conformance", args: []string{"--check", "NGAP-NG-RESET-ACK,NAS-REPLAY-DISCARD", "--check", "NAS-PDU-UNKNOWN-DNN"},
+			want: map[string]any{"workloads[].conformance.checks": []string{"NGAP-NG-RESET-ACK", "NAS-REPLAY-DISCARD", "NAS-PDU-UNKNOWN-DNN"}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -354,6 +355,9 @@ func TestRunConformancePlan(t *testing.T) {
 		name    string
 		req     *orbitv1.RunConformanceRequest
 		wantErr string
+		// wantIDs are the checks a plan that names checks runs, in order;
+		// nil expects the legacy request's count.
+		wantIDs []string
 	}{
 		{name: "a conformance plan", req: &orbitv1.RunConformanceRequest{Plan: suite()}},
 		{name: "a plan and a legacy field", req: &orbitv1.RunConformanceRequest{Plan: suite(), Mcc: "001"},
@@ -362,20 +366,29 @@ func TestRunConformancePlan(t *testing.T) {
 			wantErr: "runs one conformance workload"},
 		{name: "two workloads", req: &orbitv1.RunConformanceRequest{Plan: mixedPlan()},
 			wantErr: "runs one conformance workload"},
+		{name: "a plan naming checks", req: &orbitv1.RunConformanceRequest{Plan: suite(func(p *orbitv1.RunPlan) {
+			p.GetWorkloads()[0].GetConformance().Checks = []string{"ngap-ng-reset-ack", "NGAP-RAN-CONFIG-UPDATE-ACK"}
+		})}, wantIDs: []string{"NGAP-RAN-CONFIG-UPDATE-ACK", "NGAP-NG-RESET-ACK"}},
+		{name: "a plan naming an unknown check", req: &orbitv1.RunConformanceRequest{Plan: suite(func(p *orbitv1.RunPlan) {
+			p.GetWorkloads()[0].GetConformance().Checks = []string{"NGAP-NO-SUCH-CHECK"}
+		})}, wantErr: `unknown check "NGAP-NO-SUCH-CHECK"`},
 		{name: "a plan the build refuses", req: &orbitv1.RunConformanceRequest{Plan: suite(func(p *orbitv1.RunPlan) {
 			p.GetWorkloads()[0].GetConformance().Categories = []string{"bogus"}
 		})}, wantErr: "bogus"},
 	}
+	var ids []string
 	count := func(t *testing.T, req *orbitv1.RunConformanceRequest) (int, *orbitv1.ConformanceUpdate, error) {
 		stream, err := newConformanceClient(t).RunConformance(context.Background(), connect.NewRequest(req))
 		if err != nil {
 			t.Fatal(err)
 		}
 		n := 0
+		ids = nil
 		var last *orbitv1.ConformanceUpdate
 		for stream.Receive() {
-			if stream.Msg().GetResult() != nil {
+			if r := stream.Msg().GetResult(); r != nil {
 				n++
+				ids = append(ids, r.GetId())
 			}
 			last = stream.Msg()
 		}
@@ -397,6 +410,12 @@ func TestRunConformancePlan(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.wantIDs != nil {
+				if !slices.Equal(ids, tc.wantIDs) || !last.GetDone() {
+					t.Errorf("ran %v, want %v", ids, tc.wantIDs)
+				}
+				return
 			}
 			if n != want || !last.GetDone() || last.GetRunId() == "" {
 				t.Errorf("%d results (want %d, as the legacy request gives), last = %v", n, want, last)

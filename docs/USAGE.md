@@ -1362,7 +1362,7 @@ CLI process.
 
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
-    [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s] \
+    [--category negative-ie] [--check <ID>] [--gnb-base 0x400] [--per-test-timeout 15s] \
     [--target-release Rel-16] [--expected-failures <core-list.yaml>]
 ```
 
@@ -1388,10 +1388,12 @@ security context and so leave a UE context for the core's own timers to clear
 survive, runs after every other check has its verdict. A filtered run keeps
 this order, and a check's phase does not change its gNB IDs or subscribers.
 
-`--check <ID>` (repeatable, or comma-separated) narrows `--list` and a
-`--local` run to the named checks, on top of `--category`; each keeps the
-gNB IDs it has in a full run. A run on the server selects by `--category`
-only and refuses `--check`.
+`--check <ID>` (repeatable, or comma-separated, in any case) narrows `--list`
+and a run, on the server or `--local`, to the named checks, on top of
+`--category`; each keeps the gNB IDs and the subscribers it has in a full
+run. An ID that names no check is refused before anything starts, and so is
+a selection that leaves no check (a check outside the categories given). In
+a run file it is the workload's `conformance.checks`.
 
 [checks.md](conformance/checks.md) has the same figures in its **Up to**
 column, at the default per-test timeout.

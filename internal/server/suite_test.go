@@ -105,6 +105,13 @@ func TestSuiteShapeRefusals(t *testing.T) {
 			cw.Categories = []string{"bogus"}
 			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}
 		}, wantErr: `unknown conformance category "bogus"`},
+		{name: "an unknown check", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Checks = []string{"NGAP-NG-RESET-ACK", "NGAP-NO-SUCH-CHECK"}
+		}, wantErr: `checks: unknown check "NGAP-NO-SUCH-CHECK"`},
+		{name: "a check outside the categories", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Categories = []string{"nas"}
+			cw.Checks = []string{"NGAP-NG-RESET-ACK"}
+		}, wantErr: "no checks selected: none of the checks [NGAP-NG-RESET-ACK] is in the categories [nas]"},
 		{name: "an expected entry for no check", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Expected = &orbitv1.ExpectedFailures{Core: "lab", Entries: []*orbitv1.ExpectedFailure{
 				{Check: "NO-SUCH-CHECK", Observed: "x", Finding: "EX-1", Added: "2026-10-27", Reason: "r"}}}
@@ -691,6 +698,68 @@ func TestSuiteSubscribers(t *testing.T) {
 			p := suitePlan(func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers[0].Count = tc.count })
 			if got := suiteSubscribers(p.GetTarget(), p.GetWorkloads()[0].GetConformance(), tc.span, tc.ues); got != tc.want {
 				t.Errorf("suiteSubscribers = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// A workload's checks narrow the suite to the named checks, on top of its
+// categories and in any case: the suite counts, runs and leases gNB IDs
+// for those alone, each with the IDs it has in the full suite, and a
+// selection with a UE check has the full suite's subscriber pool.
+func TestSuiteChecksSelection(t *testing.T) {
+	reg := conformance.NewRegistry()
+	full, err := planService(t).buildPlan(suitePlan(), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		cats   []string
+		checks []string
+		want   []string // the checks the suite runs, in run order
+	}{
+		{name: "one check", checks: []string{"NGAP-NG-RESET-ACK"}, want: []string{"NGAP-NG-RESET-ACK"}},
+		{name: "two checks, any case, in run order", checks: []string{"ngap-path-switch-seccap-mismatch", "NGAP-NG-RESET-ACK"},
+			want: []string{"NGAP-NG-RESET-ACK", "NGAP-PATH-SWITCH-SECCAP-MISMATCH"}},
+		{name: "on top of a category", cats: []string{"nas"}, checks: []string{"NAS-T3560-AUTH-RETRANSMIT", "NGAP-NG-RESET-ACK"},
+			want: []string{"NAS-T3560-AUTH-RETRANSMIT"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pr, err := planService(t).buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+				cw.Categories, cw.Checks = tc.cats, tc.checks
+			}), engine.EventsNormal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec := pr.suiteLive.spec
+			if spec.total != len(tc.want) || !slices.Equal(spec.checks, tc.checks) {
+				t.Errorf("total %d, checks %v; want %d and %v", spec.total, spec.checks, len(tc.want), tc.checks)
+			}
+			only := conformance.NewRegistry()
+			if err := only.Only(tc.want...); err != nil {
+				t.Fatal(err)
+			}
+			base := spec.env.GNB.ID
+			var leased []uint32
+			for _, g := range pr.needs.GNBs {
+				leased = append(leased, g.ID)
+			}
+			if want := only.Needs(base, false).GNBIDs; !slices.Equal(leased, want) {
+				t.Errorf("leased gNB IDs %v, want the selected checks' %v", leased, want)
+			}
+			if base != full.suiteLive.spec.env.GNB.ID {
+				t.Errorf("base %d, the full suite's %d", base, full.suiteLive.spec.env.GNB.ID)
+			}
+			// A selection with a UE check spreads the checks over the same
+			// pool as the full suite; one without leases no subscriber.
+			want := 0
+			if only.Needs(base, false).UEs > 0 {
+				want = full.suiteLive.spec.env.UE.Subscribers
+			}
+			if got := spec.env.UE.Subscribers; got != want || got > reg.SubscriberSpan() {
+				t.Errorf("subscriber pool of %d, want %d", got, want)
 			}
 		})
 	}

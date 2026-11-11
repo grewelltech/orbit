@@ -34,9 +34,12 @@ const suiteGNBName = "orbit-conformance"
 // suiteSpec is a conformance workload, built: what the suite runs against
 // and how its results are judged.
 type suiteSpec struct {
-	env      conformance.Env
-	perTest  time.Duration
-	cats     []conformance.Category
+	env     conformance.Env
+	perTest time.Duration
+	cats    []conformance.Category
+	// checks narrows the suite to the checks with these IDs, on top of
+	// cats; empty runs every check cats selects.
+	checks   []string
 	deadline time.Duration // until.duration_ms; 0 = none
 	// runStart, when set, is when the run began, which the deadline counts
 	// from: in a mixed run a suite that waited gets only the time left.
@@ -154,7 +157,11 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 			suiteCtx, cancel = context.WithDeadline(ctx, at)
 			defer cancel()
 		}
-		conformance.NewRegistry().RunStream(suiteCtx, spec.env, spec.perTest, func(r conformance.Result, _, _ int) {
+		reg := conformance.NewRegistry()
+		if err := reg.Only(spec.checks...); err != nil {
+			return nil, err // buildSuite refused it already
+		}
+		reg.RunStream(suiteCtx, spec.env, spec.perTest, func(r conformance.Result, _, _ int) {
 			one := []conformance.Result{r}
 			spec.expected.Apply(one)
 			live.add(one[0])
@@ -251,6 +258,15 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if err := knownCategories(reg, cats); err != nil {
 		return nil, err
 	}
+	// checks narrows the registry for everything below: the selection's
+	// count, its needs and the gNB IDs it leases.
+	checks := cw.GetChecks()
+	if err := reg.Only(checks...); err != nil {
+		return nil, fmt.Errorf("checks: %w; `orbit conformance --list` names the checks", err)
+	}
+	if len(reg.Select(cats...)) == 0 {
+		return nil, fmt.Errorf("no checks selected: none of the checks %v is in the categories %v", checks, cats)
+	}
 	// A target that bounds its gNB IDs gets the packed layout, three IDs
 	// per check from the base; an unbounded one (the RunConformance
 	// wrapper's base 700 among them) keeps the legacy layout.
@@ -298,7 +314,7 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		env.Downlink = engine.ResponderDownlink{Peer: r.GetControl(), Token: r.GetToken()}
 	}
 
-	spec := &suiteSpec{env: env, cats: cats, total: len(selectedChecks(reg, cats)),
+	spec := &suiteSpec{env: env, cats: cats, checks: checks, total: len(reg.Select(cats...)),
 		deadline: time.Duration(until.GetDurationMs()) * time.Millisecond}
 	spec.perTest = time.Duration(cw.GetPerTestTimeoutMs()) * time.Millisecond
 	spec.expected, spec.source = s.expected, "server"
@@ -389,25 +405,10 @@ func knownCategories(reg *conformance.Registry, cats []conformance.Category) err
 			return fmt.Errorf("unknown conformance category %q: want one of %s", c, strings.Join(names, ", "))
 		}
 	}
-	if len(selectedChecks(reg, cats)) == 0 {
+	if len(reg.Select(cats...)) == 0 {
 		return fmt.Errorf("no checks selected by categories %v", cats)
 	}
 	return nil
-}
-
-// selectedChecks is the checks a suite in cats runs.
-func selectedChecks(reg *conformance.Registry, cats []conformance.Category) []conformance.Test {
-	want := map[conformance.Category]bool{}
-	for _, c := range cats {
-		want[c] = true
-	}
-	var out []conformance.Test
-	for _, t := range reg.Tests() {
-		if len(want) == 0 || want[t.Category()] {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // suiteUE is the UE checks' subscriber: the workload's pool (by name, else

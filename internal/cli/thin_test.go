@@ -137,6 +137,42 @@ func TestThinLoadPlan(t *testing.T) {
 	}
 }
 
+// --check narrows a run on the server as it narrows --local: the named
+// checks alone run, in run order, with the gNB IDs they have in the full
+// suite (the mock AMF saw the same NG Setups either way).
+func TestThinConformanceCheck(t *testing.T) {
+	clearOrbitEnv(t)
+	type result struct{ ID, Verdict string }
+	run := func(local bool) ([]result, orbitRun) {
+		lab := newThinLab(t)
+		loc := targetDir(t, "version: 1\nkind: target\nname: lab1\ncore:\n  amf: "+lab.amf+"\n  plmn: { mcc: \"208\", mnc: \"93\" }\n"+
+			"  slices:\n    - { sst: 1, sd: \"010203\" }\nran:\n  n2_source_ips: [127.0.0.1-127.0.0.9]\n  gnb_ids: { first: 100 }\n")
+		args := []string{"--server", lab.url, "conformance", "-t", "lab1", "--json", "--per-test-timeout", "2s",
+			"--check", "ngap-ng-reset-ack", "--check", "NGAP-RAN-CONFIG-UPDATE-ACK,NGAP-UNKNOWN-UE-SURVIVES"}
+		if local {
+			args = append(args, "--local")
+		}
+		r := runOrbit(t, loc, args...)
+		var sum struct{ Results []result }
+		if err := json.Unmarshal([]byte(r.out), &sum); err != nil {
+			t.Fatalf("local %t: JSON: %v (err %v)\n%s\n%s", local, err, r.execErr, r.out, r.err)
+		}
+		return sum.Results, r
+	}
+	local, _ := run(true)
+	thin, tr := run(false)
+	var ids []string
+	for _, r := range thin {
+		ids = append(ids, r.ID)
+	}
+	if want := "NGAP-UNKNOWN-UE-SURVIVES,NGAP-RAN-CONFIG-UPDATE-ACK,NGAP-NG-RESET-ACK"; strings.Join(ids, ",") != want {
+		t.Fatalf("the server ran %v, want %s\n%s", ids, want, tr.err)
+	}
+	if !reflect.DeepEqual(local, thin) {
+		t.Errorf("the server's selection differs from --local's:\nlocal %+v\nthin  %+v", local, thin)
+	}
+}
+
 // `orbit conformance` on the server gives what --local gives for the same
 // suite: the same checks and verdicts, and the same exit. Each side has its
 // own mock AMF, which keeps state between runs. The one difference is the

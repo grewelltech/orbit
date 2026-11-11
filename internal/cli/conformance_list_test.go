@@ -12,9 +12,9 @@ import (
 
 // `conformance --list` needs no --amf or PLMN: it lists the checks (filtered
 // by --category and --check) with how long each can take at
-// --per-test-timeout, and the total. An unknown --check ID is refused, as is
-// --check on a run the server makes. Without --list, --amf is still
-// required.
+// --per-test-timeout, and the total. An unknown --check ID is refused
+// before anything is sent, on a run the server makes too. Without --list,
+// --amf is still required.
 func TestConformanceList(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -36,7 +36,7 @@ func TestConformanceList(t *testing.T) {
 		{name: "a check outside the category", args: []string{"--list", "--category", "nas", "--check", "NGAP-NG-RESET-ACK"},
 			want: []string{"0 checks"}, wantNot: []string{"NGAP-NG-RESET-ACK "}},
 		{name: "unknown check", args: []string{"--list", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"; --list names the checks`},
-		{name: "--check on a server run", args: []string{"--amf", "127.0.0.1:1", "--check", "NGAP-NG-RESET-ACK"}, wantErr: "--check selects checks for --list and --local runs"},
+		{name: "unknown check on a server run", args: []string{"--amf", "127.0.0.1:1", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"`},
 		{name: "no --amf without --list", args: nil, wantErr: `required flag(s) "amf" not set`},
 	}
 	for _, tc := range tests {

@@ -1561,8 +1561,12 @@ type ConformanceWorkload struct {
 	GnbIds         *GNBIDSelection `protobuf:"bytes,8,opt,name=gnb_ids,json=gnbIds,proto3" json:"gnb_ids,omitempty"`
 	SubscriberPool string          `protobuf:"bytes,9,opt,name=subscriber_pool,json=subscriberPool,proto3" json:"subscriber_pool,omitempty"` // the UE checks' subscriber; default the first pool
 	N3Bind         string          `protobuf:"bytes,10,opt,name=n3_bind,json=n3Bind,proto3" json:"n3_bind,omitempty"`                        // the GTP-U checks' local N3 source, ip:port; empty: they SKIP
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Check IDs to run (any case), on top of categories; empty runs every
+	// check the categories select. Each check keeps the gNB IDs and the
+	// subscribers it has in a full suite. An unknown ID is refused.
+	Checks        []string `protobuf:"bytes,11,rep,name=checks,proto3" json:"checks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConformanceWorkload) Reset() {
@@ -1663,6 +1667,13 @@ func (x *ConformanceWorkload) GetN3Bind() string {
 		return x.N3Bind
 	}
 	return ""
+}
+
+func (x *ConformanceWorkload) GetChecks() []string {
+	if x != nil {
+		return x.Checks
+	}
+	return nil
 }
 
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).
@@ -2517,7 +2528,7 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"intervalMs\x12\x10\n" +
 	"\x03ues\x18\x03 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\x9b\x03\n" +
+	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\xb3\x03\n" +
 	"\x13ConformanceWorkload\x12\x1e\n" +
 	"\n" +
 	"categories\x18\x01 \x03(\tR\n" +
@@ -2531,7 +2542,8 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\agnb_ids\x18\b \x01(\v2\x18.orbit.v1.GNBIDSelectionR\x06gnbIds\x12'\n" +
 	"\x0fsubscriber_pool\x18\t \x01(\tR\x0esubscriberPool\x12\x17\n" +
 	"\an3_bind\x18\n" +
-	" \x01(\tR\x06n3Bind\"[\n" +
+	" \x01(\tR\x06n3Bind\x12\x16\n" +
+	"\x06checks\x18\v \x03(\tR\x06checks\"[\n" +
 	"\x10ExpectedFailures\x123\n" +
 	"\aentries\x18\x01 \x03(\v2\x19.orbit.v1.ExpectedFailureR\aentries\x12\x12\n" +
 	"\x04core\x18\x02 \x01(\tR\x04core\"\x8b\x01\n" +
