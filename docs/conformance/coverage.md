@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**37 checks today** (the first four live on the SD-Core testbed):
+**40 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -587,17 +587,17 @@ that a lab tolerates goes on that core's expected-failures list, which keeps it
 FAIL in the report but out of the gate. See
 [expected-failures.md](expected-failures.md).
 
-**Legend, check classes:** a `FAIL-class` check cites a shall; a
-`DEVIATION-class` check cites only shoulds; an `INFO-class` check is
-informational. An informational check cites descriptive text only (a response
-the specification describes without requiring, or a case it is silent on). It
-reports `INFO` when the core did what the text describes and `INFO-DIFF` when
-it did anything else, with both in Expected and Observed, so a table of runs
-shows where cores differ. Neither verdict gates, counts as a pass or a failure,
-or can be put on an expected-failures list; `ERROR` and `SKIP` mean what they
-mean for every check. In every class a core that does not survive a check's
-stimulus (a fresh NG Setup afterwards no longer completes) is `FAIL` and
-gates: a crash is never demoted.
+**Legend, check classes:** a check's class is the worst verdict among its
+declared outcomes (ADR-0011): `FAIL-class` for a missed shall,
+`DEVIATION-class` for a missed should, `WARN-class` when its worst outcome
+rests on no requirement but meets a criterion (security, availability or
+interoperability), `INFO-class` when every outcome is only recorded. `INFO`
+never gates and cannot be put on an expected-failures list. `BLOCKED` names
+the procedure a check needed and the check that owns it; `ERROR` is ORBIT's or
+the testbed's; `SKIP` is the release, a missing input or a permitted
+alternative. In every class a core that does not survive a check's stimulus
+(a fresh NG Setup afterwards no longer completes) is `CRASH` and gates.
+[checks.md](checks.md) lists every check's declared outcomes.
 
 > **Tooling note:** the testbed has no tshark, so wire disambiguation currently
 > uses a byte-level PPID scan that reads uplink cleanly but misses downlink

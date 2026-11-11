@@ -1575,14 +1575,18 @@ when the command carries the PDU Session Resource Handover List and every
 item in it has a Handover Command Transfer that decodes (TS 38.413 8.4.1.2,
 9.2.3.2). The check always runs under the `strict-3gpp` core profile,
 whatever profile other commands use, so it reports how the core handles the
-conformant Handover Request Acknowledge. It is an ERROR when the handover
-does not reach the command within 8 s.
+conformant Handover Request Acknowledge. The check owns the N2 handover
+preparation: a HANDOVER PREPARATION FAILURE, no answer within 8 s or another
+answer is WARN (availability), and the checks that need the handover are
+BLOCKED naming this check.
 
 `NGAP-HANDOVER-CANCEL-ACK` prepares the same N2 handover and, once the
 HANDOVER COMMAND has arrived, cancels it from the source gNB with a HANDOVER
-CANCEL. It is informational: TS 38.413 8.4.5 describes the HANDOVER CANCEL
-ACKNOWLEDGE without requiring it, so the acknowledge within 5 s is INFO and
-its absence INFO-DIFF, neither of which gates. The UE stays on the first gNB.
+CANCEL. TS 38.413 8.4.5 describes the HANDOVER CANCEL ACKNOWLEDGE without
+requiring it, and 8.4.5.4 has the source gNB take a missing one as a
+successful cancellation, so the acknowledge within 5 s and its absence are
+both INFO, which never gates; a dropped source association is WARN
+(availability). The UE stays on the first gNB.
 
 One `procedural` check needs the UE flags too, and SKIPs without them:
 `NGAP-UE-CTX-RELEASE-ON-REQUEST` registers the UE without a PDU session and
@@ -1617,8 +1621,8 @@ or from the 6 s default. The check can take up to 190 s, so it raises its own
 timeout. An Authentication Reject that arrives after the four retransmissions
 is recorded in the detail and the check keeps waiting for the release, which
 alone decides the verdict: the clause requires the release and names no
-reject. An Authentication Reject before them is an ERROR, since the core did
-not run T3560 against the subscriber.
+reject. An Authentication Reject before them is FAIL (`rejected-early`): the
+clause has the AMF retransmit four times, then release.
 
 `NAS-T3550-ACCEPT-RETRANSMIT` withholds the Registration Complete instead. It
 passes when the AMF retransmits the Registration Accept four times, one T3550
@@ -1653,9 +1657,10 @@ the keys.
 `orbit-unknown-dnn` on the run's slice. It passes on a PDU Session
 Establishment Reject with any 5GSM cause, or when the AMF returns the request
 unchanged in a DL NAS Transport with 5GMM cause #90 or #91. It fails on #90/#91
-with a different payload, on another answer, or on nothing within 10 s. It
-SKIPs when the core accepts the DNN, or when the AMF returns the request for
-congestion (#22, #67 or #69). The UE is deregistered at the end.
+with a different payload, on another answer, a release, or nothing within
+10 s. A core that accepts the DNN, or returns the request with another 5GMM
+cause, is INFO; one that returns it for congestion (#22, #67 or #69) SKIPs,
+the alternative TS 24.501 5.4.5.2.5 permits. The UE is deregistered at the end.
 
 `NAS-REG-REJECTED-NSSAI` applies from Rel-16. It registers the UE requesting
 only an S-NSSAI the core does not serve: the run's SST with SD `EEEEEE`
@@ -1735,7 +1740,9 @@ corrupted MAC, and another valid one. It passes when the AMF answers the
 first and the third and stays silent on the second (TS 24.501 4.4.4.3). It
 fails when the bad-MAC request is answered, when a 5GMM STATUS follows it, or
 when the third request gets no answer. An AMF that releases the UE after the
-bad MAC is ERROR, and one that selected 5G-IA0 is SKIP. The check needs a DNN
+bad MAC is WARN (security): it acts on a message it should have discarded.
+One that selected 5G-IA0 is SKIP, and one that does not answer the first,
+valid request is BLOCKED on the PDU session establishment. The check needs a DNN
 the core serves (`--dnn`), since the first request must be answered. It
 releases the sessions it set up and deregisters the UE at the end.
 
@@ -1756,16 +1763,18 @@ its sessions until its own timers expire.
 `NAS-RETRANSMIT-NEW-COUNT` withholds the Registration Complete, like
 `NAS-T3550-ACCEPT-RETRANSMIT`, and reads the NAS COUNT of each Registration
 Accept the AMF retransmits. Each must be higher than the one before
-(TS 24.501 4.4.3.1), so an AMF that resends the stored PDU fails. It SKIPs
-when the AMF does not retransmit, and can take up to 118 s.
+(TS 24.501 4.4.3.1), so an AMF that resends the stored PDU fails. An AMF that
+does not retransmit is INFO here (`NAS-T3550-ACCEPT-RETRANSMIT` grades that),
+and a retransmission that verifies at no NAS COUNT is WARN
+(interoperability). It can take up to 118 s.
 
 `NAS-BADMAC-REGISTRATION-AFTER-SMC` sets up one PDU session and then sends a
 Registration Request (mobility registration updating) with a corrupted MAC.
-It passes when the AMF stays silent or releases the UE, and fails when the
-AMF answers with a Registration Accept, a Registration Reject, a Security
+It passes when the AMF stays silent, is WARN (security) when it releases the
+UE with no answer, and fails when the AMF answers with a Registration Accept, a Registration Reject, a Security
 Mode Command or a 5GMM STATUS without authenticating first. An Authentication
-Request is SKIP: TS 24.501 4.4.4.3 can be read either way, and the result
-says so.
+Request (or an Identity Request) is SKIP: TS 24.501 4.4.4.3 can be read to
+permit it, and the result says so.
 
 Four more `security` checks send what a conformant UE never sends, and need
 the UE flags. `NAS-INITIAL-MSG-CONTAINER-WINS` puts a Requested NSSAI the core
@@ -1775,15 +1784,18 @@ registration is answered as the container's request is when sent alone
 (TS 24.501 5.4.2.4), and fails otherwise; two conformant reference
 registrations show how the core answers each value, so it runs three
 registrations, each as its own subscriber when the pool has one for each,
-and can take up to 52 s. It SKIPs when the core refuses the
-initial message outright or answers both values alike. The other three are
-informational and never gate: `NAS-INITIAL-MSG-NO-CONTAINER` leaves the
+and can take up to 52 s. A core that refuses or drops the initial message
+before any Security Mode Command, or answers both values alike, is INFO: the
+container was not exercised. The other three
+grade no requirement, and report INFO, or WARN (security) where the core
+acts on what it could not verify: `NAS-INITIAL-MSG-NO-CONTAINER` leaves the
 container out and reports whether the core asks for the message again,
-registers the UE or rejects; `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED` sends the
-complete request in the clear and in the container and reports whether the
-core registers the UE; `NAS-SMC-IMEISV-REQUEST` reports whether the Security
-Mode Command requests the IMEISV and what the core does when the UE leaves
-it out.
+registers the UE (WARN) or rejects; `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED`
+sends the complete request in the clear and in the container and reports
+whether the core registers the UE, WARN when it does so without a Security
+Mode Command; `NAS-SMC-IMEISV-REQUEST` reports whether the Security Mode
+Command requests the IMEISV and what the core does when the UE leaves it
+out, WARN when it registers the UE without the IMEISV it requested.
 
 `NGAP-PATH-SWITCH-SECCAP-MISMATCH`, also in `security`, registers the UE with
 a PDU session and hands it over by Xn with a Path Switch Request whose UE
