@@ -102,6 +102,21 @@ type AttachProbe struct {
 	// called after OnNAS for the same message, on the attach's goroutine,
 	// and must not block.
 	AfterAuthenticationReject func() bool
+	// InitialNAS, when set, builds the initial NAS message the UE sends,
+	// from the complete Registration Request that the Security Mode
+	// Complete carries. It replaces the conformant form, the cleartext IEs
+	// alone (ue.CleartextRegistrationRequest), for a check whose stimulus
+	// is an initial message TS 24.501 4.4.6 does not allow: one with
+	// non-cleartext IEs in the clear, or with values that differ from the
+	// protected copy.
+	InitialNAS func(complete []byte) ([]byte, error)
+	// OmitNASMessageContainer leaves the NAS message container, and with
+	// it the complete Registration Request, out of every Security Mode
+	// Complete the UE sends.
+	OmitNASMessageContainer bool
+	// OmitIMEISV leaves the IMEISV out of the Security Mode Complete even
+	// when the Security Mode Command requests it.
+	OmitIMEISV bool
 	// BeforeRegistration, when set, is called with the gNB's association
 	// before the Initial UE Message is sent, for a check whose stimulus is
 	// a non-UE-associated procedure on the association the UE then

@@ -148,6 +148,9 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	// cleartext IEs only; regReq, the complete message, follows in the
 	// Security Mode Complete (TS 24.501 4.4.6 a).
 	initialNAS, err := ue.CleartextRegistrationRequest(regReq)
+	if p := ueCfg.Probe; p != nil && p.InitialNAS != nil {
+		initialNAS, err = p.InitialNAS(append([]byte(nil), regReq...))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("build initial Registration Request: %w", err)
 	}
@@ -538,14 +541,19 @@ func (s *attachState) onSecurityModeCommand(msg *f5nas.Message) error {
 	// the NAS Message Container (TS 24.501 §4.4.6), sent integrity-protected
 	// and ciphered under the new context.
 	var opts []ue.SecurityModeCompleteOption
-	if sel.IMEISVRequested {
+	container := s.regReq
+	if p := s.ueCfg.Probe; p != nil && p.OmitNASMessageContainer {
+		container = nil
+	}
+	omitIMEISV := s.ueCfg.Probe != nil && s.ueCfg.Probe.OmitIMEISV
+	if sel.IMEISVRequested && !omitIMEISV {
 		imeisv, err := s.ueCfg.Identity.EquipmentIMEISV()
 		if err != nil {
 			return err
 		}
 		opts = append(opts, ue.WithIMEISV(imeisv))
 	}
-	complete, err := ue.BuildSecurityModeComplete(s.regReq, opts...)
+	complete, err := ue.BuildSecurityModeComplete(container, opts...)
 	if err != nil {
 		return err
 	}

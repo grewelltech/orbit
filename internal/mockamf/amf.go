@@ -217,6 +217,15 @@ type AMF struct {
 	handoverCancels  atomic.Int64
 	handoverReleases [][2]int64
 
+	// Initial NAS options (initialnas.go): unprotectedWins,
+	// missingContainer and missingIMEISV are
+	// WithUnprotectedRegistrationWins, WithMissingContainer and
+	// WithMissingIMEISV; smcsSent counts the Security Mode Commands sent.
+	unprotectedWins  bool
+	missingContainer MissingContainerAnswer
+	missingIMEISV    MissingIMEISVAnswer
+	smcsSent         atomic.Int64
+
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests); initialRegReqs the same requests as the
 	// Initial UE Messages carried them (InitialRegistrationRequests).
@@ -519,6 +528,7 @@ type ueState struct {
 	muted           bool   // MuteOnUplink: every NAS message is dropped
 	smSeen          int    // PDU Session Establishment Requests received (WithPDUSessionAnswers)
 	regIdx          int    // the UE's entry in AMF.regReqs
+	containerAsked  bool   // a second Security Mode Command went out for a missing container
 	// awaitingIdentity marks a WithIdentityRequest request not yet answered.
 	awaitingIdentity bool
 	// ranCaps is the UE Security Capabilities IE the mock last gave the RAN
