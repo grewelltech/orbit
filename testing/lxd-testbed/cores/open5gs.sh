@@ -413,8 +413,9 @@ if ! modprobe sctp 2>/dev/null; then
     modprobe sctp
 fi
 
-if ! dpkg -s mongodb-org >/dev/null 2>&1; then
+if ! dpkg -s mongodb-org 2>/dev/null | grep -q "^Version: $OPEN5GS_MONGODB_SERIES\\."; then
     echo "installing MongoDB $OPEN5GS_MONGODB_SERIES"
+    rm -f /etc/apt/sources.list.d/mongodb-org-*.list
     key=/usr/share/keyrings/mongodb-server-$OPEN5GS_MONGODB_SERIES.gpg
     curl -fsSL "https://www.mongodb.org/static/pgp/server-$OPEN5GS_MONGODB_SERIES.asc" | gpg --dearmor --yes -o "$key"
     # shellcheck disable=SC1091
