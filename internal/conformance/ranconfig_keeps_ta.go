@@ -19,7 +19,8 @@ func init() {
 
 const (
 	// keepsTAUpdateWait bounds the wait for the RAN CONFIGURATION UPDATE's
-	// outcome; its absence within this bound is what the ERROR reports.
+	// outcome; its absence within this bound is what update-unanswered
+	// reports.
 	keepsTAUpdateWait = 5 * time.Second
 	// keepsTARegisterWait bounds the registration that follows the outcome.
 	keepsTARegisterWait = 10 * time.Second
@@ -31,7 +32,7 @@ const (
 	keepsTADefaultName = "orbit-conf"
 )
 
-// keepsTAFailText is the FAIL detail.
+// keepsTAFailText is the detail of the FAIL.
 const keepsTAFailText = "AMF stopped serving an NG Setup tracking area after a RAN CONFIGURATION UPDATE that did not include the Supported TA List. " +
 	"TS 38.413 8.7.2.2. Likely cause: the AMF treats an absent Supported TA List as an empty one."
 
@@ -44,7 +45,8 @@ var taCauses = map[uint8]string{
 }
 
 // otherCauseNames names causes a Registration Reject may carry that are not
-// tied to a tracking area, for the ERROR's Observed text.
+// tied to a tracking area, for the Observed text of a registration that did
+// not complete.
 var otherCauseNames = map[uint8]string{
 	11: "PLMN not allowed",
 	62: "No network slices available",
@@ -63,17 +65,50 @@ var otherCauseNames = map[uint8]string{
 // The shall sits in the successful-operation clause, so the state is judged
 // only after a RAN CONFIGURATION UPDATE ACKNOWLEDGE: a registration that
 // succeeds is PASS; a Registration Reject with a tracking-area cause (#12,
-// #13, #15) is FAIL; any other registration failure is ERROR, a Reject with
-// another cause included, since that does not show the tracking area was
-// dropped. After a RAN CONFIGURATION UPDATE FAILURE, which 8.7.2.3 allows,
-// the UE still registers and the check SKIPs with both results in Observed.
-// No outcome within keepsTAUpdateWait is ERROR and no registration is
-// attempted. A registered UE is deregistered, and a fresh NG Setup confirms
-// the core afterwards.
+// #13, #15) is FAIL. Any other end of the registration (a Reject with
+// another cause, an Authentication Reject, a release, no answer) does not
+// show the tracking area was dropped: the core did not complete the
+// registration the check needs to judge the state, so it is BLOCKED on the
+// registration. After a RAN CONFIGURATION UPDATE FAILURE, which 8.7.2.3
+// permits, the UE still registers and the check SKIPs with both results in
+// Observed. No outcome within keepsTAUpdateWait, or a lost association, is
+// WARN for availability, and no registration is attempted. A registered UE
+// is deregistered, and a fresh NG Setup confirms the core afterwards.
 type ranConfigUpdateKeepsTA struct {
 	// updateWait and registerWait override keepsTAUpdateWait and
 	// keepsTARegisterWait; tests shorten them.
 	updateWait, registerWait time.Duration
+}
+
+// The keys of the references the outcomes of
+// NGAP-RAN-CONFIG-UPDATE-KEEPS-TA rest on.
+const (
+	keepsTARef        = "TS 38.413 8.7.2.2"
+	keepsTAFailureRef = "TS 38.413 8.7.2.3"
+)
+
+// The outcomes of NGAP-RAN-CONFIG-UPDATE-KEEPS-TA.
+var (
+	keepsTARegistered = Outcome{ID: "registered", Verdict: Pass, Refs: []string{keepsTARef},
+		Summary: "registered the UE in the NG Setup tracking area after acknowledging an update without a Supported TA List"}
+	keepsTARejected = Outcome{ID: "tracking-area-reject", Verdict: Fail, Refs: []string{keepsTARef},
+		Summary: "rejected the registration with a tracking-area cause after acknowledging an update without a Supported TA List"}
+	keepsTAUpdateRejected = Outcome{ID: "update-failure", Verdict: Skip, Skip: SkipPermitted, Refs: []string{keepsTAFailureRef},
+		Summary: "rejected the update with RAN CONFIGURATION UPDATE FAILURE, which 8.7.2.3 permits; the state was not judged"}
+	// An update the core neither acknowledges nor rejects is WARN for
+	// availability: no requirement covers the missing answer (8.7.2.3
+	// binds only an AMF that cannot accept the update), and the procedure
+	// does not complete for a valid update that changes nothing.
+	keepsTAUpdateUnanswered = Outcome{ID: "update-unanswered", Verdict: Warn, Criterion: CriterionAvailability,
+		Bound:   &Bound{Wait: keepsTAUpdateWait, Source: "check bound; TS 38.413 sets no timer for the RAN Configuration Update outcome"},
+		Summary: "sent neither RAN CONFIGURATION UPDATE ACKNOWLEDGE nor FAILURE; the state was not judged"}
+	keepsTAUpdateLost = Outcome{ID: "update-association-lost", Verdict: Warn, Criterion: CriterionAvailability,
+		Summary: "dropped the association instead of answering the RAN CONFIGURATION UPDATE; the state was not judged"}
+)
+
+// Outcomes declares what the check can report.
+func (ranConfigUpdateKeepsTA) Outcomes() []Outcome {
+	return []Outcome{keepsTARegistered, keepsTARejected, keepsTAUpdateRejected, keepsTAUpdateUnanswered, keepsTAUpdateLost}
 }
 
 func (c ranConfigUpdateKeepsTA) waits() (update, register time.Duration) {
@@ -90,16 +125,19 @@ func (c ranConfigUpdateKeepsTA) waits() (update, register time.Duration) {
 func (ranConfigUpdateKeepsTA) ID() string         { return "NGAP-RAN-CONFIG-UPDATE-KEEPS-TA" }
 func (ranConfigUpdateKeepsTA) Category() Category { return Procedural }
 
-// SpecRefs cites the shall in 8.7.2.2. The 5GMM causes that decide between
-// FAIL and ERROR (TS 24.501 Annex A) are in the provenance file only: the
-// versions their wording was read in are not listed.
+// SpecRefs cites the shall in 8.7.2.2 and the shall in 8.7.2.3 that
+// permits a RAN CONFIGURATION UPDATE FAILURE. The 5GMM causes that tell a
+// tracking-area Reject from another (TS 24.501 Annex A) are in the
+// provenance file only: the versions their wording was read in are not
+// listed.
 func (ranConfigUpdateKeepsTA) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "8.7.2.2", Strength: Shall, Since: 15, Verified: ts38413RANConfigUnchangedVerified,
+		{Spec: "TS 38.413", Clause: "8.7.2.2", Strength: Shall, Since: 15, Verified: ts38413RANConfigUnchangedVerified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "the sentence is added in V15.3.0 (absent in V15.0.0 to V15.2.0); unchanged to V18.11.0"},
 				{Release: 19, Note: "in V19.4.0 the same words are a bullet under \"If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF\""},
 			}},
+		{Spec: "TS 38.413", Clause: "8.7.2.3", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
 	}
 }
 
@@ -113,14 +151,11 @@ func (c ranConfigUpdateKeepsTA) Budget() time.Duration {
 func (c ranConfigUpdateKeepsTA) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "after a RAN CONFIGURATION UPDATE ACKNOWLEDGE for an update without a Supported TA List, a UE still registers in the tracking area the NG Setup presented (TS 38.413 8.7.2.2)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run checks that register a UE"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run checks that register a UE")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 
@@ -130,7 +165,12 @@ func (c ranConfigUpdateKeepsTA) Run(ctx context.Context, env Env) Result {
 	}
 	update, register := c.waits()
 	o := c.probe(ctx, h, name)
-	r.Verdict, r.Observed, r.Detail = judgeKeepsTA(o, env.GNB, update, register)
+	r = judgeKeepsTA(r, o, env.GNB, update, register)
+	if o.update == nil && o.updateErr == nil {
+		// The association never reached the update: nothing was sent to
+		// survive.
+		return r
+	}
 	if o.update != nil {
 		r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: RAN CONFIGURATION UPDATE carrying only RAN Node Name %q; registration in TAC %d of PLMN %s/%s over the same association",
 			name, env.GNB.TAC, env.GNB.MCC, env.GNB.MNC))
@@ -171,6 +211,7 @@ type keepsTAOutcome struct {
 	released    bool  // a UE Context Release Command ended it
 	noAnswer    bool  // nothing of the above within the wait
 	err         error // another failure
+	cutShort    bool  // the per-test timeout expired during the registration
 }
 
 // probe opens the UE's association, runs the RAN Configuration Update on it
@@ -258,34 +299,38 @@ func (c ranConfigUpdateKeepsTA) probe(ctx context.Context, h *UEHarness, name st
 		o.noAnswer = true
 	default:
 		o.err = err
+		o.cutShort = o.update != nil && ctx.Err() != nil
 	}
 	return o
 }
 
-// judgeKeepsTA maps an outcome onto a verdict for a UE registering in g's
-// tracking area; updateWait and registerWait are the bounds the absences
-// were inferred within.
-func judgeKeepsTA(o keepsTAOutcome, g gnb.Config, updateWait, registerWait time.Duration) (v Verdict, observed, detail string) {
+// judgeKeepsTA returns r with the result of an outcome for a UE
+// registering in g's tracking area; updateWait and registerWait are the
+// bounds the absences were inferred within.
+func judgeKeepsTA(r Result, o keepsTAOutcome, g gnb.Config, updateWait, registerWait time.Duration) Result {
 	switch {
 	case o.update == nil && o.updateTimedOut:
-		return Error, "no response to the RAN CONFIGURATION UPDATE",
-			fmt.Sprintf("no RAN CONFIGURATION UPDATE ACKNOWLEDGE or FAILURE within %s of the update (absence inferred within this bound), so the state after it was not judged and no registration was attempted; "+
-				"whether a class 1 NGAP procedure may go unanswered is not settled, so the missing response itself is not scored", updateWait)
+		return r.As(keepsTAUpdateUnanswered, "no response to the RAN CONFIGURATION UPDATE",
+			fmt.Sprintf("no RAN CONFIGURATION UPDATE ACKNOWLEDGE or FAILURE within %s of the update (absence inferred within this bound), so the state after it was not judged and no registration was attempted", updateWait))
 	case o.update == nil && o.updateCutShort:
-		return Error, "per-test timeout expired during the RAN CONFIGURATION UPDATE",
-			fmt.Sprintf("the check's time ran out %s after the update, before its %s wait for an outcome ended; raise --per-test-timeout", o.updateAfter.Round(time.Millisecond), updateWait)
+		return r.Errored("per-test timeout expired during the RAN CONFIGURATION UPDATE",
+			fmt.Sprintf("the check's time ran out %s after the update, before its %s wait for an outcome ended; raise --per-test-timeout", o.updateAfter.Round(time.Millisecond), updateWait))
 	case o.update == nil && o.updateErr != nil:
-		return Error, "association lost during the RAN CONFIGURATION UPDATE",
-			fmt.Sprintf("the association ended %s after the update without an outcome (%v); no registration was attempted", o.updateAfter.Round(time.Millisecond), o.updateErr)
+		return r.As(keepsTAUpdateLost, "association lost during the RAN CONFIGURATION UPDATE",
+			fmt.Sprintf("the association ended %s after the update without an outcome (%v), so the state after it was not judged and no registration was attempted", o.updateAfter.Round(time.Millisecond), o.updateErr))
 	case o.update == nil:
-		return Error, "setup failed", fmt.Sprintf("the association did not reach the RAN CONFIGURATION UPDATE: %v", o.err)
+		err := o.err
+		if err == nil {
+			err = errors.New("the association did not reach the RAN CONFIGURATION UPDATE")
+		}
+		return r.SetupFailed("setup failed", during(ProcNGSetup, err))
 	}
 
 	ta := fmt.Sprintf("TAC %d of PLMN %s/%s", g.TAC, g.MCC, g.MNC)
 	reg, regDetail := keepsTARegistration(o, registerWait)
 	if !o.update.Acknowledged {
-		return Skip, fmt.Sprintf("RAN CONFIGURATION UPDATE FAILURE (cause %s); %s", o.update.Cause, reg),
-			joinDetail("the AMF did not accept the update, which TS 38.413 8.7.2.3 allows; 8.7.2.2 states the unchanged-configuration rule for an acknowledged update, so the state was not judged", regDetail)
+		return r.As(keepsTAUpdateRejected, fmt.Sprintf("RAN CONFIGURATION UPDATE FAILURE (cause %s); %s", o.update.Cause, reg),
+			joinDetail("the AMF did not accept the update, which TS 38.413 8.7.2.3 permits; 8.7.2.2 states the unchanged-configuration rule for an acknowledged update, so the state was not judged", regDetail))
 	}
 	answered := fmt.Sprintf("RAN CONFIGURATION UPDATE ACKNOWLEDGE after %s", o.updateAfter.Round(time.Millisecond))
 	if o.update.Skipped > 0 {
@@ -293,14 +338,19 @@ func judgeKeepsTA(o keepsTAOutcome, g gnb.Config, updateWait, registerWait time.
 	}
 	switch {
 	case o.registered:
-		return Pass, "registration succeeded in " + ta + " after the ACKNOWLEDGE", answered
+		return r.As(keepsTARegistered, "registration succeeded in "+ta+" after the ACKNOWLEDGE", answered)
 	case o.sawReject && o.rejectErr == nil && taCauses[o.rejectCause] != "":
-		return Fail, fmt.Sprintf("%s in %s after the ACKNOWLEDGE", reg, ta), joinDetail(answered, keepsTAFailText)
+		return r.As(keepsTARejected, fmt.Sprintf("%s in %s after the ACKNOWLEDGE", reg, ta), joinDetail(answered, keepsTAFailText))
+	case o.cutShort:
+		return r.Errored("per-test timeout expired during the registration",
+			joinDetail(answered, fmt.Sprintf("the check's time ran out before the registration's %s wait ended; raise --per-test-timeout", registerWait)))
 	case o.sawReject && o.rejectErr == nil:
-		return Error, reg + " after the ACKNOWLEDGE",
-			joinDetail(answered, fmt.Sprintf("5GMM cause #%d is not tied to a tracking area (TS 24.501 Annex A; only #12, #13 and #15 are), so the Reject does not show the AMF stopped serving %s", o.rejectCause, ta))
+		return r.BlockedBy(ProcRegistration, reg+" after the ACKNOWLEDGE",
+			joinDetail(answered, fmt.Sprintf("5GMM cause #%d is not tied to a tracking area (TS 24.501 Annex A; only #12, #13 and #15 are), so the Reject does not show the AMF stopped serving %s", o.rejectCause, ta)))
+	case o.err != nil && localFault(o.err):
+		return r.Errored(reg+" after the ACKNOWLEDGE", joinDetail(answered, regDetail))
 	default:
-		return Error, reg + " after the ACKNOWLEDGE", joinDetail(answered, regDetail)
+		return r.BlockedBy(ProcRegistration, reg+" after the ACKNOWLEDGE", joinDetail(answered, regDetail))
 	}
 }
 

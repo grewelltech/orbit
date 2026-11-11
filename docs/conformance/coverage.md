@@ -167,8 +167,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   from V15.3.0), so after a RAN CONFIGURATION UPDATE ACKNOWLEDGE the AMF
   must still serve the NG Setup tracking area: a registration is PASS, a
   Registration Reject with #12, #13 or #15 is FAIL, any other registration
-  failure is ERROR. A RAN CONFIGURATION UPDATE FAILURE is SKIP, and no
-  outcome within 5 s is ERROR. Needs a UE, else SKIP. Not yet run on Ref 2.
+  failure is BLOCKED on the registration. A RAN CONFIGURATION UPDATE FAILURE
+  is SKIP (8.7.2.3 permits it), and no outcome within 5 s or a lost
+  association is WARN (availability). Needs a UE, else SKIP. Not yet run on Ref 2.
 - `NGAP-DUPLICATE-RAN-NODE-ID` (procedural, DEVIATION-class) — with one
   association up after NG Setup, a second association from another N2 source
   address sends an NG SETUP REQUEST with the same Global RAN Node ID. TS
