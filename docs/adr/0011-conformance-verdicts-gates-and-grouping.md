@@ -1,6 +1,6 @@
 # ADR-0011: Conformance verdicts, gates and check grouping
 
-- Status: Accepted
+- Status: Accepted; amended by ADR-0012 (a fault that blocks other checks gates under every policy)
 - Date: 2026-11-11
 - Builds on: ADR-0002 (strict codecs, named core quirks), ADR-0005 (the server owns runs)
 - Amends: ADR-0010 (the conformance tally in `Run.summary` and the CLI table's category column)
