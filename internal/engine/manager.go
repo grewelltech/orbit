@@ -15,6 +15,7 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/loomgtp"
 	"github.com/bgrewell/orbit/internal/nas"
+	"github.com/free5gc/ngap/ngapType"
 )
 
 // UE lifecycle states reported on StateStream and by Status.
@@ -52,6 +53,9 @@ type Session struct {
 	guti  []byte
 	ngksi uint8 // key set identifier of the NAS security context
 	gnbN3 string
+	// ueSecCaps is the UE's 5G security capabilities as the serving gNB
+	// holds them, from the AMF; a path switch sends them back to it.
+	ueSecCaps *ngapType.UESecurityCapabilities
 
 	// proc serialises the UE's control-plane procedures — handover and
 	// deregistration — which rewrite the association (conn, amfID, ranID) and
@@ -949,4 +953,12 @@ func (s *Session) deregister(ctx context.Context, switchOff bool) error {
 		return err
 	}
 	return gnb.SendPDU(s.conn, ueStream, pdu)
+}
+
+// UESecurityCapabilities returns a copy of the UE's 5G security capabilities
+// as the serving gNB holds them: what the AMF sent in the Initial Context
+// Setup Request, a later Handover Request, or a Path Switch Request
+// Acknowledge. Nil when the AMF sent none.
+func (s *Session) UESecurityCapabilities() *ngapType.UESecurityCapabilities {
+	return gnb.CloneUESecurityCapabilities(s.ueSecCaps)
 }

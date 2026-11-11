@@ -207,8 +207,10 @@ type AMF struct {
 	smReleases     atomic.Int64
 
 	// regReqs records every Registration Request received, guarded by mu
-	// (RegistrationRequests).
-	regReqs [][]byte
+	// (RegistrationRequests); initialRegReqs the same requests as the
+	// Initial UE Messages carried them (InitialRegistrationRequests).
+	regReqs        [][]byte
+	initialRegReqs [][]byte
 
 	// RAN Configuration Update (ranconfig.go): the answer, and the updates
 	// received, guarded by mu.
@@ -223,6 +225,29 @@ type AMF struct {
 	// undecodable is the reaction to an uplink PDU that does not decode
 	// (undecodable.go).
 	undecodable UndecodableAnswer
+
+	// Initial NAS message options (initialnas.go).
+	rejectNonCleartext bool
+
+	// Configuration update option and what it drew, and the identities of
+	// the Deregistration Requests, guarded by mu (configupdate.go).
+	configUpdate          *ConfigurationUpdate
+	configUpdateCompletes atomic.Int64
+	deregIdentities       [][]byte
+
+	// Path switch UE security capability check (pathswitchcaps.go).
+	capsInAck      bool
+	capsMismatches atomic.Int64
+
+	// Identification options and what the UEs answered, the answers
+	// guarded by mu (identity.go).
+	requestIMEISV     bool
+	identityAfterSMC  bool
+	identityType      uint8
+	plainIdentity     bool
+	plainIdentityType uint8
+	smcIMEISVs        [][]byte
+	identityResponses [][]byte
 }
 
 // errCrashed ends every association of a mock that crashed: after a release
@@ -470,6 +495,12 @@ type ueState struct {
 	requested       []byte // the Requested NSSAI IE's value, nil when absent
 	muted           bool   // MuteOnUplink: every NAS message is dropped
 	smSeen          int    // PDU Session Establishment Requests received (WithPDUSessionAnswers)
+	regIdx          int    // the UE's entry in AMF.regReqs
+	// awaitingIdentity marks a WithIdentityRequest request not yet answered.
+	awaitingIdentity bool
+	// ranCaps is the UE Security Capabilities IE the mock last gave the RAN
+	// for the UE, guarded by AMF.mu; nil before the first.
+	ranCaps *ngapType.UESecurityCapabilities
 }
 
 func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
@@ -486,10 +517,17 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	st.requested = requestedNSSAIFromRegistration(up.nasPDU)
 	a.mu.Lock()
 	a.ues[st.amfID] = st
+	st.regIdx = len(a.regReqs)
 	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
+	a.initialRegReqs = append(a.initialRegReqs, append([]byte(nil), up.nasPDU...))
 	a.mu.Unlock()
 	if a.tasDropped(p) {
 		return a.rejectRegistration(p, st, a.dropTAsCause)
+	}
+	if a.rejectNonCleartext {
+		if _, found, err := nas.NonCleartextRegistrationIE(up.nasPDU); err != nil || found {
+			return a.rejectInitialNAS(p, st)
+		}
 	}
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
@@ -518,6 +556,11 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 			return err
 		}
 		return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), rej))
+	}
+	if a.plainIdentity {
+		if err := a.sendIdentityRequest(p, st, a.plainIdentityType, false); err != nil {
+			return err
+		}
 	}
 	arBytes, err := buildAuthenticationRequest(randv, autn, st.ngksi)
 	if err != nil {
@@ -559,7 +602,10 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		st.t3560.stop()
 		// Accept without checking RES* (sim only), send Security Mode Command.
 		return false, a.onAuthenticated(p, st)
-	case f5nas.MsgTypeSecurityModeComplete:
+	case f5nas.MsgTypeSecurityModeComplete, f5nas.MsgTypeIdentityResponse:
+		if due, err := a.beforeAccept(p, st, msg); err != nil || !due {
+			return false, err
+		}
 		if a.nssaiAnswer != AcceptAnyNSSAI && !a.servesRequested(st) {
 			return false, a.answerUnservedNSSAI(p, st)
 		}
@@ -578,7 +624,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if err := a.send(p, buildInitialContextSetupRequest(st.amfID, a.ranIDOf(st), wrapped, a.plmn, a.cfg.SST, a.sdBytes)); err != nil {
+		if err := a.send(p, a.initialContextSetup(st, wrapped)); err != nil {
 			return false, err
 		}
 		if a.t3550 > 0 && a.assignGUTI {
@@ -593,11 +639,18 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if a.staleRelease > 0 {
 			a.sendStaleRelease(p, st)
 		}
+		if a.configUpdate != nil {
+			return true, a.sendConfigurationUpdate(p, st)
+		}
 		return true, nil // UE is REGISTERED
+	case f5nas.MsgTypeConfigurationUpdateComplete:
+		a.configUpdateCompletes.Add(1)
+		return false, nil
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
 		a.deregs.Add(1)
+		a.recordDeregistration(msg.DeregistrationRequestUEOriginatingDeregistration)
 		return false, a.onDeregistration(p, st, msg)
 	default:
 		return false, nil

@@ -76,7 +76,7 @@ func TestLivePathSwitch(t *testing.T) {
 	t.Logf("attached on source: AMF-UE-NGAP-ID %d, IP %s", sess.Result.AMFUENGAPID, sess.Result.PDUAddress)
 
 	// Target gNB sends PathSwitchRequest for the UE (Xn completion).
-	ps, err := gnb.BuildPathSwitchRequest(tgtCfg, sess.Result.AMFUENGAPID, 1, []gnb.AdmittedSession{
+	ps, err := gnb.BuildPathSwitchRequest(tgtCfg, sess.Result.AMFUENGAPID, 1, sess.UESecurityCapabilities(), []gnb.AdmittedSession{
 		{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: tgtN3, TEID: 0x300}, QFIs: []int64{1}},
 	})
 	if err != nil {

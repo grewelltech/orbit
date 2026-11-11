@@ -459,6 +459,9 @@ func (r *serviceRun) handle(pdu *ngapType.NGAPPDU) error {
 		if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 			return nil
 		}
+		if dl.UESecurityCapabilities != nil {
+			s.ueSecCaps = dl.UESecurityCapabilities
+		}
 		sessions, err := gnb.ParseInitialContextSetupSessions(pdu)
 		if err != nil {
 			return err

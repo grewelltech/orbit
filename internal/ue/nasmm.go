@@ -116,12 +116,14 @@ func WithMobilityRegistration(ngKSI uint8) RegistrationOption {
 	}
 }
 
-// BuildRegistrationRequest builds an initial Registration Request carrying
-// the UE's identity, a 5GS mobile identity value: its SUCI, or its 5G-GUTI
-// with WithMobilityRegistration (TS 24.501 §8.2.6). ngKSI is set to "no key
-// available" (7) on the first registration. Mandatory IEs plus the UE
-// security capability (so the AMF can run Security Mode Command) and
-// requested NSSAI; each opt adjusts the result.
+// BuildRegistrationRequest builds the complete initial Registration Request
+// carrying the UE's identity, a 5GS mobile identity value: its SUCI, or its
+// 5G-GUTI with WithMobilityRegistration (TS 24.501 §8.2.6). ngKSI is set to
+// "no key available" (7) on the first registration. Mandatory IEs plus the UE
+// security capability (so the AMF can run Security Mode Command), 5GMM
+// capability and requested NSSAI; each opt adjusts the result. A UE without
+// a 5G NAS security context sends CleartextRegistrationRequest of it, and
+// the complete message in the Security Mode Complete.
 func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, requestedNSSAI *nasType.RequestedNSSAI, opts ...RegistrationOption) ([]byte, error) {
 	m, gmm := newGmm(f5nas.MsgTypeRegistrationRequest)
 	req := nasMessage.NewRegistrationRequest(f5nas.MsgTypeRegistrationRequest)
@@ -161,6 +163,34 @@ func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, 
 	return m.PlainNasEncode()
 }
 
+// CleartextRegistrationRequest reduces a complete plain Registration Request
+// to the form a UE without a valid 5G NAS security context sends as the
+// initial NAS message: the mandatory IEs and, of the optional ones, only the
+// cleartext IEs of TS 24.501 §4.4.6 (UE security capability, Additional
+// GUTI, UE status, EPS NAS message container).
+func CleartextRegistrationRequest(complete []byte) ([]byte, error) {
+	full, err := nas.DecodePlain(complete)
+	if err != nil {
+		return nil, err
+	}
+	if full.GmmMessage == nil || full.RegistrationRequest == nil {
+		return nil, fmt.Errorf("not a Registration Request")
+	}
+	src := full.RegistrationRequest
+	m, gmm := newGmm(f5nas.MsgTypeRegistrationRequest)
+	req := nasMessage.NewRegistrationRequest(f5nas.MsgTypeRegistrationRequest)
+	setGmmHeader(&req.ExtendedProtocolDiscriminator, &req.SpareHalfOctetAndSecurityHeaderType,
+		&req.RegistrationRequestMessageIdentity, f5nas.MsgTypeRegistrationRequest)
+	req.NgksiAndRegistrationType5GS = src.NgksiAndRegistrationType5GS
+	req.MobileIdentity5GS = src.MobileIdentity5GS
+	req.UESecurityCapability = src.UESecurityCapability
+	req.AdditionalGUTI = src.AdditionalGUTI
+	req.UEStatus = src.UEStatus
+	req.EPSNASMessageContainer = src.EPSNASMessageContainer
+	gmm.RegistrationRequest = req
+	return m.PlainNasEncode()
+}
+
 // BuildAuthenticationResponse carries RES* back to the network
 // (TS 24.501 §8.2.2). resStar must be 16 bytes.
 func BuildAuthenticationResponse(resStar []byte) ([]byte, error) {
@@ -184,12 +214,13 @@ func BuildAuthenticationResponse(resStar []byte) ([]byte, error) {
 }
 
 // BuildSecurityModeComplete completes the security mode procedure
-// (TS 24.501 §8.2.26). The full initial Registration Request is echoed back
-// in the NAS Message Container (TS 24.501 §4.4.6): the AMF asked for the
-// complete initial NAS message so it can re-evaluate it now that integrity
-// is established. Returns the plain message for the caller to wrap with the
+// (TS 24.501 §8.2.26). The complete Registration Request, with the
+// non-cleartext IEs the initial NAS message left out, goes in the NAS
+// Message Container (TS 24.501 §4.4.6 a), and the AMF takes it as the
+// message that triggered the registration. Each opt adjusts the result
+// (WithIMEISV). Returns the plain message for the caller to wrap with the
 // new security context.
-func BuildSecurityModeComplete(fullRegistrationRequest []byte) (*f5nas.Message, error) {
+func BuildSecurityModeComplete(fullRegistrationRequest []byte, opts ...SecurityModeCompleteOption) (*f5nas.Message, error) {
 	m, gmm := newGmm(f5nas.MsgTypeSecurityModeComplete)
 	c := nasMessage.NewSecurityModeComplete(f5nas.MsgTypeSecurityModeComplete)
 	setGmmHeader(&c.ExtendedProtocolDiscriminator, &c.SpareHalfOctetAndSecurityHeaderType,
@@ -200,6 +231,11 @@ func BuildSecurityModeComplete(fullRegistrationRequest []byte) (*f5nas.Message, 
 		nmc.SetLen(uint16(len(fullRegistrationRequest)))
 		nmc.Buffer = fullRegistrationRequest
 		c.NASMessageContainer = nmc
+	}
+	for _, o := range opts {
+		if err := o(c); err != nil {
+			return nil, err
+		}
 	}
 
 	gmm.SecurityModeComplete = c
@@ -249,6 +285,9 @@ func ParseAuthenticationRequest(m *f5nas.Message) (*AuthChallenge, error) {
 type SelectedAlgorithms struct {
 	Ciphering uint8 // NEA identity
 	Integrity uint8 // NIA identity
+	// IMEISVRequested reports an IMEISV request IE set to "IMEISV
+	// requested": the Security Mode Complete must carry the IMEISV.
+	IMEISVRequested bool
 }
 
 // ParseSecurityModeCommand extracts the selected NAS algorithms.
@@ -260,6 +299,8 @@ func ParseSecurityModeCommand(m *f5nas.Message) (*SelectedAlgorithms, error) {
 	return &SelectedAlgorithms{
 		Ciphering: smc.SelectedNASSecurityAlgorithms.GetTypeOfCipheringAlgorithm(),
 		Integrity: smc.SelectedNASSecurityAlgorithms.GetTypeOfIntegrityProtectionAlgorithm(),
+		IMEISVRequested: smc.IMEISVRequest != nil &&
+			smc.GetIMEISVRequestValue() == nasMessage.IMEISVRequested,
 	}, nil
 }
 

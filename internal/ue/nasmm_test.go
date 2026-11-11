@@ -1,8 +1,11 @@
 package ue
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/free5gc/nas/nasMessage"
+	"github.com/free5gc/nas/nasType"
 	"github.com/free5gc/nas/security"
 
 	"github.com/bgrewell/orbit/internal/nas"
@@ -211,6 +214,96 @@ func TestWithCapability5GMM(t *testing.T) {
 			c := rr.Capability5GMM
 			if c == nil || int(c.GetLen()) != len(tc.want) || string(c.Octet[:c.GetLen()]) != string(tc.want) {
 				t.Errorf("5GMM capability = %+v, want %x", c, tc.want)
+			}
+		})
+	}
+}
+
+// CleartextRegistrationRequest keeps the mandatory IEs and the UE security
+// capability of the complete request and drops the non-cleartext IEs
+// (TS 24.501 4.4.6); the complete request travels unchanged in the Security
+// Mode Complete's NAS message container.
+func TestCleartextRegistrationRequest(t *testing.T) {
+	suci := buildSUCI(t)
+	nssai, err := BuildRequestedNSSAI([]SNSSAI{{SST: 1, SD: "010203"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	caps, err := NewSecurityCapability([]uint8{0, 2}, []uint8{1, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		caps nasType.UESecurityCapability
+		// nssai and opts shape the complete request; wantNonCleartext is
+		// the first non-cleartext IEI it carries.
+		nssai            *nasType.RequestedNSSAI
+		opts             []RegistrationOption
+		wantNonCleartext uint8
+	}{
+		{name: "default", caps: SecurityCapability(), wantNonCleartext: 0x10},
+		{name: "requested NSSAI", caps: SecurityCapability(), nssai: nssai, wantNonCleartext: 0x10},
+		{name: "other algorithms and a 3-octet 5GMM capability", caps: caps, nssai: nssai,
+			opts: []RegistrationOption{WithCapability5GMM([]byte{0, 0, 0})}, wantNonCleartext: 0x10},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			complete, err := BuildRegistrationRequest(suci, tc.caps, tc.nssai, tc.opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if iei, found, err := nas.NonCleartextRegistrationIE(complete); err != nil || !found || iei != tc.wantNonCleartext {
+				t.Fatalf("complete request: non-cleartext IE 0x%02X (found %t, err %v), want 0x%02X", iei, found, err, tc.wantNonCleartext)
+			}
+			initial, err := CleartextRegistrationRequest(complete)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if iei, found, err := nas.NonCleartextRegistrationIE(initial); err != nil || found {
+				t.Errorf("initial request: non-cleartext IE 0x%02X (found %t, err %v)", iei, found, err)
+			}
+			m, err := nas.DecodePlain(initial)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rr := m.RegistrationRequest
+			if rr.Capability5GMM != nil || rr.RequestedNSSAI != nil {
+				t.Errorf("initial request carries 5GMM capability %v or Requested NSSAI %v", rr.Capability5GMM, rr.RequestedNSSAI)
+			}
+			if k := rr.NgksiAndRegistrationType5GS; k.GetRegistrationType5GS() != nasMessage.RegistrationType5GSInitialRegistration || k.GetFOR() != 1 ||
+				k.GetNasKeySetIdentifiler() != 7 || k.GetTSC() != nasMessage.TypeOfSecurityContextFlagNative {
+				t.Errorf("initial request: registration type and ngKSI octet = %#x", k.Octet)
+			}
+			if !bytes.Equal(rr.MobileIdentity5GS.Buffer[:rr.MobileIdentity5GS.Len], suci) {
+				t.Errorf("initial request SUCI = %x, want %x", rr.MobileIdentity5GS.Buffer, suci)
+			}
+			if c := rr.UESecurityCapability; c == nil || !bytes.Equal(c.Buffer[:c.GetLen()], tc.caps.Buffer[:tc.caps.GetLen()]) {
+				t.Errorf("initial request UE security capability = %+v, want %x", c, tc.caps.Buffer)
+			}
+
+			smc, err := BuildSecurityModeComplete(complete)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := smc.SecurityModeComplete.NASMessageContainer
+			if c == nil || !bytes.Equal(c.Buffer[:c.GetLen()], complete) {
+				t.Errorf("Security Mode Complete container = %+v, want the complete request %x", c, complete)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		in   []byte
+	}{
+		{name: "empty", in: nil},
+		{name: "truncated", in: []byte{0x7e, 0x00, 0x41}},
+		{name: "another message", in: []byte{0x7e, 0x00, 0x43}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if out, err := CleartextRegistrationRequest(tc.in); err == nil {
+				t.Errorf("= %x, want an error", out)
 			}
 		})
 	}

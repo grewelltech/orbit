@@ -193,7 +193,7 @@ func buildDownlinkNASTransport(amfID, ranID int64, nasPDU []byte) ngapType.NGAPP
 // context (TS 38.413 §9.2.2.1). The UE acknowledges with a response and
 // processes the embedded NAS PDU; it does not validate the security key or
 // capabilities here, so those carry placeholder values.
-func buildInitialContextSetupRequest(amfID, ranID int64, nasPDU []byte, plmn [3]byte, sst uint8, sd []byte) ngapType.NGAPPDU {
+func buildInitialContextSetupRequest(amfID, ranID int64, nasPDU []byte, plmn [3]byte, sst uint8, sd []byte, caps *ngapType.UESecurityCapabilities) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
 	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
@@ -235,12 +235,7 @@ func buildInitialContextSetupRequest(amfID, ranID int64, nasPDU []byte, plmn [3]
 	})
 	add(ngapType.ProtocolIEIDUESecurityCapabilities, ngapType.CriticalityPresentReject, func(ie *ngapType.InitialContextSetupRequestIEs) {
 		ie.Value.Present = ngapType.InitialContextSetupRequestIEsPresentUESecurityCapabilities
-		ie.Value.UESecurityCapabilities = &ngapType.UESecurityCapabilities{
-			NRencryptionAlgorithms:             ngapType.NRencryptionAlgorithms{Value: bits(0, 16)},
-			NRintegrityProtectionAlgorithms:    ngapType.NRintegrityProtectionAlgorithms{Value: bits(0x2000, 16)}, // NIA2 bit
-			EUTRAencryptionAlgorithms:          ngapType.EUTRAencryptionAlgorithms{Value: bits(0, 16)},
-			EUTRAintegrityProtectionAlgorithms: ngapType.EUTRAintegrityProtectionAlgorithms{Value: bits(0, 16)},
-		}
+		ie.Value.UESecurityCapabilities = caps
 	})
 	add(ngapType.ProtocolIEIDSecurityKey, ngapType.CriticalityPresentReject, func(ie *ngapType.InitialContextSetupRequestIEs) {
 		ie.Value.Present = ngapType.InitialContextSetupRequestIEsPresentSecurityKey

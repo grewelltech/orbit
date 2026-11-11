@@ -229,6 +229,7 @@ func (a *AMF) onIdleInitialUE(p *pipe, states map[int64]*ueState, up *uplinkMess
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
 		a.deregs.Add(1)
 		a.idleDeregs.Add(1)
+		a.recordDeregistration(msg.DeregistrationRequestUEOriginatingDeregistration)
 		return a.onDeregistration(p, st, msg)
 	}
 	return nil
@@ -293,7 +294,7 @@ func (a *AMF) onServiceRequest(p *pipe, st *ueState, req *nasMessage.ServiceRequ
 	if err != nil {
 		return err
 	}
-	ics := buildInitialContextSetupRequest(amfID, ranID, acc, a.plmn, a.cfg.SST, a.sdBytes)
+	ics := a.initialContextSetup(st, acc)
 	if len(activate) > 0 {
 		list := &ngapType.PDUSessionResourceSetupListCxtReq{}
 		for _, it := range activate {

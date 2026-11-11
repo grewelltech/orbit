@@ -29,7 +29,7 @@ type PDUSessionParams struct {
 	DNN          string // data network name, e.g. "internet"
 	// PTI is the procedure transaction identity of the establishment
 	// request (TS 24.501 §9.6), which the network echoes in its answer.
-	// Zero keeps the request's PTI at 0.
+	// Zero uses the PDU session ID.
 	PTI uint8
 }
 
@@ -64,11 +64,16 @@ func BuildRequestedNSSAI(slices []SNSSAI) (*nasType.RequestedNSSAI, error) {
 }
 
 // BuildPDUSessionEstablishmentRequest builds the 5GSM PDU Session
-// Establishment Request (TS 24.501 §8.3.1), with p.PTI as its procedure
-// transaction identity (0 by default). The Integrity Protection Maximum
+// Establishment Request (TS 24.501 §8.3.1). The UE allocates a PTI not in
+// use (§6.4.1.2): p.PTI when set, else the PDU session ID, 1 to 15, which is
+// distinct for each session a UE has in establishment and never 0, "no
+// procedure transaction identity assigned". The Integrity Protection Maximum
 // Data Rate IE is mandatory; PDU session type IPv4 and SSC mode 1 are the
 // common defaults.
 func BuildPDUSessionEstablishmentRequest(p PDUSessionParams) ([]byte, error) {
+	if p.PDUSessionID < 1 || p.PDUSessionID > 15 {
+		return nil, fmt.Errorf("PDU session ID %d: want 1 to 15", p.PDUSessionID)
+	}
 	m := f5nas.NewMessage()
 	m.GsmMessage = f5nas.NewGsmMessage()
 	m.GsmHeader.SetMessageType(f5nas.MsgTypePDUSessionEstablishmentRequest)
@@ -76,7 +81,11 @@ func BuildPDUSessionEstablishmentRequest(p PDUSessionParams) ([]byte, error) {
 	req := nasMessage.NewPDUSessionEstablishmentRequest(f5nas.MsgTypePDUSessionEstablishmentRequest)
 	req.ExtendedProtocolDiscriminator.SetExtendedProtocolDiscriminator(nasMessage.Epd5GSSessionManagementMessage)
 	req.PDUSessionID.SetPDUSessionID(p.PDUSessionID)
-	req.PTI.SetPTI(p.PTI)
+	pti := p.PTI
+	if pti == 0 {
+		pti = p.PDUSessionID
+	}
+	req.PTI.SetPTI(pti)
 	req.PDUSESSIONESTABLISHMENTREQUESTMessageIdentity.SetMessageType(f5nas.MsgTypePDUSessionEstablishmentRequest)
 	// Integrity Protection Maximum Data Rate: "full data rate" both ways
 	// (0xFF) — the conventional value (TS 24.501 §9.11.4.7).

@@ -137,6 +137,8 @@ type dnnOutcome struct {
 	answer     *dlN1SM // the first N1 SM DL NAS Transport after it
 	accepted   bool    // the session was established
 	noAnswer   bool    // nothing within the answer wait
+	mmStatus   bool    // a 5GMM STATUS came after the request
+	mmStatusC  uint8   // its 5GMM cause
 	decodeErr  error   // a downlink after the request that did not decode
 	decodeRaw  []byte  // its NAS PDU
 	decodeType uint8   // its 5GMM message type (NASEvent.MessageType), 0 if unreadable
@@ -205,6 +207,10 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 			if d, ok := dlN1SMFrom(ev.Msg); ok {
 				o.answer = &d
 				halt()
+			} else if ev.Msg != nil && ev.Msg.GmmMessage != nil && ev.Msg.Status5GMM != nil && !o.mmStatus {
+				// Not an answer the check can judge: the wait goes on, and
+				// the status is reported if nothing else comes.
+				o.mmStatus, o.mmStatusC = true, ev.Msg.Status5GMM.GetCauseValue()
 			}
 		},
 	}
@@ -401,6 +407,10 @@ func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
 	case o.accepted:
 		return Skip, acceptedObserved,
 			fmt.Sprintf("the core established a PDU session for DNN %q (a wildcard DNN subscription, or no DNN check); no shall forbids that", stimulusDNN)
+	case o.noAnswer && o.mmStatus:
+		got := "a 5GMM STATUS with 5GMM cause " + mmCause(o.mmStatusC)
+		return Fail, fmt.Sprintf("5GMM STATUS, 5GMM cause %s, and nothing else within %s", mmCause(o.mmStatusC), wait),
+			unknownDNNFail(got+" and nothing else within "+wait.String(), "the AMF reports the failure in a 5GMM STATUS instead of sending back the 5GSM message")
 	case o.noAnswer:
 		return Fail, fmt.Sprintf("nothing back within %s", wait),
 			unknownDNNFail("nothing within "+wait.String(), "the request is dropped when no SMF is selected, or the SMF does not answer")

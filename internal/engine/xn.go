@@ -101,7 +101,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		})
 	}
 	firstTEID := admitted[0].GNBTunnel.TEID
-	ps, err := gnb.BuildPathSwitchRequest(target.Config, sess.amfID, targetHandoverRANID, admitted)
+	ps, err := gnb.BuildPathSwitchRequest(target.Config, sess.amfID, targetHandoverRANID, sess.ueSecCaps, admitted)
 	if err != nil {
 		_ = tgt.Close()
 		return nil, err
@@ -142,6 +142,9 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	sess.ranID = targetHandoverRANID
 	if newAMFID != 0 {
 		sess.amfID = newAMFID
+	}
+	if caps := gnb.PathSwitchAcknowledgeUESecurityCapabilities(pdu); caps != nil {
+		sess.ueSecCaps = caps
 	}
 	// Record per-session endpoints (multi-session bookkeeping).
 	applySwitchedSessions(sess.Result, dlTEIDs, switched)

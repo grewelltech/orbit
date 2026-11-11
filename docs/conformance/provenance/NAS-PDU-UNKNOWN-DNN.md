@@ -109,6 +109,7 @@ Payload container type is "N1 SM information", and the Payload container carries
   - #90/#91 with another payload. The likely cause depends on the payload. If it is a PDU SESSION ESTABLISHMENT REJECT: "AMF returns its own Reject in the payload container instead of the un-forwarded message". Otherwise: "AMF returns a payload other than the un-forwarded 5GSM message".
   - The request returned byte-equal with no 5GMM cause: 5.4.5.3.2 requires one. The likely cause is "AMF returned the request without the 5GMM cause 5.4.5.3.2 requires".
   - Nothing back within 10 s. Either the SMF shall reject or the AMF shall return the message, so this FAIL cites both.
+  - A 5GMM STATUS and nothing else within 10 s (Open5GS v2.8.0 answers with a 5GMM STATUS, cause #91). 5.4.5.2.5 a) 1) has the AMF send back the 5GSM message, which a 5GMM STATUS does not carry. Observed names the STATUS and its 5GMM cause; the wait is not cut short, so a Reject or send-back that follows the STATUS is still judged. The likely cause is "the AMF reports the failure in a 5GMM STATUS instead of sending back the 5GSM message".
   - Any other decoded answer, for example a 5GSM STATUS. Its 5GSM cause is recorded. #43 or a protocol-error cause (#95 to #101, #111) adds "check the stimulus".
 - **SKIP:**
   - The core accepted the stimulus DNN, either by establishing the session or with an Accept in a plain DL NAS TRANSPORT. No shall forbids accepting it.

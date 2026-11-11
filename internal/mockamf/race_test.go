@@ -74,7 +74,7 @@ func TestSessionStateAcrossAssociations(t *testing.T) {
 		// session 1 (AMF-UE-NGAP-ID 1, the mock's first) until one is
 		// acknowledged, racing the setup above.
 		defer wg.Done()
-		ps, err := gnb.BuildPathSwitchRequest(tgtCfg, 1, 7, []gnb.AdmittedSession{
+		ps, err := gnb.BuildPathSwitchRequest(tgtCfg, 1, 7, gnb.NewUESecurityCapabilities(0, 0x4000, 0, 0), []gnb.AdmittedSession{
 			{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: "127.0.0.2", TEID: 0x99}, QFIs: []int64{1}},
 		})
 		if err != nil {
@@ -148,7 +148,7 @@ func TestRANIDAcrossAssociations(t *testing.T) {
 	amfID := sess.Result.AMFUENGAPID
 
 	const rounds = 20
-	ps, err := gnb.BuildPathSwitchRequest(tgtCfg, amfID, 7, []gnb.AdmittedSession{
+	ps, err := gnb.BuildPathSwitchRequest(tgtCfg, amfID, 7, sess.UESecurityCapabilities(), []gnb.AdmittedSession{
 		{PDUSessionID: 1, GNBTunnel: gnb.GNBTunnel{Address: "127.0.0.2", TEID: 0x99}, QFIs: []int64{1}},
 	})
 	if err != nil {

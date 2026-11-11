@@ -231,6 +231,7 @@ func (a *AMF) sessionsUp(amfID int64, dls map[uint8]Tunnel) {
 // waiting out its timeout. WithPathSwitchAnswer changes the answer.
 func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapType.PathSwitchRequest) error {
 	var ranID, srcAMFID int64
+	var ranCaps *ngapType.UESecurityCapabilities
 	newDL := map[uint8]Tunnel{}
 	for _, ie := range req.ProtocolIEs.List {
 		switch ie.Id.Value {
@@ -238,6 +239,8 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 			ranID = ie.Value.RANUENGAPID.Value
 		case ngapType.ProtocolIEIDSourceAMFUENGAPID:
 			srcAMFID = ie.Value.SourceAMFUENGAPID.Value
+		case ngapType.ProtocolIEIDUESecurityCapabilities:
+			ranCaps = ie.Value.UESecurityCapabilities
 		case ngapType.ProtocolIEIDPDUSessionResourceToBeSwitchedDLList:
 			for _, it := range ie.Value.PDUSessionResourceToBeSwitchedDLList.List {
 				var tr ngapType.PathSwitchRequestTransfer
@@ -295,6 +298,7 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 		return a.send(p, buildPathSwitchRequestFailure(amfID, ranID, requested))
 	}
 	st.ranID = ranID
+	stored := a.checkPathSwitchCaps(st, ranCaps)
 	a.mu.Unlock()
 	states[ranID] = st
 
@@ -302,6 +306,7 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 	if err != nil {
 		return err
 	}
+	addStoredCaps(&ack, stored)
 	if err := a.send(p, ack); err != nil {
 		return err
 	}

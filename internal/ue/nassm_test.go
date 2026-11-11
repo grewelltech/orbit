@@ -71,15 +71,16 @@ func TestRegistrationRequestCarriesNSSAI(t *testing.T) {
 	}
 }
 
-// The establishment request carries the PTI it was given, 0 by default.
+// The establishment request carries the PTI it was given; without one it
+// carries the PDU session ID.
 func TestBuildPDUSessionEstablishmentRequestPTI(t *testing.T) {
-	for _, pti := range []uint8{0, 1, 254} {
-		sm, err := BuildPDUSessionEstablishmentRequest(PDUSessionParams{PDUSessionID: 3, SST: 1, DNN: "internet", PTI: pti})
+	for _, tc := range []struct{ pti, want uint8 }{{0, 3}, {1, 1}, {254, 254}} {
+		sm, err := BuildPDUSessionEstablishmentRequest(PDUSessionParams{PDUSessionID: 3, SST: 1, DNN: "internet", PTI: tc.pti})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(sm) < 4 || sm[1] != 3 || sm[2] != pti || sm[3] != f5nas.MsgTypePDUSessionEstablishmentRequest {
-			t.Errorf("PTI %d: request header %x", pti, sm)
+		if len(sm) < 4 || sm[1] != 3 || sm[2] != tc.want || sm[3] != f5nas.MsgTypePDUSessionEstablishmentRequest {
+			t.Errorf("PTI %d: request header %x, want PTI %d", tc.pti, sm, tc.want)
 		}
 	}
 }
@@ -167,6 +168,45 @@ func TestWithMobilityRegistration(t *testing.T) {
 			}
 			if hex.EncodeToString(rr.MobileIdentity5GS.Buffer) != hex.EncodeToString(guti) {
 				t.Errorf("identity %x, want the 5G-GUTI %x", rr.MobileIdentity5GS.Buffer, guti)
+			}
+		})
+	}
+}
+
+// The PDU Session Establishment Request carries an allocated PTI, the PDU
+// session ID, never 0 (TS 24.501 6.4.1.2); a PDU session ID outside 1 to 15
+// is refused.
+func TestPDUSessionEstablishmentRequestPTI(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      uint8
+		wantErr bool
+	}{
+		{name: "session 1", id: 1},
+		{name: "session 5", id: 5},
+		{name: "session 15", id: 15},
+		{name: "session 0", id: 0, wantErr: true},
+		{name: "session 16", id: 16, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := BuildPDUSessionEstablishmentRequest(PDUSessionParams{PDUSessionID: tc.id, SST: 1, DNN: "internet"})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("built a request for PDU session %d", tc.id)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := nas.DecodePlain(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := m.PDUSessionEstablishmentRequest
+			if req == nil || req.GetPDUSessionID() != tc.id || req.GetPTI() != tc.id {
+				t.Errorf("request = %+v, want PDU session ID and PTI %d", req, tc.id)
 			}
 		})
 	}

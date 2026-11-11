@@ -5,6 +5,8 @@ import (
 
 	"github.com/free5gc/aper"
 	"github.com/free5gc/ngap/ngapType"
+
+	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 // N2 handover, network side (TS 38.413 §8.4.1 to §8.4.3). The source gNB's
@@ -174,8 +176,12 @@ func (a *AMF) onHandoverRequired(p *pipe, req *ngapType.HandoverRequired) error 
 		}
 	}
 	ok := h.st != nil && h.tgt != nil && h.tgt != p && len(sessions) > 0 && a.handoverAnswer != FailHandoverPreparation
+	var caps *ngapType.UESecurityCapabilities
 	if ok {
 		a.handovers[amfID] = h
+		// The target gNB holds the capabilities the Handover Request gives it.
+		caps = ranSecurityCapabilities(h.st.ueCaps)
+		h.st.ranCaps = caps
 	}
 	a.mu.Unlock()
 	if !ok {
@@ -194,7 +200,7 @@ func (a *AMF) onHandoverRequired(p *pipe, req *ngapType.HandoverRequired) error 
 		item.HandoverRequestTransfer = tr
 		items = append(items, item)
 	}
-	a.sendTo(h.tgt, buildHandoverRequest(amfID, items, container, a.plmn, a.cfg.SST, a.sdBytes))
+	a.sendTo(h.tgt, buildHandoverRequest(amfID, items, container, a.plmn, a.cfg.SST, a.sdBytes, gnb.CloneUESecurityCapabilities(caps)))
 	return nil
 }
 
@@ -329,7 +335,7 @@ func buildHandoverPreparationFailure(amfID, ranID int64) ngapType.NGAPPDU {
 // a UE AMBR, the NR security capabilities, a security context (NCC 2, a
 // zero NH: the mock does no key refresh), the sessions to set up, the
 // allowed NSSAI, the source's transparent container and the GUAMI.
-func buildHandoverRequest(amfID int64, items []ngapType.PDUSessionResourceSetupItemHOReq, container aper.OctetString, plmn [3]byte, sst uint8, sd []byte) ngapType.NGAPPDU {
+func buildHandoverRequest(amfID int64, items []ngapType.PDUSessionResourceSetupItemHOReq, container aper.OctetString, plmn [3]byte, sst uint8, sd []byte, caps *ngapType.UESecurityCapabilities) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
 	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
@@ -367,14 +373,7 @@ func buildHandoverRequest(amfID int64, items []ngapType.PDUSessionResourceSetupI
 	})
 	add(ngapType.ProtocolIEIDUESecurityCapabilities, ngapType.CriticalityPresentReject, func(ie *ngapType.HandoverRequestIEs) {
 		ie.Value.Present = ngapType.HandoverRequestIEsPresentUESecurityCapabilities
-		nr := aper.BitString{Bytes: []byte{0xE0, 0x00}, BitLength: 16} // algorithms 1 to 3
-		none := aper.BitString{Bytes: []byte{0x00, 0x00}, BitLength: 16}
-		c := &ngapType.UESecurityCapabilities{}
-		c.NRencryptionAlgorithms.Value = nr
-		c.NRintegrityProtectionAlgorithms.Value = nr
-		c.EUTRAencryptionAlgorithms.Value = none
-		c.EUTRAintegrityProtectionAlgorithms.Value = none
-		ie.Value.UESecurityCapabilities = c
+		ie.Value.UESecurityCapabilities = caps
 	})
 	add(ngapType.ProtocolIEIDSecurityContext, ngapType.CriticalityPresentReject, func(ie *ngapType.HandoverRequestIEs) {
 		ie.Value.Present = ngapType.HandoverRequestIEsPresentSecurityContext
