@@ -102,3 +102,58 @@ func TestXnHandoverNotAcknowledged(t *testing.T) {
 		})
 	}
 }
+
+// XnHandover sends the capabilities the AMF supplied, so the mock sees no
+// mismatch and its Acknowledge carries none. XnHandoverWith with
+// WithPathSwitchCapabilities sends the given ones instead: the mock counts
+// the mismatch, its Acknowledge's capabilities are reported, and the
+// session holds the AMF's copy afterwards, never the ones sent.
+func TestXnHandoverWithPathSwitchCapabilities(t *testing.T) {
+	p := newMockPair(t, testnet.EngineXnCapsOption, mockupf.Options{}, false, mockamf.WithStoredCapabilitiesInPathSwitchAck(), mockamf.WithGUTI())
+	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.n3.grace = 250 * time.Millisecond
+	const supi = "208930100007512"
+	sess := p.register(t, m, supi)
+	supplied := sess.UESecurityCapabilities()
+	if supplied == nil {
+		t.Fatal("the mock supplied no UE security capabilities")
+	}
+	other := gnb.NewUESecurityCapabilities(0x2000, 0x2000, 0, 0)
+	if gnb.SameUESecurityCapabilities(supplied, other) {
+		t.Fatal("the stimulus equals the supplied capabilities")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	res, err := m.XnHandoverWith(ctx, supi, GNBEndpoint{Config: gnb.Config{ID: 2, Name: "orbit-gnb-2"}, AMFAddr: p.amfAddr, N3Addr: p.tgtN3},
+		WithPathSwitchCapabilities(other))
+	if err != nil {
+		t.Fatalf("XnHandoverWith: %v", err)
+	}
+	if got := p.amf.PathSwitchCapabilityMismatches(); got != 1 {
+		t.Errorf("mock counted %d capability mismatches, want 1", got)
+	}
+	if !gnb.SameUESecurityCapabilities(res.PathSwitchCapabilities, supplied) {
+		t.Errorf("Acknowledge capabilities %+v, want the supplied ones", res.PathSwitchCapabilities)
+	}
+	if !gnb.SameUESecurityCapabilities(sess.UESecurityCapabilities(), supplied) {
+		t.Errorf("session capabilities %+v after the handover, want the supplied ones", sess.UESecurityCapabilities())
+	}
+
+	// Back without the option: the session's capabilities go out.
+	res, err = m.XnHandover(ctx, supi, GNBEndpoint{Config: gnb.Config{ID: 3, Name: "orbit-gnb-3"}, AMFAddr: p.amfAddr, N3Addr: p.srcN3})
+	if err != nil {
+		t.Fatalf("XnHandover: %v", err)
+	}
+	if got := p.amf.PathSwitchCapabilityMismatches(); got != 1 {
+		t.Errorf("mock counted %d capability mismatches after a plain Xn handover, want still 1", got)
+	}
+	if res.PathSwitchCapabilities != nil {
+		t.Errorf("Acknowledge capabilities %+v without a mismatch, want none", res.PathSwitchCapabilities)
+	}
+	dctx, dcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer dcancel()
+	if err := m.Deregister(dctx, supi); err != nil {
+		t.Errorf("Deregister: %v", err)
+	}
+}

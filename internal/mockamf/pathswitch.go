@@ -25,6 +25,9 @@ const (
 	FailPathSwitch
 	// IgnorePathSwitch leaves the request unanswered.
 	IgnorePathSwitch
+	// CrashOnPathSwitch ends the association and every other one, and the
+	// mock answers no later NG Setup.
+	CrashOnPathSwitch
 )
 
 // WithPathSwitchAnswer makes the mock answer a PATH SWITCH REQUEST as ans

@@ -155,6 +155,15 @@ const (
 	ConformanceCancelNoPrep  = 225 // TestHandoverCancelCheckAgainstMockPair/preparation_failure
 	ConformanceCancelRegFail = 226 // TestHandoverCancelCheckRegistrationFailure
 	ConformanceCancelCrash   = 229 // TestHandoverCancelCheckAgainstMockPair/stops_answering
+
+	ConformanceSecCapStored  = 240 // TestPathSwitchSecCapCheckAgainstMockPair/stored_capabilities
+	ConformanceSecCapAbsent  = 241 // TestPathSwitchSecCapCheckAgainstMockPair/no_capabilities
+	ConformanceSecCapEchoed  = 242 // TestPathSwitchSecCapCheckAgainstMockPair/echoed_capabilities
+	ConformanceSecCapFailure = 243 // TestPathSwitchSecCapCheckAgainstMockPair/path_switch_request_failure
+	ConformanceSecCapIgnored = 244 // TestPathSwitchSecCapCheckAgainstMockPair/path_switch_request_unanswered
+	ConformanceSecCapCrash   = 245 // TestPathSwitchSecCapCheckAgainstMockPair/stops_answering
+	ConformanceSecCapRegFail = 246 // TestPathSwitchSecCapCheckRegistrationFailure
+	EngineXnCapsOption       = 247 // TestXnHandoverWithPathSwitchCapabilities
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

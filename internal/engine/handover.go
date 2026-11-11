@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/free5gc/ngap/ngapType"
+
 	"github.com/bgrewell/orbit/internal/coreprofile"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/meas"
@@ -72,6 +74,10 @@ type HandoverResult struct {
 	// SWITCH REQUEST ACKNOWLEDGE that completed an Xn handover, as received;
 	// nil for an N2 handover.
 	PathSwitchAck *gnb.PathSwitchAck
+	// PathSwitchCapabilities is the UE Security Capabilities IE of that
+	// Acknowledge, as received; nil when it carried none, and for an N2
+	// handover.
+	PathSwitchCapabilities *ngapType.UESecurityCapabilities
 	// Command is the PDU Session Resource Handover List of the HANDOVER
 	// COMMAND of an N2 handover, as received; nil for an Xn handover. It is
 	// also set on a handover that failed after the command arrived.

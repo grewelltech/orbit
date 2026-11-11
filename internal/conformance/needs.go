@@ -167,6 +167,9 @@ func (nasInitialMsgContainerWins) Needs() CheckNeeds        { return ueNeeds }
 func (nasInitialMsgNoContainer) Needs() CheckNeeds          { return ueNeeds }
 func (nasInitialMsgNonCleartextAccepted) Needs() CheckNeeds { return ueNeeds }
 func (nasSMCIMEISVRequest) Needs() CheckNeeds               { return ueNeeds }
+func (ngapPathSwitchSecCapMismatch) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
+}
 func (ngapHandoverCancelAck) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }

@@ -1660,6 +1660,14 @@ core registers the UE; `NAS-SMC-IMEISV-REQUEST` reports whether the Security
 Mode Command requests the IMEISV and what the core does when the UE leaves
 it out.
 
+`NGAP-PATH-SWITCH-SECCAP-MISMATCH`, also in `security`, registers the UE with
+a PDU session and hands it over by Xn with a Path Switch Request whose UE
+Security Capabilities differ from the ones the AMF supplied at registration.
+It passes when the Path Switch Request Acknowledge carries the AMF's stored
+capabilities (TS 33.501 6.7.3.1), and fails when the Acknowledge has none,
+echoes the ones sent, or does not come. Like the mobility checks it needs
+`--gnb-n3` and a second gNB ID.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the

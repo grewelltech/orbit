@@ -14,6 +14,11 @@ import (
 // (PathSwitchCapabilityMismatches).
 func WithStoredCapabilitiesInPathSwitchAck() Option { return func(a *AMF) { a.capsInAck = true } }
 
+// WithEchoedCapabilitiesInPathSwitchAck makes the mock answer such a Path
+// Switch Request with an Acknowledge that carries the capabilities the
+// request did, not the stored ones.
+func WithEchoedCapabilitiesInPathSwitchAck() Option { return func(a *AMF) { a.capsEchoed = true } }
+
 // PathSwitchCapabilityMismatches reports how many acknowledged Path Switch
 // Requests carried UE security capabilities other than those the mock gave
 // the RAN for the UE (a request without the IE included).
@@ -46,18 +51,22 @@ func (a *AMF) initialContextSetup(st *ueState, nasPDU []byte) ngapType.NGAPPDU {
 
 // checkPathSwitchCaps compares a Path Switch Request's UE security
 // capabilities with the ones st's RAN was given, counting a mismatch. It
-// returns the stored capabilities to put in the Acknowledge: non-nil only on
-// a mismatch with WithStoredCapabilitiesInPathSwitchAck. The caller holds
-// a.mu.
+// returns the capabilities to put in the Acknowledge: non-nil only on a
+// mismatch, the stored ones with WithStoredCapabilitiesInPathSwitchAck and
+// the request's own with WithEchoedCapabilitiesInPathSwitchAck. The caller
+// holds a.mu.
 func (a *AMF) checkPathSwitchCaps(st *ueState, got *ngapType.UESecurityCapabilities) *ngapType.UESecurityCapabilities {
 	if st.ranCaps == nil || gnb.SameUESecurityCapabilities(st.ranCaps, got) {
 		return nil
 	}
 	a.capsMismatches.Add(1)
-	if !a.capsInAck {
-		return nil
+	switch {
+	case a.capsEchoed:
+		return gnb.CloneUESecurityCapabilities(got)
+	case a.capsInAck:
+		return gnb.CloneUESecurityCapabilities(st.ranCaps)
 	}
-	return gnb.CloneUESecurityCapabilities(st.ranCaps)
+	return nil
 }
 
 // addStoredCaps adds the UE Security Capabilities IE to a Path Switch

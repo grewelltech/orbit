@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/free5gc/nas/nasType"
+	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/engine"
@@ -360,6 +361,33 @@ drain:
 	h.obs.NewTEID, h.obs.Switched = sess.Result.DLTEID, res.PathSwitchAck
 	h.mu.Unlock()
 	return nil
+}
+
+// SuppliedCapabilities returns the UE security capabilities the AMF supplied
+// to the serving gNB for the registered UE (the INITIAL CONTEXT SETUP
+// REQUEST's UE Security Capabilities), nil when it supplied none.
+func (h *UEHarness) SuppliedCapabilities() (*ngapType.UESecurityCapabilities, error) {
+	sess, err := h.m.Status(h.supi)
+	if err != nil {
+		return nil, err
+	}
+	return sess.UESecurityCapabilities(), nil
+}
+
+// XnHandoverWithCapabilities hands the UE over to gNB B by Xn with a PATH
+// SWITCH REQUEST that carries caps as the UE Security Capabilities, in
+// place of the ones the AMF supplied, and returns the UE Security
+// Capabilities of the Acknowledge (nil when it has none). A Path Switch
+// Request that went unacknowledged is an error wrapping
+// engine.ErrPathSwitchNotAcknowledged.
+func (h *UEHarness) XnHandoverWithCapabilities(ctx context.Context, caps *ngapType.UESecurityCapabilities) (*ngapType.UESecurityCapabilities, error) {
+	res, err := h.m.XnHandoverWith(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	}, engine.WithPathSwitchCapabilities(caps))
+	if err != nil {
+		return nil, fmt.Errorf("handover (Xn) to gNB %#x: %w", h.TargetGNB().ID, err)
+	}
+	return res.PathSwitchCapabilities, nil
 }
 
 // Idle moves the registered UE to CM-IDLE by an AN release (engine.Manager.Idle).

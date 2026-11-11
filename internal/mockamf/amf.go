@@ -260,6 +260,7 @@ type AMF struct {
 
 	// Path switch UE security capability check (pathswitchcaps.go).
 	capsInAck      bool
+	capsEchoed     bool
 	capsMismatches atomic.Int64
 
 	// Identification options and what the UEs answered, the answers

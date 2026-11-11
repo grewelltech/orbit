@@ -6,9 +6,30 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/free5gc/ngap/ngapType"
+
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/sctp"
 )
+
+// XnOption adjusts one Xn handover (XnHandoverWith).
+type XnOption func(*xnOptions)
+
+type xnOptions struct {
+	// pathSwitchCaps replaces the UE security capabilities of the PATH
+	// SWITCH REQUEST; nil sends the ones the AMF supplied.
+	pathSwitchCaps *ngapType.UESecurityCapabilities
+}
+
+// WithPathSwitchCapabilities makes the PATH SWITCH REQUEST carry caps as
+// the UE Security Capabilities in place of the ones the AMF supplied for
+// the UE: the stimulus of a conformance check on TS 33.501 6.7.3.1, where
+// the AMF compares them with its stored copy. The session keeps the
+// capabilities the AMF supplied, unless the Acknowledge carries others. No
+// other caller sends capabilities the AMF did not supply.
+func WithPathSwitchCapabilities(caps *ngapType.UESecurityCapabilities) XnOption {
+	return func(o *xnOptions) { o.pathSwitchCaps = gnb.CloneUESecurityCapabilities(caps) }
+}
 
 // XnHandover performs an Xn handover of a registered UE to target. In an Xn
 // handover the source and target gNBs coordinate directly over Xn (stubbed
@@ -23,6 +44,16 @@ import (
 // The elapsed time is returned for the same reason as the N2 path: comparing
 // Xn against N2 on a given core is a question about numbers, not outcomes.
 func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoint) (HandoverResult, error) {
+	return m.XnHandoverWith(ctx, supi, target)
+}
+
+// XnHandoverWith is XnHandover adjusted by opts (conformance checks; see
+// WithPathSwitchCapabilities). With none it is XnHandover.
+func (m *Manager) XnHandoverWith(ctx context.Context, supi string, target GNBEndpoint, opts ...XnOption) (HandoverResult, error) {
+	var o xnOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	start := time.Now()
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
@@ -50,7 +81,7 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 		Detail: fmt.Sprintf("Xn handover %s → %s", sess.ServingGNB().Name, target.Config.Name)},
 		"type", "xn", "source_gnb", sess.ServingGNB().Name, "target_gnb", target.Config.Name)
 
-	ack, err := m.runXnHandover(ctx, sess, target)
+	ack, ackCaps, err := m.runXnHandover(ctx, sess, target, o)
 	if err != nil {
 		m.publishMobility(StateEvent{SUPI: supi, State: StateHandoverFailed, Detail: "Xn: " + err.Error()},
 			"type", "xn", "target_gnb", target.Config.Name)
@@ -63,7 +94,7 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 			elapsed.Round(time.Millisecond))},
 		"type", "xn", "target_gnb", target.Config.Name, "gnb_id", target.Config.ID,
 		"elapsed_ms", elapsed.Milliseconds())
-	return HandoverResult{Elapsed: elapsed, Target: target.Config, PathSwitchAck: ack}, nil
+	return HandoverResult{Elapsed: elapsed, Target: target.Config, PathSwitchAck: ack, PathSwitchCapabilities: ackCaps}, nil
 }
 
 // ErrPathSwitchNotAcknowledged marks an Xn handover whose PATH SWITCH REQUEST
@@ -73,15 +104,16 @@ func (m *Manager) XnHandover(ctx context.Context, supi string, target GNBEndpoin
 var ErrPathSwitchNotAcknowledged = errors.New("path switch not acknowledged")
 
 // runXnHandover runs the handover and returns the Switched List of the
-// Acknowledge that completed it.
-func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEndpoint) (*gnb.PathSwitchAck, error) {
+// Acknowledge that completed it, with the Acknowledge's UE Security
+// Capabilities IE (nil when it has none).
+func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEndpoint, o xnOptions) (*gnb.PathSwitchAck, *ngapType.UESecurityCapabilities, error) {
 	tgtConn, err := sctp.Dial(ctx, target.BindAddr, target.AMFAddr)
 	if err != nil {
-		return nil, fmt.Errorf("dial target gNB: %w", err)
+		return nil, nil, fmt.Errorf("dial target gNB: %w", err)
 	}
 	if ng, err := gnb.NGSetup(ctx, tgtConn, target.Config); err != nil || !ng.Accepted {
 		tgtConn.Close()
-		return nil, fmt.Errorf("target NG Setup: %w", err)
+		return nil, nil, fmt.Errorf("target NG Setup: %w", err)
 	}
 	// The target association's reads go through one reader too
 	// (gnb.Dedicated); its lane is the UE's on the target.
@@ -101,24 +133,28 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		})
 	}
 	firstTEID := admitted[0].GNBTunnel.TEID
-	ps, err := gnb.BuildPathSwitchRequest(target.Config, sess.amfID, targetHandoverRANID, sess.ueSecCaps, admitted)
+	reqCaps := sess.ueSecCaps
+	if o.pathSwitchCaps != nil {
+		reqCaps = o.pathSwitchCaps
+	}
+	ps, err := gnb.BuildPathSwitchRequest(target.Config, sess.amfID, targetHandoverRANID, reqCaps, admitted)
 	if err != nil {
 		_ = tgt.Close()
-		return nil, err
+		return nil, nil, err
 	}
 	if err := gnb.SendPDU(tgt, ueStream, ps); err != nil {
 		_ = tgt.Close()
-		return nil, fmt.Errorf("send PathSwitchRequest: %w", err)
+		return nil, nil, fmt.Errorf("send PathSwitchRequest: %w", err)
 	}
 
 	pdu, err := gnb.ReadPDU(ctx, tgt)
 	if err != nil {
 		_ = tgt.Close()
-		return nil, fmt.Errorf("%w: await PathSwitch response: %w", ErrPathSwitchNotAcknowledged, err)
+		return nil, nil, fmt.Errorf("%w: await PathSwitch response: %w", ErrPathSwitchNotAcknowledged, err)
 	}
 	if gnb.ClassifyPathSwitch(pdu) != gnb.PathSwitchAcknowledged {
 		_ = tgt.Close()
-		return nil, fmt.Errorf("%w: the core answered with %s", ErrPathSwitchNotAcknowledged, gnb.DescribePathSwitchAnswer(pdu))
+		return nil, nil, fmt.Errorf("%w: the core answered with %s", ErrPathSwitchNotAcknowledged, gnb.DescribePathSwitchAnswer(pdu))
 	}
 	ack := gnb.ParsePathSwitchAcknowledgeItems(pdu)
 	newAMFID, _ := gnb.ParsePathSwitchAcknowledge(pdu)
@@ -143,8 +179,9 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	if newAMFID != 0 {
 		sess.amfID = newAMFID
 	}
-	if caps := gnb.PathSwitchAcknowledgeUESecurityCapabilities(pdu); caps != nil {
-		sess.ueSecCaps = caps
+	ackCaps := gnb.PathSwitchAcknowledgeUESecurityCapabilities(pdu)
+	if ackCaps != nil {
+		sess.ueSecCaps = gnb.CloneUESecurityCapabilities(ackCaps)
 	}
 	// Record per-session endpoints (multi-session bookkeeping).
 	applySwitchedSessions(sess.Result, dlTEIDs, switched)
@@ -163,7 +200,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	m.mu.Unlock()
 
 	oldConn.Close() // AMF releases the source after the switch
-	return &ack, nil
+	return &ack, ackCaps, nil
 }
 
 // firstSessionID is the PDU session mirrored into the AttachResult's

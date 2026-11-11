@@ -120,7 +120,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) · ✅ `NGAP-HANDOVER-COMMAND-TRANSFER` (Handover List with a transfer per item) | ⬜ | transfer-IE bug already documented (interop); the check runs under strict-3gpp |
 | Handover Resource Allocation (Request→Ack) | AMF→RAN | ✅ | — | ORBIT admits/rejects |
 | Handover Notification | RAN→AMF | ✅ | ⬜ | |
-| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) | 🎯 malformed transfer / unknown IDs | |
+| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) · ✅ `NGAP-PATH-SWITCH-SECCAP-MISMATCH` (stored UE security capabilities returned on a mismatch) | 🎯 malformed transfer / unknown IDs | |
 | Handover Cancellation | RAN→AMF | ✅ `NGAP-HANDOVER-CANCEL-ACK` (informational: is the cancel acknowledged?) | ⬜ | no "shall" or "should" for the acknowledge in 8.4.5 |
 | Uplink/Downlink RAN Status Transfer | both | ⬜ | ⬜ | |
 
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**35 checks today** (the first four live on the SD-Core testbed):
+**36 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -450,6 +450,18 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   REQUEST for the IMEISV is INFO; no request (the omission is then not
   exercised), an Accept without it, a Reject and the rest are INFO-DIFF.
   Needs a UE.
+
+- `NGAP-PATH-SWITCH-SECCAP-MISMATCH` (security, FAIL-class) — a UE with a
+  PDU session is handed over by Xn with a PATH SWITCH REQUEST whose UE
+  Security Capabilities differ from the ones the AMF supplied in the INITIAL
+  CONTEXT SETUP REQUEST (algorithm 3 inverted in both NR bitmaps). The AMF
+  shall verify them against its stored copy and, on a mismatch, send the
+  stored ones in the PATH SWITCH REQUEST ACKNOWLEDGE (TS 33.501 6.7.3.1). An
+  Acknowledge carrying the supplied capabilities is PASS; one without the
+  IE, one echoing the sent ones, one with others, and no Acknowledge (a
+  PATH SWITCH REQUEST FAILURE included) are FAIL. A core that no longer
+  completes NG Setup afterwards is the crash FAIL. Needs a UE; up to 25 s.
+  The UE is deregistered afterwards.
 
 - `NAS-DEREG-ACCEPT-NOT-SWITCH-OFF` (procedural, FAIL-class) — the UE
   registers without a PDU session and sends a Deregistration Request that
