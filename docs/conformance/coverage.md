@@ -469,9 +469,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   shall verify them against its stored copy and, on a mismatch, send the
   stored ones in the PATH SWITCH REQUEST ACKNOWLEDGE (TS 33.501 6.7.3.1). An
   Acknowledge carrying the supplied capabilities is PASS; one without the
-  IE, one echoing the sent ones, one with others, and no Acknowledge (a
-  PATH SWITCH REQUEST FAILURE included) are FAIL. A core that no longer
-  completes NG Setup afterwards is the crash FAIL. Needs a UE; up to 25 s.
+  IE, one echoing the sent ones, and one with others are FAIL. No
+  Acknowledge (a PATH SWITCH REQUEST FAILURE included) is WARN
+  (availability): the shall governs the Acknowledge's content, not whether
+  one is sent. A core that no longer completes NG Setup afterwards is CRASH. Needs a UE; up to 25 s.
   The UE is deregistered afterwards.
 
 - `NAS-DEREG-ACCEPT-NOT-SWITCH-OFF` (procedural, FAIL-class) — the UE

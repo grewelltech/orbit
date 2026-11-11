@@ -2,12 +2,15 @@ package conformance
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/free5gc/ngap/ngapType"
 
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockupf"
@@ -42,7 +45,8 @@ func TestClassifySecCapAck(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := classifySecCapAck(stored, sent, tc.got)
+			o, observed, detail := classifySecCapAck(stored, sent, tc.got)
+			v := covers(o).Verdict
 			if v != tc.want || observed != tc.wantObserved {
 				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
 			}
@@ -51,13 +55,46 @@ func TestClassifySecCapAck(t *testing.T) {
 			}
 		})
 	}
+	o, observed, _ := classifySecCapAck(nil, nil, nil)
+	if covers(o).Verdict != Warn || o.Criterion != CriterionInteroperability || observed != secCapNoStore {
+		t.Errorf("nothing stored = %s (%s) %q, want WARN (interoperability) %q", o.Verdict, o.Criterion, observed, secCapNoStore)
+	}
+}
+
+// classifySecCapUnacknowledged: a refusal, no answer and another answer are
+// each WARN for availability, never FAIL.
+func TestClassifySecCapUnacknowledged(t *testing.T) {
+	tests := []struct {
+		name         string
+		err          error
+		want         Outcome
+		wantObserved string
+	}{
+		{name: "refused", err: fmt.Errorf("%w: %w", engine.ErrPathSwitchNotAcknowledged, engine.ErrPathSwitchRefused), want: secCapRefused,
+			wantObserved: "PATH SWITCH REQUEST FAILURE instead of PATH SWITCH REQUEST ACKNOWLEDGE"},
+		{name: "unanswered", err: fmt.Errorf("%w: %w", engine.ErrPathSwitchNotAcknowledged, context.DeadlineExceeded), want: secCapUnanswered,
+			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE"},
+		{name: "another answer", err: fmt.Errorf("%w: %w", engine.ErrPathSwitchNotAcknowledged, io.EOF), want: secCapOtherAnswer,
+			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE (another answer, or the association lost)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := classifySecCapUnacknowledged(tc.err, time.Second)
+			if covers(o).ID != tc.want.ID || observed != tc.wantObserved {
+				t.Errorf("= %s %q (%s), want %s %q", o.ID, observed, detail, tc.want.ID, tc.wantObserved)
+			}
+			if o.Verdict != Warn || o.Criterion != CriterionAvailability || strings.Contains(detail, pathSwitchSecCapFailure) {
+				t.Errorf("%s (%s), detail %q: want WARN for availability without the failure message", o.Verdict, o.Criterion, detail)
+			}
+		})
+	}
 }
 
 // The check's verdicts over the real-SCTP mock pair, through the registry's
 // scoring. An AMF that answers the mismatch with its stored capabilities
-// PASSes; one that acknowledges without them, one that echoes the request's,
-// one that answers with a failure and one that does not answer FAIL; one
-// that stops answering is the crash FAIL. The request carried capabilities
+// PASSes; one that acknowledges without them and one that echoes the
+// request's FAIL; one that answers with a failure and one that does not
+// answer are WARN; one that stops answering is CRASH. The request carried capabilities
 // other than the ones the mock supplied, the UE is deregistered every time
 // the core is still there, and no association stays open.
 func TestPathSwitchSecCapCheckAgainstMockPair(t *testing.T) {
@@ -82,11 +119,11 @@ func TestPathSwitchSecCapCheckAgainstMockPair(t *testing.T) {
 			want: Fail, wantObserved: secCapEchoed, mismatches: 1, switched: 1,
 			wantDetail: []string{pathSwitchSecCapFailure, "in the Acknowledge: NR encryption 2000, NR integrity 6000"}},
 		{name: "path switch request failure", net24: testnet.ConformanceSecCapFailure, opts: []mockamf.Option{mockamf.WithPathSwitchAnswer(mockamf.FailPathSwitch)},
-			want: Fail, wantObserved: secCapNoAck, wantDetail: []string{pathSwitchSecCapFailure, "PATH SWITCH REQUEST FAILURE"}},
+			want: Warn, wantObserved: "PATH SWITCH REQUEST FAILURE instead of PATH SWITCH REQUEST ACKNOWLEDGE", wantDetail: []string{"it answered with PATH SWITCH REQUEST FAILURE"}},
 		{name: "path switch request unanswered", net24: testnet.ConformanceSecCapIgnored, opts: []mockamf.Option{mockamf.WithPathSwitchAnswer(mockamf.IgnorePathSwitch)},
-			want: Fail, wantObserved: secCapNoAck, wantDetail: []string{pathSwitchSecCapFailure, "no Acknowledge within 400ms"}},
+			want: Warn, wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE", wantDetail: []string{"no answer within 400ms"}},
 		{name: "stops answering", net24: testnet.ConformanceSecCapCrash, opts: []mockamf.Option{mockamf.WithPathSwitchAnswer(mockamf.CrashOnPathSwitch)},
-			want: Crash, wantObserved: ObservedAMFUnresponsive + " (" + secCapNoAck + ")", dead: true,
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (no PATH SWITCH REQUEST ACKNOWLEDGE (another answer, or the association lost))", dead: true,
 			wantDetail: []string{"the AMF stopped completing NG Setup after the PATH SWITCH REQUEST with mismatching UE security capabilities"}},
 	}
 	for _, tc := range tests {
@@ -134,16 +171,16 @@ func TestPathSwitchSecCapCheckAgainstMockPair(t *testing.T) {
 	}
 }
 
-// A registration the core refuses is an ERROR naming the step, no UE SKIPs,
-// and the check is FAIL-class on its shall.
+// A registration the core refuses is BLOCKED on the registration, naming
+// the step, no UE SKIPs, and the check is FAIL-class on its shall.
 func TestPathSwitchSecCapCheckErrors(t *testing.T) {
 	c := newMockCore(t, testnet.ConformanceSecCapRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
 	env := ueEnv(c.front.Addr, "", c.n3)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	r := ngapPathSwitchSecCapMismatch{}.Run(ctx, env)
-	if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
-		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+	if r.Verdict != Blocked || r.BlockedOn != ProcRegistration || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+		t.Errorf("result %s on %q / %q / %q, want BLOCKED on the registration, naming the step", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
 	}
 	c.assertClosed(t, env)
 

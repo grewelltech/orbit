@@ -219,7 +219,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NGAP-PATH-SWITCH-SECCAP-MISMATCH
 
-- TS 33.501 6.7.3.1 (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+- TS 33.501 6.7.3.1 (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`); primary
 
 ### NGAP-RAN-CONFIG-UPDATE-ACK
 
@@ -405,6 +405,25 @@ Owns: NG Setup. Needs no procedure first.
 | `unanswered` | DEVIATION | TS 38.413 8.7.1.3 (should); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome); reports NG Setup as not completed | sent neither NG SETUP RESPONSE nor NG SETUP FAILURE |
 | `other-pdu` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | answered the NG SETUP REQUEST with a PDU that is neither NG SETUP RESPONSE nor NG SETUP FAILURE |
 | `association-lost` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | dropped the association instead of answering the NG SETUP REQUEST |
+
+### NGAP-PATH-SWITCH-SECCAP-MISMATCH outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `stored-capabilities` | PASS | TS 33.501 6.7.3.1 (shall) | sent its stored UE security capabilities in the PATH SWITCH REQUEST ACKNOWLEDGE |
+| `no-capabilities` | FAIL | TS 33.501 6.7.3.1 (shall) | acknowledged the mismatching PATH SWITCH REQUEST without UE Security Capabilities |
+| `echoed-capabilities` | FAIL | TS 33.501 6.7.3.1 (shall) | acknowledged the mismatching PATH SWITCH REQUEST with the capabilities it carried |
+| `other-capabilities` | FAIL | TS 33.501 6.7.3.1 (shall) | acknowledged the mismatching PATH SWITCH REQUEST with capabilities neither stored nor sent |
+| `refused` | WARN | availability | answered the mismatching PATH SWITCH REQUEST with PATH SWITCH REQUEST FAILURE |
+| `unanswered` | WARN | availability; absence within 5s (check bound, the target NG Setup included; TS 38.413 sets no timer for the answer) | sent no answer to the mismatching PATH SWITCH REQUEST |
+| `other-answer` | WARN | availability | answered the mismatching PATH SWITCH REQUEST with another message, or lost the association |
+| `no-stored-capabilities` | WARN | interoperability | supplied no UE Security Capabilities in the INITIAL CONTEXT SETUP REQUEST |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner no registered check) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
 
 ### NGAP-NG-RESET-ACK outcomes
 
