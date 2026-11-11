@@ -1,6 +1,6 @@
 # ADR-0010: Home, chooser, per-kind dashboards; a run summary field
 
-- Status: Accepted
+- Status: Accepted; amended by ADR-0011 (conformance tally and the table's category column)
 - Date: 2026-11-10
 - Builds on: ADR-0005 (the server owns runs), ADR-0008 (one unified run)
 
