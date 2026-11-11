@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -260,13 +261,13 @@ func TestJudgeSwitchOffRelease(t *testing.T) {
 		{name: "no IDs", res: result(&engine.UEContextRelease{At: at}, nil),
 			want: Fail, wantOutcome: "no-ue-ngap-id", wantObserved: "UE CONTEXT RELEASE COMMAND without UE NGAP IDs", wantDetail: []string{"carries no UE NGAP ID, with both UE NGAP IDs available. TS 38.413 8.3.3.2."}},
 		{name: "another pair", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 1007, RANUENGAPID: 1009}, nil),
-			want: Warn, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID",
+			want: Fail, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID",
 			wantDetail: []string{"names AMF UE NGAP ID 1007, RAN UE NGAP ID 1009", "the connection is AMF UE NGAP ID 7, RAN UE NGAP ID 9", switchOffNoRelease}},
 		{name: "the pair with another RAN ID", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 7, RANUENGAPID: 10}, nil),
-			want: Warn, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID"},
+			want: Fail, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID"},
 		{name: "another AMF ID alone", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, AMFUENGAPID: 8}, nil),
-			want: Warn, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID", wantDetail: []string{"names AMF UE NGAP ID 8;"}},
-		{name: "no release", res: result(nil, noRel), want: Warn, wantOutcome: "no-release", wantObserved: "no UE CONTEXT RELEASE COMMAND within 5s",
+			want: Fail, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID", wantDetail: []string{"names AMF UE NGAP ID 8;"}},
+		{name: "no release", res: result(nil, noRel), want: Fail, wantOutcome: "no-release", wantObserved: "no UE CONTEXT RELEASE COMMAND within 5s",
 			wantDetail: []string{switchOffNoRelease, "the core sent no UE Context Release within 5s"}},
 		{name: "cut short", res: result(nil, noRel), cut: true, want: Error, wantOutcome: OutcomeError, wantObserved: "timed out before the release wait ended",
 			wantDetail: []string{"raise --per-test-timeout to at least 20s"}},
@@ -316,9 +317,9 @@ func TestSwitchOffReleaseCheckAgainstMock(t *testing.T) {
 			want: Pass, wantOutcome: "both-ids", wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs", wantDeregs: 1, wantComplete: 1},
 		{name: "released by the AMF ID alone", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseAMFIDOnly)}, want: Fail, wantOutcome: "amf-id-only",
 			wantObserved: "UE CONTEXT RELEASE COMMAND without the RAN UE NGAP ID", wantDetail: []string{"alone, with both UE NGAP IDs available. TS 38.413 8.3.3.2."}, wantDeregs: 1, wantComplete: 1},
-		{name: "a release for another pair", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseOtherPair)}, want: Warn, wantOutcome: "release-for-other-ids",
-			wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID", wantDetail: []string{"no requirement violated; WARN for availability impact"}, wantDeregs: 1, wantComplete: 1},
-		{name: "release withheld", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, want: Warn, wantOutcome: "no-release",
+		{name: "a release for another pair", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseOtherPair)}, want: Fail, wantOutcome: "release-for-other-ids",
+			wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID", wantDetail: []string{"violates TS 23.502 4.2.2.3.2 step 8 (shall)"}, wantDeregs: 1, wantComplete: 1},
+		{name: "release withheld", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, want: Fail, wantOutcome: "no-release",
 			wantObserved: "no UE CONTEXT RELEASE COMMAND within 300ms", wantDetail: []string{switchOffNoRelease, "absence inferred within 5s"}, wantDeregs: 1},
 		{name: "no 5G-GUTI", noGUTI: true, want: Error, wantOutcome: OutcomeError, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI"}},
 		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantOutcome: "blocked-registration", wantObserved: "registration failed"},
@@ -383,8 +384,8 @@ func TestSwitchOffReleaseCheckCutShort(t *testing.T) {
 }
 
 // The registry stamps the check's identity: FAIL-class through the UE NGAP
-// ID shall, its primary reference, with the release's trigger cited as
-// descriptive.
+// ID shall, its primary reference, and the release itself (TS 23.502
+// 4.2.2.3.2 step 8); it owns the release after switch-off.
 func TestSwitchOffReleaseCheckIdentity(t *testing.T) {
 	c := testByID(t, "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF")
 	if c.Category() != Procedural || WorstVerdict(c) != Fail || MinRelease(c) != 15 {
@@ -396,8 +397,8 @@ func TestSwitchOffReleaseCheckIdentity(t *testing.T) {
 			shall = append(shall, r.Spec+" "+r.Clause)
 		}
 	}
-	if len(shall) != 1 || shall[0] != "TS 38.413 8.3.3.2" {
-		t.Errorf("shall references %v, want TS 38.413 8.3.3.2 alone", shall)
+	if !slices.Equal(shall, []string{"TS 38.413 8.3.3.2", "TS 23.502 4.2.2.3.2 step 8"}) || !owns(c, ProcSwitchOffRelease) {
+		t.Errorf("shall references %v, owns %v; want TS 38.413 8.3.3.2 and TS 23.502 4.2.2.3.2 step 8, owning the release after switch-off", shall, OwnsOf(c))
 	}
 	if n := NeedsOf(c); n.UEs != 1 || n.RequiresIdleCore {
 		t.Errorf("needs %+v, want one UE and no idle core", n)

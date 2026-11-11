@@ -217,23 +217,31 @@ func releaseNote(res *engine.DeregisterResult) string {
 // as they are after a registration. A command naming the connection's ID
 // pair is PASS; one naming the UE by its AMF UE NGAP ID alone, or by no ID,
 // is FAIL. No command for the connection within deregReleaseWait (none at
-// all, or one for another ID pair) violates no requirement, step 8 being
-// descriptive: it is WARN for availability.
+// all, or one for another ID pair) is FAIL on step 8: the step is the
+// AMF's release of the N2 signalling connection for a deregistration over
+// 3GPP access, conditional only on such a connection existing, which it
+// does. The check owns the release after switch-off.
 type ngapCtxReleaseAfterSwitchOff struct {
 	// registerWait and releaseWait override deregRegisterWait and
 	// deregReleaseWait (tests only).
 	registerWait, releaseWait time.Duration
 }
 
-// switchOffReleaseRef is the key of the shall the graded outcomes of
-// NGAP-CTX-RELEASE-AFTER-SWITCH-OFF rest on.
-const switchOffReleaseRef = "TS 38.413 8.3.3.2"
+// The keys of the requirements the outcomes of
+// NGAP-CTX-RELEASE-AFTER-SWITCH-OFF rest on: the UE NGAP IDs of the
+// command, and the release itself.
+const (
+	switchOffReleaseRef     = "TS 38.413 8.3.3.2"
+	switchOffReleaseStepRef = "TS 23.502 4.2.2.3.2 step 8"
+)
 
 // The outcomes of NGAP-CTX-RELEASE-AFTER-SWITCH-OFF. A release that does
-// not come is WARN for availability: TS 23.502 4.2.2.3.2 step 8 describes
-// it without requiring it, and without it the deregistration does not
-// complete on N2, the NG-RAN keeping the context and the signalling
-// connection of a UE that has switched off.
+// not come for the deregistered UE's connection is FAIL on TS 23.502
+// 4.2.2.3.2 step 8, read as the requirement it states: with an N2
+// signalling connection to NG-RAN, "the AMF sends N2 UE Release command to
+// NG-RAN with Cause set to Deregistration to release N2 signalling
+// connection", the procedure's only network action after a switch-off,
+// which gets no DEREGISTRATION ACCEPT (step 7).
 var (
 	switchOffReleaseBothIDs = Outcome{ID: "both-ids", Verdict: Pass, Refs: []string{switchOffReleaseRef},
 		Summary: "released the UE context after the switch-off, naming both UE NGAP IDs"}
@@ -241,10 +249,10 @@ var (
 		Summary: "sent a UE CONTEXT RELEASE COMMAND carrying no UE NGAP ID"}
 	switchOffReleaseAMFIDOnly = Outcome{ID: "amf-id-only", Verdict: Fail, Refs: []string{switchOffReleaseRef},
 		Summary: "named the UE by its AMF UE NGAP ID alone, with both IDs available"}
-	switchOffReleaseNone = Outcome{ID: "no-release", Verdict: Warn, Criterion: CriterionAvailability,
+	switchOffReleaseNone = Outcome{ID: "no-release", Verdict: Fail, Refs: []string{switchOffReleaseStepRef}, NotCompleted: ProcSwitchOffRelease,
 		Bound:   &Bound{Wait: deregReleaseWait, Source: "check bound; neither TS 23.502 nor TS 38.413 sets a timer for the release"},
 		Summary: "sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration"}
-	switchOffReleaseOtherIDs = Outcome{ID: "release-for-other-ids", Verdict: Warn, Criterion: CriterionAvailability,
+	switchOffReleaseOtherIDs = Outcome{ID: "release-for-other-ids", Verdict: Fail, Refs: []string{switchOffReleaseStepRef}, NotCompleted: ProcSwitchOffRelease,
 		Summary: "released only another UE NGAP ID pair, not the deregistered UE's connection"}
 )
 
@@ -262,9 +270,9 @@ func (ngapCtxReleaseAfterSwitchOff) SpecRefs() []SpecRef {
 				{Release: 15, Note: "IE-handling sentences are added after V15.0.0, and 8.3.3.1 is extended to mention releasing the old connection when the UE establishes a new one; the UE NGAP ID sentences are unchanged from V15.0.0 through V19.4.0"},
 				{Release: 16, Note: "further IE-handling sentences are added; the UE NGAP ID sentences are unchanged"},
 			}},
-		{Spec: "TS 23.502", Clause: "4.2.2.3.2 step 8", Strength: Descriptive, Since: 15, Verified: ts23502Verified,
+		{Spec: "TS 23.502", Clause: "4.2.2.3.2 step 8", Strength: Shall, Since: 15, Verified: ts23502Verified,
 			Changed: []SpecChange{
-				{Release: 15, Note: "V15.0.0 reads \"AMF sends N2 UE Release command to RAN\", \"to NG-RAN\" by V15.17.0"},
+				{Release: 15, Note: "V15.0.0 reads \"AMF sends N2 UE Release command to RAN\", \"to NG-RAN\" by V15.17.0; graded as a requirement: the step states the AMF's release of the N2 signalling connection in the indicative, with no alternative"},
 				{Release: 16, Note: "the non-3GPP sentence names N3IWF/TNGF/W-AGF; the NG-RAN sentence is unchanged from V15.17.0 through V19.9.0"},
 			}},
 		{Spec: "TS 24.501", Clause: "5.5.2.2.2", Strength: Descriptive, Since: 15, Verified: ts24501Verified,
@@ -288,7 +296,7 @@ func (c ngapCtxReleaseAfterSwitchOff) Budget() time.Duration {
 }
 
 func (c ngapCtxReleaseAfterSwitchOff) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "after a switch-off Deregistration Request, a UE CONTEXT RELEASE COMMAND naming the connection by both UE NGAP IDs (TS 38.413 8.3.3.2; the release itself is described by TS 23.502 4.2.2.3.2 step 8)"}
+	r := Result{Expected: "after a switch-off Deregistration Request, a UE CONTEXT RELEASE COMMAND releasing the N2 signalling connection (TS 23.502 4.2.2.3.2 step 8), naming the connection by both UE NGAP IDs (TS 38.413 8.3.3.2)"}
 	h, done := deregRegister(ctx, env, c.registerTimeout(), &r)
 	if done {
 		return r
@@ -306,7 +314,7 @@ func (c ngapCtxReleaseAfterSwitchOff) Run(ctx context.Context, env Env) Result {
 const (
 	// switchOffNoRelease is what the check says of a core that sent no UE
 	// CONTEXT RELEASE COMMAND for the connection.
-	switchOffNoRelease = "no UE CONTEXT RELEASE COMMAND after switch-off deregistration. TS 23.502 4.2.2.3.2 step 8 describes the release, and no shall in it, in TS 24.501 5.5.2.2.2 or in TS 38.413 8.3.3.2 requires it. Likely cause: AMF leaves the N2 UE context."
+	switchOffNoRelease = "no UE CONTEXT RELEASE COMMAND after switch-off deregistration. TS 23.502 4.2.2.3.2 step 8: with an N2 signalling connection to NG-RAN, the AMF sends N2 UE Release command with Cause set to Deregistration to release it. Likely cause: AMF leaves the N2 UE context."
 	// switchOffReleaseFail is the FAIL message; the first verb says which
 	// ID the command lacked.
 	switchOffReleaseFail = "UE CONTEXT RELEASE COMMAND after switch-off deregistration %s, with both UE NGAP IDs available. TS 38.413 8.3.3.2. Likely cause: AMF builds the release without the UE NGAP ID pair."

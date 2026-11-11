@@ -50,20 +50,11 @@ var (
 	regAfterReleaseOutUnanswered = Outcome{ID: "unanswered", Verdict: Fail, Refs: []string{initialRegAcceptRef, initialRegRejectRef},
 		Bound:   &Bound{Wait: regAfterReleaseWait, Source: initialNASBound},
 		Summary: "sent no NAS message for a REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE"}
-	// INFO: the stimulus follows the release, and the core sent none, so
-	// the requirement was not exercised. No clause the check cites asks for
-	// the release (a switch-off deregistration is complete when the AMF
-	// receives the request, 5.5.2.2.2), it is no procedure of the fixed
-	// list a BLOCKED could name, and NGAP-CTX-RELEASE-AFTER-SWITCH-OFF
-	// reports on it; none of the criteria applies to this check.
-	regAfterReleaseOutNoRelease = Outcome{ID: "no-release", Verdict: Info,
-		Bound:   &Bound{Wait: regAfterReleaseLinger, Source: "check bound; the wait the suite's deregistration checks give the release"},
-		Summary: "sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration, so the registration after the release could not be sent"}
 )
 
 // Outcomes declares what the check can report.
 func (nasRegistrationAfterRelease) Outcomes() []Outcome {
-	return []Outcome{regAfterReleaseOutAnswered, regAfterReleaseOutUnanswered, regAfterReleaseOutNoRelease}
+	return []Outcome{regAfterReleaseOutAnswered, regAfterReleaseOutUnanswered}
 }
 
 // Texts of NAS-REGISTRATION-AFTER-RELEASE.
@@ -89,7 +80,8 @@ const (
 // the new registration within regAfterReleaseWait, such as the
 // AUTHENTICATION REQUEST that starts the procedure. Every attempt answered
 // is PASS; one that drew no NAS message is FAIL. A core that sends no
-// release for a switch-off gives the check nothing to follow (INFO). A
+// release for a switch-off is BLOCKED on the release after switch-off,
+// which NGAP-CTX-RELEASE-AFTER-SWITCH-OFF owns: the stimulus follows it. A
 // registration of the SUPI that does not complete, at the start or
 // between attempts, is BLOCKED on the registration.
 //
@@ -422,8 +414,8 @@ func judgeRegAfterRelease(r Result, attempts []regAttempt, wait time.Duration) R
 		return r.As(regAfterReleaseOutUnanswered, regAfterReleaseUnanswered,
 			fmt.Sprintf("%s %d of %d registrations drew no NAS message within %s (absence inferred within this bound). Recorded: %s", regAfterReleaseFailure, unanswered, len(attempts), wait, detail))
 	case noRelease > 0:
-		return r.As(regAfterReleaseOutNoRelease, regAfterReleaseNoRelease,
-			fmt.Sprintf("%d of %d registrations answered; NGAP-CTX-RELEASE-AFTER-SWITCH-OFF reports on the release; %s", answered, len(attempts), detail))
+		return r.BlockedBy(ProcSwitchOffRelease, regAfterReleaseNoRelease,
+			fmt.Sprintf("%d of %d registrations answered; no UE CONTEXT RELEASE COMMAND within %s of a switch-off deregistration; %s", answered, len(attempts), regAfterReleaseLinger, detail))
 	case blocked > 0:
 		return r.BlockedBy(ProcRegistration, "a registration of the same SUPI did not complete", detail)
 	case notRun > 0:

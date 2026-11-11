@@ -46,9 +46,9 @@ func TestJudgeRegAfterRelease(t *testing.T) {
 		{name: "unanswered, then not run", attempts: []regAttempt{silent, blocked}, want: Fail, wantObserved: regAfterReleaseUnanswered,
 			wantDetail: []string{"1 of 2 registrations", "gap 20ms: not run: a registration of the same SUPI 1s later did not complete (rejected)"}},
 		{name: "unanswered outweighs a missing release", attempts: []regAttempt{silent, noRelease}, want: Fail, wantObserved: regAfterReleaseUnanswered},
-		{name: "no release", attempts: []regAttempt{noRelease, noRelease}, want: Info, wantObserved: regAfterReleaseNoRelease,
-			wantDetail: []string{"0 of 2 registrations answered", "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF", "not run: the core sent no UE Context Release within 5s"}},
-		{name: "answered, then no release", attempts: []regAttempt{answered, noRelease}, want: Info, wantObserved: regAfterReleaseNoRelease,
+		{name: "no release", attempts: []regAttempt{noRelease, noRelease}, want: Blocked, wantObserved: regAfterReleaseNoRelease,
+			wantDetail: []string{"0 of 2 registrations answered", "not run: the core sent no UE Context Release within 5s"}},
+		{name: "answered, then no release", attempts: []regAttempt{answered, noRelease}, want: Blocked, wantObserved: regAfterReleaseNoRelease,
 			wantDetail: []string{"1 of 2 registrations answered"}},
 		{name: "answered, then not run", attempts: []regAttempt{answered, notRun}, want: Error, wantObserved: "a registration after the release could not be sent"},
 		{name: "answered, then the SUPI not registered again", attempts: []regAttempt{answered, blocked}, want: Blocked,
@@ -61,8 +61,12 @@ func TestJudgeRegAfterRelease(t *testing.T) {
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
 				t.Fatalf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
 			}
-			if r.Verdict == Blocked && r.BlockedOn != ProcRegistration {
-				t.Errorf("blocked on %q, want the registration", r.BlockedOn)
+			wantOn := ProcRegistration
+			if tc.wantObserved == regAfterReleaseNoRelease {
+				wantOn = ProcSwitchOffRelease
+			}
+			if r.Verdict == Blocked && r.BlockedOn != wantOn {
+				t.Errorf("blocked on %q, want %q", r.BlockedOn, wantOn)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(r.Detail, w) {
@@ -142,7 +146,7 @@ func TestRegistrationAfterReleaseAgainstMock(t *testing.T) {
 			wantDetail: []string{"1 of 2 registrations drew no NAS message", "gap 5ms: not run: a registration of the same SUPI 400ms later did not complete",
 				"state left: the association was closed with the UE not registered"},
 			wantRegs: 1, wantDropped: 2, wantDeregs: 1},
-		{name: "no release", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, gaps: []time.Duration{0, 5 * time.Millisecond}, want: Info,
+		{name: "no release", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, gaps: []time.Duration{0, 5 * time.Millisecond}, want: Blocked,
 			wantObserved: regAfterReleaseNoRelease,
 			wantDetail:   []string{"0 of 2 registrations answered", "gap 5ms: not run: not tried after a deregistration without a release", "state left: the association was closed with the UE not registered"},
 			wantRegs:     1, wantDeregs: 1},

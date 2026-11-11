@@ -24,6 +24,10 @@ const (
 	ProcPDUSession Procedure = "PDU session establishment"
 	// ProcDeregistration is a UE-initiated deregistration the AMF accepts.
 	ProcDeregistration Procedure = "deregistration"
+	// ProcSwitchOffRelease is the release of the N2 signalling connection
+	// of a UE that deregistered with switch-off: the AMF's UE CONTEXT
+	// RELEASE COMMAND for it.
+	ProcSwitchOffRelease Procedure = "release after switch-off"
 	// ProcANRelease is an AN release: the AMF's UE CONTEXT RELEASE COMMAND
 	// for a UE CONTEXT RELEASE REQUEST.
 	ProcANRelease Procedure = "AN release"
@@ -41,7 +45,7 @@ const (
 
 // procedures is the fixed list.
 var procedures = []Procedure{
-	ProcNGSetup, ProcRegistration, ProcPDUSession, ProcDeregistration, ProcANRelease,
+	ProcNGSetup, ProcRegistration, ProcPDUSession, ProcDeregistration, ProcSwitchOffRelease, ProcANRelease,
 	ProcServiceRequest, ProcXnPathSwitch, ProcN2HandoverPreparation, ProcGTPUEcho,
 }
 

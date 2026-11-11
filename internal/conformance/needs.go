@@ -262,9 +262,11 @@ func (nasDeregAcceptNotSwitchOff) Needs() CheckNeeds   { return ueNeeds }
 func (ngapCtxReleaseAfterSwitchOff) Needs() CheckNeeds { return ueNeeds }
 func (nasPDUReleaseUERequested) Needs() CheckNeeds     { return ueSessionNeeds }
 
-// Needs is one subscriber: the check registers the same SUPI each time.
+// Needs is one subscriber: the check registers the same SUPI each time,
+// after the release that follows its switch-off.
 func (nasRegistrationAfterRelease) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, Subscribers: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: registrationFirst}
+	return CheckNeeds{UEs: 1, Subscribers: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness},
+		Procedures: append(append([]Procedure(nil), registrationFirst...), ProcSwitchOffRelease)}
 }
 
 // Needs is one UE at a time and a subscriber for each of the check's three
@@ -321,9 +323,10 @@ var timerNeeds = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, 
 	Procedures: registrationFirst}
 
 // The owners of the procedures other checks need (ADR-0011 rule 5).
-func (gtpuEchoResponse) Owns() []Procedure            { return []Procedure{ProcGTPUEcho} }
-func (ngapUECtxReleaseOnRequest) Owns() []Procedure   { return []Procedure{ProcANRelease} }
-func (ngapPathSwitchAckTransfer) Owns() []Procedure   { return []Procedure{ProcXnPathSwitch} }
-func (ngapHandoverCommandTransfer) Owns() []Procedure { return []Procedure{ProcN2HandoverPreparation} }
-func (nasDeregAcceptNotSwitchOff) Owns() []Procedure  { return []Procedure{ProcDeregistration} }
-func (serviceRequestReactivates) Owns() []Procedure   { return []Procedure{ProcServiceRequest} }
+func (gtpuEchoResponse) Owns() []Procedure             { return []Procedure{ProcGTPUEcho} }
+func (ngapUECtxReleaseOnRequest) Owns() []Procedure    { return []Procedure{ProcANRelease} }
+func (ngapPathSwitchAckTransfer) Owns() []Procedure    { return []Procedure{ProcXnPathSwitch} }
+func (ngapHandoverCommandTransfer) Owns() []Procedure  { return []Procedure{ProcN2HandoverPreparation} }
+func (nasDeregAcceptNotSwitchOff) Owns() []Procedure   { return []Procedure{ProcDeregistration} }
+func (ngapCtxReleaseAfterSwitchOff) Owns() []Procedure { return []Procedure{ProcSwitchOffRelease} }
+func (serviceRequestReactivates) Owns() []Procedure    { return []Procedure{ProcServiceRequest} }

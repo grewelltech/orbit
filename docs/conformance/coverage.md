@@ -102,7 +102,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 |---|---|---|---|---|
 | Initial Context Setup | AMF→RAN | ✅ (attach; with the Service Accept in `NAS-SERVICE-REQUEST-REACTIVATES`) | — | timing angle (bad/late response) |
 | UE Context Release Request | RAN→AMF | ✅ `NGAP-UE-CTX-RELEASE-ON-REQUEST` (DEVIATION-class); also the AN release of `NGAP-PAGING-ON-DL-DATA` (its failure is BLOCKED, not a verdict on paging) | ⬜ | 8.3.2.2 is a "should" |
-| UE Context Release (Command/Complete) | AMF→RAN | ✅ `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (UE NGAP IDs of the release after a switch-off) | — | the release after a deregistration is descriptive (TS 23.502), so its absence is WARN (availability), not FAIL |
+| UE Context Release (Command/Complete) | AMF→RAN | ✅ `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (UE NGAP IDs of the release after a switch-off) | — | the release after a switch-off is graded on TS 23.502 4.2.2.3.2 step 8, read as a requirement: its absence is FAIL; the check owns the release after switch-off |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
 
 ### PDU session management
@@ -527,11 +527,12 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   registers without a PDU session and sends a switch-off Deregistration
   Request. A UE Context Release Command naming the connection's AMF and RAN
   UE NGAP IDs is PASS; one naming the UE by its AMF UE NGAP ID alone is FAIL
-  (TS 38.413 8.3.3.2, both IDs "if available"). The release itself is only
-  described (TS 23.502 4.2.2.3.2 step 8; nothing in TS 24.501 5.5.2.2.2), so
-  no command for the connection within 5 s violates no requirement: WARN
-  (availability), with the likely cause (the AMF leaves the N2 UE context)
-  in the detail. Needs a UE, else SKIP. Not yet run on Ref 2.
+  (TS 38.413 8.3.3.2, both IDs "if available"). The release itself is
+  TS 23.502 4.2.2.3.2 step 8, read as the requirement it states (the AMF
+  releases the N2 signalling connection with Cause Deregistration), so no
+  command for the connection within 5 s is FAIL, with the likely cause (the
+  AMF leaves the N2 UE context) in the detail. The check owns the release
+  after switch-off. Needs a UE, else SKIP. Not yet run on Ref 2.
 
 - `NAS-INITIAL-REGISTRATION` (nas, FAIL-class) — the run's own UE
   registers, without a PDU session, and is deregistered. The check owns the
@@ -555,8 +556,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   10 s, such as the Authentication Request, is an answer: every attempt
   answered is PASS, one with no NAS message FAIL (5.5.1.2.8 read in six
   versions: only case e) 2), a second identical request, lets the AMF stay
-  silent). A core that sends no release for a switch-off is INFO; a
-  registration of the SUPI that does not complete is BLOCKED. The UE is deregistered at the end; the
+  silent). A core that sends no release for a switch-off is BLOCKED on the
+  release after switch-off, owned by `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF`; a
+  registration of the SUPI that does not complete is BLOCKED on the
+  registration. The UE is deregistered at the end; the
   detail says what an unanswered registration left. Needs a UE (one
   subscriber); up to 124 s.
 

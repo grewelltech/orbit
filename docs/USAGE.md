@@ -1676,11 +1676,12 @@ UE. The check can take up to 40 s, so it raises its own timeout.
 deregisters it with a switch-off, which gets no Deregistration Accept. It
 passes when the AMF then sends a UE Context Release Command naming the
 connection by both UE NGAP IDs (TS 38.413 8.3.3.2), and fails when the command
-names the UE by its AMF UE NGAP ID alone. No specification requires the
-release with a shall (TS 23.502 4.2.2.3.2 only describes it), so a core that
-sends none within 5 s is not failed: the check SKIPs with
-`no UE CONTEXT RELEASE COMMAND within 5s; not scored`, and the detail names the
-likely cause.
+names the UE by its AMF UE NGAP ID alone. It also fails when no command for
+the connection comes within 5 s: TS 23.502 4.2.2.3.2 step 8 has the AMF
+release the N2 signalling connection after the deregistration, and the check
+grades it as the requirement it states; the detail names the likely cause.
+The check owns that release: `NAS-REGISTRATION-AFTER-RELEASE`, which needs
+it, is BLOCKED naming this check when it does not come.
 
 `NAS-REGISTRATION-AFTER-RELEASE`, in the `nas` category, registers the UE,
 deregisters it with a switch-off and, when the AMF's UE Context Release
@@ -1690,8 +1691,8 @@ under a new RAN UE NGAP ID. It does so four times, with 0, 5, 10 and 20 ms
 between the two messages. It passes when every registration draws a NAS
 message within 10 s (the Authentication Request is enough), and fails when
 one draws none: an initial registration is answered with an Accept or a
-Reject (TS 24.501 5.5.1.2.4, 5.5.1.2.5). It SKIPs on a core that sends no
-release after a switch-off. An answered registration is completed and the UE
+Reject (TS 24.501 5.5.1.2.4, 5.5.1.2.5). On a core that sends no release
+after a switch-off it is BLOCKED, naming `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF`. An answered registration is completed and the UE
 is deregistered at the end; the detail gives the measured gap and the first
 answer of each registration, and what an unanswered one left. It can take up
 to 124 s against a core that does not answer, and a few seconds otherwise.
