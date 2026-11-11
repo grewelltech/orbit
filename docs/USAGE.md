@@ -1705,6 +1705,23 @@ is deregistered at the end; the detail gives the measured gap and the first
 answer of each registration, and what an unanswered one left. It can take up
 to 124 s against a core that does not answer, and a few seconds otherwise.
 
+`NAS-REGISTRATION-DURING-OTHER-RELEASE`, also in the `nas` category, does the
+same with two subscribers and two gNBs: one UE registers on the check's own
+gNB, a second gNB (the check's handover-target gNB ID) completes NG Setup on an
+association of its own, and the first UE deregisters with a switch-off. When
+the AMF's UE Context Release Command arrives, the first gNB sends the UE
+Context Release Complete and the second gNB sends the other subscriber's
+initial Registration Request, 0, 10, 20, 30, 40 and 50 ms later: six attempts,
+the two UEs and gNBs taking turns. Another UE's registration can arrive at any
+time relative to a release, so the gaps sample the first 50 ms after the
+complete evenly rather than aiming at any one core. It is graded like
+`NAS-REGISTRATION-AFTER-RELEASE`: PASS when every registration draws a NAS
+message within 10 s, FAIL when one draws none (TS 24.501 5.5.1.2.4,
+5.5.1.2.5), BLOCKED on a missing release or a second gNB the core does not
+set up. It needs two subscribers in the pool (with one, the other UE is the
+same subscriber on its own association, and the detail says so) and can take
+up to 200 s against a core that does not answer.
+
 `NAS-PDU-RELEASE-UE-REQUESTED` registers the UE with a PDU session and sends
 a PDU Session Release Request. It passes when the core answers with a PDU
 Session Release Command (inside the NGAP command or in a Downlink NAS

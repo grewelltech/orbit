@@ -26,7 +26,7 @@ func TestConformanceList(t *testing.T) {
 		{name: "all checks", args: []string{"--list"},
 			want: []string{"CHECK", "CLASS", "UP TO", "PHASE", "stranding", "disruptive", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
 		{name: "nas only", args: []string{"--list", "--category", "nas"},
-			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "6 checks, up to 8m49s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
+			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "7 checks, up to 12m9s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "longer per-test timeout", args: []string{"--list", "--category", "procedural", "--per-test-timeout", "40s"},
 			want: []string{"NGAP-NG-RESET-ACK", "40s", "at --per-test-timeout 40s"}},
 		{name: "one check", args: []string{"--list", "--check", "NGAP-NG-RESET-ACK"},
@@ -145,7 +145,7 @@ func TestAnnouncer(t *testing.T) {
 	a.done()
 	out := w.String()
 	for _, want := range []string{
-		"Running 6 checks, up to 8m49s in total\n",
+		"Running 7 checks, up to 12m9s in total\n",
 		"preflight: NG Setup ok\npreflight: registration failed\n",
 		"[1/2] " + nas[0].ID() + " (nas): up to 100ms\n",
 		"[2/2] " + nas[1].ID() + " (nas): up to 10ms\n",
