@@ -65,9 +65,11 @@ func TestXnHandoverNotAcknowledged(t *testing.T) {
 		answer  mockamf.PathSwitchAnswer
 		wait    time.Duration
 		wantErr string
+		// refused is whether the error is ErrPathSwitchRefused.
+		refused bool
 	}{
 		{name: "failure", net24: testnet.EngineXnNotAckFailure, answer: mockamf.FailPathSwitch, wait: 15 * time.Second,
-			wantErr: "the core answered with PATH SWITCH REQUEST FAILURE"},
+			wantErr: "the core answered with PATH SWITCH REQUEST FAILURE", refused: true},
 		{name: "no answer", net24: testnet.EngineXnNotAckSilence, answer: mockamf.IgnorePathSwitch, wait: time.Second,
 			wantErr: "await PathSwitch response"},
 	}
@@ -83,6 +85,9 @@ func TestXnHandoverNotAcknowledged(t *testing.T) {
 			res, err := m.XnHandover(ctx, supi, GNBEndpoint{Config: gnb.Config{ID: 2, Name: "orbit-gnb-2"}, AMFAddr: p.amfAddr, N3Addr: p.tgtN3})
 			if !errors.Is(err, ErrPathSwitchNotAcknowledged) || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("XnHandover = %v, want ErrPathSwitchNotAcknowledged naming %q", err, tc.wantErr)
+			}
+			if got := errors.Is(err, ErrPathSwitchRefused); got != tc.refused {
+				t.Errorf("XnHandover = %v: ErrPathSwitchRefused %v, want %v", err, got, tc.refused)
 			}
 			if res.PathSwitchAck != nil {
 				t.Errorf("PathSwitchAck = %+v on a failed handover", res.PathSwitchAck)

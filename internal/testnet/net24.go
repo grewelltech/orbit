@@ -189,7 +189,10 @@ const ()
 
 // internal/conformance: the declared outcomes of the GTP-U and mobility
 // checks (group B), in blocks 11 to 20 and 96 to 103.
-const ()
+const (
+	EngineTargetNGSetupXn = 11 // TestHandoverTargetNGSetupRejected/Xn
+	EngineTargetNGSetupN2 = 12 // TestHandoverTargetNGSetupRejected/N2
+)
 
 // internal/conformance: the declared outcomes of the NAS registration
 // checks (group C), in blocks 21 to 30 and 104 to 111.

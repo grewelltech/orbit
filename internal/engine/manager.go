@@ -224,8 +224,9 @@ func NewManager(log *slog.Logger) *Manager {
 	}
 }
 
-// ErrNGSetup marks a Register that failed before the UE's attach began: the
-// SCTP association or the NG Setup with the AMF did not complete.
+// ErrNGSetup marks a Register that failed before the UE's attach began, or
+// a handover that failed before its target gNB was set up: the SCTP
+// association or the NG Setup with the AMF did not complete.
 var ErrNGSetup = errors.New("NG Setup did not complete")
 
 // ngSetupError is an error that is ErrNGSetup and reads as the error it

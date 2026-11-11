@@ -187,6 +187,17 @@ func (m *Manager) Handover(ctx context.Context, supi string, target GNBEndpoint)
 	return HandoverResult{Elapsed: elapsed, Target: target.Config, Command: cmd}, nil
 }
 
+// ErrHandoverNotCommanded marks an N2 handover whose HANDOVER REQUIRED was
+// sent and which the core did not carry to a HANDOVER COMMAND: it answered
+// with a HANDOVER PREPARATION FAILURE (the error then also wraps a
+// *gnb.HandoverPreparationFailure), sent no HANDOVER REQUEST to the target
+// or no HANDOVER COMMAND to the source before the context ended, sent
+// another message in place of either, or lost an association while one was
+// awaited. A handover that failed before the HANDOVER REQUIRED left (the
+// target's dial or NG Setup, which are ErrNGSetup, or a message that could
+// not be built or sent) is not marked.
+var ErrHandoverNotCommanded = errors.New("handover not commanded")
+
 // preparedHandover is an N2 handover whose preparation the AMF has
 // answered with a HANDOVER COMMAND: the target association, what the target
 // admitted, and the command's PDU Session Resource Handover List.
@@ -217,7 +228,7 @@ func (m *Manager) prepareHandover(ctx context.Context, sess *Session, target GNB
 	// Bring up the target association.
 	tgtConn, err := sctp.Dial(ctx, target.BindAddr, target.AMFAddr)
 	if err != nil {
-		return nil, fmt.Errorf("dial target gNB: %w", err)
+		return nil, beforeAttach(fmt.Errorf("dial target gNB: %w", err))
 	}
 	prep, err := m.prepareHandoverOn(ctx, sess, target, tgtConn)
 	if err != nil {
@@ -231,8 +242,11 @@ func (m *Manager) prepareHandover(ctx context.Context, sess *Session, target GNB
 // which the caller closes on an error.
 func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target GNBEndpoint, tgtConn n2Conn) (*preparedHandover, error) {
 	ng, err := gnb.NGSetup(ctx, tgtConn, target.Config)
-	if err != nil || !ng.Accepted {
-		return nil, fmt.Errorf("target NG Setup: %w", err)
+	switch {
+	case err != nil:
+		return nil, beforeAttach(fmt.Errorf("target NG Setup: %w", err))
+	case !ng.Accepted:
+		return nil, beforeAttach(fmt.Errorf("target NG Setup rejected: %s", ng.Cause))
 	}
 	// The target association's reads go through one reader too
 	// (gnb.Dedicated); its lane is the UE's on the target.
@@ -255,11 +269,14 @@ func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target G
 	// 2. AMF → target: HandoverRequest.
 	reqPDU, err := gnb.ReadPDU(ctx, tgt)
 	if err != nil {
-		return nil, fmt.Errorf("await HandoverRequest: %w", err)
+		if refused := m.refusedAtSource(ctx, sess); refused != nil {
+			return nil, fmt.Errorf("%w: before a HandoverRequest reached the target: %w", ErrHandoverNotCommanded, refused)
+		}
+		return nil, fmt.Errorf("%w: await HandoverRequest: %w", ErrHandoverNotCommanded, err)
 	}
 	hr, err := gnb.ParseHandoverRequest(reqPDU)
 	if err != nil {
-		return nil, fmt.Errorf("HandoverRequest not delivered to target (AMF drove preparation): %w", err)
+		return nil, fmt.Errorf("%w: HandoverRequest not delivered to target (AMF drove preparation): %w", ErrHandoverNotCommanded, err)
 	}
 
 	// 3. target → AMF: HandoverRequestAcknowledge (target DL N3 tunnel).
@@ -290,17 +307,44 @@ func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target G
 		cmdPDU, err = sess.readPDU(ctx)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("await HandoverCommand: %w", err)
+		return nil, fmt.Errorf("%w: await HandoverCommand: %w", ErrHandoverNotCommanded, err)
 	}
 	if _, err := gnb.ParseHandoverCommand(cmdPDU); err != nil {
 		var refused *gnb.HandoverPreparationFailure
 		if errors.As(err, &refused) {
-			return nil, fmt.Errorf("after the target's HandoverRequestAcknowledge: %w", err)
+			return nil, fmt.Errorf("%w: after the target's HandoverRequestAcknowledge: %w", ErrHandoverNotCommanded, err)
 		}
-		return nil, fmt.Errorf("HandoverCommand: %w", err)
+		return nil, fmt.Errorf("%w: HandoverCommand: %w", ErrHandoverNotCommanded, err)
 	}
 	return &preparedHandover{tgtConn: tgtConn, tgt: tgt, hr: hr, admitted: admitted, dlTEIDs: dlTEIDs,
 		command: gnb.ParseHandoverCommandItems(cmdPDU)}, nil
+}
+
+// refusedWait bounds the look at the source association for a HANDOVER
+// PREPARATION FAILURE once no HANDOVER REQUEST has reached the target.
+const refusedWait = 200 * time.Millisecond
+
+// refusedAtSource reads what is waiting on the UE's source association and
+// returns the HANDOVER PREPARATION FAILURE among it, nil when there is
+// none: an AMF that refuses a handover without asking the target answers
+// the source only. It reads for at most refusedWait, also when ctx has
+// ended.
+func (m *Manager) refusedAtSource(ctx context.Context, sess *Session) *gnb.HandoverPreparationFailure {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refusedWait)
+	defer cancel()
+	for {
+		pdu, err := sess.readPDU(rctx)
+		if err != nil {
+			return nil
+		}
+		if sess.absorbDownlinkNAS(rctx, m.log, pdu) {
+			continue
+		}
+		var refused *gnb.HandoverPreparationFailure
+		if _, err := gnb.ParseHandoverCommand(pdu); errors.As(err, &refused) {
+			return refused
+		}
+	}
 }
 
 // completeHandover sends the HANDOVER NOTIFY of a prepared handover and

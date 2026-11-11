@@ -103,17 +103,27 @@ func (m *Manager) XnHandoverWith(ctx context.Context, supi string, target GNBEnd
 // stays on its source gNB.
 var ErrPathSwitchNotAcknowledged = errors.New("path switch not acknowledged")
 
+// ErrPathSwitchRefused marks an Xn handover whose PATH SWITCH REQUEST the
+// core answered with PATH SWITCH REQUEST FAILURE. Such an error is also
+// ErrPathSwitchNotAcknowledged.
+var ErrPathSwitchRefused = errors.New("path switch refused")
+
 // runXnHandover runs the handover and returns the Switched List of the
 // Acknowledge that completed it, with the Acknowledge's UE Security
 // Capabilities IE (nil when it has none).
 func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEndpoint, o xnOptions) (*gnb.PathSwitchAck, *ngapType.UESecurityCapabilities, error) {
 	tgtConn, err := sctp.Dial(ctx, target.BindAddr, target.AMFAddr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("dial target gNB: %w", err)
+		return nil, nil, beforeAttach(fmt.Errorf("dial target gNB: %w", err))
 	}
-	if ng, err := gnb.NGSetup(ctx, tgtConn, target.Config); err != nil || !ng.Accepted {
+	ng, err := gnb.NGSetup(ctx, tgtConn, target.Config)
+	switch {
+	case err != nil:
 		tgtConn.Close()
-		return nil, nil, fmt.Errorf("target NG Setup: %w", err)
+		return nil, nil, beforeAttach(fmt.Errorf("target NG Setup: %w", err))
+	case !ng.Accepted:
+		tgtConn.Close()
+		return nil, nil, beforeAttach(fmt.Errorf("target NG Setup rejected: %s", ng.Cause))
 	}
 	// The target association's reads go through one reader too
 	// (gnb.Dedicated); its lane is the UE's on the target.
@@ -152,7 +162,12 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		_ = tgt.Close()
 		return nil, nil, fmt.Errorf("%w: await PathSwitch response: %w", ErrPathSwitchNotAcknowledged, err)
 	}
-	if gnb.ClassifyPathSwitch(pdu) != gnb.PathSwitchAcknowledged {
+	switch gnb.ClassifyPathSwitch(pdu) {
+	case gnb.PathSwitchAcknowledged:
+	case gnb.PathSwitchFailed:
+		_ = tgt.Close()
+		return nil, nil, fmt.Errorf("%w: %w: the core answered with %s", ErrPathSwitchNotAcknowledged, ErrPathSwitchRefused, gnb.DescribePathSwitchAnswer(pdu))
+	default:
 		_ = tgt.Close()
 		return nil, nil, fmt.Errorf("%w: the core answered with %s", ErrPathSwitchNotAcknowledged, gnb.DescribePathSwitchAnswer(pdu))
 	}
