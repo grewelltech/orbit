@@ -155,7 +155,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   a PLMN the AMF does not serve (999/99, with a TAC distinct from the served
   one) → the AMF **shall** reject it (TS 38.413 8.7.1.4); NG SETUP FAILURE is
   PASS, with the cause recorded ("Unknown PLMN or SNPN" expected). Acceptance,
-  another PDU, a silent drop or a reset is FAIL. It never presents a served
+  another PDU, a silent drop or a reset is FAIL; a core that serves the
+  stimulus PLMN is ERROR, and one that then stops completing NG Setup is
+  CRASH. It never presents a served
   PLMN with an unknown TAC, which an AMF rejects with the same cause. Predicted
   PASS on SD-Core from source; not yet run live.
 - `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (procedural, FAIL-class) — after NG

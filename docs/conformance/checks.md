@@ -214,7 +214,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NGAP-NGSETUP-UNKNOWN-PLMN
 
-- TS 38.413 8.7.1.4 (shall, since Rel-15): Rel-15 V15.2.0 (`38413-f20.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.9.0 (`38413-g90.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.7.1.4 (shall, since Rel-15): Rel-15 V15.2.0 (`38413-f20.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.9.0 (`38413-g90.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 - TS 38.413 9.3.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 
 ### NGAP-PAGING-ON-DL-DATA
@@ -572,6 +572,18 @@ Needs no procedure first.
 | `other-pdu` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | answered with another PDU instead of NG SETUP FAILURE; the association survived |
 | `silent-drop` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent no NG SETUP FAILURE; the association survived |
 | `association-reset` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | reset the association instead of sending NG SETUP FAILURE |
+
+### NGAP-NGSETUP-UNKNOWN-PLMN outcomes
+
+Needs no procedure first.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `setup-failure` | PASS | TS 38.413 8.7.1.4 (shall) | rejected the NG Setup naming only an unserved PLMN with NG SETUP FAILURE |
+| `accepted` | FAIL | TS 38.413 8.7.1.4 (shall) | accepted the NG Setup naming only an unserved PLMN |
+| `other-pdu` | FAIL | TS 38.413 8.7.1.4 (shall) | answered with another PDU instead of NG SETUP FAILURE; the association survived |
+| `silent-drop` | FAIL | TS 38.413 8.7.1.4 (shall); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent no NG SETUP FAILURE; the association survived |
+| `association-reset` | FAIL | TS 38.413 8.7.1.4 (shall) | reset the association instead of sending NG SETUP FAILURE |
 
 ### NGAP-PATH-SWITCH-SECCAP-MISMATCH outcomes
 

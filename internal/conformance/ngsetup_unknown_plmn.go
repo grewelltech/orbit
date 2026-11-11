@@ -34,21 +34,46 @@ const unservedTACOffset = 0x100
 // it shall reject the NG Setup procedure with an appropriate cause value."
 // Rejecting the procedure means its unsuccessful-outcome message (8.7.1.3),
 // so NG SETUP FAILURE is PASS, its cause recorded and not asserted.
-// Anything else misses the shall and is FAIL, with Observed saying which:
+// Anything else misses the shall and is FAIL, with its own outcome:
 // acceptance (NG SETUP RESPONSE), another PDU (an ERROR INDICATION
-// included), a silent drop within ngSetupWait, an association reset, or a
-// fresh NG Setup (with the real, served PLMN) that no longer completes.
+// included), no answer within ngSetupWait, or an association reset. A fresh
+// NG Setup afterwards, with the real, served PLMN, confirms the core
+// (confirmAlive): one that no longer completes is CRASH.
 //
 // The stimulus never lists a served PLMN with an unknown TAC: an AMF that
 // matches whole TAIs rejects that with the same cause, so a PASS would not
 // show that it checks the PLMN.
 type ngSetupUnknownPLMN struct{}
 
+// unknownPLMNRef is the key of the shall every outcome of the check rests
+// on.
+const unknownPLMNRef = "TS 38.413 8.7.1.4"
+
+// The outcomes of NGAP-NGSETUP-UNKNOWN-PLMN.
+var (
+	unknownPLMNRejected = Outcome{ID: "setup-failure", Verdict: Pass, Refs: []string{unknownPLMNRef},
+		Summary: "rejected the NG Setup naming only an unserved PLMN with NG SETUP FAILURE"}
+	unknownPLMNAccepted = Outcome{ID: "accepted", Verdict: Fail, Refs: []string{unknownPLMNRef},
+		Summary: "accepted the NG Setup naming only an unserved PLMN"}
+	unknownPLMNOtherPDU = Outcome{ID: "other-pdu", Verdict: Fail, Refs: []string{unknownPLMNRef},
+		Summary: "answered with another PDU instead of NG SETUP FAILURE; the association survived"}
+	unknownPLMNSilent = Outcome{ID: "silent-drop", Verdict: Fail, Refs: []string{unknownPLMNRef},
+		Bound:   &Bound{Wait: ngSetupWait, Source: "check bound; TS 38.413 sets no timer for the NG Setup outcome"},
+		Summary: "sent no NG SETUP FAILURE; the association survived"}
+	unknownPLMNReset = Outcome{ID: "association-reset", Verdict: Fail, Refs: []string{unknownPLMNRef},
+		Summary: "reset the association instead of sending NG SETUP FAILURE"}
+)
+
+// Outcomes declares what the check can report.
+func (ngSetupUnknownPLMN) Outcomes() []Outcome {
+	return []Outcome{unknownPLMNRejected, unknownPLMNAccepted, unknownPLMNOtherPDU, unknownPLMNSilent, unknownPLMNReset}
+}
+
 func (ngSetupUnknownPLMN) ID() string         { return "NGAP-NGSETUP-UNKNOWN-PLMN" }
 func (ngSetupUnknownPLMN) Category() Category { return NegativeIE }
 func (ngSetupUnknownPLMN) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "8.7.1.4", Strength: Shall, Since: 15, Verified: ts38413NGSetupAbnormalVerified,
+		{Spec: "TS 38.413", Clause: "8.7.1.4", Strength: Shall, Since: 15, Verified: ts38413NGSetupAbnormalVerified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs"},
 				{Release: 16, Note: "reworded to the PLMNs/SNPNs form in V16.9.0"},
@@ -71,8 +96,7 @@ func (ngSetupUnknownPLMN) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "NG SETUP FAILURE rejecting a gNB whose PLMNs the AMF does not serve, and the core survives (TS 38.413 8.7.1.4)"}
 	conn, err := env.Dial(ctx) // raw association: the NG Setup is the stimulus
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "dial failed", err.Error()
-		return r
+		return r.Errored("dial failed", err.Error())
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -81,27 +105,31 @@ func (ngSetupUnknownPLMN) Run(ctx context.Context, env Env) Result {
 	stim.TAC = (env.GNB.TAC + unservedTACOffset) & 0xffffff
 	presented, err := ngap.EncodePLMN(stim.MCC, stim.MNC)
 	if err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("stimulus could not be built", err.Error())
 	}
 	pdu, err := gnb.BuildNGSetupRequest(stim)
 	if err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("stimulus could not be built", err.Error())
 	}
 	if err := gnb.SendPDU(conn, 0, pdu); err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("stimulus could not be sent", err.Error())
 	}
 
 	sent := time.Now()
 	rctx, cancel := context.WithTimeout(ctx, ngSetupWait)
 	defer cancel()
 	resp, err := gnb.ReadPDU(rctx, conn)
-	var survived bool
-	r.Verdict, r.Observed, r.Detail, survived = classifyUnknownPLMN(resp, err, time.Since(sent), presented, stim.MCC+"/"+stim.MNC)
-	r.Detail = joinDetail(fmt.Sprintf("presented PLMN %s/%s, TAC %d (served: %s/%s, TAC %d)",
-		stim.MCC, stim.MNC, stim.TAC, env.GNB.MCC, env.GNB.MNC, env.GNB.TAC), r.Detail)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return r.Errored("timed out waiting for the NG SETUP FAILURE",
+			fmt.Sprintf("the per-test timeout expired before the %s the check waits; raise --per-test-timeout", ngSetupWait))
+	}
+	presentedText := fmt.Sprintf("presented PLMN %s/%s, TAC %d (served: %s/%s, TAC %d)",
+		stim.MCC, stim.MNC, stim.TAC, env.GNB.MCC, env.GNB.MNC, env.GNB.TAC)
+	o, observed, detail, survived, serves := classifyUnknownPLMN(resp, err, time.Since(sent), presented, stim.MCC+"/"+stim.MNC)
+	if serves {
+		return r.Errored(observed, joinDetail(presentedText, detail))
+	}
+	r = r.As(o, observed, joinDetail(presentedText, detail))
 
 	// Crash-safety confirmation whenever the association survived; the
 	// probe presents the real, served PLMN.
@@ -113,30 +141,31 @@ const unknownPLMNFailText = "AMF accepted NG Setup whose PLMNs it does not serve
 	"Rel-16 V16.9.0: reworded to PLMNs/SNPNs). Likely cause: AMF does not compare the Broadcast PLMN List against its served PLMNs."
 
 // classifyUnknownPLMN maps the AMF's reaction to an NG Setup naming only
-// the presented PLMN (label, e.g. "999/99") onto a verdict; after is how
+// the presented PLMN (label, e.g. "999/99") onto an outcome; after is how
 // long after the request the reaction came. NG SETUP FAILURE is PASS with
-// its cause recorded. An NG SETUP RESPONSE whose PLMN Support List or Served
-// GUAMI List names the presented PLMN shows the AMF serves it, so the check
-// cannot run: ERROR, not a false FAIL. Anything else misses the 8.7.1.4
-// shall and is FAIL. survived reports whether the association is still up,
-// so the caller confirms the core.
-func classifyUnknownPLMN(resp *ngapType.NGAPPDU, err error, after time.Duration, presented [3]byte, label string) (v Verdict, observed, detail string, survived bool) {
+// its cause recorded. An NG SETUP RESPONSE whose PLMN Support List or
+// Served GUAMI List names the presented PLMN shows the AMF serves it, so the
+// check cannot run: serves is set, and the caller reports ERROR, not a false
+// FAIL. Anything else misses the 8.7.1.4 shall and is FAIL. survived
+// reports whether the association is still up, so the caller confirms the
+// core.
+func classifyUnknownPLMN(resp *ngapType.NGAPPDU, err error, after time.Duration, presented [3]byte, label string) (o Outcome, observed, detail string, survived, serves bool) {
 	switch {
 	case err == nil && isNGSetupFailure(resp):
-		return Pass, "NG SETUP FAILURE (rejected)", "cause " + ngSetupFailureCause(resp) + " (recorded, not asserted)", true
+		return unknownPLMNRejected, "NG SETUP FAILURE (rejected)", "cause " + ngSetupFailureCause(resp) + " (recorded, not asserted)", true, false
 	case err == nil && isNGSetupResponse(resp) && responseServesPLMN(resp, presented):
-		return Error, "AMF serves the stimulus PLMN",
-			fmt.Sprintf("the AMF serves the stimulus PLMN %s; this check cannot run against it", label), true
+		return Outcome{}, "AMF serves the stimulus PLMN",
+			fmt.Sprintf("the AMF serves the stimulus PLMN %s; this check cannot run against it", label), true, true
 	case err == nil && isNGSetupResponse(resp):
-		return Fail, "NG SETUP RESPONSE (accepted!)", unknownPLMNFailText, true
+		return unknownPLMNAccepted, "NG SETUP RESPONSE (accepted!)", unknownPLMNFailText, true, false
 	case err == nil:
-		return Fail, ngapName(resp), fmt.Sprintf("answered with %s %s after the NG SETUP REQUEST instead of NG SETUP FAILURE; the association survived",
-			ngapName(resp), after.Round(time.Millisecond)), true
+		return unknownPLMNOtherPDU, ngapName(resp), fmt.Sprintf("answered with %s %s after the NG SETUP REQUEST instead of NG SETUP FAILURE; the association survived",
+			ngapName(resp), after.Round(time.Millisecond)), true, false
 	case errors.Is(err, context.DeadlineExceeded):
-		return Fail, "silently dropped; association survived",
-			fmt.Sprintf("no NG SETUP FAILURE within %s of the NG SETUP REQUEST (absence inferred within this bound); the association survived", ngSetupWait), true
+		return unknownPLMNSilent, "silently dropped; association survived",
+			fmt.Sprintf("no NG SETUP FAILURE within %s of the NG SETUP REQUEST (absence inferred within this bound); the association survived", ngSetupWait), true, false
 	default:
-		return Fail, "association reset", err.Error(), false
+		return unknownPLMNReset, "association reset", err.Error(), false, false
 	}
 }
 
