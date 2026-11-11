@@ -25,7 +25,7 @@ func TestLoadExpectedFailuresFixture(t *testing.T) {
 // Loading refuses anything that could match loosely or not at all, naming
 // the file and the entry.
 func TestParseExpectedFailures(t *testing.T) {
-	known := map[string]bool{"NGAP-UNKNOWN-UE-SURVIVES": true, "GTPU-UNKNOWN-TEID-ERRIND": true}
+	known := map[string][]Verdict{"NGAP-UNKNOWN-UE-SURVIVES": {Fail}, "GTPU-UNKNOWN-TEID-ERRIND": {Fail}, "NGAP-NG-SETUP": {Deviation, Warn}, "NGAP-INFO-ONLY": {}}
 	const head = "core: c\nversion: v\n"
 	entry := func(fields ...string) string {
 		return "entries:\n  - " + strings.Join(fields, "\n    ") + "\n"
@@ -56,6 +56,15 @@ func TestParseExpectedFailures(t *testing.T) {
 		{name: "unknown check", yaml: head + entry("check: NGAP-NOPE", full[1], full[2], full[3], full[4]), wantErr: `entry 1: unknown check "NGAP-NOPE"`},
 		{name: "duplicate", yaml: head + entry(full...) + "  - " + strings.Join(full, "\n    ") + "\n", wantErr: "entry 2: duplicates entry 1"},
 		{name: "same check, other observed", yaml: head + entry(full...) + "  - " + strings.Join(append([]string{full[0], `observed: "association reset"`}, full[2:]...), "\n    ") + "\n", entries: 2},
+		{name: "a DEVIATION", yaml: head + entry("check: NGAP-NG-SETUP", "verdict: DEVIATION", full[1], full[2], full[3], full[4]), entries: 1},
+		{name: "a WARN", yaml: head + entry("check: NGAP-NG-SETUP", "verdict: WARN", full[1], full[2], full[3], full[4]), entries: 1},
+		{name: "same check and observed, other verdict", yaml: head + entry("check: NGAP-NG-SETUP", "verdict: WARN", full[1], full[2], full[3], full[4]) +
+			"  - " + strings.Join([]string{"check: NGAP-NG-SETUP", "verdict: DEVIATION", full[1], full[2], full[3], full[4]}, "\n    ") + "\n", entries: 2},
+		{name: "a FAIL the check never reports", yaml: head + entry("check: NGAP-NG-SETUP", full[1], full[2], full[3], full[4]), wantErr: `check "NGAP-NG-SETUP" never reports FAIL`},
+		{name: "a check that reports nothing listable", yaml: head + entry("check: NGAP-INFO-ONLY", "verdict: WARN", full[1], full[2], full[3], full[4]), wantErr: "never reports WARN"},
+		{name: "BLOCKED", yaml: head + entry(full[0], "verdict: BLOCKED", full[1], full[2], full[3], full[4]), wantErr: `verdict "BLOCKED" cannot be listed`},
+		{name: "CRASH", yaml: head + entry(full[0], "verdict: CRASH", full[1], full[2], full[3], full[4]), wantErr: `verdict "CRASH" cannot be listed`},
+		{name: "ERROR", yaml: head + entry(full[0], "verdict: ERROR", full[1], full[2], full[3], full[4]), wantErr: `verdict "ERROR" cannot be listed`},
 		{name: "unknown key in entry", yaml: head + entry(append(full, "severity: low")...), wantErr: "field severity not found"},
 		{name: "unknown top-level key", yaml: head + "owner: x\n", wantErr: "field owner not found"},
 		{name: "a dead AMF", yaml: head + entry(full[0], `observed: "AMF unresponsive after the message (silently dropped; association survived)"`, full[2], full[3], full[4]), wantErr: "cannot be listed"},
@@ -83,12 +92,15 @@ func TestParseExpectedFailures(t *testing.T) {
 	}
 }
 
-// An entry tolerates exactly its (check, observed) FAIL. It never hides
-// another failure mode of the check, an ERROR or a crash; stale entries are
-// reported but do not gate; SKIP is neither matched nor stale.
+// An entry tolerates exactly its (check, verdict, observed) result; one
+// with no verdict expects FAIL. It never hides another failure mode of the
+// check, another verdict with the same text, an ERROR or a crash; stale
+// entries are reported, per verdict, but do not gate; SKIP is neither
+// matched nor stale.
 func TestExpectedFailuresApplyAndGate(t *testing.T) {
 	x := &ExpectedFailures{Core: "Example core", Version: "v", Entries: []ExpectedFailureEntry{
 		{Check: "A", Observed: "silently dropped; association survived", Finding: "EX-1", Added: "2026-10-12", Reason: "example"},
+		{Check: "W", Verdict: Warn, Observed: "rejected", Finding: "EX-2", Added: "2026-10-12", Reason: "example"},
 	}}
 	res := func(v Verdict, observed string) []Result { return []Result{{ID: "A", Verdict: v, Observed: observed}} }
 	tests := []struct {
@@ -103,7 +115,9 @@ func TestExpectedFailuresApplyAndGate(t *testing.T) {
 		{name: "core died after the drop", results: res(Fail, "AMF unresponsive after the message (silently dropped; association survived)"), wantStale: true},
 		{name: "ERROR with the same text", results: res(Error, "silently dropped; association survived")},
 		{name: "now passes", results: res(Pass, "ERROR INDICATION"), wantStale: true, wantOK: true},
-		{name: "now deviates", results: res(Deviation, "x"), wantStale: true, wantOK: true},
+		{name: "now deviates", results: res(Deviation, "x"), wantStale: true},
+		{name: "a listed WARN", results: []Result{{ID: "W", Verdict: Warn, Observed: "rejected"}, {ID: "A", Verdict: Fail, Observed: "silently dropped; association survived"}}, wantMark: true, wantOK: true},
+		{name: "the WARN's text as a DEVIATION", results: []Result{{ID: "W", Verdict: Deviation, Observed: "rejected"}, {ID: "A", Verdict: Fail, Observed: "silently dropped; association survived"}}, wantStale: true},
 		{name: "skipped", results: res(Skip, "not applicable"), wantOK: true},
 		{name: "not selected", results: []Result{{ID: "B", Verdict: Pass}}, wantOK: true},
 		{name: "a second, unlisted FAIL still gates", results: append(res(Fail, "silently dropped; association survived"),
@@ -116,11 +130,11 @@ func TestExpectedFailuresApplyAndGate(t *testing.T) {
 			if (r.ExpectedFailure != nil) != tc.wantMark {
 				t.Errorf("marked = %v, want %v", r.ExpectedFailure != nil, tc.wantMark)
 			}
-			if r.ExpectedFailure != nil && (r.Verdict != Fail || r.ExpectedFailure.Finding != "EX-1" || r.ExpectedFailure.Added != "2026-10-12") {
+			if r.ExpectedFailure != nil && (r.Verdict == Error || r.ExpectedFailure.Added != "2026-10-12") {
 				t.Errorf("marked result %+v", r)
 			}
 			for _, o := range tc.results[1:] {
-				if o.ExpectedFailure != nil {
+				if o.ExpectedFailure != nil && o.ID != "A" {
 					t.Errorf("result for another check marked: %+v", o)
 				}
 			}
@@ -128,7 +142,8 @@ func TestExpectedFailuresApplyAndGate(t *testing.T) {
 			if (len(stale) == 1) != tc.wantStale || len(stale) > 1 {
 				t.Errorf("stale = %+v, want stale %v", stale, tc.wantStale)
 			}
-			if len(stale) == 1 && (stale[0].Finding != "EX-1" || stale[0].Verdict != r.Verdict || stale[0].Observed != r.Observed) {
+			if len(stale) == 1 && (stale[0].Check != r.ID || stale[0].Verdict != r.Verdict || stale[0].Observed != r.Observed ||
+				stale[0].ExpectedVerdict != map[string]Verdict{"A": Fail, "W": Warn}[r.ID]) {
 				t.Errorf("stale entry %+v", stale[0])
 			}
 			s := Summarize(tc.results)

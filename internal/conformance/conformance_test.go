@@ -61,7 +61,9 @@ func TestBuiltinsRegistered(t *testing.T) {
 	}
 }
 
-func TestDeviationDoesNotFailGate(t *testing.T) {
+// A DEVIATION fails the default gate and not the spec one; a FAIL fails
+// both.
+func TestDeviationGatesByPolicy(t *testing.T) {
 	r := &Registry{}
 	r.Register(fakeTest{"A", Procedural, Pass, ""})
 	r.Register(fakeTest{"B", GTPU, Deviation, Should})
@@ -69,8 +71,11 @@ func TestDeviationDoesNotFailGate(t *testing.T) {
 	if sum.Deviation != 1 {
 		t.Errorf("want 1 deviation, got %d", sum.Deviation)
 	}
-	if !sum.OK() {
-		t.Error("a DEVIATION must not fail the gate")
+	if sum.OK() {
+		t.Error("a DEVIATION must fail the default gate")
+	}
+	if sum.Gate = GateSpec; !sum.OK() {
+		t.Error("a DEVIATION must not fail the spec gate")
 	}
 
 	r.Register(fakeTest{"C", NegativeIE, Fail, ""})

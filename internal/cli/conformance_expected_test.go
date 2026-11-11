@@ -39,7 +39,7 @@ func TestConformanceExpectedFailuresHeader(t *testing.T) {
 	if strings.Contains(out, "(expected:") || strings.Contains(out, "stale expected failure") {
 		t.Errorf("an ERROR was tolerated or reported stale:\n%s", out)
 	}
-	if err == nil || !strings.Contains(err.Error(), "conformance gate failed:") || !strings.Contains(err.Error(), "fail (0 expected)") {
+	if err == nil || !strings.Contains(err.Error(), "conformance gate default: failed: ") || !strings.Contains(err.Error(), " spec failures, 0 warnings") {
 		t.Errorf("err = %v, want the gate to fail on the ERRORs", err)
 	}
 }
@@ -69,8 +69,9 @@ func TestPrintConformanceTextExpected(t *testing.T) {
 		"expected-failures: Example core (lab A) (lab.yaml)\n",
 		"FAIL (expected: EX-1) [negative-ie] NGAP-UNKNOWN-UE-SURVIVES",
 		"FAIL  [procedural ] NGAP-NG-RESET-ACK",
-		`stale expected failure: GTPU-UNKNOWN-TEID-ERRIND EX-2: now PASS "Error Indication"` + "\n",
-		"3 checks: 1 pass, 2 fail (1 expected), 0 deviation, 0 warn, 0 info, 0 blocked, 0 crash, 0 skip, 0 error\n",
+		`stale expected failure: GTPU-UNKNOWN-TEID-ERRIND EX-2 (expected FAIL): now PASS "Error Indication"` + "\n",
+		"3 checks: 1 pass, 2 fail (1 expected), 0 deviation, 0 warn, 0 info, 0 blocked, 0 crash, 0 skip, 0 error\n" +
+			"gate default: failed: 1 spec failure, 0 warnings\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())

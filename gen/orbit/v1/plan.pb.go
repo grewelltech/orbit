@@ -1739,8 +1739,11 @@ type ExpectedFailure struct {
 	// The FAIL the entry tolerates, in a plan's own list
 	// (ConformanceWorkload.expected): the check's ID and its exact observed
 	// text. Unset on a result's matched entry.
-	Check         string `protobuf:"bytes,4,opt,name=check,proto3" json:"check,omitempty"`
-	Observed      string `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
+	Check    string `protobuf:"bytes,4,opt,name=check,proto3" json:"check,omitempty"`
+	Observed string `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
+	// The verdict the entry tolerates: FAIL, DEVIATION or WARN; empty is
+	// FAIL (ADR-0011 rule 8). Unset on a result's matched entry.
+	Verdict       string `protobuf:"bytes,6,opt,name=verdict,proto3" json:"verdict,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1806,6 +1809,13 @@ func (x *ExpectedFailure) GetCheck() string {
 func (x *ExpectedFailure) GetObserved() string {
 	if x != nil {
 		return x.Observed
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
 	}
 	return ""
 }
@@ -2222,11 +2232,15 @@ func (x *SLOGate) GetThreshold() float64 {
 	return 0
 }
 
-// ConformanceGate passes when no FAIL falls outside the expected-failures
-// list, no check ERRORed, and the suite ran to the end (Summary.OK, the
-// CLI's exit code).
+// ConformanceGate passes when the suite ran to the end and no result its
+// policy gates falls outside the expected-failures list (Summary.OK, the
+// CLI's exit code; ADR-0011 rule 8). A BLOCKED result counted under its
+// procedure's owner does not count again.
 type ConformanceGate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The gate policy: "default" (or empty) gates on FAIL, CRASH, BLOCKED,
+	// ERROR, DEVIATION and WARN; "spec" on FAIL, CRASH, BLOCKED and ERROR.
+	Policy        string `protobuf:"bytes,1,opt,name=policy,proto3" json:"policy,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2259,6 +2273,13 @@ func (x *ConformanceGate) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ConformanceGate.ProtoReflect.Descriptor instead.
 func (*ConformanceGate) Descriptor() ([]byte, []int) {
 	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ConformanceGate) GetPolicy() string {
+	if x != nil {
+		return x.Policy
+	}
+	return ""
 }
 
 // GateResult is one gate as the report applied it.
@@ -2546,13 +2567,14 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\x06checks\x18\v \x03(\tR\x06checks\"[\n" +
 	"\x10ExpectedFailures\x123\n" +
 	"\aentries\x18\x01 \x03(\v2\x19.orbit.v1.ExpectedFailureR\aentries\x12\x12\n" +
-	"\x04core\x18\x02 \x01(\tR\x04core\"\x8b\x01\n" +
+	"\x04core\x18\x02 \x01(\tR\x04core\"\xa5\x01\n" +
 	"\x0fExpectedFailure\x12\x18\n" +
 	"\afinding\x18\x01 \x01(\tR\afinding\x12\x14\n" +
 	"\x05added\x18\x02 \x01(\tR\x05added\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x14\n" +
 	"\x05check\x18\x04 \x01(\tR\x05check\x12\x1a\n" +
-	"\bobserved\x18\x05 \x01(\tR\bobserved\"K\n" +
+	"\bobserved\x18\x05 \x01(\tR\bobserved\x12\x18\n" +
+	"\averdict\x18\x06 \x01(\tR\averdict\"K\n" +
 	"\rNASAlgorithms\x12\x1c\n" +
 	"\tintegrity\x18\x01 \x03(\tR\tintegrity\x12\x1c\n" +
 	"\tciphering\x18\x02 \x03(\tR\tciphering\":\n" +
@@ -2576,8 +2598,9 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\aSLOGate\x12\x16\n" +
 	"\x06metric\x18\x01 \x01(\tR\x06metric\x12#\n" +
 	"\x02op\x18\x02 \x01(\x0e2\x13.orbit.v1.CompareOpR\x02op\x12\x1c\n" +
-	"\tthreshold\x18\x03 \x01(\x01R\tthreshold\"\x11\n" +
-	"\x0fConformanceGate\"|\n" +
+	"\tthreshold\x18\x03 \x01(\x01R\tthreshold\")\n" +
+	"\x0fConformanceGate\x12\x16\n" +
+	"\x06policy\x18\x01 \x01(\tR\x06policy\"|\n" +
 	"\n" +
 	"GateResult\x12\"\n" +
 	"\x04gate\x18\x01 \x01(\v2\x0e.orbit.v1.GateR\x04gate\x12\x16\n" +

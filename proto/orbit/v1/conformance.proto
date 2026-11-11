@@ -157,6 +157,7 @@ message StaleExpectation {
   string expected_observed = 3;   // the entry's observed text
   string verdict = 4;             // what the check gave this run
   string observed = 5;
+  string expected_verdict = 6;    // the entry's verdict: FAIL, DEVIATION or WARN
 }
 
 // SpecRef is one clause a conformance check asserts, with the 3GPP release

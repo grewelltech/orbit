@@ -288,8 +288,11 @@ func TestSuiteAssignedBases(t *testing.T) {
 	}
 }
 
-// The conformance gate passes a suite that ran to the end with no FAIL
-// outside the expected list and no ERROR; an incomplete suite fails.
+// The conformance gate passes a suite that ran to the end with no finding
+// its policy gates: the default policy gates FAIL, CRASH, BLOCKED, ERROR,
+// DEVIATION and WARN, the spec policy the first four; a listed result and
+// a BLOCKED counted under its owner do not count; an incomplete suite
+// fails.
 func TestJudgeSuite(t *testing.T) {
 	res := func(id, verdict string, expected bool) *orbitv1.ConformanceResult {
 		r := &orbitv1.ConformanceResult{Id: id, Verdict: verdict}
@@ -298,24 +301,33 @@ func TestJudgeSuite(t *testing.T) {
 		}
 		return r
 	}
+	owner := &orbitv1.ConformanceResult{Id: "O", Verdict: "WARN", NotCompleted: "N2 handover preparation"}
+	dep := &orbitv1.ConformanceResult{Id: "D", Verdict: "BLOCKED", BlockedOn: "N2 handover preparation", Owner: "O"}
 	tests := []struct {
 		name       string
+		policy     conformance.GatePolicy
 		summary    *orbitv1.ConformanceSummary
 		wantPass   bool
 		wantDetail string
 	}{
 		{name: "clean", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "PASS", false), res("B", "SKIP", false), res("C", "DEVIATION", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL, CRASH, BLOCKED or ERROR"},
-		{name: "INFO and WARN do not gate", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "PASS", false), res("B", "INFO", false), res("C", "WARN", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL, CRASH, BLOCKED or ERROR"},
+			res("A", "PASS", false), res("B", "SKIP", false), res("C", "INFO", false)}}, wantPass: true, wantDetail: "gate default: passed: 0 spec failures, 0 warnings; 3 checks"},
+		{name: "DEVIATION and WARN gate by default", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "PASS", false), res("B", "DEVIATION", false), res("C", "WARN", false)}},
+			wantDetail: "gate default: failed: 0 spec failures, 2 warnings; 2 unexpected: B DEVIATION, C WARN"},
+		{name: "DEVIATION and WARN do not gate under spec", policy: conformance.GateSpec, summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "PASS", false), res("B", "DEVIATION", false), res("C", "WARN", false)}}, wantPass: true,
+			wantDetail: "gate spec: passed: 0 spec failures, 2 warnings; 3 checks"},
 		{name: "an INFO beside a FAIL does not hide it", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
-			res("A", "INFO", false), res("B", "FAIL", false)}}, wantDetail: "1 unexpected: B FAIL"},
-		{name: "CRASH and BLOCKED gate", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "CRASH", false), res("B", "BLOCKED", false), res("C", "PASS", false)}}, wantDetail: "2 unexpected: A CRASH, B BLOCKED"},
-		{name: "an expected FAIL", summary: &orbitv1.ConformanceSummary{Total: 1, Results: []*orbitv1.ConformanceResult{
-			res("A", "FAIL", true)}}, wantPass: true},
+			res("A", "INFO", false), res("B", "FAIL", false)}}, wantDetail: "gate default: failed: 1 spec failure, 0 warnings; 1 unexpected: B FAIL"},
+		{name: "CRASH and BLOCKED gate under spec", policy: conformance.GateSpec, summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "CRASH", false), res("B", "BLOCKED", false), res("C", "PASS", false)}}, wantDetail: "gate spec: failed: 2 spec failures, 0 warnings; 2 unexpected: A CRASH, B BLOCKED"},
+		{name: "an expected FAIL and WARN", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
+			res("A", "FAIL", true), res("B", "WARN", true)}}, wantPass: true},
+		{name: "a BLOCKED counts under its owner", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{owner, dep}},
+			wantDetail: "gate default: failed: 0 spec failures, 1 warning; 1 unexpected: O WARN (and 1 BLOCKED under it: D)"},
 		{name: "an unexpected FAIL and an ERROR", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "FAIL", false), res("B", "ERROR", false), res("C", "PASS", false)}}, wantDetail: "2 unexpected: A FAIL, B ERROR"},
+			res("A", "FAIL", false), res("B", "ERROR", false), res("C", "PASS", false)}}, wantDetail: "gate default: failed: 2 spec failures, 0 warnings; 2 unexpected: A FAIL, B ERROR"},
 		{name: "incomplete", summary: &orbitv1.ConformanceSummary{Total: 9, Incomplete: true, Results: []*orbitv1.ConformanceResult{
 			res("A", "PASS", false), res("B", "PASS", false)}}, wantDetail: "suite incomplete: 2 of 9 checks ran"},
 		{name: "no report", wantDetail: "no report to judge"},
@@ -323,7 +335,7 @@ func TestJudgeSuite(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pass, _, detail := judgeSuite(tc.summary)
+			pass, _, detail := judgeSuite(tc.summary, tc.policy)
 			if pass != tc.wantPass || tc.wantDetail != "" && detail != tc.wantDetail {
 				t.Errorf("judgeSuite = %t, %q; want %t, %q", pass, detail, tc.wantPass, tc.wantDetail)
 			}

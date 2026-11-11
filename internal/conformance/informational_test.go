@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -292,7 +293,7 @@ func TestExpectedFailuresRefuseInformational(t *testing.T) {
 		infoTest{provTest{id: "INFORMATIONAL", refs: []SpecRef{refOf(Descriptive)}}},
 	}
 	known := listableChecks(tests)
-	if !known["GRADED"] || known["INFORMATIONAL"] || len(known) != 2 {
+	if !slices.Contains(known["GRADED"], Fail) || len(known["INFORMATIONAL"]) != 0 || len(known) != 2 {
 		t.Fatalf("listableChecks = %v", known)
 	}
 	entry := func(check string) []byte {
@@ -302,7 +303,7 @@ func TestExpectedFailuresRefuseInformational(t *testing.T) {
 		name, check, wantErr string
 	}{
 		{name: "graded", check: "GRADED"},
-		{name: "informational", check: "INFORMATIONAL", wantErr: `f.yaml: entry 1: check "INFORMATIONAL" is informational and never FAILs; it cannot be listed`},
+		{name: "informational", check: "INFORMATIONAL", wantErr: `f.yaml: entry 1: check "INFORMATIONAL" never reports FAIL; it cannot be listed with that verdict`},
 		{name: "unknown", check: "NOPE", wantErr: `unknown check "NOPE"`},
 	}
 	for _, tc := range cases {

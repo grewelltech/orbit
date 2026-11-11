@@ -631,6 +631,7 @@ type StaleExpectation struct {
 	ExpectedObserved string                 `protobuf:"bytes,3,opt,name=expected_observed,json=expectedObserved,proto3" json:"expected_observed,omitempty"` // the entry's observed text
 	Verdict          string                 `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`                                           // what the check gave this run
 	Observed         string                 `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
+	ExpectedVerdict  string                 `protobuf:"bytes,6,opt,name=expected_verdict,json=expectedVerdict,proto3" json:"expected_verdict,omitempty"` // the entry's verdict: FAIL, DEVIATION or WARN
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -696,6 +697,13 @@ func (x *StaleExpectation) GetVerdict() string {
 func (x *StaleExpectation) GetObserved() string {
 	if x != nil {
 		return x.Observed
+	}
+	return ""
+}
+
+func (x *StaleExpectation) GetExpectedVerdict() string {
+	if x != nil {
+		return x.ExpectedVerdict
 	}
 	return ""
 }
@@ -1279,13 +1287,14 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
 	"blocked_on\x18\x0e \x01(\tR\tblockedOn\x12\x14\n" +
 	"\x05owner\x18\x0f \x01(\tR\x05owner\x12#\n" +
-	"\rnot_completed\x18\x10 \x01(\tR\fnotCompleted\"\xa5\x01\n" +
+	"\rnot_completed\x18\x10 \x01(\tR\fnotCompleted\"\xd0\x01\n" +
 	"\x10StaleExpectation\x12\x14\n" +
 	"\x05check\x18\x01 \x01(\tR\x05check\x12\x18\n" +
 	"\afinding\x18\x02 \x01(\tR\afinding\x12+\n" +
 	"\x11expected_observed\x18\x03 \x01(\tR\x10expectedObserved\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x12\x1a\n" +
-	"\bobserved\x18\x05 \x01(\tR\bobserved\"\xad\x02\n" +
+	"\bobserved\x18\x05 \x01(\tR\bobserved\x12)\n" +
+	"\x10expected_verdict\x18\x06 \x01(\tR\x0fexpectedVerdict\"\xad\x02\n" +
 	"\aSpecRef\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x16\n" +
 	"\x06clause\x18\x02 \x01(\tR\x06clause\x12\x1a\n" +

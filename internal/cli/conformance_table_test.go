@@ -108,7 +108,8 @@ func TestConformanceReportPreflight(t *testing.T) {
 }
 
 // INFO and WARN print as their own lines and tally columns in both
-// renderings, and leave the gate alone.
+// renderings; the WARN fails the default gate and not the spec one, and
+// the gate line says so.
 func TestConformanceReportInformational(t *testing.T) {
 	results := []conformance.Result{
 		{ID: "NGAP-A", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Pass, Observed: "ok", Detail: "d1"},
@@ -116,8 +117,11 @@ func TestConformanceReportInformational(t *testing.T) {
 		{ID: "NGAP-C", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Warn, Observed: "no answer", Detail: "not as described"},
 	}
 	sum := conformance.Summarize(results)
-	if !sum.OK() {
-		t.Fatalf("informational verdicts failed the gate: %+v", sum)
+	if sum.OK() {
+		t.Fatalf("a WARN passed the default gate: %+v", sum)
+	}
+	if spec := sum; func() bool { spec.Gate = conformance.GateSpec; return !spec.OK() }() {
+		t.Fatalf("a WARN failed the spec gate: %+v", sum)
 	}
 	tests := []struct {
 		name    string
@@ -129,9 +133,10 @@ func TestConformanceReportInformational(t *testing.T) {
 			want: []string{
 				"INFO  [procedural ] NGAP-B", "WARN  [procedural ] NGAP-C", "      not as described\n",
 				"3 checks: 1 pass, 0 fail (0 expected), 0 deviation, 1 warn, 1 info, 0 blocked, 0 crash, 0 skip, 0 error\n",
+				"gate default: failed: 0 spec failures, 1 warning\n",
 			}},
 		{name: "table", render: func(b *bytes.Buffer) { printConformanceTable(b, "plmn 001/01", sum, "") },
-			want:    []string{"INFO", "WARN", "NGAP-B", "NGAP-C", "not as described", "1 info", "1 warn", "0 blocked", "0 crash", "3 checks"},
+			want:    []string{"INFO", "WARN", "NGAP-B", "NGAP-C", "not as described", "1 info", "1 warn", "0 blocked", "0 crash", "3 checks", "gate default: failed: 0 spec failures, 1 warning"},
 			wantNot: []string{"NGAP-B as described"}},
 	}
 	for _, tc := range tests {

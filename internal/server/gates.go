@@ -169,7 +169,7 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 		}
 		res := &orbitv1.GateResult{Gate: g}
 		if g.GetConformance() != nil {
-			res.Passed, res.Observed, res.Detail = judgeSuite(r.GetConformance())
+			res.Passed, res.Observed, res.Detail = judgeSuite(r.GetConformance(), conformance.GatePolicy(g.GetConformance().GetPolicy()))
 			r.Gates = append(r.Gates, res)
 			r.GatesPassed = r.GatesPassed && res.Passed
 			continue
@@ -190,13 +190,15 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 	}
 }
 
-// judgeSuite is the conformance gate (ADR-0008 §2): it passes when the
-// suite ran to the end and no check FAILed outside the expected-failures
-// list, or gave CRASH, BLOCKED or ERROR, Summary.OK as the CLI's exit code
-// has it. observed is
-// how many did. An incomplete suite fails: an unmeasured suite is not a
+// judgeSuite is the conformance gate (ADR-0008 §2) under policy (ADR-0011
+// rule 8; empty is the default): it passes when the suite ran to the end
+// and no finding the policy gates remains (conformance.GateFindings, as
+// Summary.OK gives the CLI's exit code): no result outside the
+// expected-failures list with a gated verdict, a BLOCKED counted under its
+// procedure's owner counting once, as the owner's. observed is how many
+// findings gate. An incomplete suite fails: an unmeasured suite is not a
 // passed one.
-func judgeSuite(c *orbitv1.ConformanceSummary) (passed bool, observed float64, detail string) {
+func judgeSuite(c *orbitv1.ConformanceSummary, policy conformance.GatePolicy) (passed bool, observed float64, detail string) {
 	if c == nil {
 		return false, 0, "no report to judge"
 	}
@@ -206,19 +208,29 @@ func judgeSuite(c *orbitv1.ConformanceSummary) (passed bool, observed float64, d
 	if len(c.GetResults()) == 0 {
 		return false, 0, "no checks ran"
 	}
-	var bad []string
+	if policy == "" {
+		policy = conformance.GateDefault
+	}
+	results := make([]conformance.Result, 0, len(c.GetResults()))
 	for _, r := range c.GetResults() {
-		switch conformance.Verdict(r.GetVerdict()) {
-		case conformance.Fail:
-			if r.GetExpectedFailure() == nil {
-				bad = append(bad, r.GetId()+" "+r.GetVerdict())
-			}
-		case conformance.Crash, conformance.Blocked, conformance.Error:
-			bad = append(bad, r.GetId()+" "+r.GetVerdict())
+		res := conformance.Result{ID: r.GetId(), Verdict: conformance.Verdict(r.GetVerdict()), Owner: r.GetOwner(),
+			BlockedOn: conformance.Procedure(r.GetBlockedOn()), NotCompleted: conformance.Procedure(r.GetNotCompleted())}
+		if e := r.GetExpectedFailure(); e != nil {
+			res.ExpectedFailure = &conformance.ExpectedFailure{Finding: e.GetFinding(), Added: e.GetAdded(), Reason: e.GetReason()}
 		}
+		results = append(results, res)
+	}
+	line := conformance.GateLine(results, policy)
+	var bad []string
+	for _, f := range conformance.GateFindings(results, policy) {
+		item := f.Result.ID + " " + string(f.Result.Verdict)
+		if len(f.Blocked) > 0 {
+			item += fmt.Sprintf(" (and %d BLOCKED under it: %s)", len(f.Blocked), strings.Join(f.Blocked, ", "))
+		}
+		bad = append(bad, item)
 	}
 	if len(bad) > 0 {
-		return false, float64(len(bad)), fmt.Sprintf("%d unexpected: %s", len(bad), strings.Join(bad, ", "))
+		return false, float64(len(bad)), fmt.Sprintf("%s; %d unexpected: %s", line, len(bad), strings.Join(bad, ", "))
 	}
-	return true, 0, fmt.Sprintf("%d checks, no unexpected FAIL, CRASH, BLOCKED or ERROR", len(c.GetResults()))
+	return true, 0, fmt.Sprintf("%s; %d checks", line, len(c.GetResults()))
 }

@@ -552,7 +552,7 @@ func expectedFrom(x *orbitv1.ExpectedFailures) conformance.ExpectedFailures {
 	out := conformance.ExpectedFailures{Core: x.GetCore(), Version: "plan"}
 	for _, e := range x.GetEntries() {
 		out.Entries = append(out.Entries, conformance.ExpectedFailureEntry{
-			Check: e.GetCheck(), Observed: e.GetObserved(), Finding: e.GetFinding(), Added: e.GetAdded(), Reason: e.GetReason()})
+			Check: e.GetCheck(), Verdict: conformance.Verdict(e.GetVerdict()), Observed: e.GetObserved(), Finding: e.GetFinding(), Added: e.GetAdded(), Reason: e.GetReason()})
 	}
 	return out
 }

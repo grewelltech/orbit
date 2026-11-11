@@ -919,6 +919,12 @@ type Summary struct {
 	// ExpectedFail counts the FAILs an expected-failures entry tolerates;
 	// they are in Fail too, and only the rest gate (OK).
 	ExpectedFail int
+	// ExpectedDeviation and ExpectedWarn count the DEVIATIONs and WARNs an
+	// entry tolerates, likewise.
+	ExpectedDeviation, ExpectedWarn int `json:",omitempty"`
+	// Gate is the gate policy the run is judged by (OK); empty is
+	// GateDefault.
+	Gate GatePolicy `json:",omitempty"`
 	// Stale lists the expected-failures entries whose check ran without the
 	// FAIL they tolerate (ExpectedFailures.Stale); they warn, not gate.
 	Stale []StaleExpectation `json:",omitempty"`
@@ -974,8 +980,16 @@ func Summarize(results []Result) Summary {
 		if n := s.counter(r.Verdict); n != nil {
 			*n++
 		}
-		if r.Verdict == Fail && r.ExpectedFailure != nil {
+		if r.ExpectedFailure == nil {
+			continue
+		}
+		switch r.Verdict {
+		case Fail:
 			s.ExpectedFail++
+		case Deviation:
+			s.ExpectedDeviation++
+		case Warn:
+			s.ExpectedWarn++
 		}
 	}
 	return s
@@ -1020,20 +1034,29 @@ func (s Summary) TallyLine() string {
 	parts := make([]string, 0, len(verdicts))
 	for _, v := range verdicts {
 		part := fmt.Sprintf("%d %s", s.Count(v), v.Label())
-		if v == Fail {
+		switch {
+		case v == Fail:
 			part += fmt.Sprintf(" (%d expected)", s.ExpectedFail)
+		case v == Deviation && s.ExpectedDeviation > 0:
+			part += fmt.Sprintf(" (%d expected)", s.ExpectedDeviation)
+		case v == Warn && s.ExpectedWarn > 0:
+			part += fmt.Sprintf(" (%d expected)", s.ExpectedWarn)
 		}
 		parts = append(parts, part)
 	}
 	return fmt.Sprintf("%d checks: %s", s.Total, strings.Join(parts, ", "))
 }
 
-// OK reports a clean run: no FAIL beyond those the expected-failures list
-// tolerates, and no CRASH, BLOCKED or ERROR. This is the integration-CI
-// gate. DEVIATION, WARN, INFO, SKIP and stale entries do not fail it.
-func (s Summary) OK() bool {
-	return s.Fail-s.ExpectedFail == 0 && s.Crash == 0 && s.Blocked == 0 && s.Error == 0
-}
+// OK reports whether the run passes its gate (Summary.Gate): no finding
+// (Findings) whose verdict the policy gates. Under GateDefault that is no
+// FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN beyond the ones the
+// expected-failures list tolerates and the BLOCKED results counted under
+// their owner; under GateSpec, DEVIATION and WARN do not gate. INFO, SKIP
+// and stale entries never do.
+func (s Summary) OK() bool { return len(GateFindings(s.Results, s.Gate)) == 0 }
+
+// GateLine says how the run stands at its gate (GateLine).
+func (s Summary) GateLine() string { return GateLine(s.Results, s.Gate) }
 
 // builtins is the registered test set (populated in the tests_*.go files).
 var builtins []Test

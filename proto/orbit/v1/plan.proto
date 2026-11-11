@@ -218,6 +218,9 @@ message ExpectedFailure {
   // text. Unset on a result's matched entry.
   string check = 4;
   string observed = 5;
+  // The verdict the entry tolerates: FAIL, DEVIATION or WARN; empty is
+  // FAIL (ADR-0011 rule 8). Unset on a result's matched entry.
+  string verdict = 6;
 }
 
 // NASAlgorithms are the NAS security algorithms the UE offers, as
@@ -280,10 +283,15 @@ enum CompareOp {
   COMPARE_OP_GT = 4;
 }
 
-// ConformanceGate passes when no FAIL falls outside the expected-failures
-// list, no check ERRORed, and the suite ran to the end (Summary.OK, the
-// CLI's exit code).
-message ConformanceGate {}
+// ConformanceGate passes when the suite ran to the end and no result its
+// policy gates falls outside the expected-failures list (Summary.OK, the
+// CLI's exit code; ADR-0011 rule 8). A BLOCKED result counted under its
+// procedure's owner does not count again.
+message ConformanceGate {
+  // The gate policy: "default" (or empty) gates on FAIL, CRASH, BLOCKED,
+  // ERROR, DEVIATION and WARN; "spec" on FAIL, CRASH, BLOCKED and ERROR.
+  string policy = 1;
+}
 
 // GateResult is one gate as the report applied it.
 message GateResult {

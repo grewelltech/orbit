@@ -15,6 +15,7 @@ export interface RunFieldSpec {
 export const RUN_FIELDS: readonly RunFieldSpec[] = [
   {"path":"gates[].conformance","type":"bool"},
   {"path":"gates[].name","type":"string"},
+  {"path":"gates[].policy","type":"string"},
   {"path":"gates[].slo.metric","type":"string"},
   {"path":"gates[].slo.op","type":"string"},
   {"path":"gates[].slo.threshold","type":"string"},
@@ -146,6 +147,7 @@ export const EXPECTED_KEYS: readonly string[] = [
 /** One expected-failures entry's keys, each required. */
 export const EXPECTED_ENTRY_KEYS: readonly string[] = [
   "check",
+  "verdict",
   "observed",
   "finding",
   "added",

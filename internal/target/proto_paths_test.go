@@ -36,8 +36,9 @@ func TestEveryPathHasAProtoField(t *testing.T) {
 // fileOnly are a target file's format markers, which say what the file is
 // and a resolved target on the wire has no use for, and a run file's own
 // spellings that Build turns into a field (until.duration, "2h", into
-// until.duration_ms).
-var fileOnly = map[string]bool{"version": true, "kind": true, "until.duration": true}
+// until.duration_ms; gates[].policy, beside conformance: true, into
+// gates[].conformance.policy).
+var fileOnly = map[string]bool{"version": true, "kind": true, "until.duration": true, "gates[].policy": true}
 
 // protoPath walks a dotted path ("[...]" list keys dropped) from md,
 // returning the field the last segment names, or why it does not resolve.

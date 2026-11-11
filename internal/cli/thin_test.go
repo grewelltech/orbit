@@ -291,8 +291,40 @@ func TestThinConformanceGateFails(t *testing.T) {
 	if got := ExitCode(r.execErr); got != ExitGateFailed {
 		t.Fatalf("exit %d (%v), want %d\n%s\n%s", got, r.execErr, ExitGateFailed, r.out, r.err)
 	}
-	if !strings.Contains(r.out, "gate conformance: FAIL") {
+	if !strings.Contains(r.out, "gate conformance: FAIL") || !strings.Contains(r.out, "gate default: failed: ") {
 		t.Errorf("stdout lacks the failed gate:\n%s", r.out)
+	}
+	// --gate spec judges the same run with the spec policy: the ERRORs
+	// still fail it, and the report and the server's gate say spec.
+	r = runOrbit(t, targetDir(t, lab1), "--server", lab.url, "conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01",
+		"--category", "procedural", "--per-test-timeout", "1s", "--gate", "spec")
+	if got := ExitCode(r.execErr); got != ExitGateFailed || strings.Count(r.out, "gate spec: failed: ") < 2 {
+		t.Errorf("--gate spec: exit %d, want %d, with the spec gate line in the report and the gate's detail:\n%s", got, ExitGateFailed, r.out)
+	}
+}
+
+// --gate names the policy --local applies: spec with spec or name=spec,
+// the default with conformance; any other gate needs the server.
+func TestLocalGatePolicy(t *testing.T) {
+	tests := []struct {
+		gates    []string
+		want     conformance.GatePolicy
+		onServer bool
+	}{
+		{want: conformance.GateDefault},
+		{gates: []string{"conformance"}, want: conformance.GateDefault},
+		{gates: []string{"spec"}, want: conformance.GateSpec},
+		{gates: []string{"suite=spec"}, want: conformance.GateSpec},
+		{gates: []string{"registration.p99_ms<=500ms"}, want: conformance.GateDefault, onServer: true},
+	}
+	for _, tc := range tests {
+		if p, s := localGatePolicy(tc.gates); p != tc.want || s != tc.onServer {
+			t.Errorf("%v: %q, on server %v; want %q, %v", tc.gates, p, s, tc.want, tc.onServer)
+		}
+	}
+	out, err := runConformance(t, "--category", "procedural", "--gate", "spec", "--per-test-timeout", "1s")
+	if err == nil || !strings.Contains(err.Error(), "conformance gate spec: failed: ") || !strings.Contains(out, "gate spec: failed: ") {
+		t.Errorf("--local --gate spec: err %v, output:\n%s", err, out)
 	}
 }
 

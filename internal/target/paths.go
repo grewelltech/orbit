@@ -163,6 +163,7 @@ var fields = map[string]field{
 	"gates[].slo.op":                              {},
 	"gates[].slo.threshold":                       {},
 	"gates[].conformance":                         {typ: tBool},
+	"gates[].policy":                              {},
 }
 
 // segment is one step of a path: a key, or a named-list element.

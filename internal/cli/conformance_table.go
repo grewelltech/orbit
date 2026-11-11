@@ -155,12 +155,13 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 
 	// Stale expected-failures warn (they do not gate), as in the plain output.
 	for _, st := range sum.Stale {
-		_, _ = fmt.Fprintln(out, faint.Render(fmt.Sprintf("stale expected failure: %s %s: now %s %q", st.Check, st.Finding, st.Verdict, st.Observed)))
+		_, _ = fmt.Fprintln(out, faint.Render(staleLine(st)))
 	}
 
 	_, _ = fmt.Fprintln(out, conformanceTally(re, sum))
+	_, _ = fmt.Fprintln(out, sum.GateLine())
 	if hasTolerated(sum) {
-		_, _ = fmt.Fprintln(out, faint.Render("* FAIL tolerated by the expected-failures list"))
+		_, _ = fmt.Fprintln(out, faint.Render("* tolerated by the expected-failures list"))
 	}
 }
 

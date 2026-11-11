@@ -246,6 +246,7 @@ var samples = map[string]string{
 	"gates[].slo.op":                              ">=",
 	"gates[].slo.threshold":                       "0.5",
 	"gates[].conformance":                         "true",
+	"gates[].policy":                              "spec",
 }
 
 // notInPlan are run-file paths that do not land in the RunPlan: they say
@@ -284,6 +285,8 @@ func TestEveryRunPathReachesThePlan(t *testing.T) {
 		// A gate needs a check, and a conformance field makes a suite;
 		// give each the minimum beside the field under test.
 		switch {
+		case p == "gates[].policy":
+			in.Settings = append(in.Settings, target.Setting{Path: "gates[w].conformance", Value: "true"})
 		case strings.HasPrefix(p, "gates[]") && p != "gates[].slo.threshold" && p != "gates[].conformance" && p != "gates[].slo.metric":
 			in.Settings = append(in.Settings, target.Setting{Path: "gates[w].slo.metric", Value: "attach.success_ratio"},
 				target.Setting{Path: "gates[w].slo.threshold", Value: "0.5"})
@@ -423,7 +426,9 @@ func TestParseGate(t *testing.T) {
 			"gates[registration_p99_ms].slo.threshold": "500ms"}},
 		{spec: "ok=attach.success_ratio>=0.99", want: map[string]string{"gates[ok].slo.op": ">=", "gates[ok].slo.threshold": "0.99"}},
 		{spec: "conformance", want: map[string]string{"gates[conformance].conformance": "true"}},
-		{spec: "suite=conformance", want: map[string]string{"gates[suite].conformance": "true"}},
+		{spec: "suite=conformance", want: map[string]string{"gates[suite].conformance": "true", "gates[suite].policy": ""}},
+		{spec: "spec", want: map[string]string{"gates[conformance].conformance": "true", "gates[conformance].policy": "spec"}},
+		{spec: "suite=spec", want: map[string]string{"gates[suite].conformance": "true", "gates[suite].policy": "spec"}},
 		{spec: "attach.success_ratio", wantErr: "want [name=]metric<op>value"},
 		{spec: "a.b=attach.success_ratio>=1", wantErr: "may not hold"},
 		{spec: "a.b=conformance", wantErr: "may not hold"},
@@ -460,6 +465,23 @@ func TestParseGate(t *testing.T) {
 	}
 	if g := p.GetGates()[0].GetSlo(); g.GetThreshold() != 500 || g.GetOp() != orbitv1.CompareOp_COMPARE_OP_LE {
 		t.Errorf("gate = %v, want registration.p99_ms <= 500", g)
+	}
+	// A conformance gate's policy: spec from --gate spec, unset for the
+	// default; a policy on an SLO gate or an unknown one is refused.
+	for spec, want := range map[string]string{"spec": "spec", "conformance": ""} {
+		set, _ := ParseGate(spec)
+		p, _, err := Build(resolve(t, "kind: run\n", target.Input{Layer: target.LayerFlag, Settings: set}))
+		if err != nil || p.GetGates()[0].GetConformance() == nil || p.GetGates()[0].GetConformance().GetPolicy() != want {
+			t.Errorf("--gate %s: gates %v, %v; want a conformance gate with policy %q", spec, p.GetGates(), err, want)
+		}
+	}
+	for _, bad := range []struct{ run, wantErr string }{
+		{"kind: run\ngates:\n  - {name: g, conformance: true, policy: strict}\n", "want default or spec"},
+		{"kind: run\ngates:\n  - {name: g, slo: {metric: attach.success_ratio, op: \">=\", threshold: 0.5}, policy: spec}\n", "policy belongs to a conformance gate"},
+	} {
+		if _, _, err := Build(resolve(t, bad.run)); err == nil || !strings.Contains(err.Error(), bad.wantErr) {
+			t.Errorf("%q: err = %v, want %q", bad.run, err, bad.wantErr)
+		}
 	}
 }
 

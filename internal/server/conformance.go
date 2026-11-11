@@ -280,7 +280,7 @@ func staleProto(stale []conformance.StaleExpectation) []*orbitv1.StaleExpectatio
 	out := make([]*orbitv1.StaleExpectation, 0, len(stale))
 	for _, st := range stale {
 		out = append(out, &orbitv1.StaleExpectation{Check: st.Check, Finding: st.Finding,
-			ExpectedObserved: st.ExpectedObserved, Verdict: string(st.Verdict), Observed: st.Observed})
+			ExpectedVerdict: string(st.ExpectedVerdict), ExpectedObserved: st.ExpectedObserved, Verdict: string(st.Verdict), Observed: st.Observed})
 	}
 	return out
 }

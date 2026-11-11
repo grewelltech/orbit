@@ -374,7 +374,7 @@ func (b builder) expected(v any) (*orbitv1.ExpectedFailures, error) {
 	out := &orbitv1.ExpectedFailures{Core: checked.Core}
 	for _, e := range checked.Entries {
 		out.Entries = append(out.Entries, &orbitv1.ExpectedFailure{
-			Check: e.Check, Observed: e.Observed, Finding: e.Finding, Added: e.Added, Reason: e.Reason})
+			Check: e.Check, Verdict: string(e.Verdict), Observed: e.Observed, Finding: e.Finding, Added: e.Added, Reason: e.Reason})
 	}
 	return out, nil
 }

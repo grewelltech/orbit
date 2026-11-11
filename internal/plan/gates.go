@@ -8,10 +8,12 @@ import (
 	"time"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/target"
 )
 
-// gate is gates[n]: a conformance gate (conformance: true) or an SLO gate.
+// gate is gates[n]: a conformance gate (conformance: true, with an optional
+// policy: default or spec) or an SLO gate.
 // An SLO gate's metric and comparison may come from its name alone, as the
 // --slo-* flags set only a threshold: GateName's metric, compared the way
 // the metric reads (a ratio or rate at least the threshold, a latency at
@@ -28,8 +30,19 @@ func (b builder) gate(n string) (*orbitv1.Gate, error) {
 		if hasSLO || b.str(base+"slo.metric") != "" {
 			return nil, errors.New("give a conformance gate or an slo gate, not both")
 		}
-		g.Check = &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}
+		policy, err := conformance.ParseGatePolicy(b.str(base + "policy"))
+		if err != nil {
+			return nil, err
+		}
+		cg := &orbitv1.ConformanceGate{}
+		if policy != conformance.GateDefault {
+			cg.Policy = string(policy)
+		}
+		g.Check = &orbitv1.Gate_Conformance{Conformance: cg}
 		return g, nil
+	}
+	if b.str(base+"policy") != "" {
+		return nil, errors.New("policy belongs to a conformance gate (conformance: true)")
 	}
 	if !hasSLO {
 		return nil, errors.New("give slo.threshold (with slo.metric and slo.op, or a name that says the metric), or conformance: true")
@@ -128,8 +141,9 @@ func threshold(s, metric string) (float64, error) {
 
 // ParseGate reads a --gate flag into settings on the gates list (the flag
 // layer): name=metric<op>value (reg=registration.p99_ms<=500ms),
-// metric<op>value, its name then GateName's, or "conformance" (a
-// conformance gate on the run) and name=conformance.
+// metric<op>value, its name then GateName's, "conformance" (a conformance
+// gate on the run, default policy), "spec" (one with the spec policy), and
+// name=conformance or name=spec.
 func ParseGate(spec string) ([]target.Setting, error) {
 	s, err := parseGate(spec)
 	return s, target.MaskErr(err)
@@ -144,11 +158,15 @@ func parseGate(spec string) ([]target.Setting, error) {
 	if strings.ContainsAny(name, ".[]") {
 		return nil, fmt.Errorf("--gate %q: a gate's name may not hold '.', '[' or ']'", spec)
 	}
-	if expr == "conformance" {
+	if expr == "conformance" || expr == string(conformance.GateSpec) {
 		if name == "" {
 			name = "conformance"
 		}
-		return []target.Setting{{Path: "gates[" + name + "].conformance", Value: "true", Source: src}}, nil
+		out := []target.Setting{{Path: "gates[" + name + "].conformance", Value: "true", Source: src}}
+		if expr == string(conformance.GateSpec) {
+			out = append(out, target.Setting{Path: "gates[" + name + "].policy", Value: string(conformance.GateSpec), Source: src})
+		}
+		return out, nil
 	}
 	for _, op := range []string{"<=", ">=", "<", ">"} {
 		metric, value, ok := strings.Cut(expr, op)
@@ -172,5 +190,5 @@ func parseGate(spec string) ([]target.Setting, error) {
 			{Path: base + "slo.threshold", Value: value, Source: src},
 		}, nil
 	}
-	return nil, fmt.Errorf("--gate %q: want [name=]metric<op>value (op <=, <, >= or >), or conformance", spec)
+	return nil, fmt.Errorf("--gate %q: want [name=]metric<op>value (op <=, <, >= or >), conformance or spec", spec)
 }

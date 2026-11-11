@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,9 +15,10 @@ import (
 
 // ExpectedFailures is a per-core list of conformance failures that are known
 // and tolerated (docs/conformance/expected-failures.md). Each entry tolerates
-// one FAIL mode of one check, matched exactly on (check, observed); anything
-// else still fails the gate. A matched result stays FAIL: the report says
-// what the spec says, and the entry only keeps it from gating.
+// one FAIL, DEVIATION or WARN mode of one check, matched exactly on (check,
+// verdict, observed); anything else still fails the gate. A matched result
+// keeps its verdict: the report says what the spec says, and the entry only
+// keeps it from gating (ADR-0011 rule 8).
 //
 // The methods are safe on a nil list, which matches nothing.
 type ExpectedFailures struct {
@@ -25,14 +27,17 @@ type ExpectedFailures struct {
 	Entries []ExpectedFailureEntry `yaml:"entries"`
 }
 
-// ExpectedFailureEntry is one tolerated failure: check Check producing FAIL
-// with exactly Observed as its Result.Observed.
+// ExpectedFailureEntry is one tolerated failure: check Check producing
+// Verdict with exactly Observed as its Result.Observed.
 type ExpectedFailureEntry struct {
-	Check    string `yaml:"check"`
-	Observed string `yaml:"observed"`
-	Finding  string `yaml:"finding"`
-	Added    string `yaml:"added"` // YYYY-MM-DD
-	Reason   string `yaml:"reason"`
+	Check string `yaml:"check"`
+	// Verdict is the verdict the entry expects: FAIL, DEVIATION or WARN.
+	// An entry that gives none expects FAIL (Expects).
+	Verdict  Verdict `yaml:"verdict,omitempty"`
+	Observed string  `yaml:"observed"`
+	Finding  string  `yaml:"finding"`
+	Added    string  `yaml:"added"` // YYYY-MM-DD
+	Reason   string  `yaml:"reason"`
 }
 
 // ExpectedFailure is what a matched result carries: the entry's finding,
@@ -44,22 +49,24 @@ type ExpectedFailure struct {
 	Reason  string `json:"reason"`
 }
 
-// StaleExpectation is an entry whose check ran but did not produce the FAIL
-// it tolerates, with what the check gave instead, so the list gets pruned.
+// StaleExpectation is an entry whose check ran but did not produce the
+// result it tolerates, with what the check gave instead, so the list gets
+// pruned.
 type StaleExpectation struct {
 	Check, Finding string
-	// ExpectedObserved is the entry's observed text; Verdict and Observed
-	// are what the check gave this run.
+	// ExpectedVerdict and ExpectedObserved are the entry's; Verdict and
+	// Observed are what the check gave this run.
+	ExpectedVerdict  Verdict `json:",omitempty"`
 	ExpectedObserved string
 	Verdict          Verdict
 	Observed         string
 }
 
 // LoadExpectedFailures reads and validates a list. Every entry must name a
-// registered, graded check (an informational one never FAILs, so it is
-// refused), an
-// observed text, a finding, an added date (YYYY-MM-DD) and a
-// reason; (check, observed) must be unique; unknown keys are refused.
+// registered check that can report the entry's verdict (FAIL, DEVIATION or
+// WARN; FAIL when none is given), an observed text, a finding, an added
+// date (YYYY-MM-DD) and a reason; (check, verdict, observed) must be
+// unique; unknown keys are refused.
 // An observed text from a liveness probe (a core that stopped answering, or
 // one that could not be checked) is refused: those always gate.
 // Errors name the file and, for an entry, its index.
@@ -72,18 +79,51 @@ func LoadExpectedFailures(path string) (*ExpectedFailures, error) {
 	return parseExpectedFailures(path, b, known)
 }
 
-// listableChecks maps every check in tests to whether an expected-failures
-// entry may name it: true for a graded check, false for an informational
-// one, which never FAILs.
-func listableChecks(tests []Test) map[string]bool {
-	known := map[string]bool{}
+// listableChecks maps every check in tests to the verdicts an
+// expected-failures entry may name for it: the ones of FAIL, DEVIATION and
+// WARN the check can report.
+func listableChecks(tests []Test) map[string][]Verdict {
+	known := map[string][]Verdict{}
 	for _, t := range tests {
-		known[t.ID()] = !IsInformational(t)
+		known[t.ID()] = []Verdict{}
+		for _, v := range listableVerdicts {
+			if canReport(t, v) {
+				known[t.ID()] = append(known[t.ID()], v)
+			}
+		}
 	}
 	return known
 }
 
-func parseExpectedFailures(path string, b []byte, known map[string]bool) (*ExpectedFailures, error) {
+// listableVerdicts are the verdicts an expected-failures entry may name.
+// CRASH, BLOCKED and ERROR always gate.
+var listableVerdicts = []Verdict{Fail, Deviation, Warn}
+
+// canReport reports whether t can report verdict v: a declared outcome has
+// it, or, for a check that declares none, its references allow it (FAIL
+// and DEVIATION for a graded check).
+func canReport(t Test, v Verdict) bool {
+	if outs, ok := declared(t); ok {
+		for _, o := range outs {
+			if o.Verdict == v {
+				return true
+			}
+		}
+		return false
+	}
+	return (v == Fail || v == Deviation) && !IsInformational(t)
+}
+
+// Expects is the verdict e expects: its Verdict, or FAIL when it gives
+// none.
+func (e ExpectedFailureEntry) Expects() Verdict {
+	if e.Verdict == "" {
+		return Fail
+	}
+	return e.Verdict
+}
+
+func parseExpectedFailures(path string, b []byte, known map[string][]Verdict) (*ExpectedFailures, error) {
 	var x ExpectedFailures
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
@@ -98,14 +138,14 @@ func parseExpectedFailures(path string, b []byte, known map[string]bool) (*Expec
 
 // validate checks a list as parseExpectedFailures does; path names it in
 // errors, and known is listableChecks of the registry.
-func (x *ExpectedFailures) validate(path string, known map[string]bool) error {
+func (x *ExpectedFailures) validate(path string, known map[string][]Verdict) error {
 	if strings.TrimSpace(x.Core) == "" {
 		return fmt.Errorf("%s: core is required", path)
 	}
 	if strings.TrimSpace(x.Version) == "" {
 		return fmt.Errorf("%s: version is required", path)
 	}
-	seen := map[[2]string]int{}
+	seen := map[[3]string]int{}
 	for i, e := range x.Entries {
 		where := fmt.Sprintf("%s: entry %d", path, i+1)
 		for _, f := range []struct{ name, v string }{
@@ -118,18 +158,22 @@ func (x *ExpectedFailures) validate(path string, known map[string]bool) error {
 		if hasPrefixAny(e.Observed, livenessTexts) {
 			return fmt.Errorf("%s: observed %q reports a core that stopped answering or could not be checked; it cannot be listed", where, e.Observed)
 		}
+		v := e.Expects()
+		if !slices.Contains(listableVerdicts, v) {
+			return fmt.Errorf("%s: verdict %q cannot be listed: an entry names FAIL, DEVIATION or WARN; CRASH, BLOCKED and ERROR always gate", where, e.Verdict)
+		}
 		switch listable, ok := known[e.Check]; {
 		case !ok:
 			return fmt.Errorf("%s: unknown check %q", where, e.Check)
-		case !listable:
-			return fmt.Errorf("%s: check %q is informational and never FAILs; it cannot be listed", where, e.Check)
+		case !slices.Contains(listable, v):
+			return fmt.Errorf("%s: check %q never reports %s; it cannot be listed with that verdict", where, e.Check, v)
 		}
 		if _, err := time.Parse(time.DateOnly, e.Added); err != nil {
 			return fmt.Errorf("%s: added %q is not a YYYY-MM-DD date", where, e.Added)
 		}
-		key := [2]string{e.Check, e.Observed}
+		key := [3]string{e.Check, string(v), e.Observed}
 		if j, dup := seen[key]; dup {
-			return fmt.Errorf("%s: duplicates entry %d (%s, %q)", where, j, e.Check, e.Observed)
+			return fmt.Errorf("%s: duplicates entry %d (%s, %s, %q)", where, j, e.Check, v, e.Observed)
 		}
 		seen[key] = i + 1
 	}
@@ -147,23 +191,23 @@ func NewExpectedFailures(where string, x ExpectedFailures) (*ExpectedFailures, e
 	return &x, nil
 }
 
-// match returns the entry tolerating r, if any: r is a FAIL and an entry
-// names its check and exactly its observed text.
+// match returns the entry tolerating r, if any: an entry names r's check,
+// its verdict and exactly its observed text.
 func (x *ExpectedFailures) match(r Result) (ExpectedFailureEntry, bool) {
-	if x == nil || r.Verdict != Fail {
+	if x == nil || !slices.Contains(listableVerdicts, r.Verdict) {
 		return ExpectedFailureEntry{}, false
 	}
 	for _, e := range x.Entries {
-		if e.Check == r.ID && e.Observed == r.Observed {
+		if e.Check == r.ID && e.Expects() == r.Verdict && e.Observed == r.Observed {
 			return e, true
 		}
 	}
 	return ExpectedFailureEntry{}, false
 }
 
-// Apply marks each FAIL an entry tolerates with that entry, leaving the
-// verdict FAIL. No other verdict is ever marked: an entry never hides a
-// different failure mode, an ERROR or a CRASH.
+// Apply marks each result an entry tolerates with that entry, leaving its
+// verdict as it is. Only a FAIL, DEVIATION or WARN is ever marked: an entry
+// never hides a different failure mode, a BLOCKED, an ERROR or a CRASH.
 func (x *ExpectedFailures) Apply(results []Result) {
 	for i := range results {
 		if e, ok := x.match(results[i]); ok {
@@ -173,8 +217,9 @@ func (x *ExpectedFailures) Apply(results []Result) {
 }
 
 // Stale returns the entries whose check ran and gave something other than
-// the FAIL they tolerate (a PASS, a DEVIATION, or a FAIL with other observed
-// text). An entry whose check was not selected, or gave SKIP, ERROR, BLOCKED
+// the result they tolerate (another verdict, or the same verdict with other
+// observed text), per verdict. An entry whose check was not selected, or
+// gave SKIP, ERROR, BLOCKED
 // or CRASH, is neither matched nor stale: the run did not judge the listed
 // behaviour, so it says nothing about whether the failure is gone.
 func (x *ExpectedFailures) Stale(results []Result) []StaleExpectation {
@@ -191,10 +236,10 @@ func (x *ExpectedFailures) Stale(results []Result) []StaleExpectation {
 			case Skip, Error, Blocked, Crash:
 				continue
 			}
-			if r.Verdict == Fail && r.Observed == e.Observed {
+			if r.Verdict == e.Expects() && r.Observed == e.Observed {
 				continue
 			}
-			out = append(out, StaleExpectation{Check: e.Check, Finding: e.Finding, ExpectedObserved: e.Observed,
+			out = append(out, StaleExpectation{Check: e.Check, Finding: e.Finding, ExpectedVerdict: e.Expects(), ExpectedObserved: e.Observed,
 				Verdict: r.Verdict, Observed: r.Observed})
 		}
 	}

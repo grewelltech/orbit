@@ -72,8 +72,9 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			if !tf.local {
 				return thinConformance(cmd, serverURL, o, gates, tf.detach, jsonOut, expectedPath)
 			}
-			if tf.detach || len(gates) > 0 {
-				return exitWith(ExitCouldNotStart, errors.New("--detach and --gate run on the server; drop --local"))
+			policy, onServer := localGatePolicy(gates)
+			if tf.detach || onServer {
+				return exitWith(ExitCouldNotStart, errors.New("--detach and --gate other than conformance or spec run on the server; drop --local"))
 			}
 			if responder != "" {
 				return exitWith(ExitCouldNotStart, errors.New("--responder names a responder of the server's target; drop --local"))
@@ -130,6 +131,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			expected.Apply(results)
 			sum := conformance.Summarize(results)
 			sum.Preflight = preflight
+			sum.Gate = policy
 			sum.Stale = expected.Stale(results)
 			sum.ExpectedFailures = expected.Label()
 			sum.N2Source = env.N2Source()
@@ -145,8 +147,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				writeConformanceReport(out, id.String(), sum, expectedPath)
 			}
 			if !sum.OK() {
-				return gateFailed("conformance gate failed: %d fail (%d expected), %d crash, %d blocked, %d error",
-					sum.Fail, sum.ExpectedFail, sum.Crash, sum.Blocked, sum.Error)
+				return gateFailed("conformance %s", sum.GateLine())
 			}
 			return nil
 		},
@@ -166,7 +167,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringVar(&targetRelease, "target-release", "",
 		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, the SD-Core release; TS 29.244 pinned to Rel-16; \"unset\" runs every check)")
 	f.StringVar(&expectedPath, "expected-failures", "",
-		"YAML list of this core's known, tolerated FAILs (docs/conformance/expected-failures.md); a listed FAIL still prints FAIL but does not fail the gate")
+		"YAML list of this core's known, tolerated FAILs, DEVIATIONs and WARNs (docs/conformance/expected-failures.md); a listed result keeps its verdict but does not fail the gate")
 	f.StringVar(&ueFlags.supi, "supi", "", supiFlagHelp+"; enables the mobility checks")
 	f.StringVar(&ueFlags.ki, "ki", "", kiFlagHelp)
 	f.StringVar(&ueFlags.opc, "opc", "", opcFlagHelp)
@@ -174,7 +175,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringVar(&responder, "responder", "", "target responder (by name) on the N6 network that sends downlink data to the UE, for the checks that need the core to page or downlink to flow; without one they SKIP")
 	f.StringVar(&ueFlags.traffic, "traffic", "", "optional echo peer host:port the mobility checks' UE sends to across the handover")
 	tf.add(f, "run the suite in this process, not on the server (deprecated: goes after this release)")
-	f.StringArrayVar(&gates, "gate", nil, "add a gate: conformance (the default one), or name=conformance; repeat for more")
+	f.StringArrayVar(&gates, "gate", nil, "add a gate: conformance (the default policy: FAIL, CRASH, BLOCKED, ERROR, DEVIATION and WARN gate), spec (FAIL, CRASH, BLOCKED and ERROR only), or name=conformance, name=spec; repeat for more")
 	f.Var(newNilStringSlice(&ueFlags.nasIntegrity), "nas-integrity", "NAS integrity algorithms the UE advertises: NIA1, NIA2, NIA3, comma-separated (default NIA2; NIA0 is refused)")
 	f.Var(newNilStringSlice(&ueFlags.nasCiphering), "nas-ciphering", "NAS ciphering algorithms the UE advertises: NEA0, NEA1, NEA2, NEA3, comma-separated (default NEA0; another cipher makes the NAS in pcaps unreadable)")
 	return cmd
@@ -255,6 +256,7 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 		return exitWith(ExitDidNotComplete, fmt.Errorf("run %s: the stream ended before the suite did", last.GetRunId()))
 	}
 	sum := conformance.Summarize(results)
+	sum.Gate, _ = localGatePolicy(gates)
 	sum.TargetRelease = conformance.Release(last.GetTargetRelease())
 	for name, rel := range last.GetSpecTargetReleases() {
 		sum.SpecTargets[name] = conformance.Release(rel)
@@ -262,7 +264,8 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 	sum.ExpectedFailures = last.GetExpectedFailuresCore()
 	for _, st := range last.GetStale() {
 		sum.Stale = append(sum.Stale, conformance.StaleExpectation{Check: st.GetCheck(), Finding: st.GetFinding(),
-			ExpectedObserved: st.GetExpectedObserved(), Verdict: conformance.Verdict(st.GetVerdict()), Observed: st.GetObserved()})
+			ExpectedVerdict: conformance.Verdict(st.GetExpectedVerdict()), ExpectedObserved: st.GetExpectedObserved(),
+			Verdict: conformance.Verdict(st.GetVerdict()), Observed: st.GetObserved()})
 	}
 	for _, step := range last.GetPreflight() {
 		sum.Preflight = append(sum.Preflight, conformance.PreflightResult{Step: conformance.PreflightStep(step.GetStep()),
@@ -435,9 +438,36 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 	}
 	// Stale entries warn so the list gets pruned; they do not gate.
 	for _, st := range sum.Stale {
-		_, _ = fmt.Fprintf(out, "stale expected failure: %s %s: now %s %q\n", st.Check, st.Finding, st.Verdict, st.Observed)
+		_, _ = fmt.Fprintln(out, staleLine(st))
 	}
-	_, _ = fmt.Fprintf(out, "\n%s\n", sum.TallyLine())
+	_, _ = fmt.Fprintf(out, "\n%s\n%s\n", sum.TallyLine(), sum.GateLine())
+}
+
+// staleLine reports a stale expected-failures entry with the verdict it
+// expects: "stale expected failure: X EX-1 (expected WARN): now PASS ...".
+func staleLine(st conformance.StaleExpectation) string {
+	return fmt.Sprintf("stale expected failure: %s %s (expected %s): now %s %q", st.Check, st.Finding, st.ExpectedVerdict, st.Verdict, st.Observed)
+}
+
+// localGatePolicy is the gate policy the --gate flags name: spec when one
+// is spec or name=spec, else the default. onServer is set when a flag
+// names a gate only a server run can apply (an SLO gate).
+func localGatePolicy(gates []string) (policy conformance.GatePolicy, onServer bool) {
+	policy = conformance.GateDefault
+	for _, g := range gates {
+		expr := g
+		if _, rest, ok := strings.Cut(g, "="); ok && !strings.ContainsAny(g, "<>") {
+			expr = rest
+		}
+		switch strings.TrimSpace(expr) {
+		case string(conformance.GateSpec):
+			policy = conformance.GateSpec
+		case "conformance":
+		default:
+			onServer = true
+		}
+	}
+	return policy, onServer
 }
 
 // preflightLines renders a run's preflight for the report: a "preflight:"
