@@ -481,7 +481,7 @@ ran:
 `
 	loc := targetDir(t, doc)
 
-	common := []string{"conformance", "--local", "--json", "--category", "procedural", "--per-test-timeout", "5s"}
+	common := []string{"conformance", "--local", "--json", "--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "5s"}
 	long := runOrbit(t, loc, append(common, "--amf", front.Addr, "--mcc", "208", "--mnc", "93", "--tac", "1",
 		"--sst", "1", "--sd", "010203", "--dnn", "internet", "--bind", "127.0.0.1", "--gnb-base", "100")...)
 	short := runOrbit(t, loc, append(common, "-t", "lab1")...)
@@ -789,7 +789,7 @@ func TestExplainChangesNothing(t *testing.T) {
 		{name: "register: hex gNB ID and TAC", args: append(append([]string{}, ueRegisterArgs...), "--gnb-id", "0x10", "--tac", "0x0a")},
 		{name: "register: empty bind", args: append(append([]string{}, ueRegisterArgs...), "--bind", "")},
 		{name: "conformance: host name binds", args: append(append([]string{}, conf...), "--bind", "localhost", "--n3-bind", "localhost:2152", "--upf-n3", "upf.example:2152")},
-		{name: "conformance: categories and timeout", args: append(append([]string{}, conf...), "--category", "nas,security", "--per-test-timeout", "1500ms")},
+		{name: "conformance: categories and timeout", args: append(append([]string{}, conf...), "--group", "NAS", "--group", "TS 33.501", "--per-test-timeout", "1500ms")},
 		{name: "load: binds and counts", args: []string{"load", "--local", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--base-imsi", "001010000000001",
 			"--ki", testKi, "--opc", testOPc, "--bind", "localhost,127.0.0.2:0", "--gnb-count", "2", "--count", "1", "--rate", "2.5"}},
 		{name: "cell ngsetup: deprecated --local", args: []string{"--server", "http://127.0.0.1:1", "cell", "ngsetup", "--amf", "192.0.2.10:38412",

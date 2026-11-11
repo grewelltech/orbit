@@ -23,7 +23,6 @@ type needTest struct {
 }
 
 func (n needTest) ID() string          { return n.id }
-func (n needTest) Category() Category  { return Procedural }
 func (n needTest) SpecRefs() []SpecRef { return []SpecRef{declShall} }
 func (n needTest) Needs() CheckNeeds   { return n.needs }
 func (n needTest) Owns() []Procedure   { return n.owned }
@@ -338,7 +337,6 @@ func TestPreflightIdentity(t *testing.T) {
 type regAgain struct{}
 
 func (regAgain) ID() string          { return "R" }
-func (regAgain) Category() Category  { return Procedural }
 func (regAgain) SpecRefs() []SpecRef { return []SpecRef{declShall} }
 func (regAgain) Needs() CheckNeeds   { return ueNeeds }
 func (regAgain) Outcomes() []Outcome { return []Outcome{needTestMet} }

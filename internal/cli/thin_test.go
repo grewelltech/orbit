@@ -188,7 +188,7 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 		// No subscriber: the mobility checks SKIP either way.
 		loc := targetDir(t, "version: 1\nkind: target\nname: lab1\ncore:\n  amf: "+lab.amf+"\n  plmn: { mcc: \"208\", mnc: \"93\" }\n"+
 			"  slices:\n    - { sst: 1, sd: \"010203\" }\nran:\n  n2_source_ips: [127.0.0.1-127.0.0.9]\n  gnb_ids: { first: 100 }\n")
-		args := []string{"--server", lab.url, "conformance", "-t", "lab1", "--category", "procedural,negative-ie,nas", "--per-test-timeout", "2s"}
+		args := []string{"--server", lab.url, "conformance", "-t", "lab1", "--group", "NGAP / Interface Management Procedures", "--group", "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data", "--group", "NAS", "--per-test-timeout", "2s"}
 		if jsonOut {
 			args = append(args, "--json")
 		}
@@ -287,7 +287,7 @@ func TestThinConformanceGateFails(t *testing.T) {
 	clearOrbitEnv(t)
 	lab := newThinLab(t)
 	r := runOrbit(t, targetDir(t, lab1), "--server", lab.url, "conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01",
-		"--category", "procedural", "--per-test-timeout", "1s")
+		"--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "1s")
 	if got := ExitCode(r.execErr); got != ExitGateFailed {
 		t.Fatalf("exit %d (%v), want %d\n%s\n%s", got, r.execErr, ExitGateFailed, r.out, r.err)
 	}
@@ -297,7 +297,7 @@ func TestThinConformanceGateFails(t *testing.T) {
 	// --gate spec judges the same run with the spec policy: the ERRORs
 	// still fail it, and the report and the server's gate say spec.
 	r = runOrbit(t, targetDir(t, lab1), "--server", lab.url, "conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01",
-		"--category", "procedural", "--per-test-timeout", "1s", "--gate", "spec")
+		"--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "1s", "--gate", "spec")
 	if got := ExitCode(r.execErr); got != ExitGateFailed || strings.Count(r.out, "gate spec: failed: ") < 2 {
 		t.Errorf("--gate spec: exit %d, want %d, with the spec gate line in the report and the gate's detail:\n%s", got, ExitGateFailed, r.out)
 	}
@@ -322,7 +322,7 @@ func TestLocalGatePolicy(t *testing.T) {
 			t.Errorf("%v: %q, on server %v; want %q, %v", tc.gates, p, s, tc.want, tc.onServer)
 		}
 	}
-	out, err := runConformance(t, "--category", "procedural", "--gate", "spec", "--per-test-timeout", "1s")
+	out, err := runConformance(t, "--group", "NGAP / Interface Management Procedures", "--gate", "spec", "--per-test-timeout", "1s")
 	if err == nil || !strings.Contains(err.Error(), "conformance gate spec: failed: ") || !strings.Contains(out, "gate spec: failed: ") {
 		t.Errorf("--local --gate spec: err %v, output:\n%s", err, out)
 	}
@@ -337,7 +337,7 @@ func TestThinConformancePlan(t *testing.T) {
 	url := stubRunServer(t, stub)
 	r := runOrbit(t, targetDir(t, lab1), "--server", *url, "conformance", "--amf", "192.0.2.1:38412", "--mcc", "001", "--mnc", "01",
 		"--n3-bind", "198.51.100.9:2152", "--supi", "001010000000001", "--ki", testKi, "--opc", testOPc, "--gnb-n3", "198.51.100.7",
-		"--category", "gtpu", "--detach")
+		"--group", "GTPv1-U", "--detach")
 	if r.execErr != nil {
 		t.Fatalf("%v\n%s", r.execErr, r.err)
 	}
@@ -458,14 +458,14 @@ func TestThinConformanceWithoutSUPIMatchesLocal(t *testing.T) {
 		name string
 		cats []string
 	}{
-		{name: "negative-ie", cats: []string{"--category", "negative-ie"}},
+		{name: "erroneous-data handling", cats: []string{"--group", "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"}},
 		{name: "the full suite", cats: nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clearOrbitEnv(t)
 			t.Setenv("ORBIT_KI", testKi)
 			t.Setenv("ORBIT_OPC", testOPc)
-			type result struct{ ID, Category, Verdict string }
+			type result struct{ ID, Group, Verdict string }
 			run := func(local bool) ([]result, orbitRun) {
 				lab := newThinLab(t)
 				args := append([]string{"--server", lab.url, "conformance", "--amf", lab.amf, "--mcc", "208", "--mnc", "93",
@@ -489,7 +489,7 @@ func TestThinConformanceWithoutSUPIMatchesLocal(t *testing.T) {
 				t.Errorf("exit differs: --local %v, thin %v", local.execErr, thin.execErr)
 			}
 			for _, r := range tr {
-				if r.Category == "mobility" && r.Verdict != "SKIP" {
+				if strings.HasPrefix(r.Group, "NGAP / UE Mobility Management Procedures") && r.Verdict != "SKIP" {
 					t.Errorf("%s with no UE: %s, want SKIP", r.ID, r.Verdict)
 				}
 			}
@@ -552,7 +552,7 @@ func TestThinConformanceNASMatchesLocal(t *testing.T) {
 		args := []string{"--server", lab.url, "conformance", "--amf", lab.amf, "--mcc", "208", "--mnc", "93", "--sd", "010203",
 			"--supi", "208930000000001", "--ki", testKi, "--opc", testOPc, "--gnb-n3", "127.0.0.1",
 			"--nas-integrity", "NIA1,NIA2", "--nas-ciphering", "NEA0,NEA2",
-			"--category", "mobility", "--per-test-timeout", "2s", "--json"}
+			"--group", "NGAP / UE Mobility Management Procedures", "--per-test-timeout", "2s", "--json"}
 		if local {
 			args = append(args, "--local")
 		}

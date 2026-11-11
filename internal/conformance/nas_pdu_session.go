@@ -86,8 +86,7 @@ var (
 		Summary: "answered with a 5GSM message that is neither a PDU SESSION ESTABLISHMENT ACCEPT nor a PDU SESSION ESTABLISHMENT REJECT"}
 )
 
-func (nasPDUSessionEstablishment) ID() string         { return "NAS-PDU-SESSION-ESTABLISHMENT" }
-func (nasPDUSessionEstablishment) Category() Category { return Procedural }
+func (nasPDUSessionEstablishment) ID() string { return "NAS-PDU-SESSION-ESTABLISHMENT" }
 
 // SpecRefs cites the SMF's two answers to a UE-requested PDU session
 // establishment.

@@ -112,7 +112,7 @@ workloads:
   - name: suite
     start: {after: pop, phase: attached}
     conformance:
-      categories: [negative-ie]
+      groups: [NGAP]
       checks: [NGAP-UNKNOWN-UE-SURVIVES, ngap-ngsetup-missing-talist]
       target_release: Rel-17
       gnb_ids: {first: 700}
@@ -138,7 +138,7 @@ entries:
 			if !slices.Equal(cw.GetChecks(), []string{"NGAP-UNKNOWN-UE-SURVIVES", "ngap-ngsetup-missing-talist"}) {
 				t.Errorf("checks = %v", cw.GetChecks())
 			}
-			if cw.GetCategories()[0] != "negative-ie" || cw.GetTargetRelease() != "Rel-17" || cw.GetGnbIds().GetFirst() != 700 ||
+			if cw.GetGroups()[0] != "NGAP" || cw.GetTargetRelease() != "Rel-17" || cw.GetGnbIds().GetFirst() != 700 ||
 				cw.GetExpected().GetCore() != "lab A" || cw.GetExpected().GetEntries()[0].GetFinding() != "EX-1" {
 				t.Errorf("conformance = %v", cw)
 			}
@@ -152,12 +152,12 @@ entries:
 					t.Error("behaviors dropped: the population would be a storm")
 				}
 			}},
-		{name: "both kinds", run: "kind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\n    conformance: {categories: [nas]}\n",
+		{name: "both kinds", run: "kind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\n    conformance: {groups: [NAS]}\n",
 			wantErr: "one kind per workload"},
 		{name: "two stops", run: "kind: run\nuntil: {duration: 1h, forever: true}\n", wantErr: "give one of duration, complete and forever"},
 		{name: "a bad duration", run: "kind: run\nuntil: {duration: soon}\n", wantErr: "until.duration"},
 		{name: "first and assign", run: "kind: run\nworkloads:\n  - name: w\n    topology: {gnb_ids: {first: 1, assign: true}}\n", wantErr: "first or assign"},
-		{name: "a bad phase", run: "kind: run\nworkloads:\n  - name: s\n    start: {after: p, phase: soon}\n    conformance: {categories: [nas]}\n", wantErr: "start.phase"},
+		{name: "a bad phase", run: "kind: run\nworkloads:\n  - name: s\n    start: {after: p, phase: soon}\n    conformance: {groups: [NAS]}\n", wantErr: "start.phase"},
 		{name: "a bad arrival", run: "kind: run\nworkloads:\n  - name: w\n    attach: {arrival: bursty}\n", wantErr: "attach.arrival"},
 		{name: "a gate with no metric", run: "kind: run\ngates:\n  - name: mine\n    slo: {threshold: \"1\"}\n", wantErr: "give slo.metric"},
 		{name: "a gate with neither check", run: "kind: run\ngates:\n  - name: mine\n    workload: x\n", wantErr: "give slo.threshold"},
@@ -228,6 +228,7 @@ var samples = map[string]string{
 	"workloads[].subscriber_pool":                 "main",
 	"workloads[].sample_interval_ms":              "500",
 	"workloads[].conformance.categories":          "nas",
+	"workloads[].conformance.groups":              "NAS",
 	"workloads[].conformance.checks":              "NGAP-NG-RESET-ACK",
 	"workloads[].conformance.target_release":      "Rel-17",
 	"workloads[].conformance.expected":            "{core: c, entries: []}",
@@ -677,7 +678,7 @@ func TestNASFlagsReachThePlan(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res := resolve(t, "kind: run\nworkloads:\n  - name: suite\n    conformance: {categories: [nas]}\n",
+			res := resolve(t, "kind: run\nworkloads:\n  - name: suite\n    conformance: {groups: [NAS]}\n",
 				target.Input{Layer: target.LayerFlag, Settings: tc.settings})
 			p, _, err := Build(res)
 			if err != nil {

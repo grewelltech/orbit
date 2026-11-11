@@ -98,8 +98,7 @@ func (nasT3560AuthRetransmit) Outcomes() []Outcome {
 	return []Outcome{t3560Released, t3560WrongCount, t3560RejectedEarly, t3560ReleaseLate, t3560NoRelease}
 }
 
-func (nasT3560AuthRetransmit) ID() string         { return "NAS-T3560-AUTH-RETRANSMIT" }
-func (nasT3560AuthRetransmit) Category() Category { return NAS }
+func (nasT3560AuthRetransmit) ID() string { return "NAS-T3560-AUTH-RETRANSMIT" }
 func (nasT3560AuthRetransmit) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.4.1.3.7 b)", Strength: Shall, Since: 15, Verified: ts24501Verified, WordingUnchanged: true, Primary: true},

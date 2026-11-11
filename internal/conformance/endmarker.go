@@ -59,8 +59,7 @@ func (endMarkerOnPathSwitch) Outcomes() []Outcome {
 	return []Outcome{endMarkerSent, endMarkerAbsent, endMarkerGPDUAfter}
 }
 
-func (endMarkerOnPathSwitch) ID() string         { return "GTPU-END-MARKER-ON-PATH-SWITCH" }
-func (endMarkerOnPathSwitch) Category() Category { return Mobility }
+func (endMarkerOnPathSwitch) ID() string { return "GTPU-END-MARKER-ON-PATH-SWITCH" }
 func (endMarkerOnPathSwitch) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 23.501", Clause: "5.8.2.9.1", Strength: Shall, Since: 15, Verified: ts23501Verified, Primary: true,

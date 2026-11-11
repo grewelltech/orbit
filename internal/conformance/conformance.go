@@ -27,26 +27,12 @@ import (
 	"github.com/bgrewell/orbit/internal/sctp"
 )
 
-// Category groups tests for reporting and selective runs.
-type Category string
-
-const (
-	Procedural Category = "procedural"  // well-formed procedures complete (one check needs Env.UE)
-	NegativeIE Category = "negative-ie" // malformed / unexpected messages are rejected gracefully
-	Security   Category = "security"    // NAS security-context violations
-	GTPU       Category = "gtpu"        // user-plane error handling
-	Timing     Category = "timing"      // concurrent-procedure timing (flaky-allowed)
-	Mobility   Category = "mobility"    // UE-level procedures over two gNB associations (needs Env.UE)
-	NAS        Category = "nas"         // NAS procedures and timers (needs Env.UE)
-)
-
 // Result is one test's structured outcome. The registry stamps the identity
 // and provenance fields from the test, so a check sets only the verdict and
 // what it saw. Detail always ends with the requirement line ("requires
 // Rel-15 or later; <refs>"), so every verdict names its clauses and release.
 type Result struct {
-	ID       string   `json:"id"`
-	Category Category `json:"category"`
+	ID string `json:"id"`
 	// Group is the check's group path in the run's target release
 	// (GroupOf), "" for a check without one.
 	Group string `json:"group,omitempty"`
@@ -86,7 +72,6 @@ type Result struct {
 // Test is a single conformance / regression check.
 type Test interface {
 	ID() string
-	Category() Category
 	// SpecRefs are the clauses the check asserts, with their release
 	// provenance; ValidateTest states the rules they must meet.
 	SpecRefs() []SpecRef
@@ -492,6 +477,10 @@ type Registry struct {
 	tests []Test
 	// only, when non-nil, narrows Select to the checks it names (Only).
 	only map[string]bool
+	// groups, when non-empty, narrows Select to the checks in a group
+	// one of them is a prefix of, read in groupRelease (Groups).
+	groups       []string
+	groupRelease Release
 }
 
 // NewRegistry returns a registry preloaded with the built-in tests. It
@@ -529,22 +518,19 @@ func newRegistry(tests []Test) (*Registry, error) {
 // Register adds a test.
 func (r *Registry) Register(t Test) { r.tests = append(r.tests, t) }
 
-// Select returns the registered tests in cats (every test when cats is
-// empty), narrowed to the checks Only named, in the order a suite runs
-// them: by Phase, and in registration order within a phase.
-func (r *Registry) Select(cats ...Category) []Test {
-	want := map[Category]bool{}
-	for _, c := range cats {
-		want[c] = true
-	}
+// Select returns the registered tests, narrowed to the checks Only named
+// and to the groups Groups named, in the order a suite runs them: by
+// Phase, and in registration order within a phase.
+func (r *Registry) Select() []Test {
 	var out []Test
 	for _, t := range r.tests {
 		if r.only != nil && !r.only[t.ID()] {
 			continue
 		}
-		if len(want) == 0 || want[t.Category()] {
-			out = append(out, t)
+		if len(r.groups) > 0 && !inGroups(t, r.groupRelease, r.groups) {
+			continue
 		}
+		out = append(out, t)
 	}
 	runOrder(out)
 	return out
@@ -552,7 +538,7 @@ func (r *Registry) Select(cats ...Category) []Test {
 
 // Only narrows every later Select, and so every run and listing, to the
 // checks with the given IDs (matched without regard to case), on top of any
-// category filter. The checks keep their place in the registry, so each
+// group filter. The checks keep their place in the registry, so each
 // runs with the gNB IDs it has in a full run. An ID that names no
 // registered check is an error and leaves the registry as it was; no IDs
 // lifts the restriction.
@@ -581,12 +567,12 @@ func (r *Registry) Only(ids ...string) error {
 // their gNB IDs and subscriber blocks follow; Select gives the run order.
 func (r *Registry) Tests() []Test { return r.tests }
 
-// Run executes every registered test against env (filtered to cats if given)
-// and returns the results in run order (Select). Each test gets its own
-// timeout so one hang does not stall the suite.
-func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats ...Category) []Result {
+// Run executes the selected tests (Select) against env and returns the
+// results in run order. Each test gets its own timeout so one hang does
+// not stall the suite.
+func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration) []Result {
 	var out []Result
-	r.RunStream(ctx, env, perTest, func(res Result, _, _ int) { out = append(out, res) }, cats...)
+	r.RunStream(ctx, env, perTest, func(res Result, _, _ int) { out = append(out, res) })
 	return out
 }
 
@@ -600,8 +586,8 @@ func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats
 // per-test loop, with one place that assigns a distinct gNB ID and one place
 // that stamps identity onto the result.
 func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration,
-	emit func(res Result, index, total int), cats ...Category) {
-	r.RunWithStart(ctx, env, perTest, nil, emit, cats...)
+	emit func(res Result, index, total int)) {
+	r.RunWithStart(ctx, env, perTest, nil, emit)
 }
 
 // RunWithStart is RunStream with start, if non-nil, called just before each
@@ -610,8 +596,8 @@ func (r *Registry) RunStream(ctx context.Context, env Env, perTest time.Duration
 // checks without a preflight; RunSuite is a run as a user starts one.
 func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Duration,
 	start func(t Test, expected time.Duration, index, total int),
-	emit func(res Result, index, total int), cats ...Category) {
-	r.run(ctx, env, perTest, false, Hooks{Start: start, Result: emit}, cats...)
+	emit func(res Result, index, total int)) {
+	r.run(ctx, env, perTest, false, Hooks{Start: start, Result: emit})
 }
 
 // Hooks are the callbacks of a suite run (RunSuite). Any may be nil.
@@ -628,25 +614,25 @@ type Hooks struct {
 }
 
 // RunSuite is a conformance run: the preflight the selected checks' needs
-// call for (ADR-0011 rule 6; see runPreflight), then the checks in cats
-// (every check when empty) in run order, each with its own timeout. A check
+// call for (ADR-0011 rule 6; see runPreflight), then the selected checks
+// (Select) in run order, each with its own timeout. A check
 // that depends on a preflight step that did not complete reports ERROR
 // without running; the rest are judged. It returns the preflight, which is
 // empty when no selected check needs anything from the core.
-func (r *Registry) RunSuite(ctx context.Context, env Env, perTest time.Duration, hooks Hooks, cats ...Category) Preflight {
-	return r.run(ctx, env, perTest, true, hooks, cats...)
+func (r *Registry) RunSuite(ctx context.Context, env Env, perTest time.Duration, hooks Hooks) Preflight {
+	return r.run(ctx, env, perTest, true, hooks)
 }
 
 // run is the one per-check loop: it assigns each selected check its gNB
 // IDs and subscribers, runs it, and reports the result. With preflight set
 // it first runs the preflight and holds the checks to it.
-func (r *Registry) run(ctx context.Context, env Env, perTest time.Duration, preflight bool, hooks Hooks, cats ...Category) Preflight {
+func (r *Registry) run(ctx context.Context, env Env, perTest time.Duration, preflight bool, hooks Hooks) Preflight {
 	if perTest <= 0 {
 		perTest = DefaultPerTestTimeout
 	}
 	// The selected set, so `total` and `index` count only what will run rather
 	// than every registered test.
-	selected := r.Select(cats...)
+	selected := r.Select()
 	// registeredBy is the last check to register each subscriber.
 	registeredBy := map[string]string{}
 	owners := r.owners()
@@ -674,7 +660,7 @@ func (r *Registry) run(ctx context.Context, env Env, perTest time.Duration, pref
 		// Give each test a distinct gNB ID — the AMF does not cleanly re-key a
 		// reused gNB ID from a new association (docs/interop/sdcore.md). Indexed
 		// by position in the FULL registry so IDs are stable regardless of the
-		// category filter.
+		// selection.
 		e := env
 		e.GNB.ID, e.TargetGNBID, e.LivenessGNBID = r.gnbIDsOf(env.GNB.ID, r.indexOf(t), env.PackedGNBIDs)
 		// And its own subscribers, when the suite has a pool of them.
@@ -727,7 +713,7 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 			res.Detail = joinDetail(res.Detail, sharedSubscriberNote(e))
 		}
 	}
-	res.ID, res.Category = t.ID(), t.Category()
+	res.ID = t.ID()
 	if g, err := GroupOf(t, e.TargetRelease); err == nil {
 		res.Group = g.String()
 	}

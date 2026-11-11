@@ -93,8 +93,7 @@ func (serviceRequestReactivates) Outcomes() []Outcome {
 	return []Outcome{serviceReactivated, serviceUnanswered, serviceAssociationLost, serviceRejected, serviceReleased, serviceNoUserPlane, serviceNoDownlink}
 }
 
-func (serviceRequestReactivates) ID() string         { return "NAS-SERVICE-REQUEST-REACTIVATES" }
-func (serviceRequestReactivates) Category() Category { return Procedural }
+func (serviceRequestReactivates) ID() string { return "NAS-SERVICE-REQUEST-REACTIVATES" }
 func (serviceRequestReactivates) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a)", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,

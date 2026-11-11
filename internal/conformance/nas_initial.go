@@ -451,8 +451,7 @@ func (nasInitialMsgContainerWins) Outcomes() []Outcome {
 		containerWinsAlike, containerWinsRefused, containerWinsDropped, containerWinsUnprotectedAccept}
 }
 
-func (nasInitialMsgContainerWins) ID() string         { return "NAS-INITIAL-MSG-CONTAINER-WINS" }
-func (nasInitialMsgContainerWins) Category() Category { return Security }
+func (nasInitialMsgContainerWins) ID() string { return "NAS-INITIAL-MSG-CONTAINER-WINS" }
 func (nasInitialMsgContainerWins) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.4.2.4", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
@@ -657,8 +656,7 @@ func (nasInitialMsgNoContainer) Outcomes() []Outcome {
 		noContainerOutRejected, noContainerOutRefused, noContainerOutDropped, noContainerOutReleased, noContainerOutUnanswered}
 }
 
-func (nasInitialMsgNoContainer) ID() string         { return "NAS-INITIAL-MSG-NO-CONTAINER" }
-func (nasInitialMsgNoContainer) Category() Category { return Security }
+func (nasInitialMsgNoContainer) ID() string { return "NAS-INITIAL-MSG-NO-CONTAINER" }
 
 // SpecRefs cites the UE's rule for the container (4.4.6 a)) and, as the
 // primary reference, the request for the initial NAS message that 5.4.2.2
@@ -808,7 +806,6 @@ func (nasInitialMsgNonCleartextAccepted) Outcomes() []Outcome {
 func (nasInitialMsgNonCleartextAccepted) ID() string {
 	return "NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED"
 }
-func (nasInitialMsgNonCleartextAccepted) Category() Category { return Security }
 
 // SpecRefs cites the UE's rule the stimulus breaks (4.4.6 a)) and, as the
 // primary reference and a description of the registration going through,

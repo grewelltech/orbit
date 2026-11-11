@@ -87,8 +87,7 @@ type ngapPathSwitchSecCapMismatch struct {
 	ackWait time.Duration
 }
 
-func (ngapPathSwitchSecCapMismatch) ID() string         { return "NGAP-PATH-SWITCH-SECCAP-MISMATCH" }
-func (ngapPathSwitchSecCapMismatch) Category() Category { return Security }
+func (ngapPathSwitchSecCapMismatch) ID() string { return "NGAP-PATH-SWITCH-SECCAP-MISMATCH" }
 func (ngapPathSwitchSecCapMismatch) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 33.501", Clause: "6.7.3.1", Strength: Shall, Since: 15, Verified: ts33501Verified, Primary: true,

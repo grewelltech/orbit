@@ -65,8 +65,7 @@ func (pagingOnDLData) Outcomes() []Outcome {
 	return []Outcome{pagingSent, pagingNone, pagingOtherIdentity}
 }
 
-func (pagingOnDLData) ID() string         { return "NGAP-PAGING-ON-DL-DATA" }
-func (pagingOnDLData) Category() Category { return Procedural }
+func (pagingOnDLData) ID() string { return "NGAP-PAGING-ON-DL-DATA" }
 func (pagingOnDLData) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.6.2.2.1", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,

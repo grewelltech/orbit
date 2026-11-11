@@ -12,7 +12,7 @@ import {
   pickedFileRefusal,
   removeGate,
   removeWorkload,
-  setCategories,
+  setGroups,
   setGate,
   setKeepUEs,
   setUntil,
@@ -112,11 +112,11 @@ describe("the Launch form's edits", () => {
     expect(() => inlineExpected(doc, 0, "core: lab\n# " + "x".repeat(1024 * 1024))).toThrow(EXPECTED_TOO_LARGE);
   });
 
-  it("keeps a suite a suite with no categories, and a population's behaviors as asked", () => {
+  it("keeps a suite a suite with no groups, and a population's behaviors as asked", () => {
     const doc = startFrom("conformance");
-    setCategories(doc, 0, ["nas", "ngap"]);
-    expect(getValue(roundTrip(doc), ["workloads", 0, "conformance", "categories"])).toEqual(["nas", "ngap"]);
-    setCategories(doc, 0, []);
+    setGroups(doc, 0, ["NAS", "NGAP"]);
+    expect(getValue(roundTrip(doc), ["workloads", 0, "conformance", "groups"])).toEqual(["NAS", "NGAP"]);
+    setGroups(doc, 0, []);
     expect(workloads(roundTrip(doc))[0]!.kind).toBe("conformance");
     const pop = startFrom("load");
     setKeepUEs(pop, 0, true);

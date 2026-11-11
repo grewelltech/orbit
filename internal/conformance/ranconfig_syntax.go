@@ -75,8 +75,7 @@ func (c ranConfigUpdateTransferSyntax) errIndWait() time.Duration {
 	return ranConfigSyntaxWait
 }
 
-func (ranConfigUpdateTransferSyntax) ID() string         { return "NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX" }
-func (ranConfigUpdateTransferSyntax) Category() Category { return NegativeIE }
+func (ranConfigUpdateTransferSyntax) ID() string { return "NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX" }
 
 // SpecRefs cites the should in 10.2. The clauses that make the stimulus a
 // transfer syntax error and not a missing IE or a rejected update (9.2.6.4,

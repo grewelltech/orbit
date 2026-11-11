@@ -244,7 +244,7 @@ func TestEndMarkerResultJSON(t *testing.T) {
 	}
 	var got struct {
 		ID         string    `json:"id"`
-		Category   string    `json:"category"`
+		Group      string    `json:"group"`
 		SpecRef    string    `json:"spec_ref"`
 		SpecRefs   []SpecRef `json:"spec_refs"`
 		MinRelease Release   `json:"min_release"`
@@ -253,7 +253,7 @@ func TestEndMarkerResultJSON(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "GTPU-END-MARKER-ON-PATH-SWITCH" || got.Category != "mobility" || got.Verdict != "SKIP" || got.MinRelease != 15 {
+	if got.ID != "GTPU-END-MARKER-ON-PATH-SWITCH" || got.Group != `TS 23.501 / User Plane Management / Functionality of Sending of "End marker"` || got.Verdict != "SKIP" || got.MinRelease != 15 {
 		t.Errorf("result = %+v", got)
 	}
 	var clauses []string

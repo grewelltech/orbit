@@ -181,7 +181,9 @@ message LatencyProbe {
 
 // ConformanceWorkload is the conformance suite as a workload.
 message ConformanceWorkload {
-  repeated string categories = 1;   // empty runs everything
+  // Removed: categories were replaced by groups (ADR-0011). A workload
+  // that names one is refused with the groups and checks that replace it.
+  repeated string categories = 1 [deprecated = true];
   string target_release = 2;
   ExpectedFailures expected = 3;
   uint32 per_test_timeout_ms = 4;
@@ -195,10 +197,14 @@ message ConformanceWorkload {
   GNBIDSelection gnb_ids = 8;
   string subscriber_pool = 9;       // the UE checks' subscriber; default the first pool
   string n3_bind = 10;              // the GTP-U checks' local N3 source, ip:port; empty: they SKIP
-  // Check IDs to run (any case), on top of categories; empty runs every
-  // check the categories select. Each check keeps the gNB IDs and the
+  // Check IDs to run (any case), on top of groups; empty runs every
+  // check the groups select. Each check keeps the gNB IDs and the
   // subscribers it has in a full suite. An unknown ID is refused.
   repeated string checks = 11;
+  // Groups to run: group paths or prefixes of them, in any case
+  // ("NGAP", "NAS / 5GMM common procedures"), read in the target release;
+  // empty runs every group.
+  repeated string groups = 12;
 }
 
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).

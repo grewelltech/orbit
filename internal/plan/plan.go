@@ -308,6 +308,9 @@ func (b builder) conformance(base string) (*orbitv1.ConformanceWorkload, error) 
 	if v, ok := b.get(base + "checks"); ok {
 		cw.Checks = v.([]string)
 	}
+	if v, ok := b.get(base + "groups"); ok {
+		cw.Groups = v.([]string)
+	}
 	sel, err := b.gnbIDs(base + "gnb_ids.")
 	if err != nil {
 		return nil, err

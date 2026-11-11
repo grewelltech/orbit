@@ -204,7 +204,7 @@ func conformancePlan(m *orbitv1.RunConformanceRequest) *orbitv1.RunPlan {
 			Ki: m.GetCredentials().GetKi(), Opc: m.GetCredentials().GetOpc()}}
 	}
 	cw := &orbitv1.ConformanceWorkload{
-		Categories: m.GetCategories(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
+		Categories: m.GetCategories(), Groups: m.GetGroups(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
 		Traffic: m.GetTraffic(), N3Bind: m.GetN3Bind(),
 		GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: orDefaultU32(m.GetGnbIdBase(), defaultSuiteGNBBase)}},
 	}
@@ -228,7 +228,7 @@ func (s *conformanceService) ListConformanceTests(
 		refs := t.SpecRefs()
 		out = append(out, &orbitv1.ConformanceTestInfo{
 			Id:         t.ID(),
-			Category:   string(t.Category()),
+			Group:      groupOf(t),
 			SpecRef:    conformance.RenderRefs(refs),
 			SpecRefs:   specRefsProto(refs),
 			MinRelease: uint32(conformance.MinRelease(t)),
@@ -237,10 +237,19 @@ func (s *conformanceService) ListConformanceTests(
 	return connect.NewResponse(&orbitv1.ListConformanceTestsResponse{Tests: out}), nil
 }
 
+// groupOf is t's group in the latest release's titles, "" when it has none.
+func groupOf(t conformance.Test) string {
+	g, err := conformance.GroupOf(t, 0)
+	if err != nil {
+		return ""
+	}
+	return g.String()
+}
+
 func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 	return &orbitv1.ConformanceResult{
 		Id:              r.ID,
-		Category:        string(r.Category),
+		Group:           r.Group,
 		SpecRef:         r.SpecRef,
 		Verdict:         string(r.Verdict),
 		Expected:        r.Expected,

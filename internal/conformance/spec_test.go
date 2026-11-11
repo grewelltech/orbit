@@ -21,7 +21,6 @@ type provTest struct {
 }
 
 func (p provTest) ID() string          { return p.id }
-func (p provTest) Category() Category  { return Procedural }
 func (p provTest) SpecRefs() []SpecRef { return p.refs }
 func (p provTest) Run(context.Context, Env) Result {
 	if p.ran != nil {
@@ -72,7 +71,6 @@ type undeclaredTest struct {
 }
 
 func (u undeclaredTest) ID() string                      { return u.id }
-func (u undeclaredTest) Category() Category              { return Procedural }
 func (u undeclaredTest) SpecRefs() []SpecRef             { return u.refs }
 func (u undeclaredTest) Run(context.Context, Env) Result { return Result{Verdict: Pass} }
 

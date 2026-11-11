@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -36,10 +35,9 @@ const suiteGNBName = "orbit-conformance"
 type suiteSpec struct {
 	env     conformance.Env
 	perTest time.Duration
-	cats    []conformance.Category
-	// checks narrows the suite to the checks with these IDs, on top of
-	// cats; empty runs every check cats selects.
-	checks   []string
+	// sel narrows the suite to the checks and groups it names; the zero
+	// value runs every check.
+	sel      conformance.Selection
 	deadline time.Duration // until.duration_ms; 0 = none
 	// runStart, when set, is when the run began, which the deadline counts
 	// from: in a mixed run a suite that waited gets only the time left.
@@ -178,7 +176,7 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 			defer cancel()
 		}
 		reg := conformance.NewRegistry()
-		if err := reg.Only(spec.checks...); err != nil {
+		if err := spec.sel.Apply(reg); err != nil {
 			return nil, err // buildSuite refused it already
 		}
 		reg.RunSuite(suiteCtx, spec.env, spec.perTest, conformance.Hooks{Preflight: func(p conformance.Preflight) {
@@ -205,7 +203,7 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 				}
 				emit(sev, "CONFORMANCE", "", fmt.Sprintf("%s %s", one[0].ID, one[0].Verdict))
 			}
-		}}, spec.cats...)
+		}})
 		if rs, _ := live.snapshot(); ctx.Err() != nil && len(rs) < spec.total && !engine.Finishing(ctx) {
 			return nil, ctx.Err() // stopped: CANCELLED, partial results in live
 		}
@@ -283,22 +281,22 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if err := env.GNB.ValidateIdentity(); err != nil {
 		return nil, err
 	}
-	var cats []conformance.Category
-	for _, c := range cw.GetCategories() {
-		cats = append(cats, conformance.Category(c))
-	}
-	reg := conformance.NewRegistry()
-	if err := knownCategories(reg, cats); err != nil {
+	if err := conformance.CategoriesRemoved(cw.GetCategories(), release); err != nil {
 		return nil, err
 	}
-	// checks narrows the registry for everything below: the selection's
-	// count, its needs and the gNB IDs it leases.
-	checks := cw.GetChecks()
-	if err := reg.Only(checks...); err != nil {
+	// The selection narrows the registry for everything below: its count,
+	// its needs and the gNB IDs it leases. Group titles are read in the
+	// run's target release.
+	sel := conformance.Selection{Checks: cw.GetChecks(), Groups: cw.GetGroups(), Release: release}
+	reg := conformance.NewRegistry()
+	if err := reg.Only(sel.Checks...); err != nil {
 		return nil, fmt.Errorf("checks: %w; `orbit conformance --list` names the checks", err)
 	}
-	if len(reg.Select(cats...)) == 0 {
-		return nil, fmt.Errorf("no checks selected: none of the checks %v is in the categories %v", checks, cats)
+	if err := reg.Groups(sel.Release, sel.Groups...); err != nil {
+		return nil, fmt.Errorf("groups: %w", err)
+	}
+	if len(reg.Select()) == 0 {
+		return nil, fmt.Errorf("no checks selected: none of the checks %v is in the groups %v", sel.Checks, sel.Groups)
 	}
 	// A target that bounds its gNB IDs gets the packed layout, three IDs
 	// per check from the base; an unbounded one (the RunConformance
@@ -312,7 +310,7 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 			span, (span-1)/3, lo, hi, uint64(hi)-uint64(lo)+1)
 	}
 	env.PackedGNBIDs = ranged
-	needs := reg.Needs(0, ranged, cats...)
+	needs := reg.Needs(0, ranged)
 	// The second address is taken, and leased, only for a selection with a
 	// check that uses it.
 	if !needs.SecondN2Source {
@@ -347,7 +345,7 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		env.Downlink = engine.ResponderDownlink{Peer: r.GetControl(), Token: r.GetToken()}
 	}
 
-	spec := &suiteSpec{env: env, cats: cats, checks: checks, total: len(reg.Select(cats...)),
+	spec := &suiteSpec{env: env, sel: sel, total: len(reg.Select()),
 		deadline: time.Duration(until.GetDurationMs()) * time.Millisecond}
 	spec.perTest = time.Duration(cw.GetPerTestTimeoutMs()) * time.Millisecond
 	spec.expected, spec.source = s.expected, "server"
@@ -419,29 +417,6 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	out.suiteLive = newSuiteLive(spec)
 	out.suite = suiteRun(out.suiteLive)
 	return out, nil
-}
-
-// knownCategories refuses a category no check has, and a selection that
-// runs nothing: a typo would otherwise run zero checks, and an empty
-// suite would pass the conformance gate vacuously.
-func knownCategories(reg *conformance.Registry, cats []conformance.Category) error {
-	have := map[conformance.Category]bool{}
-	var names []string
-	for _, t := range reg.Tests() {
-		if !have[t.Category()] {
-			have[t.Category()] = true
-			names = append(names, string(t.Category()))
-		}
-	}
-	for _, c := range cats {
-		if !have[c] {
-			return fmt.Errorf("unknown conformance category %q: want one of %s", c, strings.Join(names, ", "))
-		}
-	}
-	if len(reg.Select(cats...)) == 0 {
-		return fmt.Errorf("no checks selected by categories %v", cats)
-	}
-	return nil
 }
 
 // suiteUE is the UE checks' subscriber: the workload's pool (by name, else

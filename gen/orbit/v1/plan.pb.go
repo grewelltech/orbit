@@ -1546,14 +1546,18 @@ func (x *LatencyProbe) GetTimeoutMs() uint64 {
 
 // ConformanceWorkload is the conformance suite as a workload.
 type ConformanceWorkload struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Categories       []string               `protobuf:"bytes,1,rep,name=categories,proto3" json:"categories,omitempty"` // empty runs everything
-	TargetRelease    string                 `protobuf:"bytes,2,opt,name=target_release,json=targetRelease,proto3" json:"target_release,omitempty"`
-	Expected         *ExpectedFailures      `protobuf:"bytes,3,opt,name=expected,proto3" json:"expected,omitempty"`
-	PerTestTimeoutMs uint32                 `protobuf:"varint,4,opt,name=per_test_timeout_ms,json=perTestTimeoutMs,proto3" json:"per_test_timeout_ms,omitempty"`
-	Nas              *NASAlgorithms         `protobuf:"bytes,5,opt,name=nas,proto3" json:"nas,omitempty"`
-	Responder        string                 `protobuf:"bytes,6,opt,name=responder,proto3" json:"responder,omitempty"` // for checks that need traffic
-	Traffic          string                 `protobuf:"bytes,7,opt,name=traffic,proto3" json:"traffic,omitempty"`     // echo peer host:port the mobility checks' UE sends to
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Removed: categories were replaced by groups (ADR-0011). A workload
+	// that names one is refused with the groups and checks that replace it.
+	//
+	// Deprecated: Marked as deprecated in orbit/v1/plan.proto.
+	Categories       []string          `protobuf:"bytes,1,rep,name=categories,proto3" json:"categories,omitempty"`
+	TargetRelease    string            `protobuf:"bytes,2,opt,name=target_release,json=targetRelease,proto3" json:"target_release,omitempty"`
+	Expected         *ExpectedFailures `protobuf:"bytes,3,opt,name=expected,proto3" json:"expected,omitempty"`
+	PerTestTimeoutMs uint32            `protobuf:"varint,4,opt,name=per_test_timeout_ms,json=perTestTimeoutMs,proto3" json:"per_test_timeout_ms,omitempty"`
+	Nas              *NASAlgorithms    `protobuf:"bytes,5,opt,name=nas,proto3" json:"nas,omitempty"`
+	Responder        string            `protobuf:"bytes,6,opt,name=responder,proto3" json:"responder,omitempty"` // for checks that need traffic
+	Traffic          string            `protobuf:"bytes,7,opt,name=traffic,proto3" json:"traffic,omitempty"`     // echo peer host:port the mobility checks' UE sends to
 	// The suite's gNB IDs: each check presents base + its registry index,
 	// plus its handover target and liveness probe at fixed offsets. first
 	// pins the base; assign takes a base from the rotation whose IDs are all
@@ -1561,10 +1565,14 @@ type ConformanceWorkload struct {
 	GnbIds         *GNBIDSelection `protobuf:"bytes,8,opt,name=gnb_ids,json=gnbIds,proto3" json:"gnb_ids,omitempty"`
 	SubscriberPool string          `protobuf:"bytes,9,opt,name=subscriber_pool,json=subscriberPool,proto3" json:"subscriber_pool,omitempty"` // the UE checks' subscriber; default the first pool
 	N3Bind         string          `protobuf:"bytes,10,opt,name=n3_bind,json=n3Bind,proto3" json:"n3_bind,omitempty"`                        // the GTP-U checks' local N3 source, ip:port; empty: they SKIP
-	// Check IDs to run (any case), on top of categories; empty runs every
-	// check the categories select. Each check keeps the gNB IDs and the
+	// Check IDs to run (any case), on top of groups; empty runs every
+	// check the groups select. Each check keeps the gNB IDs and the
 	// subscribers it has in a full suite. An unknown ID is refused.
-	Checks        []string `protobuf:"bytes,11,rep,name=checks,proto3" json:"checks,omitempty"`
+	Checks []string `protobuf:"bytes,11,rep,name=checks,proto3" json:"checks,omitempty"`
+	// Groups to run: group paths or prefixes of them, in any case
+	// ("NGAP", "NAS / 5GMM common procedures"), read in the target release;
+	// empty runs every group.
+	Groups        []string `protobuf:"bytes,12,rep,name=groups,proto3" json:"groups,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1599,6 +1607,7 @@ func (*ConformanceWorkload) Descriptor() ([]byte, []int) {
 	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{15}
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/plan.proto.
 func (x *ConformanceWorkload) GetCategories() []string {
 	if x != nil {
 		return x.Categories
@@ -1672,6 +1681,13 @@ func (x *ConformanceWorkload) GetN3Bind() string {
 func (x *ConformanceWorkload) GetChecks() []string {
 	if x != nil {
 		return x.Checks
+	}
+	return nil
+}
+
+func (x *ConformanceWorkload) GetGroups() []string {
+	if x != nil {
+		return x.Groups
 	}
 	return nil
 }
@@ -2549,10 +2565,10 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"intervalMs\x12\x10\n" +
 	"\x03ues\x18\x03 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\xb3\x03\n" +
-	"\x13ConformanceWorkload\x12\x1e\n" +
+	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\xcf\x03\n" +
+	"\x13ConformanceWorkload\x12\"\n" +
 	"\n" +
-	"categories\x18\x01 \x03(\tR\n" +
+	"categories\x18\x01 \x03(\tB\x02\x18\x01R\n" +
 	"categories\x12%\n" +
 	"\x0etarget_release\x18\x02 \x01(\tR\rtargetRelease\x126\n" +
 	"\bexpected\x18\x03 \x01(\v2\x1a.orbit.v1.ExpectedFailuresR\bexpected\x12-\n" +
@@ -2564,7 +2580,8 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\x0fsubscriber_pool\x18\t \x01(\tR\x0esubscriberPool\x12\x17\n" +
 	"\an3_bind\x18\n" +
 	" \x01(\tR\x06n3Bind\x12\x16\n" +
-	"\x06checks\x18\v \x03(\tR\x06checks\"[\n" +
+	"\x06checks\x18\v \x03(\tR\x06checks\x12\x16\n" +
+	"\x06groups\x18\f \x03(\tR\x06groups\"[\n" +
 	"\x10ExpectedFailures\x123\n" +
 	"\aentries\x18\x01 \x03(\v2\x19.orbit.v1.ExpectedFailureR\aentries\x12\x12\n" +
 	"\x04core\x18\x02 \x01(\tR\x04core\"\xa5\x01\n" +

@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/conformance.proto.
  */
 export const file_orbit_v1_conformance: GenFile = /*@__PURE__*/
-  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEihwMKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCRIWCg50YXJnZXRfcmVsZWFzZRgNIAEoDRIMCgRzdXBpGA4gASgJEioKC2NyZWRlbnRpYWxzGA8gASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSCwoDZG5uGBAgASgJEg4KBmduYl9uMxgRIAEoCRIPCgd0cmFmZmljGBIgASgJEh8KBHBsYW4YEyABKAsyES5vcmJpdC52MS5SdW5QbGFuIsQDChFDb25mb3JtYW5jZVVwZGF0ZRIrCgZyZXN1bHQYASABKAsyGy5vcmJpdC52MS5Db25mb3JtYW5jZVJlc3VsdBIMCgRkb25lGAIgASgIEikKBXRhbGx5GAMgASgLMhoub3JiaXQudjEuQ29uZm9ybWFuY2VUYWxseRINCgVpbmRleBgEIAEoDRINCgV0b3RhbBgFIAEoDRIWCg50YXJnZXRfcmVsZWFzZRgGIAEoDRJRChRzcGVjX3RhcmdldF9yZWxlYXNlcxgHIAMoCzIzLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlLlNwZWNUYXJnZXRSZWxlYXNlc0VudHJ5Eh4KFmV4cGVjdGVkX2ZhaWx1cmVzX2NvcmUYCCABKAkSKQoFc3RhbGUYCSADKAsyGi5vcmJpdC52MS5TdGFsZUV4cGVjdGF0aW9uEg4KBnJ1bl9pZBgKIAEoCRIqCglwcmVmbGlnaHQYCyADKAsyFy5vcmJpdC52MS5QcmVmbGlnaHRTdGVwGjkKF1NwZWNUYXJnZXRSZWxlYXNlc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDToCOAEiPQoNUHJlZmxpZ2h0U3RlcBIMCgRzdGVwGAEgASgJEg4KBnN0YXR1cxgCIAEoCRIOCgZkZXRhaWwYAyABKAki7AIKEUNvbmZvcm1hbmNlUmVzdWx0EgoKAmlkGAEgASgJEhAKCGNhdGVnb3J5GAIgASgJEhAKCHNwZWNfcmVmGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIZXhwZWN0ZWQYBSABKAkSEAoIb2JzZXJ2ZWQYBiABKAkSDgoGZGV0YWlsGAcgASgJEiQKCXNwZWNfcmVmcxgIIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYCSABKA0SMwoQZXhwZWN0ZWRfZmFpbHVyZRgKIAEoCzIZLm9yYml0LnYxLkV4cGVjdGVkRmFpbHVyZRIPCgdvdXRjb21lGAsgASgJEhEKCWNyaXRlcmlvbhgMIAEoCRIUCgxvdXRjb21lX3JlZnMYDSADKAkSEgoKYmxvY2tlZF9vbhgOIAEoCRINCgVvd25lchgPIAEoCRIVCg1ub3RfY29tcGxldGVkGBAgASgJIooBChBTdGFsZUV4cGVjdGF0aW9uEg0KBWNoZWNrGAEgASgJEg8KB2ZpbmRpbmcYAiABKAkSGQoRZXhwZWN0ZWRfb2JzZXJ2ZWQYAyABKAkSDwoHdmVyZGljdBgEIAEoCRIQCghvYnNlcnZlZBgFIAEoCRIYChBleHBlY3RlZF92ZXJkaWN0GAYgASgJItYBCgdTcGVjUmVmEgwKBHNwZWMYASABKAkSDgoGY2xhdXNlGAIgASgJEhAKCHN0cmVuZ3RoGAMgASgJEg0KBXNpbmNlGAQgASgNEicKCHZlcmlmaWVkGAUgAygLMhUub3JiaXQudjEuU3BlY1ZlcnNpb24SJQoHY2hhbmdlZBgGIAMoCzIULm9yYml0LnYxLlNwZWNDaGFuZ2USGQoRd29yZGluZ191bmNoYW5nZWQYByABKAgSEAoIcmVuZGVyZWQYCCABKAkSDwoHcHJpbWFyeRgJIAEoCCJACgtTcGVjVmVyc2lvbhIPCgdyZWxlYXNlGAEgASgNEg8KB3ZlcnNpb24YAiABKAkSDwoHYXJjaGl2ZRgDIAEoCSIrCgpTcGVjQ2hhbmdlEg8KB3JlbGVhc2UYASABKA0SDAoEbm90ZRgCIAEoCSLbAQoQQ29uZm9ybWFuY2VUYWxseRIOCgZwYXNzZWQYASABKA0SDgoGZmFpbGVkGAIgASgNEg8KB2Vycm9yZWQYAyABKA0SDwoHc2tpcHBlZBgEIAEoDRISCgpkZXZpYXRpb25zGAUgASgNEhkKEWV4cGVjdGVkX2ZhaWx1cmVzGAYgASgNEgwKBGluZm8YByABKA0SFgoKaW5mb19kaWZmcxgIIAEoDUICGAESDgoGd2FybmVkGAkgASgNEg8KB2Jsb2NrZWQYCiABKA0SDwoHY3Jhc2hlZBgLIAEoDSIdChtMaXN0Q29uZm9ybWFuY2VUZXN0c1JlcXVlc3QigAEKE0NvbmZvcm1hbmNlVGVzdEluZm8SCgoCaWQYASABKAkSEAoIY2F0ZWdvcnkYAiABKAkSEAoIc3BlY19yZWYYAyABKAkSJAoJc3BlY19yZWZzGAQgAygLMhEub3JiaXQudjEuU3BlY1JlZhITCgttaW5fcmVsZWFzZRgFIAEoDSJMChxMaXN0Q29uZm9ybWFuY2VUZXN0c1Jlc3BvbnNlEiwKBXRlc3RzGAEgAygLMh0ub3JiaXQudjEuQ29uZm9ybWFuY2VUZXN0SW5mbzLRAQoSQ29uZm9ybWFuY2VTZXJ2aWNlElIKDlJ1bkNvbmZvcm1hbmNlEh8ub3JiaXQudjEuUnVuQ29uZm9ybWFuY2VSZXF1ZXN0Ghsub3JiaXQudjEuQ29uZm9ybWFuY2VVcGRhdGUiADABEmcKFExpc3RDb25mb3JtYW5jZVRlc3RzEiUub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0GiYub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZSIAQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_plan, file_orbit_v1_ue]);
+  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEimwMKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSFgoKY2F0ZWdvcmllcxgIIAMoCUICGAESGAoQcGVyX3Rlc3Rfc2Vjb25kcxgJIAEoDRIUCgxiaW5kX2FkZHJlc3MYDCABKAkSFgoOdGFyZ2V0X3JlbGVhc2UYDSABKA0SDAoEc3VwaRgOIAEoCRIqCgtjcmVkZW50aWFscxgPIAEoCzIVLm9yYml0LnYxLkNyZWRlbnRpYWxzEgsKA2RubhgQIAEoCRIOCgZnbmJfbjMYESABKAkSDwoHdHJhZmZpYxgSIAEoCRIOCgZncm91cHMYFCADKAkSHwoEcGxhbhgTIAEoCzIRLm9yYml0LnYxLlJ1blBsYW4ixAMKEUNvbmZvcm1hbmNlVXBkYXRlEisKBnJlc3VsdBgBIAEoCzIbLm9yYml0LnYxLkNvbmZvcm1hbmNlUmVzdWx0EgwKBGRvbmUYAiABKAgSKQoFdGFsbHkYAyABKAsyGi5vcmJpdC52MS5Db25mb3JtYW5jZVRhbGx5Eg0KBWluZGV4GAQgASgNEg0KBXRvdGFsGAUgASgNEhYKDnRhcmdldF9yZWxlYXNlGAYgASgNElEKFHNwZWNfdGFyZ2V0X3JlbGVhc2VzGAcgAygLMjMub3JiaXQudjEuQ29uZm9ybWFuY2VVcGRhdGUuU3BlY1RhcmdldFJlbGVhc2VzRW50cnkSHgoWZXhwZWN0ZWRfZmFpbHVyZXNfY29yZRgIIAEoCRIpCgVzdGFsZRgJIAMoCzIaLm9yYml0LnYxLlN0YWxlRXhwZWN0YXRpb24SDgoGcnVuX2lkGAogASgJEioKCXByZWZsaWdodBgLIAMoCzIXLm9yYml0LnYxLlByZWZsaWdodFN0ZXAaOQoXU3BlY1RhcmdldFJlbGVhc2VzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgNOgI4ASI9Cg1QcmVmbGlnaHRTdGVwEgwKBHN0ZXAYASABKAkSDgoGc3RhdHVzGAIgASgJEg4KBmRldGFpbBgDIAEoCSL/AgoRQ29uZm9ybWFuY2VSZXN1bHQSCgoCaWQYASABKAkSFAoIY2F0ZWdvcnkYAiABKAlCAhgBEg0KBWdyb3VwGBEgASgJEhAKCHNwZWNfcmVmGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIZXhwZWN0ZWQYBSABKAkSEAoIb2JzZXJ2ZWQYBiABKAkSDgoGZGV0YWlsGAcgASgJEiQKCXNwZWNfcmVmcxgIIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYCSABKA0SMwoQZXhwZWN0ZWRfZmFpbHVyZRgKIAEoCzIZLm9yYml0LnYxLkV4cGVjdGVkRmFpbHVyZRIPCgdvdXRjb21lGAsgASgJEhEKCWNyaXRlcmlvbhgMIAEoCRIUCgxvdXRjb21lX3JlZnMYDSADKAkSEgoKYmxvY2tlZF9vbhgOIAEoCRINCgVvd25lchgPIAEoCRIVCg1ub3RfY29tcGxldGVkGBAgASgJIooBChBTdGFsZUV4cGVjdGF0aW9uEg0KBWNoZWNrGAEgASgJEg8KB2ZpbmRpbmcYAiABKAkSGQoRZXhwZWN0ZWRfb2JzZXJ2ZWQYAyABKAkSDwoHdmVyZGljdBgEIAEoCRIQCghvYnNlcnZlZBgFIAEoCRIYChBleHBlY3RlZF92ZXJkaWN0GAYgASgJItYBCgdTcGVjUmVmEgwKBHNwZWMYASABKAkSDgoGY2xhdXNlGAIgASgJEhAKCHN0cmVuZ3RoGAMgASgJEg0KBXNpbmNlGAQgASgNEicKCHZlcmlmaWVkGAUgAygLMhUub3JiaXQudjEuU3BlY1ZlcnNpb24SJQoHY2hhbmdlZBgGIAMoCzIULm9yYml0LnYxLlNwZWNDaGFuZ2USGQoRd29yZGluZ191bmNoYW5nZWQYByABKAgSEAoIcmVuZGVyZWQYCCABKAkSDwoHcHJpbWFyeRgJIAEoCCJACgtTcGVjVmVyc2lvbhIPCgdyZWxlYXNlGAEgASgNEg8KB3ZlcnNpb24YAiABKAkSDwoHYXJjaGl2ZRgDIAEoCSIrCgpTcGVjQ2hhbmdlEg8KB3JlbGVhc2UYASABKA0SDAoEbm90ZRgCIAEoCSLbAQoQQ29uZm9ybWFuY2VUYWxseRIOCgZwYXNzZWQYASABKA0SDgoGZmFpbGVkGAIgASgNEg8KB2Vycm9yZWQYAyABKA0SDwoHc2tpcHBlZBgEIAEoDRISCgpkZXZpYXRpb25zGAUgASgNEhkKEWV4cGVjdGVkX2ZhaWx1cmVzGAYgASgNEgwKBGluZm8YByABKA0SFgoKaW5mb19kaWZmcxgIIAEoDUICGAESDgoGd2FybmVkGAkgASgNEg8KB2Jsb2NrZWQYCiABKA0SDwoHY3Jhc2hlZBgLIAEoDSIdChtMaXN0Q29uZm9ybWFuY2VUZXN0c1JlcXVlc3QikwEKE0NvbmZvcm1hbmNlVGVzdEluZm8SCgoCaWQYASABKAkSFAoIY2F0ZWdvcnkYAiABKAlCAhgBEg0KBWdyb3VwGAYgASgJEhAKCHNwZWNfcmVmGAMgASgJEiQKCXNwZWNfcmVmcxgEIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYBSABKA0iTAocTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZRIsCgV0ZXN0cxgBIAMoCzIdLm9yYml0LnYxLkNvbmZvcm1hbmNlVGVzdEluZm8y0QEKEkNvbmZvcm1hbmNlU2VydmljZRJSCg5SdW5Db25mb3JtYW5jZRIfLm9yYml0LnYxLlJ1bkNvbmZvcm1hbmNlUmVxdWVzdBobLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlIgAwARJnChRMaXN0Q29uZm9ybWFuY2VUZXN0cxIlLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVxdWVzdBomLm9yYml0LnYxLkxpc3RDb25mb3JtYW5jZVRlc3RzUmVzcG9uc2UiAEIwWi5naXRodWIuY29tL2JncmV3ZWxsL29yYml0L2dlbi9vcmJpdC92MTtvcmJpdHYxYgZwcm90bzM", [file_orbit_v1_plan, file_orbit_v1_ue]);
 
 /**
  * @generated from message orbit.v1.RunConformanceRequest
@@ -81,7 +81,7 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
   gnbIdBase: number;
 
   /**
-   * User-plane checks (the gtpu category) need the UPF's N3 endpoint and a
+   * User-plane checks (the GTP-U ones) need the UPF's N3 endpoint and a
    * local N3 source address to bind. Absent, those tests report SKIP.
    *
    * host:port
@@ -98,9 +98,11 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
   n3Bind: string;
 
   /**
-   * Categories to run; empty runs everything.
+   * Removed: categories were replaced by groups (ADR-0011). A request that
+   * names one is refused with the groups and checks that replace it.
    *
-   * @generated from field: repeated string categories = 8;
+   * @generated from field: repeated string categories = 8 [deprecated = true];
+   * @deprecated
    */
   categories: string[];
 
@@ -172,6 +174,14 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
    * @generated from field: string traffic = 18;
    */
   traffic: string;
+
+  /**
+   * Groups to run: group paths or prefixes of them, in any case
+   * ("NGAP", "NAS / 5GMM common procedures"); empty runs every group.
+   *
+   * @generated from field: repeated string groups = 20;
+   */
+  groups: string[];
 
   /**
    * The suite as a plan (ADR-0008 §2): one conformance workload with its
@@ -331,9 +341,20 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
   id: string;
 
   /**
-   * @generated from field: string category = 2;
+   * Always empty: categories were replaced by groups (ADR-0011).
+   *
+   * @generated from field: string category = 2 [deprecated = true];
+   * @deprecated
    */
   category: string;
+
+  /**
+   * The check's group in the run's target release: specification /
+   * procedure family / procedure, by the specification's clause titles.
+   *
+   * @generated from field: string group = 17;
+   */
+  group: string;
 
   /**
    * @generated from field: string spec_ref = 3;
@@ -725,9 +746,19 @@ export type ConformanceTestInfo = Message<"orbit.v1.ConformanceTestInfo"> & {
   id: string;
 
   /**
-   * @generated from field: string category = 2;
+   * Always empty: categories were replaced by groups (ADR-0011).
+   *
+   * @generated from field: string category = 2 [deprecated = true];
+   * @deprecated
    */
   category: string;
+
+  /**
+   * The check's group, in the latest release's clause titles.
+   *
+   * @generated from field: string group = 6;
+   */
+  group: string;
 
   /**
    * @generated from field: string spec_ref = 3;
@@ -792,7 +823,7 @@ export const ConformanceService: GenService<{
   },
   /**
    * ListConformanceTests reports the registered tests without running them,
-   * so a client can render the table skeleton (and per-category counts)
+   * so a client can render the table skeleton (and per-group counts)
    * before or without a run.
    *
    * @generated from rpc orbit.v1.ConformanceService.ListConformanceTests

@@ -96,8 +96,7 @@ func (c ranConfigUpdateAck) outcomeWait() time.Duration {
 	return ranConfigAckWait
 }
 
-func (ranConfigUpdateAck) ID() string         { return "NGAP-RAN-CONFIG-UPDATE-ACK" }
-func (ranConfigUpdateAck) Category() Category { return Procedural }
+func (ranConfigUpdateAck) ID() string { return "NGAP-RAN-CONFIG-UPDATE-ACK" }
 
 // SpecRefs cites the two answers: the ACKNOWLEDGE of 8.7.2.2, read as a
 // requirement, and the FAILURE of 8.7.2.3. The Class 1 table (8.1) is in

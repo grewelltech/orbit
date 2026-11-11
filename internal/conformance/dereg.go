@@ -61,8 +61,7 @@ func (nasDeregAcceptNotSwitchOff) Outcomes() []Outcome {
 	return []Outcome{deregAccepted, deregReleasedInstead, deregNoAccept}
 }
 
-func (nasDeregAcceptNotSwitchOff) ID() string         { return "NAS-DEREG-ACCEPT-NOT-SWITCH-OFF" }
-func (nasDeregAcceptNotSwitchOff) Category() Category { return Procedural }
+func (nasDeregAcceptNotSwitchOff) ID() string { return "NAS-DEREG-ACCEPT-NOT-SWITCH-OFF" }
 func (nasDeregAcceptNotSwitchOff) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.5.2.2.2", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
@@ -261,8 +260,7 @@ func (ngapCtxReleaseAfterSwitchOff) Outcomes() []Outcome {
 	return []Outcome{switchOffReleaseBothIDs, switchOffReleaseNoIDs, switchOffReleaseAMFIDOnly, switchOffReleaseNone, switchOffReleaseOtherIDs}
 }
 
-func (ngapCtxReleaseAfterSwitchOff) ID() string         { return "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF" }
-func (ngapCtxReleaseAfterSwitchOff) Category() Category { return Procedural }
+func (ngapCtxReleaseAfterSwitchOff) ID() string { return "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF" }
 func (ngapCtxReleaseAfterSwitchOff) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 38.413", Clause: "8.3.3.2", Strength: Shall, Since: 15, Verified: ts38413Verified, Primary: true,

@@ -591,8 +591,8 @@ func TestPDUReleaseCheckCutShort(t *testing.T) {
 // The registry stamps the check's identity and its five shall references.
 func TestPDUReleaseCheckIdentity(t *testing.T) {
 	c := testByID(t, "NAS-PDU-RELEASE-UE-REQUESTED")
-	if c.Category() != Procedural || WorstVerdict(c) != Fail || MinRelease(c) != 15 {
-		t.Errorf("category %s, worst verdict %s, min release %s", c.Category(), WorstVerdict(c), MinRelease(c))
+	if WorstVerdict(c) != Fail || MinRelease(c) != 15 {
+		t.Errorf("worst verdict %s, min release %s", WorstVerdict(c), MinRelease(c))
 	}
 	var shall []string
 	for _, r := range c.SpecRefs() {

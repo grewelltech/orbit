@@ -148,13 +148,22 @@ func TestRegistryNeeds(t *testing.T) {
 			if handovers < 2 || len(all.GNBIDs) != int(2*n)+handovers+1 {
 				t.Errorf("%d IDs with %d handover checks, want 2N+%d+1 = %d", len(all.GNBIDs), handovers, handovers, int(2*n)+handovers+1)
 			}
-			// A category whose checks register no UE needs none.
-			if ng := r.Needs(700, tc.packed, NegativeIE); ng.UEs != 0 || len(ng.GNBIDs) == 0 || ng.SecondN2Source {
-				t.Errorf("negative-ie only: %+v", ng)
+			// A group whose checks register no UE needs none.
+			neg := NewRegistry()
+			if err := neg.Groups(0, "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"); err != nil {
+				t.Fatal(err)
 			}
-			// Procedural holds a check that registers one.
-			if ng := r.Needs(700, tc.packed, Procedural); ng.UEs != 1 || len(ng.GNBIDs) == 0 || !ng.SecondN2Source {
-				t.Errorf("procedural only: %+v", ng)
+			if ng := neg.Needs(700, tc.packed); ng.UEs != 0 || len(ng.GNBIDs) == 0 || ng.SecondN2Source {
+				t.Errorf("erroneous-data handling only: %+v", ng)
+			}
+			// Interface management holds a check that registers one and one
+			// that uses a second N2 source.
+			im := NewRegistry()
+			if err := im.Groups(0, "NGAP / Interface Management Procedures"); err != nil {
+				t.Fatal(err)
+			}
+			if ng := im.Needs(700, tc.packed); ng.UEs != 1 || len(ng.GNBIDs) == 0 || !ng.SecondN2Source {
+				t.Errorf("interface management only: %+v", ng)
 			}
 		})
 	}
@@ -226,7 +235,6 @@ type envProbe struct {
 }
 
 func (p envProbe) ID() string        { return p.id }
-func (envProbe) Category() Category  { return Procedural }
 func (envProbe) SpecRefs() []SpecRef { return nil }
 func (p envProbe) Run(_ context.Context, e Env) Result {
 	p.seen[p.id] = e
@@ -284,12 +292,16 @@ func TestIdleCoreDecidedPerCheck(t *testing.T) {
 		return ""
 	}}
 	var idle []Result
-	NewRegistry().RunStream(context.Background(), env, time.Second, func(r Result, _, _ int) {
+	reg := NewRegistry()
+	if err := reg.Only("NAS-T3550-ACCEPT-RETRANSMIT", "NAS-T3560-AUTH-RETRANSMIT", "NAS-INITIAL-REGISTRATION"); err != nil {
+		t.Fatal(err)
+	}
+	reg.RunStream(context.Background(), env, time.Second, func(r Result, _, _ int) {
 		if NeedsOf(testByID(t, r.ID)).RequiresIdleCore {
 			idle = append(idle, r)
 			loaded.Store(false) // the storm ends after the first one
 		}
-	}, NAS)
+	})
 	if len(idle) != 2 {
 		t.Fatalf("%d idle-core checks ran, want 2", len(idle))
 	}

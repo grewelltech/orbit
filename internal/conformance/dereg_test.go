@@ -207,8 +207,8 @@ func TestDeregAcceptCheckCutShort(t *testing.T) {
 // The registry stamps the check's identity and references on the result.
 func TestDeregAcceptCheckIdentity(t *testing.T) {
 	c := testByID(t, "NAS-DEREG-ACCEPT-NOT-SWITCH-OFF")
-	if c.Category() != Procedural || WorstVerdict(c) != Fail || MinRelease(c) != 15 {
-		t.Errorf("category %s, worst verdict %s, min release %s", c.Category(), WorstVerdict(c), MinRelease(c))
+	if WorstVerdict(c) != Fail || MinRelease(c) != 15 {
+		t.Errorf("worst verdict %s, min release %s", WorstVerdict(c), MinRelease(c))
 	}
 	if n := NeedsOf(c); n.UEs != 1 || n.RequiresIdleCore {
 		t.Errorf("needs %+v, want one UE and no idle core", n)
@@ -388,8 +388,8 @@ func TestSwitchOffReleaseCheckCutShort(t *testing.T) {
 // 4.2.2.3.2 step 8); it owns the release after switch-off.
 func TestSwitchOffReleaseCheckIdentity(t *testing.T) {
 	c := testByID(t, "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF")
-	if c.Category() != Procedural || WorstVerdict(c) != Fail || MinRelease(c) != 15 {
-		t.Errorf("category %s, worst verdict %s, min release %s", c.Category(), WorstVerdict(c), MinRelease(c))
+	if WorstVerdict(c) != Fail || MinRelease(c) != 15 {
+		t.Errorf("worst verdict %s, min release %s", WorstVerdict(c), MinRelease(c))
 	}
 	var shall []string
 	for _, r := range c.SpecRefs() {

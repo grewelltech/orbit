@@ -111,8 +111,7 @@ func (nasPDUUnknownDNN) Outcomes() []Outcome {
 		dnnReleased, dnnCongestion, dnnAccepted, dnnReturnedOtherCause, dnnIntegrityFailed}
 }
 
-func (nasPDUUnknownDNN) ID() string         { return "NAS-PDU-UNKNOWN-DNN" }
-func (nasPDUUnknownDNN) Category() Category { return NAS }
+func (nasPDUUnknownDNN) ID() string { return "NAS-PDU-UNKNOWN-DNN" }
 func (nasPDUUnknownDNN) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.4.5.2.5 a) 1)", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified,
@@ -646,8 +645,7 @@ func (nasPDUReleaseUERequested) Outcomes() []Outcome {
 	return []Outcome{pduReleaseReleased, pduReleaseNoAnswer, pduReleaseNoNASCommand, pduReleaseNoN2Release, pduReleaseDownlinkAfter, pduReleaseRejected}
 }
 
-func (nasPDUReleaseUERequested) ID() string         { return "NAS-PDU-RELEASE-UE-REQUESTED" }
-func (nasPDUReleaseUERequested) Category() Category { return Procedural }
+func (nasPDUReleaseUERequested) ID() string { return "NAS-PDU-RELEASE-UE-REQUESTED" }
 func (nasPDUReleaseUERequested) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "6.4.3.3", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,

@@ -53,8 +53,7 @@ func (errorIndicationOnUnknownUE) Outcomes() []Outcome {
 	return []Outcome{unknownUEIndicated, unknownUEOtherPDU, unknownUESilent, unknownUEReset}
 }
 
-func (errorIndicationOnUnknownUE) ID() string         { return "NGAP-UNKNOWN-UE-SURVIVES" }
-func (errorIndicationOnUnknownUE) Category() Category { return NegativeIE }
+func (errorIndicationOnUnknownUE) ID() string { return "NGAP-UNKNOWN-UE-SURVIVES" }
 func (errorIndicationOnUnknownUE) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, Verified: ts38413Verified, Primary: true,

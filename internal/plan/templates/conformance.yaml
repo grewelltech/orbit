@@ -1,9 +1,9 @@
-# The conformance suite against the target's core, every category, gated
+# The conformance suite against the target's core, every group, gated
 # on no FAIL outside the expected-failures list and no ERROR.
 kind: run
 workloads:
   - name: conformance
-    conformance: {categories: []}
+    conformance: {groups: []}
 gates:
   - name: conformance
     conformance: true

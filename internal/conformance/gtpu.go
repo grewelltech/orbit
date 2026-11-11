@@ -79,8 +79,7 @@ func (gtpuUnknownTEID) Outcomes() []Outcome {
 	return []Outcome{unknownTEIDErrorInd, unknownTEIDNoErrorInd}
 }
 
-func (gtpuUnknownTEID) ID() string         { return "GTPU-UNKNOWN-TEID-ERRIND" }
-func (gtpuUnknownTEID) Category() Category { return GTPU }
+func (gtpuUnknownTEID) ID() string { return "GTPU-UNKNOWN-TEID-ERRIND" }
 func (gtpuUnknownTEID) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, Verified: ts29281Verified, Primary: true,
@@ -301,8 +300,7 @@ func (gtpuEchoResponse) Outcomes() []Outcome {
 	return []Outcome{echoAnswered, echoSeqDiffers, echoNoResponse}
 }
 
-func (gtpuEchoResponse) ID() string         { return "GTPU-ECHO-RESPONSE" }
-func (gtpuEchoResponse) Category() Category { return GTPU }
+func (gtpuEchoResponse) ID() string { return "GTPU-ECHO-RESPONSE" }
 func (gtpuEchoResponse) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 29.281", Clause: "7.2.1", Strength: Shall, Since: 8, Verified: ts29281EchoVerified, Primary: true,
@@ -419,8 +417,7 @@ func (n3DLQFIContainer) Outcomes() []Outcome {
 	return []Outcome{qfiContainerPresent, qfiContainerAbsent}
 }
 
-func (n3DLQFIContainer) ID() string         { return "N3-DL-QFI-CONTAINER" }
-func (n3DLQFIContainer) Category() Category { return GTPU }
+func (n3DLQFIContainer) ID() string { return "N3-DL-QFI-CONTAINER" }
 func (n3DLQFIContainer) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 29.281", Clause: "5.2.2.7", Strength: Shall, Since: 15, Verified: ts29281QFIContainerVerified, Primary: true,

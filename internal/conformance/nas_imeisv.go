@@ -83,8 +83,7 @@ func (nasSMCIMEISVRequest) Outcomes() []Outcome {
 		imeisvOutRejected, imeisvOutAccepted, imeisvOutReleased, imeisvOutUnanswered}
 }
 
-func (nasSMCIMEISVRequest) ID() string         { return "NAS-SMC-IMEISV-REQUEST" }
-func (nasSMCIMEISVRequest) Category() Category { return Security }
+func (nasSMCIMEISVRequest) ID() string { return "NAS-SMC-IMEISV-REQUEST" }
 
 // SpecRefs cites the AMF's option to request the IMEISV (TS 24.501 5.4.2.2,
 // a may, the primary reference) and the UE's obligation to send a

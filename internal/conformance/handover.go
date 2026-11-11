@@ -103,8 +103,7 @@ func (ngapPathSwitchAckTransfer) Outcomes() []Outcome {
 		pathSwitchRefused, pathSwitchUnanswered, pathSwitchOtherAnswer}
 }
 
-func (ngapPathSwitchAckTransfer) ID() string         { return "NGAP-PATH-SWITCH-ACK-TRANSFER" }
-func (ngapPathSwitchAckTransfer) Category() Category { return Mobility }
+func (ngapPathSwitchAckTransfer) ID() string { return "NGAP-PATH-SWITCH-ACK-TRANSFER" }
 func (ngapPathSwitchAckTransfer) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 38.413", Clause: "8.4.4.2", Strength: Shall, Since: 15, Verified: ts38413Verified, Primary: true,
@@ -444,8 +443,7 @@ func (ngapHandoverCommandTransfer) Outcomes() []Outcome {
 	return []Outcome{handoverCommanded, handoverNoList, handoverNoTransfer, handoverRefused, handoverUnanswered, handoverOtherAnswer}
 }
 
-func (ngapHandoverCommandTransfer) ID() string         { return "NGAP-HANDOVER-COMMAND-TRANSFER" }
-func (ngapHandoverCommandTransfer) Category() Category { return Mobility }
+func (ngapHandoverCommandTransfer) ID() string { return "NGAP-HANDOVER-COMMAND-TRANSFER" }
 func (ngapHandoverCommandTransfer) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 38.413", Clause: "8.4.1.2", Strength: Shall, Since: 15, Verified: ts38413HandoverCommandVerified, Primary: true,
@@ -651,8 +649,7 @@ type ngapHandoverCancelAck struct {
 	prepWait, ackWait time.Duration
 }
 
-func (ngapHandoverCancelAck) ID() string         { return "NGAP-HANDOVER-CANCEL-ACK" }
-func (ngapHandoverCancelAck) Category() Category { return Mobility }
+func (ngapHandoverCancelAck) ID() string { return "NGAP-HANDOVER-CANCEL-ACK" }
 
 // SpecRefs cites the description of the procedure (8.4.5.2), its row in
 // the table of class 1 procedures (Table 8.1-1) and the description of the

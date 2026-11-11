@@ -93,8 +93,7 @@ func (nasRegRejectedNSSAI) Outcomes() []Outcome {
 	return []Outcome{nssaiListed, nssaiWrongCause, nssaiExtendedOnly, nssaiNotListed, nssaiDefaultAllowed, nssaiUnanswered, nssaiReleased}
 }
 
-func (nasRegRejectedNSSAI) ID() string         { return "NAS-REG-REJECTED-NSSAI" }
-func (nasRegRejectedNSSAI) Category() Category { return NAS }
+func (nasRegRejectedNSSAI) ID() string { return "NAS-REG-REJECTED-NSSAI" }
 func (nasRegRejectedNSSAI) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.5.1.2.5 #62", Strength: Shall, Since: 16, Verified: ts24501NSSAI62Verified, Primary: true,

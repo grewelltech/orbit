@@ -1,66 +1,73 @@
 {
-  "run":  {
-    "runId":  "run-eadfbed8",
-    "kind":  "RUN_KIND_MIXED",
-    "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1793174970772990707",
-    "endedUnixNano":  "1793174970985151366",
-    "workloadKinds":  [
+  "run": {
+    "runId": "run-6e94833e",
+    "kind": "RUN_KIND_MIXED",
+    "state": "RUN_STATE_COMPLETE",
+    "startedUnixNano": "1794439784426273639",
+    "endedUnixNano": "1794439784641962800",
+    "workloadKinds": [
       "RUN_KIND_LOAD",
       "RUN_KIND_CONFORMANCE"
     ]
   },
-  "workloads":  [
+  "workloads": [
     {
-      "name":  "pop",
-      "kind":  "RUN_KIND_LOAD",
-      "state":  "done",
-      "load":  {
-        "elapsedMs":  "222",
-        "attempted":  2,
-        "succeeded":  2,
-        "achievedRate":  9.003779232789503,
-        "latency":  [
+      "name": "pop",
+      "kind": "RUN_KIND_LOAD",
+      "state": "done",
+      "load": {
+        "elapsedMs": "224",
+        "attempted": 2,
+        "succeeded": 2,
+        "achievedRate": 8.914244804524072,
+        "latency": [
           {
-            "procedure":  "registration",
-            "count":  "2",
-            "p50Ms":  5.823,
-            "p90Ms":  8.911,
-            "p99Ms":  8.911,
-            "p999Ms":  8.911,
-            "maxMs":  8.911
+            "procedure": "registration",
+            "count": "2",
+            "p50Ms": 5.623,
+            "p90Ms": 12.415,
+            "p99Ms": 12.415,
+            "p999Ms": 12.415,
+            "maxMs": 12.415
           },
           {
-            "procedure":  "attach",
-            "count":  "2",
-            "p50Ms":  5.827,
-            "p90Ms":  8.919,
-            "p99Ms":  8.919,
-            "p999Ms":  8.919,
-            "maxMs":  8.919
+            "procedure": "attach",
+            "count": "2",
+            "p50Ms": 5.627,
+            "p90Ms": 12.415,
+            "p99Ms": 12.415,
+            "p999Ms": 12.415,
+            "maxMs": 12.415
           }
         ],
-        "perGnb":  [
+        "perGnb": [
           {
-            "gnb":  "orbit-gnb",
-            "attempted":  2,
-            "succeeded":  2
+            "gnb": "orbit-gnb",
+            "attempted": 2,
+            "succeeded": 2
           }
         ]
       }
     },
     {
-      "name":  "suite",
-      "kind":  "RUN_KIND_CONFORMANCE",
-      "state":  "done",
-      "conformance":  {
-        "tally":  {
-          "passed":  1,
-          "failed":  2
+      "name": "suite",
+      "kind": "RUN_KIND_CONFORMANCE",
+      "state": "done",
+      "conformance": {
+        "tally": {
+          "failed": 2,
+          "deviations": 1
         },
-        "ran":  3,
-        "total":  3,
-        "lastCheck":  "NGAP-NGSETUP-UNKNOWN-PLMN"
+        "ran": 3,
+        "total": 3,
+        "lastCheck": "NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX",
+        "preflight": [
+          {
+            "step": "NG Setup",
+            "status": "ok",
+            "detail": "gNB ID 36912, PLMN 208/93, TAC 1"
+          }
+        ]
       }
     }
   ]

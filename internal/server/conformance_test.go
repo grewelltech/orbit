@@ -48,8 +48,8 @@ func TestListConformanceTests(t *testing.T) {
 		t.Fatal("no tests registered; the dashboard would render an empty table")
 	}
 	for _, tst := range res.Msg.GetTests() {
-		if tst.GetId() == "" || tst.GetCategory() == "" {
-			t.Errorf("test missing id/category: %+v", tst)
+		if tst.GetId() == "" || tst.GetGroup() == "" {
+			t.Errorf("test missing id/group: %+v", tst)
 		}
 	}
 }
@@ -83,7 +83,7 @@ func TestRunConformanceStreamsAndSummarises(t *testing.T) {
 		connect.NewRequest(&orbitv1.RunConformanceRequest{
 			AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01",
 			PerTestSeconds: 2,
-			Categories:     []string{"procedural"},
+			Groups:         []string{interfaceGroup},
 		}))
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestRunConformanceDefaultTargets(t *testing.T) {
 			c := newConformanceClient(t)
 			stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
 				AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2,
-				Categories: []string{"procedural"}, TargetRelease: tc.target,
+				Groups: []string{interfaceGroup}, TargetRelease: tc.target,
 			}))
 			if err != nil {
 				t.Fatal(err)
@@ -326,7 +326,7 @@ func TestRunConformanceCarriesExpectedFailuresCore(t *testing.T) {
 	}
 	c := conformanceClientWith(t, x)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2, Categories: []string{"negative-ie"},
+		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2, Groups: []string{erroneousGroup},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +356,7 @@ func TestRunConformanceCarriesExpectedFailuresCore(t *testing.T) {
 // workload, is refused.
 func TestRunConformancePlan(t *testing.T) {
 	legacy := &orbitv1.RunConformanceRequest{AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01",
-		PerTestSeconds: 2, Categories: []string{"procedural"}}
+		PerTestSeconds: 2, Groups: []string{interfaceGroup}}
 	suite := func(mut ...func(p *orbitv1.RunPlan)) *orbitv1.RunPlan {
 		p := conformancePlan(legacy)
 		for _, m := range mut {

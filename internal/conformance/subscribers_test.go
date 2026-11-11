@@ -13,7 +13,6 @@ type needy struct {
 }
 
 func (n needy) ID() string                    { return n.id }
-func (needy) Category() Category              { return Procedural }
 func (needy) SpecRefs() []SpecRef             { return nil }
 func (needy) Run(context.Context, Env) Result { return Result{Verdict: Pass} }
 func (n needy) Needs() CheckNeeds             { return n.needs }

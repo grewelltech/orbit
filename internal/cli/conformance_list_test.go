@@ -11,7 +11,7 @@ import (
 )
 
 // `conformance --list` needs no --amf or PLMN: it lists the checks (filtered
-// by --category and --check) with how long each can take at
+// by --group and --check, with each one's group) with how long each can take at
 // --per-test-timeout, and the total. An unknown --check ID is refused
 // before anything is sent, on a run the server makes too. Without --list,
 // --amf is still required.
@@ -24,16 +24,24 @@ func TestConformanceList(t *testing.T) {
 		wantErr string
 	}{
 		{name: "all checks", args: []string{"--list"},
-			want: []string{"CHECK", "CLASS", "UP TO", "PHASE", "stranding", "disruptive", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
-		{name: "nas only", args: []string{"--list", "--category", "nas"},
-			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "6 checks, up to 8m49s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
-		{name: "longer per-test timeout", args: []string{"--list", "--category", "procedural", "--per-test-timeout", "40s"},
+			want: []string{"CHECK", "CLASS", "UP TO", "PHASE", "GROUP", "NGAP / Interface Management Procedures / NG Reset", "stranding", "disruptive", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
+		{name: "one family", args: []string{"--list", "--group", "nas/5gmm common procedures"},
+			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "NAS-SMC-IMEISV-REQUEST", "5 checks, up to"}, wantNot: []string{"NGAP-NG-RESET-ACK", "NAS-T3550-ACCEPT-RETRANSMIT"}},
+		{name: "two groups, one by specification number", args: []string{"--list", "--group", "TS 29.281", "--group", "NGAP / Interface Management Procedures / NG Reset"},
+			want: []string{"GTPU-ECHO-RESPONSE", "NGAP-NG-RESET-ACK", "4 checks, up to"}, wantNot: []string{"NAS-T3560-AUTH-RETRANSMIT"}},
+		{name: "a group titled in the target release", args: []string{"--list", "--group", "NAS / UE-requested 5GSM procedures", "--target-release", "Rel-15"},
+			want: []string{"NAS-PDU-UNKNOWN-DNN", "UE-requested PDU session establishment procedure"}},
+		{name: "unknown group", args: []string{"--list", "--group", "PFCP"}, wantErr: `--group: no check is in group "PFCP"`},
+		{name: "a category is refused", args: []string{"--list", "--category", "gtpu"},
+			wantErr: `--category: categories were replaced by groups (ADR-0011): select with --group <path or prefix> (run file: conformance.groups) or --check <ID> (conformance.checks); "gtpu" is now the checks GTPU-UNKNOWN-TEID-ERRIND,GTPU-ECHO-RESPONSE,N3-DL-QFI-CONTAINER`},
+		{name: "a category is refused on a server run", args: []string{"--amf", "127.0.0.1:1", "--category", "procedural"}, wantErr: `"procedural" is now the checks`},
+		{name: "longer per-test timeout", args: []string{"--list", "--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "40s"},
 			want: []string{"NGAP-NG-RESET-ACK", "40s", "at --per-test-timeout 40s"}},
 		{name: "one check", args: []string{"--list", "--check", "NGAP-NG-RESET-ACK"},
 			want: []string{"NGAP-NG-RESET-ACK", "1 checks, up to 15s in total"}, wantNot: []string{"NAS-T3560-AUTH-RETRANSMIT"}},
 		{name: "two checks, repeated and comma-separated, any case", args: []string{"--list", "--check", "ngap-ng-reset-ack,NAS-T3560-AUTH-RETRANSMIT", "--check", "NAS-T3550-ACCEPT-RETRANSMIT"},
 			want: []string{"NGAP-NG-RESET-ACK", "NAS-T3560-AUTH-RETRANSMIT", "NAS-T3550-ACCEPT-RETRANSMIT", "3 checks, up to"}, wantNot: []string{"NGAP-UNKNOWN-UE-SURVIVES"}},
-		{name: "a check outside the category", args: []string{"--list", "--category", "nas", "--check", "NGAP-NG-RESET-ACK"},
+		{name: "a check outside the group", args: []string{"--list", "--group", "NAS", "--check", "NGAP-NG-RESET-ACK"},
 			want: []string{"0 checks"}, wantNot: []string{"NGAP-NG-RESET-ACK "}},
 		{name: "unknown check", args: []string{"--list", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"; --list names the checks`},
 		{name: "unknown check on a server run", args: []string{"--amf", "127.0.0.1:1", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"`},
@@ -87,7 +95,7 @@ func TestConformanceListShowsRunOrder(t *testing.T) {
 		if len(f) == 0 {
 			break
 		}
-		listed = append(listed, f[0]+" "+f[len(f)-1])
+		listed = append(listed, f[0]+" "+f[4])
 	}
 	want := conformance.NewRegistry().Select()
 	if len(listed) != len(want) {
@@ -127,7 +135,10 @@ func (s *syncBuffer) String() string {
 // line per step.
 func TestAnnouncer(t *testing.T) {
 	reg := conformance.NewRegistry()
-	nas := reg.Select(conformance.NAS)
+	if err := reg.Groups(0, "NAS / 5GMM specific procedures"); err != nil {
+		t.Fatal(err)
+	}
+	nas := reg.Select()
 	var w syncBuffer
 	a := newAnnouncer(&w, 20*time.Millisecond)
 	a.suite(nas, conformance.DefaultPerTestTimeout)
@@ -145,10 +156,10 @@ func TestAnnouncer(t *testing.T) {
 	a.done()
 	out := w.String()
 	for _, want := range []string{
-		"Running 6 checks, up to 8m49s in total\n",
+		"Running 5 checks, up to 5m49s in total\n",
 		"preflight: NG Setup ok\npreflight: registration failed\n",
-		"[1/2] " + nas[0].ID() + " (nas): up to 100ms\n",
-		"[2/2] " + nas[1].ID() + " (nas): up to 10ms\n",
+		"[1/2] " + nas[0].ID() + ": up to 100ms\n",
+		"[2/2] " + nas[1].ID() + ": up to 10ms\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -157,7 +168,7 @@ func TestAnnouncer(t *testing.T) {
 	if after < 2 {
 		t.Errorf("%d progress lines for the long check, want at least 2:\n%s", after, out)
 	}
-	if strings.Contains(out, nas[1].ID()+": ") {
+	if strings.Contains(out, "      "+nas[1].ID()+": ") {
 		t.Errorf("the short check got progress lines:\n%s", out)
 	}
 }

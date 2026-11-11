@@ -32,7 +32,7 @@ func TestConformanceExpectedFailuresBadFile(t *testing.T) {
 // With a list, the run states it; checks that ERROR are neither tolerated
 // nor stale, so the gate still fails on them.
 func TestConformanceExpectedFailuresHeader(t *testing.T) {
-	out, err := runConformance(t, "--category", "negative-ie", "--expected-failures", expectedFixture)
+	out, err := runConformance(t, "--group", "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data", "--expected-failures", expectedFixture)
 	if !strings.Contains(out, "expected-failures: Example core (lab A) ("+expectedFixture+")\n") {
 		t.Errorf("no expected-failures header:\n%s", out)
 	}
@@ -48,11 +48,11 @@ func TestConformanceExpectedFailuresHeader(t *testing.T) {
 // entries, and the tally counts the expected FAILs; --json carries the same.
 func TestPrintConformanceTextExpected(t *testing.T) {
 	results := []conformance.Result{
-		{ID: "NGAP-UNKNOWN-UE-SURVIVES", Category: conformance.NegativeIE, Verdict: conformance.Fail,
+		{ID: "NGAP-UNKNOWN-UE-SURVIVES", Group: "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data", Verdict: conformance.Fail,
 			Observed: "silently dropped; association survived", Detail: "d1"},
-		{ID: "GTPU-UNKNOWN-TEID-ERRIND", Category: conformance.GTPU, Verdict: conformance.Pass,
+		{ID: "GTPU-UNKNOWN-TEID-ERRIND", Group: "GTPv1-U / Tunnel Management Messages / Error Indication", Verdict: conformance.Pass,
 			Observed: "Error Indication", Detail: "d2"},
-		{ID: "NGAP-NG-RESET-ACK", Category: conformance.Procedural, Verdict: conformance.Fail, Observed: "no ack", Detail: "d3"},
+		{ID: "NGAP-NG-RESET-ACK", Group: "NGAP / Interface Management Procedures", Verdict: conformance.Fail, Observed: "no ack", Detail: "d3"},
 	}
 	x, err := conformance.LoadExpectedFailures(expectedFixture)
 	if err != nil {
@@ -67,8 +67,9 @@ func TestPrintConformanceTextExpected(t *testing.T) {
 	printConformanceText(&out, "plmn 001/01", sum, "lab.yaml")
 	for _, want := range []string{
 		"expected-failures: Example core (lab A) (lab.yaml)\n",
-		"FAIL (expected: EX-1) [negative-ie] NGAP-UNKNOWN-UE-SURVIVES",
-		"FAIL  [procedural ] NGAP-NG-RESET-ACK",
+		"FAIL (expected: EX-1) NGAP-UNKNOWN-UE-SURVIVES",
+		"      group: NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data\n",
+		"FAIL  NGAP-NG-RESET-ACK",
 		`stale expected failure: GTPU-UNKNOWN-TEID-ERRIND EX-2 (expected FAIL): now PASS "Error Indication"` + "\n",
 		"3 checks: 1 pass, 2 fail (1 expected), 0 deviation, 0 warn, 0 info, 0 blocked, 0 crash, 0 skip, 0 error\n" +
 			"gate default: failed: 1 spec failure, 0 warnings\n",

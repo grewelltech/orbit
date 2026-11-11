@@ -86,8 +86,7 @@ func (nasT3550AcceptRetransmit) Outcomes() []Outcome {
 	return []Outcome{t3550Four, t3550TooFew, t3550TooMany, t3550NoGUTI, t3550GUTIByUpdate}
 }
 
-func (nasT3550AcceptRetransmit) ID() string         { return "NAS-T3550-ACCEPT-RETRANSMIT" }
-func (nasT3550AcceptRetransmit) Category() Category { return NAS }
+func (nasT3550AcceptRetransmit) ID() string { return "NAS-T3550-ACCEPT-RETRANSMIT" }
 func (nasT3550AcceptRetransmit) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "5.5.1.2.8 c)", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,

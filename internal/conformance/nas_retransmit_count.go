@@ -72,8 +72,7 @@ func (nasRetransmitNewCount) Outcomes() []Outcome {
 	return []Outcome{retransmitCountIncreased, retransmitCountNotIncreased, retransmitNone, retransmitUnverifiable}
 }
 
-func (nasRetransmitNewCount) ID() string         { return "NAS-RETRANSMIT-NEW-COUNT" }
-func (nasRetransmitNewCount) Category() Category { return Security }
+func (nasRetransmitNewCount) ID() string { return "NAS-RETRANSMIT-NEW-COUNT" }
 func (nasRetransmitNewCount) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "4.4.3.1", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,

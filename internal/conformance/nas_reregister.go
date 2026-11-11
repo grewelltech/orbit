@@ -98,8 +98,7 @@ type nasRegistrationAfterRelease struct {
 	gaps                               []time.Duration
 }
 
-func (nasRegistrationAfterRelease) ID() string         { return "NAS-REGISTRATION-AFTER-RELEASE" }
-func (nasRegistrationAfterRelease) Category() Category { return NAS }
+func (nasRegistrationAfterRelease) ID() string { return "NAS-REGISTRATION-AFTER-RELEASE" }
 
 // SpecRefs cites the two shalls that give an initial registration request
 // its answer, and as context the sentence that completes a switch-off

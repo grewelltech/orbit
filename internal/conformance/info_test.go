@@ -79,9 +79,9 @@ func TestInfoDoesNotGate(t *testing.T) {
 	}{
 		{name: "INFO only", tests: []Test{info("A", Info), info("B", Info), info("C", Info)},
 			wantInfo: 3, wantOK: true},
-		{name: "beside a PASS", tests: []Test{info("A", Info), fakeTest{"B", Procedural, Pass, ""}},
+		{name: "beside a PASS", tests: []Test{info("A", Info), fakeTest{"B", Pass, ""}},
 			wantInfo: 1, wantPass: 1, wantOK: true},
-		{name: "beside a graded FAIL", tests: []Test{info("A", Info), fakeTest{"B", NegativeIE, Fail, ""}},
+		{name: "beside a graded FAIL", tests: []Test{info("A", Info), fakeTest{"B", Fail, ""}},
 			wantInfo: 1, wantFail: 1},
 		{name: "an ERROR gates", tests: []Test{info("A", Error)}, wantError: 1},
 		{name: "a core that did not survive gates", tests: []Test{info("A", Info), crashed},
@@ -213,10 +213,10 @@ func TestChecksMarkdownVerdictClass(t *testing.T) {
 		infoOnly{provTest: provTest{id: "INFO-ONLY", refs: []SpecRef{refOf(Descriptive)}}},
 	})
 	for _, want := range []string{
-		"| [GRADED-SHALL](provenance/GRADED-SHALL.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | FAIL | Rel-15 |",
-		"| [GRADED-SHOULD](provenance/GRADED-SHOULD.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | DEVIATION | Rel-15 |",
-		"| [DESCRIPTIVE](provenance/DESCRIPTIVE.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | WARN | Rel-15 |",
-		"| [INFO-ONLY](provenance/INFO-ONLY.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | INFO | Rel-15 |",
+		"| [GRADED-SHALL](provenance/GRADED-SHALL.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | FAIL | Rel-15 |",
+		"| [GRADED-SHOULD](provenance/GRADED-SHOULD.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | DEVIATION | Rel-15 |",
+		"| [DESCRIPTIVE](provenance/DESCRIPTIVE.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | WARN | Rel-15 |",
+		"| [INFO-ONLY](provenance/INFO-ONLY.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | INFO | Rel-15 |",
 		"**Verdict class** is the worst a check's declared outcomes can say of a core: `FAIL` for a missed shall, `DEVIATION` for a missed should, `WARN` for behaviour no requirement covers that meets a criterion (security, availability or interoperability), `INFO` for behaviour that is only recorded.",
 		"- TS 38.413 10.3.5 (descriptive, since Rel-15):",
 	} {

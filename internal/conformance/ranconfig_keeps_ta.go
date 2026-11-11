@@ -122,8 +122,7 @@ func (c ranConfigUpdateKeepsTA) waits() (update, register time.Duration) {
 	return update, register
 }
 
-func (ranConfigUpdateKeepsTA) ID() string         { return "NGAP-RAN-CONFIG-UPDATE-KEEPS-TA" }
-func (ranConfigUpdateKeepsTA) Category() Category { return Procedural }
+func (ranConfigUpdateKeepsTA) ID() string { return "NGAP-RAN-CONFIG-UPDATE-KEEPS-TA" }
 
 // SpecRefs cites the shall in 8.7.2.2 and the shall in 8.7.2.3 that
 // permits a RAN CONFIGURATION UPDATE FAILURE. The 5GMM causes that tell a

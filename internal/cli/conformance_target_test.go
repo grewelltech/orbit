@@ -63,7 +63,7 @@ func TestConformanceJSONRecordsTargetRelease(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, _ := runConformance(t, append([]string{"--json", "--category", "procedural"}, tc.args...)...)
+			out, _ := runConformance(t, append([]string{"--json", "--group", "NGAP / Interface Management Procedures"}, tc.args...)...)
 			var sum struct {
 				TargetRelease string
 				SpecTargets   map[string]string
@@ -104,7 +104,7 @@ func TestConformanceTextTargetLine(t *testing.T) {
 		{[]string{"--target-release", "unset"}, "target-release: unset\n"},
 		{[]string{"--target-release", "17"}, "target-release: Rel-17 (TS 29.244 at Rel-16)\n"},
 	} {
-		out, _ := runConformance(t, append([]string{"--category", "procedural"}, tc.args...)...)
+		out, _ := runConformance(t, append([]string{"--group", "NGAP / Interface Management Procedures"}, tc.args...)...)
 		if !strings.Contains(out, tc.want) {
 			t.Errorf("%v: output lacks %q:\n%s", tc.args, tc.want, out)
 		}

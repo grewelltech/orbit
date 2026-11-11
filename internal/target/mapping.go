@@ -148,6 +148,7 @@ var Bindings = []Binding{
 	{Flag: "slo-min-success", Path: "gates[" + GateName("", MetricSuccessRatio) + "].slo.threshold"},
 	{Flag: "category", Path: "workloads[].conformance.categories"},
 	{Flag: "check", Path: "workloads[].conformance.checks", Commands: []string{cmdConformance}},
+	{Flag: "group", Path: "workloads[].conformance.groups", Commands: []string{cmdConformance}},
 	{Flag: "target-release", Path: "workloads[].conformance.target_release"},
 	{Flag: "expected-failures", Path: "workloads[].conformance.expected", Commands: []string{cmdConformance}},
 	{Flag: "per-test-timeout", Path: "workloads[].conformance.per_test_timeout_ms"},

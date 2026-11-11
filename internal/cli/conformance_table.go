@@ -15,7 +15,7 @@ import (
 
 // writeConformanceReport renders a conformance run for the terminal. On an
 // interactive terminal it draws a colored, box-drawn table mirroring the web
-// dashboard's SuiteResults (verdict · test · category · spec · observed) with
+// dashboard's SuiteResults (verdict · test · group · spec · observed) with
 // a tally footer; otherwise — a pipe, a file, a CI log, or a test buffer — it
 // falls back to the plain borderless text of printConformanceText, so scripts
 // and golden tests see unchanged output. --json never reaches here.
@@ -106,7 +106,7 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 		rows = append(rows, row{
 			verdict:   r.Verdict,
 			tolerated: tolerated,
-			cells:     []string{verdict, r.ID, string(r.Category), r.SpecRef, r.Observed},
+			cells:     []string{verdict, r.ID, r.Group, r.SpecRef, r.Observed},
 		})
 	}
 
@@ -124,7 +124,7 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 		Width(width).
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(border).
-		Headers("VERDICT", "TEST", "CATEGORY", "SPEC", "OBSERVED").
+		Headers("VERDICT", "TEST", "GROUP", "SPEC", "OBSERVED").
 		StyleFunc(func(r, c int) lipgloss.Style {
 			if r == table.HeaderRow {
 				return re.NewStyle().Bold(true).Padding(0, 1)

@@ -41,6 +41,7 @@ export const RUN_FIELDS: readonly RunFieldSpec[] = [
   {"path":"workloads[].conformance.expected","type":"any"},
   {"path":"workloads[].conformance.gnb_ids.assign","type":"bool"},
   {"path":"workloads[].conformance.gnb_ids.first","type":"uint"},
+  {"path":"workloads[].conformance.groups","type":"strings"},
   {"path":"workloads[].conformance.n3_bind","type":"string"},
   {"path":"workloads[].conformance.nas.ciphering","type":"strings"},
   {"path":"workloads[].conformance.nas.integrity","type":"strings"},
@@ -242,7 +243,7 @@ export const SECRET_NAME_VECTORS: Readonly<Record<string, boolean>> = {
 
 /** The built-in templates (orbit test), as written. */
 export const TEMPLATES: Readonly<Record<string, string>> = {
-  "conformance": "# The conformance suite against the target's core, every category, gated\n# on no FAIL outside the expected-failures list and no ERROR.\nkind: run\nworkloads:\n  - name: conformance\n    conformance: {categories: []}\ngates:\n  - name: conformance\n    conformance: true\n",
+  "conformance": "# The conformance suite against the target's core, every group, gated\n# on no FAIL outside the expected-failures list and no ERROR.\nkind: run\nworkloads:\n  - name: conformance\n    conformance: {groups: []}\ngates:\n  - name: conformance\n    conformance: true\n",
   "fleet": "# A fleet: the target's subscribers attached and kept for the run's\n# duration (--for, default 5m), then deregistered. orbit test probes\n# user-plane latency to the target's first responder's data_ip; a target\n# with no responder runs the fleet idle. For other behaviours, copy it\n# (orbit test --list fleet) into a run file and fill in behaviors. Gated\n# on attach success at least 0.99.\nkind: run\nworkloads:\n  - name: fleet\n    attach: {count: 100, rate: 10, concurrency: 64}\n    behaviors: {}\nuntil: {duration: 5m}\ngates:\n  - name: attach_success_ratio\n    slo: {metric: attach.success_ratio, op: \"\u003e=\", threshold: \"0.99\"}\n",
   "load": "# An attach storm: the target's subscribers attached and released at a\n# steady rate. Address-free: the core, keys and addresses come from the\n# target (-t). Gated on attach success at least 0.99 (ADR-0008 resolved\n# question 4); latency is reported, not gated, unless --gate adds it.\nkind: run\nworkloads:\n  - name: load\n    attach: {count: 100, rate: 20, concurrency: 64}\nuntil: {complete: true}\ngates:\n  - name: attach_success_ratio\n    slo: {metric: attach.success_ratio, op: \"\u003e=\", threshold: \"0.99\"}\n"
 };

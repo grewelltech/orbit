@@ -47,8 +47,7 @@ func (ngResetAcknowledged) Outcomes() []Outcome {
 	return []Outcome{ngResetAcked, ngResetOtherPDU, ngResetNoAnswer, ngResetAssociationLost}
 }
 
-func (ngResetAcknowledged) ID() string         { return "NGAP-NG-RESET-ACK" }
-func (ngResetAcknowledged) Category() Category { return Procedural }
+func (ngResetAcknowledged) ID() string { return "NGAP-NG-RESET-ACK" }
 
 // SpecRefs cites the shall in 8.7.4.2.2. The NG RESET and NG RESET
 // ACKNOWLEDGE message clauses (9.2.6.11, 9.2.6.12) are cited in the

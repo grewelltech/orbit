@@ -99,8 +99,8 @@ func TestQFIContainerCheckWithoutHarness(t *testing.T) {
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved || !strings.Contains(r.Detail, tc.wantDetail) {
 				t.Errorf("result %s / %q / %q, want %s / %q / containing %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved, tc.wantDetail)
 			}
-			if r.Category != GTPU {
-				t.Errorf("category %s, want gtpu", r.Category)
+			if r.Group != "GTPv1-U / GTP-U Extension Header / PDU Session Container" {
+				t.Errorf("group %s", r.Group)
 			}
 		})
 	}

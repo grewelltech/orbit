@@ -151,8 +151,11 @@ func TestBuiltinRunOrder(t *testing.T) {
 	if again := idsOf(NewRegistry().Select()); again != idsOf(sel) {
 		t.Errorf("a second registry selects %s, the first %s", again, idsOf(sel))
 	}
-	// A category filter keeps the phase order.
-	if got := r.Select(Security); got[len(got)-1].ID() != "NGAP-PATH-SWITCH-SECCAP-MISMATCH" {
-		t.Errorf("the security category ends with %s", got[len(got)-1].ID())
+	// A group filter keeps the phase order.
+	if err := r.Groups(0, "NAS / NAS security", "TS 33.501"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Select(); got[len(got)-1].ID() != "NGAP-PATH-SWITCH-SECCAP-MISMATCH" || got[len(got)-2].ID() != "NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL" {
+		t.Errorf("the NAS security and TS 33.501 groups end with %s", idsOf(got))
 	}
 }

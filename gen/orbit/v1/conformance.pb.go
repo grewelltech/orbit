@@ -38,11 +38,14 @@ type RunConformanceRequest struct {
 	// Base gNB ID. Each test presents a distinct ID above this base, because an
 	// AMF does not cleanly re-key a reused gNB ID from a new association.
 	GnbIdBase uint32 `protobuf:"varint,5,opt,name=gnb_id_base,json=gnbIdBase,proto3" json:"gnb_id_base,omitempty"` // default 700
-	// User-plane checks (the gtpu category) need the UPF's N3 endpoint and a
+	// User-plane checks (the GTP-U ones) need the UPF's N3 endpoint and a
 	// local N3 source address to bind. Absent, those tests report SKIP.
 	UpfN3  string `protobuf:"bytes,6,opt,name=upf_n3,json=upfN3,proto3" json:"upf_n3,omitempty"`    // host:port
 	N3Bind string `protobuf:"bytes,7,opt,name=n3_bind,json=n3Bind,proto3" json:"n3_bind,omitempty"` // local ip[:port]
-	// Categories to run; empty runs everything.
+	// Removed: categories were replaced by groups (ADR-0011). A request that
+	// names one is refused with the groups and checks that replace it.
+	//
+	// Deprecated: Marked as deprecated in orbit/v1/conformance.proto.
 	Categories []string `protobuf:"bytes,8,rep,name=categories,proto3" json:"categories,omitempty"`
 	// Per-test timeout in seconds (default 15). One hang must not stall the run.
 	PerTestSeconds uint32 `protobuf:"varint,9,opt,name=per_test_seconds,json=perTestSeconds,proto3" json:"per_test_seconds,omitempty"`
@@ -69,6 +72,9 @@ type RunConformanceRequest struct {
 	Dnn         string       `protobuf:"bytes,16,opt,name=dnn,proto3" json:"dnn,omitempty"`                  // PDU session DNN; default "internet"
 	GnbN3       string       `protobuf:"bytes,17,opt,name=gnb_n3,json=gnbN3,proto3" json:"gnb_n3,omitempty"` // gNB N3 IP, reachable from the UPF; both gNBs use it
 	Traffic     string       `protobuf:"bytes,18,opt,name=traffic,proto3" json:"traffic,omitempty"`          // optional echo peer host:port for traffic across the handover
+	// Groups to run: group paths or prefixes of them, in any case
+	// ("NGAP", "NAS / 5GMM common procedures"); empty runs every group.
+	Groups []string `protobuf:"bytes,20,rep,name=groups,proto3" json:"groups,omitempty"`
 	// The suite as a plan (ADR-0008 §2): one conformance workload with its
 	// target, expected-failures list and gates, as `orbit conformance` builds
 	// it. When set, every field above must be unset; the plan says it all.
@@ -170,6 +176,7 @@ func (x *RunConformanceRequest) GetN3Bind() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/conformance.proto.
 func (x *RunConformanceRequest) GetCategories() []string {
 	if x != nil {
 		return x.Categories
@@ -231,6 +238,13 @@ func (x *RunConformanceRequest) GetTraffic() string {
 		return x.Traffic
 	}
 	return ""
+}
+
+func (x *RunConformanceRequest) GetGroups() []string {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
 }
 
 func (x *RunConformanceRequest) GetPlan() *RunPlan {
@@ -443,10 +457,16 @@ func (x *PreflightStep) GetDetail() string {
 }
 
 type ConformanceResult struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Category string                 `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
-	SpecRef  string                 `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Always empty: categories were replaced by groups (ADR-0011).
+	//
+	// Deprecated: Marked as deprecated in orbit/v1/conformance.proto.
+	Category string `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
+	// The check's group in the run's target release: specification /
+	// procedure family / procedure, by the specification's clause titles.
+	Group   string `protobuf:"bytes,17,opt,name=group,proto3" json:"group,omitempty"`
+	SpecRef string `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
 	// One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
 	// INFO | BLOCKED | CRASH | SKIP | ERROR.
 	Verdict  string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
@@ -517,9 +537,17 @@ func (x *ConformanceResult) GetId() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/conformance.proto.
 func (x *ConformanceResult) GetCategory() string {
 	if x != nil {
 		return x.Category
+	}
+	return ""
+}
+
+func (x *ConformanceResult) GetGroup() string {
+	if x != nil {
+		return x.Group
 	}
 	return ""
 }
@@ -1100,12 +1128,17 @@ func (*ListConformanceTestsRequest) Descriptor() ([]byte, []int) {
 }
 
 type ConformanceTestInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Category      string                 `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
-	SpecRef       string                 `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
-	SpecRefs      []*SpecRef             `protobuf:"bytes,4,rep,name=spec_refs,json=specRefs,proto3" json:"spec_refs,omitempty"`
-	MinRelease    uint32                 `protobuf:"varint,5,opt,name=min_release,json=minRelease,proto3" json:"min_release,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Always empty: categories were replaced by groups (ADR-0011).
+	//
+	// Deprecated: Marked as deprecated in orbit/v1/conformance.proto.
+	Category string `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
+	// The check's group, in the latest release's clause titles.
+	Group         string     `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
+	SpecRef       string     `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
+	SpecRefs      []*SpecRef `protobuf:"bytes,4,rep,name=spec_refs,json=specRefs,proto3" json:"spec_refs,omitempty"`
+	MinRelease    uint32     `protobuf:"varint,5,opt,name=min_release,json=minRelease,proto3" json:"min_release,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1147,9 +1180,17 @@ func (x *ConformanceTestInfo) GetId() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/conformance.proto.
 func (x *ConformanceTestInfo) GetCategory() string {
 	if x != nil {
 		return x.Category
+	}
+	return ""
+}
+
+func (x *ConformanceTestInfo) GetGroup() string {
+	if x != nil {
+		return x.Group
 	}
 	return ""
 }
@@ -1223,7 +1264,7 @@ var File_orbit_v1_conformance_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
-	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xab\x04\n" +
+	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xc7\x04\n" +
 	"\x15RunConformanceRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12\x10\n" +
@@ -1235,9 +1276,9 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\x02sd\x18\v \x01(\tR\x02sd\x12\x1e\n" +
 	"\vgnb_id_base\x18\x05 \x01(\rR\tgnbIdBase\x12\x15\n" +
 	"\x06upf_n3\x18\x06 \x01(\tR\x05upfN3\x12\x17\n" +
-	"\an3_bind\x18\a \x01(\tR\x06n3Bind\x12\x1e\n" +
+	"\an3_bind\x18\a \x01(\tR\x06n3Bind\x12\"\n" +
 	"\n" +
-	"categories\x18\b \x03(\tR\n" +
+	"categories\x18\b \x03(\tB\x02\x18\x01R\n" +
 	"categories\x12(\n" +
 	"\x10per_test_seconds\x18\t \x01(\rR\x0eperTestSeconds\x12!\n" +
 	"\fbind_address\x18\f \x01(\tR\vbindAddress\x12%\n" +
@@ -1246,7 +1287,8 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\vcredentials\x18\x0f \x01(\v2\x15.orbit.v1.CredentialsR\vcredentials\x12\x10\n" +
 	"\x03dnn\x18\x10 \x01(\tR\x03dnn\x12\x15\n" +
 	"\x06gnb_n3\x18\x11 \x01(\tR\x05gnbN3\x12\x18\n" +
-	"\atraffic\x18\x12 \x01(\tR\atraffic\x12%\n" +
+	"\atraffic\x18\x12 \x01(\tR\atraffic\x12\x16\n" +
+	"\x06groups\x18\x14 \x03(\tR\x06groups\x12%\n" +
 	"\x04plan\x18\x13 \x01(\v2\x11.orbit.v1.RunPlanR\x04plan\"\xc5\x04\n" +
 	"\x11ConformanceUpdate\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.orbit.v1.ConformanceResultR\x06result\x12\x12\n" +
@@ -1267,10 +1309,11 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\rPreflightStep\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail\"\x90\x04\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"\xaa\x04\n" +
 	"\x11ConformanceResult\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
-	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x19\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
+	"\bcategory\x18\x02 \x01(\tB\x02\x18\x01R\bcategory\x12\x14\n" +
+	"\x05group\x18\x11 \x01(\tR\x05group\x12\x19\n" +
 	"\bspec_ref\x18\x03 \x01(\tR\aspecRef\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x12\x1a\n" +
 	"\bexpected\x18\x05 \x01(\tR\bexpected\x12\x1a\n" +
@@ -1329,10 +1372,11 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\ablocked\x18\n" +
 	" \x01(\rR\ablocked\x12\x18\n" +
 	"\acrashed\x18\v \x01(\rR\acrashed\"\x1d\n" +
-	"\x1bListConformanceTestsRequest\"\xad\x01\n" +
+	"\x1bListConformanceTestsRequest\"\xc7\x01\n" +
 	"\x13ConformanceTestInfo\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
-	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x19\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
+	"\bcategory\x18\x02 \x01(\tB\x02\x18\x01R\bcategory\x12\x14\n" +
+	"\x05group\x18\x06 \x01(\tR\x05group\x12\x19\n" +
 	"\bspec_ref\x18\x03 \x01(\tR\aspecRef\x12.\n" +
 	"\tspec_refs\x18\x04 \x03(\v2\x11.orbit.v1.SpecRefR\bspecRefs\x12\x1f\n" +
 	"\vmin_release\x18\x05 \x01(\rR\n" +

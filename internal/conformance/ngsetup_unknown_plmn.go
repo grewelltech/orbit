@@ -69,8 +69,7 @@ func (ngSetupUnknownPLMN) Outcomes() []Outcome {
 	return []Outcome{unknownPLMNRejected, unknownPLMNAccepted, unknownPLMNOtherPDU, unknownPLMNSilent, unknownPLMNReset}
 }
 
-func (ngSetupUnknownPLMN) ID() string         { return "NGAP-NGSETUP-UNKNOWN-PLMN" }
-func (ngSetupUnknownPLMN) Category() Category { return NegativeIE }
+func (ngSetupUnknownPLMN) ID() string { return "NGAP-NGSETUP-UNKNOWN-PLMN" }
 func (ngSetupUnknownPLMN) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 38.413", Clause: "8.7.1.4", Strength: Shall, Since: 15, Verified: ts38413NGSetupAbnormalVerified, Primary: true,

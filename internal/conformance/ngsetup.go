@@ -54,8 +54,7 @@ var (
 		Summary: "dropped the association instead of answering the NG SETUP REQUEST"}
 )
 
-func (ngSetupCompletes) ID() string         { return "NGAP-NG-SETUP" }
-func (ngSetupCompletes) Category() Category { return Procedural }
+func (ngSetupCompletes) ID() string { return "NGAP-NG-SETUP" }
 
 // SpecRefs cites the description of the successful NG Setup and the should
 // for an AMF that cannot accept one.

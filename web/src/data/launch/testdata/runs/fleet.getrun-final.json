@@ -1,69 +1,69 @@
 {
-  "run":  {
-    "runId":  "run-6b9b7873",
-    "kind":  "RUN_KIND_FLEET",
-    "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1793174968302423957",
-    "endedUnixNano":  "1793174970513200583"
+  "run": {
+    "runId": "run-3e5172a7",
+    "kind": "RUN_KIND_FLEET",
+    "state": "RUN_STATE_COMPLETE",
+    "startedUnixNano": "1794439781936066568",
+    "endedUnixNano": "1794439784145345797"
   },
-  "fleetProgress":  {
-    "elapsedMs":  "2218",
-    "perGnb":  [
+  "fleetProgress": {
+    "elapsedMs": "2231",
+    "perGnb": [
       {
-        "gnb":  "orbit-gnb"
+        "gnb": "orbit-gnb"
       }
     ],
-    "latency":  [
+    "latency": [
       {
-        "procedure":  "attach",
-        "count":  "2",
-        "p50Ms":  3.227,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "procedure": "attach",
+        "count": "2",
+        "p50Ms": 3.517,
+        "p90Ms": 105.151,
+        "p99Ms": 105.151,
+        "p999Ms": 105.151,
+        "maxMs": 105.151
       },
       {
-        "procedure":  "registration",
-        "count":  "2",
-        "p50Ms":  3.223,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "procedure": "registration",
+        "count": "2",
+        "p50Ms": 3.319,
+        "p90Ms": 105.151,
+        "p99Ms": 105.151,
+        "p999Ms": 105.151,
+        "maxMs": 105.151
       }
     ]
   },
-  "fleetReport":  {
-    "attached":  2,
-    "attachElapsedMs":  "207",
-    "perGnb":  [
+  "fleetReport": {
+    "attached": 2,
+    "attachElapsedMs": "207",
+    "perGnb": [
       {
-        "gnb":  "orbit-gnb",
-        "attempted":  2,
-        "succeeded":  2
+        "gnb": "orbit-gnb",
+        "attempted": 2,
+        "succeeded": 2
       }
     ],
-    "latency":  [
+    "latency": [
       {
-        "procedure":  "registration",
-        "count":  "2",
-        "p50Ms":  3.223,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "procedure": "registration",
+        "count": "2",
+        "p50Ms": 3.319,
+        "p90Ms": 105.151,
+        "p99Ms": 105.151,
+        "p999Ms": 105.151,
+        "maxMs": 105.151
       },
       {
-        "procedure":  "attach",
-        "count":  "2",
-        "p50Ms":  3.227,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "procedure": "attach",
+        "count": "2",
+        "p50Ms": 3.517,
+        "p90Ms": 105.151,
+        "p99Ms": 105.151,
+        "p999Ms": 105.151,
+        "maxMs": 105.151
       }
     ],
-    "achievedRate":  9.662196937584072
+    "achievedRate": 9.698752668636045
   }
 }

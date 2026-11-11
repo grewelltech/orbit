@@ -34,6 +34,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 		upfN3, n3Bind string
 		gnbBase       uint32
 		categories    []string
+		groups        []string
 		checks        []string
 		jsonOut       bool
 		perTest       time.Duration
@@ -55,16 +56,26 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			"could not start. --detach starts it and returns. --local (deprecated) runs it in this\n" +
 			"process. The core, keys and addresses come from the flags or a target (-t).",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cats := make([]conformance.Category, 0, len(categories))
-			for _, c := range categories {
-				cats = append(cats, conformance.Category(c))
+			target := conformance.DefaultTargetRelease
+			if targetRelease != "" {
+				t, err := conformance.ParseRelease(targetRelease)
+				if err != nil {
+					return exitWith(ExitCouldNotStart, fmt.Errorf("--target-release: %w", err))
+				}
+				target = t
+			}
+			if err := conformance.CategoriesRemoved(categories, target); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--category: %w", err))
 			}
 			reg := conformance.NewRegistry()
 			if err := reg.Only(checks...); err != nil {
 				return exitWith(ExitCouldNotStart, fmt.Errorf("--check: %w; --list names the checks", err))
 			}
+			if err := reg.Groups(target, groups...); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--group: %w", err))
+			}
 			if list {
-				return printConformanceList(cmd.OutOrStdout(), reg.Select(cats...), perTest)
+				return printConformanceList(cmd.OutOrStdout(), reg.Select(), perTest, target)
 			}
 			if amf == "" {
 				return fmt.Errorf(`required flag(s) "amf" not set`)
@@ -99,14 +110,6 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			target := conformance.DefaultTargetRelease
-			if targetRelease != "" {
-				t, err := conformance.ParseRelease(targetRelease)
-				if err != nil {
-					return fmt.Errorf("--target-release: %w", err)
-				}
-				target = t
-			}
 			env := conformance.Env{
 				AMFAddr:       amf,
 				Bind:          bind,
@@ -121,13 +124,13 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			// it may take, so a check that waits out NAS timers does not look
 			// like a hang; stdout keeps only the results.
 			ann := newAnnouncer(cmd.ErrOrStderr(), progressEvery)
-			ann.suite(reg.Select(cats...), perTest)
+			ann.suite(reg.Select(), perTest)
 			var results []conformance.Result
 			preflight := reg.RunSuite(cmd.Context(), env, perTest, conformance.Hooks{Preflight: ann.preflight, Start: ann.start,
 				Result: func(res conformance.Result, _, _ int) {
 					ann.done()
 					results = append(results, res)
-				}}, cats...)
+				}})
 			expected.Apply(results)
 			sum := conformance.Summarize(results)
 			sum.Preflight = preflight
@@ -159,13 +162,15 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringVar(&upfN3, "upf-n3", "", "UPF N3 endpoint host:port: the UPF's primary N3 address, which answers GTP-U Echo (enables GTP-U checks; run from the UPF access network)")
 	f.StringVar(&n3Bind, "n3-bind", "", "local N3 source host:port for GTP-U checks (e.g. 172.17.50.12:2152)")
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")
-	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility, nas)")
-	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable or comma-separated, on top of --category); each keeps the gNB IDs of a full run")
+	f.StringSliceVar(&categories, "category", nil, "removed: categories were replaced by groups; use --group or --check")
+	_ = f.MarkHidden("category")
+	f.StringArrayVar(&groups, "group", nil, "only run the checks in this group: a group path or a prefix of it, in any case, e.g. NGAP or \"NAS / 5GMM common procedures\" (repeatable; --list shows each check's group)")
+	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable or comma-separated, on top of --group); each keeps the gNB IDs of a full run")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", conformance.DefaultPerTestTimeout, "per-check timeout; a check that needs longer (NAS timer checks) gets its own budget")
-	f.BoolVar(&list, "list", false, "list the checks (filtered by --category) with how long each can take at --per-test-timeout, and the total, without running them")
+	f.BoolVar(&list, "list", false, "list the checks (filtered by --group and --check) in run order, with each one's group and how long it can take at --per-test-timeout, and the total, without running them")
 	f.StringVar(&targetRelease, "target-release", "",
-		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, the SD-Core release; TS 29.244 pinned to Rel-16; \"unset\" runs every check)")
+		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, with TS 29.244 pinned to Rel-16; \"unset\" runs every check); also the release whose clause titles name the groups")
 	f.StringVar(&expectedPath, "expected-failures", "",
 		"YAML list of this core's known, tolerated FAILs, DEVIATIONs and WARNs (docs/conformance/expected-failures.md); a listed result keeps its verdict but does not fail the gate")
 	f.StringVar(&ueFlags.supi, "supi", "", supiFlagHelp+"; enables the mobility checks")
@@ -291,7 +296,7 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 
 // resultFromProto is a streamed check result as the suite reports it.
 func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
-	out := conformance.Result{ID: r.GetId(), Category: conformance.Category(r.GetCategory()), SpecRef: r.GetSpecRef(),
+	out := conformance.Result{ID: r.GetId(), Group: r.GetGroup(), SpecRef: r.GetSpecRef(),
 		MinRelease: conformance.Release(r.GetMinRelease()), Verdict: conformance.Verdict(r.GetVerdict()),
 		Expected: r.GetExpected(), Observed: r.GetObserved(), Detail: r.GetDetail(),
 		Outcome: r.GetOutcome(), Criterion: conformance.Criterion(r.GetCriterion()), Refs: r.GetOutcomeRefs(),
@@ -303,17 +308,21 @@ func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
 }
 
 // printConformanceList prints --list: one line per check, in the order a
-// run takes them, with its category, verdict class
-// (conformance.VerdictClass), required release, the longest it can take at
-// perTest and the phase it runs in, then the total.
-func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration) error {
+// run takes them, with its verdict class (conformance.VerdictClass),
+// required release, the longest it can take at perTest, the phase it runs
+// in and its group in release rel, then the total.
+func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration, rel conformance.Release) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tCLASS\tREQUIRES\tUP TO\tPHASE")
+	_, _ = fmt.Fprintln(tw, "CHECK\tCLASS\tREQUIRES\tUP TO\tPHASE\tGROUP")
 	var total time.Duration
 	for _, t := range tests {
 		d := conformance.ExpectedDuration(t, perTest)
 		total += d
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.ID(), t.Category(), conformance.VerdictClass(t), conformance.MinRelease(t), d, conformance.PhaseOf(t))
+		group := ""
+		if g, err := conformance.GroupOf(t, rel); err == nil {
+			group = g.String()
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.ID(), conformance.VerdictClass(t), conformance.MinRelease(t), d, conformance.PhaseOf(t), group)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
@@ -368,7 +377,7 @@ func (a *announcer) preflight(p conformance.Preflight) {
 
 // start announces a check; a long one gets a progress line every a.every.
 func (a *announcer) start(t conformance.Test, expected time.Duration, index, total int) {
-	a.printf("[%d/%d] %s (%s): up to %s\n", index+1, total, t.ID(), t.Category(), expected)
+	a.printf("[%d/%d] %s: up to %s\n", index+1, total, t.ID(), expected)
 	if expected <= a.every {
 		return
 	}
@@ -431,7 +440,10 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 		if r.ExpectedFailure != nil {
 			verdict += " (expected: " + r.ExpectedFailure.Finding + ")"
 		}
-		_, _ = fmt.Fprintf(out, "%-5s [%-11s] %-26s %s\n", verdict, r.Category, r.ID, r.Observed)
+		_, _ = fmt.Fprintf(out, "%-5s %-26s %s\n", verdict, r.ID, r.Observed)
+		if r.Group != "" {
+			_, _ = fmt.Fprintf(out, "      group: %s\n", r.Group)
+		}
 		// Detail always ends with the requirement line: the release the
 		// check requires and its clauses.
 		_, _ = fmt.Fprintf(out, "      %s\n", r.Detail)

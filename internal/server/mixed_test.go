@@ -25,7 +25,7 @@ func mixedPlan(mut ...func(p *orbitv1.RunPlan, pop *orbitv1.PopulationWorkload, 
 	p.Provenance = nil
 	p.Target.Ran.N2SourceIps = []string{"127.0.0.10-127.0.0.20"}
 	p.Target.Ran.GnbIds = nil
-	cw := &orbitv1.ConformanceWorkload{PerTestTimeoutMs: 2000, Categories: []string{"negative-ie"}}
+	cw := &orbitv1.ConformanceWorkload{PerTestTimeoutMs: 2000, Groups: []string{erroneousGroup}}
 	p.Workloads = append(p.Workloads, &orbitv1.Workload{Name: "suite", Kind: &orbitv1.Workload_Conformance{Conformance: cw},
 		Start: &orbitv1.StartCondition{After: "pop", Phase: orbitv1.WorkloadPhase_WORKLOAD_PHASE_ATTACHED}})
 	p.Until = &orbitv1.Until{Stop: &orbitv1.Until_Complete{Complete: true}}
@@ -88,7 +88,11 @@ func TestMixedShapeRefusals(t *testing.T) {
 		{name: "suite IDs over the population's", mut: func(_ *orbitv1.RunPlan, pop *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
 			// The suite's first check presents base + its index: pin the
 			// population's one gNB there.
-			first := conformance.NewRegistry().Needs(700, false, conformance.NegativeIE).GNBIDs[0]
+			neg := conformance.NewRegistry()
+			if err := neg.Groups(0, erroneousGroup); err != nil {
+				t.Fatal(err)
+			}
+			first := neg.Needs(700, false).GNBIDs[0]
 			pop.Topology = &orbitv1.Topology{GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: first}}}
 			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 700}}
 		}, wantErr: "is the population's and the suite's"},
@@ -110,7 +114,7 @@ func TestMixedShapeRefusals(t *testing.T) {
 func TestMixedResources(t *testing.T) {
 	s := planService(t)
 	pr, err := s.buildPlan(mixedPlan(func(_ *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
-		cw.Categories = nil // every check, so the UE checks' SUPI is leased
+		cw.Groups = nil // every check, so the UE checks' SUPI is leased
 	}), engine.EventsNormal)
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +260,7 @@ func TestMixedStoppedArchivesPartials(t *testing.T) {
 		p.Target.Ran.N2SourceIps = nil
 		p.Workloads[1].Start.Phase = orbitv1.WorkloadPhase_WORKLOAD_PHASE_STARTED
 		cw.PerTestTimeoutMs = 1000
-		cw.Categories = nil // every check, so the suite outlasts the stop
+		cw.Groups = nil // every check, so the suite outlasts the stop
 		p.Gates = []*orbitv1.Gate{{Name: "suite", Check: &orbitv1.Gate_Conformance{Conformance: &orbitv1.ConformanceGate{}}}}
 	})
 	resp, err := runs.StartRun(context.Background(), connect.NewRequest(&orbitv1.StartRunRequest{Spec: &orbitv1.StartRunRequest_Plan{Plan: p}}))
@@ -315,7 +319,7 @@ func TestSuiteDeadlineFromRunStart(t *testing.T) {
 	pr, err := s.buildPlan(mixedPlan(func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
 		p.Target.Core.Amf = "127.0.0.1:1"
 		p.Until = &orbitv1.Until{Stop: &orbitv1.Until_DurationMs{DurationMs: 1000}}
-		cw.Categories = nil
+		cw.Groups = nil
 	}), engine.EventsNormal)
 	if err != nil {
 		t.Fatal(err)
@@ -345,7 +349,7 @@ func TestMixedInABoundedBlock(t *testing.T) {
 	s := planService(t)
 	pr, err := s.buildPlan(mixedPlan(func(p *orbitv1.RunPlan, _ *orbitv1.PopulationWorkload, cw *orbitv1.ConformanceWorkload) {
 		p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 5000, Count: 200}
-		cw.Categories = nil
+		cw.Groups = nil
 	}), engine.EventsNormal)
 	if err != nil {
 		t.Fatal(err)
@@ -365,7 +369,7 @@ func TestSuiteStoppedAfterTheLastCheckIsDone(t *testing.T) {
 	s := planService(t)
 	pr, err := s.buildPlan(suitePlan(func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 		p.Target.Core.Amf = "127.0.0.1:1"
-		cw.Categories = []string{"procedural"}
+		cw.Groups = []string{interfaceGroup}
 	}), engine.EventsNormal)
 	if err != nil {
 		t.Fatal(err)

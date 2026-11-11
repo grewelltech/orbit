@@ -9,13 +9,11 @@ import (
 
 type fakeTest struct {
 	id       string
-	cat      Category
 	verdict  Verdict
 	strength Strength // Shall when empty
 }
 
-func (f fakeTest) ID() string         { return f.id }
-func (f fakeTest) Category() Category { return f.cat }
+func (f fakeTest) ID() string { return f.id }
 func (f fakeTest) SpecRefs() []SpecRef {
 	s := f.strength
 	if s == "" {
@@ -34,14 +32,14 @@ func (f fakeTest) Outcomes() []Outcome {
 
 func TestRegistryRunStampsAndOrders(t *testing.T) {
 	r := &Registry{}
-	r.Register(fakeTest{"A", Procedural, Pass, ""})
-	r.Register(fakeTest{"B", NegativeIE, Fail, ""})
+	r.Register(fakeTest{"A", Pass, ""})
+	r.Register(fakeTest{"B", Fail, ""})
 
 	got := r.Run(context.Background(), Env{}, time.Second)
 	if len(got) != 2 {
 		t.Fatalf("want 2 results, got %d", len(got))
 	}
-	if got[0].ID != "A" || got[0].Verdict != Pass || got[0].Category != Procedural || got[0].SpecRef == "" {
+	if got[0].ID != "A" || got[0].Verdict != Pass || got[0].SpecRef == "" {
 		t.Errorf("result 0 not stamped from the test: %+v", got[0])
 	}
 	if got[1].ID != "B" || got[1].Verdict != Fail {
@@ -49,14 +47,20 @@ func TestRegistryRunStampsAndOrders(t *testing.T) {
 	}
 }
 
-func TestRegistryFiltersByCategory(t *testing.T) {
+func TestRegistryFiltersByGroup(t *testing.T) {
+	nas := goodRef()
+	nas.Spec, nas.Clause, nas.Verified = "TS 24.501", "5.4.2.2", ts24501Verified
 	r := &Registry{}
-	r.Register(fakeTest{"A", Procedural, Pass, ""})
-	r.Register(fakeTest{"B", NegativeIE, Pass, ""})
+	r.Register(provTest{id: "A", refs: []SpecRef{goodRef()}, result: Result{Verdict: Pass}})
+	r.Register(provTest{id: "B", refs: []SpecRef{nas}, result: Result{Verdict: Pass}})
+	r.Register(fakeTest{"C", Pass, ""})
 
-	only := r.Run(context.Background(), Env{}, time.Second, NegativeIE)
+	if err := r.Groups(0, "nas / 5gmm COMMON procedures"); err != nil {
+		t.Fatal(err)
+	}
+	only := r.Run(context.Background(), Env{}, time.Second)
 	if len(only) != 1 || only[0].ID != "B" {
-		t.Fatalf("category filter failed: %+v", only)
+		t.Fatalf("group filter failed: %+v", only)
 	}
 }
 
@@ -70,8 +74,8 @@ func TestBuiltinsRegistered(t *testing.T) {
 // both.
 func TestDeviationGatesByPolicy(t *testing.T) {
 	r := &Registry{}
-	r.Register(fakeTest{"A", Procedural, Pass, ""})
-	r.Register(fakeTest{"B", GTPU, Deviation, Should})
+	r.Register(fakeTest{"A", Pass, ""})
+	r.Register(fakeTest{"B", Deviation, Should})
 	sum := Summarize(r.Run(context.Background(), Env{}, time.Second))
 	if sum.Deviation != 1 {
 		t.Errorf("want 1 deviation, got %d", sum.Deviation)
@@ -83,7 +87,7 @@ func TestDeviationGatesByPolicy(t *testing.T) {
 		t.Error("a DEVIATION must not fail the spec gate")
 	}
 
-	r.Register(fakeTest{"C", NegativeIE, Fail, ""})
+	r.Register(fakeTest{"C", Fail, ""})
 	if Summarize(r.Run(context.Background(), Env{}, time.Second)).OK() {
 		t.Error("a FAIL must fail the gate")
 	}
@@ -163,9 +167,9 @@ func (g gnbIDTest) Run(_ context.Context, env Env) Result {
 func TestRegistryOnly(t *testing.T) {
 	var full, narrowed uint32
 	r := &Registry{}
-	r.Register(fakeTest{"A-ONE", Procedural, Pass, ""})
-	r.Register(fakeTest{"B-TWO", NegativeIE, Pass, ""})
-	r.Register(gnbIDTest{fakeTest{"C-THREE", Procedural, Pass, ""}, &full})
+	r.Register(fakeTest{"A-ONE", Pass, ""})
+	r.Register(fakeTest{"B-TWO", Pass, ""})
+	r.Register(gnbIDTest{fakeTest{"C-THREE", Pass, ""}, &full})
 	ids := func(tests []Test) string {
 		var out []string
 		for _, t := range tests {
@@ -181,10 +185,7 @@ func TestRegistryOnly(t *testing.T) {
 	if got := ids(r.Select()); got != "B-TWO,C-THREE" {
 		t.Errorf("Select = %s, want B-TWO,C-THREE in registry order", got)
 	}
-	if got := ids(r.Select(Procedural)); got != "C-THREE" {
-		t.Errorf("Select(procedural) = %s, want C-THREE", got)
-	}
-	r.tests[2] = gnbIDTest{fakeTest{"C-THREE", Procedural, Pass, ""}, &narrowed}
+	r.tests[2] = gnbIDTest{fakeTest{"C-THREE", Pass, ""}, &narrowed}
 	var total int
 	res := r.Run(context.Background(), Env{}, time.Second)
 	r.RunStream(context.Background(), Env{}, time.Second, func(_ Result, _, n int) { total = n })

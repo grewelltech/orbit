@@ -56,8 +56,7 @@ func (ngSetupMissingMandatoryIE) Outcomes() []Outcome {
 	return []Outcome{missingTAListRejected, missingTAListAccepted, missingTAListOtherPDU, missingTAListSilent, missingTAListReset}
 }
 
-func (ngSetupMissingMandatoryIE) ID() string         { return "NGAP-NGSETUP-MISSING-TALIST" }
-func (ngSetupMissingMandatoryIE) Category() Category { return NegativeIE }
+func (ngSetupMissingMandatoryIE) ID() string { return "NGAP-NGSETUP-MISSING-TALIST" }
 func (ngSetupMissingMandatoryIE) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 38.413", Clause: "9.2.6.1 Supported TA List", Strength: Descriptive, Since: 15, Verified: ts38413Verified,

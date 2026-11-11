@@ -89,8 +89,7 @@ var (
 		Summary: "ended the registration without completing it, in another way"}
 )
 
-func (nasInitialRegistration) ID() string         { return "NAS-INITIAL-REGISTRATION" }
-func (nasInitialRegistration) Category() Category { return NAS }
+func (nasInitialRegistration) ID() string { return "NAS-INITIAL-REGISTRATION" }
 
 // SpecRefs cites the two shalls that give an initial registration request
 // its answer.

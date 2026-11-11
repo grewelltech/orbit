@@ -87,8 +87,7 @@ func (nasSMCNoNIA0) Outcomes() []Outcome {
 	return []Outcome{smcSecured, smcNIA0Selected, smcCapsDiffer, smcSkipped}
 }
 
-func (nasSMCNoNIA0) ID() string         { return "NAS-SMC-NO-NIA0-REPLAYED-CAPS" }
-func (nasSMCNoNIA0) Category() Category { return Security }
+func (nasSMCNoNIA0) ID() string { return "NAS-SMC-NO-NIA0-REPLAYED-CAPS" }
 func (nasSMCNoNIA0) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 33.501", Clause: "5.5.2", Strength: Shall, Since: 15, Verified: ts33501NIA0Verified, Primary: true,
@@ -642,8 +641,7 @@ type nasIntegrityFailDiscard struct {
 // Outcomes declares what the check can report.
 func (nasIntegrityFailDiscard) Outcomes() []Outcome { return integrityDiscardOutcomes.list() }
 
-func (nasIntegrityFailDiscard) ID() string         { return "NAS-INTEGRITY-FAIL-DISCARD" }
-func (nasIntegrityFailDiscard) Category() Category { return Security }
+func (nasIntegrityFailDiscard) ID() string { return "NAS-INTEGRITY-FAIL-DISCARD" }
 func (nasIntegrityFailDiscard) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "4.4.4.3", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
@@ -680,8 +678,7 @@ type nasReplayDiscard struct {
 // Outcomes declares what the check can report.
 func (nasReplayDiscard) Outcomes() []Outcome { return replayDiscardOutcomes.list() }
 
-func (nasReplayDiscard) ID() string         { return "NAS-REPLAY-DISCARD" }
-func (nasReplayDiscard) Category() Category { return Security }
+func (nasReplayDiscard) ID() string { return "NAS-REPLAY-DISCARD" }
 func (nasReplayDiscard) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 33.501", Clause: "6.4.3.2", Strength: Shall, Since: 15, Verified: ts33501Verified, WordingUnchanged: true, Primary: true},
@@ -895,8 +892,7 @@ func (nasCountNotAdvanced) Outcomes() []Outcome {
 	return []Outcome{countKept, countAdvanced, countReplayAccepted, countReleased}
 }
 
-func (nasCountNotAdvanced) ID() string         { return "NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL" }
-func (nasCountNotAdvanced) Category() Category { return Security }
+func (nasCountNotAdvanced) ID() string { return "NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL" }
 func (nasCountNotAdvanced) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "4.4.3.3", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
@@ -1111,8 +1107,7 @@ func (nasBadMACRegistration) Outcomes() []Outcome {
 	return []Outcome{badMACRegDiscarded, badMACRegProcessed, badMACRegReauthenticated, badMACRegIdentityRequested, badMACRegReleased}
 }
 
-func (nasBadMACRegistration) ID() string         { return "NAS-BADMAC-REGISTRATION-AFTER-SMC" }
-func (nasBadMACRegistration) Category() Category { return Security }
+func (nasBadMACRegistration) ID() string { return "NAS-BADMAC-REGISTRATION-AFTER-SMC" }
 func (nasBadMACRegistration) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 24.501", Clause: "4.4.4.3", Strength: Shall, Since: 15, Verified: ts24501BadMACRegistrationVerified, Primary: true,

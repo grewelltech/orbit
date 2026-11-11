@@ -18,7 +18,7 @@ service ConformanceService {
   rpc RunConformance(RunConformanceRequest) returns (stream ConformanceUpdate) {}
 
   // ListConformanceTests reports the registered tests without running them,
-  // so a client can render the table skeleton (and per-category counts)
+  // so a client can render the table skeleton (and per-group counts)
   // before or without a run.
   rpc ListConformanceTests(ListConformanceTestsRequest) returns (ListConformanceTestsResponse) {}
 }
@@ -39,12 +39,13 @@ message RunConformanceRequest {
   // Base gNB ID. Each test presents a distinct ID above this base, because an
   // AMF does not cleanly re-key a reused gNB ID from a new association.
   uint32 gnb_id_base = 5;         // default 700
-  // User-plane checks (the gtpu category) need the UPF's N3 endpoint and a
+  // User-plane checks (the GTP-U ones) need the UPF's N3 endpoint and a
   // local N3 source address to bind. Absent, those tests report SKIP.
   string upf_n3 = 6;              // host:port
   string n3_bind = 7;             // local ip[:port]
-  // Categories to run; empty runs everything.
-  repeated string categories = 8;
+  // Removed: categories were replaced by groups (ADR-0011). A request that
+  // names one is refused with the groups and checks that replace it.
+  repeated string categories = 8 [deprecated = true];
   // Per-test timeout in seconds (default 15). One hang must not stall the run.
   uint32 per_test_seconds = 9;
   // Local N2 source address for every check's SCTP association, as ip or
@@ -70,6 +71,9 @@ message RunConformanceRequest {
   string dnn = 16;                // PDU session DNN; default "internet"
   string gnb_n3 = 17;             // gNB N3 IP, reachable from the UPF; both gNBs use it
   string traffic = 18;            // optional echo peer host:port for traffic across the handover
+  // Groups to run: group paths or prefixes of them, in any case
+  // ("NGAP", "NAS / 5GMM common procedures"); empty runs every group.
+  repeated string groups = 20;
   // The suite as a plan (ADR-0008 §2): one conformance workload with its
   // target, expected-failures list and gates, as `orbit conformance` builds
   // it. When set, every field above must be unset; the plan says it all.
@@ -116,7 +120,11 @@ message PreflightStep {
 
 message ConformanceResult {
   string id = 1;
-  string category = 2;
+  // Always empty: categories were replaced by groups (ADR-0011).
+  string category = 2 [deprecated = true];
+  // The check's group in the run's target release: specification /
+  // procedure family / procedure, by the specification's clause titles.
+  string group = 17;
   string spec_ref = 3;
   // One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
   // INFO | BLOCKED | CRASH | SKIP | ERROR.
@@ -209,7 +217,10 @@ message ListConformanceTestsRequest {}
 
 message ConformanceTestInfo {
   string id = 1;
-  string category = 2;
+  // Always empty: categories were replaced by groups (ADR-0011).
+  string category = 2 [deprecated = true];
+  // The check's group, in the latest release's clause titles.
+  string group = 6;
   string spec_ref = 3;
   repeated SpecRef spec_refs = 4;
   uint32 min_release = 5;

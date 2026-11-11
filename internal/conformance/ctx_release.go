@@ -61,8 +61,7 @@ func (ngapUECtxReleaseOnRequest) Outcomes() []Outcome {
 	return []Outcome{ueCtxReleaseCommanded, ueCtxReleaseNoCommand, ueCtxReleaseAssociationLost}
 }
 
-func (ngapUECtxReleaseOnRequest) ID() string         { return "NGAP-UE-CTX-RELEASE-ON-REQUEST" }
-func (ngapUECtxReleaseOnRequest) Category() Category { return Procedural }
+func (ngapUECtxReleaseOnRequest) ID() string { return "NGAP-UE-CTX-RELEASE-ON-REQUEST" }
 func (ngapUECtxReleaseOnRequest) SpecRefs() []SpecRef {
 	return []SpecRef{
 		{Spec: "TS 38.413", Clause: "8.3.2.2", Strength: Should, Since: 15, Verified: ts38413ReleaseRequestVerified, Primary: true,

@@ -197,13 +197,13 @@ type SuiteNeeds struct {
 	SecondN2Source bool
 }
 
-// Needs is the needs of the checks in cats (every check when empty) with
-// gNB IDs from base in the layout packed picks, as RunStream assigns them.
-func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds {
+// Needs is the needs of the selected checks (Select) with gNB IDs from
+// base in the layout packed picks, as RunStream assigns them.
+func (r *Registry) Needs(base uint32, packed bool) SuiteNeeds {
 	var out SuiteNeeds
 	seen := map[uint32]bool{}
 	preflight := false
-	for _, t := range r.Select(cats...) {
+	for _, t := range r.Select() {
 		n := NeedsOf(t)
 		preflight = preflight || n.usesN2()
 		out.UEs = max(out.UEs, n.UEs)

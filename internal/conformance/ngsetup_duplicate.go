@@ -128,8 +128,7 @@ func (c duplicateRANNodeID) Budget() time.Duration {
 	return 2*setup + first + 5*time.Second
 }
 
-func (duplicateRANNodeID) ID() string         { return "NGAP-DUPLICATE-RAN-NODE-ID" }
-func (duplicateRANNodeID) Category() Category { return Procedural }
+func (duplicateRANNodeID) ID() string { return "NGAP-DUPLICATE-RAN-NODE-ID" }
 
 // Needs declares the second N2 source address the duplicate is sent from,
 // beside the check's own gNB ID and the liveness probe's.

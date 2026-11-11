@@ -77,9 +77,6 @@ func TestUECtxReleaseCheckWithoutHarness(t *testing.T) {
 	if got := OwnsOf(ngapUECtxReleaseOnRequest{}); len(got) != 1 || got[0] != ProcANRelease || ueCtxReleaseNoCommand.NotCompleted != ProcANRelease {
 		t.Errorf("owns %v, want the AN release, reported as not completed by the missing command", got)
 	}
-	if got := (ngapUECtxReleaseOnRequest{}).Category(); got != Procedural {
-		t.Errorf("category = %s, want procedural", got)
-	}
 	r := runOne(context.Background(), ngapUECtxReleaseOnRequest{}, Env{}, time.Second)
 	if r.Verdict != Skip || r.Observed != "no UE configured" || !strings.Contains(r.Detail, "--supi") {
 		t.Errorf("without a UE: %s / %q / %q, want SKIP", r.Verdict, r.Observed, r.Detail)

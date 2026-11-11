@@ -55,7 +55,7 @@ function useCheckInfo(): ReadonlyMap<string, ConformanceTestInfo> {
       .listConformanceTests({})
       .then((r) => on && setInfo(new Map(r.tests.map((t) => [t.id, t]))))
       .catch(() => {
-        /* the verdicts show without their category and spec */
+        /* the verdicts show without their group and spec */
       });
     return () => {
       on = false;
@@ -123,7 +123,7 @@ function SuitePanel({
             <table className="w-full" style={{ borderCollapse: "collapse", fontFamily: "var(--o-font-mono)" }}>
               <thead>
                 <tr>
-                  {["verdict", "test", "category", "spec", "observed"].map((h) => (
+                  {["verdict", "test", "group", "spec", "observed"].map((h) => (
                     <th key={h} className="o-label" style={{ textAlign: "left", padding: "6px 12px", color: "var(--o-ink-3)", borderBottom: "1px solid var(--o-border)" }}>
                       {h}
                     </th>
@@ -154,7 +154,7 @@ function SuitePanel({
                           </span>
                         </td>
                         <td style={{ padding: "4px 12px", color: "var(--o-ink)", fontSize: "0.82rem" }}>{v.id}</td>
-                        <td style={{ padding: "4px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{info.get(v.id)?.category ?? ""}</td>
+                        <td style={{ padding: "4px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{info.get(v.id)?.group ?? ""}</td>
                         <td
                           className="max-w-[32rem] truncate"
                           title={info.get(v.id)?.specRef}
@@ -189,7 +189,7 @@ function Row({ r }: { r: ConformanceResult }) {
         )}
       </td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink)", fontSize: "0.82rem" }}>{r.id}</td>
-      <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{r.category}</td>
+      <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{r.group}</td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>
         <SpecCell r={r} />
       </td>

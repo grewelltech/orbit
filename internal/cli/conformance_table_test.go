@@ -25,10 +25,10 @@ func TestPrintConformanceTable(t *testing.T) {
 		N2Source:         "10.0.0.1:0",
 		ExpectedFailures: "Rel-18",
 		Results: []conformance.Result{
-			{ID: "AUTH-1", Category: conformance.Procedural, SpecRef: "TS 24.501", Verdict: conformance.Pass, Observed: "registration completed"},
-			{ID: "SEC-2", Category: conformance.Security, SpecRef: "TS 33.501", Verdict: conformance.Fail, Observed: "accepted replayed NAS", ExpectedFailure: &conformance.ExpectedFailure{Finding: "known"}},
-			{ID: "GTPU-3", Category: conformance.GTPU, SpecRef: "TS 29.281", Verdict: conformance.Deviation, Observed: strings.Repeat("x", 90), Detail: "requires Rel-18; TS 29.281 clause 5"},
-			{ID: "NAS-4", Category: conformance.NAS, SpecRef: "TS 24.501", Verdict: conformance.Skip, Observed: "no UE configured", Detail: "set --supi, --ki/--opc and --gnb-n3 to exercise this check"},
+			{ID: "AUTH-1", Group: "NGAP / Interface Management Procedures", SpecRef: "TS 24.501", Verdict: conformance.Pass, Observed: "registration completed"},
+			{ID: "SEC-2", Group: "TS 33.501 / NAS security mechanisms / NAS integrity activation", SpecRef: "TS 33.501", Verdict: conformance.Fail, Observed: "accepted replayed NAS", ExpectedFailure: &conformance.ExpectedFailure{Finding: "known"}},
+			{ID: "GTPU-3", Group: "GTPv1-U / Tunnel Management Messages / Error Indication", SpecRef: "TS 29.281", Verdict: conformance.Deviation, Observed: strings.Repeat("x", 90), Detail: "requires Rel-18; TS 29.281 clause 5"},
+			{ID: "NAS-4", Group: "NAS / 5GMM specific procedures / Registration procedure", SpecRef: "TS 24.501", Verdict: conformance.Skip, Observed: "no UE configured", Detail: "set --supi, --ki/--opc and --gnb-n3 to exercise this check"},
 		},
 	}
 
@@ -37,7 +37,7 @@ func TestPrintConformanceTable(t *testing.T) {
 	out := b.String()
 
 	for _, want := range []string{
-		"VERDICT", "TEST", "CATEGORY", "SPEC", "OBSERVED",
+		"VERDICT", "TEST", "GROUP", "SPEC", "OBSERVED",
 		"AUTH-1", "SEC-2", "GTPU-3",
 		"4 checks", "1 pass", "1 fail", "1 deviation", "1 skip",
 		"001-01", "10.0.0.1:0",
@@ -86,7 +86,7 @@ func TestConformanceReportPreflight(t *testing.T) {
 		t.Errorf("no preflight: %q, want no lines", got)
 	}
 	sum := conformance.Summary{Total: 1, Error: 1, Preflight: pre, Results: []conformance.Result{
-		{ID: "NAS-1", Category: conformance.NAS, Verdict: conformance.Error, Observed: conformance.ObservedPreflightFailed + " (registration failed)"}}}
+		{ID: "NAS-1", Group: "NAS / 5GMM specific procedures / Registration procedure", Verdict: conformance.Error, Observed: conformance.ObservedPreflightFailed + " (registration failed)"}}}
 	render := map[string]func(*bytes.Buffer){
 		"text":  func(b *bytes.Buffer) { printConformanceText(b, "208-93", sum, "") },
 		"table": func(b *bytes.Buffer) { printConformanceTable(b, "208-93", sum, "") },
@@ -112,9 +112,9 @@ func TestConformanceReportPreflight(t *testing.T) {
 // the gate line says so.
 func TestConformanceReportInformational(t *testing.T) {
 	results := []conformance.Result{
-		{ID: "NGAP-A", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Pass, Observed: "ok", Detail: "d1"},
-		{ID: "NGAP-B", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Info, Observed: "acknowledged", Detail: "as described"},
-		{ID: "NGAP-C", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Warn, Observed: "no answer", Detail: "not as described"},
+		{ID: "NGAP-A", Group: "NGAP / Interface Management Procedures", SpecRef: "TS 38.413", Verdict: conformance.Pass, Observed: "ok", Detail: "d1"},
+		{ID: "NGAP-B", Group: "NGAP / Interface Management Procedures", SpecRef: "TS 38.413", Verdict: conformance.Info, Observed: "acknowledged", Detail: "as described"},
+		{ID: "NGAP-C", Group: "NGAP / Interface Management Procedures", SpecRef: "TS 38.413", Verdict: conformance.Warn, Observed: "no answer", Detail: "not as described"},
 	}
 	sum := conformance.Summarize(results)
 	if sum.OK() {
@@ -131,7 +131,7 @@ func TestConformanceReportInformational(t *testing.T) {
 	}{
 		{name: "text", render: func(b *bytes.Buffer) { printConformanceText(b, "plmn 001/01", sum, "") },
 			want: []string{
-				"INFO  [procedural ] NGAP-B", "WARN  [procedural ] NGAP-C", "      not as described\n",
+				"INFO  NGAP-B", "WARN  NGAP-C", "      not as described\n",
 				"3 checks: 1 pass, 0 fail (0 expected), 0 deviation, 1 warn, 1 info, 0 blocked, 0 crash, 0 skip, 0 error\n",
 				"gate default: failed: 0 spec failures, 1 warning\n",
 			}},

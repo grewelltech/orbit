@@ -249,7 +249,7 @@ func TestGroupOfNoFamily(t *testing.T) {
 func TestRunStampsGroup(t *testing.T) {
 	r := &Registry{}
 	r.Register(provTest{id: "GROUPED", refs: []SpecRef{goodRef()}, result: Result{Verdict: Pass}})
-	r.Register(fakeTest{"LOOSE", Procedural, Pass, ""})
+	r.Register(fakeTest{"LOOSE", Pass, ""})
 	got := r.Run(context.Background(), Env{TargetRelease: 17}, time.Second)
 	if len(got) != 2 {
 		t.Fatalf("%d results", len(got))
