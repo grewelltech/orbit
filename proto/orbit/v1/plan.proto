@@ -195,6 +195,10 @@ message ConformanceWorkload {
   GNBIDSelection gnb_ids = 8;
   string subscriber_pool = 9;       // the UE checks' subscriber; default the first pool
   string n3_bind = 10;              // the GTP-U checks' local N3 source, ip:port; empty: they SKIP
+  // Check IDs to run (any case), on top of categories; empty runs every
+  // check the categories select. Each check keeps the gNB IDs and the
+  // subscribers it has in a full suite. An unknown ID is refused.
+  repeated string checks = 11;
 }
 
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).

@@ -141,3 +141,11 @@ func (a *AMF) InitialRegistrationRequests() [][]byte {
 	}
 	return out
 }
+
+// RegistrationSUPIs returns the SUPI of each Registration Request received
+// in an Initial UE Message, oldest first.
+func (a *AMF) RegistrationSUPIs() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.regSUPIs...)
+}

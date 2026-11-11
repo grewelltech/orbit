@@ -70,9 +70,6 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				return fmt.Errorf(`required flag(s) "amf" not set`)
 			}
 			if !tf.local {
-				if len(checks) > 0 {
-					return exitWith(ExitCouldNotStart, errors.New("--check selects checks for --list and --local runs; a run on the server takes --category"))
-				}
 				return thinConformance(cmd, serverURL, o, gates, tf.detach, jsonOut, expectedPath)
 			}
 			if tf.detach || len(gates) > 0 {
@@ -159,7 +156,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringVar(&n3Bind, "n3-bind", "", "local N3 source host:port for GTP-U checks (e.g. 172.17.50.12:2152)")
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")
 	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility, nas)")
-	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable; with --local or --list, on top of --category)")
+	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable or comma-separated, on top of --category); each keeps the gNB IDs of a full run")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", conformance.DefaultPerTestTimeout, "per-check timeout; a check that needs longer (NAS timer checks) gets its own budget")
 	f.BoolVar(&list, "list", false, "list the checks (filtered by --category) with how long each can take at --per-test-timeout, and the total, without running them")
@@ -293,17 +290,18 @@ func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
 	return out
 }
 
-// printConformanceList prints --list: one line per check with its category,
-// verdict class (conformance.VerdictClass), required release and the longest
-// it can take at perTest, then the total.
+// printConformanceList prints --list: one line per check, in the order a
+// run takes them, with its category, verdict class
+// (conformance.VerdictClass), required release, the longest it can take at
+// perTest and the phase it runs in, then the total.
 func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tCLASS\tREQUIRES\tUP TO")
+	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tCLASS\tREQUIRES\tUP TO\tPHASE")
 	var total time.Duration
 	for _, t := range tests {
 		d := conformance.ExpectedDuration(t, perTest)
 		total += d
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.ID(), t.Category(), conformance.VerdictClass(t), conformance.MinRelease(t), d)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.ID(), t.Category(), conformance.VerdictClass(t), conformance.MinRelease(t), d, conformance.PhaseOf(t))
 	}
 	if err := tw.Flush(); err != nil {
 		return err

@@ -12,9 +12,9 @@ import (
 
 // `conformance --list` needs no --amf or PLMN: it lists the checks (filtered
 // by --category and --check) with how long each can take at
-// --per-test-timeout, and the total. An unknown --check ID is refused, as is
-// --check on a run the server makes. Without --list, --amf is still
-// required.
+// --per-test-timeout, and the total. An unknown --check ID is refused
+// before anything is sent, on a run the server makes too. Without --list,
+// --amf is still required.
 func TestConformanceList(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -24,9 +24,9 @@ func TestConformanceList(t *testing.T) {
 		wantErr string
 	}{
 		{name: "all checks", args: []string{"--list"},
-			want: []string{"CHECK", "CLASS", "UP TO", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
+			want: []string{"CHECK", "CLASS", "UP TO", "PHASE", "stranding", "disruptive", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
 		{name: "nas only", args: []string{"--list", "--category", "nas"},
-			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "4 checks, up to 6m25s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
+			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "5 checks, up to 8m29s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "longer per-test timeout", args: []string{"--list", "--category", "procedural", "--per-test-timeout", "40s"},
 			want: []string{"NGAP-NG-RESET-ACK", "40s", "at --per-test-timeout 40s"}},
 		{name: "one check", args: []string{"--list", "--check", "NGAP-NG-RESET-ACK"},
@@ -36,7 +36,7 @@ func TestConformanceList(t *testing.T) {
 		{name: "a check outside the category", args: []string{"--list", "--category", "nas", "--check", "NGAP-NG-RESET-ACK"},
 			want: []string{"0 checks"}, wantNot: []string{"NGAP-NG-RESET-ACK "}},
 		{name: "unknown check", args: []string{"--list", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"; --list names the checks`},
-		{name: "--check on a server run", args: []string{"--amf", "127.0.0.1:1", "--check", "NGAP-NG-RESET-ACK"}, wantErr: "--check selects checks for --list and --local runs"},
+		{name: "unknown check on a server run", args: []string{"--amf", "127.0.0.1:1", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"`},
 		{name: "no --amf without --list", args: nil, wantErr: `required flag(s) "amf" not set`},
 	}
 	for _, tc := range tests {
@@ -67,6 +67,39 @@ func TestConformanceList(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --list prints the checks in the order a run takes them: the check a core
+// may not survive last, after the ones that leave a UE context behind.
+func TestConformanceListShowsRunOrder(t *testing.T) {
+	root := New("test")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"conformance", "--list"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, line := range strings.Split(out.String(), "\n")[1:] {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			break
+		}
+		listed = append(listed, f[0]+" "+f[len(f)-1])
+	}
+	want := conformance.NewRegistry().Select()
+	if len(listed) != len(want) {
+		t.Fatalf("listed %d checks, want %d:\n%s", len(listed), len(want), out.String())
+	}
+	for i, c := range want {
+		if listed[i] != c.ID()+" "+conformance.PhaseOf(c).String() {
+			t.Errorf("line %d is %q, want %s in phase %s", i, listed[i], c.ID(), conformance.PhaseOf(c))
+		}
+	}
+	if last := listed[len(listed)-1]; last != "NGAP-PATH-SWITCH-SECCAP-MISMATCH disruptive" {
+		t.Errorf("the list ends with %q", last)
 	}
 }
 
@@ -110,7 +143,7 @@ func TestAnnouncer(t *testing.T) {
 	a.done()
 	out := w.String()
 	for _, want := range []string{
-		"Running 4 checks, up to 6m25s in total\n",
+		"Running 5 checks, up to 8m29s in total\n",
 		"[1/2] " + nas[0].ID() + " (nas): up to 100ms\n",
 		"[2/2] " + nas[1].ID() + " (nas): up to 10ms\n",
 	} {

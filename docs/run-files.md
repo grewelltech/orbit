@@ -83,7 +83,9 @@ without it is a storm: each UE attaches and is released. One with
 `until.duration`.
 
 A **conformance** workload runs the suite, its fields under `conformance`:
-`categories`, `target_release`, `per_test_timeout_ms`, `traffic`,
+`categories`, `checks` (check IDs, as `--check` gives them: the named
+checks alone run, on top of `categories`, each with the gNB IDs and
+subscribers it has in the full suite), `target_release`, `per_test_timeout_ms`, `traffic`,
 `responder`, `subscriber_pool`, `n3_bind`, `gnb_ids` (as above),
 `nas.integrity` and `nas.ciphering` (the UE's NAS algorithms, as
 `--nas-integrity` and `--nas-ciphering` give them; a list left out, or

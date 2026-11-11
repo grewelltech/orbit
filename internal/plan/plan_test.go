@@ -113,6 +113,7 @@ workloads:
     start: {after: pop, phase: attached}
     conformance:
       categories: [negative-ie]
+      checks: [NGAP-UNKNOWN-UE-SURVIVES, ngap-ngsetup-missing-talist]
       target_release: Rel-17
       gnb_ids: {first: 700}
       expected: suite.yaml
@@ -133,6 +134,9 @@ entries:
 			cw := w.GetConformance()
 			if w.GetStart().GetAfter() != "pop" || w.GetStart().GetPhase() != orbitv1.WorkloadPhase_WORKLOAD_PHASE_ATTACHED {
 				t.Errorf("start = %v", w.GetStart())
+			}
+			if !slices.Equal(cw.GetChecks(), []string{"NGAP-UNKNOWN-UE-SURVIVES", "ngap-ngsetup-missing-talist"}) {
+				t.Errorf("checks = %v", cw.GetChecks())
 			}
 			if cw.GetCategories()[0] != "negative-ie" || cw.GetTargetRelease() != "Rel-17" || cw.GetGnbIds().GetFirst() != 700 ||
 				cw.GetExpected().GetCore() != "lab A" || cw.GetExpected().GetEntries()[0].GetFinding() != "EX-1" {
@@ -224,6 +228,7 @@ var samples = map[string]string{
 	"workloads[].subscriber_pool":                 "main",
 	"workloads[].sample_interval_ms":              "500",
 	"workloads[].conformance.categories":          "nas",
+	"workloads[].conformance.checks":              "NGAP-NG-RESET-ACK",
 	"workloads[].conformance.target_release":      "Rel-17",
 	"workloads[].conformance.expected":            "{core: c, entries: []}",
 	"workloads[].conformance.per_test_timeout_ms": "2000",

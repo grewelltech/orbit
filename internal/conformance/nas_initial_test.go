@@ -104,12 +104,15 @@ func TestInitialMsgContainerWinsAgainstMock(t *testing.T) {
 		name         string
 		opts         []mockamf.Option
 		noUE         bool
+		pool         int // the check's subscriber block; 0 is the single SUPI
 		want         Verdict
 		wantObserved string
 		wantDetail   []string
 		wantRegs     int // Registration Requests the mock received
 		wantDeregs   int64
 	}{
+		{name: "container wins, a subscriber for each registration", pool: 3, opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}, want: Pass,
+			wantObserved: "registration answered on the request in the NAS message container", wantRegs: 3, wantDeregs: 2},
 		{name: "container wins", opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}, want: Pass,
 			wantObserved: "registration answered on the request in the NAS message container",
 			wantDetail: []string{"stimulus answered: Registration Accept, allowed NSSAI none, rejected NSSAI none",
@@ -141,6 +144,7 @@ func TestInitialMsgContainerWinsAgainstMock(t *testing.T) {
 			if tc.noUE {
 				env.UE = UESpec{}
 			}
+			env.UE.Subscribers = tc.pool
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			r := runOne(ctx, nasInitialMsgContainerWins{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}}, env, 20*time.Second)
@@ -169,6 +173,15 @@ func TestInitialMsgContainerWinsAgainstMock(t *testing.T) {
 				}
 			}
 			if tc.wantRegs == 3 {
+				// One subscriber per registration with a block of three, the
+				// one SUPI without.
+				distinct := map[string]bool{}
+				for _, supi := range amf.RegistrationSUPIs() {
+					distinct[supi] = true
+				}
+				if want := max(tc.pool, 1); len(distinct) != want {
+					t.Errorf("registered %v, want %d distinct SUPIs", amf.RegistrationSUPIs(), want)
+				}
 				if !strings.Contains(string(final[0]), "\x01\x02\x03") || strings.Contains(string(final[0]), "\xee\xee\xee") {
 					t.Errorf("stimulus container request %x, want the served S-NSSAI only", final[0])
 				}
@@ -189,15 +202,15 @@ func TestInitialMsgContainerWinsAgainstMock(t *testing.T) {
 	}
 }
 
-// The check is FAIL-class on two shalls, needs up to 53 s and declares its
-// UE.
+// The check is FAIL-class on two shalls, needs up to 52 s and declares one
+// UE at a time over three subscribers.
 func TestInitialMsgContainerWinsClass(t *testing.T) {
 	c := nasInitialMsgContainerWins{}
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if VerdictClass(c) != Fail || IsInformational(c) || c.Budget() != 53*time.Second || NeedsOf(c).UEs != 1 {
-		t.Errorf("class %s, informational %v, budget %s, UEs %d", VerdictClass(c), IsInformational(c), c.Budget(), NeedsOf(c).UEs)
+	if VerdictClass(c) != Fail || IsInformational(c) || c.Budget() != 52*time.Second || NeedsOf(c).UEs != 1 || NeedsOf(c).Subscribers != 3 {
+		t.Errorf("class %s, informational %v, budget %s, needs %+v", VerdictClass(c), IsInformational(c), c.Budget(), NeedsOf(c))
 	}
 }
 
@@ -288,7 +301,7 @@ func TestInitialMsgNoContainerAgainstMock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			reg := &Registry{}
-			reg.Register(nasInitialMsgNoContainer{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}})
+			reg.Register(nasInitialMsgNoContainer{initialNASWaits{wait: 500 * time.Millisecond}})
 			results := reg.Run(ctx, env, 20*time.Second)
 			r := results[0]
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
@@ -387,7 +400,7 @@ func TestInitialMsgNonCleartextAgainstMock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			reg := &Registry{}
-			reg.Register(nasInitialMsgNonCleartextAccepted{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}})
+			reg.Register(nasInitialMsgNonCleartextAccepted{initialNASWaits{wait: 500 * time.Millisecond}})
 			results := reg.Run(ctx, env, 20*time.Second)
 			r := results[0]
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
@@ -431,7 +444,7 @@ func TestInitialMsgInformationalChecks(t *testing.T) {
 		if err := ValidateTest(c); err != nil {
 			t.Error(err)
 		}
-		if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 21*time.Second {
+		if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
 			t.Errorf("%s: informational %v, class %s, min %s, up to %s", c.ID(), IsInformational(c), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
 		}
 		for _, r := range c.SpecRefs() {
@@ -440,4 +453,54 @@ func TestInitialMsgInformationalChecks(t *testing.T) {
 			}
 		}
 	}
+}
+
+// nextSubscriber pauses only before a registration of the subscriber just
+// used: with a block that has a subscriber for the registration it switches
+// at once, and with a block of one it waits out the settle.
+func TestNextSubscriber(t *testing.T) {
+	tests := []struct {
+		name       string
+		block      int
+		settle     time.Duration
+		wantSUPI   string
+		wantPaused bool
+	}{
+		{name: "own subscriber, no pause", block: 3, settle: time.Hour, wantSUPI: "208930100000012"},
+		{name: "block of one, same subscriber after a pause", block: 1, settle: 60 * time.Millisecond, wantSUPI: "208930100000011", wantPaused: true},
+		{name: "no pool, same subscriber after a pause", block: 0, settle: 60 * time.Millisecond, wantSUPI: "208930100000011", wantPaused: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := ueEnv("192.0.2.1:38412", "", "127.0.0.1")
+			env.UE.Subscribers = tc.block
+			h, err := NewUEHarness(env, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			start := time.Now()
+			if err := nextSubscriber(ctx, h, 1, tc.settle); err != nil {
+				t.Fatal(err)
+			}
+			took := time.Since(start)
+			if h.supi != tc.wantSUPI {
+				t.Errorf("SUPI %s, want %s", h.supi, tc.wantSUPI)
+			}
+			if paused := took >= tc.settle; paused != tc.wantPaused {
+				t.Errorf("took %s with a settle of %s, want paused %v", took, tc.settle, tc.wantPaused)
+			}
+		})
+	}
+	// A harness with a UE registered refuses the switch.
+	h, err := NewUEHarness(ueEnv("192.0.2.1:38412", "", "127.0.0.1"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.registered = true
+	if err := nextSubscriber(context.Background(), h, 1, time.Millisecond); err == nil {
+		t.Error("nextSubscriber with a UE registered: no error")
+	}
+	h.registered = false
 }

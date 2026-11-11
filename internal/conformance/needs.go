@@ -157,6 +157,11 @@ func (nasDeregAcceptNotSwitchOff) Needs() CheckNeeds   { return ueNeeds }
 func (ngapCtxReleaseAfterSwitchOff) Needs() CheckNeeds { return ueNeeds }
 func (nasPDUReleaseUERequested) Needs() CheckNeeds     { return ueNeeds }
 
+// Needs is one subscriber: the check registers the same SUPI each time.
+func (nasRegistrationAfterRelease) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, Subscribers: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+}
+
 // Needs is one UE at a time and a subscriber for each of the check's three
 // registrations.
 func (nasSMCNoNIA0) Needs() CheckNeeds {
@@ -172,7 +177,12 @@ func (ngapPathSwitchAckTransfer) Needs() CheckNeeds {
 func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
-func (nasInitialMsgContainerWins) Needs() CheckNeeds        { return ueNeeds }
+
+// Needs is one UE at a time and a subscriber for each of the check's three
+// registrations.
+func (nasInitialMsgContainerWins) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, Subscribers: 3, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+}
 func (nasInitialMsgNoContainer) Needs() CheckNeeds          { return ueNeeds }
 func (nasInitialMsgNonCleartextAccepted) Needs() CheckNeeds { return ueNeeds }
 func (nasSMCIMEISVRequest) Needs() CheckNeeds               { return ueNeeds }

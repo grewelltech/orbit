@@ -26,9 +26,10 @@ const (
 	initialNASWait = 10 * time.Second
 	// initialNASDeregisterWait bounds the deregistration after an Accept.
 	initialNASDeregisterWait = 5 * time.Second
-	// initialNASSettle is the pause after each registration that reached
-	// the core, once the UE is deregistered or its association closed, in
-	// which the core finishes releasing the UE context: a registration of
+	// initialNASSettle is the pause before a registration of the subscriber
+	// the registration before it used, which happens only when the check's
+	// subscriber block is smaller than its registrations (nextSubscriber).
+	// The core finishes releasing the UE context in it: a registration of
 	// the same UE that reaches the core during that release can go
 	// unanswered.
 	initialNASSettle = time.Second
@@ -55,9 +56,27 @@ func (w initialNASWaits) settleTime() time.Duration {
 }
 
 // budget is the time n registrations may take, each with its
-// deregistration and settle, plus the liveness probe.
+// deregistration, with a settle between two of them (taken only when they
+// share a subscriber), plus the liveness probe.
 func (w initialNASWaits) budget(n int) time.Duration {
-	return time.Duration(n)*(w.waitTimeout()+initialNASDeregisterWait+w.settleTime()) + 5*time.Second
+	return time.Duration(n)*(w.waitTimeout()+initialNASDeregisterWait) + time.Duration(n-1)*w.settleTime() + 5*time.Second
+}
+
+// nextSubscriber switches h to subscriber i of the check's block for its
+// next registration. When the block is too small to give that registration
+// a subscriber of its own, so that it registers the one just used, it first
+// pauses for settle (or until ctx ends): the core may still be releasing
+// that UE's context, and a registration that meets the release can go
+// unanswered.
+func nextSubscriber(ctx context.Context, h *UEHarness, i int, settle time.Duration) error {
+	prev := h.supi
+	if err := h.UseSubscriber(i); err != nil {
+		return err
+	}
+	if h.supi == prev {
+		sleepCtx(ctx, settle)
+	}
+	return nil
 }
 
 // initialNASStimulus is one registration of the initial-NAS checks: what
@@ -302,12 +321,9 @@ func probeInitialNAS(ctx context.Context, h *UEHarness, stim initialNASStimulus,
 	return o
 }
 
-// deregisterAfter deregisters the UE when o left it registered, pauses for
-// settle (or until ctx ends) so the core can finish releasing the UE
-// context, and says in one clause what state the core was left in for this
-// registration. A registration that failed in the harness (o.err), which
-// may not have reached the core at all, is not paused after.
-func deregisterAfter(ctx context.Context, h *UEHarness, o initialNASOutcome, settle time.Duration) string {
+// deregisterAfter deregisters the UE when o left it registered, and says in
+// one clause what state the core was left in for this registration.
+func deregisterAfter(h *UEHarness, o initialNASOutcome) string {
 	left := "the association was closed with the UE not registered"
 	if o.registered {
 		dctx, cancel := context.WithTimeout(context.Background(), initialNASDeregisterWait)
@@ -317,9 +333,6 @@ func deregisterAfter(ctx context.Context, h *UEHarness, o initialNASOutcome, set
 		if err != nil {
 			left = fmt.Sprintf("deregistration failed (%v) and the association was dropped", err)
 		}
-	}
-	if o.err == nil {
-		sleepCtx(ctx, settle)
 	}
 	return left
 }
@@ -392,7 +405,8 @@ func (nasInitialMsgContainerWins) SpecRefs() []SpecRef {
 	}
 }
 
-// Budget covers the three registrations and the liveness probe.
+// Budget covers the three registrations, a settle between them and the
+// liveness probe.
 func (c nasInitialMsgContainerWins) Budget() time.Duration { return c.budget(3) }
 
 func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
@@ -414,7 +428,7 @@ func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 	stimulus := fmt.Sprintf("stimulus: initial message with Requested NSSAI %s in the clear, NAS message container with Requested NSSAI %s", describeSNSSAI(unserved), describeSNSSAI(served))
 
 	stim := probeInitialNAS(ctx, h, initialNASStimulus{requested: served, plainComplete: true, plainRequested: &unserved}, wait)
-	left := deregisterAfter(ctx, h, stim, c.settleTime())
+	left := deregisterAfter(h, stim)
 	switch {
 	case stim.reject != nil && stim.rejectBeforeSMC:
 		r.Verdict = Skip
@@ -427,8 +441,14 @@ func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 		return r
 	}
 
+	// Each registration is its own subscriber where the check has three,
+	// so none meets the context the core still holds of the one before.
+	if err := nextSubscriber(ctx, h, 1, c.settleTime()); err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
+		return r
+	}
 	refServed := probeInitialNAS(ctx, h, initialNASStimulus{requested: served}, wait)
-	leftServed := deregisterAfter(ctx, h, refServed, c.settleTime())
+	leftServed := deregisterAfter(h, refServed)
 	if !refServed.registered || refServed.accept == nil {
 		// The served S-NSSAI, sent conformantly, must register: without
 		// that there is no reference to compare with.
@@ -439,8 +459,12 @@ func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 		r.Detail = joinDetail(r.Detail, stimulus)
 		return r
 	}
+	if err := nextSubscriber(ctx, h, 2, c.settleTime()); err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
+		return r
+	}
 	refUnserved := probeInitialNAS(ctx, h, initialNASStimulus{requested: unserved}, wait)
-	leftUnserved := deregisterAfter(ctx, h, refUnserved, c.settleTime())
+	leftUnserved := deregisterAfter(h, refUnserved)
 	if !refUnserved.answered() {
 		r.Verdict, r.Observed, r.Detail = initialNASError(refUnserved, "the reference registration requesting the unserved S-NSSAI", wait)
 		r.Detail = joinDetail(r.Detail, stimulus)
@@ -554,7 +578,7 @@ func (c nasInitialMsgNoContainer) Run(ctx context.Context, env Env) Result {
 	wait := c.waitTimeout()
 	unserved := stimulusSNSSAI(h.pdu)
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: unserved, plainComplete: true, omitContainer: true, stopAtSecondSMC: true}, wait)
-	left := deregisterAfter(ctx, h, o, c.settleTime())
+	left := deregisterAfter(h, o)
 	r.Verdict, r.Observed, r.Detail = judgeNoContainer(o, wait)
 	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s (not served) and 5GMM capability in the clear, then a SECURITY MODE COMPLETE without the NAS message container", describeSNSSAI(unserved)))
 	r.Detail = joinDetail(r.Detail, "state left: "+left)
@@ -661,7 +685,7 @@ func (c nasInitialMsgNonCleartextAccepted) Run(ctx context.Context, env Env) Res
 	wait := c.waitTimeout()
 	served := h.pdu.Slice()
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: served, plainComplete: true}, wait)
-	left := deregisterAfter(ctx, h, o, c.settleTime())
+	left := deregisterAfter(h, o)
 	r.Verdict, r.Observed, r.Detail = judgeNonCleartext(o, wait)
 	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s and 5GMM capability in the clear, and the same request in the SECURITY MODE COMPLETE's NAS message container", describeSNSSAI(served)))
 	r.Detail = joinDetail(r.Detail, "state left: "+left)

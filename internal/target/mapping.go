@@ -138,6 +138,7 @@ var Bindings = []Binding{
 	{Flag: "slo-attach-p99", Path: "gates[" + GateName("", MetricAttachP99) + "].slo.threshold"},
 	{Flag: "slo-min-success", Path: "gates[" + GateName("", MetricSuccessRatio) + "].slo.threshold"},
 	{Flag: "category", Path: "workloads[].conformance.categories"},
+	{Flag: "check", Path: "workloads[].conformance.checks", Commands: []string{cmdConformance}},
 	{Flag: "target-release", Path: "workloads[].conformance.target_release"},
 	{Flag: "expected-failures", Path: "workloads[].conformance.expected", Commands: []string{cmdConformance}},
 	{Flag: "per-test-timeout", Path: "workloads[].conformance.per_test_timeout_ms"},
@@ -156,9 +157,6 @@ var Exclusions = []Exclusion{
 	{Flag: "json", Reason: ReasonOutput},
 	{Flag: "explain", Reason: ReasonOutput},
 	{Flag: "list", Reason: ReasonOutput},
-	// --check narrows --list and the in-process run to named checks; a plan
-	// selects by category.
-	{Flag: "check", Commands: []string{cmdConformance}, Reason: ReasonOutput},
 	{Flag: "out", Reason: ReasonOutput},
 	{Flag: "progress-every", Reason: ReasonOutput},
 	{Flag: "from-seq", Reason: ReasonOutput},

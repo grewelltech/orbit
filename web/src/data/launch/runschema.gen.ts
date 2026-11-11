@@ -36,6 +36,7 @@ export const RUN_FIELDS: readonly RunFieldSpec[] = [
   {"path":"workloads[].attach.seed","type":"uint","wide":true},
   {"path":"workloads[].behaviors","type":"any"},
   {"path":"workloads[].conformance.categories","type":"strings"},
+  {"path":"workloads[].conformance.checks","type":"strings"},
   {"path":"workloads[].conformance.expected","type":"any"},
   {"path":"workloads[].conformance.gnb_ids.assign","type":"bool"},
   {"path":"workloads[].conformance.gnb_ids.first","type":"uint"},

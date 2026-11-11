@@ -516,7 +516,8 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(t Test) { r.tests = append(r.tests, t) }
 
 // Select returns the registered tests in cats (every test when cats is
-// empty), in registration order, narrowed to the checks Only named.
+// empty), narrowed to the checks Only named, in the order a suite runs
+// them: by Phase, and in registration order within a phase.
 func (r *Registry) Select(cats ...Category) []Test {
 	want := map[Category]bool{}
 	for _, c := range cats {
@@ -531,6 +532,7 @@ func (r *Registry) Select(cats ...Category) []Test {
 			out = append(out, t)
 		}
 	}
+	runOrder(out)
 	return out
 }
 
@@ -561,11 +563,12 @@ func (r *Registry) Only(ids ...string) error {
 	return nil
 }
 
-// Tests returns the registered tests.
+// Tests returns the registered tests in registration order, the order
+// their gNB IDs and subscriber blocks follow; Select gives the run order.
 func (r *Registry) Tests() []Test { return r.tests }
 
 // Run executes every registered test against env (filtered to cats if given)
-// and returns the results in registration order. Each test gets its own
+// and returns the results in run order (Select). Each test gets its own
 // timeout so one hang does not stall the suite.
 func (r *Registry) Run(ctx context.Context, env Env, perTest time.Duration, cats ...Category) []Result {
 	var out []Result

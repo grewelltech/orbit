@@ -1362,7 +1362,7 @@ CLI process.
 
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
-    [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s] \
+    [--category negative-ie] [--check <ID>] [--gnb-base 0x400] [--per-test-timeout 15s] \
     [--target-release Rel-16] [--expected-failures <core-list.yaml>]
 ```
 
@@ -1378,10 +1378,22 @@ time every 30 s. stdout carries only the results, so `--json` stays clean.
 orbit conformance --list [--category nas] [--check <ID>] [--per-test-timeout 15s]
 ```
 
-`--check <ID>` (repeatable, or comma-separated) narrows `--list` and a
-`--local` run to the named checks, on top of `--category`; each keeps the
-gNB IDs it has in a full run. A run on the server selects by `--category`
-only and refuses `--check`.
+`--list` prints the checks in the order a run takes them, with each one's
+phase. Most checks are in the `main` phase and run in a fixed order. The
+`stranding` phase follows: the checks that withhold a reply or break the UE's
+security context and so leave a UE context for the core's own timers to clear
+(`NAS-RETRANSMIT-NEW-COUNT`, the two NAS timer checks and
+`NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL`). The `disruptive` phase is last:
+`NGAP-PATH-SWITCH-SECCAP-MISMATCH`, whose Path Switch Request a core may not
+survive, runs after every other check has its verdict. A filtered run keeps
+this order, and a check's phase does not change its gNB IDs or subscribers.
+
+`--check <ID>` (repeatable, or comma-separated, in any case) narrows `--list`
+and a run, on the server or `--local`, to the named checks, on top of
+`--category`; each keeps the gNB IDs and the subscribers it has in a full
+run. An ID that names no check is refused before anything starts, and so is
+a selection that leaves no check (a check outside the categories given). In
+a run file it is the workload's `conformance.checks`.
 
 [checks.md](conformance/checks.md) has the same figures in its **Up to**
 column, at the default per-test timeout.
@@ -1576,6 +1588,20 @@ sends none within 5 s is not failed: the check SKIPs with
 `no UE CONTEXT RELEASE COMMAND within 5s; not scored`, and the detail names the
 likely cause.
 
+`NAS-REGISTRATION-AFTER-RELEASE`, in the `nas` category, registers the UE,
+deregisters it with a switch-off and, when the AMF's UE Context Release
+Command arrives, sends the UE Context Release Complete and at once a new
+initial Registration Request for the same SUPI, on the same association
+under a new RAN UE NGAP ID. It does so four times, with 0, 5, 10 and 20 ms
+between the two messages. It passes when every registration draws a NAS
+message within 10 s (the Authentication Request is enough), and fails when
+one draws none: an initial registration is answered with an Accept or a
+Reject (TS 24.501 5.5.1.2.4, 5.5.1.2.5). It SKIPs on a core that sends no
+release after a switch-off. An answered registration is completed and the UE
+is deregistered at the end; the detail gives the measured gap and the first
+answer of each registration, and what an unanswered one left. It can take up
+to 124 s against a core that does not answer, and a few seconds otherwise.
+
 `NAS-PDU-RELEASE-UE-REQUESTED` registers the UE with a PDU session and sends
 a PDU Session Release Request. It passes when the core answers with a PDU
 Session Release Command (inside the NGAP command or in a Downlink NAS
@@ -1650,7 +1676,8 @@ Security Mode Complete's NAS message container. It passes when the
 registration is answered as the container's request is when sent alone
 (TS 24.501 5.4.2.4), and fails otherwise; two conformant reference
 registrations show how the core answers each value, so it runs three
-registrations and can take up to 53 s. It SKIPs when the core refuses the
+registrations, each as its own subscriber when the pool has one for each,
+and can take up to 52 s. It SKIPs when the core refuses the
 initial message outright or answers both values alike. The other three are
 informational and never gate: `NAS-INITIAL-MSG-NO-CONTAINER` leaves the
 container out and reports whether the core asks for the message again,

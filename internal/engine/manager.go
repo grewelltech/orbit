@@ -267,17 +267,24 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 		_ = lane.Close()
 		return nil, err
 	}
+	m.adopt(sess, localAddrString(conn), ueCfg.GNBN3Addr)
+	return sess.Result, nil
+}
+
+// adopt retains a session Attach returned: it records its state, the N2
+// source its association is bound to and its gNB N3 address, and wires it
+// to the Manager's data-path pool and event hub.
+func (m *Manager) adopt(sess *Session, n2Source, gnbN3 string) {
 	sess.setState(stateFromResult(sess.Result))
-	sess.setN2Source(localAddrString(conn))
+	sess.setN2Source(n2Source)
 	sess.Result.N2Source = sess.N2Source()
-	sess.gnbN3 = ueCfg.GNBN3Addr
+	sess.gnbN3 = gnbN3
 	sess.n3 = m.n3              // data paths open on the Manager's shared per-gNB pool
 	sess.notify = m.hub.publish // correlation-visible data-path events (netstack.go)
 
 	m.mu.Lock()
 	m.sessions[sess.SUPI] = sess
 	m.mu.Unlock()
-	return sess.Result, nil
 }
 
 // Status returns a snapshot of a registered UE.

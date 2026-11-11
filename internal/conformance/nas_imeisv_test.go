@@ -92,7 +92,7 @@ func TestIMEISVCheckAgainstMock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			reg := &Registry{}
-			reg.Register(nasSMCIMEISVRequest{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}})
+			reg.Register(nasSMCIMEISVRequest{initialNASWaits{wait: 500 * time.Millisecond}})
 			results := reg.Run(ctx, env, 20*time.Second)
 			r := results[0]
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
@@ -141,7 +141,7 @@ func TestIMEISVCheckIsInformational(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 21*time.Second {
+	if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
 		t.Errorf("informational %v, class %s, min %s, up to %s", IsInformational(c), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
 	}
 	for _, r := range c.SpecRefs() {
