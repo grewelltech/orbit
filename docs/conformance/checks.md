@@ -116,7 +116,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NAS-SERVICE-REQUEST-REACTIVATES
 
-- TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 5.6.1.5 first sentence (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 - TS 23.502 4.2.3.2 steps 12 and 18a (descriptive, since Rel-15): Rel-15 V15.0.0 (`23502-f00.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
 
@@ -421,6 +421,26 @@ Needs: NG Setup, registration, PDU session establishment, N2 handover preparatio
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
 | `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
 | `blocked-n2-handover-preparation` | BLOCKED | N2 handover preparation (owner NGAP-HANDOVER-COMMAND-TRANSFER) | did not complete an N2 handover preparation the check needs first |
+
+### NAS-SERVICE-REQUEST-REACTIVATES outcomes
+
+Owns: Service Request. Needs: NG Setup, registration, PDU session establishment, AN release.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `reactivated` | PASS | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall) | accepted the Service Request and re-established the session's user plane, with downlink on the new tunnel |
+| `unanswered` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); TS 24.501 5.6.1.5 first sentence (shall); absence within 15s (check bound; TS 24.501 sets no network timer for the answer); reports Service Request as not completed | sent neither a Service Accept nor a Service Reject |
+| `association-lost` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); TS 24.501 5.6.1.5 first sentence (shall); reports Service Request as not completed | dropped the association instead of answering the Service Request |
+| `rejected` | WARN | availability; reports Service Request as not completed | rejected the Service Request with a Service Reject |
+| `released-after-accept` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); reports Service Request as not completed | released the UE context after its Service Accept instead of re-establishing the user plane |
+| `no-user-plane` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); absence within 5s (check bound after the Service Accept) | accepted the Service Request without setting up the session's N3 tunnel |
+| `no-downlink` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); absence within 5s (check bound; downlink reached the UE within it before the release) | set the N3 tunnel up again, and no downlink arrived on it |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-downlink-responder` | SKIP | missing input | not judged: the run has no downlink responder |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-an-release` | BLOCKED | AN release (owner NGAP-UE-CTX-RELEASE-ON-REQUEST) | did not complete an AN release the check needs first |
 
 ### NAS-SMC-IMEISV-REQUEST outcomes
 

@@ -18,9 +18,9 @@ import (
 )
 
 // classifyService passes only on a Service Accept, the session's tunnel
-// set up again and downlink on it; every other outcome fails with the
-// check's message and what was seen. The Service Accept's IEs are recorded
-// and change no verdict.
+// set up again and downlink on it; a Service Reject is WARN, and every
+// other outcome fails with the check's message and what was seen. The
+// Service Accept's IEs are recorded and change no verdict.
 func TestClassifyService(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 	tunnel := engine.SessionResult{PDUSessionID: 1, UPFAddress: "192.0.2.10", UPFTEID: 0x51, DLTEID: 0x7}
@@ -38,50 +38,54 @@ func TestClassifyService(t *testing.T) {
 		name         string
 		res          *engine.ServiceResult
 		unanswered   bool
+		lost         error
 		traffic      *datapath.GPDUArrival
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 		notDetail    []string
 	}{
 		{name: "accept, tunnel and traffic", res: accept(&ue.ServiceAccept{PDUSessionStatus: 2, HasPDUSessionStatus: true, HasReactivationResult: true}, nil), traffic: gpdu,
-			want: Pass, wantObserved: "Service Accept and downlink traffic on the reactivated N3 tunnel",
+			want: serviceReactivated, wantObserved: "Service Accept and downlink traffic on the reactivated N3 tunnel",
 			wantDetail: []string{"Service Accept 40ms after the Service Request", "PDU session status 0x0002",
 				"PDU session reactivation result 0x0000 reports the session re-established (recorded only)",
 				"N3 tunnel set up again by Initial Context Setup: gNB downlink TEID 0x7, UPF 192.0.2.10 uplink TEID 0x51",
 				"downlink G-PDU on the reactivated tunnel 15ms after the trigger"},
 			notDetail: []string{"did not re-establish"}},
 		{name: "no reactivation result IE still passes", res: accept(&ue.ServiceAccept{}, func(r *engine.ServiceResult) { r.ContextSetup = false }), traffic: gpdu,
-			want: Pass, wantDetail: []string{"no PDU session reactivation result IE (recorded only)", "set up again by PDU Session Resource Setup"}},
+			want: serviceReactivated, wantDetail: []string{"no PDU session reactivation result IE (recorded only)", "set up again by PDU Session Resource Setup"}},
 		{name: "a reactivation result that reports failure is recorded", traffic: gpdu,
 			res:  accept(&ue.ServiceAccept{HasReactivationResult: true, ReactivationResult: 2, ReactivationErrors: []byte{1, 92}}, nil),
-			want: Pass, wantDetail: []string{"reports the session not re-established (recorded only)", "error cause 01 5c"}},
-		{name: "unanswered", unanswered: true, want: Fail, wantObserved: "no answer to the Service Request",
+			want: serviceReactivated, wantDetail: []string{"reports the session not re-established (recorded only)", "error cause 01 5c"}},
+		{name: "unanswered", unanswered: true, want: serviceUnanswered, wantObserved: "no answer to the Service Request",
 			wantDetail: []string{message + "neither Service Accept nor Service Reject within 15s (TS 24.501 5.6.1.5"}},
 		{name: "reject", res: &engine.ServiceResult{Sent: t0, Answered: t0.Add(20 * time.Millisecond), Rejected: true, RejectCause: 22, Released: true},
-			want: Fail, wantObserved: "Service Reject",
-			wantDetail: []string{message + "Service Reject with 5GMM cause #22, 20ms after the Service Request", "the core released the UE context after the reject"}},
-		{name: "accept, then release", res: accept(nil, func(r *engine.ServiceResult) { r.Released = true }), want: Fail,
+			want: serviceRejected, wantObserved: "Service Reject",
+			wantDetail: []string{"Service Reject with 5GMM cause #22, 20ms after the Service Request", "no requirement is violated", "the core released the UE context after the reject"},
+			notDetail:  []string{"did not re-establish"}},
+		{name: "association lost", lost: errors.New("EOF"), want: serviceAssociationLost, wantObserved: "association lost before an answer to the Service Request",
+			wantDetail: []string{message + "neither Service Accept nor Service Reject before the association went (EOF)"}},
+		{name: "accept, then release", res: accept(nil, func(r *engine.ServiceResult) { r.Released = true }), want: serviceReleased,
 			wantObserved: "Service Accept, then the UE context released", wantDetail: []string{message + "the core released the UE context after its Service Accept"}},
-		{name: "accept without the session", res: accept(nil, func(r *engine.ServiceResult) { r.Reactivated = nil }), want: Fail,
+		{name: "accept without the session", res: accept(nil, func(r *engine.ServiceResult) { r.Reactivated = nil }), want: serviceNoUserPlane,
 			wantObserved: "Service Accept without user plane",
 			wantDetail:   []string{message + "Service Accept, and an Initial Context Setup without the session, and no PDU Session Resource Setup for PDU session 1 within 15s"}},
-		{name: "accept in a downlink NAS transport only", res: accept(nil, func(r *engine.ServiceResult) { r.Reactivated, r.ContextSetup = nil, false }), want: Fail,
+		{name: "accept in a downlink NAS transport only", res: accept(nil, func(r *engine.ServiceResult) { r.Reactivated, r.ContextSetup = nil, false }), want: serviceNoUserPlane,
 			wantObserved: "Service Accept without user plane",
 			wantDetail:   []string{"Service Accept, and no Initial Context Setup or PDU Session Resource Setup for PDU session 1"}},
-		{name: "accept for another session only", res: accept(nil, func(r *engine.ServiceResult) { r.Reactivated[0].PDUSessionID = 2 }), want: Fail,
+		{name: "accept for another session only", res: accept(nil, func(r *engine.ServiceResult) { r.Reactivated[0].PDUSessionID = 2 }), want: serviceNoUserPlane,
 			wantObserved: "Service Accept without user plane"},
-		{name: "tunnel without traffic", res: accept(nil, nil), want: Fail, wantObserved: "Service Accept and N3 tunnel, no downlink traffic",
+		{name: "tunnel without traffic", res: accept(nil, nil), want: serviceNoDownlink, wantObserved: "Service Accept and N3 tunnel, no downlink traffic",
 			wantDetail: []string{message + "Service Accept and the N3 tunnel set up again on N2, and no downlink G-PDU on it within 5s", "TS 23.502 4.2.3.2 step 18a",
 				"gNB downlink TEID 0x7"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			o := serviceObservation{Session: 1, ReleaseCause: "nas/0", Before: 12 * time.Millisecond, Result: tc.res, Unanswered: tc.unanswered,
+			o := serviceObservation{Session: 1, ReleaseCause: "nas/0", Before: 12 * time.Millisecond, Result: tc.res, Unanswered: tc.unanswered, Lost: tc.lost,
 				AnswerWindow: 15 * time.Second, Triggered: t0.Add(3 * time.Second), Traffic: tc.traffic, TrafficWindow: 5 * time.Second}
-			v, observed, detail := classifyService(o)
-			if v != tc.want {
-				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
+			out, observed, detail := classifyService(o)
+			if out.ID != covers(tc.want).ID || out.Verdict != tc.want.Verdict {
+				t.Fatalf("outcome %s %s (%s; %s), want %s %s", out.ID, out.Verdict, observed, detail, tc.want.ID, tc.want.Verdict)
 			}
 			if tc.wantObserved != "" && observed != tc.wantObserved {
 				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
@@ -191,9 +195,8 @@ func TestServiceCheckAgainstMockPair(t *testing.T) {
 			wantDetail: []string{"PDU session 1 in the Uplink data status", "AN release cause nas/0", "PDU session status 0x0002",
 				"reports the session re-established (recorded only)", "N3 tunnel set up again by Initial Context Setup", "downlink G-PDU on the reactivated tunnel"}},
 		{name: "reject", net24: testnet.ConformanceServiceReject, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithServiceAnswer(mockamf.ServiceReject, 22)},
-			want: Fail, wantObserved: "Service Reject", wantRequests: 1, wantDeregs: 1,
-			wantDetail: []string{"Service Request did not re-establish the PDU session user plane. TS 24.501 5.6.1.4.1", "Likely cause: AMF/SMF reactivation path.",
-				"Service Reject with 5GMM cause #22", "the core released the UE context after the reject"}},
+			want: Warn, wantObserved: "Service Reject", wantRequests: 1, wantDeregs: 1,
+			wantDetail: []string{"Service Reject with 5GMM cause #22", "the core released the UE context after the reject"}},
 		{name: "accept without user plane", net24: testnet.ConformanceServiceNoUP,
 			amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithServiceAnswer(mockamf.ServiceAcceptNoUserPlane, 0)},
 			want:    Fail, wantObserved: "Service Accept without user plane", wantRequests: 1, wantDeregs: 1,
@@ -236,10 +239,10 @@ func TestServiceCheckAgainstMockPair(t *testing.T) {
 			},
 			want: Error, wantObserved: "the downlink traffic did not stop before the release", wantDeregs: 1},
 		{name: "release request ignored", net24: testnet.ConformanceServiceNoRelease, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithIgnoreUEContextReleaseRequest()},
-			timeout: 3 * time.Second, want: Error, wantObserved: "the AN release to CM-IDLE did not complete",
+			timeout: 3 * time.Second, want: Blocked, wantObserved: "the AN release to CM-IDLE did not complete",
 			wantDetail: []string{"no UE Context Release Command"}, wantDeregs: 1},
 		{name: "no 5G-GUTI", net24: testnet.ConformanceServiceNoGUTI,
-			want: Error, wantObserved: "the AN release to CM-IDLE did not complete", wantDetail: []string{"no 5G-GUTI"}},
+			want: Blocked, wantObserved: "the AN release to CM-IDLE did not complete", wantDetail: []string{"no 5G-GUTI"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

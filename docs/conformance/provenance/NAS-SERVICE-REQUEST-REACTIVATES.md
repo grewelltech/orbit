@@ -6,7 +6,7 @@ The issue for this check named TS 24.501 5.6.1 as an unverified candidate. Read 
 
 Not verified: TS 38.413 was not read for this check, so the NGAP messages that carry the tunnel setup (INITIAL CONTEXT SETUP REQUEST, PDU SESSION RESOURCE SETUP REQUEST) are not cited. The intermediate versions of each release were not read: a change is dated "by" the first version read that has it.
 
-## TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a), shall
+## TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a), shall, primary
 
 > "If the Uplink data status IE is included in the SERVICE REQUEST message and the UE is: a) not in NB-N1 mode; or b) in NB-N1 mode and the UE does not indicate a request to have user-plane resources established for a number of PDU sessions that exceeds the UE's maximum number of supported user-plane resources; the AMF shall: a) indicate the SMF to re-establish the user-plane resources for the corresponding PDU sessions; b) include the PDU session reactivation result IE in the SERVICE ACCEPT message to indicate the user-plane resources re-establishment result of the PDU sessions for which the UE requested to re-establish the user-plane resources; and c) ..."
 
@@ -14,7 +14,7 @@ Not verified: TS 38.413 was not read for this check, so the NGAP messages that c
 - **Changes:** Rel-15: item b) reads "re-establishment result of the PDU sessions for which the UE requested to re-establish the user-plane resources" by V15.7.0; item a) is unchanged. Rel-16: by V16.15.0 the clause is split, the text is in 5.6.1.4.1 ("UE is not using 5GS services with control plane CIoT 5GS optimization"), and the NB-N1 condition is added before "the AMF shall:". Rel-17: unchanged from V16.15.0. Rel-18, Rel-19: items a) and b) unchanged; item c) gains "(see clause 6.2.6)".
 - **Scope:** the UE is not in NB-N1 mode, so the shall binds in every release. The request names one PDU session, the one the UE established, in its Uplink data status.
 - **What is asserted:** item a). The AMF's indication to the SMF is not visible to the check; its result is: the session's N3 tunnel set up again on N2, and downlink data arriving on the gNB's new tunnel. Item b) is also a shall, and is recorded only: the detail says whether the Service Accept carried the PDU session reactivation result IE and what it reported. The issue's verdicts do not grade it.
-- **Verdicts:** Service Accept, the session's N3 tunnel set up again and a downlink G-PDU on it within 5 s of downlink data sent from N6: PASS. Service Reject; neither Accept nor Reject within 15 s; an Accept followed by a release of the UE context; an Accept without the session's tunnel within 5 s of it; a tunnel with no downlink on it: FAIL. No downlink reaching the UE before the release, that downlink not stopping, the trigger failing, the AN release not completing, or the per-test timeout ending a wait: ERROR. No UE or no N6 downlink trigger configured: SKIP.
+- **Verdicts:** see "Verdict" below.
 
 ## TS 24.501 5.6.1.5 first sentence (Service request procedure not accepted by the network), shall
 
@@ -23,7 +23,7 @@ Not verified: TS 38.413 was not read for this check, so the NGAP messages that c
 - **Since:** Rel-15, V15.0.0, as "... including an appropriate 5GMM cause value and stop timer T3517."
 - **Changes:** Rel-15: V15.7.0 as V15.0.0. Rel-16: "and stop timer T3517" is absent by V16.15.0. Rel-17 to Rel-19: unchanged from V16.15.0.
 - **Use:** with 5.6.1.4.1 it leaves the network two answers, so a Service Request that gets neither within 15 s is a FAIL, not an inconclusive run. The UE's own wait is T3517; its value was not read for this check and the 15 s is the check's.
-- **A Service Reject is a FAIL by the issue's verdicts.** The clause lets a network reject a request it cannot accept. The check gives it no reason to: the UE is registered, its security context is the one the registration set up, the request is integrity protected, and the session was active until the release. The detail records the 5GMM cause.
+- **A Service Reject is WARN, not FAIL.** The clause lets a network reject a request it cannot accept, and the reject is the answer it requires then, so no requirement is violated. The check gives the network no reason to reject (the UE is registered, its security context is the one the registration set up, the request is integrity protected, and the session was active until the release), so a reject means the core cannot complete the procedure: WARN for availability. The detail records the 5GMM cause.
 
 ## TS 23.502 4.2.3.2 steps 12 and 18a (UE Triggered Service Request), descriptive
 
@@ -43,3 +43,19 @@ Not verified: TS 38.413 was not read for this check, so the NGAP messages that c
 - The Service Request follows the UE CONTEXT RELEASE COMPLETE by one second, so the core has finished its own release.
 - The tunnel's setup may come in the INITIAL CONTEXT SETUP REQUEST that carries the Service Accept or in a PDU SESSION RESOURCE SETUP REQUEST up to 5 s after it; the detail records which.
 - The AN release uses cause Radio Network "release due to NG-RAN generated reason", not "user inactivity".
+
+## Verdict
+
+- **Class:** conformance, two shalls (5.6.1.4.1 item a), 5.6.1.5). The check owns the procedure "Service Request": a check whose Service Request the core does not accept reports BLOCKED and names this check.
+- **Stimulus:** a UE with a PDU session, released to CM-IDLE by an AN release, sends a SERVICE REQUEST with the session in its Uplink data status; the answer and the tunnel's setup are awaited for 15 s, and downlink on the new tunnel for 5 s.
+- **PASS** `reactivated` (5.6.1.4.1): Service Accept, the session's N3 tunnel set up again and a downlink G-PDU on it.
+- **FAIL** `unanswered` (5.6.1.4.1, 5.6.1.5): neither Accept nor Reject within 15 s, a bound of the check. The two clauses leave the network two answers, so neither violates one of them.
+- **FAIL** `association-lost` (5.6.1.4.1, 5.6.1.5): the association went before either answer.
+- **FAIL** `released-after-accept` (5.6.1.4.1): an Accept followed by a release of the UE context, with the user plane not re-established.
+- **FAIL** `no-user-plane` (5.6.1.4.1): an Accept without the session's tunnel within 5 s of it.
+- **FAIL** `no-downlink` (5.6.1.4.1): a tunnel with no downlink on it within 5 s, where downlink reached the UE within that bound before the release.
+- **WARN (availability)** `rejected`: a Service Reject; see 5.6.1.5 above.
+- **Not completed:** `unanswered`, `association-lost`, `rejected` and `released-after-accept` report the Service Request as not completed, so the BLOCKED results of dependent checks in the same run are counted under this one.
+- **BLOCKED** (registration, PDU session establishment): the UE or its session was not set up. **BLOCKED** (AN release): the core did not release the UE to CM-IDLE (no UE CONTEXT RELEASE COMMAND, or no 5G-GUTI to page it by).
+- **ERROR:** no downlink reaching the UE before the release, that downlink not stopping, the trigger failing, the Service Request not sent, or the per-test timeout ending a wait.
+- **SKIP:** no UE or no N6 downlink trigger configured, or a target release older than Rel-15.

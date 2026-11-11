@@ -28,6 +28,12 @@ func init() {
 // The release follows once that traffic has stopped, so none of it reaches
 // the core while the UE is idle. The Service Accept's PDU session status
 // and PDU session reactivation result are recorded only.
+//
+// The check owns the Service Request: an answer that is neither a Service
+// Accept nor a Service Reject is FAIL (5.6.1.4.1 or 5.6.1.5 obliges one of
+// them), and a Service Reject, which 5.6.1.5 lets a core that cannot accept
+// the request send, is WARN for availability. A registration, PDU session
+// or AN release that does not complete first is BLOCKED.
 type serviceRequestReactivates struct {
 	// Overrides of serviceTrafficWindow, serviceQuietGap, serviceSettle,
 	// serviceAnswerWindow and serviceUserPlaneWait (tests only).
@@ -51,11 +57,47 @@ const (
 	serviceUserPlaneWait = 5 * time.Second
 )
 
+// The keys of the shalls the outcomes of NAS-SERVICE-REQUEST-REACTIVATES
+// rest on.
+const (
+	serviceAcceptRef = "TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a)"
+	serviceRejectRef = "TS 24.501 5.6.1.5 first sentence"
+)
+
+// The outcomes of NAS-SERVICE-REQUEST-REACTIVATES.
+var (
+	serviceReactivated = Outcome{ID: "reactivated", Verdict: Pass, Refs: []string{serviceAcceptRef},
+		Summary: "accepted the Service Request and re-established the session's user plane, with downlink on the new tunnel"}
+	serviceUnanswered = Outcome{ID: "unanswered", Verdict: Fail, Refs: []string{serviceAcceptRef, serviceRejectRef}, NotCompleted: ProcServiceRequest,
+		Bound:   &Bound{Wait: serviceAnswerWindow + serviceUserPlaneWait, Source: "check bound; TS 24.501 sets no network timer for the answer"},
+		Summary: "sent neither a Service Accept nor a Service Reject"}
+	serviceAssociationLost = Outcome{ID: "association-lost", Verdict: Fail, Refs: []string{serviceAcceptRef, serviceRejectRef}, NotCompleted: ProcServiceRequest,
+		Summary: "dropped the association instead of answering the Service Request"}
+	// A Service Reject is WARN for availability: 5.6.1.5 has a core that
+	// cannot accept the request send it, so no requirement is violated, and
+	// the core cannot complete the procedure for the UE.
+	serviceRejected = Outcome{ID: "rejected", Verdict: Warn, Criterion: CriterionAvailability, NotCompleted: ProcServiceRequest,
+		Summary: "rejected the Service Request with a Service Reject"}
+	serviceReleased = Outcome{ID: "released-after-accept", Verdict: Fail, Refs: []string{serviceAcceptRef}, NotCompleted: ProcServiceRequest,
+		Summary: "released the UE context after its Service Accept instead of re-establishing the user plane"}
+	serviceNoUserPlane = Outcome{ID: "no-user-plane", Verdict: Fail, Refs: []string{serviceAcceptRef},
+		Bound:   &Bound{Wait: serviceUserPlaneWait, Source: "check bound after the Service Accept"},
+		Summary: "accepted the Service Request without setting up the session's N3 tunnel"}
+	serviceNoDownlink = Outcome{ID: "no-downlink", Verdict: Fail, Refs: []string{serviceAcceptRef},
+		Bound:   &Bound{Wait: serviceTrafficWindow, Source: "check bound; downlink reached the UE within it before the release"},
+		Summary: "set the N3 tunnel up again, and no downlink arrived on it"}
+)
+
+// Outcomes declares what the check can report.
+func (serviceRequestReactivates) Outcomes() []Outcome {
+	return []Outcome{serviceReactivated, serviceUnanswered, serviceAssociationLost, serviceRejected, serviceReleased, serviceNoUserPlane, serviceNoDownlink}
+}
+
 func (serviceRequestReactivates) ID() string         { return "NAS-SERVICE-REQUEST-REACTIVATES" }
 func (serviceRequestReactivates) Category() Category { return Procedural }
 func (serviceRequestReactivates) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a)", Strength: Shall, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a)", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 16, Note: "5.6.1.4 is split and the text moves to 5.6.1.4.1; the condition adds \"and the UE is: a) not in NB-N1 mode; or b) in NB-N1 mode and ...\" before \"the AMF shall:\"; item a) is unchanged in every version"},
 			}},
@@ -100,23 +142,15 @@ const serviceFailure = "Service Request did not re-establish the PDU session use
 func (c serviceRequestReactivates) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "Service Accept and the PDU session's user plane re-established after a Service Request from CM-IDLE with the session in its Uplink data status: the N3 tunnel set up again and downlink traffic on it (TS 24.501 5.6.1.4.1)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the checks that register a UE"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run the checks that register a UE")
 	}
 	if env.Downlink == nil {
-		r.Verdict, r.Observed = Skip, "no N6 downlink trigger configured"
-		r.Detail = "the check needs a responder on the N6 network to send downlink data to the UE, as the traffic that must flow again: name one of the target's responders as the conformance workload's responder"
-		return r
+		return r.Skipped(InputDownlink, "no N6 downlink trigger configured",
+			"the check needs a responder on the N6 network to send downlink data to the UE, as the traffic that must flow again: name one of the target's responders as the conformance workload's responder")
 	}
-	fail := func(observed string, err error) Result {
-		r.Verdict, r.Observed, r.Detail = Error, observed, err.Error()
-		return r
-	}
+	fail := func(observed string, err error) Result { return r.Errored(observed, err.Error()) }
 	cutShort := func(what string, err error) Result {
-		r.Verdict, r.Observed = Error, what+" was cut short"
-		r.Detail = fmt.Sprintf("%v; raise --per-test-timeout to at least %s", err, c.Budget())
-		return r
+		return r.Errored(what+" was cut short", fmt.Sprintf("%v; raise --per-test-timeout to at least %s", err, c.Budget()))
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
@@ -125,7 +159,7 @@ func (c serviceRequestReactivates) Run(ctx context.Context, env Env) Result {
 	defer h.Close()
 	reg, err := h.Register(ctx)
 	if err != nil {
-		return fail("UE setup failed", err)
+		return r.SetupFailed("UE setup failed", err)
 	}
 	o := serviceObservation{Session: h.PDUSessionID(), AnswerWindow: c.answerWait() + c.userPlaneWait(), TrafficWindow: c.trafficWait()}
 
@@ -138,9 +172,8 @@ func (c serviceRequestReactivates) Run(ctx context.Context, env Env) Result {
 		return cutShort("the wait for downlink traffic before the release", err)
 	}
 	if before == nil {
-		r.Verdict, r.Observed = Error, "no downlink traffic reached the UE before the release"
-		r.Detail = fmt.Sprintf("the trigger's traffic to the UE's address %s did not arrive on its N3 tunnel within %v while the UE was connected, so its absence after the Service Request would say nothing about the core; check the responder's route to the UE pool through the UPF's N6", reg.PDUAddress, c.trafficWait())
-		return r
+		return r.Errored("no downlink traffic reached the UE before the release",
+			fmt.Sprintf("the trigger's traffic to the UE's address %s did not arrive on its N3 tunnel within %v while the UE was connected, so its absence after the Service Request would say nothing about the core; check the responder's route to the UE pool through the UPF's N6", reg.PDUAddress, c.trafficWait()))
 	}
 	o.Before = before.Arrival.Sub(sent)
 	quiet, err := h.AwaitDownlinkQuiet(ctx, c.quietGap(), c.trafficWait())
@@ -148,14 +181,13 @@ func (c serviceRequestReactivates) Run(ctx context.Context, env Env) Result {
 		return cutShort("the wait for the downlink traffic to stop", err)
 	}
 	if !quiet {
-		r.Verdict, r.Observed = Error, "the downlink traffic did not stop before the release"
-		r.Detail = fmt.Sprintf("downlink to the UE was still arriving %v after the trigger; released now, the UE would be paged for it", c.trafficWait())
-		return r
+		return r.Errored("the downlink traffic did not stop before the release",
+			fmt.Sprintf("downlink to the UE was still arriving %v after the trigger; released now, the UE would be paged for it", c.trafficWait()))
 	}
 
 	idle, err := h.Idle(ctx)
 	if err != nil {
-		return fail("the AN release to CM-IDLE did not complete", err)
+		return r.SetupFailed("the AN release to CM-IDLE did not complete", during(ProcANRelease, err))
 	}
 	o.ReleaseCause = idle.Cause
 	if !sleepCtx(ctx, c.pause()) {
@@ -170,6 +202,8 @@ func (c serviceRequestReactivates) Run(ctx context.Context, env Env) Result {
 		return cutShort("the Service Request", ctx.Err())
 	case errors.Is(err, engine.ErrServiceUnanswered) && errors.Is(err, context.DeadlineExceeded):
 		o.Unanswered = true
+	case errors.Is(err, engine.ErrServiceUnanswered):
+		o.Lost = err
 	case err != nil:
 		return fail("the Service Request procedure failed", err)
 	}
@@ -187,8 +221,8 @@ func (c serviceRequestReactivates) Run(ctx context.Context, env Env) Result {
 			return cutShort("the wait for downlink traffic on the reactivated tunnel", err)
 		}
 	}
-	r.Verdict, r.Observed, r.Detail = classifyService(o)
-	return r
+	out, observed, detail := classifyService(o)
+	return r.As(out, observed, detail)
 }
 
 // serviceObservation is what the check saw, for classifyService.
@@ -205,6 +239,9 @@ type serviceObservation struct {
 	Result       *engine.ServiceResult
 	Unanswered   bool
 	AnswerWindow time.Duration
+	// Lost is why the association went before an answer, nil when it did
+	// not.
+	Lost error
 	// Triggered is when the trigger after the Service Accept returned, and
 	// Traffic the first G-PDU on the reactivated tunnel within
 	// TrafficWindow of it, nil when none came.
@@ -228,30 +265,35 @@ func (o serviceObservation) tunnel() engine.SessionResult {
 
 // classifyService judges a Service Request from CM-IDLE: a Service Accept,
 // the session's N3 tunnel set up again and downlink traffic on it is PASS.
-// No answer, a Service Reject, an Accept followed by a release, an Accept
-// without the tunnel, and a tunnel no downlink arrives on are FAIL. The
-// detail records the release cause, the downlink seen before the release,
-// the answer's delay and IEs, how the tunnel was set up and its endpoints.
-func classifyService(o serviceObservation) (Verdict, string, string) {
+// No answer, a lost association, an Accept followed by a release, an
+// Accept without the tunnel, and a tunnel no downlink arrives on are FAIL;
+// a Service Reject is WARN. The detail records the release cause, the
+// downlink seen before the release, the answer's delay and IEs, how the
+// tunnel was set up and its endpoints.
+func classifyService(o serviceObservation) (Outcome, string, string) {
 	facts := []string{
 		fmt.Sprintf("PDU session %d in the Uplink data status", o.Session),
 		"AN release cause " + o.ReleaseCause,
 		fmt.Sprintf("downlink reached the UE %v after the trigger before the release", o.Before.Round(time.Millisecond)),
 	}
-	failed := func(observed, seen string) (Verdict, string, string) {
-		return Fail, observed, serviceFailure + " Seen: " + seen + ". Recorded: " + strings.Join(facts, "; ")
+	failed := func(out Outcome, observed, seen string) (Outcome, string, string) {
+		return out, observed, serviceFailure + " Seen: " + seen + ". Recorded: " + strings.Join(facts, "; ")
 	}
 	res := o.Result
+	if o.Lost != nil {
+		return failed(serviceAssociationLost, "association lost before an answer to the Service Request",
+			fmt.Sprintf("neither Service Accept nor Service Reject before the association went (%v)", o.Lost))
+	}
 	if o.Unanswered || res == nil {
-		return failed("no answer to the Service Request",
+		return failed(serviceUnanswered, "no answer to the Service Request",
 			fmt.Sprintf("neither Service Accept nor Service Reject within %v (TS 24.501 5.6.1.5: a request that cannot be accepted is answered with SERVICE REJECT)", o.AnswerWindow))
 	}
 	if res.Rejected {
 		if res.Released {
 			facts = append(facts, "the core released the UE context after the reject")
 		}
-		return failed("Service Reject", fmt.Sprintf("Service Reject with 5GMM cause #%d, %v after the Service Request",
-			res.RejectCause, res.Answered.Sub(res.Sent).Round(time.Millisecond)))
+		return serviceRejected, "Service Reject", fmt.Sprintf("Service Reject with 5GMM cause #%d, %v after the Service Request; TS 24.501 5.6.1.5 lets a core that cannot accept the request reject it, so no requirement is violated, and the user plane was not re-established. Recorded: %s",
+			res.RejectCause, res.Answered.Sub(res.Sent).Round(time.Millisecond), strings.Join(facts, "; "))
 	}
 	facts = append(facts, fmt.Sprintf("Service Accept %v after the Service Request", res.Answered.Sub(res.Sent).Round(time.Millisecond)))
 	if a := res.Accept; a != nil {
@@ -271,14 +313,14 @@ func classifyService(o serviceObservation) (Verdict, string, string) {
 		}
 	}
 	if res.Released {
-		return failed("Service Accept, then the UE context released", "the core released the UE context after its Service Accept")
+		return failed(serviceReleased, "Service Accept, then the UE context released", "the core released the UE context after its Service Accept")
 	}
 	if !res.UserPlane(o.Session) {
 		how := "no Initial Context Setup or PDU Session Resource Setup"
 		if res.ContextSetup {
 			how = "an Initial Context Setup without the session, and no PDU Session Resource Setup"
 		}
-		return failed("Service Accept without user plane",
+		return failed(serviceNoUserPlane, "Service Accept without user plane",
 			fmt.Sprintf("Service Accept, and %s for PDU session %d within %v", how, o.Session, o.AnswerWindow))
 	}
 	t := o.tunnel()
@@ -288,9 +330,9 @@ func classifyService(o serviceObservation) (Verdict, string, string) {
 	}
 	facts = append(facts, fmt.Sprintf("N3 tunnel set up again by %s: gNB downlink TEID %#x, UPF %s uplink TEID %#x", by, t.DLTEID, t.UPFAddress, t.UPFTEID))
 	if o.Traffic == nil {
-		return failed("Service Accept and N3 tunnel, no downlink traffic",
+		return failed(serviceNoDownlink, "Service Accept and N3 tunnel, no downlink traffic",
 			fmt.Sprintf("Service Accept and the N3 tunnel set up again on N2, and no downlink G-PDU on it within %v of downlink data sent to the UE (TS 23.502 4.2.3.2 step 18a: the SMF gives the UPF the AN Tunnel Info)", o.TrafficWindow))
 	}
 	facts = append(facts, fmt.Sprintf("downlink G-PDU on the reactivated tunnel %v after the trigger", o.Traffic.Arrival.Sub(o.Triggered).Round(time.Millisecond)))
-	return Pass, "Service Accept and downlink traffic on the reactivated N3 tunnel", strings.Join(facts, "; ")
+	return serviceReactivated, "Service Accept and downlink traffic on the reactivated N3 tunnel", strings.Join(facts, "; ")
 }

@@ -227,8 +227,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Accept and re-establish the session's user plane: the N3 tunnel set up
   again on N2, and downlink data from a responder on N6 arriving on the gNB's
   new tunnel (TS 24.501 5.6.1.4.1, 5.6.1.4 in Rel-15, a "shall"; TS 23.502
-  4.2.3.2 describes it). A Service Reject, no answer, an Accept without the
-  tunnel and a tunnel without downlink all FAIL. The same downlink is sent
+  4.2.3.2 describes it). No answer, an Accept without the tunnel and a
+  tunnel without downlink FAIL; a Service Reject is WARN for availability.
+  The check owns the Service Request. The same downlink is sent
   once before the release; when it does not arrive the run is an ERROR, not
   a verdict. Needs a UE and a target responder; SKIPs without either. Not yet
   run live.
