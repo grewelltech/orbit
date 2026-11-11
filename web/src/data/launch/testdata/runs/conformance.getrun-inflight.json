@@ -1,66 +1,66 @@
 {
-  "run": {
-    "runId": "run-e3cabe1e",
-    "kind": "RUN_KIND_CONFORMANCE",
-    "state": "RUN_STATE_RUNNING",
-    "startedUnixNano": "1794439781685330209"
+  "run":  {
+    "runId":  "run-fd40d34d",
+    "kind":  "RUN_KIND_CONFORMANCE",
+    "state":  "RUN_STATE_RUNNING",
+    "startedUnixNano":  "1794440123614783498"
   },
-  "leases": [
+  "leases":  [
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:38464",
-      "gnbId": 31
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:50419",
+      "gnbId":  31
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:38464",
-      "gnbId": 34
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:50419",
+      "gnbId":  34
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:38464",
-      "gnbId": 40
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:50419",
+      "gnbId":  40
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:38464",
-      "gnbId": 36895
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:50419",
+      "gnbId":  36895
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:38464",
-      "gnbId": 36898
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:50419",
+      "gnbId":  36898
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:38464",
-      "gnbId": 36904
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:50419",
+      "gnbId":  36904
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:38464",
-      "gnbId": 36911
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:50419",
+      "gnbId":  36911
     },
     {
-      "resource": "LEASE_RESOURCE_N2_IP",
-      "n2Ip": "127.0.0.1"
+      "resource":  "LEASE_RESOURCE_N2_IP",
+      "n2Ip":  "127.0.0.1"
     }
   ],
-  "conformanceProgress": {
-    "tally": {},
-    "total": 3,
-    "preflight": [
+  "conformanceProgress":  {
+    "tally":  {},
+    "total":  3,
+    "preflight":  [
       {
-        "step": "NG Setup",
-        "status": "ok",
-        "detail": "gNB ID 36911, PLMN 208/93, TAC 1"
+        "step":  "NG Setup",
+        "status":  "ok",
+        "detail":  "gNB ID 36911, PLMN 208/93, TAC 1"
       }
     ]
   }

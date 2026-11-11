@@ -48,6 +48,7 @@ export const RUN_FIELDS: readonly RunFieldSpec[] = [
   {"path":"workloads[].conformance.per_test_timeout_ms","type":"uint"},
   {"path":"workloads[].conformance.responder","type":"string"},
   {"path":"workloads[].conformance.subscriber_pool","type":"string"},
+  {"path":"workloads[].conformance.tags","type":"strings"},
   {"path":"workloads[].conformance.target_release","type":"string"},
   {"path":"workloads[].conformance.traffic","type":"string"},
   {"path":"workloads[].name","type":"string"},

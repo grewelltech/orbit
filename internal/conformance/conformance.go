@@ -36,6 +36,8 @@ type Result struct {
 	// Group is the check's group path in the run's target release
 	// (GroupOf), "" for a check without one.
 	Group string `json:"group,omitempty"`
+	// Tags are the check's tags (TagsOf); they never affect the verdict.
+	Tags []Tag `json:"tags,omitempty"`
 	// SpecRef is the check's references rendered on one line (RenderRefs),
 	// kept for consumers of the original string field.
 	SpecRef string `json:"spec_ref"`
@@ -481,6 +483,9 @@ type Registry struct {
 	// one of them is a prefix of, read in groupRelease (Groups).
 	groups       []string
 	groupRelease Release
+	// tags, when non-empty, narrows Select to the checks with one of them
+	// (Tagged).
+	tags []Tag
 }
 
 // NewRegistry returns a registry preloaded with the built-in tests. It
@@ -497,7 +502,8 @@ func NewRegistry() *Registry {
 
 // newRegistry returns a registry of tests, or an error when a test declares
 // no outcomes (Declarer), has a primary reference the clause-title table
-// does not cover (GroupOf), or the set fails Registry.Validate.
+// does not cover (GroupOf), declares a tag outside the closed set, or the
+// set fails Registry.Validate.
 func newRegistry(tests []Test) (*Registry, error) {
 	r := &Registry{}
 	for _, t := range tests {
@@ -505,6 +511,9 @@ func newRegistry(tests []Test) (*Registry, error) {
 			return nil, fmt.Errorf("%s: declares no outcomes; every check declares what it can report (Declarer)", t.ID())
 		}
 		if err := validateGroup(t); err != nil {
+			return nil, err
+		}
+		if err := validateTags(t); err != nil {
 			return nil, err
 		}
 		r.Register(t)
@@ -518,8 +527,8 @@ func newRegistry(tests []Test) (*Registry, error) {
 // Register adds a test.
 func (r *Registry) Register(t Test) { r.tests = append(r.tests, t) }
 
-// Select returns the registered tests, narrowed to the checks Only named
-// and to the groups Groups named, in the order a suite runs them: by
+// Select returns the registered tests, narrowed to the checks Only named,
+// the groups Groups named and the tags Tagged named, in the order a suite runs them: by
 // Phase, and in registration order within a phase.
 func (r *Registry) Select() []Test {
 	var out []Test
@@ -528,6 +537,9 @@ func (r *Registry) Select() []Test {
 			continue
 		}
 		if len(r.groups) > 0 && !inGroups(t, r.groupRelease, r.groups) {
+			continue
+		}
+		if len(r.tags) > 0 && !hasAnyTag(t, r.tags) {
 			continue
 		}
 		out = append(out, t)
@@ -713,7 +725,7 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 			res.Detail = joinDetail(res.Detail, sharedSubscriberNote(e))
 		}
 	}
-	res.ID = t.ID()
+	res.ID, res.Tags = t.ID(), TagsOf(t)
 	if g, err := GroupOf(t, e.TargetRelease); err == nil {
 		res.Group = g.String()
 	}

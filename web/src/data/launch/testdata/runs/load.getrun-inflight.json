@@ -1,27 +1,27 @@
 {
-  "run": {
-    "runId": "run-b18a454c",
-    "kind": "RUN_KIND_LOAD",
-    "state": "RUN_STATE_RUNNING",
-    "startedUnixNano": "1794439784189952797"
+  "run":  {
+    "runId":  "run-198fa4da",
+    "kind":  "RUN_KIND_LOAD",
+    "state":  "RUN_STATE_RUNNING",
+    "startedUnixNano":  "1794440126122699880"
   },
-  "loadProgress": {},
-  "leases": [
+  "loadProgress":  {},
+  "leases":  [
     {
-      "resource": "LEASE_RESOURCE_SUPI_BLOCK",
-      "plmn": "208/93",
-      "firstSupi": "208930100007500",
-      "lastSupi": "208930100007502"
+      "resource":  "LEASE_RESOURCE_SUPI_BLOCK",
+      "plmn":  "208/93",
+      "firstSupi":  "208930100007500",
+      "lastSupi":  "208930100007502"
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:51268",
-      "gnbId": 7
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:44055",
+      "gnbId":  7
     },
     {
-      "resource": "LEASE_RESOURCE_N2_IP",
-      "n2Ip": "127.0.0.1"
+      "resource":  "LEASE_RESOURCE_N2_IP",
+      "n2Ip":  "127.0.0.1"
     }
   ]
 }

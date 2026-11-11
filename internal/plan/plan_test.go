@@ -229,6 +229,7 @@ var samples = map[string]string{
 	"workloads[].sample_interval_ms":              "500",
 	"workloads[].conformance.categories":          "nas",
 	"workloads[].conformance.groups":              "NAS",
+	"workloads[].conformance.tags":                "timing",
 	"workloads[].conformance.checks":              "NGAP-NG-RESET-ACK",
 	"workloads[].conformance.target_release":      "Rel-17",
 	"workloads[].conformance.expected":            "{core: c, entries: []}",

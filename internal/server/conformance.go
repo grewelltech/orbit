@@ -204,7 +204,7 @@ func conformancePlan(m *orbitv1.RunConformanceRequest) *orbitv1.RunPlan {
 			Ki: m.GetCredentials().GetKi(), Opc: m.GetCredentials().GetOpc()}}
 	}
 	cw := &orbitv1.ConformanceWorkload{
-		Categories: m.GetCategories(), Groups: m.GetGroups(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
+		Categories: m.GetCategories(), Groups: m.GetGroups(), Tags: m.GetTags(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
 		Traffic: m.GetTraffic(), N3Bind: m.GetN3Bind(),
 		GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: orDefaultU32(m.GetGnbIdBase(), defaultSuiteGNBBase)}},
 	}
@@ -229,6 +229,7 @@ func (s *conformanceService) ListConformanceTests(
 		out = append(out, &orbitv1.ConformanceTestInfo{
 			Id:         t.ID(),
 			Group:      groupOf(t),
+			Tags:       tagStrings(conformance.TagsOf(t)),
 			SpecRef:    conformance.RenderRefs(refs),
 			SpecRefs:   specRefsProto(refs),
 			MinRelease: uint32(conformance.MinRelease(t)),
@@ -246,10 +247,20 @@ func groupOf(t conformance.Test) string {
 	return g.String()
 }
 
+// tagStrings is tags as strings, nil for none.
+func tagStrings(tags []conformance.Tag) []string {
+	var out []string
+	for _, t := range tags {
+		out = append(out, string(t))
+	}
+	return out
+}
+
 func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 	return &orbitv1.ConformanceResult{
 		Id:              r.ID,
 		Group:           r.Group,
+		Tags:            tagStrings(r.Tags),
 		SpecRef:         r.SpecRef,
 		Verdict:         string(r.Verdict),
 		Expected:        r.Expected,

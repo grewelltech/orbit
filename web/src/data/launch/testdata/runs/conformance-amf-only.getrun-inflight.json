@@ -1,540 +1,540 @@
 {
-  "run": {
-    "runId": "run-43ab3588",
-    "kind": "RUN_KIND_CONFORMANCE",
-    "state": "RUN_STATE_RUNNING",
-    "startedUnixNano": "1794439778124656774"
+  "run":  {
+    "runId":  "run-bbb1ece0",
+    "kind":  "RUN_KIND_CONFORMANCE",
+    "state":  "RUN_STATE_RUNNING",
+    "startedUnixNano":  "1794440120009814546"
   },
-  "leases": [
+  "leases":  [
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 700
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  700
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 701
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  701
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 702
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  702
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 703
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  703
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 704
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  704
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 705
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  705
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 706
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  706
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 707
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  707
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 708
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  708
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 709
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  709
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 710
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  710
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 711
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  711
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 712
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  712
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 713
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  713
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 714
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  714
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 715
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  715
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 716
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  716
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 717
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  717
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 718
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  718
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 719
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  719
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 720
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  720
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 721
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  721
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 722
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  722
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 723
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  723
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 724
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  724
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 725
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  725
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 726
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  726
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 727
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  727
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 728
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  728
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 729
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  729
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 730
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  730
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 731
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  731
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 732
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  732
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 733
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  733
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 734
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  734
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 735
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  735
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 736
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  736
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 737
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  737
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 738
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  738
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 739
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  739
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 33471
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  33471
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 33475
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  33475
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 33476
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  33476
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 33477
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  33477
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 33498
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  33498
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37564
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37564
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37565
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37565
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37566
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37566
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37567
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37567
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37568
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37568
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37569
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37569
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37570
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37570
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37571
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37571
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37572
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37572
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37573
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37573
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37574
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37574
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37575
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37575
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37576
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37576
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37577
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37577
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37578
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37578
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37579
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37579
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37580
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37580
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37581
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37581
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37582
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37582
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37583
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37583
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37584
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37584
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37585
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37585
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37586
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37586
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37587
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37587
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37588
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37588
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37589
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37589
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37590
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37590
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37591
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37591
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37592
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37592
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37593
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37593
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37594
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37594
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37595
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37595
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37596
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37596
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37597
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37597
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37598
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37598
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37599
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37599
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37600
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37600
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37601
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37601
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37602
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37602
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37603
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37603
     },
     {
-      "resource": "LEASE_RESOURCE_GNB_ID",
-      "plmn": "208/93",
-      "amf": "127.0.0.1:58127",
-      "gnbId": 37604
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:51669",
+      "gnbId":  37604
     }
   ],
-  "conformanceProgress": {
-    "tally": {
-      "skipped": 16
+  "conformanceProgress":  {
+    "tally":  {
+      "skipped":  17
     },
-    "ran": 16,
-    "total": 40,
-    "lastCheck": "NAS-REG-REJECTED-NSSAI",
-    "preflight": [
+    "ran":  17,
+    "total":  40,
+    "lastCheck":  "NAS-PDU-UNKNOWN-DNN",
+    "preflight":  [
       {
-        "step": "NG Setup",
-        "status": "ok",
-        "detail": "gNB ID 37604, PLMN 208/93, TAC 1"
+        "step":  "NG Setup",
+        "status":  "ok",
+        "detail":  "gNB ID 37604, PLMN 208/93, TAC 1"
       }
     ]
   }

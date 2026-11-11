@@ -74,6 +74,9 @@ message RunConformanceRequest {
   // Groups to run: group paths or prefixes of them, in any case
   // ("NGAP", "NAS / 5GMM common procedures"); empty runs every group.
   repeated string groups = 20;
+  // Tags to run: negative | security | timing; a check with any of them
+  // runs. Empty runs every check. Tags never affect a verdict.
+  repeated string tags = 21;
   // The suite as a plan (ADR-0008 §2): one conformance workload with its
   // target, expected-failures list and gates, as `orbit conformance` builds
   // it. When set, every field above must be unset; the plan says it all.
@@ -125,6 +128,8 @@ message ConformanceResult {
   // The check's group in the run's target release: specification /
   // procedure family / procedure, by the specification's clause titles.
   string group = 17;
+  // The check's tags (negative, security, timing), for filtering only.
+  repeated string tags = 18;
   string spec_ref = 3;
   // One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
   // INFO | BLOCKED | CRASH | SKIP | ERROR.
@@ -221,6 +226,8 @@ message ConformanceTestInfo {
   string category = 2 [deprecated = true];
   // The check's group, in the latest release's clause titles.
   string group = 6;
+  // The check's tags (negative, security, timing), for filtering only.
+  repeated string tags = 7;
   string spec_ref = 3;
   repeated SpecRef spec_refs = 4;
   uint32 min_release = 5;

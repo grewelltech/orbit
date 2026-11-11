@@ -7,7 +7,7 @@ import (
 )
 
 // Selection is what narrows a run to some of the registered checks: check
-// IDs, and group paths or prefixes of them (ADR-0011 rule 9). Each kind
+// IDs, group paths or prefixes of them, and tags (ADR-0011 rule 9). Each kind
 // given narrows the run on top of the others; within a kind, a check named
 // by any entry is selected. The zero Selection selects every check.
 type Selection struct {
@@ -19,6 +19,8 @@ type Selection struct {
 	// Release is the release the group titles are read in: the run's
 	// target release, 0 for the latest (GroupOf).
 	Release Release
+	// Tags are tags, in any case (Registry.Tagged).
+	Tags []string
 }
 
 // Apply narrows r to the selection. An entry that names no registered
@@ -27,7 +29,10 @@ func (s Selection) Apply(r *Registry) error {
 	if err := r.Only(s.Checks...); err != nil {
 		return err
 	}
-	return r.Groups(s.Release, s.Groups...)
+	if err := r.Groups(s.Release, s.Groups...); err != nil {
+		return err
+	}
+	return r.Tagged(s.Tags...)
 }
 
 // Groups narrows every later Select, and so every run and listing, to the
@@ -138,6 +143,9 @@ var legacyCategories = map[string][]string{
 	"timing":      {},
 }
 
+// legacyTags are the tags that name the kind of test a category stood for.
+var legacyTags = map[string]Tag{"negative-ie": TagNegative, "security": TagSecurity, "timing": TagTiming}
+
 // CategoriesRemoved is the error for a selection by category, which groups
 // replaced (ADR-0011 rule 9): nil for no categories, else one that names,
 // for each category given, the groups its checks are in now (in release
@@ -160,7 +168,11 @@ func CategoriesRemoved(categories []string, rel Release) error {
 		case !ok:
 			parts = append(parts, fmt.Sprintf("%q was never a category", c))
 		case len(ids) == 0:
-			parts = append(parts, fmt.Sprintf("%q held no checks", c))
+			part := fmt.Sprintf("%q held no checks", c)
+			if tag, ok := legacyTags[strings.ToLower(strings.TrimSpace(c))]; ok {
+				part += fmt.Sprintf("; --tag %s selects the checks of that kind", tag)
+			}
+			parts = append(parts, part)
 		default:
 			var tests []Test
 			for _, id := range ids {
@@ -168,8 +180,12 @@ func CategoriesRemoved(categories []string, rel Release) error {
 					tests = append(tests, t)
 				}
 			}
-			parts = append(parts, fmt.Sprintf("%q is now the checks %s, in the groups %s",
-				c, strings.Join(ids, ","), quoteAll(GroupPaths(tests, rel))))
+			part := fmt.Sprintf("%q is now the checks %s, in the groups %s",
+				c, strings.Join(ids, ","), quoteAll(GroupPaths(tests, rel)))
+			if tag, ok := legacyTags[strings.ToLower(strings.TrimSpace(c))]; ok {
+				part += fmt.Sprintf("; --tag %s selects every check of that kind", tag)
+			}
+			parts = append(parts, part)
 		}
 	}
 	return fmt.Errorf("categories were replaced by groups (ADR-0011): select with --group <path or prefix> (run file: conformance.groups) or --check <ID> (conformance.checks); %s",

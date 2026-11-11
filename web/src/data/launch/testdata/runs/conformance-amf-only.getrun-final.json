@@ -1,28 +1,28 @@
 {
-  "run": {
-    "runId": "run-43ab3588",
-    "kind": "RUN_KIND_CONFORMANCE",
-    "state": "RUN_STATE_COMPLETE",
-    "startedUnixNano": "1794439778124656774",
-    "endedUnixNano": "1794439781150561701"
+  "run":  {
+    "runId":  "run-bbb1ece0",
+    "kind":  "RUN_KIND_CONFORMANCE",
+    "state":  "RUN_STATE_COMPLETE",
+    "startedUnixNano":  "1794440120009814546",
+    "endedUnixNano":  "1794440123033836987"
   },
-  "conformanceProgress": {
-    "tally": {
-      "passed": 2,
-      "failed": 2,
-      "errored": 1,
-      "skipped": 33,
-      "deviations": 1,
-      "info": 1
+  "conformanceProgress":  {
+    "tally":  {
+      "passed":  2,
+      "failed":  2,
+      "errored":  1,
+      "skipped":  33,
+      "deviations":  1,
+      "info":  1
     },
-    "ran": 40,
-    "total": 40,
-    "lastCheck": "NGAP-PATH-SWITCH-SECCAP-MISMATCH",
-    "preflight": [
+    "ran":  40,
+    "total":  40,
+    "lastCheck":  "NGAP-PATH-SWITCH-SECCAP-MISMATCH",
+    "preflight":  [
       {
-        "step": "NG Setup",
-        "status": "ok",
-        "detail": "gNB ID 37604, PLMN 208/93, TAC 1"
+        "step":  "NG Setup",
+        "status":  "ok",
+        "detail":  "gNB ID 37604, PLMN 208/93, TAC 1"
       }
     ]
   }

@@ -35,6 +35,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 		gnbBase       uint32
 		categories    []string
 		groups        []string
+		tagNames      []string
 		checks        []string
 		jsonOut       bool
 		perTest       time.Duration
@@ -73,6 +74,9 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			}
 			if err := reg.Groups(target, groups...); err != nil {
 				return exitWith(ExitCouldNotStart, fmt.Errorf("--group: %w", err))
+			}
+			if err := reg.Tagged(tagNames...); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--tag: %w", err))
 			}
 			if list {
 				return printConformanceList(cmd.OutOrStdout(), reg.Select(), perTest, target)
@@ -165,10 +169,11 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringSliceVar(&categories, "category", nil, "removed: categories were replaced by groups; use --group or --check")
 	_ = f.MarkHidden("category")
 	f.StringArrayVar(&groups, "group", nil, "only run the checks in this group: a group path or a prefix of it, in any case, e.g. NGAP or \"NAS / 5GMM common procedures\" (repeatable; --list shows each check's group)")
+	f.StringSliceVar(&tagNames, "tag", nil, "only run the checks with one of these tags: negative, security, timing (repeatable or comma-separated, on top of --group); tags never affect a verdict")
 	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable or comma-separated, on top of --group); each keeps the gNB IDs of a full run")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", conformance.DefaultPerTestTimeout, "per-check timeout; a check that needs longer (NAS timer checks) gets its own budget")
-	f.BoolVar(&list, "list", false, "list the checks (filtered by --group and --check) in run order, with each one's group and how long it can take at --per-test-timeout, and the total, without running them")
+	f.BoolVar(&list, "list", false, "list the checks (filtered by --group, --tag and --check) in run order, with each one's group, tags and how long it can take at --per-test-timeout, and the total, without running them")
 	f.StringVar(&targetRelease, "target-release", "",
 		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, with TS 29.244 pinned to Rel-16; \"unset\" runs every check); also the release whose clause titles name the groups")
 	f.StringVar(&expectedPath, "expected-failures", "",
@@ -301,6 +306,9 @@ func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
 		Expected: r.GetExpected(), Observed: r.GetObserved(), Detail: r.GetDetail(),
 		Outcome: r.GetOutcome(), Criterion: conformance.Criterion(r.GetCriterion()), Refs: r.GetOutcomeRefs(),
 		BlockedOn: conformance.Procedure(r.GetBlockedOn()), Owner: r.GetOwner(), NotCompleted: conformance.Procedure(r.GetNotCompleted())}
+	for _, tag := range r.GetTags() {
+		out.Tags = append(out.Tags, conformance.Tag(tag))
+	}
 	if x := r.GetExpectedFailure(); x != nil {
 		out.ExpectedFailure = &conformance.ExpectedFailure{Finding: x.GetFinding(), Added: x.GetAdded(), Reason: x.GetReason()}
 	}
@@ -310,10 +318,10 @@ func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
 // printConformanceList prints --list: one line per check, in the order a
 // run takes them, with its verdict class (conformance.VerdictClass),
 // required release, the longest it can take at perTest, the phase it runs
-// in and its group in release rel, then the total.
+// in, its tags and its group in release rel, then the total.
 func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration, rel conformance.Release) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "CHECK\tCLASS\tREQUIRES\tUP TO\tPHASE\tGROUP")
+	_, _ = fmt.Fprintln(tw, "CHECK\tCLASS\tREQUIRES\tUP TO\tPHASE\tTAGS\tGROUP")
 	var total time.Duration
 	for _, t := range tests {
 		d := conformance.ExpectedDuration(t, perTest)
@@ -322,7 +330,15 @@ func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Du
 		if g, err := conformance.GroupOf(t, rel); err == nil {
 			group = g.String()
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.ID(), conformance.VerdictClass(t), conformance.MinRelease(t), d, conformance.PhaseOf(t), group)
+		tags := "-"
+		if ts := conformance.TagsOf(t); len(ts) > 0 {
+			names := make([]string, len(ts))
+			for i, tag := range ts {
+				names[i] = string(tag)
+			}
+			tags = strings.Join(names, ",")
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID(), conformance.VerdictClass(t), conformance.MinRelease(t), d, conformance.PhaseOf(t), tags, group)
 	}
 	if err := tw.Flush(); err != nil {
 		return err

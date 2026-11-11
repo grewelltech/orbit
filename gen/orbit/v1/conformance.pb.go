@@ -75,6 +75,9 @@ type RunConformanceRequest struct {
 	// Groups to run: group paths or prefixes of them, in any case
 	// ("NGAP", "NAS / 5GMM common procedures"); empty runs every group.
 	Groups []string `protobuf:"bytes,20,rep,name=groups,proto3" json:"groups,omitempty"`
+	// Tags to run: negative | security | timing; a check with any of them
+	// runs. Empty runs every check. Tags never affect a verdict.
+	Tags []string `protobuf:"bytes,21,rep,name=tags,proto3" json:"tags,omitempty"`
 	// The suite as a plan (ADR-0008 §2): one conformance workload with its
 	// target, expected-failures list and gates, as `orbit conformance` builds
 	// it. When set, every field above must be unset; the plan says it all.
@@ -243,6 +246,13 @@ func (x *RunConformanceRequest) GetTraffic() string {
 func (x *RunConformanceRequest) GetGroups() []string {
 	if x != nil {
 		return x.Groups
+	}
+	return nil
+}
+
+func (x *RunConformanceRequest) GetTags() []string {
+	if x != nil {
+		return x.Tags
 	}
 	return nil
 }
@@ -465,8 +475,10 @@ type ConformanceResult struct {
 	Category string `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
 	// The check's group in the run's target release: specification /
 	// procedure family / procedure, by the specification's clause titles.
-	Group   string `protobuf:"bytes,17,opt,name=group,proto3" json:"group,omitempty"`
-	SpecRef string `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
+	Group string `protobuf:"bytes,17,opt,name=group,proto3" json:"group,omitempty"`
+	// The check's tags (negative, security, timing), for filtering only.
+	Tags    []string `protobuf:"bytes,18,rep,name=tags,proto3" json:"tags,omitempty"`
+	SpecRef string   `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
 	// One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
 	// INFO | BLOCKED | CRASH | SKIP | ERROR.
 	Verdict  string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
@@ -550,6 +562,13 @@ func (x *ConformanceResult) GetGroup() string {
 		return x.Group
 	}
 	return ""
+}
+
+func (x *ConformanceResult) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
 }
 
 func (x *ConformanceResult) GetSpecRef() string {
@@ -1135,7 +1154,9 @@ type ConformanceTestInfo struct {
 	// Deprecated: Marked as deprecated in orbit/v1/conformance.proto.
 	Category string `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
 	// The check's group, in the latest release's clause titles.
-	Group         string     `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
+	Group string `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
+	// The check's tags (negative, security, timing), for filtering only.
+	Tags          []string   `protobuf:"bytes,7,rep,name=tags,proto3" json:"tags,omitempty"`
 	SpecRef       string     `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
 	SpecRefs      []*SpecRef `protobuf:"bytes,4,rep,name=spec_refs,json=specRefs,proto3" json:"spec_refs,omitempty"`
 	MinRelease    uint32     `protobuf:"varint,5,opt,name=min_release,json=minRelease,proto3" json:"min_release,omitempty"`
@@ -1193,6 +1214,13 @@ func (x *ConformanceTestInfo) GetGroup() string {
 		return x.Group
 	}
 	return ""
+}
+
+func (x *ConformanceTestInfo) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
 }
 
 func (x *ConformanceTestInfo) GetSpecRef() string {
@@ -1264,7 +1292,7 @@ var File_orbit_v1_conformance_proto protoreflect.FileDescriptor
 
 const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\n" +
-	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xc7\x04\n" +
+	"\x1aorbit/v1/conformance.proto\x12\borbit.v1\x1a\x13orbit/v1/plan.proto\x1a\x11orbit/v1/ue.proto\"\xdb\x04\n" +
 	"\x15RunConformanceRequest\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12\x10\n" +
@@ -1288,7 +1316,8 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\x03dnn\x18\x10 \x01(\tR\x03dnn\x12\x15\n" +
 	"\x06gnb_n3\x18\x11 \x01(\tR\x05gnbN3\x12\x18\n" +
 	"\atraffic\x18\x12 \x01(\tR\atraffic\x12\x16\n" +
-	"\x06groups\x18\x14 \x03(\tR\x06groups\x12%\n" +
+	"\x06groups\x18\x14 \x03(\tR\x06groups\x12\x12\n" +
+	"\x04tags\x18\x15 \x03(\tR\x04tags\x12%\n" +
 	"\x04plan\x18\x13 \x01(\v2\x11.orbit.v1.RunPlanR\x04plan\"\xc5\x04\n" +
 	"\x11ConformanceUpdate\x123\n" +
 	"\x06result\x18\x01 \x01(\v2\x1b.orbit.v1.ConformanceResultR\x06result\x12\x12\n" +
@@ -1309,11 +1338,12 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\rPreflightStep\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail\"\xaa\x04\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"\xbe\x04\n" +
 	"\x11ConformanceResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\bcategory\x18\x02 \x01(\tB\x02\x18\x01R\bcategory\x12\x14\n" +
-	"\x05group\x18\x11 \x01(\tR\x05group\x12\x19\n" +
+	"\x05group\x18\x11 \x01(\tR\x05group\x12\x12\n" +
+	"\x04tags\x18\x12 \x03(\tR\x04tags\x12\x19\n" +
 	"\bspec_ref\x18\x03 \x01(\tR\aspecRef\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x12\x1a\n" +
 	"\bexpected\x18\x05 \x01(\tR\bexpected\x12\x1a\n" +
@@ -1372,11 +1402,12 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\ablocked\x18\n" +
 	" \x01(\rR\ablocked\x12\x18\n" +
 	"\acrashed\x18\v \x01(\rR\acrashed\"\x1d\n" +
-	"\x1bListConformanceTestsRequest\"\xc7\x01\n" +
+	"\x1bListConformanceTestsRequest\"\xdb\x01\n" +
 	"\x13ConformanceTestInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\bcategory\x18\x02 \x01(\tB\x02\x18\x01R\bcategory\x12\x14\n" +
-	"\x05group\x18\x06 \x01(\tR\x05group\x12\x19\n" +
+	"\x05group\x18\x06 \x01(\tR\x05group\x12\x12\n" +
+	"\x04tags\x18\a \x03(\tR\x04tags\x12\x19\n" +
 	"\bspec_ref\x18\x03 \x01(\tR\aspecRef\x12.\n" +
 	"\tspec_refs\x18\x04 \x03(\v2\x11.orbit.v1.SpecRefR\bspecRefs\x12\x1f\n" +
 	"\vmin_release\x18\x05 \x01(\rR\n" +

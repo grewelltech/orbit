@@ -8,7 +8,7 @@ import (
 //go:generate go run ./internal/gendocs ../../docs/conformance/checks.md
 
 // ChecksMarkdown renders the registry as the conformance checks table in
-// docs/conformance/checks.md: one row per check with its group, verdict
+// docs/conformance/checks.md: one row per check with its group, tags, verdict
 // class, minimum release and clauses (rendered by SpecRef.String, the same
 // line the CLI, JSON and API carry), then one section per check listing the
 // verified versions. A golden test fails when the committed file is stale;
@@ -25,15 +25,16 @@ func ChecksMarkdown(tests []Test) string {
 	fmt.Fprintf(&b, "**Up to** is the longest a check can take at the default `--per-test-timeout` (%s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.\n\n", DefaultPerTestTimeout)
 	b.WriteString(runOrderNote(tests))
 	b.WriteString("**Group** is derived from the check's primary reference: the specification, the procedure family and the procedure, by the specification's own clause titles in the latest release (ADR-0011 rule 9).\n\n")
-	b.WriteString("| Check | Group | Verdict class | Requires | Up to | Clauses |\n")
-	b.WriteString("|---|---|---|---|---|---|\n")
+	b.WriteString("**Tags** say what kind of stimulus a check uses (`negative`: malformed, unknown or unexpected input; `security`: a security procedure or protection; `timing`: a timer or the time between messages); they select checks with `--tag` and never affect a verdict.\n\n")
+	b.WriteString("| Check | Group | Tags | Verdict class | Requires | Up to | Clauses |\n")
+	b.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, t := range tests {
 		group := ""
 		if g, err := GroupOf(t, 0); err == nil {
 			group = g.String()
 		}
-		fmt.Fprintf(&b, "| [%s](provenance/%s.md) | %s | %s | %s | %s | %s |\n",
-			t.ID(), t.ID(), mdEscape(group), VerdictClass(t), MinRelease(t), ExpectedDuration(t, DefaultPerTestTimeout),
+		fmt.Fprintf(&b, "| [%s](provenance/%s.md) | %s | %s | %s | %s | %s | %s |\n",
+			t.ID(), t.ID(), mdEscape(group), joinTags(TagsOf(t)), VerdictClass(t), MinRelease(t), ExpectedDuration(t, DefaultPerTestTimeout),
 			mdEscape(RenderRefs(t.SpecRefs())))
 	}
 	b.WriteString("\n## Verified versions\n")
@@ -160,6 +161,15 @@ func runOrderNote(tests []Test) string {
 	}
 	b.WriteString("A check's gNB IDs and subscribers follow its place in the table, not in the run.\n\n")
 	return b.String()
+}
+
+// joinTags renders tags comma-separated, "" for none.
+func joinTags(ts []Tag) string {
+	out := make([]string, len(ts))
+	for i, t := range ts {
+		out[i] = string(t)
+	}
+	return strings.Join(out, ", ")
 }
 
 // mdEscape keeps a rendered reference from breaking a table cell.

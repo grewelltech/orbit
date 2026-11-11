@@ -100,6 +100,12 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		{name: "a category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Categories = []string{"negative-ie"}
 		}, wantErr: `categories were replaced by groups (ADR-0011): select with --group`},
+		{name: "an unknown tag", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Tags = []string{"fuzz"}
+		}, wantErr: `tags: unknown tag "fuzz"`},
+		{name: "a tag outside the group", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Groups, cw.Tags = []string{"GTPv1-U / Path Management Messages"}, []string{"security"}
+		}, wantErr: "no checks selected: none of the checks [] is in the groups [GTPv1-U / Path Management Messages] with the tags [security]"},
 		{name: "an unknown group", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Groups = []string{"NGAP", "bogus"}
 		}, wantErr: `groups: no check is in group "bogus"`},
@@ -760,19 +766,22 @@ func TestSuiteChecksSelection(t *testing.T) {
 	tests := []struct {
 		name   string
 		groups []string
+		tags   []string
 		checks []string
 		want   []string // the checks the suite runs, in run order
 	}{
 		{name: "one check", checks: []string{"NGAP-NG-RESET-ACK"}, want: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "two checks, any case, in run order", checks: []string{"ngap-path-switch-seccap-mismatch", "NGAP-NG-RESET-ACK"},
 			want: []string{"NGAP-NG-RESET-ACK", "NGAP-PATH-SWITCH-SECCAP-MISMATCH"}},
+		{name: "by tag, in run order", tags: []string{"timing"},
+			want: []string{"NAS-REGISTRATION-AFTER-RELEASE", "NAS-RETRANSMIT-NEW-COUNT", "NAS-T3550-ACCEPT-RETRANSMIT", "NAS-T3560-AUTH-RETRANSMIT"}},
 		{name: "on top of a group", groups: []string{"NAS"}, checks: []string{"NAS-T3560-AUTH-RETRANSMIT", "NGAP-NG-RESET-ACK"},
 			want: []string{"NAS-T3560-AUTH-RETRANSMIT"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			pr, err := planService(t).buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-				cw.Groups, cw.Checks = tc.groups, tc.checks
+				cw.Groups, cw.Tags, cw.Checks = tc.groups, tc.tags, tc.checks
 			}), engine.EventsNormal)
 			if err != nil {
 				t.Fatal(err)

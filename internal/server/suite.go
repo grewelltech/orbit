@@ -287,7 +287,7 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	// The selection narrows the registry for everything below: its count,
 	// its needs and the gNB IDs it leases. Group titles are read in the
 	// run's target release.
-	sel := conformance.Selection{Checks: cw.GetChecks(), Groups: cw.GetGroups(), Release: release}
+	sel := conformance.Selection{Checks: cw.GetChecks(), Groups: cw.GetGroups(), Tags: cw.GetTags(), Release: release}
 	reg := conformance.NewRegistry()
 	if err := reg.Only(sel.Checks...); err != nil {
 		return nil, fmt.Errorf("checks: %w; `orbit conformance --list` names the checks", err)
@@ -295,8 +295,11 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if err := reg.Groups(sel.Release, sel.Groups...); err != nil {
 		return nil, fmt.Errorf("groups: %w", err)
 	}
+	if err := reg.Tagged(sel.Tags...); err != nil {
+		return nil, fmt.Errorf("tags: %w", err)
+	}
 	if len(reg.Select()) == 0 {
-		return nil, fmt.Errorf("no checks selected: none of the checks %v is in the groups %v", sel.Checks, sel.Groups)
+		return nil, fmt.Errorf("no checks selected: none of the checks %v is in the groups %v with the tags %v", sel.Checks, sel.Groups, sel.Tags)
 	}
 	// A target that bounds its gNB IDs gets the packed layout, three IDs
 	// per check from the base; an unbounded one (the RunConformance

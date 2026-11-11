@@ -1,41 +1,41 @@
 {
-  "run": {
-    "runId": "run-b18a454c",
-    "kind": "RUN_KIND_LOAD",
-    "state": "RUN_STATE_COMPLETE",
-    "startedUnixNano": "1794439784189952797",
-    "endedUnixNano": "1794439784401477413"
+  "run":  {
+    "runId":  "run-198fa4da",
+    "kind":  "RUN_KIND_LOAD",
+    "state":  "RUN_STATE_COMPLETE",
+    "startedUnixNano":  "1794440126122699880",
+    "endedUnixNano":  "1794440126544171429"
   },
-  "loadProgress": {
-    "elapsedMs": "219",
-    "attempted": 3,
-    "succeeded": 3,
-    "achievedRate": 13.682511264036181,
-    "latency": [
+  "loadProgress":  {
+    "elapsedMs":  "425",
+    "attempted":  3,
+    "succeeded":  3,
+    "achievedRate":  7.05126106022028,
+    "latency":  [
       {
-        "procedure": "registration",
-        "count": "3",
-        "p50Ms": 7.831,
-        "p90Ms": 108.671,
-        "p99Ms": 108.671,
-        "p999Ms": 108.671,
-        "maxMs": 108.671
+        "procedure":  "registration",
+        "count":  "3",
+        "p50Ms":  111.679,
+        "p90Ms":  217.983,
+        "p99Ms":  217.983,
+        "p999Ms":  217.983,
+        "maxMs":  217.983
       },
       {
-        "procedure": "attach",
-        "count": "3",
-        "p50Ms": 7.835,
-        "p90Ms": 108.671,
-        "p99Ms": 108.671,
-        "p999Ms": 108.671,
-        "maxMs": 108.671
+        "procedure":  "attach",
+        "count":  "3",
+        "p50Ms":  111.679,
+        "p90Ms":  217.983,
+        "p99Ms":  217.983,
+        "p999Ms":  217.983,
+        "maxMs":  217.983
       }
     ],
-    "perGnb": [
+    "perGnb":  [
       {
-        "gnb": "orbit-gnb",
-        "attempted": 3,
-        "succeeded": 3
+        "gnb":  "orbit-gnb",
+        "attempted":  3,
+        "succeeded":  3
       }
     ]
   }
