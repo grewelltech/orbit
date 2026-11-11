@@ -3,9 +3,14 @@ package conformance
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"strings"
 	"testing"
 	"time"
+
+	isctp "github.com/ishidawataru/sctp"
+
+	"github.com/bgrewell/orbit/internal/gnb"
 )
 
 // infoTest is provTest declaring itself informational.
@@ -111,8 +116,10 @@ func TestVerdictClass(t *testing.T) {
 
 // runOne never lets an informational check grade a core: whatever Run
 // returns, the verdict is INFO, INFO-DIFF, ERROR or SKIP, and the detail
-// says the check is informational. A crash text is no exception. A graded
-// check that returns an informational verdict is an ERROR.
+// says the check is informational. The exception is a crash: a FAIL whose
+// Observed is a crash text stays FAIL, for the AMF and the UPF alike, while
+// the same text under another verdict changes nothing. A graded check that
+// returns an informational verdict is an ERROR.
 func TestRunOneInformational(t *testing.T) {
 	desc, shall, should := refOf(Descriptive), refOf(Shall), refOf(Should)
 	tests := []struct {
@@ -129,8 +136,16 @@ func TestRunOneInformational(t *testing.T) {
 		{name: "PASS is reported as INFO", informational: true, refs: []SpecRef{desc}, run: Pass, want: Info},
 		{name: "FAIL is reported as INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Fail, want: InfoDiff},
 		{name: "DEVIATION is reported as INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Deviation, want: InfoDiff},
-		{name: "a crash text is still INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Fail,
+		{name: "a crash stays FAIL", informational: true, refs: []SpecRef{desc}, run: Fail,
+			observed: ObservedAMFUnresponsive + " (x)", want: Fail},
+		{name: "a dead UPF stays FAIL", informational: true, refs: []SpecRef{desc}, run: Fail,
+			observed: ObservedUPFUnresponsive, want: Fail},
+		{name: "a FAIL that only mentions a crash text is INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Fail,
+			observed: "x; " + ObservedAMFUnresponsive, want: InfoDiff},
+		{name: "a crash text under INFO-DIFF is INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: InfoDiff,
 			observed: ObservedAMFUnresponsive + " (x)", want: InfoDiff},
+		{name: "unresponsive under load is not a crash text", informational: true, refs: []SpecRef{desc}, run: Fail,
+			observed: ObservedAMFUnresponsiveUnderLoad + " (x)", want: InfoDiff},
 		{name: "an unknown verdict is INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Verdict("MAYBE"), want: InfoDiff},
 		{name: "ERROR stays ERROR", informational: true, refs: []SpecRef{desc}, run: Error, want: Error},
 		{name: "SKIP stays SKIP", informational: true, refs: []SpecRef{desc}, run: Skip, want: Skip},
@@ -184,13 +199,15 @@ func TestRunOneInformationalSkipsOnRelease(t *testing.T) {
 }
 
 // The informational verdicts are counted on their own and never gate; an
-// ERROR from an informational check gates as any ERROR does, and a FAIL
-// beside informational results still gates.
+// ERROR from an informational check gates as any ERROR does, a FAIL beside
+// informational results still gates, and so does an informational check's
+// own FAIL for a core that did not survive.
 func TestInformationalDoesNotGate(t *testing.T) {
 	desc := []SpecRef{refOf(Descriptive)}
 	info := func(id string, v Verdict) Test {
 		return infoTest{provTest{id: id, refs: desc, result: Result{Verdict: v}}}
 	}
+	crashed := infoTest{provTest{id: "D", refs: desc, result: Result{Verdict: Fail, Observed: ObservedAMFUnresponsive + " (association reset)"}}}
 	tests := []struct {
 		name         string
 		tests        []Test
@@ -209,6 +226,8 @@ func TestInformationalDoesNotGate(t *testing.T) {
 		{name: "beside a graded FAIL", tests: []Test{info("A", Info), fakeTest{"B", NegativeIE, Fail, ""}},
 			wantInfo: 1, wantFail: 1},
 		{name: "an ERROR from an informational check gates", tests: []Test{info("A", Error)}, wantError: 1},
+		{name: "a core that did not survive an informational check gates", tests: []Test{info("A", Info), crashed},
+			wantInfo: 1, wantFail: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -295,7 +314,7 @@ func TestExpectedFailuresRefuseInformational(t *testing.T) {
 		name, check, wantErr string
 	}{
 		{name: "graded", check: "GRADED"},
-		{name: "informational", check: "INFORMATIONAL", wantErr: `f.yaml: entry 1: check "INFORMATIONAL" is informational and never FAILs; it cannot be listed`},
+		{name: "informational", check: "INFORMATIONAL", wantErr: `f.yaml: entry 1: check "INFORMATIONAL" is informational and FAILs only for a core that did not survive; it cannot be listed`},
 		{name: "unknown", check: "NOPE", wantErr: `unknown check "NOPE"`},
 	}
 	for _, tc := range cases {
@@ -336,11 +355,95 @@ func TestChecksMarkdownVerdictClass(t *testing.T) {
 		"| [GRADED-SHALL](provenance/GRADED-SHALL.md) | procedural | FAIL | Rel-15 |",
 		"| [GRADED-SHOULD](provenance/GRADED-SHOULD.md) | procedural | DEVIATION | Rel-15 |",
 		"| [INFORMATIONAL](provenance/INFORMATIONAL.md) | procedural | INFO | Rel-15 |",
-		"A check of class `INFO` is informational: it cites descriptive text only, reports `INFO` (the described behaviour) or `INFO-DIFF` (anything else), and never gates.",
+		"A check of class `INFO` is informational: it cites descriptive text only, reports `INFO` (the described behaviour) or `INFO-DIFF` (anything else), and does not gate. In every class a core that does not survive a check's stimulus is `FAIL` and gates.",
 		"- TS 38.413 10.3.5 (descriptive, since Rel-15):",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("checks.md lacks %q:\n%s", want, doc)
 		}
+	}
+}
+
+// observeTest is an informational check whose Run is fn.
+type observeTest struct {
+	infoTest
+	fn func(Env) Result
+}
+
+func (o observeTest) Run(_ context.Context, env Env) Result { return o.fn(env) }
+
+// observeAlive, the liveness probe of an informational check: a core that
+// no longer completes a fresh NG Setup did not survive and is FAIL with the
+// crash text, which runOne keeps and the gate counts; the same silence under
+// load is an ERROR naming the population; a probe that cannot be made, or
+// that the per-test timeout cut short, leaves the verdict and says so.
+func TestObserveAlive(t *testing.T) {
+	ln, err := isctp.ListenSCTP("sctp", &isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}})
+	if err != nil {
+		t.Skipf("no kernel SCTP on this host: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	// Addr reads the bound address from the kernel and can come back nil
+	// straight after the listen.
+	var dead string
+	for deadline := time.Now().Add(2 * time.Second); dead == "" && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if a := ln.Addr(); a != nil {
+			dead = a.String()
+		}
+	}
+	if dead == "" {
+		t.Fatal("the listener reports no address")
+	}
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close() // no NG Setup answer: the AMF is "dead"
+		}
+	}()
+	g := gnb.Config{ID: 1, Name: "g", MCC: "001", MNC: "01", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1}}}
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	tests := []struct {
+		name         string
+		ctx          context.Context
+		env          Env
+		in           Verdict
+		want         Verdict
+		wantObserved string
+		wantDetail   string
+		wantGate     bool
+	}{
+		{name: "dead after an INFO-DIFF", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g}, in: InfoDiff,
+			want: Fail, wantObserved: ObservedAMFUnresponsive + " (no answer)",
+			wantDetail: "seen; core did not survive the stimulus: the AMF no longer completes a fresh NG Setup", wantGate: true},
+		{name: "dead after an INFO", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g}, in: Info,
+			want: Fail, wantObserved: ObservedAMFUnresponsive + " (no answer)", wantDetail: "core did not survive the stimulus", wantGate: true},
+		{name: "dead under load", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g, Load: func() string { return "fleet" }}, in: InfoDiff,
+			want: Error, wantObserved: ObservedAMFUnresponsiveUnderLoad + " (no answer)",
+			wantDetail: "AMF unresponsive while population fleet was active; not attributable to this check", wantGate: true},
+		{name: "probe cannot be made", ctx: context.Background(), env: Env{AMFAddr: "127.0.0.1:38412", Bind: "10.0.0.1:0:0", GNB: g}, in: InfoDiff,
+			want: InfoDiff, wantObserved: "no answer", wantDetail: "a fresh NG Setup afterwards could not be tried"},
+		{name: "per-test timeout already expired", ctx: expired, env: Env{AMFAddr: dead, GNB: g}, in: InfoDiff,
+			want: InfoDiff, wantObserved: "no answer", wantDetail: "a fresh NG Setup afterwards was not tried"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := observeTest{infoTest{provTest{id: "X", refs: []SpecRef{refOf(Descriptive)}}}, func(env Env) Result {
+				return observeAlive(tc.ctx, env, Result{Verdict: tc.in, Observed: "no answer", Detail: "seen"}, "the stimulus")
+			}}
+			res := runOne(context.Background(), c, tc.env, 5*time.Second)
+			if res.Verdict != tc.want || res.Observed != tc.wantObserved || !strings.Contains(res.Detail, tc.wantDetail) {
+				t.Fatalf("= %s %q (%s), want %s %q with detail containing %q", res.Verdict, res.Observed, res.Detail, tc.want, tc.wantObserved, tc.wantDetail)
+			}
+			if !strings.Contains(res.Detail, informationalNote) {
+				t.Errorf("detail %q lacks the informational note", res.Detail)
+			}
+			if gated := !Summarize([]Result{res}).OK(); gated != tc.wantGate {
+				t.Errorf("gated = %v, want %v", gated, tc.wantGate)
+			}
+		})
 	}
 }

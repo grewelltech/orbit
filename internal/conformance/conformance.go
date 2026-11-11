@@ -45,7 +45,8 @@ const (
 	// do not require. Info is the described behaviour, observed; InfoDiff is
 	// anything else the core did. Neither is a judgement of the core and
 	// neither gates: the exit code, the suite gate and the expected-failures
-	// list ignore both.
+	// list ignore both. A core that does not survive such a check's stimulus
+	// is Fail, as in every class.
 	Info     Verdict = "INFO"
 	InfoDiff Verdict = "INFO-DIFF"
 )
@@ -456,17 +457,16 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 	return r
 }
 
-// observedNoFreshSetup ends the Observed text of an informational result
-// after which a fresh NG Setup did not complete.
-const observedNoFreshSetup = "; a fresh NG Setup afterwards did not complete"
-
 // observeAlive is the liveness probe of an informational check. It tries a
 // fresh NG Setup after the stimulus, which after names ("the RAN
-// CONFIGURATION UPDATE"), and records the result in r's detail. The verdict
-// is left as it is: an informational check reports a core that stopped
-// answering (Observed then ends with observedNoFreshSetup) and never fails
-// it. A probe that could not be made, or that the per-test timeout cut
-// short, is recorded as such.
+// CONFIGURATION UPDATE"), and records the result in r's detail. A core that
+// no longer completes it did not survive the stimulus: the result becomes
+// FAIL with ObservedAMFUnresponsive, as confirmAlive gives a graded check,
+// and it gates (runOne keeps it, so a crash is never demoted). The same
+// silence while a population loads the core is not attributable to the
+// check and is ERROR, as for a graded check. A probe that could not be
+// made, or that the per-test timeout cut short, says nothing about the core
+// and is recorded in the detail, the verdict left as it is.
 func observeAlive(ctx context.Context, env Env, r Result, after string) Result {
 	if cutShort(ctx) {
 		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards was not tried: the per-test timeout had expired")
@@ -480,9 +480,14 @@ func observeAlive(ctx context.Context, env Env, r Result, after string) Result {
 		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards completes")
 	case cutShort(ctx):
 		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards was cut short by the per-test timeout")
+	case env.loadedBy() != "":
+		r.Verdict = Error
+		r.Observed = ObservedAMFUnresponsiveUnderLoad + " (" + r.Observed + ")"
+		r.Detail = joinDetail(r.Detail, fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy()))
 	default:
-		r.Observed += observedNoFreshSetup
-		r.Detail = joinDetail(r.Detail, "the AMF no longer completes NG Setup after "+after)
+		r.Verdict = Fail
+		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
+		r.Detail = joinDetail(r.Detail, "core did not survive "+after+": the AMF no longer completes a fresh NG Setup; a core that stops answering is FAIL in every verdict class")
 	}
 	return r
 }
@@ -494,6 +499,8 @@ func (e *setupError) Error() string { return e.s }
 // Registry holds the registered tests.
 type Registry struct {
 	tests []Test
+	// only, when non-nil, narrows Select to the checks it names (Only).
+	only map[string]bool
 }
 
 // NewRegistry returns a registry preloaded with the built-in tests.
@@ -509,7 +516,7 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(t Test) { r.tests = append(r.tests, t) }
 
 // Select returns the registered tests in cats (every test when cats is
-// empty), in registration order.
+// empty), in registration order, narrowed to the checks Only named.
 func (r *Registry) Select(cats ...Category) []Test {
 	want := map[Category]bool{}
 	for _, c := range cats {
@@ -517,11 +524,41 @@ func (r *Registry) Select(cats ...Category) []Test {
 	}
 	var out []Test
 	for _, t := range r.tests {
+		if r.only != nil && !r.only[t.ID()] {
+			continue
+		}
 		if len(want) == 0 || want[t.Category()] {
 			out = append(out, t)
 		}
 	}
 	return out
+}
+
+// Only narrows every later Select, and so every run and listing, to the
+// checks with the given IDs (matched without regard to case), on top of any
+// category filter. The checks keep their place in the registry, so each
+// runs with the gNB IDs it has in a full run. An ID that names no
+// registered check is an error and leaves the registry as it was; no IDs
+// lifts the restriction.
+func (r *Registry) Only(ids ...string) error {
+	if len(ids) == 0 {
+		r.only = nil
+		return nil
+	}
+	known := map[string]string{}
+	for _, t := range r.tests {
+		known[strings.ToUpper(t.ID())] = t.ID()
+	}
+	only := map[string]bool{}
+	for _, id := range ids {
+		canon, ok := known[strings.ToUpper(strings.TrimSpace(id))]
+		if !ok {
+			return fmt.Errorf("unknown check %q", id)
+		}
+		only[canon] = true
+	}
+	r.only = only
+	return nil
 }
 
 // Tests returns the registered tests.
@@ -592,10 +629,10 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 // result. The verdict follows the check's references (WorstVerdict): a FAIL
 // from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
 // check that cites no should becomes FAIL, since DEVIATION is reserved for a
-// missed should. A crash (the core stopped answering) is never demoted. An
-// informational check is scored by scoreInformational instead and never
-// gives PASS, FAIL or DEVIATION; INFO or INFO-DIFF from any other check is
-// an ERROR. Every result's detail ends with the requirement line; when the
+// missed should. A crash (the core stopped answering) is never demoted, in
+// any class. An informational check is scored by scoreInformational instead
+// and gives no PASS or DEVIATION, and FAIL only for a crash; INFO or
+// INFO-DIFF from any other check is an ERROR. Every result's detail ends with the requirement line; when the
 // target is newer than the releases the wording was verified through, the
 // detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
@@ -617,7 +654,7 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		}
 		switch {
 		case IsInformational(t):
-			res.Verdict = scoreInformational(res.Verdict)
+			res.Verdict = scoreInformational(res)
 		case res.Verdict == Info || res.Verdict == InfoDiff:
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("scored ERROR: %s is reserved for an informational check", res.Verdict))
 			res.Verdict = Error
@@ -647,18 +684,22 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 
 // informationalNote is what every result of an informational check says
 // ahead of its requirement line, whatever its verdict.
-const informationalNote = "informational: reported, not graded; it does not gate"
+const informationalNote = "informational: reported, not graded; only a core that does not survive gates"
 
 // scoreInformational is the verdict an informational check's result is
 // reported with: INFO for the described behaviour (the check's INFO or
-// PASS), INFO-DIFF for anything else it observed (its INFO-DIFF, FAIL or
-// DEVIATION). ERROR and SKIP keep their meaning.
-func scoreInformational(v Verdict) Verdict {
-	switch v {
-	case Info, Pass:
+// PASS), INFO-DIFF for anything else it observed (its INFO-DIFF, DEVIATION,
+// or FAIL for a core that kept answering). A FAIL whose Observed is a crash
+// text (crashTexts: the core did not survive the stimulus) stays FAIL and
+// gates. ERROR and SKIP keep their meaning.
+func scoreInformational(res Result) Verdict {
+	switch v := res.Verdict; {
+	case v == Info || v == Pass:
 		return Info
-	case Error, Skip:
+	case v == Error || v == Skip:
 		return v
+	case v == Fail && hasPrefixAny(res.Observed, crashTexts):
+		return Fail
 	}
 	return InfoDiff
 }

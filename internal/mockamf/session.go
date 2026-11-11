@@ -263,6 +263,9 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 	switch a.pathSwitchAnswer {
 	case IgnorePathSwitch:
 		return nil
+	case CrashOnPathSwitch:
+		a.crashed.Store(true)
+		return errCrashed
 	case FailPathSwitch:
 		return a.send(p, buildPathSwitchRequestFailure(srcAMFID, ranID, requested))
 	}

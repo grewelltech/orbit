@@ -156,6 +156,9 @@ var Exclusions = []Exclusion{
 	{Flag: "json", Reason: ReasonOutput},
 	{Flag: "explain", Reason: ReasonOutput},
 	{Flag: "list", Reason: ReasonOutput},
+	// --check narrows --list and the in-process run to named checks; a plan
+	// selects by category.
+	{Flag: "check", Commands: []string{cmdConformance}, Reason: ReasonOutput},
 	{Flag: "out", Reason: ReasonOutput},
 	{Flag: "progress-every", Reason: ReasonOutput},
 	{Flag: "from-seq", Reason: ReasonOutput},

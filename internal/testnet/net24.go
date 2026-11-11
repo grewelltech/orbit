@@ -116,6 +116,10 @@ const (
 	EngineN2FailAfterAck  = 209 // TestN2HandoverPreparationFails/failure_after_the_acknowledge
 	EngineReleaseOnReq    = 227 // TestRequestContextReleaseOverMockPair/released
 	EngineReleaseIgnored  = 228 // TestRequestContextReleaseOverMockPair/request_ignored
+	EngineCancelAcked     = 220 // TestCancelHandoverOverMockPair/acknowledged
+	EngineCancelNoAck     = 221 // TestCancelHandoverOverMockPair/acknowledge_withheld
+	EngineCancelNoPrep    = 222 // TestCancelHandoverNotPrepared
+	EngineCancelLost      = 248 // TestCancelHandoverSourceLost
 
 	ConformancePSAckPlain      = 190 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_no_traffic
 	ConformancePSAckEcho       = 191 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_uplink_answered
@@ -147,6 +151,21 @@ const (
 	ConformanceQFISilent  = 237 // TestQFIContainerCheckAgainstMockPair/echo_peer_silent
 	ConformanceQFIRegFail = 238 // TestQFIContainerCheckErrors/registration_refused
 	ConformanceQFITimeout = 239 // TestQFIContainerCheckErrors/timeout_while_sampling
+
+	ConformanceCancelAcked   = 223 // TestHandoverCancelCheckAgainstMockPair/acknowledged
+	ConformanceCancelNoAck   = 224 // TestHandoverCancelCheckAgainstMockPair/acknowledge_withheld
+	ConformanceCancelNoPrep  = 225 // TestHandoverCancelCheckAgainstMockPair/preparation_failure
+	ConformanceCancelRegFail = 226 // TestHandoverCancelCheckRegistrationFailure
+	ConformanceCancelCrash   = 229 // TestHandoverCancelCheckAgainstMockPair/stops_answering
+
+	ConformanceSecCapStored  = 240 // TestPathSwitchSecCapCheckAgainstMockPair/stored_capabilities
+	ConformanceSecCapAbsent  = 241 // TestPathSwitchSecCapCheckAgainstMockPair/no_capabilities
+	ConformanceSecCapEchoed  = 242 // TestPathSwitchSecCapCheckAgainstMockPair/echoed_capabilities
+	ConformanceSecCapFailure = 243 // TestPathSwitchSecCapCheckAgainstMockPair/path_switch_request_failure
+	ConformanceSecCapIgnored = 244 // TestPathSwitchSecCapCheckAgainstMockPair/path_switch_request_unanswered
+	ConformanceSecCapCrash   = 245 // TestPathSwitchSecCapCheckAgainstMockPair/stops_answering
+	ConformanceSecCapRegFail = 246 // TestPathSwitchSecCapCheckRegistrationFailure
+	EngineXnCapsOption       = 247 // TestXnHandoverWithPathSwitchCapabilities
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

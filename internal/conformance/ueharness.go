@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/free5gc/nas/nasType"
+	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/engine"
@@ -368,6 +369,33 @@ drain:
 	return nil
 }
 
+// SuppliedCapabilities returns the UE security capabilities the AMF supplied
+// to the serving gNB for the registered UE (the INITIAL CONTEXT SETUP
+// REQUEST's UE Security Capabilities), nil when it supplied none.
+func (h *UEHarness) SuppliedCapabilities() (*ngapType.UESecurityCapabilities, error) {
+	sess, err := h.m.Status(h.supi)
+	if err != nil {
+		return nil, err
+	}
+	return sess.UESecurityCapabilities(), nil
+}
+
+// XnHandoverWithCapabilities hands the UE over to gNB B by Xn with a PATH
+// SWITCH REQUEST that carries caps as the UE Security Capabilities, in
+// place of the ones the AMF supplied, and returns the UE Security
+// Capabilities of the Acknowledge (nil when it has none). A Path Switch
+// Request that went unacknowledged is an error wrapping
+// engine.ErrPathSwitchNotAcknowledged.
+func (h *UEHarness) XnHandoverWithCapabilities(ctx context.Context, caps *ngapType.UESecurityCapabilities) (*ngapType.UESecurityCapabilities, error) {
+	res, err := h.m.XnHandoverWith(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	}, engine.WithPathSwitchCapabilities(caps))
+	if err != nil {
+		return nil, fmt.Errorf("handover (Xn) to gNB %#x: %w", h.TargetGNB().ID, err)
+	}
+	return res.PathSwitchCapabilities, nil
+}
+
 // Idle moves the registered UE to CM-IDLE by an AN release (engine.Manager.Idle).
 func (h *UEHarness) Idle(ctx context.Context) (*engine.IdleResult, error) {
 	return h.m.Idle(ctx, h.supi)
@@ -513,6 +541,21 @@ func (h *UEHarness) N2Handover(ctx context.Context) (*gnb.HandoverCommandInfo, e
 // Deregistration Request as an initial NAS message.
 func (h *UEHarness) RequestContextRelease(ctx context.Context, wait time.Duration) (engine.ContextReleaseResult, error) {
 	return h.m.RequestContextRelease(ctx, h.supi, wait)
+}
+
+// CancelN2Handover prepares an N2 handover to gNB B, up to the HANDOVER
+// COMMAND, and cancels it from gNB A with a HANDOVER CANCEL, waiting up to
+// wait for the acknowledge. The UE stays on gNB A. An error wrapping
+// engine.ErrHandoverNotPrepared means the handover never reached the
+// command.
+func (h *UEHarness) CancelN2Handover(ctx context.Context, wait time.Duration) (engine.HandoverCancelResult, error) {
+	res, err := h.m.CancelHandover(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	}, wait)
+	if err != nil {
+		return res, fmt.Errorf("handover (N2) to gNB %#x, cancelled: %w", h.TargetGNB().ID, err)
+	}
+	return res, nil
 }
 
 // Observe returns what has been seen so far, with the switch's timing.

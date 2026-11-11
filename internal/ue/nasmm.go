@@ -217,8 +217,8 @@ func BuildAuthenticationResponse(resStar []byte) ([]byte, error) {
 // (TS 24.501 §8.2.26). The complete Registration Request, with the
 // non-cleartext IEs the initial NAS message left out, goes in the NAS
 // Message Container (TS 24.501 §4.4.6 a), and the AMF takes it as the
-// message that triggered the registration. Each opt adjusts the result
-// (WithIMEISV). Returns the plain message for the caller to wrap with the
+// message that triggered the registration; an empty one leaves the
+// container out. Each opt adjusts the result (WithIMEISV). Returns the plain message for the caller to wrap with the
 // new security context.
 func BuildSecurityModeComplete(fullRegistrationRequest []byte, opts ...SecurityModeCompleteOption) (*f5nas.Message, error) {
 	m, gmm := newGmm(f5nas.MsgTypeSecurityModeComplete)

@@ -11,8 +11,10 @@ import (
 )
 
 // `conformance --list` needs no --amf or PLMN: it lists the checks (filtered
-// by --category) with how long each can take at --per-test-timeout, and the
-// total. Without --list, --amf is still required.
+// by --category and --check) with how long each can take at
+// --per-test-timeout, and the total. An unknown --check ID is refused, as is
+// --check on a run the server makes. Without --list, --amf is still
+// required.
 func TestConformanceList(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -27,6 +29,14 @@ func TestConformanceList(t *testing.T) {
 			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "4 checks, up to 6m25s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "longer per-test timeout", args: []string{"--list", "--category", "procedural", "--per-test-timeout", "40s"},
 			want: []string{"NGAP-NG-RESET-ACK", "40s", "at --per-test-timeout 40s"}},
+		{name: "one check", args: []string{"--list", "--check", "NGAP-NG-RESET-ACK"},
+			want: []string{"NGAP-NG-RESET-ACK", "1 checks, up to 15s in total"}, wantNot: []string{"NAS-T3560-AUTH-RETRANSMIT"}},
+		{name: "two checks, repeated and comma-separated, any case", args: []string{"--list", "--check", "ngap-ng-reset-ack,NAS-T3560-AUTH-RETRANSMIT", "--check", "NAS-T3550-ACCEPT-RETRANSMIT"},
+			want: []string{"NGAP-NG-RESET-ACK", "NAS-T3560-AUTH-RETRANSMIT", "NAS-T3550-ACCEPT-RETRANSMIT", "3 checks, up to"}, wantNot: []string{"NGAP-UNKNOWN-UE-SURVIVES"}},
+		{name: "a check outside the category", args: []string{"--list", "--category", "nas", "--check", "NGAP-NG-RESET-ACK"},
+			want: []string{"0 checks"}, wantNot: []string{"NGAP-NG-RESET-ACK "}},
+		{name: "unknown check", args: []string{"--list", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"; --list names the checks`},
+		{name: "--check on a server run", args: []string{"--amf", "127.0.0.1:1", "--check", "NGAP-NG-RESET-ACK"}, wantErr: "--check selects checks for --list and --local runs"},
 		{name: "no --amf without --list", args: nil, wantErr: `required flag(s) "amf" not set`},
 	}
 	for _, tc := range tests {

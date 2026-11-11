@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/orbit/internal/datapath"
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockupf"
@@ -436,6 +437,169 @@ func TestHandoverCommandCheckRegistrationFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	r := ngapHandoverCommandTransfer{}.Run(ctx, env)
+	if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+	}
+	c.assertClosed(t, env)
+}
+
+// classifyHandoverCancel reports an acknowledged cancel as INFO and a
+// missing acknowledge as INFO-DIFF, recording the target's release and what
+// else the source read.
+func TestClassifyHandoverCancel(t *testing.T) {
+	tests := []struct {
+		name         string
+		res          engine.HandoverCancelResult
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+	}{
+		{name: "acknowledged", res: engine.HandoverCancelResult{Acknowledged: true, AckAfter: 12 * time.Millisecond, TargetReleased: true}, want: Info,
+			wantObserved: "HANDOVER CANCEL ACKNOWLEDGE after 12ms",
+			wantDetail:   []string{"the AMF released the UE context prepared at the target gNB (recorded only)"}},
+		{name: "acknowledged after other PDUs, target not released", want: Info,
+			res:        engine.HandoverCancelResult{Acknowledged: true, AckAfter: time.Second, Skipped: []string{"DownlinkNASTransport", "ErrorIndication"}},
+			wantDetail: []string{"other PDUs on the source association while waiting: DownlinkNASTransport, ErrorIndication", "no UE Context Release Command at the target gNB"}},
+		{name: "not acknowledged", res: engine.HandoverCancelResult{TargetReleased: true}, want: InfoDiff,
+			wantObserved: "no HANDOVER CANCEL ACKNOWLEDGE within 5s", wantDetail: []string{handoverCancelText}},
+		{name: "source association lost", res: engine.HandoverCancelResult{SourceLost: errReset}, want: InfoDiff,
+			wantObserved: "association lost after the HANDOVER CANCEL", wantDetail: []string{"connection reset", "no UE Context Release Command at the target gNB"}},
+		{name: "not acknowledged, an Error Indication instead", res: engine.HandoverCancelResult{Skipped: []string{"ErrorIndication"}}, want: InfoDiff,
+			wantDetail: []string{handoverCancelText, "other PDUs on the source association while waiting: ErrorIndication"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v, observed, detail := classifyHandoverCancel(tc.res, 5*time.Second)
+			if v != tc.want {
+				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
+			}
+			if tc.wantObserved != "" && observed != tc.wantObserved {
+				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
+			}
+			for _, w := range tc.wantDetail {
+				if !strings.Contains(detail, w) {
+					t.Errorf("detail %q lacks %q", detail, w)
+				}
+			}
+		})
+	}
+}
+
+// The check is informational, on descriptive references alone, and SKIPs
+// without a UE.
+func TestHandoverCancelCheckIsInformational(t *testing.T) {
+	c := ngapHandoverCancelAck{}
+	if err := ValidateTest(c); err != nil {
+		t.Fatal(err)
+	}
+	if !IsInformational(c) || VerdictClass(c) != Info || WorstVerdict(c) != InfoDiff || MinRelease(c) != 15 {
+		t.Errorf("informational %v, class %s, worst %s, min %s", IsInformational(c), VerdictClass(c), WorstVerdict(c), MinRelease(c))
+	}
+	for _, r := range c.SpecRefs() {
+		if r.Strength != Descriptive {
+			t.Errorf("%s %s is cited as %s", r.Spec, r.Clause, r.Strength)
+		}
+	}
+	r := runOne(context.Background(), c, Env{}, time.Second)
+	if r.Verdict != Skip || r.Observed != "no UE configured" {
+		t.Errorf("without a UE: %s / %q, want SKIP", r.Verdict, r.Observed)
+	}
+	fixed := ueEnv("192.0.2.1:38412", "127.0.0.1:38999", "127.0.0.1")
+	if r := runOne(context.Background(), c, fixed, time.Second); r.Verdict != Error || r.Observed != "harness setup failed" {
+		t.Errorf("with a fixed bind port: %s / %q, want ERROR", r.Verdict, r.Observed)
+	}
+}
+
+// The check's verdicts over the real-SCTP mock pair, through the registry's
+// scoring: the acknowledge is INFO, a withheld one INFO-DIFF, neither of
+// which gates, and a handover that is never prepared is an ERROR. A core
+// that stops answering on the cancel did not survive: FAIL, which gates.
+// The UE is deregistered from its source gNB every time the core is still
+// there, and no association stays open.
+func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
+	tests := []struct {
+		name         string
+		net24        int
+		opts         []mockamf.Option
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+		cancels      int64
+		dead         bool
+	}{
+		{name: "acknowledged", net24: testnet.ConformanceCancelAcked, want: Info, cancels: 1,
+			wantDetail: []string{"the AMF released the UE context prepared at the target gNB (recorded only)", "a fresh NG Setup afterwards completes"}},
+		{name: "acknowledge withheld", net24: testnet.ConformanceCancelNoAck, opts: []mockamf.Option{mockamf.WithNoHandoverCancelAcknowledge()},
+			want: InfoDiff, cancels: 1, wantObserved: "no HANDOVER CANCEL ACKNOWLEDGE within 400ms",
+			wantDetail: []string{handoverCancelText, "a fresh NG Setup afterwards completes"}},
+		{name: "preparation failure", net24: testnet.ConformanceCancelNoPrep, opts: []mockamf.Option{mockamf.WithHandoverAnswer(mockamf.FailHandoverPreparation)},
+			want: Error, wantObserved: "handover did not reach Handover Command", wantDetail: []string{"handover not prepared", "await HandoverRequest"}},
+		{name: "stops answering", net24: testnet.ConformanceCancelCrash, opts: []mockamf.Option{mockamf.WithCrashOnHandoverCancel()},
+			want: Fail, cancels: 1, dead: true, wantObserved: "AMF unresponsive after the message (association lost after the HANDOVER CANCEL)",
+			wantDetail: []string{"the source association ended before a HANDOVER CANCEL ACKNOWLEDGE", "core did not survive the HANDOVER CANCEL: the AMF no longer completes a fresh NG Setup"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newMockCore(t, tc.net24, mockupf.Options{}, testKi, append(tc.opts, mockamf.WithGUTI())...)
+			env := ueEnv(c.front.Addr, "", c.n3)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			r := runOne(ctx, ngapHandoverCancelAck{prepWait: 500 * time.Millisecond, ackWait: 400 * time.Millisecond}, env, 20*time.Second)
+			if r.Verdict != tc.want {
+				t.Fatalf("verdict %s (%s; %s), want %s", r.Verdict, r.Observed, r.Detail, tc.want)
+			}
+			if tc.wantObserved != "" && r.Observed != tc.wantObserved {
+				t.Errorf("observed %q, want %q", r.Observed, tc.wantObserved)
+			}
+			if tc.want == Info && !strings.HasPrefix(r.Observed, "HANDOVER CANCEL ACKNOWLEDGE after ") {
+				t.Errorf("observed %q, want the acknowledge", r.Observed)
+			}
+			for _, w := range append(tc.wantDetail, informationalNote, "requires Rel-15 or later; TS 38.413 8.4.5.2") {
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
+				t.Error("detail carries key material")
+			}
+			if gated, want := !Summarize([]Result{r}).OK(), tc.want == Fail || tc.want == Error; gated != want {
+				t.Errorf("gated = %v for %s, want %v", gated, tc.want, want)
+			}
+			if got := c.amf.HandoverCancels(); got != tc.cancels {
+				t.Errorf("mock AMF saw %d Handover Cancels, want %d", got, tc.cancels)
+			}
+			if got := c.amf.HandoversCompleted(); got != 0 {
+				t.Errorf("mock AMF completed %d handovers, want 0", got)
+			}
+			if tc.dead {
+				deadline := time.Now().Add(3 * time.Second)
+				for c.front.Active() != 0 && time.Now().Before(deadline) {
+					time.Sleep(10 * time.Millisecond)
+				}
+				if n := c.front.Active(); n != 0 {
+					t.Errorf("%d gNB associations still open after the check", n)
+				}
+				return
+			}
+			if got := c.amf.Deregistrations(); got != 1 {
+				t.Errorf("mock AMF saw %d deregistrations, want 1", got)
+			}
+			if n := c.amf.StrayReleaseCompletes(); n != 0 {
+				t.Errorf("%d stray UE Context Release Completes", n)
+			}
+			c.assertClosed(t, env)
+		})
+	}
+}
+
+// A registration the core refuses is an ERROR naming the step, with no
+// association left open.
+func TestHandoverCancelCheckRegistrationFailure(t *testing.T) {
+	c := newMockCore(t, testnet.ConformanceCancelRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
+	env := ueEnv(c.front.Addr, "", c.n3)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	r := ngapHandoverCancelAck{}.Run(ctx, env)
 	if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
 		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
 	}

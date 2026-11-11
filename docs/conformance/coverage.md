@@ -120,8 +120,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) · ✅ `NGAP-HANDOVER-COMMAND-TRANSFER` (Handover List with a transfer per item) | ⬜ | transfer-IE bug already documented (interop); the check runs under strict-3gpp |
 | Handover Resource Allocation (Request→Ack) | AMF→RAN | ✅ | — | ORBIT admits/rejects |
 | Handover Notification | RAN→AMF | ✅ | ⬜ | |
-| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) | 🎯 malformed transfer / unknown IDs | |
-| Handover Cancellation | RAN→AMF | ⬜ | ⬜ | |
+| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) · ✅ `NGAP-PATH-SWITCH-SECCAP-MISMATCH` (stored UE security capabilities returned on a mismatch) | 🎯 malformed transfer / unknown IDs | |
+| Handover Cancellation | RAN→AMF | ✅ `NGAP-HANDOVER-CANCEL-ACK` (informational: is the cancel acknowledged?) | ⬜ | no "shall" or "should" for the acknowledge in 8.4.5 |
 | Uplink/Downlink RAN Status Transfer | both | ⬜ | ⬜ | |
 
 ### Lower-priority families (enumerate, then prioritise)
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**30 checks today** (the first four live on the SD-Core testbed):
+**36 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -172,7 +172,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   informational: accepted with the first association kept is INFO; a
   rejection, no answer, a reset of the new association or a dropped first
   association is INFO-DIFF, Observed naming both halves. Needs a second
-  address in the target's `ran.n2_source_ips`, else SKIP. It never gates.
+  address in the target's `ran.n2_source_ips`, else SKIP. It gates only for a
+  core that does not survive (a fresh NG Setup afterwards fails: FAIL).
   Which association the core then uses for the ID is not examined. Not yet
   run on Ref 2.
 - `NGAP-RAN-CONFIG-UPDATE-ACK` (procedural, INFO-class) — after NG Setup, a
@@ -182,8 +183,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   8.7.2.3 requires a FAILURE only of an AMF that cannot accept the update, so
   the check is informational: an ACKNOWLEDGE is INFO; a RAN CONFIGURATION
   UPDATE FAILURE, an ERROR INDICATION, no answer within 5 s or a lost
-  association is INFO-DIFF, with a fresh NG Setup tried afterwards and its
-  result recorded. It never gates. Not yet run on Ref 2.
+  association is INFO-DIFF, with a fresh NG Setup tried afterwards: a core
+  that no longer completes it did not survive and is FAIL, the one outcome
+  that gates. Not yet run on Ref 2.
 - `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (negative-ie, DEVIATION-class) — a
   RAN CONFIGURATION UPDATE whose Supported TA Item is cut off after its TAC,
   so the item's mandatory Broadcast PLMN List is missing: a transfer syntax
@@ -283,6 +285,18 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   needs the 5G-GUTI, and the detail says how the cleanup went. Needs a UE,
   else SKIP. Not yet run on Ref 2.
 
+- `NGAP-HANDOVER-CANCEL-ACK` (mobility, INFO-class) — a UE with a PDU
+  session has an N2 handover prepared up to the HANDOVER COMMAND, and the
+  source gNB then sends HANDOVER CANCEL. TS 38.413 8.4.5 has no "shall" or
+  "should" for the AMF: the acknowledge is the response of a class 1
+  procedure (Table 8.1-1), 9.2.3.12 says what it confirms, and 8.4.5.4 has
+  the source take a missing one as success. So the check is informational:
+  a HANDOVER CANCEL ACKNOWLEDGE within 5 s is INFO and none is INFO-DIFF.
+  Whether the AMF released the context prepared at the target is recorded.
+  A fresh NG Setup is tried afterwards; a core that no longer completes it
+  did not survive and is FAIL. The UE stays on its source gNB. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
+
 - `NAS-T3560-AUTH-RETRANSMIT` (nas, FAIL-class) — the UE withholds its
   Authentication Response; the AMF must retransmit the Authentication
   Request on each T3560 expiry, four times, and on the fifth expiry release
@@ -290,7 +304,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   (TS 24.501 5.4.1.3.7 b)). The timer is estimated from the observed gaps
   (at least the 6 s default; up to 1.5 × 24 s for the first), so a core
   configured slower still passes; the spacing is recorded, not asserted.
-  Needs a UE, else SKIP, and up to 190 s (about 33 s at the default), so it
+  An Authentication Reject after the four retransmissions is recorded and
+  the check keeps waiting for the release, which alone decides (the clause
+  names no reject); a reject before them is ERROR. Needs a UE, else SKIP,
+  and up to 190 s (about 33 s at the default), so it
   raises its own per-test timeout. Not yet run on Ref 2;
   the source analyst predicts PASS for the retransmissions and FAIL for the
   release (the AMF removes the UE locally without a release command).
@@ -400,6 +417,52 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   best effort; after a re-authentication the core may keep the UE until its
   timers expire. Mock-only so far.
 
+- `NAS-INITIAL-MSG-CONTAINER-WINS` (security, FAIL-class) — the initial
+  REGISTRATION REQUEST carries, in the clear, a Requested NSSAI the core does
+  not serve, and the SECURITY MODE COMPLETE's NAS message container carries
+  the complete request with the served S-NSSAI. The AMF shall complete the
+  registration on the container's request (TS 24.501 5.4.2.4; TS 33.501
+  6.4.6 step 4). Two conformant reference registrations, one per S-NSSAI,
+  show how this core answers each value: the stimulus answered as the served
+  one is PASS; any other answer is FAIL, named as the unprotected value's
+  when it is that one. SKIP when the core refuses the initial message
+  before a SECURITY MODE COMMAND (the container is never consulted) or
+  answers both references alike. Needs a UE; up to 53 s. Each accepted
+  registration is deregistered.
+- `NAS-INITIAL-MSG-NO-CONTAINER` (security, INFO-class) — the initial
+  message has non-cleartext IEs in the clear and the SECURITY MODE COMPLETE
+  has no NAS message container. No clause says what the AMF then does, so
+  the check is informational: a second SECURITY MODE COMMAND with the RINMR
+  bit (the request TS 24.501 5.4.2.2 describes for other conditions) is
+  INFO; a second command without it, an Accept, a Reject (cause recorded;
+  #62 shows the unprotected values were used), an early refusal, a release
+  and no answer are INFO-DIFF. Needs a UE.
+- `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED` (security, INFO-class) — the
+  complete REGISTRATION REQUEST, non-cleartext IEs included, is sent as the
+  initial message and again in the container. TS 24.501 4.4.6 binds the UE
+  only, so the check is informational: an accepted registration is INFO; a
+  Registration Reject (cause and whether it came before the SECURITY MODE
+  COMMAND recorded) or any other outcome is INFO-DIFF. Needs a UE.
+- `NAS-SMC-IMEISV-REQUEST` (security, INFO-class) — records whether the
+  SECURITY MODE COMMAND requests the IMEISV (a may, TS 24.501 5.4.2.2) and,
+  the UE having left a requested IMEISV out of the SECURITY MODE COMPLETE,
+  what the core does. Informational: a request followed by an IDENTITY
+  REQUEST for the IMEISV is INFO; no request (the omission is then not
+  exercised), an Accept without it, a Reject and the rest are INFO-DIFF.
+  Needs a UE.
+
+- `NGAP-PATH-SWITCH-SECCAP-MISMATCH` (security, FAIL-class) — a UE with a
+  PDU session is handed over by Xn with a PATH SWITCH REQUEST whose UE
+  Security Capabilities differ from the ones the AMF supplied in the INITIAL
+  CONTEXT SETUP REQUEST (algorithm 3 inverted in both NR bitmaps). The AMF
+  shall verify them against its stored copy and, on a mismatch, send the
+  stored ones in the PATH SWITCH REQUEST ACKNOWLEDGE (TS 33.501 6.7.3.1). An
+  Acknowledge carrying the supplied capabilities is PASS; one without the
+  IE, one echoing the sent ones, one with others, and no Acknowledge (a
+  PATH SWITCH REQUEST FAILURE included) are FAIL. A core that no longer
+  completes NG Setup afterwards is the crash FAIL. Needs a UE; up to 25 s.
+  The UE is deregistered afterwards.
+
 - `NAS-DEREG-ACCEPT-NOT-SWITCH-OFF` (procedural, FAIL-class) — the UE
   registers without a PDU session and sends a Deregistration Request that
   does not indicate switch-off; the AMF shall answer with a Deregistration
@@ -447,7 +510,9 @@ reports `INFO` when the core did what the text describes and `INFO-DIFF` when
 it did anything else, with both in Expected and Observed, so a table of runs
 shows where cores differ. Neither verdict gates, counts as a pass or a failure,
 or can be put on an expected-failures list; `ERROR` and `SKIP` mean what they
-mean for every check.
+mean for every check. In every class a core that does not survive a check's
+stimulus (a fresh NG Setup afterwards no longer completes) is `FAIL` and
+gates: a crash is never demoted.
 
 > **Tooling note:** the testbed has no tshark, so wire disambiguation currently
 > uses a byte-level PPID scan that reads uplink cleanly but misses downlink

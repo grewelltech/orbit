@@ -1375,8 +1375,13 @@ time every 30 s. stdout carries only the results, so `--json` stays clean.
 `--amf`:
 
 ```sh
-orbit conformance --list [--category nas] [--per-test-timeout 15s]
+orbit conformance --list [--category nas] [--check <ID>] [--per-test-timeout 15s]
 ```
+
+`--check <ID>` (repeatable, or comma-separated) narrows `--list` and a
+`--local` run to the named checks, on top of `--category`; each keeps the
+gNB IDs it has in a full run. A run on the server selects by `--category`
+only and refuses `--check`.
 
 [checks.md](conformance/checks.md) has the same figures in its **Up to**
 column, at the default per-test timeout.
@@ -1467,6 +1472,12 @@ whatever profile other commands use, so it reports how the core handles the
 conformant Handover Request Acknowledge. It is an ERROR when the handover
 does not reach the command within 8 s.
 
+`NGAP-HANDOVER-CANCEL-ACK` prepares the same N2 handover and, once the
+HANDOVER COMMAND has arrived, cancels it from the source gNB with a HANDOVER
+CANCEL. It is informational: TS 38.413 8.4.5 describes the HANDOVER CANCEL
+ACKNOWLEDGE without requiring it, so the acknowledge within 5 s is INFO and
+its absence INFO-DIFF, neither of which gates. The UE stays on the first gNB.
+
 One `procedural` check needs the UE flags too, and SKIPs without them:
 `NGAP-UE-CTX-RELEASE-ON-REQUEST` registers the UE without a PDU session and
 has its gNB send a UE CONTEXT RELEASE REQUEST. It passes when the AMF answers
@@ -1497,7 +1508,11 @@ does not assume the 6 s default:
 
 The detail gives each gap and the estimated timer, and notes a gap far from it
 or from the 6 s default. The check can take up to 190 s, so it raises its own
-timeout.
+timeout. An Authentication Reject that arrives after the four retransmissions
+is recorded in the detail and the check keeps waiting for the release, which
+alone decides the verdict: the clause requires the release and names no
+reject. An Authentication Reject before them is an ERROR, since the core did
+not run T3560 against the subscriber.
 
 `NAS-T3550-ACCEPT-RETRANSMIT` withholds the Registration Complete instead. It
 passes when the AMF retransmits the Registration Accept four times, one T3550
@@ -1628,6 +1643,31 @@ Mode Command or a 5GMM STATUS without authenticating first. An Authentication
 Request is SKIP: TS 24.501 4.4.4.3 can be read either way, and the result
 says so.
 
+Four more `security` checks send what a conformant UE never sends, and need
+the UE flags. `NAS-INITIAL-MSG-CONTAINER-WINS` puts a Requested NSSAI the core
+does not serve in the unprotected initial message and the served one in the
+Security Mode Complete's NAS message container. It passes when the
+registration is answered as the container's request is when sent alone
+(TS 24.501 5.4.2.4), and fails otherwise; two conformant reference
+registrations show how the core answers each value, so it runs three
+registrations and can take up to 53 s. It SKIPs when the core refuses the
+initial message outright or answers both values alike. The other three are
+informational and never gate: `NAS-INITIAL-MSG-NO-CONTAINER` leaves the
+container out and reports whether the core asks for the message again,
+registers the UE or rejects; `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED` sends the
+complete request in the clear and in the container and reports whether the
+core registers the UE; `NAS-SMC-IMEISV-REQUEST` reports whether the Security
+Mode Command requests the IMEISV and what the core does when the UE leaves
+it out.
+
+`NGAP-PATH-SWITCH-SECCAP-MISMATCH`, also in `security`, registers the UE with
+a PDU session and hands it over by Xn with a Path Switch Request whose UE
+Security Capabilities differ from the ones the AMF supplied at registration.
+It passes when the Path Switch Request Acknowledge carries the AMF's stored
+capabilities (TS 33.501 6.7.3.1), and fails when the Acknowledge has none,
+echoes the ones sent, or does not come. Like the mobility checks it needs
+`--gnb-n3` and a second gNB ID.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the
@@ -1645,7 +1685,10 @@ Every missed **shall** is FAIL and DEVIATION is reserved for a missed
 **should**. An informational check, one that cites only descriptive text,
 reports INFO (the core did what the text describes) or INFO-DIFF (it did
 anything else); neither is a pass or a failure, and neither changes the exit
-code, a gate or the expected-failures accounting. The tally counts them apart
+code, a gate or the expected-failures accounting. A crash is the exception in
+every class: a core that no longer completes a fresh NG Setup after a check's
+stimulus is FAIL (`AMF unresponsive after the message (...)`) and gates, for
+an informational check as for a graded one. The tally counts them apart
 (`... 0 skip, 2 info, 1 info-diff`; `Info` and `InfoDiff` in `--json`), and
 `--list` and the checks table name each check's class (FAIL, DEVIATION or
 INFO). `--expected-failures <file>` names the core's list of known,

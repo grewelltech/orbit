@@ -9,13 +9,14 @@ import (
 	"github.com/bgrewell/orbit/internal/gnb"
 )
 
-// N2 handover, network side (TS 38.413 §8.4.1 to §8.4.3). The source gNB's
+// N2 handover, network side (TS 38.413 §8.4.1 to §8.4.3, §8.4.5). The source gNB's
 // HANDOVER REQUIRED names the target gNB; the mock finds that gNB's
 // association by the gNB ID of its NG Setup, sends it a HANDOVER REQUEST,
 // and answers the source with a HANDOVER COMMAND once the target
 // acknowledges. The target's HANDOVER NOTIFY moves the UE and its sessions
 // to the target, tells the UPF, and releases the UE's context at the
-// source.
+// source. A HANDOVER CANCEL from the source before that drops the handover
+// and releases what the target prepared.
 
 // HandoverAnswer selects how the mock answers a HANDOVER REQUIRED that
 // names a known UE with a PDU session and a connected target gNB
@@ -53,6 +54,16 @@ func WithHandoverAnswer(ans HandoverAnswer) Option {
 	return func(a *AMF) { a.handoverAnswer = ans }
 }
 
+// WithNoHandoverCancelAcknowledge makes the mock cancel a handover on a
+// HANDOVER CANCEL without sending the HANDOVER CANCEL ACKNOWLEDGE. By
+// default it acknowledges.
+func WithNoHandoverCancelAcknowledge() Option { return func(a *AMF) { a.noCancelAck = true } }
+
+// WithCrashOnHandoverCancel makes the mock stop on a HANDOVER CANCEL: the
+// association ends, as does every other one, and no later NG Setup is
+// answered.
+func WithCrashOnHandoverCancel() Option { return func(a *AMF) { a.crashOnCancel = true } }
+
 // handover is one N2 handover between HANDOVER REQUIRED and HANDOVER
 // NOTIFY, guarded by AMF.mu.
 type handover struct {
@@ -70,6 +81,9 @@ type handover struct {
 
 // HandoversCompleted reports how many N2 handovers reached HANDOVER NOTIFY.
 func (a *AMF) HandoversCompleted() int64 { return a.handoversDone.Load() }
+
+// HandoverCancels reports how many HANDOVER CANCELs the mock has received.
+func (a *AMF) HandoverCancels() int64 { return a.handoverCancels.Load() }
 
 // sendTo sends pdu on another association than the one being served. That
 // association closing is not an error of this one, so a failed write is
@@ -304,6 +318,74 @@ func (a *AMF) onHandoverNotify(p *pipe, states map[int64]*ueState, n *ngapType.H
 	}
 	a.sendTo(h.src, buildUEContextReleaseCommandCause(amfID, h.srcRanID, ngapType.CauseNasPresentNormalRelease))
 	return nil
+}
+
+// onHandoverCancel cancels the handover a source gNB's HANDOVER CANCEL
+// names (TS 38.413 8.4.5): the handover is dropped, a target that had
+// acknowledged is sent a UE CONTEXT RELEASE COMMAND for the context it
+// prepared, and the source gets a HANDOVER CANCEL ACKNOWLEDGE, unless
+// WithNoHandoverCancelAcknowledge. The UE stays where it was. A cancel
+// naming no handover is acknowledged the same way. With
+// WithCrashOnHandoverCancel the mock stops instead.
+func (a *AMF) onHandoverCancel(p *pipe, c *ngapType.HandoverCancel) error {
+	var amfID, ranID int64
+	for _, ie := range c.ProtocolIEs.List {
+		switch ie.Id.Value {
+		case ngapType.ProtocolIEIDAMFUENGAPID:
+			amfID = ie.Value.AMFUENGAPID.Value
+		case ngapType.ProtocolIEIDRANUENGAPID:
+			ranID = ie.Value.RANUENGAPID.Value
+		}
+	}
+	a.handoverCancels.Add(1)
+	if a.crashOnCancel {
+		a.crashed.Store(true)
+		return errCrashed
+	}
+	a.mu.Lock()
+	h := a.handovers[amfID]
+	if h != nil && h.src != p {
+		h = nil
+	}
+	if h != nil {
+		delete(a.handovers, amfID)
+		if h.acked {
+			a.handoverReleases = append(a.handoverReleases, [2]int64{amfID, h.tgtRanID})
+		}
+	}
+	a.mu.Unlock()
+	if h != nil && h.acked {
+		a.sendTo(h.tgt, buildUEContextReleaseCommandCause(amfID, h.tgtRanID, ngapType.CauseNasPresentNormalRelease))
+	}
+	if a.noCancelAck {
+		return nil
+	}
+	return a.send(p, buildHandoverCancelAcknowledge(amfID, ranID))
+}
+
+// buildHandoverCancelAcknowledge builds the AMF's HANDOVER CANCEL
+// ACKNOWLEDGE (TS 38.413 9.2.3.12): the UE's NGAP IDs.
+func buildHandoverCancelAcknowledge(amfID, ranID int64) ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentSuccessfulOutcome
+	pdu.SuccessfulOutcome = new(ngapType.SuccessfulOutcome)
+	pdu.SuccessfulOutcome.ProcedureCode.Value = ngapType.ProcedureCodeHandoverCancel
+	pdu.SuccessfulOutcome.Criticality.Value = ngapType.CriticalityPresentReject
+	pdu.SuccessfulOutcome.Value.Present = ngapType.SuccessfulOutcomePresentHandoverCancelAcknowledge
+	ack := new(ngapType.HandoverCancelAcknowledge)
+	pdu.SuccessfulOutcome.Value.HandoverCancelAcknowledge = ack
+	amf := ngapType.HandoverCancelAcknowledgeIEs{}
+	amf.Id.Value = ngapType.ProtocolIEIDAMFUENGAPID
+	amf.Criticality.Value = ngapType.CriticalityPresentIgnore
+	amf.Value.Present = ngapType.HandoverCancelAcknowledgeIEsPresentAMFUENGAPID
+	amf.Value.AMFUENGAPID = &ngapType.AMFUENGAPID{Value: amfID}
+	ran := ngapType.HandoverCancelAcknowledgeIEs{}
+	ran.Id.Value = ngapType.ProtocolIEIDRANUENGAPID
+	ran.Criticality.Value = ngapType.CriticalityPresentIgnore
+	ran.Value.Present = ngapType.HandoverCancelAcknowledgeIEsPresentRANUENGAPID
+	ran.Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranID}
+	ack.ProtocolIEs.List = append(ack.ProtocolIEs.List, amf, ran)
+	return pdu
 }
 
 // buildHandoverPreparationFailure builds the AMF's HANDOVER PREPARATION

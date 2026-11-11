@@ -201,10 +201,14 @@ func (a *AMF) onAuthenticated(p *pipe, st *ueState) error {
 	if a.requestIMEISV {
 		smc.IMEISVRequest = imeisvRequest()
 	}
+	if st.containerAsked && a.missingContainer == RequestInitialNAS {
+		smc.Additional5GSecurityInformation = retransmissionRequested()
+	}
 	wrapped, err := st.encodeSecure(smc, nas.SecHdrIntegrityNewContext)
 	if err != nil {
 		return err
 	}
+	a.smcsSent.Add(1)
 	return a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), wrapped))
 }
 
@@ -218,4 +222,14 @@ func buildRegistrationReject(cause uint8) ([]byte, error) {
 	rej.SetCauseValue(cause)
 	gmm.RegistrationReject = rej
 	return m.PlainNasEncode()
+}
+
+// retransmissionRequested is the Additional 5G security information IE with
+// the RINMR bit set to "Retransmission of the initial NAS message
+// requested" (TS 24.501 9.11.3.12).
+func retransmissionRequested() *nasType.Additional5GSecurityInformation {
+	ie := nasType.NewAdditional5GSecurityInformation(nasMessage.SecurityModeCommandAdditional5GSecurityInformationType)
+	ie.SetLen(1)
+	ie.SetRINMR(1)
+	return ie
 }

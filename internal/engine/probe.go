@@ -24,6 +24,11 @@ var ErrReleasedByCore = errors.New("the core released the UE context during the 
 // with a REGISTRATION REJECT that decoded (and, when protected, verified).
 var ErrRegistrationRejected = errors.New("AMF rejected registration")
 
+// ErrAuthenticationRejected is the error Attach returns when the core
+// answers with an AUTHENTICATION REJECT (and no probe asked to wait on after
+// it; see AttachProbe.AfterAuthenticationReject).
+var ErrAuthenticationRejected = errors.New("AMF rejected authentication")
+
 // AttachProbe lets a conformance check withhold the UE's reply to chosen
 // downlink NAS messages and watch what the core sends during an attach.
 //
@@ -88,6 +93,30 @@ type AttachProbe struct {
 	// attach waits for the Accept any downlink that does not decode counts;
 	// one whose MAC fails cannot be identified at all.
 	DeregisterUndecodableAccept bool
+	// AfterAuthenticationReject, when set, is asked at an AUTHENTICATION
+	// REJECT whether the attach goes on. True keeps it reading: the UE
+	// sends nothing more, and the attach ends at a UE CONTEXT RELEASE
+	// COMMAND (ErrReleasedByCore), at Stop or with its context, so a probe
+	// can see whether the core releases the connection after the reject.
+	// False, or no hook, ends the attach at the reject as usual. It is
+	// called after OnNAS for the same message, on the attach's goroutine,
+	// and must not block.
+	AfterAuthenticationReject func() bool
+	// InitialNAS, when set, builds the initial NAS message the UE sends,
+	// from the complete Registration Request that the Security Mode
+	// Complete carries. It replaces the conformant form, the cleartext IEs
+	// alone (ue.CleartextRegistrationRequest), for a check whose stimulus
+	// is an initial message TS 24.501 4.4.6 does not allow: one with
+	// non-cleartext IEs in the clear, or with values that differ from the
+	// protected copy.
+	InitialNAS func(complete []byte) ([]byte, error)
+	// OmitNASMessageContainer leaves the NAS message container, and with
+	// it the complete Registration Request, out of every Security Mode
+	// Complete the UE sends.
+	OmitNASMessageContainer bool
+	// OmitIMEISV leaves the IMEISV out of the Security Mode Complete even
+	// when the Security Mode Command requests it.
+	OmitIMEISV bool
 	// BeforeRegistration, when set, is called with the gNB's association
 	// before the Initial UE Message is sent, for a check whose stimulus is
 	// a non-UE-associated procedure on the association the UE then

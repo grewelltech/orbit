@@ -157,8 +157,9 @@ func duplicateEnv(amfAddr string) Env {
 // Against the mock AMF over real SCTP, from two loopback addresses, as a
 // suite run scores it. An AMF that accepts the duplicate and keeps both
 // associations is INFO; one that rejects it, one that accepts it and drops
-// the first association, one that leaves it unanswered and one that stops
-// answering are INFO-DIFF. None fails the gate. The mock sees the same gNB
+// the first association and one that leaves it unanswered are INFO-DIFF,
+// and none of them fails the gate. One that stops answering did not
+// survive: FAIL, and the gate closes. The mock sees the same gNB
 // ID twice, and both associations close afterwards.
 func TestDuplicateRANNodeAgainstMock(t *testing.T) {
 	tests := []struct {
@@ -182,9 +183,9 @@ func TestDuplicateRANNodeAgainstMock(t *testing.T) {
 		{name: "leaves the duplicate unanswered", answer: mockamf.IgnoreDuplicateRANNode, want: InfoDiff,
 			wantObserved: "second NG Setup unanswered; first association kept",
 			wantDetail:   []string{"no NG SETUP RESPONSE or FAILURE within 300ms", "a fresh NG Setup afterwards completes"}, wantSetups: 3, wantAlive: true},
-		{name: "stops answering", answer: mockamf.CrashOnDuplicateRANNode, want: InfoDiff,
-			wantObserved: "second association reset; first association kept; a fresh NG Setup afterwards did not complete",
-			wantDetail:   []string{"the second association was lost", "the AMF no longer completes NG Setup after the duplicate NG SETUP REQUEST"}, wantSetups: 2},
+		{name: "stops answering", answer: mockamf.CrashOnDuplicateRANNode, want: Fail,
+			wantObserved: "AMF unresponsive after the message (second association reset; first association kept)",
+			wantDetail:   []string{"the second association was lost", "core did not survive the duplicate NG SETUP REQUEST: the AMF no longer completes a fresh NG Setup"}, wantSetups: 2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -203,8 +204,9 @@ func TestDuplicateRANNodeAgainstMock(t *testing.T) {
 					t.Errorf("detail %q lacks %q", res.Detail, w)
 				}
 			}
-			if sum := Summarize(results); !sum.OK() || sum.Fail != 0 || sum.Deviation != 0 || sum.Pass != 0 || sum.Info+sum.InfoDiff != 1 {
-				t.Errorf("summary %+v: an informational check must not gate or count as a pass or a failure", sum)
+			crashed := tc.want == Fail
+			if sum := Summarize(results); sum.OK() == crashed || (sum.Fail == 1) != crashed || sum.Deviation != 0 || sum.Pass != 0 || sum.Fail+sum.Info+sum.InfoDiff != 1 {
+				t.Errorf("summary %+v: an informational check gates only for a core that did not survive, and never counts as a pass", sum)
 			}
 
 			setups := amf.Setups()

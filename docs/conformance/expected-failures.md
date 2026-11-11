@@ -15,11 +15,16 @@ A conformance check scores what the specification says:
   or are silent, with no shall and no should behind it. INFO is the described
   behaviour, observed; INFO-DIFF is anything else the core did. Neither is a
   judgement of the core and neither fails the gate.
+- A **crash** is FAIL in every class. A core that no longer completes a fresh
+  NG Setup after a check's stimulus did not survive it: FAIL, gating, with
+  Observed `AMF unresponsive after the message (...)`, for an informational
+  check and a should-only check as for any other.
 
 A check's worst verdict comes from the clauses it cites: FAIL if it cites a
 shall, DEVIATION if it cites only shoulds. A check that cites descriptive text
-only must declare itself informational, and then never gives PASS, FAIL or
-DEVIATION; a check that cites a shall or a should cannot be informational, so
+only must declare itself informational, and then never gives PASS or
+DEVIATION, and FAIL only for a crash; a check that cites a shall or a should
+cannot be informational, so
 a requirement is always graded. The suite enforces this whatever a check
 reports. `docs/conformance/checks.md` lists each check's verdict class.
 
@@ -72,8 +77,8 @@ An entry matches a result only when all of these hold:
 So an entry for a silent drop never hides an `association reset` from the same
 check, nor a core that stopped answering afterwards (`AMF unresponsive after
 the message (...)`). An entry never matches an ERROR, a DEVIATION or a PASS.
-An informational check never FAILs, so loading refuses an entry that names
-one.
+An informational check FAILs only for a core that did not survive, which no
+list tolerates, so loading refuses an entry that names one.
 
 The liveness probes' own texts cannot be listed at all, so loading refuses an
 entry whose `observed` starts with any of them:

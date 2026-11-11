@@ -130,9 +130,9 @@ func TestRANConfigAckIsInformational(t *testing.T) {
 }
 
 // Against the mock AMF over real SCTP, as a suite run scores it: an AMF
-// that acknowledges is INFO; one that answers with FAILURE, one that
-// withholds any answer and one that stops answering are INFO-DIFF, never a
-// FAIL, and the suite's gate stays open. The update restates the Supported
+// that acknowledges is INFO; one that answers with FAILURE and one that
+// withholds any answer are INFO-DIFF, and the suite's gate stays open. One
+// that stops answering did not survive: FAIL, and the gate closes. The update restates the Supported
 // TA List, and the check's associations close afterwards.
 func TestRANConfigAckAgainstMock(t *testing.T) {
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
@@ -152,9 +152,9 @@ func TestRANConfigAckAgainstMock(t *testing.T) {
 			wantDetail: []string{"cause Misc 5", ranConfigAckText, "a fresh NG Setup afterwards completes"}, wantSetups: 2, wantAlive: true},
 		{name: "withholds the answer", answer: mockamf.IgnoreRANConfigUpdate, want: InfoDiff, wantObserved: "no answer; association survived",
 			wantDetail: []string{"within 300ms", ranConfigAckText, "a fresh NG Setup afterwards completes"}, wantSetups: 2, wantAlive: true},
-		{name: "stops answering", answer: mockamf.CrashOnRANConfigUpdate, want: InfoDiff,
-			wantObserved: "association reset; a fresh NG Setup afterwards did not complete",
-			wantDetail:   []string{ranConfigAckText, "the AMF no longer completes NG Setup after the RAN CONFIGURATION UPDATE"}, wantSetups: 1},
+		{name: "stops answering", answer: mockamf.CrashOnRANConfigUpdate, want: Fail,
+			wantObserved: "AMF unresponsive after the message (association reset)",
+			wantDetail:   []string{ranConfigAckText, "core did not survive the RAN CONFIGURATION UPDATE: the AMF no longer completes a fresh NG Setup"}, wantSetups: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -177,8 +177,9 @@ func TestRANConfigAckAgainstMock(t *testing.T) {
 					t.Errorf("detail %q lacks %q", res.Detail, w)
 				}
 			}
-			if sum := Summarize(results); !sum.OK() || sum.Fail != 0 || sum.Deviation != 0 || sum.Pass != 0 || sum.Info+sum.InfoDiff != 1 {
-				t.Errorf("summary %+v: an informational check must not gate or count as a pass or a failure", sum)
+			crashed := tc.want == Fail
+			if sum := Summarize(results); sum.OK() == crashed || (sum.Fail == 1) != crashed || sum.Deviation != 0 || sum.Pass != 0 || sum.Fail+sum.Info+sum.InfoDiff != 1 {
+				t.Errorf("summary %+v: an informational check gates only for a core that did not survive, and never counts as a pass", sum)
 			}
 
 			updates := amf.RANConfigUpdates()

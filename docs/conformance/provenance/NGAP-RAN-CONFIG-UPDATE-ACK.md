@@ -18,7 +18,7 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/38_series
 
 ## Verdict
 
-- **Verdict class:** INFO (informational). The check reports and never gates: it gives no PASS, FAIL or DEVIATION, and it cannot be put on an expected-failures list.
+- **Verdict class:** INFO (informational). The check reports and does not grade: it gives no PASS or DEVIATION, FAIL only for a core that does not survive the stimulus, and it cannot be put on an expected-failures list.
 - **Stimulus:** on an association that has completed NG Setup, a RAN CONFIGURATION UPDATE (stream 0) whose only IE is the Supported TA List the NG Setup presented: the same TAC, PLMN and slices, so the update changes nothing and every value in it is one the AMF has already accepted.
 - **INFO:** a RAN CONFIGURATION UPDATE ACKNOWLEDGE within 5 s. Observed: `RAN CONFIGURATION UPDATE ACKNOWLEDGE`.
 - **INFO-DIFF:** anything else. Observed says which:
@@ -28,7 +28,8 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/38_series
   - `association reset`: the association was lost before an answer.
 
   The detail carries: "no RAN CONFIGURATION UPDATE ACKNOWLEDGE (class-1 procedure, Table 8.1-1). TS 38.413 8.7.2.2 (descriptive; Rel-15 onward). Likely cause: AMF does not implement RAN Configuration Update."
-- **After an INFO-DIFF** a fresh NG Setup is tried and the detail records its result. When it does not complete, Observed ends with `; a fresh NG Setup afterwards did not complete`. The verdict stays INFO-DIFF: an informational check never fails a core, and a core that stopped answering fails the graded checks that run after this one.
+- **After an INFO-DIFF** a fresh NG Setup is tried and the detail records its result.
+- **FAIL:** that fresh NG Setup does not complete: the core did not survive the RAN CONFIGURATION UPDATE. Observed is `AMF unresponsive after the message (<what was observed>)` and the result gates, as a crash does in every verdict class. While a population loads the core the same silence is ERROR (`AMF unresponsive under load (...)`).
 - **ERROR:** the stimulus could not be built or sent, or NG Setup did not complete, so nothing was observed. An ERROR gates as it does for every check.
 - **SKIP:** category not selected.
 - PDUs of other procedures read while waiting are passed over; the detail counts them.
