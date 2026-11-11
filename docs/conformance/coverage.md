@@ -316,7 +316,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   configured slower still passes; the spacing is recorded, not asserted.
   An Authentication Reject after the four retransmissions is recorded and
   the check keeps waiting for the release, which alone decides (the clause
-  names no reject); a reject before them is ERROR. Needs a UE, else SKIP,
+  names no reject); a reject after a request and before them is FAIL, one
+  in place of the request, or no request, BLOCKED on the registration. Needs a UE, else SKIP,
   and up to 190 s (about 33 s at the default), so it
   raises its own per-test timeout. Not yet run on Ref 2;
   the source analyst predicts PASS for the retransmissions and FAIL for the
