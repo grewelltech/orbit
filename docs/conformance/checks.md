@@ -21,9 +21,9 @@ A suite runs the checks in the order of this table, except that the checks of tw
 | [GTPU-UNKNOWN-TEID-ERRIND](provenance/GTPU-UNKNOWN-TEID-ERRIND.md) | gtpu | FAIL | Rel-15 | 15s | TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without "PDU Session"; Rel-15: "PDU Session" added in V15.4.0) |
 | [GTPU-ECHO-RESPONSE](provenance/GTPU-ECHO-RESPONSE.md) | gtpu | FAIL | Rel-15 | 15s | TS 29.281 7.2.1 (Rel-8 onward; Rel-15: V15.0.0 adds the prefix "Even if there is no path in use," (absent in V8.0.0 and V14.1.0); unchanged through Rel-19); TS 29.281 7.2.2 (Rel-8 onward, wording unchanged through Rel-19); TS 29.281 4.3.1 (Rel-8 onward; Rel-11: "the GSN or RNC" (V8.0.0, V9.0.0) reads "the GTP-U entity" by V11.0.0 (Rel-10 not read); unchanged through Rel-19) |
 | [N3-DL-QFI-CONTAINER](provenance/N3-DL-QFI-CONTAINER.md) | gtpu | FAIL | Rel-15 | 15s | TS 29.281 5.2.2.7 (Rel-15 onward; Rel-15: the clause is introduced in V15.2.0 as "may be transmitted"; "shall be transmitted" from V15.5.0; Rel-17: from V17.3.0 a bulleted list, adding N3mb/N19mb and End Marker bullets; the shall for G-PDUs over N3 and N9 is the same; Rel-19: from V19.1.0 "between NG-RAN and UPF" reads "between 5G-AN and UPF"); TS 38.415 5.4.1.1 (Rel-15 onward; Rel-15: V15.0.0 writes "DL PDU Session Information frame"; "DL PDU SESSION INFORMATION" by V15.3.0 (editorial); the wording is otherwise unchanged Rel-15 through Rel-19); TS 38.415 5.5.2.1 (Rel-15 onward, wording unchanged through Rel-19) |
-| [NGAP-PATH-SWITCH-ACK-TRANSFER](provenance/NGAP-PATH-SWITCH-ACK-TRANSFER.md) | mobility | FAIL | Rel-15 | 15s | TS 38.413 8.4.4.2 (Rel-15 onward; Rel-17: sentences are added around the cited one in Rel-17 and Rel-18 (IAB-MT, MT communication handling, RedCap); the cited sentence is the same Rel-15 through Rel-19); TS 38.413 9.3.4.9 (Rel-15 onward; Rel-15: UL NG-U UP TNL Information is M in V15.0.0 and O from V15.1.0; its semantics text dates from V15.3.0; Rel-16: the UL NG-U UP TNL Information row is unchanged Rel-16 through Rel-19; other optional IEs are added (redundant TNL, QoS Flow Parameters List)); TS 38.413 9.2.3.9 (Rel-15 onward; Rel-15: V15.0.0 has a PDU Session Resource to be Switched in Uplink List (0..1); the PDU Session Resource Switched List with a mandatory Path Switch Request Acknowledge Transfer per item dates from V15.1.0) |
-| [NGAP-HANDOVER-COMMAND-TRANSFER](provenance/NGAP-HANDOVER-COMMAND-TRANSFER.md) | mobility | FAIL | Rel-15 | 15s | TS 38.413 8.4.1.2 (Rel-15 onward; Rel-15: the intra-system "shall include" sentence is added in V15.5.0; before it V15.0.0 has a PDU Session Resource Subject to Forwarding List (0..1), V15.1.0 to V15.3.0 a mandatory PDU Session Resource Handover List, and V15.4.0 the list as 0..1 with no obligation in the text; the cited sentences are unchanged Rel-16 through Rel-19); TS 38.413 9.2.3.2 (Rel-15 onward; Rel-15: Handover Command Transfer is O per item in V15.0.0 and M from V15.1.0; Rel-18: "subclause 9.3.4.10" reads "clause 9.3.4.10" from Rel-18 (editorial)); TS 38.413 9.3.4.10 (Rel-15 onward; Rel-15: UL forwarding and additional tunnels are added within Rel-15; every IE of the transfer is optional in every version read; Rel-16: adds the Data Forwarding Response E-RAB List; Rel-19: the QoS Flow Failed to Setup List is present by V19.4.0) |
-| [NGAP-HANDOVER-CANCEL-ACK](provenance/NGAP-HANDOVER-CANCEL-ACK.md) | mobility | INFO | Rel-15 | 15s | TS 38.413 8.4.5.2 (Rel-15 onward; Rel-15: the sentence is unchanged from V15.0.0 through V19.4.0; by V15.13.0 8.4.5.4 is added, under which the source NG-RAN node takes a missing acknowledge as a successful cancellation); TS 38.413 Table 8.1-1 (Rel-15 onward, wording unchanged through Rel-19); TS 38.413 9.2.3.12 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-PATH-SWITCH-ACK-TRANSFER](provenance/NGAP-PATH-SWITCH-ACK-TRANSFER.md) | mobility | FAIL | Rel-15 | 15s | TS 38.413 8.4.4.2 (Rel-15 onward; Rel-17: sentences are added around the cited one in Rel-17 and Rel-18 (IAB-MT, MT communication handling, RedCap); the cited sentence is the same Rel-15 through Rel-19); TS 38.413 8.4.4.3 (Rel-15 onward; Rel-15: V15.0.0 reads "fails to switch the downlink GTP tunnel endpoint towards a new GTP tunnel endpoint" and ends "with an appropriate cause value"; by V15.13.0 it reads "fails to switch the downlink termination point of the NG-U transport bearer towards a new termination point", unchanged through V19.4.0); TS 38.413 9.3.4.9 (Rel-15 onward; Rel-15: UL NG-U UP TNL Information is M in V15.0.0 and O from V15.1.0; its semantics text dates from V15.3.0; Rel-16: the UL NG-U UP TNL Information row is unchanged Rel-16 through Rel-19; other optional IEs are added (redundant TNL, QoS Flow Parameters List)); TS 38.413 9.2.3.9 (Rel-15 onward; Rel-15: V15.0.0 has a PDU Session Resource to be Switched in Uplink List (0..1); the PDU Session Resource Switched List with a mandatory Path Switch Request Acknowledge Transfer per item dates from V15.1.0); TS 38.413 9.1.1 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-HANDOVER-COMMAND-TRANSFER](provenance/NGAP-HANDOVER-COMMAND-TRANSFER.md) | mobility | FAIL | Rel-15 | 15s | TS 38.413 8.4.1.2 (Rel-15 onward; Rel-15: the intra-system "shall include" sentence is added in V15.5.0; before it V15.0.0 has a PDU Session Resource Subject to Forwarding List (0..1), V15.1.0 to V15.3.0 a mandatory PDU Session Resource Handover List, and V15.4.0 the list as 0..1 with no obligation in the text; the cited sentences are unchanged Rel-16 through Rel-19); TS 38.413 9.2.3.2 (Rel-15 onward; Rel-15: Handover Command Transfer is O per item in V15.0.0 and M from V15.1.0; Rel-18: "subclause 9.3.4.10" reads "clause 9.3.4.10" from Rel-18 (editorial)); TS 38.413 9.3.4.10 (Rel-15 onward; Rel-15: UL forwarding and additional tunnels are added within Rel-15; every IE of the transfer is optional in every version read; Rel-16: adds the Data Forwarding Response E-RAB List; Rel-19: the QoS Flow Failed to Setup List is present by V19.4.0); TS 38.413 9.1.1 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-HANDOVER-CANCEL-ACK](provenance/NGAP-HANDOVER-CANCEL-ACK.md) | mobility | WARN | Rel-15 | 15s | TS 38.413 8.4.5.2 (Rel-15 onward; Rel-15: the sentence is unchanged from V15.0.0 through V19.4.0; by V15.13.0 8.4.5.4 is added, under which the source NG-RAN node takes a missing acknowledge as a successful cancellation); TS 38.413 Table 8.1-1 (Rel-15 onward, wording unchanged through Rel-19); TS 38.413 9.2.3.12 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NAS-SERVICE-REQUEST-REACTIVATES](provenance/NAS-SERVICE-REQUEST-REACTIVATES.md) | procedural | FAIL | Rel-15 | 46s | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (Rel-15 onward; Rel-16: 5.6.1.4 is split and the text moves to 5.6.1.4.1; the condition adds "and the UE is: a) not in NB-N1 mode; or b) in NB-N1 mode and ..." before "the AMF shall:"; item a) is unchanged in every version); TS 24.501 5.6.1.5 first sentence (Rel-15 onward; Rel-16: V15.0.0 and V15.7.0 end "and stop timer T3517"; absent by V16.15.0); TS 23.502 4.2.3.2 steps 12 and 18a (Rel-15 onward; Rel-15: V15.0.0 reads "forwarded to RAN and UE" in step 18a; "NG-RAN and UE" by V15.17.0, unchanged through V19.9.0; the N2 Request's content in step 12 grows in every release, "N2 SM information received from SMF" and "MM NAS Service Accept" stay) |
 | [NAS-SMC-IMEISV-REQUEST](provenance/NAS-SMC-IMEISV-REQUEST.md) | security | INFO | Rel-15 | 20s | TS 24.501 5.4.2.2 IMEISV request (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 6.7.2 step 2b (Rel-15 onward; Rel-15: an unnumbered paragraph in V15.0.0, step 2b by V15.20.0; the sentence on the PEI is unchanged through V19.7.0) |
 | [NAS-INITIAL-MSG-CONTAINER-WINS](provenance/NAS-INITIAL-MSG-CONTAINER-WINS.md) | security | FAIL | Rel-15 | 52s | TS 24.501 5.4.2.4 (Rel-15 onward; Rel-15: V15.0.0 names the IE "Replayed NAS message container"; "NAS message container" by V15.7.0, the sentence otherwise unchanged through V19.8.0); TS 33.501 6.4.6 step 4 (Rel-15 onward; Rel-15: V15.0.0 has the complete message resent only after a failed hash check ("the AMF shall treat this as the initial NAS message to respond to"); the NAS Container, and "The AMF shall use the complete initial NAS message that is in the NAS container as the message to respond to", by V15.20.0 and unchanged through V19.7.0) |
@@ -94,19 +94,22 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NGAP-PATH-SWITCH-ACK-TRANSFER
 
-- TS 38.413 8.4.4.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.4.4.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 8.4.4.3 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 - TS 38.413 9.3.4.9 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 - TS 38.413 9.2.3.9 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.1.1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 
 ### NGAP-HANDOVER-COMMAND-TRANSFER
 
-- TS 38.413 8.4.1.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.5.0 (`38413-f50.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.4.1.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.5.0 (`38413-f50.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 - TS 38.413 9.2.3.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.5.0 (`38413-f50.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 - TS 38.413 9.3.4.10 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.5.0 (`38413-f50.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.1.1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 
 ### NGAP-HANDOVER-CANCEL-ACK
 
-- TS 38.413 8.4.5.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.4.5.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 - TS 38.413 Table 8.1-1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 - TS 38.413 9.2.3.12 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 
@@ -312,6 +315,57 @@ Needs: NG Setup, registration, PDU session establishment.
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner no registered check) | did not complete a registration the check needs first |
 | `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-PATH-SWITCH-ACK-TRANSFER outcomes
+
+Owns: Xn path switch. Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `acknowledged` | PASS | TS 38.413 8.4.4.2 (shall); TS 38.413 9.1.1 (shall) | answered the PATH SWITCH REQUEST with an Acknowledge carrying a transfer for the switched PDU session |
+| `no-switched-list` | FAIL | TS 38.413 9.1.1 (shall) | sent the PATH SWITCH REQUEST ACKNOWLEDGE without the mandatory PDU Session Resource Switched List |
+| `transfer-missing` | FAIL | TS 38.413 9.1.1 (shall) | listed a switched PDU session without a Path Switch Request Acknowledge Transfer that decodes |
+| `session-not-listed` | WARN | availability | acknowledged the path switch without listing the UE's PDU session as switched |
+| `uplink-not-answered` | WARN | availability; absence within 2s (check bound; echoes are counted from half of it to all of it after the Acknowledge) | carried no echo of uplink sent after the path switch, where the echo peer answered before it |
+| `refused` | WARN | availability; reports Xn path switch as not completed | answered the PATH SWITCH REQUEST with PATH SWITCH REQUEST FAILURE |
+| `unanswered` | FAIL | TS 38.413 8.4.4.2 (shall); TS 38.413 8.4.4.3 (shall); absence within 5s (check bound, the target NG Setup included; TS 38.413 sets no timer for the answer); reports Xn path switch as not completed | sent neither PATH SWITCH REQUEST ACKNOWLEDGE nor PATH SWITCH REQUEST FAILURE |
+| `other-answer` | FAIL | TS 38.413 8.4.4.2 (shall); TS 38.413 8.4.4.3 (shall); reports Xn path switch as not completed | answered the PATH SWITCH REQUEST with another message, or lost the association, instead of ACKNOWLEDGE or FAILURE |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner no registered check) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-HANDOVER-COMMAND-TRANSFER outcomes
+
+Owns: N2 handover preparation. Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `command-with-transfers` | PASS | TS 38.413 8.4.1.2 (shall); TS 38.413 9.1.1 (shall) | answered the HANDOVER REQUIRED with a HANDOVER COMMAND listing PDU sessions, each with a Handover Command Transfer |
+| `no-handover-list` | FAIL | TS 38.413 8.4.1.2 (shall) | sent the HANDOVER COMMAND of an intra-system handover without the PDU Session Resource Handover List |
+| `transfer-missing` | FAIL | TS 38.413 9.1.1 (shall) | listed a PDU session in the HANDOVER COMMAND without a Handover Command Transfer that decodes |
+| `refused` | WARN | availability; reports N2 handover preparation as not completed | answered the HANDOVER REQUIRED with HANDOVER PREPARATION FAILURE |
+| `unanswered` | WARN | availability; absence within 8s (check bound, the target NG Setup included; TS 38.413 leaves the value of TNGRELOCprep, the source's timer for the preparation, to the implementation); reports N2 handover preparation as not completed | sent neither HANDOVER COMMAND nor HANDOVER PREPARATION FAILURE for the HANDOVER REQUIRED |
+| `no-command` | WARN | availability; reports N2 handover preparation as not completed | answered the HANDOVER REQUIRED with another message, or lost an association, instead of HANDOVER COMMAND |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner no registered check) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-HANDOVER-CANCEL-ACK outcomes
+
+Needs: NG Setup, registration, PDU session establishment, N2 handover preparation.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `acknowledged` | INFO | TS 38.413 8.4.5.2 (descriptive); TS 38.413 9.2.3.12 (descriptive) | answered the HANDOVER CANCEL with HANDOVER CANCEL ACKNOWLEDGE |
+| `not-acknowledged` | INFO | TS 38.413 8.4.5.2 (descriptive); absence within 5s (check bound; TS 38.413 sets no timer for the acknowledge) | sent no HANDOVER CANCEL ACKNOWLEDGE for the HANDOVER CANCEL |
+| `association-lost` | WARN | availability | dropped the source gNB's association after the HANDOVER CANCEL |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner no registered check) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-n2-handover-preparation` | BLOCKED | N2 handover preparation (owner NGAP-HANDOVER-COMMAND-TRANSFER) | did not complete an N2 handover preparation the check needs first |
 
 ### NGAP-UNKNOWN-UE-SURVIVES outcomes
 

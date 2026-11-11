@@ -2,6 +2,9 @@ package conformance
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -14,10 +17,10 @@ import (
 	"github.com/bgrewell/orbit/internal/testnet"
 )
 
-// classifyPathSwitchAck fails a missing list, a missing or undecodable
-// transfer, a session left out, and silence after a switch that kept the
-// uplink endpoint; silence after one that moved it is an ERROR; an absent UL
-// NG-U UP TNL Information alone never fails.
+// classifyPathSwitchAck fails a missing list and a missing or undecodable
+// transfer; a session left out, and silence after the switch whether it
+// kept or moved the uplink endpoint, are WARN; an absent UL NG-U UP TNL
+// Information alone never fails.
 func TestClassifyPathSwitchAck(t *testing.T) {
 	const oldTEID, newTEID = 0x100, 0x200
 	t0 := time.Unix(1000, 0)
@@ -59,12 +62,12 @@ func TestClassifyPathSwitchAck(t *testing.T) {
 			wantObserved: "Acknowledge with a transfer for the switched PDU session; UL NG-U UP TNL Information absent, uplink not probed",
 			wantDetail:   []string{"uplink not probed (the echo peer did not answer before the handover)"}},
 		{name: "an echo in the first half of the window does not count", switched: list(item(1, 1, "", false)), traffic: "10.1.1.1:7",
-			gpdus: []datapath.GPDUArrival{before, gp(600*time.Millisecond, newTEID)}, want: Fail,
+			gpdus: []datapath.GPDUArrival{before, gp(600*time.Millisecond, newTEID)}, want: Warn,
 			wantObserved: "uplink not answered after a path switch that kept the uplink endpoint (no UL NG-U UP TNL Information)"},
 		{name: "an echo after the window does not count", switched: list(item(1, 1, "", false)), traffic: "10.1.1.1:7",
-			gpdus: []datapath.GPDUArrival{before, gp(3*time.Second, newTEID)}, want: Fail},
+			gpdus: []datapath.GPDUArrival{before, gp(3*time.Second, newTEID)}, want: Warn},
 		{name: "silent after a switch that moved the uplink endpoint", switched: list(item(1, 9, "", true)), traffic: "10.1.1.1:7",
-			gpdus: []datapath.GPDUArrival{before}, want: Error,
+			gpdus: []datapath.GPDUArrival{before}, want: Warn,
 			wantObserved: "uplink not answered after a path switch that moved the uplink endpoint"},
 		{name: "no Switched List", switched: &gnb.PathSwitchAck{}, want: Fail,
 			wantObserved: "PATH SWITCH REQUEST ACKNOWLEDGE without a PDU Session Resource Switched List", wantDetail: []string{"Switched List: none"}},
@@ -77,14 +80,15 @@ func TestClassifyPathSwitchAck(t *testing.T) {
 			wantDetail:   []string{"PDU session 1: transfer of 3 octets does not decode (bad bits)"}},
 		{name: "another session's transfer missing", switched: list(item(1, 1, "", false), item(2, 0, "", false)), want: Fail,
 			wantObserved: "PDU session 2 switched without a Path Switch Request Acknowledge Transfer"},
-		{name: "the UE's session not listed", switched: list(item(2, 1, "", false)), want: Fail,
+		{name: "the UE's session not listed", switched: list(item(2, 1, "", false)), want: Warn,
 			wantObserved: "PDU session 1 is not in the PDU Session Resource Switched List"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			o := PathObservation{OldTEID: oldTEID, NewTEID: newTEID, Started: started, Ack: ack, AckFromEvent: true,
 				GPDUs: tc.gpdus, Traffic: tc.traffic, Switched: tc.switched}
-			v, observed, detail := classifyPathSwitchAck(o, 1, window)
+			out, observed, detail := classifyPathSwitchAck(o, 1, window)
+			v := covers(out).Verdict
 			if v != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
 			}
@@ -119,6 +123,56 @@ func TestPathSwitchAckFailureMessage(t *testing.T) {
 	}
 }
 
+// classifyPathSwitchUnacknowledged: a PATH SWITCH REQUEST FAILURE is WARN,
+// no answer and another answer FAIL; each reports the Xn path switch as not
+// completed.
+func TestClassifyPathSwitchUnacknowledged(t *testing.T) {
+	notAck := func(more ...error) error {
+		args := []any{engine.ErrPathSwitchNotAcknowledged}
+		format := "%w"
+		for _, e := range more {
+			args = append(args, e)
+			format += ": %w"
+		}
+		return fmt.Errorf(format, args...)
+	}
+	tests := []struct {
+		name         string
+		err          error
+		want         Outcome
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "refused", err: notAck(engine.ErrPathSwitchRefused), want: pathSwitchRefused,
+			wantObserved: "PATH SWITCH REQUEST FAILURE instead of PATH SWITCH REQUEST ACKNOWLEDGE", wantDetail: "TS 38.413 8.4.4.3 requires"},
+		{name: "unanswered", err: notAck(context.DeadlineExceeded), want: pathSwitchUnanswered,
+			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE", wantDetail: "within 5s of starting the handover (absence inferred within this bound)"},
+		{name: "another answer", err: notAck(errors.New("the core answered with ErrorIndication")), want: pathSwitchOtherAnswer,
+			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE (another answer, or the association lost)", wantDetail: "ErrorIndication"},
+		{name: "association lost", err: notAck(io.EOF), want: pathSwitchOtherAnswer, wantDetail: "EOF"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := classifyPathSwitchUnacknowledged(tc.err, 5*time.Second)
+			if covers(o).ID != tc.want.ID {
+				t.Fatalf("outcome %s (%s; %s), want %s", o.ID, observed, detail, tc.want.ID)
+			}
+			if tc.wantObserved != "" && observed != tc.wantObserved {
+				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
+			}
+			if !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("detail %q lacks %q", detail, tc.wantDetail)
+			}
+			if o.NotCompleted != ProcXnPathSwitch {
+				t.Errorf("not completed %q, want %q", o.NotCompleted, ProcXnPathSwitch)
+			}
+			if (o.Verdict == Fail) != strings.HasPrefix(detail, pathSwitchAckFailure) {
+				t.Errorf("detail %q: the failure message leads a FAIL and only a FAIL", detail)
+			}
+		})
+	}
+}
+
 // Without a UE the check SKIPs, and an env the harness refuses is an ERROR
 // before anything is dialled.
 func TestPathSwitchAckCheckWithoutHarness(t *testing.T) {
@@ -149,9 +203,9 @@ func TestPathSwitchAckCheckWithoutHarness(t *testing.T) {
 
 // The check's verdicts over the real-SCTP mock pair: an Acknowledge with a
 // transfer PASSes with or without UL NG-U UP TNL Information, with the
-// uplink answered when an echo peer is there; an omitted transfer, an
-// uplink endpoint moved without saying so, a Failure and no answer FAIL.
-// Every path leaves no association open.
+// uplink answered when an echo peer is there; an omitted transfer and no
+// answer FAIL; an uplink endpoint moved without saying so and a Failure are
+// WARN. Every path leaves no association open.
 func TestPathSwitchAckCheckAgainstMockPair(t *testing.T) {
 	const peer = "192.0.2.7:7"
 	tests := []struct {
@@ -183,15 +237,15 @@ func TestPathSwitchAckCheckAgainstMockPair(t *testing.T) {
 			wantObserved: "PDU session 1 switched without a Path Switch Request Acknowledge Transfer",
 			wantDetail:   []string{pathSwitchAckFailure, "PDU session 1: no transfer"}},
 		{name: "uplink endpoint moved without UL TNL", net24: testnet.ConformancePSAckHiddenUL, upf: mockupf.Options{Echo: true},
-			answer: mockamf.AckHidingULChange, traffic: peer, want: Fail, switches: 1,
+			answer: mockamf.AckHidingULChange, traffic: peer, want: Warn, switches: 1,
 			wantObserved: "uplink not answered after a path switch that kept the uplink endpoint (no UL NG-U UP TNL Information)",
-			wantDetail:   []string{pathSwitchAckFailure, "uplink not answered after the path switch", "0 on the new path and 0 on the old path"}},
-		{name: "path switch request failure", net24: testnet.ConformancePSAckFailure, answer: mockamf.FailPathSwitch, want: Fail,
-			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE",
-			wantDetail:   []string{pathSwitchAckFailure, "the core answered with PATH SWITCH REQUEST FAILURE"}},
+			wantDetail:   []string{"uplink not answered after the path switch", "0 on the new path and 0 on the old path"}},
+		{name: "path switch request failure", net24: testnet.ConformancePSAckFailure, answer: mockamf.FailPathSwitch, want: Warn,
+			wantObserved: "PATH SWITCH REQUEST FAILURE instead of PATH SWITCH REQUEST ACKNOWLEDGE",
+			wantDetail:   []string{"the core answered with PATH SWITCH REQUEST FAILURE"}},
 		{name: "path switch request unanswered", net24: testnet.ConformancePSAckIgnored, answer: mockamf.IgnorePathSwitch, want: Fail,
 			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE",
-			wantDetail:   []string{pathSwitchAckFailure, "no Acknowledge within 1s", "await PathSwitch response"}},
+			wantDetail:   []string{pathSwitchAckFailure, "within 1s of starting the handover", "await PathSwitch response"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -203,6 +257,9 @@ func TestPathSwitchAckCheckAgainstMockPair(t *testing.T) {
 			r := ngapPathSwitchAckTransfer{ackWait: time.Second, uplinkWindow: 600 * time.Millisecond}.Run(ctx, env)
 			if r.Verdict != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", r.Verdict, r.Observed, r.Detail, tc.want)
+			}
+			if (r.Verdict == Fail) != strings.Contains(r.Detail, pathSwitchAckFailure) {
+				t.Errorf("detail %q: the failure message belongs on a FAIL only", r.Detail)
 			}
 			if r.Observed != tc.wantObserved {
 				t.Errorf("observed %q, want %q", r.Observed, tc.wantObserved)
@@ -229,8 +286,9 @@ func TestPathSwitchAckCheckAgainstMockPair(t *testing.T) {
 	}
 }
 
-// A registration the core refuses, and a per-test timeout that ends inside
-// the uplink window, are ERRORs, with no association left open.
+// A registration the core refuses is BLOCKED on the registration, a target
+// NG Setup it rejects BLOCKED on the NG Setup, and a per-test timeout that
+// ends inside the uplink window an ERROR, with no association left open.
 func TestPathSwitchAckCheckErrors(t *testing.T) {
 	t.Run("registration refused", func(t *testing.T) {
 		c := newMockCore(t, testnet.ConformancePSAckRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
@@ -238,8 +296,21 @@ func TestPathSwitchAckCheckErrors(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		r := ngapPathSwitchAckTransfer{}.Run(ctx, env)
-		if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
-			t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+		if r.Verdict != Blocked || r.BlockedOn != ProcRegistration || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+			t.Errorf("result %s on %q / %q / %q, want BLOCKED on the registration, naming the step", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
+		}
+		c.assertClosed(t, env)
+	})
+	t.Run("target NG Setup rejected", func(t *testing.T) {
+		c := newMockCore(t, testnet.ConformancePSAckTargetNGSetup, mockupf.Options{}, testKi,
+			mockamf.WithDuplicateRANNodeID(mockamf.RejectDuplicateRANNode))
+		env := ueEnv(c.front.Addr, "", c.n3)
+		env.TargetGNBID = env.GNB.ID // the target presents the source's gNB ID, which the mock rejects
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		r := ngapPathSwitchAckTransfer{ackWait: time.Second}.Run(ctx, env)
+		if r.Verdict != Blocked || r.BlockedOn != ProcNGSetup || r.Observed != "the target gNB's NG Setup failed" || !strings.Contains(r.Detail, "target NG Setup rejected") {
+			t.Errorf("result %s on %q / %q / %q, want BLOCKED on the NG Setup", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
 		}
 		c.assertClosed(t, env)
 	})
@@ -295,7 +366,8 @@ func TestClassifyHandoverCommand(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := classifyHandoverCommand(tc.cmd, 1)
+			o, observed, detail := classifyHandoverCommand(tc.cmd, 1)
+			v := covers(o).Verdict
 			if v != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
 			}
@@ -314,9 +386,9 @@ func TestClassifyHandoverCommand(t *testing.T) {
 	}
 }
 
-// The failure message is the issue's, word for word.
+// The failure message states the requirement and names no core.
 func TestHandoverCommandFailureMessage(t *testing.T) {
-	const want = "HANDOVER COMMAND lacks the PDU Session Resource Handover List / per-item Handover Command Transfer. TS 38.413 8.4.1.2 (Rel-15 V15.5.0 onward), 9.3.4.10. Likely cause: the known SD-Core transfer-IE issue (docs/interop)."
+	const want = "HANDOVER COMMAND lacks the PDU Session Resource Handover List / per-item Handover Command Transfer. TS 38.413 8.4.1.2 (Rel-15 V15.5.0 onward), 9.2.3.2, 9.1.1."
 	if handoverCommandFailure != want {
 		t.Errorf("failure message = %q", handoverCommandFailure)
 	}
@@ -342,7 +414,7 @@ func TestHandoverCommandCheckWithoutHarness(t *testing.T) {
 		{name: "no UE", env: noUE, want: Skip, wantObserved: "no UE configured", wantDetail: "--supi"},
 		{name: "fixed bind port", env: fixed, want: Error, wantObserved: "harness setup failed", wantDetail: "fixes a port"},
 		{name: "target release before Rel-15", env: old, want: Skip, wantObserved: "requires a newer release than the target",
-			wantDetail: "requires Rel-15 (TS 38.413 8.4.1.2); target release is Rel-14"},
+			wantDetail: "requires Rel-15 (TS 38.413 8.4.1.2; TS 38.413 9.1.1); target release is Rel-14"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -356,9 +428,10 @@ func TestHandoverCommandCheckWithoutHarness(t *testing.T) {
 
 // The check's verdicts over the real-SCTP mock pair: a HANDOVER COMMAND
 // with the list and a transfer per item PASSes; the list dropped, and an
-// item whose transfer is empty or does not decode, FAIL; a handover that
-// never reaches the command is an ERROR. The UE is deregistered from
-// whichever gNB it ends on, and no association stays open.
+// item whose transfer is empty or does not decode, FAIL; a handover the
+// core refuses or does not answer is WARN and reports the N2 handover
+// preparation as not completed. The UE is deregistered from whichever gNB
+// it ends on, and no association stays open.
 func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -381,14 +454,14 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 		{name: "transfer undecodable", net24: testnet.ConformanceHOCmdBadTransfe, answer: mockamf.CommandWithBadTransfer, want: Fail, completed: 1,
 			wantObserved: "PDU session 1 listed with a Handover Command Transfer that does not decode",
 			wantDetail:   []string{handoverCommandFailure, "PDU session 1: transfer of 1 octets does not decode"}},
-		{name: "preparation failure", net24: testnet.ConformanceHOCmdPrepFail, answer: mockamf.FailHandoverPreparation, want: Error,
-			wantObserved: "HANDOVER PREPARATION FAILURE instead of HANDOVER COMMAND",
-			wantDetail:   []string{"HANDOVER PREPARATION FAILURE, cause radio-network/", "no HANDOVER COMMAND to judge"}},
-		{name: "handover required unanswered", net24: testnet.ConformanceHOCmdUnanswered, answer: mockamf.IgnoreHandoverRequired, want: Error,
-			wantObserved: "handover did not reach Handover Command"},
-		{name: "preparation failure after the acknowledge", net24: testnet.ConformanceHOCmdFailAcked, answer: mockamf.FailHandoverAfterAcknowledge, want: Error,
-			wantObserved: "HANDOVER PREPARATION FAILURE instead of HANDOVER COMMAND",
-			wantDetail:   []string{"HANDOVER PREPARATION FAILURE, cause radio-network/", "no HANDOVER COMMAND to judge"}},
+		{name: "preparation failure", net24: testnet.ConformanceHOCmdPrepFail, answer: mockamf.FailHandoverPreparation, want: Warn,
+			wantObserved: "HANDOVER PREPARATION FAILURE (cause radio-network/7) instead of HANDOVER COMMAND",
+			wantDetail:   []string{"before a HandoverRequest reached the target: HANDOVER PREPARATION FAILURE, cause radio-network/"}},
+		{name: "handover required unanswered", net24: testnet.ConformanceHOCmdUnanswered, answer: mockamf.IgnoreHandoverRequired, want: Warn,
+			wantObserved: "no HANDOVER COMMAND", wantDetail: []string{"within 1s of starting the handover (absence inferred within this bound)", "await HandoverRequest"}},
+		{name: "preparation failure after the acknowledge", net24: testnet.ConformanceHOCmdFailAcked, answer: mockamf.FailHandoverAfterAcknowledge, want: Warn,
+			wantObserved: "HANDOVER PREPARATION FAILURE (cause radio-network/7) instead of HANDOVER COMMAND",
+			wantDetail:   []string{"after the target's HandoverRequestAcknowledge: HANDOVER PREPARATION FAILURE, cause radio-network/"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -397,12 +470,15 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			check := ngapHandoverCommandTransfer{}
-			if tc.want == Error {
+			if tc.want == Warn {
 				check.wait = time.Second
 			}
 			r := check.Run(ctx, env)
 			if r.Verdict != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", r.Verdict, r.Observed, r.Detail, tc.want)
+			}
+			if (tc.want == Warn) != (r.NotCompleted == ProcN2HandoverPreparation) {
+				t.Errorf("not completed %q for %s; a handover without a command and only that reports the preparation as not completed", r.NotCompleted, tc.want)
 			}
 			if r.Observed != tc.wantObserved {
 				t.Errorf("observed %q, want %q", r.Observed, tc.wantObserved)
@@ -429,23 +505,76 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 	}
 }
 
-// A registration the core refuses is an ERROR naming the step, with no
+// A registration the core refuses is BLOCKED on the registration, and a
+// target NG Setup it rejects BLOCKED on the NG Setup, each with no
 // association left open.
-func TestHandoverCommandCheckRegistrationFailure(t *testing.T) {
-	c := newMockCore(t, testnet.ConformanceHOCmdRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
-	env := ueEnv(c.front.Addr, "", c.n3)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	r := ngapHandoverCommandTransfer{}.Run(ctx, env)
-	if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
-		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
-	}
-	c.assertClosed(t, env)
+func TestHandoverCommandCheckSetupFailure(t *testing.T) {
+	t.Run("registration refused", func(t *testing.T) {
+		c := newMockCore(t, testnet.ConformanceHOCmdRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
+		env := ueEnv(c.front.Addr, "", c.n3)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		r := ngapHandoverCommandTransfer{}.Run(ctx, env)
+		if r.Verdict != Blocked || r.BlockedOn != ProcRegistration || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+			t.Errorf("result %s on %q / %q / %q, want BLOCKED on the registration, naming the step", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
+		}
+		c.assertClosed(t, env)
+	})
+	t.Run("target NG Setup rejected", func(t *testing.T) {
+		c := newMockCore(t, testnet.ConformanceHOCmdTargetNGSetup, mockupf.Options{}, testKi,
+			mockamf.WithDuplicateRANNodeID(mockamf.RejectDuplicateRANNode), mockamf.WithGUTI())
+		env := ueEnv(c.front.Addr, "", c.n3)
+		env.TargetGNBID = env.GNB.ID // the target presents the source's gNB ID, which the mock rejects
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		r := ngapHandoverCommandTransfer{wait: time.Second}.Run(ctx, env)
+		if r.Verdict != Blocked || r.BlockedOn != ProcNGSetup || r.Observed != "the target gNB's NG Setup failed" || !strings.Contains(r.Detail, "target NG Setup rejected") {
+			t.Errorf("result %s on %q / %q / %q, want BLOCKED on the NG Setup", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
+		}
+		c.assertClosed(t, env)
+	})
 }
 
-// classifyHandoverCancel reports an acknowledged cancel as INFO and a
-// missing acknowledge as INFO-DIFF, recording the target's release and what
-// else the source read.
+// classifyHandoverNotCommanded: a refusal, no answer and another answer are
+// each WARN for availability and report the N2 handover preparation as not
+// completed; the refusal names its cause.
+func TestClassifyHandoverNotCommanded(t *testing.T) {
+	tests := []struct {
+		name         string
+		err          error
+		want         Outcome
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "refused", err: fmt.Errorf("%w: after the target's HandoverRequestAcknowledge: %w", engine.ErrHandoverNotCommanded, &gnb.HandoverPreparationFailure{Cause: "radio-network/7"}),
+			want: handoverRefused, wantObserved: "HANDOVER PREPARATION FAILURE (cause radio-network/7) instead of HANDOVER COMMAND", wantDetail: "it answered with HANDOVER PREPARATION FAILURE"},
+		{name: "unanswered", err: fmt.Errorf("%w: await HandoverRequest: %w", engine.ErrHandoverNotCommanded, context.DeadlineExceeded),
+			want: handoverUnanswered, wantObserved: "no HANDOVER COMMAND", wantDetail: "within 8s of starting the handover"},
+		{name: "another answer", err: fmt.Errorf("%w: HandoverCommand: %w", engine.ErrHandoverNotCommanded, errors.New("ErrorIndication")),
+			want: handoverOtherAnswer, wantObserved: "no HANDOVER COMMAND (another answer, or an association lost)", wantDetail: "ErrorIndication"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := classifyHandoverNotCommanded(tc.err, n2HandoverWait)
+			if covers(o).ID != tc.want.ID {
+				t.Fatalf("outcome %s (%s; %s), want %s", o.ID, observed, detail, tc.want.ID)
+			}
+			if observed != tc.wantObserved {
+				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
+			}
+			if !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("detail %q lacks %q", detail, tc.wantDetail)
+			}
+			if o.Verdict != Warn || o.Criterion != CriterionAvailability || o.NotCompleted != ProcN2HandoverPreparation {
+				t.Errorf("%s %s, not completed %q; want WARN (availability) reporting the preparation as not completed", o.Verdict, o.Criterion, o.NotCompleted)
+			}
+		})
+	}
+}
+
+// classifyHandoverCancel reports an acknowledged cancel and a missing
+// acknowledge as INFO and a lost source association as WARN, recording the
+// target's release and what else the source read.
 func TestClassifyHandoverCancel(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -460,16 +589,17 @@ func TestClassifyHandoverCancel(t *testing.T) {
 		{name: "acknowledged after other PDUs, target not released", want: Info,
 			res:        engine.HandoverCancelResult{Acknowledged: true, AckAfter: time.Second, Skipped: []string{"DownlinkNASTransport", "ErrorIndication"}},
 			wantDetail: []string{"other PDUs on the source association while waiting: DownlinkNASTransport, ErrorIndication", "no UE Context Release Command at the target gNB"}},
-		{name: "not acknowledged", res: engine.HandoverCancelResult{TargetReleased: true}, want: infoDiffers,
+		{name: "not acknowledged", res: engine.HandoverCancelResult{TargetReleased: true}, want: Info,
 			wantObserved: "no HANDOVER CANCEL ACKNOWLEDGE within 5s", wantDetail: []string{handoverCancelText}},
-		{name: "source association lost", res: engine.HandoverCancelResult{SourceLost: errReset}, want: infoDiffers,
+		{name: "source association lost", res: engine.HandoverCancelResult{SourceLost: errReset}, want: Warn,
 			wantObserved: "association lost after the HANDOVER CANCEL", wantDetail: []string{"connection reset", "no UE Context Release Command at the target gNB"}},
-		{name: "not acknowledged, an Error Indication instead", res: engine.HandoverCancelResult{Skipped: []string{"ErrorIndication"}}, want: infoDiffers,
+		{name: "not acknowledged, an Error Indication instead", res: engine.HandoverCancelResult{Skipped: []string{"ErrorIndication"}}, want: Info,
 			wantDetail: []string{handoverCancelText, "other PDUs on the source association while waiting: ErrorIndication"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := classifyHandoverCancel(tc.res, 5*time.Second)
+			o, observed, detail := classifyHandoverCancel(tc.res, 5*time.Second)
+			v := covers(o).Verdict
 			if v != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
 			}
@@ -485,14 +615,14 @@ func TestClassifyHandoverCancel(t *testing.T) {
 	}
 }
 
-// The check is informational, on descriptive references alone, and SKIPs
-// without a UE.
-func TestHandoverCancelCheckIsInformational(t *testing.T) {
+// The check is a characterisation, on descriptive references alone, whose
+// worst verdict is WARN, and SKIPs without a UE.
+func TestHandoverCancelCheckIsCharacterisation(t *testing.T) {
 	c := ngapHandoverCancelAck{}
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if !IsInformational(c) || VerdictClass(c) != Info || WorstVerdict(c) != Info || MinRelease(c) != 15 {
+	if IsInformational(c) || VerdictClass(c) != Warn || WorstVerdict(c) != Warn || MinRelease(c) != 15 {
 		t.Errorf("informational %v, class %s, worst %s, min %s", IsInformational(c), VerdictClass(c), WorstVerdict(c), MinRelease(c))
 	}
 	for _, r := range c.SpecRefs() {
@@ -511,11 +641,11 @@ func TestHandoverCancelCheckIsInformational(t *testing.T) {
 }
 
 // The check's verdicts over the real-SCTP mock pair, through the registry's
-// scoring: the acknowledge is INFO, a withheld one INFO-DIFF, neither of
-// which gates, and a handover that is never prepared is an ERROR. A core
-// that stops answering on the cancel did not survive: FAIL, which gates.
-// The UE is deregistered from its source gNB every time the core is still
-// there, and no association stays open.
+// scoring: the acknowledge and a withheld one are INFO, which does not
+// gate, and a handover the core does not prepare is BLOCKED on the N2
+// handover preparation. A core that stops answering on the cancel did not
+// survive: CRASH. The UE is deregistered from its source gNB every time the
+// core is still there, and no association stays open.
 func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -533,7 +663,8 @@ func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 			want: Info, cancels: 1, wantObserved: "no HANDOVER CANCEL ACKNOWLEDGE within 400ms",
 			wantDetail: []string{handoverCancelText, "a fresh NG Setup afterwards completes"}},
 		{name: "preparation failure", net24: testnet.ConformanceCancelNoPrep, opts: []mockamf.Option{mockamf.WithHandoverAnswer(mockamf.FailHandoverPreparation)},
-			want: Error, wantObserved: "handover did not reach Handover Command", wantDetail: []string{"handover not prepared", "before a HandoverRequest reached the target: HANDOVER PREPARATION FAILURE"}},
+			want: Blocked, wantObserved: "HANDOVER PREPARATION FAILURE (cause radio-network/7) instead of HANDOVER COMMAND",
+			wantDetail: []string{"nothing to cancel", "handover not prepared", "before a HandoverRequest reached the target: HANDOVER PREPARATION FAILURE"}},
 		{name: "stops answering", net24: testnet.ConformanceCancelCrash, opts: []mockamf.Option{mockamf.WithCrashOnHandoverCancel()},
 			want: Crash, cancels: 1, dead: true, wantObserved: "AMF unresponsive after the message (association lost after the HANDOVER CANCEL)",
 			wantDetail: []string{"the source association ended before a HANDOVER CANCEL ACKNOWLEDGE", "core did not survive the HANDOVER CANCEL: the AMF no longer completes a fresh NG Setup"}},
@@ -554,7 +685,7 @@ func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 			if tc.want == Info && tc.wantObserved == "" && !strings.HasPrefix(r.Observed, "HANDOVER CANCEL ACKNOWLEDGE after ") {
 				t.Errorf("observed %q, want the acknowledge", r.Observed)
 			}
-			for _, w := range append(tc.wantDetail, informationalNote, "requires Rel-15 or later; TS 38.413 8.4.5.2") {
+			for _, w := range append(tc.wantDetail, "requires Rel-15 or later; TS 38.413 8.4.5.2") {
 				if !strings.Contains(r.Detail, w) {
 					t.Errorf("detail %q lacks %q", r.Detail, w)
 				}
@@ -562,7 +693,10 @@ func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
 				t.Error("detail carries key material")
 			}
-			if gated, want := !Summarize([]Result{r}).OK(), tc.want == Crash || tc.want == Error; gated != want {
+			if tc.want == Blocked && r.BlockedOn != ProcN2HandoverPreparation {
+				t.Errorf("blocked on %q, want %q", r.BlockedOn, ProcN2HandoverPreparation)
+			}
+			if gated, want := !Summarize([]Result{r}).OK(), tc.want != Info; gated != want {
 				t.Errorf("gated = %v for %s, want %v", gated, tc.want, want)
 			}
 			if got := c.amf.HandoverCancels(); got != tc.cancels {
@@ -592,16 +726,16 @@ func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 	}
 }
 
-// A registration the core refuses is an ERROR naming the step, with no
-// association left open.
+// A registration the core refuses is BLOCKED on the registration, naming
+// the step, with no association left open.
 func TestHandoverCancelCheckRegistrationFailure(t *testing.T) {
 	c := newMockCore(t, testnet.ConformanceCancelRegFail, mockupf.Options{}, "000102030405060708090a0b0c0d0e0f")
 	env := ueEnv(c.front.Addr, "", c.n3)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	r := ngapHandoverCancelAck{}.Run(ctx, env)
-	if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
-		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+	if r.Verdict != Blocked || r.BlockedOn != ProcRegistration || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+		t.Errorf("result %s on %q / %q / %q, want BLOCKED on the registration, naming the step", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
 	}
 	c.assertClosed(t, env)
 }

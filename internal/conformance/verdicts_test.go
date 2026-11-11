@@ -224,7 +224,6 @@ var shouldOnly = map[string]bool{
 var informational = map[string]bool{
 	"NGAP-RAN-CONFIG-UPDATE-ACK":            true,
 	"NGAP-DUPLICATE-RAN-NODE-ID":            true,
-	"NGAP-HANDOVER-CANCEL-ACK":              true,
 	"NAS-INITIAL-MSG-NO-CONTAINER":          true,
 	"NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED": true,
 	"NAS-SMC-IMEISV-REQUEST":                true,

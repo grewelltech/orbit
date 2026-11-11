@@ -192,6 +192,9 @@ const ()
 const (
 	EngineTargetNGSetupXn = 11 // TestHandoverTargetNGSetupRejected/Xn
 	EngineTargetNGSetupN2 = 12 // TestHandoverTargetNGSetupRejected/N2
+
+	ConformancePSAckTargetNGSetup = 13 // TestPathSwitchAckCheckErrors/target_NG_Setup_rejected
+	ConformanceHOCmdTargetNGSetup = 14 // TestHandoverCommandCheckSetupFailure/target_NG_Setup_rejected
 )
 
 // internal/conformance: the declared outcomes of the NAS registration

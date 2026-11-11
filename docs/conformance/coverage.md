@@ -117,11 +117,11 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Mobility management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) · ✅ `NGAP-HANDOVER-COMMAND-TRANSFER` (Handover List with a transfer per item) | ⬜ | transfer-IE bug already documented (interop); the check runs under strict-3gpp |
+| Handover Preparation (Required→Command) | RAN→AMF | ✅ (N2) · ✅ `NGAP-HANDOVER-COMMAND-TRANSFER` (owner of the N2 handover preparation; Handover List with a transfer per item) | ⬜ | transfer-IE bug already documented (interop); the check runs under strict-3gpp |
 | Handover Resource Allocation (Request→Ack) | AMF→RAN | ✅ | — | ORBIT admits/rejects |
 | Handover Notification | RAN→AMF | ✅ | ⬜ | |
-| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) · ✅ `NGAP-PATH-SWITCH-SECCAP-MISMATCH` (stored UE security capabilities returned on a mismatch) | 🎯 malformed transfer / unknown IDs | |
-| Handover Cancellation | RAN→AMF | ✅ `NGAP-HANDOVER-CANCEL-ACK` (informational: is the cancel acknowledged?) | ⬜ | no "shall" or "should" for the acknowledge in 8.4.5 |
+| Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (owner of the Xn path switch; Acknowledge with a transfer per switched session) · ✅ `NGAP-PATH-SWITCH-SECCAP-MISMATCH` (stored UE security capabilities returned on a mismatch) | 🎯 malformed transfer / unknown IDs | |
+| Handover Cancellation | RAN→AMF | ✅ `NGAP-HANDOVER-CANCEL-ACK` (characterisation: is the cancel acknowledged?) | ⬜ | no "shall" or "should" for the acknowledge in 8.4.5 |
 | Uplink/Downlink RAN Status Transfer | both | ⬜ | ⬜ | |
 
 ### Lower-priority families (enumerate, then prioritise)
@@ -260,10 +260,13 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   (9.2.3.9). UL NG-U UP TNL Information inside the transfer is optional from
   V15.1.0 (9.3.4.9) and never required: absent, it means the uplink endpoint
   is unchanged, so with `--traffic` the check also expects an echo of uplink
-  sent after the switch, and FAILs without one when the peer answered before
-  the switch. Without `--traffic` the uplink is recorded as not probed. A
-  PATH SWITCH REQUEST FAILURE, or no answer within 5 s, is FAIL. Needs a UE,
-  else SKIP. Not yet run on Ref 2.
+  sent after the switch, and WARNs (availability) without one when the peer
+  answered before the switch. Without `--traffic` the uplink is recorded as
+  not probed. A missing Switched List or transfer is FAIL (9.1.1: both are
+  mandatory). No answer within 5 s, or another one, is FAIL: 8.4.4.2 and
+  8.4.4.3 require the Acknowledge or the PATH SWITCH REQUEST FAILURE. The
+  FAILURE itself is WARN (availability). The check owns the Xn path switch.
+  Needs a UE, else SKIP. Not yet run on Ref 2.
 
 - `NGAP-HANDOVER-COMMAND-TRANSFER` (mobility, FAIL-class) — a UE with a PDU
   session hands over by N2; for an intra-system handover the HANDOVER
@@ -274,8 +277,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   only. The target gNB sends the conformant Handover Request Acknowledge
   Transfer (strict-3gpp, never the `sdcore` profile), so the check measures
   what [interop/sdcore.md](../interop/sdcore.md) Finding 1 does to the
-  command. A handover that never reaches the command is ERROR. Needs a UE,
-  else SKIP. Not yet run on Ref 2.
+  command. A HANDOVER PREPARATION FAILURE, no answer within 8 s, or another
+  answer is WARN (availability): no shall obliges the AMF to prepare the
+  handover. The check owns the N2 handover preparation. Needs a UE, else
+  SKIP. Not yet run on Ref 2.
 
 - `NGAP-UE-CTX-RELEASE-ON-REQUEST` (procedural, DEVIATION-class) — a
   registered UE's gNB sends a UE CONTEXT RELEASE REQUEST, cause radio network
@@ -287,17 +292,19 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   needs the 5G-GUTI, and the detail says how the cleanup went. Needs a UE,
   else SKIP. Not yet run on Ref 2.
 
-- `NGAP-HANDOVER-CANCEL-ACK` (mobility, INFO-class) — a UE with a PDU
+- `NGAP-HANDOVER-CANCEL-ACK` (mobility, WARN-class) — a UE with a PDU
   session has an N2 handover prepared up to the HANDOVER COMMAND, and the
   source gNB then sends HANDOVER CANCEL. TS 38.413 8.4.5 has no "shall" or
   "should" for the AMF: the acknowledge is the response of a class 1
   procedure (Table 8.1-1), 9.2.3.12 says what it confirms, and 8.4.5.4 has
-  the source take a missing one as success. So the check is informational:
-  a HANDOVER CANCEL ACKNOWLEDGE within 5 s is INFO and none is INFO-DIFF.
-  Whether the AMF released the context prepared at the target is recorded.
-  A fresh NG Setup is tried afterwards; a core that no longer completes it
-  did not survive and is FAIL. The UE stays on its source gNB. Needs a UE,
-  else SKIP. Not yet run on Ref 2.
+  the source take a missing one as success. So the check is a
+  characterisation: a HANDOVER CANCEL ACKNOWLEDGE within 5 s and none are
+  both INFO; a dropped source association is WARN (availability). A
+  handover the core does not prepare is BLOCKED on the N2 handover
+  preparation. Whether the AMF released the context prepared at the target
+  is recorded. A fresh NG Setup is tried afterwards; a core that no longer
+  completes it did not survive: CRASH. The UE stays on its source gNB.
+  Needs a UE, else SKIP. Not yet run on Ref 2.
 
 - `NAS-T3560-AUTH-RETRANSMIT` (nas, FAIL-class) — the UE withholds its
   Authentication Response; the AMF must retransmit the Authentication
