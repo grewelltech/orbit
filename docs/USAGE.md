@@ -1650,7 +1650,8 @@ Security Mode Complete's NAS message container. It passes when the
 registration is answered as the container's request is when sent alone
 (TS 24.501 5.4.2.4), and fails otherwise; two conformant reference
 registrations show how the core answers each value, so it runs three
-registrations and can take up to 53 s. It SKIPs when the core refuses the
+registrations, each as its own subscriber when the pool has one for each,
+and can take up to 52 s. It SKIPs when the core refuses the
 initial message outright or answers both values alike. The other three are
 informational and never gate: `NAS-INITIAL-MSG-NO-CONTAINER` leaves the
 container out and reports whether the core asks for the message again,

@@ -85,7 +85,7 @@ func (c nasSMCIMEISVRequest) Run(ctx context.Context, env Env) Result {
 	defer h.Close()
 	wait := c.waitTimeout()
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: h.pdu.Slice(), omitIMEISV: true, stopAtSecondSMC: true}, wait)
-	left := deregisterAfter(ctx, h, o, c.settleTime())
+	left := deregisterAfter(h, o)
 	r.Verdict, r.Observed, r.Detail = judgeIMEISV(o, wait)
 	r.Detail = joinDetail(r.Detail, "stimulus: a conformant registration whose SECURITY MODE COMPLETE carries no IMEISV, requested or not; an IDENTITY REQUEST is answered")
 	r.Detail = joinDetail(r.Detail, "state left: "+left)

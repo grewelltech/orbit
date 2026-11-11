@@ -45,4 +45,4 @@ One registration without a PDU session. The initial REGISTRATION REQUEST is the 
 - **FAIL:** a fresh NG Setup after the check does not complete: the core did not survive. Observed is `AMF unresponsive after the message (<what was observed>)`, and it gates.
 - **ERROR:** an Authentication Reject, a Registration Reject that cannot be read, or a registration that ended before any SECURITY MODE COMMAND without a Registration Reject.
 - **SKIP:** no UE configured, or a target release older than Rel-15.
-- **State left:** after an Accept the UE is deregistered (switch-off). In every other case the association is closed with the UE not registered; a core that had sent a second SECURITY MODE COMMAND is left to its own T3560. The detail says which. The check then pauses 1 s, in which the core finishes releasing the UE context before the next check registers the same UE.
+- **State left:** after an Accept the UE is deregistered (switch-off). In every other case the association is closed with the UE not registered; a core that had sent a second SECURITY MODE COMMAND is left to its own T3560. The detail says which.

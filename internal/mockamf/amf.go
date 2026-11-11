@@ -231,6 +231,8 @@ type AMF struct {
 	// Initial UE Messages carried them (InitialRegistrationRequests).
 	regReqs        [][]byte
 	initialRegReqs [][]byte
+	// regSUPIs are those requests' SUPIs, guarded by mu (RegistrationSUPIs).
+	regSUPIs []string
 
 	// RAN Configuration Update (ranconfig.go): the answer, and the updates
 	// received, guarded by mu.
@@ -554,6 +556,7 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	st.regIdx = len(a.regReqs)
 	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
 	a.initialRegReqs = append(a.initialRegReqs, append([]byte(nil), up.nasPDU...))
+	a.regSUPIs = append(a.regSUPIs, supi)
 	a.mu.Unlock()
 	if a.tasDropped(p) {
 		return a.rejectRegistration(p, st, a.dropTAsCause)

@@ -172,7 +172,12 @@ func (ngapPathSwitchAckTransfer) Needs() CheckNeeds {
 func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
-func (nasInitialMsgContainerWins) Needs() CheckNeeds        { return ueNeeds }
+
+// Needs is one UE at a time and a subscriber for each of the check's three
+// registrations.
+func (nasInitialMsgContainerWins) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, Subscribers: 3, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+}
 func (nasInitialMsgNoContainer) Needs() CheckNeeds          { return ueNeeds }
 func (nasInitialMsgNonCleartextAccepted) Needs() CheckNeeds { return ueNeeds }
 func (nasSMCIMEISVRequest) Needs() CheckNeeds               { return ueNeeds }

@@ -427,8 +427,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   one is PASS; any other answer is FAIL, named as the unprotected value's
   when it is that one. SKIP when the core refuses the initial message
   before a SECURITY MODE COMMAND (the container is never consulted) or
-  answers both references alike. Needs a UE; up to 53 s. Each accepted
-  registration is deregistered.
+  answers both references alike. Needs a UE; up to 52 s. Each registration
+  uses its own subscriber where the pool gives the check three, and each
+  accepted one is deregistered.
 - `NAS-INITIAL-MSG-NO-CONTAINER` (security, INFO-class) — the initial
   message has non-cleartext IEs in the clear and the SECURITY MODE COMPLETE
   has no NAS message container. No clause says what the AMF then does, so
