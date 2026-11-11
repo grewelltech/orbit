@@ -62,12 +62,12 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NAS-DEREG-ACCEPT-NOT-SWITCH-OFF
 
-- TS 24.501 5.5.2.2.2 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.2.2.2 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 Table 10.2.1 T3521 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
 ### NGAP-CTX-RELEASE-AFTER-SWITCH-OFF
 
-- TS 38.413 8.3.3.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.3.3.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 - TS 23.502 4.2.2.3.2 step 8 (descriptive, since Rel-15): Rel-15 V15.0.0 (`23502-f00.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
 - TS 24.501 5.5.2.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
@@ -286,6 +286,34 @@ Owns: AN release. Needs: NG Setup, registration.
 |---|---|---|---|
 | `release-command` | PASS | TS 38.413 8.3.2.2 (should) | answered the UE CONTEXT RELEASE REQUEST with a UE CONTEXT RELEASE COMMAND |
 | `no-release-command` | DEVIATION | TS 38.413 8.3.2.2 (should); absence within 5s (check bound; TS 38.413 sets no timer for the command); reports AN release as not completed | sent no UE CONTEXT RELEASE COMMAND for the UE CONTEXT RELEASE REQUEST |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-DEREG-ACCEPT-NOT-SWITCH-OFF outcomes
+
+Owns: deregistration. Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `accepted` | PASS | TS 24.501 5.5.2.2.2 (shall) | answered the Deregistration Request that is not switch-off with a Deregistration Accept |
+| `release-without-accept` | FAIL | TS 24.501 5.5.2.2.2 (shall); reports deregistration as not completed | released the UE context without a Deregistration Accept |
+| `no-accept` | FAIL | TS 24.501 5.5.2.2.2 (shall); absence within 15s (T3521, TS 24.501 Table 10.2.1: the UE's retransmission timer at its normal value; 5.5.2.2.2 sets the AMF no time limit); reports deregistration as not completed | sent no Deregistration Accept for the Deregistration Request that is not switch-off |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NGAP-CTX-RELEASE-AFTER-SWITCH-OFF outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `both-ids` | PASS | TS 38.413 8.3.3.2 (shall) | released the UE context after the switch-off, naming both UE NGAP IDs |
+| `no-ue-ngap-id` | FAIL | TS 38.413 8.3.3.2 (shall) | sent a UE CONTEXT RELEASE COMMAND carrying no UE NGAP ID |
+| `amf-id-only` | FAIL | TS 38.413 8.3.3.2 (shall) | named the UE by its AMF UE NGAP ID alone, with both IDs available |
+| `no-release` | WARN | availability; absence within 5s (check bound; neither TS 23.502 nor TS 38.413 sets a timer for the release) | sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration |
+| `release-for-other-ids` | WARN | availability | released only another UE NGAP ID pair, not the deregistered UE's connection |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |

@@ -12,9 +12,9 @@ The issue's candidate for the obligation was TS 24.501 5.5.2.2.2 or the TS 23.50
 - TS 23.502 4.2.2.3.2 step 8 has the release, in the indicative mood ("the AMF sends").
 - TS 38.413 8.3.3.2 gives the procedure and the message content, not its trigger.
 
-A check may FAIL a core only for a missed shall. So a core that sends no UE CONTEXT RELEASE COMMAND is **not scored** (SKIP, with what was seen), and the one requirement the check does assert is on the command's content.
+A check may FAIL a core only for a missed shall. So the one requirement the check asserts is on the command's content, and a core that sends no UE CONTEXT RELEASE COMMAND is graded by the WARN criteria (see Verdict).
 
-## TS 38.413 8.3.3.2 (UE Context Release (AMF initiated), Successful Operation), shall
+## TS 38.413 8.3.3.2 (UE Context Release (AMF initiated), Successful Operation), shall, primary
 
 > "The AMF initiates the procedure by sending the UE CONTEXT RELEASE COMMAND message to the NG-RAN node. The UE CONTEXT RELEASE COMMAND message shall contain both the AMF UE NGAP ID IE and the RAN UE NGAP ID IE if available, otherwise the message shall contain the AMF UE NGAP ID IE."
 
@@ -22,14 +22,7 @@ A check may FAIL a core only for a missed shall. So a core that sends no UE CONT
 - **Changes:** the quoted sentences are unchanged from Rel-15 through Rel-19. Rel-15: 8.3.3.1 is extended (V15.13.0 against V15.0.0) to mention releasing the old connection when the UE establishes a new one, and IE-handling sentences are added. Rel-16: further IE-handling sentences are added.
 - **Strength:** "initiates" is descriptive. The content sentence is a shall. The NG-RAN side is a shall too: "Upon reception of the UE CONTEXT RELEASE COMMAND message, the NG-RAN node shall release all related signalling and user data transport resources and reply with the UE CONTEXT RELEASE COMPLETE message." (unchanged V15.0.0 to V19.4.0); Orbit, as the gNB, answers with the COMPLETE.
 - **Use in the check:** the UE has registered, so the AMF holds both IDs of the connection (the RAN UE NGAP ID from the INITIAL UE MESSAGE) and "if available" is met.
-- **Verdicts:**
-  - A UE CONTEXT RELEASE COMMAND naming the connection's AMF UE NGAP ID and RAN UE NGAP ID: PASS.
-  - One naming the UE by its AMF UE NGAP ID alone, or carrying no UE NGAP ID: FAIL (`UE CONTEXT RELEASE COMMAND after switch-off deregistration names the UE by AMF UE NGAP ID <n> alone, with both UE NGAP IDs available. TS 38.413 8.3.3.2. Likely cause: AMF builds the release without the UE NGAP ID pair.`).
-  - None within 5 s: SKIP, `no UE CONTEXT RELEASE COMMAND within 5s; not scored`. The detail carries the finding: `no UE CONTEXT RELEASE COMMAND after switch-off deregistration. ... Likely cause: AMF leaves the N2 UE context.`
-  - A command for another UE NGAP ID or pair: SKIP, not scored; it does not answer this deregistration.
-  - No UE configured: SKIP. A registration that fails, a request that could not be sent, or the check's time running out during the wait: ERROR.
-  - A core that then stops completing NG Setup: the crash FAIL.
-- **Difference from issue #146:** the issue asked for FAIL on no release, citing "TS 24.501 5.5.2.2.2 (to be pinned)". Step 0 pinned no shall, so that outcome is SKIP and the FAIL moved to the ID content.
+- **Difference from issue #146:** the issue asked for FAIL on no release, citing "TS 24.501 5.5.2.2.2 (to be pinned)". Step 0 pinned no shall, so that outcome is not a FAIL and the FAIL moved to the ID content.
 
 ## TS 23.502 4.2.2.3.2 step 8 (UE-initiated Deregistration), descriptive
 
@@ -41,7 +34,7 @@ V15.17.0 through V19.9.0:
 - **Since:** Rel-15, V15.0.0 (`23502-f00.zip`).
 - **Changes:** Rel-15: V15.0.0 reads "... non-3GPP access, and there is N2 signalling connection to NG-RAN, the AMF sends N2 UE Release command to RAN with Cause set to Deregistration ..."; "to NG-RAN" by V15.17.0 (the versions between were not read). Rel-16: the following sentence, for non-3GPP access, names "N3IWF/TNGF/W-AGF" instead of "N3IWF". The NG-RAN sentence is the same in V15.17.0, V16.19.0, V17.15.0, V18.14.0 and V19.9.0.
 - **Step 7, the same clause, every version read:** "[Conditional] The AMF sends NAS message Deregistration Accept to UE depending on the Deregistration type i.e. if Deregistration type is switch-off, AMF does not send Deregistration Accept message."
-- **Use in the check:** it is why a release is expected after a switch-off. It is descriptive, so its absence is recorded and not failed.
+- **Use in the check:** it is why a release is expected after a switch-off. It is descriptive, so its absence violates no requirement; it is WARN for availability (see Verdict).
 
 ## TS 24.501 5.5.2.2.2 (UE-initiated de-registration procedure completion), descriptive
 
@@ -51,3 +44,16 @@ V15.17.0 through V19.9.0:
 - **Changes:** the quoted sentences are the same in every version read, V15.0.0 through V19.8.0. Rel-15: V15.0.0 titles the clause "UE-initiated de-registration procedure completion - common procedure"; V15.7.0 onward "UE-initiated de-registration procedure completion".
 - **Use in the check:** the second sentence is why the stimulus draws no DEREGISTRATION ACCEPT and the check waits for none. The shall of the first sentence is asserted by `NAS-DEREG-ACCEPT-NOT-SWITCH-OFF`, not here.
 - **Stimulus:** the UE registers without a PDU session, then sends a DEREGISTRATION REQUEST under its NAS security context with the switch-off bit 1, and keeps the association open for the answer.
+
+## Verdict
+
+- **Class:** conformance, one shall (8.3.3.2, on the command's content); the release itself is descriptive (TS 23.502 4.2.2.3.2 step 8).
+- **Stimulus:** as above; the UE CONTEXT RELEASE COMMAND is awaited for 5 s and answered with UE CONTEXT RELEASE COMPLETE.
+- **PASS** `both-ids`: a UE CONTEXT RELEASE COMMAND naming the connection's AMF UE NGAP ID and RAN UE NGAP ID.
+- **FAIL** (8.3.3.2): `amf-id-only`, a command naming the UE by its AMF UE NGAP ID alone; `no-ue-ngap-id`, one carrying no UE NGAP ID. The detail carries `UE CONTEXT RELEASE COMMAND after switch-off deregistration names the UE by AMF UE NGAP ID <n> alone, with both UE NGAP IDs available. TS 38.413 8.3.3.2. Likely cause: AMF builds the release without the UE NGAP ID pair.`
+- **WARN (availability)** `no-release`: no command within 5 s, a bound of the check (neither TS 23.502 nor TS 38.413 sets a timer for the release); the absence is inferred within it. `release-for-other-ids`: a command for another UE NGAP ID or pair, and none for the connection. No requirement is violated: step 8 is descriptive, and nothing in TS 24.501 5.5.2.2.2 or TS 38.413 8.3.3.2 requires the release. The criterion is availability: the deregistration does not complete on N2, and the NG-RAN keeps the context and the signalling connection of a UE that has switched off. The detail carries `no UE CONTEXT RELEASE COMMAND after switch-off deregistration. TS 23.502 4.2.2.3.2 step 8 describes the release, and no shall in it, in TS 24.501 5.5.2.2.2 or in TS 38.413 8.3.3.2 requires it. Likely cause: AMF leaves the N2 UE context.`
+- **CRASH:** a fresh NG Setup after the switch-off that no longer completes.
+- **BLOCKED** `blocked-registration`: the core did not complete the UE's registration (`NAS-INITIAL-REGISTRATION` owns whether it completes); `blocked-ng-setup`: nor the NG Setup before it.
+- **ERROR:** the harness could not be set up; the request could not be sent (no 5G-GUTI assigned, which ORBIT needs to build it); a local fault during the registration; or the per-test timeout expired during the registration or the release wait.
+- **SKIP:** no UE configured (`skip-no-ue`); a target release older than Rel-15.
+- **Limits:** the release's cause is not asserted. The switch-off deregistration is the stimulus, not a procedure this check needs, so a core that ignores it is graded here (WARN) and not BLOCKED.

@@ -13,8 +13,10 @@ import (
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
-// Every verdict branch of the Deregistration Accept check from a
-// constructed outcome.
+// Every branch of the Deregistration Accept check from a constructed
+// outcome: the Accept is PASS, a release in its place and no answer are
+// FAILs that report the deregistration as not completed, and a request not
+// sent or the check's time running out is ERROR.
 func TestJudgeDeregAccept(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 	rel := &engine.UEContextRelease{At: t0.Add(40 * time.Millisecond), HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 1, RANUENGAPID: 1}
@@ -25,35 +27,40 @@ func TestJudgeDeregAccept(t *testing.T) {
 		err          error
 		cut          bool
 		want         Verdict
+		wantOutcome  string
 		wantObserved string
 		wantDetail   []string
 		notDetail    []string
 	}{
 		{name: "accept, then release", res: &engine.DeregisterResult{SentAt: t0, Accepted: true, AcceptAt: t0.Add(12 * time.Millisecond), Release: rel},
-			want: Pass, wantObserved: "Deregistration Accept received", wantDetail: []string{"12ms after the request", "recorded, not judged", "the core released the UE context"}},
+			want: Pass, wantOutcome: "accepted", wantObserved: "Deregistration Accept received", wantDetail: []string{"12ms after the request", "recorded, not judged", "the core released the UE context"}},
 		{name: "accept, no release", res: &engine.DeregisterResult{SentAt: t0, Accepted: true, AcceptAt: t0.Add(time.Second), ReleaseErr: noRel},
-			want: Pass, wantObserved: "Deregistration Accept received", wantDetail: []string{"1s after the request", "the core sent no UE Context Release within 5s", "closed without it"}},
+			want: Pass, wantOutcome: "accepted", wantObserved: "Deregistration Accept received", wantDetail: []string{"1s after the request", "the core sent no UE Context Release within 5s", "closed without it"}},
 		{name: "accept as the time runs out", res: &engine.DeregisterResult{SentAt: t0, Accepted: true, AcceptAt: t0.Add(time.Second), ReleaseErr: noRel}, cut: true,
-			want: Pass, wantObserved: "Deregistration Accept received"},
+			want: Pass, wantOutcome: "accepted", wantObserved: "Deregistration Accept received"},
 		{name: "release instead of the accept", res: &engine.DeregisterResult{SentAt: t0, AcceptErr: errors.New("x"), Release: rel},
-			want: Fail, wantObserved: "UE Context Release Command without a Deregistration Accept",
+			want: Fail, wantOutcome: "release-without-accept", wantObserved: "UE Context Release Command without a Deregistration Accept",
 			wantDetail: []string{deregAcceptFail, "the release came 40ms after the request"}, notDetail: []string{"switch-off Deregistration Request followed"}},
 		{name: "nothing, then released on the switch-off", res: &engine.DeregisterResult{SentAt: t0, AcceptErr: errors.New("x"), Release: rel, SwitchOffFallback: true},
-			want: Fail, wantObserved: "no Deregistration Accept within 15s",
+			want: Fail, wantOutcome: "no-accept", wantObserved: "no Deregistration Accept within 15s",
 			wantDetail: []string{deregAcceptFail, "a switch-off Deregistration Request followed: the core released the UE context"}},
 		{name: "nothing at all", res: &engine.DeregisterResult{SentAt: t0, AcceptErr: errors.New("x"), ReleaseErr: noRel, SwitchOffFallback: true},
-			want: Fail, wantObserved: "no Deregistration Accept within 15s",
+			want: Fail, wantOutcome: "no-accept", wantObserved: "no Deregistration Accept within 15s",
 			wantDetail: []string{deregAcceptFail, "a switch-off Deregistration Request followed: the core sent no UE Context Release within 5s"}},
 		{name: "cut short", res: &engine.DeregisterResult{SentAt: t0, AcceptErr: errors.New("x"), ReleaseErr: noRel}, cut: true,
-			want: Error, wantObserved: "timed out before the Deregistration Accept wait ended", wantDetail: []string{"raise --per-test-timeout to at least 40s"}},
+			want: Error, wantOutcome: OutcomeError, wantObserved: "timed out before the Deregistration Accept wait ended", wantDetail: []string{"raise --per-test-timeout to at least 40s"}},
 		{name: "not sent", err: errors.New("no 5G-GUTI (AMF assigned none in Registration Accept)"),
-			want: Error, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI", "still registered"}},
+			want: Error, wantOutcome: OutcomeError, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI", "still registered"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeDeregAccept(tc.res, tc.err, tc.cut, nasDeregAcceptNotSwitchOff{})
-			if v != tc.want || observed != tc.wantObserved {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			r := judgeDeregAccept(Result{}, tc.res, tc.err, tc.cut, nasDeregAcceptNotSwitchOff{})
+			v, observed, detail := r.Verdict, r.Observed, r.Detail
+			if v != tc.want || r.Outcome != tc.wantOutcome || observed != tc.wantObserved {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", v, r.Outcome, observed, detail, tc.want, tc.wantOutcome, tc.wantObserved)
+			}
+			if notCompleted := r.NotCompleted == ProcDeregistration; notCompleted != (v == Fail) {
+				t.Errorf("NotCompleted = %q for %s; only a FAIL reports the deregistration as not completed", r.NotCompleted, v)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(detail, w) {
@@ -112,8 +119,9 @@ func assertNoAssociations(t *testing.T, front *sctpfront.Front) {
 // Every branch against the mock AMF over a real SCTP listener: the Accept
 // (with and without the release after it), the Accept withheld (a release
 // in its place, or nothing, which draws the switch-off), a UE the mock gave
-// no 5G-GUTI, a registration that fails, and no UE. No association stays
-// open, and the mock sees the Deregistration Requests the branch sends.
+// no 5G-GUTI (ERROR), a registration the core does not complete (BLOCKED),
+// and no UE. No association stays open, and the mock sees the
+// Deregistration Requests the branch sends.
 func TestDeregAcceptCheckAgainstMock(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -121,24 +129,26 @@ func TestDeregAcceptCheckAgainstMock(t *testing.T) {
 		noGUTI       bool
 		noUE         bool
 		want         Verdict
+		wantOutcome  string
 		wantObserved string
 		wantDetail   []string
 		wantDeregs   int64
 		wantAccepts  int64
 		wantComplete int64
 	}{
-		{name: "accept, then release", want: Pass, wantObserved: "Deregistration Accept received",
+		{name: "accept, then release", want: Pass, wantOutcome: "accepted", wantObserved: "Deregistration Accept received",
 			wantDetail: []string{"the core released the UE context"}, wantDeregs: 1, wantAccepts: 1, wantComplete: 1},
-		{name: "accept, no release", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, want: Pass,
+		{name: "accept, no release", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, want: Pass, wantOutcome: "accepted",
 			wantObserved: "Deregistration Accept received", wantDetail: []string{"the core sent no UE Context Release within 200ms"}, wantDeregs: 1, wantAccepts: 1},
-		{name: "accept withheld: a release instead", opts: []mockamf.Option{mockamf.WithNoDeregistrationAccept()}, want: Fail,
+		{name: "accept withheld: a release instead", opts: []mockamf.Option{mockamf.WithNoDeregistrationAccept()}, want: Fail, wantOutcome: "release-without-accept",
 			wantObserved: "UE Context Release Command without a Deregistration Accept", wantDetail: []string{deregAcceptFail}, wantDeregs: 1, wantComplete: 1},
-		{name: "accept withheld: nothing", opts: []mockamf.Option{mockamf.WithNoDeregistrationAccept(), mockamf.WithNoReleaseOnDeregistration()}, want: Fail,
+		{name: "accept withheld: nothing", opts: []mockamf.Option{mockamf.WithNoDeregistrationAccept(), mockamf.WithNoReleaseOnDeregistration()}, want: Fail, wantOutcome: "no-accept",
 			wantObserved: "no Deregistration Accept within 300ms",
-			wantDetail:   []string{deregAcceptFail, "a switch-off Deregistration Request followed: the core sent no UE Context Release within 200ms"}, wantDeregs: 2},
-		{name: "no 5G-GUTI", noGUTI: true, want: Error, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI"}},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error, wantObserved: "registration failed"},
-		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+			wantDetail: []string{deregAcceptFail, "a switch-off Deregistration Request followed: the core sent no UE Context Release within 200ms",
+				"violates TS 24.501 5.5.2.2.2 (shall)", "absence inferred within 15s (T3521"}, wantDeregs: 2},
+		{name: "no 5G-GUTI", noGUTI: true, want: Error, wantOutcome: OutcomeError, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI"}},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantOutcome: "blocked-registration", wantObserved: "registration failed"},
+		{name: "no UE", noUE: true, want: Skip, wantOutcome: "skip-no-ue", wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,8 +161,8 @@ func TestDeregAcceptCheckAgainstMock(t *testing.T) {
 			defer cancel()
 			c := nasDeregAcceptNotSwitchOff{registerWait: 3 * time.Second, acceptWait: 300 * time.Millisecond, releaseWait: 200 * time.Millisecond}
 			r := runOne(ctx, c, env, 15*time.Second)
-			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
-				t.Errorf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			if r.Verdict != tc.want || r.Outcome != tc.wantOutcome || r.Observed != tc.wantObserved {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", r.Verdict, r.Outcome, r.Observed, r.Detail, tc.want, tc.wantOutcome, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(r.Detail, w) {
@@ -205,10 +215,24 @@ func TestDeregAcceptCheckIdentity(t *testing.T) {
 	if b, ok := c.(Budgeter); !ok || b.Budget() != 40*time.Second {
 		t.Errorf("budget %v, want 40s", c.(Budgeter).Budget())
 	}
+	if err := ValidateTest(c); err != nil {
+		t.Fatal(err)
+	}
+	if got := OwnsOf(c); len(got) != 1 || got[0] != ProcDeregistration {
+		t.Errorf("owns %v, want the deregistration", got)
+	}
+	for _, r := range c.SpecRefs() {
+		if r.Primary != (r.Key() == deregAcceptRef) {
+			t.Errorf("%s: primary %v; the shall of 5.5.2.2.2 is the primary reference", r.Key(), r.Primary)
+		}
+	}
 }
 
-// Every verdict branch of the switch-off release check from a constructed
-// outcome.
+// Every branch of the switch-off release check from a constructed outcome:
+// the pair is PASS, a command lacking the RAN UE NGAP ID or both IDs is FAIL
+// (TS 38.413 8.3.3.2), no command for the connection is WARN for
+// availability, and a request not sent or the check's time running out is
+// ERROR.
 func TestJudgeSwitchOffRelease(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 	at := t0.Add(25 * time.Millisecond)
@@ -222,37 +246,42 @@ func TestJudgeSwitchOffRelease(t *testing.T) {
 		err          error
 		cut          bool
 		want         Verdict
+		wantOutcome  string
 		wantObserved string
 		wantDetail   []string
 	}{
 		{name: "the pair", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 7, RANUENGAPID: 9}, nil),
-			want: Pass, wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs", wantDetail: []string{"25ms after the request", "AMF UE NGAP ID 7 and RAN UE NGAP ID 9", "Complete sent"}},
+			want: Pass, wantOutcome: "both-ids", wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs", wantDetail: []string{"25ms after the request", "AMF UE NGAP ID 7 and RAN UE NGAP ID 9", "Complete sent"}},
 		{name: "the pair as the time runs out", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 7, RANUENGAPID: 9}, nil),
-			cut: true, want: Pass, wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs"},
+			cut: true, want: Pass, wantOutcome: "both-ids", wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs"},
 		{name: "the AMF ID alone", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, AMFUENGAPID: 7}, nil),
-			want: Fail, wantObserved: "UE CONTEXT RELEASE COMMAND without the RAN UE NGAP ID",
+			want: Fail, wantOutcome: "amf-id-only", wantObserved: "UE CONTEXT RELEASE COMMAND without the RAN UE NGAP ID",
 			wantDetail: []string{"UE CONTEXT RELEASE COMMAND after switch-off deregistration names the UE by AMF UE NGAP ID 7 alone, with both UE NGAP IDs available. TS 38.413 8.3.3.2. Likely cause: AMF builds the release without the UE NGAP ID pair.", "the connection is AMF UE NGAP ID 7, RAN UE NGAP ID 9"}},
 		{name: "no IDs", res: result(&engine.UEContextRelease{At: at}, nil),
-			want: Fail, wantObserved: "UE CONTEXT RELEASE COMMAND without UE NGAP IDs", wantDetail: []string{"carries no UE NGAP ID, with both UE NGAP IDs available. TS 38.413 8.3.3.2."}},
+			want: Fail, wantOutcome: "no-ue-ngap-id", wantObserved: "UE CONTEXT RELEASE COMMAND without UE NGAP IDs", wantDetail: []string{"carries no UE NGAP ID, with both UE NGAP IDs available. TS 38.413 8.3.3.2."}},
 		{name: "another pair", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 1007, RANUENGAPID: 1009}, nil),
-			want: Skip, wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID; not scored",
-			wantDetail: []string{"names AMF UE NGAP ID 1007, RAN UE NGAP ID 1009", "the connection is AMF UE NGAP ID 7, RAN UE NGAP ID 9", "recorded, not failed"}},
+			want: Warn, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID",
+			wantDetail: []string{"names AMF UE NGAP ID 1007, RAN UE NGAP ID 1009", "the connection is AMF UE NGAP ID 7, RAN UE NGAP ID 9", switchOffNoRelease}},
 		{name: "the pair with another RAN ID", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 7, RANUENGAPID: 10}, nil),
-			want: Skip, wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID; not scored"},
+			want: Warn, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID"},
 		{name: "another AMF ID alone", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, AMFUENGAPID: 8}, nil),
-			want: Skip, wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID; not scored", wantDetail: []string{"names AMF UE NGAP ID 8;"}},
-		{name: "no release", res: result(nil, noRel), want: Skip, wantObserved: "no UE CONTEXT RELEASE COMMAND within 5s; not scored",
+			want: Warn, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID", wantDetail: []string{"names AMF UE NGAP ID 8;"}},
+		{name: "no release", res: result(nil, noRel), want: Warn, wantOutcome: "no-release", wantObserved: "no UE CONTEXT RELEASE COMMAND within 5s",
 			wantDetail: []string{switchOffNoRelease, "the core sent no UE Context Release within 5s"}},
-		{name: "cut short", res: result(nil, noRel), cut: true, want: Error, wantObserved: "timed out before the release wait ended",
+		{name: "cut short", res: result(nil, noRel), cut: true, want: Error, wantOutcome: OutcomeError, wantObserved: "timed out before the release wait ended",
 			wantDetail: []string{"raise --per-test-timeout to at least 20s"}},
 		{name: "not sent", err: errors.New("no 5G-GUTI (AMF assigned none in Registration Accept)"),
-			want: Error, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI"}},
+			want: Error, wantOutcome: OutcomeError, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeSwitchOffRelease(tc.res, tc.err, tc.cut, ngapCtxReleaseAfterSwitchOff{})
-			if v != tc.want || observed != tc.wantObserved {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			r := judgeSwitchOffRelease(Result{}, tc.res, tc.err, tc.cut, ngapCtxReleaseAfterSwitchOff{})
+			v, observed, detail := r.Verdict, r.Observed, r.Detail
+			if v != tc.want || r.Outcome != tc.wantOutcome || observed != tc.wantObserved {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", v, r.Outcome, observed, detail, tc.want, tc.wantOutcome, tc.wantObserved)
+			}
+			if v == Warn && r.Criterion != CriterionAvailability {
+				t.Errorf("WARN for %q, want availability", r.Criterion)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(detail, w) {
@@ -265,8 +294,8 @@ func TestJudgeSwitchOffRelease(t *testing.T) {
 
 // Every branch against the mock AMF over a real SCTP listener: the release
 // naming the pair, the AMF UE NGAP ID alone or another pair, the release
-// withheld, a UE the mock gave no 5G-GUTI, a registration that fails, and
-// no UE. The stimulus is one switch-off Deregistration Request, which
+// withheld, a UE the mock gave no 5G-GUTI, a registration the core does not
+// complete, and no UE. The stimulus is one switch-off Deregistration Request, which
 // draws no Deregistration Accept, and no association stays open.
 func TestSwitchOffReleaseCheckAgainstMock(t *testing.T) {
 	tests := []struct {
@@ -275,24 +304,25 @@ func TestSwitchOffReleaseCheckAgainstMock(t *testing.T) {
 		noGUTI       bool
 		noUE         bool
 		want         Verdict
+		wantOutcome  string
 		wantObserved string
 		wantDetail   []string
 		wantDeregs   int64
 		wantComplete int64
 		wait         time.Duration // the release wait; zero is 300ms
 	}{
-		{name: "released", want: Pass, wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs", wantDetail: []string{"the connection's pair"}, wantDeregs: 1, wantComplete: 1},
+		{name: "released", want: Pass, wantOutcome: "both-ids", wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs", wantDetail: []string{"the connection's pair"}, wantDeregs: 1, wantComplete: 1},
 		{name: "released late, after other PDUs", opts: []mockamf.Option{mockamf.WithNoiseBeforeRelease(), mockamf.WithReleaseDelay(100 * time.Millisecond)}, wait: 3 * time.Second,
-			want: Pass, wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs", wantDeregs: 1, wantComplete: 1},
-		{name: "released by the AMF ID alone", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseAMFIDOnly)}, want: Fail,
+			want: Pass, wantOutcome: "both-ids", wantObserved: "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs", wantDeregs: 1, wantComplete: 1},
+		{name: "released by the AMF ID alone", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseAMFIDOnly)}, want: Fail, wantOutcome: "amf-id-only",
 			wantObserved: "UE CONTEXT RELEASE COMMAND without the RAN UE NGAP ID", wantDetail: []string{"alone, with both UE NGAP IDs available. TS 38.413 8.3.3.2."}, wantDeregs: 1, wantComplete: 1},
-		{name: "a release for another pair", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseOtherPair)}, want: Skip,
-			wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID; not scored", wantDeregs: 1, wantComplete: 1},
-		{name: "release withheld", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, want: Skip,
-			wantObserved: "no UE CONTEXT RELEASE COMMAND within 300ms; not scored", wantDetail: []string{switchOffNoRelease}, wantDeregs: 1},
-		{name: "no 5G-GUTI", noGUTI: true, want: Error, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI"}},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error, wantObserved: "registration failed"},
-		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+		{name: "a release for another pair", opts: []mockamf.Option{mockamf.WithDeregistrationReleaseIDs(mockamf.ReleaseOtherPair)}, want: Warn, wantOutcome: "release-for-other-ids",
+			wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID", wantDetail: []string{"no requirement violated; WARN for availability impact"}, wantDeregs: 1, wantComplete: 1},
+		{name: "release withheld", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, want: Warn, wantOutcome: "no-release",
+			wantObserved: "no UE CONTEXT RELEASE COMMAND within 300ms", wantDetail: []string{switchOffNoRelease, "absence inferred within 5s"}, wantDeregs: 1},
+		{name: "no 5G-GUTI", noGUTI: true, want: Error, wantOutcome: OutcomeError, wantObserved: "Deregistration Request not sent", wantDetail: []string{"no 5G-GUTI"}},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantOutcome: "blocked-registration", wantObserved: "registration failed"},
+		{name: "no UE", noUE: true, want: Skip, wantOutcome: "skip-no-ue", wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -308,8 +338,8 @@ func TestSwitchOffReleaseCheckAgainstMock(t *testing.T) {
 				wait = 300 * time.Millisecond
 			}
 			r := runOne(ctx, ngapCtxReleaseAfterSwitchOff{registerWait: 3 * time.Second, releaseWait: wait}, env, 15*time.Second)
-			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
-				t.Errorf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			if r.Verdict != tc.want || r.Outcome != tc.wantOutcome || r.Observed != tc.wantObserved {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", r.Verdict, r.Outcome, r.Observed, r.Detail, tc.want, tc.wantOutcome, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(r.Detail, w) {
@@ -353,7 +383,8 @@ func TestSwitchOffReleaseCheckCutShort(t *testing.T) {
 }
 
 // The registry stamps the check's identity: FAIL-class through the UE NGAP
-// ID shall, with the release's trigger cited as descriptive.
+// ID shall, its primary reference, with the release's trigger cited as
+// descriptive.
 func TestSwitchOffReleaseCheckIdentity(t *testing.T) {
 	c := testByID(t, "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF")
 	if c.Category() != Procedural || WorstVerdict(c) != Fail || MinRelease(c) != 15 {
@@ -373,5 +404,13 @@ func TestSwitchOffReleaseCheckIdentity(t *testing.T) {
 	}
 	if b, ok := c.(Budgeter); !ok || b.Budget() != 20*time.Second {
 		t.Errorf("budget %v, want 20s", c.(Budgeter).Budget())
+	}
+	if err := ValidateTest(c); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range c.SpecRefs() {
+		if r.Primary != (r.Key() == switchOffReleaseRef) {
+			t.Errorf("%s: primary %v; the shall of 8.3.3.2 is the primary reference", r.Key(), r.Primary)
+		}
 	}
 }

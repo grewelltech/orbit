@@ -30,21 +30,42 @@ const (
 // does not indicate switch-off. TS 24.501 5.5.2.2.2 then requires a
 // DEREGISTRATION ACCEPT, which is read through the UE's NAS security
 // context: PASS. None within deregAcceptWait, or a UE Context Release
-// Command in its place, is FAIL. The release that follows the Accept is
-// recorded, not judged. A core that answered with neither is sent a
-// switch-off Deregistration Request before the association closes, so it is
-// not left holding the UE.
+// Command in its place, is FAIL, and reports the deregistration as not
+// completed: the check owns the deregistration. The release that follows
+// the Accept is recorded, not judged. A core that answered with neither is
+// sent a switch-off Deregistration Request before the association closes,
+// so it is not left holding the UE.
 type nasDeregAcceptNotSwitchOff struct {
 	// registerWait, acceptWait and releaseWait override deregRegisterWait,
 	// deregAcceptWait and deregReleaseWait (tests only).
 	registerWait, acceptWait, releaseWait time.Duration
 }
 
+// deregAcceptRef is the key of the shall every outcome of
+// NAS-DEREG-ACCEPT-NOT-SWITCH-OFF rests on.
+const deregAcceptRef = "TS 24.501 5.5.2.2.2"
+
+// The outcomes of NAS-DEREG-ACCEPT-NOT-SWITCH-OFF.
+var (
+	deregAccepted = Outcome{ID: "accepted", Verdict: Pass, Refs: []string{deregAcceptRef},
+		Summary: "answered the Deregistration Request that is not switch-off with a Deregistration Accept"}
+	deregReleasedInstead = Outcome{ID: "release-without-accept", Verdict: Fail, Refs: []string{deregAcceptRef}, NotCompleted: ProcDeregistration,
+		Summary: "released the UE context without a Deregistration Accept"}
+	deregNoAccept = Outcome{ID: "no-accept", Verdict: Fail, Refs: []string{deregAcceptRef}, NotCompleted: ProcDeregistration,
+		Bound:   &Bound{Wait: deregAcceptWait, Source: "T3521, TS 24.501 Table 10.2.1: the UE's retransmission timer at its normal value; 5.5.2.2.2 sets the AMF no time limit"},
+		Summary: "sent no Deregistration Accept for the Deregistration Request that is not switch-off"}
+)
+
+// Outcomes declares what the check can report.
+func (nasDeregAcceptNotSwitchOff) Outcomes() []Outcome {
+	return []Outcome{deregAccepted, deregReleasedInstead, deregNoAccept}
+}
+
 func (nasDeregAcceptNotSwitchOff) ID() string         { return "NAS-DEREG-ACCEPT-NOT-SWITCH-OFF" }
 func (nasDeregAcceptNotSwitchOff) Category() Category { return Procedural }
 func (nasDeregAcceptNotSwitchOff) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.5.2.2.2", Strength: Shall, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "5.5.2.2.2", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.0.0 titles the clause \"UE-initiated de-registration procedure completion - common procedure\", \"UE-initiated de-registration procedure completion\" by V15.7.0; the AMF sentence is unchanged from V15.0.0 through V19.8.0"},
 			}},
@@ -85,23 +106,55 @@ func (c nasDeregAcceptNotSwitchOff) Budget() time.Duration {
 
 func (c nasDeregAcceptNotSwitchOff) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "a Deregistration Accept for a UE-originating Deregistration Request that does not indicate switch-off (TS 24.501 5.5.2.2.2)"}
-	h, done := deregHarness(ctx, env, c.registerTimeout(), &r)
+	h, done := deregRegister(ctx, env, c.registerTimeout(), &r)
 	if done {
 		return r
 	}
 	defer h.Close()
 
 	res, err := h.DeregisterWith(ctx, engine.WithNormalDeregistration(c.acceptTimeout()), engine.WithReleaseWait(c.releaseTimeout()))
-	r.Verdict, r.Observed, r.Detail = judgeDeregAccept(res, err, ctx.Err() != nil, c)
+	r = judgeDeregAccept(r, res, err, ctx.Err() != nil, c)
 	if r.Verdict == Error {
 		return r
 	}
 	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the deregistration")
 }
 
-// deregHarness registers env's UE, without a PDU session, for a
+// deregRegister registers env's UE, without a PDU session, for a
 // deregistration check. done is true when r already holds the result: SKIP
-// without a UE, ERROR when the harness or the registration failed.
+// without a UE, ERROR when the harness failed or the check's time ran out,
+// and otherwise, for a registration the core did not complete, BLOCKED on
+// it (Result.SetupFailed).
+func deregRegister(ctx context.Context, env Env, registerWait time.Duration, r *Result) (h *UEHarness, done bool) {
+	if !env.UE.Configured() {
+		*r = r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run checks that register a UE")
+		return nil, true
+	}
+	h, err := NewUEHarness(env, nil)
+	if err != nil {
+		*r = r.Errored("harness setup failed", err.Error())
+		return nil, true
+	}
+	rctx, cancel := context.WithTimeout(ctx, registerWait)
+	_, err = h.RegisterWithProbe(rctx, nil)
+	cancel()
+	switch {
+	case err != nil && ctx.Err() != nil:
+		h.Close()
+		*r = r.Errored("timed out during the registration", fmt.Sprintf("%v; the per-test timeout expired before the registration ended; raise --per-test-timeout", err))
+		return nil, true
+	case err != nil:
+		h.Close()
+		*r = r.SetupFailed("registration failed", err)
+		return nil, true
+	}
+	return h, false
+}
+
+// deregHarness registers env's UE, without a PDU session, for a
+// deregistration check that has not declared its outcomes. done is true
+// when r already holds the result: SKIP without a UE, ERROR when the
+// harness or the registration failed.
 func deregHarness(ctx context.Context, env Env, registerWait time.Duration, r *Result) (h *UEHarness, done bool) {
 	if !env.UE.Configured() {
 		r.Verdict, r.Observed = Skip, "no UE configured"
@@ -127,24 +180,24 @@ func deregHarness(ctx context.Context, env Env, registerWait time.Duration, r *R
 // deregAcceptFail is the FAIL message of NAS-DEREG-ACCEPT-NOT-SWITCH-OFF.
 const deregAcceptFail = "no Deregistration Accept for a non-switch-off deregistration. TS 24.501 5.5.2.2.2. Likely cause: AMF treats every deregistration as switch-off."
 
-// judgeDeregAccept turns a normal deregistration's outcome into a verdict,
-// Observed and Detail. cut reports that the check's own time ran out.
-func judgeDeregAccept(res *engine.DeregisterResult, err error, cut bool, c nasDeregAcceptNotSwitchOff) (Verdict, string, string) {
+// judgeDeregAccept returns r with the result of a normal deregistration's
+// outcome. cut reports that the check's own time ran out.
+func judgeDeregAccept(r Result, res *engine.DeregisterResult, err error, cut bool, c nasDeregAcceptNotSwitchOff) Result {
 	switch {
 	case err != nil || res == nil:
-		return Error, "Deregistration Request not sent", fmt.Sprintf("%v; the association was dropped with the UE still registered", err)
+		return r.Errored("Deregistration Request not sent", fmt.Sprintf("%v; the association was dropped with the UE still registered", err))
 	case res.Accepted:
-		return Pass, "Deregistration Accept received",
-			fmt.Sprintf("%s after the request; the release is recorded, not judged: %s", res.AcceptAt.Sub(res.SentAt).Round(time.Millisecond), releaseNote(res))
+		return r.As(deregAccepted, "Deregistration Accept received",
+			fmt.Sprintf("%s after the request; the release is recorded, not judged: %s", res.AcceptAt.Sub(res.SentAt).Round(time.Millisecond), releaseNote(res)))
 	case cut:
-		return Error, "timed out before the Deregistration Accept wait ended",
-			fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget())
+		return r.Errored("timed out before the Deregistration Accept wait ended",
+			fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget()))
 	case res.Release != nil && !res.SwitchOffFallback:
-		return Fail, "UE Context Release Command without a Deregistration Accept",
-			joinDetail(deregAcceptFail, fmt.Sprintf("the release came %s after the request", res.Release.At.Sub(res.SentAt).Round(time.Millisecond)))
+		return r.As(deregReleasedInstead, "UE Context Release Command without a Deregistration Accept",
+			joinDetail(deregAcceptFail, fmt.Sprintf("the release came %s after the request", res.Release.At.Sub(res.SentAt).Round(time.Millisecond))))
 	}
-	return Fail, fmt.Sprintf("no Deregistration Accept within %s", c.acceptTimeout()),
-		joinDetail(deregAcceptFail, "nothing answered the request, so a switch-off Deregistration Request followed: "+releaseNote(res))
+	return r.As(deregNoAccept, fmt.Sprintf("no Deregistration Accept within %s", c.acceptTimeout()),
+		joinDetail(deregAcceptFail, "nothing answered the request, so a switch-off Deregistration Request followed: "+releaseNote(res)))
 }
 
 // releaseNote says what a deregistration's result records about the UE
@@ -159,24 +212,52 @@ func releaseNote(res *engine.DeregisterResult) string {
 // ngapCtxReleaseAfterSwitchOff registers the UE, without a PDU session, and
 // sends a switch-off Deregistration Request, which gets no Deregistration
 // Accept (TS 24.501 5.5.2.2.2); TS 23.502 4.2.2.3.2 step 8 has the AMF send
-// a UE CONTEXT RELEASE COMMAND for the UE-associated connection. That step
-// is descriptive, so only the command's content carries a verdict: TS 38.413
-// 8.3.3.2 requires both UE NGAP IDs when both are available, as they are
-// after a registration. A command naming the connection's ID pair is PASS;
-// one naming the UE by its AMF UE NGAP ID alone, or by no ID, is FAIL. No
-// command within deregReleaseWait, or one for another ID pair, is not
-// scored: SKIP, with what was seen.
+// a UE CONTEXT RELEASE COMMAND for the UE-associated connection. TS 38.413
+// 8.3.3.2 requires both UE NGAP IDs in the command when both are available,
+// as they are after a registration. A command naming the connection's ID
+// pair is PASS; one naming the UE by its AMF UE NGAP ID alone, or by no ID,
+// is FAIL. No command for the connection within deregReleaseWait (none at
+// all, or one for another ID pair) violates no requirement, step 8 being
+// descriptive: it is WARN for availability.
 type ngapCtxReleaseAfterSwitchOff struct {
 	// registerWait and releaseWait override deregRegisterWait and
 	// deregReleaseWait (tests only).
 	registerWait, releaseWait time.Duration
 }
 
+// switchOffReleaseRef is the key of the shall the graded outcomes of
+// NGAP-CTX-RELEASE-AFTER-SWITCH-OFF rest on.
+const switchOffReleaseRef = "TS 38.413 8.3.3.2"
+
+// The outcomes of NGAP-CTX-RELEASE-AFTER-SWITCH-OFF. A release that does
+// not come is WARN for availability: TS 23.502 4.2.2.3.2 step 8 describes
+// it without requiring it, and without it the deregistration does not
+// complete on N2, the NG-RAN keeping the context and the signalling
+// connection of a UE that has switched off.
+var (
+	switchOffReleaseBothIDs = Outcome{ID: "both-ids", Verdict: Pass, Refs: []string{switchOffReleaseRef},
+		Summary: "released the UE context after the switch-off, naming both UE NGAP IDs"}
+	switchOffReleaseNoIDs = Outcome{ID: "no-ue-ngap-id", Verdict: Fail, Refs: []string{switchOffReleaseRef},
+		Summary: "sent a UE CONTEXT RELEASE COMMAND carrying no UE NGAP ID"}
+	switchOffReleaseAMFIDOnly = Outcome{ID: "amf-id-only", Verdict: Fail, Refs: []string{switchOffReleaseRef},
+		Summary: "named the UE by its AMF UE NGAP ID alone, with both IDs available"}
+	switchOffReleaseNone = Outcome{ID: "no-release", Verdict: Warn, Criterion: CriterionAvailability,
+		Bound:   &Bound{Wait: deregReleaseWait, Source: "check bound; neither TS 23.502 nor TS 38.413 sets a timer for the release"},
+		Summary: "sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration"}
+	switchOffReleaseOtherIDs = Outcome{ID: "release-for-other-ids", Verdict: Warn, Criterion: CriterionAvailability,
+		Summary: "released only another UE NGAP ID pair, not the deregistered UE's connection"}
+)
+
+// Outcomes declares what the check can report.
+func (ngapCtxReleaseAfterSwitchOff) Outcomes() []Outcome {
+	return []Outcome{switchOffReleaseBothIDs, switchOffReleaseNoIDs, switchOffReleaseAMFIDOnly, switchOffReleaseNone, switchOffReleaseOtherIDs}
+}
+
 func (ngapCtxReleaseAfterSwitchOff) ID() string         { return "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF" }
 func (ngapCtxReleaseAfterSwitchOff) Category() Category { return Procedural }
 func (ngapCtxReleaseAfterSwitchOff) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "8.3.3.2", Strength: Shall, Since: 15, Verified: ts38413Verified,
+		{Spec: "TS 38.413", Clause: "8.3.3.2", Strength: Shall, Since: 15, Verified: ts38413Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "IE-handling sentences are added after V15.0.0, and 8.3.3.1 is extended to mention releasing the old connection when the UE establishes a new one; the UE NGAP ID sentences are unchanged from V15.0.0 through V19.4.0"},
 				{Release: 16, Note: "further IE-handling sentences are added; the UE NGAP ID sentences are unchanged"},
@@ -207,15 +288,15 @@ func (c ngapCtxReleaseAfterSwitchOff) Budget() time.Duration {
 }
 
 func (c ngapCtxReleaseAfterSwitchOff) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "after a switch-off Deregistration Request, a UE CONTEXT RELEASE COMMAND naming the connection by both UE NGAP IDs (TS 38.413 8.3.3.2; the release itself is described by TS 23.502 4.2.2.3.2 step 8, not required)"}
-	h, done := deregHarness(ctx, env, c.registerTimeout(), &r)
+	r := Result{Expected: "after a switch-off Deregistration Request, a UE CONTEXT RELEASE COMMAND naming the connection by both UE NGAP IDs (TS 38.413 8.3.3.2; the release itself is described by TS 23.502 4.2.2.3.2 step 8)"}
+	h, done := deregRegister(ctx, env, c.registerTimeout(), &r)
 	if done {
 		return r
 	}
 	defer h.Close()
 
 	res, err := h.DeregisterWith(ctx, engine.WithReleaseWait(c.releaseTimeout()))
-	r.Verdict, r.Observed, r.Detail = judgeSwitchOffRelease(res, err, ctx.Err() != nil, c)
+	r = judgeSwitchOffRelease(r, res, err, ctx.Err() != nil, c)
 	if r.Verdict == Error {
 		return r
 	}
@@ -224,46 +305,44 @@ func (c ngapCtxReleaseAfterSwitchOff) Run(ctx context.Context, env Env) Result {
 
 const (
 	// switchOffNoRelease is what the check says of a core that sent no UE
-	// CONTEXT RELEASE COMMAND; it is not a FAIL, since no shall requires
-	// the command.
-	switchOffNoRelease = "no UE CONTEXT RELEASE COMMAND after switch-off deregistration. TS 23.502 4.2.2.3.2 step 8 describes the release, and no shall in it, in TS 24.501 5.5.2.2.2 or in TS 38.413 8.3.3.2 requires it, so it is recorded, not failed. Likely cause: AMF leaves the N2 UE context."
+	// CONTEXT RELEASE COMMAND for the connection.
+	switchOffNoRelease = "no UE CONTEXT RELEASE COMMAND after switch-off deregistration. TS 23.502 4.2.2.3.2 step 8 describes the release, and no shall in it, in TS 24.501 5.5.2.2.2 or in TS 38.413 8.3.3.2 requires it. Likely cause: AMF leaves the N2 UE context."
 	// switchOffReleaseFail is the FAIL message; the first verb says which
 	// ID the command lacked.
 	switchOffReleaseFail = "UE CONTEXT RELEASE COMMAND after switch-off deregistration %s, with both UE NGAP IDs available. TS 38.413 8.3.3.2. Likely cause: AMF builds the release without the UE NGAP ID pair."
 )
 
-// judgeSwitchOffRelease turns a switch-off deregistration's outcome into a
-// verdict, Observed and Detail. cut reports that the check's own time ran
-// out.
-func judgeSwitchOffRelease(res *engine.DeregisterResult, err error, cut bool, c ngapCtxReleaseAfterSwitchOff) (Verdict, string, string) {
+// judgeSwitchOffRelease returns r with the result of a switch-off
+// deregistration's outcome. cut reports that the check's own time ran out.
+func judgeSwitchOffRelease(r Result, res *engine.DeregisterResult, err error, cut bool, c ngapCtxReleaseAfterSwitchOff) Result {
 	if err != nil || res == nil {
-		return Error, "Deregistration Request not sent", fmt.Sprintf("%v; the association was dropped with the UE still registered", err)
+		return r.Errored("Deregistration Request not sent", fmt.Sprintf("%v; the association was dropped with the UE still registered", err))
 	}
 	rel := res.Release
 	conn := fmt.Sprintf("the connection is AMF UE NGAP ID %d, RAN UE NGAP ID %d", res.AMFUENGAPID, res.RANUENGAPID)
 	switch {
 	case rel == nil && cut:
-		return Error, "timed out before the release wait ended", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget())
+		return r.Errored("timed out before the release wait ended", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget()))
 	case rel == nil:
-		return Skip, fmt.Sprintf("no UE CONTEXT RELEASE COMMAND within %s; not scored", c.releaseTimeout()),
-			joinDetail(switchOffNoRelease, res.ReleaseErr.Error())
+		return r.As(switchOffReleaseNone, fmt.Sprintf("no UE CONTEXT RELEASE COMMAND within %s", c.releaseTimeout()),
+			joinDetail(switchOffNoRelease, res.ReleaseErr.Error()))
 	}
 	after := rel.At.Sub(res.SentAt).Round(time.Millisecond)
 	switch {
 	case !rel.HasAMFUENGAPID:
-		return Fail, "UE CONTEXT RELEASE COMMAND without UE NGAP IDs",
-			joinDetail(fmt.Sprintf(switchOffReleaseFail, "carries no UE NGAP ID"), conn)
+		return r.As(switchOffReleaseNoIDs, "UE CONTEXT RELEASE COMMAND without UE NGAP IDs",
+			joinDetail(fmt.Sprintf(switchOffReleaseFail, "carries no UE NGAP ID"), conn))
 	case !rel.HasRANUENGAPID && rel.AMFUENGAPID == res.AMFUENGAPID:
-		return Fail, "UE CONTEXT RELEASE COMMAND without the RAN UE NGAP ID",
-			joinDetail(fmt.Sprintf(switchOffReleaseFail, fmt.Sprintf("names the UE by AMF UE NGAP ID %d alone", rel.AMFUENGAPID)), conn)
+		return r.As(switchOffReleaseAMFIDOnly, "UE CONTEXT RELEASE COMMAND without the RAN UE NGAP ID",
+			joinDetail(fmt.Sprintf(switchOffReleaseFail, fmt.Sprintf("names the UE by AMF UE NGAP ID %d alone", rel.AMFUENGAPID)), conn))
 	case rel.AMFUENGAPID != res.AMFUENGAPID || (rel.HasRANUENGAPID && rel.RANUENGAPID != res.RANUENGAPID):
 		named := fmt.Sprintf("AMF UE NGAP ID %d", rel.AMFUENGAPID)
 		if rel.HasRANUENGAPID {
 			named += fmt.Sprintf(", RAN UE NGAP ID %d", rel.RANUENGAPID)
 		}
-		return Skip, "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID; not scored",
-			fmt.Sprintf("the command, %s after the request, names %s; %s, so it does not answer this deregistration, and none that does came (%s)", after, named, conn, switchOffNoRelease)
+		return r.As(switchOffReleaseOtherIDs, "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID",
+			joinDetail(switchOffNoRelease, fmt.Sprintf("the command, %s after the request, names %s; %s, so it does not answer this deregistration, and none that does came", after, named, conn)))
 	}
-	return Pass, "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs",
-		fmt.Sprintf("the command, %s after the request, names AMF UE NGAP ID %d and RAN UE NGAP ID %d, the connection's pair; UE Context Release Complete sent", after, rel.AMFUENGAPID, rel.RANUENGAPID)
+	return r.As(switchOffReleaseBothIDs, "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs",
+		fmt.Sprintf("the command, %s after the request, names AMF UE NGAP ID %d and RAN UE NGAP ID %d, the connection's pair; UE Context Release Complete sent", after, rel.AMFUENGAPID, rel.RANUENGAPID))
 }

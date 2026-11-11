@@ -102,7 +102,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 |---|---|---|---|---|
 | Initial Context Setup | AMF→RAN | ✅ (attach; with the Service Accept in `NAS-SERVICE-REQUEST-REACTIVATES`) | — | timing angle (bad/late response) |
 | UE Context Release Request | RAN→AMF | ✅ `NGAP-UE-CTX-RELEASE-ON-REQUEST` (DEVIATION-class); also the AN release of `NGAP-PAGING-ON-DL-DATA` (its failure is an ERROR, not a verdict) | ⬜ | 8.3.2.2 is a "should" |
-| UE Context Release (Command/Complete) | AMF→RAN | ✅ `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (UE NGAP IDs of the release after a switch-off) | — | the release after a deregistration is descriptive (TS 23.502), so its absence is not scored |
+| UE Context Release (Command/Complete) | AMF→RAN | ✅ `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (UE NGAP IDs of the release after a switch-off) | — | the release after a deregistration is descriptive (TS 23.502), so its absence is WARN (availability), not FAIL |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
 
 ### PDU session management
@@ -495,7 +495,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   registers without a PDU session and sends a Deregistration Request that
   does not indicate switch-off; the AMF shall answer with a Deregistration
   Accept (TS 24.501 5.5.2.2.2). None within 15 s (one T3521), or a UE Context
-  Release Command in its place, is FAIL. The release after the Accept is
+  Release Command in its place, is FAIL; the check owns the deregistration,
+  and a registration the core does not complete first is BLOCKED. The release after the Accept is
   described by TS 23.502 4.2.2.3.2, not required by a shall, so it is recorded
   only. A core that answers nothing is sent a switch-off deregistration
   before the association closes. Needs a UE, else SKIP. Not yet run on Ref 2.
@@ -506,9 +507,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   UE NGAP IDs is PASS; one naming the UE by its AMF UE NGAP ID alone is FAIL
   (TS 38.413 8.3.3.2, both IDs "if available"). The release itself is only
   described (TS 23.502 4.2.2.3.2 step 8; nothing in TS 24.501 5.5.2.2.2), so
-  no command within 5 s is **not scored**: SKIP, with the likely cause (the
-  AMF leaves the N2 UE context) in the detail. Needs a UE, else SKIP. Not
-  yet run on Ref 2.
+  no command for the connection within 5 s violates no requirement: WARN
+  (availability), with the likely cause (the AMF leaves the N2 UE context)
+  in the detail. Needs a UE, else SKIP. Not yet run on Ref 2.
 
 - `NAS-INITIAL-REGISTRATION` (nas, FAIL-class) — the run's own UE
   registers, without a PDU session, and is deregistered. The check owns the
