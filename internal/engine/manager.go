@@ -48,9 +48,6 @@ type Session struct {
 	ranID int64
 	guti  []byte
 	gnbN3 string
-	// ueSecCaps is the UE's 5G security capabilities as the serving gNB
-	// holds them, from the AMF; a path switch sends them back to it.
-	ueSecCaps *ngapType.UESecurityCapabilities
 
 	// proc serialises the UE's control-plane procedures — handover and
 	// deregistration — which rewrite the association (conn, amfID, ranID) and
@@ -74,6 +71,10 @@ type Session struct {
 	mobState string    // last mobility phase; empty until the UE first moves
 	mobAt    time.Time // when mobState was recorded
 	released bool      // deregistered: no further procedure may run
+	// ueSecCaps is the UE's 5G security capabilities as the serving gNB
+	// holds them, from the AMF; a path switch sends them back to it. The
+	// value pointed to is never modified, only replaced.
+	ueSecCaps *ngapType.UESecurityCapabilities
 
 	// N3 data path, created lazily on first use over the per-gNB shared
 	// tunnel pool (design §6, Phase 5): ONE socket per gNB N3 address,
@@ -919,5 +920,21 @@ func (s *Session) deregister(ctx context.Context) error {
 // Setup Request, a later Handover Request, or a Path Switch Request
 // Acknowledge. Nil when the AMF sent none.
 func (s *Session) UESecurityCapabilities() *ngapType.UESecurityCapabilities {
-	return gnb.CloneUESecurityCapabilities(s.ueSecCaps)
+	return gnb.CloneUESecurityCapabilities(s.heldUESecCaps())
+}
+
+// heldUESecCaps returns the held UE security capabilities, for the Path
+// Switch Request builder, which copies them.
+func (s *Session) heldUESecCaps() *ngapType.UESecurityCapabilities {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.ueSecCaps
+}
+
+// setUESecCaps replaces the held UE security capabilities with caps, which
+// the caller hands over.
+func (s *Session) setUESecCaps(caps *ngapType.UESecurityCapabilities) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.ueSecCaps = caps
 }
