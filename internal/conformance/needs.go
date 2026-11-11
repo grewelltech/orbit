@@ -299,7 +299,7 @@ func (n3DLQFIContainer) Needs() CheckNeeds {
 }
 func (nasIntegrityFailDiscard) Needs() CheckNeeds { return uplinkNeeds }
 func (nasReplayDiscard) Needs() CheckNeeds        { return uplinkNeeds }
-func (nasCountNotAdvanced) Needs() CheckNeeds     { return ueNeeds }
+func (nasCountNotAdvanced) Needs() CheckNeeds     { return uplinkNeeds }
 func (nasRetransmitNewCount) Needs() CheckNeeds   { return ueNeeds }
 func (nasBadMACRegistration) Needs() CheckNeeds   { return ueNeeds }
 

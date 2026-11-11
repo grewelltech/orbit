@@ -2,7 +2,7 @@
 
 Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/](https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/). Versions read (issue #251, which records the read of every version from V15.0.0 to V20.1.0; the sentences below were read again on 2026-11-10): V15.0.0 (`24501-f00.zip`), V15.7.0 (`24501-f70.zip`), V16.5.1 (`24501-g51.zip`, issue #251 only), V16.15.0 (`24501-gf0.zip`), V17.18.1 (`24501-hi1.zip`), V18.14.0 (`24501-ie0.zip`), V19.8.0 (`24501-j80.zip`).
 
-## TS 24.501 4.4.3.3 (Integrity protection and verification), shall
+## TS 24.501 4.4.3.3 (Integrity protection and verification), shall, primary
 
 > "After successful integrity protection validation, the receiver shall update its corresponding locally stored NAS COUNT with the value of the estimated NAS COUNT for this NAS message."
 
@@ -39,11 +39,17 @@ After the security mode control procedure, on the same NAS signalling connection
 3. It sends A's exact bytes again. A is two uplinks back, so its sequence number is lower than the last accepted one (the equal case is NAS-REPLAY-DISCARD). The check watches 5 s for an answer naming A's identities.
 4. It sends request C, protected at its next uplink NAS COUNT.
 
-- **PASS:** C is answered (any 5GSM message naming its identities, the request returned by the AMF, or a PDU SESSION RESOURCE SETUP REQUEST for its session).
-- **FAIL (4.4.3.2):** the re-sent A is answered. C is not judged.
-- **FAIL (4.4.3.3):** C is not answered within 10 s while the association is up.
-- **ERROR:** A or B was not answered, or the AMF released the UE or the association went before C was answered.
-- **SKIP:** no UE, or the core selected 5G-IA0 (the UE harness refuses it).
+## Verdict
+
+- **Class:** conformance, two shalls (4.4.3.3, 4.4.3.2).
+- **PASS** `count-kept` (4.4.3.3): C is answered (any 5GSM message naming its identities, the request returned by the AMF, or a PDU SESSION RESOURCE SETUP REQUEST for its session).
+- **FAIL** `replay-accepted` (4.4.3.2): the re-sent A is answered. C is not judged.
+- **FAIL** `count-advanced` (4.4.3.3): C is not answered within 10 s while the association is up. The absence is inferred within that bound, the one A and B were answered within.
+- **WARN (security)** `released`: the AMF released the UE, or the association went, after A was sent again and before C was answered. No requirement is violated; the release acts on a message whose MAC failed.
+- **BLOCKED** (PDU session establishment): A or B was not answered within 10 s, or the UE was released before A was sent again. **BLOCKED** (registration): the UE did not register.
+- **CRASH:** the AMF no longer completes an NG Setup after the stimulus.
+- **ERROR:** the harness could not build, send or read; the NAS probe could not be opened; a local socket failed.
+- **SKIP:** no UE; the core selected 5G-IA0 (no NAS integrity protection; the UE harness refuses it); a target release older than Rel-15.
 
 ## Cleanup
 

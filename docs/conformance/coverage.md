@@ -414,7 +414,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   the AMF's estimated NAS COUNT, and the stored COUNT shall not move
   (TS 24.501 4.4.3.3). C answered is PASS; C unanswered with the association
   up is FAIL; an answer to the re-sent A is FAIL under 4.4.3.2. A or B
-  unanswered, or a release before C is answered, is ERROR; 5G-IA0 SKIPs. On
+  unanswered is BLOCKED on the PDU session; a release after the re-sent A,
+  before C is answered, is WARN for security; 5G-IA0 SKIPs. On
   the FAIL path the UE's security context is unusable, so the cleanup's
   release and deregistration may not be accepted: the association is
   dropped, and the core may keep a half-registered UE until its timers

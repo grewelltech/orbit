@@ -500,8 +500,8 @@ func TestJudgeDiscardReplay(t *testing.T) {
 // checks the old sequence number at its original COUNT and then discards
 // the repeat; a mock that stores the COUNT before the MAC check FAILs (C
 // unanswered), and one that answers the re-sent A FAILs under 4.4.3.2; A or
-// B unanswered and a release after the bad MAC are ERROR; 5G-IA0 and no UE
-// SKIP. Where the security context still works the UE is deregistered;
+// B unanswered is BLOCKED on the PDU session and a release after the bad
+// MAC is WARN; 5G-IA0 and no UE SKIP. Where the security context still works the UE is deregistered;
 // where it does not, the association is dropped.
 func TestCountNotAdvancedAgainstMock(t *testing.T) {
 	runUplinkCases(t, nasCountNotAdvanced{waits: testUplinkWaits}, []uplinkCase{
@@ -514,11 +514,11 @@ func TestCountNotAdvancedAgainstMock(t *testing.T) {
 		{name: "re-sent request answered", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate(), mockamf.WithReplayedUplink(mockamf.ProcessUplink)}, want: Fail,
 			wantObserved: "re-sent request answered (PDU Session Resource Setup Request): an already accepted NAS COUNT was accepted again",
 			wantDetail:   []string{"TS 24.501 4.4.3.2.", "The request sent after it was not judged.", cleanReleased}, wantDereg: 1, wantReleases: 2, wantReplays: 1},
-		{name: "A unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request A got no answer",
+		{name: "A unanswered", noUPF: true, want: Blocked, wantObserved: "PDU Session Establishment Request A got no answer",
 			wantDetail: []string{cleanReleased}, wantDereg: 1},
-		{name: "B unanswered", opts: []mockamf.Option{mockamf.WithPDUSessionAnswers(1)}, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request B got no answer",
+		{name: "B unanswered", opts: []mockamf.Option{mockamf.WithPDUSessionAnswers(1)}, want: Blocked, wantObserved: "PDU Session Establishment Request B got no answer",
 			wantDetail: []string{"PDU Session Release Request sent for session 2;", cleanReleased}, wantDereg: 1, wantReleases: 1},
-		{name: "released after the bad MAC", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Error,
+		{name: "released after the bad MAC", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Warn,
 			wantObserved: "UE released after the re-sent request; the stored NAS COUNT could not be judged",
 			wantDetail:   []string{"the AMF sent a UE Context Release Command", cleanGone}, wantBadMACs: 1},
 		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
@@ -531,31 +531,32 @@ func TestCountNotAdvancedAgainstMock(t *testing.T) {
 func TestJudgeCount(t *testing.T) {
 	w := uplinkWaits{}.withDefaults()
 	both := [2]string{"a", "b"}
+	blocked := classifiedBlocked(ProcPDUSession)
 	tests := []struct {
 		name         string
 		o            countOutcome
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 	}{
-		{name: "harness failure", o: countOutcome{err: errors.New("write failed")}, want: Error, wantObserved: "harness failure"},
-		{name: "released early", o: countOutcome{answers: [2]string{"a", ""}, goneEarly: "the AMF sent a UE Context Release Command"}, want: Error, wantObserved: "UE released before the re-sent request"},
-		{name: "A unanswered", o: countOutcome{}, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request A got no answer", wantDetail: []string{"within 10s"}},
-		{name: "B unanswered", o: countOutcome{answers: [2]string{"a", ""}}, want: Error, wantObserved: "precondition failed: PDU Session Establishment Request B got no answer"},
-		{name: "re-sent answered", o: countOutcome{answers: both, replayed: &smReply{name: "PDU Session Establishment Accept"}, third: "c"}, want: Fail,
+		{name: "harness failure", o: countOutcome{err: errors.New("write failed")}, want: classifiedError, wantObserved: "harness failure"},
+		{name: "released early", o: countOutcome{answers: [2]string{"a", ""}, goneEarly: "the AMF sent a UE Context Release Command"}, want: blocked, wantObserved: "UE released before the re-sent request"},
+		{name: "A unanswered", o: countOutcome{}, want: blocked, wantObserved: "PDU Session Establishment Request A got no answer", wantDetail: []string{"within 10s"}},
+		{name: "B unanswered", o: countOutcome{answers: [2]string{"a", ""}}, want: blocked, wantObserved: "PDU Session Establishment Request B got no answer"},
+		{name: "re-sent answered", o: countOutcome{answers: both, replayed: &smReply{name: "PDU Session Establishment Accept"}, third: "c"}, want: countReplayAccepted,
 			wantObserved: "re-sent request answered (PDU Session Establishment Accept): an already accepted NAS COUNT was accepted again", wantDetail: []string{"TS 24.501 4.4.3.2."}},
-		{name: "C answered", o: countOutcome{answers: both, third: "c"}, want: Pass, wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
+		{name: "C answered", o: countOutcome{answers: both, third: "c"}, want: countKept, wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
 			wantDetail: []string{"within 5s", "C was answered (c)"}},
-		{name: "C answered, then released", o: countOutcome{answers: both, third: "c", gone: "gone"}, want: Pass},
-		{name: "released before C", o: countOutcome{answers: both, gone: "the association was lost (EOF)"}, want: Error,
+		{name: "C answered, then released", o: countOutcome{answers: both, third: "c", gone: "gone"}, want: countKept},
+		{name: "released before C", o: countOutcome{answers: both, gone: "the association was lost (EOF)"}, want: countReleased,
 			wantObserved: "UE released after the re-sent request; the stored NAS COUNT could not be judged", wantDetail: []string{"the association was lost (EOF)"}},
-		{name: "C unanswered", o: countOutcome{answers: both}, want: Fail, wantObserved: countFailObserved, wantDetail: []string{countFailure, "got none within 10s"}},
+		{name: "C unanswered", o: countOutcome{answers: both}, want: countAdvanced, wantObserved: countFailObserved, wantDetail: []string{countFailure, "got none within 10s"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeCount(tc.o, w)
-			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgeCount(tc.o, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
 			}
 			for _, want := range tc.wantDetail {
 				if !strings.Contains(detail, want) {

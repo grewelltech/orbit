@@ -857,19 +857,49 @@ func judgeDiscard(o discardOutcome, k discardStimulus, w uplinkWaits) (Outcome, 
 // integrity protection validation"). C answered is PASS. C unanswered with
 // the association up is FAIL: every later uplink is checked at the wrong
 // COUNT. An answer to the re-sent A is FAIL under 4.4.3.2 (an accepted
-// COUNT accepted again), and C is then not judged. The UE's security
-// context may be unusable afterwards, so the cleanup drops the association
-// whatever the deregistration brings.
+// COUNT accepted again), and C is then not judged. A UE released after the
+// re-sent A, before C is answered, is WARN for security, as for the discard
+// checks. A or B unanswered, or a UE released before A is sent again, is
+// BLOCKED on the PDU session establishment. The UE's security context may
+// be unusable afterwards, so the cleanup drops the association whatever the
+// deregistration brings.
 type nasCountNotAdvanced struct {
 	// waits override the default bounds (tests only).
 	waits uplinkWaits
+}
+
+// The keys of the shalls the outcomes of NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL
+// rest on.
+const (
+	countStoredRef = "TS 24.501 4.4.3.3"
+	countReplayRef = "TS 24.501 4.4.3.2"
+)
+
+// The outcomes of NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL. A release after the
+// re-sent request is WARN for security: no shall forbids it, but the core
+// acts on a message whose MAC failed.
+var (
+	countKept = Outcome{ID: "count-kept", Verdict: Pass, Refs: []string{countStoredRef},
+		Summary: "answered a valid request sent after a MAC-failed one with a lower sequence number: the stored uplink NAS COUNT did not move"}
+	countAdvanced = Outcome{ID: "count-advanced", Verdict: Fail, Refs: []string{countStoredRef},
+		Bound:   &Bound{Wait: uplinkAnswerWait, Source: "check bound; requests A and B were answered within it"},
+		Summary: "left a valid request sent after a MAC-failed one unanswered: the stored uplink NAS COUNT moved before the integrity check"}
+	countReplayAccepted = Outcome{ID: "replay-accepted", Verdict: Fail, Refs: []string{countReplayRef},
+		Summary: "answered a request re-sent with a lower sequence number, accepting a NAS COUNT it had accepted"}
+	countReleased = Outcome{ID: "released", Verdict: Warn, Criterion: CriterionSecurity,
+		Summary: "released the UE after the request re-sent with a lower sequence number"}
+)
+
+// Outcomes declares what the check can report.
+func (nasCountNotAdvanced) Outcomes() []Outcome {
+	return []Outcome{countKept, countAdvanced, countReplayAccepted, countReleased}
 }
 
 func (nasCountNotAdvanced) ID() string         { return "NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL" }
 func (nasCountNotAdvanced) Category() Category { return Security }
 func (nasCountNotAdvanced) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "4.4.3.3", Strength: Shall, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "4.4.3.3", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 16, Note: "the paragraph on the integrity algorithm's input is split into items a) and b) with a NOTE; the sentence on updating the stored NAS COUNT is unchanged from V15.0.0 through V19.8.0"},
 				{Release: 18, Note: "\"subclause\" becomes \"clause\""},
@@ -896,27 +926,20 @@ const (
 func (c nasCountNotAdvanced) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "after two answered PDU Session Establishment Requests, the first one's bytes sent again (a lower sequence number, so a failed MAC at the estimated NAS COUNT) leave the stored uplink NAS COUNT unchanged: a third, valid request is answered (TS 24.501 4.4.3.3); the re-sent request is not answered (4.4.3.2)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	d, err := newUplinkDriver(ctx, h, c.waits)
-	switch {
-	case errors.Is(err, errNIA0Selected):
-		return nia0Skip(r)
-	case err != nil:
-		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed", err.Error()
-		return r
+	if err != nil {
+		return uplinkSetupFailed(r, err)
 	}
 	o := probeCount(ctx, d)
-	r.Verdict, r.Observed, r.Detail = judgeCount(o, d.waits)
-	r.Detail = joinDetail(r.Detail, d.cleanup())
+	out, observed, detail := judgeCount(o, d.waits)
+	r = asClassified(r, out, observed, joinDetail(detail, d.cleanup()))
 	if r.Verdict == Error && ctx.Err() != nil {
 		return r
 	}
@@ -1008,31 +1031,31 @@ func probeCount(ctx context.Context, d *uplinkDriver) countOutcome {
 	return o
 }
 
-// judgeCount turns the NAS COUNT check's outcome into a verdict, Observed
+// judgeCount turns the NAS COUNT check's outcome into an outcome, Observed
 // and Detail.
-func judgeCount(o countOutcome, w uplinkWaits) (Verdict, string, string) {
+func judgeCount(o countOutcome, w uplinkWaits) (Outcome, string, string) {
 	switch {
 	case o.err != nil:
-		return Error, "harness failure", o.err.Error()
+		return classifiedError, "harness failure", o.err.Error()
 	case o.goneEarly != "":
-		return Error, "UE released before the re-sent request", o.goneEarly + " while requests A and B were being answered"
+		return classifiedBlocked(ProcPDUSession), "UE released before the re-sent request", o.goneEarly + " while requests A and B were being answered"
 	case o.answers[0] == "" || o.answers[1] == "":
 		which := "A"
 		if o.answers[0] != "" {
 			which = "B"
 		}
-		return Error, fmt.Sprintf("precondition failed: PDU Session Establishment Request %s got no answer", which),
-			fmt.Sprintf("no 5GSM answer and no PDU Session Resource Setup Request within %s; the check needs a core that answers two requests in a row (DNN and slice from the UE configuration)", w.answer)
+		return classifiedBlocked(ProcPDUSession), fmt.Sprintf("PDU Session Establishment Request %s got no answer", which),
+			fmt.Sprintf("no 5GSM answer and no PDU Session Resource Setup Request within %s; the check needs the core to answer two requests in a row (DNN and slice from the UE configuration) before the stored NAS COUNT can be judged", w.answer)
 	case o.replayed != nil:
-		return Fail, fmt.Sprintf("re-sent request answered (%s): an already accepted NAS COUNT was accepted again", o.replayed.name), countReplayFailure
+		return countReplayAccepted, fmt.Sprintf("re-sent request answered (%s): an already accepted NAS COUNT was accepted again", o.replayed.name), countReplayFailure
 	case o.third != "":
-		return Pass, "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
+		return countKept, "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
 			fmt.Sprintf("A and B were answered (%s; %s); A sent again got no answer within %s; C was answered (%s)", o.answers[0], o.answers[1], w.quiet, o.third)
 	case o.gone != "":
-		return Error, "UE released after the re-sent request; the stored NAS COUNT could not be judged",
-			fmt.Sprintf("%s before request C was answered, so whether the stored uplink NAS COUNT was advanced is not known", o.gone)
+		return countReleased, "UE released after the re-sent request; the stored NAS COUNT could not be judged",
+			fmt.Sprintf("%s before request C was answered, so whether the stored uplink NAS COUNT was advanced is not known; the release acts on a message whose MAC failed", o.gone)
 	}
-	return Fail, countFailObserved,
+	return countAdvanced, countFailObserved,
 		fmt.Sprintf("%s A and B were answered (%s; %s); A sent again got no answer; C, protected at the UE's next uplink NAS COUNT, got none within %s with the association up.", countFailure, o.answers[0], o.answers[1], w.answer)
 }
 
