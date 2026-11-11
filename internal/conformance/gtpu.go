@@ -103,7 +103,7 @@ func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 	if !ok {
 		return r
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	errWait, echo := c.waits()
 
 	// Liveness before the stimulus: without it, silence afterwards could be

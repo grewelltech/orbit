@@ -119,10 +119,10 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	ng, err := gnb.NGSetup(ctx, tgtConn, target.Config)
 	switch {
 	case err != nil:
-		tgtConn.Close()
+		_ = tgtConn.Close()
 		return nil, nil, beforeAttach(fmt.Errorf("target NG Setup: %w", err))
 	case !ng.Accepted:
-		tgtConn.Close()
+		_ = tgtConn.Close()
 		return nil, nil, beforeAttach(fmt.Errorf("target NG Setup rejected: %s", ng.Cause))
 	}
 	// The target association's reads go through one reader too
