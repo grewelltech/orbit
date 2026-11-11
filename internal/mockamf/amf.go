@@ -106,6 +106,7 @@ type AMF struct {
 	t3560             time.Duration
 	t3560Retries      int
 	t3560NoRelease    bool
+	t3560Reject       bool
 	t3560ReleaseAfter time.Duration
 	crashAfterRelease bool
 	authReject        bool

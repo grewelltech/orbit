@@ -1503,7 +1503,11 @@ does not assume the 6 s default:
 
 The detail gives each gap and the estimated timer, and notes a gap far from it
 or from the 6 s default. The check can take up to 190 s, so it raises its own
-timeout.
+timeout. An Authentication Reject that arrives after the four retransmissions
+is recorded in the detail and the check keeps waiting for the release, which
+alone decides the verdict: the clause requires the release and names no
+reject. An Authentication Reject before them is an ERROR, since the core did
+not run T3560 against the subscriber.
 
 `NAS-T3550-ACCEPT-RETRANSMIT` withholds the Registration Complete instead. It
 passes when the AMF retransmits the Registration Accept four times, one T3550

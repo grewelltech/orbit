@@ -65,16 +65,22 @@ func TestProcedureName(t *testing.T) {
 // A probe withholds at the reaction: the UE stops where the withheld reply
 // would have been sent, emitting no later state event, while OnDownlink
 // sees every downlink with its NAS type. With T3560 on the mock, the release
-// ends the attach with ErrReleasedByCore. A nil probe is the ordinary attach.
+// ends the attach with ErrReleasedByCore. An Authentication Reject ends it
+// with ErrAuthenticationRejected unless AfterAuthenticationReject says to
+// wait on, and then the release or the context ends it. A nil probe is the
+// ordinary attach.
 func TestAttachProbe(t *testing.T) {
+	yes := true
 	tests := []struct {
-		name       string
-		probe      bool
-		withhold   uint8
-		opts       []mockamf.Option
-		wantStates []string
-		wantNAS    []uint8 // downlink NAS types the probe saw, in order
-		wantErr    error
+		name     string
+		probe    bool
+		withhold uint8
+		// afterReject, when set, is what AfterAuthenticationReject answers.
+		afterReject *bool
+		opts        []mockamf.Option
+		wantStates  []string
+		wantNAS     []uint8 // downlink NAS types the probe saw, in order
+		wantErr     error
 	}{
 		{name: "nil probe registers", wantStates: []string{StateRegistering, StateAuthenticated, StateSecurityEstablished, StateRegistered}},
 		{name: "probe withholding nothing registers", probe: true,
@@ -93,6 +99,26 @@ func TestAttachProbe(t *testing.T) {
 			opts:       []mockamf.Option{mockamf.WithT3560(30*time.Millisecond, 1)},
 			wantStates: []string{StateRegistering},
 			wantNAS:    []uint8{f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationRequest, 0}, wantErr: ErrReleasedByCore},
+		{name: "an authentication reject ends the attach", probe: true, withhold: f5nas.MsgTypeAuthenticationResponse,
+			opts:       []mockamf.Option{mockamf.WithT3560(30*time.Millisecond, 1), mockamf.WithT3560RejectOnLastExpiry()},
+			wantStates: []string{StateRegistering},
+			wantNAS:    []uint8{f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationReject},
+			wantErr:    ErrAuthenticationRejected},
+		{name: "an authentication reject the probe declines to wait after", probe: true, withhold: f5nas.MsgTypeAuthenticationResponse, afterReject: new(bool),
+			opts:       []mockamf.Option{mockamf.WithT3560(30*time.Millisecond, 1), mockamf.WithT3560RejectOnLastExpiry()},
+			wantStates: []string{StateRegistering},
+			wantNAS:    []uint8{f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationReject},
+			wantErr:    ErrAuthenticationRejected},
+		{name: "waiting on after an authentication reject, released", probe: true, withhold: f5nas.MsgTypeAuthenticationResponse, afterReject: &yes,
+			opts:       []mockamf.Option{mockamf.WithT3560(30*time.Millisecond, 1), mockamf.WithT3560RejectOnLastExpiry()},
+			wantStates: []string{StateRegistering},
+			wantNAS:    []uint8{f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationReject, 0},
+			wantErr:    ErrReleasedByCore},
+		{name: "waiting on after an authentication reject, never released", probe: true, withhold: f5nas.MsgTypeAuthenticationResponse, afterReject: &yes,
+			opts:       []mockamf.Option{mockamf.WithT3560(30*time.Millisecond, 1), mockamf.WithT3560RejectOnLastExpiry(), mockamf.WithT3560NoRelease()},
+			wantStates: []string{StateRegistering},
+			wantNAS:    []uint8{f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeAuthenticationReject},
+			wantErr:    context.DeadlineExceeded},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -133,6 +159,9 @@ func TestAttachProbe(t *testing.T) {
 				}}
 				if tc.withhold != 0 {
 					ucfg.Probe.Withhold = map[uint8]bool{tc.withhold: true}
+				}
+				if tc.afterReject != nil {
+					ucfg.Probe.AfterAuthenticationReject = func() bool { return *tc.afterReject }
 				}
 			}
 			_, err = Attach(ctx, conn, cfg, ucfg, slog.New(slog.NewTextHandler(io.Discard, nil)), func(ev StateEvent) {

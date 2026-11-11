@@ -304,7 +304,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   (TS 24.501 5.4.1.3.7 b)). The timer is estimated from the observed gaps
   (at least the 6 s default; up to 1.5 × 24 s for the first), so a core
   configured slower still passes; the spacing is recorded, not asserted.
-  Needs a UE, else SKIP, and up to 190 s (about 33 s at the default), so it
+  An Authentication Reject after the four retransmissions is recorded and
+  the check keeps waiting for the release, which alone decides (the clause
+  names no reject); a reject before them is ERROR. Needs a UE, else SKIP,
+  and up to 190 s (about 33 s at the default), so it
   raises its own per-test timeout. Not yet run on Ref 2;
   the source analyst predicts PASS for the retransmissions and FAIL for the
   release (the AMF removes the UE locally without a release command).

@@ -34,6 +34,11 @@ func WithT3560ReleaseAfter(d time.Duration) Option { return func(a *AMF) { a.t35
 // CONTEXT RELEASE COMMAND on the last expiry: the AMF aborts locally.
 func WithT3560NoRelease() Option { return func(a *AMF) { a.t3560NoRelease = true } }
 
+// WithT3560RejectOnLastExpiry makes the mock send an Authentication Reject
+// on WithT3560's last expiry, ahead of the release (or alone, with
+// WithT3560NoRelease).
+func WithT3560RejectOnLastExpiry() Option { return func(a *AMF) { a.t3560Reject = true } }
+
 // WithCrashAfterRelease makes the mock crash once it has released a UE
 // (WithT3560's release, or ReleaseNoCommonIntegrity's): from then on any association closes on its next message, so a fresh
 // NG Setup fails at once.
@@ -129,14 +134,27 @@ func (a *AMF) startRetransmit(p *pipe, d, last time.Duration, resend []ngapType.
 
 // startT3560 runs T3560 for st, retransmitting ar (the encoded plain
 // Authentication Request) and releasing the UE after the last expiry unless
-// WithT3560NoRelease.
+// WithT3560NoRelease, after an Authentication Reject with
+// WithT3560RejectOnLastExpiry.
 func (a *AMF) startT3560(p *pipe, st *ueState, ar []byte) *retransmitter {
 	amfID, ranID := st.amfID, a.ranIDOf(st)
 	resend := make([]ngapType.NGAPPDU, a.t3560Retries)
 	for i := range resend {
 		resend[i] = buildDownlinkNASTransport(amfID, ranID, ar)
 	}
+	var reject *ngapType.NGAPPDU
+	if a.t3560Reject {
+		if rej, err := buildAuthenticationReject(); err == nil {
+			pdu := buildDownlinkNASTransport(amfID, ranID, rej)
+			reject = &pdu
+		} else {
+			a.encodeErrs.Add(1)
+		}
+	}
 	return a.startRetransmit(p, a.t3560, a.t3560ReleaseAfter, resend, func() {
+		if reject != nil {
+			_ = a.send(p, *reject)
+		}
 		if a.t3560NoRelease {
 			return
 		}

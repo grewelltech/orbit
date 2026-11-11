@@ -481,7 +481,11 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	case f5nas.MsgTypeIdentityRequest:
 		return s.onIdentityRequest(msg, f5nas.GetSecurityHeaderType(raw) != f5nas.SecurityHeaderTypePlainNas)
 	case f5nas.MsgTypeAuthenticationReject:
-		return fmt.Errorf("AMF rejected authentication")
+		if p := s.ueCfg.Probe; p != nil && p.AfterAuthenticationReject != nil && p.AfterAuthenticationReject() {
+			s.log.InfoContext(s.ctx, "probe: waiting on after an Authentication Reject")
+			return nil
+		}
+		return ErrAuthenticationRejected
 	case f5nas.MsgTypeRegistrationReject:
 		return ErrRegistrationRejected
 	default:
