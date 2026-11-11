@@ -149,29 +149,10 @@ func BuildRegistrationRequest(suci []byte, secCap nasType.UESecurityCapability, 
 // CleartextRegistrationRequest reduces a complete plain Registration Request
 // to the form a UE without a valid 5G NAS security context sends as the
 // initial NAS message: the mandatory IEs and, of the optional ones, only the
-// cleartext IEs of TS 24.501 §4.4.6 (UE security capability, Additional
-// GUTI, UE status, EPS NAS message container).
+// cleartext IEs of TS 24.501 §4.4.6, as nas.NonCleartextRegistrationIE
+// classifies them.
 func CleartextRegistrationRequest(complete []byte) ([]byte, error) {
-	full, err := nas.DecodePlain(complete)
-	if err != nil {
-		return nil, err
-	}
-	if full.GmmMessage == nil || full.RegistrationRequest == nil {
-		return nil, fmt.Errorf("not a Registration Request")
-	}
-	src := full.RegistrationRequest
-	m, gmm := newGmm(f5nas.MsgTypeRegistrationRequest)
-	req := nasMessage.NewRegistrationRequest(f5nas.MsgTypeRegistrationRequest)
-	setGmmHeader(&req.ExtendedProtocolDiscriminator, &req.SpareHalfOctetAndSecurityHeaderType,
-		&req.RegistrationRequestMessageIdentity, f5nas.MsgTypeRegistrationRequest)
-	req.NgksiAndRegistrationType5GS = src.NgksiAndRegistrationType5GS
-	req.MobileIdentity5GS = src.MobileIdentity5GS
-	req.UESecurityCapability = src.UESecurityCapability
-	req.AdditionalGUTI = src.AdditionalGUTI
-	req.UEStatus = src.UEStatus
-	req.EPSNASMessageContainer = src.EPSNASMessageContainer
-	gmm.RegistrationRequest = req
-	return m.PlainNasEncode()
+	return nas.CleartextRegistrationRequest(complete)
 }
 
 // BuildAuthenticationResponse carries RES* back to the network
