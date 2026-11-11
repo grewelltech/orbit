@@ -427,8 +427,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   byte-identical resend or a lower COUNT is FAIL. The COUNT is the one of two
   candidates (the sequence number with the stored overflow counter, or the
   next) the MAC verifies at, so a wrap counts as an increase; a
-  retransmission that verifies at neither is ERROR. No retransmission SKIPs
-  (the T3550 check grades that). Needs a UE and up to 118 s (about 25 s at
+  retransmission that verifies at neither is WARN for interoperability. No
+  retransmission is INFO (the T3550 check grades that); no verified Accept
+  is BLOCKED on the registration. Needs a UE and up to 118 s (about 25 s at
   the default timer). The UE is left registered, as by the T3550 check.
   Mock-only so far.
 - `NAS-BADMAC-REGISTRATION-AFTER-SMC` (security, FAIL-class) — with one PDU

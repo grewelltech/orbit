@@ -26,39 +26,40 @@ func TestJudgeRetransmitCounts(t *testing.T) {
 	sameCount := ok(1, 2, 2)
 	sameCount[2].raw = []byte{0x7e, 0x02, 0xbb}
 	unverified := append(ok(1, 2), acceptTx{candidates: [2]uint32{3, 259}, raw: []byte{0x7e, 0x02, 0xaa}})
+	blocked := classifiedBlocked(ProcRegistration)
 	tests := []struct {
 		name         string
 		tx           []acceptTx
 		reject       string
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 		notDetail    string
 	}{
-		{name: "reject", reject: "Registration Reject", want: Error, wantObserved: "Registration Reject before the Registration Accept"},
-		{name: "no accept", want: Error, wantObserved: "registration did not reach a Registration Accept that verifies", wantDetail: []string{"within 10s"}},
-		{name: "no retransmission", tx: ok(1), want: Skip, wantObserved: "no retransmission of Registration Accept within the bound",
+		{name: "reject", reject: "Registration Reject", want: blocked, wantObserved: "Registration Reject before the Registration Accept"},
+		{name: "no accept", want: blocked, wantObserved: "registration did not reach a Registration Accept that verifies", wantDetail: []string{"within 10s"}},
+		{name: "no retransmission", tx: ok(1), want: retransmitNone, wantObserved: "no retransmission of Registration Accept within the bound",
 			wantDetail: []string{"at NAS COUNT 1", "NAS-T3550-ACCEPT-RETRANSMIT"}},
-		{name: "four higher", tx: ok(1, 2, 3, 4, 5), want: Pass,
+		{name: "four higher", tx: ok(1, 2, 3, 4, 5), want: retransmitCountIncreased,
 			wantObserved: "4 retransmissions of Registration Accept, each at a higher NAS COUNT (COUNTs 1, 2, 3, 4, 5)"},
-		{name: "gaps are fine", tx: ok(1, 4, 9), want: Pass, wantObserved: "2 retransmissions of Registration Accept, each at a higher NAS COUNT (COUNTs 1, 4, 9)"},
-		{name: "wrap", tx: ok(255, 256), want: Pass, wantObserved: "1 retransmissions of Registration Accept, each at a higher NAS COUNT (COUNTs 255, 256)"},
-		{name: "identical", tx: identical, want: Fail,
+		{name: "gaps are fine", tx: ok(1, 4, 9), want: retransmitCountIncreased, wantObserved: "2 retransmissions of Registration Accept, each at a higher NAS COUNT (COUNTs 1, 4, 9)"},
+		{name: "wrap", tx: ok(255, 256), want: retransmitCountIncreased, wantObserved: "1 retransmissions of Registration Accept, each at a higher NAS COUNT (COUNTs 255, 256)"},
+		{name: "identical", tx: identical, want: retransmitCountNotIncreased,
 			wantObserved: "retransmission 1 of Registration Accept at NAS COUNT 1, the same as the transmission before it (COUNTs 1, 1)",
 			wantDetail:   []string{retransmitCountFailure, "byte-identical"}},
-		{name: "same COUNT, other bytes", tx: sameCount, want: Fail,
+		{name: "same COUNT, other bytes", tx: sameCount, want: retransmitCountNotIncreased,
 			wantObserved: "retransmission 2 of Registration Accept at NAS COUNT 2, the same as the transmission before it (COUNTs 1, 2, 2)",
 			wantDetail:   []string{retransmitCountFailure}, notDetail: "byte-identical"},
-		{name: "lower", tx: ok(5, 4), want: Fail,
+		{name: "lower", tx: ok(5, 4), want: retransmitCountNotIncreased,
 			wantObserved: "retransmission 1 of Registration Accept at NAS COUNT 4, lower than the transmission before it (COUNTs 5, 4)"},
-		{name: "unverifiable", tx: unverified, want: Error, wantObserved: "retransmission 2 of Registration Accept verifies at no candidate NAS COUNT",
+		{name: "unverifiable", tx: unverified, want: retransmitUnverifiable, wantObserved: "retransmission 2 of Registration Accept verifies at no candidate NAS COUNT",
 			wantDetail: []string{"after transmissions at NAS COUNT 1, 2", "3 and 259", "NAS 7e02aa"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeRetransmitCounts(tc.tx, tc.reject, authRequestWait)
-			if v != tc.want || observed != tc.wantObserved {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgeRetransmitCounts(tc.tx, tc.reject, authRequestWait)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(detail, w) {
@@ -87,8 +88,9 @@ func TestRetransmitCountConstants(t *testing.T) {
 // Every verdict branch against the mock AMF over a real SCTP listener, with
 // a 100 ms T3550: retransmissions protected afresh PASS, also across the
 // sequence number's wrap and when fewer than four come; a byte-identical
-// resend and a lower COUNT FAIL; a retransmission with a bad MAC is ERROR,
-// as are a reject and no Accept; no retransmission, 5G-IA0 and no UE SKIP.
+// resend and a lower COUNT FAIL; a retransmission with a bad MAC is WARN;
+// a reject and no Accept are BLOCKED on the registration; no
+// retransmission is INFO; 5G-IA0 and no UE SKIP.
 func TestRetransmitNewCountAgainstMock(t *testing.T) {
 	const T, Tmax = 100 * time.Millisecond, 400 * time.Millisecond
 	guti, t3550 := mockamf.WithGUTI(), mockamf.WithT3550(T, 4)
@@ -112,14 +114,14 @@ func TestRetransmitNewCountAgainstMock(t *testing.T) {
 		{name: "lower COUNT", opts: []mockamf.Option{guti, t3550, mockamf.WithAcceptDownlinkCount(5), mockamf.WithT3550Retransmission(mockamf.LowerCountT3550)}, want: Fail,
 			wantObserved: "retransmission 1 of Registration Accept at NAS COUNT 4, lower than the transmission before it (COUNTs 5, 4)",
 			wantDetail:   retransmitCountFailure},
-		{name: "bad MAC", opts: []mockamf.Option{guti, t3550, mockamf.WithT3550Retransmission(mockamf.BadMACT3550)}, want: Error,
+		{name: "bad MAC", opts: []mockamf.Option{guti, t3550, mockamf.WithT3550Retransmission(mockamf.BadMACT3550)}, want: Warn,
 			wantObserved: "retransmission 1 of Registration Accept verifies at no candidate NAS COUNT", wantDetail: "2 and 258"},
-		{name: "no retransmission", opts: []mockamf.Option{guti}, want: Skip, wantObserved: "no retransmission of Registration Accept within the bound"},
+		{name: "no retransmission", opts: []mockamf.Option{guti}, want: Info, wantObserved: "no retransmission of Registration Accept within the bound"},
 		{name: "5G-IA0 selected", opts: []mockamf.Option{guti, t3550, mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip,
 			wantObserved: "the core selected 5G-IA0; the UE harness refuses it, so no protected Registration Accept was seen"},
-		{name: "no registration accept", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Error,
+		{name: "no registration accept", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Blocked,
 			wantObserved: "registration did not reach a Registration Accept that verifies"},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error,
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
 			wantObserved: "Authentication Reject before the Registration Accept"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}

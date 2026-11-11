@@ -178,7 +178,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NAS-RETRANSMIT-NEW-COUNT
 
-- TS 24.501 4.4.3.1 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 4.4.3.1 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 5.5.1.2.8 c) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
 ### NAS-T3550-ACCEPT-RETRANSMIT
@@ -534,6 +534,21 @@ Needs: NG Setup, registration.
 | `unanswered` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall); absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | sent no NAS message for a REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE |
 | `no-release` | INFO | no requirement; absence within 5s (check bound; the wait the suite's deregistration checks give the release) | sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration, so the registration after the release could not be sent |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-RETRANSMIT-NEW-COUNT outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `count-increased` | PASS | TS 24.501 4.4.3.1 (shall) | protected each retransmission of the Registration Accept at a higher NAS COUNT than the transmission before it |
+| `count-not-increased` | FAIL | TS 24.501 4.4.3.1 (shall) | protected a retransmission of the Registration Accept at a NAS COUNT not above the transmission before it |
+| `no-retransmission` | INFO | no requirement; absence within 27s (1.5 × the largest T3550 of TS 24.501 Table 10.2.2) | sent the Registration Accept once, leaving no retransmission to judge |
+| `unverifiable` | WARN | interoperability | retransmitted the Registration Accept with a MAC that verifies at no NAS COUNT the UE can estimate |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
 
