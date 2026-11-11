@@ -1,11 +1,42 @@
 {
   "run":  {
-    "runId":  "run-198fa4da",
+    "runId":  "run-d380a861",
     "kind":  "RUN_KIND_LOAD",
     "state":  "RUN_STATE_RUNNING",
-    "startedUnixNano":  "1794440126122699880"
+    "startedUnixNano":  "1794440559526528622"
   },
-  "loadProgress":  {},
+  "loadProgress":  {
+    "attempted":  1,
+    "succeeded":  1,
+    "achievedRate":  3172.0051513363655,
+    "latency":  [
+      {
+        "procedure":  "registration",
+        "count":  "1",
+        "p50Ms":  2.675,
+        "p90Ms":  2.675,
+        "p99Ms":  2.675,
+        "p999Ms":  2.675,
+        "maxMs":  2.675
+      },
+      {
+        "procedure":  "attach",
+        "count":  "1",
+        "p50Ms":  2.679,
+        "p90Ms":  2.679,
+        "p99Ms":  2.679,
+        "p999Ms":  2.679,
+        "maxMs":  2.679
+      }
+    ],
+    "perGnb":  [
+      {
+        "gnb":  "orbit-gnb",
+        "attempted":  1,
+        "succeeded":  1
+      }
+    ]
+  },
   "leases":  [
     {
       "resource":  "LEASE_RESOURCE_SUPI_BLOCK",
@@ -16,7 +47,7 @@
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:44055",
+      "amf":  "127.0.0.1:48292",
       "gnbId":  7
     },
     {

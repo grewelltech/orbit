@@ -148,6 +148,7 @@ var fields = map[string]field{
 	"workloads[].conformance.checks":              {typ: tStrings},
 	"workloads[].conformance.groups":              {typ: tStrings},
 	"workloads[].conformance.tags":                {typ: tStrings},
+	"workloads[].conformance.pack":                {},
 	"workloads[].conformance.target_release":      {},
 	"workloads[].conformance.expected":            {typ: tAny}, // a file path, or the list inline
 	"workloads[].conformance.per_test_timeout_ms": {typ: tUint},

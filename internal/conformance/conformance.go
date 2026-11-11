@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -38,6 +39,9 @@ type Result struct {
 	Group string `json:"group,omitempty"`
 	// Tags are the check's tags (TagsOf); they never affect the verdict.
 	Tags []Tag `json:"tags,omitempty"`
+	// Pack names the core regression pack the check belongs to, "" for a
+	// check of the default run.
+	Pack string `json:"pack,omitempty"`
 	// SpecRef is the check's references rendered on one line (RenderRefs),
 	// kept for consumers of the original string field.
 	SpecRef string `json:"spec_ref"`
@@ -486,6 +490,12 @@ type Registry struct {
 	// tags, when non-empty, narrows Select to the checks with one of them
 	// (Tagged).
 	tags []Tag
+	// packs are the registry's core regression packs by name, and packOf
+	// the pack of each pack check by ID; their checks are in tests after
+	// the default run's. pack is the pack UsePack let into the run.
+	packs  map[string]Pack
+	packOf map[string]string
+	pack   string
 }
 
 // NewRegistry returns a registry preloaded with the built-in tests. It
@@ -493,20 +503,41 @@ type Registry struct {
 // that declares no outcomes, a procedure with two owners or a needed
 // procedure with none is a programming error, which fails at start-up.
 func NewRegistry() *Registry {
-	r, err := newRegistry(builtins)
+	r, err := newRegistry(builtins, builtinPacks...)
 	if err != nil {
 		panic("conformance: the built-in checks: " + err.Error())
 	}
 	return r
 }
 
-// newRegistry returns a registry of tests, or an error when a test declares
-// no outcomes (Declarer), has a primary reference the clause-title table
-// does not cover (GroupOf), declares a tag outside the closed set, or the
-// set fails Registry.Validate.
-func newRegistry(tests []Test) (*Registry, error) {
-	r := &Registry{}
-	for _, t := range tests {
+// newRegistry returns a registry of tests and of the core regression packs,
+// or an error when a check declares no outcomes (Declarer), has a primary
+// reference the clause-title table does not cover (GroupOf), declares a
+// tag outside the closed set, shares its ID with another check, when a
+// pack breaks the pack layer's rules (validatePack), or when the set fails
+// Registry.Validate.
+func newRegistry(tests []Test, packs ...Pack) (*Registry, error) {
+	r := &Registry{packs: map[string]Pack{}, packOf: map[string]string{}}
+	all := slices.Clone(tests)
+	for _, p := range packs {
+		if err := validatePack(p); err != nil {
+			return nil, err
+		}
+		if _, dup := r.packs[p.Name]; dup {
+			return nil, fmt.Errorf("two packs are named %s", p.Name)
+		}
+		r.packs[p.Name] = p
+		for _, t := range p.Checks {
+			r.packOf[t.ID()] = p.Name
+		}
+		all = append(all, p.Checks...)
+	}
+	ids := map[string]bool{}
+	for _, t := range all {
+		if ids[strings.ToUpper(t.ID())] {
+			return nil, fmt.Errorf("%s: two checks have this ID", t.ID())
+		}
+		ids[strings.ToUpper(t.ID())] = true
 		if _, ok := declared(t); !ok {
 			return nil, fmt.Errorf("%s: declares no outcomes; every check declares what it can report (Declarer)", t.ID())
 		}
@@ -533,6 +564,9 @@ func (r *Registry) Register(t Test) { r.tests = append(r.tests, t) }
 func (r *Registry) Select() []Test {
 	var out []Test
 	for _, t := range r.tests {
+		if !r.inRun(t) {
+			continue
+		}
 		if r.only != nil && !r.only[t.ID()] {
 			continue
 		}
@@ -569,15 +603,27 @@ func (r *Registry) Only(ids ...string) error {
 		if !ok {
 			return fmt.Errorf("unknown check %q", id)
 		}
+		if p := r.packOf[canon]; p != "" && p != r.pack {
+			return fmt.Errorf("check %s is in pack %s, which this run does not name", canon, p)
+		}
 		only[canon] = true
 	}
 	r.only = only
 	return nil
 }
 
-// Tests returns the registered tests in registration order, the order
-// their gNB IDs and subscriber blocks follow; Select gives the run order.
-func (r *Registry) Tests() []Test { return r.tests }
+// Tests returns the checks of the default run in registration order, the
+// order their gNB IDs and subscriber blocks follow; Select gives the run
+// order. A pack's checks are not among them (UsePack).
+func (r *Registry) Tests() []Test {
+	out := make([]Test, 0, len(r.tests))
+	for _, t := range r.tests {
+		if r.packOf[t.ID()] == "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
 
 // Run executes the selected tests (Select) against env and returns the
 // results in run order. Each test gets its own timeout so one hang does
@@ -684,6 +730,7 @@ func (r *Registry) run(ctx context.Context, env Env, perTest time.Duration, pref
 			registeredBy[e.UE.SUPI] = t.ID()
 		}
 		res := runOne(ctx, t, e, perTest)
+		res.Pack = r.packOf[t.ID()]
 		if hooks.Result != nil {
 			hooks.Result(res, i, len(selected))
 		}

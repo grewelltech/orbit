@@ -1,10 +1,10 @@
 {
   "run":  {
-    "runId":  "run-bbb1ece0",
+    "runId":  "run-45d1fde3",
     "kind":  "RUN_KIND_CONFORMANCE",
     "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1794440120009814546",
-    "endedUnixNano":  "1794440123033836987"
+    "startedUnixNano":  "1794440553445231492",
+    "endedUnixNano":  "1794440556485140765"
   },
   "conformance":  {
     "tally":  {
@@ -4299,7 +4299,7 @@
         "verdict":  "PASS",
         "expected":  "RAN CONFIGURATION UPDATE ACKNOWLEDGE for a valid RAN CONFIGURATION UPDATE (TS 38.413 8.7.2.2), or a RAN CONFIGURATION UPDATE FAILURE from an AMF that cannot accept it (8.7.2.3)",
         "observed":  "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
-        "detail":  "acknowledged 0s after the RAN CONFIGURATION UPDATE; stimulus: RAN CONFIGURATION UPDATE restating the NG Setup's Supported TA List (TAC 1, PLMN 208/93); requires Rel-15 or later; TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; graded as a requirement: \"The AMF responds with a RAN CONFIGURATION UPDATE ACKNOWLEDGE\" is the answer of a Class 1 procedure to an update the AMF takes; Rel-19: in V19.4.0 the same words are a bullet under \"If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF\"); TS 38.413 8.7.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
+        "detail":  "acknowledged 2ms after the RAN CONFIGURATION UPDATE; stimulus: RAN CONFIGURATION UPDATE restating the NG Setup's Supported TA List (TAC 1, PLMN 208/93); requires Rel-15 or later; TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; graded as a requirement: \"The AMF responds with a RAN CONFIGURATION UPDATE ACKNOWLEDGE\" is the answer of a Class 1 procedure to an update the AMF takes; Rel-19: in V19.4.0 the same words are a bullet under \"If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF\"); TS 38.413 8.7.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
         "specRefs":  [
           {
             "spec":  "TS 38.413",
@@ -10058,7 +10058,7 @@
             "verdict":  "PASS",
             "expected":  "RAN CONFIGURATION UPDATE ACKNOWLEDGE for a valid RAN CONFIGURATION UPDATE (TS 38.413 8.7.2.2), or a RAN CONFIGURATION UPDATE FAILURE from an AMF that cannot accept it (8.7.2.3)",
             "observed":  "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
-            "detail":  "acknowledged 0s after the RAN CONFIGURATION UPDATE; stimulus: RAN CONFIGURATION UPDATE restating the NG Setup's Supported TA List (TAC 1, PLMN 208/93); requires Rel-15 or later; TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; graded as a requirement: \"The AMF responds with a RAN CONFIGURATION UPDATE ACKNOWLEDGE\" is the answer of a Class 1 procedure to an update the AMF takes; Rel-19: in V19.4.0 the same words are a bullet under \"If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF\"); TS 38.413 8.7.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
+            "detail":  "acknowledged 2ms after the RAN CONFIGURATION UPDATE; stimulus: RAN CONFIGURATION UPDATE restating the NG Setup's Supported TA List (TAC 1, PLMN 208/93); requires Rel-15 or later; TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; graded as a requirement: \"The AMF responds with a RAN CONFIGURATION UPDATE ACKNOWLEDGE\" is the answer of a Class 1 procedure to an update the AMF takes; Rel-19: in V19.4.0 the same words are a bullet under \"If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF\"); TS 38.413 8.7.2.3 (Rel-15 onward, wording unchanged through Rel-19)",
             "specRefs":  [
               {
                 "spec":  "TS 38.413",

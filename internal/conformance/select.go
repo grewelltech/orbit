@@ -21,11 +21,17 @@ type Selection struct {
 	Release Release
 	// Tags are tags, in any case (Registry.Tagged).
 	Tags []string
+	// Pack names a core regression pack whose checks join the run, and
+	// Profile is the target's core.profile it is held to (Registry.UsePack).
+	Pack, Profile string
 }
 
 // Apply narrows r to the selection. An entry that names no registered
 // check is an error, and leaves r as it was.
 func (s Selection) Apply(r *Registry) error {
+	if err := r.UsePack(s.Pack, s.Profile); err != nil {
+		return err
+	}
 	if err := r.Only(s.Checks...); err != nil {
 		return err
 	}

@@ -1575,7 +1575,11 @@ type ConformanceWorkload struct {
 	Groups []string `protobuf:"bytes,12,rep,name=groups,proto3" json:"groups,omitempty"`
 	// Tags to run, on top of groups and checks: negative | security |
 	// timing; a check with any of them runs. Empty runs every check.
-	Tags          []string `protobuf:"bytes,13,rep,name=tags,proto3" json:"tags,omitempty"`
+	Tags []string `protobuf:"bytes,13,rep,name=tags,proto3" json:"tags,omitempty"`
+	// A core regression pack whose checks join the run (ADR-0011 rule 1).
+	// It must be for the target's core.profile; a target with no profile or
+	// strict-3gpp has no pack. Empty: the default run, no pack.
+	Pack          string `protobuf:"bytes,14,opt,name=pack,proto3" json:"pack,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1700,6 +1704,13 @@ func (x *ConformanceWorkload) GetTags() []string {
 		return x.Tags
 	}
 	return nil
+}
+
+func (x *ConformanceWorkload) GetPack() string {
+	if x != nil {
+		return x.Pack
+	}
+	return ""
 }
 
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).
@@ -2575,7 +2586,7 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"intervalMs\x12\x10\n" +
 	"\x03ues\x18\x03 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\xe3\x03\n" +
+	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\xf7\x03\n" +
 	"\x13ConformanceWorkload\x12\"\n" +
 	"\n" +
 	"categories\x18\x01 \x03(\tB\x02\x18\x01R\n" +
@@ -2592,7 +2603,8 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	" \x01(\tR\x06n3Bind\x12\x16\n" +
 	"\x06checks\x18\v \x03(\tR\x06checks\x12\x16\n" +
 	"\x06groups\x18\f \x03(\tR\x06groups\x12\x12\n" +
-	"\x04tags\x18\r \x03(\tR\x04tags\"[\n" +
+	"\x04tags\x18\r \x03(\tR\x04tags\x12\x12\n" +
+	"\x04pack\x18\x0e \x01(\tR\x04pack\"[\n" +
 	"\x10ExpectedFailures\x123\n" +
 	"\aentries\x18\x01 \x03(\v2\x19.orbit.v1.ExpectedFailureR\aentries\x12\x12\n" +
 	"\x04core\x18\x02 \x01(\tR\x04core\"\xa5\x01\n" +

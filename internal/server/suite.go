@@ -281,14 +281,18 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if err := env.GNB.ValidateIdentity(); err != nil {
 		return nil, err
 	}
-	if err := conformance.CategoriesRemoved(cw.GetCategories(), release); err != nil {
+	if err := conformance.CategoriesRemoved(cw.GetCategories(), release); err != nil { //nolint:staticcheck // read only to refuse it
 		return nil, err
 	}
 	// The selection narrows the registry for everything below: its count,
 	// its needs and the gNB IDs it leases. Group titles are read in the
 	// run's target release.
-	sel := conformance.Selection{Checks: cw.GetChecks(), Groups: cw.GetGroups(), Tags: cw.GetTags(), Release: release}
+	sel := conformance.Selection{Checks: cw.GetChecks(), Groups: cw.GetGroups(), Tags: cw.GetTags(), Release: release,
+		Pack: cw.GetPack(), Profile: core.GetProfile()}
 	reg := conformance.NewRegistry()
+	if err := reg.UsePack(sel.Pack, sel.Profile); err != nil {
+		return nil, fmt.Errorf("pack: %w", err)
+	}
 	if err := reg.Only(sel.Checks...); err != nil {
 		return nil, fmt.Errorf("checks: %w; `orbit conformance --list` names the checks", err)
 	}

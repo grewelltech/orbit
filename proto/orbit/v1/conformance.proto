@@ -130,6 +130,10 @@ message ConformanceResult {
   string group = 17;
   // The check's tags (negative, security, timing), for filtering only.
   repeated string tags = 18;
+  // The core regression pack the check belongs to; empty for a check of
+  // the default run. A pack check reports INFO, WARN, SKIP, BLOCKED,
+  // ERROR or CRASH, never PASS, FAIL or DEVIATION.
+  string pack = 19;
   string spec_ref = 3;
   // One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
   // INFO | BLOCKED | CRASH | SKIP | ERROR.

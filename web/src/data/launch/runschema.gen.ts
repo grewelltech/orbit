@@ -45,6 +45,7 @@ export const RUN_FIELDS: readonly RunFieldSpec[] = [
   {"path":"workloads[].conformance.n3_bind","type":"string"},
   {"path":"workloads[].conformance.nas.ciphering","type":"strings"},
   {"path":"workloads[].conformance.nas.integrity","type":"strings"},
+  {"path":"workloads[].conformance.pack","type":"string"},
   {"path":"workloads[].conformance.per_test_timeout_ms","type":"uint"},
   {"path":"workloads[].conformance.responder","type":"string"},
   {"path":"workloads[].conformance.subscriber_pool","type":"string"},

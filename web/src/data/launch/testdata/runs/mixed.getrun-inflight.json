@@ -1,9 +1,9 @@
 {
   "run":  {
-    "runId":  "run-8802537b",
+    "runId":  "run-048f7747",
     "kind":  "RUN_KIND_MIXED",
     "state":  "RUN_STATE_RUNNING",
-    "startedUnixNano":  "1794440126567791228",
+    "startedUnixNano":  "1794440559777638101",
     "workloadKinds":  [
       "RUN_KIND_LOAD",
       "RUN_KIND_CONFORMANCE"
@@ -19,49 +19,49 @@
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  7
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  32
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  35
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  41
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  36896
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  36899
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  36905
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:55343",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  36912
     },
     {
@@ -78,50 +78,15 @@
       "name":  "pop",
       "kind":  "RUN_KIND_LOAD",
       "state":  "running",
-      "load":  {
-        "attempted":  1,
-        "succeeded":  1,
-        "achievedRate":  7787.55548633284,
-        "latency":  [
-          {
-            "procedure":  "registration",
-            "count":  "1",
-            "p50Ms":  6.163,
-            "p90Ms":  6.163,
-            "p99Ms":  6.163,
-            "p999Ms":  6.163,
-            "maxMs":  6.163
-          },
-          {
-            "procedure":  "attach",
-            "count":  "1",
-            "p50Ms":  6.167,
-            "p90Ms":  6.167,
-            "p99Ms":  6.167,
-            "p999Ms":  6.167,
-            "maxMs":  6.167
-          }
-        ],
-        "perGnb":  [
-          {
-            "gnb":  "orbit-gnb",
-            "attempted":  1,
-            "succeeded":  1
-          }
-        ]
-      }
+      "load":  {}
     },
     {
       "name":  "suite",
       "kind":  "RUN_KIND_CONFORMANCE",
       "state":  "running",
       "conformance":  {
-        "tally":  {
-          "failed":  1
-        },
-        "ran":  1,
+        "tally":  {},
         "total":  3,
-        "lastCheck":  "NGAP-UNKNOWN-UE-SURVIVES",
         "preflight":  [
           {
             "step":  "NG Setup",

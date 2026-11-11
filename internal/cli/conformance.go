@@ -36,6 +36,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 		categories    []string
 		groups        []string
 		tagNames      []string
+		pack          string
 		checks        []string
 		jsonOut       bool
 		perTest       time.Duration
@@ -69,6 +70,23 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				return exitWith(ExitCouldNotStart, fmt.Errorf("--category: %w", err))
 			}
 			reg := conformance.NewRegistry()
+			// --list shows a pack's checks without a target, and the server
+			// holds a run's pack to its target's core.profile; --local has
+			// no target profile, so it runs no pack.
+			profile, known := reg.PackProfile(pack)
+			switch {
+			case pack != "" && !known:
+				have := "none"
+				if names := reg.Packs(); len(names) > 0 {
+					have = strings.Join(names, ", ")
+				}
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--pack: unknown pack %q (have %s)", pack, have))
+			case tf.local:
+				profile = ""
+			}
+			if err := reg.UsePack(pack, profile); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--pack: %w", err))
+			}
 			if err := reg.Only(checks...); err != nil {
 				return exitWith(ExitCouldNotStart, fmt.Errorf("--check: %w; --list names the checks", err))
 			}
@@ -170,6 +188,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	_ = f.MarkHidden("category")
 	f.StringArrayVar(&groups, "group", nil, "only run the checks in this group: a group path or a prefix of it, in any case, e.g. NGAP or \"NAS / 5GMM common procedures\" (repeatable; --list shows each check's group)")
 	f.StringSliceVar(&tagNames, "tag", nil, "only run the checks with one of these tags: negative, security, timing (repeatable or comma-separated, on top of --group); tags never affect a verdict")
+	f.StringVar(&pack, "pack", "", "add the checks of this core regression pack to the run: it must be for the target's core.profile, and a target with no profile or strict-3gpp has none (there are no packs yet)")
 	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable or comma-separated, on top of --group); each keeps the gNB IDs of a full run")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", conformance.DefaultPerTestTimeout, "per-check timeout; a check that needs longer (NAS timer checks) gets its own budget")

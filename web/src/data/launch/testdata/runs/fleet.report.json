@@ -1,14 +1,14 @@
 {
   "run":  {
-    "runId":  "run-cb90be90",
+    "runId":  "run-0764ca58",
     "kind":  "RUN_KIND_FLEET",
     "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1794440123867205992",
-    "endedUnixNano":  "1794440126081908713"
+    "startedUnixNano":  "1794440557270474941",
+    "endedUnixNano":  "1794440559481812769"
   },
   "fleet":  {
     "attached":  2,
-    "attachElapsedMs":  "212",
+    "attachElapsedMs":  "208",
     "perGnb":  [
       {
         "gnb":  "orbit-gnb",
@@ -20,23 +20,23 @@
       {
         "procedure":  "registration",
         "count":  "2",
-        "p50Ms":  2.295,
-        "p90Ms":  110.783,
-        "p99Ms":  110.783,
-        "p999Ms":  110.783,
-        "maxMs":  110.783
+        "p50Ms":  2.937,
+        "p90Ms":  106.879,
+        "p99Ms":  106.879,
+        "p999Ms":  106.879,
+        "maxMs":  106.879
       },
       {
         "procedure":  "attach",
         "count":  "2",
-        "p50Ms":  2.299,
-        "p90Ms":  110.783,
-        "p99Ms":  110.783,
-        "p999Ms":  110.783,
-        "maxMs":  110.783
+        "p50Ms":  2.941,
+        "p90Ms":  106.879,
+        "p99Ms":  106.879,
+        "p999Ms":  106.879,
+        "maxMs":  106.879
       }
     ],
-    "achievedRate":  9.447112154089089
+    "achievedRate":  9.634329690981861
   },
   "gates":  [
     {
@@ -60,7 +60,7 @@
       "kind":  "RUN_KIND_FLEET",
       "fleet":  {
         "attached":  2,
-        "attachElapsedMs":  "212",
+        "attachElapsedMs":  "208",
         "perGnb":  [
           {
             "gnb":  "orbit-gnb",
@@ -72,23 +72,23 @@
           {
             "procedure":  "registration",
             "count":  "2",
-            "p50Ms":  2.295,
-            "p90Ms":  110.783,
-            "p99Ms":  110.783,
-            "p999Ms":  110.783,
-            "maxMs":  110.783
+            "p50Ms":  2.937,
+            "p90Ms":  106.879,
+            "p99Ms":  106.879,
+            "p999Ms":  106.879,
+            "maxMs":  106.879
           },
           {
             "procedure":  "attach",
             "count":  "2",
-            "p50Ms":  2.299,
-            "p90Ms":  110.783,
-            "p99Ms":  110.783,
-            "p999Ms":  110.783,
-            "maxMs":  110.783
+            "p50Ms":  2.941,
+            "p90Ms":  106.879,
+            "p99Ms":  106.879,
+            "p999Ms":  106.879,
+            "maxMs":  106.879
           }
         ],
-        "achievedRate":  9.447112154089089
+        "achievedRate":  9.634329690981861
       },
       "gates":  [
         {

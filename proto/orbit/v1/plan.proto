@@ -208,6 +208,10 @@ message ConformanceWorkload {
   // Tags to run, on top of groups and checks: negative | security |
   // timing; a check with any of them runs. Empty runs every check.
   repeated string tags = 13;
+  // A core regression pack whose checks join the run (ADR-0011 rule 1).
+  // It must be for the target's core.profile; a target with no profile or
+  // strict-3gpp has no pack. Empty: the default run, no pack.
+  string pack = 14;
 }
 
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).

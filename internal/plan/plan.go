@@ -314,6 +314,7 @@ func (b builder) conformance(base string) (*orbitv1.ConformanceWorkload, error) 
 	if v, ok := b.get(base + "tags"); ok {
 		cw.Tags = v.([]string)
 	}
+	cw.Pack = b.str(base + "pack")
 	sel, err := b.gnbIDs(base + "gnb_ids.")
 	if err != nil {
 		return nil, err

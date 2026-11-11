@@ -477,8 +477,12 @@ type ConformanceResult struct {
 	// procedure family / procedure, by the specification's clause titles.
 	Group string `protobuf:"bytes,17,opt,name=group,proto3" json:"group,omitempty"`
 	// The check's tags (negative, security, timing), for filtering only.
-	Tags    []string `protobuf:"bytes,18,rep,name=tags,proto3" json:"tags,omitempty"`
-	SpecRef string   `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
+	Tags []string `protobuf:"bytes,18,rep,name=tags,proto3" json:"tags,omitempty"`
+	// The core regression pack the check belongs to; empty for a check of
+	// the default run. A pack check reports INFO, WARN, SKIP, BLOCKED,
+	// ERROR or CRASH, never PASS, FAIL or DEVIATION.
+	Pack    string `protobuf:"bytes,19,opt,name=pack,proto3" json:"pack,omitempty"`
+	SpecRef string `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
 	// One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
 	// INFO | BLOCKED | CRASH | SKIP | ERROR.
 	Verdict  string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
@@ -569,6 +573,13 @@ func (x *ConformanceResult) GetTags() []string {
 		return x.Tags
 	}
 	return nil
+}
+
+func (x *ConformanceResult) GetPack() string {
+	if x != nil {
+		return x.Pack
+	}
+	return ""
 }
 
 func (x *ConformanceResult) GetSpecRef() string {
@@ -1338,12 +1349,13 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\rPreflightStep\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
-	"\x06detail\x18\x03 \x01(\tR\x06detail\"\xbe\x04\n" +
+	"\x06detail\x18\x03 \x01(\tR\x06detail\"\xd2\x04\n" +
 	"\x11ConformanceResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\bcategory\x18\x02 \x01(\tB\x02\x18\x01R\bcategory\x12\x14\n" +
 	"\x05group\x18\x11 \x01(\tR\x05group\x12\x12\n" +
-	"\x04tags\x18\x12 \x03(\tR\x04tags\x12\x19\n" +
+	"\x04tags\x18\x12 \x03(\tR\x04tags\x12\x12\n" +
+	"\x04pack\x18\x13 \x01(\tR\x04pack\x12\x19\n" +
 	"\bspec_ref\x18\x03 \x01(\tR\aspecRef\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x12\x1a\n" +
 	"\bexpected\x18\x05 \x01(\tR\bexpected\x12\x1a\n" +

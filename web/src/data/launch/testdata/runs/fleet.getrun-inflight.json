@@ -1,9 +1,9 @@
 {
   "run":  {
-    "runId":  "run-cb90be90",
+    "runId":  "run-0764ca58",
     "kind":  "RUN_KIND_FLEET",
     "state":  "RUN_STATE_RUNNING",
-    "startedUnixNano":  "1794440123867205992"
+    "startedUnixNano":  "1794440557270474941"
   },
   "fleetProgress":  {
     "elapsedMs":  "3"
@@ -18,7 +18,7 @@
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:43368",
+      "amf":  "127.0.0.1:36791",
       "gnbId":  7
     },
     {

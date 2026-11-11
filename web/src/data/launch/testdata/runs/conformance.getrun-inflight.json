@@ -1,51 +1,51 @@
 {
   "run":  {
-    "runId":  "run-fd40d34d",
+    "runId":  "run-2c3e0d4a",
     "kind":  "RUN_KIND_CONFORMANCE",
     "state":  "RUN_STATE_RUNNING",
-    "startedUnixNano":  "1794440123614783498"
+    "startedUnixNano":  "1794440557014040685"
   },
   "leases":  [
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:50419",
+      "amf":  "127.0.0.1:39240",
       "gnbId":  31
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:50419",
+      "amf":  "127.0.0.1:39240",
       "gnbId":  34
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:50419",
+      "amf":  "127.0.0.1:39240",
       "gnbId":  40
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:50419",
+      "amf":  "127.0.0.1:39240",
       "gnbId":  36895
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:50419",
+      "amf":  "127.0.0.1:39240",
       "gnbId":  36898
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:50419",
+      "amf":  "127.0.0.1:39240",
       "gnbId":  36904
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:50419",
+      "amf":  "127.0.0.1:39240",
       "gnbId":  36911
     },
     {
@@ -54,8 +54,12 @@
     }
   ],
   "conformanceProgress":  {
-    "tally":  {},
+    "tally":  {
+      "failed":  1
+    },
+    "ran":  1,
     "total":  3,
+    "lastCheck":  "NGAP-UNKNOWN-UE-SURVIVES",
     "preflight":  [
       {
         "step":  "NG Setup",

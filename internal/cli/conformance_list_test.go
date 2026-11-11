@@ -35,6 +35,8 @@ func TestConformanceList(t *testing.T) {
 			want: []string{"NAS-T3550-ACCEPT-RETRANSMIT", "NAS-REGISTRATION-AFTER-RELEASE", "4 checks, up to"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "a tag within a group", args: []string{"--list", "--tag", "security", "--group", "TS 33.501"},
 			want: []string{"NAS-SMC-NO-NIA0-REPLAYED-CAPS", "3 checks, up to"}, wantNot: []string{"NAS-INTEGRITY-FAIL-DISCARD"}},
+		{name: "a pack, none registered", args: []string{"--list", "--pack", "sdcore"}, wantErr: `--pack: unknown pack "sdcore" (have none)`},
+		{name: "a pack on a run, none registered", args: []string{"--amf", "127.0.0.1:1", "--pack", "sdcore"}, wantErr: `--pack: unknown pack "sdcore" (have none)`},
 		{name: "unknown tag", args: []string{"--list", "--tag", "negative-ie"}, wantErr: `--tag: unknown tag "negative-ie": want one of negative, security, timing`},
 		{name: "unknown group", args: []string{"--list", "--group", "PFCP"}, wantErr: `--group: no check is in group "PFCP"`},
 		{name: "a category is refused", args: []string{"--list", "--category", "gtpu"},

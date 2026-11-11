@@ -204,7 +204,8 @@ func conformancePlan(m *orbitv1.RunConformanceRequest) *orbitv1.RunPlan {
 			Ki: m.GetCredentials().GetKi(), Opc: m.GetCredentials().GetOpc()}}
 	}
 	cw := &orbitv1.ConformanceWorkload{
-		Categories: m.GetCategories(), Groups: m.GetGroups(), Tags: m.GetTags(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
+		Categories: m.GetCategories(), //nolint:staticcheck // carried so the build refuses it with what replaced it
+		Groups:     m.GetGroups(), Tags: m.GetTags(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
 		Traffic: m.GetTraffic(), N3Bind: m.GetN3Bind(),
 		GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: orDefaultU32(m.GetGnbIdBase(), defaultSuiteGNBBase)}},
 	}
@@ -261,6 +262,7 @@ func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 		Id:              r.ID,
 		Group:           r.Group,
 		Tags:            tagStrings(r.Tags),
+		Pack:            r.Pack,
 		SpecRef:         r.SpecRef,
 		Verdict:         string(r.Verdict),
 		Expected:        r.Expected,

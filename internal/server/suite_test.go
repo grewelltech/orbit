@@ -98,8 +98,17 @@ func TestSuiteShapeRefusals(t *testing.T) {
 			cw.Traffic = "127.0.0.1:9"
 		}, wantErr: "need a subscriber pool with a first_supi"},
 		{name: "a category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-			cw.Categories = []string{"negative-ie"}
+			cw.Categories = []string{"negative-ie"} //nolint:staticcheck // the removed field, refused
 		}, wantErr: `categories were replaced by groups (ADR-0011): select with --group`},
+		{name: "a pack for a target with no profile", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Pack = "lab"
+		}, wantErr: `pack: pack "lab" needs a target with a core profile; the target's is none, which has no pack`},
+		{name: "a pack for a strict-3gpp target", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Core.Profile, cw.Pack = "strict-3gpp", "lab"
+		}, wantErr: `the target's is strict-3gpp, which has no pack`},
+		{name: "a pack no registry has", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Core.Profile, cw.Pack = "sdcore", "lab"
+		}, wantErr: `pack: unknown pack "lab" (have none)`},
 		{name: "an unknown tag", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Tags = []string{"fuzz"}
 		}, wantErr: `tags: unknown tag "fuzz"`},
@@ -569,7 +578,7 @@ func TestSuiteLeaseConflict(t *testing.T) {
 func TestRunConformanceCategoryRefused(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", Mcc: "208", Mnc: "93", Categories: []string{"procedural"},
+		AmfAddress: "127.0.0.1:1", Mcc: "208", Mnc: "93", Categories: []string{"procedural"}, //nolint:staticcheck // the removed field, refused
 	}))
 	if err == nil {
 		for stream.Receive() {
