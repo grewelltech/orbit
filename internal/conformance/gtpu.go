@@ -17,12 +17,12 @@ func init() {
 }
 
 // bogusN3TEID is a non-zero TEID (required by §7.3.1 to trigger an Error
-// Indication) chosen well above the range SD-Core allocates, so it is very
-// unlikely to hit a live tunnel on a shared core.
+// Indication) chosen high in the TEID space, so it is unlikely to hit a live
+// tunnel on a shared core.
 const bogusN3TEID = uint32(0x7FABCDEF)
 
 // errIndWait is how long the check waits for the Error Indication; its
-// absence within this bound is what the FAIL detail reports.
+// absence is inferred within this bound.
 const errIndWait = 4 * time.Second
 
 // echoWait is how long each GTP-U Echo Request waits for its response.
@@ -38,12 +38,12 @@ const echoWait = 2 * time.Second
 //
 // Silence alone cannot tell a UPF that discards from one that is down or
 // unreachable, so the check confirms liveness with a GTP-U Echo Request
-// (7.2.1) on either side of the stimulus. No Echo Response before it is an
-// ERROR (liveness cannot be confirmed: a wrong --upf-n3, or a UPF without
-// Echo support). No Echo Response after a silent stimulus is FAIL with its
-// own Observed text, so an entry for "no Error Indication" never hides a UPF
-// that stopped answering. The Echo Response itself (7.2.2) is not asserted.
-// Runs only when N3 params are set (from the UPF access network).
+// (7.2.1) on either side of the stimulus. No Echo Response before it is
+// BLOCKED on the GTP-U Echo, which GTPU-ECHO-RESPONSE owns. No Echo Response
+// after a silent stimulus is CRASH, so an entry for "no Error Indication"
+// never hides a UPF that stopped answering. The Echo Response itself
+// (7.2.2) is not asserted. Runs only when N3 params are set (from the UPF
+// access network).
 type gtpuUnknownTEID struct {
 	// errWait and echoWait override errIndWait and echoWait; tests shorten
 	// them.
@@ -61,11 +61,29 @@ func (c gtpuUnknownTEID) waits() (errWait, echo time.Duration) {
 	return errWait, echo
 }
 
+// unknownTEIDRef is the key of the shall the outcomes of
+// GTPU-UNKNOWN-TEID-ERRIND rest on.
+const unknownTEIDRef = "TS 29.281 7.3.1"
+
+// The outcomes of GTPU-UNKNOWN-TEID-ERRIND.
+var (
+	unknownTEIDErrorInd = Outcome{ID: "error-indication", Verdict: Pass, Refs: []string{unknownTEIDRef},
+		Summary: "returned a GTP-U Error Indication for the G-PDU with an unknown TEID"}
+	unknownTEIDNoErrorInd = Outcome{ID: "no-error-indication", Verdict: Fail, Refs: []string{unknownTEIDRef},
+		Bound:   &Bound{Wait: errIndWait, Source: "check bound; TS 29.281 sets no timer for the Error Indication"},
+		Summary: "returned no GTP-U Error Indication for the G-PDU with an unknown TEID, and still answered GTP-U Echo"}
+)
+
+// Outcomes declares what the check can report.
+func (gtpuUnknownTEID) Outcomes() []Outcome {
+	return []Outcome{unknownTEIDErrorInd, unknownTEIDNoErrorInd}
+}
+
 func (gtpuUnknownTEID) ID() string         { return "GTPU-UNKNOWN-TEID-ERRIND" }
 func (gtpuUnknownTEID) Category() Category { return GTPU }
 func (gtpuUnknownTEID) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, Verified: ts29281Verified,
+		{Spec: "TS 29.281", Clause: "7.3.1", Strength: Shall, Since: 8, Verified: ts29281Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 8, Note: "V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0"},
 				{Release: 11, Note: "the 'all zeros' TEID exception is present by V11.6.0"},
@@ -81,24 +99,8 @@ func (gtpuUnknownTEID) MinRelease() Release { return 15 }
 
 func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "GTP-U Error Indication (type 26) echoing the unknown TEID"}
-	if env.UPFN3 == "" || env.N3Bind == "" {
-		r.Verdict, r.Observed = Skip,
-			"no N3 params (run from the UPF access network with --upf-n3 / --n3-bind)"
-		return r
-	}
-	laddr, err := net.ResolveUDPAddr("udp", env.N3Bind)
-	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "bad N3 bind", err.Error()
-		return r
-	}
-	raddr, err := net.ResolveUDPAddr("udp", env.UPFN3)
-	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "bad UPF N3", err.Error()
-		return r
-	}
-	conn, err := net.ListenUDP("udp", laddr)
-	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "bind N3 socket", err.Error()
+	conn, raddr, r, ok := openN3(env, r)
+	if !ok {
 		return r
 	}
 	defer conn.Close()
@@ -108,30 +110,25 @@ func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 	// a UPF that was never reachable.
 	alive, err := gtpuEcho(ctx, conn, raddr, 1, echo)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "GTP-U Echo Request", err.Error()
-		return r
+		return r.Errored("GTP-U Echo Request could not be sent", err.Error())
 	}
 	if !alive && cutShort(ctx) {
 		r.Observed = ObservedUPFNoEcho
 		return cutShortResult(r, gtpuNeeds(errWait, echo))
 	}
 	if !alive {
-		r.Verdict, r.Observed = Error, ObservedUPFNoEcho
-		r.Detail = fmt.Sprintf("no GTP-U Echo Response from %s within %s before the test, so the UPF's liveness cannot be confirmed: "+
-			"--upf-n3 must be the UPF's primary N3 address (a UPF may answer Echo only there), or the UPF may not support Echo (TS 29.281 7.2)", env.UPFN3, echo)
-		return r
+		return r.BlockedBy(ProcGTPUEcho, ObservedUPFNoEcho,
+			fmt.Sprintf("no GTP-U Echo Response from %s within %s before the test, so the UPF's liveness cannot be confirmed and the G-PDU was not sent", env.UPFN3, echo))
 	}
 
 	// A minimal inner packet; the UPF rejects on the TEID before inspecting it.
 	inner, err := datapath.BuildUDPPacket(net.IPv4(192, 168, 100, 200), net.IPv4(8, 8, 8, 8),
 		40000, 9999, []byte("orbit-conformance-probe"))
 	if err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("G-PDU could not be built", err.Error())
 	}
 	if _, err := conn.WriteToUDP(gtpu.EncodeGPDU(bogusN3TEID, 1, inner), raddr); err != nil {
-		r.Verdict, r.Detail = Error, err.Error()
-		return r
+		return r.Errored("G-PDU could not be sent", err.Error())
 	}
 
 	deadline := time.Now().Add(errWait)
@@ -150,36 +147,53 @@ func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 			continue // stray G-PDU or short frame — keep waiting for an Error Indication
 		}
 		if teid, echoed := gtpu.ErrorIndicationTEID(buf[:n]); echoed && teid == bogusN3TEID {
-			r.Verdict, r.Observed = Pass, "Error Indication (TEID-I echoes the probe)"
-		} else {
-			r.Verdict, r.Observed = Pass, "Error Indication"
-			r.Detail = "Error Indication received; TEID-I not confirmed"
+			return r.As(unknownTEIDErrorInd, "Error Indication (TEID-I echoes the probe)", "")
 		}
-		return r
+		return r.As(unknownTEIDErrorInd, "Error Indication", "Error Indication received; TEID-I not confirmed")
 	}
 
 	// Silence: confirm the UPF still answers before calling it a discard.
 	alive, err = gtpuEcho(ctx, conn, raddr, 2, echo)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "GTP-U Echo Request", err.Error()
-		return r
+		return r.Errored("GTP-U Echo Request could not be sent", err.Error())
 	}
 	if !alive && cutShort(ctx) {
 		r.Observed = "no Error Indication"
 		return cutShortResult(r, gtpuNeeds(errWait, echo))
 	}
 	if !alive {
-		r.Verdict, r.Observed = Crash, ObservedUPFUnresponsive
-		r.Detail = fmt.Sprintf("the UPF answered a GTP-U Echo Request before the unknown-TEID G-PDU but not within %s after it, "+
-			"and sent no Error Indication: it may not have survived the G-PDU", echo)
-		return r
+		return r.Crashed(ObservedUPFUnresponsive,
+			fmt.Sprintf("the UPF answered a GTP-U Echo Request before the unknown-TEID G-PDU but not within %s after it, "+
+				"and sent no Error Indication: it may not have survived the G-PDU", echo))
 	}
-	r.Verdict, r.Observed = Fail, "no Error Indication"
-	r.Detail = fmt.Sprintf("no GTP-U Error Indication for the unknown TEID 0x%08X within %s (absence inferred within this bound; "+
-		"the UPF answered GTP-U Echo before and after); "+
-		"TS 29.281 7.3.1: the UPF shall discard the G-PDU and, for a non-zero TEID, shall also return an Error Indication",
-		bogusN3TEID, errWait)
-	return r
+	return r.As(unknownTEIDNoErrorInd, "no Error Indication",
+		fmt.Sprintf("no GTP-U Error Indication for the unknown TEID 0x%08X within %s (absence inferred within this bound; "+
+			"the UPF answered GTP-U Echo before and after); "+
+			"TS 29.281 7.3.1: the UPF shall discard the G-PDU and, for a non-zero TEID, shall also return an Error Indication",
+			bogusN3TEID, errWait))
+}
+
+// openN3 resolves the run's N3 addresses and binds the local N3 socket for
+// a GTP-U check. Without N3 params r is the SKIP for the missing UPF N3
+// endpoint; an address that does not resolve or bind is ERROR. ok is false
+// with r then final.
+func openN3(env Env, r Result) (conn *net.UDPConn, raddr *net.UDPAddr, _ Result, ok bool) {
+	if env.UPFN3 == "" || env.N3Bind == "" {
+		return nil, nil, r.Skipped(InputUPFN3, "no N3 params (run from the UPF access network with --upf-n3 / --n3-bind)", ""), false
+	}
+	laddr, err := net.ResolveUDPAddr("udp", env.N3Bind)
+	if err != nil {
+		return nil, nil, r.Errored("bad N3 bind", err.Error()), false
+	}
+	raddr, err = net.ResolveUDPAddr("udp", env.UPFN3)
+	if err != nil {
+		return nil, nil, r.Errored("bad UPF N3", err.Error()), false
+	}
+	conn, err = net.ListenUDP("udp", laddr)
+	if err != nil {
+		return nil, nil, r.Errored("bind N3 socket", err.Error()), false
+	}
+	return conn, raddr, r, true
 }
 
 // gtpuNeeds renders how long the check needs: an Echo wait, the Error
@@ -243,11 +257,14 @@ const echoFailText = "no GTP-U Echo Response / sequence number not copied. TS 29
 // It sends up to echoAttempts requests, each with its own sequence number
 // and its own wait. An Echo Response carrying any sequence number sent so
 // far is PASS, so a late answer to an earlier request counts. An Echo
-// Response carrying any other sequence number is FAIL, and so is no Echo
-// Response to any request. Silence cannot tell a UPF without Echo handling
-// from one that --upf-n3 does not reach, and the detail says so. The
-// response's S flag and Recovery IE are not asserted. Runs only when N3
-// params are set (from the UPF access network).
+// Response carrying any other sequence number is FAIL (4.3.1), and so is no
+// Echo Response to any request (7.2.1). Silence cannot tell a UPF without
+// Echo handling from one that --upf-n3 does not reach, and the detail says
+// so. The response's S flag and Recovery IE are not asserted. Runs only
+// when N3 params are set (from the UPF access network).
+//
+// The check owns the GTP-U Echo: a check that needs the UPF to answer one
+// reports BLOCKED, naming this check, when it does not.
 type gtpuEchoResponse struct {
 	// wait overrides echoWait; tests shorten it.
 	wait time.Duration
@@ -260,11 +277,35 @@ func (c gtpuEchoResponse) echoWait() time.Duration {
 	return echoWait
 }
 
+// The keys of the shalls the outcomes of GTPU-ECHO-RESPONSE rest on.
+const (
+	echoReplyRef = "TS 29.281 7.2.1"
+	echoSeqRef   = "TS 29.281 4.3.1"
+)
+
+// The outcomes of GTPU-ECHO-RESPONSE. A response whose sequence number was
+// not sent answers no request the sender can match, so it too reports the
+// GTP-U Echo as not completed.
+var (
+	echoAnswered = Outcome{ID: "echo-response", Verdict: Pass, Refs: []string{echoReplyRef, echoSeqRef},
+		Summary: "answered the GTP-U Echo Request with an Echo Response carrying its sequence number"}
+	echoSeqDiffers = Outcome{ID: "sequence-not-copied", Verdict: Fail, Refs: []string{echoSeqRef}, NotCompleted: ProcGTPUEcho,
+		Summary: "answered with an Echo Response whose sequence number no request carried"}
+	echoNoResponse = Outcome{ID: "no-echo-response", Verdict: Fail, Refs: []string{echoReplyRef}, NotCompleted: ProcGTPUEcho,
+		Bound:   &Bound{Wait: echoAttempts * echoWait, Source: "check bound: 3 requests, each waited 2s; TS 29.281 sets no timer for the Echo Response"},
+		Summary: "sent no Echo Response to any of the GTP-U Echo Requests"}
+)
+
+// Outcomes declares what the check can report.
+func (gtpuEchoResponse) Outcomes() []Outcome {
+	return []Outcome{echoAnswered, echoSeqDiffers, echoNoResponse}
+}
+
 func (gtpuEchoResponse) ID() string         { return "GTPU-ECHO-RESPONSE" }
 func (gtpuEchoResponse) Category() Category { return GTPU }
 func (gtpuEchoResponse) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 29.281", Clause: "7.2.1", Strength: Shall, Since: 8, Verified: ts29281EchoVerified,
+		{Spec: "TS 29.281", Clause: "7.2.1", Strength: Shall, Since: 8, Verified: ts29281EchoVerified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.0.0 adds the prefix \"Even if there is no path in use,\" (absent in V8.0.0 and V14.1.0); unchanged through Rel-19"},
 			}},
@@ -282,24 +323,8 @@ func (gtpuEchoResponse) MinRelease() Release { return 15 }
 
 func (c gtpuEchoResponse) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "GTP-U Echo Response (type 2) carrying the Echo Request's sequence number"}
-	if env.UPFN3 == "" || env.N3Bind == "" {
-		r.Verdict, r.Observed = Skip,
-			"no N3 params (run from the UPF access network with --upf-n3 / --n3-bind)"
-		return r
-	}
-	laddr, err := net.ResolveUDPAddr("udp", env.N3Bind)
-	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "bad N3 bind", err.Error()
-		return r
-	}
-	raddr, err := net.ResolveUDPAddr("udp", env.UPFN3)
-	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "bad UPF N3", err.Error()
-		return r
-	}
-	conn, err := net.ListenUDP("udp", laddr)
-	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "bind N3 socket", err.Error()
+	conn, raddr, r, ok := openN3(env, r)
+	if !ok {
 		return r
 	}
 	defer func() { _ = conn.Close() }()
@@ -309,8 +334,7 @@ func (c gtpuEchoResponse) Run(ctx context.Context, env Env) Result {
 	for i := 0; i < echoAttempts; i++ {
 		seq := echoSeqBase + uint16(i)
 		if _, err := conn.WriteToUDP(gtpu.EncodeEchoRequest(seq), raddr); err != nil {
-			r.Verdict, r.Observed, r.Detail = Error, "GTP-U Echo Request", err.Error()
-			return r
+			return r.Errored("GTP-U Echo Request could not be sent", err.Error())
 		}
 		deadline := time.Now().Add(wait)
 		if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
@@ -327,25 +351,22 @@ func (c gtpuEchoResponse) Run(ctx context.Context, env Env) Result {
 				continue // not an Echo Response; keep waiting for one
 			}
 			if got >= echoSeqBase && got <= seq {
-				r.Verdict, r.Observed = Pass, "Echo Response (sequence number copied)"
-				r.Detail = fmt.Sprintf("sequence number 0x%04X, answering request %d of %d sent", got, int(got-echoSeqBase)+1, i+1)
-				return r
+				return r.As(echoAnswered, "Echo Response (sequence number copied)",
+					fmt.Sprintf("sequence number 0x%04X, answering request %d of %d sent", got, int(got-echoSeqBase)+1, i+1))
 			}
-			r.Verdict, r.Observed = Fail, observedEchoSeqDiffers
-			r.Detail = joinDetail(fmt.Sprintf("Echo Response from %s carries sequence number 0x%04X; the %d request(s) sent carried 0x%04X to 0x%04X",
-				env.UPFN3, got, i+1, echoSeqBase, seq), echoFailText)
-			return r
+			return r.As(echoSeqDiffers, observedEchoSeqDiffers,
+				joinDetail(fmt.Sprintf("Echo Response from %s carries sequence number 0x%04X; the %d request(s) sent carried 0x%04X to 0x%04X",
+					env.UPFN3, got, i+1, echoSeqBase, seq), echoFailText))
 		}
 		if cutShort(ctx) {
 			r.Observed = observedNoEchoResponse
 			return cutShortResult(r, (echoAttempts * wait).String())
 		}
 	}
-	r.Verdict, r.Observed = Fail, observedNoEchoResponse
-	r.Detail = joinDetail(fmt.Sprintf("no GTP-U Echo Response from %s to %d Echo Requests, each waited %s (absence inferred within this bound); "+
-		"silence cannot tell a UPF without Echo handling from one this address does not reach: --upf-n3 must be the UPF's primary N3 address",
-		env.UPFN3, echoAttempts, wait), echoFailText)
-	return r
+	return r.As(echoNoResponse, observedNoEchoResponse,
+		joinDetail(fmt.Sprintf("no GTP-U Echo Response from %s to %d Echo Requests, each waited %s (absence inferred within this bound); "+
+			"silence cannot tell a UPF without Echo handling from one this address does not reach: --upf-n3 must be the UPF's primary N3 address",
+			env.UPFN3, echoAttempts, wait), echoFailText))
 }
 func init() {
 	builtins = append(builtins, n3DLQFIContainer{})
@@ -372,7 +393,8 @@ const qfiContainerFailure = "downlink G-PDU on N3 without a PDU Session Containe
 // qfiSampleWindow has passed. One without the container is FAIL. The QFI
 // values are recorded, not asserted. The downlink comes only from the echo
 // peer, so without one the check SKIPs, and with one that returns nothing
-// it is an ERROR: no G-PDU was sampled.
+// it is an ERROR: no G-PDU was sampled, and silence cannot tell an echo
+// peer that the testbed does not reach from a user plane that drops.
 type n3DLQFIContainer struct {
 	// target and window override qfiSampleTarget and qfiSampleWindow (tests
 	// only).
@@ -380,11 +402,28 @@ type n3DLQFIContainer struct {
 	window time.Duration
 }
 
+// qfiContainerRef is the key of the shall the outcomes of
+// N3-DL-QFI-CONTAINER rest on.
+const qfiContainerRef = "TS 29.281 5.2.2.7"
+
+// The outcomes of N3-DL-QFI-CONTAINER.
+var (
+	qfiContainerPresent = Outcome{ID: "container-present", Verdict: Pass, Refs: []string{qfiContainerRef},
+		Summary: "sent every sampled downlink G-PDU on N3 with the PDU Session Container"}
+	qfiContainerAbsent = Outcome{ID: "container-absent", Verdict: Fail, Refs: []string{qfiContainerRef},
+		Summary: "sent a downlink G-PDU on N3 without the PDU Session Container"}
+)
+
+// Outcomes declares what the check can report.
+func (n3DLQFIContainer) Outcomes() []Outcome {
+	return []Outcome{qfiContainerPresent, qfiContainerAbsent}
+}
+
 func (n3DLQFIContainer) ID() string         { return "N3-DL-QFI-CONTAINER" }
 func (n3DLQFIContainer) Category() Category { return GTPU }
 func (n3DLQFIContainer) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 29.281", Clause: "5.2.2.7", Strength: Shall, Since: 15, Verified: ts29281QFIContainerVerified,
+		{Spec: "TS 29.281", Clause: "5.2.2.7", Strength: Shall, Since: 15, Verified: ts29281QFIContainerVerified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "the clause is introduced in V15.2.0 as \"may be transmitted\"; \"shall be transmitted\" from V15.5.0"},
 				{Release: 17, Note: "from V17.3.0 a bulleted list, adding N3mb/N19mb and End Marker bullets; the shall for G-PDUs over N3 and N9 is the same"},
@@ -413,46 +452,39 @@ func (c n3DLQFIContainer) Run(ctx context.Context, env Env) Result {
 	target, window := c.sampling()
 	r := Result{Expected: "every downlink G-PDU on N3 carries the PDU Session Container extension header with a QFI (TS 29.281 5.2.2.7; TS 38.415 5.4.1.1)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc, --gnb-n3 and --traffic to run this check"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc, --gnb-n3 and --traffic to run this check")
 	}
 	if env.UE.Traffic == "" {
-		r.Verdict, r.Observed = Skip, "no downlink traffic source configured"
-		r.Detail = "set --traffic host:port (a UDP echo peer on the data network): its echoes are the downlink G-PDUs the check samples"
-		return r
+		return r.Skipped(InputTraffic, "no downlink traffic source configured",
+			"set --traffic host:port (a UDP echo peer on the data network): its echoes are the downlink G-PDUs the check samples")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	if _, err := h.Register(ctx); err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed", err.Error()
-		return r
+		return r.SetupFailed("UE setup failed", err)
 	}
 	h.StartTraffic(ctx)
 	deadline := time.Now().Add(window)
 	for len(h.Observe().GPDUs) < target && time.Now().Before(deadline) {
 		if !sleepCtx(ctx, 20*time.Millisecond) {
-			r.Verdict, r.Observed = Error, "timed out while sampling downlink"
-			r.Detail = "raise --per-test-timeout above the registration and " + window.String()
-			return r
+			return r.Errored("timed out while sampling downlink", "raise --per-test-timeout above the registration and "+window.String())
 		}
 	}
-	r.Verdict, r.Observed, r.Detail = classifyQFIContainer(h.Observe().GPDUs, env.UE.Traffic, window)
-	return r
+	gpdus := h.Observe().GPDUs
+	if len(gpdus) == 0 {
+		return r.Errored("no downlink G-PDU arrived",
+			fmt.Sprintf("the echo peer %s returned nothing within %s, so no downlink G-PDU was sampled; check that it answers UDP from the UE's data network", env.UE.Traffic, window))
+	}
+	return r.As(classifyQFIContainer(gpdus, env.UE.Traffic))
 }
 
-// classifyQFIContainer judges the sampled downlink G-PDUs: ERROR when there
-// are none, FAIL when any lacks the PDU Session Container, else PASS. The
-// detail records the counts and the QFI values seen.
-func classifyQFIContainer(gpdus []datapath.GPDUArrival, peer string, window time.Duration) (Verdict, string, string) {
-	if len(gpdus) == 0 {
-		return Error, "no downlink G-PDU arrived",
-			fmt.Sprintf("the echo peer %s returned nothing within %s, so no downlink G-PDU was sampled; check that it answers UDP from the UE's data network", peer, window)
-	}
+// classifyQFIContainer judges the sampled downlink G-PDUs, of which there
+// is at least one: FAIL when any lacks the PDU Session Container, else
+// PASS. The detail records the counts and the QFI values seen.
+func classifyQFIContainer(gpdus []datapath.GPDUArrival, peer string) (Outcome, string, string) {
 	without := 0
 	seen := map[int]bool{}
 	for _, g := range gpdus {
@@ -478,8 +510,8 @@ func classifyQFIContainer(gpdus []datapath.GPDUArrival, peer string, window time
 	detail := fmt.Sprintf("%d downlink G-PDUs sampled from the echoes of %s, %d with a PDU Session Container and %d without; %s",
 		len(gpdus), peer, len(gpdus)-without, without, qfiText)
 	if without > 0 {
-		return Fail, fmt.Sprintf("%d of %d downlink G-PDUs without a PDU Session Container", without, len(gpdus)),
+		return qfiContainerAbsent, fmt.Sprintf("%d of %d downlink G-PDUs without a PDU Session Container", without, len(gpdus)),
 			qfiContainerFailure + " Recorded: " + detail
 	}
-	return Pass, fmt.Sprintf("%d downlink G-PDUs, each with a PDU Session Container", len(gpdus)), detail
+	return qfiContainerPresent, fmt.Sprintf("%d downlink G-PDUs, each with a PDU Session Container", len(gpdus)), detail
 }

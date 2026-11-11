@@ -78,17 +78,17 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### GTPU-UNKNOWN-TEID-ERRIND
 
-- TS 29.281 7.3.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.4.0 (`29281-f40.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
+- TS 29.281 7.3.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.4.0 (`29281-f40.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`); primary
 
 ### GTPU-ECHO-RESPONSE
 
-- TS 29.281 7.2.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
+- TS 29.281 7.2.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`); primary
 - TS 29.281 7.2.2 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
 - TS 29.281 4.3.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
 
 ### N3-DL-QFI-CONTAINER
 
-- TS 29.281 5.2.2.7 (shall, since Rel-15): Rel-15 V15.2.0 (`29281-f20.zip`), Rel-15 V15.5.0 (`29281-f50.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
+- TS 29.281 5.2.2.7 (shall, since Rel-15): Rel-15 V15.2.0 (`29281-f20.zip`), Rel-15 V15.5.0 (`29281-f50.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`); primary
 - TS 38.415 5.4.1.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38415-f00.zip`), Rel-15 V15.3.0 (`38415-f30.zip`), Rel-16 V16.6.0 (`38415-g60.zip`), Rel-17 V17.1.0 (`38415-h10.zip`), Rel-18 V18.2.0 (`38415-i20.zip`), Rel-19 V19.1.0 (`38415-j10.zip`)
 - TS 38.415 5.5.2.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38415-f00.zip`), Rel-15 V15.3.0 (`38415-f30.zip`), Rel-16 V16.6.0 (`38415-g60.zip`), Rel-17 V17.1.0 (`38415-h10.zip`), Rel-18 V18.2.0 (`38415-i20.zip`), Rel-19 V19.1.0 (`38415-j10.zip`)
 
@@ -276,6 +276,42 @@ Owns: AN release. Needs: NG Setup, registration.
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner no registered check) | did not complete a registration the check needs first |
+
+### GTPU-UNKNOWN-TEID-ERRIND outcomes
+
+Needs: GTP-U Echo.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `error-indication` | PASS | TS 29.281 7.3.1 (shall) | returned a GTP-U Error Indication for the G-PDU with an unknown TEID |
+| `no-error-indication` | FAIL | TS 29.281 7.3.1 (shall); absence within 4s (check bound; TS 29.281 sets no timer for the Error Indication) | returned no GTP-U Error Indication for the G-PDU with an unknown TEID, and still answered GTP-U Echo |
+| `skip-no-upf-n3-endpoint` | SKIP | missing input | not judged: the run has no UPF N3 endpoint |
+| `blocked-gtp-u-echo` | BLOCKED | GTP-U Echo (owner GTPU-ECHO-RESPONSE) | did not complete a GTP-U Echo the check needs first |
+
+### GTPU-ECHO-RESPONSE outcomes
+
+Owns: GTP-U Echo. Needs no procedure first.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `echo-response` | PASS | TS 29.281 7.2.1 (shall); TS 29.281 4.3.1 (shall) | answered the GTP-U Echo Request with an Echo Response carrying its sequence number |
+| `sequence-not-copied` | FAIL | TS 29.281 4.3.1 (shall); reports GTP-U Echo as not completed | answered with an Echo Response whose sequence number no request carried |
+| `no-echo-response` | FAIL | TS 29.281 7.2.1 (shall); absence within 6s (check bound: 3 requests, each waited 2s; TS 29.281 sets no timer for the Echo Response); reports GTP-U Echo as not completed | sent no Echo Response to any of the GTP-U Echo Requests |
+| `skip-no-upf-n3-endpoint` | SKIP | missing input | not judged: the run has no UPF N3 endpoint |
+
+### N3-DL-QFI-CONTAINER outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `container-present` | PASS | TS 29.281 5.2.2.7 (shall) | sent every sampled downlink G-PDU on N3 with the PDU Session Container |
+| `container-absent` | FAIL | TS 29.281 5.2.2.7 (shall) | sent a downlink G-PDU on N3 without the PDU Session Container |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-echo-peer` | SKIP | missing input | not judged: the run has no echo peer |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner no registered check) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
 
 ### NGAP-UNKNOWN-UE-SURVIVES outcomes
 

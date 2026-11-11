@@ -10,7 +10,7 @@ Versions read:
 - **TS 29.281:** V15.2.0 (`29281-f20.zip`), V15.5.0 (`29281-f50.zip`), V15.7.0 (`29281-f70.zip`), V16.2.0 (`29281-g20.zip`), V17.5.0 (`29281-h50.zip`), V18.4.0 (`29281-i40.zip`), V19.2.0 (`29281-j20.zip`).
 - **TS 38.415:** V15.0.0 (`38415-f00.zip`), V15.3.0 (`38415-f30.zip`), V16.6.0 (`38415-g60.zip`), V17.1.0 (`38415-h10.zip`), V18.2.0 (`38415-i20.zip`), V19.1.0 (`38415-j10.zip`). V15.0.0, V15.3.0 and V16.6.0 are .doc files and were converted with LibreOffice headless. The DL frame figure was read as text cells (field labels), not as a rendered drawing.
 
-## TS 29.281 5.2.2.7 (PDU Session Container), shall
+## TS 29.281 5.2.2.7 (PDU Session Container), shall, primary
 
 > "This extension header shall be transmitted in: - G-PDUs over the N3 and N9 user plane interfaces, between 5G-AN and UPF, or between two UPFs;" (V19.2.0)
 
@@ -40,12 +40,16 @@ It registers a UE with one PDU session and starts a 1 Mbps UDP flow from the UE 
 
 The check uses the UE's own N3 tunnel, not the `--upf-n3`/`--n3-bind` socket of the other GTP-U check.
 
-## Verdicts
+## Verdict
 
-- **PASS:** every sampled downlink G-PDU carries the container.
-- **FAIL:** any sampled downlink G-PDU lacks it.
-- **ERROR:** nothing was sampled because the echo peer returned nothing, the harness could not run the check (a fixed-port `--bind`, a registration or PDU session that did not complete), or the per-test timeout ended the sampling.
+- **Class:** conformance, from the shall of TS 29.281 5.2.2.7. The check needs the registration and the PDU session.
+- **Stimulus:** none beyond the UE's own traffic: the downlink the UPF sends for the echoes of the `--traffic` peer.
+- **PASS** `container-present`: every sampled downlink G-PDU carries the container.
+- **FAIL** `container-absent`: a sampled downlink G-PDU lacks it.
+- **BLOCKED:** the core did not complete the UE's registration or its PDU session establishment. The result names the procedure and its owner check.
+- **ERROR:** nothing was sampled because the echo peer returned nothing (silence cannot tell an echo peer the testbed does not reach from a user plane that drops), the harness could not run the check (a fixed-port `--bind`), the per-test timeout ended the sampling, or a setup step failed for a reason on this host.
 - **SKIP:** no UE configured, no `--traffic` echo peer (the check has no other source of downlink), or a target release older than Rel-15.
 - **Detail:** how many G-PDUs were sampled, how many with and without the container, and the QFI values seen (recorded, not asserted). It never includes key material.
+- **Limits:** only the downlink G-PDUs of the UE's own session are sampled, up to 50 within 3 s; the QFI value is not asserted.
 
 Failure message: `downlink G-PDU on N3 without a PDU Session Container. TS 29.281 5.2.2.7 (Rel-15 V15.5.0 onward; V15.2.0-V15.4.0 said "may"). Likely cause: UPF not adding the extension header.`

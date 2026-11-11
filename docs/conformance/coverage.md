@@ -204,7 +204,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Response (TS 29.281 7.2.1, 7.2.2) that copies the request's sequence number
   (4.3.1). Up to three requests, each with its own sequence number, so one
   lost datagram is not a FAIL. No response, or a response with a sequence
-  number that was not sent, is FAIL. Silence cannot tell a UPF without Echo
+  number that was not sent, is FAIL. It owns the GTP-U Echo:
+  `GTPU-UNKNOWN-TEID-ERRIND` is BLOCKED when the UPF does not answer its Echo
+  before the G-PDU. Silence cannot tell a UPF without Echo
   handling from one `--upf-n3` does not reach. Needs `--upf-n3` and
   `--n3-bind`, else SKIP. Not yet run on Ref 2.
 - `NGAP-PAGING-ON-DL-DATA` (procedural, FAIL-class) — a UE with a PDU session is

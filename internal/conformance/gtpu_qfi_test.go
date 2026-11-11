@@ -11,40 +11,37 @@ import (
 	"github.com/bgrewell/orbit/internal/testnet"
 )
 
-// classifyQFIContainer fails any sampled G-PDU without the container, is an
-// ERROR with nothing sampled, and records the QFI values without asserting
-// them.
+// classifyQFIContainer fails any sampled G-PDU without the container and
+// records the QFI values without asserting them.
 func TestClassifyQFIContainer(t *testing.T) {
 	with := func(qfi uint8) datapath.GPDUArrival { return datapath.GPDUArrival{TEID: 1, HasQFI: true, QFI: qfi} }
 	without := datapath.GPDUArrival{TEID: 1}
 	tests := []struct {
 		name         string
 		gpdus        []datapath.GPDUArrival
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 	}{
-		{name: "all with the container", gpdus: []datapath.GPDUArrival{with(1), with(1), with(1)}, want: Pass,
+		{name: "all with the container", gpdus: []datapath.GPDUArrival{with(1), with(1), with(1)}, want: qfiContainerPresent,
 			wantObserved: "3 downlink G-PDUs, each with a PDU Session Container",
 			wantDetail:   []string{"3 downlink G-PDUs sampled from the echoes of 10.1.1.1:7, 3 with a PDU Session Container and 0 without", "QFI values seen: 1 (recorded only)"}},
-		{name: "several QFIs", gpdus: []datapath.GPDUArrival{with(10), with(9), with(2), with(9)}, want: Pass,
+		{name: "several QFIs", gpdus: []datapath.GPDUArrival{with(10), with(9), with(2), with(9)}, want: qfiContainerPresent,
 			wantDetail: []string{"QFI values seen: 2, 9, 10 (recorded only)"}},
-		{name: "QFI zero is still a container", gpdus: []datapath.GPDUArrival{with(0)}, want: Pass,
+		{name: "QFI zero is still a container", gpdus: []datapath.GPDUArrival{with(0)}, want: qfiContainerPresent,
 			wantDetail: []string{"QFI values seen: 0 (recorded only)"}},
-		{name: "none with the container", gpdus: []datapath.GPDUArrival{without, without}, want: Fail,
+		{name: "none with the container", gpdus: []datapath.GPDUArrival{without, without}, want: qfiContainerAbsent,
 			wantObserved: "2 of 2 downlink G-PDUs without a PDU Session Container",
 			wantDetail:   []string{qfiContainerFailure + " Recorded: ", "0 with a PDU Session Container and 2 without", "QFI values seen: none"}},
-		{name: "one without among many", gpdus: []datapath.GPDUArrival{with(1), without, with(1)}, want: Fail,
+		{name: "one without among many", gpdus: []datapath.GPDUArrival{with(1), without, with(1)}, want: qfiContainerAbsent,
 			wantObserved: "1 of 3 downlink G-PDUs without a PDU Session Container",
 			wantDetail:   []string{qfiContainerFailure, "2 with a PDU Session Container and 1 without"}},
-		{name: "nothing sampled", want: Error, wantObserved: "no downlink G-PDU arrived",
-			wantDetail: []string{"the echo peer 10.1.1.1:7 returned nothing within 3s"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := classifyQFIContainer(tc.gpdus, "10.1.1.1:7", 3*time.Second)
-			if v != tc.want {
-				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
+			o, observed, detail := classifyQFIContainer(tc.gpdus, "10.1.1.1:7")
+			if covers(o).ID != tc.want.ID {
+				t.Fatalf("outcome %s (%s; %s), want %s", o.ID, observed, detail, tc.want.ID)
 			}
 			if tc.wantObserved != "" && observed != tc.wantObserved {
 				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
@@ -136,7 +133,7 @@ func TestQFIContainerCheckAgainstMockPair(t *testing.T) {
 			env.UE.Traffic = "192.0.2.7:7"
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			r := n3DLQFIContainer{target: 10, window: 400 * time.Millisecond}.Run(ctx, env)
+			r := runOne(ctx, n3DLQFIContainer{target: 10, window: 400 * time.Millisecond}, env, 15*time.Second)
 			if r.Verdict != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", r.Verdict, r.Observed, r.Detail, tc.want)
 			}
@@ -172,8 +169,9 @@ func TestQFIContainerCheckAgainstMockPair(t *testing.T) {
 	}
 }
 
-// A registration the core refuses, and a per-test timeout that ends while
-// sampling, are ERRORs, with no association left open.
+// A registration the core refuses is BLOCKED on the registration, and a
+// per-test timeout that ends while sampling is an ERROR, with no
+// association left open.
 func TestQFIContainerCheckErrors(t *testing.T) {
 	t.Run("registration refused", func(t *testing.T) {
 		c := newMockCore(t, testnet.ConformanceQFIRegFail, mockupf.Options{Echo: true, QFI: true}, "000102030405060708090a0b0c0d0e0f")
@@ -182,8 +180,8 @@ func TestQFIContainerCheckErrors(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		r := n3DLQFIContainer{}.Run(ctx, env)
-		if r.Verdict != Error || r.Observed != "UE setup failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
-			t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+		if r.Verdict != Blocked || r.BlockedOn != ProcRegistration || r.Observed != "UE setup failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+			t.Errorf("result %s on %q / %q / %q, want BLOCKED on the registration, naming the step", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
 		}
 		c.assertClosed(t, env)
 	})

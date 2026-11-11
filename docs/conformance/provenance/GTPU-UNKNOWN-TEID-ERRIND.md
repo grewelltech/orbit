@@ -2,12 +2,25 @@
 
 Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/29_series/29.281/](https://www.3gpp.org/ftp/Specs/archive/29_series/29.281/). Versions read: V8.0.0 (`29281-800.zip`), V8.1.0, V8.3.0, V11.0.0, V11.6.0, V12.0.0, V15.0.0 to V15.3.0, V15.4.0 (`29281-f40.zip`), V15.7.0 (`29281-f70.zip`), V16.2.0 (`29281-g20.zip`), V17.5.0 (`29281-h50.zip`), V18.4.0 (`29281-i40.zip`), V19.2.0 (`29281-j20.zip`). V8.2.0, V8.5.0 and V10.0.0 (`820`, `850`, `a00`) were not converted.
 
-## TS 29.281 7.3.1 (Error Indication), shall
+## TS 29.281 7.3.1 (Error Indication), shall, primary
 
 > "When a GTP-U node receives a G-PDU for which no EPS Bearer context, PDP context, PDU Session, MBMS Bearer context, or RAB exists, the GTP-U node shall discard the G-PDU. If the TEID of the incoming G-PDU is different from the value 'all zeros' the GTP-U node shall also return a GTP error indication to the originating node."
 
 - **Since:** Rel-8, V8.0.0 (`29281-800.zip`) for the requirement itself, worded "A GTP-U peer shall send an Error Indication to the other GTP-U peer if no active PDP context, EPS context, MBMS Bearer Context, or RAB exists for a received G-PDU." For a PDU Session (5GS) explicitly: Rel-15, V15.4.0 (`29281-f40.zip`). The check asserts the PDU Session case, so it requires Rel-15.
 - **Changes:** Rel-8 V8.0.0/V8.1.0: older single-sentence wording (above), no discard or 'all zeros' rule. By V8.3.0 (and through Rel-11 V11.6.0) "discard the GTP-U PDU", with the 'all zeros' exception present in V11.6.0 but not V11.0.0. From Rel-12 V12.0.0: current wording but without "PDU Session". Rel-15 V15.0.0 to V15.3.0: still without "PDU Session". From V15.4.0: "PDU Session" added. Wording unchanged Rel-15 V15.4.0 through Rel-19 V19.2.0. The 'all zeros' introduction is narrowed only to "between V11.0.0 and V11.6.0, or present by V11.6.0"; the exact current sentence starts at V12.0.0 ("G-PDU"; V11.6.0 says "GTP-U PDU").
-- **Verdict class:** FAIL, derived from the shall. No Error Indication within 4 s is FAIL; a core known not to send one lists it on its expected-failures list (docs/conformance/expected-failures.md).
-- **Liveness:** silence alone cannot tell a UPF that discards from one that is down, so the check sends a GTP-U Echo Request (TS 29.281 7.2.1, its own sequence number each time) before and after the G-PDU. No Echo Response before: ERROR, `UPF did not answer a GTP-U Echo Request before the test` (`--upf-n3` must be the UPF's primary N3 address). No Echo Response after a silent G-PDU: FAIL, `UPF unresponsive after the G-PDU (no Echo Response)`. Only a UPF that answers both and sends nothing is `no Error Indication`. The Echo Response itself (7.2.2) is not asserted.
-- **Refinements the check does not yet apply:** (a) only a non-zero TEID triggers an Error Indication (TEID 0 gets a silent discard); (b) the G-PDU is also discarded; (c) the Error Indication goes to the originating node. In the same clause (shall), the Tunnel Endpoint Identifier Data I IE "shall be the TEID fetched from the G-PDU that triggered this procedure" and the GTP-U Peer Address IE "shall be the destination address ... fetched from the original user data message" (both mandatory, Table 7.3.1-1). Per clause 5.1, the S flag shall be '1' on an Error Indication.
+
+## Verdict
+
+- **Class:** conformance, from the shall. The check needs the GTP-U Echo, which `GTPU-ECHO-RESPONSE` owns.
+- **Stimulus:** a GTP-U Echo Request, then one G-PDU to `--upf-n3` with the TEID 0x7FABCDEF, for which the UPF has no context, then, if no Error Indication came within 4 s, a second Echo Request. Each Echo Request carries its own sequence number and is waited 2 s.
+- **PASS** `error-indication`: a GTP-U Error Indication. The observed line says whether its TEID Data I echoes the probe's TEID.
+- **FAIL** `no-error-indication`: no Error Indication, the absence inferred within the 4 s bound of the check (TS 29.281 sets no timer for it), and the UPF answered the Echo Requests before and after. A core known not to send one lists it on its expected-failures list (docs/conformance/expected-failures.md).
+- **CRASH:** the UPF answered the Echo Request before the G-PDU and not the one after it, and sent no Error Indication: `UPF unresponsive after the G-PDU (no Echo Response)`. An expected-failures entry for `no Error Indication` never hides it.
+- **BLOCKED:** the UPF did not answer the Echo Request before the G-PDU (`UPF did not answer a GTP-U Echo Request before the test`), so its liveness cannot be confirmed and the G-PDU is not sent. The result names `GTPU-ECHO-RESPONSE`, which owns the GTP-U Echo. When the run's preflight probe of the UPF already failed, the check reports ERROR without running.
+- **ERROR:** `--upf-n3` or `--n3-bind` does not resolve, the N3 socket cannot be bound, a message cannot be built or sent, or the per-test timeout cut an Echo wait short.
+- **SKIP:** no N3 params (`--upf-n3` / `--n3-bind`), or a target release older than Rel-15.
+- **Limits:** the Echo Response itself (7.2.2) is not asserted; a UPF that answers Echo only on its primary N3 address needs that address as `--upf-n3`.
+
+## Refinements the check does not yet apply
+
+(a) only a non-zero TEID triggers an Error Indication (TEID 0 gets a silent discard); (b) the G-PDU is also discarded; (c) the Error Indication goes to the originating node. In the same clause (shall), the Tunnel Endpoint Identifier Data I IE "shall be the TEID fetched from the G-PDU that triggered this procedure" and the GTP-U Peer Address IE "shall be the destination address ... fetched from the original user data message" (both mandatory, Table 7.3.1-1). Per clause 5.1, the S flag shall be '1' on an Error Indication.
