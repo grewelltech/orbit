@@ -23,6 +23,7 @@ func ChecksMarkdown(tests []Test) string {
 	fmt.Fprintf(&b, "**Verdict class** is the worst a check can say of a core: `%s` for a missed shall, `%s` for a missed should. A check of class `%s` is informational: it cites descriptive text only, reports `%s` (the described behaviour) or `%s` (anything else), and does not gate. In every class a core that does not survive a check's stimulus is `%s` and gates.\n\n", Fail, Deviation, Info, Info, InfoDiff, Fail)
 	fmt.Fprintf(&b, "Default target: %s; see [target-release.md](target-release.md).\n\n", defaultTargetLine())
 	fmt.Fprintf(&b, "**Up to** is the longest a check can take at the default `--per-test-timeout` (%s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.\n\n", DefaultPerTestTimeout)
+	b.WriteString(runOrderNote(tests))
 	b.WriteString("| Check | Category | Verdict class | Requires | Up to | Clauses |\n")
 	b.WriteString("|---|---|---|---|---|---|\n")
 	for _, t := range tests {
@@ -45,6 +46,25 @@ func ChecksMarkdown(tests []Test) string {
 			b.WriteString("\n")
 		}
 	}
+	return b.String()
+}
+
+// runOrderNote is the paragraph on the order a suite runs its checks in,
+// naming the checks of the later phases.
+func runOrderNote(tests []Test) string {
+	later := map[Phase][]string{}
+	for _, t := range tests {
+		later[PhaseOf(t)] = append(later[PhaseOf(t)], "`"+t.ID()+"`")
+	}
+	var b strings.Builder
+	b.WriteString("A suite runs the checks in the order of this table, except that the checks of two later phases run after all the others, in table order within a phase; `orbit conformance --list` prints the run order and each check's phase. ")
+	if ids := later[PhaseStranding]; len(ids) > 0 {
+		fmt.Fprintf(&b, "Phase `%s`, the checks that leave a UE context for the core's own timers to clear: %s. ", PhaseStranding, strings.Join(ids, ", "))
+	}
+	if ids := later[PhaseDisruptive]; len(ids) > 0 {
+		fmt.Fprintf(&b, "Phase `%s`, last of all, the checks whose stimulus a core may not survive: %s. ", PhaseDisruptive, strings.Join(ids, ", "))
+	}
+	b.WriteString("A check's gNB IDs and subscribers follow its place in the table, not in the run.\n\n")
 	return b.String()
 }
 

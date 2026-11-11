@@ -24,7 +24,7 @@ func TestConformanceList(t *testing.T) {
 		wantErr string
 	}{
 		{name: "all checks", args: []string{"--list"},
-			want: []string{"CHECK", "CLASS", "UP TO", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
+			want: []string{"CHECK", "CLASS", "UP TO", "PHASE", "stranding", "disruptive", "NAS-T3560-AUTH-RETRANSMIT", "3m10s", "NAS-T3550-ACCEPT-RETRANSMIT", "2m25s", "NGAP-NG-RESET-ACK", "in total at --per-test-timeout 15s"}},
 		{name: "nas only", args: []string{"--list", "--category", "nas"},
 			want: []string{"NAS-T3560-AUTH-RETRANSMIT", "4 checks, up to 6m25s in total"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "longer per-test timeout", args: []string{"--list", "--category", "procedural", "--per-test-timeout", "40s"},
@@ -67,6 +67,39 @@ func TestConformanceList(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --list prints the checks in the order a run takes them: the check a core
+// may not survive last, after the ones that leave a UE context behind.
+func TestConformanceListShowsRunOrder(t *testing.T) {
+	root := New("test")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"conformance", "--list"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, line := range strings.Split(out.String(), "\n")[1:] {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			break
+		}
+		listed = append(listed, f[0]+" "+f[len(f)-1])
+	}
+	want := conformance.NewRegistry().Select()
+	if len(listed) != len(want) {
+		t.Fatalf("listed %d checks, want %d:\n%s", len(listed), len(want), out.String())
+	}
+	for i, c := range want {
+		if listed[i] != c.ID()+" "+conformance.PhaseOf(c).String() {
+			t.Errorf("line %d is %q, want %s in phase %s", i, listed[i], c.ID(), conformance.PhaseOf(c))
+		}
+	}
+	if last := listed[len(listed)-1]; last != "NGAP-PATH-SWITCH-SECCAP-MISMATCH disruptive" {
+		t.Errorf("the list ends with %q", last)
 	}
 }
 

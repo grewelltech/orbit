@@ -10,6 +10,8 @@ Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-rel
 
 **Up to** is the longest a check can take at the default `--per-test-timeout` (15s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.
 
+A suite runs the checks in the order of this table, except that the checks of two later phases run after all the others, in table order within a phase; `orbit conformance --list` prints the run order and each check's phase. Phase `stranding`, the checks that leave a UE context for the core's own timers to clear: `NAS-RETRANSMIT-NEW-COUNT`, `NAS-T3550-ACCEPT-RETRANSMIT`, `NAS-T3560-AUTH-RETRANSMIT`, `NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL`. Phase `disruptive`, last of all, the checks whose stimulus a core may not survive: `NGAP-PATH-SWITCH-SECCAP-MISMATCH`. A check's gNB IDs and subscribers follow its place in the table, not in the run.
+
 | Check | Category | Verdict class | Requires | Up to | Clauses |
 |---|---|---|---|---|---|
 | [NGAP-UE-CTX-RELEASE-ON-REQUEST](provenance/NGAP-UE-CTX-RELEASE-ON-REQUEST.md) | procedural | DEVIATION | Rel-15 | 15s | TS 38.413 8.3.2.2 (Rel-15 onward; Rel-18: V18.1.0 splits the should by cause: with "User inactivity" the release should be initiated when there is no downlink signalling; Rel-15 to Rel-17 have one unconditional sentence; Rel-19: the cited text is unchanged; V19.1.0 adds a GW Context Release Indication sentence) |

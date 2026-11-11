@@ -1378,6 +1378,16 @@ time every 30 s. stdout carries only the results, so `--json` stays clean.
 orbit conformance --list [--category nas] [--check <ID>] [--per-test-timeout 15s]
 ```
 
+`--list` prints the checks in the order a run takes them, with each one's
+phase. Most checks are in the `main` phase and run in a fixed order. The
+`stranding` phase follows: the checks that withhold a reply or break the UE's
+security context and so leave a UE context for the core's own timers to clear
+(`NAS-RETRANSMIT-NEW-COUNT`, the two NAS timer checks and
+`NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL`). The `disruptive` phase is last:
+`NGAP-PATH-SWITCH-SECCAP-MISMATCH`, whose Path Switch Request a core may not
+survive, runs after every other check has its verdict. A filtered run keeps
+this order, and a check's phase does not change its gNB IDs or subscribers.
+
 `--check <ID>` (repeatable, or comma-separated) narrows `--list` and a
 `--local` run to the named checks, on top of `--category`; each keeps the
 gNB IDs it has in a full run. A run on the server selects by `--category`
