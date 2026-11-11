@@ -125,6 +125,18 @@ whether that procedure completes. Its class follows rule 2. A dependent check
 whose prerequisite does not complete reports BLOCKED, naming the procedure and
 the owner check. The same breakage is graded once, in one place.
 
+Ownership is declared, from a fixed list of procedure names. A check declares
+the procedures it owns and the procedures it needs. The suite refuses to
+register when a procedure has two owners, or when a check needs a procedure no
+registered check owns, so a renamed or removed owner fails at start-up, not in
+a result.
+
+One core fault counts once at the gate. When the owner ran in the same run and
+reported the procedure as not completing, its result is the gated finding, and
+the BLOCKED results that name it are listed under it and are not counted again.
+A BLOCKED result gates on its own only when its owner did not run in that run
+(it was not selected, or was skipped) or reported the procedure as completing.
+
 ### 6. Attribution is decided once per run
 
 A run starts with a preflight built from what the selected checks declare
