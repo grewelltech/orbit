@@ -122,8 +122,12 @@ func applyServerURL(c *cobra.Command, serverURL *string) error {
 // client command without the hook: it is dual-mode, and only its step path
 // builds a client, so it resolves in RunE after reading the scenario kind.
 //
-// Cobra runs only the nearest PersistentPreRunE, so no descendant of a group
-// may define its own; TestServerURLHookCoversClientCommands guards that.
+// The root's PersistentPreRunE loads --env-file, and New sets
+// cobra.EnableTraverseRunHooks so it runs before this group hook. Within a
+// group, cobra still runs this one hook (the group's is the nearest below the
+// root), so no descendant of a group may define its own; its own hook would
+// run on top of the group's and resolve --server twice.
+// TestServerURLHookCoversClientCommands guards that.
 func withServerURL(cmd *cobra.Command, serverURL *string) *cobra.Command {
 	cmd.PersistentPreRunE = func(c *cobra.Command, _ []string) error {
 		return applyServerURL(c, serverURL)

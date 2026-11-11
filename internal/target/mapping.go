@@ -44,6 +44,11 @@ const (
 	// gate, --set's path), so no one path is its; each field's provenance
 	// names the flag.
 	ReasonFieldSetter Reason = "sets the fields it names"
+	// ReasonEnvFile: a flag that loads KEY=VALUE pairs into the environment
+	// before resolution (--env-file), so it has no path of its own; the
+	// fields it reaches take their value from the env layer or ${VAR}
+	// expansion, and each one's provenance names that, not the flag.
+	ReasonEnvFile Reason = "loads the environment before resolution"
 )
 
 // Exclusion is an env var or flag that is not configuration, with why.
@@ -86,6 +91,10 @@ var Bindings = []Binding{
 	{Env: "ORBIT_KI", Path: "subscribers[].ki"},
 	{Env: "ORBIT_OPC", Path: "subscribers[].opc"},
 	{Env: "ORBIT_LOAD_SEED", Path: "workloads[].attach.seed"},
+	{Env: "ORBIT_TAC", Path: "core.tac"},
+	{Env: "ORBIT_SST", Path: "core.slices[0].sst"},
+	{Env: "ORBIT_SD", Path: "core.slices[0].sd"},
+	{Env: "ORBIT_DNN", Path: "core.dnn"},
 
 	// The target.
 	{Flag: "target", Path: "target"},
@@ -151,6 +160,7 @@ var Exclusions = []Exclusion{
 	{Env: "ORBIT_SERVER", Reason: ReasonConnection},
 	{Env: "ORBIT_TOKEN", Reason: ReasonConnection},
 	{Flag: "server", Reason: ReasonConnection},
+	{Flag: "env-file", Reason: ReasonEnvFile},
 
 	{Flag: "json", Reason: ReasonOutput},
 	{Flag: "explain", Reason: ReasonOutput},
