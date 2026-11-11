@@ -237,7 +237,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 - `GTPU-END-MARKER-ON-PATH-SWITCH` (mobility, FAIL-class) — a UE with a PDU
   session hands over by Xn; the core must send a GTP-U End Marker on the old
   F-TEID to the source gNB, and no G-PDU on that tunnel after it (TS 23.501
-  5.8.2.9.1, TS 29.281 7.3.2). Needs a UE (`--supi`, `--ki/--opc`,
+  5.8.2.9.1, TS 29.281 7.3.2). A path switch the core does not acknowledge
+  is BLOCKED on the Xn path switch. Needs a UE (`--supi`, `--ki/--opc`,
   `--gnb-n3`), else SKIP. Measured on Ref 2 (SD-Core images amf rel-3.3.2,
   smf rel-4.3.3, upf-bess rel-2.6.3; Orbit c89f23b; 2026-10-12):
   - **FAIL** with the UPF's `enable_end_marker` off, which is the chart and

@@ -195,6 +195,9 @@ const (
 
 	ConformancePSAckTargetNGSetup = 13 // TestPathSwitchAckCheckErrors/target_NG_Setup_rejected
 	ConformanceHOCmdTargetNGSetup = 14 // TestHandoverCommandCheckSetupFailure/target_NG_Setup_rejected
+
+	ConformanceEndMarkerPSRefused = 15 // TestEndMarkerCheckPathSwitchNotAcknowledged/refused
+	ConformanceEndMarkerPSIgnored = 16 // TestEndMarkerCheckPathSwitchNotAcknowledged/unanswered
 )
 
 // internal/conformance: the declared outcomes of the NAS registration

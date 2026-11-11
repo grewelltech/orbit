@@ -50,7 +50,7 @@ func TestClassifyEndMarker(t *testing.T) {
 		{name: "marker after the ack within the window counts", markers: []datapath.EndMarker{em(3*time.Second, oldTEID, src)},
 			want: Pass},
 		{name: "no marker", want: Fail,
-			wantDetail: []string{"no GTP-U End Marker on the old F-TEID between Path Switch Request and 5s after its Acknowledge. TS 23.501 5.8.2.9.1", "enable_end_marker", "TS 29.244 8.2.31"}},
+			wantDetail: []string{"no GTP-U End Marker on the old F-TEID between Path Switch Request and 5s after its Acknowledge (absence inferred within this bound). TS 23.501 5.8.2.9.1", "TS 29.244 8.2.31"}},
 		{name: "marker on the new TEID does not count", markers: []datapath.EndMarker{em(50*time.Millisecond, newTEID, src)},
 			want: Fail, wantDetail: []string{"on other tunnels 1"}},
 		{name: "marker reported in IPv4-mapped form counts", markers: []datapath.EndMarker{em(50*time.Millisecond, oldTEID, "[::ffff:10.0.0.1]:2152")},
@@ -81,7 +81,8 @@ func TestClassifyEndMarker(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			o := PathObservation{OldTEID: oldTEID, SourceN3: netip.MustParseAddrPort(src), Started: started, Ack: ack, AckFromEvent: true,
 				EndMarkers: tc.markers, GPDUs: tc.gpdus}
-			v, observed, detail := classifyEndMarker(o, grace)
+			out, observed, detail := classifyEndMarker(o, grace)
+			v := covers(out).Verdict
 			if v != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
 			}
@@ -350,7 +351,7 @@ func TestEndMarkerCheckAgainstMockPair(t *testing.T) {
 	}{
 		{name: "end marker disabled", net24: testnet.ConformanceNoEndMarker, opts: mockupf.Options{}, want: Fail,
 			wantObserved: "no End Marker on the old F-TEID",
-			wantDetail:   []string{"no GTP-U End Marker on the old F-TEID between Path Switch Request and 300ms after its Acknowledge.", "End Markers counted 0"}},
+			wantDetail:   []string{"no GTP-U End Marker on the old F-TEID between Path Switch Request and 300ms after its Acknowledge (absence inferred within this bound).", "End Markers counted 0"}},
 		{name: "end marker", net24: testnet.ConformanceEndMarker, opts: mockupf.Options{EndMarker: true}, want: Pass,
 			wantObserved: "1 End Marker(s) on the old F-TEID, no G-PDU after",
 			wantDetail:   []string{"End Markers counted 1 (before the handover 0, after the window 0, on other tunnels 0)", "QFI container absent"}},
@@ -437,20 +438,51 @@ func TestEndMarkerCheckNonCanonicalGNBN3(t *testing.T) {
 }
 
 // A registration the core refuses (the UE's Ki does not match the core's)
-// is an ERROR naming the step, with no association left open.
+// is BLOCKED on the registration, naming the step, with no association left
+// open.
 func TestEndMarkerCheckRegistrationFailure(t *testing.T) {
 	c := newMockCore(t, testnet.ConformanceRegistrationFail, mockupf.Options{EndMarker: true}, "000102030405060708090a0b0c0d0e0f")
 	env := ueEnv(c.front.Addr, "", c.n3)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	r := endMarkerOnPathSwitch{window: 300 * time.Millisecond}.Run(ctx, env)
-	if r.Verdict != Error || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
-		t.Errorf("result %s / %q / %q, want an ERROR naming the registration step", r.Verdict, r.Observed, r.Detail)
+	if r.Verdict != Blocked || r.BlockedOn != ProcRegistration || r.Observed != "UE setup on the source gNB failed" || !strings.Contains(r.Detail, "registration on gNB 0x100") {
+		t.Errorf("result %s on %q / %q / %q, want BLOCKED on the registration, naming the step", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
 	}
 	if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
 		t.Error("detail carries key material")
 	}
 	c.assertClosed(t, env)
+}
+
+// A PATH SWITCH REQUEST the core refuses or leaves unanswered switches no
+// path: BLOCKED on the Xn path switch, which no End Marker is judged
+// without, with no association left open.
+func TestEndMarkerCheckPathSwitchNotAcknowledged(t *testing.T) {
+	tests := []struct {
+		name         string
+		net24        int
+		answer       mockamf.PathSwitchAnswer
+		wantObserved string
+	}{
+		{name: "refused", net24: testnet.ConformanceEndMarkerPSRefused, answer: mockamf.FailPathSwitch,
+			wantObserved: "PATH SWITCH REQUEST FAILURE instead of PATH SWITCH REQUEST ACKNOWLEDGE"},
+		{name: "unanswered", net24: testnet.ConformanceEndMarkerPSIgnored, answer: mockamf.IgnorePathSwitch,
+			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newMockCore(t, tc.net24, mockupf.Options{EndMarker: true}, testKi, mockamf.WithPathSwitchAnswer(tc.answer))
+			env := ueEnv(c.front.Addr, "", c.n3)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			r := runOne(ctx, endMarkerOnPathSwitch{window: 300 * time.Millisecond}, env, 25*time.Second)
+			if r.Verdict != Blocked || r.BlockedOn != ProcXnPathSwitch || r.Observed != tc.wantObserved || !strings.Contains(r.Detail, "no End Marker was due") {
+				t.Errorf("result %s on %q / %q / %q, want BLOCKED on the Xn path switch", r.Verdict, r.BlockedOn, r.Observed, r.Detail)
+			}
+			c.assertClosed(t, env)
+		})
+	}
 }
 
 // A per-test timeout shorter than the window is an ERROR, not a verdict on
