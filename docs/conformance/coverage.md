@@ -91,7 +91,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### NAS transport
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| Initial UE Message | RAN→AMF | ✅ (attach) · ✅ `NAS-REGISTRATION-AFTER-RELEASE` (a registration right after the same UE's release) | 🎯 malformed / oversized NAS PDU, bad TAI | |
+| Initial UE Message | RAN→AMF | ✅ `NAS-INITIAL-REGISTRATION` (owner of the registration; PASS when accepted, WARN when rejected, FAIL when unanswered or released) · ✅ `NAS-REGISTRATION-AFTER-RELEASE` (a registration right after the same UE's release) | 🎯 malformed / oversized NAS PDU, bad TAI | |
 | Uplink NAS Transport | RAN→AMF | ✅ | ✅ `NGAP-UNKNOWN-UE-SURVIVES` (unknown UE-NGAP-ID pair) | our first check; clause-10 AP-ID case |
 | Downlink NAS Transport | AMF→RAN | — | — | timing angle only |
 | NAS Non Delivery Indication | RAN→AMF | ⬜ | ⬜ | |
@@ -493,6 +493,16 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   no command within 5 s is **not scored**: SKIP, with the likely cause (the
   AMF leaves the N2 UE context) in the detail. Needs a UE, else SKIP. Not
   yet run on Ref 2.
+
+- `NAS-INITIAL-REGISTRATION` (nas, FAIL-class) — the run's own UE
+  registers, without a PDU session, and is deregistered. The check owns the
+  registration: a check whose own registration the core does not complete
+  is BLOCKED and names it. TS 24.501 5.5.1.2.4 and 5.5.1.2.5 give an initial
+  registration request its answer: a Registration Accept is PASS; neither
+  an Accept nor a Reject within 10 s, or a release without one, is FAIL. A
+  Registration Reject or an Authentication Reject for the run's subscriber
+  violates nothing and is WARN (availability); so is a registration that
+  ended another way. Needs a UE; up to 20 s.
 
 - `NAS-REGISTRATION-AFTER-RELEASE` (nas, FAIL-class) — the UE registers,
   deregisters with a switch-off and, at the core's UE Context Release

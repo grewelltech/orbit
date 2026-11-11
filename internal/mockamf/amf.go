@@ -177,6 +177,9 @@ type AMF struct {
 	// Unserved-NSSAI answer (nssai.go).
 	nssaiAnswer NSSAIAnswer
 
+	// Registration Reject cause (registration.go); zero accepts.
+	registrationReject uint8
+
 	// Path switch answer (pathswitch.go).
 	pathSwitchAnswer PathSwitchAnswer
 
@@ -670,6 +673,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	case f5nas.MsgTypeSecurityModeComplete, f5nas.MsgTypeIdentityResponse:
 		if due, err := a.beforeAccept(p, st, msg); err != nil || !due {
 			return false, err
+		}
+		if a.registrationReject != 0 {
+			return false, a.rejectProtected(p, st, a.registrationReject)
 		}
 		if a.nssaiAnswer != AcceptAnyNSSAI && !a.servesRequested(st) {
 			return false, a.answerUnservedNSSAI(p, st)
