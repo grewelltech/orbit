@@ -39,7 +39,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 | [NAS-T3560-AUTH-RETRANSMIT](provenance/NAS-T3560-AUTH-RETRANSMIT.md) | nas | FAIL | Rel-15 | 3m10s | TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s) |
 | [NGAP-UNKNOWN-UE-SURVIVES](provenance/NGAP-UNKNOWN-UE-SURVIVES.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences) |
 | [NGAP-NG-SETUP](provenance/NGAP-NG-SETUP.md) | procedural | DEVIATION | Rel-15 | 15s | TS 38.413 8.7.1.2 (Rel-15 onward; Rel-19: in V19.4.0 the same words are a bullet under "If the NG Setup procedure is executed between the NG-RAN node and the AMF"); TS 38.413 8.7.1.3 (Rel-15 onward, wording unchanged through Rel-19) |
-| [NGAP-DUPLICATE-RAN-NODE-ID](provenance/NGAP-DUPLICATE-RAN-NODE-ID.md) | procedural | INFO | Rel-15 | 15s | TS 38.413 8.7.1.2 (Rel-15 onward; Rel-19: in V19.4.0 the same words are a bullet under "If the NG Setup procedure is executed between the NG-RAN node and the AMF"); TS 38.413 9.3.1.5 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-DUPLICATE-RAN-NODE-ID](provenance/NGAP-DUPLICATE-RAN-NODE-ID.md) | procedural | DEVIATION | Rel-15 | 15s | TS 38.413 8.7.1.2 (Rel-15 onward; Rel-19: in V19.4.0 the same words are a bullet under "If the NG Setup procedure is executed between the NG-RAN node and the AMF"); TS 38.413 9.3.1.5 (Rel-15 onward, wording unchanged through Rel-19); TS 38.413 8.7.1.3 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NGAP-NGSETUP-MISSING-TALIST](provenance/NGAP-NGSETUP-MISSING-TALIST.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads "GLOBAL reject" in V15.0.0, "YES reject" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NGAP-NGSETUP-UNKNOWN-PLMN](provenance/NGAP-NGSETUP-UNKNOWN-PLMN.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause "Unknown PLMN" renamed "Unknown PLMN or SNPN" in V16.5.0) |
 | [NGAP-PAGING-ON-DL-DATA](provenance/NGAP-PAGING-ON-DL-DATA.md) | procedural | FAIL | Rel-15 | 30s | TS 24.501 5.6.2.2.1 (Rel-15 onward; Rel-15: V15.0.0 reads "in 5GMM-IDLE mode"; "over 3GPP access" is added by V15.7.0; Rel-17: adds "and there is no paging restriction applied in the network for that paging"); TS 23.502 4.2.3.3 step 4b (Rel-15 onward; Rel-15: V15.0.0 reads "reachable" and "Paging Priority indication"; "reachable in 3GPP access" and "Paging Priority" by V15.17.0; Rel-16: the Paging message's content adds Enhanced Coverage Restricted information and WUS Assistance Information; "the AMF sends a Paging message" is unchanged); TS 38.413 8.5.1.2 (Rel-15 onward; Rel-15: V15.0.0 reads "paging procedure" and "List of TAIs"; "Paging procedure" and "TAI List for Paging" from V15.1.0; Rel-16: Rel-16 to Rel-19 add optional-IE sentences only); TS 38.413 9.2.4.1 (Rel-15 onward; Rel-15: "List of TAIs" is renamed "TAI List for Paging" in V15.1.0; V15.0.0 also carries "UE Identity Index Value", absent by V19.4.0 (removal version not traced)); TS 38.413 9.3.3.18 (Rel-15 onward, wording unchanged through Rel-19) |
@@ -204,8 +204,9 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NGAP-DUPLICATE-RAN-NODE-ID
 
-- TS 38.413 8.7.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.7.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 - TS 38.413 9.3.1.5 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.7.1.3 (should, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 
 ### NGAP-NGSETUP-MISSING-TALIST
 
@@ -560,6 +561,22 @@ Owns: NG Setup. Needs no procedure first.
 | `unanswered` | DEVIATION | TS 38.413 8.7.1.3 (should); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome); reports NG Setup as not completed | sent neither NG SETUP RESPONSE nor NG SETUP FAILURE |
 | `other-pdu` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | answered the NG SETUP REQUEST with a PDU that is neither NG SETUP RESPONSE nor NG SETUP FAILURE |
 | `association-lost` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | dropped the association instead of answering the NG SETUP REQUEST |
+
+### NGAP-DUPLICATE-RAN-NODE-ID outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `accepted` | INFO | TS 38.413 8.7.1.2 (descriptive) | accepted the duplicate NG SETUP REQUEST and kept the first association |
+| `rejected` | INFO | no requirement | rejected the duplicate NG SETUP REQUEST with NG SETUP FAILURE and kept the first association |
+| `accepted-first-dropped` | WARN | availability | accepted the duplicate NG SETUP REQUEST and dropped the first association |
+| `rejected-first-dropped` | WARN | availability | rejected the duplicate NG SETUP REQUEST with NG SETUP FAILURE and dropped the first association |
+| `unanswered` | DEVIATION | TS 38.413 8.7.1.3 (should); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent neither NG SETUP RESPONSE nor NG SETUP FAILURE for the duplicate NG SETUP REQUEST |
+| `other-pdu` | DEVIATION | TS 38.413 8.7.1.3 (should) | answered the duplicate NG SETUP REQUEST with a PDU that is neither NG SETUP RESPONSE nor NG SETUP FAILURE |
+| `association-lost` | DEVIATION | TS 38.413 8.7.1.3 (should) | dropped the second association instead of answering its NG SETUP REQUEST |
+| `skip-no-second-n2-source-address` | SKIP | missing input | not judged: the run has no second N2 source address |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 
 ### NGAP-NGSETUP-MISSING-TALIST outcomes
 

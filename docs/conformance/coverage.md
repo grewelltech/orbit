@@ -80,7 +80,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Interface management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| NG Setup | RAN→AMF | ✅ `NGAP-NG-SETUP` (owner of the NG Setup; INFO when accepted, WARN when rejected, DEVIATION when unanswered) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ✅ duplicate Global RAN Node ID `NGAP-DUPLICATE-RAN-NODE-ID` (informational) · ⬜ bad TAC | the densest entry point |
+| NG Setup | RAN→AMF | ✅ `NGAP-NG-SETUP` (owner of the NG Setup; INFO when accepted, WARN when rejected, DEVIATION when unanswered) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ✅ duplicate Global RAN Node ID `NGAP-DUPLICATE-RAN-NODE-ID` (characterisation) · ⬜ bad TAC | the densest entry point |
 | RAN Configuration Update | RAN→AMF | ✅ `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (an absent Supported TA List keeps the TAs) · ✅ `NGAP-RAN-CONFIG-UPDATE-ACK` (informational: is a valid update acknowledged?) | ✅ `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (transfer syntax error) | every IE but Message Type is optional, so there is no missing-mandatory-IE case |
 | NG Reset | RAN→AMF | ✅ `NGAP-NG-RESET-ACK` (live PASS) | ⬜ | RAN-initiated reset-all → NG RESET ACKNOWLEDGE |
 | Error Indication | both | ✅ (we assert the core *sends* it) | — | |
@@ -169,18 +169,18 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Registration Reject with #12, #13 or #15 is FAIL, any other registration
   failure is ERROR. A RAN CONFIGURATION UPDATE FAILURE is SKIP, and no
   outcome within 5 s is ERROR. Needs a UE, else SKIP. Not yet run on Ref 2.
-- `NGAP-DUPLICATE-RAN-NODE-ID` (procedural, INFO-class) — with one
+- `NGAP-DUPLICATE-RAN-NODE-ID` (procedural, DEVIATION-class) — with one
   association up after NG Setup, a second association from another N2 source
   address sends an NG SETUP REQUEST with the same Global RAN Node ID. TS
   38.413 is silent on the duplicate (8.7.1.2 only describes the NG SETUP
-  RESPONSE; 9.3.1.5 only says the ID identifies a node), so the check is
-  informational: accepted with the first association kept is INFO; a
-  rejection, no answer, a reset of the new association or a dropped first
-  association is INFO-DIFF, Observed naming both halves. Needs a second
-  address in the target's `ran.n2_source_ips`, else SKIP. It gates only for a
-  core that does not survive (a fresh NG Setup afterwards fails: FAIL).
-  Which association the core then uses for the ID is not examined. Not yet
-  run on Ref 2.
+  RESPONSE; 9.3.1.5 only says the ID identifies a node): an acceptance or a
+  rejection with the first association kept is INFO, either with the first
+  association dropped is WARN (availability). No answer, another PDU or a
+  reset of the new association is a DEVIATION from the should of 8.7.1.3,
+  Observed naming both halves. Needs a second address in the target's
+  `ran.n2_source_ips`, else SKIP. A core that does not survive (a fresh NG
+  Setup afterwards fails) is CRASH. Which association the core then uses for
+  the ID is not examined. Not yet run on Ref 2.
 - `NGAP-RAN-CONFIG-UPDATE-ACK` (procedural, INFO-class) — after NG Setup, a
   valid RAN CONFIGURATION UPDATE restating the Supported TA List the NG Setup
   presented. TS 38.413 8.7.2.2 describes the answer ("The AMF responds with a

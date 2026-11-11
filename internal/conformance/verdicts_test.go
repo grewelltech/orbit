@@ -228,7 +228,6 @@ var shouldOnly = map[string]bool{
 // only and declare themselves informational, so they are never graded.
 var informational = map[string]bool{
 	"NGAP-RAN-CONFIG-UPDATE-ACK": true,
-	"NGAP-DUPLICATE-RAN-NODE-ID": true,
 }
 
 // Every registered check's worst verdict follows what it cites: DEVIATION
