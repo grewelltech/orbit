@@ -18,8 +18,8 @@ import (
 )
 
 // Every answer to the valid update: the ACKNOWLEDGE is INFO; a FAILURE, an
-// ERROR INDICATION, no answer and a lost association are INFO-DIFF with the
-// issue's message, Observed keeping them apart.
+// ERROR INDICATION, no answer and a lost association are each a WARN for
+// availability with the issue's message.
 func TestClassifyRANConfigAck(t *testing.T) {
 	failure := pduRANConfigUpdateFailure()
 	failure.UnsuccessfulOutcome.Value.RANConfigurationUpdateFailure.ProtocolIEs.List = []ngapType.RANConfigurationUpdateFailureIEs{{
@@ -31,30 +31,33 @@ func TestClassifyRANConfigAck(t *testing.T) {
 		name         string
 		resp         *ngapType.NGAPPDU
 		err          error
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   string
 	}{
-		{name: "acknowledge", resp: pduRANConfigUpdateAcknowledge(), want: Info, wantObserved: "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
+		{name: "acknowledge", resp: pduRANConfigUpdateAcknowledge(), want: ranConfigAcked, wantObserved: "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
 			wantDetail: "acknowledged 1.234s after the RAN CONFIGURATION UPDATE"},
-		{name: "failure with a cause", resp: failure, want: infoDiffers, wantObserved: "RAN CONFIGURATION UPDATE FAILURE",
+		{name: "failure with a cause", resp: failure, want: ranConfigRejected, wantObserved: "RAN CONFIGURATION UPDATE FAILURE",
 			wantDetail: "answered with RAN CONFIGURATION UPDATE FAILURE, cause Misc 5, 1.234s after"},
-		{name: "failure without a cause", resp: pduRANConfigUpdateFailure(), want: infoDiffers, wantObserved: "RAN CONFIGURATION UPDATE FAILURE",
+		{name: "failure without a cause", resp: pduRANConfigUpdateFailure(), want: ranConfigRejected, wantObserved: "RAN CONFIGURATION UPDATE FAILURE",
 			wantDetail: "cause absent"},
-		{name: "error indication", resp: pduErrorIndication(), want: infoDiffers, wantObserved: "ERROR INDICATION",
+		{name: "error indication", resp: pduErrorIndication(), want: ranConfigErrorIndicated, wantObserved: "ERROR INDICATION",
 			wantDetail: "answered with ERROR INDICATION, cause absent, 1.234s after"},
-		{name: "no answer", err: context.DeadlineExceeded, want: infoDiffers, wantObserved: "no answer; association survived",
+		{name: "no answer", err: context.DeadlineExceeded, want: ranConfigNoAnswer, wantObserved: "no answer; association survived",
 			wantDetail: "no RAN CONFIGURATION UPDATE ACKNOWLEDGE or FAILURE within 5s of the RAN CONFIGURATION UPDATE (absence inferred within this bound)"},
-		{name: "association lost", err: io.EOF, want: infoDiffers, wantObserved: "association reset",
+		{name: "association lost", err: io.EOF, want: ranConfigAssociationLost, wantObserved: "association reset",
 			wantDetail: "the association was lost 1.234s after the RAN CONFIGURATION UPDATE (EOF)"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := classifyRANConfigAck(tc.resp, tc.err, 1234*time.Millisecond, ranConfigAckWait)
-			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
-				t.Errorf("= %s %q %q, want %s %q with detail containing %q", v, observed, detail, tc.want, tc.wantObserved, tc.wantDetail)
+			o, observed, detail := classifyRANConfigAck(tc.resp, tc.err, 1234*time.Millisecond, ranConfigAckWait)
+			if covers(o).ID != tc.want.ID || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s %q %q, want %s %q with detail containing %q", o.ID, observed, detail, tc.want.ID, tc.wantObserved, tc.wantDetail)
 			}
-			if (v == infoDiffers) != strings.Contains(detail, ranConfigAckText) {
+			if want := o.ID != ranConfigAcked.ID; (o.Verdict == Warn && o.Criterion == CriterionAvailability) != want {
+				t.Errorf("%s: %s (%s); every answer but the ACKNOWLEDGE is WARN for availability", o.ID, o.Verdict, o.Criterion)
+			}
+			if (o.Verdict == Warn) != strings.Contains(detail, ranConfigAckText) {
 				t.Errorf("detail %q: the issue's message belongs on every outcome but the ACKNOWLEDGE", detail)
 			}
 		})
@@ -112,28 +115,31 @@ func TestReadRANConfigOutcome(t *testing.T) {
 	}
 }
 
-// The check is informational and cites descriptive text only, so it is
-// registered without a shall or a should and never graded.
-func TestRANConfigAckIsInformational(t *testing.T) {
+// The check cites descriptive text only: its worst outcome is a WARN, the
+// acknowledge is INFO, and 8.7.2.2 is the primary reference.
+func TestRANConfigAckDeclaration(t *testing.T) {
 	c := ranConfigUpdateAck{}
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if !IsInformational(c) || VerdictClass(c) != Info || WorstVerdict(c) != Info || MinRelease(c) != 15 {
-		t.Errorf("informational %v, class %s, worst %s, min %s", IsInformational(c), VerdictClass(c), WorstVerdict(c), MinRelease(c))
+	if IsInformational(c) || WorstVerdict(c) != Warn || ranConfigAcked.Verdict != Info || MinRelease(c) != 15 {
+		t.Errorf("informational %v, worst %s, acknowledged %s, min %s", IsInformational(c), WorstVerdict(c), ranConfigAcked.Verdict, MinRelease(c))
 	}
 	for _, r := range c.SpecRefs() {
-		if r.Strength != Descriptive {
-			t.Errorf("%s %s is cited as %s", r.Spec, r.Clause, r.Strength)
+		if r.Strength != Descriptive || !r.Primary {
+			t.Errorf("%s %s is cited as %s, primary %v", r.Spec, r.Clause, r.Strength, r.Primary)
 		}
+	}
+	if n := NeedsOf(c); len(n.Procedures) != 1 || n.Procedures[0] != ProcNGSetup {
+		t.Errorf("needs %v, want the NG Setup", n.Procedures)
 	}
 }
 
 // Against the mock AMF over real SCTP, as a suite run scores it: an AMF
 // that acknowledges is INFO; one that answers with FAILURE and one that
-// withholds any answer are INFO-DIFF, and the suite's gate stays open. One
-// that stops answering did not survive: FAIL, and the gate closes. The update restates the Supported
-// TA List, and the check's associations close afterwards.
+// withholds any answer are WARN for availability. One that stops answering
+// did not survive: CRASH. The update restates the Supported TA List, and the
+// check's associations close afterwards.
 func TestRANConfigAckAgainstMock(t *testing.T) {
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
 	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
@@ -141,18 +147,19 @@ func TestRANConfigAckAgainstMock(t *testing.T) {
 		name         string
 		answer       mockamf.RANConfigUpdateAnswer
 		want         Verdict
+		wantOutcome  string
 		wantObserved string
 		wantDetail   []string
 		wantSetups   int
 		wantAlive    bool
 	}{
-		{name: "acknowledges", answer: mockamf.AcknowledgeRANConfigUpdate, want: Info, wantObserved: "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
+		{name: "acknowledges", answer: mockamf.AcknowledgeRANConfigUpdate, want: Info, wantOutcome: "acknowledged", wantObserved: "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
 			wantDetail: []string{"acknowledged", "restating the NG Setup's Supported TA List (TAC 1, PLMN 208/93)"}, wantSetups: 1, wantAlive: true},
-		{name: "answers with failure", answer: mockamf.FailRANConfigUpdate, want: Info, wantObserved: "RAN CONFIGURATION UPDATE FAILURE",
-			wantDetail: []string{"cause Misc 5", ranConfigAckText, "a fresh NG Setup afterwards completes"}, wantSetups: 2, wantAlive: true},
-		{name: "withholds the answer", answer: mockamf.IgnoreRANConfigUpdate, want: Info, wantObserved: "no answer; association survived",
+		{name: "answers with failure", answer: mockamf.FailRANConfigUpdate, want: Warn, wantOutcome: "failure", wantObserved: "RAN CONFIGURATION UPDATE FAILURE",
+			wantDetail: []string{"cause Misc 5", ranConfigAckText, "a fresh NG Setup afterwards completes", "no requirement violated; WARN for availability impact"}, wantSetups: 2, wantAlive: true},
+		{name: "withholds the answer", answer: mockamf.IgnoreRANConfigUpdate, want: Warn, wantOutcome: "no-answer", wantObserved: "no answer; association survived",
 			wantDetail: []string{"within 300ms", ranConfigAckText, "a fresh NG Setup afterwards completes"}, wantSetups: 2, wantAlive: true},
-		{name: "stops answering", answer: mockamf.CrashOnRANConfigUpdate, want: Crash,
+		{name: "stops answering", answer: mockamf.CrashOnRANConfigUpdate, want: Crash, wantOutcome: OutcomeCrash,
 			wantObserved: "AMF unresponsive after the message (association reset)",
 			wantDetail:   []string{ranConfigAckText, "core did not survive the RAN CONFIGURATION UPDATE: the AMF no longer completes a fresh NG Setup"}, wantSetups: 1},
 	}
@@ -169,17 +176,20 @@ func TestRANConfigAckAgainstMock(t *testing.T) {
 			reg.Register(ranConfigUpdateAck{wait: 300 * time.Millisecond})
 			results := reg.Run(context.Background(), env, 10*time.Second)
 			res := results[0]
-			if res.Verdict != tc.want || res.Observed != tc.wantObserved {
-				t.Fatalf("= %s %q (%s), want %s %q", res.Verdict, res.Observed, res.Detail, tc.want, tc.wantObserved)
+			if res.Verdict != tc.want || res.Outcome != tc.wantOutcome || res.Observed != tc.wantObserved {
+				t.Fatalf("= %s %s %q (%s), want %s %s %q", res.Verdict, res.Outcome, res.Observed, res.Detail, tc.want, tc.wantOutcome, tc.wantObserved)
 			}
-			for _, w := range append(tc.wantDetail, informationalNote, "requires Rel-15 or later; TS 38.413 8.7.2.2") {
+			for _, w := range append(tc.wantDetail, "requires Rel-15 or later; TS 38.413 8.7.2.2") {
 				if !strings.Contains(res.Detail, w) {
 					t.Errorf("detail %q lacks %q", res.Detail, w)
 				}
 			}
-			crashed := tc.want == Crash
-			if sum := Summarize(results); sum.OK() == crashed || (sum.Crash == 1) != crashed || sum.Deviation != 0 || sum.Pass != 0 || sum.Fail != 0 || sum.Crash+sum.Info != 1 {
-				t.Errorf("summary %+v: an informational check gates only for a core that did not survive, and never counts as a pass", sum)
+			sum := Summarize(results)
+			if sum.OK() == GateDefault.Gates(tc.want) {
+				t.Errorf("summary %+v: under the default gate, OK = %v for a %s", sum, sum.OK(), tc.want)
+			}
+			if sum.Gate = GateSpec; sum.Count(tc.want) != 1 || sum.OK() == (tc.want == Crash) {
+				t.Errorf("summary %+v: want one %s, gating only for a crash under the spec gate", sum, tc.want)
 			}
 
 			updates := amf.RANConfigUpdates()
@@ -208,8 +218,9 @@ func TestRANConfigAckAgainstMock(t *testing.T) {
 	}
 }
 
-// What stops the check before the update is an ERROR, which gates as any
-// ERROR does: an AMF that cannot be reached, and one that rejects NG Setup.
+// What stops the check before the update gates: a stimulus that cannot be
+// built is ERROR, and an AMF that does not complete the check's NG Setup is
+// BLOCKED on it.
 func TestRANConfigAckSetupErrors(t *testing.T) {
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
 	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
@@ -225,19 +236,23 @@ func TestRANConfigAckSetupErrors(t *testing.T) {
 	tests := []struct {
 		name         string
 		env          Env
+		want         Verdict
 		wantObserved string
 	}{
-		{name: "stimulus cannot be built", env: Env{AMFAddr: front.Addr, GNB: noSlices}, wantObserved: "stimulus could not be built"},
-		{name: "AMF unreachable", env: Env{AMFAddr: "127.0.0.1:1", GNB: good}, wantObserved: "setup failed"},
+		{name: "stimulus cannot be built", env: Env{AMFAddr: front.Addr, GNB: noSlices}, want: Error, wantObserved: "stimulus could not be built"},
+		{name: "AMF unreachable", env: Env{AMFAddr: "127.0.0.1:1", GNB: good}, want: Blocked, wantObserved: "setup failed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			res := runOne(context.Background(), ranConfigUpdateAck{wait: 300 * time.Millisecond}, tc.env, 5*time.Second)
-			if res.Verdict != Error || res.Observed != tc.wantObserved {
-				t.Errorf("= %s %q (%s), want ERROR %q", res.Verdict, res.Observed, res.Detail, tc.wantObserved)
+			if res.Verdict != tc.want || res.Observed != tc.wantObserved {
+				t.Errorf("= %s %q (%s), want %s %q", res.Verdict, res.Observed, res.Detail, tc.want, tc.wantObserved)
+			}
+			if tc.want == Blocked && res.BlockedOn != ProcNGSetup {
+				t.Errorf("blocked on %q, want the NG Setup", res.BlockedOn)
 			}
 			if Summarize([]Result{res}).OK() {
-				t.Error("an ERROR from an informational check did not gate")
+				t.Errorf("%s did not gate", res.Verdict)
 			}
 			if n := len(amf.RANConfigUpdates()); n != 0 {
 				t.Errorf("mock received %d RAN CONFIGURATION UPDATEs, want none", n)

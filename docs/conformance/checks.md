@@ -44,7 +44,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 | [NGAP-NGSETUP-UNKNOWN-PLMN](provenance/NGAP-NGSETUP-UNKNOWN-PLMN.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause "Unknown PLMN" renamed "Unknown PLMN or SNPN" in V16.5.0) |
 | [NGAP-PAGING-ON-DL-DATA](provenance/NGAP-PAGING-ON-DL-DATA.md) | procedural | FAIL | Rel-15 | 30s | TS 24.501 5.6.2.2.1 (Rel-15 onward; Rel-15: V15.0.0 reads "in 5GMM-IDLE mode"; "over 3GPP access" is added by V15.7.0; Rel-17: adds "and there is no paging restriction applied in the network for that paging"); TS 23.502 4.2.3.3 step 4b (Rel-15 onward; Rel-15: V15.0.0 reads "reachable" and "Paging Priority indication"; "reachable in 3GPP access" and "Paging Priority" by V15.17.0; Rel-16: the Paging message's content adds Enhanced Coverage Restricted information and WUS Assistance Information; "the AMF sends a Paging message" is unchanged); TS 38.413 8.5.1.2 (Rel-15 onward; Rel-15: V15.0.0 reads "paging procedure" and "List of TAIs"; "Paging procedure" and "TAI List for Paging" from V15.1.0; Rel-16: Rel-16 to Rel-19 add optional-IE sentences only); TS 38.413 9.2.4.1 (Rel-15 onward; Rel-15: "List of TAIs" is renamed "TAI List for Paging" in V15.1.0; V15.0.0 also carries "UE Identity Index Value", absent by V19.4.0 (removal version not traced)); TS 38.413 9.3.3.18 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NGAP-PATH-SWITCH-SECCAP-MISMATCH](provenance/NGAP-PATH-SWITCH-SECCAP-MISMATCH.md) | security | FAIL | Rel-15 | 25s | TS 33.501 6.7.3.1 (Rel-15 onward; Rel-15: V15.0.0 names the target "gNB" and ends "Additionally, the AMF may log the event and may take additional measures, such as raising an alarm"; by V15.20.0 the target is "gNB/ng-eNB" and the last sentence "The AMF shall support logging capabilities for this event and may take additional measures, such as raising an alarm"; the two cited sentences are otherwise unchanged through V19.7.0) |
-| [NGAP-RAN-CONFIG-UPDATE-ACK](provenance/NGAP-RAN-CONFIG-UPDATE-ACK.md) | procedural | INFO | Rel-15 | 15s | TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; Rel-19: in V19.4.0 the same words are a bullet under "If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF") |
+| [NGAP-RAN-CONFIG-UPDATE-ACK](provenance/NGAP-RAN-CONFIG-UPDATE-ACK.md) | procedural | WARN | Rel-15 | 15s | TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; Rel-19: in V19.4.0 the same words are a bullet under "If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF") |
 | [NGAP-RAN-CONFIG-UPDATE-KEEPS-TA](provenance/NGAP-RAN-CONFIG-UPDATE-KEEPS-TA.md) | procedural | FAIL | Rel-15 | 25s | TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: the sentence is added in V15.3.0 (absent in V15.0.0 to V15.2.0); unchanged to V18.11.0; Rel-19: in V19.4.0 the same words are a bullet under "If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF") |
 | [NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX](provenance/NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX.md) | negative-ie | DEVIATION | Rel-15 | 15s | TS 38.413 10.2 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NGAP-NG-RESET-ACK](provenance/NGAP-NG-RESET-ACK.md) | procedural | FAIL | Rel-15 | 15s | TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19) |
@@ -232,7 +232,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NGAP-RAN-CONFIG-UPDATE-ACK
 
-- TS 38.413 8.7.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.7.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 
 ### NGAP-RAN-CONFIG-UPDATE-KEEPS-TA
 
@@ -620,6 +620,19 @@ Needs: NG Setup, registration, PDU session establishment.
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
 | `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-RAN-CONFIG-UPDATE-ACK outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `acknowledged` | INFO | TS 38.413 8.7.2.2 (descriptive) | answered the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE ACKNOWLEDGE, as 8.7.2.2 describes |
+| `failure` | WARN | availability | rejected the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE FAILURE |
+| `error-indication` | WARN | availability | answered the valid RAN CONFIGURATION UPDATE with an ERROR INDICATION |
+| `no-answer` | WARN | availability; absence within 5s (check bound; TS 38.413 sets no timer for the RAN Configuration Update outcome) | sent neither RAN CONFIGURATION UPDATE ACKNOWLEDGE nor FAILURE; the association survived |
+| `association-lost` | WARN | availability | dropped the association instead of answering the valid RAN CONFIGURATION UPDATE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 
 ### NGAP-NG-RESET-ACK outcomes
 

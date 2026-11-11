@@ -41,17 +41,45 @@ const (
 // describes the answer ("The AMF responds with a RAN CONFIGURATION UPDATE
 // ACKNOWLEDGE message") and does not require it, and 8.7.2.3 requires a RAN
 // CONFIGURATION UPDATE FAILURE only of an AMF that cannot accept the update,
-// which cannot be told from outside. So the check is informational: a RAN
-// CONFIGURATION UPDATE ACKNOWLEDGE is INFO, and anything else is INFO-DIFF
-// with Observed saying which: a RAN CONFIGURATION UPDATE FAILURE, an ERROR
-// INDICATION, no answer within ranConfigAckWait, or a lost association.
-// PDUs of other procedures read meanwhile are passed over. After any
-// outcome but the ACKNOWLEDGE a fresh NG Setup is tried (observeAlive): a
-// core that no longer completes it did not survive the update and is FAIL,
-// which tells it from one that only ignored the update.
+// which cannot be told from outside. So a RAN CONFIGURATION UPDATE
+// ACKNOWLEDGE is INFO, and anything else is WARN for availability, the
+// procedure not completing for an update that changes nothing, with its own
+// outcome: a RAN CONFIGURATION UPDATE FAILURE, an ERROR INDICATION, no
+// answer within ranConfigAckWait, or a lost association. PDUs of other
+// procedures read meanwhile are passed over. After any outcome but the
+// ACKNOWLEDGE a fresh NG Setup is tried (observeAlive): a core that no
+// longer completes it did not survive the update and is CRASH, which tells
+// it from one that only ignored the update.
 type ranConfigUpdateAck struct {
 	// wait overrides ranConfigAckWait; tests shorten it.
 	wait time.Duration
+}
+
+// ranConfigAckRef is the key of the description the acknowledged outcome
+// rests on.
+const ranConfigAckRef = "TS 38.413 8.7.2.2"
+
+// The outcomes of NGAP-RAN-CONFIG-UPDATE-ACK. Every answer but the
+// ACKNOWLEDGE is WARN for availability: no requirement covers it, and the
+// core does not complete the procedure for a valid update that restates
+// what it accepted at NG Setup.
+var (
+	ranConfigAcked = Outcome{ID: "acknowledged", Verdict: Info, Refs: []string{ranConfigAckRef},
+		Summary: "answered the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE ACKNOWLEDGE, as 8.7.2.2 describes"}
+	ranConfigRejected = Outcome{ID: "failure", Verdict: Warn, Criterion: CriterionAvailability,
+		Summary: "rejected the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE FAILURE"}
+	ranConfigErrorIndicated = Outcome{ID: "error-indication", Verdict: Warn, Criterion: CriterionAvailability,
+		Summary: "answered the valid RAN CONFIGURATION UPDATE with an ERROR INDICATION"}
+	ranConfigNoAnswer = Outcome{ID: "no-answer", Verdict: Warn, Criterion: CriterionAvailability,
+		Bound:   &Bound{Wait: ranConfigAckWait, Source: "check bound; TS 38.413 sets no timer for the RAN Configuration Update outcome"},
+		Summary: "sent neither RAN CONFIGURATION UPDATE ACKNOWLEDGE nor FAILURE; the association survived"}
+	ranConfigAssociationLost = Outcome{ID: "association-lost", Verdict: Warn, Criterion: CriterionAvailability,
+		Summary: "dropped the association instead of answering the valid RAN CONFIGURATION UPDATE"}
+)
+
+// Outcomes declares what the check can report.
+func (ranConfigUpdateAck) Outcomes() []Outcome {
+	return []Outcome{ranConfigAcked, ranConfigRejected, ranConfigErrorIndicated, ranConfigNoAnswer, ranConfigAssociationLost}
 }
 
 func (c ranConfigUpdateAck) outcomeWait() time.Duration {
@@ -64,16 +92,12 @@ func (c ranConfigUpdateAck) outcomeWait() time.Duration {
 func (ranConfigUpdateAck) ID() string         { return "NGAP-RAN-CONFIG-UPDATE-ACK" }
 func (ranConfigUpdateAck) Category() Category { return Procedural }
 
-// Informational declares the check informational: it cites descriptive
-// text only.
-func (ranConfigUpdateAck) Informational() bool { return true }
-
 // SpecRefs cites the description of the answer in 8.7.2.2. The shall in
-// 8.7.2.3 and the Class 1 table (8.1) are in the provenance file only: the
-// check grades neither.
+// 8.7.2.3 and the Class 1 table (8.1) are in the provenance file only: no
+// outcome rests on either.
 func (ranConfigUpdateAck) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "8.7.2.2", Strength: Descriptive, Since: 15, Verified: ts38413Verified,
+		{Spec: "TS 38.413", Clause: "8.7.2.2", Strength: Descriptive, Since: 15, Verified: ts38413Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0"},
 				{Release: 19, Note: "in V19.4.0 the same words are a bullet under \"If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF\""},
@@ -85,33 +109,34 @@ func (c ranConfigUpdateAck) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "RAN CONFIGURATION UPDATE ACKNOWLEDGE for a valid RAN CONFIGURATION UPDATE (TS 38.413 8.7.2.2, descriptive)"}
 	pdu, err := gnb.BuildRANConfigurationUpdate(gnb.WithSupportedTAList(env.GNB))
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "stimulus could not be built", err.Error()
-		return r
+		return r.Errored("stimulus could not be built", err.Error())
 	}
 	conn, err := env.DialSetup(ctx)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "setup failed", err.Error()
-		return r
+		return r.SetupFailed("setup failed", err)
 	}
 	defer func() { _ = conn.Close() }()
 
 	// RAN CONFIGURATION UPDATE is non-UE-associated: stream 0.
 	if err := gnb.SendPDU(conn, sctp.StreamNonUEAssociated, pdu); err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "stimulus could not be sent", err.Error()
-		return r
+		return r.Errored("stimulus could not be sent", err.Error())
 	}
 	sent := time.Now()
 	wait := c.outcomeWait()
 	rctx, cancel := context.WithTimeout(ctx, wait)
 	resp, passed, err := readRANConfigOutcome(rctx, conn)
 	cancel()
-	r.Verdict, r.Observed, r.Detail = classifyRANConfigAck(resp, err, time.Since(sent), wait)
-	if passed > 0 {
-		r.Detail = joinDetail(r.Detail, fmt.Sprintf("%d PDUs of other procedures were read first", passed))
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return r.Errored("timed out waiting for the RAN Configuration Update outcome",
+			fmt.Sprintf("the per-test timeout expired before the %s the check waits; raise --per-test-timeout", wait))
 	}
-	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: RAN CONFIGURATION UPDATE restating the NG Setup's Supported TA List (TAC %d, PLMN %s/%s)",
-		env.GNB.TAC, env.GNB.MCC, env.GNB.MNC))
-	if r.Verdict == Info {
+	o, observed, detail := classifyRANConfigAck(resp, err, time.Since(sent), wait)
+	if passed > 0 {
+		detail = joinDetail(detail, fmt.Sprintf("%d PDUs of other procedures were read first", passed))
+	}
+	r = r.As(o, observed, joinDetail(detail, fmt.Sprintf("stimulus: RAN CONFIGURATION UPDATE restating the NG Setup's Supported TA List (TAC %d, PLMN %s/%s)",
+		env.GNB.TAC, env.GNB.MCC, env.GNB.MNC)))
+	if o.ID == ranConfigAcked.ID {
 		return r
 	}
 	return observeAlive(ctx, env, r, "the RAN CONFIGURATION UPDATE")
@@ -134,24 +159,24 @@ func readRANConfigOutcome(ctx context.Context, conn gnb.Transport) (resp *ngapTy
 }
 
 // classifyRANConfigAck maps the AMF's answer to the valid RAN CONFIGURATION
-// UPDATE onto the informational verdicts; after is how long after the
-// stimulus it came and wait the bound a missing answer is inferred within.
-func classifyRANConfigAck(resp *ngapType.NGAPPDU, err error, after, wait time.Duration) (v Verdict, observed, detail string) {
+// UPDATE onto an outcome; after is how long after the stimulus it came and
+// wait the bound a missing answer is inferred within.
+func classifyRANConfigAck(resp *ngapType.NGAPPDU, err error, after, wait time.Duration) (o Outcome, observed, detail string) {
 	after = after.Round(time.Millisecond)
 	switch {
 	case err == nil && gnb.IsRANConfigurationUpdateAcknowledge(resp):
-		return Info, ranConfigAckObserved, fmt.Sprintf("acknowledged %s after the RAN CONFIGURATION UPDATE", after)
+		return ranConfigAcked, ranConfigAckObserved, fmt.Sprintf("acknowledged %s after the RAN CONFIGURATION UPDATE", after)
 	case err == nil && gnb.IsRANConfigurationUpdateFailure(resp):
-		return infoDiffers, ranConfigAckFailure,
+		return ranConfigRejected, ranConfigAckFailure,
 			joinDetail(fmt.Sprintf("answered with RAN CONFIGURATION UPDATE FAILURE, cause %s, %s after the RAN CONFIGURATION UPDATE", ranConfigFailureCause(resp), after), ranConfigAckText)
 	case err == nil:
-		return infoDiffers, ranConfigAckErrorInd,
+		return ranConfigErrorIndicated, ranConfigAckErrorInd,
 			joinDetail(fmt.Sprintf("answered with ERROR INDICATION, cause %s, %s after the RAN CONFIGURATION UPDATE", errorIndicationCause(resp), after), ranConfigAckText)
 	case errors.Is(err, context.DeadlineExceeded):
-		return infoDiffers, ranConfigAckNoAnswer,
+		return ranConfigNoAnswer, ranConfigAckNoAnswer,
 			joinDetail(fmt.Sprintf("no RAN CONFIGURATION UPDATE ACKNOWLEDGE or FAILURE within %s of the RAN CONFIGURATION UPDATE (absence inferred within this bound)", wait), ranConfigAckText)
 	default:
-		return infoDiffers, ranConfigAckAssociation,
+		return ranConfigAssociationLost, ranConfigAckAssociation,
 			joinDetail(fmt.Sprintf("the association was lost %s after the RAN CONFIGURATION UPDATE (%v)", after, err), ranConfigAckText)
 	}
 }
