@@ -93,7 +93,8 @@ type AMF struct {
 	completeIDs      [][2]int64
 	deregReleases    [][2]int64
 	// strayCompletes counts Completes that came before any switch-off
-	// release or release on request named their UE.
+	// release, release on request or release of a cancelled handover's
+	// target named their UE.
 	strayCompletes atomic.Int64
 	// setups are the gNBs that sent an NG Setup Request, in order (Setups).
 	setups []Setup
@@ -205,6 +206,15 @@ type AMF struct {
 	smAnswers      int
 	smLimited      bool
 	smReleases     atomic.Int64
+	// noCancelAck withholds the HANDOVER CANCEL ACKNOWLEDGE and
+	// crashOnCancel stops the mock on a HANDOVER CANCEL; handoverCancels
+	// counts the HANDOVER CANCELs received; handoverReleases (under mu) are
+	// the NGAP ID pairs of the releases sent to a cancelled handover's
+	// target.
+	noCancelAck      bool
+	crashOnCancel    bool
+	handoverCancels  atomic.Int64
+	handoverReleases [][2]int64
 
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests); initialRegReqs the same requests as the
@@ -254,8 +264,9 @@ type AMF struct {
 }
 
 // errCrashed ends every association of a mock that crashed: after a release
-// (WithCrashAfterRelease), a T3550 abort (WithCrashAfterT3550Abort) or an
-// undecodable PDU (CrashOnUndecodable).
+// (WithCrashAfterRelease), a T3550 abort (WithCrashAfterT3550Abort), an
+// undecodable PDU (CrashOnUndecodable) or a HANDOVER CANCEL
+// (WithCrashOnHandoverCancel), among others.
 var errCrashed = errors.New("mockamf: crashed")
 
 // New validates config and returns a mock AMF, adjusted by opts.
@@ -419,6 +430,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		for _, r := range a.requestReleases {
 			answered = answered || r == ids
 		}
+		for _, r := range a.handoverReleases {
+			answered = answered || r == ids
+		}
 		a.mu.Unlock()
 		if !answered {
 			a.strayCompletes.Add(1)
@@ -442,6 +456,8 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		return a.onHandoverRequired(p, pdu.InitiatingMessage.Value.HandoverRequired)
 	case ngapType.InitiatingMessagePresentHandoverNotify:
 		return a.onHandoverNotify(p, states, pdu.InitiatingMessage.Value.HandoverNotify)
+	case ngapType.InitiatingMessagePresentHandoverCancel:
+		return a.onHandoverCancel(p, pdu.InitiatingMessage.Value.HandoverCancel)
 	}
 	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentRANConfigurationUpdate {
 		return a.onRANConfigUpdate(p, pdu.InitiatingMessage.Value.RANConfigurationUpdate)
@@ -688,8 +704,8 @@ func (a *AMF) ReleaseCompletes() int64 { return a.releaseCompletes.Load() }
 
 // StrayReleaseCompletes reports how many UE CONTEXT RELEASE COMPLETEs
 // arrived before any release the mock sent named their UE (for a
-// switch-off, or on the gNB's request): a gNB that took some other PDU, or
-// an older release, for the answer.
+// switch-off, on the gNB's request, or of a cancelled handover's target):
+// a gNB that took some other PDU, or an older release, for the answer.
 func (a *AMF) StrayReleaseCompletes() int64 { return a.strayCompletes.Load() }
 
 // ReleaseCompleteIDs reports the (AMF, RAN) UE NGAP ID pair each UE

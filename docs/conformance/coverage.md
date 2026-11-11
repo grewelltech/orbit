@@ -121,7 +121,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Handover Resource Allocation (Request→Ack) | AMF→RAN | ✅ | — | ORBIT admits/rejects |
 | Handover Notification | RAN→AMF | ✅ | ⬜ | |
 | Path Switch Request | RAN→AMF | ✅ (Xn) · ✅ `NGAP-PATH-SWITCH-ACK-TRANSFER` (Acknowledge with a transfer per switched session) | 🎯 malformed transfer / unknown IDs | |
-| Handover Cancellation | RAN→AMF | ⬜ | ⬜ | |
+| Handover Cancellation | RAN→AMF | ✅ `NGAP-HANDOVER-CANCEL-ACK` (informational: is the cancel acknowledged?) | ⬜ | no "shall" or "should" for the acknowledge in 8.4.5 |
 | Uplink/Downlink RAN Status Transfer | both | ⬜ | ⬜ | |
 
 ### Lower-priority families (enumerate, then prioritise)
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**30 checks today** (the first four live on the SD-Core testbed):
+**31 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -283,6 +283,18 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   8.3.2.2 says "should". A released UE is still registered, so the check
   deregisters it with an initial NAS message on a new NG connection; that
   needs the 5G-GUTI, and the detail says how the cleanup went. Needs a UE,
+  else SKIP. Not yet run on Ref 2.
+
+- `NGAP-HANDOVER-CANCEL-ACK` (mobility, INFO-class) — a UE with a PDU
+  session has an N2 handover prepared up to the HANDOVER COMMAND, and the
+  source gNB then sends HANDOVER CANCEL. TS 38.413 8.4.5 has no "shall" or
+  "should" for the AMF: the acknowledge is the response of a class 1
+  procedure (Table 8.1-1), 9.2.3.12 says what it confirms, and 8.4.5.4 has
+  the source take a missing one as success. So the check is informational:
+  a HANDOVER CANCEL ACKNOWLEDGE within 5 s is INFO and none is INFO-DIFF.
+  Whether the AMF released the context prepared at the target is recorded.
+  A fresh NG Setup is tried afterwards; a core that no longer completes it
+  did not survive and is FAIL. The UE stays on its source gNB. Needs a UE,
   else SKIP. Not yet run on Ref 2.
 
 - `NAS-T3560-AUTH-RETRANSMIT` (nas, FAIL-class) — the UE withholds its

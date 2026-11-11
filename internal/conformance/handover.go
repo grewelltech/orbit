@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	builtins = append(builtins, ngapPathSwitchAckTransfer{}, ngapHandoverCommandTransfer{})
+	builtins = append(builtins, ngapPathSwitchAckTransfer{}, ngapHandoverCommandTransfer{}, ngapHandoverCancelAck{})
 }
 
 const (
@@ -380,4 +380,131 @@ func classifyHandoverCommand(cmd gnb.HandoverCommandInfo, session int64) (Verdic
 		return Fail, missing, handoverCommandFailure + " Recorded: " + detail
 	}
 	return Pass, fmt.Sprintf("HANDOVER COMMAND lists %d PDU session(s), each with a Handover Command Transfer", len(cmd.Items)), detail
+}
+
+const (
+	// handoverPreparationWait bounds the preparation of the handover the
+	// cancel check cancels, target NG Setup included.
+	handoverPreparationWait = 5 * time.Second
+	// handoverCancelAckWait is the bound within which the HANDOVER CANCEL
+	// ACKNOWLEDGE is expected.
+	handoverCancelAckWait = 5 * time.Second
+)
+
+// handoverCancelText is the detail of a missing acknowledge.
+const handoverCancelText = "no HANDOVER CANCEL ACKNOWLEDGE (class-1 procedure, Table 8.1-1; 9.2.3.12). TS 38.413 8.4.5 (descriptive; Rel-15 onward). Likely cause: AMF does not answer Handover Cancel."
+
+// ngapHandoverCancelAck registers a UE with a PDU session on gNB A,
+// prepares an N2 handover to gNB B up to the HANDOVER COMMAND, cancels it
+// with a HANDOVER CANCEL and reports whether the AMF answers with a
+// HANDOVER CANCEL ACKNOWLEDGE.
+//
+// TS 38.413 has no "shall" and no "should" for the acknowledge: 8.4.5.2
+// only describes the source's message, the acknowledge is the response of a
+// class 1 procedure (Table 8.1-1) and 9.2.3.12 says what it confirms, while
+// 8.4.5.4 has the source take a missing one as a successful cancellation.
+// So the check is informational: the acknowledge within the wait is INFO
+// and its absence INFO-DIFF. The UE stays on gNB A and is deregistered
+// there; a fresh NG Setup is then tried (observeAlive), and a core that no
+// longer completes it did not survive the cancel and is FAIL.
+type ngapHandoverCancelAck struct {
+	// prepWait overrides handoverPreparationWait and ackWait
+	// handoverCancelAckWait (tests only).
+	prepWait, ackWait time.Duration
+}
+
+func (ngapHandoverCancelAck) ID() string         { return "NGAP-HANDOVER-CANCEL-ACK" }
+func (ngapHandoverCancelAck) Category() Category { return Mobility }
+
+// Informational declares the check informational: it cites descriptive
+// text only.
+func (ngapHandoverCancelAck) Informational() bool { return true }
+
+// SpecRefs cites the description of the procedure (8.4.5.2), its row in
+// the table of class 1 procedures (Table 8.1-1) and the description of the
+// acknowledge (9.2.3.12). None requires the acknowledge of the AMF.
+func (ngapHandoverCancelAck) SpecRefs() []SpecRef {
+	return []SpecRef{
+		{Spec: "TS 38.413", Clause: "8.4.5.2", Strength: Descriptive, Since: 15, Verified: ts38413Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "the sentence is unchanged from V15.0.0 through V19.4.0; by V15.13.0 8.4.5.4 is added, under which the source NG-RAN node takes a missing acknowledge as a successful cancellation"},
+			}},
+		{Spec: "TS 38.413", Clause: "Table 8.1-1", Strength: Descriptive, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
+		{Spec: "TS 38.413", Clause: "9.2.3.12", Strength: Descriptive, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
+	}
+}
+
+func (c ngapHandoverCancelAck) waits() (prep, ack time.Duration) {
+	prep, ack = handoverPreparationWait, handoverCancelAckWait
+	if c.prepWait > 0 {
+		prep = c.prepWait
+	}
+	if c.ackWait > 0 {
+		ack = c.ackWait
+	}
+	return prep, ack
+}
+
+func (c ngapHandoverCancelAck) Run(ctx context.Context, env Env) Result {
+	prepWait, ackWait := c.waits()
+	r := Result{Expected: fmt.Sprintf("HANDOVER CANCEL ACKNOWLEDGE within %s of a HANDOVER CANCEL sent after the HANDOVER COMMAND (TS 38.413 8.4.5.2, Table 8.1-1, 9.2.3.12, descriptive)", ackWait)}
+	if !env.UE.Configured() {
+		r.Verdict, r.Observed = Skip, "no UE configured"
+		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run mobility checks"
+		return r
+	}
+	h, err := NewUEHarness(env, nil)
+	if err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
+		return r
+	}
+	defer h.Close()
+	if _, err := h.Register(ctx); err != nil {
+		r.Verdict, r.Observed, r.Detail = Error, "UE setup on the source gNB failed", err.Error()
+		return r
+	}
+	// One bound for the preparation and the wait: the engine takes the
+	// wait for the acknowledge from it once the command has arrived.
+	hctx, cancel := context.WithTimeout(ctx, prepWait+ackWait+time.Second)
+	res, err := h.CancelN2Handover(hctx, ackWait)
+	cancel()
+	switch {
+	case errors.Is(err, engine.ErrHandoverNotPrepared):
+		r.Verdict, r.Observed, r.Detail = Error, "handover did not reach Handover Command", err.Error()
+		return r
+	case err != nil:
+		r.Verdict, r.Observed, r.Detail = Error, "Handover Cancel could not be sent or waited for", err.Error()
+		return r
+	}
+	r.Verdict, r.Observed, r.Detail = classifyHandoverCancel(res, ackWait)
+	// The UE leaves before the probe, so the probe's NG Setup meets no
+	// association of the check.
+	h.Close()
+	return observeAlive(ctx, env, r, "the HANDOVER CANCEL")
+}
+
+// classifyHandoverCancel maps a cancelled handover onto the informational
+// verdicts: INFO with the acknowledge, INFO-DIFF without it or when the
+// source association was lost while waiting. The detail
+// records what else the source read while waiting and whether the AMF
+// released the target.
+func classifyHandoverCancel(res engine.HandoverCancelResult, wait time.Duration) (Verdict, string, string) {
+	var facts []string
+	if len(res.Skipped) > 0 {
+		facts = append(facts, "other PDUs on the source association while waiting: "+strings.Join(res.Skipped, ", "))
+	}
+	if res.TargetReleased {
+		facts = append(facts, "the AMF released the UE context prepared at the target gNB (recorded only)")
+	} else {
+		facts = append(facts, "no UE Context Release Command at the target gNB before its association closed (recorded only)")
+	}
+	detail := strings.Join(facts, "; ")
+	if res.SourceLost != nil {
+		return InfoDiff, "association lost after the HANDOVER CANCEL",
+			fmt.Sprintf("the source association ended before a HANDOVER CANCEL ACKNOWLEDGE (%v). Recorded: %s", res.SourceLost, detail)
+	}
+	if res.Acknowledged {
+		return Info, fmt.Sprintf("HANDOVER CANCEL ACKNOWLEDGE after %s", res.AckAfter.Round(time.Millisecond)), detail
+	}
+	return InfoDiff, fmt.Sprintf("no HANDOVER CANCEL ACKNOWLEDGE within %s", wait), handoverCancelText + " Recorded: " + detail
 }

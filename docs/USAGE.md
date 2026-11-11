@@ -1467,6 +1467,12 @@ whatever profile other commands use, so it reports how the core handles the
 conformant Handover Request Acknowledge. It is an ERROR when the handover
 does not reach the command within 8 s.
 
+`NGAP-HANDOVER-CANCEL-ACK` prepares the same N2 handover and, once the
+HANDOVER COMMAND has arrived, cancels it from the source gNB with a HANDOVER
+CANCEL. It is informational: TS 38.413 8.4.5 describes the HANDOVER CANCEL
+ACKNOWLEDGE without requiring it, so the acknowledge within 5 s is INFO and
+its absence INFO-DIFF, neither of which gates. The UE stays on the first gNB.
+
 One `procedural` check needs the UE flags too, and SKIPs without them:
 `NGAP-UE-CTX-RELEASE-ON-REQUEST` registers the UE without a PDU session and
 has its gNB send a UE CONTEXT RELEASE REQUEST. It passes when the AMF answers

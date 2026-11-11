@@ -163,6 +163,9 @@ func (ngapPathSwitchAckTransfer) Needs() CheckNeeds {
 func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
 	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
 }
+func (ngapHandoverCancelAck) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
+}
 func (ngapUECtxReleaseOnRequest) Needs() CheckNeeds { return ueNeeds }
 func (n3DLQFIContainer) Needs() CheckNeeds          { return ueNeeds }
 func (nasIntegrityFailDiscard) Needs() CheckNeeds   { return ueNeeds }

@@ -115,6 +115,10 @@ const (
 	EngineN2Unanswered    = 208 // TestN2HandoverPreparationFails/no_answer
 	EngineReleaseOnReq    = 227 // TestRequestContextReleaseOverMockPair/released
 	EngineReleaseIgnored  = 228 // TestRequestContextReleaseOverMockPair/request_ignored
+	EngineCancelAcked     = 220 // TestCancelHandoverOverMockPair/acknowledged
+	EngineCancelNoAck     = 221 // TestCancelHandoverOverMockPair/acknowledge_withheld
+	EngineCancelNoPrep    = 222 // TestCancelHandoverNotPrepared
+	EngineCancelLost      = 248 // TestCancelHandoverSourceLost
 
 	ConformancePSAckPlain      = 190 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_no_traffic
 	ConformancePSAckEcho       = 191 // TestPathSwitchAckCheckAgainstMockPair/acknowledged,_uplink_answered
@@ -145,6 +149,12 @@ const (
 	ConformanceQFISilent  = 237 // TestQFIContainerCheckAgainstMockPair/echo_peer_silent
 	ConformanceQFIRegFail = 238 // TestQFIContainerCheckErrors/registration_refused
 	ConformanceQFITimeout = 239 // TestQFIContainerCheckErrors/timeout_while_sampling
+
+	ConformanceCancelAcked   = 223 // TestHandoverCancelCheckAgainstMockPair/acknowledged
+	ConformanceCancelNoAck   = 224 // TestHandoverCancelCheckAgainstMockPair/acknowledge_withheld
+	ConformanceCancelNoPrep  = 225 // TestHandoverCancelCheckAgainstMockPair/preparation_failure
+	ConformanceCancelRegFail = 226 // TestHandoverCancelCheckRegistrationFailure
+	ConformanceCancelCrash   = 229 // TestHandoverCancelCheckAgainstMockPair/stops_answering
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

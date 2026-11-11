@@ -509,6 +509,21 @@ func (h *UEHarness) RequestContextRelease(ctx context.Context, wait time.Duratio
 	return h.m.RequestContextRelease(ctx, h.supi, wait)
 }
 
+// CancelN2Handover prepares an N2 handover to gNB B, up to the HANDOVER
+// COMMAND, and cancels it from gNB A with a HANDOVER CANCEL, waiting up to
+// wait for the acknowledge. The UE stays on gNB A. An error wrapping
+// engine.ErrHandoverNotPrepared means the handover never reached the
+// command.
+func (h *UEHarness) CancelN2Handover(ctx context.Context, wait time.Duration) (engine.HandoverCancelResult, error) {
+	res, err := h.m.CancelHandover(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	}, wait)
+	if err != nil {
+		return res, fmt.Errorf("handover (N2) to gNB %#x, cancelled: %w", h.TargetGNB().ID, err)
+	}
+	return res, nil
+}
+
 // Observe returns what has been seen so far, with the switch's timing.
 func (h *UEHarness) Observe() PathObservation {
 	h.mu.Lock()
