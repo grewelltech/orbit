@@ -28,7 +28,8 @@ func init() {
 // is not asserted. Whether the TAI List for Paging holds the serving TAI
 // is recorded only: TS 38.413 does not say which TAIs it lists. After a
 // PAGING the UE answers with a Service Request so the core stops paging;
-// that answer is recorded only.
+// that answer is recorded only. A registration, PDU session or AN release
+// that does not complete first is BLOCKED.
 type pagingOnDLData struct {
 	// window overrides pagingWindow and settle pagingSettle (tests only).
 	window, settle time.Duration
@@ -44,11 +45,31 @@ const (
 	pagingSettle = time.Second
 )
 
+// pagingRef is the key of the shall the check's outcomes rest on.
+const pagingRef = "TS 24.501 5.6.2.2.1"
+
+// The outcomes of NGAP-PAGING-ON-DL-DATA.
+var (
+	pagingSent = Outcome{ID: "paged", Verdict: Pass, Refs: []string{pagingRef},
+		Summary: "sent an NGAP PAGING naming the idle UE's 5G-S-TMSI after downlink data for it"}
+	pagingNone = Outcome{ID: "no-paging", Verdict: Fail, Refs: []string{pagingRef},
+		Bound:   &Bound{Wait: pagingWindow, Source: "check bound; TS 24.501 sets no network timer for the paging"},
+		Summary: "sent no NGAP PAGING after downlink data for the idle UE"}
+	pagingOtherIdentity = Outcome{ID: "other-identity", Verdict: Fail, Refs: []string{pagingRef},
+		Bound:   &Bound{Wait: pagingWindow, Source: "check bound; TS 24.501 sets no network timer for the paging"},
+		Summary: "sent NGAP PAGING only for other identities after downlink data for the idle UE"}
+)
+
+// Outcomes declares what the check can report.
+func (pagingOnDLData) Outcomes() []Outcome {
+	return []Outcome{pagingSent, pagingNone, pagingOtherIdentity}
+}
+
 func (pagingOnDLData) ID() string         { return "NGAP-PAGING-ON-DL-DATA" }
 func (pagingOnDLData) Category() Category { return Procedural }
 func (pagingOnDLData) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.6.2.2.1", Strength: Shall, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "5.6.2.2.1", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.0.0 reads \"in 5GMM-IDLE mode\"; \"over 3GPP access\" is added by V15.7.0"},
 				{Release: 17, Note: "adds \"and there is no paging restriction applied in the network for that paging\""},
@@ -96,45 +117,35 @@ const pagingRefs = "TS 24.501 5.6.2.2.1 (Rel-15 onward); TS 38.413 8.5.1.2 (Rel-
 func (c pagingOnDLData) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: fmt.Sprintf("NGAP PAGING naming the UE's 5G-S-TMSI within %v of downlink data to the CM-IDLE UE (TS 24.501 5.6.2.2.1; TS 38.413 8.5.1.2)", c.wait())}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the checks that register a UE"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run the checks that register a UE")
 	}
 	if env.Downlink == nil {
-		r.Verdict, r.Observed = Skip, "no N6 downlink trigger configured"
-		r.Detail = "the check needs a responder on the N6 network to send downlink data to the idle UE: name one of the target's responders as the conformance workload's responder"
-		return r
+		return r.Skipped(InputDownlink, "no N6 downlink trigger configured",
+			"the check needs a responder on the N6 network to send downlink data to the idle UE: name one of the target's responders as the conformance workload's responder")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	reg, err := h.Register(ctx)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed", err.Error()
-		return r
+		return r.SetupFailed("UE setup failed", err)
 	}
 	idle, err := h.Idle(ctx)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "the AN release to CM-IDLE did not complete", err.Error()
-		return r
+		return r.SetupFailed("the AN release to CM-IDLE did not complete", during(ProcANRelease, err))
 	}
 	if !sleepCtx(ctx, c.pause()) {
-		r.Verdict, r.Observed, r.Detail = Error, "timed out before the downlink trigger", ctx.Err().Error()
-		return r
+		return r.Errored("timed out before the downlink trigger", ctx.Err().Error())
 	}
 	if err := h.TriggerDownlink(ctx); err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "the downlink trigger failed", err.Error()
-		return r
+		return r.Errored("the downlink trigger failed", err.Error())
 	}
 	sent := time.Now()
 	seen, err := h.AwaitPaging(ctx, c.wait())
 	if err != nil {
-		r.Verdict, r.Observed = Error, "the wait for PAGING was cut short"
-		r.Detail = fmt.Sprintf("%v; raise --per-test-timeout to at least %s", err, c.Budget())
-		return r
+		return r.Errored("the wait for PAGING was cut short", fmt.Sprintf("%v; raise --per-test-timeout to at least %s", err, c.Budget()))
 	}
 	o := pagingObservation{STMSI: idle.STMSI, Serving: gnb.TAI{MCC: env.GNB.MCC, MNC: env.GNB.MNC, TAC: env.GNB.TAC},
 		ReleaseCause: idle.Cause, Sent: sent, Seen: seen, MICO: reg.Registration.MICO}
@@ -153,8 +164,8 @@ func (c pagingOnDLData) Run(ctx context.Context, env Env) Result {
 			o.Answer = fmt.Sprintf("Service Request after the PAGING rejected, 5GMM cause %d", sr.RejectCause)
 		}
 	}
-	r.Verdict, r.Observed, r.Detail = classifyPaging(o, c.wait())
-	return r
+	out, observed, detail := classifyPaging(o, c.wait())
+	return r.As(out, observed, detail)
 }
 
 // pagingObservation is what the check saw, for classifyPaging.
@@ -180,7 +191,7 @@ type pagingObservation struct {
 // ones naming other identities, is FAIL. The detail records the identity,
 // the release cause, the delay, the TAI list (and whether it holds the
 // serving TAI), a MICO indication and the answer to the paging.
-func classifyPaging(o pagingObservation, window time.Duration) (Verdict, string, string) {
+func classifyPaging(o pagingObservation, window time.Duration) (Outcome, string, string) {
 	facts := []string{
 		"UE 5G-S-TMSI " + o.STMSI.String(),
 		"AN release cause " + o.ReleaseCause,
@@ -221,15 +232,15 @@ func classifyPaging(o pagingObservation, window time.Duration) (Verdict, string,
 		if o.Answer != "" {
 			facts = append(facts, o.Answer+" (recorded only)")
 		}
-		return Pass, "PAGING with the UE's 5G-S-TMSI", strings.Join(facts, "; ")
+		return pagingSent, "PAGING with the UE's 5G-S-TMSI", strings.Join(facts, "; ")
 	}
 	detail := strings.Join(facts, "; ")
 	const cause = "Likely cause: UPF/SMF downlink data notification or AMF N1N2MessageTransfer paging path not implemented."
 	if len(others) > 0 {
-		return Fail, "PAGING for another identity only",
+		return pagingOtherIdentity, "PAGING for another identity only",
 			fmt.Sprintf("no NGAP PAGING naming the UE's 5G-S-TMSI within %v of downlink data to a CM-IDLE UE: %d PAGING message(s) named another UE Paging Identity. ", window, len(others)) +
 				pagingRefs + " TS 38.413 9.3.3.18: the UE Paging Identity is the 5G-S-TMSI. Recorded: " + detail
 	}
-	return Fail, "no PAGING",
+	return pagingNone, "no PAGING",
 		fmt.Sprintf("no NGAP PAGING within %v of downlink data to a CM-IDLE UE. ", window) + pagingRefs + " " + cause + " Recorded: " + detail
 }

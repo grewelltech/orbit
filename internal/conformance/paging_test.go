@@ -37,32 +37,32 @@ func TestClassifyPaging(t *testing.T) {
 		seen         []engine.PagingEvent
 		mico         bool
 		answer       string
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 		notDetail    []string
 	}{
 		{name: "paged in the serving TAI", seen: []engine.PagingEvent{ev(&own, true, serving)}, answer: "Service Request after the PAGING accepted, 1 session(s) reactivated",
-			want: Pass, wantObserved: "PAGING with the UE's 5G-S-TMSI",
+			want: pagingSent, wantObserved: "PAGING with the UE's 5G-S-TMSI",
 			wantDetail: []string{"PAGING 120ms after the downlink trigger", "TAI List for Paging [208/93 TAC 1] holds the serving TAI 208/93 TAC 1 (recorded only)", "accepted, 1 session(s) reactivated (recorded only)"}},
 		{name: "paged without the serving TAI still passes", seen: []engine.PagingEvent{ev(&own, true, gnb.TAI{MCC: "208", MNC: "93", TAC: 9})},
-			want: Pass, wantDetail: []string{"does not hold the serving TAI"}},
+			want: pagingSent, wantDetail: []string{"does not hold the serving TAI"}},
 		{name: "paged after a PAGING for another UE", seen: []engine.PagingEvent{ev(&other, false, serving), ev(&own, true, serving)},
-			want: Pass, wantDetail: []string{"PAGING for other identities: " + other.String()}},
-		{name: "no paging", want: Fail, wantObserved: "no PAGING",
+			want: pagingSent, wantDetail: []string{"PAGING for other identities: " + other.String()}},
+		{name: "no paging", want: pagingNone, wantObserved: "no PAGING",
 			wantDetail: []string{"no NGAP PAGING within 10s of downlink data to a CM-IDLE UE. TS 24.501 5.6.2.2.1 (Rel-15 onward); TS 38.413 8.5.1.2 (Rel-15 onward); TS 23.502 4.2.3.3 step 4b (Rel-15 onward). Likely cause: UPF/SMF downlink data notification or AMF N1N2MessageTransfer paging path not implemented."}},
-		{name: "another identity only", seen: []engine.PagingEvent{ev(&other, false, serving)}, want: Fail, wantObserved: "PAGING for another identity only",
+		{name: "another identity only", seen: []engine.PagingEvent{ev(&other, false, serving)}, want: pagingOtherIdentity, wantObserved: "PAGING for another identity only",
 			wantDetail: []string{"1 PAGING message(s) named another UE Paging Identity", "TS 38.413 9.3.3.18", other.String()}, notDetail: []string{"Likely cause"}},
-		{name: "a PAGING with no identity only", seen: []engine.PagingEvent{ev(nil, false, serving)}, want: Fail, wantObserved: "PAGING for another identity only",
+		{name: "a PAGING with no identity only", seen: []engine.PagingEvent{ev(nil, false, serving)}, want: pagingOtherIdentity, wantObserved: "PAGING for another identity only",
 			wantDetail: []string{"PAGING for other identities: none"}},
-		{name: "MICO is recorded", mico: true, want: Fail, wantDetail: []string{"MICO indication"}},
+		{name: "MICO is recorded", mico: true, want: pagingNone, wantDetail: []string{"MICO indication"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			o := pagingObservation{STMSI: own, Serving: serving, ReleaseCause: "nas/0", Sent: t0, Seen: tc.seen, MICO: tc.mico, Answer: tc.answer}
-			v, observed, detail := classifyPaging(o, 10*time.Second)
-			if v != tc.want {
-				t.Fatalf("verdict %s (%s; %s), want %s", v, observed, detail, tc.want)
+			out, observed, detail := classifyPaging(o, 10*time.Second)
+			if out.ID != covers(tc.want).ID || out.Verdict != tc.want.Verdict {
+				t.Fatalf("outcome %s %s (%s; %s), want %s %s", out.ID, out.Verdict, observed, detail, tc.want.ID, tc.want.Verdict)
 			}
 			if tc.wantObserved != "" && observed != tc.wantObserved {
 				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
@@ -165,10 +165,10 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 			want: Fail, wantObserved: "PAGING for another identity only", wantPagings: 1, wantDeregs: 1,
 			wantDetail: []string{"1 PAGING message(s) named another UE Paging Identity"}},
 		{name: "release request ignored", net24: testnet.ConformancePagingNoRelease, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithIgnoreUEContextReleaseRequest()},
-			timeout: 3 * time.Second, want: Error, wantObserved: "the AN release to CM-IDLE did not complete",
+			timeout: 3 * time.Second, want: Blocked, wantObserved: "the AN release to CM-IDLE did not complete",
 			wantDetail: []string{"no UE Context Release Command"}, wantDeregs: 1},
 		{name: "no 5G-GUTI", net24: testnet.ConformancePagingNoGUTI,
-			want: Error, wantObserved: "the AN release to CM-IDLE did not complete", wantDetail: []string{"no 5G-GUTI"}},
+			want: Blocked, wantObserved: "the AN release to CM-IDLE did not complete", wantDetail: []string{"no 5G-GUTI"}},
 		{name: "trigger fails", net24: testnet.ConformancePagingNoTrigger, amfOpts: []mockamf.Option{mockamf.WithGUTI()},
 			trigger: engine.DownlinkTriggerFunc(func(context.Context, netip.Addr) error { return errors.New("responder unreachable") }),
 			want:    Error, wantObserved: "the downlink trigger failed", wantDetail: []string{"responder unreachable"}, wantDeregs: 1},

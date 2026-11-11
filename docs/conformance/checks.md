@@ -221,7 +221,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NGAP-PAGING-ON-DL-DATA
 
-- TS 24.501 5.6.2.2.1 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.6.2.2.1 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 23.502 4.2.3.3 step 4b (descriptive, since Rel-15): Rel-15 V15.0.0 (`23502-f00.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
 - TS 38.413 8.5.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 - TS 38.413 9.2.4.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
@@ -706,6 +706,22 @@ Needs no procedure first.
 | `other-pdu` | FAIL | TS 38.413 8.7.1.4 (shall) | answered with another PDU instead of NG SETUP FAILURE; the association survived |
 | `silent-drop` | FAIL | TS 38.413 8.7.1.4 (shall); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent no NG SETUP FAILURE; the association survived |
 | `association-reset` | FAIL | TS 38.413 8.7.1.4 (shall) | reset the association instead of sending NG SETUP FAILURE |
+
+### NGAP-PAGING-ON-DL-DATA outcomes
+
+Needs: NG Setup, registration, PDU session establishment, AN release.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `paged` | PASS | TS 24.501 5.6.2.2.1 (shall) | sent an NGAP PAGING naming the idle UE's 5G-S-TMSI after downlink data for it |
+| `no-paging` | FAIL | TS 24.501 5.6.2.2.1 (shall); absence within 10s (check bound; TS 24.501 sets no network timer for the paging) | sent no NGAP PAGING after downlink data for the idle UE |
+| `other-identity` | FAIL | TS 24.501 5.6.2.2.1 (shall); absence within 10s (check bound; TS 24.501 sets no network timer for the paging) | sent NGAP PAGING only for other identities after downlink data for the idle UE |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-downlink-responder` | SKIP | missing input | not judged: the run has no downlink responder |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-an-release` | BLOCKED | AN release (owner NGAP-UE-CTX-RELEASE-ON-REQUEST) | did not complete an AN release the check needs first |
 
 ### NGAP-PATH-SWITCH-SECCAP-MISMATCH outcomes
 

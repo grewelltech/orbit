@@ -4,7 +4,7 @@ Source: the 3GPP archive only, [24_series/24.501](https://www.3gpp.org/ftp/Specs
 
 The issue for this check named TS 23.502 4.2.3.3 as an unverified candidate for the trigger. Read in the archive, that step is descriptive ("the AMF sends a Paging message"), so it cannot carry a FAIL. The requirement is in TS 24.501 5.6.2.2.1, which the same reading found.
 
-## TS 24.501 5.6.2.2.1 (Paging for 5GS services through 3GPP access, General), shall
+## TS 24.501 5.6.2.2.1 (Paging for 5GS services through 3GPP access, General), shall, primary
 
 > "The network shall initiate the paging procedure for 5GS services when NAS signalling messages or user data is pending to be sent to the UE in 5GMM-IDLE mode over 3GPP access (see example in figure 5.6.2.2.1.1) and there is no paging restriction applied in the network for that paging."
 
@@ -12,7 +12,7 @@ The issue for this check named TS 23.502 4.2.3.3 as an unverified candidate for 
 - **Changes:** Rel-15: "over 3GPP access" is added and the figure renumbered by V15.7.0. Rel-16: unchanged from V15.7.0. Rel-17: "and there is no paging restriction applied in the network for that paging" is added by V17.18.1. Rel-18, Rel-19: unchanged from Rel-17.
 - **Scope:** the UE requests no paging restriction (a Rel-17 multi-USIM feature) and no MICO mode, so the shall binds. A MICO indication in the Registration Accept that the UE did not ask for is recorded in the detail.
 - **How the paging starts:** the next sentence of the clause, "To initiate the procedure the 5GMM entity in the AMF requests the lower layer to start paging and shall start timer T3513", makes the NGAP PAGING the observable. T3513 and its retransmissions are not asserted.
-- **Verdicts:** an NGAP PAGING whose UE Paging Identity is the UE's 5G-S-TMSI within 10 s of the downlink trigger: PASS. None, or only PAGING naming other identities: FAIL. The AN release not completing, the trigger failing, or the per-test timeout ending the wait: ERROR. No UE or no N6 downlink trigger configured: SKIP.
+- **Verdicts:** see "Verdict" below.
 
 ## TS 23.502 4.2.3.3 step 4b (Network Triggered Service Request), descriptive
 
@@ -52,3 +52,14 @@ The issue for this check named TS 23.502 4.2.3.3 as an unverified candidate for 
 - A UPF de-duplicates its downlink data notifications (SD-Core: 20 s per session). The check sends one trigger per run; leave at least 20 s before a re-run on the same subscriber.
 - The trigger follows the UE CONTEXT RELEASE COMPLETE by one second, so the core has told its UPF to buffer. Downlink that arrives earlier goes to the released tunnel and raises no notification.
 - The AN release uses cause Radio Network "release due to NG-RAN generated reason", not "user inactivity".
+
+## Verdict
+
+- **Class:** conformance, one shall (TS 24.501 5.6.2.2.1); the TS 23.502 and TS 38.413 clauses are descriptive.
+- **Stimulus:** a UE with a PDU session, released to CM-IDLE by an AN release; one second later a responder on N6 sends downlink data to its address, and the gNB's association is watched for NGAP PAGING for 10 s.
+- **PASS** `paged` (5.6.2.2.1): an NGAP PAGING whose UE Paging Identity is the UE's 5G-S-TMSI.
+- **FAIL** `no-paging` (5.6.2.2.1): no PAGING within 10 s, a bound of the check.
+- **FAIL** `other-identity` (5.6.2.2.1): only PAGING naming other identities within 10 s; none paged the UE.
+- **BLOCKED** (registration, PDU session establishment): the UE or its session was not set up. **BLOCKED** (AN release): the core did not release the UE to CM-IDLE (no UE CONTEXT RELEASE COMMAND, or no 5G-GUTI to page it by).
+- **ERROR:** the trigger failing, or the per-test timeout ending a wait.
+- **SKIP:** no UE or no N6 downlink trigger configured, or a target release older than Rel-15.

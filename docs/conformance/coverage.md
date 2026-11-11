@@ -101,7 +101,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
 | Initial Context Setup | AMF→RAN | ✅ (attach; with the Service Accept in `NAS-SERVICE-REQUEST-REACTIVATES`) | — | timing angle (bad/late response) |
-| UE Context Release Request | RAN→AMF | ✅ `NGAP-UE-CTX-RELEASE-ON-REQUEST` (DEVIATION-class); also the AN release of `NGAP-PAGING-ON-DL-DATA` (its failure is an ERROR, not a verdict) | ⬜ | 8.3.2.2 is a "should" |
+| UE Context Release Request | RAN→AMF | ✅ `NGAP-UE-CTX-RELEASE-ON-REQUEST` (DEVIATION-class); also the AN release of `NGAP-PAGING-ON-DL-DATA` (its failure is BLOCKED, not a verdict on paging) | ⬜ | 8.3.2.2 is a "should" |
 | UE Context Release (Command/Complete) | AMF→RAN | ✅ `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` (UE NGAP IDs of the release after a switch-off) | — | the release after a deregistration is descriptive (TS 23.502), so its absence is WARN (availability), not FAIL |
 | UE Context Modification | AMF→RAN | ⬜ | — | timing angle |
 
@@ -219,7 +219,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   released to CM-IDLE by an AN release, a responder on N6 sends downlink data
   to its address, and the core must send NGAP PAGING naming the UE's 5G-S-TMSI
   within 10 s (TS 24.501 5.6.2.2.1, a "shall"; TS 23.502 4.2.3.3 step 4b and
-  TS 38.413 8.5.1.2 describe it). Needs a UE and a target responder as the
+  TS 38.413 8.5.1.2 describe it); none, or only PAGING for other
+  identities, is FAIL, and an AN release the core does not carry out is
+  BLOCKED. Needs a UE and a target responder as the
   downlink trigger; SKIPs without either. Not yet run live.
 - `NAS-SERVICE-REQUEST-REACTIVATES` (procedural, FAIL-class) — a UE with a PDU
   session is released to CM-IDLE by an AN release and sends a Service Request
