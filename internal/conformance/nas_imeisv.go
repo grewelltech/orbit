@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/free5gc/nas/nasMessage"
@@ -22,7 +23,7 @@ const (
 	imeisvIdentified   = imeisvRequested + "the core asks for it with an IDENTITY REQUEST"
 	imeisvAccepted     = imeisvRequested + "the registration is accepted without it"
 	imeisvRejected     = imeisvRequested + "REGISTRATION REJECT, 5GMM cause #%d"
-	imeisvOtherID      = imeisvRequested + "IDENTITY REQUEST for identity type %d"
+	imeisvOtherID      = imeisvRequested + "IDENTITY REQUEST for another identity (%s)"
 	imeisvSecondSMC    = imeisvRequested + "a second SECURITY MODE COMMAND"
 	imeisvReleased     = imeisvRequested + "UE CONTEXT RELEASE COMMAND"
 	imeisvUnanswered   = imeisvRequested + "no answer"
@@ -43,8 +44,7 @@ const (
 // Observed saying which. An IDENTITY REQUEST is answered, so the
 // registration can complete, and the UE is then deregistered.
 type nasSMCIMEISVRequest struct {
-	// wait overrides initialNASWait (tests only).
-	wait time.Duration
+	initialNASWaits
 }
 
 func (nasSMCIMEISVRequest) ID() string         { return "NAS-SMC-IMEISV-REQUEST" }
@@ -67,18 +67,8 @@ func (nasSMCIMEISVRequest) SpecRefs() []SpecRef {
 	}
 }
 
-func (c nasSMCIMEISVRequest) waitTimeout() time.Duration {
-	if c.wait > 0 {
-		return c.wait
-	}
-	return initialNASWait
-}
-
-// Budget covers the registration, its deregistration and the liveness
-// probe.
-func (c nasSMCIMEISVRequest) Budget() time.Duration {
-	return c.waitTimeout() + initialNASDeregisterWait + 5*time.Second
-}
+// Budget covers the registration and the liveness probe.
+func (c nasSMCIMEISVRequest) Budget() time.Duration { return c.budget(1) }
 
 func (c nasSMCIMEISVRequest) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "the IMEISV requested in the SECURITY MODE COMMAND and, when the UE leaves it out of the SECURITY MODE COMPLETE, an IDENTITY REQUEST for it (TS 24.501 5.4.2.2: the AMF may request it; the specification is silent on a requested IMEISV that is missing)"}
@@ -95,7 +85,7 @@ func (c nasSMCIMEISVRequest) Run(ctx context.Context, env Env) Result {
 	defer h.Close()
 	wait := c.waitTimeout()
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: h.pdu.Slice(), omitIMEISV: true, stopAtSecondSMC: true}, wait)
-	left := deregisterAfter(h, o)
+	left := deregisterAfter(ctx, h, o, c.settleTime())
 	r.Verdict, r.Observed, r.Detail = judgeIMEISV(o, wait)
 	r.Detail = joinDetail(r.Detail, "stimulus: a conformant registration whose SECURITY MODE COMPLETE carries no IMEISV, requested or not; an IDENTITY REQUEST is answered")
 	r.Detail = joinDetail(r.Detail, "state left: "+left)
@@ -119,7 +109,12 @@ func judgeIMEISV(o initialNASOutcome, wait time.Duration) (Verdict, string, stri
 	case slices.Contains(o.identities, nasMessage.MobileIdentity5GSTypeImeisv):
 		return Info, imeisvIdentified, "the UE answered the IDENTITY REQUEST with its IMEISV; " + ended
 	case len(o.identities) > 0:
-		return InfoDiff, fmt.Sprintf(imeisvOtherID, o.identities[0]), fmt.Sprintf("identity types requested after the SECURITY MODE COMPLETE: %v; %s", o.identities, ended)
+		names := make([]string, len(o.identities))
+		for i, id := range o.identities {
+			names[i] = identityTypeName(id)
+		}
+		return InfoDiff, fmt.Sprintf(imeisvOtherID, names[0]),
+			fmt.Sprintf("identities requested after the SECURITY MODE COMPLETE: %s; the UE answered; %s", strings.Join(names, ", "), ended)
 	case o.smcs >= 2:
 		return InfoDiff, imeisvSecondSMC, "the registration was stopped at the second SECURITY MODE COMMAND, which the UE did not answer"
 	case o.reject != nil:
@@ -132,4 +127,22 @@ func judgeIMEISV(o initialNASOutcome, wait time.Duration) (Verdict, string, stri
 		return InfoDiff, imeisvUnanswered, fmt.Sprintf("no Registration Accept or Reject, IDENTITY REQUEST or release within %s (absence inferred within this bound)", wait)
 	}
 	return Error, "no outcome", "the registration ended without a recorded answer"
+}
+
+// identityTypeName names a type of identity of an IDENTITY REQUEST (TS
+// 24.501 9.11.3.3).
+func identityTypeName(t uint8) string {
+	switch t {
+	case nasMessage.MobileIdentity5GSTypeSuci:
+		return "SUCI"
+	case nasMessage.MobileIdentity5GSType5gGuti:
+		return "5G-GUTI"
+	case nasMessage.MobileIdentity5GSTypeImei:
+		return "IMEI"
+	case nasMessage.MobileIdentity5GSType5gSTmsi:
+		return "5G-S-TMSI"
+	case nasMessage.MobileIdentity5GSTypeImeisv:
+		return "IMEISV"
+	}
+	return fmt.Sprintf("type %d", t)
 }

@@ -26,7 +26,39 @@ const (
 	initialNASWait = 10 * time.Second
 	// initialNASDeregisterWait bounds the deregistration after an Accept.
 	initialNASDeregisterWait = 5 * time.Second
+	// initialNASSettle is the pause after each registration that reached
+	// the core, once the UE is deregistered or its association closed, in
+	// which the core finishes releasing the UE context: a registration of
+	// the same UE that reaches the core during that release can go
+	// unanswered.
+	initialNASSettle = time.Second
 )
+
+// initialNASWaits holds the overrides of initialNASWait and
+// initialNASSettle that the initial-NAS checks share (tests only).
+type initialNASWaits struct {
+	wait, settle time.Duration
+}
+
+func (w initialNASWaits) waitTimeout() time.Duration {
+	if w.wait > 0 {
+		return w.wait
+	}
+	return initialNASWait
+}
+
+func (w initialNASWaits) settleTime() time.Duration {
+	if w.settle > 0 {
+		return w.settle
+	}
+	return initialNASSettle
+}
+
+// budget is the time n registrations may take, each with its
+// deregistration and settle, plus the liveness probe.
+func (w initialNASWaits) budget(n int) time.Duration {
+	return time.Duration(n)*(w.waitTimeout()+initialNASDeregisterWait+w.settleTime()) + 5*time.Second
+}
 
 // initialNASStimulus is one registration of the initial-NAS checks: what
 // the UE requests, and where its messages leave TS 24.501 4.4.6.
@@ -270,18 +302,26 @@ func probeInitialNAS(ctx context.Context, h *UEHarness, stim initialNASStimulus,
 	return o
 }
 
-// deregisterAfter deregisters the UE when o left it registered, and says in
-// one clause what state the core was left in for this registration.
-func deregisterAfter(h *UEHarness, o initialNASOutcome) string {
-	if !o.registered {
-		return "the association was closed with the UE not registered"
+// deregisterAfter deregisters the UE when o left it registered, pauses for
+// settle (or until ctx ends) so the core can finish releasing the UE
+// context, and says in one clause what state the core was left in for this
+// registration. A registration that failed in the harness (o.err), which
+// may not have reached the core at all, is not paused after.
+func deregisterAfter(ctx context.Context, h *UEHarness, o initialNASOutcome, settle time.Duration) string {
+	left := "the association was closed with the UE not registered"
+	if o.registered {
+		dctx, cancel := context.WithTimeout(context.Background(), initialNASDeregisterWait)
+		err := h.Deregister(dctx)
+		cancel()
+		left = "the UE was deregistered"
+		if err != nil {
+			left = fmt.Sprintf("deregistration failed (%v) and the association was dropped", err)
+		}
 	}
-	dctx, cancel := context.WithTimeout(context.Background(), initialNASDeregisterWait)
-	defer cancel()
-	if err := h.Deregister(dctx); err != nil {
-		return fmt.Sprintf("deregistration failed (%v) and the association was dropped", err)
+	if o.err == nil {
+		sleepCtx(ctx, settle)
 	}
-	return "the UE was deregistered"
+	return left
 }
 
 // describeSNSSAI renders an S-NSSAI for a detail line.
@@ -334,8 +374,7 @@ const initialMsgContainerWinsFailure = "the AMF did not complete the registratio
 // refuses the initial message before a SECURITY MODE COMMAND: the container
 // then never reaches it.
 type nasInitialMsgContainerWins struct {
-	// wait overrides initialNASWait (tests only).
-	wait time.Duration
+	initialNASWaits
 }
 
 func (nasInitialMsgContainerWins) ID() string         { return "NAS-INITIAL-MSG-CONTAINER-WINS" }
@@ -353,18 +392,8 @@ func (nasInitialMsgContainerWins) SpecRefs() []SpecRef {
 	}
 }
 
-func (c nasInitialMsgContainerWins) waitTimeout() time.Duration {
-	if c.wait > 0 {
-		return c.wait
-	}
-	return initialNASWait
-}
-
-// Budget covers the three registrations, each with its deregistration, and
-// the liveness probe.
-func (c nasInitialMsgContainerWins) Budget() time.Duration {
-	return 3*(c.waitTimeout()+initialNASDeregisterWait) + 5*time.Second
-}
+// Budget covers the three registrations and the liveness probe.
+func (c nasInitialMsgContainerWins) Budget() time.Duration { return c.budget(3) }
 
 func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "the registration answered as the REGISTRATION REQUEST in the SECURITY MODE COMPLETE's NAS message container is when sent alone, although the unprotected initial message requested another S-NSSAI (TS 24.501 5.4.2.4; TS 33.501 6.4.6 step 4)"}
@@ -385,7 +414,7 @@ func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 	stimulus := fmt.Sprintf("stimulus: initial message with Requested NSSAI %s in the clear, NAS message container with Requested NSSAI %s", describeSNSSAI(unserved), describeSNSSAI(served))
 
 	stim := probeInitialNAS(ctx, h, initialNASStimulus{requested: served, plainComplete: true, plainRequested: &unserved}, wait)
-	left := deregisterAfter(h, stim)
+	left := deregisterAfter(ctx, h, stim, c.settleTime())
 	switch {
 	case stim.reject != nil && stim.rejectBeforeSMC:
 		r.Verdict = Skip
@@ -399,7 +428,7 @@ func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 	}
 
 	refServed := probeInitialNAS(ctx, h, initialNASStimulus{requested: served}, wait)
-	leftServed := deregisterAfter(h, refServed)
+	leftServed := deregisterAfter(ctx, h, refServed, c.settleTime())
 	if !refServed.registered || refServed.accept == nil {
 		// The served S-NSSAI, sent conformantly, must register: without
 		// that there is no reference to compare with.
@@ -411,7 +440,7 @@ func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 		return r
 	}
 	refUnserved := probeInitialNAS(ctx, h, initialNASStimulus{requested: unserved}, wait)
-	leftUnserved := deregisterAfter(h, refUnserved)
+	leftUnserved := deregisterAfter(ctx, h, refUnserved, c.settleTime())
 	if !refUnserved.answered() {
 		r.Verdict, r.Observed, r.Detail = initialNASError(refUnserved, "the reference registration requesting the unserved S-NSSAI", wait)
 		r.Detail = joinDetail(r.Detail, stimulus)
@@ -471,8 +500,7 @@ const (
 // other outcome is INFO-DIFF, Observed saying which. An Accept, or a Reject
 // with cause #62, shows a core that went on with the unprotected values.
 type nasInitialMsgNoContainer struct {
-	// wait overrides initialNASWait (tests only).
-	wait time.Duration
+	initialNASWaits
 }
 
 func (nasInitialMsgNoContainer) ID() string         { return "NAS-INITIAL-MSG-NO-CONTAINER" }
@@ -507,18 +535,8 @@ var ref24501RINMR = SpecRef{Spec: "TS 24.501", Clause: "5.4.2.2 RINMR", Strength
 		{Release: 16, Note: "adds the case that the AMF cannot decipher the NAS message container IE of the REGISTRATION REQUEST"},
 	}}
 
-func (c nasInitialMsgNoContainer) waitTimeout() time.Duration {
-	if c.wait > 0 {
-		return c.wait
-	}
-	return initialNASWait
-}
-
-// Budget covers the registration, its deregistration and the liveness
-// probe.
-func (c nasInitialMsgNoContainer) Budget() time.Duration {
-	return c.waitTimeout() + initialNASDeregisterWait + 5*time.Second
-}
+// Budget covers the registration and the liveness probe.
+func (c nasInitialMsgNoContainer) Budget() time.Duration { return c.budget(1) }
 
 func (c nasInitialMsgNoContainer) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "a second SECURITY MODE COMMAND with the RINMR bit set, after a SECURITY MODE COMPLETE without the NAS message container from a UE whose initial message had non-cleartext IEs in the clear (TS 24.501 5.4.2.2 describes that request for a message the AMF could not verify or decipher; the specification is silent on the missing container)"}
@@ -536,7 +554,7 @@ func (c nasInitialMsgNoContainer) Run(ctx context.Context, env Env) Result {
 	wait := c.waitTimeout()
 	unserved := stimulusSNSSAI(h.pdu)
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: unserved, plainComplete: true, omitContainer: true, stopAtSecondSMC: true}, wait)
-	left := deregisterAfter(h, o)
+	left := deregisterAfter(ctx, h, o, c.settleTime())
 	r.Verdict, r.Observed, r.Detail = judgeNoContainer(o, wait)
 	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s (not served) and 5GMM capability in the clear, then a SECURITY MODE COMPLETE without the NAS message container", describeSNSSAI(unserved)))
 	r.Detail = joinDetail(r.Detail, "state left: "+left)
@@ -600,8 +618,7 @@ const (
 // came before the SECURITY MODE COMMAND, and any other outcome are
 // INFO-DIFF.
 type nasInitialMsgNonCleartextAccepted struct {
-	// wait overrides initialNASWait (tests only).
-	wait time.Duration
+	initialNASWaits
 }
 
 func (nasInitialMsgNonCleartextAccepted) ID() string {
@@ -625,18 +642,8 @@ func (nasInitialMsgNonCleartextAccepted) SpecRefs() []SpecRef {
 			}}}
 }
 
-func (c nasInitialMsgNonCleartextAccepted) waitTimeout() time.Duration {
-	if c.wait > 0 {
-		return c.wait
-	}
-	return initialNASWait
-}
-
-// Budget covers the registration, its deregistration and the liveness
-// probe.
-func (c nasInitialMsgNonCleartextAccepted) Budget() time.Duration {
-	return c.waitTimeout() + initialNASDeregisterWait + 5*time.Second
-}
+// Budget covers the registration and the liveness probe.
+func (c nasInitialMsgNonCleartextAccepted) Budget() time.Duration { return c.budget(1) }
 
 func (c nasInitialMsgNonCleartextAccepted) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "the registration accepted on the REGISTRATION REQUEST in the NAS message container, from a UE whose initial message carried the same request with its non-cleartext IEs in the clear (TS 24.501 4.4.6 a) binds the UE; the specification is silent on what the AMF does with such a message)"}
@@ -654,7 +661,7 @@ func (c nasInitialMsgNonCleartextAccepted) Run(ctx context.Context, env Env) Res
 	wait := c.waitTimeout()
 	served := h.pdu.Slice()
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: served, plainComplete: true}, wait)
-	left := deregisterAfter(h, o)
+	left := deregisterAfter(ctx, h, o, c.settleTime())
 	r.Verdict, r.Observed, r.Detail = judgeNonCleartext(o, wait)
 	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s and 5GMM capability in the clear, and the same request in the SECURITY MODE COMPLETE's NAS message container", describeSNSSAI(served)))
 	r.Detail = joinDetail(r.Detail, "state left: "+left)

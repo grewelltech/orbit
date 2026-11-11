@@ -36,4 +36,4 @@ One registration without a PDU session. The initial REGISTRATION REQUEST is the 
 - **FAIL:** a fresh NG Setup after the check does not complete: the core did not survive. Observed is `AMF unresponsive after the message (<what was observed>)`, and it gates.
 - **ERROR:** an Authentication Reject, a Registration Reject that cannot be read, or the harness could not run the check.
 - **SKIP:** no UE configured, or a target release older than Rel-15.
-- **State left:** after an Accept the UE is deregistered (switch-off); otherwise the association is closed with the UE not registered. The detail says which.
+- **State left:** after an Accept the UE is deregistered (switch-off); otherwise the association is closed with the UE not registered. The detail says which. The check then pauses 1 s, in which the core finishes releasing the UE context before the next check registers the same UE.

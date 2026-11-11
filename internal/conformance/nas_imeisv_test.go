@@ -33,7 +33,9 @@ func TestJudgeIMEISV(t *testing.T) {
 		{name: "requested, rejected", o: initialNASOutcome{smcs: 1, imeisvRequested: true, reject: rejectPlain(5)},
 			want: InfoDiff, wantObserved: "IMEISV requested in the SECURITY MODE COMMAND; left out, REGISTRATION REJECT, 5GMM cause #5"},
 		{name: "requested, another identity asked for", o: initialNASOutcome{smcs: 1, imeisvRequested: true, identities: []uint8{3}, registered: true, accept: accept},
-			want: InfoDiff, wantObserved: "IMEISV requested in the SECURITY MODE COMMAND; left out, IDENTITY REQUEST for identity type 3"},
+			want: InfoDiff, wantObserved: "IMEISV requested in the SECURITY MODE COMMAND; left out, IDENTITY REQUEST for another identity (IMEI)"},
+		{name: "requested, an unnamed identity type asked for", o: initialNASOutcome{smcs: 1, imeisvRequested: true, identities: []uint8{6, 1}, registered: true, accept: accept},
+			want: InfoDiff, wantObserved: "IMEISV requested in the SECURITY MODE COMMAND; left out, IDENTITY REQUEST for another identity (type 6)"},
 		{name: "requested, second SMC", o: initialNASOutcome{smcs: 2, imeisvRequested: true}, want: InfoDiff, wantObserved: imeisvSecondSMC},
 		{name: "requested, released", o: initialNASOutcome{smcs: 1, imeisvRequested: true, released: true}, want: InfoDiff, wantObserved: imeisvReleased},
 		{name: "requested, no answer", o: initialNASOutcome{smcs: 1, imeisvRequested: true, noAnswer: true}, want: InfoDiff, wantObserved: imeisvUnanswered},
@@ -90,7 +92,7 @@ func TestIMEISVCheckAgainstMock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			reg := &Registry{}
-			reg.Register(nasSMCIMEISVRequest{wait: 500 * time.Millisecond})
+			reg.Register(nasSMCIMEISVRequest{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}})
 			results := reg.Run(ctx, env, 20*time.Second)
 			r := results[0]
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
@@ -139,7 +141,7 @@ func TestIMEISVCheckIsInformational(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
+	if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 21*time.Second {
 		t.Errorf("informational %v, class %s, min %s, up to %s", IsInformational(c), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
 	}
 	for _, r := range c.SpecRefs() {

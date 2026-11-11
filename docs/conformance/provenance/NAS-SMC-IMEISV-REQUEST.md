@@ -38,11 +38,11 @@ One conformant registration without a PDU session, except that the SECURITY MODE
   - `SECURITY MODE COMMAND does not request the IMEISV; the omission was not exercised`: the second half does not apply, and the registration goes on as any other;
   - `IMEISV requested in the SECURITY MODE COMMAND; left out, the registration is accepted without it`;
   - `...; left out, REGISTRATION REJECT, 5GMM cause #n`;
-  - `...; left out, IDENTITY REQUEST for identity type n` (another identity than the IMEISV);
+  - `...; left out, IDENTITY REQUEST for another identity (IMEI)`: an identification procedure for another identity than the IMEISV, named in Observed;
   - `...; left out, a second SECURITY MODE COMMAND`;
   - `...; left out, UE CONTEXT RELEASE COMMAND`;
   - `...; left out, no answer`, the absence inferred within 10 s.
 - **FAIL:** a fresh NG Setup after the check does not complete: the core did not survive. Observed is `AMF unresponsive after the message (<what was observed>)`, and it gates.
 - **ERROR:** an Authentication Reject, a Registration Reject that cannot be read, or a registration that ended before any SECURITY MODE COMMAND.
 - **SKIP:** no UE configured, or a target release older than Rel-15.
-- **State left:** after an Accept the UE is deregistered (switch-off); otherwise the association is closed with the UE not registered. The detail says which.
+- **State left:** after an Accept the UE is deregistered (switch-off); otherwise the association is closed with the UE not registered. The detail says which. The check then pauses 1 s, in which the core finishes releasing the UE context before the next check registers the same UE.

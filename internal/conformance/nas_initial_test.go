@@ -143,7 +143,7 @@ func TestInitialMsgContainerWinsAgainstMock(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			r := runOne(ctx, nasInitialMsgContainerWins{wait: 500 * time.Millisecond}, env, 20*time.Second)
+			r := runOne(ctx, nasInitialMsgContainerWins{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}}, env, 20*time.Second)
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
 				t.Fatalf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
 			}
@@ -189,14 +189,14 @@ func TestInitialMsgContainerWinsAgainstMock(t *testing.T) {
 	}
 }
 
-// The check is FAIL-class on two shalls, needs up to 50 s and declares its
+// The check is FAIL-class on two shalls, needs up to 53 s and declares its
 // UE.
 func TestInitialMsgContainerWinsClass(t *testing.T) {
 	c := nasInitialMsgContainerWins{}
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if VerdictClass(c) != Fail || IsInformational(c) || c.Budget() != 50*time.Second || NeedsOf(c).UEs != 1 {
+	if VerdictClass(c) != Fail || IsInformational(c) || c.Budget() != 53*time.Second || NeedsOf(c).UEs != 1 {
 		t.Errorf("class %s, informational %v, budget %s, UEs %d", VerdictClass(c), IsInformational(c), c.Budget(), NeedsOf(c).UEs)
 	}
 }
@@ -288,7 +288,7 @@ func TestInitialMsgNoContainerAgainstMock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			reg := &Registry{}
-			reg.Register(nasInitialMsgNoContainer{wait: 500 * time.Millisecond})
+			reg.Register(nasInitialMsgNoContainer{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}})
 			results := reg.Run(ctx, env, 20*time.Second)
 			r := results[0]
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
@@ -387,7 +387,7 @@ func TestInitialMsgNonCleartextAgainstMock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			reg := &Registry{}
-			reg.Register(nasInitialMsgNonCleartextAccepted{wait: 500 * time.Millisecond})
+			reg.Register(nasInitialMsgNonCleartextAccepted{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}})
 			results := reg.Run(ctx, env, 20*time.Second)
 			r := results[0]
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
@@ -431,7 +431,7 @@ func TestInitialMsgInformationalChecks(t *testing.T) {
 		if err := ValidateTest(c); err != nil {
 			t.Error(err)
 		}
-		if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
+		if !IsInformational(c) || VerdictClass(c) != Info || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 21*time.Second {
 			t.Errorf("%s: informational %v, class %s, min %s, up to %s", c.ID(), IsInformational(c), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
 		}
 		for _, r := range c.SpecRefs() {

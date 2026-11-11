@@ -46,4 +46,4 @@ Each answer is reduced to one line: "Registration Accept, allowed NSSAI ..., rej
 - **ERROR:** the stimulus did not reach a SECURITY MODE COMMAND for another reason than a Registration Reject (an Authentication Reject, no answer, a release), reference 2 was not accepted, or reference 3 got no readable answer.
 - **Crash:** a fresh NG Setup is tried afterwards; a core that no longer completes it is FAIL (`AMF unresponsive after the message (...)`).
 - **State left:** after each accepted registration the UE is deregistered (switch-off); after a reject or an unanswered registration the association is closed with the UE not registered. The detail says which, per registration. It never includes key material.
-- **Budget:** up to 50 s (three registrations of up to 10 s, each with up to 5 s for the deregistration).
+- **Budget:** up to 53 s: three registrations of up to 10 s, each with up to 5 s for the deregistration and a 1 s pause after it, in which the core finishes releasing the UE context before the UE registers again.
