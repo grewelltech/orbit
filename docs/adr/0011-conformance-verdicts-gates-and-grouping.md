@@ -1,8 +1,9 @@
 # ADR-0011: Conformance verdicts, gates and check grouping
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-11
 - Builds on: ADR-0002 (strict codecs, named core quirks), ADR-0005 (the server owns runs)
+- Amends: ADR-0010 (the conformance tally in `Run.summary` and the CLI table's category column)
 
 ## Context
 
