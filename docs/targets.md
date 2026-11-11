@@ -254,6 +254,15 @@ behaviours. It takes its core, keys and addresses from a target.
     error. Whatever the count, the SUPIs keep the first one's width and its
     PLMN prefix: `subscribers[main]: 001019999999999 + 4 UEs leaves PLMN
     001/01` is an error, on fleets too;
+  - a conformance run's UE checks, which each register their own subscribers
+    from the pool: the checks take consecutive SUPIs from `first_supi` in the
+    suite's order (a check that registers several UEs in turn takes one for
+    each), and the run leases them all. A UE one check leaves half-registered
+    or still being released is then never the next check's UE; a core can
+    leave a registration that meets such a context unanswered. A pool smaller
+    than the checks need is reused from its start, and an ERROR from a check
+    that shared a subscriber says so; a pool with no `count`, like `--local
+    --supi`, gives every check the one SUPI;
   - app cohorts and bulk traffic, which take the first responder.
 - **Echo destinations:** a fleet's `latency.target`, and a step's `ping.dst` and
   `latency.target`, take the first responder's `data_ip` when the file omits

@@ -3,6 +3,7 @@ package gnb
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/free5gc/aper"
@@ -154,5 +155,59 @@ func TestParseHandoverCommandItems(t *testing.T) {
 	other.InitiatingMessage = new(ngapType.InitiatingMessage)
 	if got := ParseHandoverCommandItems(&other); got.ListPresent || len(got.Items) != 0 {
 		t.Errorf("another PDU: %+v", got)
+	}
+}
+
+// preparationFailurePDU is a HANDOVER PREPARATION FAILURE carrying cause,
+// or no Cause IE when cause is nil.
+func preparationFailurePDU(cause *ngapType.Cause) *ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentUnsuccessfulOutcome
+	pdu.UnsuccessfulOutcome = new(ngapType.UnsuccessfulOutcome)
+	pdu.UnsuccessfulOutcome.ProcedureCode.Value = ngapType.ProcedureCodeHandoverPreparation
+	pdu.UnsuccessfulOutcome.Value.Present = ngapType.UnsuccessfulOutcomePresentHandoverPreparationFailure
+	pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure = new(ngapType.HandoverPreparationFailure)
+	if cause != nil {
+		ie := ngapType.HandoverPreparationFailureIEs{}
+		ie.Id.Value = ngapType.ProtocolIEIDCause
+		ie.Value.Present = ngapType.HandoverPreparationFailureIEsPresentCause
+		ie.Value.Cause = cause
+		list := &pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure.ProtocolIEs.List
+		*list = append(*list, ie)
+	}
+	return &pdu
+}
+
+// ParseHandoverCommand names a HANDOVER PREPARATION FAILURE and its cause,
+// and keeps its plain error for any other PDU.
+func TestParseHandoverCommandPreparationFailure(t *testing.T) {
+	var other ngapType.NGAPPDU
+	other.Present = ngapType.NGAPPDUPresentInitiatingMessage
+	other.InitiatingMessage = new(ngapType.InitiatingMessage)
+	for _, tc := range []struct {
+		name      string
+		pdu       *ngapType.NGAPPDU
+		wantCause string // "" when the error is not a preparation failure
+	}{
+		{name: "radio network cause", wantCause: "radio-network/32", pdu: preparationFailurePDU(&ngapType.Cause{
+			Present: ngapType.CausePresentRadioNetwork, RadioNetwork: &ngapType.CauseRadioNetwork{Value: 32}})},
+		{name: "misc cause", wantCause: "misc/5", pdu: preparationFailurePDU(&ngapType.Cause{
+			Present: ngapType.CausePresentMisc, Misc: &ngapType.CauseMisc{Value: 5}})},
+		{name: "no cause", wantCause: "unknown", pdu: preparationFailurePDU(nil)},
+		{name: "another PDU", pdu: &other},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseHandoverCommand(tc.pdu)
+			var refused *HandoverPreparationFailure
+			if got := errors.As(err, &refused); got != (tc.wantCause != "") {
+				t.Fatalf("err = %v; preparation failure %v, want %v", err, got, tc.wantCause != "")
+			}
+			if refused != nil && refused.Cause != tc.wantCause {
+				t.Errorf("cause %q, want %q", refused.Cause, tc.wantCause)
+			}
+			if err == nil {
+				t.Error("no error for a PDU that is not a HANDOVER COMMAND")
+			}
+		})
 	}
 }

@@ -165,10 +165,17 @@ func (c nasSMCNoNIA0) Run(ctx context.Context, env Env) Result {
 
 	// The NIA0-only UE runs last: a core that lets it register without NAS
 	// security is the one most likely to be left in a bad state.
+	// Each UE is its own subscriber where the check has three: every
+	// registration is abandoned, and the next must not meet what the core
+	// still holds of the one before.
 	subs := []subResult{judgeSMC(c.probeSMC(ctx, h, normalUE.caps()), normalUE)}
-	for _, u := range []smcStimulus{nia0nia3UE, nia0OnlyUE} {
+	for i, u := range []smcStimulus{nia0nia3UE, nia0OnlyUE} {
 		if subs[0].v == Error {
 			subs = append(subs, subResult{name: u.String(), v: Skip, observed: "not run", detail: "not run: the normal UE's result was not a verdict"})
+			continue
+		}
+		if err := h.UseSubscriber(i + 1); err != nil {
+			subs = append(subs, subResult{name: u.String(), v: Error, observed: "harness setup failed", detail: err.Error()})
 			continue
 		}
 		subs = append(subs, judgeSMC(c.probeSMC(ctx, h, u.caps()), u))

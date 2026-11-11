@@ -188,6 +188,10 @@ type Env struct {
 	// each check starts and again at a liveness miss, so a population that
 	// ends partway through the suite stops counting from the next check.
 	Load func() string
+	// sharedWith is the earlier check of this run that registered the
+	// subscriber this check registers, "" when the check has its own
+	// (RunWithStart sets it; see sharedSubscriberNote).
+	sharedWith string
 }
 
 // loadedBy is the population loading the core now, "" for none.
@@ -558,6 +562,8 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 	// The selected set, so `total` and `index` count only what will run rather
 	// than every registered test.
 	selected := r.Select(cats...)
+	// registeredBy is the last check to register each subscriber.
+	registeredBy := map[string]string{}
 	for i, t := range selected {
 		if err := ctx.Err(); err != nil {
 			return // client went away; stop rather than keep dialling the core
@@ -571,6 +577,12 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 		// category filter.
 		e := env
 		e.GNB.ID, e.TargetGNBID, e.LivenessGNBID = r.gnbIDsOf(env.GNB.ID, r.indexOf(t), env.PackedGNBIDs)
+		// And its own subscribers, when the suite has a pool of them.
+		e.UE = env.UE.forCheck(r.subscriberBlock(r.indexOf(t)))
+		if e.UE.Configured() && subscribersOf(t) > 0 {
+			e.sharedWith = registeredBy[e.UE.SUPI]
+			registeredBy[e.UE.SUPI] = t.ID()
+		}
 		emit(runOne(ctx, t, e, perTest), i, len(selected))
 	}
 }
@@ -617,6 +629,9 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		}
 		if e.TargetRelease > LatestRelease {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("wording verified through %s", LatestRelease))
+		}
+		if res.Verdict == Error && e.sharedWith != "" {
+			res.Detail = joinDetail(res.Detail, sharedSubscriberNote(e))
 		}
 	}
 	res.ID, res.Category = t.ID(), t.Category()
@@ -719,10 +734,13 @@ func refsSince(t Test, min Release) string {
 	return strings.Join(out, "; ")
 }
 
-// joinDetail appends one sentence to a detail.
+// joinDetail appends one sentence to a detail; an empty one adds nothing.
 func joinDetail(detail, more string) string {
 	if detail == "" {
 		return more
+	}
+	if more == "" {
+		return detail
 	}
 	return detail + "; " + more
 }

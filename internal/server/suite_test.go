@@ -192,8 +192,13 @@ func TestSuiteLeases(t *testing.T) {
 				t.Fatalf("SUPIs = %v, want %d", pr.needs.SUPIs, want)
 			}
 			if tc.wantSUPI {
-				if b := pr.needs.SUPIs[0]; b.First != 208930100007500 || b.Last != b.First || b.PLMN != "208/93" {
-					t.Errorf("SUPI block = %+v, want the pool's first SUPI alone", b)
+				// The checks take more subscribers between them than the
+				// pool's ten, so the lease is the whole pool.
+				if b := pr.needs.SUPIs[0]; b.First != 208930100007500 || b.Last != b.First+9 || b.PLMN != "208/93" {
+					t.Errorf("SUPI block = %+v, want the pool's ten SUPIs", b)
+				}
+				if got := pr.suiteLive.spec.env.UE.Subscribers; got != 10 {
+					t.Errorf("UE subscribers = %d, want the pool's 10", got)
 				}
 			}
 			if pr.suiteLive.spec.env.UE.Configured() == tc.noUE {
@@ -662,6 +667,30 @@ func TestSuiteResponderIsTheDownlinkTrigger(t *testing.T) {
 			}
 			if got := pr.suiteLive.spec.env.Downlink; got != tc.want {
 				t.Errorf("Downlink = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The suite is spread over as many subscribers as its checks take, within
+// the pool; a pool with no count gives only what one check holds at once.
+func TestSuiteSubscribers(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		count     uint32
+		span, ues int
+		want      int
+	}{
+		{name: "pool larger than the span", count: 50, span: 24, ues: 1, want: 24},
+		{name: "pool smaller than the span", count: 10, span: 24, ues: 1, want: 10},
+		{name: "pool of one", count: 1, span: 24, ues: 1, want: 1},
+		{name: "no count", count: 0, span: 24, ues: 1, want: 1},
+		{name: "never fewer than one check holds", count: 50, span: 1, ues: 2, want: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := suitePlan(func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers[0].Count = tc.count })
+			if got := suiteSubscribers(p.GetTarget(), p.GetWorkloads()[0].GetConformance(), tc.span, tc.ues); got != tc.want {
+				t.Errorf("suiteSubscribers = %d, want %d", got, tc.want)
 			}
 		})
 	}

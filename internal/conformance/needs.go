@@ -9,6 +9,10 @@ import "slices"
 type CheckNeeds struct {
 	// UEs is the most subscribers the check registers at the same time.
 	UEs int
+	// Subscribers is how many subscribers it registers over its run, when
+	// that is more than UEs: a check that registers several UEs one after
+	// another gives each its own (UEHarness.UseSubscriber). Zero means UEs.
+	Subscribers int
 	// GNBRoles are the gNBs it presents: its own, a handover target, the
 	// liveness probe.
 	GNBRoles []GNBRole
@@ -147,12 +151,17 @@ func (endMarkerOnPathSwitch) Needs() CheckNeeds {
 }
 func (pagingOnDLData) Needs() CheckNeeds               { return ueNeeds }
 func (serviceRequestReactivates) Needs() CheckNeeds    { return ueNeeds }
-func (nasSMCNoNIA0) Needs() CheckNeeds                 { return ueNeeds }
 func (nasPDUUnknownDNN) Needs() CheckNeeds             { return ueNeeds }
 func (nasRegRejectedNSSAI) Needs() CheckNeeds          { return ueNeeds }
 func (nasDeregAcceptNotSwitchOff) Needs() CheckNeeds   { return ueNeeds }
 func (ngapCtxReleaseAfterSwitchOff) Needs() CheckNeeds { return ueNeeds }
 func (nasPDUReleaseUERequested) Needs() CheckNeeds     { return ueNeeds }
+
+// Needs is one UE at a time and a subscriber for each of the check's three
+// registrations.
+func (nasSMCNoNIA0) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, Subscribers: 3, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+}
 
 // Needs is one UE: the check registers it after the update.
 func (ranConfigUpdateKeepsTA) Needs() CheckNeeds { return ueNeeds }

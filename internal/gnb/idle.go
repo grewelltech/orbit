@@ -144,20 +144,29 @@ func ReleaseCommandCause(pdu *ngapType.NGAPPDU) (cause string, ok bool) {
 		if ie.Id.Value != ngapType.ProtocolIEIDCause || ie.Value.Cause == nil {
 			continue
 		}
-		switch c := ie.Value.Cause; c.Present {
-		case ngapType.CausePresentRadioNetwork:
-			return fmt.Sprintf("radio-network/%d", c.RadioNetwork.Value), true
-		case ngapType.CausePresentTransport:
-			return fmt.Sprintf("transport/%d", c.Transport.Value), true
-		case ngapType.CausePresentNas:
-			return fmt.Sprintf("nas/%d", c.Nas.Value), true
-		case ngapType.CausePresentProtocol:
-			return fmt.Sprintf("protocol/%d", c.Protocol.Value), true
-		case ngapType.CausePresentMisc:
-			return fmt.Sprintf("misc/%d", c.Misc.Value), true
+		if name := causeName(ie.Value.Cause); name != "" {
+			return name, true
 		}
 	}
 	return "unknown", true
+}
+
+// causeName names an NGAP Cause as "group/value" ("radio-network/3"), ""
+// for a group it does not know.
+func causeName(c *ngapType.Cause) string {
+	switch c.Present {
+	case ngapType.CausePresentRadioNetwork:
+		return fmt.Sprintf("radio-network/%d", c.RadioNetwork.Value)
+	case ngapType.CausePresentTransport:
+		return fmt.Sprintf("transport/%d", c.Transport.Value)
+	case ngapType.CausePresentNas:
+		return fmt.Sprintf("nas/%d", c.Nas.Value)
+	case ngapType.CausePresentProtocol:
+		return fmt.Sprintf("protocol/%d", c.Protocol.Value)
+	case ngapType.CausePresentMisc:
+		return fmt.Sprintf("misc/%d", c.Misc.Value)
+	}
+	return ""
 }
 
 // ParseInitialContextSetupSessions extracts the PDU sessions an INITIAL

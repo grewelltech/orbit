@@ -83,13 +83,30 @@ func (s *Session) sendInitial(nasPDU []byte, opts ...gnb.InitialUEOption) error 
 // RELEASE COMPLETE. A command whose ID pair carries the UE's RAN-UE-NGAP-ID
 // is answered with that pair (the AMF may have assigned a new
 // AMF-UE-NGAP-ID); one that names no pair, or another RAN-UE-NGAP-ID, is
-// answered with the session's own IDs.
-func (s *Session) completeRelease(cmd *ngapType.NGAPPDU) error {
+// answered with the session's own IDs. sessions are the PDU sessions the
+// Complete lists as having had an active N3 user plane (an AN release).
+func (s *Session) completeRelease(cmd *ngapType.NGAPPDU, sessions ...int64) error {
 	amfID, ranID := s.amfID, s.ranID
 	if a, r, ok := releaseCommandIDs(cmd); ok && r == s.ranID {
 		amfID = a
 	}
-	return gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(amfID, ranID))
+	return gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(amfID, ranID, sessions...))
+}
+
+// activeSessionIDs is the UE's PDU sessions whose N3 user plane is up: what
+// an AN release names in its PDU Session Resource Lists, so that the AMF has
+// the SMF deactivate them (TS 23.502 4.2.6 steps 1, 4 and 5). A core that
+// follows those steps to the letter leaves an unlisted session's downlink
+// pointed at the released gNB tunnel, and then never pages for it.
+func (s *Session) activeSessionIDs() []int64 {
+	if s.Result == nil || s.userPlaneDown() {
+		return nil
+	}
+	ids := make([]int64, 0, len(s.Result.Sessions))
+	for _, sr := range s.Result.Sessions {
+		ids = append(ids, int64(sr.PDUSessionID))
+	}
+	return ids
 }
 
 // releaseCommandIDs is the NGAP ID pair of a UE CONTEXT RELEASE COMMAND.
@@ -155,7 +172,8 @@ func (m *Manager) Idle(ctx context.Context, supi string) (*IdleResult, error) {
 	}
 	sess.dropHeld()
 	res := &IdleResult{Requested: time.Now(), STMSI: stmsi}
-	if err := gnb.SendPDU(sess.conn, ueStream, gnb.BuildUEContextReleaseRequest(sess.amfID, sess.ranID)); err != nil {
+	active := sess.activeSessionIDs()
+	if err := gnb.SendPDU(sess.conn, ueStream, gnb.BuildUEContextReleaseRequest(sess.amfID, sess.ranID, active...)); err != nil {
 		return nil, fmt.Errorf("send UE Context Release Request: %w", err)
 	}
 	for {
@@ -168,7 +186,7 @@ func (m *Manager) Idle(ctx context.Context, supi string) (*IdleResult, error) {
 		}
 		res.Released = time.Now()
 		res.Cause, _ = gnb.ReleaseCommandCause(pdu)
-		if err := sess.completeRelease(pdu); err != nil {
+		if err := sess.completeRelease(pdu, active...); err != nil {
 			return nil, fmt.Errorf("send UE Context Release Complete: %w", err)
 		}
 		break

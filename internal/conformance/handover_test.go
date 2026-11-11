@@ -385,6 +385,9 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 			wantDetail:   []string{"no HANDOVER COMMAND within 1s of starting the handover", "await HandoverRequest"}},
 		{name: "handover required unanswered", net24: testnet.ConformanceHOCmdUnanswered, answer: mockamf.IgnoreHandoverRequired, want: Error,
 			wantObserved: "handover did not reach Handover Command"},
+		{name: "preparation failure after the acknowledge", net24: testnet.ConformanceHOCmdFailAcked, answer: mockamf.FailHandoverAfterAcknowledge, want: Error,
+			wantObserved: "HANDOVER PREPARATION FAILURE instead of HANDOVER COMMAND",
+			wantDetail:   []string{"HANDOVER PREPARATION FAILURE, cause radio-network/", "no HANDOVER COMMAND to judge"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

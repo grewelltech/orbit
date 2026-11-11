@@ -88,6 +88,8 @@ func TestN2HandoverPreparationFails(t *testing.T) {
 			wantErr: "await HandoverRequest"},
 		{name: "no answer", net24: testnet.EngineN2Unanswered, answer: mockamf.IgnoreHandoverRequired, wait: time.Second,
 			wantErr: "await HandoverRequest"},
+		{name: "failure after the acknowledge", net24: testnet.EngineN2FailAfterAck, answer: mockamf.FailHandoverAfterAcknowledge, wait: 10 * time.Second,
+			wantErr: "after the target's HandoverRequestAcknowledge: HANDOVER PREPARATION FAILURE, cause radio-network/"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

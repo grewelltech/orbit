@@ -7,8 +7,11 @@ import (
 
 // BuildUEContextReleaseRequest asks the AMF to release a UE's context
 // (TS 38.413 §8.3.2, §9.2.2.4), cause radio network "release due to NG-RAN
-// generated reason".
-func BuildUEContextReleaseRequest(amfUENGAPID, ranUENGAPID int64) ngapType.NGAPPDU {
+// generated reason". sessions are the PDU sessions with an active N3 user
+// plane, sent as the PDU Session Resource List: the AMF deactivates the
+// user plane of the sessions the gNB lists (TS 23.502 4.2.6 steps 1 and 5).
+// With none the IE is left out.
+func BuildUEContextReleaseRequest(amfUENGAPID, ranUENGAPID int64, sessions ...int64) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
 	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
@@ -34,6 +37,19 @@ func BuildUEContextReleaseRequest(amfUENGAPID, ranUENGAPID int64) ngapType.NGAPP
 		ie.Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranUENGAPID}
 		*list = append(*list, ie)
 	}
+	if len(sessions) > 0 {
+		ie := ngapType.UEContextReleaseRequestIEs{}
+		ie.Id.Value = ngapType.ProtocolIEIDPDUSessionResourceListCxtRelReq
+		ie.Criticality.Value = ngapType.CriticalityPresentReject
+		ie.Value.Present = ngapType.UEContextReleaseRequestIEsPresentPDUSessionResourceListCxtRelReq
+		ie.Value.PDUSessionResourceListCxtRelReq = new(ngapType.PDUSessionResourceListCxtRelReq)
+		for _, id := range sessions {
+			item := ngapType.PDUSessionResourceItemCxtRelReq{}
+			item.PDUSessionID.Value = id
+			ie.Value.PDUSessionResourceListCxtRelReq.List = append(ie.Value.PDUSessionResourceListCxtRelReq.List, item)
+		}
+		*list = append(*list, ie)
+	}
 	{
 		ie := ngapType.UEContextReleaseRequestIEs{}
 		ie.Id.Value = ngapType.ProtocolIEIDCause
@@ -49,8 +65,10 @@ func BuildUEContextReleaseRequest(amfUENGAPID, ranUENGAPID int64) ngapType.NGAPP
 }
 
 // BuildUEContextReleaseComplete answers a UE CONTEXT RELEASE COMMAND
-// (TS 38.413 §8.3.3, §9.2.2.6).
-func BuildUEContextReleaseComplete(amfUENGAPID, ranUENGAPID int64) ngapType.NGAPPDU {
+// (TS 38.413 §8.3.3, §9.2.2.6). sessions are the PDU sessions that had an
+// active N3 user plane, sent as the PDU Session Resource List (TS 23.502
+// 4.2.6 step 4); with none the IE is left out.
+func BuildUEContextReleaseComplete(amfUENGAPID, ranUENGAPID int64, sessions ...int64) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentSuccessfulOutcome
 	pdu.SuccessfulOutcome = new(ngapType.SuccessfulOutcome)
@@ -74,6 +92,19 @@ func BuildUEContextReleaseComplete(amfUENGAPID, ranUENGAPID int64) ngapType.NGAP
 		ie.Criticality.Value = ngapType.CriticalityPresentIgnore
 		ie.Value.Present = ngapType.UEContextReleaseCompleteIEsPresentRANUENGAPID
 		ie.Value.RANUENGAPID = &ngapType.RANUENGAPID{Value: ranUENGAPID}
+		*list = append(*list, ie)
+	}
+	if len(sessions) > 0 {
+		ie := ngapType.UEContextReleaseCompleteIEs{}
+		ie.Id.Value = ngapType.ProtocolIEIDPDUSessionResourceListCxtRelCpl
+		ie.Criticality.Value = ngapType.CriticalityPresentReject
+		ie.Value.Present = ngapType.UEContextReleaseCompleteIEsPresentPDUSessionResourceListCxtRelCpl
+		ie.Value.PDUSessionResourceListCxtRelCpl = new(ngapType.PDUSessionResourceListCxtRelCpl)
+		for _, id := range sessions {
+			item := ngapType.PDUSessionResourceItemCxtRelCpl{}
+			item.PDUSessionID.Value = id
+			ie.Value.PDUSessionResourceListCxtRelCpl.List = append(ie.Value.PDUSessionResourceListCxtRelCpl.List, item)
+		}
 		*list = append(*list, ie)
 	}
 	return pdu

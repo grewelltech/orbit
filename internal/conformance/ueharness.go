@@ -29,6 +29,12 @@ type UESpec struct {
 	SUPI string
 	Ki   string
 	OPc  string
+	// Subscribers is how many consecutive SUPIs, SUPI first, share Ki and
+	// OPc and may be registered. On the suite's Env it is the pool the
+	// checks are spread over, each taking its own block (see
+	// Registry.subscriberBlock); on a check's Env it is that check's block.
+	// Zero or one is the single SUPI, which every check then registers.
+	Subscribers int
 	// DNN is the PDU session's data network; "" lets the core choose.
 	DNN string
 	// SST and SD are the PDU session's slice; zero SST takes the first

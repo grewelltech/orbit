@@ -113,6 +113,7 @@ const (
 	EngineN2NoList        = 206 // TestN2HandoverOverMockPair/command_without_the_list
 	EngineN2PrepFailure   = 207 // TestN2HandoverPreparationFails/preparation_failure
 	EngineN2Unanswered    = 208 // TestN2HandoverPreparationFails/no_answer
+	EngineN2FailAfterAck  = 209 // TestN2HandoverPreparationFails/failure_after_the_acknowledge
 	EngineReleaseOnReq    = 227 // TestRequestContextReleaseOverMockPair/released
 	EngineReleaseIgnored  = 228 // TestRequestContextReleaseOverMockPair/request_ignored
 
@@ -134,6 +135,7 @@ const (
 	ConformanceHOCmdPrepFail   = 214 // TestHandoverCommandCheckAgainstMockPair/preparation_failure
 	ConformanceHOCmdUnanswered = 215 // TestHandoverCommandCheckAgainstMockPair/handover_required_unanswered
 	ConformanceHOCmdRegFail    = 216 // TestHandoverCommandCheckRegistrationFailure
+	ConformanceHOCmdFailAcked  = 217 // TestHandoverCommandCheckAgainstMockPair/preparation_failure_after_the_acknowledge
 
 	ConformanceRelOnReq   = 230 // TestUECtxReleaseCheckAgainstMock/command
 	ConformanceRelIgnored = 231 // TestUECtxReleaseCheckAgainstMock/command_withheld

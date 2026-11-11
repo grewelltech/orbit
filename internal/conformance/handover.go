@@ -326,6 +326,12 @@ func (c ngapHandoverCommandTransfer) Run(ctx context.Context, env Env) Result {
 	hctx, cancel := context.WithTimeout(ctx, c.waitHandover())
 	cmd, err := h.N2Handover(hctx)
 	cancel()
+	var refused *gnb.HandoverPreparationFailure
+	if cmd == nil && errors.As(err, &refused) {
+		r.Verdict, r.Observed = Error, "HANDOVER PREPARATION FAILURE instead of HANDOVER COMMAND"
+		r.Detail = fmt.Sprintf("the AMF answered the HANDOVER REQUIRED with HANDOVER PREPARATION FAILURE, cause %s, after the target gNB acknowledged its HANDOVER REQUEST; there is no HANDOVER COMMAND to judge. TS 38.413 8.4.1.3 lets the AMF refuse a handover; its log says why", refused.Cause)
+		return r
+	}
 	if cmd == nil {
 		r.Verdict, r.Observed = Error, "handover did not reach Handover Command"
 		r.Detail = fmt.Sprintf("no HANDOVER COMMAND within %s of starting the handover: %v", c.waitHandover(), err)

@@ -287,6 +287,10 @@ func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target G
 		return nil, fmt.Errorf("await HandoverCommand: %w", err)
 	}
 	if _, err := gnb.ParseHandoverCommand(cmdPDU); err != nil {
+		var refused *gnb.HandoverPreparationFailure
+		if errors.As(err, &refused) {
+			return nil, fmt.Errorf("after the target's HandoverRequestAcknowledge: %w", err)
+		}
 		return nil, fmt.Errorf("HandoverCommand: %w", err)
 	}
 	return &preparedHandover{tgtConn: tgtConn, tgt: tgt, hr: hr, admitted: admitted, dlTEIDs: dlTEIDs,

@@ -209,9 +209,41 @@ func encodeTargetToSourceContainer() (aper.OctetString, error) {
 	return aper.MarshalWithParams(c, "valueExt")
 }
 
+// HandoverPreparationFailure is the AMF's HANDOVER PREPARATION FAILURE (TS
+// 38.413 8.4.1.3, 9.2.3.3) where a HANDOVER COMMAND was awaited. Cause is
+// its Cause IE as "group/value", "unknown" when it carries none that reads.
+type HandoverPreparationFailure struct{ Cause string }
+
+func (e *HandoverPreparationFailure) Error() string {
+	return "HANDOVER PREPARATION FAILURE, cause " + e.Cause
+}
+
+// preparationFailure reads pdu as a HANDOVER PREPARATION FAILURE, nil when
+// it is another message.
+func preparationFailure(pdu *ngapType.NGAPPDU) *HandoverPreparationFailure {
+	if pdu.Present != ngapType.NGAPPDUPresentUnsuccessfulOutcome || pdu.UnsuccessfulOutcome == nil ||
+		pdu.UnsuccessfulOutcome.Value.Present != ngapType.UnsuccessfulOutcomePresentHandoverPreparationFailure ||
+		pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure == nil {
+		return nil
+	}
+	f := &HandoverPreparationFailure{Cause: "unknown"}
+	for _, ie := range pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure.ProtocolIEs.List {
+		if ie.Id.Value == ngapType.ProtocolIEIDCause && ie.Value.Cause != nil {
+			if name := causeName(ie.Value.Cause); name != "" {
+				f.Cause = name
+			}
+		}
+	}
+	return f
+}
+
 // ParseHandoverCommand confirms the AMF authorised the handover (source side,
-// TS 38.413 §9.2.3.2), returning the AMF UE NGAP ID.
+// TS 38.413 §9.2.3.2), returning the AMF UE NGAP ID. A HANDOVER PREPARATION
+// FAILURE in its place is a *HandoverPreparationFailure error.
 func ParseHandoverCommand(pdu *ngapType.NGAPPDU) (int64, error) {
+	if f := preparationFailure(pdu); f != nil {
+		return 0, f
+	}
 	if pdu.Present != ngapType.NGAPPDUPresentSuccessfulOutcome ||
 		pdu.SuccessfulOutcome.Value.Present != ngapType.SuccessfulOutcomePresentHandoverCommand {
 		return 0, fmt.Errorf("not a HandoverCommand")
