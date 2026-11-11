@@ -148,6 +148,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 - `NGAP-NGSETUP-MISSING-TALIST` (negative-ie, PASS) — NG Setup with the mandatory
   Supported TA List (id-102) removed → the AMF **rejects with NG SETUP FAILURE**
   (spec-ideal). Confirms the core does not accept a setup missing a mandatory IE.
+  NG SETUP FAILURE is PASS; acceptance, another PDU, no answer within 4 s or a
+  reset is FAIL (TS 38.413 10.3.5); a core that then stops completing NG Setup
+  is CRASH.
 - `NGAP-NGSETUP-UNKNOWN-PLMN` (negative-ie, FAIL-class) — NG Setup naming only
   a PLMN the AMF does not serve (999/99, with a TAC distinct from the served
   one) → the AMF **shall** reject it (TS 38.413 8.7.1.4); NG SETUP FAILURE is

@@ -210,7 +210,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 ### NGAP-NGSETUP-MISSING-TALIST
 
 - TS 38.413 9.2.6.1 Supported TA List (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
-- TS 38.413 10.3.5 Reject IE bullet 1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 10.3.5 Reject IE bullet 1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 
 ### NGAP-NGSETUP-UNKNOWN-PLMN
 
@@ -560,6 +560,18 @@ Owns: NG Setup. Needs no procedure first.
 | `unanswered` | DEVIATION | TS 38.413 8.7.1.3 (should); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome); reports NG Setup as not completed | sent neither NG SETUP RESPONSE nor NG SETUP FAILURE |
 | `other-pdu` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | answered the NG SETUP REQUEST with a PDU that is neither NG SETUP RESPONSE nor NG SETUP FAILURE |
 | `association-lost` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | dropped the association instead of answering the NG SETUP REQUEST |
+
+### NGAP-NGSETUP-MISSING-TALIST outcomes
+
+Needs no procedure first.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `setup-failure` | PASS | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | rejected the NG SETUP REQUEST missing the Supported TA List with NG SETUP FAILURE |
+| `accepted` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | accepted the NG SETUP REQUEST missing the Supported TA List |
+| `other-pdu` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | answered with another PDU instead of NG SETUP FAILURE; the association survived |
+| `silent-drop` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent no NG SETUP FAILURE; the association survived |
+| `association-reset` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | reset the association instead of sending NG SETUP FAILURE |
 
 ### NGAP-PATH-SWITCH-SECCAP-MISMATCH outcomes
 

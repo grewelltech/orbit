@@ -118,37 +118,42 @@ func TestClassifyNGReset(t *testing.T) {
 
 // NGAP-NGSETUP-MISSING-TALIST asserts the NG SETUP FAILURE 10.3.5 requires:
 // PASS for it (Criticality Diagnostics recorded either way). Everything else
-// misses the shall and is FAIL, with Observed keeping a silent drop, another
-// PDU, acceptance and a reset apart; the silent-drop detail names
+// misses the shall and is FAIL, with its own outcome for a silent drop,
+// another PDU, acceptance and a reset; the silent-drop detail names
 // ngSetupWait.
 func TestClassifyMissingTAList(t *testing.T) {
 	tests := []struct {
 		name         string
 		resp         *ngapType.NGAPPDU
 		err          error
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   string
 		wantSurvived bool
 	}{
-		{name: "setup failure with criticality diagnostics", resp: pduNGSetupFailure(true), want: Pass, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics present", wantSurvived: true},
-		{name: "setup failure without criticality diagnostics", resp: pduNGSetupFailure(false), want: Pass, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics absent", wantSurvived: true},
-		{name: "accepted", resp: pduNGSetupResponse(), want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)", wantDetail: "accepted an NG Setup", wantSurvived: true},
-		{name: "error indication", resp: pduErrorIndication(), want: Fail, wantObserved: "InitiatingMessage(procedure 9)",
+		{name: "setup failure with criticality diagnostics", resp: pduNGSetupFailure(true), want: missingTAListRejected, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics present", wantSurvived: true},
+		{name: "setup failure without criticality diagnostics", resp: pduNGSetupFailure(false), want: missingTAListRejected, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics absent", wantSurvived: true},
+		{name: "accepted", resp: pduNGSetupResponse(), want: missingTAListAccepted, wantObserved: "NG SETUP RESPONSE (accepted!)", wantDetail: "accepted an NG Setup", wantSurvived: true},
+		{name: "error indication", resp: pduErrorIndication(), want: missingTAListOtherPDU, wantObserved: "InitiatingMessage(procedure 9)",
 			wantDetail: "1.234s after the NG SETUP REQUEST instead of NG SETUP FAILURE", wantSurvived: true},
-		{name: "another PDU", resp: pduDownlinkNAS(), want: Fail, wantObserved: "InitiatingMessage(procedure 4)", wantDetail: "instead of NG SETUP FAILURE", wantSurvived: true},
-		{name: "silent drop", err: context.DeadlineExceeded, want: Fail, wantObserved: "silently dropped; association survived",
+		{name: "another PDU", resp: pduDownlinkNAS(), want: missingTAListOtherPDU, wantObserved: "InitiatingMessage(procedure 4)", wantDetail: "instead of NG SETUP FAILURE", wantSurvived: true},
+		{name: "silent drop", err: context.DeadlineExceeded, want: missingTAListSilent, wantObserved: "silently dropped; association survived",
 			wantDetail: "no NG SETUP FAILURE within " + ngSetupWait.String() + " of the NG SETUP REQUEST (absence inferred within this bound)", wantSurvived: true},
-		{name: "association reset", err: errReset, want: Fail, wantObserved: "association reset", wantDetail: "connection reset"},
+		{name: "association reset", err: errReset, want: missingTAListReset, wantObserved: "association reset", wantDetail: "connection reset"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail, survived := classifyMissingTAList(tc.resp, tc.err, 1234*time.Millisecond)
-			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
-				t.Errorf("= %s %q %q survived=%v, want %s %q with detail containing %q, survived=%v",
-					v, observed, detail, survived, tc.want, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
+			o, observed, detail, survived := classifyMissingTAList(tc.resp, tc.err, 1234*time.Millisecond)
+			if covers(o).ID != tc.want.ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
+				t.Errorf("= %s (%s) %q %q survived=%v, want %s (%s) %q with detail containing %q, survived=%v",
+					o.ID, o.Verdict, observed, detail, survived, tc.want.ID, tc.want.Verdict, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
 			}
 		})
+	}
+	for _, o := range []Outcome{missingTAListAccepted, missingTAListOtherPDU, missingTAListSilent, missingTAListReset} {
+		if o.Verdict != Fail || len(o.Refs) != 1 || o.Refs[0] != missingTAListRef {
+			t.Errorf("%s: %s citing %v, want FAIL citing the shall of 10.3.5", o.ID, o.Verdict, o.Refs)
+		}
 	}
 }
 
