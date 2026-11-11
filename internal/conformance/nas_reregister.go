@@ -36,12 +36,36 @@ const (
 	regAfterReleaseLinger = deregReleaseWait
 )
 
+const (
+	// regAfterReleaseSweepStep and regAfterReleaseSweepBound define the
+	// sweep of pauses between the UE CONTEXT RELEASE COMPLETE and the new
+	// REGISTRATION REQUEST (regAfterReleaseGaps).
+	regAfterReleaseSweepStep  = 10 * time.Millisecond
+	regAfterReleaseSweepBound = 50 * time.Millisecond
+)
+
 // regAfterReleaseGaps are the pauses between the UE CONTEXT RELEASE
-// COMPLETE and the new REGISTRATION REQUEST, one attempt each: none, then
-// three that step through the first tens of milliseconds after the
-// release, since a core can answer a request that arrives with the complete
-// and still miss one that arrives while it clears the UE context.
-var regAfterReleaseGaps = []time.Duration{0, 5 * time.Millisecond, 10 * time.Millisecond, 20 * time.Millisecond}
+// COMPLETE and the new REGISTRATION REQUEST, one attempt each: an evenly
+// spaced sweep from none to regAfterReleaseSweepBound in steps of
+// regAfterReleaseSweepStep. The requirement (TS 24.501 5.5.1.2.4 and
+// 5.5.1.2.5) holds whenever the request arrives after the release
+// completes, so the check samples arrival times at a fixed step rather than
+// at chosen points. The sweep covers the interval right after the complete,
+// while the release the core has just finished may still be in progress on
+// its side; a later request is an ordinary registration of a released UE,
+// which the check's own registrations between attempts already make. The
+// specification sets no time on the requirement: step and bound are the
+// check's.
+var regAfterReleaseGaps = sweep(regAfterReleaseSweepStep, regAfterReleaseSweepBound)
+
+// sweep returns 0, step, 2*step, ... up to and including bound.
+func sweep(step, bound time.Duration) []time.Duration {
+	var out []time.Duration
+	for d := time.Duration(0); d <= bound; d += step {
+		out = append(out, d)
+	}
+	return out
+}
 
 // The outcomes of NAS-REGISTRATION-AFTER-RELEASE.
 var (

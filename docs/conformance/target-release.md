@@ -7,21 +7,20 @@ only decides what is SKIPped, never what passes.
 ## Default: Rel-18, with TS 29.244 at Rel-16
 
 With no `--target-release` (CLI), or `target_release` 0 (API and dashboard), a
-run targets **Rel-18**, with **TS 29.244 (PFCP) pinned to Rel-16**. These are
-the releases SD-Core is built against:
-
-| Interface | SD-Core release | Evidence |
-|---|---|---|
-| NGAP | Rel-18 | ngap v2.1.7, built from 38413-i10 (V18.1.0). AMF uses Rel-18-only IEs (`context/amf_ran.go:94`, `gmm/handler.go:763`). |
-| NAS | Rel-18 | nas v2.2.5, TS 24.501 Rel-18 |
-| PFCP (N4) | Rel-16 | go-pfcp v0.0.24, TS 29.244 V16.7.0. The UPF advertises only Rel-15/16 UP features (`messages_conn.go:111-121`, `utils.go:36-45`). |
-| Charts | Rel-18 | sdcore-helm-charts commit 4e3c974, "Upgrade images to use 3GPP release 18" |
+run targets **Rel-18**, with **TS 29.244 (PFCP) pinned to Rel-16**. The
+default is a release, not a statement about any core: give
+`--target-release` the release the core under test claims, which its
+documentation or its codecs' specification versions say.
 
 Caveats:
 
-- The GTP-U release cannot be determined from the UPF source, so GTP-U (TS 29.281) gets no pin.
-- A Rel-18 codec does not mean Rel-18 behaviour. The target only decides what is SKIPped, never what passes.
-- The SBI Rel-18 mapping is inferred.
+- TS 29.281 (GTP-U) has no pin.
+- A core built on a release's codecs need not behave as that release says. The target only decides what is SKIPped, never what passes.
+
+The target release also names the groups: a check's group is read in the
+clause titles of the run's target release, or of the latest release its
+primary reference was read in when the target has no such clause or is
+unset (ADR-0011 rule 9; [checks.md](checks.md)).
 
 No check registered today SKIPs at the defaults; a test enforces that, so a
 check that does has to be listed on purpose.

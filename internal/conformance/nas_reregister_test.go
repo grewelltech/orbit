@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,7 +210,7 @@ func TestRegistrationAfterReleaseAgainstMock(t *testing.T) {
 }
 
 // The check is FAIL-class on two shalls, runs in the main phase with one
-// subscriber, and its budget covers four attempts.
+// subscriber, and its budget covers the six attempts of its sweep.
 func TestRegistrationAfterReleaseClass(t *testing.T) {
 	c := nasRegistrationAfterRelease{}
 	if err := ValidateTest(c); err != nil {
@@ -219,12 +220,29 @@ func TestRegistrationAfterReleaseClass(t *testing.T) {
 	if VerdictClass(c) != Fail || PhaseOf(c) != PhaseMain || n.UEs != 1 || subscribersOf(c) != 1 || MinRelease(c) != 15 || !n.needs(ProcRegistration) {
 		t.Errorf("class %s, phase %s, needs %+v, min release %s", VerdictClass(c), PhaseOf(c), n, MinRelease(c))
 	}
-	// 10 s to register, four attempts of 5 s + 10 s + 1 s + 10 s plus
+	// 10 s to register, six attempts of 5 s + 10 s + 1 s + 10 s plus
 	// their gaps, 5 s to deregister and 5 s for the liveness probe.
-	if got, want := c.Budget(), 124*time.Second; got != want {
+	if got, want := c.Budget(), 176*time.Second; got != want {
 		t.Errorf("budget %s, want %s", got, want)
 	}
-	if got := len(regAfterReleaseGaps); got != 4 || regAfterReleaseGaps[0] != 0 {
-		t.Errorf("gaps %v, want four starting with none", regAfterReleaseGaps)
+	want := []time.Duration{0, 10 * time.Millisecond, 20 * time.Millisecond, 30 * time.Millisecond, 40 * time.Millisecond, 50 * time.Millisecond}
+	if !slices.Equal(regAfterReleaseGaps, want) {
+		t.Errorf("gaps %v, want the even sweep %v", regAfterReleaseGaps, want)
+	}
+}
+
+func TestSweep(t *testing.T) {
+	cases := []struct {
+		step, bound time.Duration
+		want        []time.Duration
+	}{
+		{step: 10 * time.Millisecond, bound: 30 * time.Millisecond, want: []time.Duration{0, 10 * time.Millisecond, 20 * time.Millisecond, 30 * time.Millisecond}},
+		{step: 20 * time.Millisecond, bound: 50 * time.Millisecond, want: []time.Duration{0, 20 * time.Millisecond, 40 * time.Millisecond}},
+		{step: time.Second, bound: 0, want: []time.Duration{0}},
+	}
+	for _, tc := range cases {
+		if got := sweep(tc.step, tc.bound); !slices.Equal(got, tc.want) {
+			t.Errorf("sweep(%s, %s) = %v, want %v", tc.step, tc.bound, got, tc.want)
+		}
 	}
 }

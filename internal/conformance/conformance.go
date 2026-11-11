@@ -6,11 +6,8 @@
 // observed vs expected behaviour, so the suite can run headless in
 // integration-CI and emit machine-readable output.
 //
-// D-11: the decode path uses free5gc's ngap/nas, which has decoded SD-Core's
-// emitted NGAP across every ORBIT phase (NG Setup, NAS transport, PDU-session
-// setup, handover, path switch). The one known omec/free5gc divergence is
-// encode-side and type-specific (docs/interop/sdcore.md, N2 transfer) — not a
-// decode incompatibility — so free5gc is adequate here.
+// Checks decode what the core sends with the github.com/free5gc/ngap and
+// github.com/free5gc/nas codecs, the same ones ORBIT's gNB and UE use.
 package conformance
 
 import (
@@ -715,8 +712,8 @@ func (r *Registry) run(ctx context.Context, env Env, perTest time.Duration, pref
 		if hooks.Start != nil {
 			hooks.Start(t, ExpectedDuration(t, perTest), i, len(selected))
 		}
-		// Give each test a distinct gNB ID — the AMF does not cleanly re-key a
-		// reused gNB ID from a new association (docs/interop/sdcore.md). Indexed
+		// Give each test a distinct gNB ID: an AMF need not re-key a gNB ID
+		// it already holds when a new association presents it. Indexed
 		// by position in the FULL registry so IDs are stable regardless of the
 		// selection.
 		e := env

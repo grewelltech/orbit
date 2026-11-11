@@ -49,7 +49,7 @@ The issue for this check named TS 23.502 4.2.3.3 as an unverified candidate for 
 ## Tolerances
 
 - A UPF need not buffer: the packet that triggers paging may be lost, and its delivery after the Service Request is not asserted.
-- A UPF de-duplicates its downlink data notifications (SD-Core: 20 s per session). The check sends one trigger per run; leave at least 20 s before a re-run on the same subscriber.
+- A UPF may de-duplicate its downlink data notifications per session for a while; one has been seen to hold off for 20 s. The check sends one trigger per run; leave at least 20 s before a re-run on the same subscriber.
 - The trigger follows the UE CONTEXT RELEASE COMPLETE by one second, so the core has told its UPF to buffer. Downlink that arrives earlier goes to the released tunnel and raises no notification.
 - The AN release uses cause Radio Network "release due to NG-RAN generated reason", not "user inactivity".
 

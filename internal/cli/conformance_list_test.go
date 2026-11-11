@@ -163,7 +163,7 @@ func TestAnnouncer(t *testing.T) {
 	a.done()
 	out := w.String()
 	for _, want := range []string{
-		"Running 5 checks, up to 5m49s in total\n",
+		"Running 5 checks, up to 6m41s in total\n",
 		"preflight: NG Setup ok\npreflight: registration failed\n",
 		"[1/2] " + nas[0].ID() + ": up to 100ms\n",
 		"[2/2] " + nas[1].ID() + ": up to 10ms\n",

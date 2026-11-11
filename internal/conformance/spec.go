@@ -16,16 +16,17 @@ type Release int
 const LatestRelease Release = 19
 
 // DefaultTargetRelease is the target release a run uses when none is given:
-// Rel-18, the release SD-Core's NGAP, NAS and charts are built against.
-// DefaultSpecTargets narrows it where SD-Core is older. A check that requires
-// a newer release SKIPs; the target never decides what passes. The evidence
-// and caveats are in docs/conformance/target-release.md.
+// Rel-18, which DefaultSpecTargets narrows for single specifications. It is a
+// release, not a claim about any core: a run against a core that claims
+// another release gives that one. A check that requires a newer release
+// SKIPs; the target never decides what passes. See
+// docs/conformance/target-release.md.
 const DefaultTargetRelease Release = 18
 
 // DefaultSpecTargets returns the per-specification pins a run uses with
 // DefaultTargetRelease, as a fresh map the caller may change: TS 29.244
-// (PFCP) at Rel-16, the release SD-Core's UPF and its PFCP library implement.
-// A pin only narrows the run target (see Env.SpecTarget).
+// (PFCP) at Rel-16. A pin only narrows the run target (see
+// Env.SpecTarget).
 func DefaultSpecTargets() map[string]Release {
 	return map[string]Release{"TS 29.244": 16}
 }
