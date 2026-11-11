@@ -55,9 +55,25 @@ type Result struct {
 	// MinRelease is the oldest release the check applies to.
 	MinRelease Release `json:"min_release"`
 	Verdict    Verdict `json:"verdict"`
-	Expected   string  `json:"expected"`
-	Observed   string  `json:"observed"`
-	Detail     string  `json:"detail,omitempty"`
+	// Outcome is the ID of the declared outcome the result reports
+	// (Outcome.ID).
+	Outcome string `json:"outcome,omitempty"`
+	// Criterion is why a WARN result is one.
+	Criterion Criterion `json:"criterion,omitempty"`
+	// Refs are the references the outcome rests on, rendered with their
+	// strength: the "shall" a FAIL violates, the "should" a DEVIATION does
+	// not follow.
+	Refs []string `json:"outcome_refs,omitempty"`
+	// BlockedOn and Owner are set on a BLOCKED result: the procedure the
+	// core did not complete and the check that owns it.
+	BlockedOn Procedure `json:"blocked_on,omitempty"`
+	Owner     string    `json:"owner,omitempty"`
+	// NotCompleted is set on an owner check's result that reports a
+	// procedure it owns as not completing.
+	NotCompleted Procedure `json:"not_completed,omitempty"`
+	Expected     string    `json:"expected"`
+	Observed     string    `json:"observed"`
+	Detail       string    `json:"detail,omitempty"`
 	// ExpectedFailure is set on a FAIL the run's expected-failures list
 	// tolerates (ExpectedFailures.Apply); the verdict stays FAIL. It is
 	// unrelated to Expected, the behaviour the spec expects.
@@ -169,6 +185,9 @@ type Env struct {
 	// subscriber this check registers, "" when the check has its own
 	// (RunWithStart sets it; see sharedSubscriberNote).
 	sharedWith string
+	// owners names the registered check that owns each procedure, for a
+	// BLOCKED result (RunWithStart sets it).
+	owners map[Procedure]string
 }
 
 // loadedBy is the population loading the core now, "" for none.
@@ -285,11 +304,12 @@ func (e Env) N2Source() string {
 }
 
 // DialSetup opens an association and performs NG Setup, returning it ready for
-// UE-associated signalling. The caller closes it.
+// UE-associated signalling. The caller closes it. An error names the NG
+// Setup as the procedure that did not complete (Result.SetupFailed).
 func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 	conn, err := e.Dial(ctx)
 	if err != nil {
-		return nil, err
+		return nil, during(ProcNGSetup, err)
 	}
 	ng, err := gnb.NGSetup(ctx, conn, e.GNB)
 	if err != nil || !ng.Accepted {
@@ -297,7 +317,7 @@ func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 		if err == nil {
 			err = &setupError{"NG Setup rejected: " + ng.Cause}
 		}
-		return nil, err
+		return nil, during(ProcNGSetup, err)
 	}
 	return conn, nil
 }
@@ -372,11 +392,9 @@ func cutShort(ctx context.Context) bool {
 // cutShortResult turns r into the ERROR for a liveness probe the per-test
 // timeout cut short, keeping what was observed before the cut.
 func cutShortResult(r Result, needs string) Result {
-	r.Verdict = Error
-	r.Observed = ObservedProbeCutShort + " (" + r.Observed + ")"
-	r.Detail = "the per-test timeout expired before the liveness probe completed, so the core's state is unknown; " +
-		"raise --per-test-timeout (this check needs about " + needs + ")"
-	return r
+	return r.Errored(ObservedProbeCutShort+" ("+r.Observed+")",
+		"the per-test timeout expired before the liveness probe completed, so the core's state is unknown; "+
+			"raise --per-test-timeout (this check needs about "+needs+")")
 }
 
 // livenessTexts are the Observed prefixes no expected-failures entry may
@@ -409,9 +427,7 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 	alive, err := env.Alive(ctx)
 	switch {
 	case err != nil:
-		r.Verdict = Error
-		r.Observed = ObservedProbeFailed + " (" + r.Observed + ")"
-		r.Detail = err.Error()
+		r = r.Errored(ObservedProbeFailed+" ("+r.Observed+")", err.Error())
 	case !alive && cutShort(ctx):
 		// The probe ran out of the check's time: that is the harness, not
 		// a dead core.
@@ -419,13 +435,10 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 	case !alive && env.loadedBy() != "":
 		// A population loads the same AMF: its silence may be the
 		// population's doing, so it is not this check's finding.
-		r.Verdict = Error
-		r.Observed = ObservedAMFUnresponsiveUnderLoad + " (" + r.Observed + ")"
-		r.Detail = fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy())
+		r = r.Errored(ObservedAMFUnresponsiveUnderLoad+" ("+r.Observed+")",
+			fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy()))
 	case !alive:
-		r.Verdict = Crash
-		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
-		r.Detail = failDetail
+		r = r.Crashed(ObservedAMFUnresponsive+" ("+r.Observed+")", failDetail)
 	}
 	return r
 }
@@ -454,13 +467,11 @@ func observeAlive(ctx context.Context, env Env, r Result, after string) Result {
 	case cutShort(ctx):
 		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards was cut short by the per-test timeout")
 	case env.loadedBy() != "":
-		r.Verdict = Error
-		r.Observed = ObservedAMFUnresponsiveUnderLoad + " (" + r.Observed + ")"
-		r.Detail = joinDetail(r.Detail, fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy()))
+		r = r.Errored(ObservedAMFUnresponsiveUnderLoad+" ("+r.Observed+")",
+			joinDetail(r.Detail, fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy())))
 	default:
-		r.Verdict = Crash
-		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
-		r.Detail = joinDetail(r.Detail, "core did not survive "+after+": the AMF no longer completes a fresh NG Setup")
+		r = r.Crashed(ObservedAMFUnresponsive+" ("+r.Observed+")",
+			joinDetail(r.Detail, "core did not survive "+after+": the AMF no longer completes a fresh NG Setup"))
 	}
 	return r
 }
@@ -577,6 +588,7 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 	selected := r.Select(cats...)
 	// registeredBy is the last check to register each subscriber.
 	registeredBy := map[string]string{}
+	owners := r.owners()
 	for i, t := range selected {
 		if err := ctx.Err(); err != nil {
 			return // client went away; stop rather than keep dialling the core
@@ -592,6 +604,7 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 		e.GNB.ID, e.TargetGNBID, e.LivenessGNBID = r.gnbIDsOf(env.GNB.ID, r.indexOf(t), env.PackedGNBIDs)
 		// And its own subscribers, when the suite has a pool of them.
 		e.UE = env.UE.forCheck(r.subscriberBlock(r.indexOf(t)))
+		e.owners = owners
 		if e.UE.Configured() && subscribersOf(t) > 0 {
 			e.sharedWith = registeredBy[e.UE.SUPI]
 			registeredBy[e.UE.SUPI] = t.ID()
@@ -601,25 +614,24 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 }
 
 // runOne runs one check, or SKIPs it when it requires a release newer than
-// the target (see skipReason), and stamps identity and provenance onto the
-// result. The verdict follows the check's references (WorstVerdict): a FAIL
+// the target (see skipReason) or an idle core under load, and stamps
+// identity and provenance onto the result. A check that declares its
+// outcomes (Declarer) is held to them (enforceDeclared). For one that does
+// not, the verdict follows the check's references (WorstVerdict): a FAIL
 // from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
-// check that cites no should becomes FAIL, since DEVIATION is reserved for a
-// missed should. CRASH, BLOCKED, WARN, SKIP and ERROR pass through in every
-// class. An informational check is scored by scoreInformational instead and
-// gives no PASS, FAIL or DEVIATION; INFO from any other check is an ERROR.
-// Every result's detail ends with the requirement line; when the target is
-// newer than the releases the wording was verified through, the detail says
-// so.
+// check that cites no should becomes FAIL; an informational check is scored
+// by scoreInformational, and INFO from any other is an ERROR. Every
+// result's detail ends with the requirement line; when the target is newer
+// than the releases the wording was verified through, the detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	min := MinRelease(t)
 	var res Result
 	n := NeedsOf(t)
+	_, declares := declared(t)
 	if why, skip := skipReason(t, e); skip {
-		res = Result{Verdict: Skip, Observed: "requires a newer release than the target", Detail: why}
+		res = Result{}.As(Outcome{ID: OutcomeSkipRelease, Verdict: Skip, Skip: SkipRelease}, "requires a newer release than the target", why)
 	} else if pop := e.loadedBy(); n.RequiresIdleCore && pop != "" {
-		res = Result{Verdict: Skip, Observed: ObservedNeedsIdleCore,
-			Detail: fmt.Sprintf("%s; population %s is active", n.IdleCoreReason, pop)}
+		res = Result{}.Skipped(InputIdleCore, ObservedNeedsIdleCore, fmt.Sprintf("%s; population %s is active", n.IdleCoreReason, pop))
 	} else {
 		d, raised := budget(t, perTest)
 		tctx, cancel := context.WithTimeout(ctx, d)
@@ -629,6 +641,8 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("per-test timeout raised to %s for this check", d))
 		}
 		switch {
+		case declares:
+			res = enforceDeclared(t, res, e.owners)
 		case IsInformational(t):
 			res.Verdict = scoreInformational(res)
 		case res.Verdict == Info || res.Verdict == infoDiffers:
@@ -643,7 +657,7 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		if e.TargetRelease > LatestRelease {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("wording verified through %s", LatestRelease))
 		}
-		if res.Verdict == Error && e.sharedWith != "" {
+		if (res.Verdict == Error || res.Verdict == Blocked) && e.sharedWith != "" {
 			res.Detail = joinDetail(res.Detail, sharedSubscriberNote(e))
 		}
 	}
@@ -651,10 +665,62 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	res.SpecRefs = t.SpecRefs()
 	res.SpecRef = RenderRefs(res.SpecRefs)
 	res.MinRelease = min
-	if IsInformational(t) {
+	if !declares && IsInformational(t) {
 		res.Detail = joinDetail(res.Detail, informationalNote)
 	}
 	res.Detail = joinDetail(res.Detail, requirementLine(t))
+	return res
+}
+
+// enforceDeclared holds the result of a check's Run to the check's
+// declaration. A result that names no outcome, an outcome the check neither
+// declares nor derives from its needs, or a verdict other than the
+// outcome's becomes an ERROR that says so: a check cannot report what it
+// did not declare. The detail of a declared result then gains what the
+// declaration says of it: the references a FAIL or DEVIATION rests on, a
+// WARN's criterion, the bound of an absence, and for a BLOCKED the
+// procedure and its owner (from owners).
+func enforceDeclared(t Test, res Result, owners map[Procedure]string) Result {
+	o, ok := outcomeOf(t, res.Outcome)
+	switch {
+	case res.Outcome == "":
+		return res.Errored("the check reported no declared outcome",
+			fmt.Sprintf("Run returned %s %q without one of the check's declared outcomes", res.Verdict, res.Observed))
+	case !ok:
+		return res.Errored("the check reported an undeclared outcome",
+			fmt.Sprintf("Run returned outcome %q (%s %q), which the check neither declares nor has from its needs", res.Outcome, res.Verdict, res.Observed))
+	case o.Verdict != res.Verdict:
+		return res.Errored("the check reported an outcome with another verdict",
+			fmt.Sprintf("Run returned outcome %q as %s; it is declared %s", res.Outcome, res.Verdict, o.Verdict))
+	}
+	res.Criterion, res.NotCompleted = o.Criterion, o.NotCompleted
+	refs := map[string]SpecRef{}
+	for _, r := range t.SpecRefs() {
+		refs[r.Key()] = r
+	}
+	res.Refs = nil
+	for _, k := range o.Refs {
+		res.Refs = append(res.Refs, fmt.Sprintf("%s (%s)", k, refs[k].Strength))
+	}
+	switch res.Verdict {
+	case Fail:
+		res.Detail = joinDetail(res.Detail, "violates "+strings.Join(res.Refs, ", "))
+	case Deviation:
+		res.Detail = joinDetail(res.Detail, "does not follow "+strings.Join(res.Refs, ", "))
+	case Warn:
+		res.Detail = joinDetail(res.Detail, fmt.Sprintf("no requirement violated; WARN for %s impact", res.Criterion))
+	case Blocked:
+		res.Owner = owners[res.BlockedOn]
+		owner := res.Owner
+		if owner == "" {
+			owner = "no check of this run's registry"
+		}
+		res.Detail = joinDetail(res.Detail, fmt.Sprintf("blocked: the core did not complete %s, which this check needs first; %s owns whether it completes",
+			res.BlockedOn.article(), owner))
+	}
+	if o.Bound != nil && !strings.Contains(res.Detail, "absence inferred") {
+		res.Detail = joinDetail(res.Detail, "absence inferred within "+o.Bound.String())
+	}
 	return res
 }
 

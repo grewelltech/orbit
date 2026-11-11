@@ -236,6 +236,12 @@ func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 		SpecRefs:        specRefsProto(r.SpecRefs),
 		MinRelease:      uint32(r.MinRelease),
 		ExpectedFailure: expectedFailureProto(r.ExpectedFailure),
+		Outcome:         r.Outcome,
+		Criterion:       string(r.Criterion),
+		OutcomeRefs:     r.Refs,
+		BlockedOn:       string(r.BlockedOn),
+		Owner:           r.Owner,
+		NotCompleted:    string(r.NotCompleted),
 	}
 }
 
@@ -263,7 +269,7 @@ func specRefsProto(refs []conformance.SpecRef) []*orbitv1.SpecRef {
 	for _, r := range refs {
 		p := &orbitv1.SpecRef{
 			Spec: r.Spec, Clause: r.Clause, Strength: string(r.Strength),
-			Since: uint32(r.Since), WordingUnchanged: r.WordingUnchanged, Rendered: r.String(),
+			Since: uint32(r.Since), WordingUnchanged: r.WordingUnchanged, Rendered: r.String(), Primary: r.Primary,
 		}
 		for _, v := range r.Verified {
 			p.Verified = append(p.Verified, &orbitv1.SpecVersion{Release: uint32(v.Release), Version: v.Version, Archive: v.Archive})

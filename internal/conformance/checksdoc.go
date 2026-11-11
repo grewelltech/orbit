@@ -43,10 +43,99 @@ func ChecksMarkdown(tests []Test) string {
 				}
 				fmt.Fprintf(&b, "%s %s %s (`%s`)", sep, v.Release, v.Version, v.Archive)
 			}
+			if r.Primary {
+				b.WriteString("; primary")
+			}
 			b.WriteString("\n")
 		}
 	}
+	b.WriteString(outcomesMarkdown(tests))
 	return b.String()
+}
+
+// outcomesMarkdown renders the declared outcomes of the checks in tests
+// that declare them: per check, what it owns and needs, then one row per
+// outcome with its verdict, what the verdict rests on (the reference of a
+// FAIL, DEVIATION or PASS, the criterion of a WARN, the condition of a SKIP,
+// the procedure and owner of a BLOCKED) and what the core did. It is the
+// review surface for ADR-0011 rules 2, 4 and 5. Empty when no check
+// declares outcomes.
+func outcomesMarkdown(tests []Test) string {
+	owner := map[Procedure]string{}
+	for _, t := range tests {
+		for _, p := range OwnsOf(t) {
+			owner[p] = t.ID()
+		}
+	}
+	var b strings.Builder
+	for _, t := range tests {
+		outs, ok := declared(t)
+		if !ok {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n## Declared outcomes\n\n")
+			b.WriteString("Every result is one of its check's outcomes below; a check cannot report another. ")
+			fmt.Fprintf(&b, "**Basis** is what the verdict rests on: the reference a `%s` violates (a shall), a `%s` does not follow (a should) or a `%s` met; the criterion of a `%s` (security, availability or interoperability; no requirement is violated); the condition of a `%s`; the procedure a `%s` names and the check that owns it. ", Fail, Deviation, Pass, Warn, Skip, Blocked)
+			fmt.Fprintf(&b, "An outcome inferred from the absence of an answer states the bound it was inferred within. Every check can also report `%s` (`%s`: the tool, the setup or the testbed kept it from running), `%s` (`%s`: the core stopped answering after the stimulus) and `%s` (`%s`: the target release is older than the check requires).\n", Error, OutcomeError, Crash, OutcomeCrash, Skip, OutcomeSkipRelease)
+		}
+		fmt.Fprintf(&b, "\n### %s outcomes\n\n", t.ID())
+		if owned := OwnsOf(t); len(owned) > 0 {
+			fmt.Fprintf(&b, "Owns: %s. ", joinProcedures(owned))
+		}
+		if needed := NeedsOf(t).Procedures; len(needed) > 0 {
+			fmt.Fprintf(&b, "Needs: %s.", joinProcedures(needed))
+		} else {
+			b.WriteString("Needs no procedure first.")
+		}
+		b.WriteString("\n\n| Outcome | Verdict | Basis | The core |\n|---|---|---|---|\n")
+		refs := map[string]SpecRef{}
+		for _, r := range t.SpecRefs() {
+			refs[r.Key()] = r
+		}
+		for _, o := range append(append([]Outcome(nil), outs...), derivedOutcomes(t)[3:]...) {
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", o.ID, o.Verdict, mdEscape(outcomeBasis(o, refs, owner)), mdEscape(o.Summary))
+		}
+	}
+	return b.String()
+}
+
+// outcomeBasis renders what an outcome's verdict rests on.
+func outcomeBasis(o Outcome, refs map[string]SpecRef, owner map[Procedure]string) string {
+	var parts []string
+	for _, k := range o.Refs {
+		parts = append(parts, fmt.Sprintf("%s (%s)", k, refs[k].Strength))
+	}
+	switch {
+	case o.Verdict == Warn:
+		parts = append([]string{string(o.Criterion)}, parts...)
+	case o.Verdict == Skip:
+		parts = append([]string{string(o.Skip)}, parts...)
+	case o.Verdict == Blocked:
+		who := owner[o.blocked]
+		if who == "" {
+			who = "no registered check"
+		}
+		parts = append(parts, fmt.Sprintf("%s (owner %s)", o.blocked, who))
+	case len(parts) == 0:
+		parts = append(parts, "no requirement")
+	}
+	if o.Bound != nil {
+		parts = append(parts, "absence within "+o.Bound.String())
+	}
+	if o.NotCompleted != "" {
+		parts = append(parts, fmt.Sprintf("reports %s as not completed", o.NotCompleted))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// joinProcedures renders procedures as a comma-separated list.
+func joinProcedures(ps []Procedure) string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = string(p)
+	}
+	return strings.Join(out, ", ")
 }
 
 // runOrderNote is the paragraph on the order a suite runs its checks in,

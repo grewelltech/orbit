@@ -147,7 +147,15 @@ type SpecRef struct {
 	// WordingUnchanged states that the text is the same through
 	// LatestRelease; it is never inferred from an empty Changed.
 	WordingUnchanged bool `json:"wording_unchanged"`
+	// Primary marks the one reference of a check that names what the check
+	// is about: the clause its group is derived from.
+	Primary bool `json:"primary,omitempty"`
 }
+
+// Key identifies the reference within its check: the specification and the
+// clause, "TS 38.413 10.6". An Outcome names the references it rests on by
+// key.
+func (r SpecRef) Key() string { return r.Spec + " " + r.Clause }
 
 // String renders the reference on one line, the same way everywhere (CLI,
 // JSON, the API and the generated docs):
@@ -208,6 +216,9 @@ func MinRelease(t Test) Release {
 // runOne enforces this whatever a check's Run returns. A core that stops
 // answering is outside the classes: it is CRASH for every check.
 func WorstVerdict(t Test) Verdict {
+	if outs, ok := declared(t); ok {
+		return declaredWorst(outs)
+	}
 	switch {
 	case IsInformational(t):
 		return Info
@@ -222,6 +233,9 @@ func WorstVerdict(t Test) Verdict {
 // informational one. The class says nothing of a crash, which is CRASH in
 // all three.
 func VerdictClass(t Test) Verdict {
+	if _, ok := declared(t); ok {
+		return WorstVerdict(t)
+	}
 	if IsInformational(t) {
 		return Info
 	}
@@ -283,16 +297,46 @@ func ValidateTest(t Test) error {
 	if floor == 0 {
 		floor = floorAll
 	}
-	switch info := IsInformational(t); {
-	case !hasRequirement && !info:
+	if _, ok := declared(t); ok {
+		if err := validateDeclaration(t); err != nil {
+			return err
+		}
+	} else if info := IsInformational(t); !hasRequirement && !info {
 		return fmt.Errorf("%s: cites no shall or should; descriptive references alone carry no verdict, so the check must declare itself informational (Informer)", t.ID())
-	case hasRequirement && info:
+	} else if hasRequirement && info {
 		return fmt.Errorf("%s: informational, but cites a shall or should; a requirement is graded, never reported as information", t.ID())
 	}
 	if m := MinRelease(t); m < floor || m > LatestRelease {
 		return fmt.Errorf("%s: MinRelease %s outside %s..%s: it must be at least the newest Since among the requirements it asserts", t.ID(), m, floor, LatestRelease)
 	}
 	return nil
+}
+
+// validateDeclaration checks what a check that declares its outcomes must
+// meet beyond its references' provenance: exactly one reference is marked
+// primary, the reference keys are distinct, the needs name known inputs and
+// procedures, and the outcomes meet validateOutcomes.
+func validateDeclaration(t Test) error {
+	primary := 0
+	keys := map[string]bool{}
+	for _, r := range t.SpecRefs() {
+		if r.Primary {
+			primary++
+		}
+		if keys[r.Key()] {
+			return fmt.Errorf("%s: two references share the key %q", t.ID(), r.Key())
+		}
+		keys[r.Key()] = true
+	}
+	if primary != 1 {
+		return fmt.Errorf("%s: %d references are marked primary; exactly one is", t.ID(), primary)
+	}
+	for _, p := range append(NeedsOf(t).Procedures, OwnsOf(t)...) {
+		if !p.valid() {
+			return fmt.Errorf("%s: %q is not a procedure of the fixed list", t.ID(), p)
+		}
+	}
+	return validateOutcomes(t)
 }
 
 func validateRef(r SpecRef) error {

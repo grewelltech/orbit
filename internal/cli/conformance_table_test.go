@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 	"github.com/bgrewell/orbit/internal/conformance"
 )
 
@@ -109,5 +110,18 @@ func TestConformanceReportInformational(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A streamed result keeps what its declared outcome says of it: the outcome
+// ID, a WARN's criterion, a BLOCKED's procedure and owner, and the
+// references the verdict rests on.
+func TestResultFromProtoOutcome(t *testing.T) {
+	r := resultFromProto(&orbitv1.ConformanceResult{Id: "X", Verdict: "BLOCKED", Outcome: "blocked-registration",
+		BlockedOn: "registration", Owner: "NAS-X", Criterion: "availability", NotCompleted: "NG Setup",
+		OutcomeRefs: []string{"TS 38.413 10.6 (shall)"}})
+	if r.Verdict != conformance.Blocked || r.Outcome != "blocked-registration" || r.BlockedOn != conformance.ProcRegistration || r.Owner != "NAS-X" ||
+		r.Criterion != conformance.CriterionAvailability || r.NotCompleted != conformance.ProcNGSetup || len(r.Refs) != 1 {
+		t.Errorf("result = %+v", r)
 	}
 }

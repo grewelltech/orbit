@@ -118,6 +118,22 @@ message ConformanceResult {
   // verdict stays FAIL. Unrelated to `expected`, the behaviour the spec
   // expects.
   ExpectedFailure expected_failure = 10;
+  // The check's declared outcome this result reports, by its ID
+  // ("silent-drop"); docs/conformance/checks.md lists every check's.
+  string outcome = 11;
+  // Why a WARN is one: security | availability | interoperability.
+  string criterion = 12;
+  // The references the outcome rests on, each rendered with its strength
+  // ("TS 38.413 10.6 (shall)"): the shall a FAIL violates, the should a
+  // DEVIATION does not follow.
+  repeated string outcome_refs = 13;
+  // Set on a BLOCKED result: the procedure the core did not complete
+  // ("registration") and the check that owns whether it completes.
+  string blocked_on = 14;
+  string owner = 15;
+  // Set on an owner check's result that reports a procedure it owns as not
+  // completing.
+  string not_completed = 16;
 }
 
 // StaleExpectation is an expected-failures entry whose check ran without the
@@ -141,6 +157,7 @@ message SpecRef {
   repeated SpecChange changed = 6;
   bool wording_unchanged = 7;
   string rendered = 8;            // the one-line rendering, as in spec_ref
+  bool primary = 9;               // the one reference that names what the check is about
 }
 
 // SpecVersion is one specification version whose wording was read.

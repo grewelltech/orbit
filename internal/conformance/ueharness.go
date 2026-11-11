@@ -206,7 +206,10 @@ func (h *UEHarness) TargetGNB() gnb.Config {
 }
 
 // Register attaches the UE with a PDU session on gNB A and starts observing
-// its downlink lane. An error names the step that failed.
+// its downlink lane. An error names the step that failed, and the procedure
+// that did not complete (Result.SetupFailed): the NG Setup, the
+// registration or the PDU session establishment. A data path that could
+// not be opened is a local fault.
 func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) {
 	res, err := h.m.Register(ctx, engine.GNBSpec{Config: h.env.GNB, AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind},
 		engine.UEConfig{Identity: h.id, Sub: h.sub, PDUSession: &h.pdu, GNBN3Addr: h.env.UE.GNBN3, SecurityCapabilities: h.caps})
@@ -218,16 +221,16 @@ func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) 
 		return nil, fmt.Errorf("registration on gNB %#x: not registered", h.env.GNB.ID)
 	}
 	if !res.SessionActive {
-		return nil, fmt.Errorf("PDU session establishment: no active session")
+		return nil, during(ProcPDUSession, errors.New("PDU session establishment: no active session"))
 	}
 	stop, err := h.m.ObserveDownlink(h.supi, h.noteEndMarker, h.noteGPDU)
 	if err != nil {
-		return nil, fmt.Errorf("data path: %w", err)
+		return nil, &localError{fmt.Errorf("data path: %w", err)}
 	}
 	h.stopObs = stop
 	src, err := h.boundN3()
 	if err != nil {
-		return nil, fmt.Errorf("data path: %w", err)
+		return nil, &localError{fmt.Errorf("data path: %w", err)}
 	}
 	h.mu.Lock()
 	h.obs.OldTEID = res.DLTEID

@@ -296,6 +296,18 @@ func TestConformanceExpectedFailureProto(t *testing.T) {
 	if e := p.GetExpectedFailure(); e.GetFinding() != "EX-1" || e.GetAdded() != "2026-10-12" || e.GetReason() != "example" || p.GetVerdict() != "FAIL" {
 		t.Errorf("result proto = %+v", p)
 	}
+	blocked := resultProto(conformance.Result{ID: "C", Verdict: conformance.Blocked, Outcome: "blocked-registration",
+		BlockedOn: conformance.ProcRegistration, Owner: "NAS-X"})
+	if blocked.GetOutcome() != "blocked-registration" || blocked.GetBlockedOn() != "registration" || blocked.GetOwner() != "NAS-X" {
+		t.Errorf("BLOCKED result proto = %+v", blocked)
+	}
+	warned := resultProto(conformance.Result{ID: "D", Verdict: conformance.Warn, Outcome: "refused", Criterion: conformance.CriterionAvailability,
+		NotCompleted: conformance.ProcNGSetup, Refs: []string{"TS 38.413 8.7.1.3 (should)"},
+		SpecRefs: []conformance.SpecRef{{Spec: "TS 38.413", Clause: "8.7.1.2", Strength: conformance.Descriptive, Since: 15, Primary: true}}})
+	if warned.GetCriterion() != "availability" || warned.GetNotCompleted() != "NG Setup" || len(warned.GetOutcomeRefs()) != 1 ||
+		len(warned.GetSpecRefs()) != 1 || !warned.GetSpecRefs()[0].GetPrimary() {
+		t.Errorf("WARN result proto = %+v", warned)
+	}
 	if resultProto(conformance.Result{ID: "B", Verdict: conformance.Fail}).GetExpectedFailure() != nil {
 		t.Error("an untolerated FAIL carries an expected_failure")
 	}

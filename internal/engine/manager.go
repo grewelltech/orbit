@@ -224,6 +224,23 @@ func NewManager(log *slog.Logger) *Manager {
 	}
 }
 
+// ErrNGSetup marks a Register that failed before the UE's attach began: the
+// SCTP association or the NG Setup with the AMF did not complete.
+var ErrNGSetup = errors.New("NG Setup did not complete")
+
+// ngSetupError is an error that is ErrNGSetup and reads as the error it
+// wraps.
+type ngSetupError struct{ err error }
+
+func (e *ngSetupError) Error() string { return e.err.Error() }
+func (e *ngSetupError) Unwrap() error { return e.err }
+
+// Is reports ErrNGSetup as a match.
+func (e *ngSetupError) Is(target error) bool { return target == ErrNGSetup }
+
+// beforeAttach marks err as ErrNGSetup, its text unchanged.
+func beforeAttach(err error) error { return &ngSetupError{err: err} }
+
 // Register attaches one UE through the gNB g: it opens an SCTP association
 // from g.BindAddr (empty = route-selected source) to g.AMFAddr, performs NG Setup
 // with g.Config, runs the attach FSM (emitting StateStream events), and
@@ -245,17 +262,17 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 	}
 	conn, err := dial(ctx, g.BindAddr, g.AMFAddr)
 	if err != nil {
-		return nil, fmt.Errorf("SCTP dial: %w", err)
+		return nil, beforeAttach(fmt.Errorf("SCTP dial: %w", err))
 	}
 
 	ng, err := gnb.NGSetup(ctx, conn, gnbCfg)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("NG Setup: %w", err)
+		return nil, beforeAttach(fmt.Errorf("NG Setup: %w", err))
 	}
 	if !ng.Accepted {
 		conn.Close()
-		return nil, fmt.Errorf("NG Setup rejected: %s", ng.Cause)
+		return nil, beforeAttach(fmt.Errorf("NG Setup rejected: %s", ng.Cause))
 	}
 
 	// One reader owns the association from here (gnb.Dedicated): every

@@ -284,7 +284,9 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
 	out := conformance.Result{ID: r.GetId(), Category: conformance.Category(r.GetCategory()), SpecRef: r.GetSpecRef(),
 		MinRelease: conformance.Release(r.GetMinRelease()), Verdict: conformance.Verdict(r.GetVerdict()),
-		Expected: r.GetExpected(), Observed: r.GetObserved(), Detail: r.GetDetail()}
+		Expected: r.GetExpected(), Observed: r.GetObserved(), Detail: r.GetDetail(),
+		Outcome: r.GetOutcome(), Criterion: conformance.Criterion(r.GetCriterion()), Refs: r.GetOutcomeRefs(),
+		BlockedOn: conformance.Procedure(r.GetBlockedOn()), Owner: r.GetOwner(), NotCompleted: conformance.Procedure(r.GetNotCompleted())}
 	if x := r.GetExpectedFailure(); x != nil {
 		out.ExpectedFailure = &conformance.ExpectedFailure{Finding: x.GetFinding(), Added: x.GetAdded(), Reason: x.GetReason()}
 	}

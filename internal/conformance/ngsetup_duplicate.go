@@ -83,7 +83,7 @@ func (duplicateRANNodeID) Category() Category { return Procedural }
 // Needs declares the second N2 source address the duplicate is sent from,
 // beside the check's own gNB ID and the liveness probe's.
 func (duplicateRANNodeID) Needs() CheckNeeds {
-	return CheckNeeds{GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, SecondN2Source: true}
+	return CheckNeeds{GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, SecondN2Source: true, Procedures: []Procedure{ProcNGSetup}}
 }
 
 // Informational declares the check informational: it cites descriptive

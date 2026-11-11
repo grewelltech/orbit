@@ -174,8 +174,9 @@ func (x *ExpectedFailures) Apply(results []Result) {
 
 // Stale returns the entries whose check ran and gave something other than
 // the FAIL they tolerate (a PASS, a DEVIATION, or a FAIL with other observed
-// text). An entry whose check was not selected, SKIPped or ERRORed is neither
-// matched nor stale: the run says nothing about whether the failure is gone.
+// text). An entry whose check was not selected, or gave SKIP, ERROR, BLOCKED
+// or CRASH, is neither matched nor stale: the run did not judge the listed
+// behaviour, so it says nothing about whether the failure is gone.
 func (x *ExpectedFailures) Stale(results []Result) []StaleExpectation {
 	if x == nil {
 		return nil
@@ -183,7 +184,11 @@ func (x *ExpectedFailures) Stale(results []Result) []StaleExpectation {
 	var out []StaleExpectation
 	for _, e := range x.Entries {
 		for _, r := range results {
-			if r.ID != e.Check || r.Verdict == Skip || r.Verdict == Error {
+			if r.ID != e.Check {
+				continue
+			}
+			switch r.Verdict {
+			case Skip, Error, Blocked, Crash:
 				continue
 			}
 			if r.Verdict == Fail && r.Observed == e.Observed {

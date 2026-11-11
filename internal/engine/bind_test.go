@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -221,6 +222,10 @@ func TestManagerRegisterNilDialerFallsBack(t *testing.T) {
 	_, err := m.Register(context.Background(), GNBSpec{AMFAddr: "127.0.0.1:38412", BindAddr: "10.0.0.1:0:0"}, bindTestUE(t, "208930100000002", ki, opc))
 	if err == nil || !strings.Contains(err.Error(), `invalid local address "10.0.0.1:0:0"`) {
 		t.Fatalf("err = %v, want the sctp normalisation error", err)
+	}
+	// The failure came before the attach, and its text is the dial's.
+	if !errors.Is(err, ErrNGSetup) || !strings.HasPrefix(err.Error(), "SCTP dial: ") {
+		t.Errorf("err = %v, want ErrNGSetup reading as the dial error", err)
 	}
 }
 

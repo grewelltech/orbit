@@ -24,7 +24,43 @@ type CheckNeeds struct {
 	// SecondN2Source marks a check that holds a second association from
 	// another N2 source address (Env.SecondBind) and SKIPs without one.
 	SecondN2Source bool
+	// Procedures are the procedures the check needs the core to complete
+	// before its requirement can be tested (ADR-0011 rule 5). The check
+	// reports BLOCKED, naming the procedure, when the core does not
+	// complete one; the run's preflight is built from them.
+	Procedures []Procedure
+	// Inputs are the inputs the check SKIPs without, beyond the ones the
+	// other fields imply: a UE for UEs, a second N2 source address for
+	// SecondN2Source and an idle core for RequiresIdleCore.
+	Inputs []Input
 }
+
+// inputs is every input the check SKIPs without: the declared ones and the
+// ones its other needs imply.
+func (n CheckNeeds) inputs() []Input {
+	var out []Input
+	add := func(in Input) {
+		if !slices.Contains(out, in) {
+			out = append(out, in)
+		}
+	}
+	if n.UEs > 0 {
+		add(InputUE)
+	}
+	if n.SecondN2Source {
+		add(InputSecondN2)
+	}
+	if n.RequiresIdleCore {
+		add(InputIdleCore)
+	}
+	for _, in := range n.Inputs {
+		add(in)
+	}
+	return out
+}
+
+// needs reports whether the check declares procedure p as a need.
+func (n CheckNeeds) needs(p Procedure) bool { return slices.Contains(n.Procedures, p) }
 
 // GNBRole is a gNB a check presents.
 type GNBRole int
@@ -97,12 +133,37 @@ type Needer interface {
 	Needs() CheckNeeds
 }
 
-// defaultNeeds is a check's needs when it declares none.
-var defaultNeeds = CheckNeeds{GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+// defaultNeeds is a check's needs when it declares none: its own NG
+// association, which it sets up before its stimulus, and the liveness
+// probe.
+var defaultNeeds = CheckNeeds{GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: []Procedure{ProcNGSetup}}
+
+// rawNeeds is a check whose stimulus is the NG Setup itself: it needs no
+// procedure to complete first.
+var rawNeeds = CheckNeeds{GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+
+// The procedures a UE check needs first: its registration, and for a check
+// that uses the UE's PDU session, the session too.
+var (
+	registrationFirst = []Procedure{ProcNGSetup, ProcRegistration}
+	sessionFirst      = []Procedure{ProcNGSetup, ProcRegistration, ProcPDUSession}
+)
 
 // ueNeeds is a check that registers Env.UE (through a UEHarness) on its
-// own gNB, probing liveness after.
-var ueNeeds = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+// own gNB, probing liveness after. ueSessionNeeds is one that also needs
+// the UE's PDU session.
+var (
+	ueNeeds        = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: registrationFirst}
+	ueSessionNeeds = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: sessionFirst}
+)
+
+// mobilityNeeds is a check that registers a UE with a PDU session and
+// presents a second gNB, the target of a handover, and also needs the
+// procedures in more.
+func mobilityNeeds(more ...Procedure) CheckNeeds {
+	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness},
+		Procedures: append(append([]Procedure(nil), sessionFirst...), more...)}
+}
 
 // NeedsOf is a check's declared needs, or the default.
 func NeedsOf(t Test) CheckNeeds {
@@ -146,63 +207,97 @@ func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds 
 	return out
 }
 
-func (endMarkerOnPathSwitch) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
+// The raw NG Setup checks: the NG Setup is their stimulus.
+func (ngSetupMissingMandatoryIE) Needs() CheckNeeds { return rawNeeds }
+func (ngSetupUnknownPLMN) Needs() CheckNeeds        { return rawNeeds }
+
+// The GTP-U checks address the UPF's N3 endpoint and nothing on N2. The
+// unknown-TEID check tells a UPF that discards from one that is down by
+// GTP-U Echo, which it needs answered.
+func (gtpuEchoResponse) Needs() CheckNeeds {
+	return CheckNeeds{GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Inputs: []Input{InputUPFN3}}
 }
-func (pagingOnDLData) Needs() CheckNeeds               { return ueNeeds }
-func (serviceRequestReactivates) Needs() CheckNeeds    { return ueNeeds }
+func (gtpuUnknownTEID) Needs() CheckNeeds {
+	return CheckNeeds{GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Inputs: []Input{InputUPFN3}, Procedures: []Procedure{ProcGTPUEcho}}
+}
+
+func (endMarkerOnPathSwitch) Needs() CheckNeeds { return mobilityNeeds(ProcXnPathSwitch) }
+
+// Needs is a responder to send the downlink that pages the idle UE.
+func (pagingOnDLData) Needs() CheckNeeds {
+	n := ueSessionNeeds
+	n.Procedures = append(append([]Procedure(nil), sessionFirst...), ProcANRelease)
+	n.Inputs = []Input{InputDownlink}
+	return n
+}
+
+// Needs is a responder for the downlink that shows the reactivated user
+// plane.
+func (serviceRequestReactivates) Needs() CheckNeeds {
+	n := ueSessionNeeds
+	n.Procedures = append(append([]Procedure(nil), sessionFirst...), ProcANRelease)
+	n.Inputs = []Input{InputDownlink}
+	return n
+}
 func (nasPDUUnknownDNN) Needs() CheckNeeds             { return ueNeeds }
 func (nasRegRejectedNSSAI) Needs() CheckNeeds          { return ueNeeds }
 func (nasDeregAcceptNotSwitchOff) Needs() CheckNeeds   { return ueNeeds }
 func (ngapCtxReleaseAfterSwitchOff) Needs() CheckNeeds { return ueNeeds }
-func (nasPDUReleaseUERequested) Needs() CheckNeeds     { return ueNeeds }
+func (nasPDUReleaseUERequested) Needs() CheckNeeds     { return ueSessionNeeds }
 
 // Needs is one subscriber: the check registers the same SUPI each time.
 func (nasRegistrationAfterRelease) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, Subscribers: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+	return CheckNeeds{UEs: 1, Subscribers: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: registrationFirst}
 }
 
 // Needs is one UE at a time and a subscriber for each of the check's three
 // registrations.
 func (nasSMCNoNIA0) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, Subscribers: 3, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+	return CheckNeeds{UEs: 1, Subscribers: 3, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: registrationFirst}
 }
 
 // Needs is one UE: the check registers it after the update.
 func (ranConfigUpdateKeepsTA) Needs() CheckNeeds { return ueNeeds }
 
-func (ngapPathSwitchAckTransfer) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
-}
-func (ngapHandoverCommandTransfer) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
-}
+func (ngapPathSwitchAckTransfer) Needs() CheckNeeds   { return mobilityNeeds() }
+func (ngapHandoverCommandTransfer) Needs() CheckNeeds { return mobilityNeeds() }
 
 // Needs is one UE at a time and a subscriber for each of the check's three
 // registrations.
 func (nasInitialMsgContainerWins) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, Subscribers: 3, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}}
+	return CheckNeeds{UEs: 1, Subscribers: 3, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: registrationFirst}
 }
 func (nasInitialMsgNoContainer) Needs() CheckNeeds          { return ueNeeds }
 func (nasInitialMsgNonCleartextAccepted) Needs() CheckNeeds { return ueNeeds }
 func (nasSMCIMEISVRequest) Needs() CheckNeeds               { return ueNeeds }
-func (ngapPathSwitchSecCapMismatch) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
+func (ngapPathSwitchSecCapMismatch) Needs() CheckNeeds      { return mobilityNeeds() }
+func (ngapHandoverCancelAck) Needs() CheckNeeds             { return mobilityNeeds(ProcN2HandoverPreparation) }
+func (ngapUECtxReleaseOnRequest) Needs() CheckNeeds         { return ueNeeds }
+
+// Needs is an echo peer, whose echoes are the downlink the check samples.
+func (n3DLQFIContainer) Needs() CheckNeeds {
+	n := ueSessionNeeds
+	n.Inputs = []Input{InputTraffic}
+	return n
 }
-func (ngapHandoverCancelAck) Needs() CheckNeeds {
-	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleHandover, RoleLiveness}}
-}
-func (ngapUECtxReleaseOnRequest) Needs() CheckNeeds { return ueNeeds }
-func (n3DLQFIContainer) Needs() CheckNeeds          { return ueNeeds }
-func (nasIntegrityFailDiscard) Needs() CheckNeeds   { return ueNeeds }
-func (nasReplayDiscard) Needs() CheckNeeds          { return ueNeeds }
-func (nasCountNotAdvanced) Needs() CheckNeeds       { return ueNeeds }
-func (nasRetransmitNewCount) Needs() CheckNeeds     { return ueNeeds }
-func (nasBadMACRegistration) Needs() CheckNeeds     { return ueNeeds }
+func (nasIntegrityFailDiscard) Needs() CheckNeeds { return ueNeeds }
+func (nasReplayDiscard) Needs() CheckNeeds        { return ueNeeds }
+func (nasCountNotAdvanced) Needs() CheckNeeds     { return ueNeeds }
+func (nasRetransmitNewCount) Needs() CheckNeeds   { return ueNeeds }
+func (nasBadMACRegistration) Needs() CheckNeeds   { return ueNeeds }
 
 // The NAS timer checks measure retransmissions against tmax windows, which
 // a loaded AMF's scheduling jitter would push out.
 func (nasT3560AuthRetransmit) Needs() CheckNeeds   { return timerNeeds }
 func (nasT3550AcceptRetransmit) Needs() CheckNeeds { return timerNeeds }
 
-var timerNeeds = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, RequiresIdleCore: true, IdleCoreReason: timerWindowsReason}
+var timerNeeds = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, RequiresIdleCore: true, IdleCoreReason: timerWindowsReason,
+	Procedures: registrationFirst}
+
+// The owners of the procedures other checks need (ADR-0011 rule 5).
+func (gtpuEchoResponse) Owns() []Procedure            { return []Procedure{ProcGTPUEcho} }
+func (ngapUECtxReleaseOnRequest) Owns() []Procedure   { return []Procedure{ProcANRelease} }
+func (ngapPathSwitchAckTransfer) Owns() []Procedure   { return []Procedure{ProcXnPathSwitch} }
+func (ngapHandoverCommandTransfer) Owns() []Procedure { return []Procedure{ProcN2HandoverPreparation} }
+func (nasDeregAcceptNotSwitchOff) Owns() []Procedure  { return []Procedure{ProcDeregistration} }
+func (serviceRequestReactivates) Owns() []Procedure   { return []Procedure{ProcServiceRequest} }

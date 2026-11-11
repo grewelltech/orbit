@@ -386,8 +386,24 @@ type ConformanceResult struct {
 	// verdict stays FAIL. Unrelated to `expected`, the behaviour the spec
 	// expects.
 	ExpectedFailure *ExpectedFailure `protobuf:"bytes,10,opt,name=expected_failure,json=expectedFailure,proto3" json:"expected_failure,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The check's declared outcome this result reports, by its ID
+	// ("silent-drop"); docs/conformance/checks.md lists every check's.
+	Outcome string `protobuf:"bytes,11,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	// Why a WARN is one: security | availability | interoperability.
+	Criterion string `protobuf:"bytes,12,opt,name=criterion,proto3" json:"criterion,omitempty"`
+	// The references the outcome rests on, each rendered with its strength
+	// ("TS 38.413 10.6 (shall)"): the shall a FAIL violates, the should a
+	// DEVIATION does not follow.
+	OutcomeRefs []string `protobuf:"bytes,13,rep,name=outcome_refs,json=outcomeRefs,proto3" json:"outcome_refs,omitempty"`
+	// Set on a BLOCKED result: the procedure the core did not complete
+	// ("registration") and the check that owns whether it completes.
+	BlockedOn string `protobuf:"bytes,14,opt,name=blocked_on,json=blockedOn,proto3" json:"blocked_on,omitempty"`
+	Owner     string `protobuf:"bytes,15,opt,name=owner,proto3" json:"owner,omitempty"`
+	// Set on an owner check's result that reports a procedure it owns as not
+	// completing.
+	NotCompleted  string `protobuf:"bytes,16,opt,name=not_completed,json=notCompleted,proto3" json:"not_completed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConformanceResult) Reset() {
@@ -490,6 +506,48 @@ func (x *ConformanceResult) GetExpectedFailure() *ExpectedFailure {
 	return nil
 }
 
+func (x *ConformanceResult) GetOutcome() string {
+	if x != nil {
+		return x.Outcome
+	}
+	return ""
+}
+
+func (x *ConformanceResult) GetCriterion() string {
+	if x != nil {
+		return x.Criterion
+	}
+	return ""
+}
+
+func (x *ConformanceResult) GetOutcomeRefs() []string {
+	if x != nil {
+		return x.OutcomeRefs
+	}
+	return nil
+}
+
+func (x *ConformanceResult) GetBlockedOn() string {
+	if x != nil {
+		return x.BlockedOn
+	}
+	return ""
+}
+
+func (x *ConformanceResult) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
+}
+
+func (x *ConformanceResult) GetNotCompleted() string {
+	if x != nil {
+		return x.NotCompleted
+	}
+	return ""
+}
+
 // StaleExpectation is an expected-failures entry whose check ran without the
 // FAIL it tolerates, with what the check gave instead.
 type StaleExpectation struct {
@@ -580,6 +638,7 @@ type SpecRef struct {
 	Changed          []*SpecChange          `protobuf:"bytes,6,rep,name=changed,proto3" json:"changed,omitempty"`
 	WordingUnchanged bool                   `protobuf:"varint,7,opt,name=wording_unchanged,json=wordingUnchanged,proto3" json:"wording_unchanged,omitempty"`
 	Rendered         string                 `protobuf:"bytes,8,opt,name=rendered,proto3" json:"rendered,omitempty"` // the one-line rendering, as in spec_ref
+	Primary          bool                   `protobuf:"varint,9,opt,name=primary,proto3" json:"primary,omitempty"`  // the one reference that names what the check is about
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -668,6 +727,13 @@ func (x *SpecRef) GetRendered() string {
 		return x.Rendered
 	}
 	return ""
+}
+
+func (x *SpecRef) GetPrimary() bool {
+	if x != nil {
+		return x.Primary
+	}
+	return false
 }
 
 // SpecVersion is one specification version whose wording was read.
@@ -1114,7 +1180,7 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	" \x01(\tR\x05runId\x1aE\n" +
 	"\x17SpecTargetReleasesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\xdb\x02\n" +
+	"\x05value\x18\x02 \x01(\rR\x05value:\x028\x01\"\x90\x04\n" +
 	"\x11ConformanceResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bcategory\x18\x02 \x01(\tR\bcategory\x12\x19\n" +
@@ -1127,13 +1193,20 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\vmin_release\x18\t \x01(\rR\n" +
 	"minRelease\x12D\n" +
 	"\x10expected_failure\x18\n" +
-	" \x01(\v2\x19.orbit.v1.ExpectedFailureR\x0fexpectedFailure\"\xa5\x01\n" +
+	" \x01(\v2\x19.orbit.v1.ExpectedFailureR\x0fexpectedFailure\x12\x18\n" +
+	"\aoutcome\x18\v \x01(\tR\aoutcome\x12\x1c\n" +
+	"\tcriterion\x18\f \x01(\tR\tcriterion\x12!\n" +
+	"\foutcome_refs\x18\r \x03(\tR\voutcomeRefs\x12\x1d\n" +
+	"\n" +
+	"blocked_on\x18\x0e \x01(\tR\tblockedOn\x12\x14\n" +
+	"\x05owner\x18\x0f \x01(\tR\x05owner\x12#\n" +
+	"\rnot_completed\x18\x10 \x01(\tR\fnotCompleted\"\xa5\x01\n" +
 	"\x10StaleExpectation\x12\x14\n" +
 	"\x05check\x18\x01 \x01(\tR\x05check\x12\x18\n" +
 	"\afinding\x18\x02 \x01(\tR\afinding\x12+\n" +
 	"\x11expected_observed\x18\x03 \x01(\tR\x10expectedObserved\x12\x18\n" +
 	"\averdict\x18\x04 \x01(\tR\averdict\x12\x1a\n" +
-	"\bobserved\x18\x05 \x01(\tR\bobserved\"\x93\x02\n" +
+	"\bobserved\x18\x05 \x01(\tR\bobserved\"\xad\x02\n" +
 	"\aSpecRef\x12\x12\n" +
 	"\x04spec\x18\x01 \x01(\tR\x04spec\x12\x16\n" +
 	"\x06clause\x18\x02 \x01(\tR\x06clause\x12\x1a\n" +
@@ -1142,7 +1215,8 @@ const file_orbit_v1_conformance_proto_rawDesc = "" +
 	"\bverified\x18\x05 \x03(\v2\x15.orbit.v1.SpecVersionR\bverified\x12.\n" +
 	"\achanged\x18\x06 \x03(\v2\x14.orbit.v1.SpecChangeR\achanged\x12+\n" +
 	"\x11wording_unchanged\x18\a \x01(\bR\x10wordingUnchanged\x12\x1a\n" +
-	"\brendered\x18\b \x01(\tR\brendered\"[\n" +
+	"\brendered\x18\b \x01(\tR\brendered\x12\x18\n" +
+	"\aprimary\x18\t \x01(\bR\aprimary\"[\n" +
 	"\vSpecVersion\x12\x18\n" +
 	"\arelease\x18\x01 \x01(\rR\arelease\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x18\n" +
