@@ -595,26 +595,26 @@ func judgeNoContainer(o initialNASOutcome, wait time.Duration) (Verdict, string,
 	case o.err != nil || o.authReject || o.rejectErr != nil:
 		return initialNASError(o, "the registration", wait)
 	case o.reject != nil && o.rejectBeforeSMC:
-		return InfoDiff, fmt.Sprintf(noContainerEarly, o.rejectCause()),
+		return infoDiffers, fmt.Sprintf(noContainerEarly, o.rejectCause()),
 			"the core refused the initial message, so no SECURITY MODE COMPLETE was sent and the missing container was not exercised; answer: " + o.answer()
 	case o.smcs == 0:
 		return initialNASError(o, "the registration (no SECURITY MODE COMMAND arrived)", wait)
 	case o.smcs >= 2 && o.secondRINMR:
 		return Info, noContainerRINMR, "the registration was stopped at the second SECURITY MODE COMMAND, which the UE did not answer"
 	case o.smcs >= 2:
-		return InfoDiff, noContainerSecondSMC, "the second SECURITY MODE COMMAND has no Additional 5G security information IE with RINMR set; the registration was stopped there, and the UE did not answer it"
+		return infoDiffers, noContainerSecondSMC, "the second SECURITY MODE COMMAND has no Additional 5G security information IE with RINMR set; the registration was stopped there, and the UE did not answer it"
 	case o.reject != nil:
 		detail := "answer: " + o.answer()
 		if o.rejectCause() == cause62 {
 			detail += "; cause #62 \"No network slices available\" answers a Requested NSSAI, and only the initial message carried one, in the clear: the core went on with the unprotected values"
 		}
-		return InfoDiff, fmt.Sprintf(noContainerRejected, o.rejectCause()), detail
+		return infoDiffers, fmt.Sprintf(noContainerRejected, o.rejectCause()), detail
 	case o.registered && o.accept != nil:
-		return InfoDiff, noContainerAccepted, "the core completed the registration with only the unprotected initial message to go on; answer: " + o.answer()
+		return infoDiffers, noContainerAccepted, "the core completed the registration with only the unprotected initial message to go on; answer: " + o.answer()
 	case o.released:
-		return InfoDiff, noContainerReleased, "the core released the UE context without a Registration Accept or Reject"
+		return infoDiffers, noContainerReleased, "the core released the UE context without a Registration Accept or Reject"
 	case o.noAnswer:
-		return InfoDiff, noContainerUnanswered, fmt.Sprintf("no Registration Accept or Reject, second SECURITY MODE COMMAND or release within %s (absence inferred within this bound)", wait)
+		return infoDiffers, noContainerUnanswered, fmt.Sprintf("no Registration Accept or Reject, second SECURITY MODE COMMAND or release within %s (absence inferred within this bound)", wait)
 	}
 	return Error, "no outcome", "the registration ended without a recorded answer"
 }
@@ -702,15 +702,15 @@ func judgeNonCleartext(o initialNASOutcome, wait time.Duration) (Verdict, string
 	case o.err != nil || o.authReject || o.rejectErr != nil:
 		return initialNASError(o, "the registration", wait)
 	case o.reject != nil && o.rejectBeforeSMC:
-		return InfoDiff, fmt.Sprintf(nonCleartextEarly, o.rejectCause()), "the core refused the initial message before authenticating the UE; answer: " + o.answer()
+		return infoDiffers, fmt.Sprintf(nonCleartextEarly, o.rejectCause()), "the core refused the initial message before authenticating the UE; answer: " + o.answer()
 	case o.reject != nil:
-		return InfoDiff, fmt.Sprintf(nonCleartextRejected, o.rejectCause()), "answer: " + o.answer()
+		return infoDiffers, fmt.Sprintf(nonCleartextRejected, o.rejectCause()), "answer: " + o.answer()
 	case o.registered && o.accept != nil:
 		return Info, nonCleartextAccepted, "answer: " + o.answer()
 	case o.released:
-		return InfoDiff, nonCleartextReleased, "the core released the UE context during the registration"
+		return infoDiffers, nonCleartextReleased, "the core released the UE context during the registration"
 	case o.noAnswer:
-		return InfoDiff, nonCleartextUnanswered, fmt.Sprintf("none arrived within %s (absence inferred within this bound)", wait)
+		return infoDiffers, nonCleartextUnanswered, fmt.Sprintf("none arrived within %s (absence inferred within this bound)", wait)
 	}
 	return Error, "no outcome", "the registration ended without a recorded answer"
 }

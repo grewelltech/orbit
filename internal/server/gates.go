@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 )
 
@@ -191,7 +192,8 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 
 // judgeSuite is the conformance gate (ADR-0008 §2): it passes when the
 // suite ran to the end and no check FAILed outside the expected-failures
-// list or ERRORed, Summary.OK as the CLI's exit code has it. observed is
+// list, or gave CRASH, BLOCKED or ERROR, Summary.OK as the CLI's exit code
+// has it. observed is
 // how many did. An incomplete suite fails: an unmeasured suite is not a
 // passed one.
 func judgeSuite(c *orbitv1.ConformanceSummary) (passed bool, observed float64, detail string) {
@@ -206,13 +208,17 @@ func judgeSuite(c *orbitv1.ConformanceSummary) (passed bool, observed float64, d
 	}
 	var bad []string
 	for _, r := range c.GetResults() {
-		switch {
-		case r.GetVerdict() == "FAIL" && r.GetExpectedFailure() == nil, r.GetVerdict() == "ERROR":
+		switch conformance.Verdict(r.GetVerdict()) {
+		case conformance.Fail:
+			if r.GetExpectedFailure() == nil {
+				bad = append(bad, r.GetId()+" "+r.GetVerdict())
+			}
+		case conformance.Crash, conformance.Blocked, conformance.Error:
 			bad = append(bad, r.GetId()+" "+r.GetVerdict())
 		}
 	}
 	if len(bad) > 0 {
 		return false, float64(len(bad)), fmt.Sprintf("%d unexpected: %s", len(bad), strings.Join(bad, ", "))
 	}
-	return true, 0, fmt.Sprintf("%d checks, no unexpected FAIL or ERROR", len(c.GetResults()))
+	return true, 0, fmt.Sprintf("%d checks, no unexpected FAIL, CRASH, BLOCKED or ERROR", len(c.GetResults()))
 }

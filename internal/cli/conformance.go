@@ -143,7 +143,8 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				writeConformanceReport(out, id.String(), sum, expectedPath)
 			}
 			if !sum.OK() {
-				return gateFailed("conformance gate failed: %d fail (%d expected), %d error", sum.Fail, sum.ExpectedFail, sum.Error)
+				return gateFailed("conformance gate failed: %d fail (%d expected), %d crash, %d blocked, %d error",
+					sum.Fail, sum.ExpectedFail, sum.Crash, sum.Blocked, sum.Error)
 			}
 			return nil
 		},
@@ -418,8 +419,7 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 	for _, st := range sum.Stale {
 		_, _ = fmt.Fprintf(out, "stale expected failure: %s %s: now %s %q\n", st.Check, st.Finding, st.Verdict, st.Observed)
 	}
-	_, _ = fmt.Fprintf(out, "\n%d checks: %d pass, %d fail (%d expected), %d deviation, %d error, %d skip, %d info, %d info-diff\n",
-		sum.Total, sum.Pass, sum.Fail, sum.ExpectedFail, sum.Deviation, sum.Error, sum.Skip, sum.Info, sum.InfoDiff)
+	_, _ = fmt.Fprintf(out, "\n%s\n", sum.TallyLine())
 }
 
 // conformanceUEFlags are the conformance flags describing the UE the

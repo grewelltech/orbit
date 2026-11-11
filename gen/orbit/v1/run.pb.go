@@ -407,11 +407,15 @@ type RunSummary struct {
 	// True only when the run had at least one gate and every gate passed.
 	// Read with gates_total: zero gates means "no gates", not "all passed".
 	GatesOk bool `protobuf:"varint,14,opt,name=gates_ok,json=gatesOk,proto3" json:"gates_ok,omitempty"`
-	// Informational conformance verdicts, summed like the headline above:
-	// INFO (the described behaviour was observed) and INFO-DIFF (anything
-	// else). Neither gates.
-	ConformanceInfo      uint32 `protobuf:"varint,15,opt,name=conformance_info,json=conformanceInfo,proto3" json:"conformance_info,omitempty"`
+	// The remaining conformance verdicts, summed like the headline above.
+	ConformanceInfo uint32 `protobuf:"varint,15,opt,name=conformance_info,json=conformanceInfo,proto3" json:"conformance_info,omitempty"`
+	// Always zero: the INFO-DIFF verdict was removed (ADR-0011).
+	//
+	// Deprecated: Marked as deprecated in orbit/v1/run.proto.
 	ConformanceInfoDiffs uint32 `protobuf:"varint,16,opt,name=conformance_info_diffs,json=conformanceInfoDiffs,proto3" json:"conformance_info_diffs,omitempty"`
+	ConformanceWarned    uint32 `protobuf:"varint,17,opt,name=conformance_warned,json=conformanceWarned,proto3" json:"conformance_warned,omitempty"`
+	ConformanceBlocked   uint32 `protobuf:"varint,18,opt,name=conformance_blocked,json=conformanceBlocked,proto3" json:"conformance_blocked,omitempty"`
+	ConformanceCrashed   uint32 `protobuf:"varint,19,opt,name=conformance_crashed,json=conformanceCrashed,proto3" json:"conformance_crashed,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -551,9 +555,31 @@ func (x *RunSummary) GetConformanceInfo() uint32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/run.proto.
 func (x *RunSummary) GetConformanceInfoDiffs() uint32 {
 	if x != nil {
 		return x.ConformanceInfoDiffs
+	}
+	return 0
+}
+
+func (x *RunSummary) GetConformanceWarned() uint32 {
+	if x != nil {
+		return x.ConformanceWarned
+	}
+	return 0
+}
+
+func (x *RunSummary) GetConformanceBlocked() uint32 {
+	if x != nil {
+		return x.ConformanceBlocked
+	}
+	return 0
+}
+
+func (x *RunSummary) GetConformanceCrashed() uint32 {
+	if x != nil {
+		return x.ConformanceCrashed
 	}
 	return 0
 }
@@ -3283,7 +3309,7 @@ func (x *RunEvent) GetCheck() *ConformanceCheckEvent {
 type ConformanceCheckEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CheckId       string                 `protobuf:"bytes,1,opt,name=check_id,json=checkId,proto3" json:"check_id,omitempty"`
-	Verdict       string                 `protobuf:"bytes,2,opt,name=verdict,proto3" json:"verdict,omitempty"`   // PASS | FAIL | ERROR | SKIP | DEVIATION | INFO | INFO-DIFF
+	Verdict       string                 `protobuf:"bytes,2,opt,name=verdict,proto3" json:"verdict,omitempty"`   // PASS | FAIL | DEVIATION | WARN | INFO | BLOCKED | CRASH | SKIP | ERROR
 	Workload      string                 `protobuf:"bytes,3,opt,name=workload,proto3" json:"workload,omitempty"` // the workload whose suite ran it; "" in a run with one suite
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4216,7 +4242,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x0eworkload_kinds\x18\b \x03(\x0e2\x11.orbit.v1.RunKindR\rworkloadKinds\x12#\n" +
 	"\rstopped_early\x18\t \x01(\bR\fstoppedEarly\x12.\n" +
 	"\asummary\x18\n" +
-	" \x01(\v2\x14.orbit.v1.RunSummaryR\asummary\"\xd8\x05\n" +
+	" \x01(\v2\x14.orbit.v1.RunSummaryR\asummary\"\xed\x06\n" +
 	"\n" +
 	"RunSummary\x12'\n" +
 	"\x05kinds\x18\x01 \x03(\x0e2\x11.orbit.v1.RunKindR\x05kinds\x12+\n" +
@@ -4235,8 +4261,11 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"gatesTotal\x12!\n" +
 	"\fgates_passed\x18\r \x01(\rR\vgatesPassed\x12\x19\n" +
 	"\bgates_ok\x18\x0e \x01(\bR\agatesOk\x12)\n" +
-	"\x10conformance_info\x18\x0f \x01(\rR\x0fconformanceInfo\x124\n" +
-	"\x16conformance_info_diffs\x18\x10 \x01(\rR\x14conformanceInfoDiffs\"\xa7\x04\n" +
+	"\x10conformance_info\x18\x0f \x01(\rR\x0fconformanceInfo\x128\n" +
+	"\x16conformance_info_diffs\x18\x10 \x01(\rB\x02\x18\x01R\x14conformanceInfoDiffs\x12-\n" +
+	"\x12conformance_warned\x18\x11 \x01(\rR\x11conformanceWarned\x12/\n" +
+	"\x13conformance_blocked\x18\x12 \x01(\rR\x12conformanceBlocked\x12/\n" +
+	"\x13conformance_crashed\x18\x13 \x01(\rR\x12conformanceCrashed\"\xa7\x04\n" +
 	"\vLoadRunSpec\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12'\n" +

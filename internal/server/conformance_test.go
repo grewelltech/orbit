@@ -116,7 +116,7 @@ func TestRunConformanceStreamsAndSummarises(t *testing.T) {
 		t.Fatal("stream did not end with the summary")
 	}
 	tally := last.GetTally()
-	total := tally.GetPassed() + tally.GetFailed() + tally.GetErrored() + tally.GetSkipped() + tally.GetDeviations() + tally.GetInfo() + tally.GetInfoDiffs()
+	total := tally.GetPassed() + tally.GetFailed() + tally.GetErrored() + tally.GetSkipped() + tally.GetDeviations() + tally.GetInfo() + tally.GetWarned() + tally.GetBlocked() + tally.GetCrashed()
 	if int(total) != results {
 		t.Errorf("tally totals %d but %d tests ran — a result was not counted", total, results)
 	}
@@ -270,8 +270,8 @@ func TestRunConformanceDefaultTargets(t *testing.T) {
 
 // A FAIL the server's list tolerates carries its entry on the wire and is
 // counted in the tally's expected_failures as well as failed; other
-// verdicts are never counted there, and INFO and INFO-DIFF count only as
-// info and info_diffs. Stale entries carry what the check gave.
+// verdicts are never counted there, and INFO, WARN, BLOCKED and CRASH each
+// count only in their own field. Stale entries carry what the check gave.
 func TestConformanceExpectedFailureProto(t *testing.T) {
 	var tally orbitv1.ConformanceTally
 	tolerated := conformance.Result{ID: "A", Verdict: conformance.Fail, Observed: "o",
@@ -285,11 +285,12 @@ func TestConformanceExpectedFailureProto(t *testing.T) {
 	if c := cloneTally(&tally); c.GetExpectedFailures() != 1 {
 		t.Errorf("cloneTally dropped expected_failures: %+v", c)
 	}
-	for _, r := range []conformance.Result{{ID: "D", Verdict: conformance.Info}, {ID: "E", Verdict: conformance.InfoDiff}, {ID: "F", Verdict: conformance.InfoDiff}} {
+	for _, r := range []conformance.Result{{ID: "D", Verdict: conformance.Info}, {ID: "E", Verdict: conformance.Warn}, {ID: "F", Verdict: conformance.Warn},
+		{ID: "G", Verdict: conformance.Blocked}, {ID: "H", Verdict: conformance.Crash}} {
 		addToTally(&tally, r)
 	}
-	if c := cloneTally(&tally); c.GetInfo() != 1 || c.GetInfoDiffs() != 2 || c.GetFailed() != 2 || c.GetExpectedFailures() != 1 || c.GetErrored() != 1 || c.GetPassed() != 0 || c.GetDeviations() != 0 {
-		t.Errorf("tally with the informational verdicts = %+v", c)
+	if c := cloneTally(&tally); c.GetInfo() != 1 || c.GetWarned() != 2 || c.GetBlocked() != 1 || c.GetCrashed() != 1 || c.GetFailed() != 2 || c.GetExpectedFailures() != 1 || c.GetErrored() != 1 || c.GetPassed() != 0 || c.GetDeviations() != 0 {
+		t.Errorf("tally with every verdict = %+v", c)
 	}
 	p := resultProto(tolerated)
 	if e := p.GetExpectedFailure(); e.GetFinding() != "EX-1" || e.GetAdded() != "2026-10-12" || e.GetReason() != "example" || p.GetVerdict() != "FAIL" {

@@ -92,8 +92,8 @@ func TestValidateInformational(t *testing.T) {
 	}
 }
 
-// The class of a check: INFO for an informational one, whose worst verdict
-// is INFO-DIFF; the worst verdict for a graded one.
+// The class of a check: INFO for an informational one; the worst verdict
+// for a graded one.
 func TestVerdictClass(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -101,7 +101,7 @@ func TestVerdictClass(t *testing.T) {
 		wantClass Verdict
 		wantWorst Verdict
 	}{
-		{name: "informational", test: infoTest{provTest{id: "X", refs: []SpecRef{refOf(Descriptive)}}}, wantClass: Info, wantWorst: InfoDiff},
+		{name: "informational", test: infoTest{provTest{id: "X", refs: []SpecRef{refOf(Descriptive)}}}, wantClass: Info, wantWorst: Info},
 		{name: "shall", test: provTest{id: "X", refs: []SpecRef{refOf(Shall)}}, wantClass: Fail, wantWorst: Fail},
 		{name: "should only", test: provTest{id: "X", refs: []SpecRef{refOf(Should)}}, wantClass: Deviation, wantWorst: Deviation},
 	}
@@ -114,14 +114,12 @@ func TestVerdictClass(t *testing.T) {
 	}
 }
 
-// runOne never lets an informational check grade a core: whatever Run
-// returns, the verdict is INFO, INFO-DIFF, ERROR or SKIP, and the detail
-// says the check is informational. The exception is a crash: a FAIL whose
-// Observed is a crash text stays FAIL, for the AMF and the UPF alike, while
-// the same text under another verdict changes nothing. A graded check that
-// returns an informational verdict is an ERROR.
+// runOne never lets an informational check grade a core: a PASS, FAIL or
+// DEVIATION that Run returns is reported as INFO, every other verdict keeps
+// its meaning, and the detail says the check is informational. A graded
+// check that returns INFO is an ERROR.
 func TestRunOneInformational(t *testing.T) {
-	desc, shall, should := refOf(Descriptive), refOf(Shall), refOf(Should)
+	desc, shall := refOf(Descriptive), refOf(Shall)
 	tests := []struct {
 		name          string
 		informational bool
@@ -132,29 +130,19 @@ func TestRunOneInformational(t *testing.T) {
 		wantDetail    string
 	}{
 		{name: "INFO", informational: true, refs: []SpecRef{desc}, run: Info, want: Info},
-		{name: "INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: InfoDiff, want: InfoDiff},
 		{name: "PASS is reported as INFO", informational: true, refs: []SpecRef{desc}, run: Pass, want: Info},
-		{name: "FAIL is reported as INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Fail, want: InfoDiff},
-		{name: "DEVIATION is reported as INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Deviation, want: InfoDiff},
-		{name: "a crash stays FAIL", informational: true, refs: []SpecRef{desc}, run: Fail,
-			observed: ObservedAMFUnresponsive + " (x)", want: Fail},
-		{name: "a dead UPF stays FAIL", informational: true, refs: []SpecRef{desc}, run: Fail,
-			observed: ObservedUPFUnresponsive, want: Fail},
-		{name: "a FAIL that only mentions a crash text is INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Fail,
-			observed: "x; " + ObservedAMFUnresponsive, want: InfoDiff},
-		{name: "a crash text under INFO-DIFF is INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: InfoDiff,
-			observed: ObservedAMFUnresponsive + " (x)", want: InfoDiff},
-		{name: "unresponsive under load is not a crash text", informational: true, refs: []SpecRef{desc}, run: Fail,
-			observed: ObservedAMFUnresponsiveUnderLoad + " (x)", want: InfoDiff},
-		{name: "an unknown verdict is INFO-DIFF", informational: true, refs: []SpecRef{desc}, run: Verdict("MAYBE"), want: InfoDiff},
+		{name: "FAIL is reported as INFO", informational: true, refs: []SpecRef{desc}, run: Fail, want: Info},
+		{name: "DEVIATION is reported as INFO", informational: true, refs: []SpecRef{desc}, run: Deviation, want: Info},
+		{name: "a crash stays CRASH", informational: true, refs: []SpecRef{desc}, run: Crash,
+			observed: ObservedAMFUnresponsive + " (x)", want: Crash},
+		{name: "a dead UPF stays CRASH", informational: true, refs: []SpecRef{desc}, run: Crash,
+			observed: ObservedUPFUnresponsive, want: Crash},
+		{name: "WARN stays WARN", informational: true, refs: []SpecRef{desc}, run: Warn, want: Warn},
+		{name: "BLOCKED stays BLOCKED", informational: true, refs: []SpecRef{desc}, run: Blocked, want: Blocked},
 		{name: "ERROR stays ERROR", informational: true, refs: []SpecRef{desc}, run: Error, want: Error},
 		{name: "SKIP stays SKIP", informational: true, refs: []SpecRef{desc}, run: Skip, want: Skip},
 		{name: "INFO from a shall check is an ERROR", refs: []SpecRef{shall}, run: Info, want: Error,
 			wantDetail: "scored ERROR: INFO is reserved for an informational check"},
-		{name: "INFO-DIFF from a shall check is an ERROR", refs: []SpecRef{shall}, run: InfoDiff, want: Error,
-			wantDetail: "scored ERROR: INFO-DIFF is reserved for an informational check"},
-		{name: "INFO-DIFF from a should-only check is an ERROR", refs: []SpecRef{should}, run: InfoDiff, want: Error,
-			wantDetail: "scored ERROR: INFO-DIFF is reserved for an informational check"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,36 +186,36 @@ func TestRunOneInformationalSkipsOnRelease(t *testing.T) {
 	}
 }
 
-// The informational verdicts are counted on their own and never gate; an
-// ERROR from an informational check gates as any ERROR does, a FAIL beside
-// informational results still gates, and so does an informational check's
-// own FAIL for a core that did not survive.
+// INFO is counted on its own and never gates; an ERROR from an
+// informational check gates as any ERROR does, a FAIL beside informational
+// results still gates, and so does an informational check's own CRASH for a
+// core that did not survive.
 func TestInformationalDoesNotGate(t *testing.T) {
 	desc := []SpecRef{refOf(Descriptive)}
 	info := func(id string, v Verdict) Test {
 		return infoTest{provTest{id: id, refs: desc, result: Result{Verdict: v}}}
 	}
-	crashed := infoTest{provTest{id: "D", refs: desc, result: Result{Verdict: Fail, Observed: ObservedAMFUnresponsive + " (association reset)"}}}
+	crashed := infoTest{provTest{id: "D", refs: desc, result: Result{Verdict: Crash, Observed: ObservedAMFUnresponsive + " (association reset)"}}}
 	tests := []struct {
-		name         string
-		tests        []Test
-		wantInfo     int
-		wantInfoDiff int
-		wantPass     int
-		wantFail     int
-		wantError    int
-		wantOK       bool
+		name      string
+		tests     []Test
+		wantInfo  int
+		wantPass  int
+		wantFail  int
+		wantCrash int
+		wantError int
+		wantOK    bool
 	}{
-		{name: "INFO and INFO-DIFF only", tests: []Test{info("A", Info), info("B", InfoDiff), info("C", InfoDiff)},
-			wantInfo: 1, wantInfoDiff: 2, wantOK: true},
+		{name: "INFO only", tests: []Test{info("A", Info), info("B", Info), info("C", Info)},
+			wantInfo: 3, wantOK: true},
 		{name: "a FAIL returned by an informational check", tests: []Test{info("A", Fail), fakeTest{"B", Procedural, Pass, ""}},
-			wantInfoDiff: 1, wantPass: 1, wantOK: true},
+			wantInfo: 1, wantPass: 1, wantOK: true},
 		{name: "a PASS returned by an informational check is not a pass", tests: []Test{info("A", Pass)}, wantInfo: 1, wantOK: true},
 		{name: "beside a graded FAIL", tests: []Test{info("A", Info), fakeTest{"B", NegativeIE, Fail, ""}},
 			wantInfo: 1, wantFail: 1},
 		{name: "an ERROR from an informational check gates", tests: []Test{info("A", Error)}, wantError: 1},
 		{name: "a core that did not survive an informational check gates", tests: []Test{info("A", Info), crashed},
-			wantInfo: 1, wantFail: 1},
+			wantInfo: 1, wantCrash: 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -236,7 +224,7 @@ func TestInformationalDoesNotGate(t *testing.T) {
 				r.Register(c)
 			}
 			sum := Summarize(r.Run(context.Background(), Env{}, time.Second))
-			if sum.Info != tc.wantInfo || sum.InfoDiff != tc.wantInfoDiff || sum.Pass != tc.wantPass || sum.Fail != tc.wantFail ||
+			if sum.Info != tc.wantInfo || sum.Crash != tc.wantCrash || sum.Pass != tc.wantPass || sum.Fail != tc.wantFail ||
 				sum.Error != tc.wantError || sum.Deviation != 0 || sum.Total != len(tc.tests) {
 				t.Errorf("summary = %+v", sum)
 			}
@@ -247,20 +235,20 @@ func TestInformationalDoesNotGate(t *testing.T) {
 	}
 }
 
-// The JSON summary carries the two counts and each result's verdict as the
-// strings INFO and INFO-DIFF.
+// The JSON summary carries the INFO count and each result's verdict as the
+// string INFO.
 func TestSummaryJSONInformational(t *testing.T) {
 	desc := []SpecRef{refOf(Descriptive)}
 	r := &Registry{}
 	r.Register(infoTest{provTest{id: "A", refs: desc, result: Result{Verdict: Info, Expected: "an acknowledge", Observed: "an acknowledge"}}})
-	r.Register(infoTest{provTest{id: "B", refs: desc, result: Result{Verdict: InfoDiff, Expected: "an acknowledge", Observed: "no answer"}}})
+	r.Register(infoTest{provTest{id: "B", refs: desc, result: Result{Verdict: Info, Expected: "an acknowledge", Observed: "no answer"}}})
 	b, err := json.Marshal(Summarize(r.Run(context.Background(), Env{}, time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var got struct {
-		Total, Pass, Fail, Deviation, Info, InfoDiff int
-		Results                                      []struct {
+		Total, Pass, Fail, Deviation, Info int
+		Results                            []struct {
 			ID       string `json:"id"`
 			Verdict  string `json:"verdict"`
 			Expected string `json:"expected"`
@@ -274,10 +262,10 @@ func TestSummaryJSONInformational(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Total != 2 || got.Info != 1 || got.InfoDiff != 1 || got.Pass != 0 || got.Fail != 0 || got.Deviation != 0 {
+	if got.Total != 2 || got.Info != 2 || got.Pass != 0 || got.Fail != 0 || got.Deviation != 0 {
 		t.Errorf("counts in %s", b)
 	}
-	want := []struct{ id, verdict, observed string }{{"A", "INFO", "an acknowledge"}, {"B", "INFO-DIFF", "no answer"}}
+	want := []struct{ id, verdict, observed string }{{"A", "INFO", "an acknowledge"}, {"B", "INFO", "no answer"}}
 	if len(got.Results) != len(want) {
 		t.Fatalf("%d results in %s", len(got.Results), b)
 	}
@@ -288,7 +276,7 @@ func TestSummaryJSONInformational(t *testing.T) {
 			t.Errorf("result %d = %+v, want %+v", i, g, w)
 		}
 	}
-	for _, key := range []string{`"Info":1`, `"InfoDiff":1`} {
+	for _, key := range []string{`"Info":2`, `"Warn":0`, `"Blocked":0`, `"Crash":0`} {
 		if !strings.Contains(string(b), key) {
 			t.Errorf("summary JSON lacks %s: %s", key, b)
 		}
@@ -314,7 +302,7 @@ func TestExpectedFailuresRefuseInformational(t *testing.T) {
 		name, check, wantErr string
 	}{
 		{name: "graded", check: "GRADED"},
-		{name: "informational", check: "INFORMATIONAL", wantErr: `f.yaml: entry 1: check "INFORMATIONAL" is informational and FAILs only for a core that did not survive; it cannot be listed`},
+		{name: "informational", check: "INFORMATIONAL", wantErr: `f.yaml: entry 1: check "INFORMATIONAL" is informational and never FAILs; it cannot be listed`},
 		{name: "unknown", check: "NOPE", wantErr: `unknown check "NOPE"`},
 	}
 	for _, tc := range cases {
@@ -333,7 +321,7 @@ func TestExpectedFailuresRefuseInformational(t *testing.T) {
 	}
 
 	x := &ExpectedFailures{Core: "c", Version: "v", Entries: []ExpectedFailureEntry{{Check: "A", Observed: "o", Finding: "EX-1", Added: "2026-11-10", Reason: "r"}}}
-	for _, v := range []Verdict{Info, InfoDiff} {
+	for _, v := range []Verdict{Info, Info} {
 		results := []Result{{ID: "A", Verdict: v, Observed: "o"}}
 		x.Apply(results)
 		sum := Summarize(results)
@@ -355,7 +343,7 @@ func TestChecksMarkdownVerdictClass(t *testing.T) {
 		"| [GRADED-SHALL](provenance/GRADED-SHALL.md) | procedural | FAIL | Rel-15 |",
 		"| [GRADED-SHOULD](provenance/GRADED-SHOULD.md) | procedural | DEVIATION | Rel-15 |",
 		"| [INFORMATIONAL](provenance/INFORMATIONAL.md) | procedural | INFO | Rel-15 |",
-		"A check of class `INFO` is informational: it cites descriptive text only, reports `INFO` (the described behaviour) or `INFO-DIFF` (anything else), and does not gate. In every class a core that does not survive a check's stimulus is `FAIL` and gates.",
+		"A check of class `INFO` is informational: it cites descriptive text only, reports `INFO` with what the core did, and does not gate. In every class a core that does not survive a check's stimulus is `CRASH` and gates.",
 		"- TS 38.413 10.3.5 (descriptive, since Rel-15):",
 	} {
 		if !strings.Contains(doc, want) {
@@ -416,18 +404,18 @@ func TestObserveAlive(t *testing.T) {
 		wantDetail   string
 		wantGate     bool
 	}{
-		{name: "dead after an INFO-DIFF", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g}, in: InfoDiff,
-			want: Fail, wantObserved: ObservedAMFUnresponsive + " (no answer)",
+		{name: "dead after an INFO-DIFF", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g}, in: Info,
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (no answer)",
 			wantDetail: "seen; core did not survive the stimulus: the AMF no longer completes a fresh NG Setup", wantGate: true},
 		{name: "dead after an INFO", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g}, in: Info,
-			want: Fail, wantObserved: ObservedAMFUnresponsive + " (no answer)", wantDetail: "core did not survive the stimulus", wantGate: true},
-		{name: "dead under load", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g, Load: func() string { return "fleet" }}, in: InfoDiff,
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (no answer)", wantDetail: "core did not survive the stimulus", wantGate: true},
+		{name: "dead under load", ctx: context.Background(), env: Env{AMFAddr: dead, GNB: g, Load: func() string { return "fleet" }}, in: Info,
 			want: Error, wantObserved: ObservedAMFUnresponsiveUnderLoad + " (no answer)",
 			wantDetail: "AMF unresponsive while population fleet was active; not attributable to this check", wantGate: true},
-		{name: "probe cannot be made", ctx: context.Background(), env: Env{AMFAddr: "127.0.0.1:38412", Bind: "10.0.0.1:0:0", GNB: g}, in: InfoDiff,
-			want: InfoDiff, wantObserved: "no answer", wantDetail: "a fresh NG Setup afterwards could not be tried"},
-		{name: "per-test timeout already expired", ctx: expired, env: Env{AMFAddr: dead, GNB: g}, in: InfoDiff,
-			want: InfoDiff, wantObserved: "no answer", wantDetail: "a fresh NG Setup afterwards was not tried"},
+		{name: "probe cannot be made", ctx: context.Background(), env: Env{AMFAddr: "127.0.0.1:38412", Bind: "10.0.0.1:0:0", GNB: g}, in: Info,
+			want: Info, wantObserved: "no answer", wantDetail: "a fresh NG Setup afterwards could not be tried"},
+		{name: "per-test timeout already expired", ctx: expired, env: Env{AMFAddr: dead, GNB: g}, in: Info,
+			want: Info, wantObserved: "no answer", wantDetail: "a fresh NG Setup afterwards was not tried"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

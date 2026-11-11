@@ -175,7 +175,7 @@ func TestT3560CheckAgainstMock(t *testing.T) {
 		{name: "late release", opts: []mockamf.Option{mockamf.WithT3560(T, 4), mockamf.WithT3560ReleaseAfter(3 * T)}, want: Fail,
 			wantObserved: "UE Context Release Command late after the fifth T3560 expiry"},
 		{name: "core dies at the release", opts: []mockamf.Option{mockamf.WithT3560(T, 4), mockamf.WithCrashAfterRelease()},
-			want: Fail, wantObserved: ObservedAMFUnresponsive + " (4 retransmissions of Authentication Request, then UE Context Release Command)", dead: true},
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (4 retransmissions of Authentication Request, then UE Context Release Command)", dead: true},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {

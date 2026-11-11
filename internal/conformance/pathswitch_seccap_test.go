@@ -86,7 +86,7 @@ func TestPathSwitchSecCapCheckAgainstMockPair(t *testing.T) {
 		{name: "path switch request unanswered", net24: testnet.ConformanceSecCapIgnored, opts: []mockamf.Option{mockamf.WithPathSwitchAnswer(mockamf.IgnorePathSwitch)},
 			want: Fail, wantObserved: secCapNoAck, wantDetail: []string{pathSwitchSecCapFailure, "no Acknowledge within 400ms"}},
 		{name: "stops answering", net24: testnet.ConformanceSecCapCrash, opts: []mockamf.Option{mockamf.WithPathSwitchAnswer(mockamf.CrashOnPathSwitch)},
-			want: Fail, wantObserved: ObservedAMFUnresponsive + " (" + secCapNoAck + ")", dead: true,
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (" + secCapNoAck + ")", dead: true,
 			wantDetail: []string{"the AMF stopped completing NG Setup after the PATH SWITCH REQUEST with mismatching UE security capabilities"}},
 	}
 	for _, tc := range tests {

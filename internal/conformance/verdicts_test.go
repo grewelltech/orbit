@@ -152,8 +152,8 @@ func TestRunOneVerdictRule(t *testing.T) {
 		wantDetail string
 	}{
 		{name: "FAIL from a should-only check", refs: []SpecRef{should}, run: Fail, want: Deviation},
-		{name: "a crash on a should-only check stays FAIL", refs: []SpecRef{should}, run: Fail, observed: ObservedAMFUnresponsive + " (x)", want: Fail},
-		{name: "a dead UPF on a should-only check stays FAIL", refs: []SpecRef{should}, run: Fail, observed: ObservedUPFUnresponsive, want: Fail},
+		{name: "a crash on a should-only check stays CRASH", refs: []SpecRef{should}, run: Crash, observed: ObservedAMFUnresponsive + " (x)", want: Crash},
+		{name: "a dead UPF on a should-only check stays CRASH", refs: []SpecRef{should}, run: Crash, observed: ObservedUPFUnresponsive, want: Crash},
 		{name: "DEVIATION from a shall-only check", refs: []SpecRef{shall}, run: Deviation, want: Fail,
 			wantDetail: "scored FAIL: DEVIATION is reserved for a missed should"},
 		{name: "DEVIATION from a check citing a should", refs: []SpecRef{shall, should}, run: Deviation, want: Deviation},
@@ -193,7 +193,7 @@ var informational = map[string]bool{
 }
 
 // Every registered check's worst verdict follows what it cites: DEVIATION
-// for the should-only checks named in shouldOnly, INFO-DIFF for the
+// for the should-only checks named in shouldOnly, INFO for the
 // informational checks named in informational, FAIL for every other. A
 // check that changes class changes this on purpose.
 func TestEveryCheckWorstVerdict(t *testing.T) {
@@ -205,7 +205,7 @@ func TestEveryCheckWorstVerdict(t *testing.T) {
 			want = Deviation
 			seen++
 		case informational[c.ID()]:
-			want = InfoDiff
+			want = Info
 			seen++
 		}
 		if got := WorstVerdict(c); got != want {

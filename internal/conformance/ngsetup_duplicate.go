@@ -205,7 +205,7 @@ func judgeDuplicate(outcome string, firstKept bool) (Verdict, string) {
 	if firstKept {
 		first = duplicateFirstKept
 	}
-	v := InfoDiff
+	v := infoDiffers
 	if outcome == duplicateAccepted && firstKept {
 		v = Info
 	}

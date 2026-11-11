@@ -139,7 +139,7 @@ func TestRegistrationAfterReleaseAgainstMock(t *testing.T) {
 			wantDetail:   []string{"0 of 2 registrations answered", "gap 5ms: not run: not tried after a deregistration without a release", "state left: the association was closed with the UE not registered"},
 			wantRegs:     1, wantDeregs: 1},
 		{name: "core dies at the registration", opts: []mockamf.Option{mockamf.WithDropRegistrationAfterRelease(time.Hour), mockamf.WithCrashOnDroppedRegistration()},
-			gaps: []time.Duration{0}, want: Fail, wantObserved: ObservedAMFUnresponsive + " (" + regAfterReleaseUnanswered + ")",
+			gaps: []time.Duration{0}, want: Crash, wantObserved: ObservedAMFUnresponsive + " (" + regAfterReleaseUnanswered + ")",
 			wantRegs: 1, wantDropped: 1, wantDeregs: 1, dead: true},
 		{name: "first registration fails", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, gaps: []time.Duration{0}, want: Error,
 			wantObserved: "registration failed", wantRegs: 1},

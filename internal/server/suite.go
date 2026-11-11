@@ -167,7 +167,8 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 			live.add(one[0])
 			if emit != nil {
 				sev := "info"
-				if one[0].Verdict == conformance.Fail || one[0].Verdict == conformance.Error {
+				switch one[0].Verdict {
+				case conformance.Fail, conformance.Crash, conformance.Blocked, conformance.Error:
 					sev = "error"
 				}
 				emit(sev, "CONFORMANCE", "", fmt.Sprintf("%s %s", one[0].ID, one[0].Verdict))

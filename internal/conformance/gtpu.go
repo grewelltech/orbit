@@ -169,7 +169,7 @@ func (c gtpuUnknownTEID) Run(ctx context.Context, env Env) Result {
 		return cutShortResult(r, gtpuNeeds(errWait, echo))
 	}
 	if !alive {
-		r.Verdict, r.Observed = Fail, ObservedUPFUnresponsive
+		r.Verdict, r.Observed = Crash, ObservedUPFUnresponsive
 		r.Detail = fmt.Sprintf("the UPF answered a GTP-U Echo Request before the unknown-TEID G-PDU but not within %s after it, "+
 			"and sent no Error Indication: it may not have survived the G-PDU", echo)
 		return r

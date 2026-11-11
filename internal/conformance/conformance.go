@@ -27,30 +27,6 @@ import (
 	"github.com/bgrewell/orbit/internal/sctp"
 )
 
-// Verdict is a conformance test outcome.
-type Verdict string
-
-const (
-	Pass  Verdict = "PASS"  // the core behaved as the spec requires
-	Fail  Verdict = "FAIL"  // the core violated the asserted behaviour
-	Error Verdict = "ERROR" // the test could not run (setup failure)
-	Skip  Verdict = "SKIP"  // not applicable / not exercised
-	// Deviation is a missed "should": a recommendation the core does not
-	// follow. It does not fail the CI gate. A missed "shall" is always Fail;
-	// a known, tolerated failure goes on the core's expected-failures list,
-	// not into a softer verdict.
-	Deviation Verdict = "DEVIATION"
-	// Info and InfoDiff are the two outcomes of an informational check (see
-	// Informer): one that reports behaviour the specifications describe but
-	// do not require. Info is the described behaviour, observed; InfoDiff is
-	// anything else the core did. Neither is a judgement of the core and
-	// neither gates: the exit code, the suite gate and the expected-failures
-	// list ignore both. A core that does not survive such a check's stimulus
-	// is Fail, as in every class.
-	Info     Verdict = "INFO"
-	InfoDiff Verdict = "INFO-DIFF"
-)
-
 // Category groups tests for reporting and selective runs.
 type Category string
 
@@ -358,11 +334,11 @@ func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 }
 
 // Observed texts the liveness probes write. They are shared with
-// LoadExpectedFailures, which refuses a list entry for any of them, and with
-// runOne, which never demotes a crash: a list can never tolerate a dead core
-// or a check that could not confirm it was alive.
+// LoadExpectedFailures, which refuses a list entry for any of them: a list
+// can never tolerate a dead core or a check that could not confirm it was
+// alive.
 const (
-	// ObservedAMFUnresponsive prefixes a FAIL whose fresh NG Setup no longer
+	// ObservedAMFUnresponsive prefixes a CRASH: the fresh NG Setup no longer
 	// completes after the stimulus (confirmAlive).
 	ObservedAMFUnresponsive = "AMF unresponsive after the message"
 	// ObservedAMFUnresponsiveUnderLoad prefixes the ERROR for the same
@@ -371,7 +347,7 @@ const (
 	// ObservedProbeFailed prefixes an ERROR whose liveness probe could not
 	// be made (confirmAlive).
 	ObservedProbeFailed = "liveness probe could not run"
-	// ObservedUPFUnresponsive is a FAIL whose UPF answered GTP-U Echo before
+	// ObservedUPFUnresponsive is a CRASH: the UPF answered GTP-U Echo before
 	// the unknown-TEID G-PDU and not after it.
 	ObservedUPFUnresponsive = "UPF unresponsive after the G-PDU (no Echo Response)"
 	// ObservedUPFNoEcho is an ERROR whose UPF did not answer GTP-U Echo
@@ -404,11 +380,8 @@ func cutShortResult(r Result, needs string) Result {
 }
 
 // livenessTexts are the Observed prefixes no expected-failures entry may
-// name; crashTexts are those that report a core that stopped answering.
-var (
-	livenessTexts = []string{ObservedAMFUnresponsive, ObservedAMFUnresponsiveUnderLoad, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho, ObservedProbeCutShort}
-	crashTexts    = []string{ObservedAMFUnresponsive, ObservedUPFUnresponsive}
-)
+// name.
+var livenessTexts = []string{ObservedAMFUnresponsive, ObservedAMFUnresponsiveUnderLoad, ObservedProbeFailed, ObservedUPFUnresponsive, ObservedUPFNoEcho, ObservedProbeCutShort}
 
 // hasPrefixAny reports whether s starts with any of prefixes.
 func hasPrefixAny(s string, prefixes []string) bool {
@@ -423,7 +396,7 @@ func hasPrefixAny(s string, prefixes []string) bool {
 // confirmAlive applies the crash-safety confirmation to a result in which
 // the association survived the message (survived), whatever the verdict: a
 // PASS, or a FAIL for a missed shall such as a silent drop. A fresh NG Setup
-// must still complete. If it does not, the core did not survive: FAIL with
+// must still complete. If it does not, the core did not survive: CRASH with
 // its own Observed text, so an expected-failures entry for the survivable
 // outcome never hides a dead core. If the probe itself cannot be made, that
 // says nothing about the core (ERROR), and neither does a probe the
@@ -450,7 +423,7 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 		r.Observed = ObservedAMFUnresponsiveUnderLoad + " (" + r.Observed + ")"
 		r.Detail = fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy())
 	case !alive:
-		r.Verdict = Fail
+		r.Verdict = Crash
 		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
 		r.Detail = failDetail
 	}
@@ -461,8 +434,8 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 // fresh NG Setup after the stimulus, which after names ("the RAN
 // CONFIGURATION UPDATE"), and records the result in r's detail. A core that
 // no longer completes it did not survive the stimulus: the result becomes
-// FAIL with ObservedAMFUnresponsive, as confirmAlive gives a graded check,
-// and it gates (runOne keeps it, so a crash is never demoted). The same
+// CRASH with ObservedAMFUnresponsive, as confirmAlive gives a graded check,
+// and it gates. The same
 // silence while a population loads the core is not attributable to the
 // check and is ERROR, as for a graded check. A probe that could not be
 // made, or that the per-test timeout cut short, says nothing about the core
@@ -485,9 +458,9 @@ func observeAlive(ctx context.Context, env Env, r Result, after string) Result {
 		r.Observed = ObservedAMFUnresponsiveUnderLoad + " (" + r.Observed + ")"
 		r.Detail = joinDetail(r.Detail, fmt.Sprintf("AMF unresponsive while population %s was active; not attributable to this check", env.loadedBy()))
 	default:
-		r.Verdict = Fail
+		r.Verdict = Crash
 		r.Observed = ObservedAMFUnresponsive + " (" + r.Observed + ")"
-		r.Detail = joinDetail(r.Detail, "core did not survive "+after+": the AMF no longer completes a fresh NG Setup; a core that stops answering is FAIL in every verdict class")
+		r.Detail = joinDetail(r.Detail, "core did not survive "+after+": the AMF no longer completes a fresh NG Setup")
 	}
 	return r
 }
@@ -632,12 +605,12 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 // result. The verdict follows the check's references (WorstVerdict): a FAIL
 // from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
 // check that cites no should becomes FAIL, since DEVIATION is reserved for a
-// missed should. A crash (the core stopped answering) is never demoted, in
-// any class. An informational check is scored by scoreInformational instead
-// and gives no PASS or DEVIATION, and FAIL only for a crash; INFO or
-// INFO-DIFF from any other check is an ERROR. Every result's detail ends with the requirement line; when the
-// target is newer than the releases the wording was verified through, the
-// detail says so.
+// missed should. CRASH, BLOCKED, WARN, SKIP and ERROR pass through in every
+// class. An informational check is scored by scoreInformational instead and
+// gives no PASS, FAIL or DEVIATION; INFO from any other check is an ERROR.
+// Every result's detail ends with the requirement line; when the target is
+// newer than the releases the wording was verified through, the detail says
+// so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	min := MinRelease(t)
 	var res Result
@@ -658,10 +631,10 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		switch {
 		case IsInformational(t):
 			res.Verdict = scoreInformational(res)
-		case res.Verdict == Info || res.Verdict == InfoDiff:
-			res.Detail = joinDetail(res.Detail, fmt.Sprintf("scored ERROR: %s is reserved for an informational check", res.Verdict))
+		case res.Verdict == Info || res.Verdict == infoDiffers:
+			res.Detail = joinDetail(res.Detail, "scored ERROR: INFO is reserved for an informational check")
 			res.Verdict = Error
-		case res.Verdict == Fail && WorstVerdict(t) == Deviation && !hasPrefixAny(res.Observed, crashTexts):
+		case res.Verdict == Fail && WorstVerdict(t) == Deviation:
 			res.Verdict = Deviation
 		case res.Verdict == Deviation && !cites(t, Should):
 			res.Verdict = Fail
@@ -687,24 +660,23 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 
 // informationalNote is what every result of an informational check says
 // ahead of its requirement line, whatever its verdict.
-const informationalNote = "informational: reported, not graded; only a core that does not survive gates"
+const informationalNote = "informational: reported, not graded"
+
+// infoDiffers is what an informational check that has not declared its
+// outcomes returns for behaviour other than the described one. It never
+// leaves runOne, which reports it as INFO (scoreInformational).
+const infoDiffers Verdict = "info-differs"
 
 // scoreInformational is the verdict an informational check's result is
-// reported with: INFO for the described behaviour (the check's INFO or
-// PASS), INFO-DIFF for anything else it observed (its INFO-DIFF, DEVIATION,
-// or FAIL for a core that kept answering). A FAIL whose Observed is a crash
-// text (crashTexts: the core did not survive the stimulus) stays FAIL and
-// gates. ERROR and SKIP keep their meaning.
+// reported with: INFO for whatever the core did (the check's INFO,
+// infoDiffers, PASS, FAIL or DEVIATION), the observed text saying whether
+// it is the described behaviour. Every other verdict keeps its meaning.
 func scoreInformational(res Result) Verdict {
-	switch v := res.Verdict; {
-	case v == Info || v == Pass:
+	switch res.Verdict {
+	case Pass, Fail, Deviation, infoDiffers:
 		return Info
-	case v == Error || v == Skip:
-		return v
-	case v == Fail && hasPrefixAny(res.Observed, crashTexts):
-		return Fail
 	}
-	return InfoDiff
+	return res.Verdict
 }
 
 // skipReason reports whether a check SKIPs under e's targets, and why. A
@@ -802,11 +774,10 @@ func (r *Registry) indexOf(t Test) int {
 
 // Summary tallies a suite run for reporting and CI gating.
 type Summary struct {
-	Total, Pass, Fail, Error, Skip, Deviation int
-	// Info and InfoDiff count the informational checks' two outcomes
-	// (INFO, INFO-DIFF); neither gates (OK).
-	Info, InfoDiff int
-	Results        []Result
+	Total int
+	// One count per verdict (see Count).
+	Pass, Fail, Deviation, Warn, Info, Blocked, Crash, Skip, Error int
+	Results                                                        []Result
 	// N2Source records which address the checks were taken from: the
 	// configured Env.Bind in sctp.NormalizeLocal's ip:0 form, or, unbound,
 	// the route-selected IP alone. It is never a bound ip:port: every check
@@ -875,34 +846,69 @@ func (e Env) Network() *NetworkIdentity {
 func Summarize(results []Result) Summary {
 	s := Summary{Total: len(results), Results: results, SpecTargets: map[string]Release{}}
 	for _, r := range results {
-		switch r.Verdict {
-		case Pass:
-			s.Pass++
-		case Fail:
-			s.Fail++
-			if r.ExpectedFailure != nil {
-				s.ExpectedFail++
-			}
-		case Error:
-			s.Error++
-		case Skip:
-			s.Skip++
-		case Deviation:
-			s.Deviation++
-		case Info:
-			s.Info++
-		case InfoDiff:
-			s.InfoDiff++
+		if n := s.counter(r.Verdict); n != nil {
+			*n++
+		}
+		if r.Verdict == Fail && r.ExpectedFailure != nil {
+			s.ExpectedFail++
 		}
 	}
 	return s
 }
 
+// counter is the tally field for v, nil for a verdict outside the nine.
+func (s *Summary) counter(v Verdict) *int {
+	switch v {
+	case Pass:
+		return &s.Pass
+	case Fail:
+		return &s.Fail
+	case Deviation:
+		return &s.Deviation
+	case Warn:
+		return &s.Warn
+	case Info:
+		return &s.Info
+	case Blocked:
+		return &s.Blocked
+	case Crash:
+		return &s.Crash
+	case Skip:
+		return &s.Skip
+	case Error:
+		return &s.Error
+	}
+	return nil
+}
+
+// Count is how many results have verdict v.
+func (s Summary) Count(v Verdict) int {
+	if n := s.counter(v); n != nil {
+		return *n
+	}
+	return 0
+}
+
+// TallyLine renders the counts on one line, every verdict in the order of
+// Verdicts: "4 checks: 1 pass, 2 fail (1 expected), 0 deviation, ...".
+func (s Summary) TallyLine() string {
+	parts := make([]string, 0, len(verdicts))
+	for _, v := range verdicts {
+		part := fmt.Sprintf("%d %s", s.Count(v), v.Label())
+		if v == Fail {
+			part += fmt.Sprintf(" (%d expected)", s.ExpectedFail)
+		}
+		parts = append(parts, part)
+	}
+	return fmt.Sprintf("%d checks: %s", s.Total, strings.Join(parts, ", "))
+}
+
 // OK reports a clean run: no FAIL beyond those the expected-failures list
-// tolerates, and no harness errors. This is the integration-CI gate.
-// Deviations (missed shoulds), the informational verdicts (INFO, INFO-DIFF)
-// and stale entries do not fail it.
-func (s Summary) OK() bool { return s.Fail-s.ExpectedFail == 0 && s.Error == 0 }
+// tolerates, and no CRASH, BLOCKED or ERROR. This is the integration-CI
+// gate. DEVIATION, WARN, INFO, SKIP and stale entries do not fail it.
+func (s Summary) OK() bool {
+	return s.Fail-s.ExpectedFail == 0 && s.Crash == 0 && s.Blocked == 0 && s.Error == 0
+}
 
 // builtins is the registered test set (populated in the tests_*.go files).
 var builtins []Test

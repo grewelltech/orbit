@@ -142,16 +142,16 @@ func classifyRANConfigAck(resp *ngapType.NGAPPDU, err error, after, wait time.Du
 	case err == nil && gnb.IsRANConfigurationUpdateAcknowledge(resp):
 		return Info, ranConfigAckObserved, fmt.Sprintf("acknowledged %s after the RAN CONFIGURATION UPDATE", after)
 	case err == nil && gnb.IsRANConfigurationUpdateFailure(resp):
-		return InfoDiff, ranConfigAckFailure,
+		return infoDiffers, ranConfigAckFailure,
 			joinDetail(fmt.Sprintf("answered with RAN CONFIGURATION UPDATE FAILURE, cause %s, %s after the RAN CONFIGURATION UPDATE", ranConfigFailureCause(resp), after), ranConfigAckText)
 	case err == nil:
-		return InfoDiff, ranConfigAckErrorInd,
+		return infoDiffers, ranConfigAckErrorInd,
 			joinDetail(fmt.Sprintf("answered with ERROR INDICATION, cause %s, %s after the RAN CONFIGURATION UPDATE", errorIndicationCause(resp), after), ranConfigAckText)
 	case errors.Is(err, context.DeadlineExceeded):
-		return InfoDiff, ranConfigAckNoAnswer,
+		return infoDiffers, ranConfigAckNoAnswer,
 			joinDetail(fmt.Sprintf("no RAN CONFIGURATION UPDATE ACKNOWLEDGE or FAILURE within %s of the RAN CONFIGURATION UPDATE (absence inferred within this bound)", wait), ranConfigAckText)
 	default:
-		return InfoDiff, ranConfigAckAssociation,
+		return infoDiffers, ranConfigAckAssociation,
 			joinDetail(fmt.Sprintf("the association was lost %s after the RAN CONFIGURATION UPDATE (%v)", after, err), ranConfigAckText)
 	}
 }

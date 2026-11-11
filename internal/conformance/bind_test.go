@@ -187,7 +187,7 @@ func TestConfirmAliveUnderLoadIsError(t *testing.T) {
 		wantPrefix  string
 	}{
 		{name: "under load", load: "fleet", wantVerdict: Error, wantPrefix: ObservedAMFUnresponsiveUnderLoad},
-		{name: "idle core", wantVerdict: Fail, wantPrefix: ObservedAMFUnresponsive},
+		{name: "idle core", wantVerdict: Crash, wantPrefix: ObservedAMFUnresponsive},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

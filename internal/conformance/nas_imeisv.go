@@ -103,7 +103,7 @@ func judgeIMEISV(o initialNASOutcome, wait time.Duration) (Verdict, string, stri
 	}
 	ended := "answer: " + o.answer()
 	if !o.imeisvRequested {
-		return InfoDiff, imeisvNotRequested, "the SECURITY MODE COMMAND has no IMEISV request IE set to \"IMEISV requested\"; " + ended
+		return infoDiffers, imeisvNotRequested, "the SECURITY MODE COMMAND has no IMEISV request IE set to \"IMEISV requested\"; " + ended
 	}
 	switch {
 	case slices.Contains(o.identities, nasMessage.MobileIdentity5GSTypeImeisv):
@@ -113,18 +113,18 @@ func judgeIMEISV(o initialNASOutcome, wait time.Duration) (Verdict, string, stri
 		for i, id := range o.identities {
 			names[i] = identityTypeName(id)
 		}
-		return InfoDiff, fmt.Sprintf(imeisvOtherID, names[0]),
+		return infoDiffers, fmt.Sprintf(imeisvOtherID, names[0]),
 			fmt.Sprintf("identities requested after the SECURITY MODE COMPLETE: %s; the UE answered; %s", strings.Join(names, ", "), ended)
 	case o.smcs >= 2:
-		return InfoDiff, imeisvSecondSMC, "the registration was stopped at the second SECURITY MODE COMMAND, which the UE did not answer"
+		return infoDiffers, imeisvSecondSMC, "the registration was stopped at the second SECURITY MODE COMMAND, which the UE did not answer"
 	case o.reject != nil:
-		return InfoDiff, fmt.Sprintf(imeisvRejected, o.rejectCause()), ended
+		return infoDiffers, fmt.Sprintf(imeisvRejected, o.rejectCause()), ended
 	case o.registered && o.accept != nil:
-		return InfoDiff, imeisvAccepted, ended
+		return infoDiffers, imeisvAccepted, ended
 	case o.released:
-		return InfoDiff, imeisvReleased, "the core released the UE context without a Registration Accept or Reject"
+		return infoDiffers, imeisvReleased, "the core released the UE context without a Registration Accept or Reject"
 	case o.noAnswer:
-		return InfoDiff, imeisvUnanswered, fmt.Sprintf("no Registration Accept or Reject, IDENTITY REQUEST or release within %s (absence inferred within this bound)", wait)
+		return infoDiffers, imeisvUnanswered, fmt.Sprintf("no Registration Accept or Reject, IDENTITY REQUEST or release within %s (absence inferred within this bound)", wait)
 	}
 	return Error, "no outcome", "the registration ended without a recorded answer"
 }

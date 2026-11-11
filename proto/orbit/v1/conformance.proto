@@ -105,8 +105,8 @@ message ConformanceResult {
   string id = 1;
   string category = 2;
   string spec_ref = 3;
-  // PASS | FAIL | ERROR | SKIP | DEVIATION, or, from an informational
-  // check (descriptive references only; not graded), INFO | INFO-DIFF.
+  // One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
+  // INFO | BLOCKED | CRASH | SKIP | ERROR.
   string verdict = 4;
   string expected = 5;
   string observed = 6;
@@ -165,10 +165,13 @@ message ConformanceTally {
   uint32 deviations = 5;
   // FAILs the expected-failures list tolerates; they are in `failed` too.
   uint32 expected_failures = 6;
-  // The informational checks' outcomes: INFO (the described behaviour was
-  // observed) and INFO-DIFF (anything else). Neither gates.
+  // INFO results: behaviour recorded where no requirement applies.
   uint32 info = 7;
-  uint32 info_diffs = 8;
+  // Always zero: the INFO-DIFF verdict was removed (ADR-0011).
+  uint32 info_diffs = 8 [deprecated = true];
+  uint32 warned = 9;              // WARN
+  uint32 blocked = 10;            // BLOCKED
+  uint32 crashed = 11;            // CRASH
 }
 
 message ListConformanceTestsRequest {}

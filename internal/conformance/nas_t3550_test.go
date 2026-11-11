@@ -112,7 +112,7 @@ func TestT3550CheckAgainstMock(t *testing.T) {
 		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error,
 			wantObserved: "Authentication Reject before the T3550 window"},
 		{name: "core dies at the abort", opts: []mockamf.Option{guti, mockamf.WithT3550(T, 4), mockamf.WithCrashAfterT3550Abort()},
-			want: Fail, wantObserved: ObservedAMFUnresponsive + " (4 retransmissions of Registration Accept)", dead: true},
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (4 retransmissions of Registration Accept)", dead: true},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {

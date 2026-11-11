@@ -100,13 +100,13 @@ func TestGTPUUnknownTEIDLiveness(t *testing.T) {
 	}{
 		{name: "answers both, discards", echoes: 2, want: Fail, wantObserved: "no Error Indication", wantListed: true},
 		{name: "answers neither", echoes: 0, want: Error, wantObserved: ObservedUPFNoEcho},
-		{name: "answers the first only", echoes: 1, want: Fail, wantObserved: ObservedUPFUnresponsive},
+		{name: "answers the first only", echoes: 1, want: Crash, wantObserved: ObservedUPFUnresponsive},
 		{name: "sends the Error Indication", echoes: 2, errInd: true, want: Pass, wantObserved: "Error Indication (TEID-I echoes the probe)"},
 		// A response must carry the probe's own sequence number.
 		{name: "answers with the wrong sequence", echoes: 2, seqOffset: 100, want: Error, wantObserved: ObservedUPFNoEcho},
 		// The first probe's answer, repeated late, arrives while the second
 		// probe waits; it must not count as the second answer.
-		{name: "late reply to the first probe", echoes: 1, lateDup: 300 * time.Millisecond, want: Fail, wantObserved: ObservedUPFUnresponsive},
+		{name: "late reply to the first probe", echoes: 1, lateDup: 300 * time.Millisecond, want: Crash, wantObserved: ObservedUPFUnresponsive},
 		// The per-test timeout expiring during a probe is the harness's
 		// doing: ERROR, never a crash FAIL, keeping what was seen before.
 		// The reviewer's case: a live UPF that always answers, with a

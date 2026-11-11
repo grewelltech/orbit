@@ -193,7 +193,7 @@ func TestRANConfigSyntaxAgainstMock(t *testing.T) {
 			wantObserved: "silently dropped; association survived", wantDetail: "no ERROR INDICATION within 300ms", wantAlive: true},
 		{name: "drops the association", answer: mockamf.CloseOnUndecodable, want: Deviation, wantRun: Fail,
 			wantObserved: "association reset", wantDetail: "a fresh NG Setup still completes, so the AMF dropped the association and kept running", wantAlive: true},
-		{name: "stops answering", answer: mockamf.CrashOnUndecodable, want: Fail, wantRun: Fail,
+		{name: "stops answering", answer: mockamf.CrashOnUndecodable, want: Crash, wantRun: Crash,
 			wantObserved: ObservedAMFUnresponsive + " (association reset)", wantDetail: "the core did not survive the malformed RAN CONFIGURATION UPDATE"},
 	}
 	for _, tc := range tests {

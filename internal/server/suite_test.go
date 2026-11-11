@@ -305,11 +305,13 @@ func TestJudgeSuite(t *testing.T) {
 		wantDetail string
 	}{
 		{name: "clean", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "PASS", false), res("B", "SKIP", false), res("C", "DEVIATION", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL or ERROR"},
-		{name: "informational verdicts never gate", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "PASS", false), res("B", "INFO", false), res("C", "INFO-DIFF", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL or ERROR"},
-		{name: "an informational verdict beside a FAIL does not hide it", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
-			res("A", "INFO-DIFF", false), res("B", "FAIL", false)}}, wantDetail: "1 unexpected: B FAIL"},
+			res("A", "PASS", false), res("B", "SKIP", false), res("C", "DEVIATION", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL, CRASH, BLOCKED or ERROR"},
+		{name: "INFO and WARN do not gate", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "PASS", false), res("B", "INFO", false), res("C", "WARN", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL, CRASH, BLOCKED or ERROR"},
+		{name: "an INFO beside a FAIL does not hide it", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
+			res("A", "INFO", false), res("B", "FAIL", false)}}, wantDetail: "1 unexpected: B FAIL"},
+		{name: "CRASH and BLOCKED gate", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "CRASH", false), res("B", "BLOCKED", false), res("C", "PASS", false)}}, wantDetail: "2 unexpected: A CRASH, B BLOCKED"},
 		{name: "an expected FAIL", summary: &orbitv1.ConformanceSummary{Total: 1, Results: []*orbitv1.ConformanceResult{
 			res("A", "FAIL", true)}}, wantPass: true},
 		{name: "an unexpected FAIL and an ERROR", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{

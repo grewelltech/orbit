@@ -49,11 +49,19 @@ function Outcome({ outcome }: { outcome?: RunOutcome }) {
   if (outcome.conformance) {
     const c = outcome.conformance;
     const realFail = Math.max(0, c.failed - c.expectedFailures);
-    // An ERROR is a failed check too (the suite couldn't judge it), so a run
-    // with errors must not read as a healthy green result.
-    const bad = realFail > 0 || c.errored > 0;
+    // A CRASH, a BLOCKED and an ERROR are unjudged checks, so a run with any
+    // must not read as a healthy green result.
+    const bad = realFail > 0 || c.crashed > 0 || c.blocked > 0 || c.errored > 0;
     const color = bad ? "var(--o-error)" : "var(--o-ok, #2f9e52)";
-    const extra = [realFail > 0 ? `${realFail} fail` : "", c.errored > 0 ? `${c.errored} error` : ""].filter(Boolean).join(" · ");
+    const extra = [
+      realFail > 0 ? `${realFail} fail` : "",
+      c.crashed > 0 ? `${c.crashed} crash` : "",
+      c.blocked > 0 ? `${c.blocked} blocked` : "",
+      c.errored > 0 ? `${c.errored} error` : "",
+      c.warned > 0 ? `${c.warned} warn` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
     parts.push(
       <span key="conf" style={{ color }}>
         {c.passed}/{c.total} pass{extra ? ` · ${extra}` : ""}

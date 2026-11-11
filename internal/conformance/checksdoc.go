@@ -20,7 +20,7 @@ func ChecksMarkdown(tests []Test) string {
 	fmt.Fprintf(&b, "Every check names the clauses it asserts and the 3GPP releases they come from, verified in the [3GPP archive](https://www.3gpp.org/ftp/Specs/archive/) through %s. ", LatestRelease)
 	b.WriteString("A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. ")
 	b.WriteString("The quoted normative text for each check is in [provenance/](provenance/).\n\n")
-	fmt.Fprintf(&b, "**Verdict class** is the worst a check can say of a core: `%s` for a missed shall, `%s` for a missed should. A check of class `%s` is informational: it cites descriptive text only, reports `%s` (the described behaviour) or `%s` (anything else), and does not gate. In every class a core that does not survive a check's stimulus is `%s` and gates.\n\n", Fail, Deviation, Info, Info, InfoDiff, Fail)
+	fmt.Fprintf(&b, "**Verdict class** is the worst a check can say of a core: `%s` for a missed shall, `%s` for a missed should. A check of class `%s` is informational: it cites descriptive text only, reports `%s` with what the core did, and does not gate. In every class a core that does not survive a check's stimulus is `%s` and gates.\n\n", Fail, Deviation, Info, Info, Crash)
 	fmt.Fprintf(&b, "Default target: %s; see [target-release.md](target-release.md).\n\n", defaultTargetLine())
 	fmt.Fprintf(&b, "**Up to** is the longest a check can take at the default `--per-test-timeout` (%s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.\n\n", DefaultPerTestTimeout)
 	b.WriteString(runOrderNote(tests))

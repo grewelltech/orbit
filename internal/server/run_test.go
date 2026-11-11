@@ -1165,7 +1165,7 @@ func TestCheckEvent(t *testing.T) {
 		{"CONFORMANCE", "NGAP-NG-RESET-ACK FAIL", &orbitv1.ConformanceCheckEvent{CheckId: "NGAP-NG-RESET-ACK", Verdict: "FAIL"}},
 		{"CONFORMANCE", "[suite] NAS-X SKIP", &orbitv1.ConformanceCheckEvent{Workload: "suite", CheckId: "NAS-X", Verdict: "SKIP"}},
 		{"CONFORMANCE", "NGAP-X INFO", &orbitv1.ConformanceCheckEvent{CheckId: "NGAP-X", Verdict: "INFO"}},
-		{"CONFORMANCE", "[suite] NGAP-X INFO-DIFF", &orbitv1.ConformanceCheckEvent{Workload: "suite", CheckId: "NGAP-X", Verdict: "INFO-DIFF"}},
+		{"CONFORMANCE", "[suite] NGAP-X BLOCKED", &orbitv1.ConformanceCheckEvent{Workload: "suite", CheckId: "NGAP-X", Verdict: "BLOCKED"}},
 		{"CONFORMANCE", "NGAP-X INFO-", nil},
 		{"CONFORMANCE", "suite started", nil},
 		{"CONFORMANCE", "X MAYBE", nil},

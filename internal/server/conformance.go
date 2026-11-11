@@ -293,8 +293,12 @@ func addToTally(t *orbitv1.ConformanceTally, r conformance.Result) {
 		t.Deviations++
 	case conformance.Info:
 		t.Info++
-	case conformance.InfoDiff:
-		t.InfoDiffs++
+	case conformance.Warn:
+		t.Warned++
+	case conformance.Blocked:
+		t.Blocked++
+	case conformance.Crash:
+		t.Crashed++
 	}
 }
 
@@ -304,7 +308,7 @@ func cloneTally(t *orbitv1.ConformanceTally) *orbitv1.ConformanceTally {
 	return &orbitv1.ConformanceTally{
 		Passed: t.Passed, Failed: t.Failed, Errored: t.Errored,
 		Skipped: t.Skipped, Deviations: t.Deviations, ExpectedFailures: t.ExpectedFailures,
-		Info: t.Info, InfoDiffs: t.InfoDiffs,
+		Info: t.Info, Warned: t.Warned, Blocked: t.Blocked, Crashed: t.Crashed,
 	}
 }
 

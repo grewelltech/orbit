@@ -506,11 +506,11 @@ func classifyHandoverCancel(res engine.HandoverCancelResult, wait time.Duration)
 	}
 	detail := strings.Join(facts, "; ")
 	if res.SourceLost != nil {
-		return InfoDiff, "association lost after the HANDOVER CANCEL",
+		return infoDiffers, "association lost after the HANDOVER CANCEL",
 			fmt.Sprintf("the source association ended before a HANDOVER CANCEL ACKNOWLEDGE (%v). Recorded: %s", res.SourceLost, detail)
 	}
 	if res.Acknowledged {
 		return Info, fmt.Sprintf("HANDOVER CANCEL ACKNOWLEDGE after %s", res.AckAfter.Round(time.Millisecond)), detail
 	}
-	return InfoDiff, fmt.Sprintf("no HANDOVER CANCEL ACKNOWLEDGE within %s", wait), handoverCancelText + " Recorded: " + detail
+	return infoDiffers, fmt.Sprintf("no HANDOVER CANCEL ACKNOWLEDGE within %s", wait), handoverCancelText + " Recorded: " + detail
 }

@@ -67,13 +67,13 @@ func TestPrintConformanceTable(t *testing.T) {
 	}
 }
 
-// The informational verdicts print as their own lines and tally columns in
-// both renderings, and leave the gate alone.
+// INFO and WARN print as their own lines and tally columns in both
+// renderings, and leave the gate alone.
 func TestConformanceReportInformational(t *testing.T) {
 	results := []conformance.Result{
 		{ID: "NGAP-A", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Pass, Observed: "ok", Detail: "d1"},
 		{ID: "NGAP-B", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Info, Observed: "acknowledged", Detail: "as described"},
-		{ID: "NGAP-C", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.InfoDiff, Observed: "no answer", Detail: "not as described"},
+		{ID: "NGAP-C", Category: conformance.Procedural, SpecRef: "TS 38.413", Verdict: conformance.Warn, Observed: "no answer", Detail: "not as described"},
 	}
 	sum := conformance.Summarize(results)
 	if !sum.OK() {
@@ -87,11 +87,11 @@ func TestConformanceReportInformational(t *testing.T) {
 	}{
 		{name: "text", render: func(b *bytes.Buffer) { printConformanceText(b, "plmn 001/01", sum, "") },
 			want: []string{
-				"INFO  [procedural ] NGAP-B", "INFO-DIFF [procedural ] NGAP-C", "      not as described\n",
-				"3 checks: 1 pass, 0 fail (0 expected), 0 deviation, 0 error, 0 skip, 1 info, 1 info-diff\n",
+				"INFO  [procedural ] NGAP-B", "WARN  [procedural ] NGAP-C", "      not as described\n",
+				"3 checks: 1 pass, 0 fail (0 expected), 0 deviation, 1 warn, 1 info, 0 blocked, 0 crash, 0 skip, 0 error\n",
 			}},
 		{name: "table", render: func(b *bytes.Buffer) { printConformanceTable(b, "plmn 001/01", sum, "") },
-			want:    []string{"INFO", "INFO-DIFF", "NGAP-B", "NGAP-C", "not as described", "1 info", "1 info-diff", "3 checks"},
+			want:    []string{"INFO", "WARN", "NGAP-B", "NGAP-C", "not as described", "1 info", "1 warn", "0 blocked", "0 crash", "3 checks"},
 			wantNot: []string{"NGAP-B as described"}},
 	}
 	for _, tc := range tests {

@@ -19,8 +19,10 @@ const VERDICT_COLOR: Record<string, string> = {
   ERROR: "var(--o-bad, #ff5c6c)",
   SKIP: "var(--o-ink-3)",
   DEVIATION: "var(--o-amber)",
+  WARN: "var(--o-amber)",
   INFO: "var(--o-ink-2)",
-  "INFO-DIFF": "var(--o-ink)",
+  BLOCKED: "var(--o-bad, #ff5c6c)",
+  CRASH: "var(--o-bad, #ff5c6c)",
 };
 
 function verdictColor(v: string): string {
@@ -98,15 +100,13 @@ function SuitePanel({
         <div className="flex flex-wrap gap-x-5 gap-y-1">
           <Stat label="pass" value={tally.pass} color={verdictColor("PASS")} />
           <Stat label={failedLabel(tally.expected, suite.expectedCore)} value={tally.fail} color={verdictColor("FAIL")} />
-          <Stat label="error" value={tally.error} color={verdictColor("ERROR")} />
           <Stat label="deviation" value={tally.deviation} color={verdictColor("DEVIATION")} />
+          <Stat label="warn" value={tally.warn} color={verdictColor("WARN")} />
+          <Stat label="info" value={tally.info} color={verdictColor("INFO")} />
+          <Stat label="blocked" value={tally.blocked} color={verdictColor("BLOCKED")} />
+          <Stat label="crash" value={tally.crash} color={verdictColor("CRASH")} />
           <Stat label="skip" value={tally.skip} color={verdictColor("SKIP")} />
-          {tally.info + tally.infoDiff > 0 && (
-            <>
-              <Stat label="info" value={tally.info} color={verdictColor("INFO")} />
-              <Stat label="info-diff" value={tally.infoDiff} color={verdictColor("INFO-DIFF")} />
-            </>
-          )}
+          <Stat label="error" value={tally.error} color={verdictColor("ERROR")} />
         </div>
         {suite.expectedCore && (
           <div className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>

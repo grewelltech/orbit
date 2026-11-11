@@ -460,11 +460,11 @@ func TestClassifyHandoverCancel(t *testing.T) {
 		{name: "acknowledged after other PDUs, target not released", want: Info,
 			res:        engine.HandoverCancelResult{Acknowledged: true, AckAfter: time.Second, Skipped: []string{"DownlinkNASTransport", "ErrorIndication"}},
 			wantDetail: []string{"other PDUs on the source association while waiting: DownlinkNASTransport, ErrorIndication", "no UE Context Release Command at the target gNB"}},
-		{name: "not acknowledged", res: engine.HandoverCancelResult{TargetReleased: true}, want: InfoDiff,
+		{name: "not acknowledged", res: engine.HandoverCancelResult{TargetReleased: true}, want: infoDiffers,
 			wantObserved: "no HANDOVER CANCEL ACKNOWLEDGE within 5s", wantDetail: []string{handoverCancelText}},
-		{name: "source association lost", res: engine.HandoverCancelResult{SourceLost: errReset}, want: InfoDiff,
+		{name: "source association lost", res: engine.HandoverCancelResult{SourceLost: errReset}, want: infoDiffers,
 			wantObserved: "association lost after the HANDOVER CANCEL", wantDetail: []string{"connection reset", "no UE Context Release Command at the target gNB"}},
-		{name: "not acknowledged, an Error Indication instead", res: engine.HandoverCancelResult{Skipped: []string{"ErrorIndication"}}, want: InfoDiff,
+		{name: "not acknowledged, an Error Indication instead", res: engine.HandoverCancelResult{Skipped: []string{"ErrorIndication"}}, want: infoDiffers,
 			wantDetail: []string{handoverCancelText, "other PDUs on the source association while waiting: ErrorIndication"}},
 	}
 	for _, tc := range tests {
@@ -492,7 +492,7 @@ func TestHandoverCancelCheckIsInformational(t *testing.T) {
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if !IsInformational(c) || VerdictClass(c) != Info || WorstVerdict(c) != InfoDiff || MinRelease(c) != 15 {
+	if !IsInformational(c) || VerdictClass(c) != Info || WorstVerdict(c) != Info || MinRelease(c) != 15 {
 		t.Errorf("informational %v, class %s, worst %s, min %s", IsInformational(c), VerdictClass(c), WorstVerdict(c), MinRelease(c))
 	}
 	for _, r := range c.SpecRefs() {
@@ -530,12 +530,12 @@ func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 		{name: "acknowledged", net24: testnet.ConformanceCancelAcked, want: Info, cancels: 1,
 			wantDetail: []string{"the AMF released the UE context prepared at the target gNB (recorded only)", "a fresh NG Setup afterwards completes"}},
 		{name: "acknowledge withheld", net24: testnet.ConformanceCancelNoAck, opts: []mockamf.Option{mockamf.WithNoHandoverCancelAcknowledge()},
-			want: InfoDiff, cancels: 1, wantObserved: "no HANDOVER CANCEL ACKNOWLEDGE within 400ms",
+			want: Info, cancels: 1, wantObserved: "no HANDOVER CANCEL ACKNOWLEDGE within 400ms",
 			wantDetail: []string{handoverCancelText, "a fresh NG Setup afterwards completes"}},
 		{name: "preparation failure", net24: testnet.ConformanceCancelNoPrep, opts: []mockamf.Option{mockamf.WithHandoverAnswer(mockamf.FailHandoverPreparation)},
 			want: Error, wantObserved: "handover did not reach Handover Command", wantDetail: []string{"handover not prepared", "await HandoverRequest"}},
 		{name: "stops answering", net24: testnet.ConformanceCancelCrash, opts: []mockamf.Option{mockamf.WithCrashOnHandoverCancel()},
-			want: Fail, cancels: 1, dead: true, wantObserved: "AMF unresponsive after the message (association lost after the HANDOVER CANCEL)",
+			want: Crash, cancels: 1, dead: true, wantObserved: "AMF unresponsive after the message (association lost after the HANDOVER CANCEL)",
 			wantDetail: []string{"the source association ended before a HANDOVER CANCEL ACKNOWLEDGE", "core did not survive the HANDOVER CANCEL: the AMF no longer completes a fresh NG Setup"}},
 	}
 	for _, tc := range tests {
@@ -551,7 +551,7 @@ func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 			if tc.wantObserved != "" && r.Observed != tc.wantObserved {
 				t.Errorf("observed %q, want %q", r.Observed, tc.wantObserved)
 			}
-			if tc.want == Info && !strings.HasPrefix(r.Observed, "HANDOVER CANCEL ACKNOWLEDGE after ") {
+			if tc.want == Info && tc.wantObserved == "" && !strings.HasPrefix(r.Observed, "HANDOVER CANCEL ACKNOWLEDGE after ") {
 				t.Errorf("observed %q, want the acknowledge", r.Observed)
 			}
 			for _, w := range append(tc.wantDetail, informationalNote, "requires Rel-15 or later; TS 38.413 8.4.5.2") {
@@ -562,7 +562,7 @@ func TestHandoverCancelCheckAgainstMockPair(t *testing.T) {
 			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
 				t.Error("detail carries key material")
 			}
-			if gated, want := !Summarize([]Result{r}).OK(), tc.want == Fail || tc.want == Error; gated != want {
+			if gated, want := !Summarize([]Result{r}).OK(), tc.want == Crash || tc.want == Error; gated != want {
 				t.Errorf("gated = %v for %s, want %v", gated, tc.want, want)
 			}
 			if got := c.amf.HandoverCancels(); got != tc.cancels {

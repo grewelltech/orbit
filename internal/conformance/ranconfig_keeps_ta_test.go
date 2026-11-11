@@ -129,7 +129,7 @@ func TestKeepsTACheckAgainstMock(t *testing.T) {
 		{name: "no response", opts: []mockamf.Option{mockamf.WithRANConfigUpdate(mockamf.IgnoreRANConfigUpdate)}, want: Error,
 			wantObserved: "no response to the RAN CONFIGURATION UPDATE",
 			wantDetail:   []string{"within 300ms of the update", "no registration was attempted"}, wantUpdates: 1},
-		{name: "the update brings the core down", opts: []mockamf.Option{mockamf.WithRANConfigUpdate(mockamf.CrashOnRANConfigUpdate)}, want: Fail,
+		{name: "the update brings the core down", opts: []mockamf.Option{mockamf.WithRANConfigUpdate(mockamf.CrashOnRANConfigUpdate)}, want: Crash,
 			wantObserved: ObservedAMFUnresponsive + " (association lost during the RAN CONFIGURATION UPDATE)",
 			wantDetail:   []string{"the AMF stopped completing NG Setup after the RAN CONFIGURATION UPDATE"}, wantUpdates: 1, wantDead: true},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},

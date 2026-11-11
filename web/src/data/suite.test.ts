@@ -73,17 +73,17 @@ describe("a run's suites, as the server answers", () => {
   }
 });
 
-describe("the informational verdicts in a suite's tally", () => {
+describe("INFO, WARN, BLOCKED and CRASH in a suite's tally", () => {
   const suite: Suite = {
     name: "",
-    progress: { pass: 1, fail: 0, error: 0, skip: 0, deviation: 0, info: 2, infoDiff: 1, expected: 0, ran: 4, total: 4, lastCheck: "D" },
-    results: [result("A", "PASS"), result("B", "INFO"), result("C", "INFO-DIFF"), result("D", "INFO")],
+    progress: { pass: 1, fail: 0, error: 0, skip: 0, deviation: 0, info: 2, warn: 1, blocked: 1, crash: 1, expected: 0, ran: 6, total: 6, lastCheck: "F" },
+    results: [result("A", "PASS"), result("B", "INFO"), result("C", "WARN"), result("D", "INFO"), result("E", "BLOCKED"), result("F", "CRASH")],
     expectedCore: "",
     stale: [],
   };
-  it("counts INFO and INFO-DIFF apart from every graded verdict, once done", () =>
-    expect(suiteTally(suite, true)).toEqual({ pass: 1, fail: 0, error: 0, deviation: 0, skip: 0, info: 2, infoDiff: 1, expected: 0 }));
-  it("takes them from the server's tally in flight", () => expect(suiteTally(suite, false)).toMatchObject({ info: 2, infoDiff: 1 }));
+  it("counts each apart from every other verdict, once done", () =>
+    expect(suiteTally(suite, true)).toEqual({ pass: 1, fail: 0, error: 0, deviation: 0, skip: 0, info: 2, warn: 1, blocked: 1, crash: 1, expected: 0 }));
+  it("takes them from the server's tally in flight", () => expect(suiteTally(suite, false)).toMatchObject({ info: 2, warn: 1, blocked: 1, crash: 1 }));
 });
 
 describe("the failed label", () => {
@@ -101,7 +101,10 @@ describe("a check's verdict from the run's events", () => {
     ["CONFORMANCE", "NAS-T3560-AUTH-RETRANSMIT SKIP", { workload: "", id: "NAS-T3560-AUTH-RETRANSMIT", verdict: "SKIP" }],
     ["CONFORMANCE", "X DEVIATION", { workload: "", id: "X", verdict: "DEVIATION" }],
     ["CONFORMANCE", "X INFO", { workload: "", id: "X", verdict: "INFO" }],
-    ["CONFORMANCE", "[suite] X INFO-DIFF", { workload: "suite", id: "X", verdict: "INFO-DIFF" }],
+    ["CONFORMANCE", "[suite] X WARN", { workload: "suite", id: "X", verdict: "WARN" }],
+    ["CONFORMANCE", "X BLOCKED", { workload: "", id: "X", verdict: "BLOCKED" }],
+    ["CONFORMANCE", "X CRASH", { workload: "", id: "X", verdict: "CRASH" }],
+    ["CONFORMANCE", "X INFO-DIFF", undefined],
     // A mixed run names the workload.
     ["CONFORMANCE", "[suite] NGAP-UNKNOWN-UE-SURVIVES FAIL", { workload: "suite", id: "NGAP-UNKNOWN-UE-SURVIVES", verdict: "FAIL" }],
     ["CONFORMANCE", "[s-2] X PASS", { workload: "s-2", id: "X", verdict: "PASS" }],

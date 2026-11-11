@@ -85,7 +85,7 @@ const (
 	// Descriptive is definitional text (a message's IE table, a procedure
 	// description) cited for context. It carries no PASS or FAIL: a check
 	// citing nothing stronger must be informational (Informer) and reports
-	// INFO or INFO-DIFF.
+	// INFO.
 	Descriptive Strength = "descriptive"
 )
 
@@ -93,15 +93,15 @@ const (
 // core behaves where the specifications describe a behaviour without
 // requiring it (a Class 1 response described as "the AMF responds with"),
 // or are silent. Such a check cites descriptive references only and is
-// never graded: runOne reports INFO when it saw the described behaviour and
-// INFO-DIFF when it saw anything else, and neither gates. The one exception
-// is a core that does not survive the stimulus (observeAlive): that is FAIL
-// and gates, as in every class. A check declares itself by adding
+// never graded: runOne reports INFO, the observed text saying whether the
+// core did what the text describes, and it does not gate. A core that does
+// not survive the stimulus (observeAlive) is CRASH and gates, as in every
+// class. A check declares itself by adding
 //
 //	func (myCheck) Informational() bool { return true }
 //
-// and may return Info/InfoDiff from Run, or Pass/Fail, which runOne maps to
-// them. ValidateTest refuses an informational check that cites a shall or a
+// and may return Info from Run, or Pass/Fail, which runOne maps to it.
+// ValidateTest refuses an informational check that cites a shall or a
 // should, so a requirement is always graded, and a descriptive-only check
 // that is not informational.
 type Informer interface{ Informational() bool }
@@ -204,13 +204,13 @@ func MinRelease(t Test) Release {
 // WorstVerdict is the worst verdict a check can give a core, derived from
 // what it cites: FAIL when it cites a shall, DEVIATION when it cites only
 // shoulds. A missed shall is a failure and DEVIATION is reserved for a missed
-// should. An informational check grades nothing, so its worst is INFO-DIFF.
+// should. An informational check grades nothing, so its worst is INFO.
 // runOne enforces this whatever a check's Run returns. A core that stops
-// answering is outside the classes: it is FAIL for every check.
+// answering is outside the classes: it is CRASH for every check.
 func WorstVerdict(t Test) Verdict {
 	switch {
 	case IsInformational(t):
-		return InfoDiff
+		return Info
 	case cites(t, Shall):
 		return Fail
 	}
@@ -219,7 +219,7 @@ func WorstVerdict(t Test) Verdict {
 
 // VerdictClass names a check's class for --list and checks.md: FAIL or
 // DEVIATION, the worst verdict of a graded check, or INFO for an
-// informational one. The class says nothing of a crash, which is FAIL in
+// informational one. The class says nothing of a crash, which is CRASH in
 // all three.
 func VerdictClass(t Test) Verdict {
 	if IsInformational(t) {
@@ -254,7 +254,7 @@ var (
 // the registry, so a check without verified provenance cannot merge. The
 // class it ties to the references (graded for a shall or should,
 // informational for descriptive text alone) is about the behaviour a check
-// reports; a core that does not survive is FAIL in either.
+// reports; a core that does not survive is CRASH in either.
 func ValidateTest(t Test) error {
 	refs := t.SpecRefs()
 	if len(refs) == 0 {

@@ -29,9 +29,10 @@ export interface RunOutcome {
     errored: number;
     skipped: number;
     deviations: number;
-    /** Informational verdicts: INFO and INFO-DIFF. Neither gates. */
     info: number;
-    infoDiffs: number;
+    warned: number;
+    blocked: number;
+    crashed: number;
     expectedFailures: number;
   };
   attach?: { attempted: number; succeeded: number; failed: number };
@@ -87,7 +88,9 @@ function outcomeOf(r: PbRun): RunOutcome | undefined {
       skipped: s.conformanceSkipped,
       deviations: s.conformanceDeviations,
       info: s.conformanceInfo,
-      infoDiffs: s.conformanceInfoDiffs,
+      warned: s.conformanceWarned,
+      blocked: s.conformanceBlocked,
+      crashed: s.conformanceCrashed,
       expectedFailures: s.conformanceExpectedFailures,
     };
   }

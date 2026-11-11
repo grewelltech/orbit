@@ -244,7 +244,7 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 	lines := func(r orbitRun) []string {
 		var out []string
 		for _, l := range strings.Split(r.out, "\n") {
-			if f := strings.Fields(l); len(f) > 0 && regexp.MustCompile(`^(PASS|FAIL|ERROR|SKIP|DEVIATION|INFO|INFO-DIFF)$`).MatchString(f[0]) {
+			if f := strings.Fields(l); len(f) > 0 && regexp.MustCompile(`^(PASS|FAIL|DEVIATION|WARN|INFO|BLOCKED|CRASH|SKIP|ERROR)$`).MatchString(f[0]) {
 				if strings.Contains(l, secondSource) {
 					continue
 				}

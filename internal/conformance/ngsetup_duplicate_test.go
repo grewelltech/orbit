@@ -78,13 +78,13 @@ func TestJudgeDuplicate(t *testing.T) {
 		wantObserved string
 	}{
 		{duplicateAccepted, true, Info, "second NG Setup accepted; first association kept"},
-		{duplicateAccepted, false, InfoDiff, "second NG Setup accepted; first association dropped"},
-		{duplicateRejected, true, InfoDiff, "second NG Setup rejected (NG SETUP FAILURE); first association kept"},
-		{duplicateRejected, false, InfoDiff, "second NG Setup rejected (NG SETUP FAILURE); first association dropped"},
-		{duplicateUnanswered, true, InfoDiff, "second NG Setup unanswered; first association kept"},
-		{duplicateUnanswered, false, InfoDiff, "second NG Setup unanswered; first association dropped"},
-		{duplicateReset, true, InfoDiff, "second association reset; first association kept"},
-		{duplicateReset, false, InfoDiff, "second association reset; first association dropped"},
+		{duplicateAccepted, false, infoDiffers, "second NG Setup accepted; first association dropped"},
+		{duplicateRejected, true, infoDiffers, "second NG Setup rejected (NG SETUP FAILURE); first association kept"},
+		{duplicateRejected, false, infoDiffers, "second NG Setup rejected (NG SETUP FAILURE); first association dropped"},
+		{duplicateUnanswered, true, infoDiffers, "second NG Setup unanswered; first association kept"},
+		{duplicateUnanswered, false, infoDiffers, "second NG Setup unanswered; first association dropped"},
+		{duplicateReset, true, infoDiffers, "second association reset; first association kept"},
+		{duplicateReset, false, infoDiffers, "second association reset; first association dropped"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.wantObserved, func(t *testing.T) {
@@ -174,16 +174,16 @@ func TestDuplicateRANNodeAgainstMock(t *testing.T) {
 		{name: "accepts both", answer: mockamf.AcceptDuplicateRANNode, want: Info,
 			wantObserved: "second NG Setup accepted; first association kept",
 			wantDetail:   []string{"NG SETUP RESPONSE", "the first association did not end within 300ms", "a fresh NG Setup afterwards completes"}, wantSetups: 3, wantAlive: true},
-		{name: "rejects the duplicate", answer: mockamf.RejectDuplicateRANNode, want: InfoDiff,
+		{name: "rejects the duplicate", answer: mockamf.RejectDuplicateRANNode, want: Info,
 			wantObserved: "second NG Setup rejected (NG SETUP FAILURE); first association kept",
 			wantDetail:   []string{"NG SETUP FAILURE, cause Misc 5", "a fresh NG Setup afterwards completes"}, wantSetups: 3, wantAlive: true},
-		{name: "replaces the first association", answer: mockamf.ReplaceDuplicateRANNode, want: InfoDiff,
+		{name: "replaces the first association", answer: mockamf.ReplaceDuplicateRANNode, want: Info,
 			wantObserved: "second NG Setup accepted; first association dropped",
 			wantDetail:   []string{"the first association ended", "a fresh NG Setup afterwards completes"}, wantSetups: 3, wantAlive: true},
-		{name: "leaves the duplicate unanswered", answer: mockamf.IgnoreDuplicateRANNode, want: InfoDiff,
+		{name: "leaves the duplicate unanswered", answer: mockamf.IgnoreDuplicateRANNode, want: Info,
 			wantObserved: "second NG Setup unanswered; first association kept",
 			wantDetail:   []string{"no NG SETUP RESPONSE or FAILURE within 300ms", "a fresh NG Setup afterwards completes"}, wantSetups: 3, wantAlive: true},
-		{name: "stops answering", answer: mockamf.CrashOnDuplicateRANNode, want: Fail,
+		{name: "stops answering", answer: mockamf.CrashOnDuplicateRANNode, want: Crash,
 			wantObserved: "AMF unresponsive after the message (second association reset; first association kept)",
 			wantDetail:   []string{"the second association was lost", "core did not survive the duplicate NG SETUP REQUEST: the AMF no longer completes a fresh NG Setup"}, wantSetups: 2},
 	}
@@ -204,8 +204,8 @@ func TestDuplicateRANNodeAgainstMock(t *testing.T) {
 					t.Errorf("detail %q lacks %q", res.Detail, w)
 				}
 			}
-			crashed := tc.want == Fail
-			if sum := Summarize(results); sum.OK() == crashed || (sum.Fail == 1) != crashed || sum.Deviation != 0 || sum.Pass != 0 || sum.Fail+sum.Info+sum.InfoDiff != 1 {
+			crashed := tc.want == Crash
+			if sum := Summarize(results); sum.OK() == crashed || (sum.Crash == 1) != crashed || sum.Deviation != 0 || sum.Pass != 0 || sum.Fail != 0 || sum.Crash+sum.Info != 1 {
 				t.Errorf("summary %+v: an informational check gates only for a core that did not survive, and never counts as a pass", sum)
 			}
 

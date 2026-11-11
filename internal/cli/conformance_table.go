@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
@@ -46,16 +47,18 @@ func verdictStyle(re *lipgloss.Renderer, v conformance.Verdict, tolerated bool) 
 			return re.NewStyle().Foreground(lipgloss.Color("8")) // dim: a tolerated FAIL
 		}
 		return s.Foreground(lipgloss.Color("1")) // red
+	case conformance.Crash:
+		return s.Foreground(lipgloss.Color("1")).Reverse(true) // red, reversed: the core stopped answering
+	case conformance.Blocked:
+		return s.Foreground(lipgloss.Color("5")) // magenta: the core blocked the check
 	case conformance.Error:
 		return s.Foreground(lipgloss.Color("9")) // bright red
-	case conformance.Deviation:
+	case conformance.Deviation, conformance.Warn:
 		return s.Foreground(lipgloss.Color("3")) // yellow
 	case conformance.Skip:
 		return re.NewStyle().Foreground(lipgloss.Color("8")) // dim
 	case conformance.Info:
-		return re.NewStyle().Foreground(lipgloss.Color("4")) // blue: informational, as described
-	case conformance.InfoDiff:
-		return s.Foreground(lipgloss.Color("4")) // bold blue: informational, not as described
+		return re.NewStyle().Foreground(lipgloss.Color("4")) // blue
 	default:
 		return re.NewStyle()
 	}
@@ -152,24 +155,20 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 	}
 }
 
-// conformanceTally renders the colored one-line summary.
+// conformanceTally renders the colored one-line summary: every verdict's
+// count, in the order of conformance.Verdicts.
 func conformanceTally(re *lipgloss.Renderer, sum conformance.Summary) string {
-	col := func(code, s string) string { return re.NewStyle().Foreground(lipgloss.Color(code)).Render(s) }
-	passFail := fmt.Sprintf("%s, %s",
-		col("2", fmt.Sprintf("%d pass", sum.Pass)),
-		col("1", fmt.Sprintf("%d fail", sum.Fail)),
-	)
-	if sum.ExpectedFail > 0 {
-		passFail += re.NewStyle().Foreground(lipgloss.Color("8")).Render(fmt.Sprintf(" (%d expected)", sum.ExpectedFail))
+	faint := re.NewStyle().Foreground(lipgloss.Color("8"))
+	var parts []string
+	for _, v := range conformance.Verdicts() {
+		style := verdictStyle(re, v, false).Bold(false).Reverse(false)
+		part := style.Render(fmt.Sprintf("%d %s", sum.Count(v), v.Label()))
+		if v == conformance.Fail && sum.ExpectedFail > 0 {
+			part += faint.Render(fmt.Sprintf(" (%d expected)", sum.ExpectedFail))
+		}
+		parts = append(parts, part)
 	}
-	return fmt.Sprintf("%d checks: %s, %s, %s, %s, %s, %s",
-		sum.Total, passFail,
-		col("3", fmt.Sprintf("%d deviation", sum.Deviation)),
-		col("9", fmt.Sprintf("%d error", sum.Error)),
-		col("8", fmt.Sprintf("%d skip", sum.Skip)),
-		col("4", fmt.Sprintf("%d info", sum.Info)),
-		col("4", fmt.Sprintf("%d info-diff", sum.InfoDiff)),
-	)
+	return fmt.Sprintf("%d checks: %s", sum.Total, strings.Join(parts, ", "))
 }
 
 func hasTolerated(sum conformance.Summary) bool {

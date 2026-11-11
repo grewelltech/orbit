@@ -20,11 +20,16 @@ export interface CheckVerdict {
 }
 
 /**
- * Every verdict a check can land with. INFO and INFO-DIFF are an
- * informational check's two outcomes (the described behaviour, or anything
- * else); neither gates.
+ * Every verdict a check can land with (ADR-0011), in the order a tally
+ * shows them: PASS, FAIL (a cited shall violated), DEVIATION (a cited should
+ * not followed), WARN (no requirement; security or operational impact),
+ * INFO (no requirement; recorded), BLOCKED (the core did not complete a
+ * procedure the check needs), CRASH (the core stopped answering), SKIP and
+ * ERROR (the tool could not run the check).
  */
-const VERDICTS = new Set(["PASS", "FAIL", "ERROR", "SKIP", "DEVIATION", "INFO", "INFO-DIFF"]);
+export const VERDICT_ORDER = ["PASS", "FAIL", "DEVIATION", "WARN", "INFO", "BLOCKED", "CRASH", "SKIP", "ERROR"] as const;
+
+const VERDICTS = new Set<string>(VERDICT_ORDER);
 
 /**
  * A check's verdict from a run event: the suite emits one CONFORMANCE
@@ -45,7 +50,7 @@ export function checkVerdict(ev: Pick<RunEvent, "kind" | "message"> & Partial<Pi
 export interface Suite {
   /** The workload's name; "" for a conformance run's one suite. */
   name: string;
-  progress?: { pass: number; fail: number; error: number; skip: number; deviation: number; info: number; infoDiff: number; expected: number; ran: number; total: number; lastCheck: string };
+  progress?: Tally & { ran: number; total: number; lastCheck: string };
   results: ConformanceResult[];
   /** The expected-failures list the results were judged against, by its core line. */
   expectedCore: string;
@@ -68,7 +73,9 @@ function progressOf(p: ConformanceProgress | undefined): Suite["progress"] {
     skip: t?.skipped ?? 0,
     deviation: t?.deviations ?? 0,
     info: t?.info ?? 0,
-    infoDiff: t?.infoDiffs ?? 0,
+    warn: t?.warned ?? 0,
+    blocked: t?.blocked ?? 0,
+    crash: t?.crashed ?? 0,
     expected: t?.expectedFailures ?? 0,
     ran: p.ran,
     total: p.total,
@@ -122,10 +129,10 @@ export interface Tally {
   error: number;
   deviation: number;
   skip: number;
-  /** Informational checks that saw the described behaviour (INFO). */
   info: number;
-  /** Informational checks that saw anything else (INFO-DIFF). */
-  infoDiff: number;
+  warn: number;
+  blocked: number;
+  crash: number;
   expected: number;
 }
 
@@ -137,7 +144,18 @@ export interface Tally {
 export function suiteTally(suite: Suite, done: boolean): Tally {
   if (!done) {
     const p = suite.progress;
-    return { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0, info: p?.info ?? 0, infoDiff: p?.infoDiff ?? 0, expected: p?.expected ?? 0 };
+    return {
+      pass: p?.pass ?? 0,
+      fail: p?.fail ?? 0,
+      error: p?.error ?? 0,
+      deviation: p?.deviation ?? 0,
+      skip: p?.skip ?? 0,
+      info: p?.info ?? 0,
+      warn: p?.warn ?? 0,
+      blocked: p?.blocked ?? 0,
+      crash: p?.crash ?? 0,
+      expected: p?.expected ?? 0,
+    };
   }
   const count = (v: string) => suite.results.filter((r) => r.verdict === v).length;
   return {
@@ -147,7 +165,9 @@ export function suiteTally(suite: Suite, done: boolean): Tally {
     deviation: count("DEVIATION"),
     skip: count("SKIP"),
     info: count("INFO"),
-    infoDiff: count("INFO-DIFF"),
+    warn: count("WARN"),
+    blocked: count("BLOCKED"),
+    crash: count("CRASH"),
     expected: suite.results.filter((r) => r.verdict === "FAIL" && r.expectedFailure).length,
   };
 }

@@ -244,7 +244,7 @@ func TestSMCCheckAgainstMock(t *testing.T) {
 			wantDetail:   []string{"NIA0/NIA3 UE: SKIP not run", "NIA0-only UE: SKIP not run"}},
 		{name: "no answer", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Error,
 			wantObserved: "normal UE: no Security Mode Command, reject or release"},
-		{name: "core dies at the release", dead: true, want: Fail,
+		{name: "core dies at the release", dead: true, want: Crash,
 			opts:         []mockamf.Option{noNIA3, mockamf.WithNoCommonIntegrity(mockamf.ReleaseNoCommonIntegrity), mockamf.WithCrashAfterRelease()},
 			wantObserved: ObservedAMFUnresponsive + " (NIA0-only UE: UE setup failed)"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
