@@ -409,8 +409,9 @@ const (
 // Every verdict branch of the bad-MAC discard check against the mock AMF
 // over a real SCTP listener: the conformant mock PASSes; one that processes
 // the message, answers it with a 5GMM STATUS, or stops answering after it
-// FAILs; a release after it, an unanswered first request and a failed
-// registration are ERROR; 5G-IA0 and no UE SKIP. The UE is deregistered and
+// FAILs; a release after it is WARN; an unanswered first request is BLOCKED
+// on the PDU session and a failed registration on the registration; 5G-IA0
+// and no UE SKIP. The UE is deregistered and
 // its sessions released wherever it still can be.
 func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
 	bad := func(b mockamf.UplinkAction) []mockamf.Option { return []mockamf.Option{mockamf.WithBadMACUplink(b)} }
@@ -424,13 +425,13 @@ func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
 			wantDetail: []string{failure, "A 5GMM STATUS is an answer", cleanReleased}, wantDereg: 1, wantReleases: 1},
 		{name: "state changed", opts: bad(mockamf.MuteOnUplink), want: Fail, wantObserved: "valid request not answered after the bad-MAC request",
 			wantDetail: []string{failure, "got none within 1.5s", "the message changed the AMF's state", "no UE Context Release Command within 400ms", cleanDropped}},
-		{name: "released", opts: bad(mockamf.ReleaseOnUplink), want: Error, wantObserved: "UE released after the bad-MAC request; discard not confirmed",
-			wantDetail: []string{"the AMF sent a UE Context Release Command", "neither the discard the clause requires nor an answer", cleanGone}},
-		{name: "first request unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: a valid PDU Session Establishment Request got no answer",
-			wantDetail: []string{"within 1.5s", cleanReleased}, wantDereg: 1},
+		{name: "released", opts: bad(mockamf.ReleaseOnUplink), want: Warn, wantObserved: "UE released after the bad-MAC request; discard not confirmed",
+			wantDetail: []string{"the AMF sent a UE Context Release Command", "neither the discard the clause requires nor an answer", cleanGone, "WARN for security impact"}},
+		{name: "first request unanswered", noUPF: true, want: Blocked, wantObserved: "a valid PDU Session Establishment Request got no answer",
+			wantDetail: []string{"within 1.5s", cleanReleased, "PDU session establishment"}, wantDereg: 1},
 		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
 			wantDetail: []string{"is not applicable when 5G-IA0 is used"}},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error, wantObserved: "UE setup failed"},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantObserved: "UE registration failed"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	})
 }
@@ -438,8 +439,9 @@ func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
 // Every verdict branch of the replay discard check against the mock AMF
 // over a real SCTP listener: the conformant mock PASSes; one that processes
 // the repeat, answers it with a 5GMM STATUS, or stops answering after it
-// FAILs; a release after it and an unanswered first request are ERROR;
-// 5G-IA0 and no UE SKIP. The mock counts exactly one repeated NAS COUNT.
+// FAILs; a release after it is WARN and an unanswered first request BLOCKED
+// on the PDU session; 5G-IA0 and no UE SKIP. The mock counts exactly one
+// repeated NAS COUNT.
 func TestReplayDiscardAgainstMock(t *testing.T) {
 	replay := func(act mockamf.UplinkAction) []mockamf.Option {
 		return []mockamf.Option{mockamf.WithReplayedUplink(act)}
@@ -454,9 +456,9 @@ func TestReplayDiscardAgainstMock(t *testing.T) {
 			wantDetail: []string{failure, cleanReleased}, wantDereg: 1, wantReleases: 1, wantReplays: 1},
 		{name: "state changed", opts: replay(mockamf.MuteOnUplink), want: Fail, wantObserved: "valid request not answered after the replayed request",
 			wantDetail: []string{failure, "the message changed the AMF's state", cleanDropped}, wantReplays: 1},
-		{name: "released", opts: replay(mockamf.ReleaseOnUplink), want: Error, wantObserved: "UE released after the replayed request; discard not confirmed",
+		{name: "released", opts: replay(mockamf.ReleaseOnUplink), want: Warn, wantObserved: "UE released after the replayed request; discard not confirmed",
 			wantDetail: []string{cleanGone}, wantReplays: 1},
-		{name: "first request unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: a valid PDU Session Establishment Request got no answer",
+		{name: "first request unanswered", noUPF: true, want: Blocked, wantObserved: "a valid PDU Session Establishment Request got no answer",
 			wantDetail: []string{cleanReleased}, wantDereg: 1},
 		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
@@ -467,23 +469,27 @@ func TestReplayDiscardAgainstMock(t *testing.T) {
 // the pinned clause.
 func TestJudgeDiscardReplay(t *testing.T) {
 	w := uplinkWaits{}.withDefaults()
+	outs := replayDiscardOutcomes
 	tests := []struct {
 		name         string
 		o            discardOutcome
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   string
 	}{
-		{name: "answered again", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Accept"}}, want: Fail,
+		{name: "answered again", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Accept"}}, want: outs.answered,
 			wantObserved: "replayed request answered: PDU Session Establishment Accept", wantDetail: "TS 33.501 6.4.3.2."},
-		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: Fail, wantObserved: "valid request not answered after the replayed request", wantDetail: "NAS COUNT replay check missing"},
-		{name: "pass", o: discardOutcome{first: "a", followUp: "b"}, want: Pass, wantObserved: "replayed request discarded; a valid request after it was answered", wantDetail: "nothing answered the replayed request within 5s"},
+		{name: "status", o: discardOutcome{first: "a", status: true}, want: outs.status, wantObserved: "5GMM STATUS after the replayed request"},
+		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: outs.released,
+			wantObserved: "UE released after the replayed request; discard not confirmed"},
+		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: outs.stateChanged, wantObserved: "valid request not answered after the replayed request", wantDetail: "NAS COUNT replay check missing"},
+		{name: "pass", o: discardOutcome{first: "a", followUp: "b"}, want: outs.discarded, wantObserved: "replayed request discarded; a valid request after it was answered", wantDetail: "nothing answered the replayed request within 5s"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeDiscard(tc.o, replayStimulus, w)
-			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
-				t.Errorf("= %s %q (%s), want %s %q with %q", v, observed, detail, tc.want, tc.wantObserved, tc.wantDetail)
+			o, observed, detail := judgeDiscard(tc.o, replayStimulus, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q with %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved, tc.wantDetail)
 			}
 		})
 	}
@@ -708,31 +714,33 @@ func TestBadMACRegistrationTexts(t *testing.T) {
 // Every branch of the discard verdict from a constructed outcome.
 func TestJudgeDiscard(t *testing.T) {
 	w := uplinkWaits{}.withDefaults()
+	outs := integrityDiscardOutcomes
+	blocked := classifiedBlocked(ProcPDUSession)
 	tests := []struct {
 		name         string
 		o            discardOutcome
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 	}{
-		{name: "harness failure", o: discardOutcome{err: errors.New("write failed")}, want: Error, wantObserved: "harness failure", wantDetail: []string{"write failed"}},
-		{name: "released before", o: discardOutcome{goneFirst: "the AMF sent a UE Context Release Command"}, want: Error, wantObserved: "UE released before the bad-MAC request"},
-		{name: "no first answer", o: discardOutcome{}, want: Error, wantObserved: "precondition failed: a valid PDU Session Establishment Request got no answer", wantDetail: []string{"within 10s"}},
-		{name: "answered", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN"}}, want: Fail,
+		{name: "harness failure", o: discardOutcome{err: errors.New("write failed")}, want: classifiedError, wantObserved: "harness failure", wantDetail: []string{"write failed"}},
+		{name: "released before", o: discardOutcome{goneFirst: "the AMF sent a UE Context Release Command"}, want: blocked, wantObserved: "UE released before the bad-MAC request"},
+		{name: "no first answer", o: discardOutcome{}, want: blocked, wantObserved: "a valid PDU Session Establishment Request got no answer", wantDetail: []string{"within 10s"}},
+		{name: "answered", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN"}}, want: outs.answered,
 			wantObserved: "bad-MAC request answered: PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN", wantDetail: []string{"TS 24.501 4.4.4.3."}},
-		{name: "answer wins over a release", o: discardOutcome{first: "a", reply: &smReply{name: "x"}, gone: "gone"}, want: Fail, wantObserved: "bad-MAC request answered: x"},
-		{name: "status", o: discardOutcome{first: "a", status: true}, want: Fail, wantObserved: "5GMM STATUS after the bad-MAC request"},
-		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: Error,
+		{name: "answer wins over a release", o: discardOutcome{first: "a", reply: &smReply{name: "x"}, gone: "gone"}, want: outs.answered, wantObserved: "bad-MAC request answered: x"},
+		{name: "status", o: discardOutcome{first: "a", status: true}, want: outs.status, wantObserved: "5GMM STATUS after the bad-MAC request"},
+		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: outs.released,
 			wantObserved: "UE released after the bad-MAC request; discard not confirmed", wantDetail: []string{"the association was lost (EOF)"}},
-		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: Fail, wantObserved: "valid request not answered after the bad-MAC request", wantDetail: []string{"got none within 10s"}},
-		{name: "pass", o: discardOutcome{first: "a", followUp: "b", undecoded: []string{"bad (NAS 7e02)"}}, want: Pass,
+		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: outs.stateChanged, wantObserved: "valid request not answered after the bad-MAC request", wantDetail: []string{"got none within 10s"}},
+		{name: "pass", o: discardOutcome{first: "a", followUp: "b", undecoded: []string{"bad (NAS 7e02)"}}, want: outs.discarded,
 			wantObserved: "bad-MAC request discarded; a valid request after it was answered", wantDetail: []string{"within 5s", "1 downlink NAS PDU(s) after the bad-MAC request did not decode: bad (NAS 7e02)"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeDiscard(tc.o, badMACStimulus, w)
-			if v != tc.want || observed != tc.wantObserved {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgeDiscard(tc.o, badMACStimulus, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
 			}
 			for _, want := range tc.wantDetail {
 				if !strings.Contains(detail, want) {

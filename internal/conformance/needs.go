@@ -297,11 +297,16 @@ func (n3DLQFIContainer) Needs() CheckNeeds {
 	n.Inputs = []Input{InputTraffic}
 	return n
 }
-func (nasIntegrityFailDiscard) Needs() CheckNeeds { return ueNeeds }
-func (nasReplayDiscard) Needs() CheckNeeds        { return ueNeeds }
+func (nasIntegrityFailDiscard) Needs() CheckNeeds { return uplinkNeeds }
+func (nasReplayDiscard) Needs() CheckNeeds        { return uplinkNeeds }
 func (nasCountNotAdvanced) Needs() CheckNeeds     { return ueNeeds }
 func (nasRetransmitNewCount) Needs() CheckNeeds   { return ueNeeds }
 func (nasBadMACRegistration) Needs() CheckNeeds   { return ueNeeds }
+
+// uplinkNeeds is a check that drives uplink NAS by hand on a registered UE
+// (newUplinkDriver): it needs the core to answer its PDU Session
+// Establishment Requests, and NAS integrity protection.
+var uplinkNeeds = CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: sessionFirst, Inputs: []Input{InputIntegrity}}
 
 // The NAS timer checks measure retransmissions against tmax windows, which
 // a loaded AMF's scheduling jitter would push out.

@@ -7,7 +7,7 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series
 
 The issue named TS 24.501 4.4.4.3 as a candidate. The read confirmed it and added TS 33.501 6.4.3.3, which states the same requirement from the security side.
 
-## TS 24.501 4.4.4.3 (Integrity checking of NAS signalling messages in the AMF), shall
+## TS 24.501 4.4.4.3 (Integrity checking of NAS signalling messages in the AMF), shall, primary
 
 > "Once the secure exchange of NAS messages has been established for the NAS signalling connection, the receiving 5GMM entity in the AMF shall not process any NAS signalling messages unless they have been successfully integrity checked by the NAS. If any NAS signalling message, having not successfully passed the integrity check, is received, then the NAS in the AMF shall discard that message."
 
@@ -15,12 +15,12 @@ The issue named TS 24.501 4.4.4.3 as a candidate. The read confirmed it and adde
 - **Changes:** the quoted paragraph is word for word the same in all six versions read. Other parts of the clause change: V16.3.0 splits the REGISTRATION REQUEST rule into initial and mobility registration, and V18.0.0 adds a sentence on an unsuccessful authentication (both recorded for NAS-BADMAC-REGISTRATION-AFTER-SMC, issue #253). Neither touches a message the check sends.
 - **Scope of the check:** the clause lists messages the AMF processes even when the MAC fails (REGISTRATION REQUEST, DEREGISTRATION REQUEST, SERVICE REQUEST and others), but only "until the secure exchange of NAS messages has been established". The stimulus is a UL NAS TRANSPORT, which is on no such list, sent after the security mode control procedure completed on the same connection. So the discard paragraph applies without the clause's ambiguity about REGISTRATION REQUEST.
 - **Use in the check:**
-  1. The UE registers and sends a PDU SESSION ESTABLISHMENT REQUEST in a UL NAS TRANSPORT, with a fresh PDU session identity and procedure transaction identity. It must be answered (any 5GSM message naming them, the request returned by the AMF, or a PDU SESSION RESOURCE SETUP REQUEST for the session), else ERROR: the core does not answer the message type the check relies on.
+  1. The UE registers and sends a PDU SESSION ESTABLISHMENT REQUEST in a UL NAS TRANSPORT, with a fresh PDU session identity and procedure transaction identity. It must be answered (any 5GSM message naming them, the request returned by the AMF, or a PDU SESSION RESOURCE SETUP REQUEST for the session), else BLOCKED on the PDU session establishment: the core does not answer the message type the check relies on.
   2. It sends a second such request, protected at its next uplink NAS COUNT, with the four MAC octets inverted.
   3. It watches for 5 s. An answer naming the second request's identities is FAIL (the message was processed), and so is a 5GMM STATUS (an answer is not a discard).
   4. It sends a third, valid request. If that one is answered, PASS. If it is not, while the first one was, the discarded message changed the AMF's state: FAIL.
-- **A release is ERROR, not PASS and not FAIL.** If the AMF releases the UE (UE CONTEXT RELEASE COMMAND, or the association goes) after the bad MAC, the message was not answered, but "discard" does not describe a release either, and the third request cannot be sent. The check reports what happened and leaves the judgement to the reader.
-- **5G-IA0:** integrity verification is not applicable under 5G-IA0 (4.4.3.3). The UE harness refuses 5G-IA0, so a core that selects it is SKIP.
+- **A release is WARN, not PASS and not FAIL.** If the AMF releases the UE (UE CONTEXT RELEASE COMMAND, or the association goes) after the bad MAC, the message was not answered, but "discard" does not describe a release either, and the third request cannot be sent. No shall is observably violated; the release acts on a message that failed the integrity check (security).
+- **5G-IA0:** integrity verification is not applicable under 5G-IA0 (4.4.3.3). The UE harness refuses 5G-IA0, so a core that selects it is SKIP for the missing input "NAS integrity protection".
 - **Cleanup:** the UE sends a PDU SESSION RELEASE REQUEST for each session the core set up (best effort, the answer is not awaited), then a switch-off DEREGISTRATION REQUEST, waits up to 3 s for the UE CONTEXT RELEASE COMMAND, and drops the association whatever came back. The detail says which happened. If the AMF's state was changed by the bad MAC it may not accept the deregistration, and then keeps the UE until its own timers expire.
 
 ## TS 33.501 6.4.3.3 (NAS integrity failure handling), shall
@@ -30,3 +30,17 @@ The issue named TS 24.501 4.4.4.3 as a candidate. The read confirmed it and adde
 - **Since:** Rel-15, V15.0.0 (`33501-f00.zip`).
 - **Changes:** none. The paragraph is the same in all six versions read, V15.0.0 through V19.7.0.
 - **Use in the check:** the same discard, stated by the security specification. The exceptions it points to are the lists in TS 24.501 4.4.4.3, which do not include UL NAS TRANSPORT.
+
+## Verdict
+
+- **Class:** conformance, two shalls (TS 24.501 4.4.4.3, TS 33.501 6.4.3.3).
+- **Stimulus:** after a registration and an answered PDU SESSION ESTABLISHMENT REQUEST, a second request with the four MAC octets inverted, watched for 5 s, then a third, valid request awaited for 10 s.
+- **PASS** `discarded`: nothing answered the bad-MAC request within 5 s and the third request was answered. The discard is inferred from that absence, within the check's bound.
+- **FAIL** `answered`, `5gmm-status` (4.4.4.3, 6.4.3.3): an answer naming the bad-MAC request's identities, or a 5GMM STATUS after it.
+- **FAIL** `state-changed` (4.4.4.3, 6.4.3.3): no answer to the third, valid request within 10 s, while the first was answered. The absence is inferred within that bound.
+- **WARN (security)** `released`: the AMF released the UE, or the association went, after the bad MAC. No requirement is violated, since the message was not answered; the criterion is security, as the core acts on a message it had the means to reject.
+- **BLOCKED** (PDU session establishment): the first, valid request got no answer within 10 s, or the UE was released while it was being answered. The check's needs include a PDU session, so the run's preflight has shown that this configuration gets one. **BLOCKED** (registration): the UE did not register.
+- **CRASH:** the AMF no longer completes an NG Setup after the stimulus.
+- **ERROR:** the harness could not build, send or read; the NAS probe could not be opened; a local socket failed.
+- **SKIP:** no UE configured; the core selected 5G-IA0 (no NAS integrity protection); a target release older than Rel-15.
+- **Limits:** a discard is inferred from the absence of an answer within 5 s. A release is not told from a lost association in the verdict; the detail says which.

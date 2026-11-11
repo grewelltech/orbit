@@ -391,8 +391,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Request (which must be answered), a second one with a corrupted MAC, and a
   third, valid one. The AMF shall discard the second (TS 24.501 4.4.4.3,
   TS 33.501 6.4.3.3): an answer to it, a 5GMM STATUS after it, or a third
-  request left unanswered is FAIL. A UE released after the bad MAC is ERROR
-  (neither a discard nor an answer); a core that selects 5G-IA0 SKIPs. The
+  request left unanswered is FAIL. A UE released after the bad MAC is WARN
+  for security (neither a discard nor an answer); a first request left
+  unanswered is BLOCKED on the PDU session; a core that selects 5G-IA0 SKIPs. The
   sessions are released and the UE deregistered at the end, best effort.
   Needs a UE and a DNN the core serves. Not yet run on a live core.
 - `NAS-REPLAY-DISCARD` (security, FAIL-class) — after the security mode
@@ -401,8 +402,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   request. The repeat carries the NAS COUNT the AMF accepted last, which it
   shall accept only once (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2): a further
   answer to the first request, a 5GMM STATUS after the repeat, or a second
-  request left unanswered is FAIL. A UE released after the repeat is ERROR;
-  a core that selects 5G-IA0 SKIPs. Cleanup as for
+  request left unanswered is FAIL. A UE released after the repeat is WARN
+  for security; a first request left unanswered is BLOCKED on the PDU
+  session; a core that selects 5G-IA0 SKIPs. Cleanup as for
   `NAS-INTEGRITY-FAIL-DISCARD`. Needs a UE and a DNN the core serves. Not
   yet run on a live core.
 - `NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL` (security, FAIL-class) — the UE sends

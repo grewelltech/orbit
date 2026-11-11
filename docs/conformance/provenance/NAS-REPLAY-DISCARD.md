@@ -7,7 +7,7 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/33_series
 
 The issue named TS 33.501 6.4.3 and TS 24.501 4.4.3 as candidates. The read pinned them to 6.4.3.2 and 4.4.3.2.
 
-## TS 33.501 6.4.3.2 (NAS integrity activation), shall
+## TS 33.501 6.4.3.2 (NAS integrity activation), shall, primary
 
 > "Replay protection shall be activated when integrity protection is activated, except when the NULL integrity protection algorithm is selected. Replay protection shall ensure that the receiver only accepts each incoming NAS COUNT value once using the same NAS security context."
 
@@ -26,11 +26,25 @@ The issue named TS 33.501 6.4.3 and TS 24.501 4.4.3 as candidates. The read pinn
 - **Since:** Rel-15, V15.0.0 (`24501-f00.zip`).
 - **Changes:** none. The clause is the same in all six versions read, V15.0.0 through V19.8.0.
 - **Use in the check:**
-  1. The UE registers and sends a PDU SESSION ESTABLISHMENT REQUEST in a UL NAS TRANSPORT, with a fresh PDU session identity and procedure transaction identity. It must be answered, else ERROR. The check then lets the downlink settle for 1 s, so that anything more the core sends for this request is read before the replay.
+  1. The UE registers and sends a PDU SESSION ESTABLISHMENT REQUEST in a UL NAS TRANSPORT, with a fresh PDU session identity and procedure transaction identity. It must be answered, else BLOCKED on the PDU session establishment. The check then lets the downlink settle for 1 s, so that anything more the core sends for this request is read before the replay.
   2. It sends the same NAS PDU again, byte for byte. No other uplink NAS message was sent in between, so the repeat carries exactly the NAS COUNT the AMF accepted last. This is the equal-COUNT case; a repeat of an older message, whose sequence number is lower than the last accepted one, is NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL (issue #251).
   3. It watches for 5 s. A further answer naming the request's identities (a 5GSM message, the request returned by the AMF, or a PDU SESSION RESOURCE SETUP REQUEST for the session) is FAIL: the COUNT was accepted twice. A 5GMM STATUS is FAIL too, since an answer is not a discard.
   4. It sends a second, valid request at the next NAS COUNT. Answered: PASS. Not answered, while the first one was: FAIL, since the repeat changed the AMF's state.
 - **How the AMF discards is not asserted.** "No specific mechanism is required": an AMF may find the repeat by its COUNT, or estimate a higher overflow counter for it so that its MAC fails. Both leave the repeat unanswered, and both PASS.
-- **A release is ERROR.** As for NAS-INTEGRITY-FAIL-DISCARD, a UE released after the repeat was not answered, but the second request cannot be judged.
-- **5G-IA0:** replay protection is not applicable. The UE harness refuses 5G-IA0, so a core that selects it is SKIP.
+- **A release is WARN (security).** As for NAS-INTEGRITY-FAIL-DISCARD, a UE released after the repeat was not answered, but the second request cannot be judged, and the release acts on a replayed message.
+- **5G-IA0:** replay protection is not applicable. The UE harness refuses 5G-IA0, so a core that selects it is SKIP for the missing input "NAS integrity protection".
 - **Cleanup:** as NAS-INTEGRITY-FAIL-DISCARD: a PDU SESSION RELEASE REQUEST per session set up, a switch-off DEREGISTRATION REQUEST, up to 3 s for the UE CONTEXT RELEASE COMMAND, and then the association is dropped.
+
+## Verdict
+
+- **Class:** conformance, two shalls (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2).
+- **Stimulus:** after a registration and an answered PDU SESSION ESTABLISHMENT REQUEST, the same NAS PDU again, watched for 5 s, then a second, valid request awaited for 10 s.
+- **PASS** `discarded`: nothing answered the repeat within 5 s and the second request was answered. The discard is inferred from that absence, within the check's bound.
+- **FAIL** `answered`, `5gmm-status` (6.4.3.2, 4.4.3.2): a further answer naming the request's identities, or a 5GMM STATUS after the repeat.
+- **FAIL** `state-changed` (6.4.3.2, 4.4.3.2): no answer to the second, valid request within 10 s, while the first was answered.
+- **WARN (security)** `released`: the AMF released the UE, or the association went, after the repeat. No requirement is violated; the criterion is security, as the core acts on a replayed message.
+- **BLOCKED** (PDU session establishment): the first request got no answer within 10 s, or the UE was released while it was being answered. **BLOCKED** (registration): the UE did not register.
+- **CRASH:** the AMF no longer completes an NG Setup after the stimulus.
+- **ERROR:** the harness could not build, send or read; the NAS probe could not be opened; a local socket failed.
+- **SKIP:** no UE configured; the core selected 5G-IA0 (no NAS integrity protection); a target release older than Rel-15.
+- **Limits:** how the AMF discards is not asserted, and the discard is inferred from the absence of an answer within 5 s.
