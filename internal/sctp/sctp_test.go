@@ -429,3 +429,52 @@ func TestLinkLocalAMFNeedsZone(t *testing.T) {
 		})
 	}
 }
+
+// SetNoDelay sets and clears SCTP_NODELAY on a real association, and a
+// fresh association has it off.
+func TestSetNoDelay(t *testing.T) {
+	addr := listenLoopbackSCTP(t)
+	c, err := Dial(context.Background(), "127.0.0.1", addr)
+	if err != nil {
+		t.Fatalf("Dial(%s): %v", addr, err)
+	}
+	defer func() { _ = c.Close() }()
+	noDelay := func() int {
+		t.Helper()
+		rc, err := c.c.(*isctp.SCTPConn).SyscallConn()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v int
+		var serr error
+		if err := rc.Control(func(fd uintptr) { v, serr = syscall.GetsockoptInt(int(fd), isctp.SOL_SCTP, isctp.SCTP_NODELAY) }); err != nil || serr != nil {
+			t.Fatalf("getsockopt SCTP_NODELAY: %v, %v", err, serr)
+		}
+		return v
+	}
+	if v := noDelay(); v != 0 {
+		t.Fatalf("a fresh association has SCTP_NODELAY %d, want 0", v)
+	}
+	for _, tc := range []struct {
+		on   bool
+		want int
+	}{{true, 1}, {false, 0}, {true, 1}} {
+		if err := c.SetNoDelay(tc.on); err != nil {
+			t.Fatalf("SetNoDelay(%v): %v", tc.on, err)
+		}
+		if v := noDelay(); v != tc.want {
+			t.Errorf("after SetNoDelay(%v) SCTP_NODELAY is %d, want %d", tc.on, v, tc.want)
+		}
+	}
+}
+
+// An association without a socket under it refuses SetNoDelay.
+func TestSetNoDelayWithoutSocket(t *testing.T) {
+	c := &Conn{c: socketless{}}
+	if err := c.SetNoDelay(true); err == nil || !strings.Contains(err.Error(), "no socket") {
+		t.Errorf("err = %v, want one naming the missing socket", err)
+	}
+}
+
+// socketless is a rawConn with no SyscallConn.
+type socketless struct{ rawConn }

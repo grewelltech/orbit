@@ -619,6 +619,24 @@ func (h *UEHarness) DeregisterWith(ctx context.Context, opts ...engine.Deregiste
 	return h.m.DeregisterWith(ctx, h.supi, opts...)
 }
 
+// ReregisterAfterRelease deregisters the registered UE (switch-off) and
+// registers it again over the same association once the core has released
+// it, gap after the UE CONTEXT RELEASE COMPLETE
+// (engine.Manager.ReregisterAfterRelease). The new registration has no PDU
+// session and carries probe. Afterwards the harness holds a registered UE
+// only when the result's Attach is set; otherwise its association is
+// closed. With no UE registered it returns an error.
+func (h *UEHarness) ReregisterAfterRelease(ctx context.Context, probe *engine.AttachProbe, gap time.Duration, opts ...engine.DeregisterOption) (*engine.Reregistration, error) {
+	if !h.registered {
+		return nil, errors.New("no UE registered")
+	}
+	h.registered = false
+	res, err := h.m.ReregisterAfterRelease(ctx, h.supi,
+		engine.UEConfig{Identity: h.id, Sub: h.sub, Probe: probe, SecurityCapabilities: h.caps}, gap, opts...)
+	h.registered = err == nil && res.Attach != nil
+	return res, err
+}
+
 // ReleasePDUSession runs the UE-requested PDU session release for the
 // session Register established, as engine.Manager.ReleasePDUSession does
 // with opts. The downlink observers and the echo flow stay as they are, so

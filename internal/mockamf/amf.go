@@ -265,6 +265,15 @@ type AMF struct {
 	capsEchoed     bool
 	capsMismatches atomic.Int64
 
+	// Registration after release (reregistration.go): the window in which
+	// a released SUPI's next Registration Request is dropped, when each
+	// SUPI's UE context was last released (guarded by mu), how many
+	// requests were dropped, and whether a dropped one crashes the mock.
+	dropAfterRelease time.Duration
+	crashOnDrop      bool
+	releasedAt       map[string]time.Time
+	droppedRegs      atomic.Int64
+
 	// Identification options and what the UEs answered, the answers
 	// guarded by mu (identity.go).
 	requestIMEISV     bool
@@ -318,7 +327,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log, droppedTAs: make(map[*pipe]bool), assocs: make(map[*pipe]association), handovers: make(map[int64]*handover)}
+		ues: make(map[int64]*ueState), releasedAt: make(map[string]time.Time), log: log, droppedTAs: make(map[*pipe]bool), assocs: make(map[*pipe]association), handovers: make(map[int64]*handover)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -451,6 +460,7 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 			a.strayCompletes.Add(1)
 		}
 		a.releaseCompletes.Add(1)
+		a.noteReleased(ids[0])
 		a.onANReleaseComplete(states, ids)
 		return nil
 	}
@@ -543,6 +553,13 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	supi, err := supiFromRegistration(up.nasPDU)
 	if err != nil {
 		return err
+	}
+	if a.dropsRegistration(supi) {
+		if a.crashOnDrop {
+			a.crashed.Store(true)
+			return errCrashed
+		}
+		return nil
 	}
 	// Every field another association reads is set before the UE is
 	// published in a.ues.

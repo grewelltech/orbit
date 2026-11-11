@@ -1588,6 +1588,20 @@ sends none within 5 s is not failed: the check SKIPs with
 `no UE CONTEXT RELEASE COMMAND within 5s; not scored`, and the detail names the
 likely cause.
 
+`NAS-REGISTRATION-AFTER-RELEASE`, in the `nas` category, registers the UE,
+deregisters it with a switch-off and, when the AMF's UE Context Release
+Command arrives, sends the UE Context Release Complete and at once a new
+initial Registration Request for the same SUPI, on the same association
+under a new RAN UE NGAP ID. It does so four times, with 0, 5, 10 and 20 ms
+between the two messages. It passes when every registration draws a NAS
+message within 10 s (the Authentication Request is enough), and fails when
+one draws none: an initial registration is answered with an Accept or a
+Reject (TS 24.501 5.5.1.2.4, 5.5.1.2.5). It SKIPs on a core that sends no
+release after a switch-off. An answered registration is completed and the UE
+is deregistered at the end; the detail gives the measured gap and the first
+answer of each registration, and what an unanswered one left. It can take up
+to 124 s against a core that does not answer, and a few seconds otherwise.
+
 `NAS-PDU-RELEASE-UE-REQUESTED` registers the UE with a PDU session and sends
 a PDU Session Release Request. It passes when the core answers with a PDU
 Session Release Command (inside the NGAP command or in a Downlink NAS
