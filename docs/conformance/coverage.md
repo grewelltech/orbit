@@ -336,8 +336,11 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   the AMF must retransmit the Registration Accept on each T3550 expiry, four
   times, and abort on the fifth (TS 24.501 5.5.1.2.8 c), with T3550 started
   per 5.5.1.2.4). No release is required on the abort, so any release is
-  recorded only. An Accept without a 5G-GUTI starts no T3550, and the check
-  reports INFO; a reject or no Accept is BLOCKED on the registration. The timer is estimated from the gaps as for T3560 (up to 1.5 × 18 s
+  recorded only. An initial registration's Accept without a 5G-GUTI is FAIL
+  (5.5.1.2.4: the 5G-GUTI reallocation is part of the initial registration),
+  and the T3550 retransmission is then not measured; after a Configuration
+  Update Command, the other way 5.5.1.2.4 lets the AMF assign one, it is a
+  permitted SKIP. A reject or no Accept is BLOCKED on the registration. The timer is estimated from the gaps as for T3560 (up to 1.5 × 18 s
   for the first). Needs a UE and up to 145 s (about 33 s at the default).
   Not yet run on Ref 2; the source analyst predicts PASS.
 - `NAS-PDU-SESSION-ESTABLISHMENT` (procedural, FAIL-class) — one UE registers and

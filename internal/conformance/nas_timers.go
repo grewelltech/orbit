@@ -246,6 +246,7 @@ type retransmitSnapshot struct {
 	rejectAfter  int         // how many watched messages had come before it
 	windowClosed bool        // a deadline ran out
 	refused      bool        // first judged the first message unusable
+	configUpdate bool        // a CONFIGURATION UPDATE COMMAND came before the first watched message
 }
 
 // noteRelease records a UE Context Release Command (AttachProbe.OnDownlink).
@@ -286,6 +287,10 @@ func (o *retransmitObservation) noteNAS(ev engine.NASEvent) {
 			o.arm(est + est/2) // room to see a retransmission too many
 		default:
 			o.cancel() // a retransmission too many: the count is decided
+		}
+	case f5nas.MsgTypeConfigurationUpdateCommand:
+		if len(o.snap.times) == 0 {
+			o.snap.configUpdate = true
 		}
 	case f5nas.MsgTypeAuthenticationReject:
 		o.snap.reject, o.snap.rejectAt, o.snap.rejectAfter = "Authentication Reject", ev.At, len(o.snap.times)

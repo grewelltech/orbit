@@ -51,8 +51,13 @@ type nasT3550AcceptRetransmit struct {
 	acceptWait time.Duration
 }
 
-// The key of the shall NAS-T3550-ACCEPT-RETRANSMIT's outcomes rest on.
-const t3550Ref = "TS 24.501 5.5.1.2.8 c)"
+// The keys of the shalls NAS-T3550-ACCEPT-RETRANSMIT's outcomes rest on:
+// the retransmission on T3550 expiry, and the new 5G-GUTI an initial
+// registration's REGISTRATION ACCEPT carries.
+const (
+	t3550Ref     = "TS 24.501 5.5.1.2.8 c)"
+	t3550GUTIRef = "TS 24.501 5.5.1.2.4 5G-GUTI"
+)
 
 // t3550Bound is the bound on the absence of a retransmission.
 var t3550Bound = &Bound{Wait: t3550Max + t3550Max/2,
@@ -66,11 +71,10 @@ var (
 		Summary: "retransmitted the REGISTRATION ACCEPT fewer than four times, or not at all"}
 	t3550TooMany = Outcome{ID: "too-many-retransmissions", Verdict: Fail, Refs: []string{t3550Ref},
 		Summary: "retransmitted the REGISTRATION ACCEPT a fifth time instead of aborting"}
-	// INFO: an Accept without a 5G-GUTI starts no T3550 by the trigger the
-	// check uses, so the requirement is not exercised; the 5G-GUTI's
-	// absence is not judged here.
-	t3550NoGUTI = Outcome{ID: "no-guti", Verdict: Info,
-		Summary: "sent a REGISTRATION ACCEPT with no 5G-GUTI, so T3550 was not started"}
+	t3550NoGUTI = Outcome{ID: "no-guti", Verdict: Fail, Refs: []string{t3550GUTIRef},
+		Summary: "sent the initial registration's REGISTRATION ACCEPT with no 5G-GUTI, and assigned none before it, so T3550 was not started"}
+	t3550GUTIByUpdate = Outcome{ID: "guti-by-configuration-update", Verdict: Skip, Skip: SkipPermitted, Refs: []string{t3550GUTIRef},
+		Summary: "sent a CONFIGURATION UPDATE COMMAND before a REGISTRATION ACCEPT with no 5G-GUTI, the other way 5.5.1.2.4 lets the AMF assign one, so T3550 was not started by a 5G-GUTI"}
 	// t3550Blocked is classifyT3550's marker for a registration that did
 	// not reach the REGISTRATION ACCEPT; Run reports it as BLOCKED on the
 	// registration.
@@ -79,7 +83,7 @@ var (
 
 // Outcomes declares what the check can report.
 func (nasT3550AcceptRetransmit) Outcomes() []Outcome {
-	return []Outcome{t3550Four, t3550TooFew, t3550TooMany, t3550NoGUTI}
+	return []Outcome{t3550Four, t3550TooFew, t3550TooMany, t3550NoGUTI, t3550GUTIByUpdate}
 }
 
 func (nasT3550AcceptRetransmit) ID() string         { return "NAS-T3550-ACCEPT-RETRANSMIT" }
@@ -97,6 +101,10 @@ func (nasT3550AcceptRetransmit) SpecRefs() []SpecRef {
 				{Release: 17, Note: "the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming"},
 				{Release: 18, Note: "\"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4"},
 				{Release: 19, Note: "adds LP-WUSPS assistance information and LP-WUS status triggers"},
+			}},
+		{Spec: "TS 24.501", Clause: "5.5.1.2.4 5G-GUTI", Strength: Shall, Since: 15, Verified: ts24501Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "V15.0.0 reads \"When the REGISTRATION REQUEST message includes the SUCI or PEI, ..., the AMF shall allocate a new 5G-GUTI to the UE\" and \"The AMF shall include in the REGISTRATION ACCEPT message the new assigned 5G-GUTI together with the assigned TAI list\"; from V15.7.0 \"The 5G-GUTI reallocation shall be part of the initial registration procedure\", and the AMF includes the new 5G-GUTI \"if the AMF has not allocated a new 5G-GUTI by the generic UE configuration update procedure\", unchanged through V19.8.0"},
 			}},
 		{Spec: "TS 24.501", Clause: "Table 10.2.2 T3550", Strength: Descriptive, Since: 15, Verified: ts24501Verified,
 			Changed: []SpecChange{
@@ -196,8 +204,9 @@ func acceptAssignsGUTI(ev engine.NASEvent) bool {
 
 // classifyT3550 judges a T3550 observation for nominal timer t.
 // t3550Blocked when the registration never reached a Registration Accept
-// (a reject in its place included); INFO when the Accept assigned no
-// 5G-GUTI, so T3550 never started; else PASS for exactly four
+// (a reject in its place included); FAIL when the Accept assigned no
+// 5G-GUTI and no CONFIGURATION UPDATE COMMAND came before it, SKIP when one
+// did, T3550 not starting in either; else PASS for exactly four
 // retransmissions and FAIL for none, fewer or more (a fifth means the AMF
 // did not abort on the fifth expiry). The detail gives the gaps and
 // records any release, and a reject after the Accept.
@@ -209,9 +218,12 @@ func classifyT3550(s retransmitSnapshot, t, acceptWait time.Duration) (Outcome, 
 	case len(s.times) == 0:
 		return t3550Blocked, "registration did not reach Registration Accept",
 			fmt.Sprintf("no Registration Accept within %s of the Initial UE Message", acceptWait)
+	case s.refused && s.configUpdate:
+		return t3550GUTIByUpdate, "CONFIGURATION UPDATE COMMAND, then a Registration Accept with no 5G-GUTI; T3550 not started",
+			"TS 24.501 5.5.1.2.4 has the initial registration's REGISTRATION ACCEPT carry the new 5G-GUTI unless the AMF allocated one by the generic UE configuration update procedure; a CONFIGURATION UPDATE COMMAND came first, so the 5G-GUTI trigger of T3550 is absent and the retransmission is not judged"
 	case s.refused:
 		return t3550NoGUTI, "Registration Accept carried no 5G-GUTI; T3550 not started",
-			"TS 24.501 5.5.1.2.4 starts T3550 when the Registration Accept includes a 5G-GUTI; other T3550 triggers (SOR, CAG, NSSAI ...) not evaluated"
+			"TS 24.501 5.5.1.2.4: the 5G-GUTI reallocation shall be part of the initial registration procedure, and the AMF shall include the new 5G-GUTI in the REGISTRATION ACCEPT when it has not allocated one by the generic UE configuration update procedure; none came before the Accept. With no 5G-GUTI the trigger that starts T3550 is absent, so the retransmission on T3550 expiry could not be measured; other T3550 triggers (SOR, CAG, NSSAI ...) not evaluated"
 	}
 	n := len(s.times) - 1
 	timing := retransmitTiming(s, t, estimate(s.times, t), "Registration Accept", "Registration Accept", " (recorded only: 5.5.1.2.8 c) requires no release)")

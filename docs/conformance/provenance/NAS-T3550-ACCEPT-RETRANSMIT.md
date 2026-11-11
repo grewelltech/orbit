@@ -33,7 +33,21 @@ V15.7.0 (`24501-f70.zip`) onward (the typo is the spec's, fixed in Rel-17):
   - Rel-17 (V17.18.1): the same sentence with the typo fixed. It adds extended CAG information list, negotiated PEIPS assistance information, UUAA-MM pending and NSSRG. The configured-NSSAI trigger applies only when roaming.
   - Rel-18 (V18.14.0): "subclause" becomes "clause". It adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI. The configured-NSSAI wording is no longer in 5.5.1.2.4.
   - Rel-19 (V19.8.0): as Rel-18, plus negotiated LP-WUSPS assistance information and LP-WUS status.
-- **Use in the check:** this is the precondition of the 5.5.1.2.8 c) retransmission rule, so a missing retransmission after a Registration Accept with a 5G-GUTI fails both. The check keys only on the 5G-GUTI: an Accept without one is INFO (`Registration Accept carried no 5G-GUTI; T3550 not started`). Other T3550 triggers (SOR, CAG, NSSAI ...) are not evaluated.
+- **Use in the check:** this is the precondition of the 5.5.1.2.8 c) retransmission rule, so a missing retransmission after a Registration Accept with a 5G-GUTI fails both. The check keys only on the 5G-GUTI; an Accept without one is graded under "5.5.1.2.4 5G-GUTI" below. Other T3550 triggers (SOR, CAG, NSSAI ...) are not evaluated.
+
+## TS 24.501 5.5.1.2.4 5G-GUTI (Initial registration accepted by the network), shall
+
+V15.0.0 (`24501-f00.zip`):
+
+> "When the REGISTRATION REQUEST message includes the SUCI or PEI, or the AMF considers the 5G-GUTI provided by the UE is invalid, or the 5G-GUTI provided by the UE was assigned by another AMF, the AMF shall allocate a new 5G-GUTI to the UE. The AMF shall include in the REGISTRATION ACCEPT message the new assigned 5G-GUTI together with the assigned TAI list."
+
+V15.7.0 (`24501-f70.zip`), V16.15.0, V17.18.1, V18.14.0 and V19.8.0 (`24501-j80.zip`):
+
+> "The 5G-GUTI reallocation shall be part of the initial registration procedure. During the initial registration procedure, if the AMF has not allocated a new 5G-GUTI by the generic UE configuration update procedure, the AMF shall include in the REGISTRATION ACCEPT message the new assigned 5G-GUTI together with the assigned TAI list."
+
+- **Since:** Rel-15, V15.0.0. Read in all six versions (2026-11-11); the V15.7.0 sentences are the same through V19.8.0.
+- **Changes:** Rel-15: V15.0.0 allocates the new 5G-GUTI for a REGISTRATION REQUEST with a SUCI (the check's UE registers with one) and puts it in the REGISTRATION ACCEPT; from V15.7.0 the reallocation is part of every initial registration, and the AMF may instead allocate it by the generic UE configuration update procedure.
+- **Use in the check:** the initial registration's REGISTRATION ACCEPT carries the new 5G-GUTI. An Accept without one, with no CONFIGURATION UPDATE COMMAND before it, is FAIL (`no-guti`); the T3550 retransmission cannot then be measured, since the 5G-GUTI is the trigger the check keys on. After a CONFIGURATION UPDATE COMMAND, the other way the sentence lets the AMF assign the 5G-GUTI, it is a permitted-alternative SKIP (`guti-by-configuration-update`); the check does not decode that command.
 
 ## TS 24.501 Table 10.2.2 T3550 (Timers of 5GS mobility management, AMF side), descriptive
 
@@ -45,12 +59,13 @@ V15.7.0 (`24501-f70.zip`) onward (the typo is the spec's, fixed in Rel-17):
 
 ## Verdict
 
-- **Class:** conformance, on the shall of 5.5.1.2.8 c), with T3550 started per 5.5.1.2.4. Needs the registration, owned by `NAS-INITIAL-REGISTRATION`, up to its REGISTRATION ACCEPT.
+- **Class:** conformance, on the shall of 5.5.1.2.8 c), with T3550 started per 5.5.1.2.4, and the shall of 5.5.1.2.4 that the initial registration's REGISTRATION ACCEPT carries the new 5G-GUTI. Needs the registration, owned by `NAS-INITIAL-REGISTRATION`, up to its REGISTRATION ACCEPT.
 - **Stimulus:** a registration whose REGISTRATION COMPLETE the UE withholds after a REGISTRATION ACCEPT that assigns a 5G-GUTI.
 - **PASS** `four-retransmissions`: four retransmissions of the REGISTRATION ACCEPT.
 - **FAIL** `too-few-retransmissions`: none, or fewer than four, inferred from their absence within the waits above (1.5 × 18 s for the first, the largest Table 10.2.2 value, then 1.5 × T_est).
 - **FAIL** `too-many-retransmissions`: a fifth retransmission: the AMF did not abort on the fifth expiry.
-- **INFO** `no-guti`: a REGISTRATION ACCEPT that assigns no 5G-GUTI, so the 5G-GUTI trigger that starts T3550 (5.5.1.2.4) is absent and the requirement is not exercised; other T3550 triggers are not evaluated. Whether the Accept should carry a 5G-GUTI is not judged here.
+- **FAIL** `no-guti` (5.5.1.2.4 5G-GUTI): the initial registration's REGISTRATION ACCEPT assigns no 5G-GUTI, and no CONFIGURATION UPDATE COMMAND came before it. T3550 is then not started by a 5G-GUTI, so the retransmission rule is not measured; other T3550 triggers are not evaluated.
+- **SKIP (permitted alternative)** `guti-by-configuration-update` (5.5.1.2.4 5G-GUTI): a CONFIGURATION UPDATE COMMAND before a REGISTRATION ACCEPT without a 5G-GUTI.
 - **BLOCKED:** a reject in place of the REGISTRATION ACCEPT, no REGISTRATION ACCEPT within 10 s, or an attach that failed (`blocked-registration`, owned by `NAS-INITIAL-REGISTRATION`); the NG Setup not completed (`blocked-ng-setup`).
 - **ERROR:** the harness could not be set up, a local socket failed, the registration completed although the REGISTRATION COMPLETE was withheld, or the per-test timeout expired before the T3550 window closed.
 - **SKIP:** no UE configured, a population loading the core (the check needs an idle core), or a target release older than Rel-15.

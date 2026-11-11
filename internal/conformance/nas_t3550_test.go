@@ -12,7 +12,8 @@ import (
 )
 
 // classifyT3550 passes exactly four retransmissions and fails none, fewer
-// or more (a fifth: no abort); an Accept without a 5G-GUTI is INFO; a
+// or more (a fifth: no abort); an Accept without a 5G-GUTI is FAIL, or a
+// permitted SKIP after a CONFIGURATION UPDATE COMMAND; a
 // reject in place of the Accept or no Accept is BLOCKED on the
 // registration; a release is recorded, never asserted.
 func TestClassifyT3550(t *testing.T) {
@@ -44,9 +45,11 @@ func TestClassifyT3550(t *testing.T) {
 		{name: "a fifth retransmission", snap: retransmitSnapshot{times: accepts(6), windowClosed: true}, want: Fail,
 			wantObserved: "5 retransmissions of Registration Accept, want 4",
 			wantDetail:   []string{"after the fifth T3550 expiry", "the procedure is aborted on the fifth expiry"}},
-		{name: "no 5G-GUTI", snap: retransmitSnapshot{times: accepts(1), refused: true}, want: Info,
+		{name: "no 5G-GUTI", snap: retransmitSnapshot{times: accepts(1), refused: true}, want: Fail,
 			wantObserved: "Registration Accept carried no 5G-GUTI; T3550 not started",
-			wantDetail:   []string{"other T3550 triggers (SOR, CAG, NSSAI ...) not evaluated"}},
+			wantDetail:   []string{"the 5G-GUTI reallocation shall be part of the initial registration procedure", "could not be measured", "other T3550 triggers (SOR, CAG, NSSAI ...) not evaluated"}},
+		{name: "5G-GUTI by a configuration update", snap: retransmitSnapshot{times: accepts(1), refused: true, configUpdate: true}, want: Skip,
+			wantObserved: "CONFIGURATION UPDATE COMMAND, then a Registration Accept with no 5G-GUTI; T3550 not started"},
 		{name: "registration reject", snap: retransmitSnapshot{reject: "Registration Reject"}, want: Blocked,
 			wantObserved: "Registration Reject before the T3550 window"},
 		{name: "a reject after two retransmissions", snap: retransmitSnapshot{times: accepts(3), reject: "Registration Reject", rejectAfter: 3}, want: Fail,
@@ -81,7 +84,7 @@ func TestT3550Budget(t *testing.T) {
 // a 50 ms nominal T3550 and a 150 ms maximum (6 s and 18 s scaled): four
 // retransmissions PASS, at the default and at 10 s and 18 s (scaled), and a
 // first retransmission after 1.5 × the maximum is none; none, two and five FAIL; an
-// Accept without a 5G-GUTI is INFO; no UE SKIPs; no Accept and a reject
+// Accept without a 5G-GUTI is FAIL; no UE SKIPs; no Accept and a reject
 // are BLOCKED on the registration; a core that dies at the abort is CRASH. Associations
 // close, and no detail carries key material.
 func TestT3550CheckAgainstMock(t *testing.T) {
@@ -108,7 +111,7 @@ func TestT3550CheckAgainstMock(t *testing.T) {
 			wantObserved: "4 retransmissions of Registration Accept"},
 		{name: "first retransmission after 1.5 Tmax", opts: []mockamf.Option{guti, mockamf.WithT3550(Tmax*16/10, 4)}, want: Fail,
 			wantObserved: "no retransmission of Registration Accept"},
-		{name: "no 5G-GUTI", opts: []mockamf.Option{mockamf.WithT3550(T, 4)}, want: Info,
+		{name: "no 5G-GUTI", opts: []mockamf.Option{mockamf.WithT3550(T, 4)}, want: Fail,
 			wantObserved: "Registration Accept carried no 5G-GUTI; T3550 not started"},
 		{name: "no registration accept", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Blocked,
 			wantObserved: "registration did not reach Registration Accept"},

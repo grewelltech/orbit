@@ -1623,8 +1623,11 @@ not run T3560 against the subscriber.
 `NAS-T3550-ACCEPT-RETRANSMIT` withholds the Registration Complete instead. It
 passes when the AMF retransmits the Registration Accept four times, one T3550
 apart, and then stops (TS 24.501 5.5.1.2.8 c)). A release is recorded but not
-required. It SKIPs if the core's Registration Accept assigns no 5G-GUTI,
-because T3550 then never starts. Its timing is estimated the same way, with
+required. A Registration Accept that assigns no 5G-GUTI is FAIL
+(TS 24.501 5.5.1.2.4: the 5G-GUTI reallocation is part of the initial
+registration), and T3550, which the 5G-GUTI starts, is then not measured; after
+a Configuration Update Command, the other way the clause lets the AMF assign
+one, it is SKIP. Its timing is estimated the same way, with
 18 s as the largest T3550, so it can take up to 145 s. A core at the default finishes in about 33 s, because the release
 ends the wait. `--per-test-timeout` is a floor for every check, and a check
 that needs longer says `per-test timeout raised to 3m10s for this check` in
