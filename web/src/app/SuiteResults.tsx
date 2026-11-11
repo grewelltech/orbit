@@ -19,6 +19,8 @@ const VERDICT_COLOR: Record<string, string> = {
   ERROR: "var(--o-bad, #ff5c6c)",
   SKIP: "var(--o-ink-3)",
   DEVIATION: "var(--o-amber)",
+  INFO: "var(--o-ink-2)",
+  "INFO-DIFF": "var(--o-ink)",
 };
 
 function verdictColor(v: string): string {
@@ -99,6 +101,12 @@ function SuitePanel({
           <Stat label="error" value={tally.error} color={verdictColor("ERROR")} />
           <Stat label="deviation" value={tally.deviation} color={verdictColor("DEVIATION")} />
           <Stat label="skip" value={tally.skip} color={verdictColor("SKIP")} />
+          {tally.info + tally.infoDiff > 0 && (
+            <>
+              <Stat label="info" value={tally.info} color={verdictColor("INFO")} />
+              <Stat label="info-diff" value={tally.infoDiff} color={verdictColor("INFO-DIFF")} />
+            </>
+          )}
         </div>
         {suite.expectedCore && (
           <div className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>

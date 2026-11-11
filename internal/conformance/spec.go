@@ -83,9 +83,33 @@ const (
 	// Should is a recommendation; a check resting on it reports DEVIATION.
 	Should Strength = "should"
 	// Descriptive is definitional text (a message's IE table, a procedure
-	// description) cited for context; it never carries a verdict alone.
+	// description) cited for context. It carries no PASS or FAIL: a check
+	// citing nothing stronger must be informational (Informer) and reports
+	// INFO or INFO-DIFF.
 	Descriptive Strength = "descriptive"
 )
+
+// Informer is implemented by an informational check: one that reports how a
+// core behaves where the specifications describe a behaviour without
+// requiring it (a Class 1 response described as "the AMF responds with"),
+// or are silent. Such a check cites descriptive references only and is
+// never graded: runOne reports INFO when it saw the described behaviour and
+// INFO-DIFF when it saw anything else, and neither gates. A check declares
+// itself by adding
+//
+//	func (myCheck) Informational() bool { return true }
+//
+// and may return Info/InfoDiff from Run, or Pass/Fail, which runOne maps to
+// them. ValidateTest refuses an informational check that cites a shall or a
+// should, so a requirement is always graded, and a descriptive-only check
+// that is not informational.
+type Informer interface{ Informational() bool }
+
+// IsInformational reports whether t declares itself informational.
+func IsInformational(t Test) bool {
+	i, ok := t.(Informer)
+	return ok && i.Informational()
+}
 
 // SpecVersion is one version of a specification whose wording was read in
 // the 3GPP archive.
@@ -179,12 +203,26 @@ func MinRelease(t Test) Release {
 // WorstVerdict is the worst verdict a check can give a core, derived from
 // what it cites: FAIL when it cites a shall, DEVIATION when it cites only
 // shoulds. A missed shall is a failure and DEVIATION is reserved for a missed
-// should; runOne enforces this whatever a check's Run returns.
+// should. An informational check grades nothing, so its worst is INFO-DIFF.
+// runOne enforces this whatever a check's Run returns.
 func WorstVerdict(t Test) Verdict {
-	if cites(t, Shall) {
+	switch {
+	case IsInformational(t):
+		return InfoDiff
+	case cites(t, Shall):
 		return Fail
 	}
 	return Deviation
+}
+
+// VerdictClass names a check's class for --list and checks.md: FAIL or
+// DEVIATION, the worst verdict of a graded check, or INFO for an
+// informational one.
+func VerdictClass(t Test) Verdict {
+	if IsInformational(t) {
+		return Info
+	}
+	return WorstVerdict(t)
 }
 
 // cites reports whether a check cites a reference of strength s.
@@ -239,8 +277,11 @@ func ValidateTest(t Test) error {
 	if floor == 0 {
 		floor = floorAll
 	}
-	if !hasRequirement {
-		return fmt.Errorf("%s: cites no shall or should; descriptive references alone carry no verdict", t.ID())
+	switch info := IsInformational(t); {
+	case !hasRequirement && !info:
+		return fmt.Errorf("%s: cites no shall or should; descriptive references alone carry no verdict, so the check must declare itself informational (Informer)", t.ID())
+	case hasRequirement && info:
+		return fmt.Errorf("%s: informational, but cites a shall or should; a requirement is graded, never reported as information", t.ID())
 	}
 	if m := MinRelease(t); m < floor || m > LatestRelease {
 		return fmt.Errorf("%s: MinRelease %s outside %s..%s: it must be at least the newest Since among the requirements it asserts", t.ID(), m, floor, LatestRelease)

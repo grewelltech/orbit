@@ -80,8 +80,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### Interface management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ⬜ bad TAC | the densest entry point |
-| RAN Configuration Update | RAN→AMF | ✅ `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (an absent Supported TA List keeps the TAs) | ✅ `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (transfer syntax error) | every IE but Message Type is optional, so there is no missing-mandatory-IE case |
+| NG Setup | RAN→AMF | ✅ (used everywhere) | ✅ `NGAP-NGSETUP-MISSING-TALIST` (live PASS: NG SETUP FAILURE) · ✅ unknown PLMN `NGAP-NGSETUP-UNKNOWN-PLMN` · ✅ duplicate Global RAN Node ID `NGAP-DUPLICATE-RAN-NODE-ID` (informational) · ⬜ bad TAC | the densest entry point |
+| RAN Configuration Update | RAN→AMF | ✅ `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (an absent Supported TA List keeps the TAs) · ✅ `NGAP-RAN-CONFIG-UPDATE-ACK` (informational: is a valid update acknowledged?) | ✅ `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (transfer syntax error) | every IE but Message Type is optional, so there is no missing-mandatory-IE case |
 | NG Reset | RAN→AMF | ✅ `NGAP-NG-RESET-ACK` (live PASS) | ⬜ | RAN-initiated reset-all → NG RESET ACKNOWLEDGE |
 | Error Indication | both | ✅ (we assert the core *sends* it) | — | |
 | AMF Configuration Update | AMF→RAN | — | — | ORBIT receives |
@@ -138,7 +138,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**28 checks today** (the first four live on the SD-Core testbed):
+**30 checks today** (the first four live on the SD-Core testbed):
 - `NGAP-UNKNOWN-UE-SURVIVES` (negative-ie, PASS) — UE-associated message for an
   unestablished UE-NGAP-ID pair → crash-safety (clause-10 AP-ID handling).
 - `NGAP-NG-RESET-ACK` (procedural, PASS) — RAN→AMF NG RESET (reset-all) → the AMF
@@ -164,6 +164,26 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Registration Reject with #12, #13 or #15 is FAIL, any other registration
   failure is ERROR. A RAN CONFIGURATION UPDATE FAILURE is SKIP, and no
   outcome within 5 s is ERROR. Needs a UE, else SKIP. Not yet run on Ref 2.
+- `NGAP-DUPLICATE-RAN-NODE-ID` (procedural, INFO-class) — with one
+  association up after NG Setup, a second association from another N2 source
+  address sends an NG SETUP REQUEST with the same Global RAN Node ID. TS
+  38.413 is silent on the duplicate (8.7.1.2 only describes the NG SETUP
+  RESPONSE; 9.3.1.5 only says the ID identifies a node), so the check is
+  informational: accepted with the first association kept is INFO; a
+  rejection, no answer, a reset of the new association or a dropped first
+  association is INFO-DIFF, Observed naming both halves. Needs a second
+  address in the target's `ran.n2_source_ips`, else SKIP. It never gates.
+  Which association the core then uses for the ID is not examined. Not yet
+  run on Ref 2.
+- `NGAP-RAN-CONFIG-UPDATE-ACK` (procedural, INFO-class) — after NG Setup, a
+  valid RAN CONFIGURATION UPDATE restating the Supported TA List the NG Setup
+  presented. TS 38.413 8.7.2.2 describes the answer ("The AMF responds with a
+  RAN CONFIGURATION UPDATE ACKNOWLEDGE message") without requiring it, and
+  8.7.2.3 requires a FAILURE only of an AMF that cannot accept the update, so
+  the check is informational: an ACKNOWLEDGE is INFO; a RAN CONFIGURATION
+  UPDATE FAILURE, an ERROR INDICATION, no answer within 5 s or a lost
+  association is INFO-DIFF, with a fresh NG Setup tried afterwards and its
+  result recorded. It never gates. Not yet run on Ref 2.
 - `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (negative-ie, DEVIATION-class) — a
   RAN CONFIGURATION UPDATE whose Supported TA Item is cut off after its TAC,
   so the item's mandatory Broadcast PLMN List is missing: a transfer syntax
@@ -418,6 +438,16 @@ core running; `DEVIATION` is reserved for a missed **should**. A known failure
 that a lab tolerates goes on that core's expected-failures list, which keeps it
 FAIL in the report but out of the gate. See
 [expected-failures.md](expected-failures.md).
+
+**Legend, check classes:** a `FAIL-class` check cites a shall; a
+`DEVIATION-class` check cites only shoulds; an `INFO-class` check is
+informational. An informational check cites descriptive text only (a response
+the specification describes without requiring, or a case it is silent on). It
+reports `INFO` when the core did what the text describes and `INFO-DIFF` when
+it did anything else, with both in Expected and Observed, so a table of runs
+shows where cores differ. Neither verdict gates, counts as a pass or a failure,
+or can be put on an expected-failures list; `ERROR` and `SKIP` mean what they
+mean for every check.
 
 > **Tooling note:** the testbed has no tshark, so wire disambiguation currently
 > uses a byte-level PPID scan that reads uplink cleanly but misses downlink

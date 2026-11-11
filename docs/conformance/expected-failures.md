@@ -10,10 +10,18 @@ A conformance check scores what the specification says:
 - **DEVIATION**: the core missed a **should**. It does not fail the gate.
 - **PASS**, **ERROR** (the check could not run) and **SKIP** (not applicable,
   or newer than the target release) are unchanged.
+- **INFO** and **INFO-DIFF**: the two outcomes of an **informational** check,
+  one whose clauses only describe a behaviour ("the AMF responds with ...")
+  or are silent, with no shall and no should behind it. INFO is the described
+  behaviour, observed; INFO-DIFF is anything else the core did. Neither is a
+  judgement of the core and neither fails the gate.
 
 A check's worst verdict comes from the clauses it cites: FAIL if it cites a
-shall, DEVIATION if it cites only shoulds. The suite enforces this whatever a
-check reports. `docs/conformance/checks.md` lists each check's verdict class.
+shall, DEVIATION if it cites only shoulds. A check that cites descriptive text
+only must declare itself informational, and then never gives PASS, FAIL or
+DEVIATION; a check that cites a shall or a should cannot be informational, so
+a requirement is always graded. The suite enforces this whatever a check
+reports. `docs/conformance/checks.md` lists each check's verdict class.
 
 A core can miss a shall for a known reason that the operator has decided to
 live with for now. Such a failure is recorded on an **expected-failures list**
@@ -64,6 +72,8 @@ An entry matches a result only when all of these hold:
 So an entry for a silent drop never hides an `association reset` from the same
 check, nor a core that stopped answering afterwards (`AMF unresponsive after
 the message (...)`). An entry never matches an ERROR, a DEVIATION or a PASS.
+An informational check never FAILs, so loading refuses an entry that names
+one.
 
 The liveness probes' own texts cannot be listed at all, so loading refuses an
 entry whose `observed` starts with any of them:
@@ -139,7 +149,7 @@ FAIL (expected: EX-1) [negative-ie] NGAP-UNKNOWN-UE-SURVIVES   silently dropped;
 ...
 stale expected failure: GTPU-UNKNOWN-TEID-ERRIND EX-2: now PASS "Error Indication"
 
-5 checks: 3 pass, 1 fail (1 expected), 0 deviation, 0 error, 1 skip
+5 checks: 3 pass, 1 fail (1 expected), 0 deviation, 0 error, 1 skip, 0 info, 0 info-diff
 ```
 
 `--json` carries the following:

@@ -17,6 +17,9 @@ type CheckNeeds struct {
 	// saying why, rather than run and blame the core for the load.
 	RequiresIdleCore bool
 	IdleCoreReason   string
+	// SecondN2Source marks a check that holds a second association from
+	// another N2 source address (Env.SecondBind) and SKIPs without one.
+	SecondN2Source bool
 }
 
 // GNBRole is a gNB a check presents.
@@ -107,10 +110,14 @@ func NeedsOf(t Test) CheckNeeds {
 
 // SuiteNeeds is what a run of the selected checks takes: UEs is the most
 // any one check needs, since checks run one after another; GNBIDs is every
-// ID a selected check presents, ascending.
+// ID a selected check presents, ascending; SecondN2Source is set when any
+// of them uses a second N2 source address.
 type SuiteNeeds struct {
 	UEs    int
 	GNBIDs []uint32
+	// SecondN2Source is whether a selected check uses a second N2 source
+	// address.
+	SecondN2Source bool
 }
 
 // Needs is the needs of the checks in cats (every check when empty) with
@@ -121,6 +128,7 @@ func (r *Registry) Needs(base uint32, packed bool, cats ...Category) SuiteNeeds 
 	for _, t := range r.Select(cats...) {
 		n := NeedsOf(t)
 		out.UEs = max(out.UEs, n.UEs)
+		out.SecondN2Source = out.SecondN2Source || n.SecondN2Source
 		own, target, liveness := r.gnbIDsOf(base, r.indexOf(t), packed)
 		for _, role := range n.GNBRoles {
 			id := map[GNBRole]uint32{RoleOwn: own, RoleHandover: target, RoleLiveness: liveness}[role]

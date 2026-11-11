@@ -15,6 +15,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -39,6 +40,14 @@ const (
 	// a known, tolerated failure goes on the core's expected-failures list,
 	// not into a softer verdict.
 	Deviation Verdict = "DEVIATION"
+	// Info and InfoDiff are the two outcomes of an informational check (see
+	// Informer): one that reports behaviour the specifications describe but
+	// do not require. Info is the described behaviour, observed; InfoDiff is
+	// anything else the core did. Neither is a judgement of the core and
+	// neither gates: the exit code, the suite gate and the expected-failures
+	// list ignore both.
+	Info     Verdict = "INFO"
+	InfoDiff Verdict = "INFO-DIFF"
 )
 
 // Category groups tests for reporting and selective runs.
@@ -132,6 +141,10 @@ func budget(t Test, perTest time.Duration) (time.Duration, bool) {
 // one from the same Bind, and only an ephemeral port gives the two distinct
 // ports. ValidateBind enforces this; callers run it before a suite.
 //
+// SecondBind is an optional second local N2 source address, in Bind's form
+// and on another IP, for a check that holds two associations from two
+// addresses at once (DialSecond). Empty, such a check SKIPs.
+//
 // UPFN3/N3Bind are optional and used only by user-plane (GTP-U) checks: UPFN3
 // is the UPF's N3 endpoint (host:port) and N3Bind the local N3 source
 // (host:port) — both must be set, from a host on the UPF access network, or
@@ -148,6 +161,7 @@ func budget(t Test, perTest time.Duration) (time.Duration, bool) {
 type Env struct {
 	AMFAddr       string
 	Bind          string
+	SecondBind    string
 	GNB           gnb.Config
 	UPFN3         string
 	N3Bind        string
@@ -215,6 +229,38 @@ func (e Env) NarrowingSpecTargets() map[string]Release {
 // bounded by ctx (see sctp.Dial).
 func (e Env) Dial(ctx context.Context) (*sctp.Conn, error) {
 	return sctp.Dial(ctx, e.Bind, e.AMFAddr)
+}
+
+// DialSecond opens a raw SCTP association to the AMF (no NG Setup) from
+// SecondBind, bounded by ctx. It is an error when no second address is
+// configured: a check asks HasSecondSource first.
+func (e Env) DialSecond(ctx context.Context) (*sctp.Conn, error) {
+	if e.SecondBind == "" {
+		return nil, errors.New("no second N2 source address configured")
+	}
+	return sctp.Dial(ctx, e.SecondBind, e.AMFAddr)
+}
+
+// HasSecondSource reports whether SecondBind names an address on another
+// IP than the one Bind's associations leave from (N2Source), so that two
+// associations can come from two source addresses.
+func (e Env) HasSecondSource() bool {
+	if e.SecondBind == "" {
+		return false
+	}
+	return bindHost(e.SecondBind) != bindHost(e.N2Source())
+}
+
+// bindHost is the host of a bind address written as host or host:port.
+func bindHost(bind string) string {
+	n, err := sctp.NormalizeLocal(bind)
+	if err != nil {
+		return bind
+	}
+	if host, _, err := net.SplitHostPort(n); err == nil {
+		return host
+	}
+	return n
 }
 
 // ValidateBind checks a conformance bind address up front: it must
@@ -406,6 +452,37 @@ func confirmAlive(ctx context.Context, env Env, r Result, survived bool, failDet
 	return r
 }
 
+// observedNoFreshSetup ends the Observed text of an informational result
+// after which a fresh NG Setup did not complete.
+const observedNoFreshSetup = "; a fresh NG Setup afterwards did not complete"
+
+// observeAlive is the liveness probe of an informational check. It tries a
+// fresh NG Setup after the stimulus, which after names ("the RAN
+// CONFIGURATION UPDATE"), and records the result in r's detail. The verdict
+// is left as it is: an informational check reports a core that stopped
+// answering (Observed then ends with observedNoFreshSetup) and never fails
+// it. A probe that could not be made, or that the per-test timeout cut
+// short, is recorded as such.
+func observeAlive(ctx context.Context, env Env, r Result, after string) Result {
+	if cutShort(ctx) {
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards was not tried: the per-test timeout had expired")
+		return r
+	}
+	alive, err := env.Alive(ctx)
+	switch {
+	case err != nil:
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards could not be tried: "+err.Error())
+	case alive:
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards completes")
+	case cutShort(ctx):
+		r.Detail = joinDetail(r.Detail, "a fresh NG Setup afterwards was cut short by the per-test timeout")
+	default:
+		r.Observed += observedNoFreshSetup
+		r.Detail = joinDetail(r.Detail, "the AMF no longer completes NG Setup after "+after)
+	}
+	return r
+}
+
 type setupError struct{ s string }
 
 func (e *setupError) Error() string { return e.s }
@@ -503,9 +580,12 @@ func (r *Registry) RunWithStart(ctx context.Context, env Env, perTest time.Durat
 // result. The verdict follows the check's references (WorstVerdict): a FAIL
 // from a check that cites no shall becomes DEVIATION, and a DEVIATION from a
 // check that cites no should becomes FAIL, since DEVIATION is reserved for a
-// missed should. A crash (the core stopped answering) is never demoted. Every
-// result's detail ends with the requirement line; when the target is newer
-// than the releases the wording was verified through, the detail says so.
+// missed should. A crash (the core stopped answering) is never demoted. An
+// informational check is scored by scoreInformational instead and never
+// gives PASS, FAIL or DEVIATION; INFO or INFO-DIFF from any other check is
+// an ERROR. Every result's detail ends with the requirement line; when the
+// target is newer than the releases the wording was verified through, the
+// detail says so.
 func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	min := MinRelease(t)
 	var res Result
@@ -524,6 +604,11 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 			res.Detail = joinDetail(res.Detail, fmt.Sprintf("per-test timeout raised to %s for this check", d))
 		}
 		switch {
+		case IsInformational(t):
+			res.Verdict = scoreInformational(res.Verdict)
+		case res.Verdict == Info || res.Verdict == InfoDiff:
+			res.Detail = joinDetail(res.Detail, fmt.Sprintf("scored ERROR: %s is reserved for an informational check", res.Verdict))
+			res.Verdict = Error
 		case res.Verdict == Fail && WorstVerdict(t) == Deviation && !hasPrefixAny(res.Observed, crashTexts):
 			res.Verdict = Deviation
 		case res.Verdict == Deviation && !cites(t, Should):
@@ -538,8 +623,29 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 	res.SpecRefs = t.SpecRefs()
 	res.SpecRef = RenderRefs(res.SpecRefs)
 	res.MinRelease = min
+	if IsInformational(t) {
+		res.Detail = joinDetail(res.Detail, informationalNote)
+	}
 	res.Detail = joinDetail(res.Detail, requirementLine(t))
 	return res
+}
+
+// informationalNote is what every result of an informational check says
+// ahead of its requirement line, whatever its verdict.
+const informationalNote = "informational: reported, not graded; it does not gate"
+
+// scoreInformational is the verdict an informational check's result is
+// reported with: INFO for the described behaviour (the check's INFO or
+// PASS), INFO-DIFF for anything else it observed (its INFO-DIFF, FAIL or
+// DEVIATION). ERROR and SKIP keep their meaning.
+func scoreInformational(v Verdict) Verdict {
+	switch v {
+	case Info, Pass:
+		return Info
+	case Error, Skip:
+		return v
+	}
+	return InfoDiff
 }
 
 // skipReason reports whether a check SKIPs under e's targets, and why. A
@@ -635,7 +741,10 @@ func (r *Registry) indexOf(t Test) int {
 // Summary tallies a suite run for reporting and CI gating.
 type Summary struct {
 	Total, Pass, Fail, Error, Skip, Deviation int
-	Results                                   []Result
+	// Info and InfoDiff count the informational checks' two outcomes
+	// (INFO, INFO-DIFF); neither gates (OK).
+	Info, InfoDiff int
+	Results        []Result
 	// N2Source records which address the checks were taken from: the
 	// configured Env.Bind in sctp.NormalizeLocal's ip:0 form, or, unbound,
 	// the route-selected IP alone. It is never a bound ip:port: every check
@@ -718,6 +827,10 @@ func Summarize(results []Result) Summary {
 			s.Skip++
 		case Deviation:
 			s.Deviation++
+		case Info:
+			s.Info++
+		case InfoDiff:
+			s.InfoDiff++
 		}
 	}
 	return s
@@ -725,7 +838,8 @@ func Summarize(results []Result) Summary {
 
 // OK reports a clean run: no FAIL beyond those the expected-failures list
 // tolerates, and no harness errors. This is the integration-CI gate.
-// Deviations (missed shoulds) and stale entries do not fail it.
+// Deviations (missed shoulds), the informational verdicts (INFO, INFO-DIFF)
+// and stale entries do not fail it.
 func (s Summary) OK() bool { return s.Fail-s.ExpectedFail == 0 && s.Error == 0 }
 
 // builtins is the registered test set (populated in the tests_*.go files).

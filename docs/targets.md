@@ -104,6 +104,11 @@ destination gNB and are never filled from a target; only `--amf` is.
   - a CIDR: `192.0.2.0/28`.
 
   Ranges and CIDRs are IP-only and take no port.
+
+  A conformance run uses the pool's first address for every check. A check
+  that needs a second source address (`NGAP-DUPLICATE-RAN-NODE-ID`) takes the
+  pool's second, and leases it for the run only when such a check is
+  selected; with a one-address pool it SKIPs.
 - **`ran.n3_ips`** is a pool in the same forms as `ran.n2_source_ips`: IPs, host
   names, ip:port/host:port, and IP-only ranges and CIDRs, expanded by the same
   rules. `--gnb-n3` needs an IP: a host-name entry fills `--n3-bind`, leaves

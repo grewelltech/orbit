@@ -19,7 +19,12 @@ export interface CheckVerdict {
   verdict: string;
 }
 
-const VERDICTS = new Set(["PASS", "FAIL", "ERROR", "SKIP", "DEVIATION"]);
+/**
+ * Every verdict a check can land with. INFO and INFO-DIFF are an
+ * informational check's two outcomes (the described behaviour, or anything
+ * else); neither gates.
+ */
+const VERDICTS = new Set(["PASS", "FAIL", "ERROR", "SKIP", "DEVIATION", "INFO", "INFO-DIFF"]);
 
 /**
  * A check's verdict from a run event: the suite emits one CONFORMANCE
@@ -40,7 +45,7 @@ export function checkVerdict(ev: Pick<RunEvent, "kind" | "message"> & Partial<Pi
 export interface Suite {
   /** The workload's name; "" for a conformance run's one suite. */
   name: string;
-  progress?: { pass: number; fail: number; error: number; skip: number; deviation: number; expected: number; ran: number; total: number; lastCheck: string };
+  progress?: { pass: number; fail: number; error: number; skip: number; deviation: number; info: number; infoDiff: number; expected: number; ran: number; total: number; lastCheck: string };
   results: ConformanceResult[];
   /** The expected-failures list the results were judged against, by its core line. */
   expectedCore: string;
@@ -62,6 +67,8 @@ function progressOf(p: ConformanceProgress | undefined): Suite["progress"] {
     error: t?.errored ?? 0,
     skip: t?.skipped ?? 0,
     deviation: t?.deviations ?? 0,
+    info: t?.info ?? 0,
+    infoDiff: t?.infoDiffs ?? 0,
     expected: t?.expectedFailures ?? 0,
     ran: p.ran,
     total: p.total,
@@ -115,6 +122,10 @@ export interface Tally {
   error: number;
   deviation: number;
   skip: number;
+  /** Informational checks that saw the described behaviour (INFO). */
+  info: number;
+  /** Informational checks that saw anything else (INFO-DIFF). */
+  infoDiff: number;
   expected: number;
 }
 
@@ -126,7 +137,7 @@ export interface Tally {
 export function suiteTally(suite: Suite, done: boolean): Tally {
   if (!done) {
     const p = suite.progress;
-    return { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0, expected: p?.expected ?? 0 };
+    return { pass: p?.pass ?? 0, fail: p?.fail ?? 0, error: p?.error ?? 0, deviation: p?.deviation ?? 0, skip: p?.skip ?? 0, info: p?.info ?? 0, infoDiff: p?.infoDiff ?? 0, expected: p?.expected ?? 0 };
   }
   const count = (v: string) => suite.results.filter((r) => r.verdict === v).length;
   return {
@@ -135,6 +146,8 @@ export function suiteTally(suite: Suite, done: boolean): Tally {
     error: count("ERROR"),
     deviation: count("DEVIATION"),
     skip: count("SKIP"),
+    info: count("INFO"),
+    infoDiff: count("INFO-DIFF"),
     expected: suite.results.filter((r) => r.verdict === "FAIL" && r.expectedFailure).length,
   };
 }

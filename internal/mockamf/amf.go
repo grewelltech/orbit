@@ -221,6 +221,9 @@ type AMF struct {
 	dropTAs      bool
 	dropTAsCause uint8
 	droppedTAs   map[*pipe]bool
+	// duplicateRANNode is WithDuplicateRANNodeID; assocs holds the gNB ID
+	// each association that completed NG Setup presented.
+	duplicateRANNode DuplicateRANNodeAnswer
 
 	// undecodable is the reaction to an uplink PDU that does not decode
 	// (undecodable.go).
@@ -377,6 +380,9 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		a.mu.Unlock()
 		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.served) {
 			return a.send(p, buildNGSetupFailureUnknownPLMN())
+		}
+		if answered, err := a.onRANNode(p, setup.GNBID); answered {
+			return err
 		}
 		resp, err := buildNGSetupResponse(a.served, a.cfg.SST, a.sdBytes)
 		if err != nil {

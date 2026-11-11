@@ -73,6 +73,12 @@ func setupOf(req *ngapType.NGSetupRequest) Setup {
 // when it identifies none of the gNB's PLMNs (TS 38.413 8.7.1.4), with cause
 // Misc unknown-PLMN (9.3.1.2).
 func buildNGSetupFailureUnknownPLMN() ngapType.NGAPPDU {
+	return buildNGSetupFailureMisc(ngapType.CauseMiscPresentUnknownPLMN)
+}
+
+// buildNGSetupFailureMisc builds an NG SETUP FAILURE (TS 38.413 9.2.6.3)
+// carrying only the Cause IE, with the Misc cause given (9.3.1.2).
+func buildNGSetupFailureMisc(cause aper.Enumerated) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentUnsuccessfulOutcome
 	pdu.UnsuccessfulOutcome = new(ngapType.UnsuccessfulOutcome)
@@ -84,8 +90,7 @@ func buildNGSetupFailureUnknownPLMN() ngapType.NGAPPDU {
 	ie.Id.Value = ngapType.ProtocolIEIDCause
 	ie.Criticality.Value = ngapType.CriticalityPresentIgnore
 	ie.Value.Present = ngapType.NGSetupFailureIEsPresentCause
-	ie.Value.Cause = &ngapType.Cause{Present: ngapType.CausePresentMisc,
-		Misc: &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnknownPLMN}}
+	ie.Value.Cause = &ngapType.Cause{Present: ngapType.CausePresentMisc, Misc: &ngapType.CauseMisc{Value: cause}}
 	pdu.UnsuccessfulOutcome.Value.NGSetupFailure.ProtocolIEs.List = append(
 		pdu.UnsuccessfulOutcome.Value.NGSetupFailure.ProtocolIEs.List, ie)
 	return pdu

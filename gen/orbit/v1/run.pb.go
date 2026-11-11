@@ -406,9 +406,14 @@ type RunSummary struct {
 	GatesPassed uint32 `protobuf:"varint,13,opt,name=gates_passed,json=gatesPassed,proto3" json:"gates_passed,omitempty"`
 	// True only when the run had at least one gate and every gate passed.
 	// Read with gates_total: zero gates means "no gates", not "all passed".
-	GatesOk       bool `protobuf:"varint,14,opt,name=gates_ok,json=gatesOk,proto3" json:"gates_ok,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	GatesOk bool `protobuf:"varint,14,opt,name=gates_ok,json=gatesOk,proto3" json:"gates_ok,omitempty"`
+	// Informational conformance verdicts, summed like the headline above:
+	// INFO (the described behaviour was observed) and INFO-DIFF (anything
+	// else). Neither gates.
+	ConformanceInfo      uint32 `protobuf:"varint,15,opt,name=conformance_info,json=conformanceInfo,proto3" json:"conformance_info,omitempty"`
+	ConformanceInfoDiffs uint32 `protobuf:"varint,16,opt,name=conformance_info_diffs,json=conformanceInfoDiffs,proto3" json:"conformance_info_diffs,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *RunSummary) Reset() {
@@ -537,6 +542,20 @@ func (x *RunSummary) GetGatesOk() bool {
 		return x.GatesOk
 	}
 	return false
+}
+
+func (x *RunSummary) GetConformanceInfo() uint32 {
+	if x != nil {
+		return x.ConformanceInfo
+	}
+	return 0
+}
+
+func (x *RunSummary) GetConformanceInfoDiffs() uint32 {
+	if x != nil {
+		return x.ConformanceInfoDiffs
+	}
+	return 0
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
@@ -3264,7 +3283,7 @@ func (x *RunEvent) GetCheck() *ConformanceCheckEvent {
 type ConformanceCheckEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CheckId       string                 `protobuf:"bytes,1,opt,name=check_id,json=checkId,proto3" json:"check_id,omitempty"`
-	Verdict       string                 `protobuf:"bytes,2,opt,name=verdict,proto3" json:"verdict,omitempty"`   // PASS | FAIL | ERROR | SKIP | DEVIATION
+	Verdict       string                 `protobuf:"bytes,2,opt,name=verdict,proto3" json:"verdict,omitempty"`   // PASS | FAIL | ERROR | SKIP | DEVIATION | INFO | INFO-DIFF
 	Workload      string                 `protobuf:"bytes,3,opt,name=workload,proto3" json:"workload,omitempty"` // the workload whose suite ran it; "" in a run with one suite
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4197,7 +4216,7 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\x0eworkload_kinds\x18\b \x03(\x0e2\x11.orbit.v1.RunKindR\rworkloadKinds\x12#\n" +
 	"\rstopped_early\x18\t \x01(\bR\fstoppedEarly\x12.\n" +
 	"\asummary\x18\n" +
-	" \x01(\v2\x14.orbit.v1.RunSummaryR\asummary\"\xf7\x04\n" +
+	" \x01(\v2\x14.orbit.v1.RunSummaryR\asummary\"\xd8\x05\n" +
 	"\n" +
 	"RunSummary\x12'\n" +
 	"\x05kinds\x18\x01 \x03(\x0e2\x11.orbit.v1.RunKindR\x05kinds\x12+\n" +
@@ -4215,7 +4234,9 @@ const file_orbit_v1_run_proto_rawDesc = "" +
 	"\vgates_total\x18\f \x01(\rR\n" +
 	"gatesTotal\x12!\n" +
 	"\fgates_passed\x18\r \x01(\rR\vgatesPassed\x12\x19\n" +
-	"\bgates_ok\x18\x0e \x01(\bR\agatesOk\"\xa7\x04\n" +
+	"\bgates_ok\x18\x0e \x01(\bR\agatesOk\x12)\n" +
+	"\x10conformance_info\x18\x0f \x01(\rR\x0fconformanceInfo\x124\n" +
+	"\x16conformance_info_diffs\x18\x10 \x01(\rR\x14conformanceInfoDiffs\"\xa7\x04\n" +
 	"\vLoadRunSpec\x12\x1f\n" +
 	"\vamf_address\x18\x01 \x01(\tR\n" +
 	"amfAddress\x12'\n" +
