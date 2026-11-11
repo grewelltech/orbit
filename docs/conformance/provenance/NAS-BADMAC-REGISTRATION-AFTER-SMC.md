@@ -2,7 +2,7 @@
 
 Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/](https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/). Versions read (issue #253, which records the read of every version from V15.0.0 to V20.1.0; the V15.0.0 and V19.8.0 texts quoted below were read again on 2026-11-10): V15.0.0 (`24501-f00.zip`), V15.7.0 (`24501-f70.zip`), V16.3.0 (`24501-g30.zip`), V16.15.0 (`24501-gf0.zip`), V17.18.1 (`24501-hi1.zip`), V18.0.0 (`24501-i00.zip`), V18.14.0 (`24501-ie0.zip`), V19.8.0 (`24501-j80.zip`).
 
-## TS 24.501 4.4.4.3 (Integrity checking of NAS signalling messages in the AMF), shall
+## TS 24.501 4.4.4.3 (Integrity checking of NAS signalling messages in the AMF), shall, primary
 
 The clause has the same four parts in every version.
 
@@ -40,12 +40,12 @@ The text does not say whether the rules of part 3 apply only inside part 2's win
 - **Reading A:** after secure exchange only part 4 applies. The message is discarded.
 - **Reading B:** part 3 applies at any time. The AMF authenticates again before processing the request.
 
-**A response is FAIL only if both readings forbid it. If either reading allows it, it is SKIP, and Observed names the ambiguity.** Applied to each response:
+**A response is FAIL only if both readings forbid it. If either reading allows it, it is SKIP (the alternative the text permits), and Observed names the ambiguity. A release is neither reading's answer: WARN for security.** Applied to each response:
 
 | Response after the stimulus | Reading A | Reading B | Verdict |
 |---|---|---|---|
 | Nothing within 5 s | required | allowed (the request is not processed) | PASS |
-| UE CONTEXT RELEASE COMMAND, or the association goes | not processed | not processed | PASS, release recorded |
+| UE CONTEXT RELEASE COMMAND, or the association goes, with no answer | not the discard | not the authentication | WARN (security) |
 | AUTHENTICATION REQUEST | forbidden | required | SKIP |
 | IDENTITY REQUEST | forbidden | allowed: the AMF may ask for the SUCI it then authenticates (the identification procedure before a primary authentication) | SKIP |
 | REGISTRATION ACCEPT with no AUTHENTICATION REQUEST before it | forbidden | forbidden (authentication first) | FAIL |
@@ -61,7 +61,19 @@ The first classified answer decides. The IDENTITY REQUEST row is this check's ow
 
 ## The check
 
-- **Precondition:** the UE registers, the security mode control procedure completes, and one PDU SESSION ESTABLISHMENT REQUEST is answered by a session being set up (a PDU SESSION RESOURCE SETUP REQUEST or a PDU SESSION ESTABLISHMENT ACCEPT). The part 3 shall depends on "only a non-emergency PDU session established", so a rejected or unanswered request is ERROR, as is a UE that does not register (a core that selects 5G-IA0 included).
+- **Precondition:** the UE registers, the security mode control procedure completes, and one PDU SESSION ESTABLISHMENT REQUEST is answered by a session being set up (a PDU SESSION RESOURCE SETUP REQUEST or a PDU SESSION ESTABLISHMENT ACCEPT). The part 3 shall depends on "only a non-emergency PDU session established", so a rejected or unanswered request is BLOCKED on the PDU session establishment, and a UE that does not register BLOCKED on the registration. A core that selects 5G-IA0 SKIPs for the missing input "NAS integrity protection".
 - **Stimulus:** on the same connection, a REGISTRATION REQUEST with 5GS registration type "mobility registration updating", the UE's 5G-GUTI, the ngKSI of the current context (read from the SECURITY MODE COMMAND), the UE security capability and the session's slice as requested NSSAI, and no EPS NAS message container. It is protected under the current context at the next uplink NAS COUNT with security header type "integrity protected and ciphered", like the UE's other uplinks on the connection, and its four MAC octets are inverted.
 - **Not answered by the UE:** an AUTHENTICATION REQUEST gets no response. The AMF then retransmits it on T3560 and aborts.
 - **Cleanup:** a PDU SESSION RELEASE REQUEST for the session and a switch-off DEREGISTRATION REQUEST under the old context, best effort, up to 3 s for the UE CONTEXT RELEASE COMMAND, and then the association is dropped. The detail says whether the core released the UE. After a re-authentication the AMF may not accept the deregistration, and then keeps the UE until T3560 runs out or its own timers expire. After a release only the association is dropped.
+
+## Verdict
+
+- **Class:** conformance, one shall (4.4.4.3), with the grading rule above for its two readings.
+- **PASS** `discarded`: nothing answered the stimulus within 5 s. The discard is inferred from that absence, within the check's bound.
+- **FAIL** `processed` (4.4.4.3): an answer both readings forbid, with no authentication first.
+- **SKIP (permitted alternative)** `reauthenticated`, `identity-requested` (4.4.4.3): an AUTHENTICATION REQUEST, or an IDENTITY REQUEST that may start one. The authentication rule of 4.4.4.3 has the AMF authenticate a mobility REGISTRATION REQUEST that fails the integrity check; whether it still applies after secure exchange is the ambiguity above.
+- **WARN (security)** `released`: the AMF released the UE, or the association went, with no answer. Neither reading has it: it is not the discard and not the authentication. No shall forbids a release, and the core acts on a message that failed the integrity check.
+- **BLOCKED** (PDU session establishment): the PDU SESSION ESTABLISHMENT REQUEST was rejected or not answered within 10 s, or the UE was released before the stimulus. **BLOCKED** (registration): the UE did not register.
+- **CRASH:** the AMF no longer completes an NG Setup after the stimulus.
+- **ERROR:** the stimulus could not be built or sent, the NAS probe could not be opened, a downlink NAS PDU after the stimulus did not verify or decode so the answer cannot be classified, or a local socket failed.
+- **SKIP:** no UE configured; the core selected 5G-IA0; a target release older than Rel-15.

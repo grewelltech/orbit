@@ -1072,21 +1072,50 @@ func judgeCount(o countOutcome, w uplinkWaits) (Outcome, string, string) {
 // a non-emergency PDU session, "initiate a primary authentication and key
 // agreement procedure", and the text does not say that rule ends when
 // secure exchange begins (reading B). An answer is FAIL only when both
-// readings forbid it, and SKIP when one allows it: silence and a release
-// are PASS; an AUTHENTICATION REQUEST (and an IDENTITY REQUEST, which may
-// precede one) is SKIP; a REGISTRATION ACCEPT, REGISTRATION REJECT,
-// SECURITY MODE COMMAND, 5GMM STATUS, AUTHENTICATION REJECT or network
-// DEREGISTRATION REQUEST with no authentication first is FAIL.
+// readings forbid it, and SKIP when one allows it: silence is PASS; an
+// AUTHENTICATION REQUEST (and an IDENTITY REQUEST, which may precede one)
+// is SKIP, the alternative the authentication rule permits; a REGISTRATION
+// ACCEPT, REGISTRATION REJECT, SECURITY MODE COMMAND, 5GMM STATUS,
+// AUTHENTICATION REJECT or network DEREGISTRATION REQUEST with no
+// authentication first is FAIL. A release with no answer is WARN for
+// security: neither reading describes it, and it acts on the message. A UE
+// without its PDU session is BLOCKED on the PDU session establishment.
 type nasBadMACRegistration struct {
 	// waits override the default bounds (tests only).
 	waits uplinkWaits
+}
+
+// badMACRegRef is the key of the shall the check's outcomes rest on.
+const badMACRegRef = "TS 24.501 4.4.4.3"
+
+// The outcomes of NAS-BADMAC-REGISTRATION-AFTER-SMC. A release with no
+// answer is WARN for security: neither reading of 4.4.4.3 describes it, no
+// shall forbids it, and the core acts on a message that failed the
+// integrity check.
+var (
+	badMACRegDiscarded = Outcome{ID: "discarded", Verdict: Pass, Refs: []string{badMACRegRef},
+		Bound:   &Bound{Wait: uplinkQuietWait, Source: "check bound; a discarded message draws no answer, and TS 24.501 sets no timer for one"},
+		Summary: "sent no answer to the bad-MAC REGISTRATION REQUEST"}
+	badMACRegProcessed = Outcome{ID: "processed", Verdict: Fail, Refs: []string{badMACRegRef},
+		Summary: "answered the bad-MAC REGISTRATION REQUEST with a message neither reading of 4.4.4.3 allows, with no authentication first"}
+	badMACRegReauthenticated = Outcome{ID: "reauthenticated", Verdict: Skip, Skip: SkipPermitted, Refs: []string{badMACRegRef},
+		Summary: "answered the bad-MAC REGISTRATION REQUEST with an AUTHENTICATION REQUEST, as the authentication rule of 4.4.4.3 has it"}
+	badMACRegIdentityRequested = Outcome{ID: "identity-requested", Verdict: Skip, Skip: SkipPermitted, Refs: []string{badMACRegRef},
+		Summary: "answered the bad-MAC REGISTRATION REQUEST with an IDENTITY REQUEST, which may start the authentication 4.4.4.3 has"}
+	badMACRegReleased = Outcome{ID: "released", Verdict: Warn, Criterion: CriterionSecurity,
+		Summary: "released the UE after the bad-MAC REGISTRATION REQUEST, with no answer"}
+)
+
+// Outcomes declares what the check can report.
+func (nasBadMACRegistration) Outcomes() []Outcome {
+	return []Outcome{badMACRegDiscarded, badMACRegProcessed, badMACRegReauthenticated, badMACRegIdentityRequested, badMACRegReleased}
 }
 
 func (nasBadMACRegistration) ID() string         { return "NAS-BADMAC-REGISTRATION-AFTER-SMC" }
 func (nasBadMACRegistration) Category() Category { return Security }
 func (nasBadMACRegistration) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "4.4.4.3", Strength: Shall, Since: 15, Verified: ts24501BadMACRegistrationVerified,
+		{Spec: "TS 24.501", Clause: "4.4.4.3", Strength: Shall, Since: 15, Verified: ts24501BadMACRegistrationVerified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.0.0 to V16.2.0 have one REGISTRATION REQUEST rule (\"only a PDU session for non-emergency services\" and a HASHAMF IE in V15.0.0) and \"the AMF shall authenticate the subscriber before processing the registration request any further\""},
 				{Release: 16, Note: "V16.3.0 splits the rule into initial registration and mobility and periodic registration update, with the RINMR bit"},
@@ -1113,7 +1142,8 @@ const (
 	// unrelatedAnswer is a message that does not answer a registration
 	// request (a CONFIGURATION UPDATE COMMAND, say): recorded, not judged.
 	unrelatedAnswer badMACRegAnswer = iota
-	// allowedByOneReading is an answer reading B allows: SKIP.
+	// allowedByOneReading is an answer reading B allows: a permitted
+	// alternative, SKIP.
 	allowedByOneReading
 	// forbiddenByBoth is an answer neither reading allows: FAIL.
 	forbiddenByBoth
@@ -1147,26 +1177,22 @@ func classifyBadMACRegAnswer(mt uint8) (badMACRegAnswer, string) {
 }
 
 func (c nasBadMACRegistration) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "after the security mode control procedure, with one PDU session established, a REGISTRATION REQUEST for mobility registration updating sent with a corrupted MAC is not acted on without authentication: no answer or a release (PASS); an AUTHENTICATION REQUEST is SKIP, since TS 24.501 4.4.4.3 can be read to require it; a REGISTRATION ACCEPT or any other answer without authentication first is FAIL"}
+	r := Result{Expected: "after the security mode control procedure, with one PDU session established, a REGISTRATION REQUEST for mobility registration updating sent with a corrupted MAC is not acted on without authentication: no answer (PASS); an AUTHENTICATION REQUEST is SKIP, since TS 24.501 4.4.4.3 can be read to require it; a REGISTRATION ACCEPT or any other answer without authentication first is FAIL"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	d, err := newUplinkDriver(ctx, h, c.waits)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "precondition failed: the UE did not register", err.Error()
-		return r
+		return uplinkSetupFailed(r, err)
 	}
 	o := probeBadMACRegistration(ctx, d)
-	r.Verdict, r.Observed, r.Detail = judgeBadMACRegistration(o, d.waits)
-	r.Detail = joinDetail(r.Detail, d.cleanup())
+	out, observed, detail := judgeBadMACRegistration(o, d.waits)
+	r = asClassified(r, out, observed, joinDetail(detail, d.cleanup()))
 	if r.Verdict == Error && ctx.Err() != nil {
 		return r
 	}
@@ -1246,20 +1272,21 @@ func probeBadMACRegistration(ctx context.Context, d *uplinkDriver) badMACRegOutc
 	return o
 }
 
-// judgeBadMACRegistration turns the outcome into a verdict, Observed and
+// judgeBadMACRegistration turns the outcome into an outcome, Observed and
 // Detail by the grading rule: the first answer the rule classifies decides.
-func judgeBadMACRegistration(o badMACRegOutcome, w uplinkWaits) (Verdict, string, string) {
+func judgeBadMACRegistration(o badMACRegOutcome, w uplinkWaits) (Outcome, string, string) {
 	const ambiguity = "TS 24.501 4.4.4.3 has the AMF discard a message that fails the integrity check once secure exchange is established, and also has it authenticate when a REGISTRATION REQUEST for mobility registration update fails the check and the UE has only a non-emergency PDU session; it does not say whether the second rule still applies after secure exchange"
+	blocked := classifiedBlocked(ProcPDUSession)
 	switch {
 	case o.err != nil:
-		return Error, "harness failure", o.err.Error()
+		return classifiedError, "harness failure", o.err.Error()
 	case o.goneEarly != "":
-		return Error, "precondition failed: the UE was released before the stimulus", o.goneEarly + " while the PDU session was being established"
+		return blocked, "the UE was released before the stimulus", o.goneEarly + " while the PDU session was being established"
 	case o.sessionAnswer != "":
-		return Error, "precondition failed: no PDU session established",
+		return blocked, "no PDU session established",
 			fmt.Sprintf("the PDU Session Establishment Request was answered with %s; the clause's rule depends on the UE having one non-emergency PDU session (DNN and slice from the UE configuration)", o.sessionAnswer)
 	case o.session == "":
-		return Error, "precondition failed: no PDU session established",
+		return blocked, "no PDU session established",
 			fmt.Sprintf("the PDU Session Establishment Request got no answer within %s; the clause's rule depends on the UE having one non-emergency PDU session", w.answer)
 	}
 	var unrelated []string
@@ -1269,14 +1296,14 @@ func judgeBadMACRegistration(o badMACRegOutcome, w uplinkWaits) (Verdict, string
 		case unrelatedAnswer:
 			unrelated = append(unrelated, name)
 		case allowedByOneReading:
-			observed := badMACRegReauth
+			out, observed := badMACRegReauthenticated, badMACRegReauth
 			if mt == f5nas.MsgTypeIdentityRequest {
-				observed = badMACRegIdentity
+				out, observed = badMACRegIdentityRequested, badMACRegIdentity
 			}
-			return Skip, observed,
+			return out, observed,
 				fmt.Sprintf("the AMF answered with %s. %s. Reading it as a discard forbids this answer; reading the authentication rule as still in force requires it, so it is not graded. The UE did not answer", name, ambiguity)
 		default:
-			return Fail, fmt.Sprintf("%s after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it", name),
+			return badMACRegProcessed, fmt.Sprintf("%s after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it", name),
 				fmt.Sprintf("%s The AMF answered with %s: a discard forbids any answer, and the authentication rule requires an authentication first, so both readings of the clause forbid it.", badMACRegFailure, name)
 		}
 	}
@@ -1285,13 +1312,13 @@ func judgeBadMACRegistration(o badMACRegOutcome, w uplinkWaits) (Verdict, string
 		notes += fmt.Sprintf("; other downlink 5GMM messages in the window, not answers to a registration: %s", strings.Join(unrelated, ", "))
 	}
 	if len(o.undecoded) > 0 {
-		return Error, "a downlink NAS PDU after the stimulus did not decode",
+		return classifiedError, "a downlink NAS PDU after the stimulus did not decode",
 			fmt.Sprintf("%d downlink NAS PDU(s) after the bad-MAC REGISTRATION REQUEST did not verify or decode, so the AMF's answer cannot be classified: %s", len(o.undecoded), strings.Join(o.undecoded, ", ")) + notes
 	}
 	if o.gone != "" {
-		return Pass, "UE released after the bad-MAC REGISTRATION REQUEST; the message was not processed",
-			fmt.Sprintf("%s, with no NAS answer before it; both readings are satisfied", o.gone) + notes
+		return badMACRegReleased, "UE released after the bad-MAC REGISTRATION REQUEST, with no answer",
+			fmt.Sprintf("%s, with no NAS answer before it: neither the discard nor the authentication either reading of the clause has, and the release acts on the message", o.gone) + notes
 	}
-	return Pass, "no answer to the bad-MAC REGISTRATION REQUEST",
+	return badMACRegDiscarded, "no answer to the bad-MAC REGISTRATION REQUEST",
 		fmt.Sprintf("nothing answered it within %s (discarded); the PDU session was set up by %s", w.quiet, o.session) + notes
 }

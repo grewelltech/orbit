@@ -437,9 +437,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   TS 24.501 4.4.4.3 can be read as "discard" or as "authenticate first", so
   an answer is FAIL only when both readings forbid it: a Registration Accept,
   Registration Reject, Security Mode Command or 5GMM STATUS with no
-  authentication first. No answer or a release is PASS; an Authentication
-  Request (or an Identity Request) is SKIP, with the ambiguity in Observed.
-  No PDU session is ERROR. The session is released and the UE deregistered
+  authentication first. No answer is PASS and a release WARN for security;
+  an Authentication Request (or an Identity Request) is SKIP, the
+  alternative the text permits, with the ambiguity in Observed. No PDU
+  session is BLOCKED on the PDU session; 5G-IA0 SKIPs. The session is released and the UE deregistered
   best effort; after a re-authentication the core may keep the UE until its
   timers expire. Mock-only so far.
 

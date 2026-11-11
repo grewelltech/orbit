@@ -576,11 +576,12 @@ func TestCountFailureMessage(t *testing.T) {
 }
 
 // Every verdict branch of the bad-MAC registration check against the mock
-// AMF over a real SCTP listener: no answer and a release PASS; a
+// AMF over a real SCTP listener: no answer PASSes and a release is WARN; a
 // Registration Accept, a Registration Reject, a Security Mode Command and a
 // 5GMM STATUS with no authentication first FAIL; an Authentication Request
-// SKIPs with the ambiguity named; a PDU session that is rejected or not
-// answered, and a UE that does not register, are ERROR; no UE SKIPs. The
+// and an Identity Request SKIP with the ambiguity named; a PDU session that
+// is rejected or not answered is BLOCKED on the PDU session, and a UE that
+// does not register BLOCKED on the registration; 5G-IA0 and no UE SKIP. The
 // session is released and the UE deregistered wherever it still is one.
 func TestBadMACRegistrationAgainstMock(t *testing.T) {
 	reg := func(b mockamf.BadMACRegistration) []mockamf.Option {
@@ -590,9 +591,9 @@ func TestBadMACRegistrationAgainstMock(t *testing.T) {
 	runUplinkCases(t, nasBadMACRegistration{waits: testUplinkWaits}, []uplinkCase{
 		{name: "discarded", want: Pass, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST",
 			wantDetail: []string{"nothing answered it within 300ms", released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
-		{name: "released", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Pass,
-			wantObserved: "UE released after the bad-MAC REGISTRATION REQUEST; the message was not processed",
-			wantDetail:   []string{"the AMF sent a UE Context Release Command", "both readings are satisfied", cleanGone}, wantBadMACs: 1},
+		{name: "released", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Warn,
+			wantObserved: "UE released after the bad-MAC REGISTRATION REQUEST, with no answer",
+			wantDetail:   []string{"the AMF sent a UE Context Release Command", "the release acts on the message", cleanGone}, wantBadMACs: 1},
 		{name: "accepted without authentication", opts: reg(mockamf.AcceptBadMACRegistration), want: Fail,
 			wantObserved: "REGISTRATION ACCEPT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it",
 			wantDetail:   []string{badMACRegFailure, "both readings of the clause forbid it", released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
@@ -607,13 +608,14 @@ func TestBadMACRegistrationAgainstMock(t *testing.T) {
 		{name: "5GMM STATUS", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.StatusOnUplink)}, want: Fail,
 			wantObserved: "5GMM STATUS after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it",
 			wantDetail:   []string{badMACRegFailure, released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
-		{name: "PDU session rejected", opts: []mockamf.Option{mockamf.WithUnknownDNN("internet", mockamf.RejectDNN, 0)}, want: Error,
-			wantObserved: "precondition failed: no PDU session established",
+		{name: "PDU session rejected", opts: []mockamf.Option{mockamf.WithUnknownDNN("internet", mockamf.RejectDNN, 0)}, want: Blocked,
+			wantObserved: "no PDU session established",
 			wantDetail:   []string{"answered with PDU Session Establishment Reject", cleanReleased}, wantDereg: 1},
-		{name: "PDU session unanswered", noUPF: true, want: Error, wantObserved: "precondition failed: no PDU session established",
+		{name: "PDU session unanswered", noUPF: true, want: Blocked, wantObserved: "no PDU session established",
 			wantDetail: []string{"got no answer within 1.5s", cleanReleased}, wantDereg: 1},
-		{name: "registration fails", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error,
-			wantObserved: "precondition failed: the UE did not register"},
+		{name: "registration fails", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
+			wantObserved: "UE registration failed"},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	})
 }
@@ -657,42 +659,43 @@ func TestJudgeBadMACRegistration(t *testing.T) {
 	released.gone = "the association was lost (EOF)"
 	acceptThenReleased := with(f5nas.MsgTypeRegistrationAccept)
 	acceptThenReleased.gone = "the AMF sent a UE Context Release Command"
+	blocked := classifiedBlocked(ProcPDUSession)
 	tests := []struct {
 		name         string
 		o            badMACRegOutcome
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 	}{
-		{name: "harness failure", o: badMACRegOutcome{err: errors.New("no 5G-GUTI")}, want: Error, wantObserved: "harness failure", wantDetail: []string{"no 5G-GUTI"}},
-		{name: "released early", o: badMACRegOutcome{goneEarly: "the AMF sent a UE Context Release Command"}, want: Error, wantObserved: "precondition failed: the UE was released before the stimulus"},
-		{name: "session rejected", o: badMACRegOutcome{sessionAnswer: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN"}, want: Error,
-			wantObserved: "precondition failed: no PDU session established", wantDetail: []string{"answered with PDU Session Establishment Reject"}},
-		{name: "session unanswered", o: badMACRegOutcome{}, want: Error, wantObserved: "precondition failed: no PDU session established", wantDetail: []string{"within 10s"}},
-		{name: "silence", o: with(), want: Pass, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST", wantDetail: []string{"within 5s"}},
-		{name: "unrelated message only", o: with(f5nas.MsgTypeConfigurationUpdateCommand), want: Pass, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST",
+		{name: "harness failure", o: badMACRegOutcome{err: errors.New("no 5G-GUTI")}, want: classifiedError, wantObserved: "harness failure", wantDetail: []string{"no 5G-GUTI"}},
+		{name: "released early", o: badMACRegOutcome{goneEarly: "the AMF sent a UE Context Release Command"}, want: blocked, wantObserved: "the UE was released before the stimulus"},
+		{name: "session rejected", o: badMACRegOutcome{sessionAnswer: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN"}, want: blocked,
+			wantObserved: "no PDU session established", wantDetail: []string{"answered with PDU Session Establishment Reject"}},
+		{name: "session unanswered", o: badMACRegOutcome{}, want: blocked, wantObserved: "no PDU session established", wantDetail: []string{"within 10s"}},
+		{name: "silence", o: with(), want: badMACRegDiscarded, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST", wantDetail: []string{"within 5s"}},
+		{name: "unrelated message only", o: with(f5nas.MsgTypeConfigurationUpdateCommand), want: badMACRegDiscarded, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST",
 			wantDetail: []string{"not answers to a registration: 5GMM message type 0x54"}},
-		{name: "released", o: released, want: Pass, wantObserved: "UE released after the bad-MAC REGISTRATION REQUEST; the message was not processed", wantDetail: []string{"the association was lost (EOF)"}},
-		{name: "authentication request", o: with(f5nas.MsgTypeAuthenticationRequest), want: Skip, wantObserved: badMACRegReauth, wantDetail: []string{"it is not graded"}},
-		{name: "authentication, then accept", o: with(f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeRegistrationAccept), want: Skip, wantObserved: badMACRegReauth},
-		{name: "authentication, then an undecodable PDU", o: authThenUndecoded, want: Skip, wantObserved: badMACRegReauth},
-		{name: "identity request", o: with(f5nas.MsgTypeIdentityRequest), want: Skip, wantObserved: badMACRegIdentity},
-		{name: "accept", o: with(f5nas.MsgTypeRegistrationAccept), want: Fail,
+		{name: "released", o: released, want: badMACRegReleased, wantObserved: "UE released after the bad-MAC REGISTRATION REQUEST, with no answer", wantDetail: []string{"the association was lost (EOF)"}},
+		{name: "authentication request", o: with(f5nas.MsgTypeAuthenticationRequest), want: badMACRegReauthenticated, wantObserved: badMACRegReauth, wantDetail: []string{"it is not graded"}},
+		{name: "authentication, then accept", o: with(f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeRegistrationAccept), want: badMACRegReauthenticated, wantObserved: badMACRegReauth},
+		{name: "authentication, then an undecodable PDU", o: authThenUndecoded, want: badMACRegReauthenticated, wantObserved: badMACRegReauth},
+		{name: "identity request", o: with(f5nas.MsgTypeIdentityRequest), want: badMACRegIdentityRequested, wantObserved: badMACRegIdentity},
+		{name: "accept", o: with(f5nas.MsgTypeRegistrationAccept), want: badMACRegProcessed,
 			wantObserved: "REGISTRATION ACCEPT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it", wantDetail: []string{badMACRegFailure}},
-		{name: "unrelated, then accept", o: with(f5nas.MsgTypeConfigurationUpdateCommand, f5nas.MsgTypeRegistrationAccept), want: Fail},
-		{name: "accept, then released", o: acceptThenReleased, want: Fail},
-		{name: "reject", o: with(f5nas.MsgTypeRegistrationReject), want: Fail, wantObserved: "REGISTRATION REJECT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it"},
-		{name: "status", o: with(f5nas.MsgTypeStatus5GMM), want: Fail},
-		{name: "security mode command", o: with(f5nas.MsgTypeSecurityModeCommand), want: Fail},
-		{name: "network deregistration", o: with(f5nas.MsgTypeDeregistrationRequestUETerminatedDeregistration), want: Fail},
-		{name: "undecodable downlink", o: undecoded, want: Error, wantObserved: "a downlink NAS PDU after the stimulus did not decode",
+		{name: "unrelated, then accept", o: with(f5nas.MsgTypeConfigurationUpdateCommand, f5nas.MsgTypeRegistrationAccept), want: badMACRegProcessed},
+		{name: "accept, then released", o: acceptThenReleased, want: badMACRegProcessed},
+		{name: "reject", o: with(f5nas.MsgTypeRegistrationReject), want: badMACRegProcessed, wantObserved: "REGISTRATION REJECT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it"},
+		{name: "status", o: with(f5nas.MsgTypeStatus5GMM), want: badMACRegProcessed},
+		{name: "security mode command", o: with(f5nas.MsgTypeSecurityModeCommand), want: badMACRegProcessed},
+		{name: "network deregistration", o: with(f5nas.MsgTypeDeregistrationRequestUETerminatedDeregistration), want: badMACRegProcessed},
+		{name: "undecodable downlink", o: undecoded, want: classifiedError, wantObserved: "a downlink NAS PDU after the stimulus did not decode",
 			wantDetail: []string{"bad (NAS 7e02)", "5GMM message type 0x54"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeBadMACRegistration(tc.o, w)
-			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgeBadMACRegistration(tc.o, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
 			}
 			for _, want := range tc.wantDetail {
 				if !strings.Contains(detail, want) {

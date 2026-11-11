@@ -301,7 +301,7 @@ func (nasIntegrityFailDiscard) Needs() CheckNeeds { return uplinkNeeds }
 func (nasReplayDiscard) Needs() CheckNeeds        { return uplinkNeeds }
 func (nasCountNotAdvanced) Needs() CheckNeeds     { return uplinkNeeds }
 func (nasRetransmitNewCount) Needs() CheckNeeds   { return ueNeeds }
-func (nasBadMACRegistration) Needs() CheckNeeds   { return ueNeeds }
+func (nasBadMACRegistration) Needs() CheckNeeds   { return uplinkNeeds }
 
 // uplinkNeeds is a check that drives uplink NAS by hand on a registered UE
 // (newUplinkDriver): it needs the core to answer its PDU Session
