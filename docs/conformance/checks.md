@@ -286,6 +286,7 @@ Owns: AN release. Needs: NG Setup, registration.
 |---|---|---|---|
 | `release-command` | PASS | TS 38.413 8.3.2.2 (should) | answered the UE CONTEXT RELEASE REQUEST with a UE CONTEXT RELEASE COMMAND |
 | `no-release-command` | DEVIATION | TS 38.413 8.3.2.2 (should); absence within 5s (check bound; TS 38.413 sets no timer for the command); reports AN release as not completed | sent no UE CONTEXT RELEASE COMMAND for the UE CONTEXT RELEASE REQUEST |
+| `association-lost` | DEVIATION | TS 38.413 8.3.2.2 (should); reports AN release as not completed | dropped the association instead of sending a UE CONTEXT RELEASE COMMAND |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |

@@ -28,9 +28,10 @@ A UE whose context was released is still registered in the core, with no NG conn
 - **Stimulus:** as above; the UE CONTEXT RELEASE COMMAND is awaited for 5 s.
 - **PASS** `release-command`: a UE CONTEXT RELEASE COMMAND within the 5 s. Its cause is recorded, not asserted.
 - **DEVIATION** `no-release-command` (8.3.2.2): none within the 5 s, a bound of the check (TS 38.413 sets no timer for the command); the absence is inferred within it.
-- **Not completed:** `no-release-command` reports the AN release as not completed, so the BLOCKED results of dependent checks in the same run are counted under this one.
+- **DEVIATION** `association-lost` (8.3.2.2): the association was lost while the check waited for the command.
+- **Not completed:** `no-release-command` and `association-lost` report the AN release as not completed, so the BLOCKED results of dependent checks in the same run are counted under this one.
 - **BLOCKED** `blocked-registration`: the core did not complete the UE's registration (`NAS-INITIAL-REGISTRATION` owns whether it completes); `blocked-ng-setup`: nor the NG Setup before it.
-- **ERROR:** the harness could not be set up, or the request could not be sent or waited for.
+- **ERROR:** the harness could not be set up, the request could not be sent, or the per-test timeout expired during the wait.
 - **SKIP:** no UE configured (`skip-no-ue`), or a target release older than Rel-15.
 - **Detail:** the command's cause, other PDUs read while waiting (an Error Indication, for example), and how the cleanup went. It never includes key material.
 - **Limits:** no fresh NG Setup is tried afterwards, so the check reports no CRASH.

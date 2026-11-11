@@ -18,7 +18,7 @@ func init() {
 // errorIndicationOnUnknownUE sends a UE-associated message (Uplink NAS
 // Transport) referencing a UE-NGAP-ID pair the AMF never established. TS 38.413
 // 10.6 and 8.7.5.2 require an ERROR INDICATION, and the core must survive the
-// unexpected message (the class of defect behind omec AMF #672/#673). An
+// unexpected message. An
 // ERROR INDICATION with a working association afterwards is PASS. Surviving
 // without one (a silent drop within unknownUEWait, or another PDU) misses the
 // shall: FAIL, with Observed saying which. An association reset, or a fresh

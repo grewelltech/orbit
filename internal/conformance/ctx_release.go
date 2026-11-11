@@ -51,11 +51,14 @@ var (
 		Bound:        &Bound{Wait: ueCtxReleaseWait, Source: "check bound; TS 38.413 sets no timer for the command"},
 		NotCompleted: ProcANRelease,
 		Summary:      "sent no UE CONTEXT RELEASE COMMAND for the UE CONTEXT RELEASE REQUEST"}
+	ueCtxReleaseAssociationLost = Outcome{ID: "association-lost", Verdict: Deviation, Refs: []string{ueCtxReleaseRef},
+		NotCompleted: ProcANRelease,
+		Summary:      "dropped the association instead of sending a UE CONTEXT RELEASE COMMAND"}
 )
 
 // Outcomes declares what the check can report.
 func (ngapUECtxReleaseOnRequest) Outcomes() []Outcome {
-	return []Outcome{ueCtxReleaseCommanded, ueCtxReleaseNoCommand}
+	return []Outcome{ueCtxReleaseCommanded, ueCtxReleaseNoCommand, ueCtxReleaseAssociationLost}
 }
 
 func (ngapUECtxReleaseOnRequest) ID() string         { return "NGAP-UE-CTX-RELEASE-ON-REQUEST" }
@@ -97,7 +100,7 @@ func (c ngapUECtxReleaseOnRequest) Run(ctx context.Context, env Env) Result {
 	}
 	rel, err := h.RequestContextRelease(ctx, wait)
 	if err != nil {
-		return r.Errored("UE Context Release Request could not be sent or waited for", err.Error())
+		return releaseRequestFailed(r, err, ctx.Err())
 	}
 	// Deregister here rather than in Close, so the detail says how the
 	// cleanup went; the check's own context may be nearly spent.
@@ -133,4 +136,21 @@ func classifyUECtxRelease(rel engine.ContextReleaseResult, wait time.Duration, d
 		return ueCtxReleaseCommanded, fmt.Sprintf("UE CONTEXT RELEASE COMMAND after %s", rel.After.Round(time.Millisecond)), detail
 	}
 	return ueCtxReleaseNoCommand, fmt.Sprintf("no UE CONTEXT RELEASE COMMAND within %s (absence inferred within this bound)", wait), ueCtxReleaseFailure + " Recorded: " + detail
+}
+
+// releaseRequestFailed is the result when the UE CONTEXT RELEASE REQUEST
+// could not be sent or its wait ended in an error: the per-test timeout
+// (ctxErr set) is ERROR; an association read failure while waiting for the
+// command is the core dropping the association (DEVIATION); a request
+// that could not be sent is ERROR.
+func releaseRequestFailed(r Result, err, ctxErr error) Result {
+	switch {
+	case ctxErr != nil:
+		return r.Errored("timed out waiting for the UE CONTEXT RELEASE COMMAND",
+			fmt.Sprintf("%v; the per-test timeout expired during the wait; raise --per-test-timeout", err))
+	case strings.HasPrefix(err.Error(), "await UEContextReleaseCommand"):
+		return r.As(ueCtxReleaseAssociationLost, "association lost waiting for the UE CONTEXT RELEASE COMMAND",
+			ueCtxReleaseFailure+" Recorded: "+err.Error())
+	}
+	return r.Errored("UE CONTEXT RELEASE REQUEST could not be sent", err.Error())
 }
