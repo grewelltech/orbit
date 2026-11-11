@@ -139,7 +139,7 @@ P="$TESTBED_PREFIX"
 # lxc_do and lxc_long, exists_instance, is_running, wait_cloud_init, info, warn,
 # die, ip_in, cidr_in; the node names NODE_CORE, NODE_RSITE and the rest; the
 # addresses CORE_OAM, CORE_N2, AMF_N2, UPF_N3, UPF_N6, GW_OAM, GW_N2, GW_N3,
-# GW_N6, APP_N6; every TESTBED_* setting; and TESTBED_CACHE_DIR, this testbed's
+# GW_N6, APP_N6, ECHO_PEER; every TESTBED_* setting; and TESTBED_CACHE_DIR, this testbed's
 # own scratch directory on the host. On the core node the interfaces are named
 # oam, n2, n3 and n6.
 #
@@ -294,6 +294,10 @@ APP_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_APP"); APP_N6=$(ip_in "$TESTBE
 RANN_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_RAN"); RANF_OAM=$(ip_in "$TESTBED_NET_FAR_OAM" "$TESTBED_HOST_RAN")
 CTRL_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_CTRL"); WANEM_OAM=$(ip_in "$TESTBED_NET_OAM" "$TESTBED_HOST_WANEM")
 AMF_N2="$CORE_N2:38412"; RESPONDER="$APP_N6:9551"; ORBIT_PORT=8412
+# The UDP echo peer on N6, beside the responder: what a UE's traffic is echoed
+# by when a test needs downlink that answers its own uplink (the conformance
+# checks' --traffic).
+ECHO_PEER="$APP_N6:$TESTBED_ECHO_PORT"
 
 # What the UPF and the responder's host use as next hops, which is where the
 # shapes differ. With the router they are its gateways. Without it nothing
@@ -1889,6 +1893,9 @@ ORBIT_OPC=$opc
 TESTBED_AMF=$AMF_N2
 TESTBED_UPF_N3=$UPF_N3:2152
 TESTBED_RESPONDER=$RESPONDER
+# UDP echo peer on N6 (orbit-n6-echo on the responder's node): the conformance
+# checks' --traffic.
+TESTBED_ECHO=$ECHO_PEER
 TESTBED_TAC=$TESTBED_TAC
 TESTBED_SST=$TESTBED_SST
 TESTBED_SD=$TESTBED_SD
@@ -2115,6 +2122,80 @@ EOF
 systemctl daemon-reload && systemctl enable orbit-responder >/dev/null 2>&1 && systemctl restart orbit-responder" >/dev/null
     lxc_do exec "$NODE_RESP" -- systemctl is-active orbit-responder >/dev/null \
         && info "responder active" || warn "responder did not come up; check journalctl -u orbit-responder"
+    install_n6_echo
+}
+
+# n6_echo_program -> the UDP echo peer: every datagram goes back to its sender
+# from the address it was sent to. Python 3 from the image, no dependencies.
+n6_echo_program() {
+    cat <<'PY'
+#!/usr/bin/env python3
+"""UDP echo peer for the LXD testbed's N6 network, written by testbed.sh.
+
+Usage: orbit-n6-echo <ip>:<port>
+"""
+import socket
+import sys
+
+
+def main():
+    if len(sys.argv) != 2 or ":" not in sys.argv[1]:
+        sys.exit("usage: orbit-n6-echo <ip>:<port>")
+    host, _, port = sys.argv[1].rpartition(":")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((host, int(port)))
+    while True:
+        data, peer = sock.recvfrom(65535)
+        try:
+            sock.sendto(data, peer)
+        except OSError:
+            pass  # an unreachable sender must not stop the service
+
+
+if __name__ == "__main__":
+    main()
+PY
+}
+
+# install_n6_echo installs the echo peer on the responder's node as the
+# orbit-n6-echo unit, bound to the N6 address only (like the responder, it
+# has no business on the management network), and starts it.
+install_n6_echo() {
+    info "starting the UDP echo peer on $ECHO_PEER"
+    n6_echo_program > "$TESTBED_CACHE_DIR/n6-echo.$NODE_RESP"
+    push_file "$NODE_RESP" "$TESTBED_CACHE_DIR/n6-echo.$NODE_RESP" /usr/local/bin/orbit-n6-echo 755
+    rm -f "$TESTBED_CACHE_DIR/n6-echo.$NODE_RESP"
+    lxc_do exec "$NODE_RESP" -- bash -c "cat > /etc/systemd/system/orbit-n6-echo.service <<'EOF'
+[Unit]
+Description=UDP echo peer on N6 (the conformance checks' --traffic)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/orbit/env
+ExecStart=/usr/bin/python3 /usr/local/bin/orbit-n6-echo \${TESTBED_ECHO}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable orbit-n6-echo >/dev/null 2>&1 && systemctl restart orbit-n6-echo" >/dev/null
+    lxc_do exec "$NODE_RESP" -- systemctl is-active orbit-n6-echo >/dev/null \
+        && info "echo peer active" || warn "the echo peer did not come up; check journalctl -u orbit-n6-echo"
+}
+
+# echo_probe -> a shell command for the responder's node: it sends one
+# datagram to the echo peer and succeeds when the same bytes come back within
+# 2 s from the peer's own address.
+echo_probe() {
+    cat <<PROBE
+python3 -c 'import socket,sys
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(2)
+s.sendto(b"orbit-n6-echo-check",("$APP_N6",$TESTBED_ECHO_PORT))
+d,p=s.recvfrom(64)
+sys.exit(0 if d==b"orbit-n6-echo-check" and p==("$APP_N6",$TESTBED_ECHO_PORT) else 1)'
+PROBE
 }
 
 # cmd_ran [near|far] — ORBIT on one or both RAN nodes (default both).
@@ -2313,6 +2394,11 @@ cmd_check() {
         check "$NODE_APP" "UE pool routed back via the UPF N6 $UPF_N6" "ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $UPF_N6 dev n6'"
     fi
 
+    # The echo peer is installed by `app`; before that the unit is absent and
+    # the assertion says so.
+    check "$NODE_RESP" "UDP echo peer $ECHO_PEER answers (orbit-n6-echo)" \
+        "systemctl is-active -q orbit-n6-echo || { echo 'orbit-n6-echo is not active; run the app step'; exit 1; }; $(echo_probe)"
+
     if [ "$WITH_FAR" = true ]; then
         check "$NODE_WANEM" "ping r-site OAM and the Internet" "$PING $GW_OAM && $PING 8.8.8.8"
         check "$NODE_WANEM" "br-wan has no address and two ports" \
@@ -2328,8 +2414,8 @@ cmd_check() {
 #
 # From each RAN node in turn: NG Setup over N2, a registration with a PDU
 # session (5G-AKA, NAS security, SMF/UPF session), a ping from the UE through
-# N3 -> UPF -> N6 to the app, a 5-second traffic flow to the responder, and a
-# deregistration. The far node does it two routed hops from the core, which is
+# N3 -> UPF -> N6 to the app, a 5-second traffic flow to the responder, a
+# 2-second one to the UDP echo peer, and a deregistration. The far node does it two routed hops from the core, which is
 # the case that exposed UPF downlink routing (sdcore-lab UPF-5).
 verify_from() {
     local node=$1 label=$2 gnb=$3 n3=$4 supi=$5 rc=0
@@ -2357,6 +2443,8 @@ verify_from() {
     fi
     echo "--- traffic 50 Mbps for 5 s to the responder"
     lxc exec "$node" -- bash -c "$orbit ue traffic --supi $supi --target \$TESTBED_RESPONDER --duration-ms 5000 --rate 50Mbps" 2>&1 | tail -2 || rc=1
+    echo "--- UDP to the echo peer $ECHO_PEER (the conformance checks' --traffic) for 2 s"
+    lxc exec "$node" -- bash -c "$orbit ue traffic --supi $supi --target \$TESTBED_ECHO --duration-ms 2000 --rate 1Mbps" 2>&1 | tail -2 || rc=1
     echo "--- deregister"
     lxc exec "$node" -- bash -c "$orbit ue deregister --supi $supi" 2>&1 | tail -1 || rc=1
     echo
