@@ -339,7 +339,12 @@ func TestRegistryValidate(t *testing.T) {
 func TestNewRegistry(t *testing.T) {
 	out := []Outcome{{ID: "seen", Verdict: Info, Summary: "did something"}}
 	check := func(id string, owned []Procedure, needs ...Procedure) Test {
-		return declTest{provTest: provTest{id: id}, outs: out, owned: owned, needs: CheckNeeds{Procedures: needs}}
+		return declTest{provTest: provTest{id: id, refs: []SpecRef{goodRef()}}, outs: out, owned: owned, needs: CheckNeeds{Procedures: needs}}
+	}
+	ungrouped := func(clause string) Test {
+		ref := goodRef()
+		ref.Clause = clause
+		return declTest{provTest: provTest{id: "LOOSE", refs: []SpecRef{ref}}, outs: out, owned: []Procedure{ProcNGSetup}}
 	}
 	tests := []struct {
 		name    string
@@ -347,6 +352,8 @@ func TestNewRegistry(t *testing.T) {
 		wantErr string
 	}{
 		{name: "valid", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), check("USER", nil, ProcNGSetup)}},
+		{name: "a primary reference outside the clause-title table", tests: []Test{ungrouped("9.9.9")},
+			wantErr: "LOOSE: primary reference TS 38.413 9.9.9: clause 9.9.9 has no entry in the clause-title table"},
 		{name: "two owners", tests: []Test{check("A", []Procedure{ProcNGSetup}), check("B", []Procedure{ProcNGSetup})},
 			wantErr: `procedure "NG Setup" has two owners: A and B`},
 		{name: "a need with no owner", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), check("USER", nil, ProcNGSetup, ProcRegistration)},

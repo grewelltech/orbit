@@ -209,9 +209,12 @@ var clauseTitles = []specTitles{
 	},
 }
 
-// specTitlesOf returns the table's part for spec.
-func specTitlesOf(spec string) (specTitles, bool) {
-	for _, s := range clauseTitles {
+// specTitlesOf returns the clause-title table's part for spec.
+func specTitlesOf(spec string) (specTitles, bool) { return specTitlesIn(clauseTitles, spec) }
+
+// specTitlesIn returns table's part for spec.
+func specTitlesIn(table []specTitles, spec string) (specTitles, bool) {
+	for _, s := range table {
 		if s.Spec == spec {
 			return s, true
 		}
@@ -301,6 +304,128 @@ func validateTitles(table []specTitles) error {
 					held[rel] = true
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// Group is a check's place in the suite (ADR-0011 rule 9): the
+// specification, the procedure family and the procedure its primary
+// reference belongs to, by the specification's own clause titles. A check
+// whose primary reference is not a procedure has that clause, or the
+// clause that titles it, in the procedure's place.
+type Group struct {
+	Spec, Family, Procedure string
+}
+
+// GroupSeparator separates a group path's segments.
+const GroupSeparator = " / "
+
+// String renders the group path: "NGAP / UE Mobility Management
+// Procedures / Handover Preparation".
+func (g Group) String() string {
+	return g.Spec + GroupSeparator + g.Family + GroupSeparator + g.Procedure
+}
+
+// PrimaryRef returns the reference a check marks primary, false when it
+// marks none.
+func PrimaryRef(t Test) (SpecRef, bool) {
+	for _, r := range t.SpecRefs() {
+		if r.Primary {
+			return r, true
+		}
+	}
+	return SpecRef{}, false
+}
+
+// GroupOf derives t's group from its primary reference and the clause-title
+// table, with the titles of release rel: the run's target release. When the
+// cited clause does not exist in rel, rel is not one the reference was read
+// in, or rel is unset (0), the titles of the latest release the reference
+// was read in are used, so a check has one group in any run. It is an error
+// when t has no primary reference or the table has no entry for it.
+func GroupOf(t Test, rel Release) (Group, error) {
+	r, ok := PrimaryRef(t)
+	if !ok {
+		return Group{}, fmt.Errorf("%s: no reference is marked primary", t.ID())
+	}
+	g, err := groupOfRef(clauseTitles, r, rel)
+	if err != nil {
+		return Group{}, fmt.Errorf("%s: %w", t.ID(), err)
+	}
+	return g, nil
+}
+
+// groupOfRef is GroupOf for a primary reference r, read in table.
+func groupOfRef(table []specTitles, r SpecRef, rel Release) (Group, error) {
+	s, ok := specTitlesIn(table, r.Spec)
+	if !ok {
+		return Group{}, fmt.Errorf("primary reference %s: %s has no part in the clause-title table", r.Key(), r.Spec)
+	}
+	num := clauseNumber(r.Clause)
+	cited, ok := s.clause(num)
+	if !ok {
+		return Group{}, fmt.Errorf("primary reference %s: clause %s has no entry in the clause-title table", r.Key(), num)
+	}
+	use, ok := titleRelease(r, cited, rel)
+	if !ok {
+		return Group{}, fmt.Errorf("primary reference %s: clause %s has no title in a release the reference was read in", r.Key(), num)
+	}
+	leaf, leafNum, ok := s.nearest(num, levelLeaf, use)
+	if !ok {
+		return Group{}, fmt.Errorf("primary reference %s: no procedure or titled clause at or above %s in %s", r.Key(), num, use)
+	}
+	family, _, ok := s.nearest(parentClause(leafNum), levelFamily, use)
+	if !ok {
+		return Group{}, fmt.Errorf("primary reference %s: no procedure family above %s in %s", r.Key(), leafNum, use)
+	}
+	return Group{Spec: s.Label, Family: family, Procedure: leaf}, nil
+}
+
+// titleRelease is the release whose titles a group is read in: rel when
+// the cited clause exists in it and the reference was read in it, else the
+// latest release the reference was read in that has the clause.
+func titleRelease(r SpecRef, cited clauseTitle, rel Release) (Release, bool) {
+	read := map[Release]bool{}
+	for _, v := range r.Verified {
+		read[v.Release] = true
+	}
+	if _, ok := cited.in(rel); ok && read[rel] {
+		return rel, true
+	}
+	for x := LatestRelease; x >= 1; x-- {
+		if _, ok := cited.in(x); ok && read[x] {
+			return x, true
+		}
+	}
+	return 0, false
+}
+
+// nearest walks up from clause num (itself first) to the first clause of
+// the given level with a title in rel, returning the title and its number.
+func (s specTitles) nearest(num string, level titleLevel, rel Release) (string, string, bool) {
+	for n := num; n != ""; n = parentClause(n) {
+		c, ok := s.clause(n)
+		if !ok || c.Level != level {
+			continue
+		}
+		if title, ok := c.in(rel); ok {
+			return title, n, true
+		}
+	}
+	return "", "", false
+}
+
+// validateGroup checks that t's group can be derived in every release from
+// Rel-15 through LatestRelease, and unset: registration refuses a check
+// whose primary reference the clause-title table does not cover.
+func validateGroup(t Test) error {
+	for rel := Release(0); rel <= LatestRelease; rel++ {
+		if rel > 0 && rel < 15 {
+			continue
+		}
+		if _, err := GroupOf(t, rel); err != nil {
+			return err
 		}
 	}
 	return nil

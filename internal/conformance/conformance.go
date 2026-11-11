@@ -47,6 +47,9 @@ const (
 type Result struct {
 	ID       string   `json:"id"`
 	Category Category `json:"category"`
+	// Group is the check's group path in the run's target release
+	// (GroupOf), "" for a check without one.
+	Group string `json:"group,omitempty"`
 	// SpecRef is the check's references rendered on one line (RenderRefs),
 	// kept for consumers of the original string field.
 	SpecRef string `json:"spec_ref"`
@@ -504,12 +507,16 @@ func NewRegistry() *Registry {
 }
 
 // newRegistry returns a registry of tests, or an error when a test declares
-// no outcomes (Declarer) or the set fails Registry.Validate.
+// no outcomes (Declarer), has a primary reference the clause-title table
+// does not cover (GroupOf), or the set fails Registry.Validate.
 func newRegistry(tests []Test) (*Registry, error) {
 	r := &Registry{}
 	for _, t := range tests {
 		if _, ok := declared(t); !ok {
 			return nil, fmt.Errorf("%s: declares no outcomes; every check declares what it can report (Declarer)", t.ID())
+		}
+		if err := validateGroup(t); err != nil {
+			return nil, err
 		}
 		r.Register(t)
 	}
@@ -721,6 +728,9 @@ func runOne(ctx context.Context, t Test, e Env, perTest time.Duration) Result {
 		}
 	}
 	res.ID, res.Category = t.ID(), t.Category()
+	if g, err := GroupOf(t, e.TargetRelease); err == nil {
+		res.Group = g.String()
+	}
 	res.SpecRefs = t.SpecRefs()
 	res.SpecRef = RenderRefs(res.SpecRefs)
 	res.MinRelease = min

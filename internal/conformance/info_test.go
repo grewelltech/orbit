@@ -213,10 +213,10 @@ func TestChecksMarkdownVerdictClass(t *testing.T) {
 		infoOnly{provTest: provTest{id: "INFO-ONLY", refs: []SpecRef{refOf(Descriptive)}}},
 	})
 	for _, want := range []string{
-		"| [GRADED-SHALL](provenance/GRADED-SHALL.md) | procedural | FAIL | Rel-15 |",
-		"| [GRADED-SHOULD](provenance/GRADED-SHOULD.md) | procedural | DEVIATION | Rel-15 |",
-		"| [DESCRIPTIVE](provenance/DESCRIPTIVE.md) | procedural | WARN | Rel-15 |",
-		"| [INFO-ONLY](provenance/INFO-ONLY.md) | procedural | INFO | Rel-15 |",
+		"| [GRADED-SHALL](provenance/GRADED-SHALL.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | FAIL | Rel-15 |",
+		"| [GRADED-SHOULD](provenance/GRADED-SHOULD.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | DEVIATION | Rel-15 |",
+		"| [DESCRIPTIVE](provenance/DESCRIPTIVE.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | WARN | Rel-15 |",
+		"| [INFO-ONLY](provenance/INFO-ONLY.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | procedural | INFO | Rel-15 |",
 		"**Verdict class** is the worst a check's declared outcomes can say of a core: `FAIL` for a missed shall, `DEVIATION` for a missed should, `WARN` for behaviour no requirement covers that meets a criterion (security, availability or interoperability), `INFO` for behaviour that is only recorded.",
 		"- TS 38.413 10.3.5 (descriptive, since Rel-15):",
 	} {
