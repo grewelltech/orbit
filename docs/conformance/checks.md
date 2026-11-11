@@ -171,7 +171,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NAS-REGISTRATION-AFTER-RELEASE
 
-- TS 24.501 5.5.1.2.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.1.2.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 5.5.1.2.5 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 - TS 24.501 5.5.2.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 - TS 24.501 Table 10.2.1 T3510 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
@@ -492,6 +492,19 @@ Owns: registration. Needs: NG Setup.
 | `not-completed` | WARN | availability; reports registration as not completed | ended the registration without completing it, in another way |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NAS-REGISTRATION-AFTER-RELEASE outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `answered` | PASS | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall) | answered every REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE |
+| `unanswered` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall); absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | sent no NAS message for a REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE |
+| `no-release` | INFO | no requirement; absence within 5s (check bound; the wait the suite's deregistration checks give the release) | sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration, so the registration after the release could not be sent |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
 
 ### NGAP-UNKNOWN-UE-SURVIVES outcomes
 

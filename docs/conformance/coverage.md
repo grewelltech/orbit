@@ -523,8 +523,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   registration, which the AMF shall answer with an Accept or a Reject
   (5.5.1.2.4, 5.5.1.2.5). Any NAS message for the new registration within
   10 s, such as the Authentication Request, is an answer: every attempt
-  answered is PASS, one with no NAS message FAIL. A core that sends no
-  release for a switch-off is SKIP. The UE is deregistered at the end; the
+  answered is PASS, one with no NAS message FAIL (5.5.1.2.8 read in six
+  versions: only case e) 2), a second identical request, lets the AMF stay
+  silent). A core that sends no release for a switch-off is INFO; a
+  registration of the SUPI that does not complete is BLOCKED. The UE is deregistered at the end; the
   detail says what an unanswered registration left. Needs a UE (one
   subscriber); up to 124 s.
 

@@ -12,9 +12,11 @@ import (
 )
 
 // judgeRegAfterRelease: one registration without a NAS answer is FAIL
-// whatever the others did; with none, a missing release is SKIP and any
-// other registration that could not be sent ERROR; every one answered,
-// with an Accept, a Reject or a registration that then stalled, is PASS.
+// whatever the others did; with none, a missing release is INFO, a
+// registration of the SUPI the core did not complete BLOCKED on the
+// registration, and any other registration that could not be sent ERROR;
+// every one answered, with an Accept, a Reject or a registration that then
+// stalled, is PASS.
 func TestJudgeRegAfterRelease(t *testing.T) {
 	answered := regAttempt{gap: 0, measured: 80 * time.Microsecond, answer: "AUTHENTICATION REQUEST", after: 2 * time.Millisecond, registered: true}
 	rejected := regAttempt{gap: 5 * time.Millisecond, measured: 5 * time.Millisecond, answer: "REGISTRATION REJECT", after: time.Millisecond, rejected: true, ended: "the registration was rejected"}
@@ -22,7 +24,8 @@ func TestJudgeRegAfterRelease(t *testing.T) {
 	silent := regAttempt{gap: 0, measured: 90 * time.Microsecond, ended: "none within 10s"}
 	releasedOnly := regAttempt{gap: 0, measured: 90 * time.Microsecond, other: "received instead: UEContextRelease", ended: "the core released the new UE context"}
 	noRelease := regAttempt{gap: 0, notRun: "the core sent no UE Context Release within 5s", noRelease: true}
-	notRun := regAttempt{gap: 20 * time.Millisecond, notRun: "a registration of the same SUPI 1s later did not complete (timeout)"}
+	notRun := regAttempt{gap: 20 * time.Millisecond, notRun: "the check's time ran out before the UE could register again"}
+	blocked := regAttempt{gap: 20 * time.Millisecond, notRun: "a registration of the same SUPI 1s later did not complete (rejected)", blocked: true}
 	tests := []struct {
 		name         string
 		attempts     []regAttempt
@@ -40,25 +43,30 @@ func TestJudgeRegAfterRelease(t *testing.T) {
 			wantDetail: []string{regAfterReleaseFailure, "1 of 3 registrations drew no NAS message within 10s", "no NAS answer; none within 10s"}},
 		{name: "a release in place of a NAS answer", attempts: []regAttempt{releasedOnly}, want: Fail, wantObserved: regAfterReleaseUnanswered,
 			wantDetail: []string{"no NAS answer; received instead: UEContextRelease; the core released the new UE context"}},
-		{name: "unanswered, then not run", attempts: []regAttempt{silent, notRun}, want: Fail, wantObserved: regAfterReleaseUnanswered,
-			wantDetail: []string{"1 of 2 registrations", "gap 20ms: not run: a registration of the same SUPI 1s later did not complete (timeout)"}},
+		{name: "unanswered, then not run", attempts: []regAttempt{silent, blocked}, want: Fail, wantObserved: regAfterReleaseUnanswered,
+			wantDetail: []string{"1 of 2 registrations", "gap 20ms: not run: a registration of the same SUPI 1s later did not complete (rejected)"}},
 		{name: "unanswered outweighs a missing release", attempts: []regAttempt{silent, noRelease}, want: Fail, wantObserved: regAfterReleaseUnanswered},
-		{name: "no release", attempts: []regAttempt{noRelease, noRelease}, want: Skip, wantObserved: regAfterReleaseNoRelease,
+		{name: "no release", attempts: []regAttempt{noRelease, noRelease}, want: Info, wantObserved: regAfterReleaseNoRelease,
 			wantDetail: []string{"0 of 2 registrations answered", "NGAP-CTX-RELEASE-AFTER-SWITCH-OFF", "not run: the core sent no UE Context Release within 5s"}},
-		{name: "answered, then no release", attempts: []regAttempt{answered, noRelease}, want: Skip, wantObserved: regAfterReleaseNoRelease,
+		{name: "answered, then no release", attempts: []regAttempt{answered, noRelease}, want: Info, wantObserved: regAfterReleaseNoRelease,
 			wantDetail: []string{"1 of 2 registrations answered"}},
 		{name: "answered, then not run", attempts: []regAttempt{answered, notRun}, want: Error, wantObserved: "a registration after the release could not be sent"},
+		{name: "answered, then the SUPI not registered again", attempts: []regAttempt{answered, blocked}, want: Blocked,
+			wantObserved: "a registration of the same SUPI did not complete", wantDetail: []string{"gap 20ms: not run"}},
 		{name: "nothing to try", want: Error, wantObserved: "no registration attempted"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeRegAfterRelease(tc.attempts, 10*time.Second)
-			if v != tc.want || observed != tc.wantObserved {
-				t.Fatalf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			r := judgeRegAfterRelease(Result{}, tc.attempts, 10*time.Second)
+			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
+				t.Fatalf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			if r.Verdict == Blocked && r.BlockedOn != ProcRegistration {
+				t.Errorf("blocked on %q, want the registration", r.BlockedOn)
 			}
 			for _, w := range tc.wantDetail {
-				if !strings.Contains(detail, w) {
-					t.Errorf("detail %q lacks %q", detail, w)
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
 				}
 			}
 		})
@@ -91,9 +99,9 @@ func TestNASAnswerName(t *testing.T) {
 // mock that answers every registration PASSes; one that drops a
 // registration arriving within its window of the release FAILs, whether
 // the dropped one is the first or the last and whether or not the SUPI
-// registers again afterwards; one that sends no release SKIPs; one that
-// dies at the dropped registration is the crash FAIL; a first registration
-// that fails is ERROR; no UE SKIPs. Every registration is of the one SUPI,
+// registers again afterwards; one that sends no release is INFO; one that
+// dies at the dropped registration is CRASH; a first registration that
+// fails is BLOCKED on the registration; no UE SKIPs. Every registration is of the one SUPI,
 // the UE is deregistered at the end wherever the core still registers it,
 // and no association stays open.
 func TestRegistrationAfterReleaseAgainstMock(t *testing.T) {
@@ -134,15 +142,15 @@ func TestRegistrationAfterReleaseAgainstMock(t *testing.T) {
 			wantDetail: []string{"1 of 2 registrations drew no NAS message", "gap 5ms: not run: a registration of the same SUPI 400ms later did not complete",
 				"state left: the association was closed with the UE not registered"},
 			wantRegs: 1, wantDropped: 2, wantDeregs: 1},
-		{name: "no release", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, gaps: []time.Duration{0, 5 * time.Millisecond}, want: Skip,
+		{name: "no release", opts: []mockamf.Option{mockamf.WithNoReleaseOnDeregistration()}, gaps: []time.Duration{0, 5 * time.Millisecond}, want: Info,
 			wantObserved: regAfterReleaseNoRelease,
 			wantDetail:   []string{"0 of 2 registrations answered", "gap 5ms: not run: not tried after a deregistration without a release", "state left: the association was closed with the UE not registered"},
 			wantRegs:     1, wantDeregs: 1},
 		{name: "core dies at the registration", opts: []mockamf.Option{mockamf.WithDropRegistrationAfterRelease(time.Hour), mockamf.WithCrashOnDroppedRegistration()},
 			gaps: []time.Duration{0}, want: Crash, wantObserved: ObservedAMFUnresponsive + " (" + regAfterReleaseUnanswered + ")",
 			wantRegs: 1, wantDropped: 1, wantDeregs: 1, dead: true},
-		{name: "first registration fails", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, gaps: []time.Duration{0}, want: Error,
-			wantObserved: "registration failed", wantRegs: 1},
+		{name: "first registration fails", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, gaps: []time.Duration{0}, want: Blocked,
+			wantObserved: "registration failed", wantDetail: []string{"the core did not complete a registration, which this check needs first"}, wantRegs: 1},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
@@ -204,7 +212,7 @@ func TestRegistrationAfterReleaseClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := NeedsOf(c)
-	if VerdictClass(c) != Fail || IsInformational(c) || PhaseOf(c) != PhaseMain || n.UEs != 1 || subscribersOf(c) != 1 || MinRelease(c) != 15 {
+	if VerdictClass(c) != Fail || IsInformational(c) || PhaseOf(c) != PhaseMain || n.UEs != 1 || subscribersOf(c) != 1 || MinRelease(c) != 15 || !n.needs(ProcRegistration) {
 		t.Errorf("class %s, informational %v, phase %s, needs %+v, min release %s", VerdictClass(c), IsInformational(c), PhaseOf(c), n, MinRelease(c))
 	}
 	// 10 s to register, four attempts of 5 s + 10 s + 1 s + 10 s plus

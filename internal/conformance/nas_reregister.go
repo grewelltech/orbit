@@ -43,6 +43,29 @@ const (
 // and still miss one that arrives while it clears the UE context.
 var regAfterReleaseGaps = []time.Duration{0, 5 * time.Millisecond, 10 * time.Millisecond, 20 * time.Millisecond}
 
+// The outcomes of NAS-REGISTRATION-AFTER-RELEASE.
+var (
+	regAfterReleaseOutAnswered = Outcome{ID: "answered", Verdict: Pass, Refs: []string{initialRegAcceptRef, initialRegRejectRef},
+		Summary: "answered every REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE"}
+	regAfterReleaseOutUnanswered = Outcome{ID: "unanswered", Verdict: Fail, Refs: []string{initialRegAcceptRef, initialRegRejectRef},
+		Bound:   &Bound{Wait: regAfterReleaseWait, Source: initialNASBound},
+		Summary: "sent no NAS message for a REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE"}
+	// INFO: the stimulus follows the release, and the core sent none, so
+	// the requirement was not exercised. No clause the check cites asks for
+	// the release (a switch-off deregistration is complete when the AMF
+	// receives the request, 5.5.2.2.2), it is no procedure of the fixed
+	// list a BLOCKED could name, and NGAP-CTX-RELEASE-AFTER-SWITCH-OFF
+	// reports on it; none of the criteria applies to this check.
+	regAfterReleaseOutNoRelease = Outcome{ID: "no-release", Verdict: Info,
+		Bound:   &Bound{Wait: regAfterReleaseLinger, Source: "check bound; the wait the suite's deregistration checks give the release"},
+		Summary: "sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration, so the registration after the release could not be sent"}
+)
+
+// Outcomes declares what the check can report.
+func (nasRegistrationAfterRelease) Outcomes() []Outcome {
+	return []Outcome{regAfterReleaseOutAnswered, regAfterReleaseOutUnanswered, regAfterReleaseOutNoRelease}
+}
+
 // Texts of NAS-REGISTRATION-AFTER-RELEASE.
 const (
 	regAfterReleaseAnswered   = "REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE answered every time"
@@ -66,7 +89,9 @@ const (
 // the new registration within regAfterReleaseWait, such as the
 // AUTHENTICATION REQUEST that starts the procedure. Every attempt answered
 // is PASS; one that drew no NAS message is FAIL. A core that sends no
-// release for a switch-off gives the check nothing to follow (SKIP).
+// release for a switch-off gives the check nothing to follow (INFO). A
+// registration of the SUPI that does not complete, at the start or
+// between attempts, is BLOCKED on the registration.
 //
 // An answered registration is completed, and the next attempt deregisters
 // it; one that did not complete is followed, after a pause, by a fresh
@@ -89,7 +114,7 @@ func (nasRegistrationAfterRelease) Category() Category { return NAS }
 // deregistration at the request and the UE's own wait for the answer.
 func (nasRegistrationAfterRelease) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.5.1.2.4", Strength: Shall, Since: 15, Verified: ts24501Verified, WordingUnchanged: true},
+		{Spec: "TS 24.501", Clause: "5.5.1.2.4", Strength: Shall, Since: 15, Verified: ts24501Verified, WordingUnchanged: true, Primary: true},
 		{Spec: "TS 24.501", Clause: "5.5.1.2.5", Strength: Shall, Since: 15, Verified: ts24501Verified, WordingUnchanged: true},
 		{Spec: "TS 24.501", Clause: "5.5.2.2.2", Strength: Descriptive, Since: 15, Verified: ts24501Verified,
 			Changed: []SpecChange{
@@ -139,10 +164,12 @@ type regAttempt struct {
 	// gap is the pause asked for and measured the one taken, between the
 	// UE CONTEXT RELEASE COMPLETE and the INITIAL UE MESSAGE as written.
 	gap, measured time.Duration
-	// notRun says why the registration was not sent ("" when it was), and
-	// noRelease that the reason is a missing UE CONTEXT RELEASE COMMAND.
-	notRun    string
-	noRelease bool
+	// notRun says why the registration was not sent ("" when it was),
+	// noRelease that the reason is a missing UE CONTEXT RELEASE COMMAND,
+	// and blocked that it is a registration of the SUPI the core did not
+	// complete.
+	notRun             string
+	noRelease, blocked bool
 	// answer names the first NAS message for the new registration, ""
 	// when none came within the wait, and after is how long it took.
 	answer string
@@ -180,19 +207,28 @@ func (a regAttempt) String() string {
 func (c nasRegistrationAfterRelease) Run(ctx context.Context, env Env) Result {
 	wait := c.waitTimeout()
 	r := Result{Expected: fmt.Sprintf("a NAS answer (the REGISTRATION ACCEPT, or a message of the procedure such as the AUTHENTICATION REQUEST) within %s to an initial REGISTRATION REQUEST sent right after the UE CONTEXT RELEASE COMPLETE that ends the same UE's switch-off deregistration (TS 24.501 5.5.1.2.4, 5.5.1.2.5)", wait)}
-	h, done := deregHarness(ctx, env, c.registerTimeout(), &r)
-	if done {
-		return r
+	if !env.UE.Configured() {
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run checks that register a UE")
+	}
+	h, err := NewUEHarness(env, nil)
+	if err != nil {
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
+	rctx, cancel := context.WithTimeout(ctx, c.registerTimeout())
+	_, err = h.RegisterWithProbe(rctx, nil)
+	cancel()
+	if err != nil {
+		return r.SetupFailed("registration failed", err)
+	}
 
 	gaps := c.attemptGaps()
 	var attempts []regAttempt
 	for i, gap := range gaps {
 		if i > 0 && !h.registered {
-			if why := c.registerAfresh(ctx, h); why != "" {
+			if why, blocked := c.registerAfresh(ctx, h); why != "" {
 				for _, g := range gaps[i:] {
-					attempts = append(attempts, regAttempt{gap: g, notRun: why})
+					attempts = append(attempts, regAttempt{gap: g, notRun: why, blocked: blocked})
 				}
 				break
 			}
@@ -213,7 +249,7 @@ func (c nasRegistrationAfterRelease) Run(ctx context.Context, env Env) Result {
 	// still registers the SUPI and lets the UE deregister properly.
 	var left []string
 	if n := len(attempts); n > 0 && !h.registered && attempts[n-1].notRun == "" && !attempts[n-1].rejected && ctx.Err() == nil {
-		if why := c.registerAfresh(ctx, h); why != "" {
+		if why, _ := c.registerAfresh(ctx, h); why != "" {
 			left = append(left, "after the last registration, "+why)
 		} else {
 			left = append(left, fmt.Sprintf("a registration of the same SUPI %s after the last one completed", c.settleTime()))
@@ -232,26 +268,28 @@ func (c nasRegistrationAfterRelease) Run(ctx context.Context, env Env) Result {
 		left = append(left, "the association was closed with the UE not registered")
 	}
 
-	r.Verdict, r.Observed, r.Detail = judgeRegAfterRelease(attempts, wait)
+	r = judgeRegAfterRelease(r, attempts, wait)
 	r.Detail = joinDetail(r.Detail, "state left: "+strings.Join(left, "; "))
-	if r.Verdict == Error || r.Verdict == Skip || ctx.Err() != nil {
+	if r.Verdict == Error || r.Verdict == Blocked || ctx.Err() != nil {
 		return r
 	}
 	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the registrations that followed a release")
 }
 
 // registerAfresh pauses for the settle and registers the harness's UE on a
-// new association, returning "" or why that failed.
-func (c nasRegistrationAfterRelease) registerAfresh(ctx context.Context, h *UEHarness) string {
+// new association, returning "" or why that failed, and whether the
+// failure is the core's: a registration that did not complete, with the
+// check's time left and no local fault.
+func (c nasRegistrationAfterRelease) registerAfresh(ctx context.Context, h *UEHarness) (string, bool) {
 	if !sleepCtx(ctx, c.settleTime()) {
-		return "the check's time ran out before the UE could register again"
+		return "the check's time ran out before the UE could register again", false
 	}
 	rctx, cancel := context.WithTimeout(ctx, c.registerTimeout())
 	defer cancel()
 	if _, err := h.RegisterWithProbe(rctx, nil); err != nil {
-		return fmt.Sprintf("a registration of the same SUPI %s later did not complete (%v)", c.settleTime(), err)
+		return fmt.Sprintf("a registration of the same SUPI %s later did not complete (%v)", c.settleTime(), err), ctx.Err() == nil && !localFault(err)
 	}
-	return ""
+	return "", false
 }
 
 // attempt deregisters the registered UE and registers it again gap after
@@ -352,19 +390,22 @@ func nasAnswerName(t uint8) string {
 	return fmt.Sprintf("5GMM message type %#02x", t)
 }
 
-// judgeRegAfterRelease turns the attempts into the verdict. An attempt that
-// drew no NAS answer is FAIL whatever the others did. Otherwise a missing
-// UE CONTEXT RELEASE COMMAND, which leaves nothing to send the registration
-// after, is SKIP, any other attempt that could not be run is ERROR, and
-// every attempt answered is PASS.
-func judgeRegAfterRelease(attempts []regAttempt, wait time.Duration) (Verdict, string, string) {
+// judgeRegAfterRelease returns r with the attempts' outcome. An attempt
+// that drew no NAS answer is FAIL whatever the others did. Otherwise a
+// missing UE CONTEXT RELEASE COMMAND, which leaves nothing to send the
+// registration after, is INFO; a registration of the SUPI the core did not
+// complete is BLOCKED on the registration; any other attempt that could
+// not be run is ERROR; and every attempt answered is PASS.
+func judgeRegAfterRelease(r Result, attempts []regAttempt, wait time.Duration) Result {
 	lines := make([]string, len(attempts))
-	var unanswered, noRelease, notRun, answered int
+	var unanswered, noRelease, blocked, notRun, answered int
 	for i, a := range attempts {
 		lines[i] = a.String()
 		switch {
 		case a.noRelease:
 			noRelease++
+		case a.blocked:
+			blocked++
 		case a.notRun != "":
 			notRun++
 		case a.answered():
@@ -376,15 +417,17 @@ func judgeRegAfterRelease(attempts []regAttempt, wait time.Duration) (Verdict, s
 	detail := strings.Join(lines, "; ")
 	switch {
 	case len(attempts) == 0:
-		return Error, "no registration attempted", "the check has no gaps to try"
+		return r.Errored("no registration attempted", "the check has no gaps to try")
 	case unanswered > 0:
-		return Fail, regAfterReleaseUnanswered,
-			fmt.Sprintf("%s %d of %d registrations drew no NAS message within %s. Recorded: %s", regAfterReleaseFailure, unanswered, len(attempts), wait, detail)
+		return r.As(regAfterReleaseOutUnanswered, regAfterReleaseUnanswered,
+			fmt.Sprintf("%s %d of %d registrations drew no NAS message within %s (absence inferred within this bound). Recorded: %s", regAfterReleaseFailure, unanswered, len(attempts), wait, detail))
 	case noRelease > 0:
-		return Skip, regAfterReleaseNoRelease,
-			fmt.Sprintf("%d of %d registrations answered; NGAP-CTX-RELEASE-AFTER-SWITCH-OFF reports on the release; %s", answered, len(attempts), detail)
+		return r.As(regAfterReleaseOutNoRelease, regAfterReleaseNoRelease,
+			fmt.Sprintf("%d of %d registrations answered; NGAP-CTX-RELEASE-AFTER-SWITCH-OFF reports on the release; %s", answered, len(attempts), detail))
+	case blocked > 0:
+		return r.BlockedBy(ProcRegistration, "a registration of the same SUPI did not complete", detail)
 	case notRun > 0:
-		return Error, "a registration after the release could not be sent", detail
+		return r.Errored("a registration after the release could not be sent", detail)
 	}
-	return Pass, regAfterReleaseAnswered, detail
+	return r.As(regAfterReleaseOutAnswered, regAfterReleaseAnswered, detail)
 }
