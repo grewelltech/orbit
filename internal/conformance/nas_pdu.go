@@ -13,6 +13,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/nas"
+	"github.com/bgrewell/orbit/internal/ue"
 )
 
 func init() {
@@ -203,6 +204,10 @@ type dnnOutcome struct {
 	decodeRaw  []byte  // its NAS PDU
 	decodeType uint8   // its 5GMM message type (NASEvent.MessageType), 0 if unreadable
 	registered bool    // the attach returned a REGISTERED UE
+	// acceptedNAS is a PDU SESSION ESTABLISHMENT ACCEPT that did not stop
+	// the attach (probeSession's haltOnAccept false); noUserPlane is such
+	// an Accept with no session set up on N2 within the answer wait.
+	acceptedNAS, noUserPlane bool
 	// regTimedOut is a registration that did not reach the request within
 	// its wait; setupErr an attach that failed before the request.
 	regTimedOut bool
@@ -211,11 +216,23 @@ type dnnOutcome struct {
 	err         error // the harness failed, or the check's time ran out
 }
 
-// probe registers the UE with a PDU session for stimulusDNN and stops the
-// attach at the first N1 SM DL NAS Transport after the request, at a
-// downlink that does not decode, at an established session, or when a wait
-// runs out.
+// probe registers the UE with a PDU session for stimulusDNN on the
+// harness's slice and stops the attach at the first N1 SM DL NAS Transport
+// after the request, at a downlink that does not decode, at an established
+// session, or when a wait runs out.
 func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
+	pdu := h.pdu
+	pdu.DNN = stimulusDNN
+	return probeSession(ctx, h, pdu, c.registerTimeout(), c.answerTimeout(), true)
+}
+
+// probeSession registers h's UE with PDU session pdu and stops the attach
+// at the first N1 SM DL NAS Transport after the request, at a downlink that
+// does not decode, at an established session, or when a wait runs out.
+// With haltOnAccept false a PDU SESSION ESTABLISHMENT ACCEPT does not stop
+// it: the session's setup on N2 is awaited within answerWait of the
+// request, and noUserPlane records one that did not come.
+func probeSession(ctx context.Context, h *UEHarness, pdu ue.PDUSessionParams, registerWait, answerWait time.Duration, haltOnAccept bool) dnnOutcome {
 	stop := make(chan struct{})
 	var once sync.Once
 	halt := func() { once.Do(func() { close(stop) }) }
@@ -224,7 +241,7 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 	var o dnnOutcome
 	var regTimedOut bool
 	var answerTimer *time.Timer
-	regTimer := time.AfterFunc(c.registerTimeout(), func() {
+	regTimer := time.AfterFunc(registerWait, func() {
 		mu.Lock()
 		defer mu.Unlock()
 		if o.sent == nil {
@@ -233,7 +250,7 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 		}
 	})
 	defer regTimer.Stop()
-	decided := func() bool { return o.answer != nil || o.noAnswer || o.decodeErr != nil }
+	decided := func() bool { return o.answer != nil || o.noAnswer || o.noUserPlane || o.decodeErr != nil }
 	probe := &engine.AttachProbe{
 		Stop: stop,
 		OnSMRequest: func(sm []byte) {
@@ -244,11 +261,11 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 			}
 			o.sent = sm
 			regTimer.Stop()
-			answerTimer = time.AfterFunc(c.answerTimeout(), func() {
+			answerTimer = time.AfterFunc(answerWait, func() {
 				mu.Lock()
 				defer mu.Unlock()
 				if !decided() {
-					o.noAnswer = true
+					o.noAnswer, o.noUserPlane = !o.acceptedNAS, o.acceptedNAS
 					halt()
 				}
 			})
@@ -270,6 +287,10 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 				return
 			}
 			if d, ok := dlN1SMFrom(ev.Msg); ok {
+				if !haltOnAccept && readSM(d.payload).kind == smAccept {
+					o.acceptedNAS = true
+					return
+				}
 				o.answer = &d
 				halt()
 			} else if ev.Msg != nil && ev.Msg.GmmMessage != nil && ev.Msg.Status5GMM != nil && !o.mmStatus {
@@ -279,8 +300,6 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 			}
 		},
 	}
-	pdu := h.pdu
-	pdu.DNN = stimulusDNN
 	res, err := h.RegisterWithProbe(ctx, probe, func(cfg *engine.UEConfig) {
 		cfg.PDUSession = &pdu
 		cfg.GNBN3Addr = h.env.UE.GNBN3
@@ -294,9 +313,9 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 	switch {
 	case o.err != nil:
 	case o.decodeErr != nil:
-	case err == nil && (o.answer != nil || o.noAnswer):
 	case err == nil && res != nil && res.SessionActive:
 		o.accepted = true
+	case err == nil && (o.answer != nil || o.noAnswer || o.noUserPlane):
 	case err == nil:
 		o.err = errors.New("registration ended without the PDU session or an answer to it")
 	case regTimedOut:

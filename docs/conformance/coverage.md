@@ -108,7 +108,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### PDU session management
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| PDU Session Resource Setup | AMF→RAN | ✅ (attach + data) | — | timing angle |
+| PDU Session Resource Setup | AMF→RAN | ✅ (attach + data); `NAS-PDU-SESSION-ESTABLISHMENT` (owner of the PDU session establishment; PASS when established, WARN when rejected, FAIL when unanswered) | — | timing angle |
 | PDU Session Resource Release | AMF→RAN | ✅ `NAS-PDU-RELEASE-UE-REQUESTED` (UE-requested release) | — | |
 | PDU Session Resource Modify | AMF→RAN | ⬜ | — | |
 | PDU Session Resource Notify | RAN→AMF | ⬜ | ⬜ | |
@@ -340,6 +340,16 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   reports INFO; a reject or no Accept is BLOCKED on the registration. The timer is estimated from the gaps as for T3560 (up to 1.5 × 18 s
   for the first). Needs a UE and up to 145 s (about 33 s at the default).
   Not yet run on Ref 2; the source analyst predicts PASS.
+- `NAS-PDU-SESSION-ESTABLISHMENT` (procedural, FAIL-class) — one UE registers and
+  requests a PDU session with the run's DNN and slice. It owns the PDU
+  session establishment: checks that need a session report BLOCKED, naming
+  it, when the core does not establish theirs. A PDU Session Establishment
+  Accept with the session set up on N2 is PASS (TS 24.501 6.4.1.3). Neither
+  an Accept nor a Reject within 10 s, a release, or another 5GSM message is
+  FAIL: a network that does not accept the request shall reject it
+  (6.4.1.4.1). A Reject, a send-back by the AMF, or an Accept with no N2
+  setup is WARN for availability: no shall obliges the core to accept the
+  run's own DNN and slice. Needs a UE; the UE is deregistered after.
 - `NAS-PDU-UNKNOWN-DNN` (nas, FAIL-class) — the UE requests a PDU session
   for DNN `orbit-unknown-dnn` on the run's slice. A PDU Session
   Establishment Reject with any 5GSM cause passes (TS 24.501 6.4.1.4.1; #27
@@ -595,6 +605,6 @@ gates: a crash is never demoted.
 Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
-- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`). ✅ Deregistration Accept for a deregistration that is not switch-off (`NAS-DEREG-ACCEPT-NOT-SWITCH-OFF`). ✅ UE-requested PDU session release (`NAS-PDU-RELEASE-UE-REQUESTED`). ✅ Service Request from CM-IDLE re-establishing a PDU session's user plane (`NAS-SERVICE-REQUEST-REACTIVATES`). ✅ An initial registration right after the same UE's switch-off deregistration and release (`NAS-REGISTRATION-AFTER-RELEASE`).
+- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ PDU session establishment for the run's DNN and slice (`NAS-PDU-SESSION-ESTABLISHMENT`, owner of the procedure); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`). ✅ Deregistration Accept for a deregistration that is not switch-off (`NAS-DEREG-ACCEPT-NOT-SWITCH-OFF`). ✅ UE-requested PDU session release (`NAS-PDU-RELEASE-UE-REQUESTED`). ✅ Service Request from CM-IDLE re-establishing a PDU session's user plane (`NAS-SERVICE-REQUEST-REACTIVATES`). ✅ An initial registration right after the same UE's switch-off deregistration and release (`NAS-REGISTRATION-AFTER-RELEASE`).
 - **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`, FAIL on SD-Core); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ✅ Echo Request → Echo Response with the sequence number copied (`GTPU-ECHO-RESPONSE`). ✅ PDU Session Container on downlink G-PDUs (`N3-DL-QFI-CONTAINER`, §5.2.2.7).
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

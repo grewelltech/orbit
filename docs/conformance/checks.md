@@ -32,6 +32,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 | [NAS-REG-REJECTED-NSSAI](provenance/NAS-REG-REJECTED-NSSAI.md) | nas | FAIL | Rel-16 | 20s | TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on "the absence of allowed S-NSSAI(s)"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: "default S-NSSAIs" replaces "subscribed S-NSSAIs marked as default"; a) reads "all the S-NSSAI(s) included in the requested NSSAI are rejected"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds "of the REGISTRATION REJECT message"); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 "may include the rejected NSSAI"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the "if the UE had included requested NSSAI" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds "shall not include" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE); TS 24.501 5.5.1.2.4 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.1.2.5 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NAS-PDU-UNKNOWN-DNN](provenance/NAS-PDU-UNKNOWN-DNN.md) | nas | FAIL | Rel-15 | 30s | TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be "MA PDU request"; Rel-18: "subclause" becomes "clause"); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as "DNN not supported with no slice or DNN not supported in specific slice"; V15.2.0 renames it "DNN not supported or not subscribed in the slice" and adds "Otherwise ... #90"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads "a SM PDU SESSION ESTABLISHMENT REJECT"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops "SM"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes); TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NAS-PDU-RELEASE-UE-REQUESTED](provenance/NAS-PDU-RELEASE-UE-REQUESTED.md) | procedural | FAIL | Rel-15 | 43s | TS 24.501 6.4.3.3 (Rel-15 onward; Rel-18: "subclause 6.3.3" becomes "clause 6.3.3"; the sentence is otherwise unchanged from V15.0.0 through V19.8.0); TS 24.501 6.3.3.2 (Rel-15 onward; Rel-15: V15.0.0 names the "SM cause IE", "5GSM cause IE" by V15.7.0; "the SMF shall create a PDU SESSION RELEASE COMMAND message" is unchanged from V15.0.0 through V19.8.0; Rel-17: the PTI sentence adds "and shall not include the Access type IE in the PDU SESSION RELEASE COMMAND"); TS 23.502 4.3.4.2 step 2a (Rel-15 onward, wording unchanged through Rel-19); TS 23.502 4.3.4.2 step 3 (Rel-15 onward; Rel-15: the shall first appears in V15.5.0; V15.0.0 to V15.4.1 only list the N2 SM Resource Release request in step 3a's message); TS 38.413 8.2.2.2 (Rel-15 onward; Rel-15: V15.0.0 ends the second sentence "to release at least one PDU session in the PDU Session Resource to Release List IE"; reworded during Rel-15, with the NAS-PDU sentence a paragraph of its own from V15.1.0 and "over Uu and over NG, if any" from V15.4.0; Rel-18: a Downlink TL Container sentence is added; the quoted sentences are unchanged from Rel-16 through Rel-19); TS 24.501 Table 10.3.1 T3582 (Rel-15 onward; Rel-15: the value is TBD in V15.0.0 and 16s by V15.7.0; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 16s; Rel-17: adds 21s for access via a satellite NG-RAN cell; the normal value stays 16s); TS 24.501 6.4.3.4 (Rel-15 onward; Rel-15: V15.0.0 reads "an PDU SESSION RELEASE REJECT"; the sentence is otherwise unchanged from V15.0.0 through V19.8.0) |
+| [NAS-PDU-SESSION-ESTABLISHMENT](provenance/NAS-PDU-SESSION-ESTABLISHMENT.md) | procedural | FAIL | Rel-15 | 30s | TS 24.501 6.4.1.3 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.0.0 has 6.4.1.4.1; in V15.7.0 the text sits directly in 6.4.1.4; V15.x reads "a SM PDU SESSION ESTABLISHMENT REJECT"; Rel-16: 6.4.1.4.1 again, without "SM"; the sentence is otherwise unchanged through V19.8.0) |
 | [NAS-INITIAL-REGISTRATION](provenance/NAS-INITIAL-REGISTRATION.md) | nas | FAIL | Rel-15 | 20s | TS 24.501 5.5.1.2.4 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.1.2.5 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NAS-REGISTRATION-AFTER-RELEASE](provenance/NAS-REGISTRATION-AFTER-RELEASE.md) | nas | FAIL | Rel-15 | 2m4s | TS 24.501 5.5.1.2.4 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.1.2.5 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.2.2.2 (Rel-15 onward; Rel-15: V15.0.0 titles the clause "UE-initiated de-registration procedure completion - common procedure", "UE-initiated de-registration procedure completion" by V15.7.0; the switch-off sentence is unchanged from V15.0.0 through V19.8.0); TS 24.501 Table 10.2.1 T3510 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 85s; the normal value stays 15s; Rel-17: adds 27s for access via a satellite NG-RAN cell; the normal value stays 15s) |
 | [NAS-RETRANSMIT-NEW-COUNT](provenance/NAS-RETRANSMIT-NEW-COUNT.md) | security | FAIL | Rel-15 | 1m58s | TS 24.501 4.4.3.1 (Rel-15 onward; Rel-15: V15.0.0 reads "security protected NAS message"; from V15.1.0 "SECURITY PROTECTED 5GS NAS MESSAGE message"; the increase by one after each new or retransmitted message is in every version; Rel-16: from V16.5.1 the overflow counter is "the stored NAS overflow counter", and estimation rules for the receiver follow the sentence; Rel-18: "subclause" becomes "clause"); TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19) |
@@ -164,6 +165,11 @@ A suite runs the checks in the order of this table, except that the checks of tw
 - TS 38.413 8.2.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 - TS 24.501 Table 10.3.1 T3582 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 - TS 24.501 6.4.3.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-PDU-SESSION-ESTABLISHMENT
+
+- TS 24.501 6.4.1.3 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
 ### NAS-INITIAL-REGISTRATION
 
@@ -332,7 +338,7 @@ Needs: NG Setup, registration, PDU session establishment, Xn path switch.
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 | `blocked-xn-path-switch` | BLOCKED | Xn path switch (owner NGAP-PATH-SWITCH-ACK-TRANSFER) | did not complete an Xn path switch the check needs first |
 
 ### GTPU-UNKNOWN-TEID-ERRIND outcomes
@@ -369,7 +375,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-echo-peer` | SKIP | missing input | not judged: the run has no echo peer |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 
 ### NGAP-PATH-SWITCH-ACK-TRANSFER outcomes
 
@@ -388,7 +394,7 @@ Owns: Xn path switch. Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 
 ### NGAP-HANDOVER-COMMAND-TRANSFER outcomes
 
@@ -405,7 +411,7 @@ Owns: N2 handover preparation. Needs: NG Setup, registration, PDU session establ
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 
 ### NGAP-HANDOVER-CANCEL-ACK outcomes
 
@@ -419,7 +425,7 @@ Needs: NG Setup, registration, PDU session establishment, N2 handover preparatio
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 | `blocked-n2-handover-preparation` | BLOCKED | N2 handover preparation (owner NGAP-HANDOVER-COMMAND-TRANSFER) | did not complete an N2 handover preparation the check needs first |
 
 ### NAS-SERVICE-REQUEST-REACTIVATES outcomes
@@ -439,7 +445,7 @@ Owns: Service Request. Needs: NG Setup, registration, PDU session establishment,
 | `skip-no-downlink-responder` | SKIP | missing input | not judged: the run has no downlink responder |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 | `blocked-an-release` | BLOCKED | AN release (owner NGAP-UE-CTX-RELEASE-ON-REQUEST) | did not complete an AN release the check needs first |
 
 ### NAS-SMC-IMEISV-REQUEST outcomes
@@ -567,7 +573,25 @@ Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NAS-PDU-SESSION-ESTABLISHMENT outcomes
+
+Owns: PDU session establishment. Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `established` | PASS | TS 24.501 6.4.1.3 (shall) | accepted the PDU session with a PDU SESSION ESTABLISHMENT ACCEPT and set it up on N2 |
+| `rejected` | WARN | availability; reports PDU session establishment as not completed | rejected the PDU session for the run's own DNN and slice with a PDU SESSION ESTABLISHMENT REJECT |
+| `not-forwarded` | WARN | availability; reports PDU session establishment as not completed | returned the request un-forwarded, with a 5GMM cause, for the run's own DNN and slice |
+| `no-user-plane` | WARN | availability; absence within 10s (check bound; T3580, which the UE would retransmit on, is longer); reports PDU session establishment as not completed | sent a PDU SESSION ESTABLISHMENT ACCEPT and did not set the session up on N2 |
+| `integrity-failed` | WARN | interoperability; reports PDU session establishment as not completed | answered the request with a downlink NAS message that fails the integrity check |
+| `unanswered` | FAIL | TS 24.501 6.4.1.3 (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); absence within 10s (check bound; T3580, which the UE would retransmit on, is longer); reports PDU session establishment as not completed | sent neither a PDU SESSION ESTABLISHMENT ACCEPT nor a PDU SESSION ESTABLISHMENT REJECT |
+| `released` | FAIL | TS 24.501 6.4.1.3 (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); reports PDU session establishment as not completed | released the UE instead of answering the PDU SESSION ESTABLISHMENT REQUEST |
+| `other-answer` | FAIL | TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); reports PDU session establishment as not completed | answered with a 5GSM message that is neither a PDU SESSION ESTABLISHMENT ACCEPT nor a PDU SESSION ESTABLISHMENT REJECT |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
 
 ### NAS-INITIAL-REGISTRATION outcomes
 
@@ -720,7 +744,7 @@ Needs: NG Setup, registration, PDU session establishment, AN release.
 | `skip-no-downlink-responder` | SKIP | missing input | not judged: the run has no downlink responder |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 | `blocked-an-release` | BLOCKED | AN release (owner NGAP-UE-CTX-RELEASE-ON-REQUEST) | did not complete an AN release the check needs first |
 
 ### NGAP-PATH-SWITCH-SECCAP-MISMATCH outcomes
@@ -740,7 +764,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 
 ### NGAP-RAN-CONFIG-UPDATE-ACK outcomes
 
@@ -823,7 +847,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 
 ### NAS-REPLAY-DISCARD outcomes
 
@@ -840,7 +864,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 
 ### NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL outcomes
 
@@ -856,7 +880,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
 
 ### NAS-BADMAC-REGISTRATION-AFTER-SMC outcomes
 
@@ -873,4 +897,4 @@ Needs: NG Setup, registration, PDU session establishment.
 | `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
-| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
