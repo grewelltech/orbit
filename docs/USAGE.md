@@ -1375,8 +1375,13 @@ time every 30 s. stdout carries only the results, so `--json` stays clean.
 `--amf`:
 
 ```sh
-orbit conformance --list [--category nas] [--per-test-timeout 15s]
+orbit conformance --list [--category nas] [--check <ID>] [--per-test-timeout 15s]
 ```
+
+`--check <ID>` (repeatable, or comma-separated) narrows `--list` and a
+`--local` run to the named checks, on top of `--category`; each keeps the
+gNB IDs it has in a full run. A run on the server selects by `--category`
+only and refuses `--check`.
 
 [checks.md](conformance/checks.md) has the same figures in its **Up to**
 column, at the default per-test timeout.

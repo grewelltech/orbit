@@ -34,6 +34,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 		upfN3, n3Bind string
 		gnbBase       uint32
 		categories    []string
+		checks        []string
 		jsonOut       bool
 		perTest       time.Duration
 		id            netIdentity
@@ -59,6 +60,9 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				cats = append(cats, conformance.Category(c))
 			}
 			reg := conformance.NewRegistry()
+			if err := reg.Only(checks...); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--check: %w; --list names the checks", err))
+			}
 			if list {
 				return printConformanceList(cmd.OutOrStdout(), reg.Select(cats...), perTest)
 			}
@@ -66,6 +70,9 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				return fmt.Errorf(`required flag(s) "amf" not set`)
 			}
 			if !tf.local {
+				if len(checks) > 0 {
+					return exitWith(ExitCouldNotStart, errors.New("--check selects checks for --list and --local runs; a run on the server takes --category"))
+				}
 				return thinConformance(cmd, serverURL, o, gates, tf.detach, jsonOut, expectedPath)
 			}
 			if tf.detach || len(gates) > 0 {
@@ -152,6 +159,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringVar(&n3Bind, "n3-bind", "", "local N3 source host:port for GTP-U checks (e.g. 172.17.50.12:2152)")
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")
 	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility, nas)")
+	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable; with --local or --list, on top of --category)")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", conformance.DefaultPerTestTimeout, "per-check timeout; a check that needs longer (NAS timer checks) gets its own budget")
 	f.BoolVar(&list, "list", false, "list the checks (filtered by --category) with how long each can take at --per-test-timeout, and the total, without running them")

@@ -134,3 +134,64 @@ func TestRunOneBudget(t *testing.T) {
 		})
 	}
 }
+
+// gnbIDTest reports the gNB ID its run was given.
+type gnbIDTest struct {
+	fakeTest
+	got *uint32
+}
+
+func (g gnbIDTest) Run(_ context.Context, env Env) Result {
+	*g.got = env.GNB.ID
+	return Result{Verdict: Pass}
+}
+
+// Only narrows Select and a run to the named checks, whatever the case of
+// the IDs, on top of the category filter; the checks keep the gNB IDs of a
+// full run; an unknown ID is an error that changes nothing; no IDs lifts
+// the restriction.
+func TestRegistryOnly(t *testing.T) {
+	var full, narrowed uint32
+	r := &Registry{}
+	r.Register(fakeTest{"A-ONE", Procedural, Pass, ""})
+	r.Register(fakeTest{"B-TWO", NegativeIE, Pass, ""})
+	r.Register(gnbIDTest{fakeTest{"C-THREE", Procedural, Pass, ""}, &full})
+	ids := func(tests []Test) string {
+		var out []string
+		for _, t := range tests {
+			out = append(out, t.ID())
+		}
+		return strings.Join(out, ",")
+	}
+	r.Run(context.Background(), Env{}, time.Second)
+
+	if err := r.Only("c-three", " B-TWO "); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(r.Select()); got != "B-TWO,C-THREE" {
+		t.Errorf("Select = %s, want B-TWO,C-THREE in registry order", got)
+	}
+	if got := ids(r.Select(Procedural)); got != "C-THREE" {
+		t.Errorf("Select(procedural) = %s, want C-THREE", got)
+	}
+	r.tests[2] = gnbIDTest{fakeTest{"C-THREE", Procedural, Pass, ""}, &narrowed}
+	var total int
+	res := r.Run(context.Background(), Env{}, time.Second)
+	r.RunStream(context.Background(), Env{}, time.Second, func(_ Result, _, n int) { total = n })
+	if len(res) != 2 || res[0].ID != "B-TWO" || res[1].ID != "C-THREE" || total != 2 {
+		t.Errorf("ran %d results (total %d), want B-TWO and C-THREE", len(res), total)
+	}
+	if narrowed != full {
+		t.Errorf("C-THREE ran with gNB ID %#x when selected alone, %#x in the full run", narrowed, full)
+	}
+
+	if err := r.Only("B-TWO", "NO-SUCH"); err == nil || err.Error() != `unknown check "NO-SUCH"` {
+		t.Errorf("Only with an unknown ID: %v", err)
+	}
+	if got := ids(r.Select()); got != "B-TWO,C-THREE" {
+		t.Errorf("after a refused Only, Select = %s", got)
+	}
+	if err := r.Only(); err != nil || ids(r.Select()) != "A-ONE,B-TWO,C-THREE" {
+		t.Errorf("Only() = %v, Select = %s; want every check", err, ids(r.Select()))
+	}
+}

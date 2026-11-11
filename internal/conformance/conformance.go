@@ -495,6 +495,8 @@ func (e *setupError) Error() string { return e.s }
 // Registry holds the registered tests.
 type Registry struct {
 	tests []Test
+	// only, when non-nil, narrows Select to the checks it names (Only).
+	only map[string]bool
 }
 
 // NewRegistry returns a registry preloaded with the built-in tests.
@@ -510,7 +512,7 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(t Test) { r.tests = append(r.tests, t) }
 
 // Select returns the registered tests in cats (every test when cats is
-// empty), in registration order.
+// empty), in registration order, narrowed to the checks Only named.
 func (r *Registry) Select(cats ...Category) []Test {
 	want := map[Category]bool{}
 	for _, c := range cats {
@@ -518,11 +520,41 @@ func (r *Registry) Select(cats ...Category) []Test {
 	}
 	var out []Test
 	for _, t := range r.tests {
+		if r.only != nil && !r.only[t.ID()] {
+			continue
+		}
 		if len(want) == 0 || want[t.Category()] {
 			out = append(out, t)
 		}
 	}
 	return out
+}
+
+// Only narrows every later Select, and so every run and listing, to the
+// checks with the given IDs (matched without regard to case), on top of any
+// category filter. The checks keep their place in the registry, so each
+// runs with the gNB IDs it has in a full run. An ID that names no
+// registered check is an error and leaves the registry as it was; no IDs
+// lifts the restriction.
+func (r *Registry) Only(ids ...string) error {
+	if len(ids) == 0 {
+		r.only = nil
+		return nil
+	}
+	known := map[string]string{}
+	for _, t := range r.tests {
+		known[strings.ToUpper(t.ID())] = t.ID()
+	}
+	only := map[string]bool{}
+	for _, id := range ids {
+		canon, ok := known[strings.ToUpper(strings.TrimSpace(id))]
+		if !ok {
+			return fmt.Errorf("unknown check %q", id)
+		}
+		only[canon] = true
+	}
+	r.only = only
+	return nil
 }
 
 // Tests returns the registered tests.

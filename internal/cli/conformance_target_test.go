@@ -118,3 +118,24 @@ func TestConformanceTargetReleaseRejectsMalformed(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// --check narrows a --local run to the named checks, which keep the gNB
+// IDs they have in a full run.
+func TestConformanceCheckFilter(t *testing.T) {
+	out, err := runConformance(t, "--target-release", "Rel-14", "--check", "NGAP-NG-RESET-ACK", "--check", "ngap-unknown-ue-survives", "--json")
+	if err != nil {
+		t.Fatalf("conformance: %v\n%s", err, out)
+	}
+	var sum struct {
+		Total   int
+		Results []struct {
+			ID string `json:"id"`
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &sum); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if sum.Total != 2 || len(sum.Results) != 2 || sum.Results[0].ID != "NGAP-UNKNOWN-UE-SURVIVES" || sum.Results[1].ID != "NGAP-NG-RESET-ACK" {
+		t.Errorf("ran %+v, want the two named checks in registry order", sum)
+	}
+}
