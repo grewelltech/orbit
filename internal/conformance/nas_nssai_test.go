@@ -225,9 +225,9 @@ func TestJudgeNSSAIReject(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeNSSAIReject(tc.pdu, stim)
-			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgeNSSAIReject(tc.pdu, stim)
+			if covers(o).Verdict != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %q", o.Verdict, o.ID, observed, detail, tc.want, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(detail, w) {
@@ -238,7 +238,9 @@ func TestJudgeNSSAIReject(t *testing.T) {
 	}
 }
 
-// The outcomes that are not a Reject: errors and the Accept rows.
+// The outcomes that are not a Reject: what the check cannot read (ERROR),
+// the Accept rows, and a registration left without a Reject or Accept,
+// which violates one of the two shalls of 5.5.1.2.4 and 5.5.1.2.5 (FAIL).
 func TestJudgeNSSAI(t *testing.T) {
 	s := ue.SNSSAI{SST: 1, SD: "eeeeee"}
 	tests := []struct {
@@ -247,8 +249,6 @@ func TestJudgeNSSAI(t *testing.T) {
 		want         Verdict
 		wantObserved string
 	}{
-		{name: "setup failed", o: nssaiOutcome{err: errors.New("x")}, want: Error, wantObserved: "UE setup failed"},
-		{name: "authentication reject", o: nssaiOutcome{authReject: true}, want: Error, wantObserved: "Authentication Reject"},
 		{name: "reject failed integrity", o: nssaiOutcome{reject: rejectPDU(62), rejectErr: nas.ErrIntegrity}, want: Error,
 			wantObserved: "Registration Reject failed integrity check"},
 		{name: "reject protected before any security context", o: nssaiOutcome{reject: rejectPDU(62, 0x69, 5, 0x40, 1, 0xee, 0xee, 0xee), rejectErr: fmt.Errorf("wrapped: %w", engine.ErrNoSecurityContext)}, want: Error,
@@ -259,15 +259,15 @@ func TestJudgeNSSAI(t *testing.T) {
 		{name: "accept that did not decode", o: nssaiOutcome{acceptErr: errors.New("x"), acceptRaw: []byte{0x7e, 0x00, 0x42}}, want: Error, wantObserved: "Registration Accept did not decode"},
 		{name: "a PDU of unreadable type that did not decode", o: nssaiOutcome{acceptErr: errors.New("mac"), unreadableRaw: []byte{0x7e, 0x02, 9, 9, 9, 9, 1, 0xaa}, acceptCleanup: "switch-off Deregistration Request sent"}, want: Error,
 			wantObserved: "a protected NAS PDU of unreadable type did not decode"},
-		{name: "released", o: nssaiOutcome{released: true}, want: Error, wantObserved: "released without a Registration Reject or Accept"},
-		{name: "nothing", o: nssaiOutcome{noAnswer: true}, want: Error, wantObserved: "no Registration Reject or Accept"},
+		{name: "released", o: nssaiOutcome{released: true}, want: Fail, wantObserved: "released without a Registration Reject or Accept"},
+		{name: "nothing", o: nssaiOutcome{noAnswer: true}, want: Fail, wantObserved: "no Registration Reject or Accept"},
 		{name: "no outcome", o: nssaiOutcome{}, want: Error, wantObserved: "no outcome"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeNSSAI(tc.o, s, time.Second)
-			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgeNSSAI(tc.o, s, time.Second)
+			if covers(o).Verdict != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %q", o.Verdict, o.ID, observed, detail, tc.want, tc.wantObserved)
 			}
 		})
 	}
@@ -286,6 +286,7 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 		opts         []mockamf.Option
 		noUE         bool
 		noComplete   bool // the registration ends before the Security Mode Complete
+		nia1Only     bool // the UE offers NIA1 alone
 		want         Verdict
 		wantObserved string
 		wantDetail   []string
@@ -310,8 +311,12 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 			wantObserved: "stimulus S-NSSAI is allowed for this subscriber", wantDetail: []string{dereg}},
 		{name: "default mock: no allowed NSSAI", want: Skip, wantObserved: "core allowed default S-NSSAI(s); the #62 rule did not apply",
 			wantDetail: []string{"allowed NSSAI []", dereg}},
-		{name: "no answer", opts: nssai(mockamf.IgnoreNSSAI), want: Error, wantObserved: "no Registration Reject or Accept"},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, noComplete: true, want: Error, wantObserved: "Authentication Reject"},
+		{name: "no answer", opts: nssai(mockamf.IgnoreNSSAI), want: Fail, wantObserved: "no Registration Reject or Accept",
+			wantDetail: []string{"absence inferred within this bound", "violates TS 24.501 5.5.1.2.4 (shall), TS 24.501 5.5.1.2.5 (shall)"}},
+		{name: "released", opts: []mockamf.Option{mockamf.WithIntegrityOrder(nas.NIA2), mockamf.WithNoCommonIntegrity(mockamf.ReleaseNoCommonIntegrity)},
+			nia1Only: true, noComplete: true, want: Fail, wantObserved: "released without a Registration Reject or Accept"},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, noComplete: true, want: Blocked, wantObserved: "Authentication Reject",
+			wantDetail: []string{"the core did not complete a registration, which this check needs first"}},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
@@ -329,6 +334,9 @@ func TestNSSAICheckAgainstMock(t *testing.T) {
 			env := ueEnv(front.Addr, "", "127.0.0.1")
 			if tc.noUE {
 				env.UE = UESpec{}
+			}
+			if tc.nia1Only {
+				env.UE.NASIntegrity = 0x80 >> nas.NIA1
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -427,4 +435,26 @@ func FuzzJudgeNSSAIReject(f *testing.F) {
 			_, _ = decodeExtendedRejectedNSSAI(ie.value)
 		}
 	})
+}
+
+// The declaration: #62 is the primary reference; the two shalls that give
+// an initial registration request its answer back the FAILs for silence
+// and a release; the Accept with a default S-NSSAI is a permitted
+// alternative; the check needs the registration's authentication.
+func TestNSSAICheckDeclaration(t *testing.T) {
+	c := nasRegRejectedNSSAI{}
+	if err := ValidateTest(c); err != nil {
+		t.Fatal(err)
+	}
+	if WorstVerdict(c) != Fail || MinRelease(c) != 16 || !NeedsOf(c).needs(ProcRegistration) {
+		t.Errorf("worst %s, min %s, needs %+v", WorstVerdict(c), MinRelease(c), NeedsOf(c))
+	}
+	if nssaiDefaultAllowed.Skip != SkipPermitted {
+		t.Errorf("default-allowed is %s %q, want a permitted alternative", nssaiDefaultAllowed.Verdict, nssaiDefaultAllowed.Skip)
+	}
+	for _, r := range c.SpecRefs() {
+		if r.Primary != (r.Key() == nssai62Ref) {
+			t.Errorf("%s: primary %v", r.Key(), r.Primary)
+		}
+	}
 }

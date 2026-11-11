@@ -6,7 +6,7 @@ Versions read (issue #139):
 - orbit-architect, 2026-10-18: V15.0.0 (`24501-f00.zip`), V15.7.0 (`24501-f70.zip`), V16.0.0 to V16.4.0 (`24501-g00.zip` to `24501-g40.zip`), V16.15.0 (`24501-gf0.zip`), V17.18.1 (`24501-hi1.zip`), V18.14.0 (`24501-ie0.zip`), V19.8.0 (`24501-j80.zip`); bisect V16.4.0 to V16.14.0.
 - orbit-conformance-test-writer, 2026-10-26: V15.7.0 (`24501-f70.zip`); V16.1.0 to V16.4.0, V16.5.1, V16.6.0 to V16.15.0 (`g10` to `g40`, `g51`, `g60` to `gf0`); V17.0.0 to V17.2.1 and V17.3.0 to V17.18.1 (`h00` to `h21`, `h30` to `hi1`, decimal-point versions h31, h41, h61, h71, ha1, hb1 not read); V18.0.0 to V18.14.0 (`i00` to `ie0`, i01, i21, i31, ib1 not read); V19.0.0, V19.4.0, V19.8.0 (`j00`, `j40`, `j80`); V20.1.0 (`24501-k10.zip`). Each unread version sits between two read versions with identical wording.
 
-## TS 24.501 5.5.1.2.5 #62 (Initial registration not accepted by the network), shall
+## TS 24.501 5.5.1.2.5 #62 (Initial registration not accepted by the network), shall, primary
 
 V16.2.0 (`24501-g20.zip`):
 
@@ -58,7 +58,26 @@ V16.15.0 (`24501-gf0.zip`):
 
 - **Since:** Rel-15. A "may" in every version read, V15.0.0 through V20.1.0.
 - **Changes:** Rel-16 adds "shall not include" restrictions. From Rel-17 the IE depends on the ER-NSSAI bit, and onboarding in SNPN is excluded. Rel-19 adds a Partially rejected NSSAI IE.
-- **Use in the check:** informational only. On the Accept (SKIP) path, Detail records the allowed NSSAI and any rejected NSSAI. No verdict depends on it.
+- **Use in the check:** recorded only. On the Accept (SKIP) path, Detail records the allowed NSSAI and any rejected NSSAI. No verdict depends on it.
+
+## TS 24.501 5.5.1.2.4 (Initial registration accepted by the network), shall
+
+Read 2026-11-11 in V15.0.0 (`24501-f00.zip`), V15.7.0 (`24501-f70.zip`), V16.15.0 (`24501-gf0.zip`), V17.18.1 (`24501-hi1.zip`), V18.14.0 (`24501-ie0.zip`), V19.8.0 (`24501-j80.zip`):
+
+> "If the initial registration request is accepted by the network, the AMF shall send a REGISTRATION ACCEPT message to the UE."
+
+- **Since:** Rel-15, V15.0.0 (`24501-f00.zip`).
+- **Changes:** the sentence is the same in all six versions read.
+
+## TS 24.501 5.5.1.2.5 (Initial registration not accepted by the network), shall
+
+Read 2026-11-11 in the same six versions:
+
+> "If the initial registration request cannot be accepted by the network, the AMF shall send a REGISTRATION REJECT message to the UE including an appropriate 5GMM cause value."
+
+- **Since:** Rel-15, V15.0.0 (`24501-f00.zip`).
+- **Changes:** the sentence is the same in all six versions read.
+- **Use in the check, with 5.5.1.2.4:** each shall is conditional; together they give every initial registration request an answer, an Accept or a Reject. A core that sends neither, for the stimulus registration, has violated one of the two, whichever case applied. `NAS-INITIAL-REGISTRATION` and `NAS-REGISTRATION-AFTER-RELEASE` read the pair the same way. The #62 shall says what the Reject carries, not that one is sent, so it is not what silence violates. 5.5.1.2.8, read in the same six versions, lets the network leave a REGISTRATION REQUEST unanswered only in case e) 2), a second identical initial REGISTRATION REQUEST while the first is unanswered; the check sends one.
 
 ## Stimulus and how the Reject is read
 
@@ -80,7 +99,10 @@ Formats checked by orbit-conformance-test-writer, 2026-10-26: V18.14.0 for the l
   - Any IEI not listed in 8.2.9.1 (V20.1.0), or a slice IE that does not decode, is an IE Orbit cannot decode.
 - **Reading the Reject:** it arrives after the Security Mode Command. Its MAC is verified through the UE's NAS security context, and its IEs are read from the plain message under the security header. That works because the engine selects only NEA0 today; #184 removes that dependency.
 
-## Verdicts
+## Verdict
+
+- **Class:** conformance, on the #62 shall (primary), the shall for the Rejected NSSAI IE, and the two shalls that give an initial registration request its answer. Needs the registration, owned by `NAS-INITIAL-REGISTRATION`, for the authentication that precedes the stimulus's Requested NSSAI.
+- **Stimulus:** one registration, without a PDU session, requesting only the stimulus S-NSSAI, with the NSSAA and ER-NSSAI bits sent as 0. The answer is awaited for 10 s.
 
 A #62 Reject is judged in this order. Both slice IEs are decoded whenever present.
 1. The stimulus is in the decoded part of the Rejected NSSAI IE: PASS. Once the stimulus is in a decoded Rejected NSSAI IE the shall is met; other IE errors are recorded in Detail.
@@ -91,18 +113,20 @@ A #62 Reject is judged in this order. Both slice IEs are decoded whenever presen
 
 In more detail:
 
-- **PASS:** a #62 Reject whose Rejected NSSAI IE lists the stimulus. The cause of each rejected S-NSSAI is recorded, not asserted.
-- **FAIL:**
-  - a Reject with any other 5GMM cause (5.5.1.2.5 #62, from V16.2.0);
-  - the stimulus only in a decoded Extended rejected NSSAI IE (from V17.1.0);
-  - a #62 Reject that lists the stimulus in neither IE. The detail says "required from V16.6.0".
-- **ERROR:**
+- **PASS** `rejected-62-listed`: a #62 Reject whose Rejected NSSAI IE lists the stimulus. The cause of each rejected S-NSSAI is recorded, not asserted.
+- **FAIL** `wrong-cause`: a Reject with any other 5GMM cause (5.5.1.2.5 #62, from V16.2.0).
+- **FAIL** `extended-only`: the stimulus only in a decoded Extended rejected NSSAI IE (from V17.1.0).
+- **FAIL** `not-listed`: a #62 Reject that lists the stimulus in neither IE. The detail says "required from V16.6.0".
+- **FAIL** `unanswered`: neither a Registration Reject nor an Accept within 10 s, inferred from their absence within that bound (a bound of the check, inside T3510, the UE's own 15 s wait, TS 24.501 Table 10.2.1). Violates 5.5.1.2.4 or 5.5.1.2.5, whichever case applied.
+- **FAIL** `released`: a UE CONTEXT RELEASE COMMAND without a Registration Reject or Accept; as for `unanswered`.
+- **SKIP** `default-allowed`: an Accept that allows a default S-NSSAI instead: "core allowed default S-NSSAI(s); the #62 rule did not apply". The #62 rule's own condition b) covers only a UE for which no default S-NSSAI can be allowed, so the specification permits this alternative. The allowed NSSAI and the Accept's rejected NSSAI (a may) are recorded, and the UE is deregistered.
+- **BLOCKED:** an Authentication Reject for the run's subscriber, or an attach that failed (`blocked-registration`, owned by `NAS-INITIAL-REGISTRATION`); the NG Setup not completed (`blocked-ng-setup`).
+- **ERROR:** what the check cannot read or judge:
   - a #62 Reject without the stimulus in the decoded Rejected NSSAI IE but with an IE Orbit cannot decode, in the order above (IEI and hex in the detail);
+  - a Reject that fails the integrity check, cannot be deciphered, or came protected before any NAS security context;
   - a Registration Accept that does not decode. No deregistration is possible: the engine skips the undecodable Accept, so the attach never reaches REGISTERED and returns no handle. The detail says so;
   - an Accept whose allowed NSSAI contains the stimulus (a harness collision);
-  - an Authentication Reject, a release without a Reject, no answer within 10 s, or a Reject that fails the integrity check.
-- **SKIP:**
-  - an Accept that allows a default S-NSSAI instead: "core allowed default S-NSSAI(s); the #62 rule did not apply". The allowed NSSAI and the Accept's rejected NSSAI (a may) are recorded, and the UE is deregistered.
-  - no UE; a target release before Rel-16.
+  - the harness could not be set up, a local socket failed, or the per-test timeout expired.
+- **SKIP:** also no UE, or a target release before Rel-16.
+- **CRASH:** a core that then stops completing NG Setup.
 - From V18.1.0 the Reject must list every requested S-NSSAI. The check requests one, so that rule and this check coincide, and the detail says so.
-- A core that then stops completing NG Setup is the crash FAIL.

@@ -348,9 +348,12 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   with 5GMM cause #62 (from V16.2.0) whose Rejected NSSAI IE lists the
   stimulus (from V16.6.0). Another cause, a #62 Reject without the
   stimulus, or the stimulus only in the Extended rejected NSSAI IE (from
-  V17.1.0) is FAIL; a #62 Reject with an IE Orbit cannot decode instead is
-  ERROR. A core that allows a default S-NSSAI accepts, so the #62 rule did
-  not apply: SKIP, likely on a core whose subscriber has a default slice.
+  V17.1.0) is FAIL; so is neither a Reject nor an Accept, or a release
+  without one (5.5.1.2.4, 5.5.1.2.5). A #62 Reject with an IE Orbit cannot
+  decode instead is ERROR. A core that allows a default S-NSSAI accepts, so
+  the #62 rule did not apply: SKIP as a permitted alternative, likely on a
+  core whose subscriber has a default slice. An Authentication Reject is
+  BLOCKED on the registration.
   The Accept's rejected NSSAI is a may, recorded only. Not yet run on Ref 2;
   the source analyst predicts FAIL on EX-1.
   Needs a UE. Not yet run on Ref 2; the source analyst predicts FAIL (an
