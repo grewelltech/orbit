@@ -9,7 +9,7 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series
 - **Since:** Rel-15. V15.0.0 has no clause 4.4.6: it protects the initial NAS message with a hash the AMF returns in the SECURITY MODE COMMAND. The text quoted is in V15.7.0 and the same in V16.15.0, V17.18.1, V18.14.0 and V19.8.0.
 - **Strength:** descriptive for this check. Both shalls bind the UE; the stimulus breaks them on purpose.
 
-## TS 24.501 5.4.2.2 RINMR (NAS security mode control initiation by the network), descriptive
+## TS 24.501 5.4.2.2 RINMR (NAS security mode control initiation by the network), descriptive, primary
 
 V19.8.0:
 
@@ -25,7 +25,7 @@ V19.8.0:
 
 ## Why there is nothing to grade
 
-No version read has a shall or a should for an AMF that receives a SECURITY MODE COMPLETE without the NAS message container from a UE that sent its initial message unprotected. The check is informational.
+No version read has a shall or a should for an AMF that receives a SECURITY MODE COMPLETE without the NAS message container from a UE that sent its initial message unprotected. The check is a characterisation.
 
 ## What the check does
 
@@ -33,16 +33,19 @@ One registration without a PDU session. The initial REGISTRATION REQUEST is the 
 
 ## Verdict
 
-- **Verdict class:** INFO (informational). The check reports and does not grade: it gives no PASS or DEVIATION, FAIL only for a core that does not survive the stimulus, and it cannot be put on an expected-failures list.
-- **INFO:** `second SECURITY MODE COMMAND with RINMR set (the initial NAS message requested again)`, the request 5.4.2.2 describes for getting the complete message.
-- **INFO-DIFF:** anything else. Observed says which:
-  - `second SECURITY MODE COMMAND without RINMR`;
-  - `registration accepted without the NAS message container`: the core registered the UE with only the unprotected initial message to go on (the detail gives the allowed and rejected NSSAI);
-  - `REGISTRATION REJECT, 5GMM cause #n, after the SECURITY MODE COMPLETE without the NAS message container`: with cause #62 the detail notes that the only Requested NSSAI was the one sent in the clear, so the core went on with the unprotected values;
-  - `initial message refused before the SECURITY MODE COMMAND (Registration Reject, 5GMM cause #n)`: the missing container was not exercised;
-  - `UE CONTEXT RELEASE COMMAND after the SECURITY MODE COMPLETE without the NAS message container`;
-  - `no answer to the SECURITY MODE COMPLETE without the NAS message container`, the absence inferred within 10 s.
-- **FAIL:** a fresh NG Setup after the check does not complete: the core did not survive. Observed is `AMF unresponsive after the message (<what was observed>)`, and it gates.
-- **ERROR:** an Authentication Reject, a Registration Reject that cannot be read, or a registration that ended before any SECURITY MODE COMMAND without a Registration Reject.
+- **Class:** characterisation: no clause the check cites requires anything of the AMF here, so no outcome is PASS or FAIL. Needs the registration, owned by `NAS-INITIAL-REGISTRATION`.
+- **Stimulus:** the initial message is the complete REGISTRATION REQUEST, its Requested NSSAI (an S-NSSAI the core does not serve) and 5GMM capability in the clear; the SECURITY MODE COMPLETE carries no NAS message container. The answer is awaited for 10 s.
+- **INFO** `asked-again-rinmr`: `second SECURITY MODE COMMAND with RINMR set (the initial NAS message requested again)`, the request 5.4.2.2 describes for getting the complete message.
+- **INFO** `second-smc`: `second SECURITY MODE COMMAND without RINMR`.
+- **WARN (security)** `accepted`: `registration accepted without the NAS message container`, or `registration accepted on the unprotected initial message, without a SECURITY MODE COMMAND`. The core registered the UE with only the unprotected initial message to go on: it acted on unprotected input. The detail gives the allowed and rejected NSSAI.
+- **WARN (security)** `rejected-on-unprotected-nssai`: `REGISTRATION REJECT, 5GMM cause #62, after the SECURITY MODE COMPLETE without the NAS message container`. Cause #62 answers a Requested NSSAI, and only the initial message carried one, in the clear: the core went on with the unprotected values.
+- **INFO** `rejected`: a Reject with another cause, or one that cannot be read, after the SECURITY MODE COMPLETE. It acts on no unprotected value the check can name, and the UE broke 4.4.6.
+- **INFO** `refused-before-smc`: `initial message refused before the SECURITY MODE COMMAND (Registration Reject, 5GMM cause #n)`; the missing container was not exercised. Refusing a message that breaks 4.4.6 weakens no protection and drops no valid request.
+- **INFO** `dropped-before-smc`: `initial message released or left unanswered before a SECURITY MODE COMMAND`, as for the refusal; the absence is inferred within 10 s.
+- **INFO** `released`: `UE CONTEXT RELEASE COMMAND after the SECURITY MODE COMPLETE without the NAS message container`.
+- **INFO** `unanswered`: `no answer to the SECURITY MODE COMPLETE without the NAS message container`, the absence inferred within 10 s, a bound of the check inside T3510 (TS 24.501 Table 10.2.1). Neither a release nor silence drops a valid request: the UE left out the container 4.4.6 requires of it.
+- **BLOCKED:** an Authentication Reject for the run's subscriber, or an attach that failed (`blocked-registration`, owned by `NAS-INITIAL-REGISTRATION`); the NG Setup not completed (`blocked-ng-setup`).
+- **ERROR:** the harness could not be set up, a local socket failed, or the per-test timeout expired.
 - **SKIP:** no UE configured, or a target release older than Rel-15.
+- **CRASH:** a fresh NG Setup after the check does not complete: the core did not survive. Observed is `AMF unresponsive after the message (<what was observed>)`.
 - **State left:** after an Accept the UE is deregistered (switch-off). In every other case the association is closed with the UE not registered; a core that had sent a second SECURITY MODE COMMAND is left to its own T3560. The detail says which.

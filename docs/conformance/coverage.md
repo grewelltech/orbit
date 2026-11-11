@@ -434,26 +434,31 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   registration on the container's request (TS 24.501 5.4.2.4; TS 33.501
   6.4.6 step 4). Two conformant reference registrations, one per S-NSSAI,
   show how this core answers each value: the stimulus answered as the served
-  one is PASS; any other answer is FAIL, named as the unprotected value's
-  when it is that one. SKIP when the core refuses the initial message
-  before a SECURITY MODE COMMAND (the container is never consulted) or
-  answers both references alike. Needs a UE; up to 52 s. Each registration
+  one is PASS; any other answer, or none, is FAIL, named as the unprotected
+  value's when it is that one. INFO when the core refuses or drops the
+  initial message before a SECURITY MODE COMMAND (the container is never
+  consulted) or answers both references alike; WARN (security) when it
+  registers the UE on the unprotected initial message with no SECURITY MODE
+  COMMAND. A reference the core does not complete is BLOCKED on the
+  registration. Needs a UE; up to 52 s. Each registration
   uses its own subscriber where the pool gives the check three, and each
   accepted one is deregistered.
-- `NAS-INITIAL-MSG-NO-CONTAINER` (security, INFO-class) — the initial
-  message has non-cleartext IEs in the clear and the SECURITY MODE COMPLETE
-  has no NAS message container. No clause says what the AMF then does, so
-  the check is informational: a second SECURITY MODE COMMAND with the RINMR
-  bit (the request TS 24.501 5.4.2.2 describes for other conditions) is
-  INFO; a second command without it, an Accept, a Reject (cause recorded;
-  #62 shows the unprotected values were used), an early refusal, a release
-  and no answer are INFO-DIFF. Needs a UE.
-- `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED` (security, INFO-class) — the
-  complete REGISTRATION REQUEST, non-cleartext IEs included, is sent as the
-  initial message and again in the container. TS 24.501 4.4.6 binds the UE
-  only, so the check is informational: an accepted registration is INFO; a
+- `NAS-INITIAL-MSG-NO-CONTAINER` (security, characterisation, WARN at
+  worst) — the initial message has non-cleartext IEs in the clear and the
+  SECURITY MODE COMPLETE has no NAS message container. No clause says what
+  the AMF then does: an Accept, or a Reject with #62 for the Requested NSSAI
+  only the unprotected message carried, acts on unprotected input and is
+  WARN (security); a second SECURITY MODE COMMAND with the RINMR bit (the
+  request TS 24.501 5.4.2.2 describes for other conditions) or without it,
+  another Reject, an early refusal, a release and no answer are INFO. Needs
+  a UE.
+- `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED` (security, characterisation,
+  WARN at worst) — the complete REGISTRATION REQUEST, non-cleartext IEs
+  included, is sent as the initial message and again in the container.
+  TS 24.501 4.4.6 binds the UE only: an accepted registration, a
   Registration Reject (cause and whether it came before the SECURITY MODE
-  COMMAND recorded) or any other outcome is INFO-DIFF. Needs a UE.
+  COMMAND recorded), a release and no answer are INFO; a registration with
+  no SECURITY MODE COMMAND at all is WARN (security). Needs a UE.
 - `NAS-SMC-IMEISV-REQUEST` (security, INFO-class) — records whether the
   SECURITY MODE COMMAND requests the IMEISV (a may, TS 24.501 5.4.2.2) and,
   the UE having left a requested IMEISV out of the SECURITY MODE COMPLETE,

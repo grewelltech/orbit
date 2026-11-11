@@ -345,22 +345,40 @@ func describeSNSSAI(s ue.SNSSAI) string {
 	return fmt.Sprintf("SST %d SD %s", s.SST, s.SD)
 }
 
-// initialNASError is the ERROR for a registration that gave the check
-// nothing to report; what names the registration.
-func initialNASError(o initialNASOutcome, what string, wait time.Duration) (Verdict, string, string) {
+// initialNASBound is the source of the bound on the initial-NAS checks'
+// outcomes inferred from the absence of an answer (initialNASWait).
+const initialNASBound = "check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)"
+
+// erroredOutcome is the ERROR every check has, for a classifier that
+// returns an outcome where nothing the check judges happened.
+var erroredOutcome = Outcome{ID: OutcomeError, Verdict: Error}
+
+// initialNASUnjudged returns r for a registration of the initial-NAS checks
+// (what names it) that ended before anything the check judges, and true;
+// false when it did not. The per-test timeout running out is ERROR; an
+// attach that failed is the setup's to attribute (Result.SetupFailed); an
+// AUTHENTICATION REJECT for the run's own subscriber is BLOCKED on the
+// registration.
+func initialNASUnjudged(ctx context.Context, r Result, o initialNASOutcome, what string, budget time.Duration) (Result, bool) {
 	switch {
+	case o.err != nil && ctx.Err() != nil:
+		return r.Errored("timed out during "+what,
+			fmt.Sprintf("the per-test timeout expired during %s (%v); raise --per-test-timeout to at least %s", what, o.err, budget)), true
 	case o.err != nil:
-		return Error, "UE setup failed", what + ": " + o.err.Error()
+		return r.SetupFailed("UE setup failed", fmt.Errorf("%s: %w", what, o.err)), true
 	case o.authReject:
-		return Error, "Authentication Reject", what + ": this check needs a subscriber the core authenticates"
-	case o.rejectErr != nil:
-		return Error, "Registration Reject could not be read", fmt.Sprintf("%s: %v", what, o.rejectErr)
-	case o.released:
-		return Error, "released without a Registration Reject or Accept", what + ": the core sent a UE Context Release Command; check the subscriber and the core's logs"
-	case o.noAnswer:
-		return Error, "no Registration Reject or Accept", fmt.Sprintf("%s: none arrived within %s; check the subscriber and the core's logs", what, wait)
+		return r.BlockedBy(ProcRegistration, "Authentication Reject", what+": the core refused to authenticate the run's own subscriber"), true
 	}
-	return Error, "no outcome", what + ": the registration ended without a recorded answer"
+	return r, false
+}
+
+// rejectObserved names o's Registration Reject, as name, for an Observed
+// text: with its 5GMM cause, or as one that could not be read.
+func rejectObserved(o initialNASOutcome, name string) string {
+	if o.reject == nil {
+		return name + " that could not be read"
+	}
+	return fmt.Sprintf("%s, 5GMM cause #%d", name, o.rejectCause())
 }
 
 // initialMsgContainerWinsFailure is the check's message when the answer is
@@ -381,20 +399,63 @@ const initialMsgContainerWinsFailure = "the AMF did not complete the registratio
 // What that answer is, the core says itself: two conformant registrations
 // follow, one requesting the served S-NSSAI and one the unserved, each sent
 // protected only. The stimulus must be answered as the first is (PASS).
-// Any other answer is FAIL, and Observed says when it is the answer to the
-// unprotected value. A core that answers both reference requests alike
-// gives the two copies nothing to differ by (SKIP), and so does one that
-// refuses the initial message before a SECURITY MODE COMMAND: the container
-// then never reaches it.
+// Any other answer, no answer included, is FAIL, and Observed says when it
+// is the answer to the unprotected value. A core that answers both
+// reference requests alike gives the two copies nothing to differ by
+// (INFO). A core that ends the stimulus registration before any SECURITY
+// MODE COMMAND never receives the container: a refusal or silence there is
+// INFO, a registration on the unprotected initial message WARN. A
+// reference registration the core does not complete is BLOCKED on the
+// registration.
 type nasInitialMsgContainerWins struct {
 	initialNASWaits
+}
+
+// The keys of the shalls NAS-INITIAL-MSG-CONTAINER-WINS rests on.
+const (
+	containerWinsRef     = "TS 24.501 5.4.2.4"
+	containerWinsRef3350 = "TS 33.501 6.4.6 step 4"
+)
+
+// The outcomes of NAS-INITIAL-MSG-CONTAINER-WINS.
+var (
+	containerWinsAnswered = Outcome{ID: "container-answered", Verdict: Pass, Refs: []string{containerWinsRef, containerWinsRef3350},
+		Summary: "answered the registration as it answers the REGISTRATION REQUEST in the NAS message container sent alone"}
+	containerWinsUnprotected = Outcome{ID: "unprotected-answered", Verdict: Fail, Refs: []string{containerWinsRef, containerWinsRef3350},
+		Summary: "answered the registration as it answers the unprotected initial message's Requested NSSAI"}
+	containerWinsOther = Outcome{ID: "other-answer", Verdict: Fail, Refs: []string{containerWinsRef, containerWinsRef3350},
+		Summary: "answered the registration otherwise than it answers the REGISTRATION REQUEST in the NAS message container sent alone"}
+	containerWinsUnanswered = Outcome{ID: "unanswered", Verdict: Fail, Refs: []string{containerWinsRef, containerWinsRef3350},
+		Bound:   &Bound{Wait: initialNASWait, Source: initialNASBound},
+		Summary: "left the registration without REGISTRATION ACCEPT or REJECT after the SECURITY MODE COMPLETE, where the request in the NAS message container sent alone is answered"}
+	// INFO: the two copies cannot be told apart, so the requirement is not
+	// exercised; answering two slices alike meets none of the criteria.
+	containerWinsAlike = Outcome{ID: "references-alike", Verdict: Info,
+		Summary: "answered the served and the unserved Requested NSSAI alike, so the two copies could not be told apart"}
+	// INFO: TS 24.501 4.4.6 binds the UE, and refusing an initial message
+	// that breaks it weakens no protection and drops no valid request.
+	containerWinsRefused = Outcome{ID: "refused-before-smc", Verdict: Info,
+		Summary: "rejected the initial message with non-cleartext IEs before any SECURITY MODE COMMAND, so the container was never sent"}
+	// INFO: as for the refusal; the request it drops is not a valid one.
+	containerWinsDropped = Outcome{ID: "dropped-before-smc", Verdict: Info, Bound: &Bound{Wait: initialNASWait, Source: initialNASBound},
+		Summary: "released or left unanswered the initial message with non-cleartext IEs before any SECURITY MODE COMMAND"}
+	// WARN for security: the core registered the UE on the unprotected
+	// initial message, whose non-cleartext IEs had no protected copy.
+	containerWinsUnprotectedAccept = Outcome{ID: "accepted-without-smc", Verdict: Warn, Criterion: CriterionSecurity,
+		Summary: "registered the UE on the unprotected initial message, without any SECURITY MODE COMMAND"}
+)
+
+// Outcomes declares what the check can report.
+func (nasInitialMsgContainerWins) Outcomes() []Outcome {
+	return []Outcome{containerWinsAnswered, containerWinsUnprotected, containerWinsOther, containerWinsUnanswered,
+		containerWinsAlike, containerWinsRefused, containerWinsDropped, containerWinsUnprotectedAccept}
 }
 
 func (nasInitialMsgContainerWins) ID() string         { return "NAS-INITIAL-MSG-CONTAINER-WINS" }
 func (nasInitialMsgContainerWins) Category() Category { return Security }
 func (nasInitialMsgContainerWins) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.4.2.4", Strength: Shall, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "5.4.2.4", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.0.0 names the IE \"Replayed NAS message container\"; \"NAS message container\" by V15.7.0, the sentence otherwise unchanged through V19.8.0"},
 			}},
@@ -412,89 +473,111 @@ func (c nasInitialMsgContainerWins) Budget() time.Duration { return c.budget(3) 
 func (c nasInitialMsgContainerWins) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "the registration answered as the REGISTRATION REQUEST in the SECURITY MODE COMPLETE's NAS message container is when sent alone, although the unprotected initial message requested another S-NSSAI (TS 24.501 5.4.2.4; TS 33.501 6.4.6 step 4)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run security checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run security checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	wait := c.waitTimeout()
 	served := h.pdu.Slice()
 	unserved := stimulusSNSSAI(h.pdu)
 	stimulus := fmt.Sprintf("stimulus: initial message with Requested NSSAI %s in the clear, NAS message container with Requested NSSAI %s", describeSNSSAI(unserved), describeSNSSAI(served))
+	withStimulus := func(res Result) Result {
+		res.Detail = joinDetail(res.Detail, stimulus)
+		return res
+	}
 
 	stim := probeInitialNAS(ctx, h, initialNASStimulus{requested: served, plainComplete: true, plainRequested: &unserved}, wait)
 	left := deregisterAfter(h, stim)
-	switch {
-	case stim.reject != nil && stim.rejectBeforeSMC:
-		r.Verdict = Skip
-		r.Observed = fmt.Sprintf("core refuses non-cleartext IEs in the initial message (Registration Reject, 5GMM cause #%d) before the container is consulted", stim.rejectCause())
-		r.Detail = joinDetail(stimulus, "the Reject came before any SECURITY MODE COMMAND, so no SECURITY MODE COMPLETE and no NAS message container were sent and 5.4.2.4 did not apply; "+left)
+	if res, done := initialNASUnjudged(ctx, r, stim, "the stimulus registration", c.Budget()); done {
+		return withStimulus(res)
+	}
+	if stim.smcs == 0 {
+		o, observed, detail := classifyContainerWinsEarly(stim)
+		r = r.As(o, observed, joinDetail(joinDetail(stimulus, detail), "state left: "+left))
 		return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the initial NAS message")
-	case stim.smcs == 0 || stim.err != nil || stim.authReject || stim.rejectErr != nil:
-		r.Verdict, r.Observed, r.Detail = initialNASError(stim, "the stimulus registration", wait)
-		r.Detail = joinDetail(r.Detail, stimulus)
-		return r
 	}
 
 	// Each registration is its own subscriber where the check has three,
 	// so none meets the context the core still holds of the one before.
 	if err := nextSubscriber(ctx, h, 1, c.settleTime()); err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	refServed := probeInitialNAS(ctx, h, initialNASStimulus{requested: served}, wait)
 	leftServed := deregisterAfter(h, refServed)
 	if !refServed.registered || refServed.accept == nil {
 		// The served S-NSSAI, sent conformantly, must register: without
 		// that there is no reference to compare with.
-		r.Verdict, r.Observed, r.Detail = initialNASError(refServed, "the reference registration requesting the served S-NSSAI", wait)
-		if refServed.reject != nil {
-			r.Observed, r.Detail = "reference registration rejected", "the reference registration requesting the served S-NSSAI was answered with "+refServed.answer()+"; check the subscriber and the slice flags"
+		const what = "the reference registration requesting the served S-NSSAI"
+		if res, done := initialNASUnjudged(ctx, r, refServed, what, c.Budget()); done {
+			return withStimulus(res)
 		}
-		r.Detail = joinDetail(r.Detail, stimulus)
-		return r
+		return withStimulus(r.BlockedBy(ProcRegistration, "reference registration not completed", what+", a conformant registration, ended with: "+refServed.answer()))
 	}
 	if err := nextSubscriber(ctx, h, 2, c.settleTime()); err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	refUnserved := probeInitialNAS(ctx, h, initialNASStimulus{requested: unserved}, wait)
 	leftUnserved := deregisterAfter(h, refUnserved)
 	if !refUnserved.answered() {
-		r.Verdict, r.Observed, r.Detail = initialNASError(refUnserved, "the reference registration requesting the unserved S-NSSAI", wait)
-		r.Detail = joinDetail(r.Detail, stimulus)
-		return r
+		const what = "the reference registration requesting the unserved S-NSSAI"
+		if res, done := initialNASUnjudged(ctx, r, refUnserved, what, c.Budget()); done {
+			return withStimulus(res)
+		}
+		if refUnserved.rejectErr != nil {
+			return withStimulus(r.Errored("reference Registration Reject could not be read", fmt.Sprintf("%s: %v; the answers cannot be compared", what, refUnserved.rejectErr)))
+		}
+		return withStimulus(r.BlockedBy(ProcRegistration, "reference registration not answered", what+", a conformant registration, ended with: "+refUnserved.answer()))
 	}
 
-	r.Verdict, r.Observed, r.Detail = judgeContainerWins(stim.answer(), refServed.answer(), refUnserved.answer())
-	r.Detail = joinDetail(r.Detail, stimulus)
-	r.Detail = joinDetail(r.Detail, fmt.Sprintf("state left: after the stimulus %s; after the first reference %s; after the second %s", left, leftServed, leftUnserved))
+	o, observed, detail := judgeContainerWins(stim.answer(), refServed.answer(), refUnserved.answer(), stim.noAnswer)
+	detail = joinDetail(detail, stimulus)
+	detail = joinDetail(detail, fmt.Sprintf("state left: after the stimulus %s; after the first reference %s; after the second %s", left, leftServed, leftUnserved))
+	r = r.As(o, observed, detail)
 	if ctx.Err() != nil {
 		return r
 	}
 	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the registrations")
 }
 
+// classifyContainerWinsEarly judges a stimulus registration the core ended
+// before any SECURITY MODE COMMAND, so before the container was sent: a
+// Reject is the refusal, a registration the unprotected accept, anything
+// else the drop.
+func classifyContainerWinsEarly(o initialNASOutcome) (Outcome, string, string) {
+	const notApplied = "no SECURITY MODE COMPLETE and no NAS message container were sent, so 5.4.2.4 did not apply"
+	switch {
+	case o.sawReject():
+		return containerWinsRefused, fmt.Sprintf("core refuses non-cleartext IEs in the initial message (%s) before the container is consulted", rejectObserved(o, "Registration Reject")),
+			"the Reject came before any SECURITY MODE COMMAND; " + notApplied + "; NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED reports what the core does with such an initial message"
+	case o.registered:
+		return containerWinsUnprotectedAccept, "registration accepted on the unprotected initial message, without a SECURITY MODE COMMAND",
+			"the core registered the UE with only the unprotected initial message, its Requested NSSAI in the clear, to go on; answer: " + o.answer()
+	}
+	return containerWinsDropped, "initial message with non-cleartext IEs ended before a SECURITY MODE COMMAND: " + o.answer(),
+		fmt.Sprintf("%s; no Registration Accept, Reject or SECURITY MODE COMMAND came within %s, or the core released the UE context first", notApplied, initialNASWait)
+}
+
 // judgeContainerWins compares the stimulus registration's answer with the
 // answers the core gave the served and the unserved Requested NSSAI when
-// each was sent protected only.
-func judgeContainerWins(stim, served, unserved string) (Verdict, string, string) {
+// each was sent protected only; unanswered says the stimulus drew neither
+// a Registration Accept nor a Reject within the wait.
+func judgeContainerWins(stim, served, unserved string, unanswered bool) (Outcome, string, string) {
 	detail := fmt.Sprintf("stimulus answered: %s; the container's Requested NSSAI sent alone: %s; the initial message's Requested NSSAI sent alone: %s", stim, served, unserved)
 	switch {
 	case stim != served && stim == unserved:
-		return Fail, "registration answered on the unprotected Requested NSSAI, not the one in the NAS message container", initialMsgContainerWinsFailure + " " + detail
+		return containerWinsUnprotected, "registration answered on the unprotected Requested NSSAI, not the one in the NAS message container", initialMsgContainerWinsFailure + " " + detail
+	case stim != served && unanswered:
+		return containerWinsUnanswered, "registration left without an answer after the SECURITY MODE COMPLETE", initialMsgContainerWinsFailure + " " + detail
 	case stim != served:
-		return Fail, "registration not answered as the request in the NAS message container is: " + stim, initialMsgContainerWinsFailure + " " + detail
+		return containerWinsOther, "registration not answered as the request in the NAS message container is: " + stim, initialMsgContainerWinsFailure + " " + detail
 	case served == unserved:
-		return Skip, "core answers the served and the unserved Requested NSSAI alike; the two copies cannot be told apart",
+		return containerWinsAlike, "core answers the served and the unserved Requested NSSAI alike; the two copies cannot be told apart",
 			detail + "; the unserved S-NSSAI is the subject of NAS-REG-REJECTED-NSSAI"
 	}
-	return Pass, "registration answered on the request in the NAS message container", detail
+	return containerWinsAnswered, "registration answered on the request in the NAS message container", detail
 }
 
 // Observed texts of NAS-INITIAL-MSG-NO-CONTAINER.
@@ -502,10 +585,14 @@ const (
 	noContainerRINMR      = "second SECURITY MODE COMMAND with RINMR set (the initial NAS message requested again)"
 	noContainerSecondSMC  = "second SECURITY MODE COMMAND without RINMR"
 	noContainerAccepted   = "registration accepted without the NAS message container"
-	noContainerRejected   = "REGISTRATION REJECT, 5GMM cause #%d, after the SECURITY MODE COMPLETE without the NAS message container"
-	noContainerEarly      = "initial message refused before the SECURITY MODE COMMAND (Registration Reject, 5GMM cause #%d)"
+	noContainerRejected   = "%s, after the SECURITY MODE COMPLETE without the NAS message container"
+	noContainerEarly      = "initial message refused before the SECURITY MODE COMMAND (%s)"
 	noContainerReleased   = "UE CONTEXT RELEASE COMMAND after the SECURITY MODE COMPLETE without the NAS message container"
 	noContainerUnanswered = "no answer to the SECURITY MODE COMPLETE without the NAS message container"
+	// noContainerAcceptedNoSMC and noContainerDropped are the registration
+	// ended before any SECURITY MODE COMMAND.
+	noContainerAcceptedNoSMC = "registration accepted on the unprotected initial message, without a SECURITY MODE COMMAND"
+	noContainerDropped       = "initial message released or left unanswered before a SECURITY MODE COMMAND"
 )
 
 // nasInitialMsgNoContainer sends an initial REGISTRATION REQUEST with
@@ -518,28 +605,69 @@ const (
 // requires a SECURITY MODE COMMAND with the RINMR bit only for a
 // REGISTRATION REQUEST that failed its integrity check or whose container
 // could not be deciphered, and no clause says what the AMF does with a
-// SECURITY MODE COMPLETE that lacks the container. So the check is
-// informational. INFO is the request 5.4.2.2 describes for getting the
-// complete message, a second SECURITY MODE COMMAND with RINMR set; every
-// other outcome is INFO-DIFF, Observed saying which. An Accept, or a Reject
-// with cause #62, shows a core that went on with the unprotected values.
+// SECURITY MODE COMPLETE that lacks the container. So the check is a
+// characterisation: no outcome is PASS or FAIL. A core that goes on with
+// the unprotected values, registering the UE or rejecting it with cause
+// #62 for the Requested NSSAI only the initial message carried, acts on
+// unprotected input: WARN, for security. Every other answer is INFO.
 type nasInitialMsgNoContainer struct {
 	initialNASWaits
+}
+
+// The key of the description the RINMR outcome follows.
+const noContainerRINMRRef = "TS 24.501 5.4.2.2 RINMR"
+
+// The outcomes of NAS-INITIAL-MSG-NO-CONTAINER.
+var (
+	noContainerOutRINMR = Outcome{ID: "asked-again-rinmr", Verdict: Info, Refs: []string{noContainerRINMRRef},
+		Summary: "asked for the initial NAS message again: a second SECURITY MODE COMMAND with RINMR set, the request 5.4.2.2 describes"}
+	noContainerOutSecondSMC = Outcome{ID: "second-smc", Verdict: Info,
+		Summary: "sent a second SECURITY MODE COMMAND without RINMR"}
+	// WARN for security: the core registered the UE with only the
+	// unprotected initial message to go on.
+	noContainerOutAccepted = Outcome{ID: "accepted", Verdict: Warn, Criterion: CriterionSecurity,
+		Summary: "registered the UE without the NAS message container, on the unprotected initial message"}
+	// WARN for security: cause #62 answers a Requested NSSAI, and only the
+	// unprotected initial message carried one: the core acted on it.
+	noContainerOutRejectedUnprotected = Outcome{ID: "rejected-on-unprotected-nssai", Verdict: Warn, Criterion: CriterionSecurity,
+		Summary: "rejected the registration with cause #62, answering the Requested NSSAI only the unprotected initial message carried"}
+	// INFO: a Reject with another cause acts on no unprotected value the
+	// check can name, and the UE broke 4.4.6.
+	noContainerOutRejected = Outcome{ID: "rejected", Verdict: Info,
+		Summary: "rejected the registration after the SECURITY MODE COMPLETE without the NAS message container, with a cause other than #62"}
+	// INFO: refusing an initial message that breaks 4.4.6 weakens no
+	// protection and drops no valid request.
+	noContainerOutRefused = Outcome{ID: "refused-before-smc", Verdict: Info,
+		Summary: "rejected the initial message with non-cleartext IEs before any SECURITY MODE COMMAND"}
+	// INFO: as for the refusal; the request dropped is not a valid one.
+	noContainerOutDropped = Outcome{ID: "dropped-before-smc", Verdict: Info, Bound: &Bound{Wait: initialNASWait, Source: initialNASBound},
+		Summary: "released or left unanswered the initial message with non-cleartext IEs before any SECURITY MODE COMMAND"}
+	// INFO: releasing a UE that omitted the container drops no valid
+	// request.
+	noContainerOutReleased = Outcome{ID: "released", Verdict: Info,
+		Summary: "released the UE context after the SECURITY MODE COMPLETE without the NAS message container"}
+	// INFO: as for the release.
+	noContainerOutUnanswered = Outcome{ID: "unanswered", Verdict: Info, Bound: &Bound{Wait: initialNASWait, Source: initialNASBound},
+		Summary: "left the SECURITY MODE COMPLETE without the NAS message container unanswered"}
+)
+
+// Outcomes declares what the check can report.
+func (nasInitialMsgNoContainer) Outcomes() []Outcome {
+	return []Outcome{noContainerOutRINMR, noContainerOutSecondSMC, noContainerOutAccepted, noContainerOutRejectedUnprotected,
+		noContainerOutRejected, noContainerOutRefused, noContainerOutDropped, noContainerOutReleased, noContainerOutUnanswered}
 }
 
 func (nasInitialMsgNoContainer) ID() string         { return "NAS-INITIAL-MSG-NO-CONTAINER" }
 func (nasInitialMsgNoContainer) Category() Category { return Security }
 
-// Informational declares the check informational: it cites descriptive
-// text only.
-func (nasInitialMsgNoContainer) Informational() bool { return true }
-
-// SpecRefs cites the UE's rule for the container (4.4.6 a)) and the
-// request for the initial NAS message that 5.4.2.2 describes for other
-// conditions. Neither requires anything of an AMF whose SECURITY MODE
-// COMPLETE arrives without the container.
+// SpecRefs cites the UE's rule for the container (4.4.6 a)) and, as the
+// primary reference, the request for the initial NAS message that 5.4.2.2
+// describes for other conditions. Neither requires anything of an AMF
+// whose SECURITY MODE COMPLETE arrives without the container.
 func (nasInitialMsgNoContainer) SpecRefs() []SpecRef {
-	return []SpecRef{ref24501Clause446, ref24501RINMR}
+	rinmr := ref24501RINMR
+	rinmr.Primary = true
+	return []SpecRef{ref24501Clause446, rinmr}
 }
 
 // ref24501Clause446 is TS 24.501 4.4.6 a), the UE's rule for an initial
@@ -565,23 +693,24 @@ func (c nasInitialMsgNoContainer) Budget() time.Duration { return c.budget(1) }
 func (c nasInitialMsgNoContainer) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "a second SECURITY MODE COMMAND with the RINMR bit set, after a SECURITY MODE COMPLETE without the NAS message container from a UE whose initial message had non-cleartext IEs in the clear (TS 24.501 5.4.2.2 describes that request for a message the AMF could not verify or decipher; the specification is silent on the missing container)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run security checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run security checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	wait := c.waitTimeout()
 	unserved := stimulusSNSSAI(h.pdu)
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: unserved, plainComplete: true, omitContainer: true, stopAtSecondSMC: true}, wait)
 	left := deregisterAfter(h, o)
-	r.Verdict, r.Observed, r.Detail = judgeNoContainer(o, wait)
-	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s (not served) and 5GMM capability in the clear, then a SECURITY MODE COMPLETE without the NAS message container", describeSNSSAI(unserved)))
-	r.Detail = joinDetail(r.Detail, "state left: "+left)
+	stimulus := fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s (not served) and 5GMM capability in the clear, then a SECURITY MODE COMPLETE without the NAS message container", describeSNSSAI(unserved))
+	if res, done := initialNASUnjudged(ctx, r, o, "the registration", c.Budget()); done {
+		res.Detail = joinDetail(res.Detail, stimulus)
+		return res
+	}
+	out, observed, detail := judgeNoContainer(o, wait)
+	r = r.As(out, observed, joinDetail(joinDetail(detail, stimulus), "state left: "+left))
 	if r.Verdict == Error || ctx.Err() != nil {
 		return r
 	}
@@ -589,43 +718,45 @@ func (c nasInitialMsgNoContainer) Run(ctx context.Context, env Env) Result {
 }
 
 // judgeNoContainer maps what the core did with the containerless SECURITY
-// MODE COMPLETE onto the informational verdicts.
-func judgeNoContainer(o initialNASOutcome, wait time.Duration) (Verdict, string, string) {
+// MODE COMPLETE onto the check's outcomes. o is a registration the check
+// judges (initialNASUnjudged returned false for it).
+func judgeNoContainer(o initialNASOutcome, wait time.Duration) (Outcome, string, string) {
 	switch {
-	case o.err != nil || o.authReject || o.rejectErr != nil:
-		return initialNASError(o, "the registration", wait)
-	case o.reject != nil && o.rejectBeforeSMC:
-		return infoDiffers, fmt.Sprintf(noContainerEarly, o.rejectCause()),
+	case o.sawReject() && o.rejectBeforeSMC:
+		return noContainerOutRefused, fmt.Sprintf(noContainerEarly, rejectObserved(o, "Registration Reject")),
 			"the core refused the initial message, so no SECURITY MODE COMPLETE was sent and the missing container was not exercised; answer: " + o.answer()
+	case o.smcs == 0 && o.registered:
+		return noContainerOutAccepted, noContainerAcceptedNoSMC, "the core registered the UE with only the unprotected initial message to go on; answer: " + o.answer()
 	case o.smcs == 0:
-		return initialNASError(o, "the registration (no SECURITY MODE COMMAND arrived)", wait)
+		return noContainerOutDropped, noContainerDropped,
+			fmt.Sprintf("no SECURITY MODE COMPLETE was sent and the missing container was not exercised; answer: %s (within %s)", o.answer(), wait)
 	case o.smcs >= 2 && o.secondRINMR:
-		return Info, noContainerRINMR, "the registration was stopped at the second SECURITY MODE COMMAND, which the UE did not answer"
+		return noContainerOutRINMR, noContainerRINMR, "the registration was stopped at the second SECURITY MODE COMMAND, which the UE did not answer"
 	case o.smcs >= 2:
-		return infoDiffers, noContainerSecondSMC, "the second SECURITY MODE COMMAND has no Additional 5G security information IE with RINMR set; the registration was stopped there, and the UE did not answer it"
-	case o.reject != nil:
-		detail := "answer: " + o.answer()
-		if o.rejectCause() == cause62 {
-			detail += "; cause #62 \"No network slices available\" answers a Requested NSSAI, and only the initial message carried one, in the clear: the core went on with the unprotected values"
-		}
-		return infoDiffers, fmt.Sprintf(noContainerRejected, o.rejectCause()), detail
+		return noContainerOutSecondSMC, noContainerSecondSMC, "the second SECURITY MODE COMMAND has no Additional 5G security information IE with RINMR set; the registration was stopped there, and the UE did not answer it"
+	case o.reject != nil && o.rejectCause() == cause62:
+		return noContainerOutRejectedUnprotected, fmt.Sprintf(noContainerRejected, rejectObserved(o, "REGISTRATION REJECT")),
+			"answer: " + o.answer() + "; cause #62 \"No network slices available\" answers a Requested NSSAI, and only the initial message carried one, in the clear: the core went on with the unprotected values"
+	case o.sawReject():
+		return noContainerOutRejected, fmt.Sprintf(noContainerRejected, rejectObserved(o, "REGISTRATION REJECT")), "answer: " + o.answer()
 	case o.registered && o.accept != nil:
-		return infoDiffers, noContainerAccepted, "the core completed the registration with only the unprotected initial message to go on; answer: " + o.answer()
+		return noContainerOutAccepted, noContainerAccepted, "the core completed the registration with only the unprotected initial message to go on; answer: " + o.answer()
 	case o.released:
-		return infoDiffers, noContainerReleased, "the core released the UE context without a Registration Accept or Reject"
+		return noContainerOutReleased, noContainerReleased, "the core released the UE context without a Registration Accept or Reject"
 	case o.noAnswer:
-		return infoDiffers, noContainerUnanswered, fmt.Sprintf("no Registration Accept or Reject, second SECURITY MODE COMMAND or release within %s (absence inferred within this bound)", wait)
+		return noContainerOutUnanswered, noContainerUnanswered, fmt.Sprintf("no Registration Accept or Reject, second SECURITY MODE COMMAND or release within %s (absence inferred within this bound)", wait)
 	}
-	return Error, "no outcome", "the registration ended without a recorded answer"
+	return erroredOutcome, "no outcome", "the registration ended without a recorded answer"
 }
 
 // Observed texts of NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED.
 const (
 	nonCleartextAccepted   = "registration accepted"
-	nonCleartextEarly      = "Registration Reject, 5GMM cause #%d, before the SECURITY MODE COMMAND"
-	nonCleartextRejected   = "Registration Reject, 5GMM cause #%d, after the SECURITY MODE COMPLETE"
+	nonCleartextEarly      = "%s, before the SECURITY MODE COMMAND"
+	nonCleartextRejected   = "%s, after the SECURITY MODE COMPLETE"
 	nonCleartextReleased   = "UE CONTEXT RELEASE COMMAND, no Registration Accept or Reject"
 	nonCleartextUnanswered = "no Registration Accept or Reject"
+	nonCleartextNoSMC      = "registration accepted on the unprotected initial message, without a SECURITY MODE COMMAND"
 )
 
 // nasInitialMsgNonCleartextAccepted sends the complete REGISTRATION REQUEST,
@@ -636,13 +767,42 @@ const (
 //
 // TS 24.501 4.4.6 a) has a UE without a NAS security context send the
 // cleartext IEs only; no clause says what an AMF does with an initial
-// message that has more. So the check is informational. INFO is a
-// registration that goes through, which 5.4.2.4 describes for the request
-// in the container; a Registration Reject, with its cause and whether it
-// came before the SECURITY MODE COMMAND, and any other outcome are
-// INFO-DIFF.
+// message that has more. So the check is a characterisation: no outcome is
+// PASS or FAIL. A registration that goes through on the container, which
+// 5.4.2.4 describes, is INFO, and so are a Registration Reject, before or
+// after the SECURITY MODE COMMAND, a release and silence: the UE broke
+// 4.4.6, and refusing it weakens no protection and drops no valid request.
+// A registration with no SECURITY MODE COMMAND at all, on the unprotected
+// initial message alone, is WARN, for security.
 type nasInitialMsgNonCleartextAccepted struct {
 	initialNASWaits
+}
+
+// The key of the description of the registration going through.
+const nonCleartextRef = "TS 24.501 5.4.2.4"
+
+// The outcomes of NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED.
+var (
+	nonCleartextOutAccepted = Outcome{ID: "accepted", Verdict: Info, Refs: []string{nonCleartextRef},
+		Summary: "registered the UE on the REGISTRATION REQUEST in the NAS message container, as 5.4.2.4 describes"}
+	// WARN for security: the core registered the UE with no protected copy
+	// of a message whose non-cleartext IEs came in the clear.
+	nonCleartextOutUnprotected = Outcome{ID: "accepted-without-smc", Verdict: Warn, Criterion: CriterionSecurity,
+		Summary: "registered the UE on the unprotected initial message, without any SECURITY MODE COMMAND"}
+	nonCleartextOutRefused = Outcome{ID: "refused-before-smc", Verdict: Info,
+		Summary: "rejected the initial message with non-cleartext IEs before any SECURITY MODE COMMAND"}
+	nonCleartextOutRejected = Outcome{ID: "rejected", Verdict: Info,
+		Summary: "rejected the registration after the SECURITY MODE COMPLETE"}
+	nonCleartextOutReleased = Outcome{ID: "released", Verdict: Info,
+		Summary: "released the UE context without a Registration Accept or Reject"}
+	nonCleartextOutUnanswered = Outcome{ID: "unanswered", Verdict: Info, Bound: &Bound{Wait: initialNASWait, Source: initialNASBound},
+		Summary: "sent no Registration Accept or Reject"}
+)
+
+// Outcomes declares what the check can report.
+func (nasInitialMsgNonCleartextAccepted) Outcomes() []Outcome {
+	return []Outcome{nonCleartextOutAccepted, nonCleartextOutUnprotected, nonCleartextOutRefused, nonCleartextOutRejected,
+		nonCleartextOutReleased, nonCleartextOutUnanswered}
 }
 
 func (nasInitialMsgNonCleartextAccepted) ID() string {
@@ -650,17 +810,13 @@ func (nasInitialMsgNonCleartextAccepted) ID() string {
 }
 func (nasInitialMsgNonCleartextAccepted) Category() Category { return Security }
 
-// Informational declares the check informational: it cites descriptive
-// text only.
-func (nasInitialMsgNonCleartextAccepted) Informational() bool { return true }
-
-// SpecRefs cites the UE's rule the stimulus breaks (4.4.6 a)) and, as a
-// description of the registration going through, 5.4.2.4: its shall is
-// about which copy the AMF uses, which this check's identical copies do not
-// test.
+// SpecRefs cites the UE's rule the stimulus breaks (4.4.6 a)) and, as the
+// primary reference and a description of the registration going through,
+// 5.4.2.4: its shall is about which copy the AMF uses, which this check's
+// identical copies do not test.
 func (nasInitialMsgNonCleartextAccepted) SpecRefs() []SpecRef {
 	return []SpecRef{ref24501Clause446,
-		{Spec: "TS 24.501", Clause: "5.4.2.4", Strength: Descriptive, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "5.4.2.4", Strength: Descriptive, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.0.0 names the IE \"Replayed NAS message container\"; \"NAS message container\" by V15.7.0"},
 			}}}
@@ -672,45 +828,65 @@ func (c nasInitialMsgNonCleartextAccepted) Budget() time.Duration { return c.bud
 func (c nasInitialMsgNonCleartextAccepted) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "the registration accepted on the REGISTRATION REQUEST in the NAS message container, from a UE whose initial message carried the same request with its non-cleartext IEs in the clear (TS 24.501 4.4.6 a) binds the UE; the specification is silent on what the AMF does with such a message)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run security checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run security checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	wait := c.waitTimeout()
 	served := h.pdu.Slice()
 	o := probeInitialNAS(ctx, h, initialNASStimulus{requested: served, plainComplete: true}, wait)
 	left := deregisterAfter(h, o)
-	r.Verdict, r.Observed, r.Detail = judgeNonCleartext(o, wait)
-	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s and 5GMM capability in the clear, and the same request in the SECURITY MODE COMPLETE's NAS message container", describeSNSSAI(served)))
-	r.Detail = joinDetail(r.Detail, "state left: "+left)
+	stimulus := fmt.Sprintf("stimulus: the complete REGISTRATION REQUEST as the initial message, Requested NSSAI %s and 5GMM capability in the clear, and the same request in the SECURITY MODE COMPLETE's NAS message container", describeSNSSAI(served))
+	if res, done := initialNASUnjudged(ctx, r, o, "the registration", c.Budget()); done {
+		res.Detail = joinDetail(res.Detail, stimulus)
+		return res
+	}
+	out, observed, detail := judgeNonCleartext(o, wait)
+	r = r.As(out, observed, joinDetail(joinDetail(detail, stimulus), "state left: "+left))
 	if r.Verdict == Error || ctx.Err() != nil {
 		return r
 	}
 	return observeAlive(ctx, env, r, "the initial NAS message with non-cleartext IEs")
 }
 
-// judgeNonCleartext maps the registration's outcome onto the informational
-// verdicts.
-func judgeNonCleartext(o initialNASOutcome, wait time.Duration) (Verdict, string, string) {
+// judgeNonCleartext maps the registration's outcome onto the check's
+// outcomes. o is a registration the check judges (initialNASUnjudged
+// returned false for it).
+func judgeNonCleartext(o initialNASOutcome, wait time.Duration) (Outcome, string, string) {
 	switch {
-	case o.err != nil || o.authReject || o.rejectErr != nil:
-		return initialNASError(o, "the registration", wait)
-	case o.reject != nil && o.rejectBeforeSMC:
-		return infoDiffers, fmt.Sprintf(nonCleartextEarly, o.rejectCause()), "the core refused the initial message before authenticating the UE; answer: " + o.answer()
-	case o.reject != nil:
-		return infoDiffers, fmt.Sprintf(nonCleartextRejected, o.rejectCause()), "answer: " + o.answer()
+	case o.sawReject() && o.rejectBeforeSMC:
+		return nonCleartextOutRefused, fmt.Sprintf(nonCleartextEarly, rejectObserved(o, "Registration Reject")), "the core refused the initial message before authenticating the UE; answer: " + o.answer()
+	case o.sawReject():
+		return nonCleartextOutRejected, fmt.Sprintf(nonCleartextRejected, rejectObserved(o, "Registration Reject")), "answer: " + o.answer()
+	case o.registered && o.accept != nil && o.smcs == 0:
+		return nonCleartextOutUnprotected, nonCleartextNoSMC, "the core registered the UE with only the unprotected initial message to go on; answer: " + o.answer()
 	case o.registered && o.accept != nil:
-		return Info, nonCleartextAccepted, "answer: " + o.answer()
+		return nonCleartextOutAccepted, nonCleartextAccepted, "answer: " + o.answer()
 	case o.released:
-		return infoDiffers, nonCleartextReleased, "the core released the UE context during the registration"
+		return nonCleartextOutReleased, nonCleartextReleased, "the core released the UE context during the registration"
 	case o.noAnswer:
-		return infoDiffers, nonCleartextUnanswered, fmt.Sprintf("none arrived within %s (absence inferred within this bound)", wait)
+		return nonCleartextOutUnanswered, nonCleartextUnanswered, fmt.Sprintf("none arrived within %s (absence inferred within this bound)", wait)
 	}
-	return Error, "no outcome", "the registration ended without a recorded answer"
+	return erroredOutcome, "no outcome", "the registration ended without a recorded answer"
+}
+
+// initialNASError is the ERROR for a registration that gave the check
+// nothing to report; what names the registration.
+func initialNASError(o initialNASOutcome, what string, wait time.Duration) (Verdict, string, string) {
+	switch {
+	case o.err != nil:
+		return Error, "UE setup failed", what + ": " + o.err.Error()
+	case o.authReject:
+		return Error, "Authentication Reject", what + ": this check needs a subscriber the core authenticates"
+	case o.rejectErr != nil:
+		return Error, "Registration Reject could not be read", fmt.Sprintf("%s: %v", what, o.rejectErr)
+	case o.released:
+		return Error, "released without a Registration Reject or Accept", what + ": the core sent a UE Context Release Command; check the subscriber and the core's logs"
+	case o.noAnswer:
+		return Error, "no Registration Reject or Accept", fmt.Sprintf("%s: none arrived within %s; check the subscriber and the core's logs", what, wait)
+	}
+	return Error, "no outcome", what + ": the registration ended without a recorded answer"
 }

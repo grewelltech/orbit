@@ -222,11 +222,9 @@ var shouldOnly = map[string]bool{
 // informational are the registered checks that cite descriptive references
 // only and declare themselves informational, so they are never graded.
 var informational = map[string]bool{
-	"NGAP-RAN-CONFIG-UPDATE-ACK":            true,
-	"NGAP-DUPLICATE-RAN-NODE-ID":            true,
-	"NAS-INITIAL-MSG-NO-CONTAINER":          true,
-	"NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED": true,
-	"NAS-SMC-IMEISV-REQUEST":                true,
+	"NGAP-RAN-CONFIG-UPDATE-ACK": true,
+	"NGAP-DUPLICATE-RAN-NODE-ID": true,
+	"NAS-SMC-IMEISV-REQUEST":     true,
 }
 
 // Every registered check's worst verdict follows what it cites: DEVIATION
