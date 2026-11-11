@@ -172,7 +172,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   informational: accepted with the first association kept is INFO; a
   rejection, no answer, a reset of the new association or a dropped first
   association is INFO-DIFF, Observed naming both halves. Needs a second
-  address in the target's `ran.n2_source_ips`, else SKIP. It never gates.
+  address in the target's `ran.n2_source_ips`, else SKIP. It gates only for a
+  core that does not survive (a fresh NG Setup afterwards fails: FAIL).
   Which association the core then uses for the ID is not examined. Not yet
   run on Ref 2.
 - `NGAP-RAN-CONFIG-UPDATE-ACK` (procedural, INFO-class) — after NG Setup, a
@@ -182,8 +183,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   8.7.2.3 requires a FAILURE only of an AMF that cannot accept the update, so
   the check is informational: an ACKNOWLEDGE is INFO; a RAN CONFIGURATION
   UPDATE FAILURE, an ERROR INDICATION, no answer within 5 s or a lost
-  association is INFO-DIFF, with a fresh NG Setup tried afterwards and its
-  result recorded. It never gates. Not yet run on Ref 2.
+  association is INFO-DIFF, with a fresh NG Setup tried afterwards: a core
+  that no longer completes it did not survive and is FAIL, the one outcome
+  that gates. Not yet run on Ref 2.
 - `NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX` (negative-ie, DEVIATION-class) — a
   RAN CONFIGURATION UPDATE whose Supported TA Item is cut off after its TAC,
   so the item's mandatory Broadcast PLMN List is missing: a transfer syntax
@@ -447,7 +449,9 @@ reports `INFO` when the core did what the text describes and `INFO-DIFF` when
 it did anything else, with both in Expected and Observed, so a table of runs
 shows where cores differ. Neither verdict gates, counts as a pass or a failure,
 or can be put on an expected-failures list; `ERROR` and `SKIP` mean what they
-mean for every check.
+mean for every check. In every class a core that does not survive a check's
+stimulus (a fresh NG Setup afterwards no longer completes) is `FAIL` and
+gates: a crash is never demoted.
 
 > **Tooling note:** the testbed has no tshark, so wire disambiguation currently
 > uses a byte-level PPID scan that reads uplink cleanly but misses downlink

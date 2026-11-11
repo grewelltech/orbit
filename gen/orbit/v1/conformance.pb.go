@@ -374,7 +374,7 @@ type ConformanceResult struct {
 	Category string                 `protobuf:"bytes,2,opt,name=category,proto3" json:"category,omitempty"`
 	SpecRef  string                 `protobuf:"bytes,3,opt,name=spec_ref,json=specRef,proto3" json:"spec_ref,omitempty"`
 	// PASS | FAIL | ERROR | SKIP | DEVIATION, or, from an informational
-	// check (descriptive references only; never gates), INFO | INFO-DIFF.
+	// check (descriptive references only; not graded), INFO | INFO-DIFF.
 	Verdict  string `protobuf:"bytes,4,opt,name=verdict,proto3" json:"verdict,omitempty"`
 	Expected string `protobuf:"bytes,5,opt,name=expected,proto3" json:"expected,omitempty"`
 	Observed string `protobuf:"bytes,6,opt,name=observed,proto3" json:"observed,omitempty"`

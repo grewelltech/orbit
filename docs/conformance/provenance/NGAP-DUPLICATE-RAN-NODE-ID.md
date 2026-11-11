@@ -26,14 +26,15 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/38_series
 
 ## Verdict
 
-- **Verdict class:** INFO (informational). The check reports and never gates: it gives no PASS, FAIL or DEVIATION, and it cannot be put on an expected-failures list.
+- **Verdict class:** INFO (informational). The check reports and does not grade: it gives no PASS or DEVIATION, FAIL only for a core that does not survive the stimulus, and it cannot be put on an expected-failures list.
 - **Stimulus:** one association from the suite's N2 source address completes NG Setup. A second association is opened from the second N2 source address (the second address of the target's `ran.n2_source_ips`) and sends an NG SETUP REQUEST with the same Global RAN Node ID, PLMN, tracking area and slices. The first association is then watched for 2 s, at transport level: nothing is sent on it.
 - **Observed** has two halves, joined by "; ":
   - what the second NG Setup got: `second NG Setup accepted` (NG SETUP RESPONSE), `second NG Setup rejected (NG SETUP FAILURE)` (the cause is in the detail), `second NG Setup unanswered` (neither within 4 s, the absence inferred within that bound, or another PDU, named in the detail), or `second association reset`;
   - what became of the first association: `first association kept` or `first association dropped`.
 - **INFO:** `second NG Setup accepted; first association kept`, the answer 8.7.1.2 describes with nothing else changed.
 - **INFO-DIFF:** every other combination. None is a failure: the specification allows each of them.
-- **Afterwards** both associations are closed and a fresh NG Setup with another gNB ID is tried; the detail records its result, and when it does not complete Observed ends with `; a fresh NG Setup afterwards did not complete`. The verdict stays INFO-DIFF.
+- **Afterwards** both associations are closed and a fresh NG Setup with another gNB ID is tried; the detail records its result.
+- **FAIL:** that fresh NG Setup does not complete: the core did not survive the duplicate NG SETUP REQUEST. Observed is `AMF unresponsive after the message (<the two halves>)` and the result gates, as a crash does in every verdict class.
 - **SKIP:** category not selected; no second N2 source address, or one that is the first; a second address this host does not hold (`second N2 source address is not on this host`). In a run with a population the suite has one N2 source address, so the check SKIPs there.
 - **ERROR:** the first NG Setup did not complete, or the second association could not be opened for another reason than the address, so nothing was observed.
 - **Limits:**

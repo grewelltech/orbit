@@ -56,8 +56,9 @@ type StaleExpectation struct {
 }
 
 // LoadExpectedFailures reads and validates a list. Every entry must name a
-// registered, graded check (an informational one never FAILs, so it is
-// refused), an observed text, a finding, an added date (YYYY-MM-DD) and a
+// registered, graded check (an informational one FAILs only for a core
+// that did not survive, which no list tolerates, so it is refused), an
+// observed text, a finding, an added date (YYYY-MM-DD) and a
 // reason; (check, observed) must be unique; unknown keys are refused.
 // An observed text from a liveness probe (a core that stopped answering, or
 // one that could not be checked) is refused: those always gate.
@@ -73,7 +74,7 @@ func LoadExpectedFailures(path string) (*ExpectedFailures, error) {
 
 // listableChecks maps every check in tests to whether an expected-failures
 // entry may name it: true for a graded check, false for an informational
-// one, which never FAILs.
+// one, whose only FAIL is a core that did not survive.
 func listableChecks(tests []Test) map[string]bool {
 	known := map[string]bool{}
 	for _, t := range tests {
@@ -121,7 +122,7 @@ func (x *ExpectedFailures) validate(path string, known map[string]bool) error {
 		case !ok:
 			return fmt.Errorf("%s: unknown check %q", where, e.Check)
 		case !listable:
-			return fmt.Errorf("%s: check %q is informational and never FAILs; it cannot be listed", where, e.Check)
+			return fmt.Errorf("%s: check %q is informational and FAILs only for a core that did not survive; it cannot be listed", where, e.Check)
 		}
 		if _, err := time.Parse(time.DateOnly, e.Added); err != nil {
 			return fmt.Errorf("%s: added %q is not a YYYY-MM-DD date", where, e.Added)

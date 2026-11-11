@@ -1645,7 +1645,10 @@ Every missed **shall** is FAIL and DEVIATION is reserved for a missed
 **should**. An informational check, one that cites only descriptive text,
 reports INFO (the core did what the text describes) or INFO-DIFF (it did
 anything else); neither is a pass or a failure, and neither changes the exit
-code, a gate or the expected-failures accounting. The tally counts them apart
+code, a gate or the expected-failures accounting. A crash is the exception in
+every class: a core that no longer completes a fresh NG Setup after a check's
+stimulus is FAIL (`AMF unresponsive after the message (...)`) and gates, for
+an informational check as for a graded one. The tally counts them apart
 (`... 0 skip, 2 info, 1 info-diff`; `Info` and `InfoDiff` in `--json`), and
 `--list` and the checks table name each check's class (FAIL, DEVIATION or
 INFO). `--expected-failures <file>` names the core's list of known,

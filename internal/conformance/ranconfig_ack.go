@@ -46,9 +46,9 @@ const (
 // with Observed saying which: a RAN CONFIGURATION UPDATE FAILURE, an ERROR
 // INDICATION, no answer within ranConfigAckWait, or a lost association.
 // PDUs of other procedures read meanwhile are passed over. After any
-// outcome but the ACKNOWLEDGE a fresh NG Setup is tried and its result
-// recorded, so a core that stopped answering is told from one that only
-// ignored the update.
+// outcome but the ACKNOWLEDGE a fresh NG Setup is tried (observeAlive): a
+// core that no longer completes it did not survive the update and is FAIL,
+// which tells it from one that only ignored the update.
 type ranConfigUpdateAck struct {
 	// wait overrides ranConfigAckWait; tests shorten it.
 	wait time.Duration

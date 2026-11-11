@@ -94,8 +94,9 @@ const (
 // requiring it (a Class 1 response described as "the AMF responds with"),
 // or are silent. Such a check cites descriptive references only and is
 // never graded: runOne reports INFO when it saw the described behaviour and
-// INFO-DIFF when it saw anything else, and neither gates. A check declares
-// itself by adding
+// INFO-DIFF when it saw anything else, and neither gates. The one exception
+// is a core that does not survive the stimulus (observeAlive): that is FAIL
+// and gates, as in every class. A check declares itself by adding
 //
 //	func (myCheck) Informational() bool { return true }
 //
@@ -204,7 +205,8 @@ func MinRelease(t Test) Release {
 // what it cites: FAIL when it cites a shall, DEVIATION when it cites only
 // shoulds. A missed shall is a failure and DEVIATION is reserved for a missed
 // should. An informational check grades nothing, so its worst is INFO-DIFF.
-// runOne enforces this whatever a check's Run returns.
+// runOne enforces this whatever a check's Run returns. A core that stops
+// answering is outside the classes: it is FAIL for every check.
 func WorstVerdict(t Test) Verdict {
 	switch {
 	case IsInformational(t):
@@ -217,7 +219,8 @@ func WorstVerdict(t Test) Verdict {
 
 // VerdictClass names a check's class for --list and checks.md: FAIL or
 // DEVIATION, the worst verdict of a graded check, or INFO for an
-// informational one.
+// informational one. The class says nothing of a crash, which is FAIL in
+// all three.
 func VerdictClass(t Test) Verdict {
 	if IsInformational(t) {
 		return Info
@@ -248,7 +251,10 @@ var (
 
 // ValidateTest checks a test's provenance and verdict class against the
 // rules every registered check must meet; the invariant test runs it over
-// the registry, so a check without verified provenance cannot merge.
+// the registry, so a check without verified provenance cannot merge. The
+// class it ties to the references (graded for a shall or should,
+// informational for descriptive text alone) is about the behaviour a check
+// reports; a core that does not survive is FAIL in either.
 func ValidateTest(t Test) error {
 	refs := t.SpecRefs()
 	if len(refs) == 0 {

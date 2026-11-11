@@ -296,7 +296,7 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
 
   /**
    * PASS | FAIL | ERROR | SKIP | DEVIATION, or, from an informational
-   * check (descriptive references only; never gates), INFO | INFO-DIFF.
+   * check (descriptive references only; not graded), INFO | INFO-DIFF.
    *
    * @generated from field: string verdict = 4;
    */

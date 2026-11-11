@@ -58,7 +58,8 @@ const (
 // association open but no longer serves it is reported as keeping it. With
 // no second source address, or one this host does not hold, the check
 // SKIPs. Both associations are closed afterwards, and a fresh NG Setup is
-// tried and its result recorded.
+// tried (observeAlive): a core that no longer completes it did not survive
+// the duplicate and is FAIL.
 type duplicateRANNodeID struct {
 	// setupWait and firstWait override duplicateSetupWait and
 	// duplicateFirstWait; tests shorten them.
