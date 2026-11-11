@@ -1189,6 +1189,15 @@ registered:
   new 5G-GUTI is taken, and a CONFIGURATION UPDATE COMPLETE is sent when the
   command requests acknowledgement. A new TAI list or allowed NSSAI is only
   logged.
+- **Known limit:** a registered UE's downlink is read only while one of its
+  procedures waits for a message. A CONFIGURATION UPDATE COMMAND that arrives
+  while the UE is between procedures (registered, with none running) stays
+  queued until the UE's next procedure reads the downlink. An N2 handover
+  (or its cancellation) then processes it, late, and a CONFIGURATION UPDATE
+  COMPLETE the command asks for goes out late with it; any other procedure
+  (an Xn handover, a PDU session release, a Service Request, the
+  deregistration) skips or discards it unanswered. Either way the AMF may
+  retransmit the command on T3555 (TS 24.501 Table 10.2.2) meanwhile.
 - **Not supported:** the registration procedure for mobility and periodic
   registration update. A command with "registration requested" set
   (TS 24.501 5.4.4.3) is still acknowledged when it asks for that, but the UE
