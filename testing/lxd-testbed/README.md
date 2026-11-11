@@ -595,12 +595,13 @@ suite against it with `--target-release Rel-15`, so a check that needs a later
 release SKIPs; under ORBIT's default (Rel-18, the SD-Core release) such a check
 runs and FAILs.
 
-**ORBIT must send its IMEISV.** free5GC's AMF asks for the IMEISV in the
+**The UE must send its IMEISV.** free5GC's AMF asks for the IMEISV in the
 Security Mode Command and, if the Security Mode Complete carries none, sends an
 Identity Request for the IMEI before it accepts the registration; there is no
-setting for this. An ORBIT whose UE does neither stops at
-`AMF requested an Identity … Identity Response not yet implemented`: NG Setup
-works, and `verify` and every check that registers a UE fail.
+setting for this. ORBIT's UE includes the IMEISV when it is requested and
+answers an Identity Request (TS 24.501 5.4.2.3, 5.4.3). An ORBIT build from
+before that support stops at `AMF requested an Identity`: NG Setup works, and
+`verify` and every check that registers a UE fail.
 
 **Configuration.** The NF configuration in `/etc/free5gc` is the pinned
 release's own `config/*.yaml` with only the testbed's values replaced — PLMN,
@@ -734,30 +735,21 @@ subscriber outside the range alone (with a warning that it is there). The UDR
 reads MongoDB on every request, so no NF is restarted. MongoDB's data is on the
 node's disk (`/var/lib/mongodb`) and survives a restart and a reboot.
 
-### ORBIT's UE does not register yet
+### What Open5GS requires of the UE
 
 Open5GS enforces the protection of the initial NAS message (TS 24.501 4.4.6,
 TS 33.501 6.4.6): a REGISTRATION REQUEST sent without a NAS security context
 may carry only the cleartext IEs, and the AMF answers anything else with
 Registration Reject, 5GMM cause #95 (`Non cleartext IEs is included` in the
 AMF's journal). Every release from v2.6.6 to v2.8.0 does this and there is no
-configuration switch for it. ORBIT's UE puts the 5GMM capability and the
-Requested NSSAI in that first message (`internal/ue/nasmm.go`,
-`BuildRegistrationRequest`), so on this testbed:
+configuration switch for it. It also refuses a PDU SESSION ESTABLISHMENT
+REQUEST whose procedure transaction identity is 0.
 
-- `verify` gets NG Setup accepted and then fails at `register` on both sites
-  with `AMF rejected registration`. The user-plane hint it prints after that
-  (a UPF routing fault) does not apply: the UE never registered.
-- `orbit conformance -t lxd-conformance` passes the checks that need no
-  registered UE (NG Setup, NG Reset, unknown-UE, GTP-U Error Indication) and
-  reports ERROR or FAIL for every check that needs one.
-
-The core itself is sound: a UE that sends the cleartext IEs only and the whole
-message in the Security Mode Complete's NAS message container (UERANSIM v3.2.7,
-run from `ran-far` with a subscriber from this population) registers with
-NIA2/NEA0, gets a PDU session and an address from `TESTBED_UE_POOL`, and
-exchanges traffic with the app over N3 → UPF → N6, the app seeing the UE's
-own address.
+ORBIT's UE sends the cleartext IEs only, with the complete message in the
+Security Mode Complete's NAS message container, and allocates a PTI. An ORBIT
+build from before that gets NG Setup accepted and then fails at `register`
+with `AMF rejected registration`; the user-plane hint `verify` prints after
+that (a UPF routing fault) does not apply, because the UE never registered.
 
 ### Looking at it
 
