@@ -1430,9 +1430,14 @@ the CLI judges itself.
 ## Conformance / regression
 
 `orbit conformance` runs the spec-cited regression suite on the server against
-a live core, streaming each check's verdict, and exits 1 on a FAIL outside the
-expected-failures list or an ERROR: an integration-CI gate ([exit
-codes](#exit-codes)). The suite runs as a plan with the conformance gate.
+a live core, streaming each check's verdict, and exits 1 when its gate fails:
+an integration-CI gate ([exit codes](#exit-codes)). The default gate fails on
+a FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN outside the expected-failures
+list; `--gate spec` (or `name=spec`; `policy: spec` on a run file's
+conformance gate) fails on FAIL, CRASH, BLOCKED and ERROR only. The report
+ends with the gate line, which separates the two:
+`gate default: failed: 3 spec failures, 2 warnings`. The suite runs as a plan
+with the conformance gate.
 `--expected-failures` is read by the CLI and sent in the plan, so the file
 need not be on the server's host. `--local` (deprecated) runs the suite in the
 CLI process.
@@ -1440,8 +1445,17 @@ CLI process.
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
     [--category negative-ie] [--check <ID>] [--gnb-base 0x400] [--per-test-timeout 15s] \
-    [--target-release Rel-16] [--expected-failures <core-list.yaml>]
+    [--target-release Rel-16] [--expected-failures <core-list.yaml>] [--gate spec]
 ```
+
+Each run starts with a **preflight**, printed as its own section ahead of the
+checks: an NG Setup, and, only when a selected check needs it, a UE
+registered and deregistered, a PDU session, and a GTP-U Echo to the UPF. A
+check that depends on a step that failed reports ERROR without running (fix
+the setup); after a passed preflight, the same setup failing inside a check
+is the core's doing and is reported BLOCKED. With no UE configured the
+preflight is the NG Setup alone and the UE checks SKIP. `--json` carries it
+as `Preflight`.
 
 Some checks wait out real NAS timer expiries and take minutes. Before each
 check runs, the suite prints it on stderr with the longest it can take (its
@@ -1785,25 +1799,30 @@ runs every check. The output and `--json` record the targets
 (`target-release: Rel-18 (TS 29.244 at Rel-16)`, and `SpecTargets` in JSON).
 The evidence and caveats are in
 [docs/conformance/target-release.md](conformance/target-release.md).
-Every missed **shall** is FAIL and DEVIATION is reserved for a missed
-**should**. An informational check, one that cites only descriptive text,
-reports INFO (the core did what the text describes) or INFO-DIFF (it did
-anything else); neither is a pass or a failure, and neither changes the exit
-code, a gate or the expected-failures accounting. A crash is the exception in
-every class: a core that no longer completes a fresh NG Setup after a check's
-stimulus is FAIL (`AMF unresponsive after the message (...)`) and gates, for
-an informational check as for a graded one. The tally counts them apart
-(`... 0 skip, 2 info, 1 info-diff`; `Info` and `InfoDiff` in `--json`), and
-`--list` and the checks table name each check's class (FAIL, DEVIATION or
-INFO). `--expected-failures <file>` names the core's list of known,
-tolerated FAILs, each matched exactly on check and observed text. A listed
-FAIL still prints FAIL, tagged `(expected: <finding>)`, but does not fail the
-gate. Entries whose check now gives something else print as stale. With no
-list, every FAIL gates. The format and rules are in
+The verdicts are those of
+[ADR-0011](adr/0011-conformance-verdicts-gates-and-grouping.md): PASS; FAIL (a
+cited shall violated); DEVIATION (a cited should not followed); WARN (no
+requirement, with security, availability or interoperability impact); INFO
+(no requirement, no impact); BLOCKED (the core did not complete a procedure
+the check needs first, naming the procedure and the check that owns it);
+CRASH (the core stopped answering after the stimulus); SKIP (not applicable:
+an older target release, a missing input, or an alternative the
+specification permits); ERROR (the tool could not run the check; fix the
+setup). A BLOCKED whose owner ran and reported the procedure as not
+completing counts once, under the owner. The tally counts every verdict
+(`... 1 warn, 2 info, 0 blocked, 0 crash, 0 skip, 0 error`), and
+`docs/conformance/checks.md` lists every outcome each check can report.
+`--expected-failures <file>` names the core's list of known, tolerated
+FAILs, DEVIATIONs and WARNs, each matched exactly on check, verdict and
+observed text. A listed result keeps its verdict, tagged
+`(expected: <finding>)`, but does not count at the gate. Entries whose check
+now gives something else print as stale. With no list, every gated result
+counts. The format and rules are in
 [docs/conformance/expected-failures.md](conformance/expected-failures.md).
 `--json` emits per-check verdict, expected/observed, the rendered `spec_ref`,
 the structured `spec_refs` (clause, strength, since, verified versions,
-changes), `min_release` and, on a listed FAIL, `expected_failure`. The full table is
+changes), `min_release`, the declared `outcome` (with a WARN's criterion, a
+BLOCKED's procedure and owner) and, on a listed result, `expected_failure`. The full table is
 [docs/conformance/checks.md](conformance/checks.md), with the quoted normative
 text per check in [docs/conformance/provenance/](conformance/provenance/).
 
