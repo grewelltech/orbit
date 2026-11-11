@@ -23,7 +23,7 @@ const ranConfigAckWait = 5 * time.Second
 
 // ranConfigAckText is the detail of every outcome other than a RAN
 // CONFIGURATION UPDATE ACKNOWLEDGE.
-const ranConfigAckText = "no RAN CONFIGURATION UPDATE ACKNOWLEDGE (class-1 procedure, Table 8.1-1). TS 38.413 8.7.2.2 (descriptive; Rel-15 onward). " +
+const ranConfigAckText = "no RAN CONFIGURATION UPDATE ACKNOWLEDGE (class-1 procedure, Table 8.1-1). TS 38.413 8.7.2.2, 8.7.2.3 (Rel-15 onward). " +
 	"Likely cause: AMF does not implement RAN Configuration Update."
 
 // Observed texts of NGAP-RAN-CONFIG-UPDATE-ACK, one per outcome.
@@ -37,15 +37,15 @@ const (
 
 // ranConfigUpdateAck sends, on an association that has completed NG Setup,
 // a valid RAN CONFIGURATION UPDATE that restates the Supported TA List the
-// NG Setup presented, and reports how the AMF answers. TS 38.413 8.7.2.2
-// describes the answer ("The AMF responds with a RAN CONFIGURATION UPDATE
-// ACKNOWLEDGE message") and does not require it, and 8.7.2.3 requires a RAN
-// CONFIGURATION UPDATE FAILURE only of an AMF that cannot accept the update,
-// which cannot be told from outside. So a RAN CONFIGURATION UPDATE
-// ACKNOWLEDGE is INFO, and anything else is WARN for availability, the
-// procedure not completing for an update that changes nothing, with its own
-// outcome: a RAN CONFIGURATION UPDATE FAILURE, an ERROR INDICATION, no
-// answer within ranConfigAckWait, or a lost association. PDUs of other
+// NG Setup presented, and reports how the AMF answers. The procedure is
+// Class 1, and its two outcomes are the AMF's answers: TS 38.413 8.7.2.2,
+// read as the requirement it states, has an AMF that takes the update
+// respond with a RAN CONFIGURATION UPDATE ACKNOWLEDGE, and 8.7.2.3 has one
+// that cannot accept it respond with a RAN CONFIGURATION UPDATE FAILURE
+// ("shall"). So the ACKNOWLEDGE is PASS; no answer within ranConfigAckWait,
+// an ERROR INDICATION or a lost association is neither answer and FAIL;
+// and a FAILURE, which 8.7.2.3 allows, is WARN for availability, the
+// procedure not completing for an update that changes nothing. PDUs of other
 // procedures read meanwhile are passed over. After any outcome but the
 // ACKNOWLEDGE a fresh NG Setup is tried (observeAlive): a core that no
 // longer completes it did not survive the update and is CRASH, which tells
@@ -55,25 +55,32 @@ type ranConfigUpdateAck struct {
 	wait time.Duration
 }
 
-// ranConfigAckRef is the key of the description the acknowledged outcome
-// rests on.
-const ranConfigAckRef = "TS 38.413 8.7.2.2"
+// The keys of the references the outcomes of NGAP-RAN-CONFIG-UPDATE-ACK
+// rest on: the ACKNOWLEDGE of an accepted update and the FAILURE of one the
+// AMF cannot accept.
+const (
+	ranConfigAckRef     = "TS 38.413 8.7.2.2"
+	ranConfigFailureRef = "TS 38.413 8.7.2.3"
+)
 
-// The outcomes of NGAP-RAN-CONFIG-UPDATE-ACK. Every answer but the
-// ACKNOWLEDGE is WARN for availability: no requirement covers it, and the
-// core does not complete the procedure for a valid update that restates
-// what it accepted at NG Setup.
+// ranConfigEitherAnswer are the references an answer to the update meets
+// one of.
+var ranConfigEitherAnswer = []string{ranConfigAckRef, ranConfigFailureRef}
+
+// The outcomes of NGAP-RAN-CONFIG-UPDATE-ACK. A FAILURE is WARN for
+// availability: 8.7.2.3 allows it, and the core does not complete the
+// procedure for a valid update that restates what it accepted at NG Setup.
 var (
-	ranConfigAcked = Outcome{ID: "acknowledged", Verdict: Info, Refs: []string{ranConfigAckRef},
-		Summary: "answered the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE ACKNOWLEDGE, as 8.7.2.2 describes"}
+	ranConfigAcked = Outcome{ID: "acknowledged", Verdict: Pass, Refs: []string{ranConfigAckRef},
+		Summary: "answered the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE ACKNOWLEDGE"}
 	ranConfigRejected = Outcome{ID: "failure", Verdict: Warn, Criterion: CriterionAvailability,
 		Summary: "rejected the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE FAILURE"}
-	ranConfigErrorIndicated = Outcome{ID: "error-indication", Verdict: Warn, Criterion: CriterionAvailability,
+	ranConfigErrorIndicated = Outcome{ID: "error-indication", Verdict: Fail, Refs: ranConfigEitherAnswer,
 		Summary: "answered the valid RAN CONFIGURATION UPDATE with an ERROR INDICATION"}
-	ranConfigNoAnswer = Outcome{ID: "no-answer", Verdict: Warn, Criterion: CriterionAvailability,
+	ranConfigNoAnswer = Outcome{ID: "no-answer", Verdict: Fail, Refs: ranConfigEitherAnswer,
 		Bound:   &Bound{Wait: ranConfigAckWait, Source: "check bound; TS 38.413 sets no timer for the RAN Configuration Update outcome"},
 		Summary: "sent neither RAN CONFIGURATION UPDATE ACKNOWLEDGE nor FAILURE; the association survived"}
-	ranConfigAssociationLost = Outcome{ID: "association-lost", Verdict: Warn, Criterion: CriterionAvailability,
+	ranConfigAssociationLost = Outcome{ID: "association-lost", Verdict: Fail, Refs: ranConfigEitherAnswer,
 		Summary: "dropped the association instead of answering the valid RAN CONFIGURATION UPDATE"}
 )
 
@@ -92,21 +99,22 @@ func (c ranConfigUpdateAck) outcomeWait() time.Duration {
 func (ranConfigUpdateAck) ID() string         { return "NGAP-RAN-CONFIG-UPDATE-ACK" }
 func (ranConfigUpdateAck) Category() Category { return Procedural }
 
-// SpecRefs cites the description of the answer in 8.7.2.2. The shall in
-// 8.7.2.3 and the Class 1 table (8.1) are in the provenance file only: no
-// outcome rests on either.
+// SpecRefs cites the two answers: the ACKNOWLEDGE of 8.7.2.2, read as a
+// requirement, and the FAILURE of 8.7.2.3. The Class 1 table (8.1) is in
+// the provenance file only.
 func (ranConfigUpdateAck) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 38.413", Clause: "8.7.2.2", Strength: Descriptive, Since: 15, Verified: ts38413Verified, Primary: true,
+		{Spec: "TS 38.413", Clause: "8.7.2.2", Strength: Shall, Since: 15, Verified: ts38413Verified, Primary: true,
 			Changed: []SpecChange{
-				{Release: 15, Note: "a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0"},
+				{Release: 15, Note: "a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; graded as a requirement: \"The AMF responds with a RAN CONFIGURATION UPDATE ACKNOWLEDGE\" is the answer of a Class 1 procedure to an update the AMF takes"},
 				{Release: 19, Note: "in V19.4.0 the same words are a bullet under \"If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF\""},
 			}},
+		{Spec: "TS 38.413", Clause: "8.7.2.3", Strength: Shall, Since: 15, Verified: ts38413Verified, WordingUnchanged: true},
 	}
 }
 
 func (c ranConfigUpdateAck) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "RAN CONFIGURATION UPDATE ACKNOWLEDGE for a valid RAN CONFIGURATION UPDATE (TS 38.413 8.7.2.2, descriptive)"}
+	r := Result{Expected: "RAN CONFIGURATION UPDATE ACKNOWLEDGE for a valid RAN CONFIGURATION UPDATE (TS 38.413 8.7.2.2), or a RAN CONFIGURATION UPDATE FAILURE from an AMF that cannot accept it (8.7.2.3)"}
 	pdu, err := gnb.BuildRANConfigurationUpdate(gnb.WithSupportedTAList(env.GNB))
 	if err != nil {
 		return r.Errored("stimulus could not be built", err.Error())

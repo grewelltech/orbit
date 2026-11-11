@@ -17,9 +17,10 @@ import (
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
 
-// Every answer to the valid update: the ACKNOWLEDGE is INFO; a FAILURE, an
-// ERROR INDICATION, no answer and a lost association are each a WARN for
-// availability with the issue's message.
+// Every answer to the valid update: the ACKNOWLEDGE is PASS; a FAILURE is
+// WARN for availability; an ERROR INDICATION, no answer and a lost
+// association are each FAIL on 8.7.2.2 and 8.7.2.3. Every outcome but the
+// ACKNOWLEDGE carries the issue's message.
 func TestClassifyRANConfigAck(t *testing.T) {
 	failure := pduRANConfigUpdateFailure()
 	failure.UnsuccessfulOutcome.Value.RANConfigurationUpdateFailure.ProtocolIEs.List = []ngapType.RANConfigurationUpdateFailureIEs{{
@@ -54,15 +55,22 @@ func TestClassifyRANConfigAck(t *testing.T) {
 			if covers(o).ID != tc.want.ID || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
 				t.Errorf("= %s %q %q, want %s %q with detail containing %q", o.ID, observed, detail, tc.want.ID, tc.wantObserved, tc.wantDetail)
 			}
-			if want := o.ID != ranConfigAcked.ID; (o.Verdict == Warn && o.Criterion == CriterionAvailability) != want {
-				t.Errorf("%s: %s (%s); every answer but the ACKNOWLEDGE is WARN for availability", o.ID, o.Verdict, o.Criterion)
+			want := Fail
+			switch o.ID {
+			case ranConfigAcked.ID:
+				want = Pass
+			case ranConfigRejected.ID:
+				want = Warn
 			}
-			if (o.Verdict == Warn) != strings.Contains(detail, ranConfigAckText) {
+			if o.Verdict != want || (o.Verdict == Warn && o.Criterion != CriterionAvailability) {
+				t.Errorf("%s: %s (%s), want %s", o.ID, o.Verdict, o.Criterion, want)
+			}
+			if (o.Verdict != Pass) != strings.Contains(detail, ranConfigAckText) {
 				t.Errorf("detail %q: the issue's message belongs on every outcome but the ACKNOWLEDGE", detail)
 			}
 		})
 	}
-	if ranConfigAckText != "no RAN CONFIGURATION UPDATE ACKNOWLEDGE (class-1 procedure, Table 8.1-1). TS 38.413 8.7.2.2 (descriptive; Rel-15 onward). Likely cause: AMF does not implement RAN Configuration Update." {
+	if ranConfigAckText != "no RAN CONFIGURATION UPDATE ACKNOWLEDGE (class-1 procedure, Table 8.1-1). TS 38.413 8.7.2.2, 8.7.2.3 (Rel-15 onward). Likely cause: AMF does not implement RAN Configuration Update." {
 		t.Errorf("the message differs from the issue's: %q", ranConfigAckText)
 	}
 }
@@ -115,18 +123,19 @@ func TestReadRANConfigOutcome(t *testing.T) {
 	}
 }
 
-// The check cites descriptive text only: its worst outcome is a WARN, the
-// acknowledge is INFO, and 8.7.2.2 is the primary reference.
+// The check grades the two answers: its worst outcome is a FAIL, the
+// acknowledge is PASS, and 8.7.2.2, read as a requirement, is the primary
+// reference beside the shall of 8.7.2.3.
 func TestRANConfigAckDeclaration(t *testing.T) {
 	c := ranConfigUpdateAck{}
 	if err := ValidateTest(c); err != nil {
 		t.Fatal(err)
 	}
-	if WorstVerdict(c) != Warn || ranConfigAcked.Verdict != Info || MinRelease(c) != 15 {
+	if WorstVerdict(c) != Fail || ranConfigAcked.Verdict != Pass || MinRelease(c) != 15 {
 		t.Errorf("worst %s, acknowledged %s, min %s", WorstVerdict(c), ranConfigAcked.Verdict, MinRelease(c))
 	}
-	for _, r := range c.SpecRefs() {
-		if r.Strength != Descriptive || !r.Primary {
+	for i, r := range c.SpecRefs() {
+		if r.Strength != Shall || r.Primary != (i == 0) {
 			t.Errorf("%s %s is cited as %s, primary %v", r.Spec, r.Clause, r.Strength, r.Primary)
 		}
 	}
@@ -136,8 +145,8 @@ func TestRANConfigAckDeclaration(t *testing.T) {
 }
 
 // Against the mock AMF over real SCTP, as a suite run scores it: an AMF
-// that acknowledges is INFO; one that answers with FAILURE and one that
-// withholds any answer are WARN for availability. One that stops answering
+// that acknowledges is PASS; one that answers with FAILURE is WARN for
+// availability; one that withholds any answer is FAIL. One that stops answering
 // did not survive: CRASH. The update restates the Supported TA List, and the
 // check's associations close afterwards.
 func TestRANConfigAckAgainstMock(t *testing.T) {
@@ -153,12 +162,12 @@ func TestRANConfigAckAgainstMock(t *testing.T) {
 		wantSetups   int
 		wantAlive    bool
 	}{
-		{name: "acknowledges", answer: mockamf.AcknowledgeRANConfigUpdate, want: Info, wantOutcome: "acknowledged", wantObserved: "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
+		{name: "acknowledges", answer: mockamf.AcknowledgeRANConfigUpdate, want: Pass, wantOutcome: "acknowledged", wantObserved: "RAN CONFIGURATION UPDATE ACKNOWLEDGE",
 			wantDetail: []string{"acknowledged", "restating the NG Setup's Supported TA List (TAC 1, PLMN 208/93)"}, wantSetups: 1, wantAlive: true},
 		{name: "answers with failure", answer: mockamf.FailRANConfigUpdate, want: Warn, wantOutcome: "failure", wantObserved: "RAN CONFIGURATION UPDATE FAILURE",
 			wantDetail: []string{"cause Misc 5", ranConfigAckText, "a fresh NG Setup afterwards completes", "no requirement violated; WARN for availability impact"}, wantSetups: 2, wantAlive: true},
-		{name: "withholds the answer", answer: mockamf.IgnoreRANConfigUpdate, want: Warn, wantOutcome: "no-answer", wantObserved: "no answer; association survived",
-			wantDetail: []string{"within 300ms", ranConfigAckText, "a fresh NG Setup afterwards completes"}, wantSetups: 2, wantAlive: true},
+		{name: "withholds the answer", answer: mockamf.IgnoreRANConfigUpdate, want: Fail, wantOutcome: "no-answer", wantObserved: "no answer; association survived",
+			wantDetail: []string{"within 300ms", ranConfigAckText, "violates TS 38.413 8.7.2.2 (shall), TS 38.413 8.7.2.3 (shall)", "a fresh NG Setup afterwards completes"}, wantSetups: 2, wantAlive: true},
 		{name: "stops answering", answer: mockamf.CrashOnRANConfigUpdate, want: Crash, wantOutcome: OutcomeCrash,
 			wantObserved: "AMF unresponsive after the message (association reset)",
 			wantDetail:   []string{ranConfigAckText, "core did not survive the RAN CONFIGURATION UPDATE: the AMF no longer completes a fresh NG Setup"}, wantSetups: 1},
@@ -188,8 +197,8 @@ func TestRANConfigAckAgainstMock(t *testing.T) {
 			if sum.OK() == GateDefault.Gates(tc.want) {
 				t.Errorf("summary %+v: under the default gate, OK = %v for a %s", sum, sum.OK(), tc.want)
 			}
-			if sum.Gate = GateSpec; sum.Count(tc.want) != 1 || sum.OK() == (tc.want == Crash) {
-				t.Errorf("summary %+v: want one %s, gating only for a crash under the spec gate", sum, tc.want)
+			if sum.Gate = GateSpec; sum.Count(tc.want) != 1 || sum.OK() == GateSpec.Gates(tc.want) {
+				t.Errorf("summary %+v: want one %s, gating under the spec gate only for a spec failure", sum, tc.want)
 			}
 
 			updates := amf.RANConfigUpdates()
