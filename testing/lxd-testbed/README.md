@@ -124,7 +124,8 @@ cd testing/lxd-testbed
 ./testbed.sh status    # what is running, and where
 ```
 
-Then, in order: `ctrl` and `keys` to stand up the management plane, `wanem` for
+Then, in order: `ctrl` and `keys` to stand up the management plane (SD-Core
+only), `wanem` for
 the WAN emulator, `core` to deploy the 5G core, `apps` to install ORBIT, and
 `verify` to drive a UE through the whole path from both sites. `all` runs the
 lot up to `check`.
@@ -185,6 +186,96 @@ orbit server trust https://10.130.0.21:8412 --token-file ~/.config/orbit/testbed
 export ORBIT_SERVER=https://10.130.0.21:8412
 ```
 
+## Profiles and core kinds
+
+The same site can be built around three cores. A **profile** selects a whole
+testbed in one word — its own prefix, VLAN block, UE pool and core — so several
+run side by side on one host:
+
+| Profile | Prefix | VLAN block / subnets | UE pool | Core (`TESTBED_CORE_KIND`) | Shape |
+|---|---|---|---|---|---|
+| *(none)* | `orbit` | 130–137, `10.130`–`10.137.0.0/24` | `100.65.0.0/16` | SD-Core (`sdcore`) | site |
+| `sdcore` | `sdcore` | 160–167, `10.160`–`10.167.0.0/24` | `100.68.0.0/16` | SD-Core (`sdcore`) | minimal |
+| `free5gc` | `free5gc` | 140–147, `10.140`–`10.147.0.0/24` | `100.66.0.0/16` | free5GC (`free5gc`) | minimal |
+| `open5gs` | `open5gs` | 150–157, `10.150`–`10.157.0.0/24` | `100.67.0.0/16` | Open5GS (`open5gs`) | minimal |
+
+```sh
+./testbed.sh -p free5gc all        # or: TESTBED_PROFILE=free5gc ./testbed.sh all
+./testbed.sh -p free5gc status
+./testbed.sh -p free5gc verify
+./testbed.sh -p free5gc down
+```
+
+Every subcommand works the same under `-p`, and everything in this document
+applies with the profile's prefix and addresses in place of `orbit` and
+`10.13x`. The topology, the checks, the ORBIT targets on the RAN nodes (`lxd`,
+`lxd-conformance`, `lxd-load`) and the host octets are identical; only the core
+step differs. A profile is a short file in [`profiles/`](profiles); the free5GC
+and Open5GS ones also size the core, RAN and app nodes down, since those cores
+are run for conformance rather than load. All three default to the minimal
+shape described next.
+
+### Shapes
+
+`TESTBED_SHAPE` says how much of the site is built. `site` is everything in
+this document. `minimal`, the profiles' default, is what conformance runs need
+and nothing else: **two VMs and one bridge**.
+
+| Node | Interfaces |
+|---|---|
+| `<prefix>-core` | `uplink` (DHCP on `TESTBED_UPLINK_NET`: management, Internet); `n2` `.10` (AMF); `n3`/`n6`: the UPF at `.100` on each |
+| `<prefix>-ran` | `uplink` (DHCP; the ORBIT API and dashboard listen here); `n2` and `n3` `.21`–`.30` (ten gNB slots); `n6` `.30` (the responder) |
+
+- One trunk, `<prefix>-trunk`, carries the N2, N3 and N6 VLANs (the block's
+  +1, +2, +3). There is no OAM VLAN, router, far site, WAN emulator, app node
+  or control node, and no NAT: the UE pool is reachable only inside the testbed.
+- The RAN node stands in for the app node: it holds the app's N6 address and
+  runs the responder and the UDP echo peer (`app` installs them there). A UE's packets are built by
+  ORBIT in user space and leave inside GTP-U on N3, so they still cross
+  N3 → UPF → N6 to reach it, and the replies return through the UPF.
+- The UPF's N6 next hop is the responder's address, and the gNBs are on-link
+  on N3.
+- The `uplink` address is on the host's own LXD bridge, so the dashboard is
+  reachable from the host with no route or jump: `status` prints it, and `up`
+  makes the DHCP lease static so it survives restarts.
+- The RAN node's `lxd-conformance` and `lxd-load` targets take the low half of
+  the subscriber pool, as the near site's do; `lxd` spans all of it.
+
+```sh
+./testbed.sh -p sdcore all                      # core + RAN, about as fast as the core deploys
+TESTBED_SHAPE=site ./testbed.sh -p sdcore all   # the full site around the same profile
+```
+
+The parts can also be chosen one by one — `TESTBED_WITH_ROUTER`,
+`TESTBED_WITH_FAR`, `TESTBED_WITH_APP`, `TESTBED_WITH_CTRL` (`true`/`false`;
+see [`testbed.conf`](testbed.conf)). The far site and the control node need the
+router. Every command honours them: `all` skips the steps for absent nodes,
+`check` asserts what the shape has, `verify` runs from the RAN nodes that
+exist. Build and tear down a testbed with the same settings; `down` removes
+every node and bridge carrying the prefix whatever the shape.
+
+### Core kinds
+
+What a core kind changes, beyond how `core` deploys it:
+
+- **Control node.** aether-ops manages SD-Core only. Other kinds have no `ctrl`
+  node and no `ctrl`/`keys` steps; `all` skips them. (Nor does the minimal
+  shape, for any kind.)
+- **Where the UPF sits.** SD-Core's UPF is a pod attached to the core node's
+  `n3`/`n6` by macvlan, so the node has no address there. free5GC and Open5GS
+  run the UPF on the core node's host network, so the node itself holds the
+  UPF's `.100` on `n3` and `n6` (and routes the far site's N3 via r-site).
+  Either way the UPF is at the same addresses, so r-site's UE-pool route, the
+  app's return route, the targets and `check` do not change shape.
+
+Testbeds share nothing on the host but the uplink bridge and the SD-Core image
+builds (tagged by commit): LXD objects carry the prefix, and each testbed has
+its own cache directory, `~/.cache/<prefix>-lxd-testbed`, for its tokens, built
+binaries and version record.
+
+A core kind is one file in [`cores/`](cores) implementing the contract described
+at the top of [`testbed.sh`](testbed.sh) ("core kinds").
+
 ## From nothing to ready
 
 ```sh
@@ -216,6 +307,8 @@ status = failures:
   routed (hop 1 is r-site) rather than switched
 - the app routes the UE pool back via r-site; wanem's bridge has two ports and
   no address and wanemd is listening
+- the UDP echo peer answers on the app's N6 address (`orbit-n6-echo`, installed
+  by `app`; before `app` has run this one fails and says so)
 
 Run it after `up` (before the core exists) and again whenever a measurement
 looks wrong: a FAIL here means the site is miswired and the core is not the
@@ -452,11 +545,230 @@ version. The script installs it, having watched the stock path fail with
 `Failed to find required executable "helm"`. (The Aether reference host carries
 a `get_helm.sh` for the same reason.)
 
+## The free5GC core (`-p free5gc`)
+
+```sh
+./testbed.sh -p free5gc core           # build and start free5GC, provision subscribers
+./testbed.sh -p free5gc core-status    # units, listeners, the UPF's attachment, subscriber count
+./testbed.sh -p free5gc reprovision    # restore the subscriber population
+```
+
+[`cores/free5gc.sh`](cores/free5gc.sh) builds free5GC from source on the core
+node and runs it natively: one systemd unit per NF (`free5gc-nrf`,
+`free5gc-amf`, … `free5gc-upf`, `free5gc-webconsole`, grouped by
+`free5gc.target`), no containers. The node's own addresses are the core's:
+
+| | Where | |
+|---|---|---|
+| AMF, NGAP | `CORE_N2:38412` SCTP on `n2` | `10.141.0.10` |
+| UPF, GTP-U | `UPF_N3:2152` on `n3` | `10.142.0.100` |
+| UPF, N6 | `UPF_N6` on `n6`; UE addresses leave it un-NATed | `10.143.0.100` |
+| PFCP (N4), SBI, MongoDB, webconsole API | loopback | `127.0.0.x` |
+
+The first `core` takes about 6 minutes, most of it package installs and the Go
+build; a re-run at the same refs rebuilds nothing, re-renders the
+configuration, restarts the NFs and re-provisions in about a minute. It is
+automatic from a fresh `up`.
+
+**Versions.** Pinned by variables at the top of `cores/free5gc.sh`, overridable
+like any other setting (environment, `testbed.free5gc.local.conf`); what each
+resolved to is recorded in `/etc/orbit/testbed-versions` on the core node.
+
+| Variable | Default | |
+|---|---|---|
+| `FREE5GC_REF` | `v4.3.0` | free5GC release (git ref of `FREE5GC_REPO`); every NF is the submodule commit that release pins |
+| `GTP5G_REF` | `v0.10.2` | gtp5g kernel module (git ref of `GTP5G_REPO`); go-upf at v4.3.0 accepts `>= 0.9.3, < 0.10.3` |
+| `FREE5GC_GO_VERSION` | `1.26.11` | Go toolchain from go.dev (the release's modules need 1.26.2 or later) |
+| `FREE5GC_MONGO_SERIES` | `8.0` | MongoDB series from repo.mongodb.org |
+| `FREE5GC_NFS` | `nrf udr udm ausf nssf pcf chf amf smf` | control-plane NFs to build and run; the UPF and the webconsole backend always run |
+| `FREE5GC_NIA_ORDER` / `FREE5GC_NEA_ORDER` | `NIA2 NIA1 NIA3` / `NEA0 NEA2 NEA1 NEA3` | the AMF's NAS algorithm preference |
+| `FREE5GC_GTP_MTU` | `TESTBED_MTU - 64` | MTU of the UPF's GTP device |
+| `FREE5GC_AMBR` | `10 Gbps` | session and UE AMBR of every subscriber |
+| `FREE5GC_N6_GATEWAY` | *(empty: `GW_N6` if it answers)* | next hop for UE traffic beyond the N6 subnet; `none` for no next hop |
+| `FREE5GC_LOG_LEVEL` | `info` | log level of every NF (`journalctl -u free5gc-amf`) |
+| `FREE5GC_DIR` | `/opt/free5gc` | source tree, binaries and helper scripts on the core node |
+
+**3GPP release.** free5GC describes itself as a Release 15 core "and beyond".
+v4.3.0's NAS and NGAP codecs (`free5gc/nas` v1.3.0, `free5gc/ngap` v1.2.0)
+follow TS 24.501 and TS 38.413 at Release 15/16 level. Run the conformance
+suite against it with `--target-release Rel-15`, so a check that needs a later
+release SKIPs; under ORBIT's default (Rel-18, the SD-Core release) such a check
+runs and FAILs.
+
+**The UE must send its IMEISV.** free5GC's AMF asks for the IMEISV in the
+Security Mode Command and, if the Security Mode Complete carries none, sends an
+Identity Request for the IMEI before it accepts the registration; there is no
+setting for this. ORBIT's UE includes the IMEISV when it is requested and
+answers an Identity Request (TS 24.501 5.4.2.3, 5.4.3). An ORBIT build from
+before that support stops at `AMF requested an Identity`: NG Setup works, and
+`verify` and every check that registers a UE fail.
+
+**Configuration.** The NF configuration in `/etc/free5gc` is the pinned
+release's own `config/*.yaml` with only the testbed's values replaced — PLMN,
+TAC, slice, DNN, the UE pool, the N2 and N3 addresses, the NAS algorithm order
+— so a newer release brings its new settings along, and a changed layout fails
+the render with a message instead of starting a half-configured core. The NAS
+timers are the release's defaults, which are the specification's (T3550, T3560,
+T3570 6 s; T3591, T3592 16 s). The SMF sets the End Marker flag on a path
+switch and gtp5g sends the End Markers; there is no switch for it.
+
+**The UPF** is go-upf with the `gtp5g` kernel module, built on the node through
+DKMS (so a kernel upgrade rebuilds it) and loaded at boot. LXD VMs boot with
+Secure Boot on, and a module built on the node is unsigned, so the first `core`
+turns Secure Boot off for the core VM and restarts it once. The UPF routes
+`TESTBED_UE_POOL` to its GTP device, and `ip_forward` is on. Nothing is NATed
+and no firewall rule is added: free5GC's guides add a MASQUERADE rule, this
+does not. UE traffic leaves through N6 and nowhere else — a routing rule sends
+anything *from* a UE address to a table that holds the N6 subnet and, when the
+site has a router there, a default route via it (`core-status` prints both).
+The return path is the site's: r-site routes the pool to `UPF_N6`.
+
+**Subscribers** are written through the webconsole's API
+(`http://127.0.0.1:5000` on the core node, account `admin` / `free5gc`), which
+creates `TESTBED_SUB_COUNT` consecutive IMSIs from `TESTBED_SUB_START` in one
+request and writes every collection the UDR and PCF read in the pinned
+release's own schema: 5G-AKA with `TESTBED_KI` and `TESTBED_OPC` (an OPc), one
+slice and DNN, IPv4, default 5QI 9, offline charging. `reprovision` deletes
+whatever subscribers exist and creates the population again; it does not
+restart anything. MongoDB keeps its data on the node's disk, so subscribers
+survive a restart of the core or the node. Only the webconsole's backend runs;
+its web frontend is not built.
+
+**After a reboot** of the core node everything returns by itself: `mongod`, the
+module, the routing and `free5gc.target`. An NF registers with the NRF once, at
+start, so the control-plane units restart together with `free5gc-nrf`
+(`systemctl restart free5gc-nrf`); `systemctl restart free5gc.target` or
+`./testbed.sh -p free5gc core` restarts the UPF and the webconsole as well.
+
+## Deploying the core: Open5GS (`-p open5gs`)
+
+```sh
+./testbed.sh -p open5gs core           # MongoDB + Open5GS built from source, ~10 min the first time
+./testbed.sh -p open5gs core-status    # units, version, interfaces, listeners, subscriber count
+./testbed.sh -p open5gs reprovision    # re-apply the subscriber population
+```
+
+[`cores/open5gs.sh`](cores/open5gs.sh) builds [Open5GS](https://open5gs.org)
+from source on the core node at `OPEN5GS_REF` (default the release tag
+`v2.8.0`; any tag, branch or sha) with meson/ninja, installs it under
+`/opt/open5gs`, and runs the eleven 5G SA network functions — NRF, SCP, AMF,
+SMF, UPF, AUSF, UDM, UDR, PCF, NSSF, BSF — as systemd units
+(`open5gs-amfd.service` and so on, the names the Open5GS packages use) on the
+node's host network. MongoDB (`OPEN5GS_MONGODB_SERIES`, default 8.0) comes from
+MongoDB's own apt repository. No EPC daemon (MME, SGW-C/U, HSS, PCRF) is given
+a unit, so nothing but the AMF listens on N2 and nothing but the UPF on N3.
+
+`core` is repeatable and fast to re-run: a node already built at the resolved
+commit is not built again (the commit is kept in `/opt/open5gs/.testbed-built`),
+so a second run only rewrites the configuration, restarts the NFs and upserts
+the subscribers — about 20 seconds. What it resolved is recorded in
+`/etc/orbit/testbed-versions` like every core kind's:
+
+```
+open5gs v2.8.0 157f611a530e292e40ec50f9d23f0ef5d4fcd6a6
+open5gs-3gpp-release v2.8.0 Release-19
+mongodb 8.0 8.0.38
+```
+
+**Claimed 3GPP release.** Open5GS v2.8.0 describes itself as Release-19
+compliant (`docs/_pages/features.md` in its tree, which is where the
+`open5gs-3gpp-release` line is read from), and its codecs are generated from
+TS 38.413 (NGAP) 19.2.0 and TS 24.501 (5GS NAS) 19.6.2. For ORBIT's
+conformance suite that is `--target-release Rel-19`; the suite's default
+(Rel-18) only skips checks that need something newer, so it is a safe
+under-claim.
+
+### How the site is expressed
+
+Every 3GPP interface is bound by address, from the same variables the rest of
+the testbed derives:
+
+| What | Where | From |
+|---|---|---|
+| AMF NGAP (SCTP 38412) | the core node's N2 address | `CORE_N2` |
+| UPF GTP-U (UDP 2152) | the UPF's N3 address | `UPF_N3` |
+| SBI, PFCP (SMF `127.0.0.4` ↔ UPF `127.0.0.7`), metrics | loopback, Open5GS's default addresses | — |
+| UE pool, on the tun device `ogstun` (gateway = the pool's first address) | `ogstun` | `TESTBED_UE_POOL` |
+| PLMN, TAC, slice, DNN | AMF `guami`/`tai`/`plmn_support`, NRF `serving`, NSSF `nsi`, SMF/UPF `session` | `TESTBED_MCC`/`MNC`/`TAC`/`SST`/`SD`/`DNN` |
+
+The UPF is a router between `ogstun` and the node's interfaces:
+`net.ipv4.ip_forward` is on and **nothing is NATed** — the MASQUERADE rule of
+the Open5GS quickstart is deliberately not added, so a UE's address appears
+unchanged on N6, r-site's route for the pool brings the replies back to
+`UPF_N6`, and `core-status` prints the number of NAT rules on the node (0).
+The tun device, its address and the pool route belong to systemd-networkd
+(`/etc/systemd/network/99-open5gs.*`), so they are there before the UPF starts
+and after a reboot. UE traffic leaves by the core node's ordinary routing table:
+the N6 subnet (the app) is on-link on `n6`.
+
+Nothing in the core file names an interface other than `ogstun`, assumes a
+router, or uses the management network: the build needs the node's default
+route to reach the Internet (GitHub, Ubuntu's and MongoDB's apt repositories),
+whichever interface that is.
+
+### Conformance-relevant settings
+
+- **NAS security.** `security.integrity_order` is `NIA2, NIA1, NIA0` and
+  `ciphering_order` `NEA0, NEA2, NEA1` (`OPEN5GS_INTEGRITY_ORDER`,
+  `OPEN5GS_CIPHERING_ORDER`), so a UE is given NIA2/NEA0 as on the SD-Core
+  testbed.
+- **NAS timers** are Open5GS's built-in, spec-default values; only T3512
+  (540 s, Open5GS's own default) is written to the configuration.
+- **End Marker.** Open5GS has no switch for it: the SMF always asks the UPF to
+  send End Markers on the old tunnel after an Xn path switch or an N2 handover.
+- **Subscribers** carry OPc (not OP), AMF field `8000`, one slice
+  (`TESTBED_SST`/`TESTBED_SD`) with one IPv4 session on `TESTBED_DNN`, 5QI 9,
+  ARP 8, 1 Gbps AMBR; SUCI null scheme and profiles A/B (Open5GS's stock home
+  network keys) are accepted.
+- **Sizing.** `OPEN5GS_MAX_UE` (4096) replaces Open5GS's default of 1024 UE
+  contexts per NF, which is no margin over 1000 subscribers.
+
+### Subscribers
+
+`TESTBED_SUB_COUNT` consecutive IMSIs from `TESTBED_SUB_START` are written
+straight into MongoDB's `subscribers` collection in one bulk upsert, in the
+document shape (`schema_version: 1`) that `open5gs-dbctl add_ue_with_slice`
+writes — about a second for 1000, where 1000 `open5gs-dbctl` calls take
+minutes. It is an upsert keyed on the IMSI, so `core` and `reprovision` can be
+run any number of times, apply a changed key, slice or DNN, and leave any
+subscriber outside the range alone (with a warning that it is there). The UDR
+reads MongoDB on every request, so no NF is restarted. MongoDB's data is on the
+node's disk (`/var/lib/mongodb`) and survives a restart and a reboot.
+
+### What Open5GS requires of the UE
+
+Open5GS enforces the protection of the initial NAS message (TS 24.501 4.4.6,
+TS 33.501 6.4.6): a REGISTRATION REQUEST sent without a NAS security context
+may carry only the cleartext IEs, and the AMF answers anything else with
+Registration Reject, 5GMM cause #95 (`Non cleartext IEs is included` in the
+AMF's journal). Every release from v2.6.6 to v2.8.0 does this and there is no
+configuration switch for it. It also refuses a PDU SESSION ESTABLISHMENT
+REQUEST whose procedure transaction identity is 0.
+
+ORBIT's UE sends the cleartext IEs only, with the complete message in the
+Security Mode Complete's NAS message container, and allocates a PTI. An ORBIT
+build from before that gets NG Setup accepted and then fails at `register`
+with `AMF rejected registration`; the user-plane hint `verify` prints after
+that (a UPF routing fault) does not apply, because the UE never registered.
+
+### Looking at it
+
+```sh
+lxc exec open5gs-core -- journalctl -u open5gs-amfd -f      # NF logs are in the journal
+lxc exec open5gs-core -- systemctl status 'open5gs-*'
+lxc exec open5gs-core -- cat /opt/open5gs/etc/open5gs/amf.yaml
+lxc exec open5gs-core -- mongosh --quiet open5gs --eval 'db.subscribers.countDocuments({})'
+```
+
+`/opt/open5gs-testbed` on the core node holds what `core` staged: the settings
+(`env`), `install.sh`, `apply.sh`, `subscribers.js`, the build log and the
+version record.
+
 ## Installing ORBIT and the responder
 
 ```sh
 ./testbed.sh apps          # both of the below
-./testbed.sh app           # responder on orbit-app, bound to N6
+./testbed.sh app           # responder and UDP echo peer on orbit-app, bound to N6
 ./testbed.sh ran           # ORBIT on both RAN nodes (or: ran near, ran far)
 ```
 
@@ -466,7 +778,8 @@ toolchain on each node. `ORBIT_VERSION` selects the ref; empty builds the
 working tree as-is, which is what you want mid-change.
 
 Every ORBIT node gets `/etc/orbit/env` (mode 600): PLMN, the subscriber keys as
-the deployed core has them, the core's coordinates and the responder token, and
+the deployed core has them, the core's coordinates, the responder and its
+token, the UDP echo peer (`TESTBED_ECHO`), and
 on the RAN nodes the server's listen address, `https://` URL and API token
 (`ORBIT_TOKEN`). The units read it, and so does a shell:
 
@@ -497,6 +810,7 @@ computed from the certificate on the node), so the client verifies it.
 |---|---|---|
 | `orbit-ctrl` | `aether-ops` | `0.0.0.0:8186` — API **and** UI |
 | `orbit-app` | `orbit-responder` | `10.133.0.30:9551` — **N6 only**, bearer token |
+| `orbit-app` | `orbit-n6-echo` | `10.133.0.30:7777/udp` — **N6 only**, UDP echo |
 | `orbit-ran-near` | `orbit` | `10.130.0.21:8412` — API **and** dashboard, OAM only, TLS + bearer token |
 | `orbit-ran-far` | `orbit` | `10.137.0.21:8412` — API **and** dashboard, far OAM only, TLS + bearer token |
 
@@ -512,6 +826,24 @@ and `--token-file /etc/orbit/api-token`. The responder token is generated once
 per testbed and kept on the app node (and in the host cache), so reinstalling a
 RAN node keeps working against a running responder; the API token likewise,
 kept on the RAN nodes and in the host cache.
+
+`app` also installs a **UDP echo peer** beside the responder, the
+`orbit-n6-echo` unit: a small Python program (`/usr/local/bin/orbit-n6-echo`)
+that sends every datagram back to its sender. It binds the app's N6 address
+on `TESTBED_ECHO_PORT` (7777), and `/etc/orbit/env` names it as
+`TESTBED_ECHO`. It is what the conformance checks' `--traffic` wants: a peer
+whose replies give a UE downlink traffic on its tunnel. In the `minimal`
+shape it runs on the RAN node, with the responder. `check` asserts that it
+answers.
+
+A target has no field for an echo peer, and a conformance run names its
+responder itself, so both go on the command line. The `lxd-conformance`
+target carries the responder as `n6`:
+
+```sh
+set -a; . /etc/orbit/env; set +a
+orbit conformance -t lxd-conformance --responder n6 --traffic $TESTBED_ECHO
+```
 
 Return routing for the UE pool is in the app node's **netplan** (via r-site),
 not in a unit: the app knows nothing about the UPF, as on a real site.
@@ -530,7 +862,7 @@ serves a placeholder at `/`.
 From each RAN node in turn, with its own `/etc/orbit/env`: NG Setup over N2; a
 registration with a PDU session (5G-AKA, NAS security, SMF/UPF session); a ping
 from the UE through N3 → UPF → N6 to the app; five seconds of traffic to the
-responder; deregistration. Fresh gNB IDs per run — the AMF does not cleanly
+responder; two seconds to the UDP echo peer (`TESTBED_ECHO`); deregistration. Fresh gNB IDs per run — the AMF does not cleanly
 re-key a reused gNB ID from a new association. The far run is the one that
 exercises UPF downlink routing (two hops, `ran_subnet`), which the near run
 cannot.
@@ -545,16 +877,26 @@ core so the env is regenerated from the deployed file.
 ## Configuration
 
 [`testbed.conf`](testbed.conf) holds every tunable with its default and the
-reasoning behind it. Three ways to override, in increasing precedence:
+reasoning behind it. Ways to override, in increasing precedence:
 
 1. edit `testbed.conf` (tracked — only for changes that suit everyone)
-2. `testbed.local.conf` beside it (gitignored — for one machine's specifics)
-3. environment variables
+2. a profile, `-p <name>` (tracked — a whole testbed; see
+   [Profiles and core kinds](#profiles-and-core-kinds))
+3. `testbed.local.conf` beside it (gitignored — for one machine's specifics)
+4. `testbed.<profile>.local.conf` (gitignored — one machine's specifics for one
+   profile)
+5. environment variables
 
 ```sh
-# a second testbed alongside the first: its own prefix and its own VLAN block
-TESTBED_PREFIX=orbit2 TESTBED_VLAN_BASE=140 ./testbed.sh up
+# another testbed alongside the others, without a profile: its own prefix,
+# VLAN block and UE pool
+TESTBED_PREFIX=orbit2 TESTBED_VLAN_BASE=170 TESTBED_UE_POOL=100.69.0.0/16 ./testbed.sh up
 ```
+
+Keep what identifies a testbed (`TESTBED_PREFIX`, `TESTBED_VLAN_BASE`,
+`TESTBED_UE_POOL`, `TESTBED_CORE_KIND`, `TESTBED_CACHE_DIR`) out of
+`testbed.local.conf` and the environment when using profiles: both outrank a
+profile, so a value set there applies to every testbed.
 
 Nothing site-specific is committed. Addresses, paths, sizes and keys are all
 parameters, so this file describes a topology rather than one host's setup.
