@@ -24,7 +24,10 @@ func (quietUPF) PathSwitched(mockamf.PathSwitch) {}
 // (TS 24.501 5.4.4.3): during the attach's wait for its PDU session, or
 // from a registered UE's association while a procedure waits for another
 // PDU. The Complete is sent only when acknowledgement is requested, and a
-// new 5G-GUTI replaces the one the Deregistration Request then names.
+// new 5G-GUTI replaces the one the Deregistration Request then names. A
+// requested registration update is not performed: the Complete still goes
+// out when asked for, and the session and the attach result record the
+// request.
 func TestConfigurationUpdateCommand(t *testing.T) {
 	const supi = "208930100007500"
 	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
@@ -93,6 +96,16 @@ func TestConfigurationUpdateCommand(t *testing.T) {
 				}
 				if !bytes.Equal(sess.guti, wantGUTI) || len(wantGUTI) != 11 {
 					t.Errorf("5G-GUTI = %x, want %x", sess.guti, wantGUTI)
+				}
+
+				if got := sess.RegistrationUpdateRequested(); got != tc.cu.RegistrationRequested {
+					t.Errorf("Session.RegistrationUpdateRequested = %t, want %t", got, tc.cu.RegistrationRequested)
+				}
+				if during && sess.Result.RegistrationUpdateRequested != tc.cu.RegistrationRequested {
+					t.Errorf("AttachResult.RegistrationUpdateRequested = %t, want %t", sess.Result.RegistrationUpdateRequested, tc.cu.RegistrationRequested)
+				}
+				if !sess.Result.Registered {
+					t.Error("the UE is no longer reported registered")
 				}
 
 				// The Deregistration Request follows any Complete on the

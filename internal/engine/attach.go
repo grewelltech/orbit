@@ -86,6 +86,11 @@ type AttachResult struct {
 	UPFTEID    uint32
 	DLTEID     uint32
 	QFI        uint8
+	// RegistrationUpdateRequested reports that the network requested a
+	// registration update in a Configuration Update Command during the
+	// attach (TS 24.501 5.4.4.3). The UE performs none: it is registered as
+	// the Registration Accept left it.
+	RegistrationUpdateRequested bool
 	// N2Source is the local address of the N2 association the UE attached
 	// over, as actually bound. Set by Manager.Register (which owns the
 	// association); empty when the caller supplied its own transport.
@@ -204,15 +209,16 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		return nil, ErrProbeStopped
 	}
 	return &Session{
-		SUPI:      ueCfg.Sub.SUPI,
-		gnbCfg:    gnbCfg,
-		conn:      conn,
-		sec:       st.sec,
-		amfID:     st.amfID,
-		ranID:     ranID,
-		guti:      st.guti,
-		ueSecCaps: st.ueSecCaps,
-		Result:    st.result(ueCfg.Sub.SUPI, ranID),
+		SUPI:                  ueCfg.Sub.SUPI,
+		gnbCfg:                gnbCfg,
+		conn:                  conn,
+		sec:                   st.sec,
+		amfID:                 st.amfID,
+		ranID:                 ranID,
+		guti:                  st.guti,
+		ueSecCaps:             st.ueSecCaps,
+		registrationRequested: st.registrationRequested,
+		Result:                st.result(ueCfg.Sub.SUPI, ranID),
 	}, nil
 }
 
@@ -225,6 +231,8 @@ func (s *attachState) result(supi string, ranID int64) *AttachResult {
 		AMFUENGAPID:   s.amfID,
 		RANUENGAPID:   ranID,
 		SessionActive: len(s.sessions) > 0,
+
+		RegistrationUpdateRequested: s.registrationRequested,
 	}
 	for _, w := range s.wanted { // stable order = requested order
 		if sr, ok := s.sessions[w.PDUSessionID]; ok {
@@ -256,6 +264,9 @@ type attachState struct {
 	sec        *nas.SecurityContext
 	guti       []byte
 	registered bool
+	// registrationRequested: a Configuration Update Command requested a
+	// registration update, which the UE does not perform.
+	registrationRequested bool
 
 	wanted   []ue.PDUSessionParams   // sessions to establish
 	sessions map[uint8]SessionResult // established, by PDU session ID

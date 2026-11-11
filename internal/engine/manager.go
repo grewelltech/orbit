@@ -71,6 +71,9 @@ type Session struct {
 	mobState string    // last mobility phase; empty until the UE first moves
 	mobAt    time.Time // when mobState was recorded
 	released bool      // deregistered: no further procedure may run
+	// registrationRequested records a Configuration Update Command that
+	// requested a registration update, which the UE did not perform.
+	registrationRequested bool
 	// ueSecCaps is the UE's 5G security capabilities as the serving gNB
 	// holds them, from the AMF; a path switch sends them back to it. The
 	// value pointed to is never modified, only replaced.
@@ -921,6 +924,23 @@ func (s *Session) deregister(ctx context.Context) error {
 // Acknowledge. Nil when the AMF sent none.
 func (s *Session) UESecurityCapabilities() *ngapType.UESecurityCapabilities {
 	return gnb.CloneUESecurityCapabilities(s.heldUESecCaps())
+}
+
+// RegistrationUpdateRequested reports whether the network has requested a
+// registration update in a Configuration Update Command (TS 24.501 5.4.4.3)
+// since the UE registered. The UE performs none, so true means its
+// registration no longer reflects what the network asked for.
+func (s *Session) RegistrationUpdateRequested() bool {
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	return s.registrationRequested
+}
+
+// setRegistrationUpdateRequested records a requested registration update.
+func (s *Session) setRegistrationUpdateRequested() {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	s.registrationRequested = true
 }
 
 // heldUESecCaps returns the held UE security capabilities, for the Path
