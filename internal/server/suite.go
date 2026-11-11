@@ -277,6 +277,13 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 	if err != nil {
 		return nil, err
 	}
+	if block != nil {
+		// Each UE check registers its own subscribers, as far as the pool
+		// goes: the lease is every check's block, whatever the selection,
+		// since a check's block follows from its place in the registry.
+		ueSpec.Subscribers = suiteSubscribers(t, cw, reg.SubscriberSpan(), needs.UEs)
+		block.Last = block.First + uint64(ueSpec.Subscribers) - 1
+	}
 	env.UE = ueSpec
 	// The responder is the N6-side downlink trigger of the checks that
 	// need a CM-IDLE UE paged; without one they SKIP.
@@ -491,6 +498,19 @@ func suiteUE(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, g gnb.C
 		return conformance.UESpec{}, nil, fmt.Errorf("subscriber pool %q: first_supi %q: %w", sp.GetName(), supi, err)
 	}
 	return spec, &engine.SUPIBlock{PLMN: g.MCC + "/" + g.MNC, First: first, Last: first + uint64(ues) - 1}, nil
+}
+
+// suiteSubscribers is how many of the pool's subscribers a suite whose
+// checks take span between them is spread over: span, or the pool's count
+// when that is smaller (the checks then share), and never fewer than ues,
+// the most one check registers at once. A pool that states no count gives
+// only ues: the suite cannot know how far it reaches.
+func suiteSubscribers(t *orbitv1.ResolvedTarget, cw *orbitv1.ConformanceWorkload, span, ues int) int {
+	sp, err := subscriberPool(t, cw.GetSubscriberPool())
+	if err != nil || sp.GetCount() == 0 {
+		return ues
+	}
+	return max(ues, min(span, int(sp.GetCount())))
 }
 
 // expectedFrom is a plan's expected-failures list in the suite's form.
