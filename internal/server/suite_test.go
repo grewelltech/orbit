@@ -83,9 +83,9 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		}, wantErr: fmt.Sprintf("the suite needs a block of %d gNB IDs (3 for each of its %d checks); the target's ran.gnb_ids 700..719 holds 20",
 			3*len(conformance.NewRegistry().Tests()), len(conformance.NewRegistry().Tests()))},
 		{name: "a pin outside the target's block", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 100}
-			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 790}}
-		}, wantErr: "fall outside the target's ran.gnb_ids 700..799"},
+			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 200}
+			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 890}}
+		}, wantErr: "fall outside the target's ran.gnb_ids 700..899"},
 		{name: "a fixed N2 port", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.N2SourceIps = []string{"127.0.0.1:5000"}
 		}, wantErr: "ran.n2_source_ips"},

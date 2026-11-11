@@ -1643,6 +1643,23 @@ Mode Command or a 5GMM STATUS without authenticating first. An Authentication
 Request is SKIP: TS 24.501 4.4.4.3 can be read either way, and the result
 says so.
 
+Four more `security` checks send what a conformant UE never sends, and need
+the UE flags. `NAS-INITIAL-MSG-CONTAINER-WINS` puts a Requested NSSAI the core
+does not serve in the unprotected initial message and the served one in the
+Security Mode Complete's NAS message container. It passes when the
+registration is answered as the container's request is when sent alone
+(TS 24.501 5.4.2.4), and fails otherwise; two conformant reference
+registrations show how the core answers each value, so it runs three
+registrations and can take up to 50 s. It SKIPs when the core refuses the
+initial message outright or answers both values alike. The other three are
+informational and never gate: `NAS-INITIAL-MSG-NO-CONTAINER` leaves the
+container out and reports whether the core asks for the message again,
+registers the UE or rejects; `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED` sends the
+complete request in the clear and in the container and reports whether the
+core registers the UE; `NAS-SMC-IMEISV-REQUEST` reports whether the Security
+Mode Command requests the IMEISV and what the core does when the UE leaves
+it out.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the
