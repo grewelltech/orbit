@@ -157,9 +157,12 @@ The summary line separates the two, for example "3 spec failures, 2 warnings",
 so a run that is red with no violated requirement says so on its face.
 
 An expected-failures list may name FAIL, DEVIATION and WARN outcomes; it may
-not name CRASH, BLOCKED or ERROR. A result that matches an entry keeps its
-verdict word, is marked expected, and is left out of the gate count, as a
-listed FAIL is today.
+not name CRASH, BLOCKED or ERROR. An entry carries the verdict it expects next
+to the check and the observed text, and matches only a result with all three.
+An entry with no verdict expects FAIL, so an existing list keeps its meaning. A
+result that matches an entry keeps its verdict word, is marked expected, and is
+left out of the gate count, as a listed FAIL is today. An entry that matches no
+result is reported as stale, per verdict, as today.
 
 ### 9. Checks are grouped by the specification's own titles
 
@@ -172,8 +175,9 @@ then the procedure family, then the procedure, using the clause titles. For exam
   from the specification text per release. A check marks which reference is
   primary; it does not name its group.
 - The title is the one in the run's target release. When that release has no
-  such clause, the latest release in which the reference was read is used, so
-  a check has one group in any run.
+  such clause, or the run has no target release (`--target-release unset`),
+  the latest release in which the reference was read is used, so a check has
+  one group in any run.
 - A check whose primary citation is not a procedure (handling of erroneous
   protocol data, NAS security, TS 33.501) is grouped under that clause's title.
 - These groups replace the `--category` values. Selection is by group path or
