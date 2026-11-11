@@ -26,3 +26,4 @@ the amended ADR's body is never edited, only its status line), or
 | [0008](0008-targets-and-runs.md) | Targets (where) and one Run (what): client-held targets, layered config with provenance, leasing, TLS + token | Accepted |
 | [0009](0009-responder-join.md) | App-side setup by join: token one-liner, outbound registration, client-side SSH, doctor | Accepted |
 | [0010](0010-ui-cli-peer-redesign.md) | Home, test chooser and per-kind dashboards; a `Run.summary` outcome digest; a colour CLI conformance table | Accepted |
+| [0011](0011-conformance-verdicts-gates-and-grouping.md) | Conformance verdicts with one meaning each (WARN, BLOCKED, CRASH join; INFO-DIFF goes), two gate policies, checks grouped by specification titles, core-specific checks in opt-in packs | Proposed |
