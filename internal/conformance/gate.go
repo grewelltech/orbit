@@ -58,8 +58,16 @@ type Finding struct {
 	Blocked []string
 }
 
-// SpecFailure reports whether the finding gates under every policy.
-func (f Finding) SpecFailure() bool { return isSpecFailure(f.Result.Verdict) }
+// SpecFailure reports whether the finding gates under every policy: its
+// verdict is a spec failure, or checks were BLOCKED under it. An owner
+// whose verdict alone would not gate under GateSpec (a WARN, say) gates as
+// BLOCKED when the procedure it reports as not completing kept other
+// checks from running: strict conformance cannot be claimed for checks
+// the core kept from running. The fault still counts once.
+func (f Finding) SpecFailure() bool { return isSpecFailure(f.Result.Verdict) || len(f.Blocked) > 0 }
+
+// gates reports whether the finding fails a gate under p.
+func (f Finding) gates(p GatePolicy) bool { return p.Gates(f.Result.Verdict) || len(f.Blocked) > 0 }
 
 // Findings returns the results that count at a gate, in run order. A
 // result an expected-failures entry matched does not count. A BLOCKED
@@ -107,11 +115,12 @@ func countedUnderOwner(r Result, results []Result) bool {
 	return false
 }
 
-// GateFindings is the findings that fail a gate under p.
+// GateFindings is the findings that fail a gate under p: those whose
+// verdict p gates, and those with BLOCKED results counted under them.
 func GateFindings(results []Result, p GatePolicy) []Finding {
 	var out []Finding
 	for _, f := range Findings(results) {
-		if p.Gates(f.Result.Verdict) {
+		if f.gates(p) {
 			out = append(out, f)
 		}
 	}

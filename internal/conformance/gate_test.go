@@ -33,7 +33,9 @@ func TestGatePolicyGates(t *testing.T) {
 // A run's findings: unlisted FAIL, CRASH, BLOCKED, ERROR, DEVIATION and
 // WARN count; a listed one does not. A BLOCKED counts under its owner when
 // the owner ran and reported the procedure as not completing, and on its
-// own when the owner was not selected or completed it. The gate line
+// own when the owner was not selected or completed it. An owner with
+// BLOCKED results under it gates under both policies, as one spec failure,
+// whatever its own verdict. The gate line
 // separates spec failures from warnings under either policy.
 func TestFindingsAndGate(t *testing.T) {
 	listed := &ExpectedFailure{Finding: "EX-1"}
@@ -62,6 +64,9 @@ func TestFindingsAndGate(t *testing.T) {
 			defaultLine: "gate default: passed: 0 spec failures, 0 warnings", specLine: "gate spec: passed: 0 spec failures, 0 warnings"},
 		{name: "owner reported the procedure not completing", results: []Result{ownerFailed, dep("X"), dep("Y")},
 			want:        []string{"OWNER<-X<-Y"},
+			defaultLine: "gate default: failed: 1 spec failure, 0 warnings", specLine: "gate spec: failed: 1 spec failure, 0 warnings"},
+		{name: "owner reported the procedure not completing, nothing blocked", results: []Result{ownerFailed},
+			want:        []string{"OWNER"},
 			defaultLine: "gate default: failed: 0 spec failures, 1 warning", specLine: "gate spec: passed: 0 spec failures, 1 warning"},
 		{name: "owner completed it", results: []Result{ownerDone, dep("X")},
 			want:        []string{"X"},

@@ -21,8 +21,9 @@ DEVIATION names the clause it violates. `docs/conformance/checks.md` lists each
 check's outcomes.
 
 The default gate fails on FAIL, CRASH, BLOCKED, ERROR, DEVIATION and WARN;
-`--gate spec` on FAIL, CRASH, BLOCKED and ERROR only. The verdict word never
-changes with the policy.
+`--gate spec` on FAIL, CRASH, BLOCKED and ERROR only. A procedure owner with
+checks BLOCKED under it counts once and fails either gate as BLOCKED, whatever
+its own verdict. The verdict word never changes with the policy.
 
 A core can show a known FAIL, DEVIATION or WARN that the operator has decided
 to live with for now. Such a result is recorded on an **expected-failures

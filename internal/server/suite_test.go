@@ -325,7 +325,9 @@ func TestJudgeSuite(t *testing.T) {
 		{name: "an expected FAIL and WARN", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
 			res("A", "FAIL", true), res("B", "WARN", true)}}, wantPass: true},
 		{name: "a BLOCKED counts under its owner", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{owner, dep}},
-			wantDetail: "gate default: failed: 0 spec failures, 1 warning; 1 unexpected: O WARN (and 1 BLOCKED under it: D)"},
+			wantDetail: "gate default: failed: 1 spec failure, 0 warnings; 1 unexpected: O WARN (and 1 BLOCKED under it: D)"},
+		{name: "an owner with a BLOCKED under it gates under spec", policy: conformance.GateSpec, summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{owner, dep}},
+			wantDetail: "gate spec: failed: 1 spec failure, 0 warnings; 1 unexpected: O WARN (and 1 BLOCKED under it: D)"},
 		{name: "an unexpected FAIL and an ERROR", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
 			res("A", "FAIL", false), res("B", "ERROR", false), res("C", "PASS", false)}}, wantDetail: "gate default: failed: 2 spec failures, 0 warnings; 2 unexpected: A FAIL, B ERROR"},
 		{name: "incomplete", summary: &orbitv1.ConformanceSummary{Total: 9, Incomplete: true, Results: []*orbitv1.ConformanceResult{

@@ -1434,7 +1434,10 @@ a live core, streaming each check's verdict, and exits 1 when its gate fails:
 an integration-CI gate ([exit codes](#exit-codes)). The default gate fails on
 a FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN outside the expected-failures
 list; `--gate spec` (or `name=spec`; `policy: spec` on a run file's
-conformance gate) fails on FAIL, CRASH, BLOCKED and ERROR only. The report
+conformance gate) fails on FAIL, CRASH, BLOCKED and ERROR only. A procedure
+owner whose result is a WARN or DEVIATION, with checks BLOCKED under it,
+counts once and fails either gate as BLOCKED: checks the core kept from
+running leave no conformance to claim. The report
 ends with the gate line, which separates the two:
 `gate default: failed: 3 spec failures, 2 warnings`. The suite runs as a plan
 with the conformance gate.
