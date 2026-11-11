@@ -343,9 +343,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   is only "typical"), and so does the un-forwarded request returned in a DL
   NAS Transport with 5GMM cause #90/#91 (5.4.5.2.5 a) 1), required from
   V15.1.0; 5.4.5.3.2 for case e) of 5.4.5.3.1). #90/#91 with any other
-  payload, another answer, or nothing within 10 s is FAIL. A core that
-  accepts the DNN, or returns the request for congestion (#22/#67/#69,
-  case f), allowed from V16.3.0), SKIPs. The answer is read
+  payload, another answer, a release, or nothing within 10 s is FAIL. A core
+  that accepts the DNN is INFO; one that returns the request for congestion
+  (#22/#67/#69, case f), allowed from V16.3.0) SKIPs as a permitted
+  alternative. The answer is read
   through the UE's NAS security context, and the UE is deregistered after.
   An AMF-built Reject without a 5GMM cause cannot be told from an SMF's.
 - `NAS-REG-REJECTED-NSSAI` (nas, FAIL-class, Rel-16 onward) — the UE
@@ -556,7 +557,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   session's packets (TS 23.502 4.3.4.2 step 2a). Both commands and no
   downlink G-PDU on the released tunnel from 1 s after them is PASS. Neither
   command within 16 s (one T3582), one without the other, or downlink after
-  the grace is FAIL. A PDU Session Release Reject SKIPs. With `--traffic` the
+  the grace is FAIL. A PDU Session Release Reject SKIPs as the alternative
+  6.4.3.4 permits; a registration or PDU session that does not complete is
+  BLOCKED. With `--traffic` the
   UE keeps sending uplink on the released tunnel as the probe; without it the
   tunnel is only watched. Needs a UE, else SKIP. Not yet run on Ref 2.
 

@@ -40,16 +40,74 @@ const (
 // cause #90 or #91 (5.4.5.2.5 a) 1), 5.4.5.3.2 for case e) of 5.4.5.3.1),
 // or, from V16.3.0, with a congestion cause (case f)). A #90/#91 answer
 // whose payload is not the request, the request returned without a 5GMM
-// cause, another decoded answer, or nothing within dnnAnswerWait is FAIL.
-// A core that accepts the DNN leaves nothing to judge: SKIP, as does a
-// congestion send-back. The request returned with any other 5GMM cause, and
-// a downlink or 5GSM message that does not decode, are ERROR. The answer is
-// read through the UE's NAS security context. Whenever the registration
-// completed, the UE is deregistered at the end.
+// cause, another decoded answer, a release, or nothing within
+// dnnAnswerWait is FAIL. A core that accepts the DNN is INFO: no shall
+// forbids it. A congestion send-back is SKIP, the alternative 5.4.5.2.5 a)
+// 1) permits, and the request returned with any other 5GMM cause is INFO.
+// An answer whose MAC fails is WARN for interoperability; a downlink or
+// 5GSM message that does not decode is ERROR. A registration that does not
+// reach the request is BLOCKED on it. The answer is read through the UE's
+// NAS security context. Whenever the registration completed, the UE is
+// deregistered at the end.
 type nasPDUUnknownDNN struct {
 	// registerWait and answerWait override dnnRegisterWait and
 	// dnnAnswerWait (tests only).
 	registerWait, answerWait time.Duration
+}
+
+// The keys of the references the outcomes of NAS-PDU-UNKNOWN-DNN rest on.
+const (
+	dnnSendBackRef = "TS 24.501 5.4.5.2.5 a) 1)"
+	dnnCauseRef    = "TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1)"
+	dnnRejectRef   = "TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0)"
+)
+
+// dnnAnyAnswer are the shalls an answer to the request meets one of: the
+// SMF's reject, or the AMF's send-back with #90 or #91.
+var dnnAnyAnswer = []string{dnnSendBackRef, dnnCauseRef, dnnRejectRef}
+
+// The outcomes of NAS-PDU-UNKNOWN-DNN.
+var (
+	dnnRejected = Outcome{ID: "rejected", Verdict: Pass, Refs: []string{dnnRejectRef},
+		Summary: "rejected the unknown DNN with a PDU SESSION ESTABLISHMENT REJECT"}
+	dnnReturned = Outcome{ID: "returned", Verdict: Pass, Refs: []string{dnnSendBackRef, dnnCauseRef},
+		Summary: "returned the un-forwarded request with 5GMM cause #90 or #91"}
+	dnnWrongPayload = Outcome{ID: "wrong-payload", Verdict: Fail, Refs: []string{dnnSendBackRef, dnnCauseRef},
+		Summary: "sent 5GMM cause #90 or #91 with a payload that is not the request"}
+	dnnReturnedNoCause = Outcome{ID: "returned-without-cause", Verdict: Fail, Refs: []string{dnnCauseRef},
+		Summary: "returned the request without a 5GMM cause"}
+	dnnUnexpected = Outcome{ID: "unexpected-answer", Verdict: Fail, Refs: dnnAnyAnswer,
+		Summary: "answered with neither a reject nor the returned request"}
+	dnnStatusOnly = Outcome{ID: "5gmm-status-only", Verdict: Fail, Refs: dnnAnyAnswer,
+		Bound:   &Bound{Wait: dnnAnswerWait, Source: "check bound; T3580, which the UE would retransmit on, is longer"},
+		Summary: "sent a 5GMM STATUS and neither a reject nor the returned request"}
+	dnnNoAnswer = Outcome{ID: "no-answer", Verdict: Fail, Refs: dnnAnyAnswer,
+		Bound:   &Bound{Wait: dnnAnswerWait, Source: "check bound; T3580, which the UE would retransmit on, is longer"},
+		Summary: "sent neither a reject nor the returned request"}
+	dnnReleased = Outcome{ID: "released", Verdict: Fail, Refs: dnnAnyAnswer,
+		Summary: "released the UE instead of rejecting or returning the request"}
+	dnnCongestion = Outcome{ID: "congestion", Verdict: Skip, Skip: SkipPermitted, Refs: []string{dnnSendBackRef},
+		Summary: "returned the request with a congestion cause (case f) of 5.4.5.3.1), which 5.4.5.2.5 a) 1) permits from V16.3.0"}
+	// Accepting the DNN is INFO: no shall forbids a wildcard DNN
+	// subscription or a core without a DNN check, and none of the three
+	// criteria applies.
+	dnnAccepted = Outcome{ID: "accepted", Verdict: Info,
+		Summary: "accepted a PDU session for the unknown DNN"}
+	// A send-back with a 5GMM cause 5.4.5.3.2 does not assign to a routing
+	// failure is INFO: the AMF may return the request for another case of
+	// 5.4.5.3.1, so the DNN is not judged, and no criterion applies.
+	dnnReturnedOtherCause = Outcome{ID: "returned-other-cause", Verdict: Info,
+		Summary: "returned the request with a 5GMM cause that is neither a routing nor a congestion cause"}
+	// An answer whose MAC fails is WARN for interoperability: the answer
+	// cannot be judged, and a conformant UE discards it.
+	dnnIntegrityFailed = Outcome{ID: "integrity-failed", Verdict: Warn, Criterion: CriterionInteroperability,
+		Summary: "sent a downlink NAS message after the request that fails the integrity check"}
+)
+
+// Outcomes declares what the check can report.
+func (nasPDUUnknownDNN) Outcomes() []Outcome {
+	return []Outcome{dnnRejected, dnnReturned, dnnWrongPayload, dnnReturnedNoCause, dnnUnexpected, dnnStatusOnly, dnnNoAnswer,
+		dnnReleased, dnnCongestion, dnnAccepted, dnnReturnedOtherCause, dnnIntegrityFailed}
 }
 
 func (nasPDUUnknownDNN) ID() string         { return "NAS-PDU-UNKNOWN-DNN" }
@@ -67,7 +125,7 @@ func (nasPDUUnknownDNN) SpecRefs() []SpecRef {
 				{Release: 15, Note: "V15.0.0 has #90 only; V15.1.0 adds #91 as \"DNN not supported with no slice or DNN not supported in specific slice\"; V15.2.0 renames it \"DNN not supported or not subscribed in the slice\" and adds \"Otherwise ... #90\""},
 				{Release: 17, Note: "V17.3.0 adds an optional Back-off timer value IE with #91"},
 			}},
-		{Spec: "TS 24.501", Clause: "6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0)", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified,
+		{Spec: "TS 24.501", Clause: "6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0)", Strength: Shall, Since: 15, Verified: ts24501UnknownDNNVerified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads \"a SM PDU SESSION ESTABLISHMENT REJECT\"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes"},
 				{Release: 16, Note: "6.4.1.4.1 again from V16.0.0, which drops \"SM\"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version"},
@@ -100,19 +158,21 @@ func (c nasPDUUnknownDNN) Budget() time.Duration {
 func (c nasPDUUnknownDNN) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "a PDU Session Establishment Reject (any 5GSM cause; #27 is typical), or the un-forwarded request returned in a DL NAS Transport with 5GMM cause #90 or #91 (TS 24.501 6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1)); the send-back is required from V15.1.0 (a may in V15.0.0)"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run NAS checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run NAS checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 
 	o := c.probe(ctx, h)
-	r.Verdict, r.Observed, r.Detail = judgeDNN(o, c.answerTimeout())
+	if o.setupErr != nil {
+		r = r.SetupFailed("UE registration failed", o.setupErr)
+	} else {
+		out, observed, detail := judgeDNN(o, c.answerTimeout())
+		r = asClassified(r, out, observed, detail)
+	}
 	if o.registered {
 		dctx, cancel := context.WithTimeout(context.Background(), dnnDeregisterWait)
 		err := h.Deregister(dctx)
@@ -143,7 +203,12 @@ type dnnOutcome struct {
 	decodeRaw  []byte  // its NAS PDU
 	decodeType uint8   // its 5GMM message type (NASEvent.MessageType), 0 if unreadable
 	registered bool    // the attach returned a REGISTERED UE
-	err        error   // registration or harness failure
+	// regTimedOut is a registration that did not reach the request within
+	// its wait; setupErr an attach that failed before the request.
+	regTimedOut bool
+	setupErr    error
+	released    bool  // the core released the UE after the request
+	err         error // the harness failed, or the check's time ran out
 }
 
 // probe registers the UE with a PDU session for stimulusDNN and stops the
@@ -235,7 +300,13 @@ func (c nasPDUUnknownDNN) probe(ctx context.Context, h *UEHarness) dnnOutcome {
 	case err == nil:
 		o.err = errors.New("registration ended without the PDU session or an answer to it")
 	case regTimedOut:
-		o.err = fmt.Errorf("registration did not reach the PDU Session Establishment Request within %s", c.registerTimeout())
+		o.regTimedOut = true
+	case o.sent == nil && !errors.Is(err, engine.ErrAfterRegistration):
+		o.setupErr = err
+	case errors.Is(err, engine.ErrReleasedByCore):
+		o.released = true
+	case ctx.Err() != nil:
+		o.err = fmt.Errorf("the per-test timeout expired before the answer (%w); raise --per-test-timeout", err)
 	default:
 		o.err = err
 	}
@@ -395,24 +466,33 @@ const (
 	congestionObserved = "AMF applied congestion control (case f)); the unknown-DNN path was not exercised"
 )
 
-// judgeDNN turns the outcome into a verdict, Observed and Detail.
-func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
+// judgeDNN turns the outcome into an outcome, Observed and Detail. An
+// attach that failed before the request (setupErr) is the caller's to
+// report.
+func judgeDNN(o dnnOutcome, wait time.Duration) (Outcome, string, string) {
 	switch {
 	case o.err != nil:
-		return Error, "registration or harness failure", o.err.Error()
+		return classifiedError, "registration or harness failure", o.err.Error()
+	case o.regTimedOut:
+		return classifiedBlocked(ProcRegistration), "registration did not reach the PDU Session Establishment Request",
+			fmt.Sprintf("the UE did not register within %s, so the request was not sent", dnnRegisterWait)
+	case o.released:
+		return dnnReleased, "UE released after the request, with no answer",
+			unknownDNNFail("a UE Context Release Command and nothing else", "the AMF releases the UE when no SMF is selected")
 	case o.decodeErr != nil && errors.Is(o.decodeErr, nas.ErrIntegrity):
-		return Error, "downlink NAS after the request failed integrity check" + typeNote(o.decodeType), fmt.Sprintf("%v; NAS %x", o.decodeErr, o.decodeRaw)
+		return dnnIntegrityFailed, "downlink NAS after the request failed integrity check" + typeNote(o.decodeType),
+			fmt.Sprintf("%v; NAS %x; a UE discards a message whose MAC fails, so the answer cannot be judged", o.decodeErr, o.decodeRaw)
 	case o.decodeErr != nil:
-		return Error, "downlink NAS after the request did not decode" + typeNote(o.decodeType), fmt.Sprintf("%v; %s; NAS %x", o.decodeErr, codecGap, o.decodeRaw)
+		return classifiedError, "downlink NAS after the request did not decode" + typeNote(o.decodeType), fmt.Sprintf("%v; %s; NAS %x", o.decodeErr, codecGap, o.decodeRaw)
 	case o.accepted:
-		return Skip, acceptedObserved,
+		return dnnAccepted, acceptedObserved,
 			fmt.Sprintf("the core established a PDU session for DNN %q (a wildcard DNN subscription, or no DNN check); no shall forbids that", stimulusDNN)
 	case o.noAnswer && o.mmStatus:
 		got := "a 5GMM STATUS with 5GMM cause " + mmCause(o.mmStatusC)
-		return Fail, fmt.Sprintf("5GMM STATUS, 5GMM cause %s, and nothing else within %s", mmCause(o.mmStatusC), wait),
+		return dnnStatusOnly, fmt.Sprintf("5GMM STATUS, 5GMM cause %s, and nothing else within %s", mmCause(o.mmStatusC), wait),
 			unknownDNNFail(got+" and nothing else within "+wait.String(), "the AMF reports the failure in a 5GMM STATUS instead of sending back the 5GSM message")
 	case o.noAnswer:
-		return Fail, fmt.Sprintf("nothing back within %s", wait),
+		return dnnNoAnswer, fmt.Sprintf("nothing back within %s", wait),
 			unknownDNNFail("nothing within "+wait.String(), "the request is dropped when no SMF is selected, or the SMF does not answer")
 	}
 	a := o.answer
@@ -424,45 +504,45 @@ func judgeDNN(o dnnOutcome, wait time.Duration) (Verdict, string, string) {
 	returned := bytes.Equal(a.payload, o.sent)
 	switch {
 	case isRoutingCause(a.mmCause) && returned:
-		return Pass, fmt.Sprintf("un-forwarded request returned, 5GMM cause %s", mmCause(a.mmCause)),
+		return dnnReturned, fmt.Sprintf("un-forwarded request returned, 5GMM cause %s", mmCause(a.mmCause)),
 			fmt.Sprintf("path (B): the AMF returned the PDU Session Establishment Request byte for byte in a DL NAS Transport with %s (which of #90 and #91 applies is recorded, not asserted)", cites)
 	case isRoutingCause(a.mmCause):
 		likely := "AMF returns a payload other than the un-forwarded 5GSM message"
 		if sm.kind == smReject {
 			likely = "AMF returns its own Reject in the payload container instead of the un-forwarded message"
 		}
-		return Fail, fmt.Sprintf("5GMM cause %s with a payload that is not the request", mmCause(a.mmCause)),
+		return dnnWrongPayload, fmt.Sprintf("5GMM cause %s with a payload that is not the request", mmCause(a.mmCause)),
 			unknownDNNFail(fmt.Sprintf("a DL NAS Transport with %s carrying %s; sent %x, returned %x", cites, sm.name, o.sent, a.payload), likely)
 	case sm.kind == smUndecodable:
-		return Error, "answer did not decode", fmt.Sprintf("a DL NAS Transport with %s carrying a %s that did not decode: %v; %s; payload %x", cites, sm.name, sm.decodeErr, codecGap, a.payload)
+		return classifiedError, "answer did not decode", fmt.Sprintf("a DL NAS Transport with %s carrying a %s that did not decode: %v; %s; payload %x", cites, sm.name, sm.decodeErr, codecGap, a.payload)
 	case sm.kind == smReject:
 		detail := fmt.Sprintf("path (A): %s, %s", sm.name, cites)
 		if sm.cause != nasMessage.Cause5GSMMissingOrUnknownDNN {
 			detail += "; the cause is not #27, which 6.4.1.4.1 names as typical (any cause is conformant)"
 		}
-		return Pass, sm.name, detail + "; " + indistinguishable
+		return dnnRejected, sm.name, detail + "; " + indistinguishable
 	case sm.kind == smAccept:
-		return Skip, acceptedObserved,
+		return dnnAccepted, acceptedObserved,
 			fmt.Sprintf("a PDU Session Establishment Accept for DNN %q came in a plain DL NAS Transport (%s) without a PDU Session Resource Setup Request; no shall forbids accepting the DNN", stimulusDNN, cites)
 	case a.mmCause == 0 && returned:
-		return Fail, "request returned without a 5GMM cause",
+		return dnnReturnedNoCause, "request returned without a 5GMM cause",
 			unknownDNNFail(fmt.Sprintf("the PDU Session Establishment Request returned in a DL NAS Transport with %s", cites), "AMF returned the request without the 5GMM cause 5.4.5.3.2 requires")
 	case isCongestionCause(a.mmCause) && returned:
 		backoff := "no Back-off timer value IE"
 		if a.backoff {
 			backoff = "a Back-off timer value IE"
 		}
-		return Skip, congestionObserved,
+		return dnnCongestion, congestionObserved,
 			fmt.Sprintf("the AMF returned the request with %s and %s; 5.4.5.2.5 a) 1) lists this case f) of 5.4.5.3.1 send-back from V16.3.0, so it is conformant, but the DNN was not judged: re-run when the core is not congested", cites, backoff)
 	case a.mmCause != 0 && returned:
-		return Error, fmt.Sprintf("request returned with 5GMM cause %s", mmCause(a.mmCause)),
+		return dnnReturnedOtherCause, fmt.Sprintf("request returned with 5GMM cause %s", mmCause(a.mmCause)),
 			fmt.Sprintf("the AMF returned the request with %s, not a cause 5.4.5.3.2 assigns to a routing failure; this check does not judge the DNN then", cites)
 	}
 	got := fmt.Sprintf("a DL NAS Transport with %s carrying %s", cites, sm.name)
 	if sm.kind == smStatus && pointsAtStimulus(sm.cause) {
 		got += "; that cause points at a malformed request: check the stimulus"
 	}
-	return Fail, "unexpected answer: " + sm.name, unknownDNNFail(got, "an answer other than a reject or the returned request")
+	return dnnUnexpected, "unexpected answer: " + sm.name, unknownDNNFail(got, "an answer other than a reject or the returned request")
 }
 
 const (
@@ -502,7 +582,8 @@ const (
 // so no downlink G-PDU may arrive on the released tunnel once
 // pduReleaseGrace has passed. Both commands and a quiet tunnel are PASS; a
 // missing command, or downlink after the grace, is FAIL. A PDU SESSION
-// RELEASE REJECT leaves nothing to judge: SKIP. The echo flow keeps sending
+// RELEASE REJECT is SKIP, the alternative 6.4.3.4 permits. A registration
+// or PDU session that does not complete is BLOCKED. The echo flow keeps sending
 // uplink on the released tunnel, which is what would draw downlink from a
 // UPF that kept the session; without it the tunnel is only watched. The UE
 // is deregistered at the end.
@@ -512,11 +593,45 @@ type nasPDUReleaseUERequested struct {
 	registerWait, wait, settle, grace, watch time.Duration
 }
 
+// The keys of the references the outcomes of NAS-PDU-RELEASE-UE-REQUESTED
+// rest on.
+const (
+	pduReleaseAcceptedRef = "TS 24.501 6.4.3.3"
+	pduReleaseCommandRef  = "TS 24.501 6.3.3.2"
+	pduReleaseUPFRef      = "TS 23.502 4.3.4.2 step 2a"
+	pduReleaseN2Ref       = "TS 23.502 4.3.4.2 step 3"
+	pduReleaseRejectRef   = "TS 24.501 6.4.3.4"
+)
+
+// The outcomes of NAS-PDU-RELEASE-UE-REQUESTED.
+var (
+	pduReleaseReleased = Outcome{ID: "released", Verdict: Pass, Refs: []string{pduReleaseAcceptedRef, pduReleaseCommandRef, pduReleaseN2Ref, pduReleaseUPFRef},
+		Summary: "released the PDU session on N1 and N2, and the released tunnel stayed quiet"}
+	pduReleaseNoAnswer = Outcome{ID: "no-answer", Verdict: Fail, Refs: []string{pduReleaseAcceptedRef, pduReleaseCommandRef},
+		Bound:   &Bound{Wait: pduReleaseWait, Source: "T3582, TS 24.501 Table 10.3.1"},
+		Summary: "sent neither a PDU SESSION RELEASE COMMAND nor a PDU SESSION RESOURCE RELEASE COMMAND"}
+	pduReleaseNoNASCommand = Outcome{ID: "no-nas-command", Verdict: Fail, Refs: []string{pduReleaseAcceptedRef, pduReleaseCommandRef},
+		Bound:   &Bound{Wait: pduReleaseSettle, Source: "check bound after the NGAP command"},
+		Summary: "released the session on N2 without a PDU SESSION RELEASE COMMAND"}
+	pduReleaseNoN2Release = Outcome{ID: "no-n2-release", Verdict: Fail, Refs: []string{pduReleaseN2Ref},
+		Bound:   &Bound{Wait: pduReleaseSettle, Source: "check bound after the NAS command"},
+		Summary: "sent the PDU SESSION RELEASE COMMAND without a PDU SESSION RESOURCE RELEASE COMMAND for the active user plane"}
+	pduReleaseDownlinkAfter = Outcome{ID: "downlink-after-release", Verdict: Fail, Refs: []string{pduReleaseUPFRef},
+		Summary: "kept sending downlink on the released tunnel after the release"}
+	pduReleaseRejected = Outcome{ID: "rejected", Verdict: Skip, Skip: SkipPermitted, Refs: []string{pduReleaseRejectRef},
+		Summary: "rejected the release with a PDU SESSION RELEASE REJECT, which 6.4.3.4 permits"}
+)
+
+// Outcomes declares what the check can report.
+func (nasPDUReleaseUERequested) Outcomes() []Outcome {
+	return []Outcome{pduReleaseReleased, pduReleaseNoAnswer, pduReleaseNoNASCommand, pduReleaseNoN2Release, pduReleaseDownlinkAfter, pduReleaseRejected}
+}
+
 func (nasPDUReleaseUERequested) ID() string         { return "NAS-PDU-RELEASE-UE-REQUESTED" }
 func (nasPDUReleaseUERequested) Category() Category { return Procedural }
 func (nasPDUReleaseUERequested) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "6.4.3.3", Strength: Shall, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "6.4.3.3", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 18, Note: "\"subclause 6.3.3\" becomes \"clause 6.3.3\"; the sentence is otherwise unchanged from V15.0.0 through V19.8.0"},
 			}},
@@ -540,6 +655,10 @@ func (nasPDUReleaseUERequested) SpecRefs() []SpecRef {
 				{Release: 15, Note: "the value is TBD in V15.0.0 and 16s by V15.7.0"},
 				{Release: 16, Note: "adds a WB-N1/CE mode value of 24s; the normal value stays 16s"},
 				{Release: 17, Note: "adds 21s for access via a satellite NG-RAN cell; the normal value stays 16s"},
+			}},
+		{Spec: "TS 24.501", Clause: "6.4.3.4", Strength: Shall, Since: 15, Verified: ts24501Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "V15.0.0 reads \"an PDU SESSION RELEASE REJECT\"; the sentence is otherwise unchanged from V15.0.0 through V19.8.0"},
 			}},
 	}
 }
@@ -571,27 +690,22 @@ func (c nasPDUReleaseUERequested) Budget() time.Duration {
 func (c nasPDUReleaseUERequested) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: fmt.Sprintf("after a PDU Session Release Request, a PDU Session Release Command (TS 24.501 6.4.3.3, 6.3.3.2) and a PDU SESSION RESOURCE RELEASE COMMAND listing the session (TS 23.502 4.3.4.2 step 3; TS 38.413 8.2.2.2), and no downlink G-PDU on the released tunnel from %s after them (TS 23.502 4.3.4.2 step 2a)", c.graceWindow())}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run checks that register a UE"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run checks that register a UE")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 	rctx, cancel := context.WithTimeout(ctx, c.registerTimeout())
 	_, err = h.Register(rctx)
 	cancel()
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed", err.Error()
-		return r
+		return r.SetupFailed("UE setup failed", err)
 	}
 	h.StartTraffic(ctx)
 	if env.UE.Traffic != "" && !sleepCtx(ctx, pduReleaseTrafficLead) {
-		r.Verdict, r.Observed, r.Detail = Error, "timed out before the release", ctx.Err().Error()
-		return r
+		return r.Errored("timed out before the release", ctx.Err().Error())
 	}
 
 	res, err := h.ReleasePDUSession(ctx, engine.WithPDUReleaseWait(c.waitTimeout()), engine.WithPDUReleaseSettle(c.settleTimeout()))
@@ -601,7 +715,8 @@ func (c nasPDUReleaseUERequested) Run(ctx context.Context, env Env) Result {
 		// already read to reach the observers.
 		cut = !sleepCtx(ctx, time.Until(pduReleasedAt(res).Add(c.graceWindow()+c.watchWindow()))+50*time.Millisecond)
 	}
-	r.Verdict, r.Observed, r.Detail = judgePDURelease(res, err, h.Observe(), cut, c)
+	out, observed, detail := judgePDURelease(res, err, h.Observe(), cut, c)
+	r = asClassified(r, out, observed, detail)
 
 	dctx, dcancel := context.WithTimeout(context.Background(), pduReleaseDeregisterWait)
 	derr := h.Deregister(dctx)
@@ -629,29 +744,29 @@ func pduReleasedAt(res *engine.PDUReleaseResult) time.Time {
 const pduReleaseFail = "PDU session not released on UE request. TS 24.501 6.4.3.3, 6.3.3.2; TS 23.502 4.3.4.2; TS 38.413 8.2.2.2. Likely cause: SMF release path."
 
 // judgePDURelease turns a release's outcome and the downlink seen on the
-// session's tunnel into a verdict, Observed and Detail. cut reports that
+// session's tunnel into an outcome, Observed and Detail. cut reports that
 // the check's own time ran out before its waits ended.
-func judgePDURelease(res *engine.PDUReleaseResult, err error, o PathObservation, cut bool, c nasPDUReleaseUERequested) (Verdict, string, string) {
+func judgePDURelease(res *engine.PDUReleaseResult, err error, o PathObservation, cut bool, c nasPDUReleaseUERequested) (Outcome, string, string) {
 	if err != nil || res == nil {
-		return Error, "PDU session release procedure failed", fmt.Sprint(err)
+		return classifiedError, "PDU session release procedure failed", fmt.Sprint(err)
 	}
 	sinceSent := func(t time.Time) time.Duration { return t.Sub(res.SentAt).Round(time.Millisecond) }
 	switch {
 	case res.Rejected:
-		return Skip, fmt.Sprintf("core rejected the release (PDU Session Release Reject, 5GSM cause #%d)", res.RejectCause),
+		return pduReleaseRejected, fmt.Sprintf("core rejected the release (PDU Session Release Reject, 5GSM cause #%d)", res.RejectCause),
 			"TS 24.501 6.4.3.4 lets the SMF refuse the request with a PDU SESSION RELEASE REJECT, so there is no release to judge; the session was left established"
 	case !res.NASCommand && res.DecodeErr != nil:
-		return Error, "downlink NAS after the request did not decode", fmt.Sprintf("%v; %s", res.DecodeErr, codecGap)
+		return classifiedError, "downlink NAS after the request did not decode", fmt.Sprintf("%v; %s", res.DecodeErr, codecGap)
 	case cut:
-		return Error, "timed out before the release was judged", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget())
+		return classifiedError, "timed out before the release was judged", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget())
 	case !res.NASCommand && !res.ResourceRelease:
-		return Fail, fmt.Sprintf("no answer to the PDU Session Release Request within %s", c.waitTimeout()),
+		return pduReleaseNoAnswer, fmt.Sprintf("no answer to the PDU Session Release Request within %s", c.waitTimeout()),
 			joinDetail(pduReleaseFail, "neither a PDU Session Release Command nor a PDU SESSION RESOURCE RELEASE COMMAND came")
 	case !res.NASCommand:
-		return Fail, "PDU SESSION RESOURCE RELEASE COMMAND without a PDU Session Release Command",
+		return pduReleaseNoNASCommand, "PDU SESSION RESOURCE RELEASE COMMAND without a PDU Session Release Command",
 			joinDetail(pduReleaseFail, fmt.Sprintf("the NGAP command came after %s; no PDU Session Release Command came with it or within %s of it (TS 24.501 6.3.3.2)", sinceSent(res.ResourceReleaseAt), c.settleTimeout()))
 	case !res.ResourceRelease:
-		return Fail, "PDU Session Release Command without a PDU SESSION RESOURCE RELEASE COMMAND",
+		return pduReleaseNoN2Release, "PDU Session Release Command without a PDU SESSION RESOURCE RELEASE COMMAND",
 			joinDetail(pduReleaseFail, fmt.Sprintf("the NAS command came after %s; no PDU SESSION RESOURCE RELEASE COMMAND listing session %d came within %s of it, with the session's user plane active (TS 23.502 4.3.4.2 step 3)", sinceSent(res.NASCommandAt), res.PDUSessionID, c.settleTimeout()))
 	}
 
@@ -692,8 +807,8 @@ func judgePDURelease(res *engine.PDUReleaseResult, err error, o PathObservation,
 		}
 	}
 	if after > 0 {
-		return Fail, fmt.Sprintf("%d downlink G-PDUs on the released tunnel after the release", after),
+		return pduReleaseDownlinkAfter, fmt.Sprintf("%d downlink G-PDUs on the released tunnel after the release", after),
 			joinDetail(joinDetail(pduReleaseFail, fmt.Sprintf("downlink continues: the last G-PDU came %s after the release (TS 23.502 4.3.4.2 step 2a)", lastAfter.Sub(released).Round(time.Millisecond))), detail)
 	}
-	return Pass, "PDU session released on N1 and N2; the released tunnel stayed quiet", detail
+	return pduReleaseReleased, "PDU session released on N1 and N2; the released tunnel stayed quiet", detail
 }

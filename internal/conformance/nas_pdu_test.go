@@ -97,62 +97,66 @@ func TestJudgeDNN(t *testing.T) {
 	tests := []struct {
 		name         string
 		o            dnnOutcome
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 		notDetail    []string
 	}{
-		{name: "registration failure", o: dnnOutcome{err: errors.New("AMF rejected registration")}, want: Error,
+		{name: "harness failure", o: dnnOutcome{err: errors.New("AMF rejected registration")}, want: classifiedError,
 			wantObserved: "registration or harness failure", wantDetail: []string{"AMF rejected registration"}},
-		{name: "integrity failure", o: dnnOutcome{sent: sent, decodeErr: fmt.Errorf("%w: mac 1 != 2", nas.ErrIntegrity), decodeRaw: []byte{0x7e, 0x02}, decodeType: f5nas.MsgTypeDLNASTransport}, want: Error,
+		{name: "integrity failure", o: dnnOutcome{sent: sent, decodeErr: fmt.Errorf("%w: mac 1 != 2", nas.ErrIntegrity), decodeRaw: []byte{0x7e, 0x02}, decodeType: f5nas.MsgTypeDLNASTransport}, want: dnnIntegrityFailed,
 			wantObserved: "downlink NAS after the request failed integrity check (DL NAS Transport)", wantDetail: []string{"NAS 7e02"}},
-		{name: "integrity failure, header unreadable", o: dnnOutcome{sent: sent, decodeErr: fmt.Errorf("%w: mac 1 != 2", nas.ErrIntegrity), decodeRaw: []byte{0x7e, 0x02}}, want: Error,
+		{name: "integrity failure, header unreadable", o: dnnOutcome{sent: sent, decodeErr: fmt.Errorf("%w: mac 1 != 2", nas.ErrIntegrity), decodeRaw: []byte{0x7e, 0x02}}, want: dnnIntegrityFailed,
 			wantObserved: "downlink NAS after the request failed integrity check"},
-		{name: "undecodable", o: dnnOutcome{sent: sent, decodeErr: errors.New("nas plain decode"), decodeRaw: []byte{0x7e, 0x02}, decodeType: 0x54}, want: Error,
+		{name: "undecodable", o: dnnOutcome{sent: sent, decodeErr: errors.New("nas plain decode"), decodeRaw: []byte{0x7e, 0x02}, decodeType: 0x54}, want: classifiedError,
 			wantObserved: "downlink NAS after the request did not decode (5GMM message type 0x54)", wantDetail: []string{"NAS 7e02", "codec covers about Rel-15/16"}},
-		{name: "accepted", o: dnnOutcome{sent: sent, registered: true, accepted: true}, want: Skip, wantObserved: acceptedObserved},
-		{name: "silence", o: dnnOutcome{sent: sent, registered: true, noAnswer: true}, want: Fail, wantObserved: "nothing back within 10s",
+		{name: "accepted", o: dnnOutcome{sent: sent, registered: true, accepted: true}, want: dnnAccepted, wantObserved: acceptedObserved},
+		{name: "registration timed out", o: dnnOutcome{regTimedOut: true}, want: classifiedBlocked(ProcRegistration),
+			wantObserved: "registration did not reach the PDU Session Establishment Request"},
+		{name: "released", o: dnnOutcome{sent: sent, released: true}, want: dnnReleased, wantObserved: "UE released after the request, with no answer",
+			wantDetail: []string{"a UE Context Release Command and nothing else"}},
+		{name: "silence", o: dnnOutcome{sent: sent, registered: true, noAnswer: true}, want: dnnNoAnswer, wantObserved: "nothing back within 10s",
 			wantDetail: []string{"(got nothing within 10s)", "#90/#91", "5.4.5.2.5 a) 1), 5.4.5.3.2 (case e) of 5.4.5.3.1)", "Likely cause: the request is dropped when no SMF is selected"}},
-		{name: "5GMM STATUS then silence", o: dnnOutcome{sent: sent, registered: true, noAnswer: true, mmStatus: true, mmStatusC: 91}, want: Fail,
+		{name: "5GMM STATUS then silence", o: dnnOutcome{sent: sent, registered: true, noAnswer: true, mmStatus: true, mmStatusC: 91}, want: dnnStatusOnly,
 			wantObserved: "5GMM STATUS, 5GMM cause #91 DNN not supported or not subscribed in the slice, and nothing else within 10s",
 			wantDetail: []string{"(got a 5GMM STATUS with 5GMM cause #91 DNN not supported or not subscribed in the slice and nothing else within 10s)", "#90/#91",
 				"Likely cause: the AMF reports the failure in a 5GMM STATUS instead of sending back the 5GSM message"}},
-		{name: "5GMM STATUS before an answer is not the answer", o: func() dnnOutcome { o := ans(sent, 91); o.mmStatus, o.mmStatusC = true, 111; return o }(), want: Pass,
+		{name: "5GMM STATUS before an answer is not the answer", o: func() dnnOutcome { o := ans(sent, 91); o.mmStatus, o.mmStatusC = true, 111; return o }(), want: dnnReturned,
 			wantObserved: "un-forwarded request returned, 5GMM cause #91 DNN not supported or not subscribed in the slice"},
-		{name: "returned #91", o: ans(sent, 91), want: Pass, wantObserved: "un-forwarded request returned, 5GMM cause #91 DNN not supported or not subscribed in the slice",
+		{name: "returned #91", o: ans(sent, 91), want: dnnReturned, wantObserved: "un-forwarded request returned, 5GMM cause #91 DNN not supported or not subscribed in the slice",
 			wantDetail: []string{"path (B)"}},
-		{name: "returned #90", o: ans(sent, 90), want: Pass, wantObserved: "un-forwarded request returned, 5GMM cause #90 payload was not forwarded"},
-		{name: "#91 with a Reject payload", o: ans(reject(91), 91), want: Fail, wantObserved: "5GMM cause #91 DNN not supported or not subscribed in the slice with a payload that is not the request",
+		{name: "returned #90", o: ans(sent, 90), want: dnnReturned, wantObserved: "un-forwarded request returned, 5GMM cause #90 payload was not forwarded"},
+		{name: "#91 with a Reject payload", o: ans(reject(91), 91), want: dnnWrongPayload, wantObserved: "5GMM cause #91 DNN not supported or not subscribed in the slice with a payload that is not the request",
 			wantDetail: []string{"Likely cause: AMF returns its own Reject in the payload container instead of the un-forwarded message.", "carrying PDU Session Establishment Reject, 5GSM cause #91"}},
-		{name: "#90 with another payload", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 111), 90), want: Fail,
+		{name: "#90 with another payload", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 111), 90), want: dnnWrongPayload,
 			wantDetail: []string{"Likely cause: AMF returns a payload other than the un-forwarded 5GSM message."}},
-		{name: "reject #27", o: ans(reject(27), 0), want: Pass, wantObserved: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN",
+		{name: "reject #27", o: ans(reject(27), 0), want: dnnRejected, wantObserved: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN",
 			wantDetail: []string{"path (A)", "5GMM cause absent", "does not tell which network function rejected"}, notDetail: []string{"not #27"}},
-		{name: "reject #31", o: ans(reject(31), 0), want: Pass, wantDetail: []string{"the cause is not #27", "typical"}},
-		{name: "reject with another 5GMM cause", o: ans(reject(27), 22), want: Pass, wantDetail: []string{"5GMM cause #22"}},
-		{name: "undecodable reject", o: ans([]byte{0x2e, 1, 0, f5nas.MsgTypePDUSessionEstablishmentReject}, 0), want: Error,
+		{name: "reject #31", o: ans(reject(31), 0), want: dnnRejected, wantDetail: []string{"the cause is not #27", "typical"}},
+		{name: "reject with another 5GMM cause", o: ans(reject(27), 22), want: dnnRejected, wantDetail: []string{"5GMM cause #22"}},
+		{name: "undecodable reject", o: ans([]byte{0x2e, 1, 0, f5nas.MsgTypePDUSessionEstablishmentReject}, 0), want: classifiedError,
 			wantObserved: "answer did not decode", wantDetail: []string{"payload 2e0100c3"}},
-		{name: "plain accept", o: ans(gsmPDU(t, f5nas.MsgTypePDUSessionEstablishmentAccept, 0), 0), want: Skip, wantObserved: acceptedObserved,
+		{name: "plain accept", o: ans(gsmPDU(t, f5nas.MsgTypePDUSessionEstablishmentAccept, 0), 0), want: dnnAccepted, wantObserved: acceptedObserved,
 			wantDetail: []string{"plain DL NAS Transport", "without a PDU Session Resource Setup Request"}},
-		{name: "returned with #22", o: ans(sent, 22), want: Skip, wantObserved: congestionObserved,
+		{name: "returned with #22", o: ans(sent, 22), want: dnnCongestion, wantObserved: congestionObserved,
 			wantDetail: []string{"5GMM cause #22", "no Back-off timer value IE", "from V16.3.0", "re-run"}},
 		{name: "returned with #67 and a back-off", o: dnnOutcome{sent: sent, registered: true, answer: &dlN1SM{payload: sent, mmCause: 67, backoff: true}},
-			want: Skip, wantObserved: congestionObserved, wantDetail: []string{"5GMM cause #67", "and a Back-off timer value IE"}},
-		{name: "returned with #69", o: ans(sent, 69), want: Skip, wantObserved: congestionObserved},
-		{name: "#22 with another payload", o: ans(reject(27), 22), want: Pass, wantDetail: []string{"5GMM cause #22"}},
-		{name: "returned with #9", o: ans(sent, 9), want: Error, wantDetail: []string{"5GMM cause #9", "not a cause 5.4.5.3.2 assigns to a routing failure"}},
-		{name: "status #96", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 96), 0), want: Fail, wantObserved: "unexpected answer: 5GSM STATUS, 5GSM cause #96",
+			want: dnnCongestion, wantObserved: congestionObserved, wantDetail: []string{"5GMM cause #67", "and a Back-off timer value IE"}},
+		{name: "returned with #69", o: ans(sent, 69), want: dnnCongestion, wantObserved: congestionObserved},
+		{name: "#22 with another payload", o: ans(reject(27), 22), want: dnnRejected, wantDetail: []string{"5GMM cause #22"}},
+		{name: "returned with #9", o: ans(sent, 9), want: dnnReturnedOtherCause, wantDetail: []string{"5GMM cause #9", "not a cause 5.4.5.3.2 assigns to a routing failure"}},
+		{name: "status #96", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 96), 0), want: dnnUnexpected, wantObserved: "unexpected answer: 5GSM STATUS, 5GSM cause #96",
 			wantDetail: []string{"check the stimulus", "#90/#91"}},
-		{name: "status #26", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 26), 0), want: Fail, notDetail: []string{"check the stimulus"}},
-		{name: "request returned without a cause", o: ans(sent, 0), want: Fail, wantObserved: "request returned without a 5GMM cause",
+		{name: "status #26", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 26), 0), want: dnnUnexpected, notDetail: []string{"check the stimulus"}},
+		{name: "request returned without a cause", o: ans(sent, 0), want: dnnReturnedNoCause, wantObserved: "request returned without a 5GMM cause",
 			wantDetail: []string{"Likely cause: AMF returned the request without the 5GMM cause 5.4.5.3.2 requires.", "5GMM cause absent"}},
-		{name: "not 5GSM", o: ans([]byte{1, 2, 3}, 0), want: Fail, wantObserved: "unexpected answer: no 5GSM message"},
+		{name: "not 5GSM", o: ans([]byte{1, 2, 3}, 0), want: dnnUnexpected, wantObserved: "unexpected answer: no 5GSM message"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgeDNN(tc.o, dnnAnswerWait)
-			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgeDNN(tc.o, dnnAnswerWait)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(detail, w) {
@@ -184,7 +188,7 @@ func (nopUPF) PathSwitched(mockamf.PathSwitch) {}
 
 // Every branch against the mock AMF over a real SCTP listener: each answer
 // the mock can give an unknown DNN, an accepting core with a UPF, silence,
-// an Authentication Reject, and no UE. A UE that registered is deregistered,
+// an Authentication Reject (BLOCKED on the registration), and no UE. A UE that registered is deregistered,
 // on both decode ERRORs too, and no association stays open; one the mock gave no 5G-GUTI cannot be, and
 // the detail says so.
 func TestUnknownDNNCheckAgainstMock(t *testing.T) {
@@ -220,17 +224,17 @@ func TestUnknownDNNCheckAgainstMock(t *testing.T) {
 			wantObserved: congestionObserved, wantDetail: []string{"5GMM cause #22", "and a Back-off timer value IE", dereg}},
 		{name: "congestion #69, no back-off", opts: dnn(mockamf.ReturnDNN, 69), want: Skip,
 			wantObserved: congestionObserved, wantDetail: []string{"5GMM cause #69", "no Back-off timer value IE", dereg}},
-		{name: "returned with #9", opts: dnn(mockamf.ReturnDNN, 9), want: Error,
+		{name: "returned with #9", opts: dnn(mockamf.ReturnDNN, 9), want: Info,
 			wantObserved: "request returned with 5GMM cause #9", wantDetail: []string{"not a cause 5.4.5.3.2 assigns to a routing failure", dereg}},
 		{name: "5GSM STATUS #96", opts: dnn(mockamf.StatusDNN, 0), want: Fail,
 			wantObserved: "unexpected answer: 5GSM STATUS, 5GSM cause #96", wantDetail: []string{"check the stimulus", dereg}},
-		{name: "plain accept", opts: dnn(mockamf.PlainAcceptDNN, 0), want: Skip, wantObserved: acceptedObserved,
+		{name: "plain accept", opts: dnn(mockamf.PlainAcceptDNN, 0), want: Info, wantObserved: acceptedObserved,
 			wantDetail: []string{"without a PDU Session Resource Setup Request", dereg}},
-		{name: "accepted with a UPF", upf: true, want: Skip, wantObserved: acceptedObserved,
+		{name: "accepted with a UPF", upf: true, want: Info, wantObserved: acceptedObserved,
 			wantDetail: []string{"established a PDU session", dereg}},
 		{name: "undecodable answer", opts: dnn(mockamf.UndecodableDNN, 0), want: Error,
 			wantObserved: "downlink NAS after the request did not decode (DL NAS Transport)", wantDetail: []string{"codec covers about Rel-15/16", dereg}},
-		{name: "bad MAC", opts: dnn(mockamf.BadMACDNN, 0), want: Error,
+		{name: "bad MAC", opts: dnn(mockamf.BadMACDNN, 0), want: Warn,
 			wantObserved: "downlink NAS after the request failed integrity check (DL NAS Transport)", wantDetail: []string{"NAS 7e02", dereg}},
 		{name: "returned without a 5GMM cause", opts: dnn(mockamf.ReturnNoCauseDNN, 0), want: Fail,
 			wantObserved: "request returned without a 5GMM cause", wantDetail: []string{"5.4.5.3.2 requires", dereg}},
@@ -244,8 +248,8 @@ func TestUnknownDNNCheckAgainstMock(t *testing.T) {
 		{name: "deregistration fails", opts: dnn(mockamf.RejectDNN, 0), noGUTI: true, want: Pass,
 			wantObserved: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN",
 			wantDetail:   []string{"deregistration failed (no 5G-GUTI", "the association was dropped"}},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error,
-			wantObserved: "registration or harness failure"},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
+			wantObserved: "UE registration failed"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
@@ -347,60 +351,60 @@ func TestJudgePDURelease(t *testing.T) {
 		err          error
 		obs          PathObservation
 		cut          bool
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   []string
 		notDetail    []string
 	}{
-		{name: "released, no traffic", res: both(), obs: obs(""), want: Pass, wantObserved: "PDU session released on N1 and N2; the released tunnel stayed quiet",
+		{name: "released, no traffic", res: both(), obs: obs(""), want: pduReleaseReleased, wantObserved: "PDU session released on N1 and N2; the released tunnel stayed quiet",
 			wantDetail: []string{"PDU Session Release Command after 20ms, inside the PDU SESSION RESOURCE RELEASE COMMAND, 5GSM cause #36, PTI 1 echoed",
 				"PDU SESSION RESOURCE RELEASE COMMAND after 20ms", "downlink on TEID 0x2a: 0 G-PDUs before the request, 0 up to 1s after the release, 0 after that",
 				"no echo peer (--traffic): the released tunnel was watched for 4s"}},
 		{name: "released apart, another PTI", res: with(func(r *engine.PDUReleaseResult) {
 			r.NASInResourceRelease, r.NASCommandAt, r.CommandPTI = false, ms(60), 0
-		}), obs: obs(""), want: Pass,
+		}), obs: obs(""), want: pduReleaseReleased,
 			wantDetail: []string{"after 60ms, in a DOWNLINK NAS TRANSPORT", "PTI 0, where the request's is 1 (TS 24.501 6.3.3.2 has the SMF echo it; recorded, not scored)"}},
 		{name: "released, downlink before and in the grace", res: both(), obs: obs("192.0.2.7:7", gpdu(ms(-500)), gpdu(ms(-10)), gpdu(ms(30)), gpdu(ms(1020))),
-			want: Pass, wantDetail: []string{"2 G-PDUs before the request, 2 up to 1s after the release, 0 after that", "echo flow to 192.0.2.7:7 kept sending uplink"},
+			want: pduReleaseReleased, wantDetail: []string{"2 G-PDUs before the request, 2 up to 1s after the release, 0 after that", "echo flow to 192.0.2.7:7 kept sending uplink"},
 			notDetail: []string{"check the echo peer"}},
-		{name: "released, traffic that drew no downlink", res: both(), obs: obs("192.0.2.7:7"), want: Pass,
+		{name: "released, traffic that drew no downlink", res: both(), obs: obs("192.0.2.7:7"), want: pduReleaseReleased,
 			wantDetail: []string{"no downlink arrived before the release either", "check the echo peer"}},
 		{name: "downlink after the grace", res: both(), obs: obs("192.0.2.7:7", gpdu(ms(-10)), gpdu(ms(1021)), gpdu(ms(2520))),
-			want: Fail, wantObserved: "2 downlink G-PDUs on the released tunnel after the release",
+			want: pduReleaseDownlinkAfter, wantObserved: "2 downlink G-PDUs on the released tunnel after the release",
 			wantDetail: []string{pduReleaseFail, "downlink continues: the last G-PDU came 2.5s after the release (TS 23.502 4.3.4.2 step 2a)", "2 after that"}},
 		{name: "downlink on another tunnel or socket", res: both(), obs: obs("",
 			datapath.GPDUArrival{Arrival: ms(3000), TEID: teid + 1, GNB: "127.0.0.1:2152"},
-			datapath.GPDUArrival{Arrival: ms(3000), TEID: teid, GNB: "127.0.0.2:2152"}), want: Pass},
+			datapath.GPDUArrival{Arrival: ms(3000), TEID: teid, GNB: "127.0.0.2:2152"}), want: pduReleaseReleased},
 		{name: "the later command sets the release time", res: with(func(r *engine.PDUReleaseResult) { r.ResourceReleaseAt = ms(520) }),
-			obs: obs("", gpdu(ms(1500))), want: Pass, wantDetail: []string{"1 up to 1s after the release, 0 after that"}},
+			obs: obs("", gpdu(ms(1500))), want: pduReleaseReleased, wantDetail: []string{"1 up to 1s after the release, 0 after that"}},
 		{name: "no answer", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, DLTEID: teid, SentAt: t0}, obs: obs(""),
-			want: Fail, wantObserved: "no answer to the PDU Session Release Request within 16s",
+			want: pduReleaseNoAnswer, wantObserved: "no answer to the PDU Session Release Request within 16s",
 			wantDetail: []string{pduReleaseFail, "neither a PDU Session Release Command nor a PDU SESSION RESOURCE RELEASE COMMAND came"}},
 		{name: "the NGAP command alone", res: with(func(r *engine.PDUReleaseResult) { r.NASCommand, r.CompleteSent = false, false }), obs: obs(""),
-			want: Fail, wantObserved: "PDU SESSION RESOURCE RELEASE COMMAND without a PDU Session Release Command",
+			want: pduReleaseNoNASCommand, wantObserved: "PDU SESSION RESOURCE RELEASE COMMAND without a PDU Session Release Command",
 			wantDetail: []string{pduReleaseFail, "the NGAP command came after 20ms", "within 2s of it (TS 24.501 6.3.3.2)"}},
 		{name: "the NAS command alone", res: with(func(r *engine.PDUReleaseResult) { r.ResourceRelease = false }), obs: obs(""),
-			want: Fail, wantObserved: "PDU Session Release Command without a PDU SESSION RESOURCE RELEASE COMMAND",
+			want: pduReleaseNoN2Release, wantObserved: "PDU Session Release Command without a PDU SESSION RESOURCE RELEASE COMMAND",
 			wantDetail: []string{pduReleaseFail, "no PDU SESSION RESOURCE RELEASE COMMAND listing session 1 came within 2s of it", "TS 23.502 4.3.4.2 step 3"}},
 		{name: "rejected", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0, Rejected: true, RejectCause: 43}, obs: obs(""),
-			want: Skip, wantObserved: "core rejected the release (PDU Session Release Reject, 5GSM cause #43)", wantDetail: []string{"TS 24.501 6.4.3.4"}},
+			want: pduReleaseRejected, wantObserved: "core rejected the release (PDU Session Release Reject, 5GSM cause #43)", wantDetail: []string{"TS 24.501 6.4.3.4"}},
 		{name: "rejected as the time runs out", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0, Rejected: true, RejectCause: 35}, obs: obs(""), cut: true,
-			want: Skip, wantObserved: "core rejected the release (PDU Session Release Reject, 5GSM cause #35)"},
+			want: pduReleaseRejected, wantObserved: "core rejected the release (PDU Session Release Reject, 5GSM cause #35)"},
 		{name: "undecodable downlink, no command", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0, DecodeErr: errors.New("nas plain decode")}, obs: obs(""),
-			want: Error, wantObserved: "downlink NAS after the request did not decode", wantDetail: []string{"nas plain decode", "codec covers about Rel-15/16"}},
-		{name: "undecodable downlink beside the commands", res: with(func(r *engine.PDUReleaseResult) { r.DecodeErr = errors.New("x") }), obs: obs(""), want: Pass},
-		{name: "cut short", res: both(), obs: obs(""), cut: true, want: Error, wantObserved: "timed out before the release was judged",
+			want: classifiedError, wantObserved: "downlink NAS after the request did not decode", wantDetail: []string{"nas plain decode", "codec covers about Rel-15/16"}},
+		{name: "undecodable downlink beside the commands", res: with(func(r *engine.PDUReleaseResult) { r.DecodeErr = errors.New("x") }), obs: obs(""), want: pduReleaseReleased},
+		{name: "cut short", res: both(), obs: obs(""), cut: true, want: classifiedError, wantObserved: "timed out before the release was judged",
 			wantDetail: []string{"raise --per-test-timeout to at least 43s"}},
 		{name: "cut short with no answer", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0}, obs: obs(""), cut: true,
-			want: Error, wantObserved: "timed out before the release was judged"},
+			want: classifiedError, wantObserved: "timed out before the release was judged"},
 		{name: "procedure failed", err: errors.New("UE 208930100000011 has no PDU session"), obs: obs(""),
-			want: Error, wantObserved: "PDU session release procedure failed", wantDetail: []string{"has no PDU session"}},
+			want: classifiedError, wantObserved: "PDU session release procedure failed", wantDetail: []string{"has no PDU session"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := judgePDURelease(tc.res, tc.err, tc.obs, tc.cut, nasPDUReleaseUERequested{})
-			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", v, observed, detail, tc.want, tc.wantObserved)
+			o, observed, detail := judgePDURelease(tc.res, tc.err, tc.obs, tc.cut, nasPDUReleaseUERequested{})
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(detail, w) {
@@ -536,8 +540,8 @@ func TestPDUReleaseCheckAgainstMockPair(t *testing.T) {
 	}
 }
 
-// Without a UE the check SKIPs; a registration that fails is ERROR before
-// any release is sent.
+// Without a UE the check SKIPs; a registration that fails is BLOCKED on it
+// before any release is sent.
 func TestPDUReleaseCheckWithoutASession(t *testing.T) {
 	amf, front := deregMock(t, false, mockamf.WithAuthenticationReject())
 	env := ueEnv(front.Addr, "", "127.0.0.1")
@@ -550,7 +554,7 @@ func TestPDUReleaseCheckWithoutASession(t *testing.T) {
 		wantObserved string
 	}{
 		{name: "no UE", env: noUE, want: Skip, wantObserved: "no UE configured"},
-		{name: "registration fails", env: env, want: Error, wantObserved: "UE setup failed"},
+		{name: "registration fails", env: env, want: Blocked, wantObserved: "UE setup failed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -584,7 +588,7 @@ func TestPDUReleaseCheckCutShort(t *testing.T) {
 	c.assertClosed(t, env)
 }
 
-// The registry stamps the check's identity and its four shall references.
+// The registry stamps the check's identity and its five shall references.
 func TestPDUReleaseCheckIdentity(t *testing.T) {
 	c := testByID(t, "NAS-PDU-RELEASE-UE-REQUESTED")
 	if c.Category() != Procedural || WorstVerdict(c) != Fail || MinRelease(c) != 15 {
@@ -596,7 +600,7 @@ func TestPDUReleaseCheckIdentity(t *testing.T) {
 			shall = append(shall, r.Spec+" "+r.Clause)
 		}
 	}
-	if fmt.Sprint(shall) != "[TS 24.501 6.4.3.3 TS 24.501 6.3.3.2 TS 23.502 4.3.4.2 step 2a TS 23.502 4.3.4.2 step 3]" {
+	if fmt.Sprint(shall) != "[TS 24.501 6.4.3.3 TS 24.501 6.3.3.2 TS 23.502 4.3.4.2 step 2a TS 23.502 4.3.4.2 step 3 TS 24.501 6.4.3.4]" {
 		t.Errorf("shall references %v", shall)
 	}
 	if n := NeedsOf(c); n.UEs != 1 || n.RequiresIdleCore {

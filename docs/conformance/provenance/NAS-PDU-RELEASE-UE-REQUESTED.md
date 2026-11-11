@@ -7,7 +7,7 @@ Source: the 3GPP archive only:
 
 The issue's candidate, "TS 24.501 6.4.3", is pinned to 6.4.3.3 and 6.3.3.2 below. The requirement on the NGAP command and on the downlink is in TS 23.502 4.3.4.2, which the issue did not name.
 
-## TS 24.501 6.4.3.3 (UE-requested PDU session release procedure accepted by the network), shall
+## TS 24.501 6.4.3.3 (UE-requested PDU session release procedure accepted by the network), shall, primary
 
 > "Upon receipt of a PDU SESSION RELEASE REQUEST message and a PDU session ID, if the SMF accepts the request to release the PDU session, and shall perform the network-requested PDU session release procedure as specified in subclause 6.3.3."
 
@@ -62,12 +62,28 @@ From V15.5.0:
 - **Changes:** Rel-16 adds "In WB-N1/CE mode, 24s". Rel-17 onward adds "For access via a satellite NG-RAN cell, 21s". The normal value is 16s from V15.7.0 through V19.8.0.
 - **Use in the check:** descriptive only. It is the UE's timer, not a bound on the network. The check waits one T3582 at its normal value for the first answer, then 2 s for the other command, and sends no retransmission.
 
-## Verdicts
+## TS 24.501 6.4.3.4 (UE-requested PDU session release procedure not accepted by the network), shall
 
-- Both commands, and no G-PDU on the released tunnel after the 1 s grace: PASS.
-- No answer within 16 s; the NAS command without the NGAP command within 2 s of it, or the reverse; or a G-PDU on the released tunnel after the grace: FAIL (`PDU session not released on UE request. TS 24.501 6.4.3.3, 6.3.3.2; TS 23.502 4.3.4.2; TS 38.413 8.2.2.2. Likely cause: SMF release path.`, followed by what was seen).
-- A PDU SESSION RELEASE REJECT: SKIP (6.4.3.4).
-- No UE configured: SKIP. UE setup that fails, a downlink NAS PDU that does not decode with no command seen, or the check's time running out: ERROR.
-- A core that then stops completing NG Setup: the crash FAIL.
+> "Upon receipt of a PDU SESSION RELEASE REQUEST message, if the SMF does not accept the request to release the PDU session, the SMF shall create a PDU SESSION RELEASE REJECT message."
+
+- **Since:** Rel-15, V15.0.0 (`24501-f00.zip`). Read in V15.0.0, V15.7.0, V16.15.0, V17.18.1, V18.14.0 and V19.8.0 (2026-11-11).
+- **Changes:** V15.0.0 reads "an PDU SESSION RELEASE REJECT"; the sentence is otherwise the same in all six versions.
+- **Use in the check:** the text lets the SMF not accept the request, and says how it answers then. A PDU SESSION RELEASE REJECT is the alternative it permits: SKIP, with nothing to judge.
+
+## Verdict
+
+- **Class:** conformance, four shalls graded (TS 24.501 6.4.3.3 and 6.3.3.2, TS 23.502 4.3.4.2 steps 2a and 3); 6.4.3.4 names the permitted reject.
+- **Stimulus:** a PDU SESSION RELEASE REQUEST for the UE's established session, with the optional echo flow running.
+- **PASS** `released`: both commands, and no G-PDU on the released tunnel after the 1 s grace.
+- **FAIL** `no-answer` (6.4.3.3, 6.3.3.2): neither command within 16 s, one T3582 at its normal value (Table 10.3.1).
+- **FAIL** `no-nas-command` (6.4.3.3, 6.3.3.2): the NGAP command without a PDU SESSION RELEASE COMMAND within 2 s of it, a bound of the check.
+- **FAIL** `no-n2-release` (TS 23.502 4.3.4.2 step 3): the NAS command without the NGAP command within 2 s of it, with the session's user plane active.
+- **FAIL** `downlink-after-release` (TS 23.502 4.3.4.2 step 2a): a G-PDU on the released tunnel after the grace.
+- Every FAIL's message is `PDU session not released on UE request. TS 24.501 6.4.3.3, 6.3.3.2; TS 23.502 4.3.4.2; TS 38.413 8.2.2.2. Likely cause: SMF release path.`, followed by what was seen.
+- **SKIP (permitted alternative)** `rejected` (6.4.3.4): a PDU SESSION RELEASE REJECT.
+- **BLOCKED** (registration, PDU session establishment): the UE did not register, or its PDU session was not established.
+- **CRASH:** the AMF no longer completes an NG Setup after the release.
+- **ERROR:** the harness could not set up the UE, the release could not be sent, a downlink NAS PDU did not decode with no command seen, or the check's time ran out.
+- **SKIP:** no UE configured, or a target release older than Rel-15.
 
 The UE is deregistered (switch-off) at the end on every path that registered it.
