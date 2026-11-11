@@ -109,7 +109,7 @@ func kernelDial(la, ra *isctp.SCTPAddr, init isctp.InitMsg) (rawConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c, nil
+	return kernelConn{c}, nil
 }
 
 // DefaultDialTimeout bounds an N2 dial whose context carries no deadline. A
