@@ -224,7 +224,6 @@ var shouldOnly = map[string]bool{
 var informational = map[string]bool{
 	"NGAP-RAN-CONFIG-UPDATE-ACK": true,
 	"NGAP-DUPLICATE-RAN-NODE-ID": true,
-	"NAS-SMC-IMEISV-REQUEST":     true,
 }
 
 // Every registered check's worst verdict follows what it cites: DEVIATION

@@ -872,21 +872,3 @@ func judgeNonCleartext(o initialNASOutcome, wait time.Duration) (Outcome, string
 	}
 	return erroredOutcome, "no outcome", "the registration ended without a recorded answer"
 }
-
-// initialNASError is the ERROR for a registration that gave the check
-// nothing to report; what names the registration.
-func initialNASError(o initialNASOutcome, what string, wait time.Duration) (Verdict, string, string) {
-	switch {
-	case o.err != nil:
-		return Error, "UE setup failed", what + ": " + o.err.Error()
-	case o.authReject:
-		return Error, "Authentication Reject", what + ": this check needs a subscriber the core authenticates"
-	case o.rejectErr != nil:
-		return Error, "Registration Reject could not be read", fmt.Sprintf("%s: %v", what, o.rejectErr)
-	case o.released:
-		return Error, "released without a Registration Reject or Accept", what + ": the core sent a UE Context Release Command; check the subscriber and the core's logs"
-	case o.noAnswer:
-		return Error, "no Registration Reject or Accept", fmt.Sprintf("%s: none arrived within %s; check the subscriber and the core's logs", what, wait)
-	}
-	return Error, "no outcome", what + ": the registration ended without a recorded answer"
-}

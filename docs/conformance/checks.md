@@ -25,7 +25,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 | [NGAP-HANDOVER-COMMAND-TRANSFER](provenance/NGAP-HANDOVER-COMMAND-TRANSFER.md) | mobility | FAIL | Rel-15 | 15s | TS 38.413 8.4.1.2 (Rel-15 onward; Rel-15: the intra-system "shall include" sentence is added in V15.5.0; before it V15.0.0 has a PDU Session Resource Subject to Forwarding List (0..1), V15.1.0 to V15.3.0 a mandatory PDU Session Resource Handover List, and V15.4.0 the list as 0..1 with no obligation in the text; the cited sentences are unchanged Rel-16 through Rel-19); TS 38.413 9.2.3.2 (Rel-15 onward; Rel-15: Handover Command Transfer is O per item in V15.0.0 and M from V15.1.0; Rel-18: "subclause 9.3.4.10" reads "clause 9.3.4.10" from Rel-18 (editorial)); TS 38.413 9.3.4.10 (Rel-15 onward; Rel-15: UL forwarding and additional tunnels are added within Rel-15; every IE of the transfer is optional in every version read; Rel-16: adds the Data Forwarding Response E-RAB List; Rel-19: the QoS Flow Failed to Setup List is present by V19.4.0); TS 38.413 9.1.1 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NGAP-HANDOVER-CANCEL-ACK](provenance/NGAP-HANDOVER-CANCEL-ACK.md) | mobility | WARN | Rel-15 | 15s | TS 38.413 8.4.5.2 (Rel-15 onward; Rel-15: the sentence is unchanged from V15.0.0 through V19.4.0; by V15.13.0 8.4.5.4 is added, under which the source NG-RAN node takes a missing acknowledge as a successful cancellation); TS 38.413 Table 8.1-1 (Rel-15 onward, wording unchanged through Rel-19); TS 38.413 9.2.3.12 (Rel-15 onward, wording unchanged through Rel-19) |
 | [NAS-SERVICE-REQUEST-REACTIVATES](provenance/NAS-SERVICE-REQUEST-REACTIVATES.md) | procedural | FAIL | Rel-15 | 46s | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (Rel-15 onward; Rel-16: 5.6.1.4 is split and the text moves to 5.6.1.4.1; the condition adds "and the UE is: a) not in NB-N1 mode; or b) in NB-N1 mode and ..." before "the AMF shall:"; item a) is unchanged in every version); TS 24.501 5.6.1.5 first sentence (Rel-15 onward; Rel-16: V15.0.0 and V15.7.0 end "and stop timer T3517"; absent by V16.15.0); TS 23.502 4.2.3.2 steps 12 and 18a (Rel-15 onward; Rel-15: V15.0.0 reads "forwarded to RAN and UE" in step 18a; "NG-RAN and UE" by V15.17.0, unchanged through V19.9.0; the N2 Request's content in step 12 grows in every release, "N2 SM information received from SMF" and "MM NAS Service Accept" stay) |
-| [NAS-SMC-IMEISV-REQUEST](provenance/NAS-SMC-IMEISV-REQUEST.md) | security | INFO | Rel-15 | 20s | TS 24.501 5.4.2.2 IMEISV request (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 6.7.2 step 2b (Rel-15 onward; Rel-15: an unnumbered paragraph in V15.0.0, step 2b by V15.20.0; the sentence on the PEI is unchanged through V19.7.0) |
+| [NAS-SMC-IMEISV-REQUEST](provenance/NAS-SMC-IMEISV-REQUEST.md) | security | WARN | Rel-15 | 20s | TS 24.501 5.4.2.2 IMEISV request (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 6.7.2 step 2b (Rel-15 onward; Rel-15: an unnumbered paragraph in V15.0.0, step 2b by V15.20.0; the sentence on the PEI is unchanged through V19.7.0) |
 | [NAS-INITIAL-MSG-CONTAINER-WINS](provenance/NAS-INITIAL-MSG-CONTAINER-WINS.md) | security | FAIL | Rel-15 | 52s | TS 24.501 5.4.2.4 (Rel-15 onward; Rel-15: V15.0.0 names the IE "Replayed NAS message container"; "NAS message container" by V15.7.0, the sentence otherwise unchanged through V19.8.0); TS 33.501 6.4.6 step 4 (Rel-15 onward; Rel-15: V15.0.0 has the complete message resent only after a failed hash check ("the AMF shall treat this as the initial NAS message to respond to"); the NAS Container, and "The AMF shall use the complete initial NAS message that is in the NAS container as the message to respond to", by V15.20.0 and unchanged through V19.7.0) |
 | [NAS-INITIAL-MSG-NO-CONTAINER](provenance/NAS-INITIAL-MSG-NO-CONTAINER.md) | security | WARN | Rel-15 | 20s | TS 24.501 4.4.6 a) (Rel-15 onward; Rel-15: V15.0.0 has no clause 4.4.6 and protects the initial NAS message with a hash instead; the cleartext IEs and the NAS message container are in V15.7.0 and unchanged in substance through V19.8.0); TS 24.501 5.4.2.2 RINMR (Rel-15 onward; Rel-15: V15.0.0 has the AMF send a hash of the REGISTRATION REQUEST instead; the RINMR bit is in V15.7.0, for a REGISTRATION REQUEST that failed the integrity check; Rel-16: adds the case that the AMF cannot decipher the NAS message container IE of the REGISTRATION REQUEST) |
 | [NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED](provenance/NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED.md) | security | WARN | Rel-15 | 20s | TS 24.501 4.4.6 a) (Rel-15 onward; Rel-15: V15.0.0 has no clause 4.4.6 and protects the initial NAS message with a hash instead; the cleartext IEs and the NAS message container are in V15.7.0 and unchanged in substance through V19.8.0); TS 24.501 5.4.2.4 (Rel-15 onward; Rel-15: V15.0.0 names the IE "Replayed NAS message container"; "NAS message container" by V15.7.0) |
@@ -122,7 +122,7 @@ A suite runs the checks in the order of this table, except that the checks of tw
 
 ### NAS-SMC-IMEISV-REQUEST
 
-- TS 24.501 5.4.2.2 IMEISV request (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.4.2.2 IMEISV request (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 33.501 6.7.2 step 2b (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
 
 ### NAS-INITIAL-MSG-CONTAINER-WINS
@@ -387,6 +387,24 @@ Needs: NG Setup, registration, PDU session establishment, N2 handover preparatio
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
 | `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner no registered check) | did not complete a PDU session establishment the check needs first |
 | `blocked-n2-handover-preparation` | BLOCKED | N2 handover preparation (owner NGAP-HANDOVER-COMMAND-TRANSFER) | did not complete an N2 handover preparation the check needs first |
+
+### NAS-SMC-IMEISV-REQUEST outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `not-requested` | INFO | TS 24.501 5.4.2.2 IMEISV request (descriptive) | did not request the IMEISV in the SECURITY MODE COMMAND, so its omission was not exercised |
+| `identified` | INFO | no requirement | asked for the missing IMEISV with an IDENTITY REQUEST |
+| `other-identity` | INFO | no requirement | asked for another identity than the missing IMEISV with an IDENTITY REQUEST |
+| `second-smc` | INFO | no requirement | answered the missing IMEISV with a second SECURITY MODE COMMAND |
+| `rejected` | INFO | no requirement | rejected the registration whose SECURITY MODE COMPLETE lacked the IMEISV |
+| `accepted-without-imeisv` | WARN | security | registered the UE without the IMEISV it requested |
+| `released` | INFO | no requirement | released the UE context whose SECURITY MODE COMPLETE lacked the IMEISV |
+| `unanswered` | INFO | no requirement; absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | left the SECURITY MODE COMPLETE without the IMEISV unanswered |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
 
 ### NAS-INITIAL-MSG-CONTAINER-WINS outcomes
 

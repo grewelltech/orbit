@@ -459,13 +459,14 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   Registration Reject (cause and whether it came before the SECURITY MODE
   COMMAND recorded), a release and no answer are INFO; a registration with
   no SECURITY MODE COMMAND at all is WARN (security). Needs a UE.
-- `NAS-SMC-IMEISV-REQUEST` (security, INFO-class) — records whether the
-  SECURITY MODE COMMAND requests the IMEISV (a may, TS 24.501 5.4.2.2) and,
-  the UE having left a requested IMEISV out of the SECURITY MODE COMPLETE,
-  what the core does. Informational: a request followed by an IDENTITY
-  REQUEST for the IMEISV is INFO; no request (the omission is then not
-  exercised), an Accept without it, a Reject and the rest are INFO-DIFF.
-  Needs a UE.
+- `NAS-SMC-IMEISV-REQUEST` (security, characterisation, WARN at worst) —
+  records whether the SECURITY MODE COMMAND requests the IMEISV (a may,
+  TS 24.501 5.4.2.2) and, the UE having left a requested IMEISV out of the
+  SECURITY MODE COMPLETE, what the core does. An Accept without the IMEISV
+  it asked for is WARN (security: the equipment identity check it asked for
+  is skipped); no request (the omission is then not exercised), an
+  IDENTITY REQUEST, a Reject and the rest are INFO. A registration that
+  never reaches a SECURITY MODE COMMAND is BLOCKED. Needs a UE.
 
 - `NGAP-PATH-SWITCH-SECCAP-MISMATCH` (security, FAIL-class) — a UE with a
   PDU session is handed over by Xn with a PATH SWITCH REQUEST whose UE
