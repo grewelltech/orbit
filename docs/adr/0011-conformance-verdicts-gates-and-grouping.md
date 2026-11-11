@@ -134,8 +134,15 @@ a result.
 One core fault counts once at the gate. When the owner ran in the same run and
 reported the procedure as not completing, its result is the gated finding, and
 the BLOCKED results that name it are listed under it and are not counted again.
-A BLOCKED result gates on its own only when its owner did not run in that run
-(it was not selected, or was skipped) or reported the procedure as completing.
+A BLOCKED result gates on its own only when its owner was not selected for
+that run, or reported the procedure as completing.
+
+BLOCKED comes only from the dependent's own attempt: it tried the procedure
+and the core did not complete it. A check that is not applicable SKIPs before
+it attempts anything, for its own declared condition (rule 3). An owner that
+SKIPs therefore never turns its dependents into BLOCKED: each dependent is
+judged on its own condition, and one that shares the owner's missing input or
+release SKIPs for the same reason.
 
 ### 6. Attribution is decided once per run
 
