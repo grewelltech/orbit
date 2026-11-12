@@ -198,6 +198,7 @@ run side by side on one host:
 | `sdcore` | `sdcore` | 160–167, `10.160`–`10.167.0.0/24` | `100.68.0.0/16` | SD-Core (`sdcore`) | minimal |
 | `free5gc` | `free5gc` | 140–147, `10.140`–`10.147.0.0/24` | `100.66.0.0/16` | free5GC (`free5gc`) | minimal |
 | `open5gs` | `open5gs` | 150–157, `10.150`–`10.157.0.0/24` | `100.67.0.0/16` | Open5GS (`open5gs`) | minimal |
+| `sdcore-pre` | `sdcpre` | 170–177, `10.170`–`10.177.0.0/24` | `100.69.0.0/16` | SD-Core as OnRamp v2.3.0 ships it (`sdcore`) | minimal |
 
 ```sh
 ./testbed.sh -p free5gc all        # or: TESTBED_PROFILE=free5gc ./testbed.sh all
@@ -212,8 +213,31 @@ applies with the profile's prefix and addresses in place of `orbit` and
 `lxd-conformance`, `lxd-load`) and the host octets are identical; only the core
 step differs. A profile is a short file in [`profiles/`](profiles); the free5GC
 and Open5GS ones also size the core, RAN and app nodes down, since those cores
-are run for conformance rather than load. All three default to the minimal
+are run for conformance rather than load. All of them default to the minimal
 shape described next.
+
+`sdcore-pre` is SD-Core before the ORBIT work: Aether OnRamp v2.3.0 with the
+published `sd-core` chart 4.0.0 it pins and the images that chart names
+(`SDCORE_NF_REF=` builds nothing), End Markers left off as that chart does,
+and OnRamp v2.3.0's PLMN 208/93 for ORBIT and the subscribers: a reference for
+SD-Core's conformance before the ORBIT work.
+
+#### Legacy OnRamp UPF networking
+
+OnRamp releases before aether-onramp#263 (v2.3.0 and earlier) describe the UPF
+with one `core.data_iface` and internal access and core subnets instead of
+`core.networks`. `TESTBED_ONRAMP_NET=legacy` (set by `sdcore-pre`; minimal
+shape only) builds the testbed for that layout:
+
+- the core node holds `.10` on `n3` and `n6`, and OnRamp's router role puts the
+  `access` (`192.168.252.1`) and `core` (`192.168.250.1`) macvlans on `n3`; the
+  UPF is at `192.168.252.3` and `192.168.250.3`, and the core node routes
+  between those subnets and N3/N6;
+- the RAN node routes `192.168.252.0/24` via the core's N3 address and the UE
+  pool via the core's N6 address.
+
+Choose it before `up`, since it decides the node addressing; `core` stops with
+a message if the OnRamp checkout uses the other layout.
 
 ### Shapes
 

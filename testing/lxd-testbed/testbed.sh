@@ -1356,11 +1356,14 @@ core_sdcore_deploy() {
     # for (TESTBED_ONRAMP_NET): the current one names core.networks, the
     # legacy one core.data_iface.
     local has_networks
-    has_networks=$(on_core "sed -n '/^core:/,/^[a-z]/p' $TESTBED_ONRAMP_DIR/vars/main.yml | grep -c '^  networks:' || true" 2>/dev/null | tr -d '\r') || has_networks=0
-    if [ "$LEGACY_NET" = true ] && [ "${has_networks:-0}" != 0 ]; then
+    has_networks=$(on_core "test -r $TESTBED_ONRAMP_DIR/vars/main.yml && { sed -n '/^core:/,/^[a-z]/p' $TESTBED_ONRAMP_DIR/vars/main.yml | grep -c '^  networks:' || true; }" 2>/dev/null | tr -d '\r') || has_networks=""
+    case "$has_networks" in
+        ''|*[!0-9]*) die "could not read $TESTBED_ONRAMP_DIR/vars/main.yml on $NODE_CORE to tell its UPF networking layout" ;;
+    esac
+    if [ "$LEGACY_NET" = true ] && [ "$has_networks" != 0 ]; then
         die "OnRamp $ONRAMP_VERSION uses the current UPF networking layout (core.networks); rebuild with TESTBED_ONRAMP_NET=current"
     fi
-    if [ "$LEGACY_NET" != true ] && [ "${has_networks:-0}" = 0 ]; then
+    if [ "$LEGACY_NET" != true ] && [ "$has_networks" = 0 ]; then
         die "OnRamp $ONRAMP_VERSION uses the legacy UPF networking layout (core.data_iface); rebuild with TESTBED_ONRAMP_NET=legacy (minimal shape)"
     fi
     if [ "$LEGACY_NET" = true ]; then
@@ -1449,7 +1452,7 @@ while i < len(lines):
     if lines[i].strip() == 'imsis:':
         indent = lines[i][:len(lines[i])-len(lines[i].lstrip())] + '  '
         out.append(lines[i]); i += 1
-        while i < len(lines) and lines[i].strip().startswith('- \\\"0'):
+        while i < len(lines) and re.match(r'- \\\"[0-9]', lines[i].strip()):
             i += 1
         for n in range(start, end+1):
             out.append('%s- \\\"%0*d\\\"' % (indent, w, n))
