@@ -127,7 +127,7 @@ func (nasBadMACRegistration) Tags() []Tag             { return []Tag{TagNegative
 func (ngapPathSwitchSecCapMismatch) Tags() []Tag      { return []Tag{TagNegative, TagSecurity} }
 func (nasRetransmitNewCount) Tags() []Tag             { return []Tag{TagSecurity, TagTiming} }
 
-func (nasT3550AcceptRetransmit) Tags() []Tag    { return []Tag{TagTiming} }
-func (nasT3560AuthRetransmit) Tags() []Tag      { return []Tag{TagTiming} }
-func (nasRegistrationAfterRelease) Tags() []Tag { return []Tag{TagTiming} }
+func (nasT3550AcceptRetransmit) Tags() []Tag          { return []Tag{TagTiming} }
+func (nasT3560AuthRetransmit) Tags() []Tag            { return []Tag{TagTiming} }
+func (nasRegistrationAfterRelease) Tags() []Tag       { return []Tag{TagTiming} }
 func (nasRegistrationDuringOtherRelease) Tags() []Tag { return []Tag{TagTiming} }

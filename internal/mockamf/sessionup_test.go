@@ -33,11 +33,11 @@ func TestAwaitSessionsUp(t *testing.T) {
 			a.mu.Lock()
 			a.ues[1] = &ueState{amfID: 1, supi: "208930100000001", sessions: map[uint8]*pduSession{1: s}}
 			a.mu.Unlock()
+			start := time.Now()
 			if tc.upAfter > 0 {
 				timer := time.AfterFunc(tc.upAfter, func() { a.sessionsUp(1, map[uint8]Tunnel{1: up}) })
 				defer timer.Stop()
 			}
-			start := time.Now()
 			a.awaitSessionsUp(tc.amfID, []uint8{1})
 			if took := time.Since(start); took < tc.minWait || took > tc.maxWait {
 				t.Errorf("waited %s, want %s to %s", took, tc.minWait, tc.maxWait)

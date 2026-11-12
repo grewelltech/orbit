@@ -783,7 +783,7 @@ func TestSuiteChecksSelection(t *testing.T) {
 		{name: "two checks, any case, in run order", checks: []string{"ngap-path-switch-seccap-mismatch", "NGAP-NG-RESET-ACK"},
 			want: []string{"NGAP-NG-RESET-ACK", "NGAP-PATH-SWITCH-SECCAP-MISMATCH"}},
 		{name: "by tag, in run order", tags: []string{"timing"},
-			want: []string{"NAS-REGISTRATION-AFTER-RELEASE", "NAS-RETRANSMIT-NEW-COUNT", "NAS-T3550-ACCEPT-RETRANSMIT", "NAS-T3560-AUTH-RETRANSMIT"}},
+			want: []string{"NAS-REGISTRATION-AFTER-RELEASE", "NAS-REGISTRATION-DURING-OTHER-RELEASE", "NAS-RETRANSMIT-NEW-COUNT", "NAS-T3550-ACCEPT-RETRANSMIT", "NAS-T3560-AUTH-RETRANSMIT"}},
 		{name: "on top of a group", groups: []string{"NAS"}, checks: []string{"NAS-T3560-AUTH-RETRANSMIT", "NGAP-NG-RESET-ACK"},
 			want: []string{"NAS-T3560-AUTH-RETRANSMIT"}},
 	}
