@@ -504,7 +504,7 @@ type Registry struct {
 
 // NewRegistry returns a registry preloaded with the built-in tests. It
 // panics when they break a registry rule (newRegistry): a built-in check
-// that declares no outcomes, a procedure with two owners or a needed
+// that breaks ValidateTest, a procedure with two owners or a needed
 // procedure with none is a programming error, which fails at start-up.
 func NewRegistry() *Registry {
 	r, err := newRegistry(builtins, builtinPacks...)
@@ -515,11 +515,12 @@ func NewRegistry() *Registry {
 }
 
 // newRegistry returns a registry of tests and of the core regression packs,
-// or an error when a check declares no outcomes (Declarer), has a primary
-// reference the clause-title table does not cover (GroupOf), declares a
-// tag outside the closed set, shares its ID with another check, when a
-// pack breaks the pack layer's rules (validatePack), or when the set fails
-// Registry.Validate.
+// or an error when a check, a pack's among them, breaks ValidateTest (its
+// provenance, its declaration and its outcomes, ADR-0011 rules 2 to 4 and
+// 7), has a primary reference the clause-title table does not cover
+// (GroupOf), declares a tag outside the closed set, shares its ID with
+// another check, when a pack breaks the pack layer's rules (validatePack),
+// or when the set fails Registry.Validate.
 func newRegistry(tests []Test, packs ...Pack) (*Registry, error) {
 	r := &Registry{packs: map[string]Pack{}, packOf: map[string]string{}}
 	all := slices.Clone(tests)
@@ -542,8 +543,8 @@ func newRegistry(tests []Test, packs ...Pack) (*Registry, error) {
 			return nil, fmt.Errorf("%s: two checks have this ID", t.ID())
 		}
 		ids[strings.ToUpper(t.ID())] = true
-		if _, ok := declared(t); !ok {
-			return nil, fmt.Errorf("%s: declares no outcomes; every check declares what it can report (Declarer)", t.ID())
+		if err := ValidateTest(t); err != nil {
+			return nil, err
 		}
 		if err := validateGroup(t); err != nil {
 			return nil, err

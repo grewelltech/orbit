@@ -343,7 +343,7 @@ func TestRegistryValidate(t *testing.T) {
 
 // newRegistry, which NewRegistry builds the built-in set with, refuses a
 // set with two owners of one procedure, a need no check owns, or a check
-// that declares no outcomes, and accepts a valid set.
+// that breaks ValidateTest, and accepts a valid set.
 func TestNewRegistry(t *testing.T) {
 	out := []Outcome{{ID: "seen", Verdict: Info, Summary: "did something"}}
 	check := func(id string, owned []Procedure, needs ...Procedure) Test {
@@ -366,8 +366,14 @@ func TestNewRegistry(t *testing.T) {
 			wantErr: `procedure "NG Setup" has two owners: A and B`},
 		{name: "a need with no owner", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), check("USER", nil, ProcNGSetup, ProcRegistration)},
 			wantErr: `no registered check owns a needed procedure: USER needs "registration"`},
-		{name: "a check that declares no outcomes", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), undeclaredTest{id: "BARE"}},
+		{name: "a check that declares no outcomes", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}), undeclaredTest{id: "BARE", refs: []SpecRef{goodRef()}}},
 			wantErr: "BARE: declares no outcomes"},
+		{name: "a WARN outcome with no criterion", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}),
+			declTest{provTest: provTest{id: "LOOSE", refs: []SpecRef{goodRef()}}, outs: []Outcome{{ID: "odd", Verdict: Warn, Summary: "did something odd"}}}},
+			wantErr: `LOOSE: outcome "odd": a WARN outcome names its criterion`},
+		{name: "a check with no references", tests: []Test{check("SETUP", []Procedure{ProcNGSetup}),
+			declTest{provTest: provTest{id: "LOOSE"}, outs: out}},
+			wantErr: "LOOSE: no spec references"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

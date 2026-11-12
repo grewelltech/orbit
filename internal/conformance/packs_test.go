@@ -60,6 +60,9 @@ func TestNewRegistryPacks(t *testing.T) {
 		{name: "an owner", packs: []Pack{{Name: "lab", Profile: "sdcore", Checks: []Test{
 			declTest{provTest: provTest{id: "LAB-1", refs: []SpecRef{goodRef()}}, outs: []Outcome{{ID: "seen", Verdict: Info, Summary: "x"}}, owned: []Procedure{ProcRegistration}}}}},
 			wantErr: "pack lab: LAB-1 owns registration"},
+		{name: "a pack check that breaks its declaration rules", packs: []Pack{{Name: "lab", Profile: "sdcore", Checks: []Test{packCheck("LAB-1",
+			Outcome{ID: "odd", Verdict: Warn, Summary: "did something odd"})}}},
+			wantErr: `LAB-1: outcome "odd": a WARN outcome names its criterion`},
 		{name: "two packs, one name", packs: []Pack{{Name: "lab", Profile: "sdcore", Checks: []Test{packCheck("LAB-1")}}, {Name: "lab", Profile: "sdcore", Checks: []Test{packCheck("LAB-2")}}},
 			wantErr: "two packs are named lab"},
 		{name: "a pack check with a default check's ID", packs: []Pack{{Name: "lab", Profile: "sdcore", Checks: []Test{packCheck("other")}}},
