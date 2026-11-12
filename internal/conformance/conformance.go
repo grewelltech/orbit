@@ -18,6 +18,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bgrewell/orbit/internal/engine"
@@ -327,12 +328,18 @@ func (e Env) DialSetup(ctx context.Context) (*sctp.Conn, error) {
 // An AMF that answers is alive; a rejection means the probe's identity
 // (--mcc/--mnc/--tac/--sd) is not one the core serves, an operator problem.
 // Callers report either as a harness ERROR, never as a FAIL. alive=false
-// with a nil error is the core's doing: no answer to the probe.
+// with a nil error is the core's doing: no answer to the probe, or the
+// AMF's address refusing the association. The probe runs after the check
+// reached the AMF at that address, so a refusal means nothing listens there
+// any more.
 func (e Env) Alive(ctx context.Context) (alive bool, err error) {
 	probe := e.GNB
 	probe.ID = e.livenessGNBID()
 	probe.Name = "orbit-conf-probe"
 	conn, err := e.Dial(ctx)
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("liveness probe dial: %w", err)
 	}
