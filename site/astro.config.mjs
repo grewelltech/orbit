@@ -19,6 +19,11 @@ export default defineConfig({
         { label: "Quickstart", link: "/quickstart/" },
         { label: "Deploying a responder", link: "/responder/" },
         {
+          label: "Conformance checks",
+          collapsed: true,
+          autogenerate: { directory: "conformance/checks" },
+        },
+        {
           label: "Reference",
           items: [
             { label: "Usage", link: "https://github.com/grewelltech/orbit/blob/main/docs/USAGE.md", attrs: { target: "_blank" } },

@@ -1475,11 +1475,32 @@ is the core's doing and is reported BLOCKED. With no UE configured the
 preflight is the NG Setup alone and the UE checks SKIP. `--json` carries it
 as `Preflight`.
 
-Some checks wait out real NAS timer expiries and take minutes. Before each
-check runs, the suite prints it on stderr with the longest it can take (its
-own budget, or `--per-test-timeout` when that is longer), starting with the
-suite's total, and a check that can take longer than 30 s reports its elapsed
-time every 30 s. stdout carries only the results, so `--json` stays clean.
+On a terminal, the run's progress goes to stderr as a live view: the
+preflight's steps, then one line per check with its number, its category (the
+first part of its group) and a one-line description that links to the check's
+page on [orbit.grewelltech.com](https://orbit.grewelltech.com/conformance/checks/).
+The running check has a spinner and its elapsed time; once it has a verdict,
+the line shows the verdict and how long the check ran:
+
+```text
+[+] Running 41 checks
+  07/41: [ GTPv1-U   ] Downlink G-PDUs carry the PDU Session Container ...... PASS 1.2s
+  08/41: [ NGAP      ] Path Switch Acknowledge carries the transfer ......... FAIL 5.3s
+         check:     NGAP-PATH-SWITCH-ACK-TRANSFER
+         expected:  ...
+         observed:  ...
+         details:   https://orbit.grewelltech.com/conformance/checks/ngap-path-switch-ack-transfer/#unanswered
+  09/41: [ NGAP      ] Handover Command carries each session's transfer ..... ⠹ 3.4s
+```
+
+A result other than PASS, INFO or SKIP is followed by what was expected and
+observed and a link to its outcome on the check's page. Some checks wait out
+real NAS timer expiries and take minutes; a check that can take longer than
+30 s shows the longest it can take (its own budget, or `--per-test-timeout`
+when that is longer) beside its elapsed time. Off a terminal the progress is
+not printed. stdout carries only the report, so `--json` stays clean.
+`--local` (deprecated) prints each check on stderr as it starts, with the
+longest it can take.
 `--list` shows the same durations without running anything, and needs no
 `--amf`:
 

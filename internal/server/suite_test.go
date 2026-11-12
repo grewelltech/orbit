@@ -833,3 +833,29 @@ const (
 	erroneousGroup = "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"
 	interfaceGroup = "NGAP / Interface Management Procedures"
 )
+
+// A result is timed from its check's start; a result whose start was not
+// recorded is not timed. sinceStarted reads the started check with the
+// results.
+func TestSuiteLiveTimesResults(t *testing.T) {
+	l := newSuiteLive(&suiteSpec{})
+	ng := conformance.NewRegistry().Tests()[0]
+	l.start(ng, 15*time.Second, 0, 2)
+	time.Sleep(5 * time.Millisecond)
+	l.add(conformance.Result{ID: ng.ID()})
+	l.add(conformance.Result{ID: "UNSTARTED"})
+	c := l.sinceStarted(0)
+	if len(c.results) != 2 || len(c.elapsed) != 2 {
+		t.Fatalf("change = %+v", c)
+	}
+	if c.elapsed[0] < 5*time.Millisecond || c.elapsed[1] != 0 {
+		t.Errorf("elapsed = %v, want the first timed and the second not", c.elapsed)
+	}
+	if st := c.started; st.GetId() != ng.ID() || st.GetIndex() != 0 || st.GetTotal() != 2 || st.GetExpectedSeconds() != 15 ||
+		st.GetSummary() != conformance.SummaryOf(ng.ID()) {
+		t.Errorf("started = %v", st)
+	}
+	if c := l.sinceStarted(2); len(c.results) != 0 || len(c.elapsed) != 0 {
+		t.Errorf("nothing after index 2: %+v", c)
+	}
+}

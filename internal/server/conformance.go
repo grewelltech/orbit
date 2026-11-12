@@ -120,9 +120,11 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 	}
 	core := spec.expected.Label()
 	var tally orbitv1.ConformanceTally
-	sent, sentPreflight := 0, false
+	// sentStarted is one past the index of the last started check sent.
+	sent, sentStarted, sentPreflight := 0, 0, false
 	for {
-		rs, done, wake := live.since(sent)
+		c := live.sinceStarted(sent)
+		rs, st, done, wake := c.results, c.started, c.done, c.wake
 		// The preflight goes out on its own as soon as it has run, ahead of
 		// the first check's result.
 		if steps := live.preflightSteps(); len(steps) > 0 && !sentPreflight {
@@ -136,10 +138,10 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 				return err
 			}
 		}
-		for _, r := range rs {
+		for i, r := range rs {
 			addToTally(&tally, r)
 			if err := stream.Send(&orbitv1.ConformanceUpdate{
-				Result: resultProto(r), Tally: cloneTally(&tally),
+				Result: resultProto(r), Tally: cloneTally(&tally), ElapsedUs: uint64(c.elapsed[i].Microseconds()),
 				Index: uint32(sent), Total: uint32(spec.total),
 				TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
 				ExpectedFailuresCore: core, RunId: id, Preflight: live.preflightSteps(),
@@ -148,6 +150,19 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 				return err
 			}
 			sent++
+		}
+		// The running check goes out once, if it has not finished by now;
+		// one that has is shown by its result alone.
+		if st != nil && int(st.GetIndex()) >= sent && int(st.GetIndex()) >= sentStarted {
+			sentStarted = int(st.GetIndex()) + 1
+			if err := stream.Send(&orbitv1.ConformanceUpdate{
+				Started: st, Tally: cloneTally(&tally), Index: uint32(sent), Total: uint32(spec.total),
+				TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
+				ExpectedFailuresCore: core, RunId: id, Preflight: live.preflightSteps(),
+			}); err != nil {
+				_, _ = s.runs.reg.Stop(id)
+				return err
+			}
 		}
 		if done {
 			break
@@ -263,6 +278,7 @@ func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 		Group:           r.Group,
 		Tags:            tagStrings(r.Tags),
 		Pack:            r.Pack,
+		Summary:         conformance.SummaryOf(r.ID),
 		SpecRef:         r.SpecRef,
 		Verdict:         string(r.Verdict),
 		Expected:        r.Expected,

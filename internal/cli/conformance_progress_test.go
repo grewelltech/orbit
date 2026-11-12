@@ -1,95 +1,182 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 )
 
-// A live (terminal) renderer prints a per-check line as each verdict lands and
-// no line for the final done/no-result update; a non-terminal renderer stays
-// silent.
+// plain is the renderer's output without escape sequences, with carriage
+// returns as line breaks, so each painted frame is its own line.
+func plain(s string) string { return strings.ReplaceAll(escapes.ReplaceAllString(s, ""), "\r", "\n") }
+
+// A live (terminal) renderer prints the preflight once, the checks'
+// heading once, and one line per check with its number, category, summary
+// and verdict; a result that is not PASS, INFO or SKIP gets its expected,
+// observed and outcome link; a non-terminal renderer stays silent.
 func TestStreamProgressUpdate(t *testing.T) {
 	pre := []*orbitv1.PreflightStep{{Step: "NG Setup", Status: "ok"}}
 	updates := []*orbitv1.ConformanceUpdate{
 		{Total: 3, Preflight: pre},
-		{Total: 3, Preflight: pre, Result: &orbitv1.ConformanceResult{Id: "AUTH-1", Verdict: "PASS"}},
-		{Total: 3, Preflight: pre, Result: &orbitv1.ConformanceResult{Id: "SEC-2", Verdict: "FAIL"}},
-		{Total: 3, Result: &orbitv1.ConformanceResult{Id: "NAS-3", Verdict: "SKIP"}},
+		{Total: 3, Preflight: pre, Started: &orbitv1.ConformanceCheckStart{Id: "NGAP-NG-SETUP", Group: "NGAP / Interface Management Procedures / NG Setup", Summary: "NG Setup", Index: 0, Total: 3}},
+		{Total: 3, Preflight: pre, ElapsedUs: 1500000, Result: &orbitv1.ConformanceResult{Id: "NGAP-NG-SETUP", Group: "NGAP / Interface Management Procedures / NG Setup", Verdict: "PASS"}},
+		{Total: 3, Preflight: pre, Result: &orbitv1.ConformanceResult{Id: "GTPU-ECHO-RESPONSE", Group: "GTPv1-U / Path Management Messages / Echo Request",
+			Verdict: "FAIL", Outcome: "no-echo-response", Expected: "an Echo Response", Observed: "none"}},
+		{Total: 3, Result: &orbitv1.ConformanceResult{Id: "NAS-3", Verdict: "SKIP", Summary: "a check from a newer server"}},
 		{Total: 3, Done: true, Tally: &orbitv1.ConformanceTally{Passed: 1, Failed: 1, Skipped: 1}},
 	}
 
-	tests := []struct {
-		name string
-		live bool
-		want []string // substrings that must appear on stderr
+	t.Run("terminal", func(t *testing.T) {
+		var w syncBuffer
+		p := newStreamProgress(&w, true)
+		p.start()
+		for _, u := range updates {
+			p.update(u)
+		}
+		p.stop()
+		raw := w.String()
+		out := plain(raw)
+		for _, want := range []string{
+			"[+] Preflight\n", "  NG Setup ...", " ok\n",
+			"[+] Running 3 checks\n",
+			"  1/3: [ NGAP      ] NG Setup ...", " PASS 1.5s\n",
+			"  2/3: [ GTPv1-U   ] GTP-U Echo Request gets an Echo Response ...", " FAIL\n",
+			"check:     GTPU-ECHO-RESPONSE\n",
+			"expected:  an Echo Response\n",
+			"observed:  none\n",
+			"details:   https://orbit.grewelltech.com/conformance/checks/gtpu-echo-response/#no-echo-response\n",
+			"  3/3: [           ] a check from a newer server ...", " SKIP\n",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("progress output lacks %q:\n%s", want, out)
+			}
+		}
+		for heading, n := range map[string]int{"[+] Preflight": 1, "[+] Running": 1, "check: ": 1} {
+			if got := strings.Count(out, heading); got != n {
+				t.Errorf("%q appears %d times, want %d:\n%s", heading, got, n, out)
+			}
+		}
+		if !strings.Contains(raw, "\x1b]8;;https://orbit.grewelltech.com/conformance/checks/ngap-ng-setup/\x1b\\NG Setup\x1b]8;;\x1b\\") {
+			t.Errorf("the summary is not a link to the check's page:\n%q", raw)
+		}
+	})
+	t.Run("non-terminal stays quiet", func(t *testing.T) {
+		var w syncBuffer
+		p := newStreamProgress(&w, false)
+		p.start()
+		for _, u := range updates {
+			p.update(u)
+		}
+		p.stop()
+		if w.String() != "" {
+			t.Fatalf("non-terminal progress must be silent, got:\n%q", w.String())
+		}
+	})
+}
+
+// Only PASS, INFO and SKIP go without the detail lines; every other
+// verdict gets them.
+func TestStreamProgressDetailLines(t *testing.T) {
+	p := newStreamProgress(&syncBuffer{}, true)
+	for _, tc := range []struct {
+		verdict string
+		want    bool
 	}{
-		{
-			name: "terminal prints a line per verdict",
-			live: true,
-			want: []string{"preflight: NG Setup ok\n", "[1/3]", "AUTH-1", "PASS", "[2/3]", "SEC-2", "FAIL", "[3/3]", "NAS-3", "SKIP"},
-		},
-		{
-			name: "non-terminal stays quiet",
-			live: false,
-			want: nil,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var w syncBuffer
-			p := newStreamProgress(&w, tc.live)
-			p.start()
-			for _, u := range updates {
-				p.update(u)
+		{"PASS", false}, {"INFO", false}, {"SKIP", false},
+		{"FAIL", true}, {"DEVIATION", true}, {"WARN", true}, {"BLOCKED", true}, {"CRASH", true}, {"ERROR", true},
+	} {
+		t.Run(tc.verdict, func(t *testing.T) {
+			lines := p.detailLines(&orbitv1.ConformanceResult{Id: "NGAP-NG-SETUP", Verdict: tc.verdict})
+			if got := len(lines) > 0; got != tc.want {
+				t.Fatalf("detail lines for %s: %q", tc.verdict, lines)
 			}
-			p.stop()
-			out := w.String()
-			if !tc.live {
-				if out != "" {
-					t.Fatalf("non-terminal progress must be silent, got:\n%q", out)
-				}
-				return
-			}
-			for _, want := range tc.want {
-				if !strings.Contains(out, want) {
-					t.Errorf("progress output lacks %q:\n%q", want, out)
-				}
-			}
-			// The preflight line once, however many updates carry it, and
-			// exactly three per-check lines (each newline-terminated); the
-			// final done/no-result update must not render as a fourth.
-			if n := strings.Count(out, "\n"); n != 4 || strings.Count(out, "preflight:") != 1 {
-				t.Errorf("want the preflight line and 3 per-check lines, got %d:\n%q", n, out)
+			if tc.want && plain(lines[len(lines)-1]) != "       details:   https://orbit.grewelltech.com/conformance/checks/ngap-ng-setup/" {
+				t.Errorf("without an outcome the link is the check's page: %q", lines)
 			}
 		})
 	}
 }
 
-// statusLine is the spinner text and is deterministic given the renderer's
-// counters, so its two forms (total known / unknown) can be asserted without
-// the ticker.
+// statusLine is the spinner text: the running check with its elapsed time,
+// and how long it can take when that is long; before any check, what the
+// run is doing.
 func TestStreamProgressStatusLine(t *testing.T) {
+	began := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
-		name  string
-		total uint32
-		count int
-		want  string
+		name      string
+		running   *runningCheck
+		preflight bool
+		want      string
+		notWant   string
 	}{
-		{name: "total known", total: 48, count: 12, want: "running… 12/48 checks"},
-		{name: "total unknown", total: 0, count: 5, want: "running… 5 checks done"},
+		{name: "before the preflight", want: "preparing the run"},
+		{name: "after the preflight", preflight: true, want: "starting"},
+		{name: "short check", running: &runningCheck{id: "NGAP-NG-SETUP", category: "NGAP", summary: "NG Setup", index: 4, total: 41, expected: 15 * time.Second, began: began},
+			want: "05/41: [ NGAP      ] NG Setup ...", notWant: "up to"},
+		{name: "long check", running: &runningCheck{id: "NAS-T3550-ACCEPT-RETRANSMIT", category: "NAS", summary: "s", index: 0, total: 2, expected: 145 * time.Second, began: began},
+			want: "12.0s of up to 2m25s"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := newStreamProgress(&syncBuffer{}, true)
-			p.total = tc.total
-			p.count = tc.count
-			if got := p.statusLine(); !strings.Contains(got, tc.want) {
+			p.now = func() time.Time { return began.Add(12 * time.Second) }
+			p.total = 41
+			p.running = tc.running
+			p.preflightShown = tc.preflight
+			got := plain(p.statusLine())
+			if !strings.Contains(got, tc.want) {
 				t.Errorf("statusLine() = %q, want it to contain %q", got, tc.want)
 			}
+			if tc.notWant != "" && strings.Contains(got, tc.notWant) {
+				t.Errorf("statusLine() = %q, must not contain %q", got, tc.notWant)
+			}
 		})
+	}
+}
+
+// A narrow terminal narrows the description column so the spinner line
+// does not wrap; it never goes below the minimum or above the maximum.
+func TestStreamProgressDescWidth(t *testing.T) {
+	for _, tc := range []struct{ cols, want int }{
+		{0, progressDescWidth}, {300, progressDescWidth}, {80, 80 - (2 + 4 + 3 + progressCategoryWidth + 5 + progressTailWidth)}, {40, progressDescMin},
+	} {
+		p := newStreamProgress(&syncBuffer{}, true)
+		p.width, p.total = tc.cols, 41
+		if got := p.descWidth(); got != tc.want {
+			t.Errorf("descWidth at %d columns = %d, want %d", tc.cols, got, tc.want)
+		}
+	}
+}
+
+// truncate cuts on runes and marks the cut; fmtElapsed shows milliseconds
+// under a second, tenths under a minute and whole seconds above.
+func TestProgressHelpers(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		n    int
+		want string
+	}{{"abcdef", 4, "abc…"}, {"abc", 3, "abc"}, {"héllo", 2, "h…"}, {"x", 0, "x"}} {
+		if got := truncate(tc.in, tc.n); got != tc.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		d    time.Duration
+		want string
+	}{{0, "0ms"}, {12 * time.Millisecond, "12ms"}, {1540 * time.Millisecond, "1.5s"}, {176 * time.Second, "2m56s"}} {
+		if got := fmtElapsed(tc.d); got != tc.want {
+			t.Errorf("fmtElapsed(%s) = %q, want %q", tc.d, got, tc.want)
+		}
+	}
+	if got := describe("NGAP-NG-SETUP", ""); got != "NG Setup" {
+		t.Errorf("describe falls back to the local summary: %q", got)
+	}
+	if got := describe("NO-SUCH-CHECK", ""); got != "NO-SUCH-CHECK" {
+		t.Errorf("describe falls back to the ID: %q", got)
 	}
 }
 
@@ -100,7 +187,7 @@ func TestStreamProgressStopClears(t *testing.T) {
 		var w syncBuffer
 		p := newStreamProgress(&w, true)
 		p.start()
-		p.update(&orbitv1.ConformanceUpdate{Total: 1, Result: &orbitv1.ConformanceResult{Id: "X-1", Verdict: "PASS"}})
+		p.update(&orbitv1.ConformanceUpdate{Total: 1, Started: &orbitv1.ConformanceCheckStart{Id: "X-1", Total: 1}})
 		p.stop()
 		if !strings.HasSuffix(w.String(), "\r\033[K") {
 			t.Errorf("stop must erase the spinner line, got tail:\n%q", w.String())
@@ -141,5 +228,40 @@ func TestStreamProgressSpinnerTicks(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if n := len(w.String()); n != settled {
 		t.Errorf("writes continued after stop(): %d -> %d bytes", settled, n)
+	}
+}
+
+// The spinner line never reaches the terminal's last column, whatever the
+// width, so it can be repainted in place; a long check's line keeps its
+// "of up to" while there is room.
+func TestStreamProgressStatusLineFits(t *testing.T) {
+	began := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	run := &runningCheck{id: "NAS-REGISTRATION-DURING-OTHER-RELEASE", category: "TS 23.501",
+		summary: "The NAS message container wins over the initial message", index: 40, total: 41, expected: 200 * time.Second, began: began}
+	for cols := 20; cols <= 200; cols++ {
+		p := newStreamProgress(&syncBuffer{}, true)
+		p.now = func() time.Time { return began.Add(123 * time.Second) }
+		p.width, p.total, p.running = cols, 41, run
+		got := escapes.ReplaceAllString(p.statusLine(), "")
+		if n := utf8.RuneCountInString(got); n >= cols {
+			t.Fatalf("at %d columns the spinner line is %d wide: %q", cols, n, got)
+		}
+		if cols >= 140 && !strings.Contains(got, "of up to 3m20s") {
+			t.Errorf("at %d columns the line lost its duration: %q", cols, got)
+		}
+	}
+}
+
+// Text from the server cannot carry control characters to the terminal.
+func TestStreamProgressStripsControls(t *testing.T) {
+	p := newStreamProgress(&syncBuffer{}, true)
+	r := &orbitv1.ConformanceResult{Id: "X-1", Verdict: "FAIL", Summary: "s\x1b[2Jum", Group: "N\x1bGAP / x",
+		Observed: "bad\x1b]0;title\x07 \u009b31m answer", Expected: "e\r\n"}
+	out := p.resultLine(r, 0) + strings.Join(p.detailLines(r), "")
+	if leftover := escapes.ReplaceAllString(out, ""); strings.ContainsAny(leftover, "\x1b\x07\r\n\u009b") {
+		t.Errorf("control characters reach the terminal: %q", leftover)
+	}
+	if !strings.Contains(out, "bad]0;title 31m answer") {
+		t.Errorf("printable text was lost: %q", fmt.Sprint(out))
 	}
 }

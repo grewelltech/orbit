@@ -436,3 +436,48 @@ func TestRunConformancePlan(t *testing.T) {
 		})
 	}
 }
+
+// A started update names the check about to run: it comes after the
+// previous check's result and before its own, with the check's position
+// and summary; every result carries its check's summary.
+func TestRunConformanceStreamsStartedChecks(t *testing.T) {
+	stream, err := newConformanceClient(t).RunConformance(context.Background(),
+		connect.NewRequest(&orbitv1.RunConformanceRequest{AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01",
+			PerTestSeconds: 2, Groups: []string{interfaceGroup}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, starts := 0, 0
+	var pending *orbitv1.ConformanceCheckStart
+	for stream.Receive() {
+		u := stream.Msg()
+		if st := u.GetStarted(); st != nil {
+			if u.GetResult() != nil {
+				t.Errorf("an update carries both a start and a result: %v", u)
+			}
+			if int(st.GetIndex()) != results || st.GetTotal() == 0 || st.GetSummary() != conformance.SummaryOf(st.GetId()) || st.GetGroup() == "" {
+				t.Errorf("start %v after %d results", st, results)
+			}
+			pending = st
+			starts++
+		}
+		if r := u.GetResult(); r != nil {
+			if pending != nil && pending.GetId() != r.GetId() {
+				t.Errorf("result %s while %s was started", r.GetId(), pending.GetId())
+			}
+			if r.GetSummary() == "" || r.GetSummary() != conformance.SummaryOf(r.GetId()) {
+				t.Errorf("result %s summary %q", r.GetId(), r.GetSummary())
+			}
+			pending = nil
+			results++
+		}
+	}
+	if err := stream.Err(); err != nil || results == 0 {
+		t.Fatalf("stream: %d results, %v", results, err)
+	}
+	if starts == 0 {
+		// Every check finished between two reads of the run, so no start
+		// was sent; the ordering above went unchecked.
+		t.Skipf("no started update in %d results", results)
+	}
+}
