@@ -1,10 +1,13 @@
 package gnb
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -498,4 +501,43 @@ func TestReassignedAMFIDSurvivesTheOldLaneClosing(t *testing.T) {
 	if err != nil || p.InitiatingMessage.Value.Present != ngapType.InitiatingMessagePresentHandoverRequest {
 		t.Fatalf("AMF-ID-only PDU for the second UE: %v, %v", p, err)
 	}
+}
+
+// A session's logger records each dropped PDU at debug level.
+func TestDroppedPDUReachesTheLogger(t *testing.T) {
+	tr := newScriptTr()
+	s := startedSession(tr, Config{Name: "g"})
+	defer func() { _ = s.Close() }()
+	var buf safeBuffer
+	s.SetLogger(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	tr.push(dlNAS(t, 5, 99, 'a')) // no lane for RAN 99
+	deadline := time.Now().Add(time.Second)
+	for s.Dropped() < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s.Dropped() != 1 {
+		t.Fatalf("Dropped = %d, want 1", s.Dropped())
+	}
+	if out := buf.String(); !strings.Contains(out, "dropped a downlink PDU") || !strings.Contains(out, "gnb=g") {
+		t.Errorf("logger output %q lacks the drop", out)
+	}
+}
+
+// safeBuffer is a bytes.Buffer safe for the read loop to write while the
+// test reads.
+type safeBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
 }

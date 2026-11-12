@@ -156,6 +156,9 @@ func newFleet(ctx context.Context, gnbs []GNBSpec, log *slog.Logger, dial n2Dial
 			f.Close()
 			return nil, fmt.Errorf("gNB %d NG Setup: %w", g.Config.ID, err)
 		}
+		if log != nil {
+			sess.SetLogger(log)
+		}
 		f.sessions = append(f.sessions, sess)
 		f.sources = append(f.sources, localAddrString(conn))
 	}
@@ -234,8 +237,13 @@ func (f *Fleet) gnbConfigFor(i int) gnb.Config {
 // Close tears down all associations.
 func (f *Fleet) Close() {
 	for _, s := range f.sessions {
-		if s != nil {
-			s.Close()
+		if s == nil {
+			continue
 		}
+		if n := s.Dropped(); n > 0 && f.log != nil {
+			f.log.Warn("fleet: downlink PDUs dropped on a gNB association (a UE's lane was full or no UE claimed them)",
+				"gnb", s.Config().Name, "dropped", n)
+		}
+		s.Close()
 	}
 }
