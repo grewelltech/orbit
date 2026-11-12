@@ -59,6 +59,12 @@ cosign-signed `checksums.txt`, and verifies the signature when `cosign` is
 installed. See <https://orbit.grewelltech.com/install/> for pinned versions and
 the full verification steps.
 
+A server that is already running keeps the binary it started with: after
+installing a new CLI over a running `orbit serve`, restart the server (or use
+`orbit.sh upgrade` below, which does). The installer names any `orbit` process
+still running the old binary, and the CLI warns when the server it talks to
+runs another version than itself.
+
 **CLI + server as a service** — the opinionated setup installs both and runs
 the server as a background service; one script does install, upgrade, and
 uninstall (needs `sudo`):

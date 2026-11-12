@@ -65,7 +65,10 @@ func New(version string, opts ...Option) *cobra.Command {
 		// Load --env-file(s) into the environment before anything resolves
 		// config, so a dotenv file feeds both the ${VAR} expansion in target
 		// and run files and the ORBIT_* env layer (ADR-0008 §3).
-		PersistentPreRunE: func(*cobra.Command, []string) error {
+		// The context carries the check that warns, once, when the API
+		// server runs another version than this binary (versioncheck.go).
+		PersistentPreRunE: func(c *cobra.Command, _ []string) error {
+			c.SetContext(withVersionCheck(c.Context(), version, c.ErrOrStderr()))
 			return loadEnvFiles(envFiles, os.LookupEnv, os.Setenv)
 		},
 	}

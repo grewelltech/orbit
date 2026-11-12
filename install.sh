@@ -226,6 +226,26 @@ else
 fi
 
 log "installed ${BIN} ${VERSION} to ${dest}"
+
+# A running orbit keeps executing the binary it started with, so an
+# `orbit serve` started before this install still serves the old version
+# until it is restarted. Name each one, and its systemd unit when it has one.
+# /proc/<pid>/cmdline and cgroup are world-readable, so this sees other
+# users' processes too.
+running_notes() {
+  [ -d /proc ] && have pgrep || return 0
+  for pid in $(pgrep -x "$BIN" 2>/dev/null); do
+    cmd=$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null) || continue
+    cg=$(head -n1 "/proc/${pid}/cgroup" 2>/dev/null)
+    unit=$(printf '%s\n' "$cg" | sed -n 's#.*/\([^/]*\.service\)$#\1#p')
+    case "$cg" in
+      */user@*) restart="systemctl --user restart ${unit}" ;;
+      *) restart="sudo systemctl restart ${unit}" ;;
+    esac
+    log "note: pid ${pid} (${cmd% }) is still running the binary it started with; restart it to run ${VERSION}${unit:+ (${restart})}"
+  done
+}
+running_notes
 case ":${PATH}:" in
   *":${BIN_DIR}:"*) ;;
   *) log "note: ${BIN_DIR} is not on your PATH; add it, e.g. export PATH=\"${BIN_DIR}:\$PATH\"" ;;
