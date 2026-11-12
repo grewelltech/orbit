@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -70,7 +71,8 @@ type streamProgress struct {
 	live  bool
 	every time.Duration
 	now   func() time.Time
-	// width is the terminal's width in columns, 0 when unknown.
+	// width is the terminal's width in columns when the run began, 0 when
+	// unknown; a terminal narrowed during the run can wrap the spinner line.
 	width int
 	re    *lipgloss.Renderer
 
@@ -222,7 +224,7 @@ func (p *streamProgress) prefix(index, total int, category string) string {
 		num += fmt.Sprintf("/%d", total)
 	}
 	faint := p.re.NewStyle().Foreground(lipgloss.Color("8"))
-	cat := p.re.NewStyle().Foreground(lipgloss.Color("10")).Render(padRight(truncate(category, progressCategoryWidth), progressCategoryWidth))
+	cat := p.re.NewStyle().Foreground(lipgloss.Color("10")).Render(padRight(truncate(printable(category), progressCategoryWidth), progressCategoryWidth))
 	return fmt.Sprintf("  %s: %s %s %s ", num, faint.Render("["), cat, faint.Render("]"))
 }
 
@@ -247,7 +249,7 @@ func (p *streamProgress) descWidth() int {
 // leader is text, truncated to width and linked to url when url is set,
 // followed by a dotted leader to width.
 func (p *streamProgress) leader(text, url string, width int) string {
-	text = truncate(text, width-2)
+	text = truncate(text, width-3)
 	dots := width - utf8.RuneCountInString(text) - 1
 	shown := text
 	if url != "" {
@@ -263,9 +265,9 @@ func describe(id, summary string) string {
 		summary = conformance.SummaryOf(id)
 	}
 	if summary == "" {
-		return id
+		summary = id
 	}
-	return summary
+	return printable(summary)
 }
 
 // resultLine is the final line of a completed check: its number, category,
@@ -276,7 +278,7 @@ func (p *streamProgress) resultLine(r *orbitv1.ConformanceResult, elapsed time.D
 	if run := p.running; run != nil && run.id == r.GetId() {
 		index, total = run.index, run.total
 	}
-	if elapsed > 0 {
+	if elapsed >= time.Millisecond {
 		took = " " + p.re.NewStyle().Foreground(lipgloss.Color("8")).Render(fmtElapsed(elapsed))
 	}
 	v := conformance.Verdict(r.GetVerdict())
@@ -285,7 +287,7 @@ func (p *streamProgress) resultLine(r *orbitv1.ConformanceResult, elapsed time.D
 	if tolerated {
 		verdict += p.re.NewStyle().Foreground(lipgloss.Color("8")).Render(" (expected)")
 	}
-	desc := p.leader(describe(r.GetId(), r.GetSummary()), conformance.DocURL(r.GetId()), p.descWidth())
+	desc := p.leader(describe(r.GetId(), r.GetSummary()), conformance.DocURL(printable(r.GetId())), p.descWidth())
 	return p.prefix(index, total, conformance.Category(r.GetGroup())) + desc + " " + verdict + took
 }
 
@@ -305,12 +307,23 @@ func (p *streamProgress) detailLines(r *orbitv1.ConformanceResult) []string {
 			out = append(out, pad+label.Render(k+":")+strings.Repeat(" ", 10-len(k))+v)
 		}
 	}
-	add("check", r.GetId())
-	add("expected", r.GetExpected())
-	add("observed", r.GetObserved())
-	url := conformance.OutcomeURL(r.GetId(), r.GetOutcome())
+	add("check", printable(r.GetId()))
+	add("expected", printable(r.GetExpected()))
+	add("observed", printable(r.GetObserved()))
+	url := printable(conformance.OutcomeURL(r.GetId(), r.GetOutcome()))
 	add("details", hyperlink(url, url))
 	return out
+}
+
+// printable is s without control characters, so text that comes from the
+// server (and, in Observed, from the core) cannot drive the terminal.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // preflightStatus renders a preflight step's status.
@@ -340,10 +353,27 @@ func (p *streamProgress) statusLine() string {
 	if run.expected > progressLongCheck {
 		elapsed += " of up to " + run.expected.String()
 	}
-	desc := p.leader(describe(run.id, run.summary), conformance.DocURL(run.id), p.descWidth())
-	return p.prefix(run.index, run.total, run.category) + desc + " " + frame + " " +
-		p.re.NewStyle().Foreground(lipgloss.Color("8")).Render(elapsed)
+	desc := p.leader(describe(run.id, run.summary), conformance.DocURL(printable(run.id)), p.descWidth())
+	line := p.prefix(run.index, run.total, run.category) + desc + " " + frame
+	if full := line + " " + p.re.NewStyle().Foreground(lipgloss.Color("8")).Render(elapsed); p.fits(full) {
+		return full
+	}
+	if p.fits(line) {
+		return line
+	}
+	// Too narrow for the columns: the spinner and the check's number alone.
+	return truncate(fmt.Sprintf("  %s %d/%d %s", frame, run.index+1, run.total, printable(run.id)), p.width-1)
 }
+
+// fits is whether line, without its escape sequences, fits the terminal
+// with a column to spare; any line fits a terminal of unknown width.
+func (p *streamProgress) fits(line string) bool {
+	return p.width == 0 || utf8.RuneCountInString(escapes.ReplaceAllString(line, "")) < p.width
+}
+
+// escapes matches the escape sequences the renderer writes: SGR colors,
+// erase-line and OSC 8 hyperlink brackets.
+var escapes = regexp.MustCompile("\x1b\\[[0-9;?]*[a-zA-Z]|\x1b\\]8;;[^\x1b]*\x1b\\\\")
 
 // paintLocked writes the spinner line in place (carriage return, clear to end
 // of line, no newline) and records that a line is on screen. Before any

@@ -1,21 +1,18 @@
 package cli
 
 import (
-	"regexp"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
 )
 
-// ansi matches the escape sequences the renderer writes: SGR colors, the
-// erase-line sequence and OSC 8 hyperlink brackets.
-var ansi = regexp.MustCompile("\x1b\\[[0-9;?]*[a-zA-Z]|\x1b\\]8;;[^\x1b]*\x1b\\\\")
-
 // plain is the renderer's output without escape sequences, with carriage
 // returns as line breaks, so each painted frame is its own line.
-func plain(s string) string { return strings.ReplaceAll(ansi.ReplaceAllString(s, ""), "\r", "\n") }
+func plain(s string) string { return strings.ReplaceAll(escapes.ReplaceAllString(s, ""), "\r", "\n") }
 
 // A live (terminal) renderer prints the preflight once, the checks'
 // heading once, and one line per check with its number, category, summary
@@ -231,5 +228,40 @@ func TestStreamProgressSpinnerTicks(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if n := len(w.String()); n != settled {
 		t.Errorf("writes continued after stop(): %d -> %d bytes", settled, n)
+	}
+}
+
+// The spinner line never reaches the terminal's last column, whatever the
+// width, so it can be repainted in place; a long check's line keeps its
+// "of up to" while there is room.
+func TestStreamProgressStatusLineFits(t *testing.T) {
+	began := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	run := &runningCheck{id: "NAS-REGISTRATION-DURING-OTHER-RELEASE", category: "TS 23.501",
+		summary: "The NAS message container wins over the initial message", index: 40, total: 41, expected: 200 * time.Second, began: began}
+	for cols := 20; cols <= 200; cols++ {
+		p := newStreamProgress(&syncBuffer{}, true)
+		p.now = func() time.Time { return began.Add(123 * time.Second) }
+		p.width, p.total, p.running = cols, 41, run
+		got := escapes.ReplaceAllString(p.statusLine(), "")
+		if n := utf8.RuneCountInString(got); n >= cols {
+			t.Fatalf("at %d columns the spinner line is %d wide: %q", cols, n, got)
+		}
+		if cols >= 140 && !strings.Contains(got, "of up to 3m20s") {
+			t.Errorf("at %d columns the line lost its duration: %q", cols, got)
+		}
+	}
+}
+
+// Text from the server cannot carry control characters to the terminal.
+func TestStreamProgressStripsControls(t *testing.T) {
+	p := newStreamProgress(&syncBuffer{}, true)
+	r := &orbitv1.ConformanceResult{Id: "X-1", Verdict: "FAIL", Summary: "s\x1b[2Jum", Group: "N\x1bGAP / x",
+		Observed: "bad\x1b]0;title\x07 \u009b31m answer", Expected: "e\r\n"}
+	out := p.resultLine(r, 0) + strings.Join(p.detailLines(r), "")
+	if leftover := escapes.ReplaceAllString(out, ""); strings.ContainsAny(leftover, "\x1b\x07\r\n\u009b") {
+		t.Errorf("control characters reach the terminal: %q", leftover)
+	}
+	if !strings.Contains(out, "bad]0;title 31m answer") {
+		t.Errorf("printable text was lost: %q", fmt.Sprint(out))
 	}
 }

@@ -475,5 +475,9 @@ func TestRunConformanceStreamsStartedChecks(t *testing.T) {
 	if err := stream.Err(); err != nil || results == 0 {
 		t.Fatalf("stream: %d results, %v", results, err)
 	}
-	t.Logf("%d results, %d started updates", results, starts)
+	if starts == 0 {
+		// Every check finished between two reads of the run, so no start
+		// was sent; the ordering above went unchecked.
+		t.Skipf("no started update in %d results", results)
+	}
 }

@@ -16,10 +16,7 @@ const summaryMaxLen = 58
 // Every check of the default run and of every pack has a summary that fits
 // the live view, and the table has no entry for a check that is gone.
 func TestEveryCheckHasSummary(t *testing.T) {
-	all := NewRegistry().Tests()
-	for _, p := range builtinPacks {
-		all = append(all, p.Checks...)
-	}
+	all := SiteTests()
 	ids := map[string]bool{}
 	for _, c := range all {
 		ids[c.ID()] = true
@@ -74,7 +71,7 @@ func TestCategory(t *testing.T) {
 // ./internal/conformance.
 func TestSitePagesAreCurrent(t *testing.T) {
 	dir := filepath.Join("..", "..", "site", "src", "content", "docs", "conformance", "checks")
-	pages := SitePages(NewRegistry().Tests())
+	pages := SitePages(SiteTests())
 	for name, want := range pages {
 		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -104,7 +101,7 @@ func TestSitePagesAreCurrent(t *testing.T) {
 // Every outcome a check can report has an anchor on its page, so the link
 // a run prints for it lands on it; the index links every page.
 func TestSitePagesAnchorEveryOutcome(t *testing.T) {
-	tests := NewRegistry().Tests()
+	tests := SiteTests()
 	pages := SitePages(tests)
 	for _, c := range tests {
 		page := pages[strings.ToLower(c.ID())+".md"]
@@ -118,6 +115,14 @@ func TestSitePagesAnchorEveryOutcome(t *testing.T) {
 		}
 		if !strings.Contains(pages["index.md"], "](./"+strings.ToLower(c.ID())+"/)") {
 			t.Errorf("index does not link %s", c.ID())
+		}
+	}
+}
+
+func TestSiteEscape(t *testing.T) {
+	for in, want := range map[string]string{"a | b": `a \| b`, "x<y>": "x&lt;y>", "plain": "plain"} {
+		if got := siteEscape(in); got != want {
+			t.Errorf("siteEscape(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

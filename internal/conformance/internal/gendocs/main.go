@@ -21,7 +21,7 @@ func main() {
 	if err := os.WriteFile(os.Args[1], []byte(conformance.ChecksMarkdown(tests)), 0o644); err != nil {
 		fail(err)
 	}
-	if err := writeSite(os.Args[2], conformance.SitePages(tests)); err != nil {
+	if err := writeSite(os.Args[2], conformance.SitePages(conformance.SiteTests())); err != nil {
 		fail(err)
 	}
 }
