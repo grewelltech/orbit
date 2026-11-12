@@ -337,7 +337,7 @@ Owns: release after switch-off. Needs: NG Setup, registration.
 | `no-ue-ngap-id` | FAIL | TS 38.413 8.3.3.2 (shall) | sent a UE CONTEXT RELEASE COMMAND carrying no UE NGAP ID |
 | `amf-id-only` | FAIL | TS 38.413 8.3.3.2 (shall) | named the UE by its AMF UE NGAP ID alone, with both IDs available |
 | `no-release` | FAIL | TS 23.502 4.2.2.3.2 step 8 (shall); absence within 5s (check bound; neither TS 23.502 nor TS 38.413 sets a timer for the release); reports release after switch-off as not completed | sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration |
-| `release-for-other-ids` | FAIL | TS 23.502 4.2.2.3.2 step 8 (shall); reports release after switch-off as not completed | released only another UE NGAP ID pair, not the deregistered UE's connection |
+| `release-for-other-ids` | FAIL | TS 23.502 4.2.2.3.2 step 8 (shall); reports release after switch-off as not completed | released another UE NGAP ID pair, not the deregistered UE's connection, when the wait for the release ended |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
 | `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |

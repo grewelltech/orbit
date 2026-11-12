@@ -256,7 +256,7 @@ var (
 		Bound:   &Bound{Wait: deregReleaseWait, Source: "check bound; neither TS 23.502 nor TS 38.413 sets a timer for the release"},
 		Summary: "sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration"}
 	switchOffReleaseOtherIDs = Outcome{ID: "release-for-other-ids", Verdict: Fail, Refs: []string{switchOffReleaseStepRef}, NotCompleted: ProcSwitchOffRelease,
-		Summary: "released only another UE NGAP ID pair, not the deregistered UE's connection"}
+		Summary: "released another UE NGAP ID pair, not the deregistered UE's connection, when the wait for the release ended"}
 )
 
 // Outcomes declares what the check can report.
