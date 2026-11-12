@@ -146,13 +146,14 @@ func (m *Manager) ReleasePDUSession(ctx context.Context, supi string, opts ...PD
 // releasePDUSession is ReleasePDUSession on a session whose procedure lock
 // the caller holds.
 func (s *Session) releasePDUSession(ctx context.Context, o pduReleaseOptions) (*PDUReleaseResult, error) {
-	if s.Result == nil || len(s.Result.Sessions) == 0 {
+	held := s.heldSessions()
+	if len(held) == 0 {
 		return nil, fmt.Errorf("UE %s has no PDU session", s.SUPI)
 	}
 	if s.sec == nil {
 		return nil, fmt.Errorf("no security context")
 	}
-	sr := s.Result.Sessions[0]
+	sr := held[0]
 	res := &PDUReleaseResult{PDUSessionID: sr.PDUSessionID, PTI: pduReleasePTI, DLTEID: sr.DLTEID}
 
 	// A downlink PDU already waiting predates the request and cannot

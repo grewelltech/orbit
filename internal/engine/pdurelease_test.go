@@ -201,6 +201,22 @@ func TestReleasePDUSessionRefusalsAndBounds(t *testing.T) {
 			t.Errorf("the mock got %d release requests", amf.PDUReleaseRequests())
 		}
 	})
+	t.Run("no PDU session left after a release", func(t *testing.T) {
+		const supi = "208930100000001"
+		m, amf, _, _ := releaseTestManager(t, supi)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if res, err := m.ReleasePDUSession(ctx, supi, WithPDUReleaseWait(2*time.Second), WithPDUReleaseSettle(50*time.Millisecond)); err != nil || res == nil || !res.NASCommand {
+			t.Fatalf("first release = %+v, %v", res, err)
+		}
+		sent := amf.PDUReleaseRequests()
+		if res, err := m.ReleasePDUSession(ctx, supi); err == nil || res != nil {
+			t.Errorf("second release = %+v, %v; want an error, the only session being released", res, err)
+		}
+		if got := amf.PDUReleaseRequests(); got != sent {
+			t.Errorf("the second release sent a request (%d, was %d)", got, sent)
+		}
+	})
 	t.Run("the caller's context ends the wait", func(t *testing.T) {
 		const supi = "208930100000001"
 		m, _, _, _ := releaseTestManager(t, supi, mockamf.WithPDUReleaseAnswer(mockamf.IgnorePDURelease))
