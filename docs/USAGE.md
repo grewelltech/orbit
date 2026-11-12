@@ -1773,7 +1773,7 @@ is deregistered at the end; the detail gives the measured gap and the first
 answer of each registration, and what an unanswered one left. It can take up
 to 176 s against a core that does not answer, and a few seconds otherwise.
 
-`NAS-REGISTRATION-DURING-OTHER-RELEASE`, also in the `nas` category, does the
+`NAS-REGISTRATION-DURING-OTHER-RELEASE`, in the same group, does the
 same with two subscribers and two gNBs: one UE registers on the check's own
 gNB, a second gNB (the check's handover-target gNB ID) completes NG Setup on an
 association of its own, and the first UE deregisters with a switch-off. When
