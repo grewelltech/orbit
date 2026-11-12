@@ -13,6 +13,11 @@ This downloads the release archive for your OS/architecture from GitHub Releases
 SHA-256 against the release's signed `checksums.txt`, and installs the `orbit` binary. Running it
 again **upgrades in place**. Linux `amd64` and `arm64` are published today.
 
+An `orbit serve` that is already running keeps the binary it started with, so after an upgrade
+restart it (`sudo systemctl restart orbit` for the service the host installer sets up). The
+installer names any `orbit` process still running the old binary, and the CLI warns when the
+server it talks to runs another version than itself.
+
 Prefer to read before you run? The script is served at a stable URL — inspect it first:
 
 ```sh

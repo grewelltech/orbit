@@ -175,8 +175,10 @@ func apiClient(base string) (*http.Client, connect.ClientOption) {
 	if err != nil {
 		u = &url.URL{Scheme: "http", Host: base}
 	}
-	return &http.Client{Transport: &apiTransport{base: base, origin: serverKey(base)}, CheckRedirect: refuseRedirect},
-		connect.WithInterceptors(secretsGuard{base: u})
+	h := &http.Client{Transport: &apiTransport{base: base, origin: serverKey(base)}, CheckRedirect: refuseRedirect}
+	guard := connect.WithInterceptors(secretsGuard{base: u})
+	return h, connect.WithInterceptors(secretsGuard{base: u},
+		versionInterceptor{base: base, h: h, opts: []connect.ClientOption{guard}})
 }
 
 // refuseRedirect is the API client's redirect policy: none. A Connect call

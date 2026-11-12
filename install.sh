@@ -226,6 +226,34 @@ else
 fi
 
 log "installed ${BIN} ${VERSION} to ${dest}"
+
+# A running orbit keeps executing the binary it started with, so an
+# `orbit serve` started before this install still serves the old version
+# until it is restarted. Name each one, and its systemd unit when it has one.
+# A process whose executable is readable counts only if it is the file this
+# install replaced (the link then ends in " (deleted)"); another user's
+# process cannot be read that way and is named as possibly stale.
+# /proc/<pid>/cmdline and cgroup are world-readable.
+running_notes() {
+  [ -d /proc ] && have pgrep || return 0
+  for pid in $(pgrep -x "$BIN" 2>/dev/null); do
+    maybe=""
+    if exe=$(readlink "/proc/${pid}/exe" 2>/dev/null); then
+      [ "$exe" = "${dest} (deleted)" ] || continue
+    else
+      maybe="may be "
+    fi
+    cmd=$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null) || continue
+    cg=$(head -n1 "/proc/${pid}/cgroup" 2>/dev/null) || continue
+    unit=$(printf '%s\n' "$cg" | sed -n 's#.*/\([^/]*\.service\)$#\1#p')
+    case "$cg" in
+      */user@*) restart="systemctl --user restart ${unit}" ;;
+      *) restart="sudo systemctl restart ${unit}" ;;
+    esac
+    log "note: pid ${pid} (${cmd% }) ${maybe}still running the binary it started with; restart it to run ${VERSION}${unit:+ (${restart})}"
+  done
+}
+running_notes
 case ":${PATH}:" in
   *":${BIN_DIR}:"*) ;;
   *) log "note: ${BIN_DIR} is not on your PATH; add it, e.g. export PATH=\"${BIN_DIR}:\$PATH\"" ;;
