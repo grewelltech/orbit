@@ -166,9 +166,10 @@ func TestUECtxReleaseCheckRegistrationFailure(t *testing.T) {
 	c.assertClosed(t, env)
 }
 
-// An error from the release request: the per-test timeout and a request
-// that could not be sent are ERROR; the association lost while waiting for
-// the command is the core's, DEVIATION.
+// An error from the release request: the per-test timeout, a request that
+// could not be sent and a command whose complete could not be sent are
+// ERROR, each saying which; the association lost while waiting for the
+// command is the core's, DEVIATION.
 func TestUECtxReleaseRequestFailed(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -176,16 +177,24 @@ func TestUECtxReleaseRequestFailed(t *testing.T) {
 		ctxErr  error
 		want    Verdict
 		outcome string
+		// observed, when set, is the result's Observed.
+		observed string
 	}{
 		{name: "per-test timeout", err: fmt.Errorf("await UEContextReleaseCommand: %w", context.DeadlineExceeded), ctxErr: context.DeadlineExceeded, want: Error, outcome: OutcomeError},
-		{name: "association lost", err: errors.New("await UEContextReleaseCommand: EOF"), want: Deviation, outcome: covers(ueCtxReleaseAssociationLost).ID},
-		{name: "not sent", err: errors.New("send UEContextReleaseRequest: broken pipe"), want: Error, outcome: OutcomeError},
+		{name: "association lost", err: fmt.Errorf("%w: await UEContextReleaseCommand: EOF", engine.ErrReleaseWaitLost), want: Deviation, outcome: covers(ueCtxReleaseAssociationLost).ID},
+		{name: "not sent", err: errors.New("send UEContextReleaseRequest: broken pipe"), want: Error, outcome: OutcomeError,
+			observed: "UE CONTEXT RELEASE REQUEST could not be sent"},
+		{name: "the complete not sent", err: fmt.Errorf("%w: broken pipe", engine.ErrReleaseCompleteNotSent), want: Error, outcome: OutcomeError,
+			observed: "UE CONTEXT RELEASE COMPLETE could not be sent"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r := releaseRequestFailed(Result{}, tc.err, tc.ctxErr)
 			if r.Verdict != tc.want || r.Outcome != tc.outcome || !strings.Contains(r.Detail, tc.err.Error()) {
 				t.Errorf("= %s %q (%s), want %s %q", r.Verdict, r.Outcome, r.Detail, tc.want, tc.outcome)
+			}
+			if tc.observed != "" && r.Observed != tc.observed {
+				t.Errorf("observed %q, want %q", r.Observed, tc.observed)
 			}
 		})
 	}

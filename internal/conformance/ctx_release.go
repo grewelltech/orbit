@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -140,16 +141,21 @@ func classifyUECtxRelease(rel engine.ContextReleaseResult, wait time.Duration, d
 // releaseRequestFailed is the result when the UE CONTEXT RELEASE REQUEST
 // could not be sent or its wait ended in an error: the per-test timeout
 // (ctxErr set) is ERROR; an association read failure while waiting for the
-// command is the core dropping the association (DEVIATION); a request
-// that could not be sent is ERROR.
+// command (engine.ErrReleaseWaitLost) is the core dropping the association
+// (DEVIATION); a command whose UE CONTEXT RELEASE COMPLETE could not be
+// sent (engine.ErrReleaseCompleteNotSent) and a request that could not be
+// sent are ERROR.
 func releaseRequestFailed(r Result, err, ctxErr error) Result {
 	switch {
 	case ctxErr != nil:
 		return r.Errored("timed out waiting for the UE CONTEXT RELEASE COMMAND",
 			fmt.Sprintf("%v; the per-test timeout expired during the wait; raise --per-test-timeout", err))
-	case strings.HasPrefix(err.Error(), "await UEContextReleaseCommand"):
+	case errors.Is(err, engine.ErrReleaseWaitLost):
 		return r.As(ueCtxReleaseAssociationLost, "association lost waiting for the UE CONTEXT RELEASE COMMAND",
 			ueCtxReleaseFailure+" Recorded: "+err.Error())
+	case errors.Is(err, engine.ErrReleaseCompleteNotSent):
+		return r.Errored("UE CONTEXT RELEASE COMPLETE could not be sent",
+			"the core sent the UE CONTEXT RELEASE COMMAND, which was not judged: "+err.Error())
 	}
 	return r.Errored("UE CONTEXT RELEASE REQUEST could not be sent", err.Error())
 }

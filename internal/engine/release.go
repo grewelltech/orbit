@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,6 +22,11 @@ type ContextReleaseResult struct {
 	Skipped []string
 }
 
+// ErrReleaseWaitLost marks a RequestContextRelease whose wait for the UE
+// CONTEXT RELEASE COMMAND ended because the UE's association could not be
+// read, before the caller's context or the wait ran out.
+var ErrReleaseWaitLost = errors.New("the association failed while the UE Context Release Command was awaited")
+
 // RequestContextRelease sends a UE CONTEXT RELEASE REQUEST for a registered
 // UE from its serving gNB (TS 38.413 8.3.2; cause radio network "release
 // due to NG-RAN generated reason") and waits up to wait for the AMF's UE
@@ -32,7 +38,10 @@ type ContextReleaseResult struct {
 // context. Deregister then sends the Deregistration Request as an initial
 // NAS message on a new NG connection.
 // A UE the AMF did not release is as it was. A missing command is not an
-// error; an error means the request could not be sent or waited for.
+// error; an error means the request could not be sent or waited for. A
+// wait that failed on the association wraps ErrReleaseWaitLost; a command
+// whose complete could not be sent is reported Released, with an error
+// wrapping ErrReleaseCompleteNotSent.
 func (m *Manager) RequestContextRelease(ctx context.Context, supi string, wait time.Duration) (ContextReleaseResult, error) {
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
@@ -71,7 +80,7 @@ func (m *Manager) RequestContextRelease(ctx context.Context, supi string, wait t
 			case wctx.Err() != nil:
 				return res, nil // no command within the wait
 			}
-			return res, fmt.Errorf("await UEContextReleaseCommand: %w", err)
+			return res, fmt.Errorf("%w: await UEContextReleaseCommand: %w", ErrReleaseWaitLost, err)
 		}
 		cmd, ok := gnb.ParseUEContextReleaseCommand(pdu)
 		if !ok {
