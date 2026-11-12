@@ -49,14 +49,14 @@ The issue for this check named TS 23.502 4.2.3.3 as an unverified candidate for 
 ## Tolerances
 
 - A UPF need not buffer: the packet that triggers paging may be lost, and its delivery after the Service Request is not asserted.
-- A UPF may de-duplicate its downlink data notifications per session for a while; one has been seen to hold off for 20 s. The check sends one trigger per run; leave at least 20 s before a re-run on the same subscriber.
-- The trigger follows the UE CONTEXT RELEASE COMPLETE by one second, so the core has told its UPF to buffer. Downlink that arrives earlier goes to the released tunnel and raises no notification.
+- Downlink that reaches the core before it has switched the session to buffering goes to the released tunnel and raises no notification, and how long that switch takes is the core's own business. The check therefore does not guess a settle time: it sends the first trigger as soon as the UE CONTEXT RELEASE COMPLETE is written and sends it again every 2 s until a PAGING naming the UE arrives or the 10 s window, counted from the first trigger, ends (five triggers at most). The interval is the check's own choice, not a timer of the specification: the requirement is that the network pages when downlink data is pending, whenever that data arrives, so every trigger is the stimulus. 2 s leaves the core time to act on one trigger before the next. The detail records how many triggers were sent and when, and the PAGING's delay from the first trigger and from the last one before it.
+- A UPF may de-duplicate its downlink data notifications per session for a while; one has been seen to hold off for 20 s. The re-sent triggers then raise nothing new, which changes no verdict; leave at least 20 s before a re-run on the same subscriber.
 - The AN release uses cause Radio Network "release due to NG-RAN generated reason", not "user inactivity".
 
 ## Verdict
 
 - **Class:** conformance, one shall (TS 24.501 5.6.2.2.1); the TS 23.502 and TS 38.413 clauses are descriptive.
-- **Stimulus:** a UE with a PDU session, released to CM-IDLE by an AN release; one second later a responder on N6 sends downlink data to its address, and the gNB's association is watched for NGAP PAGING for 10 s.
+- **Stimulus:** a UE with a PDU session, released to CM-IDLE by an AN release; a responder on N6 then sends downlink data to its address, again every 2 s, and the gNB's association is watched for NGAP PAGING for 10 s from the first.
 - **PASS** `paged` (5.6.2.2.1): an NGAP PAGING whose UE Paging Identity is the UE's 5G-S-TMSI.
 - **FAIL** `no-paging` (5.6.2.2.1): no PAGING within 10 s, a bound of the check.
 - **FAIL** `other-identity` (5.6.2.2.1): only PAGING naming other identities within 10 s; none paged the UE.

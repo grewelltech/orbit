@@ -21,11 +21,15 @@ func init() {
 // association whose UE Paging Identity is the UE's 5G-S-TMSI within
 // pagingWindow (TS 24.501 5.6.2.2.1).
 //
-// The trigger follows the release by pagingSettle, so the core has told
-// its UPF to buffer. One trigger is sent per run: a UPF de-duplicates its downlink data
-// notifications, so a second would show nothing new. The packet that
-// triggers paging may be lost by a UPF that does not buffer; its delivery
-// is not asserted. Whether the TAI List for Paging holds the serving TAI
+// The first trigger follows the UE CONTEXT RELEASE COMPLETE at once, and
+// the trigger is sent again every pagingRetrigger until a PAGING naming the
+// UE arrives or pagingWindow, counted from the first, ends: downlink that
+// reaches the core before it has switched the session to buffering raises
+// no notification, and the requirement holds whenever downlink is pending,
+// so a later trigger is as much the stimulus as the first. The detail
+// records how many triggers were sent and when. The packet that triggers
+// paging may be lost by a UPF that does not buffer; its delivery is not
+// asserted. Whether the TAI List for Paging holds the serving TAI
 // is recorded only: TS 38.413 does not say which TAIs it lists. After a
 // PAGING the UE answers with a Service Request so the core stops paging;
 // that answer is recorded only. The gNB association ending during the wait
@@ -34,18 +38,18 @@ func init() {
 // BLOCKED. A fresh NG Setup then confirms the core (confirmAlive): one that
 // no longer completes is CRASH.
 type pagingOnDLData struct {
-	// window overrides pagingWindow and settle pagingSettle (tests only).
-	window, settle time.Duration
+	// window overrides pagingWindow and every pagingRetrigger (tests
+	// only).
+	window, every time.Duration
 }
 
-// pagingWindow is how long the check waits for the PAGING after the
-// downlink trigger. pagingSettle is the pause between the UE CONTEXT
-// RELEASE COMPLETE and the trigger: the core needs it to tell the UPF to
-// buffer, and downlink that arrives before goes to the released tunnel
-// and raises no notification.
+// pagingWindow is how long the check waits for the PAGING after the first
+// downlink trigger. pagingRetrigger is the check's own interval between
+// triggers within it: five chances in the window, each well apart from the
+// last so the core has time to act on one before the next arrives.
 const (
-	pagingWindow = 10 * time.Second
-	pagingSettle = time.Second
+	pagingWindow    = 10 * time.Second
+	pagingRetrigger = 2 * time.Second
 )
 
 // pagingRef is the key of the shall the check's outcomes rest on.
@@ -56,10 +60,10 @@ var (
 	pagingSent = Outcome{ID: "paged", Verdict: Pass, Refs: []string{pagingRef},
 		Summary: "sent an NGAP PAGING naming the idle UE's 5G-S-TMSI after downlink data for it"}
 	pagingNone = Outcome{ID: "no-paging", Verdict: Fail, Refs: []string{pagingRef},
-		Bound:   &Bound{Wait: pagingWindow, Source: "check bound; TS 24.501 sets no network timer for the paging"},
+		Bound:   &Bound{Wait: pagingWindow, Source: "check bound, downlink re-sent every 2s; TS 24.501 sets no network timer for the paging"},
 		Summary: "sent no NGAP PAGING after downlink data for the idle UE"}
 	pagingOtherIdentity = Outcome{ID: "other-identity", Verdict: Fail, Refs: []string{pagingRef},
-		Bound:   &Bound{Wait: pagingWindow, Source: "check bound; TS 24.501 sets no network timer for the paging"},
+		Bound:   &Bound{Wait: pagingWindow, Source: "check bound, downlink re-sent every 2s; TS 24.501 sets no network timer for the paging"},
 		Summary: "sent NGAP PAGING only for other identities after downlink data for the idle UE"}
 	pagingAssociationLost = Outcome{ID: "association-lost", Verdict: Fail, Refs: []string{pagingRef},
 		Summary: "dropped the idle UE's gNB association instead of paging it after downlink data"}
@@ -103,16 +107,15 @@ func (c pagingOnDLData) wait() time.Duration {
 	return pagingWindow
 }
 
-func (c pagingOnDLData) pause() time.Duration {
-	if c.settle > 0 {
-		return c.settle
+func (c pagingOnDLData) interval() time.Duration {
+	if c.every > 0 {
+		return c.every
 	}
-	return pagingSettle
+	return pagingRetrigger
 }
 
 // Budget is the paging window plus the registration, the AN release, the
-// pause before the trigger, the answer to the paging, the liveness probe
-// and the deregistration.
+// answer to the paging, the liveness probe and the deregistration.
 func (c pagingOnDLData) Budget() time.Duration { return c.wait() + 20*time.Second }
 
 // pagingRefs is the reference line of the check's FAIL messages.
@@ -140,24 +143,37 @@ func (c pagingOnDLData) Run(ctx context.Context, env Env) Result {
 	if err != nil {
 		return r.SetupFailed("the AN release to CM-IDLE did not complete", during(ProcANRelease, err))
 	}
-	if !sleepCtx(ctx, c.pause()) {
-		return r.Errored("timed out before the downlink trigger", ctx.Err().Error())
-	}
-	if err := h.TriggerDownlink(ctx); err != nil {
-		return r.Errored("the downlink trigger failed", err.Error())
-	}
-	sent := time.Now()
-	seen, err := h.AwaitPaging(ctx, c.wait())
-	switch {
-	case err != nil && ctx.Err() != nil:
-		return r.Errored("the wait for PAGING was cut short", fmt.Sprintf("%v; raise --per-test-timeout to at least %s", err, c.Budget()))
-	case err != nil:
-		r = r.As(pagingAssociationLost, "association lost waiting for the PAGING",
-			fmt.Sprintf("the gNB association ended %v after the downlink trigger without a PAGING naming the UE's 5G-S-TMSI (%v). ", time.Since(sent).Round(time.Millisecond), err)+pagingRefs)
-		return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the downlink data for the idle UE")
-	}
 	o := pagingObservation{STMSI: idle.STMSI, Serving: gnb.TAI{MCC: env.GNB.MCC, MNC: env.GNB.MNC, TAC: env.GNB.TAC},
-		ReleaseCause: idle.Cause, Sent: sent, Seen: seen, MICO: reg.Registration.MICO}
+		ReleaseCause: idle.Cause, Every: c.interval(), MICO: reg.Registration.MICO}
+	var deadline time.Time
+	for {
+		if err := h.TriggerDownlink(ctx); err != nil {
+			detail := err.Error()
+			if len(o.Triggers) > 0 {
+				detail = joinDetail(detail, "after "+o.triggerLine())
+			}
+			return r.Errored("the downlink trigger failed", detail)
+		}
+		now := time.Now()
+		if o.Sent.IsZero() {
+			o.Sent, deadline = now, now.Add(c.wait())
+		}
+		o.Triggers = append(o.Triggers, now.Sub(o.Sent))
+		seen, err := h.AwaitPaging(ctx, min(c.interval(), time.Until(deadline)))
+		o.Seen = append(o.Seen, seen...)
+		switch {
+		case err != nil && ctx.Err() != nil:
+			return r.Errored("the wait for PAGING was cut short", fmt.Sprintf("%v; raise --per-test-timeout to at least %s", err, c.Budget()))
+		case err != nil:
+			r = r.As(pagingAssociationLost, "association lost waiting for the PAGING",
+				fmt.Sprintf("the gNB association ended %v after the first downlink trigger without a PAGING naming the UE's 5G-S-TMSI (%v); %s. ", time.Since(o.Sent).Round(time.Millisecond), err, o.triggerLine())+pagingRefs)
+			return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the downlink data for the idle UE")
+		}
+		if n := len(o.Seen); n > 0 && o.Seen[n-1].ForUE || !time.Now().Before(deadline) {
+			break
+		}
+	}
+	seen := o.Seen
 	if len(seen) > 0 && seen[len(seen)-1].ForUE {
 		// Answer the paging, so the core stops paging before the
 		// deregistration. Recorded only.
@@ -184,10 +200,13 @@ type pagingObservation struct {
 	Serving gnb.TAI
 	// ReleaseCause is the cause of the release that made the UE idle.
 	ReleaseCause string
-	// Sent is when the downlink trigger returned; Seen every PAGING read
-	// in the window after it.
-	Sent time.Time
-	Seen []engine.PagingEvent
+	// Sent is when the first downlink trigger returned, Triggers when each
+	// trigger returned counted from Sent, and Every the interval they were
+	// sent at; Seen is every PAGING read in the window after the first.
+	Sent     time.Time
+	Triggers []time.Duration
+	Every    time.Duration
+	Seen     []engine.PagingEvent
 	// MICO is true when the Registration Accept carried a MICO indication.
 	MICO bool
 	// Answer says how the Service Request after the PAGING went, "" when
@@ -195,7 +214,33 @@ type pagingObservation struct {
 	Answer string
 }
 
-// classifyPaging judges the window after the downlink trigger: a PAGING
+// triggerLine renders the triggers sent: "2 downlink triggers, one every
+// 2s from the first, at +0s, +2s".
+func (o pagingObservation) triggerLine() string {
+	at := make([]string, len(o.Triggers))
+	for i, d := range o.Triggers {
+		at[i] = "+" + d.Round(time.Millisecond).String()
+	}
+	n := fmt.Sprintf("%d downlink triggers", len(o.Triggers))
+	if len(o.Triggers) == 1 {
+		n = "1 downlink trigger"
+	}
+	return fmt.Sprintf("%s, one every %s from the first, at %s", n, o.Every, strings.Join(at, ", "))
+}
+
+// lastTriggerBefore is the offset of the last trigger sent before t.
+func (o pagingObservation) lastTriggerBefore(t time.Time) time.Duration {
+	var last time.Duration
+	for _, d := range o.Triggers {
+		if o.Sent.Add(d).After(t) {
+			break
+		}
+		last = d
+	}
+	return last
+}
+
+// classifyPaging judges the window after the first downlink trigger: a PAGING
 // whose UE Paging Identity is the UE's 5G-S-TMSI is PASS; none, or only
 // ones naming other identities, is FAIL. The detail records the identity,
 // the release cause, the delay, the TAI list (and whether it holds the
@@ -204,6 +249,9 @@ func classifyPaging(o pagingObservation, window time.Duration) (Outcome, string,
 	facts := []string{
 		"UE 5G-S-TMSI " + o.STMSI.String(),
 		"AN release cause " + o.ReleaseCause,
+	}
+	if len(o.Triggers) > 0 {
+		facts = append(facts, o.triggerLine())
 	}
 	if o.MICO {
 		facts = append(facts, "the Registration Accept carried a MICO indication the UE did not ask for")
@@ -236,7 +284,8 @@ func classifyPaging(o pagingObservation, window time.Duration) (Outcome, string,
 			held = "does not hold"
 		}
 		facts = append(facts,
-			fmt.Sprintf("PAGING %v after the downlink trigger", own.At.Sub(o.Sent).Round(time.Millisecond)),
+			fmt.Sprintf("PAGING %v after the first downlink trigger, %v after the last one before it", own.At.Sub(o.Sent).Round(time.Millisecond),
+				own.At.Sub(o.Sent.Add(o.lastTriggerBefore(own.At))).Round(time.Millisecond)),
 			fmt.Sprintf("TAI List for Paging [%s] %s the serving TAI %s/%s TAC %d (recorded only)", strings.Join(tais, "; "), held, o.Serving.MCC, o.Serving.MNC, o.Serving.TAC))
 		if o.Answer != "" {
 			facts = append(facts, o.Answer+" (recorded only)")
@@ -247,9 +296,9 @@ func classifyPaging(o pagingObservation, window time.Duration) (Outcome, string,
 	const cause = "Likely cause: UPF/SMF downlink data notification or AMF N1N2MessageTransfer paging path not implemented."
 	if len(others) > 0 {
 		return pagingOtherIdentity, "PAGING for another identity only",
-			fmt.Sprintf("no NGAP PAGING naming the UE's 5G-S-TMSI within %v of downlink data to a CM-IDLE UE: %d PAGING message(s) named another UE Paging Identity. ", window, len(others)) +
+			fmt.Sprintf("no NGAP PAGING naming the UE's 5G-S-TMSI within %v of downlink data to a CM-IDLE UE, re-sent every %v: %d PAGING message(s) named another UE Paging Identity. ", window, o.Every, len(others)) +
 				pagingRefs + " TS 38.413 9.3.3.18: the UE Paging Identity is the 5G-S-TMSI. Recorded: " + detail
 	}
 	return pagingNone, "no PAGING",
-		fmt.Sprintf("no NGAP PAGING within %v of downlink data to a CM-IDLE UE. ", window) + pagingRefs + " " + cause + " Recorded: " + detail
+		fmt.Sprintf("no NGAP PAGING within %v of downlink data to a CM-IDLE UE, re-sent every %v. ", window, o.Every) + pagingRefs + " " + cause + " Recorded: " + detail
 }

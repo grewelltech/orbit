@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,13 +45,13 @@ func TestClassifyPaging(t *testing.T) {
 	}{
 		{name: "paged in the serving TAI", seen: []engine.PagingEvent{ev(&own, true, serving)}, answer: "Service Request after the PAGING accepted, 1 session(s) reactivated",
 			want: pagingSent, wantObserved: "PAGING with the UE's 5G-S-TMSI",
-			wantDetail: []string{"PAGING 120ms after the downlink trigger", "TAI List for Paging [208/93 TAC 1] holds the serving TAI 208/93 TAC 1 (recorded only)", "accepted, 1 session(s) reactivated (recorded only)"}},
+			wantDetail: []string{"PAGING 120ms after the first downlink trigger, 20ms after the last one before it", "TAI List for Paging [208/93 TAC 1] holds the serving TAI 208/93 TAC 1 (recorded only)", "accepted, 1 session(s) reactivated (recorded only)"}},
 		{name: "paged without the serving TAI still passes", seen: []engine.PagingEvent{ev(&own, true, gnb.TAI{MCC: "208", MNC: "93", TAC: 9})},
 			want: pagingSent, wantDetail: []string{"does not hold the serving TAI"}},
 		{name: "paged after a PAGING for another UE", seen: []engine.PagingEvent{ev(&other, false, serving), ev(&own, true, serving)},
 			want: pagingSent, wantDetail: []string{"PAGING for other identities: " + other.String()}},
 		{name: "no paging", want: pagingNone, wantObserved: "no PAGING",
-			wantDetail: []string{"no NGAP PAGING within 10s of downlink data to a CM-IDLE UE. TS 24.501 5.6.2.2.1 (Rel-15 onward); TS 38.413 8.5.1.2 (Rel-15 onward); TS 23.502 4.2.3.3 step 4b (Rel-15 onward). Likely cause: UPF/SMF downlink data notification or AMF N1N2MessageTransfer paging path not implemented."}},
+			wantDetail: []string{"no NGAP PAGING within 10s of downlink data to a CM-IDLE UE, re-sent every 2s. TS 24.501 5.6.2.2.1 (Rel-15 onward); TS 38.413 8.5.1.2 (Rel-15 onward); TS 23.502 4.2.3.3 step 4b (Rel-15 onward). Likely cause: UPF/SMF downlink data notification or AMF N1N2MessageTransfer paging path not implemented."}},
 		{name: "another identity only", seen: []engine.PagingEvent{ev(&other, false, serving)}, want: pagingOtherIdentity, wantObserved: "PAGING for another identity only",
 			wantDetail: []string{"1 PAGING message(s) named another UE Paging Identity", "TS 38.413 9.3.3.18", other.String()}, notDetail: []string{"Likely cause"}},
 		{name: "a PAGING with no identity only", seen: []engine.PagingEvent{ev(nil, false, serving)}, want: pagingOtherIdentity, wantObserved: "PAGING for another identity only",
@@ -59,7 +60,8 @@ func TestClassifyPaging(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			o := pagingObservation{STMSI: own, Serving: serving, ReleaseCause: "nas/0", Sent: t0, Seen: tc.seen, MICO: tc.mico, Answer: tc.answer}
+			o := pagingObservation{STMSI: own, Serving: serving, ReleaseCause: "nas/0", Sent: t0, Triggers: []time.Duration{0, 100 * time.Millisecond},
+				Every: 2 * time.Second, Seen: tc.seen, MICO: tc.mico, Answer: tc.answer}
 			out, observed, detail := classifyPaging(o, 10*time.Second)
 			if out.ID != covers(tc.want).ID || out.Verdict != tc.want.Verdict {
 				t.Fatalf("outcome %s %s (%s; %s), want %s %s", out.ID, out.Verdict, observed, detail, tc.want.ID, tc.want.Verdict)
@@ -67,7 +69,7 @@ func TestClassifyPaging(t *testing.T) {
 			if tc.wantObserved != "" && observed != tc.wantObserved {
 				t.Errorf("observed %q, want %q", observed, tc.wantObserved)
 			}
-			for _, w := range append([]string{"UE 5G-S-TMSI " + own.String(), "AN release cause nas/0"}, tc.wantDetail...) {
+			for _, w := range append([]string{"UE 5G-S-TMSI " + own.String(), "AN release cause nas/0", "2 downlink triggers, one every 2s from the first, at +0s, +100ms"}, tc.wantDetail...) {
 				if !strings.Contains(detail, w) {
 					t.Errorf("detail %q lacks %q", detail, w)
 				}
@@ -149,6 +151,7 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 		amfOpts      []mockamf.Option
 		trigger      engine.DownlinkTrigger // nil: the stub UPF's N6
 		triggerFor   func(*mockamf.AMF) engine.DownlinkTrigger
+		loseFirst    bool // the first trigger's downlink never reaches the UPF
 		timeout      time.Duration
 		want         Verdict
 		wantObserved string
@@ -162,7 +165,7 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 			wantDetail: []string{"holds the serving TAI 208/93 TAC 1", "AN release cause nas/0", "Service Request after the PAGING accepted, 1 session(s) reactivated (recorded only)"}},
 		{name: "paging withheld", net24: testnet.ConformancePagingWithheld, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithNoPaging()},
 			want: Fail, wantObserved: "no PAGING", wantDeregs: 1,
-			wantDetail: []string{"no NGAP PAGING within 300ms of downlink data to a CM-IDLE UE. TS 24.501 5.6.2.2.1", "Likely cause: UPF/SMF downlink data notification or AMF N1N2MessageTransfer paging path not implemented."}},
+			wantDetail: []string{"no NGAP PAGING within 300ms of downlink data to a CM-IDLE UE, re-sent every 100ms. TS 24.501 5.6.2.2.1", "3 downlink triggers, one every 100ms from the first", "Likely cause: UPF/SMF downlink data notification or AMF N1N2MessageTransfer paging path not implemented."}},
 		{name: "another identity", net24: testnet.ConformancePagingWrongID, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithWrongPagingIdentity()},
 			want: Fail, wantObserved: "PAGING for another identity only", wantPagings: 1, wantDeregs: 1,
 			wantDetail: []string{"1 PAGING message(s) named another UE Paging Identity"}},
@@ -174,6 +177,10 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 		{name: "trigger fails", net24: testnet.ConformancePagingNoTrigger, amfOpts: []mockamf.Option{mockamf.WithGUTI()},
 			trigger: engine.DownlinkTriggerFunc(func(context.Context, netip.Addr) error { return errors.New("responder unreachable") }),
 			want:    Error, wantObserved: "the downlink trigger failed", wantDetail: []string{"responder unreachable"}, wantDeregs: 1},
+		{name: "first trigger lost", net24: testnet.ConformancePagingLateBuffer, amfOpts: []mockamf.Option{mockamf.WithGUTI()},
+			loseFirst: true,
+			want:      Pass, wantObserved: "PAGING with the UE's 5G-S-TMSI", wantPagings: 1, wantDeregs: 1,
+			wantDetail: []string{"2 downlink triggers, one every 100ms from the first"}},
 		{name: "association dropped", net24: testnet.ConformancePagingDropped, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithNoPaging()},
 			triggerFor: dropOnTrigger, want: Fail, wantObserved: "association lost waiting for the PAGING",
 			wantDetail: []string{"the gNB association ended", "without a PAGING naming the UE's 5G-S-TMSI", "TS 24.501 5.6.2.2.1"}},
@@ -193,13 +200,16 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 			if tc.triggerFor != nil {
 				env.Downlink = tc.triggerFor(c.amf)
 			}
+			if tc.loseFirst {
+				env.Downlink = loseFirstTrigger(env.Downlink)
+			}
 			timeout := tc.timeout
 			if timeout == 0 {
 				timeout = 20 * time.Second
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			r := pagingOnDLData{window: 300 * time.Millisecond, settle: 10 * time.Millisecond}.Run(ctx, env)
+			r := pagingOnDLData{window: 300 * time.Millisecond, every: 100 * time.Millisecond}.Run(ctx, env)
 			if r.Verdict != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", r.Verdict, r.Observed, r.Detail, tc.want)
 			}
@@ -227,6 +237,18 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 			c.assertClosed(t, env)
 		})
 	}
+}
+
+// loseFirstTrigger is next with its first call's downlink lost, as
+// downlink that reaches a core before it buffers for the idle UE is.
+func loseFirstTrigger(next engine.DownlinkTrigger) engine.DownlinkTrigger {
+	var calls atomic.Int32
+	return engine.DownlinkTriggerFunc(func(ctx context.Context, ip netip.Addr) error {
+		if calls.Add(1) == 1 {
+			return nil
+		}
+		return next.SendDownlink(ctx, ip)
+	})
 }
 
 // dropOnTrigger is a downlink trigger that makes the mock AMF drop every
@@ -269,7 +291,7 @@ func TestPagingCheckCutShort(t *testing.T) {
 	env.Downlink = n6Trigger(c.upf)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	r := pagingOnDLData{window: time.Minute, settle: 10 * time.Millisecond}.Run(ctx, env)
+	r := pagingOnDLData{window: time.Minute, every: 100 * time.Millisecond}.Run(ctx, env)
 	if r.Verdict != Error || r.Observed != "the wait for PAGING was cut short" || !strings.Contains(r.Detail, "--per-test-timeout") {
 		t.Errorf("verdict %s (%s; %s), want the cut-short ERROR", r.Verdict, r.Observed, r.Detail)
 	}
