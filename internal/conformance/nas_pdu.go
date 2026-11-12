@@ -209,11 +209,13 @@ type dnnOutcome struct {
 	// an Accept with no session set up on N2 within the answer wait.
 	acceptedNAS, noUserPlane bool
 	// regTimedOut is a registration that did not reach the request within
-	// its wait; setupErr an attach that failed before the request.
-	regTimedOut bool
-	setupErr    error
-	released    bool  // the core released the UE after the request
-	err         error // the harness failed, or the check's time ran out
+	// registerWait, the wait the probe ran with; setupErr an attach that
+	// failed before the request.
+	regTimedOut  bool
+	registerWait time.Duration
+	setupErr     error
+	released     bool  // the core released the UE after the request
+	err          error // the harness failed, or the check's time ran out
 }
 
 // probe registers the UE with a PDU session for stimulusDNN on the
@@ -319,7 +321,7 @@ func probeSession(ctx context.Context, h *UEHarness, pdu ue.PDUSessionParams, re
 	case err == nil:
 		o.err = errors.New("registration ended without the PDU session or an answer to it")
 	case regTimedOut:
-		o.regTimedOut = true
+		o.regTimedOut, o.registerWait = true, registerWait
 	case o.sent == nil && !errors.Is(err, engine.ErrAfterRegistration):
 		o.setupErr = err
 	case errors.Is(err, engine.ErrReleasedByCore):
@@ -494,7 +496,7 @@ func judgeDNN(o dnnOutcome, wait time.Duration) (Outcome, string, string) {
 		return classifiedError, "registration or harness failure", o.err.Error()
 	case o.regTimedOut:
 		return classifiedBlocked(ProcRegistration), "registration did not reach the PDU Session Establishment Request",
-			fmt.Sprintf("the UE did not register within %s, so the request was not sent", dnnRegisterWait)
+			fmt.Sprintf("the UE did not register within %s, so the request was not sent", o.registerWait)
 	case o.released:
 		return dnnReleased, "UE released after the request, with no answer",
 			unknownDNNFail("a UE Context Release Command and nothing else", "the AMF releases the UE when no SMF is selected")

@@ -112,8 +112,8 @@ func TestJudgeDNN(t *testing.T) {
 		{name: "undecodable", o: dnnOutcome{sent: sent, decodeErr: errors.New("nas plain decode"), decodeRaw: []byte{0x7e, 0x02}, decodeType: 0x54}, want: classifiedError,
 			wantObserved: "downlink NAS after the request did not decode (5GMM message type 0x54)", wantDetail: []string{"NAS 7e02", "codec covers about Rel-15/16"}},
 		{name: "accepted", o: dnnOutcome{sent: sent, registered: true, accepted: true}, want: dnnAccepted, wantObserved: acceptedObserved},
-		{name: "registration timed out", o: dnnOutcome{regTimedOut: true}, want: classifiedBlocked(ProcRegistration),
-			wantObserved: "registration did not reach the PDU Session Establishment Request"},
+		{name: "registration timed out", o: dnnOutcome{regTimedOut: true, registerWait: 3 * time.Second}, want: classifiedBlocked(ProcRegistration),
+			wantObserved: "registration did not reach the PDU Session Establishment Request", wantDetail: []string{"did not register within 3s"}},
 		{name: "released", o: dnnOutcome{sent: sent, released: true}, want: dnnReleased, wantObserved: "UE released after the request, with no answer",
 			wantDetail: []string{"a UE Context Release Command and nothing else"}},
 		{name: "silence", o: dnnOutcome{sent: sent, registered: true, noAnswer: true}, want: dnnNoAnswer, wantObserved: "nothing back within 10s",
@@ -251,6 +251,8 @@ func TestUnknownDNNCheckAgainstMock(t *testing.T) {
 			wantDetail:   []string{"deregistration failed (no 5G-GUTI", "the association was dropped"}},
 		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
 			wantObserved: "UE registration failed"},
+		{name: "registration unanswered", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Blocked,
+			wantObserved: "registration did not reach the PDU Session Establishment Request", wantDetail: []string{"did not register within 3s"}},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
