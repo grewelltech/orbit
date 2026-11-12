@@ -25,5 +25,6 @@ the amended ADR's body is never edited, only its status line), or
 | [0007](0007-orbit-hosted-loom-responder.md) | ORBIT hosts the loom responder; stock loomd stays supported | Accepted; amended by ADR-0009 (install and bootstrap) |
 | [0008](0008-targets-and-runs.md) | Targets (where) and one Run (what): client-held targets, layered config with provenance, leasing, TLS + token | Accepted |
 | [0009](0009-responder-join.md) | App-side setup by join: token one-liner, outbound registration, client-side SSH, doctor | Accepted |
-| [0010](0010-ui-cli-peer-redesign.md) | Home, test chooser and per-kind dashboards; a `Run.summary` outcome digest; a colour CLI conformance table | Accepted |
-| [0011](0011-conformance-verdicts-gates-and-grouping.md) | Conformance verdicts with one meaning each (WARN, BLOCKED, CRASH join; INFO-DIFF goes), two gate policies, checks grouped by specification titles, core-specific checks in opt-in packs | Proposed |
+| [0010](0010-ui-cli-peer-redesign.md) | Home, test chooser and per-kind dashboards; a `Run.summary` outcome digest; a colour CLI conformance table | Accepted; amended by ADR-0011 (conformance tally, category column) |
+| [0011](0011-conformance-verdicts-gates-and-grouping.md) | Conformance verdicts with one meaning each (WARN, BLOCKED, CRASH join; INFO-DIFF goes), two gate policies, checks grouped by specification titles, core-specific checks in opt-in packs | Accepted; amended by ADR-0012 |
+| [0012](0012-blocked-dependents-gate-under-every-policy.md) | A core fault that blocks other checks gates under every policy, counted once | Accepted |
