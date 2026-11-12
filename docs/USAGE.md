@@ -1961,7 +1961,7 @@ With `--wait` it follows the run to its end and exits with its result
 |---|---|---|---|
 | `load` | an attach storm: 100 UEs at 20/s | when the storm completes | attach success ≥ 0.99 |
 | `fleet` | 100 UEs attached at 10/s and kept, probing user-plane latency to the target's first responder's `data_ip` (idle, with a note, when the target has none) | after 5m | attach success ≥ 0.99 |
-| `conformance` | the conformance suite, every group | when the suite completes | no FAIL outside the expected list, no ERROR |
+| `conformance` | the conformance suite, every group | when the suite completes | no FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN outside the expected list (the default policy) |
 
 `--for 10m` runs for that long instead of the template's stop. `--gate` adds
 a gate, `--set` changes any field (`--set workloads[load].attach.count=1000`),

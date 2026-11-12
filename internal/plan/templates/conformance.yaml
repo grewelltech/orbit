@@ -1,5 +1,6 @@
 # The conformance suite against the target's core, every group, gated
-# on no FAIL outside the expected-failures list and no ERROR.
+# under the default policy: no FAIL, CRASH, BLOCKED, ERROR, DEVIATION or
+# WARN outside the expected-failures list.
 kind: run
 workloads:
   - name: conformance
