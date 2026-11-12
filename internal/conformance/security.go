@@ -873,14 +873,14 @@ func judgeDiscard(o discardOutcome, k discardStimulus, w uplinkWaits) (Outcome, 
 			released = "; then " + o.gone
 		}
 		return outs.actedOn, fmt.Sprintf("%s not answered, but acted on: %s", name, describeActions(o.acted, o.sent, name)),
-			fmt.Sprintf("%s The %s got no answer, but within %s of it the AMF acted on the UE's registration or PDU sessions (%s%s). The UE sent nothing else in that window and the core's messages for the earlier request had settled, so only the %s can have caused it: the message was processed, not discarded.",
-				k.failure(), name, w.quiet, describeActions(o.acted, o.sent, name), released, name) + notes
+			fmt.Sprintf("%s The %s got no answer, but within %s of it, the check's quiet window, the AMF acted on the UE's registration or PDU sessions (%s%s). The action is attributed to the %s by timing: it came inside that window, the UE sent nothing else in it, and the core's messages for the earlier request had settled before the %s was sent, so the message was processed, not discarded.",
+				k.failure(), name, w.quiet, describeActions(o.acted, o.sent, name), released, name, name) + notes
 	case o.gone != "":
 		return outs.released, fmt.Sprintf("UE released after the %s; discard not confirmed", name),
 			fmt.Sprintf("the %s got no answer, but %s, so the valid request after it could not be judged; a release is neither the discard the clause requires nor an answer to the message", name, o.gone) + notes
 	case o.followUp == "":
 		return outs.stateChanged, "valid request not answered after the " + name,
-			fmt.Sprintf("%s The %s itself got no answer, but a valid PDU Session Establishment Request sent after it got none within %s, while the one before it was answered (%s): the message changed the AMF's state.", k.failure(), name, w.answer, o.first) + notes
+			fmt.Sprintf("%s The %s itself got no answer, and a valid PDU Session Establishment Request sent after it got none within %s, where the same kind of request sent before it was answered (%s). That the message changed the AMF's state is inferred from this: the valid follow-up request, answered in the same way before the stimulus, went unanswered after it.", k.failure(), name, w.answer, o.first) + notes
 	}
 	return outs.discarded, fmt.Sprintf("%s discarded; a valid request after it was answered", name),
 		fmt.Sprintf("the request before it was answered (%s); nothing answered the %s within %s; the request after it was answered (%s)", o.first, name, w.quiet, o.followUp) + notes
@@ -1113,7 +1113,7 @@ func judgeCount(o countOutcome, w uplinkWaits) (Outcome, string, string) {
 			released = "; then " + o.gone
 		}
 		return countActedOn, "re-sent request not answered, but acted on: " + describeActions(o.acted, o.sent, resent),
-			fmt.Sprintf("%s A and B were answered (%s; %s); A sent again got no answer, but within %s of it the AMF acted on the UE's registration or PDU sessions (%s%s). The UE sent nothing else in that window and the core's messages for A and B had settled, so only the re-sent A can have caused it.",
+			fmt.Sprintf("%s A and B were answered (%s; %s); A sent again got no answer, but within %s of it, the check's quiet window, the AMF acted on the UE's registration or PDU sessions (%s%s). The action is attributed to the re-sent A by timing: it came inside that window, the UE sent nothing else in it, and the core's messages for A and B had settled before A was sent again.",
 				countActedFailure, o.answers[0], o.answers[1], w.quiet, describeActions(o.acted, o.sent, resent), released)
 	case o.third != "":
 		return countKept, "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
