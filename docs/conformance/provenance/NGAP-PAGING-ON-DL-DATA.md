@@ -60,6 +60,8 @@ The issue for this check named TS 23.502 4.2.3.3 as an unverified candidate for 
 - **PASS** `paged` (5.6.2.2.1): an NGAP PAGING whose UE Paging Identity is the UE's 5G-S-TMSI.
 - **FAIL** `no-paging` (5.6.2.2.1): no PAGING within 10 s, a bound of the check.
 - **FAIL** `other-identity` (5.6.2.2.1): only PAGING naming other identities within 10 s; none paged the UE.
+- **FAIL** `association-lost` (5.6.2.2.1): the gNB association ended during the wait without a PAGING for the UE: the core dropped the UE's path instead of paging it. A fresh NG Setup then decides between this and CRASH.
+- **CRASH:** after any judged outcome, a fresh NG Setup from another gNB ID does not complete.
 - **BLOCKED** (registration, PDU session establishment): the UE or its session was not set up. **BLOCKED** (AN release): the core did not release the UE to CM-IDLE (no UE CONTEXT RELEASE COMMAND, or no 5G-GUTI to page it by).
-- **ERROR:** the trigger failing, or the per-test timeout ending a wait.
+- **ERROR:** the trigger failing, or the per-test timeout ending a wait. A lost association is ERROR only when the per-test timeout had already ended the check.
 - **SKIP:** no UE or no N6 downlink trigger configured, or a target release older than Rel-15.

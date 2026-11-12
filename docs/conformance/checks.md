@@ -770,6 +770,7 @@ Needs: NG Setup, registration, PDU session establishment, AN release.
 | `paged` | PASS | TS 24.501 5.6.2.2.1 (shall) | sent an NGAP PAGING naming the idle UE's 5G-S-TMSI after downlink data for it |
 | `no-paging` | FAIL | TS 24.501 5.6.2.2.1 (shall); absence within 10s (check bound; TS 24.501 sets no network timer for the paging) | sent no NGAP PAGING after downlink data for the idle UE |
 | `other-identity` | FAIL | TS 24.501 5.6.2.2.1 (shall); absence within 10s (check bound; TS 24.501 sets no network timer for the paging) | sent NGAP PAGING only for other identities after downlink data for the idle UE |
+| `association-lost` | FAIL | TS 24.501 5.6.2.2.1 (shall) | dropped the idle UE's gNB association instead of paging it after downlink data |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `skip-no-downlink-responder` | SKIP | missing input | not judged: the run has no downlink responder |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |

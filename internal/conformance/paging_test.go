@@ -148,12 +148,14 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 		net24        int
 		amfOpts      []mockamf.Option
 		trigger      engine.DownlinkTrigger // nil: the stub UPF's N6
+		triggerFor   func(*mockamf.AMF) engine.DownlinkTrigger
 		timeout      time.Duration
 		want         Verdict
 		wantObserved string
 		wantDetail   []string
 		wantPagings  int64
 		wantDeregs   int64
+		dead         bool
 	}{
 		{name: "paging", net24: testnet.ConformancePagingPass, amfOpts: []mockamf.Option{mockamf.WithGUTI()},
 			want: Pass, wantObserved: "PAGING with the UE's 5G-S-TMSI", wantPagings: 1, wantDeregs: 1,
@@ -172,6 +174,12 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 		{name: "trigger fails", net24: testnet.ConformancePagingNoTrigger, amfOpts: []mockamf.Option{mockamf.WithGUTI()},
 			trigger: engine.DownlinkTriggerFunc(func(context.Context, netip.Addr) error { return errors.New("responder unreachable") }),
 			want:    Error, wantObserved: "the downlink trigger failed", wantDetail: []string{"responder unreachable"}, wantDeregs: 1},
+		{name: "association dropped", net24: testnet.ConformancePagingDropped, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithNoPaging()},
+			triggerFor: dropOnTrigger, want: Fail, wantObserved: "association lost waiting for the PAGING",
+			wantDetail: []string{"the gNB association ended", "without a PAGING naming the UE's 5G-S-TMSI", "TS 24.501 5.6.2.2.1"}},
+		{name: "core crashes", net24: testnet.ConformancePagingCrash, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithNoPaging()},
+			triggerFor: crashOnTrigger, want: Crash, wantObserved: ObservedAMFUnresponsive + " (association lost waiting for the PAGING)", dead: true,
+			wantDetail: []string{"the AMF stopped completing NG Setup after the downlink data for the idle UE"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,6 +189,9 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 			env.Downlink = tc.trigger
 			if env.Downlink == nil {
 				env.Downlink = n6Trigger(c.upf)
+			}
+			if tc.triggerFor != nil {
+				env.Downlink = tc.triggerFor(c.amf)
 			}
 			timeout := tc.timeout
 			if timeout == 0 {
@@ -209,8 +220,43 @@ func TestPagingCheckAgainstMockPair(t *testing.T) {
 			if got := c.amf.Deregistrations(); got != tc.wantDeregs {
 				t.Errorf("the mock AMF saw %d deregistrations, want %d", got, tc.wantDeregs)
 			}
+			if tc.dead {
+				waitNoAssociations(t, c)
+				return
+			}
 			c.assertClosed(t, env)
 		})
+	}
+}
+
+// dropOnTrigger is a downlink trigger that makes the mock AMF drop every
+// gNB association instead of sending downlink.
+func dropOnTrigger(amf *mockamf.AMF) engine.DownlinkTrigger {
+	return engine.DownlinkTriggerFunc(func(context.Context, netip.Addr) error {
+		amf.DropAssociations()
+		return nil
+	})
+}
+
+// crashOnTrigger is a downlink trigger that makes the mock AMF crash
+// instead of sending downlink.
+func crashOnTrigger(amf *mockamf.AMF) engine.DownlinkTrigger {
+	return engine.DownlinkTriggerFunc(func(context.Context, netip.Addr) error {
+		amf.Crash()
+		return nil
+	})
+}
+
+// waitNoAssociations waits for every gNB association to the mock pair to
+// close, for a core that crashed (assertClosed also wants it alive).
+func waitNoAssociations(t *testing.T, c *mockCore) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for c.front.Active() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := c.front.Active(); n != 0 {
+		t.Errorf("%d gNB associations still open after the check", n)
 	}
 }
 

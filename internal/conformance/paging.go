@@ -28,8 +28,11 @@ func init() {
 // is not asserted. Whether the TAI List for Paging holds the serving TAI
 // is recorded only: TS 38.413 does not say which TAIs it lists. After a
 // PAGING the UE answers with a Service Request so the core stops paging;
-// that answer is recorded only. A registration, PDU session or AN release
-// that does not complete first is BLOCKED.
+// that answer is recorded only. The gNB association ending during the wait
+// is FAIL: the core dropped the UE's path instead of paging it. A
+// registration, PDU session or AN release that does not complete first is
+// BLOCKED. A fresh NG Setup then confirms the core (confirmAlive): one that
+// no longer completes is CRASH.
 type pagingOnDLData struct {
 	// window overrides pagingWindow and settle pagingSettle (tests only).
 	window, settle time.Duration
@@ -58,11 +61,13 @@ var (
 	pagingOtherIdentity = Outcome{ID: "other-identity", Verdict: Fail, Refs: []string{pagingRef},
 		Bound:   &Bound{Wait: pagingWindow, Source: "check bound; TS 24.501 sets no network timer for the paging"},
 		Summary: "sent NGAP PAGING only for other identities after downlink data for the idle UE"}
+	pagingAssociationLost = Outcome{ID: "association-lost", Verdict: Fail, Refs: []string{pagingRef},
+		Summary: "dropped the idle UE's gNB association instead of paging it after downlink data"}
 )
 
 // Outcomes declares what the check can report.
 func (pagingOnDLData) Outcomes() []Outcome {
-	return []Outcome{pagingSent, pagingNone, pagingOtherIdentity}
+	return []Outcome{pagingSent, pagingNone, pagingOtherIdentity, pagingAssociationLost}
 }
 
 func (pagingOnDLData) ID() string { return "NGAP-PAGING-ON-DL-DATA" }
@@ -106,8 +111,8 @@ func (c pagingOnDLData) pause() time.Duration {
 }
 
 // Budget is the paging window plus the registration, the AN release, the
-// pause before the trigger, the answer to the paging and the
-// deregistration.
+// pause before the trigger, the answer to the paging, the liveness probe
+// and the deregistration.
 func (c pagingOnDLData) Budget() time.Duration { return c.wait() + 20*time.Second }
 
 // pagingRefs is the reference line of the check's FAIL messages.
@@ -143,8 +148,13 @@ func (c pagingOnDLData) Run(ctx context.Context, env Env) Result {
 	}
 	sent := time.Now()
 	seen, err := h.AwaitPaging(ctx, c.wait())
-	if err != nil {
+	switch {
+	case err != nil && ctx.Err() != nil:
 		return r.Errored("the wait for PAGING was cut short", fmt.Sprintf("%v; raise --per-test-timeout to at least %s", err, c.Budget()))
+	case err != nil:
+		r = r.As(pagingAssociationLost, "association lost waiting for the PAGING",
+			fmt.Sprintf("the gNB association ended %v after the downlink trigger without a PAGING naming the UE's 5G-S-TMSI (%v). ", time.Since(sent).Round(time.Millisecond), err)+pagingRefs)
+		return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the downlink data for the idle UE")
 	}
 	o := pagingObservation{STMSI: idle.STMSI, Serving: gnb.TAI{MCC: env.GNB.MCC, MNC: env.GNB.MNC, TAC: env.GNB.TAC},
 		ReleaseCause: idle.Cause, Sent: sent, Seen: seen, MICO: reg.Registration.MICO}
@@ -164,7 +174,7 @@ func (c pagingOnDLData) Run(ctx context.Context, env Env) Result {
 		}
 	}
 	out, observed, detail := classifyPaging(o, c.wait())
-	return r.As(out, observed, detail)
+	return confirmAlive(ctx, env, r.As(out, observed, detail), true, "the AMF stopped completing NG Setup after the downlink data for the idle UE")
 }
 
 // pagingObservation is what the check saw, for classifyPaging.
