@@ -2,6 +2,8 @@ package sctp
 
 import (
 	"bytes"
+	"fmt"
+	"net"
 	"sync"
 	"syscall"
 	"testing"
@@ -34,6 +36,11 @@ func sctpSocket(t testing.TB) *isctp.SCTPConn {
 	return isctp.NewSCTPConn(fd, nil)
 }
 
+// These tests hold the pinned SCTP library to two things ORBIT relies on:
+// SubscribeEvents sets exactly the events asked for, and the socket option
+// reads behind LocalAddr and Addr are correct, both when the goroutine's
+// stack moves around the call.
+
 // SubscribeEvents sets exactly the events asked for, each in its field of
 // struct sctp_event_subscribe, and clears the others.
 func TestSubscribeEvents(t *testing.T) {
@@ -52,10 +59,10 @@ func TestSubscribeEvents(t *testing.T) {
 			c := sctpSocket(t)
 			defer func() { _ = c.Close() }()
 			// Start from every event on, so a field left alone shows.
-			if err := SubscribeEvents(c, isctp.SCTP_EVENT_ALL); err != nil {
+			if err := c.SubscribeEvents(isctp.SCTP_EVENT_ALL); err != nil {
 				t.Fatal(err)
 			}
-			if err := SubscribeEvents(c, tc.flags); err != nil {
+			if err := c.SubscribeEvents(tc.flags); err != nil {
 				t.Fatal(err)
 			}
 			rc, err := c.SyscallConn()
@@ -79,7 +86,7 @@ func TestSubscribeEvents(t *testing.T) {
 func TestSubscribeEventsClosed(t *testing.T) {
 	c := sctpSocket(t)
 	_ = c.Close()
-	if err := SubscribeEvents(c, isctp.SCTP_EVENT_DATA_IO); err == nil {
+	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err == nil {
 		t.Error("SubscribeEvents on a closed connection succeeded")
 	}
 }
@@ -119,7 +126,7 @@ func TestSubscribeEventsAcrossStackMoves(t *testing.T) {
 			}
 			c := isctp.NewSCTPConn(fd, nil)
 			defer func() { _ = c.Close() }()
-			if err := SubscribeEvents(c, isctp.SCTP_EVENT_DATA_IO); err != nil {
+			if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
 				mu.Lock()
 				wrong = append(wrong, err.Error())
 				mu.Unlock()
@@ -135,5 +142,57 @@ func TestSubscribeEventsAcrossStackMoves(t *testing.T) {
 	wg.Wait()
 	if len(wrong) != 0 {
 		t.Errorf("%d of %d subscriptions wrong, first %q", len(wrong), n, wrong[0])
+	}
+}
+
+// Run from fresh goroutines at varying stack depths, so stacks grow and
+// move around the call, every address read returns the socket's address.
+func TestAddrAcrossStackMoves(t *testing.T) {
+	const n = 20000
+	_ = sctpSocket(t).Close() // skips without kernel SCTP
+	loopback := []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}
+	ln, err := isctp.ListenSCTP("sctp", &isctp.SCTPAddr{IPAddrs: loopback})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	lport := ln.Addr().(*isctp.SCTPAddr).Port
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		c, err := ln.Accept()
+		if err == nil {
+			defer func() { _ = c.Close() }()
+			_, _ = c.Read(make([]byte, 1)) // holds the association until the dialer closes
+		}
+	}()
+	// Runs after the dialer's and before the listener's deferred Close, so
+	// the server side has ended when the test returns.
+	defer func() { _ = ln.Close(); <-served }()
+	c, err := isctp.DialSCTP("sctp", nil, &isctp.SCTPAddr{IPAddrs: loopback, Port: lport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	cport := c.LocalAddr().(*isctp.SCTPAddr).Port
+	var mu sync.Mutex
+	var wrong []string
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go deepen(i%3000, func() {
+			defer wg.Done()
+			la, lok := ln.Addr().(*isctp.SCTPAddr)
+			ca, cok := c.LocalAddr().(*isctp.SCTPAddr)
+			if !lok || la.Port != lport || !cok || ca.Port != cport {
+				mu.Lock()
+				wrong = append(wrong, fmt.Sprintf("listener %v, conn %v", la, ca))
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if len(wrong) != 0 {
+		t.Errorf("%d of %d reads wrong (want listener port %d, conn port %d), first %s", len(wrong), n, lport, cport, wrong[0])
 	}
 }

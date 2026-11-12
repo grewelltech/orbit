@@ -2,7 +2,7 @@ module github.com/bgrewell/orbit
 
 go 1.26.3
 
-replace github.com/ishidawataru/sctp => github.com/bgrewell/sctp v0.0.0-20251114114122-19ddcbc6aae2
+replace github.com/ishidawataru/sctp => github.com/bgrewell/sctp v0.0.0-20261112152505-22b777f97611
 
 replace github.com/songgao/water => github.com/bgrewell/water v0.0.0-20200317203138-2b4b6d7c09d8
 
