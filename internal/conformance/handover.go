@@ -46,7 +46,9 @@ const pathSwitchAckFailure = "PATH SWITCH REQUEST ACKNOWLEDGE missing / per-sess
 // BLOCKED, naming this check, when the core does not acknowledge it. A
 // PATH SWITCH REQUEST FAILURE is the answer 8.4.4.3 requires when the 5GC
 // fails to switch, and no shall obliges it to switch: WARN, for
-// availability. No answer, or another one, violates one of the two shalls.
+// availability. No answer, or another one, violates one of the two shalls;
+// after either a fresh NG Setup confirms the core (confirmAlive), and one
+// that no longer completes is CRASH.
 type ngapPathSwitchAckTransfer struct {
 	// ackWait overrides pathSwitchAckWait and uplinkWindow
 	// pathSwitchUplinkWindow (tests only).
@@ -162,7 +164,9 @@ func (c ngapPathSwitchAckTransfer) Run(ctx context.Context, env Env) Result {
 		if res, local := xnHandoverFailed(ctx, r, err, c.waitAck()); local {
 			return res
 		}
-		return r.As(classifyPathSwitchUnacknowledged(err, c.waitAck()))
+		out, observed, detail := classifyPathSwitchUnacknowledged(err, c.waitAck())
+		return aliveUnlessAnswered(ctx, env, r.As(out, observed, detail), out.ID != pathSwitchRefused.ID,
+			"the AMF stopped completing NG Setup after the PATH SWITCH REQUEST")
 	}
 	if env.UE.Traffic != "" {
 		// Wait out the window, plus a moment for packets already read to
@@ -173,6 +177,18 @@ func (c ngapPathSwitchAckTransfer) Run(ctx context.Context, env Env) Result {
 		}
 	}
 	return r.As(classifyPathSwitchAck(h.Observe(), int64(h.pdu.PDUSessionID), c.window()))
+}
+
+// aliveUnlessAnswered runs the liveness probe (confirmAlive) on r when
+// unanswered is set: the core sent no answer to the stimulus, or another
+// one, or the association went. A core that no longer completes a fresh NG
+// Setup is then CRASH, not the graded outcome. A core that answered is
+// alive, and r is returned as it is.
+func aliveUnlessAnswered(ctx context.Context, env Env, r Result, unanswered bool, failDetail string) Result {
+	if !unanswered {
+		return r
+	}
+	return confirmAlive(ctx, env, r, true, failDetail)
 }
 
 // setUpMobility starts a mobility check: the UE harness, and the UE
@@ -408,7 +424,9 @@ const handoverCommandFailure = "HANDOVER COMMAND lacks the PDU Session Resource 
 // not prepare it. 8.4.1.2 and 8.4.1.3 describe the AMF's answer to a
 // HANDOVER REQUIRED without obliging it to prepare the handover, so a core
 // that refuses it (HANDOVER PREPARATION FAILURE) or sends no HANDOVER
-// COMMAND is WARN, for availability, never FAIL.
+// COMMAND is WARN, for availability, never FAIL. After no answer, another
+// one or a lost association a fresh NG Setup confirms the core
+// (confirmAlive): one that no longer completes is CRASH.
 type ngapHandoverCommandTransfer struct {
 	// wait overrides n2HandoverWait (tests only).
 	wait time.Duration
@@ -486,7 +504,9 @@ func (c ngapHandoverCommandTransfer) Run(ctx context.Context, env Env) Result {
 		if res, local := n2HandoverFailed(ctx, r, err, c.waitHandover()); local {
 			return res
 		}
-		return r.As(classifyHandoverNotCommanded(err, c.waitHandover()))
+		out, observed, detail := classifyHandoverNotCommanded(err, c.waitHandover())
+		return aliveUnlessAnswered(ctx, env, r.As(out, observed, detail), out.ID != handoverRefused.ID,
+			"the AMF stopped completing NG Setup after the HANDOVER REQUIRED")
 	}
 	r = r.As(classifyHandoverCommand(*cmd, int64(h.pdu.PDUSessionID)))
 	if err != nil {

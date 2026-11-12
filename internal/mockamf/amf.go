@@ -147,6 +147,9 @@ type AMF struct {
 	releaseDelay         time.Duration
 	staleRelease         time.Duration
 	ignoreReleaseRequest bool
+	// crashOnReleaseRequest is WithCrashOnUEContextReleaseRequest
+	// (drop.go).
+	crashOnReleaseRequest bool
 	// releaseRequests counts the UE CONTEXT RELEASE REQUESTs received,
 	// requestReleases (under mu) are the NGAP ID pairs of the releases sent
 	// to answer them, and idleDeregs counts the Deregistration Requests

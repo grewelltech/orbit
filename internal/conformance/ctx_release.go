@@ -34,6 +34,9 @@ const ueCtxReleaseFailure = "no UE CONTEXT RELEASE COMMAND after UE CONTEXT RELE
 // deregisters it with an initial NAS message, and says in the detail how
 // that went.
 //
+// Without the command, or with the association lost, a fresh NG Setup
+// confirms the core (confirmAlive): one that no longer completes is CRASH.
+//
 // The check owns the AN release: the checks that need a UE moved to
 // CM-IDLE report BLOCKED, naming it, when the core does not release.
 type ngapUECtxReleaseOnRequest struct {
@@ -100,15 +103,20 @@ func (c ngapUECtxReleaseOnRequest) Run(ctx context.Context, env Env) Result {
 	}
 	rel, err := h.RequestContextRelease(ctx, wait)
 	if err != nil {
-		return releaseRequestFailed(r, err, ctx.Err())
+		r = releaseRequestFailed(r, err, ctx.Err())
+		return aliveUnlessAnswered(ctx, env, r, r.Verdict != Error, ueCtxReleaseCrashed)
 	}
 	// Deregister here rather than in Close, so the detail says how the
 	// cleanup went; the check's own context may be nearly spent.
 	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	derr := h.Deregister(dctx)
 	cancel()
-	return r.As(classifyUECtxRelease(rel, wait, derr))
+	return aliveUnlessAnswered(ctx, env, r.As(classifyUECtxRelease(rel, wait, derr)), !rel.Released, ueCtxReleaseCrashed)
 }
+
+// ueCtxReleaseCrashed is the detail of a CRASH after the UE CONTEXT
+// RELEASE REQUEST.
+const ueCtxReleaseCrashed = "the AMF stopped completing NG Setup after the UE CONTEXT RELEASE REQUEST"
 
 // classifyUECtxRelease judges the answer to a UE CONTEXT RELEASE REQUEST:
 // PASS with the command, DEVIATION without it. The detail records the

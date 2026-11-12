@@ -46,6 +46,9 @@ const (
 	// REQUEST ACKNOWLEDGE, answers the source with a HANDOVER PREPARATION
 	// FAILURE.
 	FailHandoverAfterAcknowledge
+	// CrashOnHandoverRequired answers with nothing and crashes the mock
+	// (Crash).
+	CrashOnHandoverRequired
 )
 
 // WithHandoverAnswer makes the mock answer a HANDOVER REQUIRED as ans says.
@@ -170,8 +173,12 @@ func (a *AMF) onHandoverRequired(p *pipe, req *ngapType.HandoverRequired) error 
 			container = ie.Value.SourceToTargetTransparentContainer.Value
 		}
 	}
-	if a.handoverAnswer == IgnoreHandoverRequired {
+	switch a.handoverAnswer {
+	case IgnoreHandoverRequired:
 		return nil
+	case CrashOnHandoverRequired:
+		a.Crash()
+		return errCrashed
 	}
 
 	type setup struct {

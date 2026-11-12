@@ -57,6 +57,7 @@ The target gNB answers the AMF's Handover Request with the conformant Handover R
 - The three WARNs rest on no requirement: 8.4.1.2 and 8.4.1.3 describe the AMF's answer without obliging it to prepare the handover. The criterion is availability: the core cannot complete the procedure.
 - **Not completed:** the three WARNs report the N2 handover preparation as not completed, so the BLOCKED results of dependent checks in the same run are counted under this one.
 - **BLOCKED:** the core did not complete the UE's registration, its PDU session establishment, or gNB B's NG Setup. The result names the procedure and its owner check.
+- **CRASH:** after no HANDOVER COMMAND (no answer, another answer or a lost association, not a HANDOVER PREPARATION FAILURE), a fresh NG Setup from another gNB ID does not complete.
 - **ERROR:** the harness could not run the check (a fixed-port `--bind`), a setup step failed for a reason on this host, a message could not be built or sent (`handover could not be started`), or the per-test timeout expired before the 8 s wait ended.
 - **SKIP:** no UE configured, or a target release older than Rel-15. The "shall" dates from V15.5.0, and Rel-15 is treated as applicable.
 - **Detail:** the Handover List item by item (transfer length, whether it decodes), and whether the UE's session is listed. It never includes key material. A handover that fails after the command keeps the command's verdict and says so in the detail.

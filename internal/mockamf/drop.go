@@ -22,3 +22,9 @@ func (a *AMF) Crash() {
 	a.crashed.Store(true)
 	a.DropAssociations()
 }
+
+// WithCrashOnUEContextReleaseRequest makes the mock crash (Crash) on a UE
+// CONTEXT RELEASE REQUEST instead of answering it.
+func WithCrashOnUEContextReleaseRequest() Option {
+	return func(a *AMF) { a.crashOnReleaseRequest = true }
+}

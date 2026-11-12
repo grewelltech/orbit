@@ -189,6 +189,7 @@ func TestServiceCheckAgainstMockPair(t *testing.T) {
 		wantRequests int64
 		wantDeregs   int64
 		wantOnNewDL  bool // the stub UPF sent a G-PDU to a tunnel other than the registration's
+		dead         bool
 	}{
 		{name: "reactivated", net24: testnet.ConformanceServicePass, amfOpts: []mockamf.Option{mockamf.WithGUTI()},
 			want: Pass, wantObserved: "Service Accept and downlink traffic on the reactivated N3 tunnel", wantRequests: 1, wantDeregs: 1, wantOnNewDL: true,
@@ -208,6 +209,9 @@ func TestServiceCheckAgainstMockPair(t *testing.T) {
 		{name: "unanswered", net24: testnet.ConformanceServiceIgnored, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithServiceAnswer(mockamf.ServiceIgnore, 0)},
 			want: Fail, wantObserved: "no answer to the Service Request", wantRequests: 1, wantDeregs: 1,
 			wantDetail: []string{"Service Request did not re-establish the PDU session user plane.", "neither Service Accept nor Service Reject within 600ms"}},
+		{name: "core crashes at the Service Request", net24: testnet.ConformanceServiceCrash, amfOpts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithServiceAnswer(mockamf.ServiceCrash, 0)},
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (association lost before an answer to the Service Request)", dead: true,
+			wantDetail: []string{"the AMF stopped completing NG Setup after the Service Request"}},
 		{name: "no traffic before the release", net24: testnet.ConformanceServiceNoTraffic, amfOpts: []mockamf.Option{mockamf.WithGUTI()},
 			trigger: func(*testing.T, *mockupf.UPF) engine.DownlinkTrigger { return silent },
 			want:    Error, wantObserved: "no downlink traffic reached the UE before the release", wantDeregs: 1,
@@ -272,6 +276,10 @@ func TestServiceCheckAgainstMockPair(t *testing.T) {
 			}
 			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
 				t.Error("detail carries key material")
+			}
+			if tc.dead {
+				waitNoAssociations(t, c)
+				return
 			}
 			if got := c.amf.ServiceRequests(); got != tc.wantRequests {
 				t.Errorf("the mock AMF verified %d Service Requests, want %d", got, tc.wantRequests)

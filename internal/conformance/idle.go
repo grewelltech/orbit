@@ -32,8 +32,10 @@ func init() {
 // The check owns the Service Request: an answer that is neither a Service
 // Accept nor a Service Reject is FAIL (5.6.1.4.1 or 5.6.1.5 obliges one of
 // them), and a Service Reject, which 5.6.1.5 lets a core that cannot accept
-// the request send, is WARN for availability. A registration, PDU session
-// or AN release that does not complete first is BLOCKED.
+// the request send, is WARN for availability. After no answer or a lost
+// association a fresh NG Setup confirms the core (confirmAlive): one that
+// no longer completes is CRASH. A registration, PDU session or AN release
+// that does not complete first is BLOCKED.
 type serviceRequestReactivates struct {
 	// Overrides of serviceTrafficWindow, serviceQuietGap, serviceSettle,
 	// serviceAnswerWindow and serviceUserPlaneWait (tests only).
@@ -129,8 +131,8 @@ func (c serviceRequestReactivates) userPlaneWait() time.Duration {
 
 // Budget is the three traffic waits (before the release, for that traffic
 // to stop, and after the Service Request), the pause, the answer and
-// user-plane waits, plus the registration, the AN release and the
-// deregistration.
+// user-plane waits, plus the registration, the AN release, the liveness
+// probe and the deregistration.
 func (c serviceRequestReactivates) Budget() time.Duration {
 	return 3*c.trafficWait() + c.pause() + c.answerWait() + c.userPlaneWait() + 15*time.Second
 }
@@ -221,7 +223,8 @@ func (c serviceRequestReactivates) Run(ctx context.Context, env Env) Result {
 		}
 	}
 	out, observed, detail := classifyService(o)
-	return r.As(out, observed, detail)
+	return aliveUnlessAnswered(ctx, env, r.As(out, observed, detail), out.ID == serviceUnanswered.ID || out.ID == serviceAssociationLost.ID,
+		"the AMF stopped completing NG Setup after the Service Request")
 }
 
 // serviceObservation is what the check saw, for classifyService.

@@ -67,6 +67,7 @@ With `--traffic` (a UDP echo peer on the data network) the UE sends to the peer 
 - **WARN (availability)** `uplink-not-answered`: the echo peer answered before the handover and no echo arrived between 1 s and 2 s after the Acknowledge. Without UL NG-U UP TNL Information the uplink endpoint is unchanged; with it the uplink goes to the endpoint it names. Either way the user plane the Acknowledge reports as switched is not carrying the flow, and no shall obliges it to: the user data is lost.
 - **Not completed:** `refused`, `unanswered` and `other-answer` report the Xn path switch as not completed, so the BLOCKED results of dependent checks in the same run are counted under this one.
 - **BLOCKED:** the core did not complete the UE's registration, its PDU session establishment, or gNB B's NG Setup. The result names the procedure and its owner check.
+- **CRASH:** after no answer, another answer or a lost association, a fresh NG Setup from another gNB ID does not complete.
 - **ERROR:** the harness could not run the check (a fixed-port `--bind`), a setup step failed for a reason on this host, the PATH SWITCH REQUEST could not be built or sent, or the per-test timeout expired before the 5 s wait or inside the uplink window.
 - **SKIP:** no UE configured, or a target release older than Rel-15.
 - **Detail:** the Switched List item by item (transfer length, whether it decodes, whether UL NG-U UP TNL Information is present) and the echo counts. It never includes key material.

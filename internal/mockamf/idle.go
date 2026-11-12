@@ -46,6 +46,8 @@ const (
 	ServiceReject
 	// ServiceIgnore leaves the request unanswered.
 	ServiceIgnore
+	// ServiceCrash answers with nothing and crashes the mock (Crash).
+	ServiceCrash
 )
 
 // WithNoPaging makes the mock keep a CM-IDLE UE's downlink data
@@ -259,6 +261,9 @@ func (a *AMF) onServiceRequest(p *pipe, st *ueState, req *nasMessage.ServiceRequ
 	switch a.serviceAnswer {
 	case ServiceIgnore:
 		return nil
+	case ServiceCrash:
+		a.Crash()
+		return errCrashed
 	case ServiceReject:
 		rej, err := st.encodeSecure(buildServiceReject(a.serviceCause), nas.SecHdrIntegrityCiphered)
 		if err != nil {

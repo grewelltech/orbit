@@ -198,6 +198,8 @@ const (
 
 	ConformanceEndMarkerPSRefused = 15 // TestEndMarkerCheckPathSwitchNotAcknowledged/refused
 	ConformanceEndMarkerPSIgnored = 16 // TestEndMarkerCheckPathSwitchNotAcknowledged/unanswered
+	ConformancePSAckCrash         = 17 // TestPathSwitchAckCheckAgainstMockPair/core_crashes_at_the_path_switch
+	ConformanceHOCmdCrash         = 18 // TestHandoverCommandCheckAgainstMockPair/core_crashes_at_the_handover_required
 )
 
 // internal/conformance: the declared outcomes of the NAS registration
@@ -212,6 +214,8 @@ const (
 	ConformancePagingLateBuffer  = 33 // TestPagingCheckAgainstMockPair/first_trigger_lost
 	ConformancePDUReleaseDropped = 34 // TestPDUReleaseCheckAgainstMockPair/association_dropped
 	ConformancePDUReleaseCrash   = 35 // TestPDUReleaseCheckAgainstMockPair/core_crashes
+	ConformanceServiceCrash      = 36 // TestServiceCheckAgainstMockPair/core_crashes_at_the_Service_Request
+	ConformanceRelOnReqCrash     = 37 // TestUECtxReleaseCheckAgainstMock/core_crashes_at_the_request
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

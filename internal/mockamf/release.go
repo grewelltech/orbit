@@ -192,10 +192,15 @@ func releaseCompleteIDs(c *ngapType.UEContextReleaseComplete) [2]int64 {
 
 // onUEContextReleaseRequest answers a UE CONTEXT RELEASE REQUEST with a UE
 // CONTEXT RELEASE COMMAND, cause NAS normal-release (TS 38.413 8.3.2),
-// unless WithIgnoreUEContextReleaseRequest. A request for a UE the
+// unless WithIgnoreUEContextReleaseRequest (WithCrashOnUEContextReleaseRequest
+// crashes the mock instead). A request for a UE the
 // association never registered is ignored.
 func (a *AMF) onUEContextReleaseRequest(p *pipe, st *ueState) error {
 	a.releaseRequests.Add(1)
+	if a.crashOnReleaseRequest {
+		a.Crash()
+		return errCrashed
+	}
 	if a.ignoreReleaseRequest || st.amfID == 0 {
 		return nil
 	}

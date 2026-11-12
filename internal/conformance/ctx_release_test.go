@@ -102,12 +102,16 @@ func TestUECtxReleaseCheckAgainstMock(t *testing.T) {
 		wantObserved string
 		wantDetail   []string
 		deregs, idle int64
+		dead         bool
 	}{
 		{name: "command", net24: testnet.ConformanceRelOnReq, opts: []mockamf.Option{mockamf.WithGUTI()}, want: Pass, deregs: 1, idle: 1,
 			wantDetail: []string{"the command's cause is nas(", "cleanup: the UE was deregistered with an initial NAS message"}},
 		{name: "command withheld", net24: testnet.ConformanceRelIgnored, opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithIgnoreUEContextReleaseRequest()},
 			want: Deviation, deregs: 1, wantObserved: "no UE CONTEXT RELEASE COMMAND within 400ms (absence inferred within this bound)",
 			wantDetail: []string{ueCtxReleaseFailure, "cleanup: the UE was deregistered over its NG connection", "does not follow TS 38.413 8.3.2.2 (should)"}},
+		{name: "core crashes at the request", net24: testnet.ConformanceRelOnReqCrash, opts: []mockamf.Option{mockamf.WithGUTI(), mockamf.WithCrashOnUEContextReleaseRequest()},
+			want: Crash, dead: true, wantObserved: ObservedAMFUnresponsive + " (association lost waiting for the UE CONTEXT RELEASE COMMAND)",
+			wantDetail: []string{ueCtxReleaseCrashed}},
 		{name: "command, no 5G-GUTI", net24: testnet.ConformanceRelNoGUTI, want: Pass,
 			wantDetail: []string{"cleanup: the UE was not deregistered with an initial NAS message", "no 5G-GUTI"}},
 	}
@@ -137,6 +141,10 @@ func TestUECtxReleaseCheckAgainstMock(t *testing.T) {
 			}
 			if got := c.amf.ReleaseRequests(); got != 1 {
 				t.Errorf("mock AMF saw %d UE Context Release Requests, want 1", got)
+			}
+			if tc.dead {
+				waitNoAssociations(t, c)
+				return
 			}
 			if got, idle := c.amf.Deregistrations(), c.amf.IdleDeregistrations(); got != tc.deregs || idle != tc.idle {
 				t.Errorf("mock AMF saw %d deregistrations, %d in an Initial UE Message; want %d and %d", got, idle, tc.deregs, tc.idle)

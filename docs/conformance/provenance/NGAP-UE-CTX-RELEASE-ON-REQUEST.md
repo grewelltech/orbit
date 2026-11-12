@@ -31,6 +31,7 @@ A UE whose context was released is still registered in the core, with no NG conn
 - **DEVIATION** `association-lost` (8.3.2.2): the association was lost while the check waited for the command.
 - **Not completed:** `no-release-command` and `association-lost` report the AN release as not completed, so the BLOCKED results of dependent checks in the same run are counted under this one.
 - **BLOCKED** `blocked-registration`: the core did not complete the UE's registration (`NAS-INITIAL-REGISTRATION` owns whether it completes); `blocked-ng-setup`: nor the NG Setup before it.
+- **CRASH:** after no command or a lost association, a fresh NG Setup from another gNB ID does not complete.
 - **ERROR:** the harness could not be set up, the request could not be sent, or the per-test timeout expired during the wait.
 - **SKIP:** no UE configured (`skip-no-ue`), or a target release older than Rel-15.
 - **Detail:** the command's cause, other PDUs read while waiting (an Error Indication, for example), and how the cleanup went. It never includes key material.

@@ -57,5 +57,6 @@ Not verified: TS 38.413 was not read for this check, so the NGAP messages that c
 - **WARN (availability)** `rejected`: a Service Reject; see 5.6.1.5 above.
 - **Not completed:** `unanswered`, `association-lost`, `rejected` and `released-after-accept` report the Service Request as not completed, so the BLOCKED results of dependent checks in the same run are counted under this one.
 - **BLOCKED** (registration, PDU session establishment): the UE or its session was not set up. **BLOCKED** (AN release): the core did not release the UE to CM-IDLE (no UE CONTEXT RELEASE COMMAND, or no 5G-GUTI to page it by).
+- **CRASH:** after no answer or a lost association, a fresh NG Setup from another gNB ID does not complete.
 - **ERROR:** no downlink reaching the UE before the release, that downlink not stopping, the trigger failing, the Service Request not sent, or the per-test timeout ending a wait.
 - **SKIP:** no UE or no N6 downlink trigger configured, or a target release older than Rel-15.

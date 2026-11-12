@@ -218,6 +218,7 @@ func TestPathSwitchAckCheckAgainstMockPair(t *testing.T) {
 		wantObserved string
 		wantDetail   []string
 		switches     int
+		dead         bool
 	}{
 		{name: "acknowledged, no traffic", net24: testnet.ConformancePSAckPlain, want: Pass, switches: 1,
 			wantObserved: "Acknowledge with a transfer for the switched PDU session; UL NG-U UP TNL Information absent, uplink not probed",
@@ -246,6 +247,9 @@ func TestPathSwitchAckCheckAgainstMockPair(t *testing.T) {
 		{name: "path switch request unanswered", net24: testnet.ConformancePSAckIgnored, answer: mockamf.IgnorePathSwitch, want: Fail,
 			wantObserved: "no PATH SWITCH REQUEST ACKNOWLEDGE",
 			wantDetail:   []string{pathSwitchAckFailure, "within 1s of starting the handover", "await PathSwitch response"}},
+		{name: "core crashes at the path switch", net24: testnet.ConformancePSAckCrash, answer: mockamf.CrashOnPathSwitch, want: Crash, dead: true,
+			wantObserved: ObservedAMFUnresponsive + " (no PATH SWITCH REQUEST ACKNOWLEDGE (another answer, or the association lost))",
+			wantDetail:   []string{"the AMF stopped completing NG Setup after the PATH SWITCH REQUEST"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -280,6 +284,10 @@ func TestPathSwitchAckCheckAgainstMockPair(t *testing.T) {
 			}
 			if errs := c.upf.SendErrors(); len(errs) != 0 {
 				t.Errorf("stub UPF send errors: %v", errs)
+			}
+			if tc.dead {
+				waitNoAssociations(t, c)
+				return
 			}
 			c.assertClosed(t, env)
 		})
@@ -441,6 +449,7 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 		wantObserved string
 		wantDetail   []string
 		completed    int64
+		dead         bool
 	}{
 		{name: "command with the list", net24: testnet.ConformanceHOCmdPass, want: Pass, completed: 1,
 			wantObserved: "HANDOVER COMMAND lists 1 PDU session(s), each with a Handover Command Transfer",
@@ -462,6 +471,9 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 		{name: "preparation failure after the acknowledge", net24: testnet.ConformanceHOCmdFailAcked, answer: mockamf.FailHandoverAfterAcknowledge, want: Warn,
 			wantObserved: "HANDOVER PREPARATION FAILURE (cause radio-network/7) instead of HANDOVER COMMAND",
 			wantDetail:   []string{"after the target's HandoverRequestAcknowledge: HANDOVER PREPARATION FAILURE, cause radio-network/"}},
+		{name: "core crashes at the handover required", net24: testnet.ConformanceHOCmdCrash, answer: mockamf.CrashOnHandoverRequired, want: Crash, dead: true,
+			wantObserved: ObservedAMFUnresponsive + " (no HANDOVER COMMAND (another answer, or an association lost))",
+			wantDetail:   []string{"the AMF stopped completing NG Setup after the HANDOVER REQUIRED"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -470,14 +482,14 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			check := ngapHandoverCommandTransfer{}
-			if tc.want == Warn {
+			if tc.want == Warn || tc.dead {
 				check.wait = time.Second
 			}
 			r := check.Run(ctx, env)
 			if r.Verdict != tc.want {
 				t.Fatalf("verdict %s (%s; %s), want %s", r.Verdict, r.Observed, r.Detail, tc.want)
 			}
-			if (tc.want == Warn) != (r.NotCompleted == ProcN2HandoverPreparation) {
+			if !tc.dead && (tc.want == Warn) != (r.NotCompleted == ProcN2HandoverPreparation) {
 				t.Errorf("not completed %q for %s; a handover without a command and only that reports the preparation as not completed", r.NotCompleted, tc.want)
 			}
 			if r.Observed != tc.wantObserved {
@@ -496,6 +508,10 @@ func TestHandoverCommandCheckAgainstMockPair(t *testing.T) {
 			}
 			if got := c.amf.HandoversCompleted(); got != tc.completed {
 				t.Errorf("mock AMF completed %d handovers, want %d", got, tc.completed)
+			}
+			if tc.dead {
+				waitNoAssociations(t, c)
+				return
 			}
 			if got := c.amf.Deregistrations(); got != 1 {
 				t.Errorf("mock AMF saw %d deregistrations, want 1", got)
