@@ -6,8 +6,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bgrewell/orbit/internal/observability"
@@ -99,5 +101,35 @@ func TestCLIWarnsOnServerVersionMismatch(t *testing.T) {
 				t.Errorf("stderr = %q, want nothing", errw.String())
 			}
 		})
+	}
+}
+
+// The check's own GetInfo goes through a client without the version
+// interceptor: a command whose first call is GetInfo makes exactly two
+// GetInfo calls (its own and the check's), not more.
+func TestVersionCheckDoesNotRecurse(t *testing.T) {
+	clientConfig(t)
+	var calls atomic.Int32
+	api := server.New(slog.New(slog.NewTextHandler(io.Discard, nil)), "v0.1.0", observability.NewRegistry(), server.Options{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/GetInfo") {
+			calls.Add(1)
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	root := New("v0.2.0")
+	var errw bytes.Buffer
+	root.SetOut(io.Discard)
+	root.SetErr(&errw)
+	root.SetArgs([]string{"--server", srv.URL, "system", "info"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Errorf("GetInfo calls = %d, want 2", n)
+	}
+	if strings.Count(errw.String(), "warning:") != 1 {
+		t.Errorf("stderr = %q, want one warning", errw.String())
 	}
 }

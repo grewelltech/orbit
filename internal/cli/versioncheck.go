@@ -79,11 +79,11 @@ func (v versionInterceptor) info(ctx context.Context) (string, error) {
 }
 
 // WrapUnary checks after the call returns, so the check never delays or
-// fails the call itself.
+// fails the call itself, and not after a call the caller cancelled.
 func (v versionInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		res, err := next(ctx, req)
-		if vc := versionCheckFrom(ctx); vc != nil {
+		if vc := versionCheckFrom(ctx); vc != nil && ctx.Err() == nil {
 			vc.run(ctx, v.base, v.info)
 		}
 		return res, err
