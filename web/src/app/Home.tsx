@@ -13,6 +13,7 @@ import { useRuns, type RunOutcome, type RunSummary } from "@/data/runs";
 import { Panel } from "@/components/Panel";
 import { StatTile } from "@/components/StatTile";
 import { PageLinks } from "./PageLinks";
+import { conformanceDigest } from "./conformanceDigest";
 
 type Filter = "all" | "performance" | "conformance";
 
@@ -46,22 +47,11 @@ function Outcome({ outcome }: { outcome?: RunOutcome }) {
   if (!outcome) return <span style={{ color: "var(--o-ink-3)" }}>—</span>;
   const parts: ReactNode[] = [];
 
-  if (outcome.conformance) {
+  const conf = conformanceDigest(outcome);
+  if (outcome.conformance && conf) {
     const c = outcome.conformance;
-    const realFail = Math.max(0, c.failed - c.expectedFailures);
-    // A CRASH, a BLOCKED and an ERROR are unjudged checks, so a run with any
-    // must not read as a healthy green result.
-    const bad = realFail > 0 || c.crashed > 0 || c.blocked > 0 || c.errored > 0;
-    const color = bad ? "var(--o-error)" : "var(--o-ok, #2f9e52)";
-    const extra = [
-      realFail > 0 ? `${realFail} fail` : "",
-      c.crashed > 0 ? `${c.crashed} crash` : "",
-      c.blocked > 0 ? `${c.blocked} blocked` : "",
-      c.errored > 0 ? `${c.errored} error` : "",
-      c.warned > 0 ? `${c.warned} warn` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    const color = conf.bad ? "var(--o-error)" : "var(--o-ok, #2f9e52)";
+    const extra = conf.extra.join(" · ");
     parts.push(
       <span key="conf" style={{ color }}>
         {c.passed}/{c.total} pass{extra ? ` · ${extra}` : ""}
