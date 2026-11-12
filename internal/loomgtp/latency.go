@@ -89,7 +89,7 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 		}
 	case err == nil:
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateOK, RTT: rtt})
-	case p.run.Err() != nil:
+	case runEnded(p.run):
 		// The probe left, but the run ended (cancelled, or the caller's
 		// deadline) before its timeout, so it is neither received nor lost.
 		p.cut++
@@ -97,6 +97,17 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateTimeout, Err: err})
 	}
 	return rtt, err
+}
+
+// runEnded reports whether ctx is done or its deadline has passed. ping
+// notices a deadline by the clock, which can be before ctx's own timer has
+// marked it done.
+func runEnded(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	d, ok := ctx.Deadline()
+	return ok && !time.Now().Before(d)
 }
 
 // readSlice bounds each wait for a reply, so a cancel ends a probe within
