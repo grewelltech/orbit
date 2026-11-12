@@ -59,8 +59,11 @@ type suiteLive struct {
 	mu        sync.Mutex
 	preflight conformance.Preflight // the run's preflight, once it has run
 	results   []conformance.Result
-	done      bool          // the suite returned, run to the end or cut off
-	wake      chan struct{} // closed and replaced on every change
+	started   *orbitv1.ConformanceCheckStart // the check last started, nil before the first
+	startedAt time.Time                      // when started started
+	elapsed   []time.Duration                // each result's check's run time, 0 when its start was not seen
+	done      bool                           // the suite returned, run to the end or cut off
+	wake      chan struct{}                  // closed and replaced on every change
 }
 
 func newSuiteLive(spec *suiteSpec) *suiteLive {
@@ -88,6 +91,25 @@ func (l *suiteLive) add(r conformance.Result) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.results = append(l.results, r)
+	var took time.Duration
+	if l.started != nil && l.started.GetId() == r.ID && int(l.started.GetIndex()) == len(l.results)-1 {
+		took = time.Since(l.startedAt)
+	}
+	l.elapsed = append(l.elapsed, took)
+	l.signalLocked()
+}
+
+// start records that a check has started.
+func (l *suiteLive) start(t conformance.Test, expected time.Duration, index, total int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	group := ""
+	if g, err := conformance.GroupOf(t, l.spec.env.TargetRelease); err == nil {
+		group = g.String()
+	}
+	l.started = &orbitv1.ConformanceCheckStart{Id: t.ID(), Group: group, Summary: conformance.SummaryOf(t.ID()),
+		Index: uint32(index), Total: uint32(total), ExpectedSeconds: uint32(expected.Round(time.Second) / time.Second)}
+	l.startedAt = time.Now()
 	l.signalLocked()
 }
 
@@ -107,13 +129,33 @@ func (l *suiteLive) signalLocked() {
 // since returns the results from index i on, whether the suite has
 // returned, and a channel closed on the next change.
 func (l *suiteLive) since(i int) ([]conformance.Result, bool, <-chan struct{}) {
+	c := l.sinceStarted(i)
+	return c.results, c.done, c.wake
+}
+
+// suiteChange is what a stream has not sent yet: the results from an
+// index on with each one's run time, and the check last started, read at
+// the same moment. A check starts only after the one before it has its
+// result, so every check before the started one is in the results.
+type suiteChange struct {
+	results []conformance.Result
+	elapsed []time.Duration
+	started *orbitv1.ConformanceCheckStart
+	done    bool
+	wake    <-chan struct{}
+}
+
+// sinceStarted is since with the results' run times and the check last
+// started.
+func (l *suiteLive) sinceStarted(i int) suiteChange {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	var out []conformance.Result
+	c := suiteChange{started: l.started, done: l.done, wake: l.wake}
 	if i < len(l.results) {
-		out = append(out, l.results[i:]...)
+		c.results = append(c.results, l.results[i:]...)
+		c.elapsed = append(c.elapsed, l.elapsed[i:]...)
 	}
-	return out, l.done, l.wake
+	return c
 }
 
 // snapshot is every result so far, and whether the suite returned.
@@ -179,7 +221,7 @@ func suiteRun(live *suiteLive) engine.ConformanceRunFunc {
 		if err := spec.sel.Apply(reg); err != nil {
 			return nil, err // buildSuite refused it already
 		}
-		reg.RunSuite(suiteCtx, spec.env, spec.perTest, conformance.Hooks{Preflight: func(p conformance.Preflight) {
+		reg.RunSuite(suiteCtx, spec.env, spec.perTest, conformance.Hooks{Start: live.start, Preflight: func(p conformance.Preflight) {
 			live.setPreflight(p)
 			if emit == nil {
 				return

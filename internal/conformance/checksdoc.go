@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-//go:generate go run ./internal/gendocs ../../docs/conformance/checks.md
+//go:generate go run ./internal/gendocs ../../docs/conformance/checks.md ../../site/src/content/docs/conformance/checks
 
 // ChecksMarkdown renders the registry as the conformance checks table in
 // docs/conformance/checks.md: one row per check with its group, tags, verdict

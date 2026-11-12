@@ -109,6 +109,23 @@ message ConformanceUpdate {
   // The run's preflight, on every update once it has run: the setup the
   // selected checks need, done once before any check. It is not a check.
   repeated PreflightStep preflight = 11;
+  // The check that has just started, on the update sent as it starts
+  // (with no result), so a client can show it running; absent otherwise.
+  ConformanceCheckStart started = 12;
+  // How long the result's check ran, in microseconds, on an update with a
+  // result; 0 when the server did not see the check start.
+  uint64 elapsed_us = 13;
+}
+
+// ConformanceCheckStart is a check a run has started: who it is, its place
+// in the run and the longest it can take.
+message ConformanceCheckStart {
+  string id = 1;
+  string group = 2;               // as ConformanceResult.group
+  string summary = 3;             // the check's one-line description
+  uint32 index = 4;               // 0-based position among the selected checks
+  uint32 total = 5;               // selected checks
+  uint32 expected_seconds = 6;    // the longest the check can take
 }
 
 // PreflightStep is one step of a conformance run's preflight (ADR-0011
@@ -134,6 +151,8 @@ message ConformanceResult {
   // the default run. A pack check reports INFO, WARN, SKIP, BLOCKED,
   // ERROR or CRASH, never PASS, FAIL or DEVIATION.
   string pack = 19;
+  // The check's one-line description.
+  string summary = 20;
   string spec_ref = 3;
   // One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
   // INFO | BLOCKED | CRASH | SKIP | ERROR.
