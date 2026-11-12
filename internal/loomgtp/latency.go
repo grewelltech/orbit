@@ -62,6 +62,7 @@ func (e sendError) Unwrap() error { return e.err }
 // counted apart. Ping is called from the sampler goroutine only, and the
 // record is read after it exits.
 type tunnelPinger struct {
+	run       context.Context // the run's context; a probe it ends is cut, not lost
 	up        Uplink
 	rx        ICMPRx
 	ueIP, dst net.IP
@@ -88,9 +89,9 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 		}
 	case err == nil:
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateOK, RTT: rtt})
-	case errors.Is(err, context.Canceled):
-		// The probe left, but its wait was cancelled before its timeout, so
-		// it is neither received nor lost.
+	case p.run.Err() != nil:
+		// The probe left, but the run ended (cancelled, or the caller's
+		// deadline) before its timeout, so it is neither received nor lost.
 		p.cut++
 	default:
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateTimeout, Err: err})
@@ -160,8 +161,8 @@ type LatencyConfig struct {
 
 // LatencyResult is loom's latency summary measured over the GTP-U tunnel.
 // Sent counts the probes whose uplink send succeeded; Lost those of them
-// with no reply in time. A probe whose wait a cancellation (the caller's, or
-// the session going) cut short before its timeout counts as sent and as
+// with no reply in time. A probe whose wait the run's end (the caller's
+// cancellation or deadline, or the session going) cut short counts as sent and as
 // neither received nor lost, so LossPct is Lost over the probes that
 // completed and the statistics cover those alone. NotSent counts the
 // probes that never left — a failed send, or the remainder of a run that
@@ -206,7 +207,7 @@ func RunLatency(ctx context.Context, cfg LatencyConfig) (LatencyResult, error) {
 
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	p := &tunnelPinger{up: cfg.Uplink, rx: cfg.RX, ueIP: cfg.UEIP, dst: dst, id: 0xB1A5, stop: cancel}
+	p := &tunnelPinger{run: rctx, up: cfg.Uplink, rx: cfg.RX, ueIP: cfg.UEIP, dst: dst, id: 0xB1A5, stop: cancel}
 	sampler := &latency.Sampler{
 		Pinger:   p,
 		Probes:   probes,

@@ -1393,9 +1393,11 @@ type LatencyResponse struct {
 	// Probes whose uplink send succeeded.
 	Sent     uint64 `protobuf:"varint,1,opt,name=sent,proto3" json:"sent,omitempty"`
 	Received uint64 `protobuf:"varint,2,opt,name=received,proto3" json:"received,omitempty"`
-	// Probes sent but not answered in time.
+	// Probes sent but not answered in time. A probe whose wait the run's
+	// cancellation or deadline cut short is sent, and neither received nor lost.
 	Lost uint64 `protobuf:"varint,3,opt,name=lost,proto3" json:"lost,omitempty"`
-	// lost / sent, percent: probes that never left are not loss.
+	// lost / (received + lost), percent: over the probes that completed;
+	// probes that never left, or whose wait was cut short, are not loss.
 	LossPct  float64 `protobuf:"fixed64,4,opt,name=loss_pct,json=lossPct,proto3" json:"loss_pct,omitempty"`
 	MinMs    float64 `protobuf:"fixed64,5,opt,name=min_ms,json=minMs,proto3" json:"min_ms,omitempty"`
 	MeanMs   float64 `protobuf:"fixed64,6,opt,name=mean_ms,json=meanMs,proto3" json:"mean_ms,omitempty"`

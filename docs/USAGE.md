@@ -1228,8 +1228,10 @@ orbit ue stats   --supi <imsi>                                    # per-QFI UL/D
 
 `traffic` and `latency` embed loom over the UE's GTP-U tunnel: `traffic`
 reports bytes/packets and achieved Mbps; `latency` reports replies over the
-probes sent, loss % among them, min/mean/max RTT plus jitter, and the elapsed
-time with the effective probe rate:
+probes sent, loss % among the probes that completed (a probe whose wait a
+cancellation cut short counts as sent, and neither replied nor lost),
+min/mean/max RTT plus jitter, and the elapsed time with the effective probe
+rate:
 
 ```text
 2912/2913 replies (0% loss); 87 not sent: UE <imsi> has no open N3 data path  rtt min/mean/max 2.10/2.80/9.40 ms  jitter 0.40 ms  over 37.4 s, 77.9/s
