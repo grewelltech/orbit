@@ -303,7 +303,7 @@ func (s *runService) buildSuite(p *orbitv1.RunPlan, w *orbitv1.Workload) (*planR
 		return nil, fmt.Errorf("tags: %w", err)
 	}
 	if len(reg.Select()) == 0 {
-		return nil, fmt.Errorf("no checks selected: none of the checks %v is in the groups %v with the tags %v", sel.Checks, sel.Groups, sel.Tags)
+		return nil, sel.NoneSelected()
 	}
 	// A target that bounds its gNB IDs gets the packed layout, three IDs
 	// per check from the base; an unbounded one (the RunConformance

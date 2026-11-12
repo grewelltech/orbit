@@ -49,7 +49,9 @@ func TestConformanceList(t *testing.T) {
 		{name: "two checks, repeated and comma-separated, any case", args: []string{"--list", "--check", "ngap-ng-reset-ack,NAS-T3560-AUTH-RETRANSMIT", "--check", "NAS-T3550-ACCEPT-RETRANSMIT"},
 			want: []string{"NGAP-NG-RESET-ACK", "NAS-T3560-AUTH-RETRANSMIT", "NAS-T3550-ACCEPT-RETRANSMIT", "3 checks, up to"}, wantNot: []string{"NGAP-UNKNOWN-UE-SURVIVES"}},
 		{name: "a check outside the group", args: []string{"--list", "--group", "NAS", "--check", "NGAP-NG-RESET-ACK"},
-			want: []string{"0 checks"}, wantNot: []string{"NGAP-NG-RESET-ACK "}},
+			wantErr: "no checks selected: none of the checks [NGAP-NG-RESET-ACK] is in the groups [NAS] with the tags []"},
+		{name: "a check outside the group, --local", args: []string{"--local", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--group", "nas", "--check", "nas-replay-discard"},
+			wantErr: "no checks selected: none of the checks [nas-replay-discard] is in the groups [nas]"},
 		{name: "unknown check", args: []string{"--list", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"; --list names the checks`},
 		{name: "unknown check on a server run", args: []string{"--amf", "127.0.0.1:1", "--check", "NGAP-NO-SUCH-CHECK"}, wantErr: `--check: unknown check "NGAP-NO-SUCH-CHECK"`},
 		{name: "no --amf without --list", args: nil, wantErr: `required flag(s) "amf" not set`},
@@ -65,6 +67,9 @@ func TestConformanceList(t *testing.T) {
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				if strings.HasPrefix(tc.wantErr, "no checks selected") && ExitCode(err) != ExitCouldNotStart {
+					t.Errorf("exit %d, want %d", ExitCode(err), ExitCouldNotStart)
 				}
 				return
 			}

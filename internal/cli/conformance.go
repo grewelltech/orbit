@@ -96,6 +96,12 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			if err := reg.Tagged(tagNames...); err != nil {
 				return exitWith(ExitCouldNotStart, fmt.Errorf("--tag: %w", err))
 			}
+			// A selection that leaves no check is refused, for --list as
+			// for a run, in the server's words.
+			if len(reg.Select()) == 0 {
+				sel := conformance.Selection{Checks: checks, Groups: groups, Tags: tagNames}
+				return exitWith(ExitCouldNotStart, sel.NoneSelected())
+			}
 			if list {
 				return printConformanceList(cmd.OutOrStdout(), reg.Select(), perTest, target)
 			}

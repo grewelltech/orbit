@@ -37,6 +37,12 @@ func (s Selection) Apply(r *Registry) error {
 	return err
 }
 
+// NoneSelected is the error for a selection that leaves no check to run,
+// in the same words wherever a run or a listing is refused for it.
+func (s Selection) NoneSelected() error {
+	return fmt.Errorf("no checks selected: none of the checks %v is in the groups %v with the tags %v", s.Checks, s.Groups, s.Tags)
+}
+
 // apply is Apply's steps, in order: the pack first, since it decides
 // which checks the others can name.
 func (s Selection) apply(r *Registry) error {
