@@ -12,7 +12,8 @@ import (
 // checks declare they need, done once, before any check. It decides
 // attribution for the whole run. A step that fails is the tool's, the
 // testbed's or the configuration's to fix, and the checks that depend on it
-// report ERROR without running. A step that passes has shown that this kind
+// report ERROR without running, except the owner of the step's procedure,
+// which runs and judges it. A step that passes has shown that this kind
 // of setup works against this core, so the same setup failing later, inside
 // a check, is the core's doing and is reported BLOCKED (Result.SetupFailed).
 
@@ -116,9 +117,20 @@ func stepsFor(t Test, e Env) []PreflightStep {
 	return out
 }
 
+// stepProcedure is the procedure each preflight step completes.
+var stepProcedure = map[PreflightStep]Procedure{
+	StepNGSetup:      ProcNGSetup,
+	StepRegistration: ProcRegistration,
+	StepPDUSession:   ProcPDUSession,
+	StepUPFProbe:     ProcGTPUEcho,
+}
+
 // blockedBy returns the first step t depends on that did not complete, and
 // whether there is one. A check that lacks an input depends on no step: it
-// SKIPs for the input, whatever the preflight found.
+// SKIPs for the input, whatever the preflight found. A check is never held
+// to the step for a procedure it owns: it runs and judges that procedure
+// itself, so a core that does not complete it gets the owner's verdict,
+// not an ERROR.
 func (p Preflight) blockedBy(t Test, e Env) (PreflightResult, bool) {
 	for _, in := range NeedsOf(t).inputs() {
 		if e.missing(in) {
@@ -126,6 +138,9 @@ func (p Preflight) blockedBy(t Test, e Env) (PreflightResult, bool) {
 		}
 	}
 	for _, s := range stepsFor(t, e) {
+		if owns(t, stepProcedure[s]) {
+			continue
+		}
 		if r, ok := p.step(s); ok && r.Status != PreflightOK {
 			return r, true
 		}

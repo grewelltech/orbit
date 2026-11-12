@@ -202,16 +202,18 @@ func TestRunSuitePreflight(t *testing.T) {
 	}{
 		{name: "passes", net24: testnet.ConformancePreflightSuite, ki: testKi,
 			wantSteps: "NG Setup=ok registration=ok PDU session establishment=ok",
-			want:      map[string]want{"N": {Pass, true, ""}, "U": {Pass, true, ""}, "S": {Pass, true, ""}, "G": {Pass, true, ""}}},
+			want:      map[string]want{"N": {Pass, true, ""}, "U": {Pass, true, ""}, "S": {Pass, true, ""}, "G": {Pass, true, ""}, "RO": {Pass, true, ""}, "SO": {Pass, true, ""}}},
 		{name: "registration refused", net24: testnet.ConformancePreflightSuiteFail, ki: "000102030405060708090a0b0c0d0e0f",
 			wantSteps: "NG Setup=ok registration=failed PDU session establishment=not run",
 			want: map[string]want{"N": {Pass, true, ""}, "G": {Pass, true, ""},
-				"U": {Error, false, "the run's preflight did not complete the registration this check depends on, so the check was not run and says nothing about the core: registration on gNB"},
-				"S": {Error, false, "preflight did not complete the registration"}}},
+				"U":  {Error, false, "the run's preflight did not complete the registration this check depends on, so the check was not run and says nothing about the core: registration on gNB"},
+				"S":  {Error, false, "preflight did not complete the registration"},
+				"RO": {Pass, true, ""}, "SO": {Error, false, "preflight did not complete the registration"}}},
 		{name: "PDU session not answered", net24: testnet.ConformancePreflightSuiteNoPDU, ki: testKi, amfOpts: []mockamf.Option{mockamf.WithPDUSessionAnswers(0)},
 			wantSteps: "NG Setup=ok registration=ok PDU session establishment=failed",
 			want: map[string]want{"N": {Pass, true, ""}, "U": {Pass, true, ""}, "G": {Pass, true, ""},
-				"S": {Error, false, "preflight did not complete the PDU session establishment"}}},
+				"S":  {Error, false, "preflight did not complete the PDU session establishment"},
+				"RO": {Pass, true, ""}, "SO": {Pass, true, ""}}},
 		{name: "no UE configured", net24: testnet.ConformancePreflightSuite, ki: testKi, noUE: true,
 			wantSteps: "NG Setup=ok",
 			want:      map[string]want{"N": {Pass, true, ""}, "U": {Pass, true, ""}, "S": {Pass, true, ""}, "G": {Pass, true, ""}}},
@@ -223,12 +225,17 @@ func TestRunSuitePreflight(t *testing.T) {
 			if tc.noUE {
 				env.UE = UESpec{}
 			}
-			runs := map[string]*int{"N": new(int), "U": new(int), "S": new(int), "G": new(int)}
+			runs := map[string]*int{"N": new(int), "U": new(int), "S": new(int), "G": new(int), "RO": new(int), "SO": new(int)}
 			reg := &Registry{}
 			reg.Register(needTest{id: "N", needs: defaultNeeds, runs: runs["N"]})
 			reg.Register(needTest{id: "U", needs: ueNeeds, runs: runs["U"]})
 			reg.Register(needTest{id: "S", needs: ueSessionNeeds, runs: runs["S"]})
 			reg.Register(needTest{id: "G", needs: NeedsOf(gtpuEchoResponse{}), runs: runs["G"]})
+			// The owners of the registration and of the PDU session: each
+			// runs although its own step failed.
+			reg.Register(needTest{id: "RO", needs: CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness}, Procedures: []Procedure{ProcNGSetup}},
+				owned: []Procedure{ProcRegistration}, runs: runs["RO"]})
+			reg.Register(needTest{id: "SO", needs: ueNeeds, owned: []Procedure{ProcPDUSession}, runs: runs["SO"]})
 			var (
 				mu        sync.Mutex
 				reported  []Preflight
@@ -269,7 +276,7 @@ func TestRunSuitePreflight(t *testing.T) {
 				}
 			}
 			// The preflight's gNB ID is none of the checks'.
-			if id := reg.preflightGNBID(env.GNB.ID, false); id != env.GNB.ID+legacyLivenessOffset+4 {
+			if id := reg.preflightGNBID(env.GNB.ID, false); id != env.GNB.ID+legacyLivenessOffset+6 {
 				t.Errorf("preflight gNB ID %#x", id)
 			}
 		})
@@ -289,6 +296,9 @@ func TestPreflightErrorYieldsToMissingInput(t *testing.T) {
 	}
 	if _, blocked := failed.blockedBy(needTest{id: "G", needs: NeedsOf(gtpuEchoResponse{})}, Env{UPFN3: "192.0.2.1:2152", N3Bind: "192.0.2.2:2152"}); blocked {
 		t.Error("a GTP-U check is held to the NG Setup step")
+	}
+	if _, blocked := failed.blockedBy(ngSetupCompletes{}, Env{}); blocked {
+		t.Error("the NG Setup's owner is held to the NG Setup step; it runs and judges the NG Setup itself")
 	}
 	r := preflightError(failed[0])
 	if r.Verdict != Error || r.Observed != "preflight failed (NG Setup failed)" || !strings.Contains(r.Detail, "NG Setup rejected: misc/5") {

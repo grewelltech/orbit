@@ -1466,7 +1466,9 @@ Each run starts with a **preflight**, printed as its own section ahead of the
 checks: an NG Setup, and, only when a selected check needs it, a UE
 registered and deregistered, a PDU session, and a GTP-U Echo to the UPF. A
 check that depends on a step that failed reports ERROR without running (fix
-the setup); after a passed preflight, the same setup failing inside a check
+the setup), except the check that owns the step's procedure
+(NGAP-NG-SETUP, NAS-INITIAL-REGISTRATION, NAS-PDU-SESSION-ESTABLISHMENT),
+which runs and judges that procedure itself; after a passed preflight, the same setup failing inside a check
 is the core's doing and is reported BLOCKED. With no UE configured the
 preflight is the NG Setup alone and the UE checks SKIP. `--json` carries it
 as `Preflight`.
