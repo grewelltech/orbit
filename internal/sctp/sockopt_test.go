@@ -39,7 +39,7 @@ func sctpSocket(t testing.TB) *isctp.SCTPConn {
 // These tests hold the pinned SCTP library to two things ORBIT relies on:
 // SubscribeEvents sets exactly the events asked for, and the socket option
 // reads behind LocalAddr and Addr are correct, both when the goroutine's
-// stack moves around the call (#131).
+// stack moves around the call.
 
 // SubscribeEvents sets exactly the events asked for, each in its field of
 // struct sctp_event_subscribe, and clears the others.
@@ -157,13 +157,18 @@ func TestAddrAcrossStackMoves(t *testing.T) {
 	}
 	defer func() { _ = ln.Close() }()
 	lport := ln.Addr().(*isctp.SCTPAddr).Port
+	served := make(chan struct{})
 	go func() {
+		defer close(served)
 		c, err := ln.Accept()
 		if err == nil {
 			defer func() { _ = c.Close() }()
 			_, _ = c.Read(make([]byte, 1)) // holds the association until the dialer closes
 		}
 	}()
+	// Runs after the dialer's and before the listener's deferred Close, so
+	// the server side has ended when the test returns.
+	defer func() { _ = ln.Close(); <-served }()
 	c, err := isctp.DialSCTP("sctp", nil, &isctp.SCTPAddr{IPAddrs: loopback, Port: lport})
 	if err != nil {
 		t.Fatal(err)
