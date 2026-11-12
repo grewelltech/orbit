@@ -67,15 +67,9 @@ func Start(t testing.TB, amf *mockamf.AMF) *Front {
 			}()
 		}
 	}()
-	// The pinned library reads the address with a stack buffer passed to
-	// getsockopt as a uintptr through a helper, so a stack move between the
-	// conversion and the syscall can make the read fail (seen under -race,
-	// #131). A retry runs on the already-grown stack.
-	for i := 0; i < 5; i++ {
-		if addr := ln.Addr(); addr != nil {
-			f.Addr = addr.String()
-			return f
-		}
+	if addr := ln.Addr(); addr != nil {
+		f.Addr = addr.String()
+		return f
 	}
 	t.Fatalf("SCTP listener reports no local address")
 	return nil
@@ -87,7 +81,7 @@ func Start(t testing.TB, amf *mockamf.AMF) *Front {
 func bridge(c *isctp.SCTPConn, tr gnb.Transport) {
 	defer func() { _ = c.Close() }()
 	defer func() { _ = tr.Close() }()
-	if err := sctp.SubscribeEvents(c, isctp.SCTP_EVENT_DATA_IO); err != nil {
+	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
 		return
 	}
 	// Without SCTP_NODELAY the kernel holds a small DATA chunk while an
