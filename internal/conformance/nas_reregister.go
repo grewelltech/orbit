@@ -352,7 +352,7 @@ func (c nasRegistrationAfterRelease) attempt(ctx context.Context, h *UEHarness, 
 	defer mu.Unlock()
 	switch {
 	case err != nil && res != nil && res.Deregistration != nil && res.Deregistration.ReleaseErr != nil:
-		a.notRun, a.noRelease = res.Deregistration.ReleaseErr.Error(), true
+		a.notRun, a.noRelease = releaseNotRun(res.Deregistration)
 		return a
 	case err != nil:
 		a.notRun = err.Error()
@@ -381,6 +381,14 @@ func (c nasRegistrationAfterRelease) attempt(ctx context.Context, h *UEHarness, 
 		a.ended = fmt.Sprintf("the registration ended with: %v; %s", res.AttachErr, closed)
 	}
 	return a
+}
+
+// releaseNotRun says why an attempt was not run when the switch-off
+// deregistration before it ended with d.ReleaseErr, and whether that is
+// the core's: noRelease is set when the core sent no UE CONTEXT RELEASE
+// COMMAND, not when the gNB read one and could not send the complete.
+func releaseNotRun(d *engine.DeregisterResult) (notRun string, noRelease bool) {
+	return d.ReleaseErr.Error(), !errors.Is(d.ReleaseErr, engine.ErrReleaseCompleteNotSent)
 }
 
 // nasAnswerName names the 5GMM message that answered a registration, from

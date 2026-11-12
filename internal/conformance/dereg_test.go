@@ -3,6 +3,7 @@ package conformance
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -267,6 +268,9 @@ func TestJudgeSwitchOffRelease(t *testing.T) {
 			want: Fail, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID"},
 		{name: "another AMF ID alone", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, AMFUENGAPID: 8}, nil),
 			want: Fail, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID", wantDetail: []string{"names AMF UE NGAP ID 8;"}},
+		{name: "the pair, the complete not sent", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 7, RANUENGAPID: 9},
+			fmt.Errorf("%w: association write failed", engine.ErrReleaseCompleteNotSent)),
+			want: Error, wantOutcome: OutcomeError, wantObserved: "UE CONTEXT RELEASE COMPLETE not sent", wantDetail: []string{"the core sent a UE CONTEXT RELEASE COMMAND", "association write failed"}},
 		{name: "no release", res: result(nil, noRel), want: Fail, wantOutcome: "no-release", wantObserved: "no UE CONTEXT RELEASE COMMAND within 5s",
 			wantDetail: []string{switchOffNoRelease, "the core sent no UE Context Release within 5s"}},
 		{name: "cut short", res: result(nil, noRel), cut: true, want: Error, wantOutcome: OutcomeError, wantObserved: "timed out before the release wait ended",

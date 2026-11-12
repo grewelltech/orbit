@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -202,7 +203,10 @@ func judgeDeregAccept(r Result, res *engine.DeregisterResult, err error, cut boo
 // releaseNote says what a deregistration's result records about the UE
 // Context Release.
 func releaseNote(res *engine.DeregisterResult) string {
-	if res.Release != nil {
+	switch {
+	case res.Release != nil && res.ReleaseErr != nil:
+		return fmt.Sprintf("the core released the UE context; %v", res.ReleaseErr)
+	case res.Release != nil:
 		return "the core released the UE context (UE Context Release Complete sent)"
 	}
 	return fmt.Sprintf("%v; the association was closed without it", res.ReleaseErr)
@@ -327,6 +331,9 @@ func judgeSwitchOffRelease(r Result, res *engine.DeregisterResult, err error, cu
 	rel := res.Release
 	conn := fmt.Sprintf("the connection is AMF UE NGAP ID %d, RAN UE NGAP ID %d", res.AMFUENGAPID, res.RANUENGAPID)
 	switch {
+	case errors.Is(res.ReleaseErr, engine.ErrReleaseCompleteNotSent):
+		return r.Errored("UE CONTEXT RELEASE COMPLETE not sent",
+			fmt.Sprintf("the core sent a UE CONTEXT RELEASE COMMAND, which was not judged: %v", res.ReleaseErr))
 	case rel == nil && cut:
 		return r.Errored("timed out before the release wait ended", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget()))
 	case rel == nil:

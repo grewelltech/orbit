@@ -79,7 +79,8 @@ type DeregisterResult struct {
 	AcceptErr error
 	// Release is the UE CONTEXT RELEASE COMMAND that followed, answered
 	// with a UE CONTEXT RELEASE COMPLETE; nil with ReleaseErr saying why
-	// none was seen.
+	// none was seen. A command whose complete could not be sent is set,
+	// with ReleaseErr wrapping ErrReleaseCompleteNotSent.
 	Release    *UEContextRelease
 	ReleaseErr error
 	// SwitchOffFallback reports that a normal deregistration drew neither
@@ -92,11 +93,17 @@ type DeregisterResult struct {
 // core sent no Deregistration Accept.
 var errNoDeregistrationAccept = errors.New("the core sent no Deregistration Accept")
 
+// ErrReleaseCompleteNotSent marks a UE CONTEXT RELEASE COMMAND the core
+// sent and the gNB read, whose UE CONTEXT RELEASE COMPLETE could not be
+// sent: the release came, and the local side did not finish it.
+var ErrReleaseCompleteNotSent = errors.New("UE Context Release Complete not sent")
+
 // awaitRelease waits on the UE's association for the UE Context Release
 // Command that answers its deregistration, and answers it with UE Context
 // Release Complete. The wait ends with parent, or after linger, as
 // errNoUEContextRelease; other downlink PDUs are skipped (and logged at
-// debug).
+// debug). A command whose complete could not be sent is returned with an
+// error wrapping ErrReleaseCompleteNotSent.
 func (s *Session) awaitRelease(parent context.Context, linger time.Duration, log *slog.Logger) (*UEContextRelease, error) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(parent, linger)
@@ -121,17 +128,15 @@ func (s *Session) awaitRelease(parent context.Context, linger time.Duration, log
 			}
 			continue
 		}
-		if err := s.answerRelease(pdu); err != nil {
-			return nil, err
-		}
-		return rel, nil
+		return rel, s.answerRelease(pdu)
 	}
 }
 
-// answerRelease answers the UE Context Release Command cmd (completeRelease).
+// answerRelease answers the UE Context Release Command cmd
+// (completeRelease). The error wraps ErrReleaseCompleteNotSent.
 func (s *Session) answerRelease(cmd *ngapType.NGAPPDU, sessions ...int64) error {
 	if err := s.completeRelease(cmd, sessions...); err != nil {
-		return fmt.Errorf("UE Context Release Complete not sent: %w", err)
+		return fmt.Errorf("%w: %w", ErrReleaseCompleteNotSent, err)
 	}
 	return nil
 }
@@ -197,9 +202,11 @@ func (s *Session) awaitDeregistrationAccept(parent context.Context, acceptWait, 
 // awaitAnswer reads the association for up to wait: until the Deregistration Accept
 // when wantAccept is set, until the UE Context Release Command (which it
 // completes and records in res.Release) otherwise. A release always ends
-// it. The error says why what it waited for did not come: the Accept, as
-// errNoDeregistrationAccept, or the release, as errNoUEContextRelease. A
-// failure to send the Release Complete is recorded in res.ReleaseErr.
+// it, and is recorded in res.Release. The error says why what it waited
+// for did not come: the Accept, as errNoDeregistrationAccept, or the
+// release, as errNoUEContextRelease. A failure to send the Release
+// Complete is recorded in res.ReleaseErr and, when the release was what it
+// waited for, is its error (wrapping ErrReleaseCompleteNotSent).
 func (s *Session) awaitAnswer(parent context.Context, wait time.Duration, wantAccept bool, log *slog.Logger, res *DeregisterResult) error {
 	missing := errNoUEContextRelease
 	if wantAccept {
@@ -220,15 +227,13 @@ func (s *Session) awaitAnswer(parent context.Context, wait time.Duration, wantAc
 			return fmt.Errorf("%w: %v", missing, err)
 		}
 		if rel, ok := releaseCommandOf(pdu); ok {
-			if err := s.answerRelease(pdu); err != nil {
-				res.ReleaseErr = err
-			} else {
-				res.Release = rel
-			}
+			res.Release = rel
+			serr := s.answerRelease(pdu)
+			res.ReleaseErr = serr
 			if wantAccept {
 				return fmt.Errorf("%w: a UE Context Release Command came instead", missing)
 			}
-			return nil
+			return serr
 		}
 		if wantAccept && s.isDeregistrationAccept(pdu, log) {
 			res.Accepted, res.AcceptAt = true, time.Now()

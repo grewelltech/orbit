@@ -277,7 +277,7 @@ func (c nasRegistrationDuringOtherRelease) attempt(ctx context.Context, h *UEHar
 		a.notRun, a.ngSetupErr = err.Error(), err
 		return a
 	case err != nil && res != nil && res.Deregistration != nil && res.Deregistration.ReleaseErr != nil:
-		a.notRun, a.noRelease = res.Deregistration.ReleaseErr.Error(), true
+		a.notRun, a.noRelease = releaseNotRun(res.Deregistration)
 		return a
 	case err != nil:
 		a.notRun = err.Error()

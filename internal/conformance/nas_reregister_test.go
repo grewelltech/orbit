@@ -2,6 +2,8 @@ package conformance
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	f5nas "github.com/free5gc/nas"
 
+	"github.com/bgrewell/orbit/internal/engine"
 	"github.com/bgrewell/orbit/internal/mockamf"
 )
 
@@ -244,5 +247,31 @@ func TestSweep(t *testing.T) {
 		if got := sweep(tc.step, tc.bound); !slices.Equal(got, tc.want) {
 			t.Errorf("sweep(%s, %s) = %v, want %v", tc.step, tc.bound, got, tc.want)
 		}
+	}
+}
+
+// A switch-off whose release the gNB read but could not complete is not
+// the core's missing release: the attempt is not run, and not counted as
+// a missing release.
+func TestReleaseNotRun(t *testing.T) {
+	tests := []struct {
+		name          string
+		err           error
+		wantNoRelease bool
+	}{
+		{name: "no release", err: errors.New("the core sent no UE Context Release within 5s"), wantNoRelease: true},
+		{name: "the complete not sent", err: fmt.Errorf("%w: association write failed", engine.ErrReleaseCompleteNotSent)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			notRun, noRelease := releaseNotRun(&engine.DeregisterResult{ReleaseErr: tc.err})
+			if notRun != tc.err.Error() || noRelease != tc.wantNoRelease {
+				t.Errorf("= %q, %v; want %q, %v", notRun, noRelease, tc.err.Error(), tc.wantNoRelease)
+			}
+			r := judgeRegAfterRelease(Result{}, []regAttempt{{notRun: notRun, noRelease: noRelease}}, 5*time.Second)
+			if want := map[bool]Verdict{true: Blocked, false: Error}[tc.wantNoRelease]; r.Verdict != want {
+				t.Errorf("judged %s, want %s", r.Verdict, want)
+			}
+		})
 	}
 }
