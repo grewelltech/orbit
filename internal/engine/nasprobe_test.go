@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/nas"
 	"github.com/bgrewell/orbit/internal/ue"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -338,6 +340,31 @@ func TestNASProbeErrors(t *testing.T) {
 	if _, err := f.p.Next(ctx, time.Second); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Next under an expired context = %v", err)
 	}
+}
+
+// A CM-IDLE UE has no NG connection to probe: ProbeNAS refuses it and
+// leaves its procedure lock free.
+func TestNASProbeRefusesAnIdleUE(t *testing.T) {
+	const supi = "208930100007543"
+	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	conn := newScriptedConn()
+	defer func() { _ = conn.Close() }()
+	sess := &Session{SUPI: supi, Result: &AttachResult{}, conn: conn, sec: &nas.SecurityContext{}}
+	sess.setConnection(true, true)
+	m.sessions[supi] = sess
+	if p, err := m.ProbeNAS(context.Background(), supi); err == nil || !strings.Contains(err.Error(), "CM-IDLE") {
+		if p != nil {
+			p.Close()
+		}
+		t.Fatalf("ProbeNAS on a CM-IDLE UE = %v, want it refused", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	release, err := sess.beginProcedure(ctx)
+	if err != nil {
+		t.Fatalf("the refusal kept the procedure lock: %v", err)
+	}
+	release()
 }
 
 // A mock that answers a repeated request by releasing the session it names

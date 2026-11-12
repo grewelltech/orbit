@@ -69,7 +69,8 @@ type ProbeDownlink struct {
 }
 
 // ProbeNAS returns a NASProbe on the registered UE supi, taking its
-// procedure lock (waiting for a procedure in flight, or until ctx ends).
+// procedure lock (waiting for a procedure in flight, or until ctx ends). A
+// CM-IDLE UE has no NG connection to probe and is refused.
 func (m *Manager) ProbeNAS(ctx context.Context, supi string) (*NASProbe, error) {
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
@@ -83,6 +84,10 @@ func (m *Manager) ProbeNAS(ctx context.Context, supi string) (*NASProbe, error) 
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if sess.Idle() {
+		release()
+		return nil, fmt.Errorf("UE %s is CM-IDLE: a NAS probe needs a connected UE", supi)
 	}
 	done := make(chan struct{})
 	return &NASProbe{m: m, s: sess, release: release, done: done, pdus: readAssociation(sess.conn, done)}, nil
