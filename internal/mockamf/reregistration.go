@@ -13,10 +13,14 @@ func WithDropRegistrationAfterRelease(window time.Duration) Option {
 }
 
 // WithDropRegistrationAfterAnyRelease makes the mock drop, with no answer,
-// a Registration Request that arrives in an Initial UE Message within
-// window of any UE CONTEXT RELEASE COMPLETE, whichever SUPI's context it
-// ended. It stands in for a core whose release of one UE context swallows
-// an Initial UE Message that arrives while it runs, for another UE too.
+// a Registration Request that arrives in an Initial UE Message while a
+// deregistration's UE context release is in progress (its release command
+// sent, its RELEASE COMPLETE not yet received) or within window of any UE
+// CONTEXT RELEASE COMPLETE, whichever SUPI's context it ended. It stands in
+// for a core whose release of one UE context swallows an Initial UE Message
+// that arrives while it runs, for another UE too. The in-progress case
+// matters because a request on another association can reach the mock
+// before the RELEASE COMPLETE does.
 func WithDropRegistrationAfterAnyRelease(window time.Duration) Option {
 	return func(a *AMF) { a.dropAfterAnyRelease = window }
 }
@@ -38,6 +42,9 @@ func (a *AMF) noteReleased(amfID int64) {
 	defer a.mu.Unlock()
 	now := time.Now()
 	a.lastRelease = now
+	if a.pendingReleases > 0 {
+		a.pendingReleases--
+	}
 	if st := a.ues[amfID]; st != nil {
 		a.releasedAt[st.supi] = now
 	}
@@ -53,9 +60,10 @@ func (a *AMF) dropsRegistration(supi string) bool {
 	a.mu.Lock()
 	at, released := a.releasedAt[supi]
 	last := a.lastRelease
+	pending := a.pendingReleases > 0
 	a.mu.Unlock()
 	same := a.dropAfterRelease > 0 && released && time.Since(at) < a.dropAfterRelease
-	any := a.dropAfterAnyRelease > 0 && !last.IsZero() && time.Since(last) < a.dropAfterAnyRelease
+	any := a.dropAfterAnyRelease > 0 && (pending || !last.IsZero() && time.Since(last) < a.dropAfterAnyRelease)
 	if !same && !any {
 		return false
 	}

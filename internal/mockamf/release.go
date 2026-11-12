@@ -131,6 +131,7 @@ func (a *AMF) onDeregistration(p *pipe, st *ueState, msg *f5nas.Message) error {
 	release := func() error {
 		a.mu.Lock()
 		a.deregReleases = append(a.deregReleases, [2]int64{amfID, ranID})
+		a.pendingReleases++
 		a.mu.Unlock()
 		return a.send(p, a.deregistrationRelease(amfID, ranID))
 	}

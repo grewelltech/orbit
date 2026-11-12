@@ -280,6 +280,7 @@ type AMF struct {
 	crashOnDrop         bool
 	releasedAt          map[string]time.Time
 	lastRelease         time.Time
+	pendingReleases     int // deregistration releases sent whose RELEASE COMPLETE has not come
 	// sessionsUpCh is closed when a PDU Session Resource Setup Response is
 	// recorded, waking a path switch waiting for one (awaitSessionsUp);
 	// guarded by mu, nil while no one waits.
