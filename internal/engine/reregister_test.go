@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/ue/auth"
 )
@@ -212,6 +213,68 @@ func TestReregisterAfterReleaseSetsNoDelay(t *testing.T) {
 	if got := conn.set.Load(); got != 1 {
 		t.Errorf("SetNoDelay state %d, want it set on and left on", got)
 	}
+	if err := m.Deregister(ctx, supi); err != nil {
+		t.Error(err)
+	}
+}
+
+// reassignedConn is an association a handover put in place of the UE's
+// lane: it cannot carry a second UE.
+type reassignedConn struct{ gnb.Transport }
+
+// The UE's association is the one it has once the procedures before this
+// one finished: a handover that replaces it while ReregisterAfterRelease
+// waits for the UE is seen, and the replaced lane is not touched.
+func TestReregisterAfterReleaseReadsTheAssociationItWaitedFor(t *testing.T) {
+	ki, _ := auth.ParseHexKey("Ki", "5122250214c33e723a5dd523fc145fc0")
+	opc, _ := auth.ParseHexKey("OPc", "981d464c7c52eb6e5036234984ad0bcf")
+	amf, err := mockamf.New(mockamf.Config{
+		Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203",
+	}, mockamf.WithGUTI())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cfg, _, _ := newBindTestAMF(t)
+	m := NewManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.dial = (&fakeN2Dialer{amf: amf}).dial
+	const supi = "208930100000001"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ueCfg := bindTestUE(t, supi, ki, opc)
+	if _, err := m.Register(ctx, GNBSpec{Config: cfg, AMFAddr: "amf.test:38412"}, ueCfg); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	m.mu.Lock()
+	sess := m.sessions[supi]
+	m.mu.Unlock()
+	// A procedure in flight holds the UE while the call starts, and
+	// replaces the association before it finishes, as a handover does.
+	hold, err := sess.beginProcedure(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		res *Reregistration
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := m.ReregisterAfterRelease(ctx, supi, ueCfg, 0)
+		done <- outcome{res, err}
+	}()
+	time.Sleep(50 * time.Millisecond)
+	lane := sess.conn
+	sess.conn = reassignedConn{lane}
+	hold()
+	got := <-done
+	if got.err == nil || !strings.Contains(got.err.Error(), "cannot carry a second UE") {
+		t.Errorf("ReregisterAfterRelease = %+v, %v; want the replaced association refused", got.res, got.err)
+	}
+	if n := len(amf.RegistrationSUPIs()); n != 1 {
+		t.Errorf("the mock answered %d Registration Requests, want the first only", n)
+	}
+	sess.conn = lane
 	if err := m.Deregister(ctx, supi); err != nil {
 		t.Error(err)
 	}

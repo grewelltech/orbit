@@ -69,15 +69,17 @@ func (m *Manager) ReregisterAfterRelease(ctx context.Context, supi string, ueCfg
 	if !ok {
 		return nil, fmt.Errorf("UE %s is not registered", supi)
 	}
-	lane, ok := sess.conn.(*gnb.UETransport)
-	if !ok {
-		return nil, fmt.Errorf("UE %s: its association cannot carry a second UE", supi)
-	}
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
+	// The association is read under the procedure lock: a handover replaces
+	// it under the same lock.
+	lane, ok := sess.conn.(*gnb.UETransport)
+	if !ok {
+		return nil, fmt.Errorf("UE %s: its association cannot carry a second UE", supi)
+	}
 	// The UE CONTEXT RELEASE COMPLETE and the INITIAL UE MESSAGE are two
 	// small writes: without this the kernel holds the second until the
 	// first is acknowledged, about 200 ms, and gap would mean nothing.
