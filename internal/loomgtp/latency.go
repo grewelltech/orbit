@@ -62,13 +62,15 @@ func (e sendError) Unwrap() error { return e.err }
 // counted apart. Ping is called from the sampler goroutine only, and the
 // record is read after it exits.
 type tunnelPinger struct {
+	run       context.Context // the run's context; a probe it ends is cut, not lost
 	up        Uplink
 	rx        ICMPRx
 	ueIP, dst net.IP
 	id        uint16
 
 	stop    context.CancelFunc // ends the run when the session is gone
-	sent    []latency.Result   // probes whose uplink send succeeded
+	sent    []latency.Result   // probes whose uplink send succeeded and that completed
+	cut     uint64             // probes sent whose wait a cancellation cut short
 	sendErr error              // the first send error, if any
 	stopped error              // the send error that ended the run, if any
 }
@@ -87,10 +89,25 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 		}
 	case err == nil:
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateOK, RTT: rtt})
+	case runEnded(p.run):
+		// The probe left, but the run ended (cancelled, or the caller's
+		// deadline) before its timeout, so it is neither received nor lost.
+		p.cut++
 	default:
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateTimeout, Err: err})
 	}
 	return rtt, err
+}
+
+// runEnded reports whether ctx is done or its deadline has passed. ping
+// notices a deadline by the clock, which can be before ctx's own timer has
+// marked it done.
+func runEnded(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	d, ok := ctx.Deadline()
+	return ok && !time.Now().Before(d)
 }
 
 // readSlice bounds each wait for a reply, so a cancel ends a probe within
@@ -155,7 +172,10 @@ type LatencyConfig struct {
 
 // LatencyResult is loom's latency summary measured over the GTP-U tunnel.
 // Sent counts the probes whose uplink send succeeded; Lost those of them
-// with no reply in time, and LossPct is Lost over Sent. NotSent counts the
+// with no reply in time. A probe whose wait the run's end (the caller's
+// cancellation or deadline, or the session going) cut short counts as sent and as
+// neither received nor lost, so LossPct is Lost over the probes that
+// completed and the statistics cover those alone. NotSent counts the
 // probes that never left — a failed send, or the remainder of a run that
 // stopped — with NotSentErr the first send error. Stopped is why the run
 // ended before its probes were spent ("" when it ran them all). Elapsed is
@@ -198,7 +218,7 @@ func RunLatency(ctx context.Context, cfg LatencyConfig) (LatencyResult, error) {
 
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	p := &tunnelPinger{up: cfg.Uplink, rx: cfg.RX, ueIP: cfg.UEIP, dst: dst, id: 0xB1A5, stop: cancel}
+	p := &tunnelPinger{run: rctx, up: cfg.Uplink, rx: cfg.RX, ueIP: cfg.UEIP, dst: dst, id: 0xB1A5, stop: cancel}
 	sampler := &latency.Sampler{
 		Pinger:   p,
 		Probes:   probes,
@@ -222,12 +242,12 @@ func RunLatency(ctx context.Context, cfg LatencyConfig) (LatencyResult, error) {
 func summarize(p *tunnelPinger, probes int, elapsed time.Duration, ctxErr error) LatencyResult {
 	s := latency.Summarize(p.sent)
 	res := LatencyResult{
-		Sent: s.Sent, Received: s.Received, Lost: s.Lost, LossPct: s.LossPct,
+		Sent: s.Sent + p.cut, Received: s.Received, Lost: s.Lost, LossPct: s.LossPct,
 		Min: s.Min, Max: s.Max, Mean: s.Mean, StdDev: s.StdDev, Jitter: s.Jitter,
 		Elapsed: elapsed,
 	}
-	if n := uint64(probes); n > s.Sent {
-		res.NotSent = n - s.Sent
+	if n := uint64(probes); n > res.Sent {
+		res.NotSent = n - res.Sent
 	}
 	if p.sendErr != nil {
 		res.NotSentErr = p.sendErr.Error()
@@ -239,7 +259,7 @@ func summarize(p *tunnelPinger, probes int, elapsed time.Duration, ctxErr error)
 		res.Stopped = ctxErr.Error()
 	}
 	if elapsed > 0 {
-		res.Rate = float64(s.Sent) / elapsed.Seconds()
+		res.Rate = float64(res.Sent) / elapsed.Seconds()
 	}
 	return res
 }

@@ -754,14 +754,16 @@ export type LatencyResponse = Message<"orbit.v1.LatencyResponse"> & {
   received: bigint;
 
   /**
-   * Probes sent but not answered in time.
+   * Probes sent but not answered in time. A probe whose wait the run's
+   * cancellation or deadline cut short is sent, and neither received nor lost.
    *
    * @generated from field: uint64 lost = 3;
    */
   lost: bigint;
 
   /**
-   * lost / sent, percent: probes that never left are not loss.
+   * lost / (received + lost), percent: over the probes that completed;
+   * probes that never left, or whose wait was cut short, are not loss.
    *
    * @generated from field: double loss_pct = 4;
    */

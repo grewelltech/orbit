@@ -150,6 +150,43 @@ func (u *failingUplink) SendUplink(inner []byte) error {
 	return u.echoProbe.SendUplink(inner)
 }
 
+// A probe whose reply wait the run's end cuts short counts as sent and as
+// neither received nor lost: one probe, no reply, its wait ended well inside
+// its timeout by the caller's cancel or by the caller's deadline.
+func TestRunLatencyCutWaitIsNotLoss(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  func() (context.Context, context.CancelFunc)
+	}{
+		{name: "caller cancels", ctx: func() (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancel(context.Background())
+			time.AfterFunc(100*time.Millisecond, cancel)
+			return ctx, cancel
+		}},
+		{name: "caller deadline", ctx: func() (context.Context, context.CancelFunc) {
+			return context.WithTimeout(context.Background(), 100*time.Millisecond)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			up := &failingUplink{echoProbe: newEchoProbe(1), fail: func(int) error { return nil }}
+			ctx, cancel := tc.ctx()
+			defer cancel()
+			res, err := RunLatency(ctx, LatencyConfig{
+				Uplink: up, RX: up.ring, UEIP: net.ParseIP("192.168.100.5"), Target: "10.0.0.9",
+				Probes: 1, Timeout: 5 * time.Second,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Sent != 1 || res.Received != 0 || res.Lost != 0 || res.NotSent != 0 || res.LossPct != 0 {
+				t.Errorf("sent/received/lost/notSent/loss%% = %d/%d/%d/%d/%.0f, want 1/0/0/0/0",
+					res.Sent, res.Received, res.Lost, res.NotSent, res.LossPct)
+			}
+		})
+	}
+}
+
 // RunLatency counts what left: a send that fails is not sent, not lost, and
 // loss is over the probes sent. A send failing because the session is gone
 // stops the run there — the rest are not sent, promptly, rather than spent
