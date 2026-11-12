@@ -556,7 +556,7 @@ func (k discardStimulus) failure() string {
 
 // discardOutcomes are the declared outcomes of a discard check.
 type discardOutcomes struct {
-	discarded, answered, status, stateChanged, released Outcome
+	discarded, answered, status, actedOn, stateChanged, released Outcome
 }
 
 // The keys of the shalls the discard checks' outcomes rest on.
@@ -574,10 +574,25 @@ var (
 	discardAnswerBound = &Bound{Wait: uplinkAnswerWait, Source: "check bound; the request before the stimulus was answered within it"}
 )
 
-// A release after the stimulus is WARN for security: no shall forbids the
-// AMF to release the UE, and the release is not an observed answer to the
-// message, but a core that drops a UE's connection after a forged or
-// replayed message acts on input it had the means to reject.
+// actedWindow names the window an action on the UE's state is attributed to
+// the stimulus within: the quiet wait the discard is judged in. The core's
+// messages for the earlier requests have settled before the stimulus, and
+// the UE sends nothing else within it.
+var actedWindow = fmt.Sprintf("within the %s quiet wait after it", uplinkQuietWait)
+
+// An action on the UE's existing state within the quiet window after the
+// stimulus (a PDU session released or modified, or the UE deregistered) is
+// FAIL under the discard shall: the UE sent nothing else, so only the
+// message can have caused it, and a discarded message changes nothing.
+//
+// A release of the UE context after the stimulus stays WARN for security:
+// no shall forbids the AMF to release the UE, and the release is not an
+// observed answer to the message. A UE Context Release moves the UE to
+// 5GMM-IDLE and leaves its registration, its security context and its PDU
+// sessions in place, and an AMF may release a UE's N2 connection for local
+// reasons of its own, so the release does not show that the message's
+// content was processed. A core that drops a UE's connection after a forged
+// or replayed message still acts on input it had the means to reject.
 
 // The outcomes of NAS-INTEGRITY-FAIL-DISCARD.
 var integrityDiscardOutcomes = discardOutcomes{
@@ -587,6 +602,8 @@ var integrityDiscardOutcomes = discardOutcomes{
 		Summary: "answered the PDU Session Establishment Request whose MAC failed the integrity check"},
 	status: Outcome{ID: "5gmm-status", Verdict: Fail, Refs: []string{integrityDiscardRef, integrityFailureRef},
 		Summary: "answered the bad-MAC request with a 5GMM STATUS"},
+	actedOn: Outcome{ID: "acted-on", Verdict: Fail, Refs: []string{integrityDiscardRef, integrityFailureRef},
+		Summary: "sent no answer to the bad-MAC request but, " + actedWindow + ", released or modified a PDU session of the UE or deregistered it"},
 	stateChanged: Outcome{ID: "state-changed", Verdict: Fail, Refs: []string{integrityDiscardRef, integrityFailureRef}, Bound: discardAnswerBound,
 		Summary: "left a valid request after the bad-MAC request unanswered: the discarded message changed its state"},
 	released: Outcome{ID: "released", Verdict: Warn, Criterion: CriterionSecurity,
@@ -601,6 +618,8 @@ var replayDiscardOutcomes = discardOutcomes{
 		Summary: "answered the replayed PDU Session Establishment Request again"},
 	status: Outcome{ID: "5gmm-status", Verdict: Fail, Refs: []string{replayActivationRef, replayProtectionRef},
 		Summary: "answered the replayed request with a 5GMM STATUS"},
+	actedOn: Outcome{ID: "acted-on", Verdict: Fail, Refs: []string{replayActivationRef, replayProtectionRef},
+		Summary: "sent no answer to the replayed request but, " + actedWindow + ", released or modified a PDU session of the UE (the one the request names, say) or deregistered it"},
 	stateChanged: Outcome{ID: "state-changed", Verdict: Fail, Refs: []string{replayActivationRef, replayProtectionRef}, Bound: discardAnswerBound,
 		Summary: "left a valid request after the replayed request unanswered: the discarded message changed its state"},
 	released: Outcome{ID: "released", Verdict: Warn, Criterion: CriterionSecurity,
@@ -609,7 +628,7 @@ var replayDiscardOutcomes = discardOutcomes{
 
 // list is the outcomes in declaration order.
 func (d discardOutcomes) list() []Outcome {
-	return []Outcome{d.discarded, d.answered, d.status, d.stateChanged, d.released}
+	return []Outcome{d.discarded, d.answered, d.status, d.actedOn, d.stateChanged, d.released}
 }
 
 // outcomes are the declared outcomes of the discard check for k.
@@ -624,9 +643,11 @@ func (k discardStimulus) outcomes() discardOutcomes {
 // signalling connection, sends a valid PDU Session Establishment Request
 // (which must be answered), then a second one with a corrupted MAC, then a
 // third, valid one. The AMF shall discard the second (TS 24.501 4.4.4.3,
-// TS 33.501 6.4.3.3): an answer to it, or a 5GMM STATUS after it, is FAIL,
-// and so is a third request that goes unanswered, which shows the discarded
-// message changed the AMF's state. A UE the AMF releases after the bad MAC
+// TS 33.501 6.4.3.3): an answer to it, or a 5GMM STATUS after it, is FAIL;
+// so is a PDU session of the UE released or modified, or the UE
+// deregistered, within the quiet wait after it, since the UE sent nothing
+// else; and so is a third request that goes unanswered, which shows the
+// discarded message changed the AMF's state. A UE the AMF releases after the bad MAC
 // is WARN for security: no answer violates the clause, but the release
 // acts on the message, and the third request cannot be judged. A first
 // request the core does not answer, or a UE it releases before the
@@ -666,8 +687,10 @@ func (c nasIntegrityFailDiscard) Run(ctx context.Context, env Env) Result {
 // be answered), then the same NAS PDU again, then a second, valid request.
 // The repeat carries the NAS COUNT the AMF accepted last, which it shall
 // accept at most once (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2): a further
-// answer to the first request, or a 5GMM STATUS after the repeat, is FAIL,
-// and so is a second request that goes unanswered. A UE the AMF releases
+// answer to the first request, or a 5GMM STATUS after the repeat, is FAIL;
+// so is the session the first request set up (or any other of the UE's)
+// released or modified, or the UE deregistered, within the quiet wait after
+// the repeat; and so is a second request that goes unanswered. A UE the AMF releases
 // after the repeat is WARN for security, as for NAS-INTEGRITY-FAIL-DISCARD.
 // The UE is deregistered at the end.
 type nasReplayDiscard struct {
@@ -729,6 +752,11 @@ type discardOutcome struct {
 	reply  *smReply
 	status bool
 	gone   string
+	// sent is when the stimulus went; acted are the core's actions on the
+	// UE's state within the quiet wait after it, and later the ones after
+	// the follow-up request went, which are recorded and not judged.
+	sent         time.Time
+	acted, later []coreAction
 	// followUp is the answer to the valid request sent after the stimulus,
 	// "" when none came.
 	followUp string
@@ -776,6 +804,7 @@ func probeDiscard(ctx context.Context, d *uplinkDriver, k discardStimulus) disca
 		o.err = fmt.Errorf("send the %s: %w", k.name(), err)
 		return o
 	}
+	o.sent = time.Now()
 	processed := func(l downlinkLog) bool { return l.answer(stimulus) != nil || l.has(f5nas.MsgTypeStatus5GMM) }
 	note := func(l downlinkLog) bool {
 		o.reply, o.status = l.answer(stimulus), l.has(f5nas.MsgTypeStatus5GMM)
@@ -789,7 +818,8 @@ func probeDiscard(ctx context.Context, d *uplinkDriver, k discardStimulus) disca
 		o.err = err
 		return o
 	}
-	if note(l) {
+	o.acted = l.actions
+	if note(l) || len(o.acted) > 0 {
 		return o
 	}
 
@@ -806,6 +836,7 @@ func probeDiscard(ctx context.Context, d *uplinkDriver, k discardStimulus) disca
 	if a := l.answer(followUp); a != nil {
 		o.followUp = a.name
 	}
+	o.later = l.actions
 	note(l)
 	return o
 }
@@ -816,9 +847,12 @@ func probeDiscard(ctx context.Context, d *uplinkDriver, k discardStimulus) disca
 func judgeDiscard(o discardOutcome, k discardStimulus, w uplinkWaits) (Outcome, string, string) {
 	name := k.name()
 	outs := k.outcomes()
-	undecoded := ""
+	notes := ""
 	if len(o.undecoded) > 0 {
-		undecoded = fmt.Sprintf("; %d downlink NAS PDU(s) after the %s did not decode: %s", len(o.undecoded), name, strings.Join(o.undecoded, ", "))
+		notes = fmt.Sprintf("; %d downlink NAS PDU(s) after the %s did not decode: %s", len(o.undecoded), name, strings.Join(o.undecoded, ", "))
+	}
+	if len(o.later) > 0 {
+		notes += fmt.Sprintf("; after the valid request that followed it was sent, the AMF also sent (not judged): %s", describeActions(o.later, o.sent, name))
 	}
 	switch {
 	case o.err != nil:
@@ -830,18 +864,26 @@ func judgeDiscard(o discardOutcome, k discardStimulus, w uplinkWaits) (Outcome, 
 		return classifiedBlocked(ProcPDUSession), "a valid PDU Session Establishment Request got no answer",
 			fmt.Sprintf("no 5GSM answer and no PDU Session Resource Setup Request within %s; the check needs the core to answer the request (DNN and slice from the UE configuration) before the %s can be judged", w.answer, name)
 	case o.reply != nil:
-		return outs.answered, fmt.Sprintf("%s answered: %s", name, o.reply.name), k.failure() + undecoded
+		return outs.answered, fmt.Sprintf("%s answered: %s", name, o.reply.name), k.failure() + notes
 	case o.status:
-		return outs.status, "5GMM STATUS after the " + name, k.failure() + " A 5GMM STATUS is an answer: the message was not discarded." + undecoded
+		return outs.status, "5GMM STATUS after the " + name, k.failure() + " A 5GMM STATUS is an answer: the message was not discarded." + notes
+	case len(o.acted) > 0:
+		released := ""
+		if o.gone != "" {
+			released = "; then " + o.gone
+		}
+		return outs.actedOn, fmt.Sprintf("%s not answered, but acted on: %s", name, describeActions(o.acted, o.sent, name)),
+			fmt.Sprintf("%s The %s got no answer, but within %s of it the AMF acted on the UE's registration or PDU sessions (%s%s). The UE sent nothing else in that window and the core's messages for the earlier request had settled, so only the %s can have caused it: the message was processed, not discarded.",
+				k.failure(), name, w.quiet, describeActions(o.acted, o.sent, name), released, name) + notes
 	case o.gone != "":
 		return outs.released, fmt.Sprintf("UE released after the %s; discard not confirmed", name),
-			fmt.Sprintf("the %s got no answer, but %s, so the valid request after it could not be judged; a release is neither the discard the clause requires nor an answer to the message", name, o.gone) + undecoded
+			fmt.Sprintf("the %s got no answer, but %s, so the valid request after it could not be judged; a release is neither the discard the clause requires nor an answer to the message", name, o.gone) + notes
 	case o.followUp == "":
 		return outs.stateChanged, "valid request not answered after the " + name,
-			fmt.Sprintf("%s The %s itself got no answer, but a valid PDU Session Establishment Request sent after it got none within %s, while the one before it was answered (%s): the message changed the AMF's state.", k.failure(), name, w.answer, o.first) + undecoded
+			fmt.Sprintf("%s The %s itself got no answer, but a valid PDU Session Establishment Request sent after it got none within %s, while the one before it was answered (%s): the message changed the AMF's state.", k.failure(), name, w.answer, o.first) + notes
 	}
 	return outs.discarded, fmt.Sprintf("%s discarded; a valid request after it was answered", name),
-		fmt.Sprintf("the request before it was answered (%s); nothing answered the %s within %s; the request after it was answered (%s)", o.first, name, w.quiet, o.followUp) + undecoded
+		fmt.Sprintf("the request before it was answered (%s); nothing answered the %s within %s; the request after it was answered (%s)", o.first, name, w.quiet, o.followUp) + notes
 }
 
 // nasCountNotAdvanced registers the UE and, on the secured NAS signalling
@@ -854,9 +896,11 @@ func judgeDiscard(o discardOutcome, k discardStimulus, w uplinkWaits) (Outcome, 
 // integrity protection validation"). C answered is PASS. C unanswered with
 // the association up is FAIL: every later uplink is checked at the wrong
 // COUNT. An answer to the re-sent A is FAIL under 4.4.3.2 (an accepted
-// COUNT accepted again), and C is then not judged. A UE released after the
-// re-sent A, before C is answered, is WARN for security, as for the discard
-// checks. A or B unanswered, or a UE released before A is sent again, is
+// COUNT accepted again), and C is then not judged; so is a PDU session of
+// the UE released or modified, or the UE deregistered, within the quiet
+// wait after the re-sent A, which only the re-sent A can have caused. A UE
+// released after the re-sent A, before C is answered, is WARN for security,
+// as for the discard checks. A or B unanswered, or a UE released before A is sent again, is
 // BLOCKED on the PDU session establishment. The UE's security context may
 // be unusable afterwards, so the cleanup drops the association whatever the
 // deregistration brings.
@@ -872,9 +916,12 @@ const (
 	countReplayRef = "TS 24.501 4.4.3.2"
 )
 
-// The outcomes of NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL. A release after the
-// re-sent request is WARN for security: no shall forbids it, but the core
-// acts on a message whose MAC failed.
+// The outcomes of NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL. An action on the UE's
+// state after the re-sent request is FAIL under 4.4.3.2, as an answer to
+// it is: the request's MAC verifies only at a NAS COUNT the AMF had already
+// accepted. A release of the UE context after it is WARN for security, as
+// for the discard checks: no shall forbids it, but the core acts on a
+// message whose MAC failed.
 var (
 	countKept = Outcome{ID: "count-kept", Verdict: Pass, Refs: []string{countStoredRef},
 		Summary: "answered a valid request sent after a MAC-failed one with a lower sequence number: the stored uplink NAS COUNT did not move"}
@@ -883,13 +930,15 @@ var (
 		Summary: "left a valid request sent after a MAC-failed one unanswered: the stored uplink NAS COUNT moved before the integrity check"}
 	countReplayAccepted = Outcome{ID: "replay-accepted", Verdict: Fail, Refs: []string{countReplayRef},
 		Summary: "answered a request re-sent with a lower sequence number, accepting a NAS COUNT it had accepted"}
+	countActedOn = Outcome{ID: "acted-on", Verdict: Fail, Refs: []string{countReplayRef},
+		Summary: "sent no answer to a request re-sent with a lower sequence number but, " + actedWindow + ", released or modified a PDU session of the UE (the one the request names, say) or deregistered it"}
 	countReleased = Outcome{ID: "released", Verdict: Warn, Criterion: CriterionSecurity,
 		Summary: "released the UE after the request re-sent with a lower sequence number"}
 )
 
 // Outcomes declares what the check can report.
 func (nasCountNotAdvanced) Outcomes() []Outcome {
-	return []Outcome{countKept, countAdvanced, countReplayAccepted, countReleased}
+	return []Outcome{countKept, countAdvanced, countReplayAccepted, countActedOn, countReleased}
 }
 
 func (nasCountNotAdvanced) ID() string { return "NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL" }
@@ -917,10 +966,11 @@ const (
 	countFailure       = "AMF did not process a valid uplink NAS message sent after a MAC-failed message with a lower sequence number. TS 24.501 4.4.3.3. Likely cause: the stored uplink NAS COUNT is advanced before the integrity check passes."
 	countFailObserved  = "valid uplink not processed after a MAC-failed PDU with a lower sequence number; consistent with the stored COUNT being advanced before the integrity check"
 	countReplayFailure = "AMF answered a PDU Session Establishment Request re-sent with a sequence number lower than the last accepted one, so it accepted a NAS COUNT it had already accepted. TS 24.501 4.4.3.2. Likely cause: the AMF checks an old sequence number at its original NAS COUNT and has no replay check. The request sent after it was not judged."
+	countActedFailure  = "AMF acted on a PDU Session Establishment Request re-sent with a sequence number lower than the last accepted one, whose MAC verifies only at a NAS COUNT the AMF had already accepted. TS 24.501 4.4.3.2. Likely cause: the AMF checks an old sequence number at its original NAS COUNT and has no replay check, or acts on a message that failed the integrity check. The request sent after it was not judged."
 )
 
 func (c nasCountNotAdvanced) Run(ctx context.Context, env Env) Result {
-	r := Result{Expected: "after two answered PDU Session Establishment Requests, the first one's bytes sent again (a lower sequence number, so a failed MAC at the estimated NAS COUNT) leave the stored uplink NAS COUNT unchanged: a third, valid request is answered (TS 24.501 4.4.3.3); the re-sent request is not answered (4.4.3.2)"}
+	r := Result{Expected: "after two answered PDU Session Establishment Requests, the first one's bytes sent again (a lower sequence number, so a failed MAC at the estimated NAS COUNT) leave the stored uplink NAS COUNT unchanged: a third, valid request is answered (TS 24.501 4.4.3.3); the re-sent request is not answered or acted on (4.4.3.2)"}
 	if !env.UE.Configured() {
 		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run the UE security checks")
 	}
@@ -953,6 +1003,11 @@ type countOutcome struct {
 	// after it.
 	replayed *smReply
 	gone     string
+	// sent is when A went again; acted are the core's actions on the UE's
+	// state within the quiet wait after it, and later the ones after C
+	// went, which are recorded and not judged.
+	sent         time.Time
+	acted, later []coreAction
 	// third is the answer to request C, "" when none came.
 	third string
 }
@@ -993,6 +1048,7 @@ func probeCount(ctx context.Context, d *uplinkDriver) countOutcome {
 		o.err = fmt.Errorf("re-send request A: %w", err)
 		return o
 	}
+	o.sent = time.Now()
 	again := func(l downlinkLog) bool { return l.answer(a) != nil }
 	note := func(l downlinkLog) bool {
 		o.replayed = l.answer(a)
@@ -1006,7 +1062,8 @@ func probeCount(ctx context.Context, d *uplinkDriver) countOutcome {
 		o.err = err
 		return o
 	}
-	if note(l) {
+	o.acted = l.actions
+	if note(l) || len(o.acted) > 0 {
 		return o
 	}
 
@@ -1023,6 +1080,7 @@ func probeCount(ctx context.Context, d *uplinkDriver) countOutcome {
 	if ans := l.answer(third); ans != nil {
 		o.third = ans.name
 	}
+	o.later = l.actions
 	note(l)
 	return o
 }
@@ -1030,6 +1088,11 @@ func probeCount(ctx context.Context, d *uplinkDriver) countOutcome {
 // judgeCount turns the NAS COUNT check's outcome into an outcome, Observed
 // and Detail.
 func judgeCount(o countOutcome, w uplinkWaits) (Outcome, string, string) {
+	const resent = "re-sent request"
+	notes := ""
+	if len(o.later) > 0 {
+		notes = fmt.Sprintf("; after C was sent, the AMF also sent (not judged): %s", describeActions(o.later, o.sent, resent))
+	}
 	switch {
 	case o.err != nil:
 		return classifiedError, "harness failure", o.err.Error()
@@ -1044,15 +1107,23 @@ func judgeCount(o countOutcome, w uplinkWaits) (Outcome, string, string) {
 			fmt.Sprintf("no 5GSM answer and no PDU Session Resource Setup Request within %s; the check needs the core to answer two requests in a row (DNN and slice from the UE configuration) before the stored NAS COUNT can be judged", w.answer)
 	case o.replayed != nil:
 		return countReplayAccepted, fmt.Sprintf("re-sent request answered (%s): an already accepted NAS COUNT was accepted again", o.replayed.name), countReplayFailure
+	case len(o.acted) > 0:
+		released := ""
+		if o.gone != "" {
+			released = "; then " + o.gone
+		}
+		return countActedOn, "re-sent request not answered, but acted on: " + describeActions(o.acted, o.sent, resent),
+			fmt.Sprintf("%s A and B were answered (%s; %s); A sent again got no answer, but within %s of it the AMF acted on the UE's registration or PDU sessions (%s%s). The UE sent nothing else in that window and the core's messages for A and B had settled, so only the re-sent A can have caused it.",
+				countActedFailure, o.answers[0], o.answers[1], w.quiet, describeActions(o.acted, o.sent, resent), released)
 	case o.third != "":
 		return countKept, "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
-			fmt.Sprintf("A and B were answered (%s; %s); A sent again got no answer within %s; C was answered (%s)", o.answers[0], o.answers[1], w.quiet, o.third)
+			fmt.Sprintf("A and B were answered (%s; %s); A sent again got no answer within %s; C was answered (%s)", o.answers[0], o.answers[1], w.quiet, o.third) + notes
 	case o.gone != "":
 		return countReleased, "UE released after the re-sent request; the stored NAS COUNT could not be judged",
-			fmt.Sprintf("%s before request C was answered, so whether the stored uplink NAS COUNT was advanced is not known; the release acts on a message whose MAC failed", o.gone)
+			fmt.Sprintf("%s before request C was answered, so whether the stored uplink NAS COUNT was advanced is not known; the release acts on a message whose MAC failed", o.gone) + notes
 	}
 	return countAdvanced, countFailObserved,
-		fmt.Sprintf("%s A and B were answered (%s; %s); A sent again got no answer; C, protected at the UE's next uplink NAS COUNT, got none within %s with the association up.", countFailure, o.answers[0], o.answers[1], w.answer)
+		fmt.Sprintf("%s A and B were answered (%s; %s); A sent again got no answer; C, protected at the UE's next uplink NAS COUNT, got none within %s with the association up.", countFailure, o.answers[0], o.answers[1], w.answer) + notes
 }
 
 // nasBadMACRegistration registers the UE, establishes one PDU session and
@@ -1073,9 +1144,13 @@ func judgeCount(o countOutcome, w uplinkWaits) (Outcome, string, string) {
 // is SKIP, the alternative the authentication rule permits; a REGISTRATION
 // ACCEPT, REGISTRATION REJECT, SECURITY MODE COMMAND, 5GMM STATUS,
 // AUTHENTICATION REJECT or network DEREGISTRATION REQUEST with no
-// authentication first is FAIL. A release with no answer is WARN for
-// security: neither reading describes it, and it acts on the message. A UE
-// without its PDU session is BLOCKED on the PDU session establishment.
+// authentication first is FAIL, and so is the UE's PDU session released or
+// modified with no authentication first: a discard changes nothing, and the
+// authentication rule has the AMF authenticate before it processes the
+// registration any further. A release of the UE context with no answer is
+// WARN for security: neither reading describes it, and it acts on the
+// message. A UE without its PDU session is BLOCKED on the PDU session
+// establishment.
 type nasBadMACRegistration struct {
 	// waits override the default bounds (tests only).
 	waits uplinkWaits
@@ -1094,6 +1169,8 @@ var (
 		Summary: "sent no answer to the bad-MAC REGISTRATION REQUEST"}
 	badMACRegProcessed = Outcome{ID: "processed", Verdict: Fail, Refs: []string{badMACRegRef},
 		Summary: "answered the bad-MAC REGISTRATION REQUEST with a message neither reading of 4.4.4.3 allows, with no authentication first"}
+	badMACRegActedOn = Outcome{ID: "acted-on", Verdict: Fail, Refs: []string{badMACRegRef},
+		Summary: fmt.Sprintf("released or modified the UE's PDU session within the %s quiet wait after the bad-MAC REGISTRATION REQUEST, with no authentication first", uplinkQuietWait)}
 	badMACRegReauthenticated = Outcome{ID: "reauthenticated", Verdict: Skip, Skip: SkipPermitted, Refs: []string{badMACRegRef},
 		Summary: "answered the bad-MAC REGISTRATION REQUEST with an AUTHENTICATION REQUEST, as the authentication rule of 4.4.4.3 has it"}
 	badMACRegIdentityRequested = Outcome{ID: "identity-requested", Verdict: Skip, Skip: SkipPermitted, Refs: []string{badMACRegRef},
@@ -1104,7 +1181,7 @@ var (
 
 // Outcomes declares what the check can report.
 func (nasBadMACRegistration) Outcomes() []Outcome {
-	return []Outcome{badMACRegDiscarded, badMACRegProcessed, badMACRegReauthenticated, badMACRegIdentityRequested, badMACRegReleased}
+	return []Outcome{badMACRegDiscarded, badMACRegProcessed, badMACRegActedOn, badMACRegReauthenticated, badMACRegIdentityRequested, badMACRegReleased}
 }
 
 func (nasBadMACRegistration) ID() string { return "NAS-BADMAC-REGISTRATION-AFTER-SMC" }
@@ -1205,6 +1282,11 @@ type badMACRegOutcome struct {
 	// order; gone says how the UE went after it.
 	answers []uint8
 	gone    string
+	// sent is when the stimulus went, and acted are the core's actions on
+	// the UE's PDU sessions after it, up to the first answer the grading
+	// rule classifies.
+	sent  time.Time
+	acted []coreAction
 	// undecoded are downlink NAS PDUs after the stimulus that did not
 	// verify or decode.
 	undecoded []string
@@ -1248,6 +1330,7 @@ func probeBadMACRegistration(ctx context.Context, d *uplinkDriver) badMACRegOutc
 		o.err = fmt.Errorf("send the bad-MAC REGISTRATION REQUEST: %w", err)
 		return o
 	}
+	o.sent = time.Now()
 	l, err = d.watch(ctx, d.waits.quiet, func(l downlinkLog) bool {
 		for _, mt := range l.mm {
 			if class, _ := classifyBadMACRegAnswer(mt); class != unrelatedAnswer {
@@ -1260,15 +1343,36 @@ func probeBadMACRegistration(ctx context.Context, d *uplinkDriver) badMACRegOutc
 		o.err = err
 		return o
 	}
-	o.answers, o.undecoded = l.mm, l.undecoded
+	o.answers, o.undecoded, o.acted = l.mm, l.undecoded, sessionActions(l.actions)
 	if l.gone() {
 		o.gone = l.goneNote()
 	}
 	return o
 }
 
+// judgeBadMACRegActedOn is the acted-on result of the bad-MAC registration check:
+// o's actions on the UE's PDU session came with no authentication first;
+// answer, when set, names the answer the rule allows that followed them.
+func judgeBadMACRegActedOn(o badMACRegOutcome, answer string) (Outcome, string, string) {
+	const stimulus = "bad-MAC REGISTRATION REQUEST"
+	acted := describeActions(o.acted, o.sent, stimulus)
+	then := ""
+	if answer != "" {
+		then = fmt.Sprintf(" The %s came only after it.", answer)
+	}
+	released := ""
+	if o.gone != "" {
+		released = "; then " + o.gone
+	}
+	return badMACRegActedOn, fmt.Sprintf("PDU session acted on after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it: %s", acted),
+		fmt.Sprintf("%s The AMF acted on the UE's PDU session (%s%s) with no authentication first. The UE sent nothing else in that window and the core's messages for the PDU session had settled, so only the bad-MAC REGISTRATION REQUEST can have caused it: a discard changes nothing, and the authentication rule has the AMF authenticate before it processes the registration any further, so both readings of the clause forbid it.%s",
+			badMACRegFailure, acted, released, then)
+}
+
 // judgeBadMACRegistration turns the outcome into an outcome, Observed and
-// Detail by the grading rule: the first answer the rule classifies decides.
+// Detail by the grading rule: the first answer the rule classifies decides,
+// except that an action on the UE's PDU session before an answer a reading
+// allows is FAIL (acted-on).
 func judgeBadMACRegistration(o badMACRegOutcome, w uplinkWaits) (Outcome, string, string) {
 	const ambiguity = "TS 24.501 4.4.4.3 has the AMF discard a message that fails the integrity check once secure exchange is established, and also has it authenticate when a REGISTRATION REQUEST for mobility registration update fails the check and the UE has only a non-emergency PDU session; it does not say whether the second rule still applies after secure exchange"
 	blocked := classifiedBlocked(ProcPDUSession)
@@ -1291,6 +1395,9 @@ func judgeBadMACRegistration(o badMACRegOutcome, w uplinkWaits) (Outcome, string
 		case unrelatedAnswer:
 			unrelated = append(unrelated, name)
 		case allowedByOneReading:
+			if len(o.acted) > 0 {
+				return judgeBadMACRegActedOn(o, name)
+			}
 			out, observed := badMACRegReauthenticated, badMACRegReauth
 			if mt == f5nas.MsgTypeIdentityRequest {
 				out, observed = badMACRegIdentityRequested, badMACRegIdentity
@@ -1305,6 +1412,10 @@ func judgeBadMACRegistration(o badMACRegOutcome, w uplinkWaits) (Outcome, string
 	notes := ""
 	if len(unrelated) > 0 {
 		notes += fmt.Sprintf("; other downlink 5GMM messages in the window, not answers to a registration: %s", strings.Join(unrelated, ", "))
+	}
+	if len(o.acted) > 0 {
+		out, observed, detail := judgeBadMACRegActedOn(o, "")
+		return out, observed, detail + notes
 	}
 	if len(o.undecoded) > 0 {
 		return classifiedError, "a downlink NAS PDU after the stimulus did not decode",

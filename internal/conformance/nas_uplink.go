@@ -70,11 +70,26 @@ type smReply struct {
 	name     string
 }
 
+// coreAction is one message by which the core changed the UE's registration
+// or PDU sessions unasked: a PDU Session Resource Release Command or Modify
+// Request, a PDU Session Release or Modification Command, or a
+// network-initiated Deregistration Request. A 5GSM command carried in a PDU
+// Session Resource Release Command or Modify Request is one action with it.
+type coreAction struct {
+	at   time.Time
+	what string
+	// dereg marks the Deregistration Request.
+	dereg bool
+}
+
 // downlinkLog is what a watch saw.
 type downlinkLog struct {
 	sm []smReply
 	// mm are the 5GMM message types of the other NAS messages, in order.
 	mm []uint8
+	// actions are the core's actions on the UE's registration or sessions,
+	// in order.
+	actions []coreAction
 	// undecoded are the NAS PDUs that did not verify or decode.
 	undecoded []string
 	// released is a UE Context Release Command; lost is why the
@@ -104,6 +119,34 @@ func (l downlinkLog) has(mt uint8) bool {
 		}
 	}
 	return false
+}
+
+// sessionActions are the actions in actions that change a PDU session, the
+// Deregistration Request left out.
+func sessionActions(actions []coreAction) []coreAction {
+	var out []coreAction
+	for _, a := range actions {
+		if !a.dereg {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// describeActions names each action and how long after sent it came, as
+// "PDU Session Resource Release Command for session 2, 25ms after the
+// replayed request", joined by "; ".
+func describeActions(actions []coreAction, sent time.Time, stimulus string) string {
+	parts := make([]string, 0, len(actions))
+	for _, a := range actions {
+		after := a.at.Sub(sent).Round(time.Millisecond)
+		when := after.String() + " after the " + stimulus
+		if after <= 0 {
+			when = "under 1ms after the " + stimulus
+		}
+		parts = append(parts, a.what+", "+when)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // gone reports whether the core released the UE or the association went.
@@ -291,7 +334,8 @@ func corruptMAC(nasPDU []byte) []byte {
 
 // watch reads the UE's downlink for up to wait, or until done reports true
 // for what has been seen, the core releases the UE or the association goes.
-// The error is ctx's.
+// A session the core releases is dropped from the ones the cleanup
+// releases. The error is ctx's.
 func (d *uplinkDriver) watch(ctx context.Context, wait time.Duration, done func(downlinkLog) bool) (downlinkLog, error) {
 	var l downlinkLog
 	deadline := time.Now().Add(wait)
@@ -317,6 +361,17 @@ func (d *uplinkDriver) watch(ctx context.Context, wait time.Duration, done func(
 			l.sm = append(l.sm, smReply{psi: psi, setup: true, name: "PDU Session Resource Setup Request"})
 			d.noteEstablished(psi)
 		}
+		// resource is the action of a PDU Session Resource Release Command
+		// or Modify Request, which a 5GSM command it carries joins.
+		var resource []string
+		for _, psi := range dl.ReleasedSessions {
+			resource = append(resource, fmt.Sprintf("PDU Session Resource Release Command for session %d", psi))
+			d.forgetEstablished(psi)
+		}
+		for _, psi := range dl.ModifiedSessions {
+			resource = append(resource, fmt.Sprintf("PDU Session Resource Modify Request for session %d", psi))
+		}
+		var carried []string
 		for _, ev := range dl.NAS {
 			if ev.Err != nil {
 				l.undecoded = append(l.undecoded, fmt.Sprintf("%v (NAS %x)", ev.Err, ev.Raw))
@@ -324,14 +379,44 @@ func (d *uplinkDriver) watch(ctx context.Context, wait time.Duration, done func(
 			}
 			sm, ok := dlN1SMFrom(ev.Msg)
 			if !ok || len(sm.payload) < 4 || sm.payload[0] != nasMessage.Epd5GSSessionManagementMessage {
-				l.mm = append(l.mm, ev.Msg.GmmHeader.GetMessageType())
+				mt := ev.Msg.GmmHeader.GetMessageType()
+				l.mm = append(l.mm, mt)
+				if mt == f5nas.MsgTypeDeregistrationRequestUETerminatedDeregistration {
+					l.actions = append(l.actions, coreAction{at: dl.At, what: "network-initiated Deregistration Request", dereg: true})
+				}
 				continue
 			}
 			info := readSM(sm.payload)
-			l.sm = append(l.sm, smReply{psi: sm.payload[1], pti: sm.payload[2], name: info.name})
-			if info.kind == smAccept {
-				d.noteEstablished(sm.payload[1])
+			psi := sm.payload[1]
+			l.sm = append(l.sm, smReply{psi: psi, pti: sm.payload[2], name: info.name})
+			switch {
+			case info.kind == smAccept:
+				d.noteEstablished(psi)
+			case sm.payload[3] == f5nas.MsgTypePDUSessionReleaseCommand:
+				carried = append(carried, fmt.Sprintf("PDU Session Release Command for session %d", psi))
+				d.forgetEstablished(psi)
+			case sm.payload[3] == f5nas.MsgTypePDUSessionModificationCommand:
+				carried = append(carried, fmt.Sprintf("PDU Session Modification Command for session %d", psi))
 			}
+		}
+		switch {
+		case len(resource) > 0 && len(carried) > 0:
+			l.actions = append(l.actions, coreAction{at: dl.At, what: strings.Join(resource, ", ") + ", carrying a " + strings.Join(carried, ", ")})
+		case len(resource) > 0:
+			l.actions = append(l.actions, coreAction{at: dl.At, what: strings.Join(resource, ", ")})
+		case len(carried) > 0:
+			l.actions = append(l.actions, coreAction{at: dl.At, what: strings.Join(carried, ", ")})
+		}
+	}
+}
+
+// forgetEstablished drops psi from the sessions the cleanup releases: the
+// core released it.
+func (d *uplinkDriver) forgetEstablished(psi uint8) {
+	for i, e := range d.established {
+		if e == psi {
+			d.established = append(d.established[:i], d.established[i+1:]...)
+			return
 		}
 	}
 }

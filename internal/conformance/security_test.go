@@ -344,7 +344,10 @@ type uplinkCase struct {
 	noUPF, noUE  bool
 	want         Verdict
 	wantObserved string
-	wantDetail   []string
+	// observedPrefix matches wantObserved as a prefix of Observed, for an
+	// Observed that ends in a measured delay.
+	observedPrefix bool
+	wantDetail     []string
 	// wantDereg and wantReleases are the Deregistration Requests and PDU
 	// Session Release Requests the mock must have received.
 	wantDereg, wantReleases int64
@@ -369,7 +372,11 @@ func runUplinkCases(t *testing.T, check Test, tests []uplinkCase) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			r := runOne(ctx, check, env, 15*time.Second)
-			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
+			observedOK := r.Observed == tc.wantObserved
+			if tc.observedPrefix {
+				observedOK = strings.HasPrefix(r.Observed, tc.wantObserved)
+			}
+			if r.Verdict != tc.want || !observedOK {
 				t.Errorf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
@@ -427,6 +434,9 @@ func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
 			wantDetail: []string{failure, "got none within 1.5s", "the message changed the AMF's state", "no UE Context Release Command within 400ms", cleanDropped}},
 		{name: "released", opts: bad(mockamf.ReleaseOnUplink), want: Warn, wantObserved: "UE released after the bad-MAC request; discard not confirmed",
 			wantDetail: []string{"the AMF sent a UE Context Release Command", "neither the discard the clause requires nor an answer", cleanGone, "WARN for security impact"}},
+		{name: "existing session released", opts: bad(mockamf.ReleaseSessionOnUplink), want: Fail, observedPrefix: true,
+			wantObserved: "bad-MAC request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail:   []string{failure, "within 300ms of it the AMF acted on the UE's registration or PDU sessions", "only the bad-MAC request can have caused it", cleanReleased}, wantDereg: 1, wantBadMACs: 1},
 		{name: "first request unanswered", noUPF: true, want: Blocked, wantObserved: "a valid PDU Session Establishment Request got no answer",
 			wantDetail: []string{"within 1.5s", cleanReleased, "PDU session establishment"}, wantDereg: 1},
 		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
@@ -458,6 +468,9 @@ func TestReplayDiscardAgainstMock(t *testing.T) {
 			wantDetail: []string{failure, "the message changed the AMF's state", cleanDropped}, wantReplays: 1},
 		{name: "released", opts: replay(mockamf.ReleaseOnUplink), want: Warn, wantObserved: "UE released after the replayed request; discard not confirmed",
 			wantDetail: []string{cleanGone}, wantReplays: 1},
+		{name: "existing session released", opts: replay(mockamf.ReleaseSessionOnUplink), want: Fail, observedPrefix: true,
+			wantObserved: "replayed request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail:   []string{failure, "only the replayed request can have caused it", "processed, not discarded", cleanReleased}, wantDereg: 1, wantReplays: 1},
 		{name: "first request unanswered", noUPF: true, want: Blocked, wantObserved: "a valid PDU Session Establishment Request got no answer",
 			wantDetail: []string{cleanReleased}, wantDereg: 1},
 		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0"},
@@ -469,6 +482,7 @@ func TestReplayDiscardAgainstMock(t *testing.T) {
 // the pinned clause.
 func TestJudgeDiscardReplay(t *testing.T) {
 	w := uplinkWaits{}.withDefaults()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	outs := replayDiscardOutcomes
 	tests := []struct {
 		name         string
@@ -480,6 +494,9 @@ func TestJudgeDiscardReplay(t *testing.T) {
 		{name: "answered again", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Accept"}}, want: outs.answered,
 			wantObserved: "replayed request answered: PDU Session Establishment Accept", wantDetail: "TS 33.501 6.4.3.2."},
 		{name: "status", o: discardOutcome{first: "a", status: true}, want: outs.status, wantObserved: "5GMM STATUS after the replayed request"},
+		{name: "existing session released", o: discardOutcome{first: "a", sent: t0, acted: []coreAction{{at: t0.Add(25 * time.Millisecond), what: "PDU Session Resource Release Command for session 2"}}},
+			want: outs.actedOn, wantObserved: "replayed request not answered, but acted on: PDU Session Resource Release Command for session 2, 25ms after the replayed request",
+			wantDetail: "TS 33.501 6.4.3.2."},
 		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: outs.released,
 			wantObserved: "UE released after the replayed request; discard not confirmed"},
 		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: outs.stateChanged, wantObserved: "valid request not answered after the replayed request", wantDetail: "NAS COUNT replay check missing"},
@@ -514,6 +531,12 @@ func TestCountNotAdvancedAgainstMock(t *testing.T) {
 		{name: "re-sent request answered", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate(), mockamf.WithReplayedUplink(mockamf.ProcessUplink)}, want: Fail,
 			wantObserved: "re-sent request answered (PDU Session Resource Setup Request): an already accepted NAS COUNT was accepted again",
 			wantDetail:   []string{"TS 24.501 4.4.3.2.", "The request sent after it was not judged.", cleanReleased}, wantDereg: 1, wantReleases: 2, wantReplays: 1},
+		{name: "re-sent request acted on at the old COUNT", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate(), mockamf.WithReplayedUplink(mockamf.ReleaseSessionOnUplink)}, want: Fail,
+			observedPrefix: true, wantObserved: "re-sent request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail: []string{countActedFailure, "only the re-sent A can have caused it", "PDU Session Release Request sent for session 3;", cleanReleased}, wantDereg: 1, wantReleases: 1, wantReplays: 1},
+		{name: "re-sent request acted on despite the bad MAC", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseSessionOnUplink)}, want: Fail,
+			observedPrefix: true, wantObserved: "re-sent request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail: []string{countActedFailure, cleanReleased}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
 		{name: "A unanswered", noUPF: true, want: Blocked, wantObserved: "PDU Session Establishment Request A got no answer",
 			wantDetail: []string{cleanReleased}, wantDereg: 1},
 		{name: "B unanswered", opts: []mockamf.Option{mockamf.WithPDUSessionAnswers(1)}, want: Blocked, wantObserved: "PDU Session Establishment Request B got no answer",
@@ -530,6 +553,8 @@ func TestCountNotAdvancedAgainstMock(t *testing.T) {
 // Every branch of the NAS COUNT verdict from a constructed outcome.
 func TestJudgeCount(t *testing.T) {
 	w := uplinkWaits{}.withDefaults()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	release := []coreAction{{at: t0.Add(40 * time.Millisecond), what: "PDU Session Resource Release Command for session 2"}}
 	both := [2]string{"a", "b"}
 	blocked := classifiedBlocked(ProcPDUSession)
 	tests := []struct {
@@ -545,6 +570,14 @@ func TestJudgeCount(t *testing.T) {
 		{name: "B unanswered", o: countOutcome{answers: [2]string{"a", ""}}, want: blocked, wantObserved: "PDU Session Establishment Request B got no answer"},
 		{name: "re-sent answered", o: countOutcome{answers: both, replayed: &smReply{name: "PDU Session Establishment Accept"}, third: "c"}, want: countReplayAccepted,
 			wantObserved: "re-sent request answered (PDU Session Establishment Accept): an already accepted NAS COUNT was accepted again", wantDetail: []string{"TS 24.501 4.4.3.2."}},
+		{name: "re-sent answered wins over an action", o: countOutcome{answers: both, replayed: &smReply{name: "x"}, sent: t0, acted: release}, want: countReplayAccepted},
+		{name: "re-sent acted on", o: countOutcome{answers: both, sent: t0, acted: release}, want: countActedOn,
+			wantObserved: "re-sent request not answered, but acted on: PDU Session Resource Release Command for session 2, 40ms after the re-sent request",
+			wantDetail:   []string{countActedFailure, "within 5s of it", "only the re-sent A can have caused it"}},
+		{name: "re-sent acted on, then released", o: countOutcome{answers: both, sent: t0, acted: release, gone: "the AMF sent a UE Context Release Command"}, want: countActedOn,
+			wantDetail: []string{"; then the AMF sent a UE Context Release Command"}},
+		{name: "C answered, an action after C noted", o: countOutcome{answers: both, third: "c", sent: t0, later: release}, want: countKept,
+			wantDetail: []string{"after C was sent, the AMF also sent (not judged): PDU Session Resource Release Command for session 2"}},
 		{name: "C answered", o: countOutcome{answers: both, third: "c"}, want: countKept, wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
 			wantDetail: []string{"within 5s", "C was answered (c)"}},
 		{name: "C answered, then released", o: countOutcome{answers: both, third: "c", gone: "gone"}, want: countKept},
@@ -594,6 +627,9 @@ func TestBadMACRegistrationAgainstMock(t *testing.T) {
 		{name: "released", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Warn,
 			wantObserved: "UE released after the bad-MAC REGISTRATION REQUEST, with no answer",
 			wantDetail:   []string{"the AMF sent a UE Context Release Command", "the release acts on the message", cleanGone}, wantBadMACs: 1},
+		{name: "session released", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseSessionOnUplink)}, want: Fail, observedPrefix: true,
+			wantObserved: "PDU session acted on after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail:   []string{badMACRegFailure, "both readings of the clause forbid it", cleanReleased}, wantDereg: 1, wantBadMACs: 1},
 		{name: "accepted without authentication", opts: reg(mockamf.AcceptBadMACRegistration), want: Fail,
 			wantObserved: "REGISTRATION ACCEPT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it",
 			wantDetail:   []string{badMACRegFailure, "both readings of the clause forbid it", released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
@@ -659,6 +695,16 @@ func TestJudgeBadMACRegistration(t *testing.T) {
 	released.gone = "the association was lost (EOF)"
 	acceptThenReleased := with(f5nas.MsgTypeRegistrationAccept)
 	acceptThenReleased.gone = "the AMF sent a UE Context Release Command"
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	acted := func(o badMACRegOutcome) badMACRegOutcome {
+		o.sent = t0
+		o.acted = []coreAction{{at: t0.Add(30 * time.Millisecond), what: "PDU Session Resource Release Command for session 2"}}
+		return o
+	}
+	actedReleased := acted(with())
+	actedReleased.gone = "the AMF sent a UE Context Release Command"
+	actedUndecoded := acted(with())
+	actedUndecoded.undecoded = []string{"bad (NAS 7e02)"}
 	blocked := classifiedBlocked(ProcPDUSession)
 	tests := []struct {
 		name         string
@@ -680,6 +726,14 @@ func TestJudgeBadMACRegistration(t *testing.T) {
 		{name: "authentication, then accept", o: with(f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeRegistrationAccept), want: badMACRegReauthenticated, wantObserved: badMACRegReauth},
 		{name: "authentication, then an undecodable PDU", o: authThenUndecoded, want: badMACRegReauthenticated, wantObserved: badMACRegReauth},
 		{name: "identity request", o: with(f5nas.MsgTypeIdentityRequest), want: badMACRegIdentityRequested, wantObserved: badMACRegIdentity},
+		{name: "session released", o: acted(with()), want: badMACRegActedOn,
+			wantObserved: "PDU session acted on after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it: PDU Session Resource Release Command for session 2, 30ms after the bad-MAC REGISTRATION REQUEST",
+			wantDetail:   []string{badMACRegFailure, "both readings of the clause forbid it"}},
+		{name: "session released, then authentication", o: acted(with(f5nas.MsgTypeAuthenticationRequest)), want: badMACRegActedOn,
+			wantDetail: []string{"The AUTHENTICATION REQUEST came only after it."}},
+		{name: "session released, then accept", o: acted(with(f5nas.MsgTypeRegistrationAccept)), want: badMACRegProcessed},
+		{name: "session released, then the UE", o: actedReleased, want: badMACRegActedOn, wantDetail: []string{"; then the AMF sent a UE Context Release Command"}},
+		{name: "session released, an undecodable PDU", o: actedUndecoded, want: badMACRegActedOn},
 		{name: "accept", o: with(f5nas.MsgTypeRegistrationAccept), want: badMACRegProcessed,
 			wantObserved: "REGISTRATION ACCEPT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it", wantDetail: []string{badMACRegFailure}},
 		{name: "unrelated, then accept", o: with(f5nas.MsgTypeConfigurationUpdateCommand, f5nas.MsgTypeRegistrationAccept), want: badMACRegProcessed},
@@ -718,6 +772,9 @@ func TestBadMACRegistrationTexts(t *testing.T) {
 // Every branch of the discard verdict from a constructed outcome.
 func TestJudgeDiscard(t *testing.T) {
 	w := uplinkWaits{}.withDefaults()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	release := []coreAction{{at: t0.Add(25 * time.Millisecond), what: "PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2"}}
+	dereg := []coreAction{{at: t0.Add(1500 * time.Millisecond), what: "network-initiated Deregistration Request", dereg: true}}
 	outs := integrityDiscardOutcomes
 	blocked := classifiedBlocked(ProcPDUSession)
 	tests := []struct {
@@ -734,16 +791,28 @@ func TestJudgeDiscard(t *testing.T) {
 			wantObserved: "bad-MAC request answered: PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN", wantDetail: []string{"TS 24.501 4.4.4.3."}},
 		{name: "answer wins over a release", o: discardOutcome{first: "a", reply: &smReply{name: "x"}, gone: "gone"}, want: outs.answered, wantObserved: "bad-MAC request answered: x"},
 		{name: "status", o: discardOutcome{first: "a", status: true}, want: outs.status, wantObserved: "5GMM STATUS after the bad-MAC request"},
+		{name: "status wins over an action", o: discardOutcome{first: "a", status: true, sent: t0, acted: release}, want: outs.status, wantObserved: "5GMM STATUS after the bad-MAC request"},
+		{name: "answer wins over an action", o: discardOutcome{first: "a", reply: &smReply{name: "x"}, sent: t0, acted: release}, want: outs.answered, wantObserved: "bad-MAC request answered: x"},
+		{name: "session released", o: discardOutcome{first: "a", sent: t0, acted: release}, want: outs.actedOn,
+			wantObserved: "bad-MAC request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, 25ms after the bad-MAC request",
+			wantDetail:   []string{"TS 24.501 4.4.4.3.", "within 5s of it the AMF acted on the UE's registration or PDU sessions", "only the bad-MAC request can have caused it"}},
+		{name: "deregistered", o: discardOutcome{first: "a", sent: t0, acted: dereg}, want: outs.actedOn,
+			wantObserved: "bad-MAC request not answered, but acted on: network-initiated Deregistration Request, 1.5s after the bad-MAC request"},
+		{name: "action wins over a release", o: discardOutcome{first: "a", sent: t0, acted: release, gone: "the AMF sent a UE Context Release Command"}, want: outs.actedOn,
+			wantDetail: []string{"25ms after the bad-MAC request; then the AMF sent a UE Context Release Command)"}},
 		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: outs.released,
 			wantObserved: "UE released after the bad-MAC request; discard not confirmed", wantDetail: []string{"the association was lost (EOF)"}},
 		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: outs.stateChanged, wantObserved: "valid request not answered after the bad-MAC request", wantDetail: []string{"got none within 10s"}},
 		{name: "pass", o: discardOutcome{first: "a", followUp: "b", undecoded: []string{"bad (NAS 7e02)"}}, want: outs.discarded,
 			wantObserved: "bad-MAC request discarded; a valid request after it was answered", wantDetail: []string{"within 5s", "1 downlink NAS PDU(s) after the bad-MAC request did not decode: bad (NAS 7e02)"}},
+		{name: "pass, an action after the follow-up noted", o: discardOutcome{first: "a", followUp: "b", sent: t0, later: dereg}, want: outs.discarded,
+			wantObserved: "bad-MAC request discarded; a valid request after it was answered",
+			wantDetail:   []string{"the AMF also sent (not judged): network-initiated Deregistration Request, 1.5s after the bad-MAC request"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			o, observed, detail := judgeDiscard(tc.o, badMACStimulus, w)
-			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved {
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
 				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
 			}
 			for _, want := range tc.wantDetail {
@@ -767,5 +836,38 @@ func TestCorruptMAC(t *testing.T) {
 		if got := corruptMAC(in); !bytes.Equal(got, tc.want) || !bytes.Equal(in, tc.in) {
 			t.Errorf("corruptMAC(%x) = %x (input now %x), want %x", tc.in, got, in, tc.want)
 		}
+	}
+}
+
+// describeActions names each action with its delay after the stimulus, and
+// sessionActions leaves the Deregistration Request out.
+func TestDescribeAndFilterActions(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rel := coreAction{at: t0.Add(25*time.Millisecond + 300*time.Microsecond), what: "PDU Session Resource Release Command for session 2"}
+	same := coreAction{at: t0, what: "PDU Session Modification Command for session 3"}
+	dereg := coreAction{at: t0.Add(2 * time.Second), what: "network-initiated Deregistration Request", dereg: true}
+	tests := []struct {
+		name    string
+		actions []coreAction
+		want    string
+	}{
+		{name: "none", want: ""},
+		{name: "one", actions: []coreAction{rel}, want: "PDU Session Resource Release Command for session 2, 25ms after the stimulus"},
+		{name: "no measurable delay", actions: []coreAction{same}, want: "PDU Session Modification Command for session 3, under 1ms after the stimulus"},
+		{name: "several", actions: []coreAction{rel, dereg},
+			want: "PDU Session Resource Release Command for session 2, 25ms after the stimulus; network-initiated Deregistration Request, 2s after the stimulus"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := describeActions(tc.actions, t0, "stimulus"); got != tc.want {
+				t.Errorf("describeActions = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := sessionActions([]coreAction{rel, dereg, same}); len(got) != 2 || got[0].what != rel.what || got[1].what != same.what {
+		t.Errorf("sessionActions = %+v, want the release and the modification", got)
+	}
+	if got := sessionActions([]coreAction{dereg}); len(got) != 0 {
+		t.Errorf("sessionActions of a Deregistration Request alone = %+v, want none", got)
 	}
 }

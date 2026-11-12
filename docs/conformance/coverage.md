@@ -383,7 +383,9 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   a sequence number lower than the last accepted one, so it fails the MAC at
   the AMF's estimated NAS COUNT, and the stored COUNT shall not move
   (TS 24.501 4.4.3.3). C answered is PASS; C unanswered with the association
-  up is FAIL; an answer to the re-sent A is FAIL under 4.4.3.2. A or B
+  up is FAIL; an answer to the re-sent A is FAIL under 4.4.3.2, and so is a
+  PDU session of the UE released or modified, or the UE deregistered, within
+  the 5 s watch after it (`acted-on`). A or B
   unanswered is BLOCKED on the PDU session; a release after the re-sent A,
   before C is answered, is WARN for security; 5G-IA0 SKIPs. On
   the FAIL path the UE's security context is unusable, so the cleanup's
@@ -397,8 +399,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   mode control procedure the UE sends a valid PDU Session Establishment
   Request (which must be answered), a second one with a corrupted MAC, and a
   third, valid one. The AMF shall discard the second (TS 24.501 4.4.4.3,
-  TS 33.501 6.4.3.3): an answer to it, a 5GMM STATUS after it, or a third
-  request left unanswered is FAIL. A UE released after the bad MAC is WARN
+  TS 33.501 6.4.3.3): an answer to it, a 5GMM STATUS after it, a PDU
+  session of the UE released or modified or the UE deregistered within the
+  5 s watch after it (`acted-on`: only the message can have caused it), or a
+  third request left unanswered is FAIL. A UE released after the bad MAC is WARN
   for security (neither a discard nor an answer); a first request left
   unanswered is BLOCKED on the PDU session; a core that selects 5G-IA0 SKIPs. The
   sessions are released and the UE deregistered at the end, best effort.
@@ -409,7 +413,8 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   TS 24.501 4.4.4.3 can be read as "discard" or as "authenticate first", so
   an answer is FAIL only when both readings forbid it: a Registration Accept,
   Registration Reject, Security Mode Command or 5GMM STATUS with no
-  authentication first. No answer is PASS and a release WARN for security;
+  authentication first, or the UE's PDU session released or modified with
+  no authentication first (`acted-on`). No answer is PASS and a release WARN for security;
   an Authentication Request (or an Identity Request) is SKIP, the
   alternative the text permits, with the ambiguity in Observed. No PDU
   session is BLOCKED on the PDU session; 5G-IA0 SKIPs. The session is released and the UE deregistered
@@ -654,8 +659,11 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   (which must be answered), the same NAS PDU again, and a second, valid
   request. The repeat carries the NAS COUNT the AMF accepted last, which it
   shall accept only once (TS 33.501 6.4.3.2, TS 24.501 4.4.3.2): a further
-  answer to the first request, a 5GMM STATUS after the repeat, or a second
-  request left unanswered is FAIL. A UE released after the repeat is WARN
+  answer to the first request, a 5GMM STATUS after the repeat, the UE's
+  existing PDU session (the one the repeat names, say) released or modified
+  or the UE deregistered within the 5 s watch after the repeat
+  (`acted-on`), or a second request left unanswered is FAIL. A UE released
+  after the repeat is WARN
   for security; a first request left unanswered is BLOCKED on the PDU
   session; a core that selects 5G-IA0 SKIPs. Cleanup as for
   `NAS-INTEGRITY-FAIL-DISCARD`. Needs a UE and a DNN the core serves. Not

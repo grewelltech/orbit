@@ -388,8 +388,8 @@ func procedureCode(pdu *ngapType.NGAPPDU) (int64, bool) {
 	return 0, false
 }
 
-// procedureName names the NGAP procedures an attach can see; others are
-// "procedure N".
+// procedureName names the NGAP procedures an attach or a NAS probe can see;
+// others are "procedure N".
 func procedureName(code int64) string {
 	switch code {
 	case ngapType.ProcedureCodeDownlinkNASTransport:
@@ -400,6 +400,10 @@ func procedureName(code int64) string {
 		return "UEContextRelease"
 	case ngapType.ProcedureCodePDUSessionResourceSetup:
 		return "PDUSessionResourceSetup"
+	case ngapType.ProcedureCodePDUSessionResourceRelease:
+		return "PDUSessionResourceRelease"
+	case ngapType.ProcedureCodePDUSessionResourceModify:
+		return "PDUSessionResourceModify"
 	case ngapType.ProcedureCodeErrorIndication:
 		return "ErrorIndication"
 	}
