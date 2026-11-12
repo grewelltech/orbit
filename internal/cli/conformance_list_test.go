@@ -32,7 +32,7 @@ func TestConformanceList(t *testing.T) {
 		{name: "a group titled in the target release", args: []string{"--list", "--group", "NAS / UE-requested 5GSM procedures", "--target-release", "Rel-15"},
 			want: []string{"NAS-PDU-UNKNOWN-DNN", "UE-requested PDU session establishment procedure"}},
 		{name: "a tag", args: []string{"--list", "--tag", "TIMING"},
-			want: []string{"NAS-T3550-ACCEPT-RETRANSMIT", "NAS-REGISTRATION-AFTER-RELEASE", "4 checks, up to"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
+			want: []string{"NAS-T3550-ACCEPT-RETRANSMIT", "NAS-REGISTRATION-AFTER-RELEASE", "5 checks, up to"}, wantNot: []string{"NGAP-NG-RESET-ACK"}},
 		{name: "a tag within a group", args: []string{"--list", "--tag", "security", "--group", "TS 33.501"},
 			want: []string{"NAS-SMC-NO-NIA0-REPLAYED-CAPS", "3 checks, up to"}, wantNot: []string{"NAS-INTEGRITY-FAIL-DISCARD"}},
 		{name: "a pack, none registered", args: []string{"--list", "--pack", "sdcore"}, wantErr: `--pack: unknown pack "sdcore" (have none)`},
@@ -163,7 +163,7 @@ func TestAnnouncer(t *testing.T) {
 	a.done()
 	out := w.String()
 	for _, want := range []string{
-		"Running 5 checks, up to 6m41s in total\n",
+		"Running 6 checks, up to 10m1s in total\n",
 		"preflight: NG Setup ok\npreflight: registration failed\n",
 		"[1/2] " + nas[0].ID() + ": up to 100ms\n",
 		"[2/2] " + nas[1].ID() + ": up to 10ms\n",

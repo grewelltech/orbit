@@ -122,6 +122,7 @@ func TestBuiltinGroups(t *testing.T) {
 		"NAS-PDU-SESSION-ESTABLISHMENT":          "NAS / UE-requested 5GSM procedures / UE-requested PDU session establishment procedure",
 		"NAS-INITIAL-REGISTRATION":               "NAS / 5GMM specific procedures / Registration procedure",
 		"NAS-REGISTRATION-AFTER-RELEASE":         "NAS / 5GMM specific procedures / Registration procedure",
+		"NAS-REGISTRATION-DURING-OTHER-RELEASE":  "NAS / 5GMM specific procedures / Registration procedure",
 		"NAS-RETRANSMIT-NEW-COUNT":               "NAS / NAS security / Handling of NAS COUNT and NAS sequence number",
 		"NAS-T3550-ACCEPT-RETRANSMIT":            "NAS / 5GMM specific procedures / Registration procedure",
 		"NAS-T3560-AUTH-RETRANSMIT":              "NAS / 5GMM common procedures / Primary authentication and key agreement procedure",

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -209,6 +210,55 @@ func TestReleasePDUSessionRefusalsAndBounds(t *testing.T) {
 			t.Errorf("took %s with a 200ms context and the default 16s wait", took)
 		}
 	})
+}
+
+// ReleasePDUSession on a CM-IDLE UE is refused before anything is sent,
+// like a handover, and the same UE releases once a Service Request has
+// brought it back to CM-CONNECTED.
+func TestReleasePDUSessionNeedsAConnectedUE(t *testing.T) {
+	tests := []struct {
+		name         string
+		idle         bool
+		serviceReq   bool
+		wantErr      string
+		wantRequests int64
+	}{
+		{name: "connected", wantRequests: 1},
+		{name: "CM-IDLE", idle: true, wantErr: "is CM-IDLE"},
+		{name: "CM-IDLE then a Service Request", idle: true, serviceReq: true, wantRequests: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			const supi = "208930100000001"
+			m, amf, _, _ := releaseTestManager(t, supi)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if tc.idle {
+				if _, err := m.Idle(ctx, supi); err != nil {
+					t.Fatalf("Idle: %v", err)
+				}
+			}
+			if tc.serviceReq {
+				if _, err := m.ServiceRequest(ctx, supi); err != nil {
+					t.Fatalf("ServiceRequest: %v", err)
+				}
+			}
+			res, err := m.ReleasePDUSession(ctx, supi, WithPDUReleaseWait(2*time.Second), WithPDUReleaseSettle(150*time.Millisecond))
+			if tc.wantErr != "" {
+				if err == nil || res != nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("= %+v, %v; want nil and an error containing %q", res, err, tc.wantErr)
+				}
+				if sess, serr := m.Status(supi); serr != nil || !sess.Idle() {
+					t.Errorf("after the refusal: %v, idle %v; want the UE still CM-IDLE", serr, serr == nil && sess.Idle())
+				}
+			} else if err != nil || res == nil || !res.Released() {
+				t.Errorf("= %+v, %v; want the session released", res, err)
+			}
+			if got := amf.PDUReleaseRequests(); got != tc.wantRequests {
+				t.Errorf("the mock got %d release requests, want %d", got, tc.wantRequests)
+			}
+		})
+	}
 }
 
 // scriptedConn is a Transport whose reads return the PDUs fed to it.

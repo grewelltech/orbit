@@ -1189,6 +1189,15 @@ registered:
   new 5G-GUTI is taken, and a CONFIGURATION UPDATE COMPLETE is sent when the
   command requests acknowledgement. A new TAI list or allowed NSSAI is only
   logged.
+- **Known limit:** a registered UE's downlink is read only while one of its
+  procedures waits for a message. A CONFIGURATION UPDATE COMMAND that arrives
+  while the UE is between procedures (registered, with none running) stays
+  queued until the UE's next procedure reads the downlink. An N2 handover
+  (or its cancellation) then processes it, late, and a CONFIGURATION UPDATE
+  COMPLETE the command asks for goes out late with it; any other procedure
+  (an Xn handover, a PDU session release, a Service Request, the
+  deregistration) skips or discards it unanswered. Either way the AMF may
+  retransmit the command on T3555 (TS 24.501 Table 10.2.2) meanwhile.
 - **Not supported:** the registration procedure for mobility and periodic
   registration update. A command with "registration requested" set
   (TS 24.501 5.4.4.3) is still acknowledged when it asks for that, but the UE
@@ -1759,6 +1768,23 @@ after a switch-off it is BLOCKED, naming `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF`. An
 is deregistered at the end; the detail gives the measured gap and the first
 answer of each registration, and what an unanswered one left. It can take up
 to 176 s against a core that does not answer, and a few seconds otherwise.
+
+`NAS-REGISTRATION-DURING-OTHER-RELEASE`, also in the `nas` category, does the
+same with two subscribers and two gNBs: one UE registers on the check's own
+gNB, a second gNB (the check's handover-target gNB ID) completes NG Setup on an
+association of its own, and the first UE deregisters with a switch-off. When
+the AMF's UE Context Release Command arrives, the first gNB sends the UE
+Context Release Complete and the second gNB sends the other subscriber's
+initial Registration Request, 0, 10, 20, 30, 40 and 50 ms later: six attempts,
+the two UEs and gNBs taking turns. Another UE's registration can arrive at any
+time relative to a release, so the gaps sample the first 50 ms after the
+complete evenly rather than aiming at any one core. It is graded like
+`NAS-REGISTRATION-AFTER-RELEASE`: PASS when every registration draws a NAS
+message within 10 s, FAIL when one draws none (TS 24.501 5.5.1.2.4,
+5.5.1.2.5), BLOCKED on a missing release or a second gNB the core does not
+set up. It needs two subscribers in the pool (with one, the other UE is the
+same subscriber on its own association, and the detail says so) and can take
+up to 200 s against a core that does not answer.
 
 `NAS-PDU-RELEASE-UE-REQUESTED` registers the UE with a PDU session and sends
 a PDU Session Release Request. It passes when the core answers with a PDU

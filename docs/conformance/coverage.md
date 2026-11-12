@@ -95,7 +95,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 ### NAS transport
 | Procedure | Dir | Procedural | Negative-IE | Notes |
 |---|---|---|---|---|
-| Initial UE Message | RAN→AMF | ✅ `NAS-INITIAL-REGISTRATION` (owner of the registration; PASS when accepted, WARN when rejected, FAIL when unanswered or released) · ✅ `NAS-REGISTRATION-AFTER-RELEASE` (a registration right after the same UE's release) | 🎯 malformed / oversized NAS PDU, bad TAI | |
+| Initial UE Message | RAN→AMF | ✅ `NAS-INITIAL-REGISTRATION` (owner of the registration; PASS when accepted, WARN when rejected, FAIL when unanswered or released) · ✅ `NAS-REGISTRATION-AFTER-RELEASE` (a registration right after the same UE's release) · ✅ `NAS-REGISTRATION-DURING-OTHER-RELEASE` (another UE's registration during a release) | 🎯 malformed / oversized NAS PDU, bad TAI | |
 | Uplink NAS Transport | RAN→AMF | ✅ | ✅ `NGAP-UNKNOWN-UE-SURVIVES` (unknown UE-NGAP-ID pair) | our first check; clause-10 AP-ID case |
 | Downlink NAS Transport | AMF→RAN | — | — | timing angle only |
 | NAS Non Delivery Indication | RAN→AMF | ⬜ | ⬜ | |
@@ -142,7 +142,7 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
 
 ## Current coverage
 
-**40 checks today**, by group: the specification, the procedure family and the procedure their primary reference belongs to, by the specification's own clause titles (ADR-0011 rule 9). [checks.md](checks.md) has each check's group and tags; `orbit conformance --group` and `--tag` select by them.
+**41 checks today**, by group: the specification, the procedure family and the procedure their primary reference belongs to, by the specification's own clause titles (ADR-0011 rule 9). [checks.md](checks.md) has each check's group and tags; `orbit conformance --group` and `--tag` select by them.
 
 ### GTPv1-U
 
@@ -333,6 +333,21 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   registration. The UE is deregistered at the end; the
   detail says what an unanswered registration left. Needs a UE (one
   subscriber); up to 176 s.
+- `NAS-REGISTRATION-DURING-OTHER-RELEASE` (FAIL-class) — subscriber A
+  registers on the check's own gNB and a second gNB, with its own gNB ID,
+  completes NG Setup on its own association. A deregisters with a switch-off
+  and, at the core's UE Context Release Command, the first gNB sends the UE
+  Context Release Complete and the second gNB, after the attempt's gap,
+  subscriber B's initial Registration Request. Six attempts, the gaps evenly
+  spaced from 0 to 50 ms (another UE's registration can arrive at any time
+  relative to a release, so the sweep samples the interval rather than aiming
+  at one core); the UEs and gNBs take turns. Graded as
+  `NAS-REGISTRATION-AFTER-RELEASE` (5.5.1.2.4, 5.5.1.2.5): every attempt
+  answered within 10 s is PASS, one with no NAS message FAIL. BLOCKED on the
+  release after switch-off, on the second gNB's NG Setup, or on a
+  registration that does not complete. The registered UE is deregistered at
+  the end. Needs a UE (two subscribers) and a second gNB ID; up to 200 s.
+
 - `NAS-T3550-ACCEPT-RETRANSMIT` (FAIL-class) — the UE withholds its
   Registration Complete after a Registration Accept that assigns a 5G-GUTI;
   the AMF must retransmit the Registration Accept on each T3550 expiry, four
@@ -716,6 +731,6 @@ alternative. In every class a core that does not survive a check's stimulus
 Separate sections/files as coverage extends beyond NGAP:
 
 - **XnAP** — TS 38.423 (Xn handover already exercised on the happy path).
-- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ PDU session establishment for the run's DNN and slice (`NAS-PDU-SESSION-ESTABLISHMENT`, owner of the procedure); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`). ✅ Deregistration Accept for a deregistration that is not switch-off (`NAS-DEREG-ACCEPT-NOT-SWITCH-OFF`). ✅ UE-requested PDU session release (`NAS-PDU-RELEASE-UE-REQUESTED`). ✅ Service Request from CM-IDLE re-establishing a PDU session's user plane (`NAS-SERVICE-REQUEST-REACTIVATES`). ✅ An initial registration right after the same UE's switch-off deregistration and release (`NAS-REGISTRATION-AFTER-RELEASE`).
+- **NAS-5GS** — TS 24.501 (its own procedures + error-handling clause; security ties to TS 33.501). ✅ T3560 Authentication Request retransmission and release (`NAS-T3560-AUTH-RETRANSMIT`); ✅ T3550 Registration Accept retransmission (`NAS-T3550-ACCEPT-RETRANSMIT`); ✅ PDU session establishment for the run's DNN and slice (`NAS-PDU-SESSION-ESTABLISHMENT`, owner of the procedure); ✅ unknown DNN on PDU session establishment (`NAS-PDU-UNKNOWN-DNN`); ✅ Registration Reject #62 with the rejected S-NSSAI (`NAS-REG-REJECTED-NSSAI`). ✅ Deregistration Accept for a deregistration that is not switch-off (`NAS-DEREG-ACCEPT-NOT-SWITCH-OFF`). ✅ UE-requested PDU session release (`NAS-PDU-RELEASE-UE-REQUESTED`). ✅ Service Request from CM-IDLE re-establishing a PDU session's user plane (`NAS-SERVICE-REQUEST-REACTIVATES`). ✅ An initial registration right after the same UE's switch-off deregistration and release (`NAS-REGISTRATION-AFTER-RELEASE`); another UE's initial registration during that release (`NAS-REGISTRATION-DURING-OTHER-RELEASE`).
 - **GTP-U** — TS 29.281 (§7 error handling). ✅ unknown-TEID → Error Indication (`GTPU-UNKNOWN-TEID-ERRIND`); ✅ End Marker on Xn path switch (`GTPU-END-MARKER-ON-PATH-SWITCH`); ✅ Echo Request → Echo Response with the sequence number copied (`GTPU-ECHO-RESPONSE`). ✅ PDU Session Container on downlink G-PDUs (`N3-DL-QFI-CONTAINER`, §5.2.2.7).
 - **PFCP / N4** — TS 29.244 (only if ORBIT ever drives N4 directly; today the core owns it).

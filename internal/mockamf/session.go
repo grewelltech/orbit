@@ -212,6 +212,7 @@ func (a *AMF) sessionsUp(amfID int64, dls map[uint8]Tunnel) {
 			}
 		}
 	}
+	a.wakeSessionsUpLocked()
 	a.mu.Unlock()
 	if a.cfg.UPF != nil {
 		for _, s := range up {
@@ -228,7 +229,9 @@ func (a *AMF) sessionsUp(amfID int64, dls map[uint8]Tunnel) {
 // the listed sessions is known (always so without a UPF), it answers a
 // PathSwitchRequestFailure listing the requested sessions (TS 38.413
 // §8.4.4.3), as a real AMF would, so the caller fails at once instead of
-// waiting out its timeout. WithPathSwitchAnswer changes the answer.
+// waiting out its timeout. WithPathSwitchAnswer changes the answer. A
+// listed session whose setup response has not been read yet is waited for
+// first (awaitSessionsUp).
 func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapType.PathSwitchRequest) error {
 	var ranID, srcAMFID int64
 	var ranCaps *ngapType.UESecurityCapabilities
@@ -269,6 +272,7 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 	case FailPathSwitch:
 		return a.send(p, buildPathSwitchRequestFailure(srcAMFID, ranID, requested))
 	}
+	a.awaitSessionsUp(srcAMFID, requested)
 	var switches []PathSwitch
 	var switched []switchedItem
 	a.mu.Lock()

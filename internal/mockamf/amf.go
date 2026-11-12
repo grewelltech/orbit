@@ -280,7 +280,11 @@ type AMF struct {
 	crashOnDrop         bool
 	releasedAt          map[string]time.Time
 	lastRelease         time.Time
-	droppedRegs         atomic.Int64
+	// sessionsUpCh is closed when a PDU Session Resource Setup Response is
+	// recorded, waking a path switch waiting for one (awaitSessionsUp);
+	// guarded by mu, nil while no one waits.
+	sessionsUpCh chan struct{}
+	droppedRegs  atomic.Int64
 
 	// Identification options and what the UEs answered, the answers
 	// guarded by mu (identity.go).

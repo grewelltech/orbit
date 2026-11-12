@@ -76,7 +76,7 @@ func TestRegistryTagged(t *testing.T) {
 
 // The built-in tags, by stimulus.
 func TestBuiltinTags(t *testing.T) {
-	want := map[Tag]int{TagNegative: 17, TagSecurity: 11, TagTiming: 4}
+	want := map[Tag]int{TagNegative: 17, TagSecurity: 11, TagTiming: 5}
 	got := map[Tag]int{}
 	for _, c := range NewRegistry().Tests() {
 		if err := validateTags(c); err != nil {
@@ -99,7 +99,7 @@ func TestBuiltinTags(t *testing.T) {
 	for _, c := range r.Select() {
 		ids = append(ids, c.ID())
 	}
-	if strings.Join(ids, ",") != "NAS-REGISTRATION-AFTER-RELEASE,NAS-T3550-ACCEPT-RETRANSMIT" {
+	if strings.Join(ids, ",") != "NAS-REGISTRATION-AFTER-RELEASE,NAS-REGISTRATION-DURING-OTHER-RELEASE,NAS-T3550-ACCEPT-RETRANSMIT" {
 		t.Errorf("timing in 5GMM specific procedures: %v", ids)
 	}
 }

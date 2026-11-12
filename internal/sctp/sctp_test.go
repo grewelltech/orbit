@@ -441,7 +441,7 @@ func TestSetNoDelay(t *testing.T) {
 	defer func() { _ = c.Close() }()
 	noDelay := func() int {
 		t.Helper()
-		rc, err := c.c.(*isctp.SCTPConn).SyscallConn()
+		rc, err := c.c.(syscall.Conn).SyscallConn()
 		if err != nil {
 			t.Fatal(err)
 		}
