@@ -8,7 +8,7 @@ cores did; it is not a ranking of them.
 
 | Baseline | ORBIT build | Checks | Cores |
 |---|---|---|---|
-| [2026-11 (v0.2.0)](2026-11-v0.2.0.md) | `feat/conformance-adr-0011-part2` at `752210bd` | 41 | SD-Core (main), free5GC v4.3.0, Open5GS v2.8.0 |
+| [2026-11 (v0.2.0)](2026-11-v0.2.0.md), run 2026-11-12 | `feat/conformance-suite-v0.2.0` at `22a14a71` (PR #290) | 41 | SD-Core (main), free5GC v4.3.0, Open5GS v2.8.0 |
 
 ## How a baseline is run
 
