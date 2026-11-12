@@ -25,16 +25,17 @@ The issue's candidate, "TS 24.501 6.4.3", is pinned to 6.4.3.3 and 6.3.3.2 below
 - **Changes:** the first sentence is the same in every version read. Rel-15: the next sentence names the "SM cause IE" in V15.0.0 and the "5GSM cause IE" by V15.7.0, and the list of typical causes grows. Rel-17 (V17.18.1): the PTI sentence ends "... and shall not include the Access type IE in the PDU SESSION RELEASE COMMAND." Rel-18 adds Alternative S-NSSAI sentences.
 - **Use in the check:** the PDU SESSION RELEASE COMMAND for the session is read through the UE's NAS security context, whether it is the NAS-PDU of the NGAP command or comes in a DOWNLINK NAS TRANSPORT. The UE answers it with a PDU SESSION RELEASE COMPLETE. The PTI (the request uses 1) and the 5GSM cause are recorded; a PTI that is not the request's is noted, not scored.
 
-## TS 23.502 4.3.4.2 step 2a (UE or network requested PDU Session Release for Non-Roaming and Roaming with Local Breakout), shall
+## TS 23.502 4.3.4.2 step 2a (UE or network requested PDU Session Release for Non-Roaming and Roaming with Local Breakout), shall (read as a requirement)
 
 > "2a. The SMF sends an N4 Session Release Request (N4 Session ID) message to the UPF(s) of the PDU Session. The UPF(s) shall drop any remaining packets of the PDU Session and release all tunnel resource and contexts associated with the N4 Session."
 
 - **Since:** Rel-15, V15.0.0 (`23502-f00.zip`).
 - **Changes:** none: word-for-word the same in V15.0.0, V15.17.0, V16.19.0, V17.15.0, V18.14.0 and V19.9.0.
+- **Strength:** read as a requirement on the core under test. TS 23.502 is a stage-2 procedure description, and this "shall" binds the UPF, a function inside the core that the check cannot address; the check sees only the core's N3 side. Read for its intent, the step says that once the release has reached the UE no packet of the session leaves the core on its tunnel, and nothing in the procedure lets a released session keep sending downlink. That is the observable the check grades.
 - **Use in the check:** step 2a precedes the command to the UE, so once the UE has both commands the UPF has dropped the session. The check allows downlink already in flight for 1 s after the later command, then watches the released downlink tunnel (the session's TEID at the gNB's N3 socket) for 3 s more. A G-PDU in that time is FAIL.
 - **Probe:** with `--traffic`, the echo flow keeps sending uplink on the released tunnel, which a UPF that kept the session would answer. Without it the tunnel is only watched, and the detail says so. The detail gives the G-PDU counts before the request, in the grace and after it.
 
-## TS 23.502 4.3.4.2 step 3 (the same procedure), shall
+## TS 23.502 4.3.4.2 step 3 (the same procedure), shall (read as a requirement)
 
 From V15.5.0:
 
@@ -43,7 +44,8 @@ From V15.5.0:
 - **Since:** Rel-15. The shall first appears in V15.5.0 (`23502-f50.zip`); V15.4.1 (`23502-f41.zip`) and earlier only list the N2 SM Resource Release request in step 3a's message. Located by bisection: absent from V15.0.0, V15.4.0 and V15.4.1, present in V15.5.0, V15.7.0 and V15.17.0; the other Rel-15 versions were not searched.
 - **Changes:** the two sentences are the same in V15.5.0, V15.17.0, V16.19.0, V17.15.0, V18.14.0 and V19.9.0. Rel-16 adds, in step 4, that a Control Plane CIoT 5GS Optimisation session carries no N2 release.
 - **Use in the check:** the session was established with its N3 tunnel moments before, and the UE is in CM-CONNECTED, so the user plane connection is activated and the N2 release is due. It reaches the gNB as a PDU SESSION RESOURCE RELEASE COMMAND listing the session, which Orbit answers with a PDU SESSION RESOURCE RELEASE RESPONSE.
-- **Limit:** the shall binds the SMF. Step 4 has the AMF pass the request on in the indicative ("the AMF transfers the SM information"). A missing NGAP command FAILs either way; the check cannot tell which function dropped it.
+- **Strength:** read as a requirement on the core under test. The shall binds the SMF's message to the AMF, which the check cannot see, and step 4 has the AMF pass the request on in the indicative ("the AMF transfers the SM information"). Read for its intent, the two steps say that with the user plane active the release reaches the gNB as an N2 resource release; step 4 offers the AMF no other course, so the observable on N2 is the requirement's result.
+- **Limit:** a missing NGAP command FAILs whichever function dropped it; the check cannot tell which.
 
 ## TS 38.413 8.2.2.2 (PDU Session Resource Release, Successful Operation), descriptive
 
