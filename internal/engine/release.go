@@ -49,6 +49,11 @@ func (m *Manager) RequestContextRelease(ctx context.Context, supi string, wait t
 		return ContextReleaseResult{}, fmt.Errorf("UE %s has no NG connection to release", supi)
 	}
 
+	// What arrived before the request cannot be its answer.
+	if d, ok := sess.conn.(interface{ Drain() int }); ok {
+		d.Drain()
+	}
+	sess.dropHeld()
 	var res ContextReleaseResult
 	sent := time.Now()
 	active := sess.activeSessionIDs()
