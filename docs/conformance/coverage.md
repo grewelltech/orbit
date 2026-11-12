@@ -10,6 +10,9 @@ each check.
 > authored — not from memory. The procedure names and directions below are the
 > stable scaffold; the precise citations get filled in per check.
 
+How the suite's checks fare against the cores ORBIT is tested with is recorded
+in the [conformance baselines](baseline/README.md).
+
 ## How this map is built
 
 3GPP protocol specs don't read like one linear RFC, but they have a consistent
