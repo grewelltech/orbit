@@ -77,19 +77,22 @@ func TestN2HandoverOverMockPair(t *testing.T) {
 // A HANDOVER REQUIRED the core answers with a HANDOVER PREPARATION FAILURE,
 // or not at all, fails without a command as ErrHandoverNotCommanded, with
 // the failure the core sent in the error, and the UE stays on its source
-// gNB, from which it still deregisters.
+// gNB, from which it still deregisters. A failure the source receives
+// while the target waits for a HANDOVER REQUEST ends the wait at once.
 func TestN2HandoverPreparationFails(t *testing.T) {
 	tests := []struct {
-		name    string
-		net24   int
-		answer  mockamf.HandoverAnswer
-		wait    time.Duration
+		name   string
+		net24  int
+		answer mockamf.HandoverAnswer
+		wait   time.Duration
+		// within, when set, is how soon the failure must be noticed.
+		within  time.Duration
 		wantErr string
 		// refused is whether the error carries the core's HANDOVER
 		// PREPARATION FAILURE.
 		refused bool
 	}{
-		{name: "preparation failure", net24: testnet.EngineN2PrepFailure, answer: mockamf.FailHandoverPreparation, wait: 2 * time.Second,
+		{name: "preparation failure", net24: testnet.EngineN2PrepFailure, answer: mockamf.FailHandoverPreparation, wait: 10 * time.Second, within: 2 * time.Second,
 			wantErr: "before a HandoverRequest reached the target: HANDOVER PREPARATION FAILURE, cause radio-network/", refused: true},
 		{name: "no answer", net24: testnet.EngineN2Unanswered, answer: mockamf.IgnoreHandoverRequired, wait: time.Second,
 			wantErr: "await HandoverRequest"},
@@ -105,9 +108,13 @@ func TestN2HandoverPreparationFails(t *testing.T) {
 			p.register(t, m, supi)
 			ctx, cancel := context.WithTimeout(context.Background(), tc.wait)
 			defer cancel()
+			began := time.Now()
 			res, err := m.Handover(ctx, supi, GNBEndpoint{Config: gnb.Config{ID: 2, Name: "orbit-gnb-2"}, AMFAddr: p.amfAddr, N3Addr: p.tgtN3})
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("Handover = %v, want an error naming %q", err, tc.wantErr)
+			}
+			if took := time.Since(began); tc.within > 0 && took > tc.within {
+				t.Errorf("Handover returned after %s, want the failure noticed within %s", took, tc.within)
 			}
 			if !errors.Is(err, ErrHandoverNotCommanded) {
 				t.Errorf("Handover = %v, want ErrHandoverNotCommanded", err)

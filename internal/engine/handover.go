@@ -266,8 +266,12 @@ func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target G
 		return nil, fmt.Errorf("send HandoverRequired: %w", err)
 	}
 
-	// 2. AMF → target: HandoverRequest.
-	reqPDU, err := gnb.ReadPDU(ctx, tgt)
+	// 2. AMF → target: HandoverRequest, or AMF → source: a HANDOVER
+	// PREPARATION FAILURE that refuses the handover without asking the target.
+	reqPDU, early, refused, err := m.awaitHandoverRequest(ctx, sess, tgt)
+	if refused != nil {
+		return nil, fmt.Errorf("%w: before a HandoverRequest reached the target: %w", ErrHandoverNotCommanded, refused)
+	}
 	if err != nil {
 		if refused := m.refusedAtSource(ctx, sess); refused != nil {
 			return nil, fmt.Errorf("%w: before a HandoverRequest reached the target: %w", ErrHandoverNotCommanded, refused)
@@ -301,8 +305,12 @@ func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target G
 		return nil, fmt.Errorf("send HandoverRequestAcknowledge: %w", err)
 	}
 
-	// 4. AMF → source: HandoverCommand.
-	cmdPDU, err := sess.readPDU(ctx)
+	// 4. AMF → source: HandoverCommand. A source PDU read while the
+	// HandoverRequest was awaited comes first.
+	cmdPDU := early
+	if cmdPDU == nil {
+		cmdPDU, err = sess.readPDU(ctx)
+	}
 	for err == nil && sess.absorbDownlinkNAS(ctx, m.log, cmdPDU) {
 		cmdPDU, err = sess.readPDU(ctx)
 	}
@@ -318,6 +326,70 @@ func (m *Manager) prepareHandoverOn(ctx context.Context, sess *Session, target G
 	}
 	return &preparedHandover{tgtConn: tgtConn, tgt: tgt, hr: hr, admitted: admitted, dlTEIDs: dlTEIDs,
 		command: gnb.ParseHandoverCommandItems(cmdPDU)}, nil
+}
+
+// awaitHandoverRequest waits for the HANDOVER REQUEST on the target lane
+// and, at the same time, reads the UE's source association, where an AMF
+// that refuses the handover without asking the target answers. It returns
+// the request; or the HANDOVER PREPARATION FAILURE read at the source; or
+// the target read's error. early is a source PDU other than a failure or
+// downlink NAS, read while waiting: what the source receives next, which
+// the caller takes before reading the source again. The source is read
+// until the target answers, a failure or such a PDU arrives, or the source
+// read fails; the target until it answers or ctx ends.
+func (m *Manager) awaitHandoverRequest(ctx context.Context, sess *Session, tgt *gnb.UETransport) (req, early *ngapType.NGAPPDU, refused *gnb.HandoverPreparationFailure, err error) {
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	tch := make(chan pduRead, 1)
+	go func() {
+		pdu, err := gnb.ReadPDU(wctx, tgt)
+		tch <- pduRead{pdu, err}
+	}()
+	// The source reader owns sess until it has sent on sch.
+	type sourceRead struct {
+		pdu     *ngapType.NGAPPDU
+		refused *gnb.HandoverPreparationFailure
+		err     error
+	}
+	sch := make(chan sourceRead, 1)
+	go func() {
+		for {
+			pdu, err := sess.readPDU(wctx)
+			if err != nil {
+				sch <- sourceRead{err: err}
+				return
+			}
+			if sess.absorbDownlinkNAS(wctx, m.log, pdu) {
+				continue
+			}
+			var f *gnb.HandoverPreparationFailure
+			if _, perr := gnb.ParseHandoverCommand(pdu); errors.As(perr, &f) {
+				sch <- sourceRead{refused: f}
+				return
+			}
+			sch <- sourceRead{pdu: pdu}
+			return
+		}
+	}()
+	var t pduRead
+	select {
+	case t = <-tch:
+		cancel()
+		if s := <-sch; s.refused != nil {
+			return nil, nil, s.refused, nil
+		} else if s.pdu != nil {
+			early = s.pdu
+		}
+	case s := <-sch:
+		if s.refused != nil {
+			cancel()
+			<-tch
+			return nil, nil, s.refused, nil
+		}
+		early = s.pdu
+		t = <-tch
+	}
+	return t.pdu, early, nil, t.err
 }
 
 // refusedWait bounds the look at the source association for a HANDOVER
