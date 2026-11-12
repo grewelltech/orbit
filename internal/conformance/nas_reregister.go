@@ -416,7 +416,8 @@ func nasAnswerName(t uint8) string {
 // judgeRegAfterRelease returns r with the attempts' outcome. An attempt
 // that drew no NAS answer is FAIL whatever the others did. Otherwise a
 // missing UE CONTEXT RELEASE COMMAND, which leaves nothing to send the
-// registration after, is INFO; a registration of the SUPI the core did not
+// registration after, is BLOCKED on the switch-off release
+// (ProcSwitchOffRelease); a registration of the SUPI the core did not
 // complete is BLOCKED on the registration; any other attempt that could
 // not be run is ERROR; and every attempt answered is PASS.
 func judgeRegAfterRelease(r Result, attempts []regAttempt, wait time.Duration) Result {

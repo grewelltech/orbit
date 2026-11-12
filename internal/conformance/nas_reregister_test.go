@@ -16,7 +16,8 @@ import (
 )
 
 // judgeRegAfterRelease: one registration without a NAS answer is FAIL
-// whatever the others did; with none, a missing release is INFO, a
+// whatever the others did; with none, a missing release is BLOCKED on the
+// switch-off release, a
 // registration of the SUPI the core did not complete BLOCKED on the
 // registration, and any other registration that could not be sent ERROR;
 // every one answered, with an Accept, a Reject or a registration that then
@@ -107,7 +108,8 @@ func TestNASAnswerName(t *testing.T) {
 // mock that answers every registration PASSes; one that drops a
 // registration arriving within its window of the release FAILs, whether
 // the dropped one is the first or the last and whether or not the SUPI
-// registers again afterwards; one that sends no release is INFO; one that
+// registers again afterwards; one that sends no release is BLOCKED on the
+// switch-off release; one that
 // dies at the dropped registration is CRASH; a first registration that
 // fails is BLOCKED on the registration; no UE SKIPs. Every registration is of the one SUPI,
 // the UE is deregistered at the end wherever the core still registers it,

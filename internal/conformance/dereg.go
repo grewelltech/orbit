@@ -354,7 +354,7 @@ func judgeSwitchOffRelease(r Result, res *engine.DeregisterResult, err error, cu
 			named += fmt.Sprintf(", RAN UE NGAP ID %d", rel.RANUENGAPID)
 		}
 		return r.As(switchOffReleaseOtherIDs, "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID",
-			joinDetail(switchOffNoRelease, fmt.Sprintf("the command, %s after the request, names %s; %s, so it does not answer this deregistration, and none that does came", after, named, conn)))
+			joinDetail(switchOffNoRelease, fmt.Sprintf("the command, %s after the request, names %s; %s, so it does not answer this deregistration; the wait for the release ended at this command", after, named, conn)))
 	}
 	return r.As(switchOffReleaseBothIDs, "UE CONTEXT RELEASE COMMAND naming both UE NGAP IDs",
 		fmt.Sprintf("the command, %s after the request, names AMF UE NGAP ID %d and RAN UE NGAP ID %d, the connection's pair; UE Context Release Complete sent", after, rel.AMFUENGAPID, rel.RANUENGAPID))

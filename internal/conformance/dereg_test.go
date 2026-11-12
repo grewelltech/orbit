@@ -263,7 +263,7 @@ func TestJudgeSwitchOffRelease(t *testing.T) {
 			want: Fail, wantOutcome: "no-ue-ngap-id", wantObserved: "UE CONTEXT RELEASE COMMAND without UE NGAP IDs", wantDetail: []string{"carries no UE NGAP ID, with both UE NGAP IDs available. TS 38.413 8.3.3.2."}},
 		{name: "another pair", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 1007, RANUENGAPID: 1009}, nil),
 			want: Fail, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID",
-			wantDetail: []string{"names AMF UE NGAP ID 1007, RAN UE NGAP ID 1009", "the connection is AMF UE NGAP ID 7, RAN UE NGAP ID 9", switchOffNoRelease}},
+			wantDetail: []string{"names AMF UE NGAP ID 1007, RAN UE NGAP ID 1009", "the connection is AMF UE NGAP ID 7, RAN UE NGAP ID 9", switchOffNoRelease, "the wait for the release ended at this command"}},
 		{name: "the pair with another RAN ID", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, HasRANUENGAPID: true, AMFUENGAPID: 7, RANUENGAPID: 10}, nil),
 			want: Fail, wantOutcome: "release-for-other-ids", wantObserved: "a UE CONTEXT RELEASE COMMAND for another UE NGAP ID"},
 		{name: "another AMF ID alone", res: result(&engine.UEContextRelease{At: at, HasAMFUENGAPID: true, AMFUENGAPID: 8}, nil),
