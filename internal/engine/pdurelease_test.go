@@ -159,6 +159,11 @@ func TestReleasePDUSession(t *testing.T) {
 			if err != nil || !sess.Result.SessionActive {
 				t.Fatalf("after the release: session %+v, %v", sess, err)
 			}
+			// A released session is no longer one the UE holds: an AN
+			// release or a Service Request does not name it.
+			if held := len(sess.heldSessions()); (held == 0) != res.Released() {
+				t.Errorf("the UE holds %d sessions after a release that ended %v", held, res.Released())
+			}
 			dres, err := m.DeregisterWith(ctx, supi)
 			if err != nil {
 				t.Fatalf("DeregisterWith: %v", err)

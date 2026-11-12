@@ -99,14 +99,42 @@ func (s *Session) completeRelease(cmd *ngapType.NGAPPDU, sessions ...int64) erro
 // follows those steps to the letter leaves an unlisted session's downlink
 // pointed at the released gNB tunnel, and then never pages for it.
 func (s *Session) activeSessionIDs() []int64 {
-	if s.Result == nil || s.userPlaneDown() {
+	if s.userPlaneDown() {
 		return nil
 	}
-	ids := make([]int64, 0, len(s.Result.Sessions))
-	for _, sr := range s.Result.Sessions {
+	held := s.heldSessions()
+	ids := make([]int64, 0, len(held))
+	for _, sr := range held {
 		ids = append(ids, int64(sr.PDUSessionID))
 	}
 	return ids
+}
+
+// heldSessions is the UE's PDU sessions less the ones a UE-requested
+// release ended: the sessions it still holds.
+func (s *Session) heldSessions() []SessionResult {
+	if s.Result == nil {
+		return nil
+	}
+	s.stMu.RLock()
+	defer s.stMu.RUnlock()
+	var out []SessionResult
+	for _, sr := range s.Result.Sessions {
+		if !s.pduReleased[sr.PDUSessionID] {
+			out = append(out, sr)
+		}
+	}
+	return out
+}
+
+// markPDUReleased records that a UE-requested release ended PDU session id.
+func (s *Session) markPDUReleased(id uint8) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	if s.pduReleased == nil {
+		s.pduReleased = map[uint8]bool{}
+	}
+	s.pduReleased[id] = true
 }
 
 // releaseCommandIDs is the NGAP ID pair of a UE CONTEXT RELEASE COMMAND.
@@ -352,7 +380,7 @@ func (m *Manager) ServiceRequest(ctx context.Context, supi string, opts ...Servi
 	}
 
 	var held uint16
-	for _, s := range sess.Result.Sessions {
+	for _, s := range sess.heldSessions() {
 		held |= 1 << (s.PDUSessionID & 0x0f)
 	}
 	p := ue.ServiceRequestParams{GUTI: sess.guti, NgKSI: sess.ngksi, ServiceType: ue.ServiceTypeData,
@@ -583,18 +611,22 @@ func (r *serviceRun) apply() {
 			}
 		}
 	}
-	firstUp := false
-	if len(s.Result.Sessions) > 0 {
-		f := s.Result.Sessions[0]
-		firstUp = res.UserPlane(f.PDUSessionID)
-		if firstUp {
+	s.dpMu.Unlock()
+	// The user plane is up when any session the UE holds was reactivated;
+	// the first of them gives the result's data-path fields.
+	up := false
+	for _, f := range s.heldSessions() {
+		if res.UserPlane(f.PDUSessionID) {
+			up = true
+			s.dpMu.Lock()
 			s.Result.UPFAddress, s.Result.UPFTEID, s.Result.DLTEID, s.Result.QFI = f.UPFAddress, f.UPFTEID, f.DLTEID, f.QFI
+			s.dpMu.Unlock()
+			break
 		}
 	}
-	s.dpMu.Unlock()
-	s.setConnection(false, !firstUp)
+	s.setConnection(false, !up)
 	state, detail := StateRegistered, "Service Accept; UE is CM-CONNECTED, user plane not reactivated"
-	if firstUp {
+	if up {
 		state, detail = StateSessionActive, fmt.Sprintf("Service Accept; %d PDU session(s) reactivated", len(res.Reactivated))
 	}
 	s.setState(state)

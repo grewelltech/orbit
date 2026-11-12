@@ -78,6 +78,10 @@ type Session struct {
 	released bool      // deregistered: no further procedure may run
 	idle     bool      // CM-IDLE: no NAS signalling connection (idle.go)
 	upDown   bool      // the user plane is released and not yet reactivated
+	// pduReleased holds the IDs of the PDU sessions a UE-requested release
+	// ended (ReleasePDUSession). Their Result.Sessions entries stay; the
+	// UE no longer holds them (heldSessions).
+	pduReleased map[uint8]bool
 	// registrationRequested records a Configuration Update Command that
 	// requested a registration update, which the UE did not perform.
 	registrationRequested bool

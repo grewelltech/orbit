@@ -187,6 +187,9 @@ func (s *Session) releasePDUSession(ctx context.Context, o pduReleaseOptions) (*
 			}
 		}
 	}
+	if res.Released() {
+		s.markPDUReleased(res.PDUSessionID)
+	}
 	return res, nil
 }
 
