@@ -142,7 +142,7 @@ func TestStreamProgressStatusLine(t *testing.T) {
 // does not wrap; it never goes below the minimum or above the maximum.
 func TestStreamProgressDescWidth(t *testing.T) {
 	for _, tc := range []struct{ cols, want int }{
-		{0, progressDescWidth}, {300, progressDescWidth}, {100, 100 - (2 + 4 + 3 + progressCategoryWidth + 5 + progressTailWidth)}, {40, progressDescMin},
+		{0, progressDescWidth}, {300, progressDescWidth}, {80, 80 - (2 + 4 + 3 + progressCategoryWidth + 5 + progressTailWidth)}, {40, progressDescMin},
 	} {
 		p := newStreamProgress(&syncBuffer{}, true)
 		p.width, p.total = tc.cols, 41

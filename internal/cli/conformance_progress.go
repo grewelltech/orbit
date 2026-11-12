@@ -35,8 +35,9 @@ const (
 	// progressDescMin is the narrowest the description column gets.
 	progressDescMin = 20
 	// progressTailWidth is the room kept after the leader for the status:
-	// the spinner and elapsed time, or the verdict and duration.
-	progressTailWidth = 28
+	// the verdict and duration ("DEVIATION 2m56s"). A running line that
+	// needs more drops its "of up to" (statusLine).
+	progressTailWidth = 16
 	// progressLongCheck is the expected duration above which the running
 	// line also shows how long the check can take.
 	progressLongCheck = 30 * time.Second
