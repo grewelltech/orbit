@@ -193,6 +193,14 @@ if [ "$CORE_HAS_CTRL" = true ] && [ "$WITH_CTRL" = true ]; then HAS_CTRL=true; f
 if [ "$WITH_ROUTER" != true ] && { [ "$WITH_FAR" = true ] || [ "$HAS_CTRL" = true ]; }; then
     echo "$PROG: the far site and the control node need the site router (TESTBED_WITH_ROUTER=true)" >&2; exit 1
 fi
+case "$TESTBED_ONRAMP_NET" in
+    current) LEGACY_NET=false ;;
+    legacy)  LEGACY_NET=true ;;
+    *) echo "$PROG: TESTBED_ONRAMP_NET '$TESTBED_ONRAMP_NET' is not current or legacy" >&2; exit 1 ;;
+esac
+if [ "$LEGACY_NET" = true ] && { [ "$CORE_KIND" != sdcore ] || [ "$WITH_ROUTER" = true ] || [ "$WITH_FAR" = true ] || [ "$WITH_APP" = true ]; }; then
+    echo "$PROG: TESTBED_ONRAMP_NET=legacy needs TESTBED_CORE_KIND=sdcore and the minimal shape" >&2; exit 1
+fi
 
 # Four bridges with no address, no DHCP and no NAT: they are 802.1Q switches,
 # and every gateway lives on a router VM. The site trunk carries the core-site
@@ -315,6 +323,21 @@ UPF_N6_GW=$GW_N6; POOL_RETURN_VIA=$GW_N6
 if [ "$WITH_ROUTER" != true ]; then UPF_N6_GW=$APP_N6; POOL_RETURN_VIA=$UPF_N6; fi
 UPF_N3_GW=$GW_N3; UPF_RAN_SUBNET=$TESTBED_NET_FAR_N3
 if [ "$WITH_FAR" != true ]; then UPF_N3_GW=$(ip_in "$TESTBED_NET_N3" "$TESTBED_HOST_RAN"); UPF_RAN_SUBNET=$TESTBED_NET_N3; fi
+
+# The legacy OnRamp layout (TESTBED_ONRAMP_NET=legacy): the UPF sits on
+# internal subnets behind the core node, which holds CORE_N3 and CORE_N6 and
+# forwards between them and the UPF's macvlans. The gNBs reach the UPF's
+# access address through CORE_N3, and the responder sends UE-bound traffic
+# to CORE_N6, which routes the pool to the UPF's core address.
+#
+#   LEGACY_GW_ACCESS, LEGACY_GW_CORE  the core node's addresses on them (.1)
+#   UPF_N3, UPF_N6                    the UPF's own (.3), as OnRamp's defaults
+CORE_N3=$(ip_in "$TESTBED_NET_N3" "$TESTBED_HOST_CORE"); CORE_N6=$(ip_in "$TESTBED_NET_N6" "$TESTBED_HOST_CORE")
+if [ "$LEGACY_NET" = true ]; then
+    LEGACY_GW_ACCESS=$(ip_in "$TESTBED_LEGACY_ACCESS_NET" 1); LEGACY_GW_CORE=$(ip_in "$TESTBED_LEGACY_CORE_NET" 1)
+    UPF_N3=$(ip_in "$TESTBED_LEGACY_ACCESS_NET" 3); UPF_N6=$(ip_in "$TESTBED_LEGACY_CORE_NET" 3)
+    POOL_RETURN_VIA=$CORE_N6
+fi
 
 require_lxd() {
     command -v lxc >/dev/null 2>&1 || die "lxc not found — LXD is a prerequisite (see README)"
@@ -597,6 +620,12 @@ netplan_for() {
                 # to a far gNB leaves from the N3 address.
                 vlan_block n3  "$V_N3"  trunk "$(cidr_in "$n3" "$TESTBED_UPF_ACCESS_IP")" "" "${far_n3[@]}"
                 vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" "$TESTBED_UPF_CORE_IP")" ""
+            elif [ "$LEGACY_NET" = true ]; then
+                # The legacy layout routes for the UPF: the node holds an
+                # address on n3 and n6, and OnRamp's router role adds the
+                # UPF's access and core macvlans on n3.
+                vlan_block n3  "$V_N3"  trunk "$(cidr_in "$n3" "$TESTBED_HOST_CORE")" ""
+                vlan_block n6  "$V_N6"  trunk "$(cidr_in "$n6" "$TESTBED_HOST_CORE")" ""
             else
                 # n3 and n6 are UP with no address: they are the macvlan
                 # parents for the UPF pod.
@@ -606,7 +635,11 @@ netplan_for() {
         "$NODE_RANN")
             oam_block "$TESTBED_HOST_RAN"
             vlan_block n2  "$V_N2"  trunk "$(addr_list "$n2" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" ""
-            vlan_block n3  "$V_N3"  trunk "$(addr_list "$n3" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" ""
+            if [ "$LEGACY_NET" = true ]; then
+                vlan_block n3  "$V_N3"  trunk "$(addr_list "$n3" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" "" "$TESTBED_LEGACY_ACCESS_NET $CORE_N3"
+            else
+                vlan_block n3  "$V_N3"  trunk "$(addr_list "$n3" "$TESTBED_HOST_RAN" "$TESTBED_RAN_GNBS")" ""
+            fi
             if [ "$WITH_APP" != true ]; then
                 # Standing in for the app node: the responder's address on N6,
                 # and the UE pool routed back the way it came. A UE's packets
@@ -1319,6 +1352,46 @@ core_sdcore_deploy() {
     # N3: the UPF routes downlink to those gNBs via the N3 gateway, while the
     # near site's gNBs are on-link. A shape without the router or the far site
     # has other next hops: see UPF_N3_GW, UPF_RAN_SUBNET and UPF_N6_GW.
+    # The OnRamp checkout has to use the layout the node addressing was built
+    # for (TESTBED_ONRAMP_NET): the current one names core.networks, the
+    # legacy one core.data_iface.
+    local has_networks
+    has_networks=$(on_core "sed -n '/^core:/,/^[a-z]/p' $TESTBED_ONRAMP_DIR/vars/main.yml | grep -c '^  networks:'" 2>/dev/null | tr -d '\r')
+    if [ "$LEGACY_NET" = true ] && [ "${has_networks:-0}" != 0 ]; then
+        die "OnRamp $ONRAMP_VERSION uses the current UPF networking layout (core.networks); rebuild with TESTBED_ONRAMP_NET=current"
+    fi
+    if [ "$LEGACY_NET" != true ] && [ "${has_networks:-0}" = 0 ]; then
+        die "OnRamp $ONRAMP_VERSION uses the legacy UPF networking layout (core.data_iface); rebuild with TESTBED_ONRAMP_NET=legacy (minimal shape)"
+    fi
+    if [ "$LEGACY_NET" = true ]; then
+        # The legacy layout, as OnRamp v2.3.0 ships it: the router role puts
+        # the access and core macvlans on data_iface (n3) at .1 of each
+        # internal subnet, routes the UE pool to the UPF's core address and
+        # masquerades the pool out of data_iface; the UPF routes ran_subnet
+        # via the access gateway.
+        on_core "cat > /tmp/onramp-core.yml <<'YML'
+core:
+  standalone: true
+  data_iface: n3
+  values_file: \"$vf_dir/$vf\"
+  ran_subnet: \"$TESTBED_NET_N3\"
+  helm:
+$helm_block
+  upf:
+    access_subnet: \"$LEGACY_GW_ACCESS/${TESTBED_LEGACY_ACCESS_NET#*/}\"
+    core_subnet: \"$LEGACY_GW_CORE/${TESTBED_LEGACY_CORE_NET#*/}\"
+    mode: af_packet
+    multihop_gnb: false
+    default_upf:
+      ip:
+        access: \"$UPF_N3\"
+        core:   \"$UPF_N6\"
+      ue_ip_pool: \"$TESTBED_UE_POOL\"
+  amf:
+    ip: \"$CORE_N2\"
+YML
+" || die "could not write the legacy core: block"
+    else
     on_core "cat > /tmp/onramp-core.yml <<'YML'
 core:
   values_file: \"$vf_dir/$vf\"
@@ -1346,7 +1419,9 @@ $helm_block
   amf:
     ip: \"$CORE_N2\"
 YML
-cd $TESTBED_ONRAMP_DIR && python3 - <<'PY'
+" || die "could not write the core: block"
+    fi
+    on_core "cd $TESTBED_ONRAMP_DIR && python3 - <<'PY'
 import sys
 p='vars/main.yml'; s=open(p).read(); block=open('/tmp/onramp-core.yml').read()
 # Replace the whole core: block. Anchor on the top-level keys so a changed
@@ -1416,7 +1491,7 @@ PY" || die "could not enable End Markers in the values template"
     # are spent: which VLAN interface carries which plane, the gateways, the
     # UPF's own addresses and the UE pool. OnRamp prints what it resolved from
     # this ("show the resolved UPF networking") as the install starts.
-    on_core "cd $TESTBED_ONRAMP_DIR && sed -n '/^  networks:/,/^  amf:/p' vars/main.yml | sed 's/^/    /'"
+    on_core "cd $TESTBED_ONRAMP_DIR && sed -n '/^  \(networks\|data_iface\|ran_subnet\|upf\):/,/^  amf:/p' vars/main.yml | sed 's/^/    /'"
 
     info "installing Kubernetes (slow)"
     on_core "cd $TESTBED_ONRAMP_DIR && make k8s-install" || die "k8s install failed"
@@ -2340,6 +2415,10 @@ cmd_check() {
     else
         check "$NODE_CORE" "Internet via the uplink" "$PING 8.8.8.8"
     fi
+    if [ "$LEGACY_NET" = true ]; then
+        check "$NODE_CORE" "n3/n6 carry the core node's routing addresses $CORE_N3, $CORE_N6" \
+            "ip -4 -o addr show dev n3 | grep -q 'inet $CORE_N3/' && ip -4 -o addr show dev n6 | grep -q 'inet $CORE_N6/'"
+    fi
     if [ "$CORE_UPF_ATTACH" = host ]; then
         check "$NODE_CORE" "n3/n6 carry the UPF addresses $UPF_N3, $UPF_N6" \
             "ip -4 -o addr show dev n3 | grep -q 'inet $UPF_N3/' && ip -4 -o addr show dev n6 | grep -q 'inet $UPF_N6/'"
@@ -2384,6 +2463,10 @@ cmd_check() {
     if [ "$WITH_APP" != true ]; then
         check "$NODE_RANN" "responder address $APP_N6 on n6, UE pool routed back via $POOL_RETURN_VIA" \
             "ip -4 -o addr show dev n6 | grep -q 'inet $APP_N6/' && ip route get $(ip_in "$TESTBED_UE_POOL" 1) | grep -q 'via $POOL_RETURN_VIA dev n6'"
+    fi
+    if [ "$LEGACY_NET" = true ]; then
+        check "$NODE_RANN" "UPF access subnet $TESTBED_LEGACY_ACCESS_NET routed via the core's N3 $CORE_N3" \
+            "ip route get $UPF_N3 | grep -q 'via $CORE_N3 dev n3'"
     fi
 
     if [ "$WITH_APP" = true ] && [ "$WITH_ROUTER" = true ]; then
