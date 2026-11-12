@@ -139,6 +139,13 @@ func marker(t *testing.T, pdu *ngapType.NGAPPDU) byte {
 	return dl.NASPDU[2]
 }
 
+// startedSession is a shared session whose read loop runs, as Dial leaves it.
+func startedSession(tr Transport, cfg Config) *Session {
+	s := newSession(tr, cfg)
+	go s.readLoop()
+	return s
+}
+
 func readWithin(t *testing.T, l *UETransport, d time.Duration) (*ngapType.NGAPPDU, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), d)
@@ -152,7 +159,7 @@ func readWithin(t *testing.T, l *UETransport, d time.Duration) (*ngapType.NGAPPD
 // PPID) is dropped and counted rather than misdelivered.
 func TestSharedSessionRouting(t *testing.T) {
 	tr := newScriptTr()
-	s := newSession(tr, Config{Name: "g"})
+	s := startedSession(tr, Config{Name: "g"})
 	defer func() { _ = s.Close() }()
 	a, ranA := s.NewUE()
 	b, ranB := s.NewUE()
@@ -275,7 +282,7 @@ func TestLaneReadContextLosesNothing(t *testing.T) {
 // One UE's PDUs arrive in the order the AMF sent them.
 func TestLaneOrder(t *testing.T) {
 	tr := newScriptTr()
-	s := newSession(tr, Config{})
+	s := startedSession(tr, Config{})
 	defer func() { _ = s.Close() }()
 	l, ran := s.NewUE()
 	for i := 0; i < laneCapacity; i++ {
@@ -293,7 +300,7 @@ func TestLaneOrder(t *testing.T) {
 // fit rather than stalling: another UE's PDUs behind them still arrive.
 func TestFullLaneDoesNotStallTheAssociation(t *testing.T) {
 	tr := newScriptTr()
-	s := newSession(tr, Config{})
+	s := startedSession(tr, Config{})
 	defer func() { _ = s.Close() }()
 	_, ranSlow := s.NewUE()
 	fast, ranFast := s.NewUE()
@@ -316,7 +323,7 @@ func TestFullLaneDoesNotStallTheAssociation(t *testing.T) {
 // ReadMsg reports the same.
 func TestAssociationCloseWakesReaders(t *testing.T) {
 	tr := newScriptTr()
-	s := newSession(tr, Config{})
+	s := startedSession(tr, Config{})
 	waiting, _ := s.NewUE()
 	queued, ranQ := s.NewUE()
 	tr.push(dlNAS(t, 1, ranQ, 'q'))
@@ -352,7 +359,7 @@ func TestAssociationCloseWakesReaders(t *testing.T) {
 // Run with -race.
 func TestConcurrentProceduresOnOneAssociation(t *testing.T) {
 	tr := newScriptTr()
-	s := newSession(tr, Config{})
+	s := startedSession(tr, Config{})
 	const ues, perUE = 8, 20
 	lanes := make([]*UETransport, ues)
 	rans := make([]int64, ues)
@@ -412,7 +419,7 @@ func TestConcurrentProceduresOnOneAssociation(t *testing.T) {
 // is gone, and the index does not grow with UE churn.
 func TestClosedLaneForgetsLearnedAMFID(t *testing.T) {
 	tr := newScriptTr()
-	s := newSession(tr, Config{})
+	s := startedSession(tr, Config{})
 	defer func() { _ = s.Close() }()
 	l, ran := s.NewUE()
 	tr.push(dlNAS(t, 30, ran, 'a'))
@@ -494,7 +501,7 @@ func TestDedicatedSuccessor(t *testing.T) {
 // the association up.
 func TestSharedSuccessor(t *testing.T) {
 	tr := newScriptTr()
-	s := newSession(tr, Config{Name: "g"})
+	s := startedSession(tr, Config{Name: "g"})
 	first, ranID := s.NewUE()
 	next := first.Successor(ranID + 10)
 	tr.push(dlNAS(t, 5, ranID+10, 'a'))
@@ -549,4 +556,60 @@ type noDelayTr struct {
 func (n *noDelayTr) SetNoDelay(on bool) error {
 	n.last.Store(&on)
 	return nil
+}
+
+// A dedicated association reads every PDU that was already waiting on it
+// when it was wrapped: the lane is the default route before anything reads.
+func TestDedicatedReadsWhatWasAlreadyWaiting(t *testing.T) {
+	tr := newScriptTr()
+	const n = 32
+	for i := 0; i < n; i++ {
+		tr.push(dlNAS(t, 5, 1, byte(i)))
+	}
+	l := Dedicated(tr, Config{Name: "g"}, 1)
+	defer func() { _ = l.Close() }()
+	for i := 0; i < n; i++ {
+		p, err := readWithin(t, l, time.Second)
+		if err != nil {
+			t.Fatalf("read %d: %v", i, err)
+		}
+		if got := marker(t, p); got != byte(i) {
+			t.Fatalf("read %d: marker %d", i, got)
+		}
+	}
+	if d := l.s.Dropped(); d != 0 {
+		t.Errorf("Dropped = %d, want 0", d)
+	}
+}
+
+// When the AMF moves its ID from one UE to another, closing the first UE's
+// lane leaves the second UE's routing in place.
+func TestReassignedAMFIDSurvivesTheOldLaneClosing(t *testing.T) {
+	tr := newScriptTr()
+	s := startedSession(tr, Config{})
+	defer func() { _ = s.Close() }()
+	l1, ran1 := s.NewUE()
+	l2, ran2 := s.NewUE()
+	tr.push(dlNAS(t, 30, ran1, 'a'))
+	if p, err := readWithin(t, l1, time.Second); err != nil || marker(t, p) != 'a' {
+		t.Fatalf("first lane: %v", err)
+	}
+	tr.push(dlNAS(t, 30, ran2, 'b'))
+	if p, err := readWithin(t, l2, time.Second); err != nil || marker(t, p) != 'b' {
+		t.Fatalf("second lane: %v", err)
+	}
+	if err := l1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	idx, rev := s.amfIdx[30], len(s.amfOf)
+	s.mu.Unlock()
+	if idx != ran2 || rev != 1 {
+		t.Fatalf("after the first lane closed: amfIdx[30] = %d, %d reverse entries; want %d and 1", idx, rev, ran2)
+	}
+	tr.push(hoRequest(t, 30))
+	p, err := readWithin(t, l2, time.Second)
+	if err != nil || p.InitiatingMessage.Value.Present != ngapType.InitiatingMessagePresentHandoverRequest {
+		t.Fatalf("AMF-ID-only PDU for the second UE: %v, %v", p, err)
+	}
 }

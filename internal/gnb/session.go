@@ -85,10 +85,14 @@ func Dial(ctx context.Context, tr Transport, cfg Config) (*Session, error) {
 	if !ng.Accepted {
 		return nil, fmt.Errorf("NG Setup rejected: %s", ng.Cause)
 	}
-	return newSession(tr, cfg), nil
+	s := newSession(tr, cfg)
+	go s.readLoop()
+	return s, nil
 }
 
-// newSession starts the read loop on an association whose NG Setup is done.
+// newSession builds the session of an association whose NG Setup is done.
+// The caller starts its read loop once every destination the loop must route
+// to is registered, so no PDU already waiting on the association is dropped.
 func newSession(tr Transport, cfg Config) *Session {
 	// Spread UEs across the streams the association actually negotiated;
 	// the peer may grant fewer than requested. Transports without streams
@@ -103,7 +107,6 @@ func newSession(tr Transport, cfg Config) *Session {
 		cfg: cfg, tr: tr, streams: streams, log: slog.New(slog.DiscardHandler),
 		inboxes: make(map[int64]chan []byte), amfIdx: make(map[int64]int64), amfOf: make(map[int64]int64), closed: make(chan struct{}),
 	}
-	go s.readLoop()
 	return s
 }
 
@@ -118,6 +121,7 @@ func Dedicated(tr Transport, cfg Config, ranID int64) *UETransport {
 	s.mu.Lock()
 	s.def = t.inbox
 	s.mu.Unlock()
+	go s.readLoop()
 	return t
 }
 
@@ -303,7 +307,9 @@ func (t *UETransport) Close() error {
 		delete(t.s.inboxes, t.ranID)
 		if amfID, ok := t.s.amfOf[t.ranID]; ok {
 			delete(t.s.amfOf, t.ranID)
-			delete(t.s.amfIdx, amfID)
+			if t.s.amfIdx[amfID] == t.ranID {
+				delete(t.s.amfIdx, amfID)
+			}
 		}
 	}
 	owned := t.owned
@@ -414,8 +420,11 @@ func (s *Session) learnLocked(amfID, ranID int64) {
 	if s.amfIdx[amfID] == ranID && s.amfOf[ranID] == amfID {
 		return
 	}
-	if old, ok := s.amfOf[ranID]; ok {
+	if old, ok := s.amfOf[ranID]; ok && s.amfIdx[old] == ranID {
 		delete(s.amfIdx, old)
+	}
+	if prev, ok := s.amfIdx[amfID]; ok && s.amfOf[prev] == amfID {
+		delete(s.amfOf, prev)
 	}
 	s.amfIdx[amfID], s.amfOf[ranID] = ranID, amfID
 }
