@@ -34,6 +34,13 @@ const (
 	// MuteOnUplink drops the message and every later NAS message of the
 	// UE: an AMF whose state the message changed.
 	MuteOnUplink
+	// ReleaseSessionOnUplink sends no answer to the message but releases
+	// one of the UE's PDU sessions, as an AMF that handles a PDU Session
+	// Establishment Request naming a session the UE already has by
+	// releasing the existing one: the session the message names when the
+	// UE has it, otherwise the UE's session with the highest identity
+	// (releaseSessionFor).
+	ReleaseSessionOnUplink
 )
 
 // WithBadMACUplink sets what the mock does with a protected uplink NAS
@@ -233,8 +240,87 @@ func (a *AMF) refuse(p *pipe, st *ueState, act UplinkAction, process func() (*f5
 		return nil, a.send(p, buildDownlinkNASTransport(st.amfID, a.ranIDOf(st), []byte{0x7e, 0x00, f5nas.MsgTypeStatus5GMM, 0x6f}))
 	case MuteOnUplink:
 		st.muted = true
+	case ReleaseSessionOnUplink:
+		msg, err := process()
+		if err != nil {
+			msg = nil
+		}
+		return nil, a.releaseSessionFor(p, st, msg)
 	}
 	return nil, nil
+}
+
+// releaseSessionFor releases, network side, the PDU session msg's PDU
+// Session Establishment Request names when st has it, otherwise st's session
+// with the highest identity (ReleaseSessionOnUplink): a PDU SESSION RESOURCE
+// RELEASE COMMAND carrying a PDU SESSION RELEASE COMMAND (PTI 0, 5GSM cause
+// #36 regular deactivation), after which the session is forgotten and the
+// UPF told. A UE with no session is left as it is.
+func (a *AMF) releaseSessionFor(p *pipe, st *ueState, msg *f5nas.Message) error {
+	named, ok := establishmentSession(msg)
+	a.mu.Lock()
+	id, found := named, false
+	if ok {
+		_, found = st.sessions[named]
+	}
+	if !found {
+		for sid := range st.sessions {
+			if !found || sid > id {
+				id, found = sid, true
+			}
+		}
+	}
+	var info SessionInfo
+	if s := st.sessions[id]; found {
+		info = SessionInfo{SUPI: st.supi, PDUSessionID: s.id, UEIP: s.ueIP, QFI: defaultQFI, UL: s.ul, DL: s.dl}
+	}
+	amfID, ranID := st.amfID, st.ranID
+	a.mu.Unlock()
+	if !found {
+		return nil
+	}
+	sm, err := buildPDUSessionReleaseAnswer(f5nas.MsgTypePDUSessionReleaseCommand, id, 0, cause5GSMRegularDeactivation)
+	if err != nil {
+		return err
+	}
+	dl, err := buildDLNASTransportN1SM(sm, id)
+	if err != nil {
+		return err
+	}
+	wrapped, err := st.encodeSecure(dl, nas.SecHdrIntegrityCiphered)
+	if err != nil {
+		return err
+	}
+	cmd, err := buildPDUSessionResourceReleaseCommand(amfID, ranID, id, wrapped)
+	if err != nil {
+		return err
+	}
+	if err := a.send(p, cmd); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	delete(st.sessions, id)
+	a.mu.Unlock()
+	if r, ok := a.cfg.UPF.(SessionReleaser); ok {
+		r.SessionReleased(info)
+	}
+	return nil
+}
+
+// establishmentSession is the PDU session identity of the PDU Session
+// Establishment Request msg carries in a UL NAS Transport, if it carries
+// one.
+func establishmentSession(msg *f5nas.Message) (uint8, bool) {
+	if msg == nil || msg.GmmMessage == nil || msg.ULNASTransport == nil ||
+		msg.ULNASTransport.GetPayloadContainerType() != nasMessage.PayloadContainerTypeN1SMInfo {
+		return 0, false
+	}
+	sm := f5nas.NewMessage()
+	buf := append([]byte(nil), msg.ULNASTransport.GetPayloadContainerContents()...)
+	if err := sm.PlainNasDecode(&buf); err != nil || sm.GsmMessage == nil || sm.PDUSessionEstablishmentRequest == nil {
+		return 0, false
+	}
+	return sm.PDUSessionEstablishmentRequest.GetPDUSessionID(), true
 }
 
 func (st *ueState) decodeSecureAt(data []byte, count uint32) (*f5nas.Message, error) {

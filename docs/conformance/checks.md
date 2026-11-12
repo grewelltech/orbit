@@ -871,6 +871,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `discarded` | PASS | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall); absence within 5s (check bound; a discarded message draws no answer, and TS 24.501 sets no timer for one) | discarded the bad-MAC request and answered a valid request after it |
 | `answered` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall) | answered the PDU Session Establishment Request whose MAC failed the integrity check |
 | `5gmm-status` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall) | answered the bad-MAC request with a 5GMM STATUS |
+| `acted-on` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall) | sent no answer to the bad-MAC request but, within the 5s quiet wait after it, released or modified a PDU session of the UE or deregistered it |
 | `state-changed` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall); absence within 10s (check bound; the request before the stimulus was answered within it) | left a valid request after the bad-MAC request unanswered: the discarded message changed its state |
 | `released` | WARN | security | released the UE after the bad-MAC request instead of discarding it |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
@@ -888,6 +889,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `discarded` | PASS | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall); absence within 5s (check bound; a discarded message draws no answer, and TS 24.501 sets no timer for one) | discarded the replayed request and answered a valid request after it |
 | `answered` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall) | answered the replayed PDU Session Establishment Request again |
 | `5gmm-status` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall) | answered the replayed request with a 5GMM STATUS |
+| `acted-on` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall) | sent no answer to the replayed request but, within the 5s quiet wait after it, released or modified a PDU session of the UE (the one the request names, say) or deregistered it |
 | `state-changed` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall); absence within 10s (check bound; the request before the stimulus was answered within it) | left a valid request after the replayed request unanswered: the discarded message changed its state |
 | `released` | WARN | security | released the UE after the replayed request instead of discarding it |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
@@ -905,6 +907,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `count-kept` | PASS | TS 24.501 4.4.3.3 (shall) | answered a valid request sent after a MAC-failed one with a lower sequence number: the stored uplink NAS COUNT did not move |
 | `count-advanced` | FAIL | TS 24.501 4.4.3.3 (shall); absence within 10s (check bound; requests A and B were answered within it) | left a valid request sent after a MAC-failed one unanswered: the stored uplink NAS COUNT moved before the integrity check |
 | `replay-accepted` | FAIL | TS 24.501 4.4.3.2 (shall) | answered a request re-sent with a lower sequence number, accepting a NAS COUNT it had accepted |
+| `acted-on` | FAIL | TS 24.501 4.4.3.2 (shall) | sent no answer to a request re-sent with a lower sequence number but, within the 5s quiet wait after it, released or modified a PDU session of the UE (the one the request names, say) or deregistered it |
 | `released` | WARN | security | released the UE after the request re-sent with a lower sequence number |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
@@ -920,6 +923,7 @@ Needs: NG Setup, registration, PDU session establishment.
 |---|---|---|---|
 | `discarded` | PASS | TS 24.501 4.4.4.3 (shall); absence within 5s (check bound; a discarded message draws no answer, and TS 24.501 sets no timer for one) | sent no answer to the bad-MAC REGISTRATION REQUEST |
 | `processed` | FAIL | TS 24.501 4.4.4.3 (shall) | answered the bad-MAC REGISTRATION REQUEST with a message neither reading of 4.4.4.3 allows, with no authentication first |
+| `acted-on` | FAIL | TS 24.501 4.4.4.3 (shall) | released or modified the UE's PDU session within the 5s quiet wait after the bad-MAC REGISTRATION REQUEST, with no authentication first |
 | `reauthenticated` | SKIP | permitted alternative; TS 24.501 4.4.4.3 (shall) | answered the bad-MAC REGISTRATION REQUEST with an AUTHENTICATION REQUEST, as the authentication rule of 4.4.4.3 has it |
 | `identity-requested` | SKIP | permitted alternative; TS 24.501 4.4.4.3 (shall) | answered the bad-MAC REGISTRATION REQUEST with an IDENTITY REQUEST, which may start the authentication 4.4.4.3 has |
 | `released` | WARN | security | released the UE after the bad-MAC REGISTRATION REQUEST, with no answer |

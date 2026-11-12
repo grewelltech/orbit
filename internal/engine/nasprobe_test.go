@@ -10,6 +10,7 @@ import (
 	"time"
 
 	f5nas "github.com/free5gc/nas"
+	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/mockamf"
@@ -336,5 +337,96 @@ func TestNASProbeErrors(t *testing.T) {
 	}
 	if _, err := f.p.Next(ctx, time.Second); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Next under an expired context = %v", err)
+	}
+}
+
+// A mock that answers a repeated request by releasing the session it names
+// sends a PDU Session Resource Release Command carrying the PDU Session
+// Release Command: the probe reports the session released, decodes the
+// 5GSM command and answers with a PDU Session Resource Release Response.
+func TestNASProbeSessionReleased(t *testing.T) {
+	f := newProbeFixture(t, mockamf.WithReplayedUplink(mockamf.ReleaseSessionOnUplink))
+	pdu := f.sessionRequest(t, 2, 1)
+	if err := f.p.Send(pdu); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := f.p.Next(context.Background(), 2*time.Second); err != nil || len(d.Sessions) != 1 {
+		t.Fatalf("first send: %+v, %v", d, err)
+	}
+	if err := f.p.Send(pdu); err != nil {
+		t.Fatal(err)
+	}
+	d, err := f.p.Next(context.Background(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if d.Procedure != "PDUSessionResourceRelease" || len(d.ReleasedSessions) != 1 || d.ReleasedSessions[0] != 2 || len(d.Sessions) != 0 || d.Released {
+		t.Fatalf("downlink = %+v, want a resource release of session 2", d)
+	}
+	if len(d.NAS) != 1 || d.NAS[0].Err != nil {
+		t.Fatalf("NAS = %+v, want one decoded message", d.NAS)
+	}
+	sm, err := ue.ExtractN1SMContainer(d.NAS[0].Msg)
+	if err != nil || len(sm) < 4 || sm[1] != 2 || sm[2] != 0 || sm[3] != f5nas.MsgTypePDUSessionReleaseCommand {
+		t.Errorf("5GSM payload %x (%v), want a PDU Session Release Command for session 2, PTI 0", sm, err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for f.amf.PDUResourceReleaseResponses() != 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := f.amf.PDUResourceReleaseResponses(); got != 1 {
+		t.Errorf("mock saw %d PDU Session Resource Release Responses, want 1", got)
+	}
+	if got := f.amf.ReplayedUplinks(); got != 1 {
+		t.Errorf("mock counted %d replayed uplinks, want 1", got)
+	}
+}
+
+// A PDU Session Resource Modify Request is reported with its sessions and
+// the NAS PDUs it carries, and is not answered.
+func TestNASProbeSessionModified(t *testing.T) {
+	f := newProbeFixture(t)
+	modify := func(nasPDU []byte) *ngapType.NGAPPDU {
+		item := ngapType.PDUSessionResourceModifyItemModReq{PDUSessionResourceModifyRequestTransfer: []byte{0}}
+		item.PDUSessionID.Value = 3
+		if nasPDU != nil {
+			item.NASPDU = &ngapType.NASPDU{Value: nasPDU}
+		}
+		ie := ngapType.PDUSessionResourceModifyRequestIEs{}
+		ie.Id.Value = ngapType.ProtocolIEIDPDUSessionResourceModifyListModReq
+		ie.Value.Present = ngapType.PDUSessionResourceModifyRequestIEsPresentPDUSessionResourceModifyListModReq
+		ie.Value.PDUSessionResourceModifyListModReq = &ngapType.PDUSessionResourceModifyListModReq{List: []ngapType.PDUSessionResourceModifyItemModReq{item}}
+		req := &ngapType.PDUSessionResourceModifyRequest{}
+		req.ProtocolIEs.List = append(req.ProtocolIEs.List, ie)
+		pdu := &ngapType.NGAPPDU{Present: ngapType.NGAPPDUPresentInitiatingMessage, InitiatingMessage: &ngapType.InitiatingMessage{}}
+		pdu.InitiatingMessage.ProcedureCode.Value = ngapType.ProcedureCodePDUSessionResourceModify
+		pdu.InitiatingMessage.Value.Present = ngapType.InitiatingMessagePresentPDUSessionResourceModifyRequest
+		pdu.InitiatingMessage.Value.PDUSessionResourceModifyRequest = req
+		return pdu
+	}
+	tests := []struct {
+		name    string
+		nasPDU  []byte
+		wantNAS int
+	}{
+		{name: "no NAS PDU"},
+		{name: "with a NAS PDU", nasPDU: []byte{0x7e, 0x00, f5nas.MsgTypeStatus5GMM, 0x6f}, wantNAS: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := f.p.take(modify(tc.nasPDU))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d.Procedure != "PDUSessionResourceModify" || len(d.ModifiedSessions) != 1 || d.ModifiedSessions[0] != 3 || len(d.NAS) != tc.wantNAS {
+				t.Errorf("downlink = %+v, want a modification of session 3 with %d NAS PDU(s)", d, tc.wantNAS)
+			}
+			if tc.wantNAS == 1 && (d.NAS[0].Err != nil || d.NAS[0].MessageType() != f5nas.MsgTypeStatus5GMM) {
+				t.Errorf("NAS = %+v, want the plain 5GMM STATUS", d.NAS[0])
+			}
+		})
+	}
+	if _, err := f.p.Next(context.Background(), 100*time.Millisecond); !errors.Is(err, ErrProbeQuiet) {
+		t.Errorf("Next after the modify = %v, want ErrProbeQuiet (nothing answered it)", err)
 	}
 }

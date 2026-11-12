@@ -55,9 +55,16 @@ type ProbeDownlink struct {
 	// REQUEST, which the probe answers with a response giving each a gNB
 	// downlink tunnel.
 	Sessions []uint8
+	// ReleasedSessions are the PDU sessions of a PDU SESSION RESOURCE
+	// RELEASE COMMAND, which the probe answers with a response reporting
+	// each released.
+	ReleasedSessions []uint8
+	// ModifiedSessions are the PDU sessions of a PDU SESSION RESOURCE
+	// MODIFY REQUEST, which the probe does not answer.
+	ModifiedSessions []uint8
 	// NAS holds every NAS PDU the message carried, as the UE's NAS
 	// security context unwrapped it: the top-level one, or the one of
-	// each session of a PDU SESSION RESOURCE SETUP REQUEST.
+	// each session of a PDU SESSION RESOURCE SETUP or MODIFY REQUEST.
 	NAS []NASEvent
 }
 
@@ -125,7 +132,7 @@ func (p *NASProbe) Next(ctx context.Context, wait time.Duration) (ProbeDownlink,
 }
 
 // take turns one downlink PDU into a ProbeDownlink, answering a release
-// command and a PDU session resource setup.
+// command, a PDU session resource setup and a PDU session resource release.
 func (p *NASProbe) take(pdu *ngapType.NGAPPDU) (ProbeDownlink, error) {
 	s := p.s
 	d := ProbeDownlink{At: time.Now(), Procedure: "unknown"}
@@ -164,6 +171,31 @@ func (p *NASProbe) take(pdu *ngapType.NGAPPDU) (ProbeDownlink, error) {
 		}
 		if err := gnb.SendPDU(s.conn, ueStream, resp); err != nil {
 			return d, fmt.Errorf("send PDU Session Resource Setup Response: %w", err)
+		}
+		return d, nil
+	}
+	if rel, err := gnb.ParsePDUSessionResourceReleaseCommand(pdu); err == nil {
+		for _, id := range rel.PDUSessionIDs {
+			d.ReleasedSessions = append(d.ReleasedSessions, uint8(id))
+		}
+		if len(rel.NASPDU) > 0 {
+			d.NAS = append(d.NAS, p.decode(d.At, rel.NASPDU))
+		}
+		resp, err := gnb.BuildPDUSessionResourceReleaseResponse(rel.AMFUENGAPID, rel.RANUENGAPID, rel.PDUSessionIDs)
+		if err != nil {
+			return d, err
+		}
+		if err := gnb.SendPDU(s.conn, ueStream, resp); err != nil {
+			return d, fmt.Errorf("send PDU Session Resource Release Response: %w", err)
+		}
+		return d, nil
+	}
+	if mod, err := gnb.ParsePDUSessionResourceModifyRequest(pdu); err == nil {
+		for _, id := range mod.PDUSessionIDs {
+			d.ModifiedSessions = append(d.ModifiedSessions, uint8(id))
+		}
+		for _, raw := range mod.NASPDUs {
+			d.NAS = append(d.NAS, p.decode(d.At, raw))
 		}
 		return d, nil
 	}

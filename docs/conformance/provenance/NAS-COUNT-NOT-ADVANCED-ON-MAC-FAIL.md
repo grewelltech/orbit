@@ -36,7 +36,7 @@ After the security mode control procedure, on the same NAS signalling connection
 
 1. The UE sends request A, a UL NAS TRANSPORT carrying a PDU SESSION ESTABLISHMENT REQUEST with a fresh PDU session identity and procedure transaction identity. It must be answered.
 2. It sends request B the same way. It must be answered. The downlink then settles for 1 s.
-3. It sends A's exact bytes again. A is two uplinks back, so its sequence number is lower than the last accepted one (the equal case is NAS-REPLAY-DISCARD). The check watches 5 s for an answer naming A's identities.
+3. It sends A's exact bytes again. A is two uplinks back, so its sequence number is lower than the last accepted one (the equal case is NAS-REPLAY-DISCARD). The check watches 5 s for an answer naming A's identities, and for the AMF acting on the UE's state: a PDU SESSION RESOURCE RELEASE COMMAND or MODIFY REQUEST, a PDU SESSION RELEASE or MODIFICATION COMMAND, or a network-initiated DEREGISTRATION REQUEST. The downlink settled for 1 s after B and the UE sends nothing else in the window, so only the re-sent A can cause such an action; A names session A, which exists, so an AMF that processes it may release that session without answering. An action seen only after C was sent is recorded and not judged.
 4. It sends request C, protected at its next uplink NAS COUNT.
 
 ## Verdict
@@ -44,8 +44,9 @@ After the security mode control procedure, on the same NAS signalling connection
 - **Class:** conformance, two shalls (4.4.3.3, 4.4.3.2).
 - **PASS** `count-kept` (4.4.3.3): C is answered (any 5GSM message naming its identities, the request returned by the AMF, or a PDU SESSION RESOURCE SETUP REQUEST for its session).
 - **FAIL** `replay-accepted` (4.4.3.2): the re-sent A is answered. C is not judged.
+- **FAIL** `acted-on` (4.4.3.2): the re-sent A is not answered, but within 5 s of it the AMF released or modified a PDU session of the UE or deregistered it. A's MAC verifies only at the NAS COUNT the AMF accepted it at, so acting on it accepts that COUNT a second time, as an answer would. C is not judged.
 - **FAIL** `count-advanced` (4.4.3.3): C is not answered within 10 s while the association is up. The absence is inferred within that bound, the one A and B were answered within.
-- **WARN (security)** `released`: the AMF released the UE, or the association went, after A was sent again and before C was answered. No requirement is violated; the release acts on a message whose MAC failed.
+- **WARN (security)** `released`: the AMF released the UE, or the association went, after A was sent again and before C was answered. No requirement is violated; the release acts on a message whose MAC failed. As for NAS-INTEGRITY-FAIL-DISCARD, a UE release leaves the registration and the sessions in place and may have local causes, so it stays WARN, unlike `acted-on`.
 - **BLOCKED** (PDU session establishment): A or B was not answered within 10 s, or the UE was released before A was sent again. **BLOCKED** (registration): the UE did not register.
 - **CRASH:** the AMF no longer completes an NG Setup after the stimulus.
 - **ERROR:** the harness could not build, send or read; the NAS probe could not be opened; a local socket failed.

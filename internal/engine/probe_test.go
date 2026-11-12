@@ -55,7 +55,7 @@ func TestNASMessageType(t *testing.T) {
 }
 
 func TestProcedureName(t *testing.T) {
-	for code, want := range map[int64]string{4: "DownlinkNASTransport", 14: "InitialContextSetup", 41: "UEContextRelease", 29: "PDUSessionResourceSetup", 99: "procedure 99"} {
+	for code, want := range map[int64]string{4: "DownlinkNASTransport", 14: "InitialContextSetup", 41: "UEContextRelease", 29: "PDUSessionResourceSetup", 28: "PDUSessionResourceRelease", 26: "PDUSessionResourceModify", 99: "procedure 99"} {
 		if got := procedureName(code); got != want {
 			t.Errorf("procedureName(%d) = %q, want %q", code, got, want)
 		}

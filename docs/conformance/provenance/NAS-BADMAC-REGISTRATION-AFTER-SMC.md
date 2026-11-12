@@ -54,10 +54,11 @@ The text does not say whether the rules of part 3 apply only inside part 2's win
 | 5GMM STATUS | forbidden | forbidden | FAIL |
 | AUTHENTICATION REJECT | forbidden | forbidden (no authentication ran) | FAIL |
 | DEREGISTRATION REQUEST (network-initiated) | forbidden | forbidden | FAIL |
+| The UE's PDU session released or modified (PDU SESSION RESOURCE RELEASE COMMAND or MODIFY REQUEST, PDU SESSION RELEASE or MODIFICATION COMMAND) with no AUTHENTICATION REQUEST before it | forbidden (a discard changes nothing) | forbidden (authentication before processing any further) | FAIL |
 | Any other 5GMM message (CONFIGURATION UPDATE COMMAND, DL NAS TRANSPORT, ...) | not an answer to a registration | not an answer to a registration | recorded, not judged; the watch goes on |
 | A downlink NAS PDU that does not verify or decode, and no classified answer | | | ERROR: the answer cannot be classified |
 
-The first classified answer decides. The IDENTITY REQUEST row is this check's own application of the rule (issue #253 lists AUTHENTICATION REQUEST, REGISTRATION REJECT, 5GMM STATUS and SECURITY MODE COMMAND and leaves the rest to the rule).
+The first classified answer decides, except that a session action before an answer reading B allows is FAIL: the AMF processed the request before authenticating. Within the 5 s watch only the stimulus can cause a session action: the downlink settled for 1 s after the session was set up, and the UE sends nothing else. A session action seen after a classified answer is not judged. The IDENTITY REQUEST row is this check's own application of the rule (issue #253 lists AUTHENTICATION REQUEST, REGISTRATION REJECT, 5GMM STATUS and SECURITY MODE COMMAND and leaves the rest to the rule).
 
 ## The check
 
@@ -71,8 +72,9 @@ The first classified answer decides. The IDENTITY REQUEST row is this check's ow
 - **Class:** conformance, one shall (4.4.4.3), with the grading rule above for its two readings.
 - **PASS** `discarded`: nothing answered the stimulus within 5 s. The discard is inferred from that absence, within the check's bound.
 - **FAIL** `processed` (4.4.4.3): an answer both readings forbid, with no authentication first.
+- **FAIL** `acted-on` (4.4.4.3): within 5 s of the stimulus, and before any AUTHENTICATION REQUEST or IDENTITY REQUEST, the AMF released or modified the UE's PDU session. Observed names each message and how long after the stimulus it came. It is judged before an undecodable downlink NAS PDU, since the NGAP message alone shows the action.
 - **SKIP (permitted alternative)** `reauthenticated`, `identity-requested` (4.4.4.3): an AUTHENTICATION REQUEST, or an IDENTITY REQUEST that may start one. The authentication rule of 4.4.4.3 has the AMF authenticate a mobility REGISTRATION REQUEST that fails the integrity check; whether it still applies after secure exchange is the ambiguity above.
-- **WARN (security)** `released`: the AMF released the UE, or the association went, with no answer. Neither reading has it: it is not the discard and not the authentication. No shall forbids a release, and the core acts on a message that failed the integrity check.
+- **WARN (security)** `released`: the AMF released the UE, or the association went, with no answer. Neither reading has it: it is not the discard and not the authentication. No shall forbids a release, and the core acts on a message that failed the integrity check. Unlike a session action, a UE release leaves the registration and the session in place and may have local causes, so it does not show the request was processed.
 - **BLOCKED** (PDU session establishment): the PDU SESSION ESTABLISHMENT REQUEST was rejected or not answered within 10 s, or the UE was released before the stimulus. **BLOCKED** (registration): the UE did not register.
 - **CRASH:** the AMF no longer completes an NG Setup after the stimulus.
 - **ERROR:** the stimulus could not be built or sent, the NAS probe could not be opened, a downlink NAS PDU after the stimulus did not verify or decode so the answer cannot be classified, or a local socket failed.
