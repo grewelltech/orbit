@@ -26,9 +26,20 @@ type Selection struct {
 	Pack, Profile string
 }
 
-// Apply narrows r to the selection. An entry that names no registered
-// check is an error, and leaves r as it was.
+// Apply narrows r to the selection. An entry that names no check the run
+// can select is an error, and leaves r as it was.
 func (s Selection) Apply(r *Registry) error {
+	saved := *r
+	err := s.apply(r)
+	if err != nil {
+		*r = saved
+	}
+	return err
+}
+
+// apply is Apply's steps, in order: the pack first, since it decides
+// which checks the others can name.
+func (s Selection) apply(r *Registry) error {
 	if err := r.UsePack(s.Pack, s.Profile); err != nil {
 		return err
 	}
@@ -43,8 +54,9 @@ func (s Selection) Apply(r *Registry) error {
 
 // Groups narrows every later Select, and so every run and listing, to the
 // checks whose group (GroupOf, in release rel) has one of prefixes as a
-// path prefix (MatchGroup), on top of Only. A prefix no registered check's
-// group matches is an error and leaves the registry as it was; no prefixes
+// path prefix (MatchGroup), on top of Only. A prefix that matches the group
+// of no check the run can select (a pack's checks only when UsePack named
+// the pack) is an error and leaves the registry as it was; no prefixes
 // lifts the restriction.
 func (r *Registry) Groups(rel Release, prefixes ...string) error {
 	if len(prefixes) == 0 {
@@ -57,7 +69,7 @@ func (r *Registry) Groups(rel Release, prefixes ...string) error {
 		}
 		matched := false
 		for _, t := range r.tests {
-			if inGroups(t, rel, []string{p}) {
+			if r.inRun(t) && inGroups(t, rel, []string{p}) {
 				matched = true
 				break
 			}

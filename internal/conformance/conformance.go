@@ -67,9 +67,10 @@ type Result struct {
 	Expected     string    `json:"expected"`
 	Observed     string    `json:"observed"`
 	Detail       string    `json:"detail,omitempty"`
-	// ExpectedFailure is set on a FAIL the run's expected-failures list
-	// tolerates (ExpectedFailures.Apply); the verdict stays FAIL. It is
-	// unrelated to Expected, the behaviour the spec expects.
+	// ExpectedFailure is set on a FAIL, DEVIATION or WARN the run's
+	// expected-failures list tolerates (ExpectedFailures.Apply); the
+	// verdict stays as it was. It is unrelated to Expected, the behaviour
+	// the spec expects.
 	ExpectedFailure *ExpectedFailure `json:"expected_failure,omitempty"`
 }
 

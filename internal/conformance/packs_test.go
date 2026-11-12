@@ -154,3 +154,54 @@ func TestUsePack(t *testing.T) {
 		t.Errorf("an empty name keeps pack %q (%v)", r.pack, err)
 	}
 }
+
+// A selection that fails part way leaves the registry as it was, pack
+// included; a group prefix only a pack's checks match selects nothing
+// unless the run names the pack, so it is refused.
+func TestSelectionPackAtomicAndGroups(t *testing.T) {
+	var nasRefs []SpecRef
+	for _, c := range NewRegistry().Tests() {
+		if g, err := GroupOf(c, 0); err == nil && g.Spec == "NAS" {
+			nasRefs = c.SpecRefs()
+			break
+		}
+	}
+	if nasRefs == nil {
+		t.Fatal("no NAS check to borrow references from")
+	}
+	nasPackCheck := declTest{provTest: provTest{id: "LAB-NAS", refs: nasRefs, result: Result{Verdict: Info, Outcome: "seen"}},
+		outs: []Outcome{{ID: "seen", Verdict: Info, Summary: "did what the core does"}}}
+	newReg := func(t *testing.T) *Registry {
+		r, err := newRegistry(defaultChecks(), Pack{Name: "lab", Profile: "sdcore", Checks: []Test{nasPackCheck}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	t.Run("a failed selection leaves the pack out", func(t *testing.T) {
+		r := newReg(t)
+		if err := (Selection{Pack: "lab", Profile: "sdcore", Checks: []string{"NO-SUCH"}}).Apply(r); err == nil {
+			t.Fatal("an unknown check was accepted")
+		}
+		for _, c := range r.Select() {
+			if c.ID() == "LAB-NAS" {
+				t.Errorf("the pack joined the run although the selection was refused")
+			}
+		}
+	})
+	t.Run("a pack-only group without the pack", func(t *testing.T) {
+		r := newReg(t)
+		if err := r.Groups(0, "NAS"); err == nil {
+			t.Errorf("a group only a pack not in the run matches was accepted; it selects %d checks", len(r.Select()))
+		}
+	})
+	t.Run("a pack-only group with the pack", func(t *testing.T) {
+		r := newReg(t)
+		if err := (Selection{Pack: "lab", Profile: "sdcore", Groups: []string{"NAS"}}).Apply(r); err != nil {
+			t.Fatal(err)
+		}
+		if sel := r.Select(); len(sel) != 1 || sel[0].ID() != "LAB-NAS" {
+			t.Errorf("selected %v, want LAB-NAS", sel)
+		}
+	})
+}
