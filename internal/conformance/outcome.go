@@ -130,9 +130,9 @@ type Outcome struct {
 	Skip SkipCondition
 	// Bound is set on an outcome inferred from the absence of an answer.
 	Bound *Bound
-	// NotCompleted is set on an outcome of an owner check that reports a
-	// procedure it owns as not completing: the BLOCKED results of its
-	// dependents are then counted under it.
+	// NotCompleted is set on a FAIL, DEVIATION or WARN outcome of an owner
+	// check that reports a procedure it owns as not completing: the
+	// BLOCKED results of its dependents are then counted under it.
 	NotCompleted Procedure
 	// blocked is the procedure of a derived BLOCKED outcome.
 	blocked Procedure
@@ -264,7 +264,8 @@ func declaredWorst(outs []Outcome) Verdict {
 // "shall" of the check and a DEVIATION a "should"; a PASS exists only
 // beside a requirement; a WARN names a criterion; an INFO or WARN names no
 // shall or should; a declared SKIP is a permitted alternative and names the
-// text that permits it; a bound says where it comes from.
+// text that permits it; a bound says where it comes from; a procedure is
+// reported as not completed only by an owner, on a FAIL, DEVIATION or WARN.
 func validateOutcomes(t Test) error {
 	refs := map[string]SpecRef{}
 	for _, r := range t.SpecRefs() {
@@ -352,6 +353,9 @@ func validateOutcomes(t Test) error {
 		}
 		if o.NotCompleted != "" && !owns(t, o.NotCompleted) {
 			return fmt.Errorf("%s: reports %s as not completed, which the check does not own", where, o.NotCompleted)
+		}
+		if o.NotCompleted != "" && !isWarning(o.Verdict) && o.Verdict != Fail {
+			return fmt.Errorf("%s: reports %s as not completed with verdict %s; only a FAIL, DEVIATION or WARN outcome can, as the finding its dependents count under", where, o.NotCompleted, o.Verdict)
 		}
 	}
 	return nil

@@ -172,7 +172,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				writeConformanceReport(out, id.String(), sum, expectedPath)
 			}
 			if !sum.OK() {
-				return gateFailed("conformance %s", sum.GateLine())
+				return gateFailed("conformance %s", sum.GateDetail())
 			}
 			return nil
 		},
@@ -487,7 +487,7 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 	for _, st := range sum.Stale {
 		_, _ = fmt.Fprintln(out, staleLine(st))
 	}
-	_, _ = fmt.Fprintf(out, "\n%s\n%s\n", sum.TallyLine(), sum.GateLine())
+	_, _ = fmt.Fprintf(out, "\n%s\n%s\n", sum.TallyLine(), sum.GateDetail())
 }
 
 // staleLine reports a stale expected-failures entry with the verdict it

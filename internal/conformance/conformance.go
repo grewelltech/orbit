@@ -1096,5 +1096,9 @@ func (s Summary) OK() bool { return len(GateFindings(s.Results, s.Gate)) == 0 }
 // GateLine says how the run stands at its gate (GateLine).
 func (s Summary) GateLine() string { return GateLine(s.Results, s.Gate) }
 
+// GateDetail is the gate line with the findings that fail the gate
+// (GateDetail).
+func (s Summary) GateDetail() string { return GateDetail(s.Results, s.Gate) }
+
 // builtins is the registered test set (populated in the tests_*.go files).
 var builtins []Test

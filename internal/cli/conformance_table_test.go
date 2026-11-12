@@ -133,7 +133,7 @@ func TestConformanceReportInformational(t *testing.T) {
 			want: []string{
 				"INFO  NGAP-B", "WARN  NGAP-C", "      not as described\n",
 				"3 checks: 1 pass, 0 fail (0 expected), 0 deviation, 1 warn, 1 info, 0 blocked, 0 crash, 0 skip, 0 error\n",
-				"gate default: failed: 0 spec failures, 1 warning\n",
+				"gate default: failed: 0 spec failures, 1 warning; 1 unexpected: NGAP-C WARN\n",
 			}},
 		{name: "table", render: func(b *bytes.Buffer) { printConformanceTable(b, "plmn 001/01", sum, "") },
 			want:    []string{"INFO", "WARN", "NGAP-B", "NGAP-C", "not as described", "1 info", "1 warn", "0 blocked", "0 crash", "3 checks", "gate default: failed: 0 spec failures, 1 warning"},

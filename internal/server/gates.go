@@ -195,8 +195,8 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 // and no finding the policy gates remains (conformance.GateFindings, as
 // Summary.OK gives the CLI's exit code): no result outside the
 // expected-failures list with a gated verdict, a BLOCKED counted under its
-// procedure's owner counting once, as the owner's. observed is how many
-// findings gate. An incomplete suite fails: an unmeasured suite is not a
+// procedure's owner counting once, as the owner's (conformance.GateDetail
+// is the detail). observed is how many findings gate. An incomplete suite fails: an unmeasured suite is not a
 // passed one.
 func judgeSuite(c *orbitv1.ConformanceSummary, policy conformance.GatePolicy) (passed bool, observed float64, detail string) {
 	if c == nil {
@@ -220,17 +220,9 @@ func judgeSuite(c *orbitv1.ConformanceSummary, policy conformance.GatePolicy) (p
 		}
 		results = append(results, res)
 	}
+	if bad := conformance.GateFindings(results, policy); len(bad) > 0 {
+		return false, float64(len(bad)), conformance.GateDetail(results, policy)
+	}
 	line := conformance.GateLine(results, policy)
-	var bad []string
-	for _, f := range conformance.GateFindings(results, policy) {
-		item := f.Result.ID + " " + string(f.Result.Verdict)
-		if len(f.Blocked) > 0 {
-			item += fmt.Sprintf(" (and %d BLOCKED under it: %s)", len(f.Blocked), strings.Join(f.Blocked, ", "))
-		}
-		bad = append(bad, item)
-	}
-	if len(bad) > 0 {
-		return false, float64(len(bad)), fmt.Sprintf("%s; %d unexpected: %s", line, len(bad), strings.Join(bad, ", "))
-	}
 	return true, 0, fmt.Sprintf("%s; %d checks", line, len(c.GetResults()))
 }

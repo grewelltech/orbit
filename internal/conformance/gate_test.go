@@ -33,10 +33,11 @@ func TestGatePolicyGates(t *testing.T) {
 // A run's findings: unlisted FAIL, CRASH, BLOCKED, ERROR, DEVIATION and
 // WARN count; a listed one does not. A BLOCKED counts under its owner when
 // the owner ran and reported the procedure as not completing, and on its
-// own when the owner was not selected or completed it. An owner with
-// BLOCKED results under it gates under both policies, as one spec failure,
-// whatever its own verdict. The gate line
-// separates spec failures from warnings under either policy.
+// own when the owner was not selected, completed it, or reported a verdict
+// no policy gates. An owner with BLOCKED results under it gates under both
+// policies, once: as its own verdict where the policy gates it, as BLOCKED
+// otherwise, including when an expected-failures entry matched it (ADR-0012).
+// The gate line separates spec failures, warnings and blocking owners.
 func TestFindingsAndGate(t *testing.T) {
 	listed := &ExpectedFailure{Finding: "EX-1"}
 	ownerFailed := Result{ID: "OWNER", Verdict: Warn, NotCompleted: ProcN2HandoverPreparation}
@@ -64,6 +65,12 @@ func TestFindingsAndGate(t *testing.T) {
 			defaultLine: "gate default: passed: 0 spec failures, 0 warnings", specLine: "gate spec: passed: 0 spec failures, 0 warnings"},
 		{name: "owner reported the procedure not completing", results: []Result{ownerFailed, dep("X"), dep("Y")},
 			want:        []string{"OWNER<-X<-Y"},
+			defaultLine: "gate default: failed: 0 spec failures, 1 warning", specLine: "gate spec: failed: 0 spec failures, 0 warnings, 1 blocked: OWNER blocked 2 checks"},
+		{name: "a FAIL owner reported the procedure not completing", results: []Result{{ID: "OWNER", Verdict: Fail, NotCompleted: ProcN2HandoverPreparation}, dep("X")},
+			want:        []string{"OWNER<-X"},
+			defaultLine: "gate default: failed: 1 spec failure, 0 warnings", specLine: "gate spec: failed: 1 spec failure, 0 warnings"},
+		{name: "an owner with a verdict no policy gates", results: []Result{{ID: "OWNER", Verdict: Info, NotCompleted: ProcN2HandoverPreparation}, dep("X")},
+			want:        []string{"X"},
 			defaultLine: "gate default: failed: 1 spec failure, 0 warnings", specLine: "gate spec: failed: 1 spec failure, 0 warnings"},
 		{name: "owner reported the procedure not completing, nothing blocked", results: []Result{ownerFailed},
 			want:        []string{"OWNER"},
@@ -75,6 +82,9 @@ func TestFindingsAndGate(t *testing.T) {
 			want:        []string{"X"},
 			defaultLine: "gate default: failed: 1 spec failure, 0 warnings", specLine: "gate spec: failed: 1 spec failure, 0 warnings"},
 		{name: "owner listed", results: []Result{{ID: "OWNER", Verdict: Warn, NotCompleted: ProcN2HandoverPreparation, ExpectedFailure: listed}, dep("X")},
+			want:        []string{"OWNER<-X"},
+			defaultLine: "gate default: failed: 0 spec failures, 0 warnings, 1 blocked: OWNER blocked 1 check", specLine: "gate spec: failed: 0 spec failures, 0 warnings, 1 blocked: OWNER blocked 1 check"},
+		{name: "owner listed, nothing blocked", results: []Result{{ID: "OWNER", Verdict: Fail, NotCompleted: ProcN2HandoverPreparation, ExpectedFailure: listed}},
 			defaultLine: "gate default: passed: 0 spec failures, 0 warnings", specLine: "gate spec: passed: 0 spec failures, 0 warnings"},
 		{name: "a BLOCKED on another procedure", results: []Result{ownerFailed, {ID: "Z", Verdict: Blocked, BlockedOn: ProcRegistration, Owner: "OWNER"}},
 			want:        []string{"OWNER", "Z"},
@@ -117,5 +127,39 @@ func TestTallyLineExpected(t *testing.T) {
 	want := "3 checks: 0 pass, 1 fail (1 expected), 1 deviation, 1 warn (1 expected), 0 info, 0 blocked, 0 crash, 0 skip, 0 error"
 	if got := s.TallyLine(); got != want || s.ExpectedWarn != 1 || s.ExpectedDeviation != 0 {
 		t.Errorf("tally %q, want %q", got, want)
+	}
+}
+
+// A gate's detail names each failing finding as the verdict it gates as,
+// with the checks BLOCKED under it, and nothing when the gate passes.
+func TestGateDetail(t *testing.T) {
+	listed := &ExpectedFailure{Finding: "EX-1"}
+	dep := func(id string) Result {
+		return Result{ID: id, Verdict: Blocked, BlockedOn: ProcN2HandoverPreparation, Owner: "OWNER"}
+	}
+	warnOwner := Result{ID: "OWNER", Verdict: Warn, NotCompleted: ProcN2HandoverPreparation}
+	tests := []struct {
+		name    string
+		results []Result
+		p       GatePolicy
+		want    string
+	}{
+		{name: "passed", results: []Result{{ID: "A", Verdict: Pass}}, p: GateSpec,
+			want: "gate spec: passed: 0 spec failures, 0 warnings"},
+		{name: "a FAIL", results: []Result{{ID: "F", Verdict: Fail}}, p: GateDefault,
+			want: "gate default: failed: 1 spec failure, 0 warnings; 1 unexpected: F FAIL"},
+		{name: "owner gates as its own verdict", results: []Result{warnOwner, dep("X"), dep("Y")}, p: GateDefault,
+			want: "gate default: failed: 0 spec failures, 1 warning; 1 unexpected: OWNER WARN (and 2 BLOCKED under it: X, Y)"},
+		{name: "owner gates as BLOCKED", results: []Result{warnOwner, dep("X")}, p: GateSpec,
+			want: "gate spec: failed: 0 spec failures, 0 warnings, 1 blocked: OWNER blocked 1 check; 1 unexpected: OWNER BLOCKED (its WARN does not gate under spec; 1 BLOCKED under it: X)"},
+		{name: "listed owner gates as BLOCKED", results: []Result{{ID: "OWNER", Verdict: Fail, NotCompleted: ProcN2HandoverPreparation, ExpectedFailure: listed}, dep("X")}, p: GateDefault,
+			want: "gate default: failed: 0 spec failures, 0 warnings, 1 blocked: OWNER blocked 1 check; 1 unexpected: OWNER BLOCKED (its FAIL is expected: EX-1; 1 BLOCKED under it: X)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := GateDetail(tc.results, tc.p); got != tc.want {
+				t.Errorf("got  %q\nwant %q", got, tc.want)
+			}
+		})
 	}
 }

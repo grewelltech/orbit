@@ -159,7 +159,7 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 	}
 
 	_, _ = fmt.Fprintln(out, conformanceTally(re, sum))
-	_, _ = fmt.Fprintln(out, sum.GateLine())
+	_, _ = fmt.Fprintln(out, sum.GateDetail())
 	if hasTolerated(sum) {
 		_, _ = fmt.Fprintln(out, faint.Render("* tolerated by the expected-failures list"))
 	}

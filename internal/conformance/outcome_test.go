@@ -126,6 +126,14 @@ func TestValidateDeclaration(t *testing.T) {
 		{name: "not completed, of a procedure it does not own", refs: []SpecRef{primary(declDesc)}, outs: []Outcome{
 			{ID: "x", Verdict: Warn, Summary: "s", Criterion: CriterionAvailability, NotCompleted: ProcRegistration}},
 			wantErr: "reports registration as not completed, which the check does not own"},
+		{name: "not completed on an INFO", refs: []SpecRef{primary(declDesc)}, owned: []Procedure{ProcRegistration}, outs: []Outcome{
+			{ID: "x", Verdict: Info, Summary: "s", NotCompleted: ProcRegistration}},
+			wantErr: "reports registration as not completed with verdict INFO; only a FAIL, DEVIATION or WARN outcome can"},
+		{name: "not completed on a PASS", refs: []SpecRef{declShall}, owned: []Procedure{ProcRegistration}, outs: []Outcome{
+			{ID: "x", Verdict: Pass, Summary: "s", Refs: []string{declShall.Key()}, NotCompleted: ProcRegistration}},
+			wantErr: "reports registration as not completed with verdict PASS"},
+		{name: "not completed on a WARN of an owner", refs: []SpecRef{primary(declDesc)}, owned: []Procedure{ProcRegistration}, outs: []Outcome{
+			{ID: "x", Verdict: Warn, Summary: "s", Criterion: CriterionAvailability, NotCompleted: ProcRegistration}}},
 		{name: "a need off the fixed list", refs: []SpecRef{declShall}, outs: []Outcome{pass}, needs: CheckNeeds{Procedures: []Procedure{"paging"}},
 			wantErr: `"paging" is not a procedure of the fixed list`},
 	}
