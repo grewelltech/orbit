@@ -22,8 +22,16 @@ const (
 	// outcome; its absence within this bound is what update-unanswered
 	// reports.
 	keepsTAUpdateWait = 5 * time.Second
-	// keepsTARegisterWait bounds the registration that follows the outcome.
+	// keepsTARegisterWait bounds the control registration before the update
+	// and the registration that follows the outcome, each.
 	keepsTARegisterWait = 10 * time.Second
+	// keepsTAReleaseWait bounds the wait for the UE CONTEXT RELEASE COMMAND
+	// that ends the control registration.
+	keepsTAReleaseWait = deregReleaseWait
+	// keepsTAControlGap is the pause between that release and the update,
+	// so the registration after the update is not one sent the moment the
+	// UE was released, which NAS-REGISTRATION-AFTER-RELEASE judges.
+	keepsTAControlGap = time.Second
 	// keepsTADeregisterWait bounds the deregistration after a registration
 	// that succeeded.
 	keepsTADeregisterWait = 5 * time.Second
@@ -52,20 +60,25 @@ var otherCauseNames = map[uint8]string{
 	62: "No network slices available",
 }
 
-// ranConfigUpdateKeepsTA sends, on an association that has completed NG
-// Setup, a RAN CONFIGURATION UPDATE that carries only a RAN Node Name, and
-// then registers the UE over the same association in the tracking area the
-// NG Setup presented. TS 38.413 8.7.2.2: "If an information element is not
+// ranConfigUpdateKeepsTA registers the UE once as a control, on an
+// association that has completed NG Setup, and deregisters it (switch-off);
+// once the core has released it, it sends over the same association a RAN
+// CONFIGURATION UPDATE that carries only a RAN Node Name, and then registers
+// the UE again in the tracking area the NG Setup presented. TS 38.413 8.7.2.2: "If an information element is not
 // included in the RAN CONFIGURATION UPDATE message, the AMF shall interpret
 // that the corresponding configuration data is not changed and shall
 // continue to operate the NG-C interface with the existing related
 // configuration data." The Supported TA List is not included, so the AMF
 // must still serve the tracking area.
 //
-// The shall sits in the successful-operation clause, so the state is judged
-// only after a RAN CONFIGURATION UPDATE ACKNOWLEDGE: a registration that
-// succeeds is PASS; a Registration Reject with a tracking-area cause (#12,
-// #13, #15) is FAIL. Any other end of the registration (a Reject with
+// The control shows the core serves the UE in that tracking area before the
+// update: a control registration that does not complete is BLOCKED on the
+// registration, and a core that does not release the UE after it BLOCKED on
+// that release, before anything is sent. The shall sits in the
+// successful-operation clause, so the state is judged only after a RAN
+// CONFIGURATION UPDATE ACKNOWLEDGE: a registration that succeeds is PASS; a
+// Registration Reject with a tracking-area cause (#12, #13, #15), where the
+// control registration was accepted, is FAIL. Any other end of the registration (a Reject with
 // another cause, an Authentication Reject, a release, no answer) does not
 // show the tracking area was dropped: the core did not complete the
 // registration the check needs to judge the state, so it is BLOCKED on the
@@ -75,9 +88,10 @@ var otherCauseNames = map[uint8]string{
 // WARN for availability, and no registration is attempted. A registered UE
 // is deregistered, and a fresh NG Setup confirms the core afterwards.
 type ranConfigUpdateKeepsTA struct {
-	// updateWait and registerWait override keepsTAUpdateWait and
-	// keepsTARegisterWait; tests shorten them.
-	updateWait, registerWait time.Duration
+	// updateWait, registerWait and releaseWait override
+	// keepsTAUpdateWait, keepsTARegisterWait and keepsTAReleaseWait; tests
+	// shorten them.
+	updateWait, registerWait, releaseWait time.Duration
 }
 
 // The keys of the references the outcomes of
@@ -140,11 +154,15 @@ func (ranConfigUpdateKeepsTA) SpecRefs() []SpecRef {
 	}
 }
 
-// Budget covers the update, the registration, a deregistration and the
-// liveness probe.
+// Budget covers the control registration and its release, the pause, the
+// update, the registration, a deregistration and the liveness probe.
 func (c ranConfigUpdateKeepsTA) Budget() time.Duration {
 	update, register := c.waits()
-	return update + register + keepsTADeregisterWait + 5*time.Second
+	return register + c.releaseTimeout() + keepsTAControlGap + update + register + keepsTADeregisterWait + 5*time.Second
+}
+
+func (c ranConfigUpdateKeepsTA) releaseTimeout() time.Duration {
+	return orDefault(c.releaseWait, keepsTAReleaseWait)
 }
 
 func (c ranConfigUpdateKeepsTA) Run(ctx context.Context, env Env) Result {
@@ -163,6 +181,16 @@ func (c ranConfigUpdateKeepsTA) Run(ctx context.Context, env Env) Result {
 		name = keepsTADefaultName
 	}
 	update, register := c.waits()
+	cctx, cancel := context.WithTimeout(ctx, register)
+	ctl, err := h.RegisterWithProbe(cctx, nil)
+	cancel()
+	if err == nil && !ctl.Registered {
+		err = errors.New("not registered")
+	}
+	if err != nil {
+		return r.SetupFailed("the control registration before the update did not complete",
+			fmt.Errorf("control registration on gNB %#x in TAC %d, before any RAN CONFIGURATION UPDATE: %w", env.GNB.ID, env.GNB.TAC, err))
+	}
 	o := c.probe(ctx, h, name)
 	r = judgeKeepsTA(r, o, env.GNB, update, register)
 	if o.update == nil && o.updateErr == nil {
@@ -170,6 +198,7 @@ func (c ranConfigUpdateKeepsTA) Run(ctx context.Context, env Env) Result {
 		// survive.
 		return r
 	}
+	r.Detail = joinDetail(r.Detail, "control: the UE registered in the same tracking area before the update, and was released after its switch-off deregistration")
 	if o.update != nil {
 		r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: RAN CONFIGURATION UPDATE carrying only RAN Node Name %q; registration in TAC %d of PLMN %s/%s over the same association",
 			name, env.GNB.TAC, env.GNB.MCC, env.GNB.MNC))
@@ -211,11 +240,19 @@ type keepsTAOutcome struct {
 	noAnswer    bool  // nothing of the above within the wait
 	err         error // another failure
 	cutShort    bool  // the per-test timeout expired during the registration
+
+	// controlErr is set when the control UE's deregistration and release
+	// did not lead to the update: noRelease when the core sent no UE
+	// CONTEXT RELEASE COMMAND for it.
+	controlErr error
+	noRelease  bool
 }
 
-// probe opens the UE's association, runs the RAN Configuration Update on it
-// before the Initial UE Message, and registers the UE (no PDU session) until
-// it is registered, rejected, released, or the registration wait runs out.
+// probe deregisters the control UE (switch-off) and, once the core has
+// released it and keepsTAControlGap has passed, runs the RAN Configuration
+// Update on the same association before the new Initial UE Message, and
+// registers the UE (no PDU session) until it is registered, rejected,
+// released, or the registration wait runs out.
 func (c ranConfigUpdateKeepsTA) probe(ctx context.Context, h *UEHarness, name string) keepsTAOutcome {
 	updateWait, registerWait := c.waits()
 	stop := make(chan struct{})
@@ -234,7 +271,7 @@ func (c ranConfigUpdateKeepsTA) probe(ctx context.Context, h *UEHarness, name st
 		}
 	}()
 
-	_, err := h.RegisterWithProbe(ctx, &engine.AttachProbe{
+	rr, rerr := h.ReregisterAfterRelease(ctx, &engine.AttachProbe{
 		Stop: stop,
 		BeforeRegistration: func(actx context.Context, conn gnb.Transport) error {
 			pdu, err := gnb.BuildRANConfigurationUpdate(gnb.WithRANNodeName(name))
@@ -285,9 +322,15 @@ func (c ranConfigUpdateKeepsTA) probe(ctx context.Context, h *UEHarness, name st
 				halt()
 			}
 		},
-	})
+	}, keepsTAControlGap, engine.WithReleaseWait(c.releaseTimeout()))
 	mu.Lock()
 	defer mu.Unlock()
+	if rerr != nil {
+		o.controlErr = rerr
+		o.noRelease = rr != nil && rr.Deregistration != nil && rr.Deregistration.ReleaseErr != nil
+		return o
+	}
+	err := rr.AttachErr
 	switch {
 	case err == nil:
 		o.registered = true
@@ -307,6 +350,14 @@ func (c ranConfigUpdateKeepsTA) probe(ctx context.Context, h *UEHarness, name st
 // registering in g's tracking area; updateWait and registerWait are the
 // bounds the absences were inferred within.
 func judgeKeepsTA(r Result, o keepsTAOutcome, g gnb.Config, updateWait, registerWait time.Duration) Result {
+	switch {
+	case o.controlErr != nil && o.noRelease:
+		return r.BlockedBy(ProcSwitchOffRelease, "no release after the control UE's deregistration",
+			fmt.Sprintf("the core sent no UE CONTEXT RELEASE COMMAND after the control UE's switch-off deregistration, so the update and the registration after it were not sent: %v", o.controlErr))
+	case o.controlErr != nil:
+		return r.Errored("the update was not sent after the control registration",
+			fmt.Sprintf("the control UE's deregistration did not lead to the update: %v", o.controlErr))
+	}
 	switch {
 	case o.update == nil && o.updateTimedOut:
 		return r.As(keepsTAUpdateUnanswered, "no response to the RAN CONFIGURATION UPDATE",

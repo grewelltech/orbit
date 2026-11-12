@@ -549,8 +549,10 @@ Legend: ✅ covered · 🎯 high-value next · ⬜ candidate · — not core-tes
   association is FAIL, with a fresh NG Setup tried afterwards: a core that
   no longer completes it did not survive and is CRASH. Not yet run live.
 - `NGAP-RAN-CONFIG-UPDATE-KEEPS-TA` (FAIL-class) — after NG
-  Setup, a RAN CONFIGURATION UPDATE carrying only the RAN Node Name; the UE
-  then registers over the same association. An IE the update does not
+  Setup, a control registration and switch-off deregistration of the UE,
+  then a RAN CONFIGURATION UPDATE carrying only the RAN Node Name; the UE
+  then registers again over the same association. A control registration
+  that does not complete, or is not released, is BLOCKED before the update. An IE the update does not
   include leaves that configuration unchanged (TS 38.413 8.7.2.2, a shall
   from V15.3.0), so after a RAN CONFIGURATION UPDATE ACKNOWLEDGE the AMF
   must still serve the NG Setup tracking area: a registration is PASS, a

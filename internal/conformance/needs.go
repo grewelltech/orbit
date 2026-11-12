@@ -276,7 +276,13 @@ func (nasSMCNoNIA0) Needs() CheckNeeds {
 }
 
 // Needs is one UE: the check registers it after the update.
-func (ranConfigUpdateKeepsTA) Needs() CheckNeeds { return ueNeeds }
+// Needs is the UE, registered as a control before the update, and the
+// release after its switch-off deregistration, which the update and the
+// registration after it wait for.
+func (ranConfigUpdateKeepsTA) Needs() CheckNeeds {
+	return CheckNeeds{UEs: 1, GNBRoles: []GNBRole{RoleOwn, RoleLiveness},
+		Procedures: append(append([]Procedure(nil), registrationFirst...), ProcSwitchOffRelease)}
+}
 
 func (ngapPathSwitchAckTransfer) Needs() CheckNeeds   { return mobilityNeeds() }
 func (ngapHandoverCommandTransfer) Needs() CheckNeeds { return mobilityNeeds() }
