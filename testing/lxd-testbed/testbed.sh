@@ -1356,7 +1356,7 @@ core_sdcore_deploy() {
     # for (TESTBED_ONRAMP_NET): the current one names core.networks, the
     # legacy one core.data_iface.
     local has_networks
-    has_networks=$(on_core "sed -n '/^core:/,/^[a-z]/p' $TESTBED_ONRAMP_DIR/vars/main.yml | grep -c '^  networks:'" 2>/dev/null | tr -d '\r')
+    has_networks=$(on_core "sed -n '/^core:/,/^[a-z]/p' $TESTBED_ONRAMP_DIR/vars/main.yml | grep -c '^  networks:' || true" 2>/dev/null | tr -d '\r') || has_networks=0
     if [ "$LEGACY_NET" = true ] && [ "${has_networks:-0}" != 0 ]; then
         die "OnRamp $ONRAMP_VERSION uses the current UPF networking layout (core.networks); rebuild with TESTBED_ONRAMP_NET=current"
     fi
@@ -2429,8 +2429,10 @@ cmd_check() {
     else
         check "$NODE_CORE" "receive aggregation off on trunk (gro, rx-gro-hw)" \
             "ethtool -k trunk | grep -E '^(generic-receive-offload|rx-gro-hw):' | grep -qv ': on'"
-        check "$NODE_CORE" "n3/n6 up with no address (macvlan parents)" \
-            "! ip -4 -o addr show dev n3 | grep -q inet && ! ip -4 -o addr show dev n6 | grep -q inet && ip -br link show n3 | grep -q UP && ip -br link show n6 | grep -q UP"
+        if [ "$LEGACY_NET" != true ]; then
+            check "$NODE_CORE" "n3/n6 up with no address (macvlan parents)" \
+                "! ip -4 -o addr show dev n3 | grep -q inet && ! ip -4 -o addr show dev n6 | grep -q inet && ip -br link show n3 | grep -q UP && ip -br link show n6 | grep -q UP"
+        fi
     fi
 
     if [ "$WITH_FAR" = true ]; then
