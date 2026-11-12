@@ -68,7 +68,8 @@ type tunnelPinger struct {
 	id        uint16
 
 	stop    context.CancelFunc // ends the run when the session is gone
-	sent    []latency.Result   // probes whose uplink send succeeded
+	sent    []latency.Result   // probes whose uplink send succeeded and that completed
+	cut     uint64             // probes sent whose wait a cancellation cut short
 	sendErr error              // the first send error, if any
 	stopped error              // the send error that ended the run, if any
 }
@@ -87,6 +88,10 @@ func (p *tunnelPinger) Ping(ctx context.Context, seq uint64) (time.Duration, err
 		}
 	case err == nil:
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateOK, RTT: rtt})
+	case errors.Is(err, context.Canceled):
+		// The probe left, but its wait was cancelled before its timeout, so
+		// it is neither received nor lost.
+		p.cut++
 	default:
 		p.sent = append(p.sent, latency.Result{Seq: seq, State: latency.StateTimeout, Err: err})
 	}
@@ -155,7 +160,10 @@ type LatencyConfig struct {
 
 // LatencyResult is loom's latency summary measured over the GTP-U tunnel.
 // Sent counts the probes whose uplink send succeeded; Lost those of them
-// with no reply in time, and LossPct is Lost over Sent. NotSent counts the
+// with no reply in time. A probe whose wait a cancellation (the caller's, or
+// the session going) cut short before its timeout counts as sent and as
+// neither received nor lost, so LossPct is Lost over the probes that
+// completed and the statistics cover those alone. NotSent counts the
 // probes that never left — a failed send, or the remainder of a run that
 // stopped — with NotSentErr the first send error. Stopped is why the run
 // ended before its probes were spent ("" when it ran them all). Elapsed is
@@ -222,12 +230,12 @@ func RunLatency(ctx context.Context, cfg LatencyConfig) (LatencyResult, error) {
 func summarize(p *tunnelPinger, probes int, elapsed time.Duration, ctxErr error) LatencyResult {
 	s := latency.Summarize(p.sent)
 	res := LatencyResult{
-		Sent: s.Sent, Received: s.Received, Lost: s.Lost, LossPct: s.LossPct,
+		Sent: s.Sent + p.cut, Received: s.Received, Lost: s.Lost, LossPct: s.LossPct,
 		Min: s.Min, Max: s.Max, Mean: s.Mean, StdDev: s.StdDev, Jitter: s.Jitter,
 		Elapsed: elapsed,
 	}
-	if n := uint64(probes); n > s.Sent {
-		res.NotSent = n - s.Sent
+	if n := uint64(probes); n > res.Sent {
+		res.NotSent = n - res.Sent
 	}
 	if p.sendErr != nil {
 		res.NotSentErr = p.sendErr.Error()
@@ -239,7 +247,7 @@ func summarize(p *tunnelPinger, probes int, elapsed time.Duration, ctxErr error)
 		res.Stopped = ctxErr.Error()
 	}
 	if elapsed > 0 {
-		res.Rate = float64(s.Sent) / elapsed.Seconds()
+		res.Rate = float64(res.Sent) / elapsed.Seconds()
 	}
 	return res
 }
