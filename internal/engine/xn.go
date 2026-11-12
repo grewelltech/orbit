@@ -70,6 +70,9 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 		tgtConn.Close()
 		return fmt.Errorf("target NG Setup: %w", err)
 	}
+	// The target association's reads go through one reader too
+	// (gnb.Dedicated); its lane is the UE's on the target.
+	tgt := gnb.Dedicated(tgtConn, target.Config, targetHandoverRANID)
 
 	// Per-session PathSwitch with the target's new downlink tunnels. Each
 	// session's DL TEID comes from the process-wide allocator: a constant
@@ -87,21 +90,21 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	firstTEID := admitted[0].GNBTunnel.TEID
 	ps, err := gnb.BuildPathSwitchRequest(target.Config, sess.amfID, targetHandoverRANID, sess.heldUESecCaps(), admitted)
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return err
 	}
-	if err := gnb.SendPDU(tgtConn, ueStream, ps); err != nil {
-		tgtConn.Close()
+	if err := gnb.SendPDU(tgt, ueStream, ps); err != nil {
+		_ = tgt.Close()
 		return fmt.Errorf("send PathSwitchRequest: %w", err)
 	}
 
-	pdu, err := gnb.ReadPDU(ctx, tgtConn)
+	pdu, err := gnb.ReadPDU(ctx, tgt)
 	if err != nil {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return fmt.Errorf("await PathSwitch response: %w", err)
 	}
 	if gnb.ClassifyPathSwitch(pdu) != gnb.PathSwitchAcknowledged {
-		tgtConn.Close()
+		_ = tgt.Close()
 		return fmt.Errorf("path switch not acknowledged")
 	}
 	newAMFID, _ := gnb.ParsePathSwitchAcknowledge(pdu)
@@ -119,7 +122,7 @@ func (m *Manager) runXnHandover(ctx context.Context, sess *Session, target GNBEn
 	// Move the session onto the target gNB.
 	oldConn := sess.conn
 	m.mu.Lock()
-	sess.conn = tgtConn
+	sess.conn = tgt
 	sess.setServingGNB(target.Config)
 	sess.setN2Source(localAddrString(tgtConn))
 	sess.ranID = targetHandoverRANID
