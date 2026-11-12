@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -636,13 +637,15 @@ var (
 		Summary: "sent the PDU SESSION RELEASE COMMAND without a PDU SESSION RESOURCE RELEASE COMMAND for the active user plane"}
 	pduReleaseDownlinkAfter = Outcome{ID: "downlink-after-release", Verdict: Fail, Refs: []string{pduReleaseUPFRef},
 		Summary: "kept sending downlink on the released tunnel after the release"}
+	pduReleaseAssociationLost = Outcome{ID: "association-lost", Verdict: Fail, Refs: []string{pduReleaseAcceptedRef, pduReleaseCommandRef},
+		Summary: "dropped the UE's association instead of completing the release"}
 	pduReleaseRejected = Outcome{ID: "rejected", Verdict: Skip, Skip: SkipPermitted, Refs: []string{pduReleaseRejectRef},
 		Summary: "rejected the release with a PDU SESSION RELEASE REJECT, which 6.4.3.4 permits"}
 )
 
 // Outcomes declares what the check can report.
 func (nasPDUReleaseUERequested) Outcomes() []Outcome {
-	return []Outcome{pduReleaseReleased, pduReleaseNoAnswer, pduReleaseNoNASCommand, pduReleaseNoN2Release, pduReleaseDownlinkAfter, pduReleaseRejected}
+	return []Outcome{pduReleaseReleased, pduReleaseNoAnswer, pduReleaseNoNASCommand, pduReleaseNoN2Release, pduReleaseDownlinkAfter, pduReleaseAssociationLost, pduReleaseRejected}
 }
 
 func (nasPDUReleaseUERequested) ID() string { return "NAS-PDU-RELEASE-UE-REQUESTED" }
@@ -762,8 +765,26 @@ const pduReleaseFail = "PDU session not released on UE request. TS 24.501 6.4.3.
 
 // judgePDURelease turns a release's outcome and the downlink seen on the
 // session's tunnel into an outcome, Observed and Detail. cut reports that
-// the check's own time ran out before its waits ended.
+// the check's own time ran out before its waits ended. The association
+// failing while the release is awaited, with the check's time left, is the
+// core's (FAIL); a request or answer that could not be sent is ERROR.
 func judgePDURelease(res *engine.PDUReleaseResult, err error, o PathObservation, cut bool, c nasPDUReleaseUERequested) (Outcome, string, string) {
+	if errors.Is(err, engine.ErrPDUReleaseAssociationLost) && res != nil && !cut {
+		var seen []string
+		if res.NASCommand {
+			seen = append(seen, "the PDU Session Release Command")
+		}
+		if res.ResourceRelease {
+			seen = append(seen, "the PDU SESSION RESOURCE RELEASE COMMAND")
+		}
+		got := "nothing of the release"
+		if len(seen) > 0 {
+			got = "only " + strings.Join(seen, " and ")
+		}
+		return pduReleaseAssociationLost, "association lost during the PDU session release",
+			joinDetail(pduReleaseFail, fmt.Sprintf("the UE's association ended %s after the PDU Session Release Request, with %s received: %v",
+				time.Since(res.SentAt).Round(time.Millisecond), got, err))
+	}
 	if err != nil || res == nil {
 		return classifiedError, "PDU session release procedure failed", fmt.Sprint(err)
 	}

@@ -40,6 +40,11 @@ const (
 	RejectPDURelease
 	// IgnorePDURelease leaves the request unanswered and keeps the session.
 	IgnorePDURelease
+	// DropOnPDURelease answers with nothing and ends every association
+	// (DropAssociations); the mock goes on serving new ones.
+	DropOnPDURelease
+	// CrashOnPDURelease answers with nothing and crashes the mock (Crash).
+	CrashOnPDURelease
 )
 
 // WithPDUReleaseAnswer makes the mock answer a PDU SESSION RELEASE REQUEST
@@ -96,6 +101,14 @@ func (a *AMF) onPDUSessionReleaseRequest(p *pipe, st *ueState, req *nasMessage.P
 	}
 	amfID, ranID := st.amfID, st.ranID
 	a.mu.Unlock()
+	switch a.pduReleaseAnswer {
+	case DropOnPDURelease:
+		a.DropAssociations()
+		return nil
+	case CrashOnPDURelease:
+		a.Crash()
+		return errCrashed
+	}
 	if s == nil || a.pduReleaseAnswer == IgnorePDURelease {
 		return nil
 	}

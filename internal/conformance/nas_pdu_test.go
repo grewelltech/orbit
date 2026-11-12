@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/netip"
 	"strings"
 	"testing"
@@ -397,6 +398,19 @@ func TestJudgePDURelease(t *testing.T) {
 			wantDetail: []string{"raise --per-test-timeout to at least 43s"}},
 		{name: "cut short with no answer", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0}, obs: obs(""), cut: true,
 			want: classifiedError, wantObserved: "timed out before the release was judged"},
+		{name: "association lost", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0, NASCommand: true},
+			err: fmt.Errorf("%w: %w", engine.ErrPDUReleaseAssociationLost, io.EOF), obs: obs(""),
+			want: pduReleaseAssociationLost, wantObserved: "association lost during the PDU session release",
+			wantDetail: []string{pduReleaseFail, "with only the PDU Session Release Command received", "EOF"}},
+		{name: "association lost with nothing received", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0},
+			err: fmt.Errorf("%w: %w", engine.ErrPDUReleaseAssociationLost, io.EOF), obs: obs(""),
+			want: pduReleaseAssociationLost, wantDetail: []string{"with nothing of the release received"}},
+		{name: "association lost as the time runs out", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0},
+			err: fmt.Errorf("%w: %w", engine.ErrPDUReleaseAssociationLost, io.EOF), obs: obs(""), cut: true,
+			want: classifiedError, wantObserved: "PDU session release procedure failed"},
+		{name: "an answer that could not be sent", res: &engine.PDUReleaseResult{PDUSessionID: 1, PTI: 1, SentAt: t0},
+			err: errors.New("send PDU Session Release Complete: broken pipe"), obs: obs(""),
+			want: classifiedError, wantObserved: "PDU session release procedure failed"},
 		{name: "procedure failed", err: errors.New("UE 208930100000011 has no PDU session"), obs: obs(""),
 			want: classifiedError, wantObserved: "PDU session release procedure failed", wantDetail: []string{"has no PDU session"}},
 	}
@@ -458,6 +472,8 @@ func TestPDUReleaseCheckAgainstMockPair(t *testing.T) {
 		wantCompletes int64 // PDU SESSION RELEASE COMPLETEs
 		wantResponses int64 // PDU SESSION RESOURCE RELEASE RESPONSEs
 		wantReleases  int   // sessions the UPF was told were released
+		lost          bool  // the core drops the association at the request
+		dead          bool  // and does not come back
 	}{
 		{name: "released", net24: testnet.ConformancePDURelease, want: Pass,
 			wantObserved:  "PDU session released on N1 and N2; the released tunnel stayed quiet",
@@ -488,6 +504,11 @@ func TestPDUReleaseCheckAgainstMockPair(t *testing.T) {
 		{name: "traffic configured", net24: testnet.ConformancePDUReleaseFlow, traffic: "192.0.2.7:7", want: Pass,
 			wantDetail:    []string{"echo flow to 192.0.2.7:7 kept sending uplink on the released tunnel", "check the echo peer"},
 			wantCompletes: 1, wantResponses: 1, wantReleases: 1},
+		{name: "association dropped", net24: testnet.ConformancePDUReleaseDropped, amf: answer(mockamf.DropOnPDURelease), want: Fail, lost: true,
+			wantObserved: "association lost during the PDU session release", wantDetail: []string{pduReleaseFail, "with nothing of the release received"}},
+		{name: "core crashes", net24: testnet.ConformancePDUReleaseCrash, amf: answer(mockamf.CrashOnPDURelease), want: Crash, lost: true, dead: true,
+			wantObserved: ObservedAMFUnresponsive + " (association lost during the PDU session release)",
+			wantDetail:   []string{"the AMF stopped completing NG Setup after the PDU session release"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -500,13 +521,28 @@ func TestPDUReleaseCheckAgainstMockPair(t *testing.T) {
 			if r.Verdict != tc.want || (tc.wantObserved != "" && r.Observed != tc.wantObserved) {
 				t.Fatalf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
 			}
-			for _, w := range append([]string{"UE deregistered"}, tc.wantDetail...) {
+			want := tc.wantDetail
+			switch {
+			case !tc.lost:
+				want = append([]string{"UE deregistered"}, want...)
+			case !tc.dead:
+				want = append([]string{"deregistration failed"}, want...)
+			}
+			for _, w := range want {
 				if !strings.Contains(r.Detail, w) {
 					t.Errorf("detail %q lacks %q", r.Detail, w)
 				}
 			}
 			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
 				t.Error("detail carries key material")
+			}
+			if tc.lost {
+				if tc.dead {
+					waitNoAssociations(t, c)
+				} else {
+					c.assertClosed(t, env)
+				}
+				return
 			}
 			if got := c.amf.PDUReleaseRequests(); got != 1 {
 				t.Errorf("the mock got %d PDU Session Release Requests, want 1", got)

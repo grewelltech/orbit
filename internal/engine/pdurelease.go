@@ -29,6 +29,12 @@ const (
 	pduReleasePTI = 1
 )
 
+// ErrPDUReleaseAssociationLost is wrapped by the error ReleasePDUSession
+// returns when the UE's association failed while it waited for the
+// network's answer: the request had been sent, and the core's side of the
+// procedure, not this host's, ended it.
+var ErrPDUReleaseAssociationLost = errors.New("the association was lost waiting for the PDU session release")
+
 // PDUReleaseOption adjusts Manager.ReleasePDUSession.
 type PDUReleaseOption func(*pduReleaseOptions)
 
@@ -99,7 +105,8 @@ func (r *PDUReleaseResult) Released() bool { return r.NASCommand && r.ResourceRe
 // COMMAND (answered with a PDU SESSION RESOURCE RELEASE RESPONSE), in
 // either order, or for a PDU SESSION RELEASE REJECT. A wait that runs out,
 // or ctx ending, returns what was seen with a nil error; the error is for a
-// request that could not be sent and for the association failing.
+// request that could not be sent, an answer that could not be sent, and
+// the association failing while it waits (ErrPDUReleaseAssociationLost).
 //
 // It is signalling only. The session's entry in the UE's AttachResult and
 // its N3 data path are left as they are until Deregister, so a caller can
@@ -175,7 +182,7 @@ func (s *Session) releasePDUSession(ctx context.Context, o pduReleaseOptions) (*
 		case timedOut:
 			return res, nil
 		default:
-			return res, fmt.Errorf("waiting for the PDU session release: %w", err)
+			return res, fmt.Errorf("%w: %w", ErrPDUReleaseAssociationLost, err)
 		}
 		if err := s.onReleaseDownlink(pdu, res); err != nil {
 			return res, err

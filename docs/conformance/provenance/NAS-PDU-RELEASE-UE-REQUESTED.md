@@ -79,11 +79,12 @@ From V15.5.0:
 - **FAIL** `no-nas-command` (6.4.3.3, 6.3.3.2): the NGAP command without a PDU SESSION RELEASE COMMAND within 2 s of it, a bound of the check.
 - **FAIL** `no-n2-release` (TS 23.502 4.3.4.2 step 3): the NAS command without the NGAP command within 2 s of it, with the session's user plane active.
 - **FAIL** `downlink-after-release` (TS 23.502 4.3.4.2 step 2a): a G-PDU on the released tunnel after the grace.
+- **FAIL** `association-lost` (6.4.3.3, 6.3.3.2): the UE's association ended while the answer was awaited, with the check's time left; the detail says which command, if any, had come. A fresh NG Setup afterwards tells it from a crash.
 - Every FAIL's message is `PDU session not released on UE request. TS 24.501 6.4.3.3, 6.3.3.2; TS 23.502 4.3.4.2; TS 38.413 8.2.2.2. Likely cause: SMF release path.`, followed by what was seen.
 - **SKIP (permitted alternative)** `rejected` (6.4.3.4): a PDU SESSION RELEASE REJECT.
 - **BLOCKED** (registration, PDU session establishment): the UE did not register, or its PDU session was not established.
 - **CRASH:** the AMF no longer completes an NG Setup after the release.
-- **ERROR:** the harness could not set up the UE, the release could not be sent, a downlink NAS PDU did not decode with no command seen, or the check's time ran out.
+- **ERROR:** the harness could not set up the UE, the release request or an answer to a command could not be sent, a downlink NAS PDU did not decode with no command seen, or the check's time ran out.
 - **SKIP:** no UE configured, or a target release older than Rel-15.
 
 The UE is deregistered (switch-off) at the end on every path that registered it.

@@ -585,6 +585,7 @@ Needs: NG Setup, registration, PDU session establishment.
 | `no-nas-command` | FAIL | TS 24.501 6.4.3.3 (shall); TS 24.501 6.3.3.2 (shall); absence within 2s (check bound after the NGAP command) | released the session on N2 without a PDU SESSION RELEASE COMMAND |
 | `no-n2-release` | FAIL | TS 23.502 4.3.4.2 step 3 (shall); absence within 2s (check bound after the NAS command) | sent the PDU SESSION RELEASE COMMAND without a PDU SESSION RESOURCE RELEASE COMMAND for the active user plane |
 | `downlink-after-release` | FAIL | TS 23.502 4.3.4.2 step 2a (shall) | kept sending downlink on the released tunnel after the release |
+| `association-lost` | FAIL | TS 24.501 6.4.3.3 (shall); TS 24.501 6.3.3.2 (shall) | dropped the UE's association instead of completing the release |
 | `rejected` | SKIP | permitted alternative; TS 24.501 6.4.3.4 (shall) | rejected the release with a PDU SESSION RELEASE REJECT, which 6.4.3.4 permits |
 | `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
 | `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |

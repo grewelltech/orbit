@@ -207,9 +207,11 @@ const ()
 // internal/conformance: the declared outcomes of the NAS security, session
 // and idle-mode checks (group D), in blocks 31 to 40 and 112 to 119.
 const (
-	ConformancePagingDropped    = 31 // TestPagingCheckAgainstMockPair/association_dropped
-	ConformancePagingCrash      = 32 // TestPagingCheckAgainstMockPair/core_crashes
-	ConformancePagingLateBuffer = 33 // TestPagingCheckAgainstMockPair/first_trigger_lost
+	ConformancePagingDropped     = 31 // TestPagingCheckAgainstMockPair/association_dropped
+	ConformancePagingCrash       = 32 // TestPagingCheckAgainstMockPair/core_crashes
+	ConformancePagingLateBuffer  = 33 // TestPagingCheckAgainstMockPair/first_trigger_lost
+	ConformancePDUReleaseDropped = 34 // TestPDUReleaseCheckAgainstMockPair/association_dropped
+	ConformancePDUReleaseCrash   = 35 // TestPDUReleaseCheckAgainstMockPair/core_crashes
 )
 
 // Base is block n's address prefix, "127.0.n." (append the host part).

@@ -215,6 +215,19 @@ func TestReleasePDUSessionRefusalsAndBounds(t *testing.T) {
 			t.Errorf("took %s with a 200ms context and the default 16s wait", took)
 		}
 	})
+	t.Run("the association is lost during the wait", func(t *testing.T) {
+		const supi = "208930100000001"
+		m, _, _, _ := releaseTestManager(t, supi, mockamf.WithPDUReleaseAnswer(mockamf.DropOnPDURelease))
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		res, err := m.ReleasePDUSession(ctx, supi, WithPDUReleaseWait(2*time.Second))
+		if !errors.Is(err, ErrPDUReleaseAssociationLost) || res == nil || res.SentAt.IsZero() {
+			t.Errorf("= %+v, %v; want the request sent and ErrPDUReleaseAssociationLost", res, err)
+		}
+		if ctx.Err() != nil {
+			t.Error("the loss was only noticed when the context ended")
+		}
+	})
 }
 
 // ReleasePDUSession on a CM-IDLE UE is refused before anything is sent,
