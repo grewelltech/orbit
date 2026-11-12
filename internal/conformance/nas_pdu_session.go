@@ -173,7 +173,7 @@ func classifyPDUSession(o dnnOutcome, wait time.Duration) (Outcome, string, stri
 		return classifiedError, "registration or harness failure", o.err.Error()
 	case o.regTimedOut:
 		return classifiedBlocked(ProcRegistration), "registration did not reach the PDU Session Establishment Request",
-			fmt.Sprintf("the UE did not register within %s, so the request was not sent", pduSessionRegisterWait)
+			fmt.Sprintf("the UE did not register within %s, so the request was not sent", o.registerWait)
 	case o.accepted:
 		return pduSessionEstablished, "PDU session established",
 			"PDU SESSION ESTABLISHMENT ACCEPT, and the session set up on N2 (PDU SESSION RESOURCE SETUP REQUEST answered)"

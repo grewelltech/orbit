@@ -50,8 +50,8 @@ func TestClassifyPDUSession(t *testing.T) {
 		{name: "5GSM STATUS", o: ans(gsmPDU(t, f5nas.MsgTypeStatus5GSM, 96), 0), want: pduSessionOtherAnswer, wantObserved: "unexpected answer: 5GSM STATUS, 5GSM cause #96"},
 		{name: "request returned without a cause", o: ans(sent, 0), want: pduSessionOtherAnswer, wantObserved: "unexpected answer: PDU Session Establishment Request"},
 		{name: "undecodable reject", o: ans([]byte{0x2e, 1, 0, f5nas.MsgTypePDUSessionEstablishmentReject}, 0), want: classifiedError, wantObserved: "answer did not decode"},
-		{name: "registration timed out", o: dnnOutcome{regTimedOut: true}, want: classifiedBlocked(ProcRegistration),
-			wantObserved: "registration did not reach the PDU Session Establishment Request"},
+		{name: "registration timed out", o: dnnOutcome{regTimedOut: true, registerWait: 3 * time.Second}, want: classifiedBlocked(ProcRegistration),
+			wantObserved: "registration did not reach the PDU Session Establishment Request", wantDetail: []string{"did not register within 3s"}},
 		{name: "harness failure", o: dnnOutcome{err: errors.New("x")}, want: classifiedError, wantObserved: "registration or harness failure"},
 	}
 	for _, tc := range tests {
@@ -109,6 +109,8 @@ func TestPDUSessionCheckAgainstMock(t *testing.T) {
 			wantObserved: "downlink NAS after the request did not decode (DL NAS Transport)", wantDetail: []string{dereg}},
 		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantOutcome: blockedID(ProcRegistration),
 			wantObserved: "UE registration failed"},
+		{name: "registration unanswered", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Blocked, wantOutcome: blockedID(ProcRegistration),
+			wantObserved: "registration did not reach the PDU Session Establishment Request", wantDetail: []string{"did not register within 3s"}},
 		{name: "no UE", noUE: true, want: Skip, wantOutcome: skipInputID(InputUE), wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
