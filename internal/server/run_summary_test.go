@@ -23,6 +23,18 @@ func conformanceWorkload(pass, fail, err, skip, dev, expFail, total uint32, gate
 	return rr
 }
 
+// informationalWorkload is a conformance report whose tally holds passes,
+// INFO, WARN, BLOCKED and CRASH.
+func informationalWorkload(pass, info, other, total uint32) *orbitv1.RunReport {
+	return &orbitv1.RunReport{
+		Kind: orbitv1.RunKind_RUN_KIND_CONFORMANCE,
+		Report: &orbitv1.RunReport_Conformance{Conformance: &orbitv1.ConformanceSummary{
+			Total: total,
+			Tally: &orbitv1.ConformanceTally{Passed: pass, Info: info, Warned: other, Blocked: other, Crashed: other},
+		}},
+	}
+}
+
 func gateResults(pass, fail int) []*orbitv1.GateResult {
 	var gs []*orbitv1.GateResult
 	for i := 0; i < pass; i++ {
@@ -94,6 +106,23 @@ func TestRunSummary(t *testing.T) {
 			},
 		},
 		{
+			name: "INFO, WARN, BLOCKED and CRASH are summed across suites",
+			arc: &orbitv1.RunArchive{
+				Run: &orbitv1.Run{RunId: "r4i", Kind: orbitv1.RunKind_RUN_KIND_MIXED,
+					WorkloadKinds: []orbitv1.RunKind{orbitv1.RunKind_RUN_KIND_CONFORMANCE, orbitv1.RunKind_RUN_KIND_CONFORMANCE}},
+				Reports: []*orbitv1.RunReport{informationalWorkload(3, 2, 1, 8), informationalWorkload(1, 0, 2, 7)},
+			},
+			want: &orbitv1.RunSummary{
+				Kinds:              []orbitv1.RunKind{orbitv1.RunKind_RUN_KIND_CONFORMANCE, orbitv1.RunKind_RUN_KIND_CONFORMANCE},
+				ConformanceTotal:   15,
+				ConformancePassed:  4,
+				ConformanceInfo:    2,
+				ConformanceWarned:  3,
+				ConformanceBlocked: 3,
+				ConformanceCrashed: 3,
+			},
+		},
+		{
 			name: "mixed run sums load + conformance, one gate fails",
 			arc: &orbitv1.RunArchive{
 				Run: &orbitv1.Run{
@@ -156,6 +185,10 @@ func TestRunSummary(t *testing.T) {
 			assertUint(t, "conformance_errored", got.GetConformanceErrored(), tt.want.GetConformanceErrored())
 			assertUint(t, "conformance_skipped", got.GetConformanceSkipped(), tt.want.GetConformanceSkipped())
 			assertUint(t, "conformance_deviations", got.GetConformanceDeviations(), tt.want.GetConformanceDeviations())
+			assertUint(t, "conformance_info", got.GetConformanceInfo(), tt.want.GetConformanceInfo())
+			assertUint(t, "conformance_warned", got.GetConformanceWarned(), tt.want.GetConformanceWarned())
+			assertUint(t, "conformance_blocked", got.GetConformanceBlocked(), tt.want.GetConformanceBlocked())
+			assertUint(t, "conformance_crashed", got.GetConformanceCrashed(), tt.want.GetConformanceCrashed())
 			assertUint(t, "conformance_expected_failures", got.GetConformanceExpectedFailures(), tt.want.GetConformanceExpectedFailures())
 			assertUint(t, "attach_attempted", got.GetAttachAttempted(), tt.want.GetAttachAttempted())
 			assertUint(t, "attach_succeeded", got.GetAttachSucceeded(), tt.want.GetAttachSucceeded())

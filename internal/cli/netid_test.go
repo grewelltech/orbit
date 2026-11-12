@@ -517,7 +517,7 @@ func TestConformancePassesIdentityThrough(t *testing.T) {
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs([]string{"conformance", "--local", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01", "--tac", "7", "--sst", "2", "--sd", "abcdef",
-		"--json", "--per-test-timeout", "1s", "--category", "procedural"})
+		"--json", "--per-test-timeout", "1s", "--group", "NGAP / Interface Management Procedures"})
 	_ = root.Execute() // the AMF is unroutable, so the gate fails; the summary is still printed
 	var sum struct {
 		Network *struct {

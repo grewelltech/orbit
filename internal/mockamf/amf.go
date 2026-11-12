@@ -2,7 +2,6 @@ package mockamf
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"github.com/free5gc/nas/nasConvert"
 	"github.com/free5gc/nas/nasType"
 	"github.com/free5gc/ngap/ngapType"
-	"github.com/free5gc/util/milenage"
 
 	"github.com/bgrewell/orbit/internal/gnb"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -37,7 +35,7 @@ type Config struct {
 
 	// UPF, when set, makes the mock establish PDU sessions (answering a UE's
 	// PDU Session Establishment Request with a PDU Session Resource Setup
-	// Request) and report sessions and path switches to it. Nil keeps the
+	// Request) and report sessions, path switches and N2 handovers to it. Nil keeps the
 	// mock's registration-only behaviour: PDU session requests go
 	// unanswered. A PathSwitchRequest is always answered: with an
 	// Acknowledge when at least one listed session is known, else with a
@@ -95,7 +93,8 @@ type AMF struct {
 	completeIDs      [][2]int64
 	deregReleases    [][2]int64
 	// strayCompletes counts Completes that came before any switch-off
-	// release named their UE.
+	// release, release on request or release of a cancelled handover's
+	// target named their UE.
 	strayCompletes atomic.Int64
 	// setups are the gNBs that sent an NG Setup Request, in order (Setups).
 	setups []Setup
@@ -107,6 +106,7 @@ type AMF struct {
 	t3560             time.Duration
 	t3560Retries      int
 	t3560NoRelease    bool
+	t3560Reject       bool
 	t3560ReleaseAfter time.Duration
 	crashAfterRelease bool
 	authReject        bool
@@ -115,7 +115,10 @@ type AMF struct {
 	t3550Retries      int
 	assignGUTI        bool
 	crashAfterT3550   bool
-	crashed           atomic.Bool // set once a crashAfterRelease release or crashAfterT3550 abort happened
+	t3550Protection   T3550Protection
+	acceptCount       uint32
+	acceptCountSet    bool
+	crashed           atomic.Bool // set once a crashAfterRelease release, a crashAfterT3550 abort or a CrashOnUndecodable PDU happened
 
 	// Security Mode Command options (smc.go).
 	integrityOrder  []uint8
@@ -131,12 +134,43 @@ type AMF struct {
 	// Accept options (accept.go).
 	undecodableAccept bool
 
+	// Deregistration options (release.go): no Deregistration Accept for a
+	// normal deregistration, and how many were sent.
+	noDeregAccept bool
+	deregAccepts  atomic.Int64
+
 	// UE context release options (release.go).
 	noReleaseOnDereg     bool
+	silent               bool // answers NG Setup and nothing else (WithSilentAfterNGSetup)
+	deregReleaseIDs      ReleaseIDs
 	noiseBeforeRelease   bool
 	releaseDelay         time.Duration
 	staleRelease         time.Duration
 	ignoreReleaseRequest bool
+	// crashOnReleaseRequest is WithCrashOnUEContextReleaseRequest
+	// (drop.go).
+	crashOnReleaseRequest bool
+	// releaseRequests counts the UE CONTEXT RELEASE REQUESTs received,
+	// requestReleases (under mu) are the NGAP ID pairs of the releases sent
+	// to answer them, and idleDeregs counts the Deregistration Requests
+	// that came in an Initial UE Message.
+	releaseRequests atomic.Int64
+	requestReleases [][2]int64
+	idleDeregs      atomic.Int64
+
+	// PDU session release options and counters (pdurelease.go).
+	pduReleaseAnswer        PDUReleaseAnswer
+	pduReleaseKeepsUP       bool
+	pduReleaseReqs          atomic.Int64
+	pduReleaseCompletes     atomic.Int64
+	pduResourceReleaseResps atomic.Int64
+	// CM-IDLE options and state (idle.go).
+	noPaging        bool
+	pagingTMSIXor   uint32
+	serviceAnswer   ServiceAnswer
+	serviceCause    uint8
+	pagings         atomic.Int64
+	serviceRequests atomic.Int64
 
 	// Unknown-DNN options (dnn.go).
 	unknownDNN string
@@ -146,11 +180,83 @@ type AMF struct {
 	// Unserved-NSSAI answer (nssai.go).
 	nssaiAnswer NSSAIAnswer
 
+	// Registration Reject cause (registration.go); zero accepts.
+	registrationReject uint8
+
+	// Path switch answer (pathswitch.go).
+	pathSwitchAnswer PathSwitchAnswer
+
+	// assocs are the live associations that completed NG Setup, guarded by
+	// mu: paging goes out on each (idle.go), and an N2 handover finds its
+	// target among them by gNB ID (handover.go). assocSeq orders them.
+	assocs   map[*pipe]association
+	assocSeq uint64
+
+	// N2 handover (handover.go). handovers are those in preparation, by
+	// AMF-UE-NGAP-ID, guarded by mu.
+	handoverAnswer HandoverAnswer
+	handovers      map[int64]*handover
+	handoversDone  atomic.Int64
+	// Uplink NAS security options (uplinksec.go). badMACs counts protected
+	// uplinks that failed the integrity check, replays those that repeated
+	// an accepted NAS COUNT, smReleases the PDU Session Release Requests
+	// received.
+	badMAC   UplinkAction
+	badMACs  atomic.Int64
+	replayed UplinkAction
+	replays  atomic.Int64
+	// badMACReg, countBeforeMAC, laxEstimate and the PDU session answer
+	// limit are WithBadMACRegistration, WithUplinkCountBeforeMAC,
+	// WithLaxUplinkCountEstimate and WithPDUSessionAnswers.
+	badMACReg      BadMACRegistration
+	countBeforeMAC bool
+	laxEstimate    bool
+	smAnswers      int
+	smLimited      bool
+	smReleases     atomic.Int64
+	// noCancelAck withholds the HANDOVER CANCEL ACKNOWLEDGE and
+	// crashOnCancel stops the mock on a HANDOVER CANCEL; handoverCancels
+	// counts the HANDOVER CANCELs received; handoverReleases (under mu) are
+	// the NGAP ID pairs of the releases sent to a cancelled handover's
+	// target.
+	noCancelAck      bool
+	crashOnCancel    bool
+	handoverCancels  atomic.Int64
+	handoverReleases [][2]int64
+
+	// Initial NAS options (initialnas.go): unprotectedWins,
+	// missingContainer and missingIMEISV are
+	// WithUnprotectedRegistrationWins, WithMissingContainer and
+	// WithMissingIMEISV; smcsSent counts the Security Mode Commands sent.
+	unprotectedWins  bool
+	missingContainer MissingContainerAnswer
+	missingIMEISV    MissingIMEISVAnswer
+	smcsSent         atomic.Int64
+
 	// regReqs records every Registration Request received, guarded by mu
 	// (RegistrationRequests); initialRegReqs the same requests as the
 	// Initial UE Messages carried them (InitialRegistrationRequests).
 	regReqs        [][]byte
 	initialRegReqs [][]byte
+	// regSUPIs are those requests' SUPIs, guarded by mu (RegistrationSUPIs).
+	regSUPIs []string
+
+	// RAN Configuration Update (ranconfig.go): the answer, and the updates
+	// received, guarded by mu.
+	ranConfigAnswer  RANConfigUpdateAnswer
+	ranConfigUpdates []RANConfigUpdate
+	// dropTAs and dropTAsCause are WithRANConfigUpdateDroppingTAs;
+	// droppedTAs, guarded by mu, holds the associations it has applied to.
+	dropTAs      bool
+	dropTAsCause uint8
+	droppedTAs   map[*pipe]bool
+	// duplicateRANNode is WithDuplicateRANNodeID; assocs holds the gNB ID
+	// each association that completed NG Setup presented.
+	duplicateRANNode DuplicateRANNodeAnswer
+
+	// undecodable is the reaction to an uplink PDU that does not decode
+	// (undecodable.go).
+	undecodable UndecodableAnswer
 
 	// Initial NAS message options (initialnas.go).
 	rejectNonCleartext bool
@@ -163,7 +269,26 @@ type AMF struct {
 
 	// Path switch UE security capability check (pathswitchcaps.go).
 	capsInAck      bool
+	capsEchoed     bool
 	capsMismatches atomic.Int64
+
+	// Registration after release (reregistration.go): the window in which
+	// a released SUPI's next Registration Request is dropped, and the one
+	// in which any Registration Request is after any release; when each
+	// SUPI's UE context, and any UE context, was last released (guarded by
+	// mu), how many requests were dropped, and whether a dropped one
+	// crashes the mock.
+	dropAfterRelease    time.Duration
+	dropAfterAnyRelease time.Duration
+	crashOnDrop         bool
+	releasedAt          map[string]time.Time
+	lastRelease         time.Time
+	pendingReleases     int // deregistration releases sent whose RELEASE COMPLETE has not come
+	// sessionsUpCh is closed when a PDU Session Resource Setup Response is
+	// recorded, waking a path switch waiting for one (awaitSessionsUp);
+	// guarded by mu, nil while no one waits.
+	sessionsUpCh chan struct{}
+	droppedRegs  atomic.Int64
 
 	// Identification options and what the UEs answered, the answers
 	// guarded by mu (identity.go).
@@ -176,9 +301,11 @@ type AMF struct {
 	identityResponses [][]byte
 }
 
-// errCrashed ends every association of a mock that crashed after a release
-// (WithCrashAfterRelease).
-var errCrashed = errors.New("mockamf: crashed after the T3560 release")
+// errCrashed ends every association of a mock that crashed: after a release
+// (WithCrashAfterRelease), a T3550 abort (WithCrashAfterT3550Abort), an
+// undecodable PDU (CrashOnUndecodable) or a HANDOVER CANCEL
+// (WithCrashOnHandoverCancel), among others.
+var errCrashed = errors.New("mockamf: crashed")
 
 // New validates config and returns a mock AMF, adjusted by opts.
 func New(cfg Config, opts ...Option) (*AMF, error) {
@@ -216,7 +343,7 @@ func New(cfg Config, opts ...Option) (*AMF, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	a := &AMF{cfg: cfg, plmn: plmn, served: served, sdBytes: sd, snn: auth.ServingNetworkName(cfg.MCC, cfg.MNC), amfSeq: make(chan int64),
-		ues: make(map[int64]*ueState), log: log}
+		ues: make(map[int64]*ueState), releasedAt: make(map[string]time.Time), log: log, droppedTAs: make(map[*pipe]bool), assocs: make(map[*pipe]association), handovers: make(map[int64]*handover)}
 	for _, o := range opts {
 		o(a)
 	}
@@ -263,6 +390,7 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			st.t3560.stop()
 			st.t3550.stop()
 		}
+		a.forgetAssociation(p)
 	}()
 	buf := make([]byte, 65536)
 	for {
@@ -274,11 +402,17 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 			return err
 		}
 		if a.crashed.Load() {
-			return errCrashed // WithCrashAfterRelease: the core is gone
+			return errCrashed // the core is gone
 		}
 		pdu, err := ngap.Decode(raw)
 		if err != nil {
-			return fmt.Errorf("mock amf decode: %w", err)
+			if a.silent {
+				continue
+			}
+			if err := a.onUndecodable(p, fmt.Errorf("mock amf decode: %w", err)); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := a.dispatch(p, states, pdu); err != nil {
 			return err
@@ -286,22 +420,43 @@ func (a *AMF) serve(ctx context.Context, p *pipe) error {
 	}
 }
 
-// dispatch routes one gNB→AMF PDU: NG Setup is answered once; UE-associated
-// messages go to their per-RAN-UE-NGAP-ID state.
+// dispatch routes one gNB→AMF PDU: NG Setup is answered once, a RAN
+// Configuration Update as configured; UE-associated messages go to their
+// per-RAN-UE-NGAP-ID state.
 func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU) error {
 	if pdu.Present == ngapType.NGAPPDUPresentInitiatingMessage &&
 		pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentNGSetupRequest {
+		setup := setupOf(pdu.InitiatingMessage.Value.NGSetupRequest)
 		a.mu.Lock()
-		a.setups = append(a.setups, setupOf(pdu.InitiatingMessage.Value.NGSetupRequest))
+		a.setups = append(a.setups, setup)
 		a.mu.Unlock()
 		if !a.cfg.AcceptUnknownPLMN && !servesAnyTAPLMN(pdu.InitiatingMessage.Value.NGSetupRequest, a.served) {
 			return a.send(p, buildNGSetupFailureUnknownPLMN())
+		}
+		if answered, err := a.onRANNode(p, setup.GNBID); answered {
+			return err
 		}
 		resp, err := buildNGSetupResponse(a.served, a.cfg.SST, a.sdBytes)
 		if err != nil {
 			return err
 		}
+		a.mu.Lock()
+		a.assocSeq++
+		a.assocs[p] = association{gnbID: setup.GNBID, tac: firstTAC(pdu.InitiatingMessage.Value.NGSetupRequest), seq: a.assocSeq}
+		a.mu.Unlock()
 		return a.send(p, resp)
+	}
+	if a.silent {
+		return nil
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentInitialContextSetupResponse {
+		a.onInitialContextSetupResponse(pdu.SuccessfulOutcome.Value.InitialContextSetupResponse)
+		return nil
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentHandoverRequestAcknowledge {
+		return a.onHandoverRequestAcknowledge(p, pdu.SuccessfulOutcome.Value.HandoverRequestAcknowledge)
 	}
 	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
 		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceSetupResponse {
@@ -316,22 +471,50 @@ func (a *AMF) dispatch(p *pipe, states map[int64]*ueState, pdu *ngapType.NGAPPDU
 		for _, r := range a.deregReleases {
 			answered = answered || r == ids
 		}
+		for _, r := range a.requestReleases {
+			answered = answered || r == ids
+		}
+		for _, r := range a.handoverReleases {
+			answered = answered || r == ids
+		}
 		a.mu.Unlock()
 		if !answered {
 			a.strayCompletes.Add(1)
 		}
 		a.releaseCompletes.Add(1)
+		a.noteReleased(ids[0])
+		a.onANReleaseComplete(states, ids)
+		return nil
+	}
+	if pdu.Present == ngapType.NGAPPDUPresentSuccessfulOutcome &&
+		pdu.SuccessfulOutcome.Value.Present == ngapType.SuccessfulOutcomePresentPDUSessionResourceReleaseResponse {
+		a.pduResourceReleaseResps.Add(1)
 		return nil
 	}
 	if pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
 		return nil // Initial Context Setup Response etc. — no action
 	}
-	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentPathSwitchRequest {
+	switch pdu.InitiatingMessage.Value.Present {
+	case ngapType.InitiatingMessagePresentPathSwitchRequest:
 		return a.onPathSwitchRequest(p, states, pdu.InitiatingMessage.Value.PathSwitchRequest)
+	case ngapType.InitiatingMessagePresentHandoverRequired:
+		return a.onHandoverRequired(p, pdu.InitiatingMessage.Value.HandoverRequired)
+	case ngapType.InitiatingMessagePresentHandoverNotify:
+		return a.onHandoverNotify(p, states, pdu.InitiatingMessage.Value.HandoverNotify)
+	case ngapType.InitiatingMessagePresentHandoverCancel:
+		return a.onHandoverCancel(p, pdu.InitiatingMessage.Value.HandoverCancel)
+	}
+	if pdu.InitiatingMessage.Value.Present == ngapType.InitiatingMessagePresentRANConfigurationUpdate {
+		return a.onRANConfigUpdate(p, pdu.InitiatingMessage.Value.RANConfigurationUpdate)
 	}
 	up, err := parseUplink(pdu)
 	if err != nil {
 		return err
+	}
+	if up.procedure == ngapType.ProcedureCodeInitialUEMessage && len(up.nasPDU) >= 2 &&
+		f5nas.GetSecurityHeaderType(up.nasPDU) != f5nas.SecurityHeaderTypePlainNas {
+		// A protected initial NAS message: a CM-IDLE UE coming back.
+		return a.onIdleInitialUE(p, states, up)
 	}
 	st := states[up.ranID]
 	if st == nil {
@@ -364,16 +547,23 @@ type ueState struct {
 	// sec is the NAS security context; secMu guards it and its counts,
 	// since after a path switch two associations hold the UE. Never held
 	// across a send.
-	secMu     sync.Mutex
-	sec       *nas.SecurityContext
-	ngksi     uint8
-	sessions  map[uint8]*pduSession        // guarded by AMF.mu
-	t3560     *retransmitter               // running T3560 (WithT3560), nil otherwise
-	t3550     *retransmitter               // running T3550 (WithT3550), nil otherwise
-	ueCaps    nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
-	kamf      []byte                       // KAMF from authentication, for the SMC's keys
-	requested []byte                       // the Requested NSSAI IE's value, nil when absent
-	regIdx    int                          // the UE's entry in AMF.regReqs
+	secMu    sync.Mutex
+	sec      *nas.SecurityContext
+	ngksi    uint8
+	sessions map[uint8]*pduSession        // guarded by AMF.mu
+	t3560    *retransmitter               // running T3560 (WithT3560), nil otherwise
+	t3550    *retransmitter               // running T3550 (WithT3550), nil otherwise
+	ueCaps   nasType.UESecurityCapability // from the Registration Request, replayed in the SMC
+	kamf     []byte                       // KAMF from authentication, for the SMC's keys
+	// releasing is set once the mock answered the UE's UE CONTEXT RELEASE
+	// REQUEST, and idle once that release completed (CM-IDLE); both are
+	// guarded by AMF.mu.
+	releasing, idle bool
+	requested       []byte // the Requested NSSAI IE's value, nil when absent
+	muted           bool   // MuteOnUplink: every NAS message is dropped
+	smSeen          int    // PDU Session Establishment Requests received (WithPDUSessionAnswers)
+	regIdx          int    // the UE's entry in AMF.regReqs
+	containerAsked  bool   // a second Security Mode Command went out for a missing container
 	// awaitingIdentity marks a WithIdentityRequest request not yet answered.
 	awaitingIdentity bool
 	// ranCaps is the UE Security Capabilities IE the mock last gave the RAN
@@ -385,6 +575,13 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	supi, err := supiFromRegistration(up.nasPDU)
 	if err != nil {
 		return err
+	}
+	if a.dropsRegistration(supi) {
+		if a.crashOnDrop {
+			a.crashed.Store(true)
+			return errCrashed
+		}
+		return nil
 	}
 	// Every field another association reads is set before the UE is
 	// published in a.ues.
@@ -398,7 +595,11 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	st.regIdx = len(a.regReqs)
 	a.regReqs = append(a.regReqs, append([]byte(nil), up.nasPDU...))
 	a.initialRegReqs = append(a.initialRegReqs, append([]byte(nil), up.nasPDU...))
+	a.regSUPIs = append(a.regSUPIs, supi)
 	a.mu.Unlock()
+	if a.tasDropped(p) {
+		return a.rejectRegistration(p, st, a.dropTAsCause)
+	}
 	if a.rejectNonCleartext {
 		if _, found, err := nas.NonCleartextRegistrationIE(up.nasPDU); err != nil || found {
 			return a.rejectInitialNAS(p, st)
@@ -406,16 +607,10 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 
 	// Network-side 5G-AKA: fresh RAND, AUTN over the shared credential.
-	var randv [16]byte
-	if _, err := rand.Read(randv[:]); err != nil {
+	randv, autn, err := a.challenge()
+	if err != nil {
 		return err
 	}
-	_, _, _, autnSlice, err := milenage.GenerateAKAParameters(a.cfg.OPc, a.cfg.Ki, randv[:], a.cfg.SQN, a.cfg.AMF)
-	if err != nil {
-		return fmt.Errorf("mock amf AKA: %w", err)
-	}
-	var autn [16]byte
-	copy(autn[:], autnSlice)
 
 	// Derive the same key hierarchy the UE will, for later SMC/RegAccept.
 	sub := auth.Subscription{SUPI: supi, Ki: a.cfg.Ki, OPc: a.cfg.OPc}
@@ -425,7 +620,7 @@ func (a *AMF) onInitialUE(p *pipe, st *ueState, up *uplinkMessage) error {
 	}
 	// The 128-NIA2/NEA0 context protects what precedes or replaces the
 	// Security Mode Command; the command derives the selected pair's.
-	st.setSec(&nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true})
+	st.setSec(&nas.SecurityContext{IntegrityAlg: nas.NIA2, CipheringAlg: nas.NEA0, KNASint: vec.KNASint, KNASenc: vec.KNASenc, Network: true, RejectReplay: true})
 	st.kamf = vec.KAmf
 
 	if a.noAuthRequest {
@@ -461,15 +656,21 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	if len(nasPDU) < 2 {
 		return false, fmt.Errorf("uplink NAS too short")
 	}
+	if st.muted {
+		return false, nil
+	}
 	var msg *f5nas.Message
 	var err error
 	if f5nas.GetSecurityHeaderType(nasPDU) == f5nas.SecurityHeaderTypePlainNas {
 		msg, err = nas.DecodePlain(nasPDU)
 	} else {
-		msg, err = st.decodeSecure(nasPDU)
+		msg, err = a.decodeUplink(p, st, nasPDU)
 	}
 	if err != nil {
 		return false, fmt.Errorf("mock amf uplink NAS decode: %w", err)
+	}
+	if msg == nil {
+		return false, nil // dropped (decodeUplink)
 	}
 
 	switch msg.GmmHeader.GetMessageType() {
@@ -480,6 +681,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	case f5nas.MsgTypeSecurityModeComplete, f5nas.MsgTypeIdentityResponse:
 		if due, err := a.beforeAccept(p, st, msg); err != nil || !due {
 			return false, err
+		}
+		if a.registrationReject != 0 {
+			return false, a.rejectProtected(p, st, a.registrationReject)
 		}
 		if a.nssaiAnswer != AcceptAnyNSSAI && !a.servesRequested(st) {
 			return false, a.answerUnservedNSSAI(p, st)
@@ -492,6 +696,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		if a.acceptCountSet {
+			st.forceTxCount(a.acceptCount)
+		}
 		wrapped, err := st.encodeSecure(acc, nas.SecHdrIntegrityCiphered)
 		if err != nil {
 			return false, err
@@ -501,7 +708,7 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 		}
 		if a.t3550 > 0 && a.assignGUTI {
 			st.t3550.stop() // a repeated Security Mode Complete: never orphan a running timer
-			if st.t3550, err = a.startT3550(p, st); err != nil {
+			if st.t3550, err = a.startT3550(p, st, wrapped); err != nil {
 				return false, err
 			}
 		}
@@ -521,9 +728,9 @@ func (a *AMF) onUplinkNAS(p *pipe, st *ueState, nasPDU []byte) (bool, error) {
 	case f5nas.MsgTypeULNASTransport:
 		return false, a.onPDUSessionRequest(p, st, msg)
 	case f5nas.MsgTypeDeregistrationRequestUEOriginatingDeregistration:
-		a.deregs.Add(1) // switch-off: no Deregistration Accept is due
+		a.deregs.Add(1)
 		a.recordDeregistration(msg.DeregistrationRequestUEOriginatingDeregistration)
-		return false, a.onDeregistration(p, st)
+		return false, a.onDeregistration(p, st, msg)
 	default:
 		return false, nil
 	}
@@ -553,8 +760,9 @@ func (a *AMF) Deregistrations() int64 { return a.deregs.Load() }
 func (a *AMF) ReleaseCompletes() int64 { return a.releaseCompletes.Load() }
 
 // StrayReleaseCompletes reports how many UE CONTEXT RELEASE COMPLETEs
-// arrived before any switch-off release named their UE: a gNB that took
-// some other PDU, or an older release, for the answer.
+// arrived before any release the mock sent named their UE (for a
+// switch-off, on the gNB's request, or of a cancelled handover's target):
+// a gNB that took some other PDU, or an older release, for the answer.
 func (a *AMF) StrayReleaseCompletes() int64 { return a.strayCompletes.Load() }
 
 // ReleaseCompleteIDs reports the (AMF, RAN) UE NGAP ID pair each UE

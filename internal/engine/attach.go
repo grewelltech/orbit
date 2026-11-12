@@ -86,6 +86,10 @@ type AttachResult struct {
 	UPFTEID    uint32
 	DLTEID     uint32
 	QFI        uint8
+	// Registration is what the Registration Accept said about the UE's
+	// idle behaviour: T3512, a MICO indication, the service area list and
+	// the TAI list. Zero when the Accept did not parse.
+	Registration ue.RegistrationInfo
 	// RegistrationUpdateRequested reports that the network requested a
 	// registration update in a Configuration Update Command during the
 	// attach (TS 24.501 5.4.4.3). The UE performs none: it is registered as
@@ -149,6 +153,9 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	// cleartext IEs only; regReq, the complete message, follows in the
 	// Security Mode Complete (TS 24.501 4.4.6 a).
 	initialNAS, err := ue.CleartextRegistrationRequest(regReq)
+	if p := ueCfg.Probe; p != nil && p.InitialNAS != nil {
+		initialNAS, err = p.InitialNAS(append([]byte(nil), regReq...))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("build initial Registration Request: %w", err)
 	}
@@ -162,6 +169,11 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 	initial, err := gnb.BuildInitialUEMessage(gnbCfg, ranID, initialNAS)
 	if err != nil {
 		return nil, err
+	}
+	if p := ueCfg.Probe; p != nil && p.BeforeRegistration != nil {
+		if err := p.BeforeRegistration(ctx, conn); err != nil {
+			return nil, fmt.Errorf("before registration: %w", err)
+		}
 	}
 	if err := gnb.SendPDU(conn, ueStream, initial); err != nil {
 		return nil, fmt.Errorf("send Initial UE Message: %w", err)
@@ -216,6 +228,7 @@ func Attach(ctx context.Context, conn gnb.Transport, gnbCfg gnb.Config, ueCfg UE
 		amfID:                 st.amfID,
 		ranID:                 ranID,
 		guti:                  st.guti,
+		ngksi:                 st.ngksi,
 		ueSecCaps:             st.ueSecCaps,
 		registrationRequested: st.registrationRequested,
 		Result:                st.result(ueCfg.Sub.SUPI, ranID),
@@ -231,6 +244,7 @@ func (s *attachState) result(supi string, ranID int64) *AttachResult {
 		AMFUENGAPID:   s.amfID,
 		RANUENGAPID:   ranID,
 		SessionActive: len(s.sessions) > 0,
+		Registration:  s.regInfo,
 
 		RegistrationUpdateRequested: s.registrationRequested,
 	}
@@ -263,6 +277,8 @@ type attachState struct {
 	vec        *auth.Vector
 	sec        *nas.SecurityContext
 	guti       []byte
+	ngksi      uint8 // the key set identifier of the Authentication Request
+	regInfo    ue.RegistrationInfo
 	registered bool
 	// registrationRequested: a Configuration Update Command requested a
 	// registration update, which the UE does not perform.
@@ -421,6 +437,7 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	typ := nasMessageType(raw, s.readableCipher())
 	var msg *f5nas.Message
 	var plain []byte // a protected PDU's verified, deciphered message
+	var count *NASCount
 	var err error
 	switch hdr := f5nas.GetSecurityHeaderType(raw); {
 	case hdr == f5nas.SecurityHeaderTypePlainNas:
@@ -439,10 +456,13 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 		// the type-only read (readableCipher) with the error.
 		err = ErrNoSecurityContext
 	default:
+		if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
+			count = nasCount(s.sec, raw) // before the decode stores the COUNT
+		}
 		msg, plain, err = s.sec.DecodeSecurePlain(raw)
 	}
 	if p := s.ueCfg.Probe; p != nil && p.OnNAS != nil {
-		ev := NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Plain: plain, Err: err}
+		ev := NASEvent{At: at, Raw: append([]byte(nil), raw...), Type: typ, Msg: msg, Plain: plain, Err: err, Count: count}
 		p.OnNAS(ev)
 		// The readable type (a deciphered Plain's included): a Reject the
 		// codec refused must not draw a switch-off Deregistration.
@@ -475,7 +495,11 @@ func (s *attachState) handleNAS(raw []byte, fromICS bool) error {
 	case f5nas.MsgTypeIdentityRequest:
 		return s.onIdentityRequest(msg, f5nas.GetSecurityHeaderType(raw) != f5nas.SecurityHeaderTypePlainNas)
 	case f5nas.MsgTypeAuthenticationReject:
-		return fmt.Errorf("AMF rejected authentication")
+		if p := s.ueCfg.Probe; p != nil && p.AfterAuthenticationReject != nil && p.AfterAuthenticationReject() {
+			s.log.InfoContext(s.ctx, "probe: waiting on after an Authentication Reject")
+			return nil
+		}
+		return ErrAuthenticationRejected
 	case f5nas.MsgTypeRegistrationReject:
 		return ErrRegistrationRejected
 	default:
@@ -500,7 +524,7 @@ func (s *attachState) onAuthRequest(msg *f5nas.Message) error {
 	if err != nil {
 		return fmt.Errorf("5G-AKA derivation: %w", err)
 	}
-	s.vec = vec
+	s.vec, s.ngksi = vec, ch.NgKSI
 
 	resp, err := ue.BuildAuthenticationResponse(vec.ResStar)
 	if err != nil {
@@ -528,14 +552,19 @@ func (s *attachState) onSecurityModeCommand(msg *f5nas.Message) error {
 	// the NAS Message Container (TS 24.501 §4.4.6), sent integrity-protected
 	// and ciphered under the new context.
 	var opts []ue.SecurityModeCompleteOption
-	if sel.IMEISVRequested {
+	container := s.regReq
+	if p := s.ueCfg.Probe; p != nil && p.OmitNASMessageContainer {
+		container = nil
+	}
+	omitIMEISV := s.ueCfg.Probe != nil && s.ueCfg.Probe.OmitIMEISV
+	if sel.IMEISVRequested && !omitIMEISV {
 		imeisv, err := s.ueCfg.Identity.EquipmentIMEISV()
 		if err != nil {
 			return err
 		}
 		opts = append(opts, ue.WithIMEISV(imeisv))
 	}
-	complete, err := ue.BuildSecurityModeComplete(s.regReq, opts...)
+	complete, err := ue.BuildSecurityModeComplete(container, opts...)
 	if err != nil {
 		return err
 	}
@@ -598,6 +627,9 @@ func (s *attachState) onRegistrationAccept(msg *f5nas.Message) error {
 		s.log.WarnContext(s.ctx, "could not parse Registration Accept", "err", err)
 	} else if guti != nil {
 		s.guti = guti.Raw
+	}
+	if info, err := ue.ParseRegistrationInfo(msg); err == nil {
+		s.regInfo = info
 	}
 
 	complete, err := ue.BuildRegistrationComplete()

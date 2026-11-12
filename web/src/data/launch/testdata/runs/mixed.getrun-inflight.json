@@ -1,9 +1,9 @@
 {
   "run":  {
-    "runId":  "run-eadfbed8",
+    "runId":  "run-048f7747",
     "kind":  "RUN_KIND_MIXED",
     "state":  "RUN_STATE_RUNNING",
-    "startedUnixNano":  "1793174970772990707",
+    "startedUnixNano":  "1794440559777638101",
     "workloadKinds":  [
       "RUN_KIND_LOAD",
       "RUN_KIND_CONFORMANCE"
@@ -19,44 +19,50 @@
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:56463",
+      "amf":  "127.0.0.1:41305",
       "gnbId":  7
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:56463",
-      "gnbId":  14
+      "amf":  "127.0.0.1:41305",
+      "gnbId":  32
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:56463",
-      "gnbId":  15
+      "amf":  "127.0.0.1:41305",
+      "gnbId":  35
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:56463",
-      "gnbId":  16
+      "amf":  "127.0.0.1:41305",
+      "gnbId":  41
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:56463",
-      "gnbId":  36878
+      "amf":  "127.0.0.1:41305",
+      "gnbId":  36896
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:56463",
-      "gnbId":  36879
+      "amf":  "127.0.0.1:41305",
+      "gnbId":  36899
     },
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:56463",
-      "gnbId":  36880
+      "amf":  "127.0.0.1:41305",
+      "gnbId":  36905
+    },
+    {
+      "resource":  "LEASE_RESOURCE_GNB_ID",
+      "plmn":  "208/93",
+      "amf":  "127.0.0.1:41305",
+      "gnbId":  36912
     },
     {
       "resource":  "LEASE_RESOURCE_N2_IP",
@@ -79,12 +85,15 @@
       "kind":  "RUN_KIND_CONFORMANCE",
       "state":  "running",
       "conformance":  {
-        "tally":  {
-          "failed":  2
-        },
-        "ran":  2,
+        "tally":  {},
         "total":  3,
-        "lastCheck":  "NGAP-NGSETUP-MISSING-TALIST"
+        "preflight":  [
+          {
+            "step":  "NG Setup",
+            "status":  "ok",
+            "detail":  "gNB ID 36912, PLMN 208/93, TAC 1"
+          }
+        ]
       }
     }
   ]

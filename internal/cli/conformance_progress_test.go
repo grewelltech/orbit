@@ -12,9 +12,11 @@ import (
 // no line for the final done/no-result update; a non-terminal renderer stays
 // silent.
 func TestStreamProgressUpdate(t *testing.T) {
+	pre := []*orbitv1.PreflightStep{{Step: "NG Setup", Status: "ok"}}
 	updates := []*orbitv1.ConformanceUpdate{
-		{Total: 3, Result: &orbitv1.ConformanceResult{Id: "AUTH-1", Verdict: "PASS"}},
-		{Total: 3, Result: &orbitv1.ConformanceResult{Id: "SEC-2", Verdict: "FAIL"}},
+		{Total: 3, Preflight: pre},
+		{Total: 3, Preflight: pre, Result: &orbitv1.ConformanceResult{Id: "AUTH-1", Verdict: "PASS"}},
+		{Total: 3, Preflight: pre, Result: &orbitv1.ConformanceResult{Id: "SEC-2", Verdict: "FAIL"}},
 		{Total: 3, Result: &orbitv1.ConformanceResult{Id: "NAS-3", Verdict: "SKIP"}},
 		{Total: 3, Done: true, Tally: &orbitv1.ConformanceTally{Passed: 1, Failed: 1, Skipped: 1}},
 	}
@@ -27,7 +29,7 @@ func TestStreamProgressUpdate(t *testing.T) {
 		{
 			name: "terminal prints a line per verdict",
 			live: true,
-			want: []string{"[1/3]", "AUTH-1", "PASS", "[2/3]", "SEC-2", "FAIL", "[3/3]", "NAS-3", "SKIP"},
+			want: []string{"preflight: NG Setup ok\n", "[1/3]", "AUTH-1", "PASS", "[2/3]", "SEC-2", "FAIL", "[3/3]", "NAS-3", "SKIP"},
 		},
 		{
 			name: "non-terminal stays quiet",
@@ -56,10 +58,11 @@ func TestStreamProgressUpdate(t *testing.T) {
 					t.Errorf("progress output lacks %q:\n%q", want, out)
 				}
 			}
-			// Exactly three per-check lines (each newline-terminated); the
+			// The preflight line once, however many updates carry it, and
+			// exactly three per-check lines (each newline-terminated); the
 			// final done/no-result update must not render as a fourth.
-			if n := strings.Count(out, "\n"); n != 3 {
-				t.Errorf("want exactly 3 per-check lines, got %d:\n%q", n, out)
+			if n := strings.Count(out, "\n"); n != 4 || strings.Count(out, "preflight:") != 1 {
+				t.Errorf("want the preflight line and 3 per-check lines, got %d:\n%q", n, out)
 			}
 		})
 	}

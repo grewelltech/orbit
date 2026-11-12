@@ -1,10 +1,10 @@
 {
   "run":  {
-    "runId":  "run-eadfbed8",
+    "runId":  "run-048f7747",
     "kind":  "RUN_KIND_MIXED",
     "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1793174970772990707",
-    "endedUnixNano":  "1793174970985151366",
+    "startedUnixNano":  "1794440559777638101",
+    "endedUnixNano":  "1794440559993405187",
     "workloadKinds":  [
       "RUN_KIND_LOAD",
       "RUN_KIND_CONFORMANCE"
@@ -16,28 +16,28 @@
       "kind":  "RUN_KIND_LOAD",
       "state":  "done",
       "load":  {
-        "elapsedMs":  "222",
+        "elapsedMs":  "225",
         "attempted":  2,
         "succeeded":  2,
-        "achievedRate":  9.003779232789503,
+        "achievedRate":  8.859376612268115,
         "latency":  [
           {
             "procedure":  "registration",
             "count":  "2",
-            "p50Ms":  5.823,
-            "p90Ms":  8.911,
-            "p99Ms":  8.911,
-            "p999Ms":  8.911,
-            "maxMs":  8.911
+            "p50Ms":  5.451,
+            "p90Ms":  11.911,
+            "p99Ms":  11.911,
+            "p999Ms":  11.911,
+            "maxMs":  11.911
           },
           {
             "procedure":  "attach",
             "count":  "2",
-            "p50Ms":  5.827,
-            "p90Ms":  8.919,
-            "p99Ms":  8.919,
-            "p999Ms":  8.919,
-            "maxMs":  8.919
+            "p50Ms":  5.459,
+            "p90Ms":  11.919,
+            "p99Ms":  11.919,
+            "p999Ms":  11.919,
+            "maxMs":  11.919
           }
         ],
         "perGnb":  [
@@ -55,12 +55,19 @@
       "state":  "done",
       "conformance":  {
         "tally":  {
-          "passed":  1,
-          "failed":  2
+          "failed":  2,
+          "deviations":  1
         },
         "ran":  3,
         "total":  3,
-        "lastCheck":  "NGAP-NGSETUP-UNKNOWN-PLMN"
+        "lastCheck":  "NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX",
+        "preflight":  [
+          {
+            "step":  "NG Setup",
+            "status":  "ok",
+            "detail":  "gNB ID 36912, PLMN 208/93, TAC 1"
+          }
+        ]
       }
     }
   ]

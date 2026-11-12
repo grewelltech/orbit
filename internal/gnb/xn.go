@@ -254,3 +254,82 @@ func ParsePathSwitchAcknowledgeSwitched(pdu *ngapType.NGAPPDU) []SwitchedSession
 	}
 	return out
 }
+
+// PathSwitchAckItem is one entry of a PATH SWITCH REQUEST ACKNOWLEDGE's PDU
+// Session Resource Switched List, as received (TS 38.413 9.2.3.9).
+type PathSwitchAckItem struct {
+	PDUSessionID int64
+	// TransferLen is the length in octets of the item's Path Switch Request
+	// Acknowledge Transfer (TS 38.413 9.3.4.9); zero means the item carries
+	// none.
+	TransferLen int
+	// TransferErr is why the transfer does not decode, "" when it does.
+	TransferErr string
+	// HasULTNL reports whether the transfer carries the optional UL NG-U UP
+	// TNL Information.
+	HasULTNL bool
+}
+
+// HasTransfer reports whether the item carries a Path Switch Request
+// Acknowledge Transfer that decodes.
+func (i PathSwitchAckItem) HasTransfer() bool { return i.TransferLen > 0 && i.TransferErr == "" }
+
+// PathSwitchAck is the PDU Session Resource Switched List of a PATH SWITCH
+// REQUEST ACKNOWLEDGE.
+type PathSwitchAck struct {
+	// ListPresent reports whether the message carries the list at all.
+	ListPresent bool
+	Items       []PathSwitchAckItem
+}
+
+// ParsePathSwitchAcknowledgeItems reads the PDU Session Resource Switched
+// List of a PATH SWITCH REQUEST ACKNOWLEDGE item by item, keeping the items
+// whose transfer is empty or does not decode. Any other PDU yields the zero
+// value.
+func ParsePathSwitchAcknowledgeItems(pdu *ngapType.NGAPPDU) PathSwitchAck {
+	var out PathSwitchAck
+	if pdu.Present != ngapType.NGAPPDUPresentSuccessfulOutcome ||
+		pdu.SuccessfulOutcome.Value.Present != ngapType.SuccessfulOutcomePresentPathSwitchRequestAcknowledge {
+		return out
+	}
+	for _, ie := range pdu.SuccessfulOutcome.Value.PathSwitchRequestAcknowledge.ProtocolIEs.List {
+		if ie.Id.Value != ngapType.ProtocolIEIDPDUSessionResourceSwitchedList ||
+			ie.Value.PDUSessionResourceSwitchedList == nil {
+			continue
+		}
+		out.ListPresent = true
+		for _, item := range ie.Value.PDUSessionResourceSwitchedList.List {
+			it := PathSwitchAckItem{PDUSessionID: item.PDUSessionID.Value, TransferLen: len(item.PathSwitchRequestAcknowledgeTransfer)}
+			if it.TransferLen > 0 {
+				var t ngapType.PathSwitchRequestAcknowledgeTransfer
+				if err := aper.UnmarshalWithParams(item.PathSwitchRequestAcknowledgeTransfer, &t, "valueExt"); err != nil {
+					it.TransferErr = err.Error()
+				} else {
+					it.HasULTNL = t.ULNGUUPTNLInformation != nil
+				}
+			}
+			out.Items = append(out.Items, it)
+		}
+	}
+	return out
+}
+
+// DescribePathSwitchAnswer names the PDU that answered a PATH SWITCH REQUEST
+// when it is not an Acknowledge.
+func DescribePathSwitchAnswer(pdu *ngapType.NGAPPDU) string {
+	switch ClassifyPathSwitch(pdu) {
+	case PathSwitchAcknowledged:
+		return "PATH SWITCH REQUEST ACKNOWLEDGE"
+	case PathSwitchFailed:
+		return "PATH SWITCH REQUEST FAILURE"
+	}
+	switch pdu.Present {
+	case ngapType.NGAPPDUPresentInitiatingMessage:
+		return fmt.Sprintf("an initiating message, procedure code %d", pdu.InitiatingMessage.ProcedureCode.Value)
+	case ngapType.NGAPPDUPresentSuccessfulOutcome:
+		return fmt.Sprintf("a successful outcome, procedure code %d", pdu.SuccessfulOutcome.ProcedureCode.Value)
+	case ngapType.NGAPPDUPresentUnsuccessfulOutcome:
+		return fmt.Sprintf("an unsuccessful outcome, procedure code %d", pdu.UnsuccessfulOutcome.ProcedureCode.Value)
+	}
+	return "an undecodable PDU"
+}

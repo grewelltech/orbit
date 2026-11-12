@@ -87,7 +87,7 @@ func Start(t testing.TB, amf *mockamf.AMF) *Front {
 func bridge(c *isctp.SCTPConn, tr gnb.Transport) {
 	defer func() { _ = c.Close() }()
 	defer func() { _ = tr.Close() }()
-	if err := c.SubscribeEvents(isctp.SCTP_EVENT_DATA_IO); err != nil {
+	if err := sctp.SubscribeEvents(c, isctp.SCTP_EVENT_DATA_IO); err != nil {
 		return
 	}
 	// Without SCTP_NODELAY the kernel holds a small DATA chunk while an

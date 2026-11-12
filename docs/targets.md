@@ -104,6 +104,11 @@ destination gNB and are never filled from a target; only `--amf` is.
   - a CIDR: `192.0.2.0/28`.
 
   Ranges and CIDRs are IP-only and take no port.
+
+  A conformance run uses the pool's first address for every check. A check
+  that needs a second source address (`NGAP-DUPLICATE-RAN-NODE-ID`) takes the
+  pool's second, and leases it for the run only when such a check is
+  selected; with a one-address pool it SKIPs.
 - **`ran.n3_ips`** is a pool in the same forms as `ran.n2_source_ips`: IPs, host
   names, ip:port/host:port, and IP-only ranges and CIDRs, expanded by the same
   rules. `--gnb-n3` needs an IP: a host-name entry fills `--n3-bind`, leaves
@@ -249,6 +254,15 @@ behaviours. It takes its core, keys and addresses from a target.
     error. Whatever the count, the SUPIs keep the first one's width and its
     PLMN prefix: `subscribers[main]: 001019999999999 + 4 UEs leaves PLMN
     001/01` is an error, on fleets too;
+  - a conformance run's UE checks, which each register their own subscribers
+    from the pool: the checks take consecutive SUPIs from `first_supi` in the
+    suite's order (a check that registers several UEs in turn takes one for
+    each), and the run leases them all. A UE one check leaves half-registered
+    or still being released is then never the next check's UE; a core can
+    leave a registration that meets such a context unanswered. A pool smaller
+    than the checks need is reused from its start, and an ERROR from a check
+    that shared a subscriber says so; a pool with no `count`, like `--local
+    --supi`, gives every check the one SUPI;
   - app cohorts and bulk traffic, which take the first responder.
 - **Echo destinations:** a fleet's `latency.target`, and a step's `ping.dst` and
   `latency.target`, take the first responder's `data_ip` when the file omits

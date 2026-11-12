@@ -19,6 +19,10 @@ const VERDICT_COLOR: Record<string, string> = {
   ERROR: "var(--o-bad, #ff5c6c)",
   SKIP: "var(--o-ink-3)",
   DEVIATION: "var(--o-amber)",
+  WARN: "var(--o-amber)",
+  INFO: "var(--o-ink-2)",
+  BLOCKED: "var(--o-bad, #ff5c6c)",
+  CRASH: "var(--o-bad, #ff5c6c)",
 };
 
 function verdictColor(v: string): string {
@@ -51,7 +55,7 @@ function useCheckInfo(): ReadonlyMap<string, ConformanceTestInfo> {
       .listConformanceTests({})
       .then((r) => on && setInfo(new Map(r.tests.map((t) => [t.id, t]))))
       .catch(() => {
-        /* the verdicts show without their category and spec */
+        /* the verdicts show without their group and spec */
       });
     return () => {
       on = false;
@@ -96,9 +100,13 @@ function SuitePanel({
         <div className="flex flex-wrap gap-x-5 gap-y-1">
           <Stat label="pass" value={tally.pass} color={verdictColor("PASS")} />
           <Stat label={failedLabel(tally.expected, suite.expectedCore)} value={tally.fail} color={verdictColor("FAIL")} />
-          <Stat label="error" value={tally.error} color={verdictColor("ERROR")} />
           <Stat label="deviation" value={tally.deviation} color={verdictColor("DEVIATION")} />
+          <Stat label="warn" value={tally.warn} color={verdictColor("WARN")} />
+          <Stat label="info" value={tally.info} color={verdictColor("INFO")} />
+          <Stat label="blocked" value={tally.blocked} color={verdictColor("BLOCKED")} />
+          <Stat label="crash" value={tally.crash} color={verdictColor("CRASH")} />
           <Stat label="skip" value={tally.skip} color={verdictColor("SKIP")} />
+          <Stat label="error" value={tally.error} color={verdictColor("ERROR")} />
         </div>
         {suite.expectedCore && (
           <div className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
@@ -115,7 +123,7 @@ function SuitePanel({
             <table className="w-full" style={{ borderCollapse: "collapse", fontFamily: "var(--o-font-mono)" }}>
               <thead>
                 <tr>
-                  {["verdict", "test", "category", "spec", "observed"].map((h) => (
+                  {["verdict", "test", "group", "spec", "observed"].map((h) => (
                     <th key={h} className="o-label" style={{ textAlign: "left", padding: "6px 12px", color: "var(--o-ink-3)", borderBottom: "1px solid var(--o-border)" }}>
                       {h}
                     </th>
@@ -146,7 +154,7 @@ function SuitePanel({
                           </span>
                         </td>
                         <td style={{ padding: "4px 12px", color: "var(--o-ink)", fontSize: "0.82rem" }}>{v.id}</td>
-                        <td style={{ padding: "4px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{info.get(v.id)?.category ?? ""}</td>
+                        <td style={{ padding: "4px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{info.get(v.id)?.group ?? ""}</td>
                         <td
                           className="max-w-[32rem] truncate"
                           title={info.get(v.id)?.specRef}
@@ -181,7 +189,7 @@ function Row({ r }: { r: ConformanceResult }) {
         )}
       </td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink)", fontSize: "0.82rem" }}>{r.id}</td>
-      <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{r.category}</td>
+      <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>{r.group}</td>
       <td style={{ padding: "5px 12px", color: "var(--o-ink-3)", fontSize: "0.82rem" }}>
         <SpecCell r={r} />
       </td>

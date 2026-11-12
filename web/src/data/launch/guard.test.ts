@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { quickTargetText } from "./useLaunch";
 import { blockedNow } from "./resolve";
 
-const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: []}\n";
+const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {groups: []}\n";
 const quick = quickTargetText({ name: "core", amf: "192.0.2.1:38412", mcc: "001", mnc: "01", sst: "1", sd: "", tac: "" });
 const base = { runYaml: suite, refs: [] as string[], values: {}, workloads: 1, loc: { protocol: "http:", hostname: "127.0.0.1" }, token: "" };
 

@@ -449,6 +449,21 @@ func TestPlanFleetGNBsMatchLoad(t *testing.T) {
 	}
 }
 
+// silentAMF is a mock core that accepts NG Setup and answers nothing
+// after it, so a suite's preflight completes and its checks then wait out
+// their timeouts: the suite stays up until it is stopped.
+func silentAMF(t *testing.T) string {
+	t.Helper()
+	ki, _ := auth.ParseHexKey("Ki", archKi)
+	opc, _ := auth.ParseHexKey("OPc", archOpc)
+	amf, err := mockamf.New(mockamf.Config{Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203"}, mockamf.WithSilentAfterNGSetup())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sctpfront.Listen(t, amf)
+}
+
 // idleAMF is an SCTP listener that accepts associations and never answers,
 // so a run against it stays up until it is stopped.
 func idleAMF(t *testing.T) string {

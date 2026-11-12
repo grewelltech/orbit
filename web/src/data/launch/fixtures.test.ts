@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Document } from "yaml";
 import { setValue } from "../targets/yamlio";
-import { addWorkload, setCategories, setGate, setUntil, startFrom, GATE_PRESETS } from "./form";
+import { addWorkload, setGroups, setGate, setUntil, startFrom, GATE_PRESETS } from "./form";
 import { planRequest, refsOf } from "./resolve";
 import { quickTargetText } from "./useLaunch";
 import { renderRun } from "./runyaml";
@@ -71,7 +71,7 @@ const STATES: Record<string, { template: string; build: () => Document; target?:
     template: "conformance",
     build: () => {
       const d = startFrom("conformance");
-      setCategories(d, 0, ["negative-ie"]);
+      setGroups(d, 0, ["NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"]);
       setValue(d, ["workloads", 0, "conformance", "per_test_timeout_ms"], "3000");
       return d;
     },
@@ -94,7 +94,7 @@ const STATES: Record<string, { template: string; build: () => Document; target?:
       const p = addWorkload(d, "population");
       setValue(d, ["workloads", p, "attach", "count"], "2");
       const s = addWorkload(d, "conformance");
-      setCategories(d, s, ["negative-ie"]);
+      setGroups(d, s, ["NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"]);
       setValue(d, ["workloads", s, "conformance", "per_test_timeout_ms"], "3000");
       setUntil(d, { kind: "complete" });
       setGate(d, GATE_PRESETS[0]!.gate("pop"));

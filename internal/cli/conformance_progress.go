@@ -33,8 +33,10 @@ type streamProgress struct {
 	count   int    // checks completed so far
 	total   uint32 // checks selected; 0 until the stream reports it
 	painted bool   // a spinner line is currently on screen
-	quit    chan struct{}
-	wg      sync.WaitGroup
+	// preflightShown is whether the run's preflight has been printed.
+	preflightShown bool
+	quit           chan struct{}
+	wg             sync.WaitGroup
 }
 
 // newStreamProgress builds a progress renderer writing to w. live is whether
@@ -68,7 +70,8 @@ func (p *streamProgress) start() {
 	}()
 }
 
-// update renders one streamed update. When it carries a check result, the
+// update renders one streamed update. The run's preflight is printed once,
+// a line per step, when an update first carries it. When it carries a check result, the
 // check's verdict is printed as its own line and the running count advances;
 // the spinner line is cleared first and repainted after, so a completed-check
 // line never lands in the middle of the spinner. The suite total is learned
@@ -78,6 +81,16 @@ func (p *streamProgress) update(u *orbitv1.ConformanceUpdate) {
 	defer p.mu.Unlock()
 	if t := u.GetTotal(); t != 0 {
 		p.total = t
+	}
+	if steps := u.GetPreflight(); len(steps) > 0 && !p.preflightShown {
+		p.preflightShown = true
+		if p.live {
+			p.clearLocked()
+			for _, step := range steps {
+				_, _ = fmt.Fprintf(p.w, "preflight: %s %s\n", step.GetStep(), step.GetStatus())
+			}
+			p.paintLocked()
+		}
 	}
 	r := u.GetResult()
 	if r == nil {

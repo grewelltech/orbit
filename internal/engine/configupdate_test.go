@@ -110,7 +110,7 @@ func TestConfigurationUpdateCommand(t *testing.T) {
 
 				// The Deregistration Request follows any Complete on the
 				// association, so the count is final once the mock has it.
-				if err := sess.deregister(ctx); err != nil {
+				if err := sess.deregister(ctx, true); err != nil {
 					t.Fatal(err)
 				}
 				for amf.Deregistrations() == 0 && ctx.Err() == nil {

@@ -68,12 +68,14 @@ func usesOf(t *testing.T, names ...string) map[string]map[string]bool {
 	return out
 }
 
-// Every check that registers a UE declares one, and every check that hands
-// over to the harness's target gNB declares that offset: a run leases what
-// the declarations say, so a missing one is a check running on a resource
-// no lease covers.
+// Every check that registers a UE declares one, every check that hands
+// over to the harness's target gNB declares that offset, and a check
+// declares the second N2 source address exactly when it dials from it: a
+// run leases what the declarations say, so a missing one is a check running
+// on a resource no lease covers.
 func TestEveryCheckDeclaresItsNeeds(t *testing.T) {
-	uses := usesOf(t, "NewUEHarness", "TargetGNB")
+	uses := usesOf(t, "NewUEHarness", "TargetGNB", "DialSecond")
+	second := 0
 	for _, c := range NewRegistry().Tests() {
 		typ := reflect.TypeOf(c).Name()
 		n := NeedsOf(c)
@@ -86,6 +88,15 @@ func TestEveryCheckDeclaresItsNeeds(t *testing.T) {
 		if n.UEs > 1 {
 			t.Errorf("%s declares %d UEs; the harness registers one at a time", c.ID(), n.UEs)
 		}
+		if uses[typ]["DialSecond"] != n.SecondN2Source {
+			t.Errorf("%s (%s) dials from the second N2 source: %v, declares it: %v", c.ID(), typ, uses[typ]["DialSecond"], n.SecondN2Source)
+		}
+		if n.SecondN2Source {
+			second++
+		}
+	}
+	if second == 0 {
+		t.Error("no check declares the second N2 source; the walk for DialSecond is broken")
 	}
 	if len(uses) == 0 {
 		t.Fatal("found no UE harness use; the walk is broken")
@@ -106,14 +117,17 @@ func TestRegistryNeeds(t *testing.T) {
 		want []uint32
 		span uint32
 	}{
-		{name: "legacy, unbounded", want: []uint32{700, 700 + em, 700 + em + 0x8000, 700 + em + 0x9000}, span: n - 1 + 0x9000},
-		{name: "packed, in a bounded block", packed: true, want: []uint32{700, 700 + em, 700 + n + em, 700 + 2*n + em}, span: 3*n - 1},
+		{name: "legacy, unbounded", want: []uint32{700, 700 + em, 700 + em + 0x8000, 700 + em + 0x9000, 700 + 0x9000 + n}, span: n + 0x9000},
+		{name: "packed, in a bounded block", packed: true, want: []uint32{700, 700 + em, 700 + n + em, 700 + 2*n + em, 700 + 3*n}, span: 3 * n},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			all := r.Needs(700, tc.packed)
 			if all.UEs != 1 {
 				t.Errorf("all checks: %d UEs, want 1", all.UEs)
+			}
+			if !all.SecondN2Source {
+				t.Error("all checks: no second N2 source, though a registered check dials from one")
 			}
 			for _, want := range tc.want {
 				if !slices.Contains(all.GNBIDs, want) {
@@ -123,17 +137,38 @@ func TestRegistryNeeds(t *testing.T) {
 			if !slices.IsSorted(all.GNBIDs) || all.GNBIDs[len(all.GNBIDs)-1]-700 > tc.span {
 				t.Errorf("gNB IDs %v not ascending within %d of the base", all.GNBIDs, tc.span)
 			}
-			// One handover target, every check's own and probe: 2N+1.
-			if len(all.GNBIDs) != int(2*n+1) {
-				t.Errorf("%d IDs, want %d", len(all.GNBIDs), 2*n+1)
+			// Every check's own and probe, a target per handover check, and
+			// the preflight's.
+			handovers := 0
+			for _, c := range r.Tests() {
+				if slices.Contains(NeedsOf(c).GNBRoles, RoleHandover) {
+					handovers++
+				}
 			}
-			if ng := r.Needs(700, tc.packed, Procedural); ng.UEs != 0 || len(ng.GNBIDs) == 0 {
-				t.Errorf("procedural only: %+v", ng)
+			if handovers < 2 || len(all.GNBIDs) != int(2*n)+handovers+1 {
+				t.Errorf("%d IDs with %d handover checks, want 2N+%d+1 = %d", len(all.GNBIDs), handovers, handovers, int(2*n)+handovers+1)
+			}
+			// A group whose checks register no UE needs none.
+			neg := NewRegistry()
+			if err := neg.Groups(0, "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"); err != nil {
+				t.Fatal(err)
+			}
+			if ng := neg.Needs(700, tc.packed); ng.UEs != 0 || len(ng.GNBIDs) == 0 || ng.SecondN2Source {
+				t.Errorf("erroneous-data handling only: %+v", ng)
+			}
+			// Interface management holds a check that registers one and one
+			// that uses a second N2 source.
+			im := NewRegistry()
+			if err := im.Groups(0, "NGAP / Interface Management Procedures"); err != nil {
+				t.Fatal(err)
+			}
+			if ng := im.Needs(700, tc.packed); ng.UEs != 1 || len(ng.GNBIDs) == 0 || !ng.SecondN2Source {
+				t.Errorf("interface management only: %+v", ng)
 			}
 		})
 	}
-	if r.PackedSpan() != int(3*n) {
-		t.Errorf("packed span = %d, want 3N = %d", r.PackedSpan(), 3*n)
+	if r.PackedSpan() != int(3*n)+1 {
+		t.Errorf("packed span = %d, want 3N+1 = %d", r.PackedSpan(), 3*n+1)
 	}
 }
 
@@ -200,7 +235,6 @@ type envProbe struct {
 }
 
 func (p envProbe) ID() string        { return p.id }
-func (envProbe) Category() Category  { return Procedural }
 func (envProbe) SpecRefs() []SpecRef { return nil }
 func (p envProbe) Run(_ context.Context, e Env) Result {
 	p.seen[p.id] = e
@@ -258,12 +292,16 @@ func TestIdleCoreDecidedPerCheck(t *testing.T) {
 		return ""
 	}}
 	var idle []Result
-	NewRegistry().RunStream(context.Background(), env, time.Second, func(r Result, _, _ int) {
+	reg := NewRegistry()
+	if err := reg.Only("NAS-T3550-ACCEPT-RETRANSMIT", "NAS-T3560-AUTH-RETRANSMIT", "NAS-INITIAL-REGISTRATION"); err != nil {
+		t.Fatal(err)
+	}
+	reg.RunStream(context.Background(), env, time.Second, func(r Result, _, _ int) {
 		if NeedsOf(testByID(t, r.ID)).RequiresIdleCore {
 			idle = append(idle, r)
 			loaded.Store(false) // the storm ends after the first one
 		}
-	}, NAS)
+	})
 	if len(idle) != 2 {
 		t.Fatalf("%d idle-core checks ran, want 2", len(idle))
 	}

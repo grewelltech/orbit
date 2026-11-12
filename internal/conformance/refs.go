@@ -31,12 +31,79 @@ var ts38413NGSetupAbnormalVerified = []SpecVersion{
 	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
 }
 
+// ts38413RANConfigUnchangedVerified covers TS 38.413 8.7.2.2's rule for an
+// IE a RAN CONFIGURATION UPDATE does not include: V15.3.0, where the
+// sentence first appears (it is absent in V15.0.0 to V15.2.0), and the
+// latest version of Rel-15 to Rel-19.
+var ts38413RANConfigUnchangedVerified = []SpecVersion{
+	{Release: 15, Version: "V15.3.0", Archive: "38413-f30.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
+// ts38413PathSwitchAckVerified covers TS 38.413 9.2.3.9 and 9.3.4.9 (Path
+// Switch Request Acknowledge and its transfer): V15.0.0; V15.1.0, where UL
+// NG-U UP TNL Information becomes optional and the Switched List takes its
+// present form; and the latest version of Rel-15 to Rel-19.
+var ts38413PathSwitchAckVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38413-f00.zip"},
+	{Release: 15, Version: "V15.1.0", Archive: "38413-f10.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
+// ts38413HandoverCommandVerified covers TS 38.413 8.4.1.2, 9.2.3.2 and
+// 9.3.4.10 (Handover Command and its transfer): V15.0.0; V15.1.0, where the
+// transfer becomes mandatory per item; V15.5.0, which adds the intra-system
+// "shall include" sentence; and the latest version of Rel-15 to Rel-19.
+var ts38413HandoverCommandVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38413-f00.zip"},
+	{Release: 15, Version: "V15.1.0", Archive: "38413-f10.zip"},
+	{Release: 15, Version: "V15.5.0", Archive: "38413-f50.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
+// ts38413ReleaseRequestVerified covers TS 38.413 8.3.2.2 (UE Context
+// Release Request): V15.0.0, where the should first appears; V18.1.0, which
+// splits it by cause; and the latest version of Rel-15 to Rel-19.
+var ts38413ReleaseRequestVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38413-f00.zip"},
+	{Release: 15, Version: "V15.13.0", Archive: "38413-fd0.zip"},
+	{Release: 16, Version: "V16.18.0", Archive: "38413-gi0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "38413-hf0.zip"},
+	{Release: 18, Version: "V18.1.0", Archive: "38413-i10.zip"},
+	{Release: 18, Version: "V18.11.0", Archive: "38413-ib0.zip"},
+	{Release: 19, Version: "V19.4.0", Archive: "38413-j40.zip"},
+}
+
 // ts29281Verified covers TS 29.281 (GTP-U): V8.0.0, where the Error
 // Indication requirement first appears; V15.4.0, which adds "PDU Session";
 // and the latest version of Rel-15 to Rel-19.
 var ts29281Verified = []SpecVersion{
 	{Release: 8, Version: "V8.0.0", Archive: "29281-800.zip"},
 	{Release: 15, Version: "V15.4.0", Archive: "29281-f40.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "29281-f70.zip"},
+	{Release: 16, Version: "V16.2.0", Archive: "29281-g20.zip"},
+	{Release: 17, Version: "V17.5.0", Archive: "29281-h50.zip"},
+	{Release: 18, Version: "V18.4.0", Archive: "29281-i40.zip"},
+	{Release: 19, Version: "V19.2.0", Archive: "29281-j20.zip"},
+}
+
+// ts29281EchoVerified covers TS 29.281 7.2.1, 7.2.2 and 4.3.1 (Echo Request,
+// Echo Response and sequence number handling): V8.0.0, where the three
+// requirements first appear, and the latest version of Rel-15 to Rel-19.
+var ts29281EchoVerified = []SpecVersion{
+	{Release: 8, Version: "V8.0.0", Archive: "29281-800.zip"},
 	{Release: 15, Version: "V15.7.0", Archive: "29281-f70.zip"},
 	{Release: 16, Version: "V16.2.0", Archive: "29281-g20.zip"},
 	{Release: 17, Version: "V17.5.0", Archive: "29281-h50.zip"},
@@ -158,6 +225,82 @@ var ts24501RejectedNSSAIVerified = []SpecVersion{
 	{Release: 17, Version: "V17.1.0", Archive: "24501-h10.zip"},
 	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
 	{Release: 18, Version: "V18.1.0", Archive: "24501-i10.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}
+
+// ts23502Verified covers TS 23.502 (5GS procedures): V15.0.0 and the latest
+// version of Rel-15 to Rel-19 read.
+var ts23502Verified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "23502-f00.zip"},
+	{Release: 15, Version: "V15.17.0", Archive: "23502-fh0.zip"},
+	{Release: 16, Version: "V16.19.0", Archive: "23502-gj0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "23502-hf0.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "23502-ie0.zip"},
+	{Release: 19, Version: "V19.9.0", Archive: "23502-j90.zip"},
+}
+
+// ts23502ReleaseN2Verified covers TS 23.502 4.3.4.2's rule that the SMF's
+// answer includes the N2 SM Resource Release request when the user plane is
+// active: V15.5.0, where it first appears (V15.4.1 lacks it), and the
+// latest version of Rel-15 to Rel-19.
+var ts23502ReleaseN2Verified = []SpecVersion{
+	{Release: 15, Version: "V15.5.0", Archive: "23502-f50.zip"},
+	{Release: 15, Version: "V15.17.0", Archive: "23502-fh0.zip"},
+	{Release: 16, Version: "V16.19.0", Archive: "23502-gj0.zip"},
+	{Release: 17, Version: "V17.15.0", Archive: "23502-hf0.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "23502-ie0.zip"},
+	{Release: 19, Version: "V19.9.0", Archive: "23502-j90.zip"},
+}
+
+// ts29281QFIContainerVerified covers TS 29.281 5.2.2.7 (PDU Session
+// Container): V15.2.0, where the clause first appears, as a may; V15.5.0,
+// where it becomes a shall; and the latest version of Rel-15 to Rel-19.
+var ts29281QFIContainerVerified = []SpecVersion{
+	{Release: 15, Version: "V15.2.0", Archive: "29281-f20.zip"},
+	{Release: 15, Version: "V15.5.0", Archive: "29281-f50.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "29281-f70.zip"},
+	{Release: 16, Version: "V16.2.0", Archive: "29281-g20.zip"},
+	{Release: 17, Version: "V17.5.0", Archive: "29281-h50.zip"},
+	{Release: 18, Version: "V18.4.0", Archive: "29281-i40.zip"},
+	{Release: 19, Version: "V19.2.0", Archive: "29281-j20.zip"},
+}
+
+// ts38415Verified covers TS 38.415 (PDU session user plane protocol):
+// V15.0.0, where the DL PDU SESSION INFORMATION frame and its QFI field
+// first appear, and the latest version of Rel-15 to Rel-19.
+var ts38415Verified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "38415-f00.zip"},
+	{Release: 15, Version: "V15.3.0", Archive: "38415-f30.zip"},
+	{Release: 16, Version: "V16.6.0", Archive: "38415-g60.zip"},
+	{Release: 17, Version: "V17.1.0", Archive: "38415-h10.zip"},
+	{Release: 18, Version: "V18.2.0", Archive: "38415-i20.zip"},
+	{Release: 19, Version: "V19.1.0", Archive: "38415-j10.zip"},
+}
+
+// ts24501CountEstimateVerified covers TS 24.501 4.4.3.1's stored-COUNT
+// sentence and NAS COUNT estimation rules: V16.5.1, where they first
+// appear, and the latest version of Rel-16 to Rel-19.
+var ts24501CountEstimateVerified = []SpecVersion{
+	{Release: 16, Version: "V16.5.1", Archive: "24501-g51.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
+	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
+}
+
+// ts24501BadMACRegistrationVerified covers TS 24.501 4.4.4.3's rules for a
+// REGISTRATION REQUEST that fails the integrity check: V15.0.0; V16.3.0,
+// which splits them by registration type; V18.0.0, which adds the
+// unsuccessful-authentication sentence; and the latest version of Rel-15 to
+// Rel-19.
+var ts24501BadMACRegistrationVerified = []SpecVersion{
+	{Release: 15, Version: "V15.0.0", Archive: "24501-f00.zip"},
+	{Release: 15, Version: "V15.7.0", Archive: "24501-f70.zip"},
+	{Release: 16, Version: "V16.3.0", Archive: "24501-g30.zip"},
+	{Release: 16, Version: "V16.15.0", Archive: "24501-gf0.zip"},
+	{Release: 17, Version: "V17.18.1", Archive: "24501-hi1.zip"},
+	{Release: 18, Version: "V18.0.0", Archive: "24501-i00.zip"},
 	{Release: 18, Version: "V18.14.0", Archive: "24501-ie0.zip"},
 	{Release: 19, Version: "V19.8.0", Archive: "24501-j80.zip"},
 }

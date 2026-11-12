@@ -15,8 +15,12 @@ import (
 // T_est of the fourth, T_est being the nominal timer or the mean gap when
 // longer; it fails naming the first part that missed, with both parts in the
 // detail, and says "late" rather than "aborts locally" for a release that
-// came after the bound; a reject or no request at all is ERROR; the spacing
-// is recorded against T_est and the 6 s default.
+// came after the bound; a reject after a request and before the four
+// retransmissions is FAIL; one in place of the request, or no request at
+// all, is BLOCKED on the registration; a Registration Reject after them is
+// ERROR; an Authentication Reject after them is recorded
+// and the release still decides; the spacing is recorded against T_est and
+// the 6 s default.
 func TestClassifyT3560(t *testing.T) {
 	const T = 6 * time.Second
 	t0 := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
@@ -66,16 +70,36 @@ func TestClassifyT3560(t *testing.T) {
 			notDetail:    []string{"aborts locally"}},
 		{name: "uneven gaps", snap: retransmitSnapshot{times: []time.Time{t0, t0.Add(T), t0.Add(2 * T), t0.Add(3 * T), t0.Add(6 * T)}, release: t0.Add(7 * T)},
 			want: Pass, wantDetail: []string{"gaps uneven"}},
-		{name: "authentication reject", snap: retransmitSnapshot{times: reqs(1, T), reject: "Authentication Reject"}, want: Error,
-			wantObserved: "Authentication Reject before the T3560 window"},
-		{name: "no authentication request", snap: retransmitSnapshot{}, want: Error,
+		{name: "authentication reject in place of the request", snap: retransmitSnapshot{reject: "Authentication Reject"}, want: Blocked,
+			wantObserved: "Authentication Reject before the T3560 window", wantDetail: []string{"in place of an Authentication Request"}},
+		{name: "authentication reject after one request", snap: retransmitSnapshot{times: reqs(1, T), reject: "Authentication Reject", rejectAfter: 1, rejectAt: after(reqs(1, T), T)}, want: Fail,
+			wantObserved: "Authentication Reject after 0 retransmissions of Authentication Request, want 4 and then a release", wantDetail: []string{"answers no response of the UE"}},
+		{name: "authentication reject after two retransmissions", snap: retransmitSnapshot{times: reqs(3, T), reject: "Authentication Reject", rejectAfter: 3, rejectAt: after(reqs(3, T), T)},
+			want: Fail, wantObserved: "Authentication Reject after 2 retransmissions of Authentication Request, want 4 and then a release",
+			wantDetail: []string{"observed 2 retransmissions, want 4", "6.0 s after the last Authentication Request"}},
+		{name: "registration reject after the retransmissions", snap: retransmitSnapshot{times: five, reject: "Registration Reject", rejectAfter: 5, rejectAt: after(five, T)},
+			want: Error, wantObserved: "Registration Reject before the T3560 window closed"},
+		{name: "authentication reject at the fifth expiry, then release", snap: retransmitSnapshot{times: five, reject: "Authentication Reject", rejectAfter: 5, rejectAt: after(five, T), release: after(five, T+time.Second)},
+			want: Pass, wantObserved: "4 retransmissions of Authentication Request, then UE Context Release Command",
+			wantDetail: []string{"Authentication Reject 6.0 s after the last Authentication Request (recorded only: TS 24.501 5.4.1.3.7 b) requires the release of the N1 NAS signalling connection and names no reject)",
+				"UE Context Release Command 7.0 s after the last request"},
+			notDetail: []string{"did not", "needs a subscriber"}},
+		{name: "authentication reject at the fifth expiry, no release", snap: retransmitSnapshot{times: five, reject: "Authentication Reject", rejectAfter: 5, rejectAt: after(five, T), windowClosed: true},
+			want: Fail, wantObserved: "no UE Context Release Command after the fifth T3560 expiry",
+			wantDetail: []string{"AMF did not release the N1 NAS signalling connection on the fifth T3560 expiry", "Authentication Reject 6.0 s after the last Authentication Request (recorded only"},
+			notDetail:  []string{"needs a subscriber"}},
+		{name: "authentication reject at the fifth expiry, release late", snap: retransmitSnapshot{times: five, reject: "Authentication Reject", rejectAfter: 5, rejectAt: after(five, T), release: after(five, 2*T)},
+			want: Fail, wantObserved: "UE Context Release Command late after the fifth T3560 expiry", wantDetail: []string{"Authentication Reject 6.0 s after the last Authentication Request"}},
+		{name: "authentication reject after a fifth retransmission", snap: retransmitSnapshot{times: reqs(6, T), reject: "Authentication Reject", rejectAfter: 6, rejectAt: after(reqs(6, T), T)},
+			want: Fail, wantObserved: "5 retransmissions of Authentication Request, want 4"},
+		{name: "no authentication request", snap: retransmitSnapshot{}, want: Blocked,
 			wantObserved: "registration did not reach Authentication Request", wantDetail: []string{"within 10s of the Initial UE Message"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := classifyT3560(tc.snap, T, authRequestWait)
-			if v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
-				t.Errorf("= %s %q, want %s %q", v, observed, tc.want, tc.wantObserved)
+			o, observed, detail := classifyT3560(tc.snap, T, authRequestWait)
+			if v := covers(o).Verdict; v != tc.want || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %q, want %s %q", o.Verdict, observed, tc.want, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(detail, w) {
@@ -105,8 +129,10 @@ func TestT3560Budget(t *testing.T) {
 // 24 s (scaled) and a first retransmission just inside 1.5 × the maximum.
 // No timer, a first retransmission just outside that bound, a wrong count,
 // no release and a release three timers late FAIL; an Authentication
-// Reject or no request is ERROR; a core that dies at the release is the
-// crash FAIL; no UE SKIPs. The association closes after each run, and no
+// Reject on the fifth expiry is recorded, and the release after it PASSes
+// while none FAILs; one after two retransmissions FAILs; an Authentication
+// Reject in place of the request, or no request, is BLOCKED on the
+// registration; a core that dies at the release is CRASH; no UE SKIPs. The association closes after each run, and no
 // detail carries key material.
 func TestT3560CheckAgainstMock(t *testing.T) {
 	// Scaled from 6 s and 24 s, keeping their ratio.
@@ -117,6 +143,7 @@ func TestT3560CheckAgainstMock(t *testing.T) {
 		noUE         bool
 		want         Verdict
 		wantObserved string
+		wantDetail   string
 		dead         bool
 	}{
 		{name: "pass", opts: []mockamf.Option{mockamf.WithT3560(T, 4)}, want: Pass,
@@ -128,9 +155,15 @@ func TestT3560CheckAgainstMock(t *testing.T) {
 			wantObserved: "5 retransmissions of Authentication Request, want 4"},
 		{name: "no release", opts: []mockamf.Option{mockamf.WithT3560(T, 4), mockamf.WithT3560NoRelease()}, want: Fail,
 			wantObserved: "no UE Context Release Command after the fifth T3560 expiry"},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error,
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
 			wantObserved: "Authentication Reject before the T3560 window"},
-		{name: "no authentication request", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Error,
+		{name: "reject on the fifth expiry, then release", opts: []mockamf.Option{mockamf.WithT3560(T, 4), mockamf.WithT3560RejectOnLastExpiry()}, want: Pass,
+			wantObserved: "4 retransmissions of Authentication Request, then UE Context Release Command", wantDetail: "Authentication Reject 0.05 s after the last Authentication Request (recorded only"},
+		{name: "reject on the fifth expiry, no release", opts: []mockamf.Option{mockamf.WithT3560(T, 4), mockamf.WithT3560RejectOnLastExpiry(), mockamf.WithT3560NoRelease()}, want: Fail,
+			wantObserved: "no UE Context Release Command after the fifth T3560 expiry", wantDetail: "(recorded only"},
+		{name: "reject after two retransmissions", opts: []mockamf.Option{mockamf.WithT3560(T, 2), mockamf.WithT3560RejectOnLastExpiry()}, want: Fail,
+			wantObserved: "Authentication Reject after 2 retransmissions of Authentication Request, want 4 and then a release", wantDetail: "observed 2 retransmissions, want 4"},
+		{name: "no authentication request", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Blocked,
 			wantObserved: "registration did not reach Authentication Request"},
 		{name: "an 8 s timer (scaled)", opts: []mockamf.Option{mockamf.WithT3560(T*8/6, 4)}, want: Pass,
 			wantObserved: "4 retransmissions of Authentication Request, then UE Context Release Command"},
@@ -147,7 +180,7 @@ func TestT3560CheckAgainstMock(t *testing.T) {
 		{name: "late release", opts: []mockamf.Option{mockamf.WithT3560(T, 4), mockamf.WithT3560ReleaseAfter(3 * T)}, want: Fail,
 			wantObserved: "UE Context Release Command late after the fifth T3560 expiry"},
 		{name: "core dies at the release", opts: []mockamf.Option{mockamf.WithT3560(T, 4), mockamf.WithCrashAfterRelease()},
-			want: Fail, wantObserved: ObservedAMFUnresponsive + " (4 retransmissions of Authentication Request, then UE Context Release Command)", dead: true},
+			want: Crash, wantObserved: ObservedAMFUnresponsive + " (4 retransmissions of Authentication Request, then UE Context Release Command)", dead: true},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
@@ -174,6 +207,15 @@ func TestT3560CheckAgainstMock(t *testing.T) {
 			}
 			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
 				t.Errorf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			if !strings.Contains(r.Detail, tc.wantDetail) {
+				t.Errorf("detail %q lacks %q", r.Detail, tc.wantDetail)
+			}
+			if tc.wantDetail == "" && strings.Contains(r.Detail, "Authentication Reject") && tc.name != "authentication reject" {
+				t.Errorf("detail %q names a reject the mock did not send", r.Detail)
+			}
+			if n := amf.EncodeErrors(); n != 0 {
+				t.Errorf("mock AMF dropped %d PDUs that failed to encode", n)
 			}
 			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
 				t.Error("detail carries key material")

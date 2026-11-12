@@ -1,6 +1,7 @@
 package mockamf
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/free5gc/aper"
@@ -57,12 +58,7 @@ func setupOf(req *ngapType.NGSetupRequest) Setup {
 		switch ie.Id.Value {
 		case ngapType.ProtocolIEIDGlobalRANNodeID:
 			if g := ie.Value.GlobalRANNodeID; g != nil && g.GlobalGNBID != nil && g.GlobalGNBID.GNBID.GNBID != nil {
-				bs := g.GlobalGNBID.GNBID.GNBID
-				var id uint64
-				for _, b := range bs.Bytes {
-					id = id<<8 | uint64(b)
-				}
-				out.GNBID = uint32(id >> (uint64(len(bs.Bytes))*8 - bs.BitLength))
+				out.GNBID = gnbIDOf(g.GlobalGNBID.GNBID.GNBID)
 			}
 		case ngapType.ProtocolIEIDRANNodeName:
 			if n := ie.Value.RANNodeName; n != nil {
@@ -77,6 +73,12 @@ func setupOf(req *ngapType.NGSetupRequest) Setup {
 // when it identifies none of the gNB's PLMNs (TS 38.413 8.7.1.4), with cause
 // Misc unknown-PLMN (9.3.1.2).
 func buildNGSetupFailureUnknownPLMN() ngapType.NGAPPDU {
+	return buildNGSetupFailureMisc(ngapType.CauseMiscPresentUnknownPLMN)
+}
+
+// buildNGSetupFailureMisc builds an NG SETUP FAILURE (TS 38.413 9.2.6.3)
+// carrying only the Cause IE, with the Misc cause given (9.3.1.2).
+func buildNGSetupFailureMisc(cause aper.Enumerated) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentUnsuccessfulOutcome
 	pdu.UnsuccessfulOutcome = new(ngapType.UnsuccessfulOutcome)
@@ -88,8 +90,7 @@ func buildNGSetupFailureUnknownPLMN() ngapType.NGAPPDU {
 	ie.Id.Value = ngapType.ProtocolIEIDCause
 	ie.Criticality.Value = ngapType.CriticalityPresentIgnore
 	ie.Value.Present = ngapType.NGSetupFailureIEsPresentCause
-	ie.Value.Cause = &ngapType.Cause{Present: ngapType.CausePresentMisc,
-		Misc: &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnknownPLMN}}
+	ie.Value.Cause = &ngapType.Cause{Present: ngapType.CausePresentMisc, Misc: &ngapType.CauseMisc{Value: cause}}
 	pdu.UnsuccessfulOutcome.Value.NGSetupFailure.ProtocolIEs.List = append(
 		pdu.UnsuccessfulOutcome.Value.NGSetupFailure.ProtocolIEs.List, ie)
 	return pdu
@@ -257,6 +258,10 @@ type uplinkMessage struct {
 	procedure int64
 	ranID     int64
 	nasPDU    []byte
+	// tmsi is the 5G-TMSI of an Initial UE Message's 5G-S-TMSI IE, hasTMSI
+	// false without one.
+	tmsi    uint32
+	hasTMSI bool
 }
 
 // parseUplink extracts the RAN UE NGAP ID and NAS PDU from an Initial UE
@@ -275,6 +280,10 @@ func parseUplink(pdu *ngapType.NGAPPDU) (*uplinkMessage, error) {
 				out.ranID = ie.Value.RANUENGAPID.Value
 			case ngapType.ProtocolIEIDNASPDU:
 				out.nasPDU = ie.Value.NASPDU.Value
+			case ngapType.ProtocolIEIDFiveGSTMSI:
+				if t := ie.Value.FiveGSTMSI; t != nil && len(t.FiveGTMSI.Value) == 4 {
+					out.tmsi, out.hasTMSI = binary.BigEndian.Uint32(t.FiveGTMSI.Value), true
+				}
 			}
 		}
 	case ngapType.InitiatingMessagePresentUEContextReleaseRequest:

@@ -157,7 +157,7 @@ type UETransport struct {
 	ranID      int64
 	stream     uint16
 	inbox      chan []byte
-	owned      bool // Close closes the association too (Dedicated)
+	owned      bool // Close closes the association too (Dedicated); guarded by Session.mu
 	passStream bool // writes keep the caller's stream (Dedicated)
 }
 
@@ -181,6 +181,37 @@ func (s *Session) lane(ranID int64, stream uint16) *UETransport {
 	s.inboxes[ranID] = ch
 	s.mu.Unlock()
 	return &UETransport{s: s, ranID: ranID, stream: stream, inbox: ch}
+}
+
+// Successor returns a lane for the UE that follows t's on the same
+// association, under ranID, and gives it t's place there: the default lane
+// and the ownership of a dedicated association move to it, so closing t
+// afterwards leaves the association open and closing the successor closes
+// it. t keeps receiving the PDUs of its own RAN-UE-NGAP-ID until it is
+// closed. It is for a UE that registers again over the association it was
+// released on.
+func (t *UETransport) Successor(ranID int64) *UETransport {
+	n := t.s.lane(ranID, t.stream)
+	t.s.mu.Lock()
+	defer t.s.mu.Unlock()
+	n.owned, n.passStream = t.owned, t.passStream
+	t.owned = false
+	if t.s.def == t.inbox {
+		t.s.def = n.inbox
+	}
+	return n
+}
+
+// SetNoDelay turns the association's hold on small writes off (on true) or
+// back on, for a transport that has one (SCTP_NODELAY on an SCTP
+// association; see sctp.Conn.SetNoDelay). It applies to every UE on the
+// association. A transport without such a hold, like the in-process pipe,
+// sends each PDU as it is written, and the call does nothing.
+func (t *UETransport) SetNoDelay(on bool) error {
+	if nd, ok := t.s.tr.(interface{ SetNoDelay(bool) error }); ok {
+		return nd.SetNoDelay(on)
+	}
+	return nil
 }
 
 func (t *UETransport) WriteNGAP(stream uint16, pdu []byte) error {
@@ -281,8 +312,9 @@ func (t *UETransport) Close() error {
 			}
 		}
 	}
+	owned := t.owned
 	t.s.mu.Unlock()
-	if t.owned {
+	if owned {
 		return t.s.Close()
 	}
 	return nil

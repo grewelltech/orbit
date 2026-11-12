@@ -16,16 +16,17 @@ type Release int
 const LatestRelease Release = 19
 
 // DefaultTargetRelease is the target release a run uses when none is given:
-// Rel-18, the release SD-Core's NGAP, NAS and charts are built against.
-// DefaultSpecTargets narrows it where SD-Core is older. A check that requires
-// a newer release SKIPs; the target never decides what passes. The evidence
-// and caveats are in docs/conformance/target-release.md.
+// Rel-18, which DefaultSpecTargets narrows for single specifications. It is a
+// release, not a claim about any core: a run against a core that claims
+// another release gives that one. A check that requires a newer release
+// SKIPs; the target never decides what passes. See
+// docs/conformance/target-release.md.
 const DefaultTargetRelease Release = 18
 
 // DefaultSpecTargets returns the per-specification pins a run uses with
 // DefaultTargetRelease, as a fresh map the caller may change: TS 29.244
-// (PFCP) at Rel-16, the release SD-Core's UPF and its PFCP library implement.
-// A pin only narrows the run target (see Env.SpecTarget).
+// (PFCP) at Rel-16. A pin only narrows the run target (see
+// Env.SpecTarget).
 func DefaultSpecTargets() map[string]Release {
 	return map[string]Release{"TS 29.244": 16}
 }
@@ -83,7 +84,9 @@ const (
 	// Should is a recommendation; a check resting on it reports DEVIATION.
 	Should Strength = "should"
 	// Descriptive is definitional text (a message's IE table, a procedure
-	// description) cited for context; it never carries a verdict alone.
+	// description) cited for context. It carries no PASS or FAIL: an
+	// outcome resting on it alone is INFO, or WARN with a criterion
+	// (validateOutcomes).
 	Descriptive Strength = "descriptive"
 )
 
@@ -122,7 +125,15 @@ type SpecRef struct {
 	// WordingUnchanged states that the text is the same through
 	// LatestRelease; it is never inferred from an empty Changed.
 	WordingUnchanged bool `json:"wording_unchanged"`
+	// Primary marks the one reference of a check that names what the check
+	// is about: the clause its group is derived from.
+	Primary bool `json:"primary,omitempty"`
 }
+
+// Key identifies the reference within its check: the specification and the
+// clause, "TS 38.413 10.6". An Outcome names the references it rests on by
+// key.
+func (r SpecRef) Key() string { return r.Spec + " " + r.Clause }
 
 // String renders the reference on one line, the same way everywhere (CLI,
 // JSON, the API and the generated docs):
@@ -176,16 +187,18 @@ func MinRelease(t Test) Release {
 	return max
 }
 
-// WorstVerdict is the worst verdict a check can give a core, derived from
-// what it cites: FAIL when it cites a shall, DEVIATION when it cites only
-// shoulds. A missed shall is a failure and DEVIATION is reserved for a missed
-// should; runOne enforces this whatever a check's Run returns.
+// WorstVerdict is the worst verdict a check's declared outcomes can give a
+// core, in the order FAIL, DEVIATION, WARN, INFO, PASS. A core that stops
+// answering is outside the classes: it is CRASH for every check.
 func WorstVerdict(t Test) Verdict {
-	if cites(t, Shall) {
-		return Fail
-	}
-	return Deviation
+	outs, _ := declared(t)
+	return declaredWorst(outs)
 }
+
+// VerdictClass names a check's class for --list and checks.md: the worst
+// verdict among its declared outcomes (WorstVerdict). The class says
+// nothing of a crash, which is CRASH in every class.
+func VerdictClass(t Test) Verdict { return WorstVerdict(t) }
 
 // cites reports whether a check cites a reference of strength s.
 func cites(t Test, s Strength) bool {
@@ -208,15 +221,15 @@ var (
 	archiveRE = regexp.MustCompile(`^\d{5}-[0-9a-z]{3}\.zip$`)
 )
 
-// ValidateTest checks a test's provenance and verdict class against the
-// rules every registered check must meet; the invariant test runs it over
-// the registry, so a check without verified provenance cannot merge.
+// ValidateTest checks a test's provenance and declared outcomes against
+// the rules every registered check must meet; the invariant test runs it
+// over the registry, so a check without verified provenance, or one that
+// does not declare what it can report, cannot merge.
 func ValidateTest(t Test) error {
 	refs := t.SpecRefs()
 	if len(refs) == 0 {
 		return fmt.Errorf("%s: no spec references", t.ID())
 	}
-	hasRequirement := false
 	// floor is the newest Since among the refs that carry a requirement
 	// (shall or should), or among all refs when none does: a check cannot
 	// apply to a release older than a requirement it asserts.
@@ -225,9 +238,6 @@ func ValidateTest(t Test) error {
 		where := fmt.Sprintf("%s ref %d (%s %s)", t.ID(), i+1, r.Spec, r.Clause)
 		if err := validateRef(r); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
-		}
-		if r.Strength == Shall || r.Strength == Should {
-			hasRequirement = true
 		}
 		if r.Since > floorAll {
 			floorAll = r.Since
@@ -239,13 +249,43 @@ func ValidateTest(t Test) error {
 	if floor == 0 {
 		floor = floorAll
 	}
-	if !hasRequirement {
-		return fmt.Errorf("%s: cites no shall or should; descriptive references alone carry no verdict", t.ID())
+	if _, ok := declared(t); !ok {
+		return fmt.Errorf("%s: declares no outcomes; every check declares what it can report (Declarer)", t.ID())
+	}
+	if err := validateDeclaration(t); err != nil {
+		return err
 	}
 	if m := MinRelease(t); m < floor || m > LatestRelease {
 		return fmt.Errorf("%s: MinRelease %s outside %s..%s: it must be at least the newest Since among the requirements it asserts", t.ID(), m, floor, LatestRelease)
 	}
 	return nil
+}
+
+// validateDeclaration checks what a check that declares its outcomes must
+// meet beyond its references' provenance: exactly one reference is marked
+// primary, the reference keys are distinct, the needs name known inputs and
+// procedures, and the outcomes meet validateOutcomes.
+func validateDeclaration(t Test) error {
+	primary := 0
+	keys := map[string]bool{}
+	for _, r := range t.SpecRefs() {
+		if r.Primary {
+			primary++
+		}
+		if keys[r.Key()] {
+			return fmt.Errorf("%s: two references share the key %q", t.ID(), r.Key())
+		}
+		keys[r.Key()] = true
+	}
+	if primary != 1 {
+		return fmt.Errorf("%s: %d references are marked primary; exactly one is", t.ID(), primary)
+	}
+	for _, p := range append(NeedsOf(t).Procedures, OwnsOf(t)...) {
+		if !p.valid() {
+			return fmt.Errorf("%s: %q is not a procedure of the fixed list", t.ID(), p)
+		}
+	}
+	return validateOutcomes(t)
 }
 
 func validateRef(r SpecRef) error {

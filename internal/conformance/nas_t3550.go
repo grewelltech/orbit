@@ -51,11 +51,45 @@ type nasT3550AcceptRetransmit struct {
 	acceptWait time.Duration
 }
 
-func (nasT3550AcceptRetransmit) ID() string         { return "NAS-T3550-ACCEPT-RETRANSMIT" }
-func (nasT3550AcceptRetransmit) Category() Category { return NAS }
+// The keys of the shalls NAS-T3550-ACCEPT-RETRANSMIT's outcomes rest on:
+// the retransmission on T3550 expiry, and the new 5G-GUTI an initial
+// registration's REGISTRATION ACCEPT carries.
+const (
+	t3550Ref     = "TS 24.501 5.5.1.2.8 c)"
+	t3550GUTIRef = "TS 24.501 5.5.1.2.4 5G-GUTI"
+)
+
+// t3550Bound is the bound on the absence of a retransmission.
+var t3550Bound = &Bound{Wait: t3550Max + t3550Max/2,
+	Source: "1.5 × the largest T3550 (18 s, TS 24.501 Table 10.2.2) for the first retransmission, then 1.5 × the timer estimated from the gaps"}
+
+// The outcomes of NAS-T3550-ACCEPT-RETRANSMIT.
+var (
+	t3550Four = Outcome{ID: "four-retransmissions", Verdict: Pass, Refs: []string{t3550Ref},
+		Summary: "retransmitted the REGISTRATION ACCEPT on four T3550 expiries"}
+	t3550TooFew = Outcome{ID: "too-few-retransmissions", Verdict: Fail, Refs: []string{t3550Ref}, Bound: t3550Bound,
+		Summary: "retransmitted the REGISTRATION ACCEPT fewer than four times, or not at all"}
+	t3550TooMany = Outcome{ID: "too-many-retransmissions", Verdict: Fail, Refs: []string{t3550Ref},
+		Summary: "retransmitted the REGISTRATION ACCEPT a fifth time instead of aborting"}
+	t3550NoGUTI = Outcome{ID: "no-guti", Verdict: Fail, Refs: []string{t3550GUTIRef},
+		Summary: "sent the initial registration's REGISTRATION ACCEPT with no 5G-GUTI, and assigned none before it, so T3550 was not started"}
+	t3550GUTIByUpdate = Outcome{ID: "guti-by-configuration-update", Verdict: Skip, Skip: SkipPermitted, Refs: []string{t3550GUTIRef},
+		Summary: "sent a CONFIGURATION UPDATE COMMAND before a REGISTRATION ACCEPT with no 5G-GUTI, the other way 5.5.1.2.4 lets the AMF assign one, so T3550 was not started by a 5G-GUTI"}
+	// t3550Blocked is classifyT3550's marker for a registration that did
+	// not reach the REGISTRATION ACCEPT; Run reports it as BLOCKED on the
+	// registration.
+	t3550Blocked = Outcome{ID: blockedID(ProcRegistration), Verdict: Blocked}
+)
+
+// Outcomes declares what the check can report.
+func (nasT3550AcceptRetransmit) Outcomes() []Outcome {
+	return []Outcome{t3550Four, t3550TooFew, t3550TooMany, t3550NoGUTI, t3550GUTIByUpdate}
+}
+
+func (nasT3550AcceptRetransmit) ID() string { return "NAS-T3550-ACCEPT-RETRANSMIT" }
 func (nasT3550AcceptRetransmit) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.5.1.2.8 c)", Strength: Shall, Since: 15, Verified: ts24501Verified,
+		{Spec: "TS 24.501", Clause: "5.5.1.2.8 c)", Strength: Shall, Since: 15, Verified: ts24501Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 15, Note: "V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19"},
 			}},
@@ -66,6 +100,10 @@ func (nasT3550AcceptRetransmit) SpecRefs() []SpecRef {
 				{Release: 17, Note: "the \"ACCCEPT\" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming"},
 				{Release: 18, Note: "\"subclause\" becomes \"clause\"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4"},
 				{Release: 19, Note: "adds LP-WUSPS assistance information and LP-WUS status triggers"},
+			}},
+		{Spec: "TS 24.501", Clause: "5.5.1.2.4 5G-GUTI", Strength: Shall, Since: 15, Verified: ts24501Verified,
+			Changed: []SpecChange{
+				{Release: 15, Note: "V15.0.0 reads \"When the REGISTRATION REQUEST message includes the SUCI or PEI, ..., the AMF shall allocate a new 5G-GUTI to the UE\" and \"The AMF shall include in the REGISTRATION ACCEPT message the new assigned 5G-GUTI together with the assigned TAI list\"; from V15.7.0 \"The 5G-GUTI reallocation shall be part of the initial registration procedure\", and the AMF includes the new 5G-GUTI \"if the AMF has not allocated a new 5G-GUTI by the generic UE configuration update procedure\", unchanged through V19.8.0"},
 			}},
 		{Spec: "TS 24.501", Clause: "Table 10.2.2 T3550", Strength: Descriptive, Since: 15, Verified: ts24501Verified,
 			Changed: []SpecChange{
@@ -108,14 +146,11 @@ func (c nasT3550AcceptRetransmit) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: fmt.Sprintf("with the Registration Complete withheld after a Registration Accept assigning a 5G-GUTI, %d retransmissions of the Registration Accept at T3550 (%s by default), then none (TS 24.501 5.5.1.2.8 c))",
 		t3550Retransmissions, t3550Default)}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run NAS checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run NAS checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 
@@ -138,25 +173,21 @@ func (c nasT3550AcceptRetransmit) Run(ctx context.Context, env Env) Result {
 	snap := o.snapshot()
 	switch {
 	case err == nil:
-		r.Verdict, r.Observed = Error, "registration completed with the Registration Complete withheld"
-		r.Detail = "the harness did not withhold the reply"
-		return r
+		return r.Errored("registration completed with the Registration Complete withheld", "the harness did not withhold the reply")
 	case errors.Is(err, engine.ErrReleasedByCore), errors.Is(err, context.Canceled) && ctx.Err() == nil:
 		// A release, the window's end, no Accept or no 5G-GUTI: judged below.
 	case ctx.Err() != nil:
-		r.Verdict, r.Observed = Error, "timed out before the T3550 window closed"
-		r.Detail = fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget())
-		return r
+		return r.Errored("timed out before the T3550 window closed", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget()))
 	case snap.reject != "":
-		// A reject: ERROR, judged below.
+		// A reject: judged below.
 	default:
-		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed during the T3550 procedure", err.Error()
-		return r
+		return r.SetupFailed("UE setup failed during the T3550 procedure", err)
 	}
-	r.Verdict, r.Observed, r.Detail = classifyT3550(snap, t, c.waitAccept())
-	if r.Verdict == Skip {
-		return r
+	out, observed, detail := classifyT3550(snap, t, c.waitAccept())
+	if out.Verdict == Blocked {
+		return r.BlockedBy(ProcRegistration, observed, detail)
 	}
+	r = r.As(out, observed, detail)
 	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the T3550 procedure")
 }
 
@@ -170,36 +201,44 @@ func acceptAssignsGUTI(ev engine.NASEvent) bool {
 	return err == nil && g != nil && len(g.Raw) > 0
 }
 
-// classifyT3550 judges a T3550 observation for nominal timer t. ERROR when
-// registration never reached a Registration Accept or a reject ended it;
-// SKIP when the Accept assigned no 5G-GUTI, so T3550 never started; else
-// PASS for exactly four retransmissions and FAIL for none, fewer or more (a
-// fifth means the AMF did not abort on the fifth expiry). The detail gives
-// the gaps and records any release.
-func classifyT3550(s retransmitSnapshot, t, acceptWait time.Duration) (Verdict, string, string) {
+// classifyT3550 judges a T3550 observation for nominal timer t.
+// t3550Blocked when the registration never reached a Registration Accept
+// (a reject in its place included); FAIL when the Accept assigned no
+// 5G-GUTI and no CONFIGURATION UPDATE COMMAND came before it, SKIP when one
+// did, T3550 not starting in either; else PASS for exactly four
+// retransmissions and FAIL for none, fewer or more (a fifth means the AMF
+// did not abort on the fifth expiry). The detail gives the gaps and
+// records any release, and a reject after the Accept.
+func classifyT3550(s retransmitSnapshot, t, acceptWait time.Duration) (Outcome, string, string) {
 	switch {
-	case s.reject != "":
-		return Error, s.reject + " before the T3550 window",
-			fmt.Sprintf("the AMF sent %s; this check needs a subscriber the core registers", s.reject)
+	case s.reject != "" && len(s.times) == 0:
+		return t3550Blocked, s.reject + " before the T3550 window",
+			fmt.Sprintf("the AMF sent %s in place of the Registration Accept", s.reject)
 	case len(s.times) == 0:
-		return Error, "registration did not reach Registration Accept",
+		return t3550Blocked, "registration did not reach Registration Accept",
 			fmt.Sprintf("no Registration Accept within %s of the Initial UE Message", acceptWait)
+	case s.refused && s.configUpdate:
+		return t3550GUTIByUpdate, "CONFIGURATION UPDATE COMMAND, then a Registration Accept with no 5G-GUTI; T3550 not started",
+			"TS 24.501 5.5.1.2.4 has the initial registration's REGISTRATION ACCEPT carry the new 5G-GUTI unless the AMF allocated one by the generic UE configuration update procedure; a CONFIGURATION UPDATE COMMAND came first, so the 5G-GUTI trigger of T3550 is absent and the retransmission is not judged"
 	case s.refused:
-		return Skip, "Registration Accept carried no 5G-GUTI; T3550 not started",
-			"TS 24.501 5.5.1.2.4 starts T3550 when the Registration Accept includes a 5G-GUTI; other T3550 triggers (SOR, CAG, NSSAI ...) not evaluated"
+		return t3550NoGUTI, "Registration Accept carried no 5G-GUTI; T3550 not started",
+			"TS 24.501 5.5.1.2.4: the 5G-GUTI reallocation shall be part of the initial registration procedure, and the AMF shall include the new 5G-GUTI in the REGISTRATION ACCEPT when it has not allocated one by the generic UE configuration update procedure; none came before the Accept. With no 5G-GUTI the trigger that starts T3550 is absent, so the retransmission on T3550 expiry could not be measured; other T3550 triggers (SOR, CAG, NSSAI ...) not evaluated"
 	}
 	n := len(s.times) - 1
 	timing := retransmitTiming(s, t, estimate(s.times, t), "Registration Accept", "Registration Accept", " (recorded only: 5.5.1.2.8 c) requires no release)")
+	if s.reject != "" {
+		timing += fmt.Sprintf("; %s after %d Registration Accept(s)", s.reject, s.rejectAfter)
+	}
 	switch {
 	case n == t3550Retransmissions:
-		return Pass, fmt.Sprintf("%d retransmissions of Registration Accept", n), timing
+		return t3550Four, fmt.Sprintf("%d retransmissions of Registration Accept", n), timing
 	case n > t3550Retransmissions:
-		return Fail, fmt.Sprintf("%d retransmissions of Registration Accept, want %d", n, t3550Retransmissions),
+		return t3550TooMany, fmt.Sprintf("%d retransmissions of Registration Accept, want %d", n, t3550Retransmissions),
 			strings.Join([]string{fmt.Sprintf("AMF retransmitted Registration Accept after the fifth T3550 expiry (observed %d retransmissions, want %d); the procedure is aborted on the fifth expiry. TS 24.501 5.5.1.2.8 c).", n, t3550Retransmissions), timing}, "; ")
 	}
 	observed := fmt.Sprintf("%d retransmissions of Registration Accept, want %d", n, t3550Retransmissions)
 	if n == 0 {
 		observed = "no retransmission of Registration Accept"
 	}
-	return Fail, observed, strings.Join([]string{fmt.Sprintf("AMF did not retransmit Registration Accept on T3550 expiry (observed %d retransmissions, want %d). TS 24.501 5.5.1.2.8 c). Likely cause: T3550 not implemented.", n, t3550Retransmissions), timing}, "; ")
+	return t3550TooFew, observed, strings.Join([]string{fmt.Sprintf("AMF did not retransmit Registration Accept on T3550 expiry (observed %d retransmissions, want %d). TS 24.501 5.5.1.2.8 c). Likely cause: T3550 not implemented.", n, t3550Retransmissions), timing}, "; ")
 }

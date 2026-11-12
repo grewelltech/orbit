@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orbit/v1/conformance.proto.
  */
 export const file_orbit_v1_conformance: GenFile = /*@__PURE__*/
-  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEihwMKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSEgoKY2F0ZWdvcmllcxgIIAMoCRIYChBwZXJfdGVzdF9zZWNvbmRzGAkgASgNEhQKDGJpbmRfYWRkcmVzcxgMIAEoCRIWCg50YXJnZXRfcmVsZWFzZRgNIAEoDRIMCgRzdXBpGA4gASgJEioKC2NyZWRlbnRpYWxzGA8gASgLMhUub3JiaXQudjEuQ3JlZGVudGlhbHMSCwoDZG5uGBAgASgJEg4KBmduYl9uMxgRIAEoCRIPCgd0cmFmZmljGBIgASgJEh8KBHBsYW4YEyABKAsyES5vcmJpdC52MS5SdW5QbGFuIpgDChFDb25mb3JtYW5jZVVwZGF0ZRIrCgZyZXN1bHQYASABKAsyGy5vcmJpdC52MS5Db25mb3JtYW5jZVJlc3VsdBIMCgRkb25lGAIgASgIEikKBXRhbGx5GAMgASgLMhoub3JiaXQudjEuQ29uZm9ybWFuY2VUYWxseRINCgVpbmRleBgEIAEoDRINCgV0b3RhbBgFIAEoDRIWCg50YXJnZXRfcmVsZWFzZRgGIAEoDRJRChRzcGVjX3RhcmdldF9yZWxlYXNlcxgHIAMoCzIzLm9yYml0LnYxLkNvbmZvcm1hbmNlVXBkYXRlLlNwZWNUYXJnZXRSZWxlYXNlc0VudHJ5Eh4KFmV4cGVjdGVkX2ZhaWx1cmVzX2NvcmUYCCABKAkSKQoFc3RhbGUYCSADKAsyGi5vcmJpdC52MS5TdGFsZUV4cGVjdGF0aW9uEg4KBnJ1bl9pZBgKIAEoCRo5ChdTcGVjVGFyZ2V0UmVsZWFzZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKA06AjgBIvgBChFDb25mb3JtYW5jZVJlc3VsdBIKCgJpZBgBIAEoCRIQCghjYXRlZ29yeRgCIAEoCRIQCghzcGVjX3JlZhgDIAEoCRIPCgd2ZXJkaWN0GAQgASgJEhAKCGV4cGVjdGVkGAUgASgJEhAKCG9ic2VydmVkGAYgASgJEg4KBmRldGFpbBgHIAEoCRIkCglzcGVjX3JlZnMYCCADKAsyES5vcmJpdC52MS5TcGVjUmVmEhMKC21pbl9yZWxlYXNlGAkgASgNEjMKEGV4cGVjdGVkX2ZhaWx1cmUYCiABKAsyGS5vcmJpdC52MS5FeHBlY3RlZEZhaWx1cmUicAoQU3RhbGVFeHBlY3RhdGlvbhINCgVjaGVjaxgBIAEoCRIPCgdmaW5kaW5nGAIgASgJEhkKEWV4cGVjdGVkX29ic2VydmVkGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIb2JzZXJ2ZWQYBSABKAkixQEKB1NwZWNSZWYSDAoEc3BlYxgBIAEoCRIOCgZjbGF1c2UYAiABKAkSEAoIc3RyZW5ndGgYAyABKAkSDQoFc2luY2UYBCABKA0SJwoIdmVyaWZpZWQYBSADKAsyFS5vcmJpdC52MS5TcGVjVmVyc2lvbhIlCgdjaGFuZ2VkGAYgAygLMhQub3JiaXQudjEuU3BlY0NoYW5nZRIZChF3b3JkaW5nX3VuY2hhbmdlZBgHIAEoCBIQCghyZW5kZXJlZBgIIAEoCSJACgtTcGVjVmVyc2lvbhIPCgdyZWxlYXNlGAEgASgNEg8KB3ZlcnNpb24YAiABKAkSDwoHYXJjaGl2ZRgDIAEoCSIrCgpTcGVjQ2hhbmdlEg8KB3JlbGVhc2UYASABKA0SDAoEbm90ZRgCIAEoCSKDAQoQQ29uZm9ybWFuY2VUYWxseRIOCgZwYXNzZWQYASABKA0SDgoGZmFpbGVkGAIgASgNEg8KB2Vycm9yZWQYAyABKA0SDwoHc2tpcHBlZBgEIAEoDRISCgpkZXZpYXRpb25zGAUgASgNEhkKEWV4cGVjdGVkX2ZhaWx1cmVzGAYgASgNIh0KG0xpc3RDb25mb3JtYW5jZVRlc3RzUmVxdWVzdCKAAQoTQ29uZm9ybWFuY2VUZXN0SW5mbxIKCgJpZBgBIAEoCRIQCghjYXRlZ29yeRgCIAEoCRIQCghzcGVjX3JlZhgDIAEoCRIkCglzcGVjX3JlZnMYBCADKAsyES5vcmJpdC52MS5TcGVjUmVmEhMKC21pbl9yZWxlYXNlGAUgASgNIkwKHExpc3RDb25mb3JtYW5jZVRlc3RzUmVzcG9uc2USLAoFdGVzdHMYASADKAsyHS5vcmJpdC52MS5Db25mb3JtYW5jZVRlc3RJbmZvMtEBChJDb25mb3JtYW5jZVNlcnZpY2USUgoOUnVuQ29uZm9ybWFuY2USHy5vcmJpdC52MS5SdW5Db25mb3JtYW5jZVJlcXVlc3QaGy5vcmJpdC52MS5Db25mb3JtYW5jZVVwZGF0ZSIAMAESZwoUTGlzdENvbmZvcm1hbmNlVGVzdHMSJS5vcmJpdC52MS5MaXN0Q29uZm9ybWFuY2VUZXN0c1JlcXVlc3QaJi5vcmJpdC52MS5MaXN0Q29uZm9ybWFuY2VUZXN0c1Jlc3BvbnNlIgBCMFouZ2l0aHViLmNvbS9iZ3Jld2VsbC9vcmJpdC9nZW4vb3JiaXQvdjE7b3JiaXR2MWIGcHJvdG8z", [file_orbit_v1_plan, file_orbit_v1_ue]);
+  fileDesc("ChpvcmJpdC92MS9jb25mb3JtYW5jZS5wcm90bxIIb3JiaXQudjEiqQMKFVJ1bkNvbmZvcm1hbmNlUmVxdWVzdBITCgthbWZfYWRkcmVzcxgBIAEoCRILCgNtY2MYAiABKAkSCwoDbW5jGAMgASgJEgsKA3RhYxgEIAEoDRILCgNzc3QYCiABKA0SCgoCc2QYCyABKAkSEwoLZ25iX2lkX2Jhc2UYBSABKA0SDgoGdXBmX24zGAYgASgJEg8KB24zX2JpbmQYByABKAkSFgoKY2F0ZWdvcmllcxgIIAMoCUICGAESGAoQcGVyX3Rlc3Rfc2Vjb25kcxgJIAEoDRIUCgxiaW5kX2FkZHJlc3MYDCABKAkSFgoOdGFyZ2V0X3JlbGVhc2UYDSABKA0SDAoEc3VwaRgOIAEoCRIqCgtjcmVkZW50aWFscxgPIAEoCzIVLm9yYml0LnYxLkNyZWRlbnRpYWxzEgsKA2RubhgQIAEoCRIOCgZnbmJfbjMYESABKAkSDwoHdHJhZmZpYxgSIAEoCRIOCgZncm91cHMYFCADKAkSDAoEdGFncxgVIAMoCRIfCgRwbGFuGBMgASgLMhEub3JiaXQudjEuUnVuUGxhbiLEAwoRQ29uZm9ybWFuY2VVcGRhdGUSKwoGcmVzdWx0GAEgASgLMhsub3JiaXQudjEuQ29uZm9ybWFuY2VSZXN1bHQSDAoEZG9uZRgCIAEoCBIpCgV0YWxseRgDIAEoCzIaLm9yYml0LnYxLkNvbmZvcm1hbmNlVGFsbHkSDQoFaW5kZXgYBCABKA0SDQoFdG90YWwYBSABKA0SFgoOdGFyZ2V0X3JlbGVhc2UYBiABKA0SUQoUc3BlY190YXJnZXRfcmVsZWFzZXMYByADKAsyMy5vcmJpdC52MS5Db25mb3JtYW5jZVVwZGF0ZS5TcGVjVGFyZ2V0UmVsZWFzZXNFbnRyeRIeChZleHBlY3RlZF9mYWlsdXJlc19jb3JlGAggASgJEikKBXN0YWxlGAkgAygLMhoub3JiaXQudjEuU3RhbGVFeHBlY3RhdGlvbhIOCgZydW5faWQYCiABKAkSKgoJcHJlZmxpZ2h0GAsgAygLMhcub3JiaXQudjEuUHJlZmxpZ2h0U3RlcBo5ChdTcGVjVGFyZ2V0UmVsZWFzZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKA06AjgBIj0KDVByZWZsaWdodFN0ZXASDAoEc3RlcBgBIAEoCRIOCgZzdGF0dXMYAiABKAkSDgoGZGV0YWlsGAMgASgJIpsDChFDb25mb3JtYW5jZVJlc3VsdBIKCgJpZBgBIAEoCRIUCghjYXRlZ29yeRgCIAEoCUICGAESDQoFZ3JvdXAYESABKAkSDAoEdGFncxgSIAMoCRIMCgRwYWNrGBMgASgJEhAKCHNwZWNfcmVmGAMgASgJEg8KB3ZlcmRpY3QYBCABKAkSEAoIZXhwZWN0ZWQYBSABKAkSEAoIb2JzZXJ2ZWQYBiABKAkSDgoGZGV0YWlsGAcgASgJEiQKCXNwZWNfcmVmcxgIIAMoCzIRLm9yYml0LnYxLlNwZWNSZWYSEwoLbWluX3JlbGVhc2UYCSABKA0SMwoQZXhwZWN0ZWRfZmFpbHVyZRgKIAEoCzIZLm9yYml0LnYxLkV4cGVjdGVkRmFpbHVyZRIPCgdvdXRjb21lGAsgASgJEhEKCWNyaXRlcmlvbhgMIAEoCRIUCgxvdXRjb21lX3JlZnMYDSADKAkSEgoKYmxvY2tlZF9vbhgOIAEoCRINCgVvd25lchgPIAEoCRIVCg1ub3RfY29tcGxldGVkGBAgASgJIooBChBTdGFsZUV4cGVjdGF0aW9uEg0KBWNoZWNrGAEgASgJEg8KB2ZpbmRpbmcYAiABKAkSGQoRZXhwZWN0ZWRfb2JzZXJ2ZWQYAyABKAkSDwoHdmVyZGljdBgEIAEoCRIQCghvYnNlcnZlZBgFIAEoCRIYChBleHBlY3RlZF92ZXJkaWN0GAYgASgJItYBCgdTcGVjUmVmEgwKBHNwZWMYASABKAkSDgoGY2xhdXNlGAIgASgJEhAKCHN0cmVuZ3RoGAMgASgJEg0KBXNpbmNlGAQgASgNEicKCHZlcmlmaWVkGAUgAygLMhUub3JiaXQudjEuU3BlY1ZlcnNpb24SJQoHY2hhbmdlZBgGIAMoCzIULm9yYml0LnYxLlNwZWNDaGFuZ2USGQoRd29yZGluZ191bmNoYW5nZWQYByABKAgSEAoIcmVuZGVyZWQYCCABKAkSDwoHcHJpbWFyeRgJIAEoCCJACgtTcGVjVmVyc2lvbhIPCgdyZWxlYXNlGAEgASgNEg8KB3ZlcnNpb24YAiABKAkSDwoHYXJjaGl2ZRgDIAEoCSIrCgpTcGVjQ2hhbmdlEg8KB3JlbGVhc2UYASABKA0SDAoEbm90ZRgCIAEoCSLbAQoQQ29uZm9ybWFuY2VUYWxseRIOCgZwYXNzZWQYASABKA0SDgoGZmFpbGVkGAIgASgNEg8KB2Vycm9yZWQYAyABKA0SDwoHc2tpcHBlZBgEIAEoDRISCgpkZXZpYXRpb25zGAUgASgNEhkKEWV4cGVjdGVkX2ZhaWx1cmVzGAYgASgNEgwKBGluZm8YByABKA0SFgoKaW5mb19kaWZmcxgIIAEoDUICGAESDgoGd2FybmVkGAkgASgNEg8KB2Jsb2NrZWQYCiABKA0SDwoHY3Jhc2hlZBgLIAEoDSIdChtMaXN0Q29uZm9ybWFuY2VUZXN0c1JlcXVlc3QioQEKE0NvbmZvcm1hbmNlVGVzdEluZm8SCgoCaWQYASABKAkSFAoIY2F0ZWdvcnkYAiABKAlCAhgBEg0KBWdyb3VwGAYgASgJEgwKBHRhZ3MYByADKAkSEAoIc3BlY19yZWYYAyABKAkSJAoJc3BlY19yZWZzGAQgAygLMhEub3JiaXQudjEuU3BlY1JlZhITCgttaW5fcmVsZWFzZRgFIAEoDSJMChxMaXN0Q29uZm9ybWFuY2VUZXN0c1Jlc3BvbnNlEiwKBXRlc3RzGAEgAygLMh0ub3JiaXQudjEuQ29uZm9ybWFuY2VUZXN0SW5mbzLRAQoSQ29uZm9ybWFuY2VTZXJ2aWNlElIKDlJ1bkNvbmZvcm1hbmNlEh8ub3JiaXQudjEuUnVuQ29uZm9ybWFuY2VSZXF1ZXN0Ghsub3JiaXQudjEuQ29uZm9ybWFuY2VVcGRhdGUiADABEmcKFExpc3RDb25mb3JtYW5jZVRlc3RzEiUub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXF1ZXN0GiYub3JiaXQudjEuTGlzdENvbmZvcm1hbmNlVGVzdHNSZXNwb25zZSIAQjBaLmdpdGh1Yi5jb20vYmdyZXdlbGwvb3JiaXQvZ2VuL29yYml0L3YxO29yYml0djFiBnByb3RvMw", [file_orbit_v1_plan, file_orbit_v1_ue]);
 
 /**
  * @generated from message orbit.v1.RunConformanceRequest
@@ -81,7 +81,7 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
   gnbIdBase: number;
 
   /**
-   * User-plane checks (the gtpu category) need the UPF's N3 endpoint and a
+   * User-plane checks (the GTP-U ones) need the UPF's N3 endpoint and a
    * local N3 source address to bind. Absent, those tests report SKIP.
    *
    * host:port
@@ -98,9 +98,11 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
   n3Bind: string;
 
   /**
-   * Categories to run; empty runs everything.
+   * Removed: categories were replaced by groups (ADR-0011). A request that
+   * names one is refused with the groups and checks that replace it.
    *
-   * @generated from field: repeated string categories = 8;
+   * @generated from field: repeated string categories = 8 [deprecated = true];
+   * @deprecated
    */
   categories: string[];
 
@@ -172,6 +174,22 @@ export type RunConformanceRequest = Message<"orbit.v1.RunConformanceRequest"> & 
    * @generated from field: string traffic = 18;
    */
   traffic: string;
+
+  /**
+   * Groups to run: group paths or prefixes of them, in any case
+   * ("NGAP", "NAS / 5GMM common procedures"); empty runs every group.
+   *
+   * @generated from field: repeated string groups = 20;
+   */
+  groups: string[];
+
+  /**
+   * Tags to run: negative | security | timing; a check with any of them
+   * runs. Empty runs every check. Tags never affect a verdict.
+   *
+   * @generated from field: repeated string tags = 21;
+   */
+  tags: string[];
 
   /**
    * The suite as a plan (ADR-0008 §2): one conformance workload with its
@@ -266,6 +284,14 @@ export type ConformanceUpdate = Message<"orbit.v1.ConformanceUpdate"> & {
    * @generated from field: string run_id = 10;
    */
   runId: string;
+
+  /**
+   * The run's preflight, on every update once it has run: the setup the
+   * selected checks need, done once before any check. It is not a check.
+   *
+   * @generated from field: repeated orbit.v1.PreflightStep preflight = 11;
+   */
+  preflight: PreflightStep[];
 };
 
 /**
@@ -274,6 +300,44 @@ export type ConformanceUpdate = Message<"orbit.v1.ConformanceUpdate"> & {
  */
 export const ConformanceUpdateSchema: GenMessage<ConformanceUpdate> = /*@__PURE__*/
   messageDesc(file_orbit_v1_conformance, 1);
+
+/**
+ * PreflightStep is one step of a conformance run's preflight (ADR-0011
+ * rule 6). A check that depends on a step that did not complete reports
+ * ERROR without running; a step that completed makes a later failure of
+ * the same setup inside a check the core's (BLOCKED).
+ *
+ * @generated from message orbit.v1.PreflightStep
+ */
+export type PreflightStep = Message<"orbit.v1.PreflightStep"> & {
+  /**
+   * NG Setup | registration | PDU session establishment | UPF probe
+   *
+   * @generated from field: string step = 1;
+   */
+  step: string;
+
+  /**
+   * ok | failed | not run
+   *
+   * @generated from field: string status = 2;
+   */
+  status: string;
+
+  /**
+   * what was done, or why the step failed
+   *
+   * @generated from field: string detail = 3;
+   */
+  detail: string;
+};
+
+/**
+ * Describes the message orbit.v1.PreflightStep.
+ * Use `create(PreflightStepSchema)` to create a new message.
+ */
+export const PreflightStepSchema: GenMessage<PreflightStep> = /*@__PURE__*/
+  messageDesc(file_orbit_v1_conformance, 2);
 
 /**
  * @generated from message orbit.v1.ConformanceResult
@@ -285,9 +349,36 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
   id: string;
 
   /**
-   * @generated from field: string category = 2;
+   * Always empty: categories were replaced by groups (ADR-0011).
+   *
+   * @generated from field: string category = 2 [deprecated = true];
+   * @deprecated
    */
   category: string;
+
+  /**
+   * The check's group in the run's target release: specification /
+   * procedure family / procedure, by the specification's clause titles.
+   *
+   * @generated from field: string group = 17;
+   */
+  group: string;
+
+  /**
+   * The check's tags (negative, security, timing), for filtering only.
+   *
+   * @generated from field: repeated string tags = 18;
+   */
+  tags: string[];
+
+  /**
+   * The core regression pack the check belongs to; empty for a check of
+   * the default run. A pack check reports INFO, WARN, SKIP, BLOCKED,
+   * ERROR or CRASH, never PASS, FAIL or DEVIATION.
+   *
+   * @generated from field: string pack = 19;
+   */
+  pack: string;
 
   /**
    * @generated from field: string spec_ref = 3;
@@ -295,7 +386,8 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
   specRef: string;
 
   /**
-   * PASS | FAIL | ERROR | SKIP | DEVIATION
+   * One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
+   * INFO | BLOCKED | CRASH | SKIP | ERROR.
    *
    * @generated from field: string verdict = 4;
    */
@@ -340,6 +432,51 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
    * @generated from field: orbit.v1.ExpectedFailure expected_failure = 10;
    */
   expectedFailure?: ExpectedFailure | undefined;
+
+  /**
+   * The check's declared outcome this result reports, by its ID
+   * ("silent-drop"); docs/conformance/checks.md lists every check's.
+   *
+   * @generated from field: string outcome = 11;
+   */
+  outcome: string;
+
+  /**
+   * Why a WARN is one: security | availability | interoperability.
+   *
+   * @generated from field: string criterion = 12;
+   */
+  criterion: string;
+
+  /**
+   * The references the outcome rests on, each rendered with its strength
+   * ("TS 38.413 10.6 (shall)"): the shall a FAIL violates, the should a
+   * DEVIATION does not follow.
+   *
+   * @generated from field: repeated string outcome_refs = 13;
+   */
+  outcomeRefs: string[];
+
+  /**
+   * Set on a BLOCKED result: the procedure the core did not complete
+   * ("registration") and the check that owns whether it completes.
+   *
+   * @generated from field: string blocked_on = 14;
+   */
+  blockedOn: string;
+
+  /**
+   * @generated from field: string owner = 15;
+   */
+  owner: string;
+
+  /**
+   * Set on an owner check's result that reports a procedure it owns as not
+   * completing.
+   *
+   * @generated from field: string not_completed = 16;
+   */
+  notCompleted: string;
 };
 
 /**
@@ -347,7 +484,7 @@ export type ConformanceResult = Message<"orbit.v1.ConformanceResult"> & {
  * Use `create(ConformanceResultSchema)` to create a new message.
  */
 export const ConformanceResultSchema: GenMessage<ConformanceResult> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 2);
+  messageDesc(file_orbit_v1_conformance, 3);
 
 /**
  * StaleExpectation is an expected-failures entry whose check ran without the
@@ -384,6 +521,13 @@ export type StaleExpectation = Message<"orbit.v1.StaleExpectation"> & {
    * @generated from field: string observed = 5;
    */
   observed: string;
+
+  /**
+   * the entry's verdict: FAIL, DEVIATION or WARN
+   *
+   * @generated from field: string expected_verdict = 6;
+   */
+  expectedVerdict: string;
 };
 
 /**
@@ -391,7 +535,7 @@ export type StaleExpectation = Message<"orbit.v1.StaleExpectation"> & {
  * Use `create(StaleExpectationSchema)` to create a new message.
  */
 export const StaleExpectationSchema: GenMessage<StaleExpectation> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 3);
+  messageDesc(file_orbit_v1_conformance, 4);
 
 /**
  * SpecRef is one clause a conformance check asserts, with the 3GPP release
@@ -449,6 +593,13 @@ export type SpecRef = Message<"orbit.v1.SpecRef"> & {
    * @generated from field: string rendered = 8;
    */
   rendered: string;
+
+  /**
+   * the one reference that names what the check is about
+   *
+   * @generated from field: bool primary = 9;
+   */
+  primary: boolean;
 };
 
 /**
@@ -456,7 +607,7 @@ export type SpecRef = Message<"orbit.v1.SpecRef"> & {
  * Use `create(SpecRefSchema)` to create a new message.
  */
 export const SpecRefSchema: GenMessage<SpecRef> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 4);
+  messageDesc(file_orbit_v1_conformance, 5);
 
 /**
  * SpecVersion is one specification version whose wording was read.
@@ -489,7 +640,7 @@ export type SpecVersion = Message<"orbit.v1.SpecVersion"> & {
  * Use `create(SpecVersionSchema)` to create a new message.
  */
 export const SpecVersionSchema: GenMessage<SpecVersion> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 5);
+  messageDesc(file_orbit_v1_conformance, 6);
 
 /**
  * SpecChange is one release whose wording or clause number differs from the
@@ -514,7 +665,7 @@ export type SpecChange = Message<"orbit.v1.SpecChange"> & {
  * Use `create(SpecChangeSchema)` to create a new message.
  */
 export const SpecChangeSchema: GenMessage<SpecChange> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 6);
+  messageDesc(file_orbit_v1_conformance, 7);
 
 /**
  * @generated from message orbit.v1.ConformanceTally
@@ -551,6 +702,42 @@ export type ConformanceTally = Message<"orbit.v1.ConformanceTally"> & {
    * @generated from field: uint32 expected_failures = 6;
    */
   expectedFailures: number;
+
+  /**
+   * INFO results: behaviour recorded where no requirement applies.
+   *
+   * @generated from field: uint32 info = 7;
+   */
+  info: number;
+
+  /**
+   * Always zero: the INFO-DIFF verdict was removed (ADR-0011).
+   *
+   * @generated from field: uint32 info_diffs = 8 [deprecated = true];
+   * @deprecated
+   */
+  infoDiffs: number;
+
+  /**
+   * WARN
+   *
+   * @generated from field: uint32 warned = 9;
+   */
+  warned: number;
+
+  /**
+   * BLOCKED
+   *
+   * @generated from field: uint32 blocked = 10;
+   */
+  blocked: number;
+
+  /**
+   * CRASH
+   *
+   * @generated from field: uint32 crashed = 11;
+   */
+  crashed: number;
 };
 
 /**
@@ -558,7 +745,7 @@ export type ConformanceTally = Message<"orbit.v1.ConformanceTally"> & {
  * Use `create(ConformanceTallySchema)` to create a new message.
  */
 export const ConformanceTallySchema: GenMessage<ConformanceTally> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 7);
+  messageDesc(file_orbit_v1_conformance, 8);
 
 /**
  * @generated from message orbit.v1.ListConformanceTestsRequest
@@ -571,7 +758,7 @@ export type ListConformanceTestsRequest = Message<"orbit.v1.ListConformanceTests
  * Use `create(ListConformanceTestsRequestSchema)` to create a new message.
  */
 export const ListConformanceTestsRequestSchema: GenMessage<ListConformanceTestsRequest> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 8);
+  messageDesc(file_orbit_v1_conformance, 9);
 
 /**
  * @generated from message orbit.v1.ConformanceTestInfo
@@ -583,9 +770,26 @@ export type ConformanceTestInfo = Message<"orbit.v1.ConformanceTestInfo"> & {
   id: string;
 
   /**
-   * @generated from field: string category = 2;
+   * Always empty: categories were replaced by groups (ADR-0011).
+   *
+   * @generated from field: string category = 2 [deprecated = true];
+   * @deprecated
    */
   category: string;
+
+  /**
+   * The check's group, in the latest release's clause titles.
+   *
+   * @generated from field: string group = 6;
+   */
+  group: string;
+
+  /**
+   * The check's tags (negative, security, timing), for filtering only.
+   *
+   * @generated from field: repeated string tags = 7;
+   */
+  tags: string[];
 
   /**
    * @generated from field: string spec_ref = 3;
@@ -608,7 +812,7 @@ export type ConformanceTestInfo = Message<"orbit.v1.ConformanceTestInfo"> & {
  * Use `create(ConformanceTestInfoSchema)` to create a new message.
  */
 export const ConformanceTestInfoSchema: GenMessage<ConformanceTestInfo> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 9);
+  messageDesc(file_orbit_v1_conformance, 10);
 
 /**
  * @generated from message orbit.v1.ListConformanceTestsResponse
@@ -625,7 +829,7 @@ export type ListConformanceTestsResponse = Message<"orbit.v1.ListConformanceTest
  * Use `create(ListConformanceTestsResponseSchema)` to create a new message.
  */
 export const ListConformanceTestsResponseSchema: GenMessage<ListConformanceTestsResponse> = /*@__PURE__*/
-  messageDesc(file_orbit_v1_conformance, 10);
+  messageDesc(file_orbit_v1_conformance, 11);
 
 /**
  * ConformanceService runs the core conformance / regression suite server-side,
@@ -650,7 +854,7 @@ export const ConformanceService: GenService<{
   },
   /**
    * ListConformanceTests reports the registered tests without running them,
-   * so a client can render the table skeleton (and per-category counts)
+   * so a client can render the table skeleton (and per-group counts)
    * before or without a run.
    *
    * @generated from rpc orbit.v1.ConformanceService.ListConformanceTests

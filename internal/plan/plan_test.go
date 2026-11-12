@@ -112,7 +112,8 @@ workloads:
   - name: suite
     start: {after: pop, phase: attached}
     conformance:
-      categories: [negative-ie]
+      groups: [NGAP]
+      checks: [NGAP-UNKNOWN-UE-SURVIVES, ngap-ngsetup-missing-talist]
       target_release: Rel-17
       gnb_ids: {first: 700}
       expected: suite.yaml
@@ -134,7 +135,10 @@ entries:
 			if w.GetStart().GetAfter() != "pop" || w.GetStart().GetPhase() != orbitv1.WorkloadPhase_WORKLOAD_PHASE_ATTACHED {
 				t.Errorf("start = %v", w.GetStart())
 			}
-			if cw.GetCategories()[0] != "negative-ie" || cw.GetTargetRelease() != "Rel-17" || cw.GetGnbIds().GetFirst() != 700 ||
+			if !slices.Equal(cw.GetChecks(), []string{"NGAP-UNKNOWN-UE-SURVIVES", "ngap-ngsetup-missing-talist"}) {
+				t.Errorf("checks = %v", cw.GetChecks())
+			}
+			if cw.GetGroups()[0] != "NGAP" || cw.GetTargetRelease() != "Rel-17" || cw.GetGnbIds().GetFirst() != 700 ||
 				cw.GetExpected().GetCore() != "lab A" || cw.GetExpected().GetEntries()[0].GetFinding() != "EX-1" {
 				t.Errorf("conformance = %v", cw)
 			}
@@ -148,12 +152,12 @@ entries:
 					t.Error("behaviors dropped: the population would be a storm")
 				}
 			}},
-		{name: "both kinds", run: "kind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\n    conformance: {categories: [nas]}\n",
+		{name: "both kinds", run: "kind: run\nworkloads:\n  - name: w\n    attach: {count: 1}\n    conformance: {groups: [NAS]}\n",
 			wantErr: "one kind per workload"},
 		{name: "two stops", run: "kind: run\nuntil: {duration: 1h, forever: true}\n", wantErr: "give one of duration, complete and forever"},
 		{name: "a bad duration", run: "kind: run\nuntil: {duration: soon}\n", wantErr: "until.duration"},
 		{name: "first and assign", run: "kind: run\nworkloads:\n  - name: w\n    topology: {gnb_ids: {first: 1, assign: true}}\n", wantErr: "first or assign"},
-		{name: "a bad phase", run: "kind: run\nworkloads:\n  - name: s\n    start: {after: p, phase: soon}\n    conformance: {categories: [nas]}\n", wantErr: "start.phase"},
+		{name: "a bad phase", run: "kind: run\nworkloads:\n  - name: s\n    start: {after: p, phase: soon}\n    conformance: {groups: [NAS]}\n", wantErr: "start.phase"},
 		{name: "a bad arrival", run: "kind: run\nworkloads:\n  - name: w\n    attach: {arrival: bursty}\n", wantErr: "attach.arrival"},
 		{name: "a gate with no metric", run: "kind: run\ngates:\n  - name: mine\n    slo: {threshold: \"1\"}\n", wantErr: "give slo.metric"},
 		{name: "a gate with neither check", run: "kind: run\ngates:\n  - name: mine\n    workload: x\n", wantErr: "give slo.threshold"},
@@ -224,6 +228,10 @@ var samples = map[string]string{
 	"workloads[].subscriber_pool":                 "main",
 	"workloads[].sample_interval_ms":              "500",
 	"workloads[].conformance.categories":          "nas",
+	"workloads[].conformance.groups":              "NAS",
+	"workloads[].conformance.tags":                "timing",
+	"workloads[].conformance.pack":                "lab",
+	"workloads[].conformance.checks":              "NGAP-NG-RESET-ACK",
 	"workloads[].conformance.target_release":      "Rel-17",
 	"workloads[].conformance.expected":            "{core: c, entries: []}",
 	"workloads[].conformance.per_test_timeout_ms": "2000",
@@ -241,6 +249,7 @@ var samples = map[string]string{
 	"gates[].slo.op":                              ">=",
 	"gates[].slo.threshold":                       "0.5",
 	"gates[].conformance":                         "true",
+	"gates[].policy":                              "spec",
 }
 
 // notInPlan are run-file paths that do not land in the RunPlan: they say
@@ -279,6 +288,8 @@ func TestEveryRunPathReachesThePlan(t *testing.T) {
 		// A gate needs a check, and a conformance field makes a suite;
 		// give each the minimum beside the field under test.
 		switch {
+		case p == "gates[].policy":
+			in.Settings = append(in.Settings, target.Setting{Path: "gates[w].conformance", Value: "true"})
 		case strings.HasPrefix(p, "gates[]") && p != "gates[].slo.threshold" && p != "gates[].conformance" && p != "gates[].slo.metric":
 			in.Settings = append(in.Settings, target.Setting{Path: "gates[w].slo.metric", Value: "attach.success_ratio"},
 				target.Setting{Path: "gates[w].slo.threshold", Value: "0.5"})
@@ -418,7 +429,9 @@ func TestParseGate(t *testing.T) {
 			"gates[registration_p99_ms].slo.threshold": "500ms"}},
 		{spec: "ok=attach.success_ratio>=0.99", want: map[string]string{"gates[ok].slo.op": ">=", "gates[ok].slo.threshold": "0.99"}},
 		{spec: "conformance", want: map[string]string{"gates[conformance].conformance": "true"}},
-		{spec: "suite=conformance", want: map[string]string{"gates[suite].conformance": "true"}},
+		{spec: "suite=conformance", want: map[string]string{"gates[suite].conformance": "true", "gates[suite].policy": ""}},
+		{spec: "spec", want: map[string]string{"gates[conformance].conformance": "true", "gates[conformance].policy": "spec"}},
+		{spec: "suite=spec", want: map[string]string{"gates[suite].conformance": "true", "gates[suite].policy": "spec"}},
 		{spec: "attach.success_ratio", wantErr: "want [name=]metric<op>value"},
 		{spec: "a.b=attach.success_ratio>=1", wantErr: "may not hold"},
 		{spec: "a.b=conformance", wantErr: "may not hold"},
@@ -455,6 +468,23 @@ func TestParseGate(t *testing.T) {
 	}
 	if g := p.GetGates()[0].GetSlo(); g.GetThreshold() != 500 || g.GetOp() != orbitv1.CompareOp_COMPARE_OP_LE {
 		t.Errorf("gate = %v, want registration.p99_ms <= 500", g)
+	}
+	// A conformance gate's policy: spec from --gate spec, unset for the
+	// default; a policy on an SLO gate or an unknown one is refused.
+	for spec, want := range map[string]string{"spec": "spec", "conformance": ""} {
+		set, _ := ParseGate(spec)
+		p, _, err := Build(resolve(t, "kind: run\n", target.Input{Layer: target.LayerFlag, Settings: set}))
+		if err != nil || p.GetGates()[0].GetConformance() == nil || p.GetGates()[0].GetConformance().GetPolicy() != want {
+			t.Errorf("--gate %s: gates %v, %v; want a conformance gate with policy %q", spec, p.GetGates(), err, want)
+		}
+	}
+	for _, bad := range []struct{ run, wantErr string }{
+		{"kind: run\ngates:\n  - {name: g, conformance: true, policy: strict}\n", "want default or spec"},
+		{"kind: run\ngates:\n  - {name: g, slo: {metric: attach.success_ratio, op: \">=\", threshold: 0.5}, policy: spec}\n", "policy belongs to a conformance gate"},
+	} {
+		if _, _, err := Build(resolve(t, bad.run)); err == nil || !strings.Contains(err.Error(), bad.wantErr) {
+			t.Errorf("%q: err = %v, want %q", bad.run, err, bad.wantErr)
+		}
 	}
 }
 
@@ -650,7 +680,7 @@ func TestNASFlagsReachThePlan(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res := resolve(t, "kind: run\nworkloads:\n  - name: suite\n    conformance: {categories: [nas]}\n",
+			res := resolve(t, "kind: run\nworkloads:\n  - name: suite\n    conformance: {groups: [NAS]}\n",
 				target.Input{Layer: target.LayerFlag, Settings: tc.settings})
 			p, _, err := Build(res)
 			if err != nil {

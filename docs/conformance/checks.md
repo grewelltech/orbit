@@ -4,82 +4,934 @@
 
 Every check names the clauses it asserts and the 3GPP releases they come from, verified in the [3GPP archive](https://www.3gpp.org/ftp/Specs/archive/) through Rel-19. A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. The quoted normative text for each check is in [provenance/](provenance/).
 
+**Verdict class** is the worst a check's declared outcomes can say of a core: `FAIL` for a missed shall, `DEVIATION` for a missed should, `WARN` for behaviour no requirement covers that meets a criterion (security, availability or interoperability), `INFO` for behaviour that is only recorded. In every class a core that does not survive a check's stimulus is `CRASH`. Each check's outcomes are listed below, under Declared outcomes.
+
 Default target: Rel-18 (TS 29.244 at Rel-16); see [target-release.md](target-release.md).
 
 **Up to** is the longest a check can take at the default `--per-test-timeout` (15s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.
 
-| Check | Category | Verdict class | Requires | Up to | Clauses |
-|---|---|---|---|---|---|
-| [GTPU-END-MARKER-ON-PATH-SWITCH](provenance/GTPU-END-MARKER-ON-PATH-SWITCH.md) | mobility | FAIL | Rel-15 | 15s | TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: "In case of" reads "In the case of" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; "set to 1" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag) |
-| [GTPU-UNKNOWN-TEID-ERRIND](provenance/GTPU-UNKNOWN-TEID-ERRIND.md) | gtpu | FAIL | Rel-15 | 15s | TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without "PDU Session"; Rel-15: "PDU Session" added in V15.4.0) |
-| [NAS-REG-REJECTED-NSSAI](provenance/NAS-REG-REJECTED-NSSAI.md) | nas | FAIL | Rel-16 | 20s | TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on "the absence of allowed S-NSSAI(s)"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: "default S-NSSAIs" replaces "subscribed S-NSSAIs marked as default"; a) reads "all the S-NSSAI(s) included in the requested NSSAI are rejected"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds "of the REGISTRATION REJECT message"); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 "may include the rejected NSSAI"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the "if the UE had included requested NSSAI" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds "shall not include" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE) |
-| [NAS-PDU-UNKNOWN-DNN](provenance/NAS-PDU-UNKNOWN-DNN.md) | nas | FAIL | Rel-15 | 30s | TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be "MA PDU request"; Rel-18: "subclause" becomes "clause"); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as "DNN not supported with no slice or DNN not supported in specific slice"; V15.2.0 renames it "DNN not supported or not subscribed in the slice" and adds "Otherwise ... #90"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads "a SM PDU SESSION ESTABLISHMENT REJECT"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops "SM"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes); TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19) |
-| [NAS-T3550-ACCEPT-RETRANSMIT](provenance/NAS-T3550-ACCEPT-RETRANSMIT.md) | nas | FAIL | Rel-15 | 2m25s | TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19); TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the "ACCCEPT" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: "subclause" becomes "clause"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers); TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s) |
-| [NAS-T3560-AUTH-RETRANSMIT](provenance/NAS-T3560-AUTH-RETRANSMIT.md) | nas | FAIL | Rel-15 | 3m10s | TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s) |
-| [NGAP-UNKNOWN-UE-SURVIVES](provenance/NGAP-UNKNOWN-UE-SURVIVES.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences) |
-| [NGAP-NGSETUP-MISSING-TALIST](provenance/NGAP-NGSETUP-MISSING-TALIST.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads "GLOBAL reject" in V15.0.0, "YES reject" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19) |
-| [NGAP-NGSETUP-UNKNOWN-PLMN](provenance/NGAP-NGSETUP-UNKNOWN-PLMN.md) | negative-ie | FAIL | Rel-15 | 15s | TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause "Unknown PLMN" renamed "Unknown PLMN or SNPN" in V16.5.0) |
-| [NGAP-NG-RESET-ACK](provenance/NGAP-NG-RESET-ACK.md) | procedural | FAIL | Rel-15 | 15s | TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19) |
-| [NAS-SMC-NO-NIA0-REPLAYED-CAPS](provenance/NAS-SMC-NO-NIA0-REPLAYED-CAPS.md) | security | FAIL | Rel-15 | 50s | TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only "shall be integrity-protected"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0); TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, "selected NAS algorithm", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version); TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19) |
+A suite runs the checks in the order of this table, except that the checks of two later phases run after all the others, in table order within a phase; `orbit conformance --list` prints the run order and each check's phase. Phase `stranding`, the checks that leave a UE context for the core's own timers to clear: `NAS-RETRANSMIT-NEW-COUNT`, `NAS-T3550-ACCEPT-RETRANSMIT`, `NAS-T3560-AUTH-RETRANSMIT`, `NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL`. Phase `disruptive`, last of all, the checks whose stimulus a core may not survive: `NGAP-PATH-SWITCH-SECCAP-MISMATCH`. A check's gNB IDs and subscribers follow its place in the table, not in the run.
+
+**Group** is derived from the check's primary reference: the specification, the procedure family and the procedure, by the specification's own clause titles in the latest release (ADR-0011 rule 9).
+
+**Tags** say what kind of stimulus a check uses (`negative`: malformed, unknown or unexpected input; `security`: a security procedure or protection; `timing`: a timer or the time between messages); they select checks with `--tag` and never affect a verdict.
+
+The table is the default run. A core regression pack (`--pack`, ADR-0011 rule 1) runs only when a run names it, for a target with the pack's `core.profile`, and is not listed here; there are 0.
+
+| Check | Group | Tags | Verdict class | Requires | Up to | Clauses |
+|---|---|---|---|---|---|---|
+| [NGAP-UE-CTX-RELEASE-ON-REQUEST](provenance/NGAP-UE-CTX-RELEASE-ON-REQUEST.md) | NGAP / UE Context Management Procedures / UE Context Release Request (NG-RAN node initiated) |  | DEVIATION | Rel-15 | 15s | TS 38.413 8.3.2.2 (Rel-15 onward; Rel-18: V18.1.0 splits the should by cause: with "User inactivity" the release should be initiated when there is no downlink signalling; Rel-15 to Rel-17 have one unconditional sentence; Rel-19: the cited text is unchanged; V19.1.0 adds a GW Context Release Indication sentence) |
+| [NAS-DEREG-ACCEPT-NOT-SWITCH-OFF](provenance/NAS-DEREG-ACCEPT-NOT-SWITCH-OFF.md) | NAS / 5GMM specific procedures / De-registration procedure |  | FAIL | Rel-15 | 40s | TS 24.501 5.5.2.2.2 (Rel-15 onward; Rel-15: V15.0.0 titles the clause "UE-initiated de-registration procedure completion - common procedure", "UE-initiated de-registration procedure completion" by V15.7.0; the AMF sentence is unchanged from V15.0.0 through V19.8.0); TS 24.501 Table 10.2.1 T3521 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 45s; the normal value stays 15s; Rel-17: adds 27s for access via a satellite NG-RAN cell; the normal value stays 15s) |
+| [NGAP-CTX-RELEASE-AFTER-SWITCH-OFF](provenance/NGAP-CTX-RELEASE-AFTER-SWITCH-OFF.md) | NGAP / UE Context Management Procedures / UE Context Release (AMF initiated) |  | FAIL | Rel-15 | 20s | TS 38.413 8.3.3.2 (Rel-15 onward; Rel-15: IE-handling sentences are added after V15.0.0, and 8.3.3.1 is extended to mention releasing the old connection when the UE establishes a new one; the UE NGAP ID sentences are unchanged from V15.0.0 through V19.4.0; Rel-16: further IE-handling sentences are added; the UE NGAP ID sentences are unchanged); TS 23.502 4.2.2.3.2 step 8 (Rel-15 onward; Rel-15: V15.0.0 reads "AMF sends N2 UE Release command to RAN", "to NG-RAN" by V15.17.0; graded as a requirement: the step states the AMF's release of the N2 signalling connection in the indicative, with no alternative; Rel-16: the non-3GPP sentence names N3IWF/TNGF/W-AGF; the NG-RAN sentence is unchanged from V15.17.0 through V19.9.0); TS 24.501 5.5.2.2.2 (Rel-15 onward; Rel-15: V15.0.0 titles the clause "UE-initiated de-registration procedure completion - common procedure", "UE-initiated de-registration procedure completion" by V15.7.0; the AMF sentences are unchanged from V15.0.0 through V19.8.0) |
+| [GTPU-END-MARKER-ON-PATH-SWITCH](provenance/GTPU-END-MARKER-ON-PATH-SWITCH.md) | TS 23.501 / User Plane Management / Functionality of Sending of "End marker" |  | FAIL | Rel-15 | 15s | TS 23.501 5.8.2.9.1 (Rel-15 onward; Rel-15: surrounding text: "In case of" reads "In the case of" by V15.13.0; the cited sentence is unchanged Rel-15 through Rel-19; Rel-16: surrounding text: the two preamble paragraphs are removed and the with-UPF-change case is reworded between V16.0.0 and V16.20.0); TS 29.281 7.3.2 (Rel-15 onward; Rel-15: message type 254 dates from Rel-8; the 5GS sentence is added in V15.2.0 and the 5GS-EPS forwarding QFI sentence in V15.5.0; Rel-16: V16.0.0 adds no End Marker on N19; V16.1.0 splits the clause into 7.3.2.1/7.3.2.2/7.3.2.3; V16.2.0 adds the Dual Connectivity no-QFI case; unchanged V16.2.0 through V19.2.0); TS 29.244 8.2.31 (Rel-14 onward; Rel-15: SxSMReq-Flags renamed PFCPSMReq-Flags in V15.0.0; "set to 1" quoted by V15.10.0 (editorial); the SNDEM duty applies when the CP sets the flag) |
+| [GTPU-UNKNOWN-TEID-ERRIND](provenance/GTPU-UNKNOWN-TEID-ERRIND.md) | GTPv1-U / Tunnel Management Messages / Error Indication | negative | FAIL | Rel-15 | 15s | TS 29.281 7.3.1 (Rel-8 onward; Rel-8: V8.0.0 and V8.1.0 have a single sentence without the discard rule, added by V8.3.0; Rel-11: the 'all zeros' TEID exception is present by V11.6.0; Rel-12: current wording from V12.0.0, without "PDU Session"; Rel-15: "PDU Session" added in V15.4.0) |
+| [GTPU-ECHO-RESPONSE](provenance/GTPU-ECHO-RESPONSE.md) | GTPv1-U / Path Management Messages / Echo Request |  | FAIL | Rel-15 | 15s | TS 29.281 7.2.1 (Rel-8 onward; Rel-15: V15.0.0 adds the prefix "Even if there is no path in use," (absent in V8.0.0 and V14.1.0); unchanged through Rel-19); TS 29.281 7.2.2 (Rel-8 onward, wording unchanged through Rel-19); TS 29.281 4.3.1 (Rel-8 onward; Rel-11: "the GSN or RNC" (V8.0.0, V9.0.0) reads "the GTP-U entity" by V11.0.0 (Rel-10 not read); unchanged through Rel-19) |
+| [N3-DL-QFI-CONTAINER](provenance/N3-DL-QFI-CONTAINER.md) | GTPv1-U / GTP-U Extension Header / PDU Session Container |  | FAIL | Rel-15 | 15s | TS 29.281 5.2.2.7 (Rel-15 onward; Rel-15: the clause is introduced in V15.2.0 as "may be transmitted"; "shall be transmitted" from V15.5.0; Rel-17: from V17.3.0 a bulleted list, adding N3mb/N19mb and End Marker bullets; the shall for G-PDUs over N3 and N9 is the same; Rel-19: from V19.1.0 "between NG-RAN and UPF" reads "between 5G-AN and UPF"); TS 38.415 5.4.1.1 (Rel-15 onward; Rel-15: V15.0.0 writes "DL PDU Session Information frame"; "DL PDU SESSION INFORMATION" by V15.3.0 (editorial); the wording is otherwise unchanged Rel-15 through Rel-19); TS 38.415 5.5.2.1 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-PATH-SWITCH-ACK-TRANSFER](provenance/NGAP-PATH-SWITCH-ACK-TRANSFER.md) | NGAP / UE Mobility Management Procedures / Path Switch Request |  | FAIL | Rel-15 | 15s | TS 38.413 8.4.4.2 (Rel-15 onward; Rel-17: sentences are added around the cited one in Rel-17 and Rel-18 (IAB-MT, MT communication handling, RedCap); the cited sentence is the same Rel-15 through Rel-19); TS 38.413 8.4.4.3 (Rel-15 onward; Rel-15: V15.0.0 reads "fails to switch the downlink GTP tunnel endpoint towards a new GTP tunnel endpoint" and ends "with an appropriate cause value"; by V15.13.0 it reads "fails to switch the downlink termination point of the NG-U transport bearer towards a new termination point", unchanged through V19.4.0); TS 38.413 9.3.4.9 (Rel-15 onward; Rel-15: UL NG-U UP TNL Information is M in V15.0.0 and O from V15.1.0; its semantics text dates from V15.3.0; Rel-16: the UL NG-U UP TNL Information row is unchanged Rel-16 through Rel-19; other optional IEs are added (redundant TNL, QoS Flow Parameters List)); TS 38.413 9.2.3.9 (Rel-15 onward; Rel-15: V15.0.0 has a PDU Session Resource to be Switched in Uplink List (0..1); the PDU Session Resource Switched List with a mandatory Path Switch Request Acknowledge Transfer per item dates from V15.1.0); TS 38.413 9.1.1 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-HANDOVER-COMMAND-TRANSFER](provenance/NGAP-HANDOVER-COMMAND-TRANSFER.md) | NGAP / UE Mobility Management Procedures / Handover Preparation |  | FAIL | Rel-15 | 15s | TS 38.413 8.4.1.2 (Rel-15 onward; Rel-15: the intra-system "shall include" sentence is added in V15.5.0; before it V15.0.0 has a PDU Session Resource Subject to Forwarding List (0..1), V15.1.0 to V15.3.0 a mandatory PDU Session Resource Handover List, and V15.4.0 the list as 0..1 with no obligation in the text; the cited sentences are unchanged Rel-16 through Rel-19); TS 38.413 9.2.3.2 (Rel-15 onward; Rel-15: Handover Command Transfer is O per item in V15.0.0 and M from V15.1.0; Rel-18: "subclause 9.3.4.10" reads "clause 9.3.4.10" from Rel-18 (editorial)); TS 38.413 9.3.4.10 (Rel-15 onward; Rel-15: UL forwarding and additional tunnels are added within Rel-15; every IE of the transfer is optional in every version read; Rel-16: adds the Data Forwarding Response E-RAB List; Rel-19: the QoS Flow Failed to Setup List is present by V19.4.0); TS 38.413 9.1.1 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-HANDOVER-CANCEL-ACK](provenance/NGAP-HANDOVER-CANCEL-ACK.md) | NGAP / UE Mobility Management Procedures / Handover Cancellation |  | WARN | Rel-15 | 15s | TS 38.413 8.4.5.2 (Rel-15 onward; Rel-15: the sentence is unchanged from V15.0.0 through V19.4.0; by V15.13.0 8.4.5.4 is added, under which the source NG-RAN node takes a missing acknowledge as a successful cancellation); TS 38.413 Table 8.1-1 (Rel-15 onward, wording unchanged through Rel-19); TS 38.413 9.2.3.12 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-SERVICE-REQUEST-REACTIVATES](provenance/NAS-SERVICE-REQUEST-REACTIVATES.md) | NAS / 5GMM connection management procedures / Service request procedure |  | FAIL | Rel-15 | 46s | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (Rel-15 onward; Rel-16: 5.6.1.4 is split and the text moves to 5.6.1.4.1; the condition adds "and the UE is: a) not in NB-N1 mode; or b) in NB-N1 mode and ..." before "the AMF shall:"; item a) is unchanged in every version); TS 24.501 5.6.1.5 first sentence (Rel-15 onward; Rel-16: V15.0.0 and V15.7.0 end "and stop timer T3517"; absent by V16.15.0); TS 23.502 4.2.3.2 steps 12 and 18a (Rel-15 onward; Rel-15: V15.0.0 reads "forwarded to RAN and UE" in step 18a; "NG-RAN and UE" by V15.17.0, unchanged through V19.9.0; the N2 Request's content in step 12 grows in every release, "N2 SM information received from SMF" and "MM NAS Service Accept" stay) |
+| [NAS-SMC-IMEISV-REQUEST](provenance/NAS-SMC-IMEISV-REQUEST.md) | NAS / 5GMM common procedures / Security mode control procedure | negative, security | WARN | Rel-15 | 20s | TS 24.501 5.4.2.2 IMEISV request (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 6.7.2 step 2b (Rel-15 onward; Rel-15: an unnumbered paragraph in V15.0.0, step 2b by V15.20.0; the sentence on the PEI is unchanged through V19.7.0) |
+| [NAS-INITIAL-MSG-CONTAINER-WINS](provenance/NAS-INITIAL-MSG-CONTAINER-WINS.md) | NAS / 5GMM common procedures / Security mode control procedure | negative, security | FAIL | Rel-15 | 52s | TS 24.501 5.4.2.4 (Rel-15 onward; Rel-15: V15.0.0 names the IE "Replayed NAS message container"; "NAS message container" by V15.7.0, the sentence otherwise unchanged through V19.8.0); TS 33.501 6.4.6 step 4 (Rel-15 onward; Rel-15: V15.0.0 has the complete message resent only after a failed hash check ("the AMF shall treat this as the initial NAS message to respond to"); the NAS Container, and "The AMF shall use the complete initial NAS message that is in the NAS container as the message to respond to", by V15.20.0 and unchanged through V19.7.0) |
+| [NAS-INITIAL-MSG-NO-CONTAINER](provenance/NAS-INITIAL-MSG-NO-CONTAINER.md) | NAS / 5GMM common procedures / Security mode control procedure | negative, security | WARN | Rel-15 | 20s | TS 24.501 4.4.6 a) (Rel-15 onward; Rel-15: V15.0.0 has no clause 4.4.6 and protects the initial NAS message with a hash instead; the cleartext IEs and the NAS message container are in V15.7.0 and unchanged in substance through V19.8.0); TS 24.501 5.4.2.2 RINMR (Rel-15 onward; Rel-15: V15.0.0 has the AMF send a hash of the REGISTRATION REQUEST instead; the RINMR bit is in V15.7.0, for a REGISTRATION REQUEST that failed the integrity check; Rel-16: adds the case that the AMF cannot decipher the NAS message container IE of the REGISTRATION REQUEST) |
+| [NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED](provenance/NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED.md) | NAS / 5GMM common procedures / Security mode control procedure | negative, security | WARN | Rel-15 | 20s | TS 24.501 4.4.6 a) (Rel-15 onward; Rel-15: V15.0.0 has no clause 4.4.6 and protects the initial NAS message with a hash instead; the cleartext IEs and the NAS message container are in V15.7.0 and unchanged in substance through V19.8.0); TS 24.501 5.4.2.4 (Rel-15 onward; Rel-15: V15.0.0 names the IE "Replayed NAS message container"; "NAS message container" by V15.7.0) |
+| [NAS-REG-REJECTED-NSSAI](provenance/NAS-REG-REJECTED-NSSAI.md) | NAS / 5GMM specific procedures / Registration procedure | negative | FAIL | Rel-16 | 20s | TS 24.501 5.5.1.2.5 #62 (Rel-16 onward; Rel-16: V16.2.0 triggers on "the absence of allowed S-NSSAI(s)"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii); Rel-17: "default S-NSSAIs" replaces "subscribed S-NSSAIs marked as default"; a) reads "all the S-NSSAI(s) included in the requested NSSAI are rejected"; Rel-18: V18.0.0 voids b) 1) i) and b) 2) i); V18.1.0 adds "of the REGISTRATION REJECT message"); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (Rel-16 onward; Rel-16: a shall from V16.6.0; V16.2.0 to V16.3.0 say nothing, V16.4.0 to V16.5.1 "may include the rejected NSSAI"; Rel-17: from V17.1.0 the Extended rejected NSSAI IE when the UE set ER-NSSAI, else the Rejected NSSAI IE; by V17.18.1 the "if the UE had included requested NSSAI" condition is dropped; Rel-18: from V18.1.0 the rejected NSSAI lists all the S-NSSAI(s) included in the requested NSSAI); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (Rel-15 onward; Rel-16: adds "shall not include" restrictions; Rel-17: the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded; Rel-19: adds a Partially rejected NSSAI IE); TS 24.501 5.5.1.2.4 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.1.2.5 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-PDU-UNKNOWN-DNN](provenance/NAS-PDU-UNKNOWN-DNN.md) | NAS / UE-requested 5GSM procedures / UE-requested PDU session establishment procedure | negative | FAIL | Rel-15 | 30s | TS 24.501 5.4.5.2.5 a) 1) (Rel-15 onward; Rel-15: V15.0.0 is a may (item a)); V15.1.0 to V15.2.1 shall only for DNN not supported in the slice; from V15.3.0 shall on any SMF selection failure; Rel-16: from V16.3.0 the send-back may be case e) or case f); from V16.15.0 the request type may also be "MA PDU request"; Rel-18: "subclause" becomes "clause"); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (Rel-15 onward; Rel-15: V15.0.0 has #90 only; V15.1.0 adds #91 as "DNN not supported with no slice or DNN not supported in specific slice"; V15.2.0 renames it "DNN not supported or not subscribed in the slice" and adds "Otherwise ... #90"; Rel-17: V17.3.0 adds an optional Back-off timer value IE with #91); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.1.0 to V15.7.0 drop the sub-clause, so the text sits in 6.4.1.4; V15.x reads "a SM PDU SESSION ESTABLISHMENT REJECT"; V15.1.0 adds #46 and #82 and V15.2.0 adds #8, #32, #33, #38 and #95 to #111 to the typical causes; Rel-16: 6.4.1.4.1 again from V16.0.0, which drops "SM"; V16.1.0 adds #39 and V16.3.0 adds #57, #58 and #61 to the typical causes; the two shalls and #27 in the list are unchanged in every version; Rel-17: V17.5.0 adds #86 to the typical causes); TS 24.501 Annex B.1 #27 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-PDU-RELEASE-UE-REQUESTED](provenance/NAS-PDU-RELEASE-UE-REQUESTED.md) | NAS / UE-requested 5GSM procedures / UE-requested PDU session release procedure |  | FAIL | Rel-15 | 43s | TS 24.501 6.4.3.3 (Rel-15 onward; Rel-18: "subclause 6.3.3" becomes "clause 6.3.3"; the sentence is otherwise unchanged from V15.0.0 through V19.8.0); TS 24.501 6.3.3.2 (Rel-15 onward; Rel-15: V15.0.0 names the "SM cause IE", "5GSM cause IE" by V15.7.0; "the SMF shall create a PDU SESSION RELEASE COMMAND message" is unchanged from V15.0.0 through V19.8.0; Rel-17: the PTI sentence adds "and shall not include the Access type IE in the PDU SESSION RELEASE COMMAND"); TS 23.502 4.3.4.2 step 2a (Rel-15 onward, wording unchanged through Rel-19); TS 23.502 4.3.4.2 step 3 (Rel-15 onward; Rel-15: the shall first appears in V15.5.0; V15.0.0 to V15.4.1 only list the N2 SM Resource Release request in step 3a's message); TS 38.413 8.2.2.2 (Rel-15 onward; Rel-15: V15.0.0 ends the second sentence "to release at least one PDU session in the PDU Session Resource to Release List IE"; reworded during Rel-15, with the NAS-PDU sentence a paragraph of its own from V15.1.0 and "over Uu and over NG, if any" from V15.4.0; Rel-18: a Downlink TL Container sentence is added; the quoted sentences are unchanged from Rel-16 through Rel-19); TS 24.501 Table 10.3.1 T3582 (Rel-15 onward; Rel-15: the value is TBD in V15.0.0 and 16s by V15.7.0; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 16s; Rel-17: adds 21s for access via a satellite NG-RAN cell; the normal value stays 16s); TS 24.501 6.4.3.4 (Rel-15 onward; Rel-15: V15.0.0 reads "an PDU SESSION RELEASE REJECT"; the sentence is otherwise unchanged from V15.0.0 through V19.8.0) |
+| [NAS-PDU-SESSION-ESTABLISHMENT](provenance/NAS-PDU-SESSION-ESTABLISHMENT.md) | NAS / UE-requested 5GSM procedures / UE-requested PDU session establishment procedure |  | FAIL | Rel-15 | 30s | TS 24.501 6.4.1.3 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (Rel-15 onward; Rel-15: V15.0.0 has 6.4.1.4.1; in V15.7.0 the text sits directly in 6.4.1.4; V15.x reads "a SM PDU SESSION ESTABLISHMENT REJECT"; Rel-16: 6.4.1.4.1 again, without "SM"; the sentence is otherwise unchanged through V19.8.0) |
+| [NAS-INITIAL-REGISTRATION](provenance/NAS-INITIAL-REGISTRATION.md) | NAS / 5GMM specific procedures / Registration procedure |  | FAIL | Rel-15 | 20s | TS 24.501 5.5.1.2.4 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.1.2.5 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-REGISTRATION-AFTER-RELEASE](provenance/NAS-REGISTRATION-AFTER-RELEASE.md) | NAS / 5GMM specific procedures / Registration procedure | timing | FAIL | Rel-15 | 2m56s | TS 24.501 5.5.1.2.4 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.1.2.5 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.2.2.2 (Rel-15 onward; Rel-15: V15.0.0 titles the clause "UE-initiated de-registration procedure completion - common procedure", "UE-initiated de-registration procedure completion" by V15.7.0; the switch-off sentence is unchanged from V15.0.0 through V19.8.0); TS 24.501 Table 10.2.1 T3510 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 85s; the normal value stays 15s; Rel-17: adds 27s for access via a satellite NG-RAN cell; the normal value stays 15s) |
+| [NAS-REGISTRATION-DURING-OTHER-RELEASE](provenance/NAS-REGISTRATION-DURING-OTHER-RELEASE.md) | NAS / 5GMM specific procedures / Registration procedure | timing | FAIL | Rel-15 | 3m20s | TS 24.501 5.5.1.2.4 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.1.2.5 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 5.5.2.2.2 (Rel-15 onward; Rel-15: V15.0.0 titles the clause "UE-initiated de-registration procedure completion - common procedure", "UE-initiated de-registration procedure completion" by V15.7.0; the switch-off sentence is unchanged from V15.0.0 through V19.8.0); TS 24.501 Table 10.2.1 T3510 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 85s; the normal value stays 15s; Rel-17: adds 27s for access via a satellite NG-RAN cell; the normal value stays 15s) |
+| [NAS-RETRANSMIT-NEW-COUNT](provenance/NAS-RETRANSMIT-NEW-COUNT.md) | NAS / NAS security / Handling of NAS COUNT and NAS sequence number | security, timing | FAIL | Rel-15 | 1m58s | TS 24.501 4.4.3.1 (Rel-15 onward; Rel-15: V15.0.0 reads "security protected NAS message"; from V15.1.0 "SECURITY PROTECTED 5GS NAS MESSAGE message"; the increase by one after each new or retransmitted message is in every version; Rel-16: from V16.5.1 the overflow counter is "the stored NAS overflow counter", and estimation rules for the receiver follow the sentence; Rel-18: "subclause" becomes "clause"); TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19) |
+| [NAS-T3550-ACCEPT-RETRANSMIT](provenance/NAS-T3550-ACCEPT-RETRANSMIT.md) | NAS / 5GMM specific procedures / Registration procedure | timing | FAIL | Rel-15 | 2m25s | TS 24.501 5.5.1.2.8 c) (Rel-15 onward; Rel-15: V15.0.0 has the AMF enter 5GMM-DEREGISTERED on the abort, 5GMM-REGISTERED from V15.7.0; the retransmission wording is unchanged through Rel-19); TS 24.501 5.5.1.2.4 T3550 start (Rel-15 onward; Rel-15: V15.0.0 starts T3550 when a new 5G-GUTI is allocated (as for a UE registering with a SUCI); from V15.7.0 when a 5G-GUTI or the SOR transparent container is included, with operator-defined access categories, extended emergency numbers, a new configured NSSAI and network slicing subscription change added; Rel-16: the 5G-GUTI sentence is unchanged; adds CAG information list, UE radio capability ID (or its deletion) and truncated 5G-S-TMSI configuration triggers; Rel-17: the "ACCCEPT" typo is fixed; adds extended CAG information list, PEIPS assistance information, UUAA-MM pending and NSSRG triggers; the configured-NSSAI trigger applies only when roaming; Rel-18: "subclause" becomes "clause"; adds on-demand NSSAI, S-NSSAI time and location validity, NSAG and alternative NSSAI triggers; the configured-NSSAI wording leaves 5.5.1.2.4; Rel-19: adds LP-WUSPS assistance information and LP-WUS status triggers); TS 24.501 5.5.1.2.4 5G-GUTI (Rel-15 onward; Rel-15: V15.0.0 reads "When the REGISTRATION REQUEST message includes the SUCI or PEI, ..., the AMF shall allocate a new 5G-GUTI to the UE" and "The AMF shall include in the REGISTRATION ACCEPT message the new assigned 5G-GUTI together with the assigned TAI list"; from V15.7.0 "The 5G-GUTI reallocation shall be part of the initial registration procedure", and the AMF includes the new 5G-GUTI "if the AMF has not allocated a new 5G-GUTI by the generic UE configuration update procedure", unchanged through V19.8.0); TS 24.501 Table 10.2.2 T3550 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 18s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s) |
+| [NAS-T3560-AUTH-RETRANSMIT](provenance/NAS-T3560-AUTH-RETRANSMIT.md) | NAS / 5GMM common procedures / Primary authentication and key agreement procedure | timing | FAIL | Rel-15 | 3m10s | TS 24.501 5.4.1.3.7 b) (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 Table 10.2.2 T3560 (Rel-15 onward; Rel-16: adds a WB-N1/CE mode value of 24s; the normal value stays 6s; Rel-17: adds 11s for access via a satellite NG-RAN cell; the normal value stays 6s) |
+| [NGAP-UNKNOWN-UE-SURVIVES](provenance/NGAP-UNKNOWN-UE-SURVIVES.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Handling of AP ID | negative | FAIL | Rel-15 | 15s | TS 38.413 10.6 (Rel-15 onward; Rel-15: V15.1.0 rewords the lead-in and the local-release sentence; V15.3.0 adds a paragraph for a first returned message); TS 38.413 8.7.5.2 (Rel-15 onward; Rel-15: example cause names replaced in V15.4.0; Rel-19: V19.2.0 adds A-IoT text; V19.3.0 inserts an NB-IoT sentence between the cited sentences) |
+| [NGAP-NG-SETUP](provenance/NGAP-NG-SETUP.md) | NGAP / Interface Management Procedures / NG Setup |  | DEVIATION | Rel-15 | 15s | TS 38.413 8.7.1.2 (Rel-15 onward; Rel-19: in V19.4.0 the same words are a bullet under "If the NG Setup procedure is executed between the NG-RAN node and the AMF"); TS 38.413 8.7.1.3 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-DUPLICATE-RAN-NODE-ID](provenance/NGAP-DUPLICATE-RAN-NODE-ID.md) | NGAP / Interface Management Procedures / NG Setup | negative | DEVIATION | Rel-15 | 15s | TS 38.413 8.7.1.2 (Rel-15 onward; Rel-19: in V19.4.0 the same words are a bullet under "If the NG Setup procedure is executed between the NG-RAN node and the AMF"); TS 38.413 9.3.1.5 (Rel-15 onward, wording unchanged through Rel-19); TS 38.413 8.7.1.3 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-NGSETUP-MISSING-TALIST](provenance/NGAP-NGSETUP-MISSING-TALIST.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Missing IE or IE group | negative | FAIL | Rel-15 | 15s | TS 38.413 9.2.6.1 Supported TA List (Rel-15 onward; Rel-15: criticality column reads "GLOBAL reject" in V15.0.0, "YES reject" by V15.13.0; Rel-19: semantics add that the IE is ignored for an A-IoT-only node; still mandatory, criticality reject); TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-NGSETUP-UNKNOWN-PLMN](provenance/NGAP-NGSETUP-UNKNOWN-PLMN.md) | NGAP / Interface Management Procedures / NG Setup | negative | FAIL | Rel-15 | 15s | TS 38.413 8.7.1.4 (Rel-15 onward; Rel-15: added in V15.2.0 (Void in V15.0.0 and V15.1.0), worded for PLMN Identity IEs; Rel-16: reworded to the PLMNs/SNPNs form in V16.9.0; Rel-19: V19.0.0 adds that the AMF text applies to an AIOTF; the quoted sentence is unchanged); TS 38.413 9.3.1.2 (Rel-15 onward; Rel-16: Misc cause "Unknown PLMN" renamed "Unknown PLMN or SNPN" in V16.5.0) |
+| [NGAP-PAGING-ON-DL-DATA](provenance/NGAP-PAGING-ON-DL-DATA.md) | NAS / 5GMM connection management procedures / Paging procedure |  | FAIL | Rel-15 | 30s | TS 24.501 5.6.2.2.1 (Rel-15 onward; Rel-15: V15.0.0 reads "in 5GMM-IDLE mode"; "over 3GPP access" is added by V15.7.0; Rel-17: adds "and there is no paging restriction applied in the network for that paging"); TS 23.502 4.2.3.3 step 4b (Rel-15 onward; Rel-15: V15.0.0 reads "reachable" and "Paging Priority indication"; "reachable in 3GPP access" and "Paging Priority" by V15.17.0; Rel-16: the Paging message's content adds Enhanced Coverage Restricted information and WUS Assistance Information; "the AMF sends a Paging message" is unchanged); TS 38.413 8.5.1.2 (Rel-15 onward; Rel-15: V15.0.0 reads "paging procedure" and "List of TAIs"; "Paging procedure" and "TAI List for Paging" from V15.1.0; Rel-16: Rel-16 to Rel-19 add optional-IE sentences only); TS 38.413 9.2.4.1 (Rel-15 onward; Rel-15: "List of TAIs" is renamed "TAI List for Paging" in V15.1.0; V15.0.0 also carries "UE Identity Index Value", absent by V19.4.0 (removal version not traced)); TS 38.413 9.3.3.18 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-PATH-SWITCH-SECCAP-MISMATCH](provenance/NGAP-PATH-SWITCH-SECCAP-MISMATCH.md) | TS 33.501 / Procedures for AS algorithm selection / Xn-handover | negative, security | FAIL | Rel-15 | 25s | TS 33.501 6.7.3.1 (Rel-15 onward; Rel-15: V15.0.0 names the target "gNB" and ends "Additionally, the AMF may log the event and may take additional measures, such as raising an alarm"; by V15.20.0 the target is "gNB/ng-eNB" and the last sentence "The AMF shall support logging capabilities for this event and may take additional measures, such as raising an alarm"; the two cited sentences are otherwise unchanged through V19.7.0) |
+| [NGAP-RAN-CONFIG-UPDATE-ACK](provenance/NGAP-RAN-CONFIG-UPDATE-ACK.md) | NGAP / Interface Management Procedures / RAN Configuration Update |  | FAIL | Rel-15 | 15s | TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: a sentence on IEs the update does not include follows the two cited ones in V15.13.0 (absent in V15.0.0); the cited ones are unchanged to V18.11.0; graded as a requirement: "The AMF responds with a RAN CONFIGURATION UPDATE ACKNOWLEDGE" is the answer of a Class 1 procedure to an update the AMF takes; Rel-19: in V19.4.0 the same words are a bullet under "If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF"); TS 38.413 8.7.2.3 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-RAN-CONFIG-UPDATE-KEEPS-TA](provenance/NGAP-RAN-CONFIG-UPDATE-KEEPS-TA.md) | NGAP / Interface Management Procedures / RAN Configuration Update |  | FAIL | Rel-15 | 41s | TS 38.413 8.7.2.2 (Rel-15 onward; Rel-15: the sentence is added in V15.3.0 (absent in V15.0.0 to V15.2.0); unchanged to V18.11.0; Rel-19: in V19.4.0 the same words are a bullet under "If the RAN Configuration Update procedure is executed between the NG-RAN node and the AMF"); TS 38.413 8.7.2.3 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX](provenance/NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX.md) | NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data / Transfer Syntax Error | negative | DEVIATION | Rel-15 | 15s | TS 38.413 10.2 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NGAP-NG-RESET-ACK](provenance/NGAP-NG-RESET-ACK.md) | NGAP / Interface Management Procedures / NG Reset |  | FAIL | Rel-15 | 15s | TS 38.413 8.7.4.2.2 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-SMC-NO-NIA0-REPLAYED-CAPS](provenance/NAS-SMC-NO-NIA0-REPLAYED-CAPS.md) | TS 33.501 / Requirements on the AMF / Signalling data integrity | security | FAIL | Rel-15 | 50s | TS 33.501 5.5.2 (Rel-15 onward; Rel-15: V15.0.0 reads only "shall be integrity-protected"; the NIA-0 exclusion appears in V15.1.0 and is unchanged through V19.7.0); TS 33.501 6.7.2 step 1b (Rel-15 onward; Rel-15: V15.0.0: unnumbered, "selected NAS algorithm", and adds the N2-handover input container; step 1b from V15.1.0; current wording from V15.2.0; the replayed UE security capabilities are required in every version); TS 33.501 6.7.1.1 (Rel-15 onward, wording unchanged through Rel-19); TS 33.501 5.2.3 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-INTEGRITY-FAIL-DISCARD](provenance/NAS-INTEGRITY-FAIL-DISCARD.md) | NAS / NAS security / Integrity protection of NAS signalling messages | negative, security | FAIL | Rel-15 | 46s | TS 24.501 4.4.4.3 (Rel-15 onward; Rel-16: V16.3.0 splits the REGISTRATION REQUEST rule into initial and mobility registration; the discard paragraph is unchanged from V15.0.0 through V19.8.0; Rel-18: V18.0.0 adds the unsuccessful-authentication sentence to the REGISTRATION REQUEST rules; the discard paragraph is unchanged); TS 33.501 6.4.3.3 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-REPLAY-DISCARD](provenance/NAS-REPLAY-DISCARD.md) | TS 33.501 / NAS security mechanisms / NAS integrity activation | negative, security | FAIL | Rel-15 | 46s | TS 33.501 6.4.3.2 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 4.4.3.2 (Rel-15 onward, wording unchanged through Rel-19) |
+| [NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL](provenance/NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL.md) | NAS / NAS security / Handling of NAS COUNT and NAS sequence number | negative, security | FAIL | Rel-15 | 57s | TS 24.501 4.4.3.3 (Rel-15 onward; Rel-16: the paragraph on the integrity algorithm's input is split into items a) and b) with a NOTE; the sentence on updating the stored NAS COUNT is unchanged from V15.0.0 through V19.8.0; Rel-18: "subclause" becomes "clause"); TS 24.501 4.4.3.2 (Rel-15 onward, wording unchanged through Rel-19); TS 24.501 4.4.3.1 (Rel-16 onward; Rel-16: the stored-COUNT sentence and the estimation rules appear in V16.5.1; V15.0.0 to V16.4.0 give no estimation rules; Rel-18: "subclause" becomes "clause") |
+| [NAS-BADMAC-REGISTRATION-AFTER-SMC](provenance/NAS-BADMAC-REGISTRATION-AFTER-SMC.md) | NAS / NAS security / Integrity protection of NAS signalling messages | negative, security | FAIL | Rel-15 | 35s | TS 24.501 4.4.4.3 (Rel-15 onward; Rel-15: V15.0.0 to V16.2.0 have one REGISTRATION REQUEST rule ("only a PDU session for non-emergency services" and a HASHAMF IE in V15.0.0) and "the AMF shall authenticate the subscriber before processing the registration request any further"; Rel-16: V16.3.0 splits the rule into initial registration and mobility and periodic registration update, with the RINMR bit; Rel-18: V18.0.0 adds "If authentication procedure is not successful the AMF shall maintain, if any, the 5GMM-context and 5G NAS security context unchanged"; "subclause" becomes "clause") |
 
 ## Verified versions
 
+### NGAP-UE-CTX-RELEASE-ON-REQUEST
+
+- TS 38.413 8.3.2.2 (should, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.1.0 (`38413-i10.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+
+### NAS-DEREG-ACCEPT-NOT-SWITCH-OFF
+
+- TS 24.501 5.5.2.2.2 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 Table 10.2.1 T3521 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NGAP-CTX-RELEASE-AFTER-SWITCH-OFF
+
+- TS 38.413 8.3.3.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 23.502 4.2.2.3.2 step 8 (shall, since Rel-15): Rel-15 V15.0.0 (`23502-f00.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
+- TS 24.501 5.5.2.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
 ### GTPU-END-MARKER-ON-PATH-SWITCH
 
-- TS 23.501 5.8.2.9.1 (shall, since Rel-15): Rel-15 V15.0.0 (`23501-f00.zip`), Rel-15 V15.13.0 (`23501-fd0.zip`), Rel-16 V16.20.0 (`23501-gk0.zip`), Rel-17 V17.15.0 (`23501-hf0.zip`), Rel-18 V18.12.0 (`23501-ic0.zip`), Rel-19 V19.9.0 (`23501-j90.zip`)
+- TS 23.501 5.8.2.9.1 (shall, since Rel-15): Rel-15 V15.0.0 (`23501-f00.zip`), Rel-15 V15.13.0 (`23501-fd0.zip`), Rel-16 V16.20.0 (`23501-gk0.zip`), Rel-17 V17.15.0 (`23501-hf0.zip`), Rel-18 V18.12.0 (`23501-ic0.zip`), Rel-19 V19.9.0 (`23501-j90.zip`); primary
 - TS 29.281 7.3.2 (shall, since Rel-15): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.2.0 (`29281-f20.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
 - TS 29.244 8.2.31 (shall, since Rel-14): Rel-14 V14.0.0 (`29244-e00.zip`), Rel-15 V15.10.0 (`29244-fa0.zip`), Rel-16 V16.13.0 (`29244-gd0.zip`), Rel-17 V17.10.0 (`29244-ha0.zip`), Rel-18 V18.10.0 (`29244-ia0.zip`), Rel-19 V19.6.0 (`29244-j60.zip`)
 
 ### GTPU-UNKNOWN-TEID-ERRIND
 
-- TS 29.281 7.3.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.4.0 (`29281-f40.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
+- TS 29.281 7.3.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.4.0 (`29281-f40.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`); primary
+
+### GTPU-ECHO-RESPONSE
+
+- TS 29.281 7.2.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`); primary
+- TS 29.281 7.2.2 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
+- TS 29.281 4.3.1 (shall, since Rel-8): Rel-8 V8.0.0 (`29281-800.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`)
+
+### N3-DL-QFI-CONTAINER
+
+- TS 29.281 5.2.2.7 (shall, since Rel-15): Rel-15 V15.2.0 (`29281-f20.zip`), Rel-15 V15.5.0 (`29281-f50.zip`), Rel-15 V15.7.0 (`29281-f70.zip`), Rel-16 V16.2.0 (`29281-g20.zip`), Rel-17 V17.5.0 (`29281-h50.zip`), Rel-18 V18.4.0 (`29281-i40.zip`), Rel-19 V19.2.0 (`29281-j20.zip`); primary
+- TS 38.415 5.4.1.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38415-f00.zip`), Rel-15 V15.3.0 (`38415-f30.zip`), Rel-16 V16.6.0 (`38415-g60.zip`), Rel-17 V17.1.0 (`38415-h10.zip`), Rel-18 V18.2.0 (`38415-i20.zip`), Rel-19 V19.1.0 (`38415-j10.zip`)
+- TS 38.415 5.5.2.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38415-f00.zip`), Rel-15 V15.3.0 (`38415-f30.zip`), Rel-16 V16.6.0 (`38415-g60.zip`), Rel-17 V17.1.0 (`38415-h10.zip`), Rel-18 V18.2.0 (`38415-i20.zip`), Rel-19 V19.1.0 (`38415-j10.zip`)
+
+### NGAP-PATH-SWITCH-ACK-TRANSFER
+
+- TS 38.413 8.4.4.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 8.4.4.3 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.3.4.9 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.2.3.9 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.1.1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-HANDOVER-COMMAND-TRANSFER
+
+- TS 38.413 8.4.1.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.5.0 (`38413-f50.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 9.2.3.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.5.0 (`38413-f50.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.3.4.10 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.1.0 (`38413-f10.zip`), Rel-15 V15.5.0 (`38413-f50.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.1.1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-HANDOVER-CANCEL-ACK
+
+- TS 38.413 8.4.5.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 Table 8.1-1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.2.3.12 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NAS-SERVICE-REQUEST-REACTIVATES
+
+- TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 5.6.1.5 first sentence (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 23.502 4.2.3.2 steps 12 and 18a (descriptive, since Rel-15): Rel-15 V15.0.0 (`23502-f00.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
+
+### NAS-SMC-IMEISV-REQUEST
+
+- TS 24.501 5.4.2.2 IMEISV request (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 33.501 6.7.2 step 2b (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+
+### NAS-INITIAL-MSG-CONTAINER-WINS
+
+- TS 24.501 5.4.2.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 33.501 6.4.6 step 4 (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+
+### NAS-INITIAL-MSG-NO-CONTAINER
+
+- TS 24.501 4.4.6 a) (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.4.2.2 RINMR (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+
+### NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED
+
+- TS 24.501 4.4.6 a) (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.4.2.4 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 
 ### NAS-REG-REJECTED-NSSAI
 
-- TS 24.501 5.5.1.2.5 #62 (shall, since Rel-16): Rel-16 V16.2.0 (`24501-g20.zip`), Rel-16 V16.5.1 (`24501-g51.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.0.0 (`24501-i00.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.1.2.5 #62 (shall, since Rel-16): Rel-16 V16.2.0 (`24501-g20.zip`), Rel-16 V16.5.1 (`24501-g51.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.0.0 (`24501-i00.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (shall, since Rel-16): Rel-16 V16.6.0 (`24501-g60.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.1.0 (`24501-h10.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.1.0 (`24501-i10.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 - TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.1.2.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.1.2.5 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
 ### NAS-PDU-UNKNOWN-DNN
 
 - TS 24.501 5.4.5.2.5 a) 1) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.1.0 (`24501-f10.zip`), Rel-15 V15.2.0 (`24501-f20.zip`), Rel-15 V15.3.0 (`24501-f30.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.0.0 (`24501-g00.zip`), Rel-16 V16.1.0 (`24501-g10.zip`), Rel-16 V16.3.0 (`24501-g30.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.3.0 (`24501-h30.zip`), Rel-17 V17.5.0 (`24501-h50.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 - TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.1.0 (`24501-f10.zip`), Rel-15 V15.2.0 (`24501-f20.zip`), Rel-15 V15.3.0 (`24501-f30.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.0.0 (`24501-g00.zip`), Rel-16 V16.1.0 (`24501-g10.zip`), Rel-16 V16.3.0 (`24501-g30.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.3.0 (`24501-h30.zip`), Rel-17 V17.5.0 (`24501-h50.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
-- TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.1.0 (`24501-f10.zip`), Rel-15 V15.2.0 (`24501-f20.zip`), Rel-15 V15.3.0 (`24501-f30.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.0.0 (`24501-g00.zip`), Rel-16 V16.1.0 (`24501-g10.zip`), Rel-16 V16.3.0 (`24501-g30.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.3.0 (`24501-h30.zip`), Rel-17 V17.5.0 (`24501-h50.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.1.0 (`24501-f10.zip`), Rel-15 V15.2.0 (`24501-f20.zip`), Rel-15 V15.3.0 (`24501-f30.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.0.0 (`24501-g00.zip`), Rel-16 V16.1.0 (`24501-g10.zip`), Rel-16 V16.3.0 (`24501-g30.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.3.0 (`24501-h30.zip`), Rel-17 V17.5.0 (`24501-h50.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 Annex B.1 #27 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.1.0 (`24501-f10.zip`), Rel-15 V15.2.0 (`24501-f20.zip`), Rel-15 V15.3.0 (`24501-f30.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.0.0 (`24501-g00.zip`), Rel-16 V16.1.0 (`24501-g10.zip`), Rel-16 V16.3.0 (`24501-g30.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.3.0 (`24501-h30.zip`), Rel-17 V17.5.0 (`24501-h50.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-PDU-RELEASE-UE-REQUESTED
+
+- TS 24.501 6.4.3.3 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 6.3.3.2 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 23.502 4.3.4.2 step 2a (shall, since Rel-15): Rel-15 V15.0.0 (`23502-f00.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
+- TS 23.502 4.3.4.2 step 3 (shall, since Rel-15): Rel-15 V15.5.0 (`23502-f50.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
+- TS 38.413 8.2.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 24.501 Table 10.3.1 T3582 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 6.4.3.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-PDU-SESSION-ESTABLISHMENT
+
+- TS 24.501 6.4.1.3 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-INITIAL-REGISTRATION
+
+- TS 24.501 5.5.1.2.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 5.5.1.2.5 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-REGISTRATION-AFTER-RELEASE
+
+- TS 24.501 5.5.1.2.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 5.5.1.2.5 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.2.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 Table 10.2.1 T3510 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-REGISTRATION-DURING-OTHER-RELEASE
+
+- TS 24.501 5.5.1.2.4 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 5.5.1.2.5 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.2.2.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 Table 10.2.1 T3510 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-RETRANSMIT-NEW-COUNT
+
+- TS 24.501 4.4.3.1 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 5.5.1.2.8 c) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
 ### NAS-T3550-ACCEPT-RETRANSMIT
 
-- TS 24.501 5.5.1.2.8 c) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.1.2.8 c) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 5.5.1.2.4 T3550 start (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.5.1.2.4 5G-GUTI (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 - TS 24.501 Table 10.2.2 T3550 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
 ### NAS-T3560-AUTH-RETRANSMIT
 
-- TS 24.501 5.4.1.3.7 b) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 5.4.1.3.7 b) (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
 - TS 24.501 Table 10.2.2 T3560 (descriptive, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
 
 ### NGAP-UNKNOWN-UE-SURVIVES
 
-- TS 38.413 10.6 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 10.6 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 - TS 38.413 8.7.5.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-NG-SETUP
+
+- TS 38.413 8.7.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 8.7.1.3 (should, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-DUPLICATE-RAN-NODE-ID
+
+- TS 38.413 8.7.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 9.3.1.5 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.7.1.3 (should, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
 
 ### NGAP-NGSETUP-MISSING-TALIST
 
 - TS 38.413 9.2.6.1 Supported TA List (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
-- TS 38.413 10.3.5 Reject IE bullet 1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 10.3.5 Reject IE bullet 1 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 
 ### NGAP-NGSETUP-UNKNOWN-PLMN
 
-- TS 38.413 8.7.1.4 (shall, since Rel-15): Rel-15 V15.2.0 (`38413-f20.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.9.0 (`38413-g90.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.7.1.4 (shall, since Rel-15): Rel-15 V15.2.0 (`38413-f20.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.9.0 (`38413-g90.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 - TS 38.413 9.3.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-PAGING-ON-DL-DATA
+
+- TS 24.501 5.6.2.2.1 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 23.502 4.2.3.3 step 4b (descriptive, since Rel-15): Rel-15 V15.0.0 (`23502-f00.zip`), Rel-15 V15.17.0 (`23502-fh0.zip`), Rel-16 V16.19.0 (`23502-gj0.zip`), Rel-17 V17.15.0 (`23502-hf0.zip`), Rel-18 V18.14.0 (`23502-ie0.zip`), Rel-19 V19.9.0 (`23502-j90.zip`)
+- TS 38.413 8.5.1.2 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.2.4.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 9.3.3.18 (descriptive, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-PATH-SWITCH-SECCAP-MISMATCH
+
+- TS 33.501 6.7.3.1 (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`); primary
+
+### NGAP-RAN-CONFIG-UPDATE-ACK
+
+- TS 38.413 8.7.2.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 8.7.2.3 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-RAN-CONFIG-UPDATE-KEEPS-TA
+
+- TS 38.413 8.7.2.2 (shall, since Rel-15): Rel-15 V15.3.0 (`38413-f30.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
+- TS 38.413 8.7.2.3 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+
+### NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX
+
+- TS 38.413 10.2 (should, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 
 ### NGAP-NG-RESET-ACK
 
-- TS 38.413 8.7.4.2.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`)
+- TS 38.413 8.7.4.2.2 (shall, since Rel-15): Rel-15 V15.0.0 (`38413-f00.zip`), Rel-15 V15.13.0 (`38413-fd0.zip`), Rel-16 V16.18.0 (`38413-gi0.zip`), Rel-17 V17.15.0 (`38413-hf0.zip`), Rel-18 V18.11.0 (`38413-ib0.zip`), Rel-19 V19.4.0 (`38413-j40.zip`); primary
 
 ### NAS-SMC-NO-NIA0-REPLAYED-CAPS
 
-- TS 33.501 5.5.2 (shall, since Rel-15): Rel-15 V15.1.0 (`33501-f10.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+- TS 33.501 5.5.2 (shall, since Rel-15): Rel-15 V15.1.0 (`33501-f10.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`); primary
 - TS 33.501 6.7.2 step 1b (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
 - TS 33.501 6.7.1.1 (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
 - TS 33.501 5.2.3 (descriptive, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+
+### NAS-INTEGRITY-FAIL-DISCARD
+
+- TS 24.501 4.4.4.3 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 33.501 6.4.3.3 (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`)
+
+### NAS-REPLAY-DISCARD
+
+- TS 33.501 6.4.3.2 (shall, since Rel-15): Rel-15 V15.0.0 (`33501-f00.zip`), Rel-15 V15.20.0 (`33501-fk0.zip`), Rel-16 V16.20.0 (`33501-gk0.zip`), Rel-17 V17.16.0 (`33501-hg0.zip`), Rel-18 V18.12.0 (`33501-ic0.zip`), Rel-19 V19.7.0 (`33501-j70.zip`); primary
+- TS 24.501 4.4.3.2 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL
+
+- TS 24.501 4.4.3.3 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+- TS 24.501 4.4.3.2 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+- TS 24.501 4.4.3.1 (descriptive, since Rel-16): Rel-16 V16.5.1 (`24501-g51.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`)
+
+### NAS-BADMAC-REGISTRATION-AFTER-SMC
+
+- TS 24.501 4.4.4.3 (shall, since Rel-15): Rel-15 V15.0.0 (`24501-f00.zip`), Rel-15 V15.7.0 (`24501-f70.zip`), Rel-16 V16.3.0 (`24501-g30.zip`), Rel-16 V16.15.0 (`24501-gf0.zip`), Rel-17 V17.18.1 (`24501-hi1.zip`), Rel-18 V18.0.0 (`24501-i00.zip`), Rel-18 V18.14.0 (`24501-ie0.zip`), Rel-19 V19.8.0 (`24501-j80.zip`); primary
+
+## Declared outcomes
+
+Every result is one of its check's outcomes below; a check cannot report another. **Basis** is what the verdict rests on: the reference a `FAIL` violates (a shall), a `DEVIATION` does not follow (a should) or a `PASS` met; the criterion of a `WARN` (security, availability or interoperability; no requirement is violated); the condition of a `SKIP`; the procedure a `BLOCKED` names and the check that owns it. An outcome inferred from the absence of an answer states the bound it was inferred within. Every check can also report `ERROR` (`error`: the tool, the setup or the testbed kept it from running), `CRASH` (`crash`: the core stopped answering after the stimulus) and `SKIP` (`skip-release`: the target release is older than the check requires).
+
+### NGAP-UE-CTX-RELEASE-ON-REQUEST outcomes
+
+Owns: AN release. Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `release-command` | PASS | TS 38.413 8.3.2.2 (should) | answered the UE CONTEXT RELEASE REQUEST with a UE CONTEXT RELEASE COMMAND |
+| `no-release-command` | DEVIATION | TS 38.413 8.3.2.2 (should); absence within 5s (check bound; TS 38.413 sets no timer for the command); reports AN release as not completed | sent no UE CONTEXT RELEASE COMMAND for the UE CONTEXT RELEASE REQUEST |
+| `association-lost` | DEVIATION | TS 38.413 8.3.2.2 (should); reports AN release as not completed | dropped the association instead of sending a UE CONTEXT RELEASE COMMAND |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-DEREG-ACCEPT-NOT-SWITCH-OFF outcomes
+
+Owns: deregistration. Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `accepted` | PASS | TS 24.501 5.5.2.2.2 (shall) | answered the Deregistration Request that is not switch-off with a Deregistration Accept |
+| `release-without-accept` | FAIL | TS 24.501 5.5.2.2.2 (shall); reports deregistration as not completed | released the UE context without a Deregistration Accept |
+| `no-accept` | FAIL | TS 24.501 5.5.2.2.2 (shall); absence within 15s (T3521, TS 24.501 Table 10.2.1: the UE's retransmission timer at its normal value; 5.5.2.2.2 sets the AMF no time limit); reports deregistration as not completed | sent no Deregistration Accept for the Deregistration Request that is not switch-off |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NGAP-CTX-RELEASE-AFTER-SWITCH-OFF outcomes
+
+Owns: release after switch-off. Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `both-ids` | PASS | TS 38.413 8.3.3.2 (shall) | released the UE context after the switch-off, naming both UE NGAP IDs |
+| `no-ue-ngap-id` | FAIL | TS 38.413 8.3.3.2 (shall) | sent a UE CONTEXT RELEASE COMMAND carrying no UE NGAP ID |
+| `amf-id-only` | FAIL | TS 38.413 8.3.3.2 (shall) | named the UE by its AMF UE NGAP ID alone, with both IDs available |
+| `no-release` | FAIL | TS 23.502 4.2.2.3.2 step 8 (shall); absence within 5s (check bound; neither TS 23.502 nor TS 38.413 sets a timer for the release); reports release after switch-off as not completed | sent no UE CONTEXT RELEASE COMMAND after the switch-off deregistration |
+| `release-for-other-ids` | FAIL | TS 23.502 4.2.2.3.2 step 8 (shall); reports release after switch-off as not completed | released another UE NGAP ID pair, not the deregistered UE's connection, when the wait for the release ended |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### GTPU-END-MARKER-ON-PATH-SWITCH outcomes
+
+Needs: NG Setup, registration, PDU session establishment, Xn path switch.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `end-marker` | PASS | TS 23.501 5.8.2.9.1 (shall); TS 29.281 7.3.2 (shall) | sent an End Marker on the old F-TEID and no G-PDU on that tunnel after it |
+| `no-end-marker` | FAIL | TS 23.501 5.8.2.9.1 (shall); TS 29.281 7.3.2 (shall); absence within 5s (check bound after the Acknowledge, as long as the source tunnel is kept; TS 23.501 sets no timer for the End Marker) | sent no End Marker on the old F-TEID |
+| `g-pdu-after-end-marker` | FAIL | TS 23.501 5.8.2.9.1 (shall); TS 29.281 7.3.2 (shall) | sent a G-PDU on the old F-TEID after its End Marker |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+| `blocked-xn-path-switch` | BLOCKED | Xn path switch (owner NGAP-PATH-SWITCH-ACK-TRANSFER) | did not complete an Xn path switch the check needs first |
+
+### GTPU-UNKNOWN-TEID-ERRIND outcomes
+
+Needs: GTP-U Echo.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `error-indication` | PASS | TS 29.281 7.3.1 (shall) | returned a GTP-U Error Indication for the G-PDU with an unknown TEID |
+| `no-error-indication` | FAIL | TS 29.281 7.3.1 (shall); absence within 4s (check bound; TS 29.281 sets no timer for the Error Indication) | returned no GTP-U Error Indication for the G-PDU with an unknown TEID, and still answered GTP-U Echo |
+| `skip-no-upf-n3-endpoint` | SKIP | missing input | not judged: the run has no UPF N3 endpoint |
+| `blocked-gtp-u-echo` | BLOCKED | GTP-U Echo (owner GTPU-ECHO-RESPONSE) | did not complete a GTP-U Echo the check needs first |
+
+### GTPU-ECHO-RESPONSE outcomes
+
+Owns: GTP-U Echo. Needs no procedure first.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `echo-response` | PASS | TS 29.281 7.2.1 (shall); TS 29.281 4.3.1 (shall) | answered the GTP-U Echo Request with an Echo Response carrying its sequence number |
+| `sequence-not-copied` | FAIL | TS 29.281 4.3.1 (shall); reports GTP-U Echo as not completed | answered with an Echo Response whose sequence number no request carried |
+| `no-echo-response` | FAIL | TS 29.281 7.2.1 (shall); absence within 6s (check bound: 3 requests, each waited 2s; TS 29.281 sets no timer for the Echo Response); reports GTP-U Echo as not completed | sent no Echo Response to any of the GTP-U Echo Requests |
+| `skip-no-upf-n3-endpoint` | SKIP | missing input | not judged: the run has no UPF N3 endpoint |
+
+### N3-DL-QFI-CONTAINER outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `container-present` | PASS | TS 29.281 5.2.2.7 (shall) | sent every sampled downlink G-PDU on N3 with the PDU Session Container |
+| `container-absent` | FAIL | TS 29.281 5.2.2.7 (shall) | sent a downlink G-PDU on N3 without the PDU Session Container |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-echo-peer` | SKIP | missing input | not judged: the run has no echo peer |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-PATH-SWITCH-ACK-TRANSFER outcomes
+
+Owns: Xn path switch. Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `acknowledged` | PASS | TS 38.413 8.4.4.2 (shall); TS 38.413 9.1.1 (shall) | answered the PATH SWITCH REQUEST with an Acknowledge carrying a transfer for the switched PDU session |
+| `no-switched-list` | FAIL | TS 38.413 9.1.1 (shall) | sent the PATH SWITCH REQUEST ACKNOWLEDGE without the mandatory PDU Session Resource Switched List |
+| `transfer-missing` | FAIL | TS 38.413 9.1.1 (shall) | listed a switched PDU session without a Path Switch Request Acknowledge Transfer that decodes |
+| `session-not-listed` | WARN | availability | acknowledged the path switch without listing the UE's PDU session as switched |
+| `uplink-not-answered` | WARN | availability; absence within 2s (check bound; echoes are counted from half of it to all of it after the Acknowledge) | carried no echo of uplink sent after the path switch, where the echo peer answered before it |
+| `refused` | WARN | availability; reports Xn path switch as not completed | answered the PATH SWITCH REQUEST with PATH SWITCH REQUEST FAILURE |
+| `unanswered` | FAIL | TS 38.413 8.4.4.2 (shall); TS 38.413 8.4.4.3 (shall); absence within 5s (check bound, the target NG Setup included; TS 38.413 sets no timer for the answer); reports Xn path switch as not completed | sent neither PATH SWITCH REQUEST ACKNOWLEDGE nor PATH SWITCH REQUEST FAILURE |
+| `other-answer` | FAIL | TS 38.413 8.4.4.2 (shall); TS 38.413 8.4.4.3 (shall); reports Xn path switch as not completed | answered the PATH SWITCH REQUEST with another message, or lost the association, instead of ACKNOWLEDGE or FAILURE |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-HANDOVER-COMMAND-TRANSFER outcomes
+
+Owns: N2 handover preparation. Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `command-with-transfers` | PASS | TS 38.413 8.4.1.2 (shall); TS 38.413 9.1.1 (shall) | answered the HANDOVER REQUIRED with a HANDOVER COMMAND listing PDU sessions, each with a Handover Command Transfer |
+| `no-handover-list` | FAIL | TS 38.413 8.4.1.2 (shall) | sent the HANDOVER COMMAND of an intra-system handover without the PDU Session Resource Handover List |
+| `transfer-missing` | FAIL | TS 38.413 9.1.1 (shall) | listed a PDU session in the HANDOVER COMMAND without a Handover Command Transfer that decodes |
+| `refused` | WARN | availability; reports N2 handover preparation as not completed | answered the HANDOVER REQUIRED with HANDOVER PREPARATION FAILURE |
+| `unanswered` | WARN | availability; absence within 8s (check bound, the target NG Setup included; TS 38.413 leaves the value of TNGRELOCprep, the source's timer for the preparation, to the implementation); reports N2 handover preparation as not completed | sent neither HANDOVER COMMAND nor HANDOVER PREPARATION FAILURE for the HANDOVER REQUIRED |
+| `no-command` | WARN | availability; reports N2 handover preparation as not completed | answered the HANDOVER REQUIRED with another message, or lost an association, instead of HANDOVER COMMAND |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-HANDOVER-CANCEL-ACK outcomes
+
+Needs: NG Setup, registration, PDU session establishment, N2 handover preparation.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `acknowledged` | INFO | TS 38.413 8.4.5.2 (descriptive); TS 38.413 9.2.3.12 (descriptive) | answered the HANDOVER CANCEL with HANDOVER CANCEL ACKNOWLEDGE |
+| `not-acknowledged` | INFO | TS 38.413 8.4.5.2 (descriptive); absence within 5s (check bound; TS 38.413 sets no timer for the acknowledge) | sent no HANDOVER CANCEL ACKNOWLEDGE for the HANDOVER CANCEL |
+| `association-lost` | WARN | availability | dropped the source gNB's association after the HANDOVER CANCEL |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+| `blocked-n2-handover-preparation` | BLOCKED | N2 handover preparation (owner NGAP-HANDOVER-COMMAND-TRANSFER) | did not complete an N2 handover preparation the check needs first |
+
+### NAS-SERVICE-REQUEST-REACTIVATES outcomes
+
+Owns: Service Request. Needs: NG Setup, registration, PDU session establishment, AN release.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `reactivated` | PASS | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall) | accepted the Service Request and re-established the session's user plane, with downlink on the new tunnel |
+| `unanswered` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); TS 24.501 5.6.1.5 first sentence (shall); absence within 15s (check bound; TS 24.501 sets no network timer for the answer); reports Service Request as not completed | sent neither a Service Accept nor a Service Reject |
+| `association-lost` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); TS 24.501 5.6.1.5 first sentence (shall); reports Service Request as not completed | dropped the association instead of answering the Service Request |
+| `rejected` | WARN | availability; reports Service Request as not completed | rejected the Service Request with a Service Reject |
+| `released-after-accept` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); reports Service Request as not completed | released the UE context after its Service Accept instead of re-establishing the user plane |
+| `no-user-plane` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); absence within 5s (check bound after the Service Accept) | accepted the Service Request without setting up the session's N3 tunnel |
+| `no-downlink` | FAIL | TS 24.501 5.6.1.4.1 (5.6.1.4 in Rel-15) Uplink data status a) (shall); absence within 5s (check bound; downlink reached the UE within it before the release) | set the N3 tunnel up again, and no downlink arrived on it |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-downlink-responder` | SKIP | missing input | not judged: the run has no downlink responder |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+| `blocked-an-release` | BLOCKED | AN release (owner NGAP-UE-CTX-RELEASE-ON-REQUEST) | did not complete an AN release the check needs first |
+
+### NAS-SMC-IMEISV-REQUEST outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `not-requested` | INFO | TS 24.501 5.4.2.2 IMEISV request (descriptive) | did not request the IMEISV in the SECURITY MODE COMMAND, so its omission was not exercised |
+| `identified` | INFO | no requirement | asked for the missing IMEISV with an IDENTITY REQUEST |
+| `other-identity` | INFO | no requirement | asked for another identity than the missing IMEISV with an IDENTITY REQUEST |
+| `second-smc` | INFO | no requirement | answered the missing IMEISV with a second SECURITY MODE COMMAND |
+| `rejected` | INFO | no requirement | rejected the registration whose SECURITY MODE COMPLETE lacked the IMEISV |
+| `accepted-without-imeisv` | WARN | security | registered the UE without the IMEISV it requested |
+| `released` | INFO | no requirement | released the UE context whose SECURITY MODE COMPLETE lacked the IMEISV |
+| `unanswered` | INFO | no requirement; absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | left the SECURITY MODE COMPLETE without the IMEISV unanswered |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-INITIAL-MSG-CONTAINER-WINS outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `container-answered` | PASS | TS 24.501 5.4.2.4 (shall); TS 33.501 6.4.6 step 4 (shall) | answered the registration as it answers the REGISTRATION REQUEST in the NAS message container sent alone |
+| `unprotected-answered` | FAIL | TS 24.501 5.4.2.4 (shall); TS 33.501 6.4.6 step 4 (shall) | answered the registration as it answers the unprotected initial message's Requested NSSAI |
+| `other-answer` | FAIL | TS 24.501 5.4.2.4 (shall); TS 33.501 6.4.6 step 4 (shall) | answered the registration otherwise than it answers the REGISTRATION REQUEST in the NAS message container sent alone |
+| `unanswered` | FAIL | TS 24.501 5.4.2.4 (shall); TS 33.501 6.4.6 step 4 (shall); absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | left the registration without REGISTRATION ACCEPT or REJECT after the SECURITY MODE COMPLETE, where the request in the NAS message container sent alone is answered |
+| `references-alike` | INFO | no requirement | answered the served and the unserved Requested NSSAI alike, so the two copies could not be told apart |
+| `refused-before-smc` | INFO | no requirement | rejected the initial message with non-cleartext IEs before any SECURITY MODE COMMAND, so the container was never sent |
+| `dropped-before-smc` | INFO | no requirement; absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | released or left unanswered the initial message with non-cleartext IEs before any SECURITY MODE COMMAND |
+| `accepted-without-smc` | WARN | security | registered the UE on the unprotected initial message, without any SECURITY MODE COMMAND |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-INITIAL-MSG-NO-CONTAINER outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `asked-again-rinmr` | INFO | TS 24.501 5.4.2.2 RINMR (descriptive) | asked for the initial NAS message again: a second SECURITY MODE COMMAND with RINMR set, the request 5.4.2.2 describes |
+| `second-smc` | INFO | no requirement | sent a second SECURITY MODE COMMAND without RINMR |
+| `accepted` | WARN | security | registered the UE without the NAS message container, on the unprotected initial message |
+| `rejected-on-unprotected-nssai` | WARN | security | rejected the registration with cause #62, answering the Requested NSSAI only the unprotected initial message carried |
+| `rejected` | INFO | no requirement | rejected the registration after the SECURITY MODE COMPLETE without the NAS message container, with a cause other than #62 |
+| `refused-before-smc` | INFO | no requirement | rejected the initial message with non-cleartext IEs before any SECURITY MODE COMMAND |
+| `dropped-before-smc` | INFO | no requirement; absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | released or left unanswered the initial message with non-cleartext IEs before any SECURITY MODE COMMAND |
+| `released` | INFO | no requirement | released the UE context after the SECURITY MODE COMPLETE without the NAS message container |
+| `unanswered` | INFO | no requirement; absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | left the SECURITY MODE COMPLETE without the NAS message container unanswered |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `accepted` | INFO | TS 24.501 5.4.2.4 (descriptive) | registered the UE on the REGISTRATION REQUEST in the NAS message container, as 5.4.2.4 describes |
+| `accepted-without-smc` | WARN | security | registered the UE on the unprotected initial message, without any SECURITY MODE COMMAND |
+| `refused-before-smc` | INFO | no requirement | rejected the initial message with non-cleartext IEs before any SECURITY MODE COMMAND |
+| `rejected` | INFO | no requirement | rejected the registration after the SECURITY MODE COMPLETE |
+| `released` | INFO | no requirement | released the UE context without a Registration Accept or Reject |
+| `unanswered` | INFO | no requirement; absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | sent no Registration Accept or Reject |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-REG-REJECTED-NSSAI outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `rejected-62-listed` | PASS | TS 24.501 5.5.1.2.5 #62 (shall); TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (shall) | rejected with cause #62 and listed the requested S-NSSAI in the Rejected NSSAI IE |
+| `wrong-cause` | FAIL | TS 24.501 5.5.1.2.5 #62 (shall) | rejected the registration with a 5GMM cause other than #62 |
+| `extended-only` | FAIL | TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (shall) | listed the requested S-NSSAI only in the Extended rejected NSSAI IE, which the UE did not support |
+| `not-listed` | FAIL | TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT (shall) | rejected with cause #62 without listing the requested S-NSSAI in the Rejected NSSAI IE |
+| `default-allowed` | SKIP | permitted alternative; TS 24.501 5.5.1.2.5 #62 (shall); TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT (descriptive) | accepted the registration with a default S-NSSAI, a case the #62 rule's condition b) excludes |
+| `unanswered` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall); absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | sent neither a Registration Reject nor a Registration Accept |
+| `released` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall) | released the UE context without a Registration Reject or Accept |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-PDU-UNKNOWN-DNN outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `rejected` | PASS | TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall) | rejected the unknown DNN with a PDU SESSION ESTABLISHMENT REJECT |
+| `returned` | PASS | TS 24.501 5.4.5.2.5 a) 1) (shall); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall) | returned the un-forwarded request with 5GMM cause #90 or #91 |
+| `wrong-payload` | FAIL | TS 24.501 5.4.5.2.5 a) 1) (shall); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall) | sent 5GMM cause #90 or #91 with a payload that is not the request |
+| `returned-without-cause` | FAIL | TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall) | returned the request without a 5GMM cause |
+| `unexpected-answer` | FAIL | TS 24.501 5.4.5.2.5 a) 1) (shall); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall) | answered with neither a reject nor the returned request |
+| `5gmm-status-only` | FAIL | TS 24.501 5.4.5.2.5 a) 1) (shall); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); absence within 10s (check bound; T3580, which the UE would retransmit on, is longer) | sent a 5GMM STATUS and neither a reject nor the returned request |
+| `no-answer` | FAIL | TS 24.501 5.4.5.2.5 a) 1) (shall); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); absence within 10s (check bound; T3580, which the UE would retransmit on, is longer) | sent neither a reject nor the returned request |
+| `released` | FAIL | TS 24.501 5.4.5.2.5 a) 1) (shall); TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall) | released the UE instead of rejecting or returning the request |
+| `congestion` | SKIP | permitted alternative; TS 24.501 5.4.5.2.5 a) 1) (shall) | returned the request with a congestion cause (case f) of 5.4.5.3.1), which 5.4.5.2.5 a) 1) permits from V16.3.0 |
+| `accepted` | INFO | no requirement | accepted a PDU session for the unknown DNN |
+| `returned-other-cause` | INFO | no requirement | returned the request with a 5GMM cause that is neither a routing nor a congestion cause |
+| `integrity-failed` | WARN | interoperability | sent a downlink NAS message after the request that fails the integrity check |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-PDU-RELEASE-UE-REQUESTED outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `released` | PASS | TS 24.501 6.4.3.3 (shall); TS 24.501 6.3.3.2 (shall); TS 23.502 4.3.4.2 step 3 (shall); TS 23.502 4.3.4.2 step 2a (shall) | released the PDU session on N1 and N2, and the released tunnel stayed quiet |
+| `no-answer` | FAIL | TS 24.501 6.4.3.3 (shall); TS 24.501 6.3.3.2 (shall); absence within 16s (T3582, TS 24.501 Table 10.3.1) | sent neither a PDU SESSION RELEASE COMMAND nor a PDU SESSION RESOURCE RELEASE COMMAND |
+| `no-nas-command` | FAIL | TS 24.501 6.4.3.3 (shall); TS 24.501 6.3.3.2 (shall); absence within 2s (check bound after the NGAP command) | released the session on N2 without a PDU SESSION RELEASE COMMAND |
+| `no-n2-release` | FAIL | TS 23.502 4.3.4.2 step 3 (shall); absence within 2s (check bound after the NAS command) | sent the PDU SESSION RELEASE COMMAND without a PDU SESSION RESOURCE RELEASE COMMAND for the active user plane |
+| `downlink-after-release` | FAIL | TS 23.502 4.3.4.2 step 2a (shall) | kept sending downlink on the released tunnel after the release |
+| `association-lost` | FAIL | TS 24.501 6.4.3.3 (shall); TS 24.501 6.3.3.2 (shall) | dropped the UE's association instead of completing the release |
+| `rejected` | SKIP | permitted alternative; TS 24.501 6.4.3.4 (shall) | rejected the release with a PDU SESSION RELEASE REJECT, which 6.4.3.4 permits |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NAS-PDU-SESSION-ESTABLISHMENT outcomes
+
+Owns: PDU session establishment. Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `established` | PASS | TS 24.501 6.4.1.3 (shall) | accepted the PDU session with a PDU SESSION ESTABLISHMENT ACCEPT and set it up on N2 |
+| `rejected` | WARN | availability; reports PDU session establishment as not completed | rejected the PDU session for the run's own DNN and slice with a PDU SESSION ESTABLISHMENT REJECT |
+| `not-forwarded` | WARN | availability; reports PDU session establishment as not completed | returned the request un-forwarded, with a 5GMM cause, for the run's own DNN and slice |
+| `no-user-plane` | WARN | availability; absence within 10s (check bound; T3580, which the UE would retransmit on, is longer); reports PDU session establishment as not completed | sent a PDU SESSION ESTABLISHMENT ACCEPT and did not set the session up on N2 |
+| `integrity-failed` | WARN | interoperability; reports PDU session establishment as not completed | answered the request with a downlink NAS message that fails the integrity check |
+| `unanswered` | FAIL | TS 24.501 6.4.1.3 (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); absence within 10s (check bound; T3580, which the UE would retransmit on, is longer); reports PDU session establishment as not completed | sent neither a PDU SESSION ESTABLISHMENT ACCEPT nor a PDU SESSION ESTABLISHMENT REJECT |
+| `released` | FAIL | TS 24.501 6.4.1.3 (shall); TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); reports PDU session establishment as not completed | released the UE instead of answering the PDU SESSION ESTABLISHMENT REQUEST |
+| `other-answer` | FAIL | TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (shall); reports PDU session establishment as not completed | answered with a 5GSM message that is neither a PDU SESSION ESTABLISHMENT ACCEPT nor a PDU SESSION ESTABLISHMENT REJECT |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-INITIAL-REGISTRATION outcomes
+
+Owns: registration. Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `accepted` | PASS | TS 24.501 5.5.1.2.4 (shall) | answered the initial REGISTRATION REQUEST with REGISTRATION ACCEPT |
+| `rejected` | WARN | availability; reports registration as not completed | answered the initial REGISTRATION REQUEST with REGISTRATION REJECT |
+| `authentication-rejected` | WARN | availability; reports registration as not completed | ended the registration with AUTHENTICATION REJECT |
+| `unanswered` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall); absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer (TS 24.501 Table 10.2.1)); reports registration as not completed | sent neither REGISTRATION ACCEPT nor REGISTRATION REJECT |
+| `released` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall); reports registration as not completed | released the UE context without REGISTRATION ACCEPT or REGISTRATION REJECT |
+| `not-completed` | WARN | availability; reports registration as not completed | ended the registration without completing it, in another way |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NAS-REGISTRATION-AFTER-RELEASE outcomes
+
+Needs: NG Setup, registration, release after switch-off.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `answered` | PASS | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall) | answered every REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE |
+| `unanswered` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall); absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | sent no NAS message for a REGISTRATION REQUEST sent right after the same UE's UE CONTEXT RELEASE COMPLETE |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-release-after-switch-off` | BLOCKED | release after switch-off (owner NGAP-CTX-RELEASE-AFTER-SWITCH-OFF) | did not complete a release after switch-off the check needs first |
+
+### NAS-REGISTRATION-DURING-OTHER-RELEASE outcomes
+
+Needs: NG Setup, registration, release after switch-off.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `answered` | PASS | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall) | answered every REGISTRATION REQUEST another UE sent, on its own association, right after a UE CONTEXT RELEASE COMPLETE |
+| `unanswered` | FAIL | TS 24.501 5.5.1.2.4 (shall); TS 24.501 5.5.1.2.5 (shall); absence within 10s (check bound; inside T3510, the UE's own 15 s wait for the answer to a REGISTRATION REQUEST (TS 24.501 Table 10.2.1)) | sent no NAS message for a REGISTRATION REQUEST another UE sent, on its own association, right after a UE CONTEXT RELEASE COMPLETE |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-release-after-switch-off` | BLOCKED | release after switch-off (owner NGAP-CTX-RELEASE-AFTER-SWITCH-OFF) | did not complete a release after switch-off the check needs first |
+
+### NAS-RETRANSMIT-NEW-COUNT outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `count-increased` | PASS | TS 24.501 4.4.3.1 (shall) | protected each retransmission of the Registration Accept at a higher NAS COUNT than the transmission before it |
+| `count-not-increased` | FAIL | TS 24.501 4.4.3.1 (shall) | protected a retransmission of the Registration Accept at a NAS COUNT not above the transmission before it |
+| `no-retransmission` | INFO | no requirement; absence within 27s (1.5 × the largest T3550 of TS 24.501 Table 10.2.2) | sent the Registration Accept once, leaving no retransmission to judge |
+| `unverifiable` | WARN | interoperability | retransmitted the Registration Accept with a MAC that verifies at no NAS COUNT the UE can estimate |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-T3550-ACCEPT-RETRANSMIT outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `four-retransmissions` | PASS | TS 24.501 5.5.1.2.8 c) (shall) | retransmitted the REGISTRATION ACCEPT on four T3550 expiries |
+| `too-few-retransmissions` | FAIL | TS 24.501 5.5.1.2.8 c) (shall); absence within 27s (1.5 × the largest T3550 (18 s, TS 24.501 Table 10.2.2) for the first retransmission, then 1.5 × the timer estimated from the gaps) | retransmitted the REGISTRATION ACCEPT fewer than four times, or not at all |
+| `too-many-retransmissions` | FAIL | TS 24.501 5.5.1.2.8 c) (shall) | retransmitted the REGISTRATION ACCEPT a fifth time instead of aborting |
+| `no-guti` | FAIL | TS 24.501 5.5.1.2.4 5G-GUTI (shall) | sent the initial registration's REGISTRATION ACCEPT with no 5G-GUTI, and assigned none before it, so T3550 was not started |
+| `guti-by-configuration-update` | SKIP | permitted alternative; TS 24.501 5.5.1.2.4 5G-GUTI (shall) | sent a CONFIGURATION UPDATE COMMAND before a REGISTRATION ACCEPT with no 5G-GUTI, the other way 5.5.1.2.4 lets the AMF assign one, so T3550 was not started by a 5G-GUTI |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-idle-core` | SKIP | missing input | not judged: the run has no idle core |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-T3560-AUTH-RETRANSMIT outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `retransmitted-then-released` | PASS | TS 24.501 5.4.1.3.7 b) (shall) | retransmitted the AUTHENTICATION REQUEST on four T3560 expiries, then released the N1 NAS signalling connection |
+| `wrong-count` | FAIL | TS 24.501 5.4.1.3.7 b) (shall); absence within 36s (1.5 × the largest T3560 (24 s, TS 24.501 Table 10.2.2) for the first retransmission, then 1.5 × the timer estimated from the gaps) | retransmitted the AUTHENTICATION REQUEST other than four times |
+| `rejected-early` | FAIL | TS 24.501 5.4.1.3.7 b) (shall) | ended the authentication with a reject before the four retransmissions |
+| `release-late` | FAIL | TS 24.501 5.4.1.3.7 b) (shall) | released the N1 NAS signalling connection later than 0.5 × T_est after the fifth T3560 expiry |
+| `no-release` | FAIL | TS 24.501 5.4.1.3.7 b) (shall); absence within 0.5 × the timer estimated from the gaps, after the inferred fifth T3560 expiry (TS 24.501 Table 10.2.2 default 6 s) | did not release the N1 NAS signalling connection on the fifth T3560 expiry |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-idle-core` | SKIP | missing input | not judged: the run has no idle core |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NGAP-UNKNOWN-UE-SURVIVES outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `error-indication` | PASS | TS 38.413 10.6 (shall); TS 38.413 8.7.5.2 (shall) | answered the message for unknown UE NGAP IDs with an ERROR INDICATION |
+| `other-pdu` | FAIL | TS 38.413 10.6 (shall); TS 38.413 8.7.5.2 (shall) | answered with another PDU; the association survived |
+| `silent-drop` | FAIL | TS 38.413 10.6 (shall); TS 38.413 8.7.5.2 (shall); absence within 3s (check bound; TS 38.413 sets no timer for the ERROR INDICATION) | sent no ERROR INDICATION; the association survived |
+| `association-reset` | FAIL | TS 38.413 10.6 (shall); TS 38.413 8.7.5.2 (shall) | reset the association instead of sending an ERROR INDICATION |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NGAP-NG-SETUP outcomes
+
+Owns: NG Setup. Needs no procedure first.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `accepted` | INFO | TS 38.413 8.7.1.2 (descriptive) | answered the NG SETUP REQUEST with NG SETUP RESPONSE, as 8.7.1.2 describes |
+| `rejected` | WARN | availability; reports NG Setup as not completed | rejected the NG Setup with NG SETUP FAILURE |
+| `unanswered` | DEVIATION | TS 38.413 8.7.1.3 (should); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome); reports NG Setup as not completed | sent neither NG SETUP RESPONSE nor NG SETUP FAILURE |
+| `other-pdu` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | answered the NG SETUP REQUEST with a PDU that is neither NG SETUP RESPONSE nor NG SETUP FAILURE |
+| `association-lost` | DEVIATION | TS 38.413 8.7.1.3 (should); reports NG Setup as not completed | dropped the association instead of answering the NG SETUP REQUEST |
+
+### NGAP-DUPLICATE-RAN-NODE-ID outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `accepted` | INFO | TS 38.413 8.7.1.2 (descriptive) | accepted the duplicate NG SETUP REQUEST and kept the first association |
+| `rejected` | INFO | no requirement | rejected the duplicate NG SETUP REQUEST with NG SETUP FAILURE and kept the first association |
+| `accepted-first-dropped` | WARN | availability | accepted the duplicate NG SETUP REQUEST and dropped the first association |
+| `rejected-first-dropped` | WARN | availability | rejected the duplicate NG SETUP REQUEST with NG SETUP FAILURE and dropped the first association |
+| `unanswered` | DEVIATION | TS 38.413 8.7.1.3 (should); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent neither NG SETUP RESPONSE nor NG SETUP FAILURE for the duplicate NG SETUP REQUEST |
+| `other-pdu` | DEVIATION | TS 38.413 8.7.1.3 (should) | answered the duplicate NG SETUP REQUEST with a PDU that is neither NG SETUP RESPONSE nor NG SETUP FAILURE |
+| `association-lost` | DEVIATION | TS 38.413 8.7.1.3 (should) | dropped the second association instead of answering its NG SETUP REQUEST |
+| `skip-no-second-n2-source-address` | SKIP | missing input | not judged: the run has no second N2 source address |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NGAP-NGSETUP-MISSING-TALIST outcomes
+
+Needs no procedure first.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `setup-failure` | PASS | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | rejected the NG SETUP REQUEST missing the Supported TA List with NG SETUP FAILURE |
+| `accepted` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | accepted the NG SETUP REQUEST missing the Supported TA List |
+| `other-pdu` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | answered with another PDU instead of NG SETUP FAILURE; the association survived |
+| `silent-drop` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent no NG SETUP FAILURE; the association survived |
+| `association-reset` | FAIL | TS 38.413 10.3.5 Reject IE bullet 1 (shall) | reset the association instead of sending NG SETUP FAILURE |
+
+### NGAP-NGSETUP-UNKNOWN-PLMN outcomes
+
+Needs no procedure first.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `setup-failure` | PASS | TS 38.413 8.7.1.4 (shall) | rejected the NG Setup naming only an unserved PLMN with NG SETUP FAILURE |
+| `accepted` | FAIL | TS 38.413 8.7.1.4 (shall) | accepted the NG Setup naming only an unserved PLMN |
+| `other-pdu` | FAIL | TS 38.413 8.7.1.4 (shall) | answered with another PDU instead of NG SETUP FAILURE; the association survived |
+| `silent-drop` | FAIL | TS 38.413 8.7.1.4 (shall); absence within 4s (check bound; TS 38.413 sets no timer for the NG Setup outcome) | sent no NG SETUP FAILURE; the association survived |
+| `association-reset` | FAIL | TS 38.413 8.7.1.4 (shall) | reset the association instead of sending NG SETUP FAILURE |
+
+### NGAP-PAGING-ON-DL-DATA outcomes
+
+Needs: NG Setup, registration, PDU session establishment, AN release.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `paged` | PASS | TS 24.501 5.6.2.2.1 (shall) | sent an NGAP PAGING naming the idle UE's 5G-S-TMSI after downlink data for it |
+| `no-paging` | FAIL | TS 24.501 5.6.2.2.1 (shall); absence within 10s (check bound, downlink re-sent every 2s; TS 24.501 sets no network timer for the paging) | sent no NGAP PAGING after downlink data for the idle UE |
+| `other-identity` | FAIL | TS 24.501 5.6.2.2.1 (shall); absence within 10s (check bound, downlink re-sent every 2s; TS 24.501 sets no network timer for the paging) | sent NGAP PAGING only for other identities after downlink data for the idle UE |
+| `association-lost` | FAIL | TS 24.501 5.6.2.2.1 (shall) | dropped the idle UE's gNB association instead of paging it after downlink data |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-downlink-responder` | SKIP | missing input | not judged: the run has no downlink responder |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+| `blocked-an-release` | BLOCKED | AN release (owner NGAP-UE-CTX-RELEASE-ON-REQUEST) | did not complete an AN release the check needs first |
+
+### NGAP-PATH-SWITCH-SECCAP-MISMATCH outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `stored-capabilities` | PASS | TS 33.501 6.7.3.1 (shall) | sent its stored UE security capabilities in the PATH SWITCH REQUEST ACKNOWLEDGE |
+| `no-capabilities` | FAIL | TS 33.501 6.7.3.1 (shall) | acknowledged the mismatching PATH SWITCH REQUEST without UE Security Capabilities |
+| `echoed-capabilities` | FAIL | TS 33.501 6.7.3.1 (shall) | acknowledged the mismatching PATH SWITCH REQUEST with the capabilities it carried |
+| `other-capabilities` | FAIL | TS 33.501 6.7.3.1 (shall) | acknowledged the mismatching PATH SWITCH REQUEST with capabilities neither stored nor sent |
+| `refused` | WARN | availability | answered the mismatching PATH SWITCH REQUEST with PATH SWITCH REQUEST FAILURE |
+| `unanswered` | WARN | availability; absence within 5s (check bound, the target NG Setup included; TS 38.413 sets no timer for the answer) | sent no answer to the mismatching PATH SWITCH REQUEST |
+| `other-answer` | WARN | availability | answered the mismatching PATH SWITCH REQUEST with another message, or lost the association |
+| `no-stored-capabilities` | WARN | interoperability | supplied no UE Security Capabilities in the INITIAL CONTEXT SETUP REQUEST |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NGAP-RAN-CONFIG-UPDATE-ACK outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `acknowledged` | PASS | TS 38.413 8.7.2.2 (shall) | answered the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE ACKNOWLEDGE |
+| `failure` | WARN | availability | rejected the valid RAN CONFIGURATION UPDATE with RAN CONFIGURATION UPDATE FAILURE |
+| `error-indication` | FAIL | TS 38.413 8.7.2.2 (shall); TS 38.413 8.7.2.3 (shall) | answered the valid RAN CONFIGURATION UPDATE with an ERROR INDICATION |
+| `no-answer` | FAIL | TS 38.413 8.7.2.2 (shall); TS 38.413 8.7.2.3 (shall); absence within 5s (check bound; TS 38.413 sets no timer for the RAN Configuration Update outcome) | sent neither RAN CONFIGURATION UPDATE ACKNOWLEDGE nor FAILURE; the association survived |
+| `association-lost` | FAIL | TS 38.413 8.7.2.2 (shall); TS 38.413 8.7.2.3 (shall) | dropped the association instead of answering the valid RAN CONFIGURATION UPDATE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NGAP-RAN-CONFIG-UPDATE-KEEPS-TA outcomes
+
+Needs: NG Setup, registration, release after switch-off.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `registered` | PASS | TS 38.413 8.7.2.2 (shall) | registered the UE in the NG Setup tracking area after acknowledging an update without a Supported TA List |
+| `tracking-area-reject` | FAIL | TS 38.413 8.7.2.2 (shall) | rejected the registration with a tracking-area cause after acknowledging an update without a Supported TA List |
+| `update-failure` | SKIP | permitted alternative; TS 38.413 8.7.2.3 (shall) | rejected the update with RAN CONFIGURATION UPDATE FAILURE, which 8.7.2.3 permits; the state was not judged |
+| `update-unanswered` | WARN | availability; absence within 5s (check bound; TS 38.413 sets no timer for the RAN Configuration Update outcome) | sent neither RAN CONFIGURATION UPDATE ACKNOWLEDGE nor FAILURE; the state was not judged |
+| `update-association-lost` | WARN | availability | dropped the association instead of answering the RAN CONFIGURATION UPDATE; the state was not judged |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-release-after-switch-off` | BLOCKED | release after switch-off (owner NGAP-CTX-RELEASE-AFTER-SWITCH-OFF) | did not complete a release after switch-off the check needs first |
+
+### NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `error-indication` | PASS | TS 38.413 10.2 (should) | answered the RAN CONFIGURATION UPDATE with a transfer syntax error with an ERROR INDICATION |
+| `other-pdu` | DEVIATION | TS 38.413 10.2 (should) | answered with another PDU instead of an ERROR INDICATION; the association survived |
+| `silent-drop` | DEVIATION | TS 38.413 10.2 (should); absence within 3s (check bound; TS 38.413 sets no timer for the ERROR INDICATION) | sent no ERROR INDICATION; the association survived |
+| `association-lost` | DEVIATION | TS 38.413 10.2 (should) | dropped the association instead of sending an ERROR INDICATION, and kept running |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NGAP-NG-RESET-ACK outcomes
+
+Needs: NG Setup.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `acknowledged` | PASS | TS 38.413 8.7.4.2.2 (shall) | answered the NG RESET with NG RESET ACKNOWLEDGE |
+| `other-pdu` | FAIL | TS 38.413 8.7.4.2.2 (shall) | answered the NG RESET with another PDU |
+| `no-answer` | FAIL | TS 38.413 8.7.4.2.2 (shall); absence within 5s (check bound; TS 38.413 sets no timer for the acknowledge) | sent no NG RESET ACKNOWLEDGE |
+| `association-lost` | FAIL | TS 38.413 8.7.4.2.2 (shall) | dropped the association instead of acknowledging the NG RESET |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+
+### NAS-SMC-NO-NIA0-REPLAYED-CAPS outcomes
+
+Needs: NG Setup, registration.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `secured` | PASS | TS 33.501 5.5.2 (shall); TS 33.501 6.7.2 step 1b (shall) | sent the normal UE a Security Mode Command with a non-null integrity algorithm and its capabilities replayed, and neither selected NIA0 for nor skipped the command with the non-conforming UEs |
+| `nia0-selected` | FAIL | TS 33.501 5.5.2 (shall) | selected the null integrity algorithm NIA0 in a Security Mode Command |
+| `capabilities-not-replayed` | FAIL | TS 33.501 6.7.2 step 1b (shall) | replayed UE security capabilities that differ from those the UE sent |
+| `command-skipped` | FAIL | TS 33.501 5.5.2 (shall) | sent a Registration Accept with no Security Mode Command before it |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+
+### NAS-INTEGRITY-FAIL-DISCARD outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `discarded` | PASS | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall); absence within 5s (check bound; a discarded message draws no answer, and TS 24.501 sets no timer for one) | discarded the bad-MAC request and answered a valid request after it |
+| `answered` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall) | answered the PDU Session Establishment Request whose MAC failed the integrity check |
+| `5gmm-status` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall) | answered the bad-MAC request with a 5GMM STATUS |
+| `acted-on` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall) | sent no answer to the bad-MAC request but, within the 5s quiet wait after it, released or modified a PDU session of the UE or deregistered it |
+| `state-changed` | FAIL | TS 24.501 4.4.4.3 (shall); TS 33.501 6.4.3.3 (shall); absence within 10s (check bound; the request before the stimulus was answered within it) | left a valid request after the bad-MAC request unanswered: the discarded message changed its state |
+| `released` | WARN | security | released the UE after the bad-MAC request instead of discarding it |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NAS-REPLAY-DISCARD outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `discarded` | PASS | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall); absence within 5s (check bound; a discarded message draws no answer, and TS 24.501 sets no timer for one) | discarded the replayed request and answered a valid request after it |
+| `answered` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall) | answered the replayed PDU Session Establishment Request again |
+| `5gmm-status` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall) | answered the replayed request with a 5GMM STATUS |
+| `acted-on` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall) | sent no answer to the replayed request but, within the 5s quiet wait after it, released or modified a PDU session of the UE (the one the request names, say) or deregistered it |
+| `state-changed` | FAIL | TS 33.501 6.4.3.2 (shall); TS 24.501 4.4.3.2 (shall); absence within 10s (check bound; the request before the stimulus was answered within it) | left a valid request after the replayed request unanswered: the discarded message changed its state |
+| `released` | WARN | security | released the UE after the replayed request instead of discarding it |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `count-kept` | PASS | TS 24.501 4.4.3.3 (shall) | answered a valid request sent after a MAC-failed one with a lower sequence number: the stored uplink NAS COUNT did not move |
+| `count-advanced` | FAIL | TS 24.501 4.4.3.3 (shall); absence within 10s (check bound; requests A and B were answered within it) | left a valid request sent after a MAC-failed one unanswered: the stored uplink NAS COUNT moved before the integrity check |
+| `replay-accepted` | FAIL | TS 24.501 4.4.3.2 (shall) | answered a request re-sent with a lower sequence number, accepting a NAS COUNT it had accepted |
+| `acted-on` | FAIL | TS 24.501 4.4.3.2 (shall) | sent no answer to a request re-sent with a lower sequence number but, within the 5s quiet wait after it, released or modified a PDU session of the UE (the one the request names, say) or deregistered it |
+| `released` | WARN | security | released the UE after the request re-sent with a lower sequence number |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |
+
+### NAS-BADMAC-REGISTRATION-AFTER-SMC outcomes
+
+Needs: NG Setup, registration, PDU session establishment.
+
+| Outcome | Verdict | Basis | The core |
+|---|---|---|---|
+| `discarded` | PASS | TS 24.501 4.4.4.3 (shall); absence within 5s (check bound; a discarded message draws no answer, and TS 24.501 sets no timer for one) | sent no answer to the bad-MAC REGISTRATION REQUEST |
+| `processed` | FAIL | TS 24.501 4.4.4.3 (shall) | answered the bad-MAC REGISTRATION REQUEST with a message neither reading of 4.4.4.3 allows, with no authentication first |
+| `acted-on` | FAIL | TS 24.501 4.4.4.3 (shall) | released or modified the UE's PDU session within the 5s quiet wait after the bad-MAC REGISTRATION REQUEST, with no authentication first |
+| `reauthenticated` | SKIP | permitted alternative; TS 24.501 4.4.4.3 (shall) | answered the bad-MAC REGISTRATION REQUEST with an AUTHENTICATION REQUEST, as the authentication rule of 4.4.4.3 has it |
+| `identity-requested` | SKIP | permitted alternative; TS 24.501 4.4.4.3 (shall) | answered the bad-MAC REGISTRATION REQUEST with an IDENTITY REQUEST, which may start the authentication 4.4.4.3 has |
+| `released` | WARN | security | released the UE after the bad-MAC REGISTRATION REQUEST, with no answer |
+| `skip-no-ue` | SKIP | missing input | not judged: the run has no UE |
+| `skip-no-nas-integrity-protection` | SKIP | missing input | not judged: the run has no NAS integrity protection |
+| `blocked-ng-setup` | BLOCKED | NG Setup (owner NGAP-NG-SETUP) | did not complete an NG Setup the check needs first |
+| `blocked-registration` | BLOCKED | registration (owner NAS-INITIAL-REGISTRATION) | did not complete a registration the check needs first |
+| `blocked-pdu-session-establishment` | BLOCKED | PDU session establishment (owner NAS-PDU-SESSION-ESTABLISHMENT) | did not complete a PDU session establishment the check needs first |

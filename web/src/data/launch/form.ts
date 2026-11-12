@@ -48,7 +48,7 @@ export function addWorkload(doc: Document, kind: WorkloadKind): number {
   const i = addElement(doc, ["workloads"], name);
   if (kind === "conformance") {
     const c = new YAMLMap();
-    c.set("categories", new YAMLSeq());
+    c.set("groups", new YAMLSeq());
     c.flow = true;
     doc.setIn(["workloads", i, "conformance"], c);
   } else {
@@ -229,14 +229,14 @@ export function setFlag(doc: Document, steps: readonly Step[], on: boolean): voi
 }
 
 /**
- * Sets a conformance workload's categories; none is `categories: []`
- * (every category), kept so the workload stays a conformance suite.
+ * Sets a conformance workload's groups (group paths or prefixes); none is
+ * `groups: []` (every group), kept so the workload stays a conformance suite.
  */
-export function setCategories(doc: Document, i: number, categories: readonly string[]): void {
+export function setGroups(doc: Document, i: number, groups: readonly string[]): void {
   const seq = new YAMLSeq();
   seq.flow = true;
-  for (const c of categories) seq.items.push(new Scalar(c));
-  doc.setIn(["workloads", i, "conformance", "categories"], seq);
+  for (const g of groups) seq.items.push(new Scalar(g));
+  doc.setIn(["workloads", i, "conformance", "groups"], seq);
 }
 
 /** A population keeps its UEs (behaviors set, {} idle) or is a storm (none). */

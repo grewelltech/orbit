@@ -1,34 +1,34 @@
 {
   "run":  {
-    "runId":  "run-416ae0df",
+    "runId":  "run-d380a861",
     "kind":  "RUN_KIND_LOAD",
     "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1793174970535028721",
-    "endedUnixNano":  "1793174970752846186"
+    "startedUnixNano":  "1794440559526528622",
+    "endedUnixNano":  "1794440559739352679"
   },
   "loadProgress":  {
-    "elapsedMs":  "219",
+    "elapsedMs":  "230",
     "attempted":  3,
     "succeeded":  3,
-    "achievedRate":  13.691900224165616,
+    "achievedRate":  13.014102094043208,
     "latency":  [
       {
         "procedure":  "registration",
         "count":  "3",
-        "p50Ms":  14.079,
-        "p90Ms":  114.239,
-        "p99Ms":  114.239,
-        "p999Ms":  114.239,
-        "maxMs":  114.239
+        "p50Ms":  7.535,
+        "p90Ms":  109.055,
+        "p99Ms":  109.055,
+        "p999Ms":  109.055,
+        "maxMs":  109.055
       },
       {
         "procedure":  "attach",
         "count":  "3",
-        "p50Ms":  14.079,
-        "p90Ms":  114.239,
-        "p99Ms":  114.239,
-        "p999Ms":  114.239,
-        "maxMs":  114.239
+        "p50Ms":  7.551,
+        "p90Ms":  109.055,
+        "p99Ms":  109.055,
+        "p999Ms":  109.055,
+        "maxMs":  109.055
       }
     ],
     "perGnb":  [

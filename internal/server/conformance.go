@@ -120,16 +120,29 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 	}
 	core := spec.expected.Label()
 	var tally orbitv1.ConformanceTally
-	sent := 0
+	sent, sentPreflight := 0, false
 	for {
 		rs, done, wake := live.since(sent)
+		// The preflight goes out on its own as soon as it has run, ahead of
+		// the first check's result.
+		if steps := live.preflightSteps(); len(steps) > 0 && !sentPreflight {
+			sentPreflight = true
+			if err := stream.Send(&orbitv1.ConformanceUpdate{
+				Tally: cloneTally(&tally), Total: uint32(spec.total),
+				TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
+				ExpectedFailuresCore: core, RunId: id, Preflight: steps,
+			}); err != nil {
+				_, _ = s.runs.reg.Stop(id)
+				return err
+			}
+		}
 		for _, r := range rs {
 			addToTally(&tally, r)
 			if err := stream.Send(&orbitv1.ConformanceUpdate{
 				Result: resultProto(r), Tally: cloneTally(&tally),
 				Index: uint32(sent), Total: uint32(spec.total),
 				TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
-				ExpectedFailuresCore: core, RunId: id,
+				ExpectedFailuresCore: core, RunId: id, Preflight: live.preflightSteps(),
 			}); err != nil {
 				_, _ = s.runs.reg.Stop(id) // the client is gone; so is its run
 				return err
@@ -162,7 +175,7 @@ func (s *conformanceService) stream(ctx context.Context, stream *connect.ServerS
 	return stream.Send(&orbitv1.ConformanceUpdate{
 		Done: true, Tally: cloneTally(&tally),
 		TargetRelease: uint32(spec.env.TargetRelease), SpecTargetReleases: specTargets,
-		ExpectedFailuresCore: core, RunId: id,
+		ExpectedFailuresCore: core, RunId: id, Preflight: live.preflightSteps(),
 		Stale: staleProto(spec.expected.Stale(results)),
 	})
 }
@@ -191,7 +204,8 @@ func conformancePlan(m *orbitv1.RunConformanceRequest) *orbitv1.RunPlan {
 			Ki: m.GetCredentials().GetKi(), Opc: m.GetCredentials().GetOpc()}}
 	}
 	cw := &orbitv1.ConformanceWorkload{
-		Categories: m.GetCategories(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
+		Categories: m.GetCategories(), //nolint:staticcheck // carried so the build refuses it with what replaced it
+		Groups:     m.GetGroups(), Tags: m.GetTags(), PerTestTimeoutMs: uint32(min(uint64(m.GetPerTestSeconds())*1000, math.MaxUint32)),
 		Traffic: m.GetTraffic(), N3Bind: m.GetN3Bind(),
 		GnbIds: &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: orDefaultU32(m.GetGnbIdBase(), defaultSuiteGNBBase)}},
 	}
@@ -215,7 +229,8 @@ func (s *conformanceService) ListConformanceTests(
 		refs := t.SpecRefs()
 		out = append(out, &orbitv1.ConformanceTestInfo{
 			Id:         t.ID(),
-			Category:   string(t.Category()),
+			Group:      groupOf(t),
+			Tags:       tagStrings(conformance.TagsOf(t)),
 			SpecRef:    conformance.RenderRefs(refs),
 			SpecRefs:   specRefsProto(refs),
 			MinRelease: uint32(conformance.MinRelease(t)),
@@ -224,10 +239,30 @@ func (s *conformanceService) ListConformanceTests(
 	return connect.NewResponse(&orbitv1.ListConformanceTestsResponse{Tests: out}), nil
 }
 
+// groupOf is t's group in the latest release's titles, "" when it has none.
+func groupOf(t conformance.Test) string {
+	g, err := conformance.GroupOf(t, 0)
+	if err != nil {
+		return ""
+	}
+	return g.String()
+}
+
+// tagStrings is tags as strings, nil for none.
+func tagStrings(tags []conformance.Tag) []string {
+	var out []string
+	for _, t := range tags {
+		out = append(out, string(t))
+	}
+	return out
+}
+
 func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 	return &orbitv1.ConformanceResult{
 		Id:              r.ID,
-		Category:        string(r.Category),
+		Group:           r.Group,
+		Tags:            tagStrings(r.Tags),
+		Pack:            r.Pack,
 		SpecRef:         r.SpecRef,
 		Verdict:         string(r.Verdict),
 		Expected:        r.Expected,
@@ -236,7 +271,22 @@ func resultProto(r conformance.Result) *orbitv1.ConformanceResult {
 		SpecRefs:        specRefsProto(r.SpecRefs),
 		MinRelease:      uint32(r.MinRelease),
 		ExpectedFailure: expectedFailureProto(r.ExpectedFailure),
+		Outcome:         r.Outcome,
+		Criterion:       string(r.Criterion),
+		OutcomeRefs:     r.Refs,
+		BlockedOn:       string(r.BlockedOn),
+		Owner:           r.Owner,
+		NotCompleted:    string(r.NotCompleted),
 	}
+}
+
+// preflightProto carries a run's preflight on the wire, nil for none.
+func preflightProto(p conformance.Preflight) []*orbitv1.PreflightStep {
+	var out []*orbitv1.PreflightStep
+	for _, step := range p {
+		out = append(out, &orbitv1.PreflightStep{Step: string(step.Step), Status: string(step.Status), Detail: step.Detail})
+	}
+	return out
 }
 
 // expectedFailureProto carries a tolerated FAIL's entry, nil for none.
@@ -252,7 +302,7 @@ func staleProto(stale []conformance.StaleExpectation) []*orbitv1.StaleExpectatio
 	out := make([]*orbitv1.StaleExpectation, 0, len(stale))
 	for _, st := range stale {
 		out = append(out, &orbitv1.StaleExpectation{Check: st.Check, Finding: st.Finding,
-			ExpectedObserved: st.ExpectedObserved, Verdict: string(st.Verdict), Observed: st.Observed})
+			ExpectedVerdict: string(st.ExpectedVerdict), ExpectedObserved: st.ExpectedObserved, Verdict: string(st.Verdict), Observed: st.Observed})
 	}
 	return out
 }
@@ -263,7 +313,7 @@ func specRefsProto(refs []conformance.SpecRef) []*orbitv1.SpecRef {
 	for _, r := range refs {
 		p := &orbitv1.SpecRef{
 			Spec: r.Spec, Clause: r.Clause, Strength: string(r.Strength),
-			Since: uint32(r.Since), WordingUnchanged: r.WordingUnchanged, Rendered: r.String(),
+			Since: uint32(r.Since), WordingUnchanged: r.WordingUnchanged, Rendered: r.String(), Primary: r.Primary,
 		}
 		for _, v := range r.Verified {
 			p.Verified = append(p.Verified, &orbitv1.SpecVersion{Release: uint32(v.Release), Version: v.Version, Archive: v.Archive})
@@ -291,6 +341,14 @@ func addToTally(t *orbitv1.ConformanceTally, r conformance.Result) {
 		t.Skipped++
 	case conformance.Deviation:
 		t.Deviations++
+	case conformance.Info:
+		t.Info++
+	case conformance.Warn:
+		t.Warned++
+	case conformance.Blocked:
+		t.Blocked++
+	case conformance.Crash:
+		t.Crashed++
 	}
 }
 
@@ -300,6 +358,7 @@ func cloneTally(t *orbitv1.ConformanceTally) *orbitv1.ConformanceTally {
 	return &orbitv1.ConformanceTally{
 		Passed: t.Passed, Failed: t.Failed, Errored: t.Errored,
 		Skipped: t.Skipped, Deviations: t.Deviations, ExpectedFailures: t.ExpectedFailures,
+		Info: t.Info, Warned: t.Warned, Blocked: t.Blocked, Crashed: t.Crashed,
 	}
 }
 

@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/mockamf"
 	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
 	"github.com/bgrewell/orbit/internal/nas"
@@ -137,9 +139,48 @@ func TestThinLoadPlan(t *testing.T) {
 	}
 }
 
+// --check narrows a run on the server as it narrows --local: the named
+// checks alone run, in run order, with the gNB IDs they have in the full
+// suite (the mock AMF saw the same NG Setups either way).
+func TestThinConformanceCheck(t *testing.T) {
+	clearOrbitEnv(t)
+	type result struct{ ID, Verdict string }
+	run := func(local bool) ([]result, orbitRun) {
+		lab := newThinLab(t)
+		loc := targetDir(t, "version: 1\nkind: target\nname: lab1\ncore:\n  amf: "+lab.amf+"\n  plmn: { mcc: \"208\", mnc: \"93\" }\n"+
+			"  slices:\n    - { sst: 1, sd: \"010203\" }\nran:\n  n2_source_ips: [127.0.0.1-127.0.0.9]\n  gnb_ids: { first: 100 }\n")
+		args := []string{"--server", lab.url, "conformance", "-t", "lab1", "--json", "--per-test-timeout", "2s",
+			"--check", "ngap-ng-reset-ack", "--check", "NGAP-RAN-CONFIG-UPDATE-ACK,NGAP-UNKNOWN-UE-SURVIVES"}
+		if local {
+			args = append(args, "--local")
+		}
+		r := runOrbit(t, loc, args...)
+		var sum struct{ Results []result }
+		if err := json.Unmarshal([]byte(r.out), &sum); err != nil {
+			t.Fatalf("local %t: JSON: %v (err %v)\n%s\n%s", local, err, r.execErr, r.out, r.err)
+		}
+		return sum.Results, r
+	}
+	local, _ := run(true)
+	thin, tr := run(false)
+	var ids []string
+	for _, r := range thin {
+		ids = append(ids, r.ID)
+	}
+	if want := "NGAP-UNKNOWN-UE-SURVIVES,NGAP-RAN-CONFIG-UPDATE-ACK,NGAP-NG-RESET-ACK"; strings.Join(ids, ",") != want {
+		t.Fatalf("the server ran %v, want %s\n%s", ids, want, tr.err)
+	}
+	if !reflect.DeepEqual(local, thin) {
+		t.Errorf("the server's selection differs from --local's:\nlocal %+v\nthin  %+v", local, thin)
+	}
+}
+
 // `orbit conformance` on the server gives what --local gives for the same
 // suite: the same checks and verdicts, and the same exit. Each side has its
-// own mock AMF, which keeps state between runs.
+// own mock AMF, which keeps state between runs. The one difference is the
+// check that needs a second N2 source address: the server takes it from
+// the target's pool and runs the check, and --local, which has the one
+// --bind address, SKIPs it.
 func TestThinConformanceMatchesLocal(t *testing.T) {
 	clearOrbitEnv(t)
 	run := func(local, jsonOut bool) orbitRun {
@@ -147,7 +188,7 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 		// No subscriber: the mobility checks SKIP either way.
 		loc := targetDir(t, "version: 1\nkind: target\nname: lab1\ncore:\n  amf: "+lab.amf+"\n  plmn: { mcc: \"208\", mnc: \"93\" }\n"+
 			"  slices:\n    - { sst: 1, sd: \"010203\" }\nran:\n  n2_source_ips: [127.0.0.1-127.0.0.9]\n  gnb_ids: { first: 100 }\n")
-		args := []string{"--server", lab.url, "conformance", "-t", "lab1", "--category", "procedural,negative-ie,nas", "--per-test-timeout", "2s"}
+		args := []string{"--server", lab.url, "conformance", "-t", "lab1", "--group", "NGAP / Interface Management Procedures", "--group", "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data", "--group", "NAS", "--per-test-timeout", "2s"}
 		if jsonOut {
 			args = append(args, "--json")
 		}
@@ -157,20 +198,49 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 		return runOrbit(t, loc, args...)
 	}
 	type result struct{ ID, Verdict string }
+	preflights := map[string]conformance.Preflight{}
 	parse := func(name string, r orbitRun) []result {
-		var sum struct{ Results []result }
+		var sum struct {
+			Results   []result
+			Preflight conformance.Preflight
+		}
 		if err := json.Unmarshal([]byte(r.out), &sum); err != nil {
 			t.Fatalf("%s: JSON: %v (err %v)\n%s\n%s", name, err, r.execErr, r.out, r.err)
 		}
+		preflights[name] = sum.Preflight
 		return sum.Results
 	}
+	const secondSource = "NGAP-DUPLICATE-RAN-NODE-ID"
+	// apart removes the second-source check's result, returning its verdict.
+	apart := func(rs []result) ([]result, string) {
+		var out []result
+		verdict := ""
+		for _, r := range rs {
+			if r.ID == secondSource {
+				verdict = r.Verdict
+				continue
+			}
+			out = append(out, r)
+		}
+		return out, verdict
+	}
 	local, thin := run(true, true), run(false, true)
-	lr, tr := parse("--local", local), parse("thin", thin)
+	lr, lv := apart(parse("--local", local))
+	tr, tv := apart(parse("thin", thin))
 	if len(lr) < 3 {
 		t.Fatalf("only %d results: %+v", len(lr), lr)
 	}
+	if lv != "SKIP" || tv != "INFO" {
+		t.Errorf("%s: --local %q, thin %q; want SKIP with one N2 source and INFO with the pool's second", secondSource, lv, tv)
+	}
 	if !reflect.DeepEqual(lr, tr) {
 		t.Errorf("the server's suite differs from --local's:\nlocal %+v\nthin  %+v", lr, tr)
+	}
+	// Both run the preflight: the NG Setup alone, with no UE configured.
+	for name, p := range preflights {
+		if len(p) != 1 || p[0].Step != conformance.StepNGSetup || p[0].Status != conformance.PreflightOK {
+			t.Errorf("%s: preflight %+v, want the NG Setup completed", name, p)
+		}
 	}
 	if ExitCode(local.execErr) != ExitCode(thin.execErr) {
 		t.Errorf("exit differs: --local %v, thin %v", local.execErr, thin.execErr)
@@ -187,18 +257,29 @@ func TestThinConformanceMatchesLocal(t *testing.T) {
 	lines := func(r orbitRun) []string {
 		var out []string
 		for _, l := range strings.Split(r.out, "\n") {
-			if f := strings.Fields(l); len(f) > 0 && regexp.MustCompile(`^(PASS|FAIL|ERROR|SKIP|DEVIATION)$`).MatchString(f[0]) {
+			if f := strings.Fields(l); len(f) > 0 && regexp.MustCompile(`^(PASS|FAIL|DEVIATION|WARN|INFO|BLOCKED|CRASH|SKIP|ERROR)$`).MatchString(f[0]) {
+				if strings.Contains(l, secondSource) {
+					continue
+				}
 				out = append(out, strings.Join(f[:min(4, len(f))], " "))
-			} else if strings.HasPrefix(l, "network:") || strings.HasPrefix(l, "target-release:") {
+			} else if strings.HasPrefix(l, "network:") || strings.HasPrefix(l, "target-release:") || preflightLine.MatchString(l) {
 				out = append(out, l)
 			}
 		}
 		return out
 	}
-	if l, th := lines(run(true, false)), lines(run(false, false)); len(l) == 0 || !reflect.DeepEqual(l, th) {
+	l, th := lines(run(true, false)), lines(run(false, false))
+	if len(l) == 0 || !reflect.DeepEqual(l, th) {
 		t.Errorf("text differs:\nlocal %q\nthin  %q", l, th)
 	}
+	// The preflight is its own section, ahead of the checks.
+	if !slices.Contains(l, "preflight:") || !slices.ContainsFunc(l, func(s string) bool { return strings.HasPrefix(s, "  ok      NG Setup: gNB ID ") }) {
+		t.Errorf("the text lacks the preflight section: %q", l)
+	}
 }
+
+// preflightLine is a line of the text report's preflight section.
+var preflightLine = regexp.MustCompile(`^(preflight:$|  (ok|failed|not run) )`)
 
 // A check failing (an AMF that is not there: every check ERRORs) fails the
 // conformance gate, exit 1, as --local exits.
@@ -206,12 +287,53 @@ func TestThinConformanceGateFails(t *testing.T) {
 	clearOrbitEnv(t)
 	lab := newThinLab(t)
 	r := runOrbit(t, targetDir(t, lab1), "--server", lab.url, "conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01",
-		"--category", "procedural", "--per-test-timeout", "1s")
+		"--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "1s")
 	if got := ExitCode(r.execErr); got != ExitGateFailed {
 		t.Fatalf("exit %d (%v), want %d\n%s\n%s", got, r.execErr, ExitGateFailed, r.out, r.err)
 	}
-	if !strings.Contains(r.out, "gate conformance: FAIL") {
+	if !strings.Contains(r.out, "gate conformance: FAIL") || !strings.Contains(r.out, "gate default: failed: ") {
 		t.Errorf("stdout lacks the failed gate:\n%s", r.out)
+	}
+	// --gate spec judges the same run with the spec policy: the ERRORs
+	// still fail it, and the report and the server's gate say spec.
+	r = runOrbit(t, targetDir(t, lab1), "--server", lab.url, "conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01",
+		"--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "1s", "--gate", "spec")
+	if got := ExitCode(r.execErr); got != ExitGateFailed || strings.Count(r.out, "gate spec: failed: ") < 2 {
+		t.Errorf("--gate spec: exit %d, want %d, with the spec gate line in the report and the gate's detail:\n%s", got, ExitGateFailed, r.out)
+	}
+	// A named spec gate is a second gate: the report's line speaks for the
+	// conformance gate, under the default policy, and the server reports
+	// each gate with its own policy.
+	r = runOrbit(t, targetDir(t, lab1), "--server", lab.url, "conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01",
+		"--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "1s", "--gate", "mine=spec")
+	if got := ExitCode(r.execErr); got != ExitGateFailed || strings.Count(r.out, "gate default: failed: ") < 2 ||
+		!strings.Contains(r.out, "gate mine: FAIL  gate spec: failed: ") || strings.Count(r.out, "gate spec: failed: ") != 1 {
+		t.Errorf("--gate mine=spec: exit %d, want %d, with the default line in the report and each gate's own:\n%s", got, ExitGateFailed, r.out)
+	}
+}
+
+// --gate names the policy --local applies: spec with spec or name=spec,
+// the default with conformance; any other gate needs the server.
+func TestLocalGatePolicy(t *testing.T) {
+	tests := []struct {
+		gates    []string
+		want     conformance.GatePolicy
+		onServer bool
+	}{
+		{want: conformance.GateDefault},
+		{gates: []string{"conformance"}, want: conformance.GateDefault},
+		{gates: []string{"spec"}, want: conformance.GateSpec},
+		{gates: []string{"suite=spec"}, want: conformance.GateSpec},
+		{gates: []string{"registration.p99_ms<=500ms"}, want: conformance.GateDefault, onServer: true},
+	}
+	for _, tc := range tests {
+		if p, s := localGatePolicy(tc.gates); p != tc.want || s != tc.onServer {
+			t.Errorf("%v: %q, on server %v; want %q, %v", tc.gates, p, s, tc.want, tc.onServer)
+		}
+	}
+	out, err := runConformance(t, "--group", "NGAP / Interface Management Procedures", "--gate", "spec", "--per-test-timeout", "1s")
+	if err == nil || !strings.Contains(err.Error(), "conformance gate spec: failed: ") || !strings.Contains(out, "gate spec: failed: ") {
+		t.Errorf("--local --gate spec: err %v, output:\n%s", err, out)
 	}
 }
 
@@ -224,7 +346,7 @@ func TestThinConformancePlan(t *testing.T) {
 	url := stubRunServer(t, stub)
 	r := runOrbit(t, targetDir(t, lab1), "--server", *url, "conformance", "--amf", "192.0.2.1:38412", "--mcc", "001", "--mnc", "01",
 		"--n3-bind", "198.51.100.9:2152", "--supi", "001010000000001", "--ki", testKi, "--opc", testOPc, "--gnb-n3", "198.51.100.7",
-		"--category", "gtpu", "--detach")
+		"--group", "GTPv1-U", "--detach")
 	if r.execErr != nil {
 		t.Fatalf("%v\n%s", r.execErr, r.err)
 	}
@@ -345,14 +467,14 @@ func TestThinConformanceWithoutSUPIMatchesLocal(t *testing.T) {
 		name string
 		cats []string
 	}{
-		{name: "negative-ie", cats: []string{"--category", "negative-ie"}},
+		{name: "erroneous-data handling", cats: []string{"--group", "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"}},
 		{name: "the full suite", cats: nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clearOrbitEnv(t)
 			t.Setenv("ORBIT_KI", testKi)
 			t.Setenv("ORBIT_OPC", testOPc)
-			type result struct{ ID, Category, Verdict string }
+			type result struct{ ID, Group, Verdict string }
 			run := func(local bool) ([]result, orbitRun) {
 				lab := newThinLab(t)
 				args := append([]string{"--server", lab.url, "conformance", "--amf", lab.amf, "--mcc", "208", "--mnc", "93",
@@ -376,7 +498,7 @@ func TestThinConformanceWithoutSUPIMatchesLocal(t *testing.T) {
 				t.Errorf("exit differs: --local %v, thin %v", local.execErr, thin.execErr)
 			}
 			for _, r := range tr {
-				if r.Category == "mobility" && r.Verdict != "SKIP" {
+				if strings.HasPrefix(r.Group, "NGAP / UE Mobility Management Procedures") && r.Verdict != "SKIP" {
 					t.Errorf("%s with no UE: %s, want SKIP", r.ID, r.Verdict)
 				}
 			}
@@ -439,7 +561,7 @@ func TestThinConformanceNASMatchesLocal(t *testing.T) {
 		args := []string{"--server", lab.url, "conformance", "--amf", lab.amf, "--mcc", "208", "--mnc", "93", "--sd", "010203",
 			"--supi", "208930000000001", "--ki", testKi, "--opc", testOPc, "--gnb-n3", "127.0.0.1",
 			"--nas-integrity", "NIA1,NIA2", "--nas-ciphering", "NEA0,NEA2",
-			"--category", "mobility", "--per-test-timeout", "2s", "--json"}
+			"--group", "NGAP / UE Mobility Management Procedures", "--per-test-timeout", "2s", "--json"}
 		if local {
 			args = append(args, "--local")
 		}

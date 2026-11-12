@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/free5gc/nas/nasType"
+	"github.com/free5gc/ngap/ngapType"
 
 	"github.com/bgrewell/orbit/internal/datapath"
 	"github.com/bgrewell/orbit/internal/engine"
@@ -29,6 +30,12 @@ type UESpec struct {
 	SUPI string
 	Ki   string
 	OPc  string
+	// Subscribers is how many consecutive SUPIs, SUPI first, share Ki and
+	// OPc and may be registered. On the suite's Env it is the pool the
+	// checks are spread over, each taking its own block (see
+	// Registry.subscriberBlock); on a check's Env it is that check's block.
+	// Zero or one is the single SUPI, which every check then registers.
+	Subscribers int
 	// DNN is the PDU session's data network; "" lets the core choose.
 	DNN string
 	// SST and SD are the PDU session's slice; zero SST takes the first
@@ -61,8 +68,8 @@ const (
 
 // UEHarness drives one UE through engine.Manager for the mobility checks: it
 // registers the UE with a PDU session on Env.GNB (gNB A), observes its
-// downlink lane, runs an optional echo flow, hands it over by Xn to gNB B
-// (Env.TargetGNBID, same PLMN, TAC and slices) and records what
+// downlink lane, runs an optional echo flow, hands it over by Xn or N2 to
+// gNB B (Env.TargetGNBID, same PLMN, TAC and slices) and records what
 // arrived on the old path. Both gNB associations come from Env.Bind, which
 // must leave the port to the kernel. Close releases everything.
 type UEHarness struct {
@@ -76,14 +83,18 @@ type UEHarness struct {
 	caps *nasType.UESecurityCapability
 
 	registered bool
-	stopObs    func()
-	stopTraf   context.CancelFunc
-	trafDone   chan error
+	// probe is the NAS probe that took the UE over (ProbeNAS), nil if none.
+	probe    *engine.NASProbe
+	stopObs  func()
+	stopTraf context.CancelFunc
+	trafDone chan error
 
 	mu      sync.Mutex
 	markers []datapath.EndMarker
 	gpdus   []datapath.GPDUArrival
 	obs     PathObservation
+	// gpduSeen is signalled, without blocking, for each downlink G-PDU.
+	gpduSeen chan struct{}
 }
 
 // PathObservation is what a harness saw on the old path around an Xn path
@@ -104,6 +115,12 @@ type PathObservation struct {
 	GPDUs        []datapath.GPDUArrival
 	// Traffic is the configured echo peer ("" none).
 	Traffic string
+	// NewTEID is the downlink TEID gNB B gave the core in the Path Switch
+	// Request.
+	NewTEID uint32
+	// Switched is the PDU Session Resource Switched List of the Path Switch
+	// Request Acknowledge, as received; nil before the switch.
+	Switched *gnb.PathSwitchAck
 }
 
 // NewUEHarness validates env for a UE-level check and builds a harness. It
@@ -154,6 +171,7 @@ func NewUEHarness(env Env, log *slog.Logger) (*UEHarness, error) {
 	return &UEHarness{
 		env: env, m: engine.NewManager(log), supi: supi, id: id,
 		sub: auth.Subscription{SUPI: supi, Ki: ki, OPc: opc}, pdu: pdu, caps: caps,
+		gpduSeen: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -188,7 +206,10 @@ func (h *UEHarness) TargetGNB() gnb.Config {
 }
 
 // Register attaches the UE with a PDU session on gNB A and starts observing
-// its downlink lane. An error names the step that failed.
+// its downlink lane. An error names the step that failed, and the procedure
+// that did not complete (Result.SetupFailed): the NG Setup, the
+// registration or the PDU session establishment. A data path that could
+// not be opened is a local fault.
 func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) {
 	res, err := h.m.Register(ctx, engine.GNBSpec{Config: h.env.GNB, AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind},
 		engine.UEConfig{Identity: h.id, Sub: h.sub, PDUSession: &h.pdu, GNBN3Addr: h.env.UE.GNBN3, SecurityCapabilities: h.caps})
@@ -200,16 +221,16 @@ func (h *UEHarness) Register(ctx context.Context) (*engine.AttachResult, error) 
 		return nil, fmt.Errorf("registration on gNB %#x: not registered", h.env.GNB.ID)
 	}
 	if !res.SessionActive {
-		return nil, fmt.Errorf("PDU session establishment: no active session")
+		return nil, during(ProcPDUSession, errors.New("PDU session establishment: no active session"))
 	}
 	stop, err := h.m.ObserveDownlink(h.supi, h.noteEndMarker, h.noteGPDU)
 	if err != nil {
-		return nil, fmt.Errorf("data path: %w", err)
+		return nil, &localError{fmt.Errorf("data path: %w", err)}
 	}
 	h.stopObs = stop
 	src, err := h.boundN3()
 	if err != nil {
-		return nil, fmt.Errorf("data path: %w", err)
+		return nil, &localError{fmt.Errorf("data path: %w", err)}
 	}
 	h.mu.Lock()
 	h.obs.OldTEID = res.DLTEID
@@ -235,6 +256,20 @@ func (h *UEHarness) RegisterWithProbe(ctx context.Context, probe *engine.AttachP
 	}
 	h.registered = true
 	return res, nil
+}
+
+// ProbeNAS opens an engine.NASProbe on the registered UE, for a check that
+// drives its NAS signalling connection by hand. The probe owns the UE from
+// then on: its Close drops the association, and the harness's Close and
+// Deregister no longer signal for the UE.
+func (h *UEHarness) ProbeNAS(ctx context.Context) (*engine.NASProbe, error) {
+	p, err := h.m.ProbeNAS(ctx, h.supi)
+	if err != nil {
+		return nil, err
+	}
+	h.registered = false
+	h.probe = p
+	return p, nil
 }
 
 // boundN3 is gNB A's N3 socket as the engine bound it, in canonical form,
@@ -274,6 +309,10 @@ func (h *UEHarness) noteGPDU(g datapath.GPDUArrival) {
 	h.mu.Lock()
 	h.gpdus = append(h.gpdus, g)
 	h.mu.Unlock()
+	select {
+	case h.gpduSeen <- struct{}{}:
+	default:
+	}
 }
 
 // StartTraffic starts the optional echo flow to UESpec.Traffic in the
@@ -292,8 +331,9 @@ func (h *UEHarness) StartTraffic(ctx context.Context) {
 }
 
 // XnHandover hands the UE over to gNB B by Xn (Path Switch Request on a
-// second association) and records the switch's timing and the vacated
-// tunnel.
+// second association) and records the switch's timing, the vacated tunnel
+// and the Acknowledge's Switched List. A Path Switch Request that went
+// unacknowledged is an error wrapping engine.ErrPathSwitchNotAcknowledged.
 func (h *UEHarness) XnHandover(ctx context.Context) error {
 	sess, err := h.m.Status(h.supi)
 	if err != nil {
@@ -303,7 +343,7 @@ func (h *UEHarness) XnHandover(ctx context.Context) error {
 	defer unsub()
 	started := time.Now()
 	src := sess.Result.DLTEID
-	_, err = h.m.XnHandover(ctx, h.supi, engine.GNBEndpoint{
+	res, err := h.m.XnHandover(ctx, h.supi, engine.GNBEndpoint{
 		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
 	})
 	returned := time.Now()
@@ -327,8 +367,198 @@ drain:
 	h.mu.Lock()
 	h.obs.OldTEID = src
 	h.obs.Started, h.obs.Ack, h.obs.AckFromEvent = started, ack, fromEvent
+	h.obs.NewTEID, h.obs.Switched = sess.Result.DLTEID, res.PathSwitchAck
 	h.mu.Unlock()
 	return nil
+}
+
+// SuppliedCapabilities returns the UE security capabilities the AMF supplied
+// to the serving gNB for the registered UE (the INITIAL CONTEXT SETUP
+// REQUEST's UE Security Capabilities), nil when it supplied none.
+func (h *UEHarness) SuppliedCapabilities() (*ngapType.UESecurityCapabilities, error) {
+	sess, err := h.m.Status(h.supi)
+	if err != nil {
+		return nil, err
+	}
+	return sess.UESecurityCapabilities(), nil
+}
+
+// XnHandoverWithCapabilities hands the UE over to gNB B by Xn with a PATH
+// SWITCH REQUEST that carries caps as the UE Security Capabilities, in
+// place of the ones the AMF supplied, and returns the UE Security
+// Capabilities of the Acknowledge (nil when it has none). A Path Switch
+// Request that went unacknowledged is an error wrapping
+// engine.ErrPathSwitchNotAcknowledged.
+func (h *UEHarness) XnHandoverWithCapabilities(ctx context.Context, caps *ngapType.UESecurityCapabilities) (*ngapType.UESecurityCapabilities, error) {
+	res, err := h.m.XnHandoverWith(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	}, engine.WithPathSwitchCapabilities(caps))
+	if err != nil {
+		return nil, fmt.Errorf("handover (Xn) to gNB %#x: %w", h.TargetGNB().ID, err)
+	}
+	return res.PathSwitchCapabilities, nil
+}
+
+// Idle moves the registered UE to CM-IDLE by an AN release (engine.Manager.Idle).
+func (h *UEHarness) Idle(ctx context.Context) (*engine.IdleResult, error) {
+	return h.m.Idle(ctx, h.supi)
+}
+
+// TriggerDownlink asks Env.Downlink to send downlink traffic to the UE's
+// PDU address.
+func (h *UEHarness) TriggerDownlink(ctx context.Context) error {
+	if h.env.Downlink == nil {
+		return errors.New("no downlink trigger configured")
+	}
+	sess, err := h.m.Status(h.supi)
+	if err != nil {
+		return err
+	}
+	ip, err := netip.ParseAddr(sess.Result.PDUAddress)
+	if err != nil {
+		return fmt.Errorf("UE address %q: %w", sess.Result.PDUAddress, err)
+	}
+	return h.env.Downlink.SendDownlink(ctx, ip)
+}
+
+// AwaitPaging reads NGAP PAGING on the idle UE's association for up to
+// wait, or until ctx ends, and returns every one it saw: it stops at the
+// first that names the UE's 5G-S-TMSI. The error is ctx's when ctx, not
+// the wait, ended it, or the read's when the association failed.
+func (h *UEHarness) AwaitPaging(ctx context.Context, wait time.Duration) ([]engine.PagingEvent, error) {
+	wctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	var seen []engine.PagingEvent
+	for {
+		ev, err := h.m.ObservePaging(wctx, h.supi)
+		if err != nil {
+			switch {
+			case ctx.Err() != nil:
+				return seen, ctx.Err()
+			case wctx.Err() != nil:
+				return seen, nil
+			}
+			return seen, err
+		}
+		seen = append(seen, *ev)
+		if ev.ForUE {
+			return seen, nil
+		}
+	}
+}
+
+// ServiceRequest brings the idle UE back (engine.Manager.ServiceRequest).
+func (h *UEHarness) ServiceRequest(ctx context.Context, opts ...engine.ServiceOption) (*engine.ServiceResult, error) {
+	return h.m.ServiceRequest(ctx, h.supi, opts...)
+}
+
+// PDUSessionID is the ID of the PDU session the harness establishes.
+func (h *UEHarness) PDUSessionID() uint8 { return h.pdu.PDUSessionID }
+
+// WatchDownlink installs the downlink observers on the UE's current data
+// path, opening it if needed. Register does this for the tunnel of the
+// registration; a tunnel reactivated by a Service Request has a new lane,
+// which this observes.
+func (h *UEHarness) WatchDownlink() error {
+	if h.stopObs != nil {
+		h.stopObs()
+		h.stopObs = nil
+	}
+	stop, err := h.m.ObserveDownlink(h.supi, h.noteEndMarker, h.noteGPDU)
+	if err != nil {
+		return fmt.Errorf("data path: %w", err)
+	}
+	h.stopObs = stop
+	return nil
+}
+
+// AwaitDownlink waits up to wait, or until ctx ends, for a downlink G-PDU
+// on the gNB tunnel teid and returns the first one seen, nil when none
+// came in the wait. The error is ctx's when ctx ended first.
+func (h *UEHarness) AwaitDownlink(ctx context.Context, wait time.Duration, teid uint32) (*datapath.GPDUArrival, error) {
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
+		h.mu.Lock()
+		for _, g := range h.gpdus {
+			if g.TEID == teid && !g.Stale {
+				h.mu.Unlock()
+				return &g, nil
+			}
+		}
+		h.mu.Unlock()
+		select {
+		case <-h.gpduSeen:
+		case <-timer.C:
+			return nil, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// AwaitDownlinkQuiet waits until no downlink G-PDU has arrived for quiet,
+// for at most limit, and reports whether the downlink went quiet. The
+// error is ctx's when ctx ended first.
+func (h *UEHarness) AwaitDownlinkQuiet(ctx context.Context, quiet, limit time.Duration) (bool, error) {
+	deadline := time.Now().Add(limit)
+	for {
+		h.mu.Lock()
+		var last time.Time
+		if n := len(h.gpdus); n > 0 {
+			last = h.gpdus[n-1].Arrival
+		}
+		h.mu.Unlock()
+		idle := time.Since(last)
+		if idle >= quiet {
+			return true, nil
+		}
+		if !time.Now().Before(deadline) {
+			return false, nil
+		}
+		if !sleepCtx(ctx, min(quiet-idle, time.Until(deadline))) {
+			return false, ctx.Err()
+		}
+	}
+}
+
+// N2Handover hands the UE over to gNB B by N2 (Handover Required on gNB
+// A's association, Handover Request and Notify on a second one) and returns
+// the HANDOVER COMMAND's PDU Session Resource Handover List as received. It
+// is nil when the handover failed before the command, and set along with
+// the error when it failed after it. The harness's Manager runs the
+// strict-3gpp core profile: no core-specific quirk shapes what gNB B sends.
+func (h *UEHarness) N2Handover(ctx context.Context) (*gnb.HandoverCommandInfo, error) {
+	res, err := h.m.Handover(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	})
+	if err != nil {
+		return res.Command, fmt.Errorf("handover (N2) to gNB %#x: %w", h.TargetGNB().ID, err)
+	}
+	return res.Command, nil
+}
+
+// RequestContextRelease sends a UE CONTEXT RELEASE REQUEST for the UE from
+// gNB A and waits up to wait for the AMF's UE CONTEXT RELEASE COMMAND. A
+// released UE stays registered, and Deregister (or Close) then sends its
+// Deregistration Request as an initial NAS message.
+func (h *UEHarness) RequestContextRelease(ctx context.Context, wait time.Duration) (engine.ContextReleaseResult, error) {
+	return h.m.RequestContextRelease(ctx, h.supi, wait)
+}
+
+// CancelN2Handover prepares an N2 handover to gNB B, up to the HANDOVER
+// COMMAND, and cancels it from gNB A with a HANDOVER CANCEL, waiting up to
+// wait for the acknowledge. The UE stays on gNB A. An error wrapping
+// engine.ErrHandoverNotPrepared means the handover never reached the
+// command.
+func (h *UEHarness) CancelN2Handover(ctx context.Context, wait time.Duration) (engine.HandoverCancelResult, error) {
+	res, err := h.m.CancelHandover(ctx, h.supi, engine.GNBEndpoint{
+		Config: h.TargetGNB(), AMFAddr: h.env.AMFAddr, BindAddr: h.env.Bind, N3Addr: h.env.UE.GNBN3,
+	}, wait)
+	if err != nil {
+		return res, fmt.Errorf("handover (N2) to gNB %#x, cancelled: %w", h.TargetGNB().ID, err)
+	}
+	return res, nil
 }
 
 // Observe returns what has been seen so far, with the switch's timing.
@@ -356,6 +586,10 @@ func (h *UEHarness) Close() {
 		h.stopObs()
 		h.stopObs = nil
 	}
+	if h.probe != nil {
+		h.probe.Close()
+		h.probe = nil
+	}
 	if h.registered {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -374,6 +608,44 @@ func (h *UEHarness) Deregister(ctx context.Context) error {
 	}
 	h.registered = false
 	return h.m.Deregister(ctx, h.supi)
+}
+
+// DeregisterWith deregisters a registered UE as engine.Manager.DeregisterWith
+// does with opts, which closes its association, and returns what the core
+// answered. Close after it does not deregister again. With no UE registered
+// it returns an error.
+func (h *UEHarness) DeregisterWith(ctx context.Context, opts ...engine.DeregisterOption) (*engine.DeregisterResult, error) {
+	if !h.registered {
+		return nil, errors.New("no UE registered")
+	}
+	h.registered = false
+	return h.m.DeregisterWith(ctx, h.supi, opts...)
+}
+
+// ReregisterAfterRelease deregisters the registered UE (switch-off) and
+// registers it again over the same association once the core has released
+// it, gap after the UE CONTEXT RELEASE COMPLETE
+// (engine.Manager.ReregisterAfterRelease). The new registration has no PDU
+// session and carries probe. Afterwards the harness holds a registered UE
+// only when the result's Attach is set; otherwise its association is
+// closed. With no UE registered it returns an error.
+func (h *UEHarness) ReregisterAfterRelease(ctx context.Context, probe *engine.AttachProbe, gap time.Duration, opts ...engine.DeregisterOption) (*engine.Reregistration, error) {
+	if !h.registered {
+		return nil, errors.New("no UE registered")
+	}
+	h.registered = false
+	res, err := h.m.ReregisterAfterRelease(ctx, h.supi,
+		engine.UEConfig{Identity: h.id, Sub: h.sub, Probe: probe, SecurityCapabilities: h.caps}, gap, opts...)
+	h.registered = err == nil && res.Attach != nil
+	return res, err
+}
+
+// ReleasePDUSession runs the UE-requested PDU session release for the
+// session Register established, as engine.Manager.ReleasePDUSession does
+// with opts. The downlink observers and the echo flow stay as they are, so
+// Observe shows what arrived on the released tunnel afterwards.
+func (h *UEHarness) ReleasePDUSession(ctx context.Context, opts ...engine.PDUReleaseOption) (*engine.PDUReleaseResult, error) {
+	return h.m.ReleasePDUSession(ctx, h.supi, opts...)
 }
 
 // ParseNASAlgorithms turns a list of algorithm names (prefix followed by a

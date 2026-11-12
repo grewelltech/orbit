@@ -54,7 +54,15 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		{name: "an slo gate", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Gates = []*orbitv1.Gate{{Name: "g", Check: &orbitv1.Gate_Slo{Slo: &orbitv1.SLOGate{Metric: metricSuccessRatio, Op: orbitv1.CompareOp_COMPARE_OP_GE}}}}
 		}, wantErr: `an slo gate judges a population; "suite" is a conformance workload`},
-		{name: "a responder", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Responder = "n6" }, wantErr: "responder is not supported yet"},
+		{name: "a responder the target lacks", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Responder = "nope" }, wantErr: `conformance responder: the target has no responder "nope"`},
+		{name: "a responder with no control address", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.App = &orbitv1.TargetApp{Responders: []*orbitv1.Responder{{Name: "bare", Token: "t"}}}
+			cw.Responder = "bare"
+		}, wantErr: `conformance responder "bare" has no control address`},
+		{name: "a responder nobody registered", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.App = &orbitv1.TargetApp{Responders: []*orbitv1.Responder{{Name: "bare"}}}
+			cw.Responder = "bare"
+		}, wantErr: `no responder named "bare" is registered`},
 		{name: "nas NIA0", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Nas = &orbitv1.NASAlgorithms{Integrity: []string{"NIA0"}}
 		}, wantErr: "conformance.nas.integrity: NIA0 is refused"},
@@ -72,28 +80,55 @@ func TestSuiteShapeRefusals(t *testing.T) {
 		}, wantErr: "do not fit 22 bits"},
 		{name: "a block narrower than three IDs a check", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 20}
-		}, wantErr: fmt.Sprintf("the suite needs a block of %d gNB IDs (3 for each of its %d checks); the target's ran.gnb_ids 700..719 holds 20",
-			3*len(conformance.NewRegistry().Tests()), len(conformance.NewRegistry().Tests()))},
+		}, wantErr: fmt.Sprintf("the suite needs a block of %d gNB IDs (3 for each of its %d checks and 1 for its preflight); the target's ran.gnb_ids 700..719 holds 20",
+			3*len(conformance.NewRegistry().Tests())+1, len(conformance.NewRegistry().Tests()))},
 		{name: "a pin outside the target's block", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 100}
-			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 790}}
-		}, wantErr: "fall outside the target's ran.gnb_ids 700..799"},
+			p.Target.Ran.GnbIds = &orbitv1.GNBIDRange{First: 700, Count: 200}
+			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_First{First: 890}}
+		}, wantErr: "fall outside the target's ran.gnb_ids 700..899"},
 		{name: "a fixed N2 port", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
 			p.Target.Ran.N2SourceIps = []string{"127.0.0.1:5000"}
+		}, wantErr: "ran.n2_source_ips"},
+		{name: "a fixed port on the second N2 source", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.1", "127.0.0.2:5000"}
 		}, wantErr: "ran.n2_source_ips"},
 		{name: "a pool without the gNB N3", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Ran.N3Ips = nil }, wantErr: "ran.n3_ips"},
 		{name: "traffic without a pool", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Subscribers = nil
 			cw.Traffic = "127.0.0.1:9"
 		}, wantErr: "need a subscriber pool with a first_supi"},
-		{name: "an unknown category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-			cw.Categories = []string{"negative-ie", "bogus"}
-		},
-			wantErr: `unknown conformance category "bogus": want one of `},
-		{name: "an unknown category, assigned", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-			cw.Categories = []string{"bogus"}
+		{name: "a category", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Categories = []string{"negative-ie"} //nolint:staticcheck // the removed field, refused
+		}, wantErr: `categories were replaced by groups (ADR-0011): select with --group`},
+		{name: "a pack for a target with no profile", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Pack = "lab"
+		}, wantErr: `pack: pack "lab" needs a target with a core profile; the target's is none, which has no pack`},
+		{name: "a pack for a strict-3gpp target", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Core.Profile, cw.Pack = "strict-3gpp", "lab"
+		}, wantErr: `the target's is strict-3gpp, which has no pack`},
+		{name: "a pack no registry has", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Core.Profile, cw.Pack = "sdcore", "lab"
+		}, wantErr: `pack: unknown pack "lab" (have none)`},
+		{name: "an unknown tag", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Tags = []string{"fuzz"}
+		}, wantErr: `tags: unknown tag "fuzz"`},
+		{name: "a tag outside the group", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Groups, cw.Tags = []string{"GTPv1-U / Path Management Messages"}, []string{"security"}
+		}, wantErr: "no checks selected: none of the checks [] is in the groups [GTPv1-U / Path Management Messages] with the tags [security]"},
+		{name: "an unknown group", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Groups = []string{"NGAP", "bogus"}
+		}, wantErr: `groups: no check is in group "bogus"`},
+		{name: "an unknown group, assigned", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Groups = []string{"bogus"}
 			cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}
-		}, wantErr: `unknown conformance category "bogus"`},
+		}, wantErr: `groups: no check is in group "bogus"`},
+		{name: "an unknown check", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Checks = []string{"NGAP-NG-RESET-ACK", "NGAP-NO-SUCH-CHECK"}
+		}, wantErr: `checks: unknown check "NGAP-NO-SUCH-CHECK"`},
+		{name: "a check outside the groups", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			cw.Groups = []string{"NAS"}
+			cw.Checks = []string{"NGAP-NG-RESET-ACK"}
+		}, wantErr: "no checks selected: none of the checks [NGAP-NG-RESET-ACK] is in the groups [NAS]"},
 		{name: "an expected entry for no check", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			cw.Expected = &orbitv1.ExpectedFailures{Core: "lab", Entries: []*orbitv1.ExpectedFailure{
 				{Check: "NO-SUCH-CHECK", Observed: "x", Finding: "EX-1", Added: "2026-10-27", Reason: "r"}}}
@@ -111,20 +146,29 @@ func TestSuiteShapeRefusals(t *testing.T) {
 }
 
 // A suite leases what its selected checks declare: their gNB IDs from the
-// base, its one N2 source, and the UE checks' subscriber only when one is
-// selected and the target has a pool.
+// base, its N2 source, the pool's second N2 address only when a selected
+// check holds a second association from it, and the UE checks' subscriber
+// only when one is selected and the target has a pool.
 func TestSuiteLeases(t *testing.T) {
-	reg := conformance.NewRegistry()
 	tests := []struct {
 		name     string
 		mut      func(*orbitv1.RunPlan, *orbitv1.ConformanceWorkload)
-		cats     []conformance.Category
+		groups   []string
 		wantSUPI bool
 		noUE     bool // the suite has no UE (its UE checks SKIP)
+		// wantSecond is the second N2 source the suite takes, "" for none.
+		wantSecond string
 	}{
+		{name: "a two-address pool: the second for the check that needs it", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) {
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.1-127.0.0.3"}
+		}, wantSUPI: true, wantSecond: "127.0.0.2"},
+		{name: "a two-address pool, no check that needs the second", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+			p.Target.Ran.N2SourceIps = []string{"127.0.0.1", "127.0.0.2"}
+			cw.Groups = []string{erroneousGroup}
+		}, groups: []string{erroneousGroup}},
 		{name: "every check", wantSUPI: true},
-		{name: "procedural only, a valid pool: no SUPI lease", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Categories = []string{"procedural"} },
-			cats: []conformance.Category{conformance.Procedural}},
+		{name: "negative-ie only, a valid pool: no SUPI lease", mut: func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Groups = []string{erroneousGroup} },
+			groups: []string{erroneousGroup}},
 		{name: "no pool: no UE", mut: func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers = nil }, noUE: true},
 		// Keys with no SUPI ($ORBIT_KI exported) name no UE: the UE checks
 		// SKIP, as with no pool, and nothing is refused.
@@ -133,8 +177,8 @@ func TestSuiteLeases(t *testing.T) {
 		}, noUE: true},
 		{name: "a pool with no first_supi, no UE check: no UE", mut: func(p *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
 			p.Target.Subscribers[0].FirstSupi = ""
-			cw.Categories = []string{"procedural"}
-		}, cats: []conformance.Category{conformance.Procedural}, noUE: true},
+			cw.Groups = []string{erroneousGroup}
+		}, groups: []string{erroneousGroup}, noUE: true},
 	}
 	s := planService(t)
 	for _, tc := range tests {
@@ -147,11 +191,22 @@ func TestSuiteLeases(t *testing.T) {
 			for _, g := range pr.needs.GNBs {
 				got = append(got, g.ID)
 			}
-			if want := reg.Needs(defaultSuiteGNBBase, false, tc.cats...).GNBIDs; !slices.Equal(got, want) {
+			sel := conformance.NewRegistry()
+			if err := sel.Groups(conformance.DefaultTargetRelease, tc.groups...); err != nil {
+				t.Fatal(err)
+			}
+			if want := sel.Needs(defaultSuiteGNBBase, false).GNBIDs; !slices.Equal(got, want) {
 				t.Errorf("gNB IDs = %v, want %v", got, want)
 			}
-			if !slices.Equal(pr.needs.N2IPs, []string{"127.0.0.1"}) {
-				t.Errorf("N2 = %v", pr.needs.N2IPs)
+			wantN2 := []string{"127.0.0.1"}
+			if tc.wantSecond != "" {
+				wantN2 = append(wantN2, tc.wantSecond)
+			}
+			if !slices.Equal(pr.needs.N2IPs, wantN2) {
+				t.Errorf("N2 = %v, want %v", pr.needs.N2IPs, wantN2)
+			}
+			if env := pr.suiteLive.spec.env; env.Bind != "127.0.0.1" || env.SecondBind != tc.wantSecond {
+				t.Errorf("suite binds %q and %q, want 127.0.0.1 and %q", env.Bind, env.SecondBind, tc.wantSecond)
 			}
 			// A selection with no UE check leases no SUPI, even from a
 			// valid pool: leases follow the checks' needs, and an unused
@@ -164,8 +219,13 @@ func TestSuiteLeases(t *testing.T) {
 				t.Fatalf("SUPIs = %v, want %d", pr.needs.SUPIs, want)
 			}
 			if tc.wantSUPI {
-				if b := pr.needs.SUPIs[0]; b.First != 208930100007500 || b.Last != b.First || b.PLMN != "208/93" {
-					t.Errorf("SUPI block = %+v, want the pool's first SUPI alone", b)
+				// The checks take more subscribers between them than the
+				// pool's ten, so the lease is the whole pool.
+				if b := pr.needs.SUPIs[0]; b.First != 208930100007500 || b.Last != b.First+9 || b.PLMN != "208/93" {
+					t.Errorf("SUPI block = %+v, want the pool's ten SUPIs", b)
+				}
+				if got := pr.suiteLive.spec.env.UE.Subscribers; got != 10 {
+					t.Errorf("UE subscribers = %d, want the pool's 10", got)
 				}
 			}
 			if pr.suiteLive.spec.env.UE.Configured() == tc.noUE {
@@ -180,37 +240,40 @@ func TestSuiteLeases(t *testing.T) {
 // presents it.
 func TestSuiteAssignedSubsets(t *testing.T) {
 	reg := conformance.NewRegistry()
-	one := reg.Tests()[3]
+	one, err := conformance.GroupOf(reg.Tests()[3], conformance.DefaultTargetRelease)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
-		name string
-		cats []string
+		name   string
+		groups []string
 	}{
-		{name: "nas", cats: []string{"nas"}},
-		{name: "mobility", cats: []string{"mobility"}},
-		{name: "a single check's category", cats: []string{string(one.Category())}},
+		{name: "nas", groups: []string{"NAS"}},
+		{name: "mobility", groups: []string{"NGAP / UE Mobility Management Procedures"}},
+		{name: "a single check's group", groups: []string{one.String()}},
 		{name: "the full suite"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := planService(t)
 			pr, err := s.buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
-				cw.Categories = tc.cats
+				cw.Groups = tc.groups
 				cw.GnbIds = &orbitv1.GNBIDSelection{Select: &orbitv1.GNBIDSelection_Assign{Assign: true}}
 			}), engine.EventsNormal)
 			if err != nil {
 				t.Fatal(err)
 			}
-			var cats []conformance.Category
-			for _, c := range tc.cats {
-				cats = append(cats, conformance.Category(c))
+			sel := conformance.NewRegistry()
+			if err := sel.Groups(conformance.DefaultTargetRelease, tc.groups...); err != nil {
+				t.Fatal(err)
 			}
 			base := pr.suiteLive.spec.env.GNB.ID
-			if want := reg.Needs(base, false, cats...).GNBIDs; !slices.Equal(pr.assigned, want) {
+			if want := sel.Needs(base, false).GNBIDs; !slices.Equal(pr.assigned, want) {
 				t.Errorf("assigned %v; the checks present %v from base %d", pr.assigned, want, base)
 			}
 			// The lowest block the range allows: from its first ID, but no
 			// lower than the selection's first offset, so the base is >= 0.
-			if want := max(engine.DefaultGNBIDFirst, reg.Needs(0, false, cats...).GNBIDs[0]); pr.assigned[0] != want {
+			if want := max(engine.DefaultGNBIDFirst, sel.Needs(0, false).GNBIDs[0]); pr.assigned[0] != want {
 				t.Errorf("block starts at %d, want %d", pr.assigned[0], want)
 			}
 			if span := pr.assigned[len(pr.assigned)-1] - pr.assigned[0]; span > 0x9000+uint32(len(reg.Tests())) {
@@ -248,8 +311,11 @@ func TestSuiteAssignedBases(t *testing.T) {
 	}
 }
 
-// The conformance gate passes a suite that ran to the end with no FAIL
-// outside the expected list and no ERROR; an incomplete suite fails.
+// The conformance gate passes a suite that ran to the end with no finding
+// its policy gates: the default policy gates FAIL, CRASH, BLOCKED, ERROR,
+// DEVIATION and WARN, the spec policy the first four; a listed result and
+// a BLOCKED counted under its owner do not count; an incomplete suite
+// fails.
 func TestJudgeSuite(t *testing.T) {
 	res := func(id, verdict string, expected bool) *orbitv1.ConformanceResult {
 		r := &orbitv1.ConformanceResult{Id: id, Verdict: verdict}
@@ -258,18 +324,35 @@ func TestJudgeSuite(t *testing.T) {
 		}
 		return r
 	}
+	owner := &orbitv1.ConformanceResult{Id: "O", Verdict: "WARN", NotCompleted: "N2 handover preparation"}
+	dep := &orbitv1.ConformanceResult{Id: "D", Verdict: "BLOCKED", BlockedOn: "N2 handover preparation", Owner: "O"}
 	tests := []struct {
 		name       string
+		policy     conformance.GatePolicy
 		summary    *orbitv1.ConformanceSummary
 		wantPass   bool
 		wantDetail string
 	}{
 		{name: "clean", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "PASS", false), res("B", "SKIP", false), res("C", "DEVIATION", false)}}, wantPass: true, wantDetail: "3 checks, no unexpected FAIL or ERROR"},
-		{name: "an expected FAIL", summary: &orbitv1.ConformanceSummary{Total: 1, Results: []*orbitv1.ConformanceResult{
-			res("A", "FAIL", true)}}, wantPass: true},
+			res("A", "PASS", false), res("B", "SKIP", false), res("C", "INFO", false)}}, wantPass: true, wantDetail: "gate default: passed: 0 spec failures, 0 warnings; 3 checks"},
+		{name: "DEVIATION and WARN gate by default", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "PASS", false), res("B", "DEVIATION", false), res("C", "WARN", false)}},
+			wantDetail: "gate default: failed: 0 spec failures, 2 warnings; 2 unexpected: B DEVIATION, C WARN"},
+		{name: "DEVIATION and WARN do not gate under spec", policy: conformance.GateSpec, summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "PASS", false), res("B", "DEVIATION", false), res("C", "WARN", false)}}, wantPass: true,
+			wantDetail: "gate spec: passed: 0 spec failures, 2 warnings; 3 checks"},
+		{name: "an INFO beside a FAIL does not hide it", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
+			res("A", "INFO", false), res("B", "FAIL", false)}}, wantDetail: "gate default: failed: 1 spec failure, 0 warnings; 1 unexpected: B FAIL"},
+		{name: "CRASH and BLOCKED gate under spec", policy: conformance.GateSpec, summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
+			res("A", "CRASH", false), res("B", "BLOCKED", false), res("C", "PASS", false)}}, wantDetail: "gate spec: failed: 2 spec failures, 0 warnings; 2 unexpected: A CRASH, B BLOCKED"},
+		{name: "an expected FAIL and WARN", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{
+			res("A", "FAIL", true), res("B", "WARN", true)}}, wantPass: true},
+		{name: "a BLOCKED counts under its owner", summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{owner, dep}},
+			wantDetail: "gate default: failed: 0 spec failures, 1 warning; 1 unexpected: O WARN (and 1 BLOCKED under it: D)"},
+		{name: "an owner with a BLOCKED under it gates as BLOCKED under spec", policy: conformance.GateSpec, summary: &orbitv1.ConformanceSummary{Total: 2, Results: []*orbitv1.ConformanceResult{owner, dep}},
+			wantDetail: "gate spec: failed: 0 spec failures, 0 warnings, 1 blocked: O blocked 1 check; 1 unexpected: O BLOCKED (its WARN does not gate under spec; 1 BLOCKED under it: D)"},
 		{name: "an unexpected FAIL and an ERROR", summary: &orbitv1.ConformanceSummary{Total: 3, Results: []*orbitv1.ConformanceResult{
-			res("A", "FAIL", false), res("B", "ERROR", false), res("C", "PASS", false)}}, wantDetail: "2 unexpected: A FAIL, B ERROR"},
+			res("A", "FAIL", false), res("B", "ERROR", false), res("C", "PASS", false)}}, wantDetail: "gate default: failed: 2 spec failures, 0 warnings; 2 unexpected: A FAIL, B ERROR"},
 		{name: "incomplete", summary: &orbitv1.ConformanceSummary{Total: 9, Incomplete: true, Results: []*orbitv1.ConformanceResult{
 			res("A", "PASS", false), res("B", "PASS", false)}}, wantDetail: "suite incomplete: 2 of 9 checks ran"},
 		{name: "no report", wantDetail: "no report to judge"},
@@ -277,7 +360,7 @@ func TestJudgeSuite(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			pass, _, detail := judgeSuite(tc.summary)
+			pass, _, detail := judgeSuite(tc.summary, tc.policy)
 			if pass != tc.wantPass || tc.wantDetail != "" && detail != tc.wantDetail {
 				t.Errorf("judgeSuite = %t, %q; want %t, %q", pass, detail, tc.wantPass, tc.wantDetail)
 			}
@@ -315,7 +398,7 @@ func waitArchive(t *testing.T, dir, id string) *orbitv1.RunArchive {
 func TestRunConformanceIsARun(t *testing.T) {
 	dir, runs, conf := suiteServer(t)
 	stream, err := conf.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", Mcc: "208", Mnc: "93", PerTestSeconds: 2, Categories: []string{"negative-ie"},
+		AmfAddress: "127.0.0.1:1", Mcc: "208", Mnc: "93", PerTestSeconds: 2, Groups: []string{erroneousGroup},
 		Supi: "208930100007500", Credentials: &orbitv1.Credentials{Ki: archKi, Opc: archOpc}, GnbN3: "127.0.0.1",
 	}))
 	if err != nil {
@@ -323,23 +406,37 @@ func TestRunConformanceIsARun(t *testing.T) {
 	}
 	var id string
 	var final *orbitv1.ConformanceUpdate
-	n := 0
+	n, results, preflightFirst := 0, 0, false
 	for stream.Receive() {
 		u := stream.Msg()
 		if u.GetRunId() == "" || id != "" && u.GetRunId() != id {
 			t.Fatalf("update %d names run %q (first %q)", n, u.GetRunId(), id)
 		}
 		id = u.GetRunId()
+		if n == 0 {
+			preflightFirst = u.GetResult() == nil && len(u.GetPreflight()) > 0
+		}
 		if u.GetDone() {
 			final = u
+		}
+		if u.GetResult() != nil {
+			results++
 		}
 		n++
 	}
 	if err := stream.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if final == nil || n < 2 {
-		t.Fatalf("%d updates, final %v", n, final)
+	if final == nil || results < 1 {
+		t.Fatalf("%d updates with %d results, final %v", n, results, final)
+	}
+	// The AMF is not there: the preflight's NG Setup fails, ahead of any
+	// result, and every check reports ERROR without running.
+	if !preflightFirst {
+		t.Error("the first update is not the preflight on its own")
+	}
+	if p := final.GetPreflight(); len(p) != 1 || p[0].GetStep() != "NG Setup" || p[0].GetStatus() != "failed" {
+		t.Errorf("final update's preflight = %v, want the NG Setup failed", p)
 	}
 	run := waitRunState(t, runs, id, orbitv1.RunState_RUN_STATE_COMPLETE)
 	if run.GetKind() != orbitv1.RunKind_RUN_KIND_CONFORMANCE {
@@ -350,18 +447,24 @@ func TestRunConformanceIsARun(t *testing.T) {
 		t.Errorf("ListRuns(CONFORMANCE) = %v, %v", l.Msg.GetRuns(), err)
 	}
 	g, err := runs.GetRun(context.Background(), connect.NewRequest(&orbitv1.GetRunRequest{RunId: id}))
-	if err != nil || g.Msg.GetConformanceProgress().GetRan() != uint32(n-1) || g.Msg.GetConformanceProgress().GetTotal() != uint32(n-1) {
-		t.Errorf("GetRun progress = %v, %v; want %d of %d", g.Msg.GetConformanceProgress(), err, n-1, n-1)
+	if err != nil || g.Msg.GetConformanceProgress().GetRan() != uint32(results) || g.Msg.GetConformanceProgress().GetTotal() != uint32(results) ||
+		len(g.Msg.GetConformanceProgress().GetPreflight()) != 1 {
+		t.Errorf("GetRun progress = %v, %v; want %d of %d and the preflight", g.Msg.GetConformanceProgress(), err, results, results)
 	}
 	r, err := runs.GetRunReport(context.Background(), connect.NewRequest(&orbitv1.GetRunReportRequest{RunId: id}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := r.Msg.GetConformance(); c == nil || len(c.GetResults()) != n-1 || c.GetIncomplete() || len(r.Msg.GetWorkloads()) != 1 {
+	if c := r.Msg.GetConformance(); c == nil || len(c.GetResults()) != results || c.GetIncomplete() || len(r.Msg.GetWorkloads()) != 1 || len(c.GetPreflight()) != 1 {
 		t.Errorf("report = %v", r.Msg)
 	}
+	for _, res := range r.Msg.GetConformance().GetResults() {
+		if res.GetVerdict() != "ERROR" || !strings.HasPrefix(res.GetObserved(), conformance.ObservedPreflightFailed+" (NG Setup failed)") {
+			t.Errorf("%s = %s %q, want the preflight's ERROR", res.GetId(), res.GetVerdict(), res.GetObserved())
+		}
+	}
 	a := waitArchive(t, dir, id)
-	if rs := a.GetReports(); len(rs) != 1 || len(rs[0].GetConformance().GetResults()) != n-1 {
+	if rs := a.GetReports(); len(rs) != 1 || len(rs[0].GetConformance().GetResults()) != results {
 		t.Errorf("archived reports = %v", rs)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, id+archiveExt))
@@ -379,7 +482,7 @@ func TestRunConformanceIsARun(t *testing.T) {
 // partial results are archived with the conformance gate failed as an
 // incomplete suite's.
 func TestRunConformanceClientGoneCancels(t *testing.T) {
-	amf := idleAMF(t) // checks wait out their timeouts, so the suite is still running
+	amf := silentAMF(t) // checks wait out their timeouts, so the suite is still running
 	dir, runs, conf := suiteServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	stream, err := conf.RunConformance(ctx, connect.NewRequest(&orbitv1.RunConformanceRequest{
@@ -470,27 +573,27 @@ func TestSuiteLeaseConflict(t *testing.T) {
 	_, _ = s.reg.Stop(first.ID)
 }
 
-// A typo'd category through RunConformance is a clean INVALID_ARGUMENT
-// naming it, not a dropped stream.
-func TestRunConformanceUnknownCategory(t *testing.T) {
+// A category through RunConformance is a clean INVALID_ARGUMENT naming
+// what replaced it, not a dropped stream.
+func TestRunConformanceCategoryRefused(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", Mcc: "208", Mnc: "93", Categories: []string{"typo"},
+		AmfAddress: "127.0.0.1:1", Mcc: "208", Mnc: "93", Categories: []string{"procedural"}, //nolint:staticcheck // the removed field, refused
 	}))
 	if err == nil {
 		for stream.Receive() {
 		}
 		err = stream.Err()
 	}
-	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), `unknown conformance category "typo"`) {
-		t.Fatalf("err = %v, want INVALID_ARGUMENT naming the category", err)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), `"procedural" is now the checks`) {
+		t.Fatalf("err = %v, want INVALID_ARGUMENT naming what replaced the category", err)
 	}
 }
 
 // A suite stopped by another client ends its stream with an error saying
 // so, not a summary that reads finished.
 func TestRunConformanceStoppedElsewhere(t *testing.T) {
-	amf := idleAMF(t)
+	amf := silentAMF(t)
 	_, runs, conf := suiteServer(t)
 	stream, err := conf.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
 		AmfAddress: amf, Mcc: "208", Mnc: "93", PerTestSeconds: 1,
@@ -608,3 +711,125 @@ func TestSuiteNASAlgorithms(t *testing.T) {
 		})
 	}
 }
+
+// A conformance workload's responder becomes the suite's downlink trigger,
+// with the target responder's control address and token; without one the
+// suite has no trigger and the checks that need one SKIP.
+func TestSuiteResponderIsTheDownlinkTrigger(t *testing.T) {
+	s := planService(t)
+	tests := []struct {
+		name      string
+		responder string
+		want      engine.DownlinkTrigger
+	}{
+		{"named", "n6", engine.ResponderDownlink{Peer: "127.0.0.1:9", Token: archToken}},
+		{"none", "", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pr, err := s.buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) { cw.Responder = tc.responder }), engine.EventsNormal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := pr.suiteLive.spec.env.Downlink; got != tc.want {
+				t.Errorf("Downlink = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The suite is spread over as many subscribers as its checks take, within
+// the pool; a pool with no count gives only what one check holds at once.
+func TestSuiteSubscribers(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		count     uint32
+		span, ues int
+		want      int
+	}{
+		{name: "pool larger than the span", count: 50, span: 24, ues: 1, want: 24},
+		{name: "pool smaller than the span", count: 10, span: 24, ues: 1, want: 10},
+		{name: "pool of one", count: 1, span: 24, ues: 1, want: 1},
+		{name: "no count", count: 0, span: 24, ues: 1, want: 1},
+		{name: "never fewer than one check holds", count: 50, span: 1, ues: 2, want: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := suitePlan(func(p *orbitv1.RunPlan, _ *orbitv1.ConformanceWorkload) { p.Target.Subscribers[0].Count = tc.count })
+			if got := suiteSubscribers(p.GetTarget(), p.GetWorkloads()[0].GetConformance(), tc.span, tc.ues); got != tc.want {
+				t.Errorf("suiteSubscribers = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// A workload's checks narrow the suite to the named checks, on top of its
+// groups and in any case: the suite counts, runs and leases gNB IDs
+// for those alone, each with the IDs it has in the full suite, and a
+// selection with a UE check has the full suite's subscriber pool.
+func TestSuiteChecksSelection(t *testing.T) {
+	reg := conformance.NewRegistry()
+	full, err := planService(t).buildPlan(suitePlan(), engine.EventsNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		groups []string
+		tags   []string
+		checks []string
+		want   []string // the checks the suite runs, in run order
+	}{
+		{name: "one check", checks: []string{"NGAP-NG-RESET-ACK"}, want: []string{"NGAP-NG-RESET-ACK"}},
+		{name: "two checks, any case, in run order", checks: []string{"ngap-path-switch-seccap-mismatch", "NGAP-NG-RESET-ACK"},
+			want: []string{"NGAP-NG-RESET-ACK", "NGAP-PATH-SWITCH-SECCAP-MISMATCH"}},
+		{name: "by tag, in run order", tags: []string{"timing"},
+			want: []string{"NAS-REGISTRATION-AFTER-RELEASE", "NAS-REGISTRATION-DURING-OTHER-RELEASE", "NAS-RETRANSMIT-NEW-COUNT", "NAS-T3550-ACCEPT-RETRANSMIT", "NAS-T3560-AUTH-RETRANSMIT"}},
+		{name: "on top of a group", groups: []string{"NAS"}, checks: []string{"NAS-T3560-AUTH-RETRANSMIT", "NGAP-NG-RESET-ACK"},
+			want: []string{"NAS-T3560-AUTH-RETRANSMIT"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pr, err := planService(t).buildPlan(suitePlan(func(_ *orbitv1.RunPlan, cw *orbitv1.ConformanceWorkload) {
+				cw.Groups, cw.Tags, cw.Checks = tc.groups, tc.tags, tc.checks
+			}), engine.EventsNormal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec := pr.suiteLive.spec
+			if spec.total != len(tc.want) || !slices.Equal(spec.sel.Checks, tc.checks) {
+				t.Errorf("total %d, checks %v; want %d and %v", spec.total, spec.sel.Checks, len(tc.want), tc.checks)
+			}
+			only := conformance.NewRegistry()
+			if err := only.Only(tc.want...); err != nil {
+				t.Fatal(err)
+			}
+			base := spec.env.GNB.ID
+			var leased []uint32
+			for _, g := range pr.needs.GNBs {
+				leased = append(leased, g.ID)
+			}
+			if want := only.Needs(base, false).GNBIDs; !slices.Equal(leased, want) {
+				t.Errorf("leased gNB IDs %v, want the selected checks' %v", leased, want)
+			}
+			if base != full.suiteLive.spec.env.GNB.ID {
+				t.Errorf("base %d, the full suite's %d", base, full.suiteLive.spec.env.GNB.ID)
+			}
+			// A selection with a UE check spreads the checks over the same
+			// pool as the full suite; one without leases no subscriber.
+			want := 0
+			if only.Needs(base, false).UEs > 0 {
+				want = full.suiteLive.spec.env.UE.Subscribers
+			}
+			if got := spec.env.UE.Subscribers; got != want || got > reg.SubscriberSpan() {
+				t.Errorf("subscriber pool of %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+// Groups the tests select by: one whose checks need no UE, and one that
+// holds a UE check and the check that uses a second N2 source.
+const (
+	erroneousGroup = "NGAP / Handling of Unknown, Unforeseen and Erroneous Protocol Data"
+	interfaceGroup = "NGAP / Interface Management Procedures"
+)

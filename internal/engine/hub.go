@@ -60,6 +60,6 @@ func (h *hub) subscribe() (<-chan StateEvent, func()) {
 
 // ueBuildDeregistration is a thin indirection so manager.go does not import
 // the ue package directly for this one call.
-func ueBuildDeregistration(guti []byte) (*f5nas.Message, error) {
-	return ue.BuildDeregistrationRequest(guti, true)
+func ueBuildDeregistration(guti []byte, switchOff bool) (*f5nas.Message, error) {
+	return ue.BuildDeregistrationRequest(guti, switchOff)
 }

@@ -49,7 +49,7 @@ type ConformanceServiceClient interface {
 	// a dead one. The final update carries done=true and the tallies.
 	RunConformance(context.Context, *connect.Request[v1.RunConformanceRequest]) (*connect.ServerStreamForClient[v1.ConformanceUpdate], error)
 	// ListConformanceTests reports the registered tests without running them,
-	// so a client can render the table skeleton (and per-category counts)
+	// so a client can render the table skeleton (and per-group counts)
 	// before or without a run.
 	ListConformanceTests(context.Context, *connect.Request[v1.ListConformanceTestsRequest]) (*connect.Response[v1.ListConformanceTestsResponse], error)
 }
@@ -104,7 +104,7 @@ type ConformanceServiceHandler interface {
 	// a dead one. The final update carries done=true and the tallies.
 	RunConformance(context.Context, *connect.Request[v1.RunConformanceRequest], *connect.ServerStream[v1.ConformanceUpdate]) error
 	// ListConformanceTests reports the registered tests without running them,
-	// so a client can render the table skeleton (and per-category counts)
+	// so a client can render the table skeleton (and per-group counts)
 	// before or without a run.
 	ListConformanceTests(context.Context, *connect.Request[v1.ListConformanceTestsRequest]) (*connect.Response[v1.ListConformanceTestsResponse], error)
 }

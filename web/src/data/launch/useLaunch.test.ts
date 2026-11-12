@@ -71,7 +71,7 @@ describe("the run the page opens on", () => {
     expect(fresh.replaced).toBe("load"); // the page says so
     expect(initialDraft(memory(), "conformance").replaced).toBeUndefined(); // no draft: nothing replaced
     expect(workloads(fresh.doc).map((w) => w.kind)).toEqual(["conformance"]);
-    const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: [nas]}\n";
+    const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {groups: [NAS]}\n";
     expect(workloads(initialDraft(draft("conformance", suite), "conformance").doc).map((w) => w.name)).toEqual(["s"]);
   });
 

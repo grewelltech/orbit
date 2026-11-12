@@ -26,6 +26,10 @@ const (
 	StateRegistered          = "REGISTERED"
 	StateSessionActive       = "SESSION_ACTIVE"
 	StateDeregistered        = "DEREGISTERED"
+	// StateIdle is a registered UE in CM-IDLE: its NAS signalling
+	// connection and N3 tunnels are released (Manager.Idle), its PDU
+	// sessions kept by the core.
+	StateIdle = "CM_IDLE"
 )
 
 // StateEvent is one UE FSM transition, streamed to StateStream subscribers.
@@ -47,6 +51,7 @@ type Session struct {
 	amfID int64
 	ranID int64
 	guti  []byte
+	ngksi uint8 // key set identifier of the NAS security context
 	gnbN3 string
 
 	// proc serialises the UE's control-plane procedures — handover and
@@ -71,6 +76,12 @@ type Session struct {
 	mobState string    // last mobility phase; empty until the UE first moves
 	mobAt    time.Time // when mobState was recorded
 	released bool      // deregistered: no further procedure may run
+	idle     bool      // CM-IDLE: no NAS signalling connection (idle.go)
+	upDown   bool      // the user plane is released and not yet reactivated
+	// pduReleased holds the IDs of the PDU sessions a UE-requested release
+	// ended (ReleasePDUSession). Their Result.Sessions entries stay; the
+	// UE no longer holds them (heldSessions).
+	pduReleased map[uint8]bool
 	// registrationRequested records a Configuration Update Command that
 	// requested a registration update, which the UE did not perform.
 	registrationRequested bool
@@ -117,6 +128,12 @@ type Session struct {
 	// notify publishes correlation-visible data-path events onto the
 	// Manager's hub (nil for sessions built outside a Manager).
 	notify func(StateEvent)
+
+	// held is a read of heldConn that a procedure's wait gave up on, still
+	// in flight or finished and unclaimed (readPDU). Like conn, it belongs
+	// to whoever holds the procedure lock.
+	held     chan pduRead
+	heldConn gnb.Transport
 }
 
 // SendUplink sends one inner IP packet up the session's CURRENT tunnel,
@@ -211,6 +228,24 @@ func NewManager(log *slog.Logger) *Manager {
 	}
 }
 
+// ErrNGSetup marks a Register that failed before the UE's attach began, or
+// a handover that failed before its target gNB was set up: the SCTP
+// association or the NG Setup with the AMF did not complete.
+var ErrNGSetup = errors.New("NG Setup did not complete")
+
+// ngSetupError is an error that is ErrNGSetup and reads as the error it
+// wraps.
+type ngSetupError struct{ err error }
+
+func (e *ngSetupError) Error() string { return e.err.Error() }
+func (e *ngSetupError) Unwrap() error { return e.err }
+
+// Is reports ErrNGSetup as a match.
+func (e *ngSetupError) Is(target error) bool { return target == ErrNGSetup }
+
+// beforeAttach marks err as ErrNGSetup, its text unchanged.
+func beforeAttach(err error) error { return &ngSetupError{err: err} }
+
 // Register attaches one UE through the gNB g: it opens an SCTP association
 // from g.BindAddr (empty = route-selected source) to g.AMFAddr, performs NG Setup
 // with g.Config, runs the attach FSM (emitting StateStream events), and
@@ -232,17 +267,17 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 	}
 	conn, err := dial(ctx, g.BindAddr, g.AMFAddr)
 	if err != nil {
-		return nil, fmt.Errorf("SCTP dial: %w", err)
+		return nil, beforeAttach(fmt.Errorf("SCTP dial: %w", err))
 	}
 
 	ng, err := gnb.NGSetup(ctx, conn, gnbCfg)
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("NG Setup: %w", err)
+		return nil, beforeAttach(fmt.Errorf("NG Setup: %w", err))
 	}
 	if !ng.Accepted {
 		conn.Close()
-		return nil, fmt.Errorf("NG Setup rejected: %s", ng.Cause)
+		return nil, beforeAttach(fmt.Errorf("NG Setup rejected: %s", ng.Cause))
 	}
 
 	// One reader owns the association from here (gnb.Dedicated): every
@@ -258,17 +293,24 @@ func (m *Manager) Register(ctx context.Context, g GNBSpec, ueCfg UEConfig) (*Att
 		_ = lane.Close()
 		return nil, err
 	}
+	m.adopt(sess, localAddrString(conn), ueCfg.GNBN3Addr)
+	return sess.Result, nil
+}
+
+// adopt retains a session Attach returned: it records its state, the N2
+// source its association is bound to and its gNB N3 address, and wires it
+// to the Manager's data-path pool and event hub.
+func (m *Manager) adopt(sess *Session, n2Source, gnbN3 string) {
 	sess.setState(stateFromResult(sess.Result))
-	sess.setN2Source(localAddrString(conn))
+	sess.setN2Source(n2Source)
 	sess.Result.N2Source = sess.N2Source()
-	sess.gnbN3 = ueCfg.GNBN3Addr
+	sess.gnbN3 = gnbN3
 	sess.n3 = m.n3              // data paths open on the Manager's shared per-gNB pool
 	sess.notify = m.hub.publish // correlation-visible data-path events (netstack.go)
 
 	m.mu.Lock()
 	m.sessions[sess.SUPI] = sess
 	m.mu.Unlock()
-	return sess.Result, nil
 }
 
 // Status returns a snapshot of a registered UE.
@@ -297,11 +339,23 @@ func (m *Manager) List() []*Session {
 // tears down the association (TS 24.501 §5.5.2.2). Switch-off means the
 // network sends no Deregistration Accept, so this does not block on one.
 func (m *Manager) Deregister(ctx context.Context, supi string) error {
+	_, err := m.DeregisterWith(ctx, supi)
+	return err
+}
+
+// DeregisterWith is Deregister adjusted by opts, reporting what the core
+// answered. Without options it is the switch-off deregistration Deregister
+// performs. The result is nil when the request was never sent.
+func (m *Manager) DeregisterWith(ctx context.Context, supi string, opts ...DeregisterOption) (*DeregisterResult, error) {
+	var o deregisterOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	m.mu.Lock()
 	sess, ok := m.sessions[supi]
 	m.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("UE %s is not registered", supi)
+		return nil, fmt.Errorf("UE %s is not registered", supi)
 	}
 
 	// Wait for any in-flight procedure before touching the session: removing it
@@ -316,7 +370,7 @@ func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	// no way to retry.
 	release, err := sess.beginProcedure(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer release()
 
@@ -334,21 +388,40 @@ func (m *Manager) Deregister(ctx context.Context, supi string) error {
 	defer sess.conn.Close()
 	sess.closeDataPath()
 
-	if err := sess.deregister(ctx); err != nil {
-		return err
+	if err := sess.deregister(ctx, !o.normal); err != nil {
+		return nil, err
 	}
+	res := &DeregisterResult{SwitchOff: !o.normal, AMFUENGAPID: sess.amfID, RANUENGAPID: sess.ranID, SentAt: time.Now()}
 	// The association closes (the defer above) only once the core has
 	// released the UE, or the wait is over: closing first lets an AMF take
 	// the SHUTDOWN ahead of the Deregistration Request queued before it, and
 	// keep the UE registered.
+	linger := m.releaseLinger
+	if o.releaseWait > 0 {
+		linger = o.releaseWait
+	}
 	detail := "UE deregistered (switch-off)"
-	if err := sess.awaitSwitchOffRelease(ctx, m.releaseLinger, m.log); err != nil {
-		m.log.Warn("switch-off deregistration: closing the association without the core's release", "supi", supi, "err", err)
-		detail += "; " + err.Error()
+	if o.normal {
+		detail = "UE deregistered"
+		sess.awaitDeregistrationAccept(ctx, o.acceptWait, linger, m.log, res)
+		if res.AcceptErr != nil {
+			m.log.Warn("deregistration: no Deregistration Accept", "supi", supi, "err", res.AcceptErr)
+			detail += "; " + res.AcceptErr.Error()
+		}
+	} else {
+		res.Release, res.ReleaseErr = sess.awaitRelease(ctx, linger, m.log)
+	}
+	if res.ReleaseErr != nil {
+		what := "switch-off deregistration"
+		if o.normal {
+			what = "deregistration"
+		}
+		m.log.Warn(what+": closing the association without the core's release", "supi", supi, "err", res.ReleaseErr)
+		detail += "; " + res.ReleaseErr.Error()
 	}
 	m.hub.publish(StateEvent{SUPI: supi, State: StateDeregistered, Detail: detail})
 	m.appMetrics.forgetUE(supi)
-	return nil
+	return res, nil
 }
 
 // Subscribe returns a channel of state events and a cancel func to stop it.
@@ -631,6 +704,9 @@ func (s *Session) dataplane() (*datapath.UETunnel, *datapath.UERx, error) {
 	if s.ue != nil {
 		return s.ue, s.rx, nil
 	}
+	if s.userPlaneDown() {
+		return nil, nil, fmt.Errorf("UE %s has no user plane: its N3 tunnel was released (CM-IDLE) and has not been reactivated", s.SUPI)
+	}
 	ref, ue, err := s.openViewLocked(nil, nil)
 	if err != nil {
 		return nil, nil, err
@@ -857,67 +933,53 @@ func stateFromResult(r *AttachResult) string {
 // per UE.
 const switchOffReleaseLinger = 3 * time.Second
 
-// errNoUEContextRelease is how awaitSwitchOffRelease reports that the
-// core did not release the UE in time.
+// errNoUEContextRelease is how awaitRelease reports that the core did not
+// release the UE in time.
 var errNoUEContextRelease = errors.New("the core sent no UE Context Release")
 
-// awaitSwitchOffRelease waits on the UE's association for the UE Context
-// Release Command that answers its switch-off deregistration, and answers
-// it with UE Context Release Complete. The wait ends with ctx, or after
-// linger, as errNoUEContextRelease; other downlink PDUs are skipped (and
-// logged at debug).
+// awaitSwitchOffRelease is awaitRelease for a caller that needs only whether
+// the release came.
 func (s *Session) awaitSwitchOffRelease(parent context.Context, linger time.Duration, log *slog.Logger) error {
-	start := time.Now()
-	ctx, cancel := context.WithTimeout(parent, linger)
-	defer cancel()
-	for {
-		pdu, err := gnb.ReadPDU(ctx, s.conn)
-		if parent.Err() != nil {
-			return fmt.Errorf("%w: waited %s: %v", errNoUEContextRelease, time.Since(start).Round(time.Millisecond), parent.Err())
-		}
-		if ctx.Err() != nil {
-			return fmt.Errorf("%w within %s", errNoUEContextRelease, linger)
-		}
-		if err != nil {
-			return fmt.Errorf("%w: %v", errNoUEContextRelease, err)
-		}
-		code, ok := procedureCode(pdu)
-		if !ok || code != ngapType.ProcedureCodeUEContextRelease || pdu.Present != ngapType.NGAPPDUPresentInitiatingMessage {
-			if log != nil {
-				log.Debug("switch-off deregistration: skipping a downlink PDU while waiting for the release",
-					"supi", s.SUPI, "procedure", procedureName(code), "present", pdu.Present)
-			}
-			continue
-		}
-		if err := gnb.SendPDU(s.conn, ueStream, gnb.BuildUEContextReleaseComplete(s.amfID, s.ranID)); err != nil {
-			return fmt.Errorf("UE Context Release Complete not sent: %w", err)
-		}
-		return nil
-	}
+	_, err := s.awaitRelease(parent, linger, log)
+	return err
 }
 
-// deregister sends a UE-originating switch-off Deregistration Request under
-// the session's security context.
-func (s *Session) deregister(ctx context.Context) error {
+// deregister sends a UE-originating Deregistration Request under the
+// session's security context: switch-off, or a normal one, which the AMF
+// answers with a Deregistration Accept.
+func (s *Session) deregister(ctx context.Context, switchOff bool) error {
 	// A downlink PDU already waiting (a release the core sent mid-run, an
 	// AN or inactivity release) predates this request: dropped, so only a
-	// release that answers it ends awaitSwitchOffRelease.
+	// release that answers it ends the wait for the core's answer.
 	if d, ok := s.conn.(interface{ Drain() int }); ok {
 		d.Drain()
 	}
+	s.dropHeld()
 	if s.sec == nil {
 		return fmt.Errorf("no security context")
 	}
 	if len(s.guti) == 0 {
 		return fmt.Errorf("no 5G-GUTI (AMF assigned none in Registration Accept)")
 	}
-	msg, err := ueBuildDeregistration(s.guti)
+	msg, err := ueBuildDeregistration(s.guti, switchOff)
 	if err != nil {
 		return err
 	}
-	wrapped, err := s.sec.EncodeSecure(msg, nas.SecHdrIntegrityCiphered)
+	// An initial NAS message opens the NAS signalling connection, and
+	// ciphering starts only once it is established (TS 24.501 4.4.5): a
+	// CM-IDLE UE's request is integrity-protected only.
+	hdr := uint8(nas.SecHdrIntegrityCiphered)
+	if s.Idle() {
+		hdr = nas.SecHdrIntegrity
+	}
+	wrapped, err := s.sec.EncodeSecure(msg, hdr)
 	if err != nil {
 		return fmt.Errorf("wrap Deregistration Request: %w", err)
+	}
+	if s.Idle() {
+		// A CM-IDLE UE has no NAS signalling connection: the request opens
+		// one, in an Initial UE Message that names the UE by its 5G-S-TMSI.
+		return s.sendInitial(wrapped)
 	}
 	pdu, err := gnb.BuildUplinkNASTransport(s.ServingGNB(), s.amfID, s.ranID, wrapped)
 	if err != nil {

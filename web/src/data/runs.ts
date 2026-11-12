@@ -29,6 +29,10 @@ export interface RunOutcome {
     errored: number;
     skipped: number;
     deviations: number;
+    info: number;
+    warned: number;
+    blocked: number;
+    crashed: number;
     expectedFailures: number;
   };
   attach?: { attempted: number; succeeded: number; failed: number };
@@ -83,6 +87,10 @@ function outcomeOf(r: PbRun): RunOutcome | undefined {
       errored: s.conformanceErrored,
       skipped: s.conformanceSkipped,
       deviations: s.conformanceDeviations,
+      info: s.conformanceInfo,
+      warned: s.conformanceWarned,
+      blocked: s.conformanceBlocked,
+      crashed: s.conformanceCrashed,
       expectedFailures: s.conformanceExpectedFailures,
     };
   }

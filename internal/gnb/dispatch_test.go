@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -445,6 +446,119 @@ func TestClosedLaneForgetsLearnedAMFID(t *testing.T) {
 	if got := s.Dropped(); got != 1 {
 		t.Errorf("Dropped = %d, want 1 (the PDU for the forgotten AMF ID)", got)
 	}
+}
+
+// A dedicated lane's successor takes the association over: its own RAN ID's
+// PDUs and whatever no lane claims reach it, the first lane keeps its own
+// until it closes, closing the first lane leaves the association open, and
+// closing the successor closes it. The successor writes on the caller's
+// stream, as the dedicated lane does.
+func TestDedicatedSuccessor(t *testing.T) {
+	tr := newScriptTr()
+	first := Dedicated(tr, Config{Name: "g"}, 1)
+	next := first.Successor(2)
+
+	tr.push(dlNAS(t, 5, 1, 'a'))
+	tr.push(dlNAS(t, 6, 2, 'b'))
+	tr.push(dlNAS(t, 7, 42, 'c')) // no lane: the default lane, now the successor
+	if p, err := readWithin(t, first, time.Second); err != nil || marker(t, p) != 'a' {
+		t.Fatalf("the first lane's own PDU: %v", err)
+	}
+	for _, want := range []byte{'b', 'c'} {
+		p, err := readWithin(t, next, time.Second)
+		if err != nil || marker(t, p) != want {
+			t.Fatalf("successor: want marker %c: %v", want, err)
+		}
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-tr.closed:
+		t.Fatal("closing the first lane closed the association its successor owns")
+	case <-time.After(50 * time.Millisecond):
+	}
+	tr.push(dlNAS(t, 5, 1, 'd')) // the closed lane's RAN ID: the default lane
+	if p, err := readWithin(t, next, time.Second); err != nil || marker(t, p) != 'd' {
+		t.Fatalf("a PDU for the closed lane: %v", err)
+	}
+	if err := SendPDU(next, 7, BuildInitialContextSetupResponse(6, 2)); err != nil {
+		t.Fatal(err)
+	}
+	tr.mu.Lock()
+	if len(tr.writes) != 1 || tr.writes[0] != 7 {
+		t.Errorf("writes on streams %v, want [7]", tr.writes)
+	}
+	tr.mu.Unlock()
+	if err := next.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-tr.closed:
+	case <-time.After(time.Second):
+		t.Fatal("closing the successor left the association open")
+	}
+}
+
+// A shared lane's successor is another shared lane: closing either leaves
+// the association up.
+func TestSharedSuccessor(t *testing.T) {
+	tr := newScriptTr()
+	s := startedSession(tr, Config{Name: "g"})
+	first, ranID := s.NewUE()
+	next := first.Successor(ranID + 10)
+	tr.push(dlNAS(t, 5, ranID+10, 'a'))
+	if p, err := readWithin(t, next, time.Second); err != nil || marker(t, p) != 'a' {
+		t.Fatalf("successor's PDU: %v", err)
+	}
+	for _, l := range []*UETransport{first, next} {
+		if err := l.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case <-tr.closed:
+		t.Fatal("closing shared lanes closed the association")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if s.NumUEs() != 0 {
+		t.Errorf("%d lanes left", s.NumUEs())
+	}
+	_ = s.Close()
+}
+
+// SetNoDelay reaches a transport that has the setting and is a no-op on one
+// that has not.
+func TestLaneSetNoDelay(t *testing.T) {
+	plain := newScriptTr()
+	l := Dedicated(plain, Config{Name: "g"}, 1)
+	if err := l.SetNoDelay(true); err != nil {
+		t.Errorf("a transport without the setting: %v", err)
+	}
+	_ = l.Close()
+
+	nd := &noDelayTr{scriptTr: newScriptTr()}
+	l = Dedicated(nd, Config{Name: "g"}, 1)
+	for _, on := range []bool{true, false} {
+		if err := l.SetNoDelay(on); err != nil {
+			t.Fatal(err)
+		}
+		if got := nd.last.Load(); got == nil || *got != on {
+			t.Errorf("SetNoDelay(%v) reached the transport as %v", on, got)
+		}
+	}
+	_ = l.Close()
+}
+
+// noDelayTr is a script transport that records SetNoDelay.
+type noDelayTr struct {
+	*scriptTr
+	last atomic.Pointer[bool]
+}
+
+func (n *noDelayTr) SetNoDelay(on bool) error {
+	n.last.Store(&on)
+	return nil
 }
 
 // A dedicated association reads every PDU that was already waiting on it

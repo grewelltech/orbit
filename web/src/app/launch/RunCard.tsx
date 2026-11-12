@@ -65,7 +65,7 @@ function GateRow({ g, edit, names }: { g: Gate; edit: Edit; names: string[] }) {
       </select>
       {g.kind === "conformance" ? (
         <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-          conformance: no FAIL outside the expected list, no ERROR
+          conformance: no FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN outside the expected list
         </span>
       ) : (
         <span className="flex flex-wrap items-center gap-1">

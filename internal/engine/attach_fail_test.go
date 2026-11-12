@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -13,8 +14,8 @@ import (
 // An attach that fails after registration (here a PDU session that never
 // comes: the mock has no UPF) deregisters the UE before returning, over
 // real SCTP, so the core is not left holding a registered UE nobody has a
-// handle to. One that succeeds, or is probe-driven (a conformance check
-// owns its cleanup), sends none.
+// handle to; its error is marked ErrAfterRegistration. One that succeeds,
+// or is probe-driven (a conformance check owns its cleanup), sends none.
 func TestAttachFailureAfterRegistrationDeregisters(t *testing.T) {
 	_, cfg, ki, opc := newBindTestAMF(t)
 	// Deregistration identifies the UE by its 5G-GUTI, which the mock assigns
@@ -35,6 +36,9 @@ func TestAttachFailureAfterRegistrationDeregisters(t *testing.T) {
 	if err == nil {
 		t.Fatal("the attach succeeded without a UPF")
 	}
+	if !errors.Is(err, ErrAfterRegistration) || errors.Is(err, ErrNGSetup) {
+		t.Errorf("err = %v, want it marked ErrAfterRegistration", err)
+	}
 	deadline := time.Now().Add(3 * time.Second)
 	for amf.Deregistrations() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
@@ -52,8 +56,8 @@ func TestAttachFailureAfterRegistrationDeregisters(t *testing.T) {
 	pue.Probe = &AttachProbe{}
 	pctx, pcancel := context.WithTimeout(context.Background(), time.Second)
 	defer pcancel()
-	if _, err := m.Register(pctx, GNBSpec{Config: pcfg, AMFAddr: addr}, pue); err == nil {
-		t.Fatal("the probe-driven attach succeeded without a UPF")
+	if _, err := m.Register(pctx, GNBSpec{Config: pcfg, AMFAddr: addr}, pue); err == nil || !errors.Is(err, ErrAfterRegistration) {
+		t.Fatalf("the probe-driven attach: err = %v, want ErrAfterRegistration", err)
 	}
 	time.Sleep(200 * time.Millisecond)
 	if n := amf.Deregistrations(); n != 1 {

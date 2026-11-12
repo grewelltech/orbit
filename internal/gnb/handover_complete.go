@@ -209,9 +209,41 @@ func encodeTargetToSourceContainer() (aper.OctetString, error) {
 	return aper.MarshalWithParams(c, "valueExt")
 }
 
+// HandoverPreparationFailure is the AMF's HANDOVER PREPARATION FAILURE (TS
+// 38.413 8.4.1.3, 9.2.3.3) where a HANDOVER COMMAND was awaited. Cause is
+// its Cause IE as "group/value", "unknown" when it carries none that reads.
+type HandoverPreparationFailure struct{ Cause string }
+
+func (e *HandoverPreparationFailure) Error() string {
+	return "HANDOVER PREPARATION FAILURE, cause " + e.Cause
+}
+
+// preparationFailure reads pdu as a HANDOVER PREPARATION FAILURE, nil when
+// it is another message.
+func preparationFailure(pdu *ngapType.NGAPPDU) *HandoverPreparationFailure {
+	if pdu.Present != ngapType.NGAPPDUPresentUnsuccessfulOutcome || pdu.UnsuccessfulOutcome == nil ||
+		pdu.UnsuccessfulOutcome.Value.Present != ngapType.UnsuccessfulOutcomePresentHandoverPreparationFailure ||
+		pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure == nil {
+		return nil
+	}
+	f := &HandoverPreparationFailure{Cause: "unknown"}
+	for _, ie := range pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure.ProtocolIEs.List {
+		if ie.Id.Value == ngapType.ProtocolIEIDCause && ie.Value.Cause != nil {
+			if name := causeName(ie.Value.Cause); name != "" {
+				f.Cause = name
+			}
+		}
+	}
+	return f
+}
+
 // ParseHandoverCommand confirms the AMF authorised the handover (source side,
-// TS 38.413 §9.2.3.2), returning the AMF UE NGAP ID.
+// TS 38.413 §9.2.3.2), returning the AMF UE NGAP ID. A HANDOVER PREPARATION
+// FAILURE in its place is a *HandoverPreparationFailure error.
 func ParseHandoverCommand(pdu *ngapType.NGAPPDU) (int64, error) {
+	if f := preparationFailure(pdu); f != nil {
+		return 0, f
+	}
 	if pdu.Present != ngapType.NGAPPDUPresentSuccessfulOutcome ||
 		pdu.SuccessfulOutcome.Value.Present != ngapType.SuccessfulOutcomePresentHandoverCommand {
 		return 0, fmt.Errorf("not a HandoverCommand")
@@ -222,6 +254,58 @@ func ParseHandoverCommand(pdu *ngapType.NGAPPDU) (int64, error) {
 		}
 	}
 	return 0, fmt.Errorf("HandoverCommand missing AMF UE NGAP ID")
+}
+
+// HandoverCommandItem is one entry of a HANDOVER COMMAND's PDU Session
+// Resource Handover List, as received (TS 38.413 9.2.3.2).
+type HandoverCommandItem struct {
+	PDUSessionID int64
+	// TransferLen is the length in octets of the item's Handover Command
+	// Transfer (TS 38.413 9.3.4.10); zero means the item carries none.
+	TransferLen int
+	// TransferErr is why the transfer does not decode, "" when it does.
+	TransferErr string
+}
+
+// HasTransfer reports whether the item carries a Handover Command Transfer
+// that decodes.
+func (i HandoverCommandItem) HasTransfer() bool { return i.TransferLen > 0 && i.TransferErr == "" }
+
+// HandoverCommandInfo is the PDU Session Resource Handover List of a
+// HANDOVER COMMAND.
+type HandoverCommandInfo struct {
+	// ListPresent reports whether the message carries the list at all.
+	ListPresent bool
+	Items       []HandoverCommandItem
+}
+
+// ParseHandoverCommandItems reads the PDU Session Resource Handover List of
+// a HANDOVER COMMAND item by item, keeping the items whose transfer is
+// empty or does not decode. Any other PDU yields the zero value.
+func ParseHandoverCommandItems(pdu *ngapType.NGAPPDU) HandoverCommandInfo {
+	var out HandoverCommandInfo
+	if pdu.Present != ngapType.NGAPPDUPresentSuccessfulOutcome ||
+		pdu.SuccessfulOutcome.Value.Present != ngapType.SuccessfulOutcomePresentHandoverCommand {
+		return out
+	}
+	for _, ie := range pdu.SuccessfulOutcome.Value.HandoverCommand.ProtocolIEs.List {
+		if ie.Id.Value != ngapType.ProtocolIEIDPDUSessionResourceHandoverList ||
+			ie.Value.PDUSessionResourceHandoverList == nil {
+			continue
+		}
+		out.ListPresent = true
+		for _, item := range ie.Value.PDUSessionResourceHandoverList.List {
+			it := HandoverCommandItem{PDUSessionID: item.PDUSessionID.Value, TransferLen: len(item.HandoverCommandTransfer)}
+			if it.TransferLen > 0 {
+				var t ngapType.HandoverCommandTransfer
+				if err := aper.UnmarshalWithParams(item.HandoverCommandTransfer, &t, "valueExt"); err != nil {
+					it.TransferErr = err.Error()
+				}
+			}
+			out.Items = append(out.Items, it)
+		}
+	}
+	return out
 }
 
 // BuildHandoverNotify tells the AMF the UE arrived at the target so it drives

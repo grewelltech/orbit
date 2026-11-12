@@ -145,6 +145,10 @@ var fields = map[string]field{
 	"workloads[].subscriber_pool":                 {},
 	"workloads[].sample_interval_ms":              {typ: tUint},
 	"workloads[].conformance.categories":          {typ: tStrings},
+	"workloads[].conformance.checks":              {typ: tStrings},
+	"workloads[].conformance.groups":              {typ: tStrings},
+	"workloads[].conformance.tags":                {typ: tStrings},
+	"workloads[].conformance.pack":                {},
 	"workloads[].conformance.target_release":      {},
 	"workloads[].conformance.expected":            {typ: tAny}, // a file path, or the list inline
 	"workloads[].conformance.per_test_timeout_ms": {typ: tUint},
@@ -162,6 +166,7 @@ var fields = map[string]field{
 	"gates[].slo.op":                              {},
 	"gates[].slo.threshold":                       {},
 	"gates[].conformance":                         {typ: tBool},
+	"gates[].policy":                              {},
 }
 
 // segment is one step of a path: a key, or a named-list element.

@@ -39,8 +39,9 @@ func pduNGSetupFailureCause(c ngapType.Cause) *ngapType.NGAPPDU {
 }
 
 // NG SETUP FAILURE is PASS whatever its cause, which is recorded; anything
-// else misses the 8.7.1.4 shall and is FAIL, with Observed keeping
-// acceptance, another PDU, a silent drop and a reset apart.
+// else misses the 8.7.1.4 shall and is FAIL, with its own outcome for
+// acceptance, another PDU, a silent drop and a reset. A response that shows
+// the AMF serves the stimulus PLMN is no outcome: the caller reports ERROR.
 func TestClassifyUnknownPLMN(t *testing.T) {
 	unknownPLMN := ngapType.Cause{Present: ngapType.CausePresentMisc, Misc: &ngapType.CauseMisc{Value: ngapType.CauseMiscPresentUnknownPLMN}}
 	other := ngapType.Cause{Present: ngapType.CausePresentProtocol, Protocol: &ngapType.CauseProtocol{Value: 2}}
@@ -50,37 +51,63 @@ func TestClassifyUnknownPLMN(t *testing.T) {
 		name         string
 		resp         *ngapType.NGAPPDU
 		err          error
-		want         Verdict
+		want         Outcome
+		wantServes   bool
 		wantObserved string
 		wantDetail   string
 		wantSurvived bool
 	}{
-		{name: "failure, unknown PLMN", resp: pduNGSetupFailureCause(unknownPLMN), want: Pass, wantObserved: "NG SETUP FAILURE (rejected)",
+		{name: "failure, unknown PLMN", resp: pduNGSetupFailureCause(unknownPLMN), want: unknownPLMNRejected, wantObserved: "NG SETUP FAILURE (rejected)",
 			wantDetail: "cause Misc unknown-PLMN-or-SNPN (recorded, not asserted)", wantSurvived: true},
-		{name: "failure, another cause", resp: pduNGSetupFailureCause(other), want: Pass, wantObserved: "NG SETUP FAILURE (rejected)",
+		{name: "failure, another cause", resp: pduNGSetupFailureCause(other), want: unknownPLMNRejected, wantObserved: "NG SETUP FAILURE (rejected)",
 			wantDetail: "cause Protocol 2", wantSurvived: true},
-		{name: "failure, no cause", resp: pduNGSetupFailure(false), want: Pass, wantObserved: "NG SETUP FAILURE (rejected)",
+		{name: "failure, no cause", resp: pduNGSetupFailure(false), want: unknownPLMNRejected, wantObserved: "NG SETUP FAILURE (rejected)",
 			wantDetail: "cause absent", wantSurvived: true},
-		{name: "accepted", resp: pduNGSetupResponse(), want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)",
+		{name: "accepted", resp: pduNGSetupResponse(), want: unknownPLMNAccepted, wantObserved: "NG SETUP RESPONSE (accepted!)",
 			wantDetail: unknownPLMNFailText, wantSurvived: true},
-		{name: "accepted, serving another PLMN", resp: pduNGSetupResponseServing(served), want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)",
+		{name: "accepted, serving another PLMN", resp: pduNGSetupResponseServing(served), want: unknownPLMNAccepted, wantObserved: "NG SETUP RESPONSE (accepted!)",
 			wantDetail: unknownPLMNFailText, wantSurvived: true},
-		{name: "accepted, serving the stimulus PLMN", resp: pduNGSetupResponseServing(presented), want: Error, wantObserved: "AMF serves the stimulus PLMN",
+		{name: "accepted, serving the stimulus PLMN", resp: pduNGSetupResponseServing(presented), wantServes: true, wantObserved: "AMF serves the stimulus PLMN",
 			wantDetail: "the AMF serves the stimulus PLMN 999/99; this check cannot run against it", wantSurvived: true},
-		{name: "error indication", resp: pduErrorIndication(), want: Fail, wantObserved: "InitiatingMessage(procedure 9)",
+		{name: "error indication", resp: pduErrorIndication(), want: unknownPLMNOtherPDU, wantObserved: "InitiatingMessage(procedure 9)",
 			wantDetail: "1.234s after the NG SETUP REQUEST instead of NG SETUP FAILURE", wantSurvived: true},
-		{name: "silent drop", err: context.DeadlineExceeded, want: Fail, wantObserved: "silently dropped; association survived",
+		{name: "silent drop", err: context.DeadlineExceeded, want: unknownPLMNSilent, wantObserved: "silently dropped; association survived",
 			wantDetail: "no NG SETUP FAILURE within " + ngSetupWait.String(), wantSurvived: true},
-		{name: "association reset", err: errReset, want: Fail, wantObserved: "association reset", wantDetail: "connection reset"},
+		{name: "association reset", err: errReset, want: unknownPLMNReset, wantObserved: "association reset", wantDetail: "connection reset"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail, survived := classifyUnknownPLMN(tc.resp, tc.err, 1234*time.Millisecond, presented, "999/99")
-			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
-				t.Errorf("= %s %q %q survived=%v, want %s %q with detail containing %q, survived=%v",
-					v, observed, detail, survived, tc.want, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
+			o, observed, detail, survived, serves := classifyUnknownPLMN(tc.resp, tc.err, 1234*time.Millisecond, presented, "999/99")
+			if !serves {
+				covers(o)
+			}
+			if o.ID != tc.want.ID || serves != tc.wantServes || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
+				t.Errorf("= %q serves=%v %q %q survived=%v, want %q serves=%v %q with detail containing %q, survived=%v",
+					o.ID, serves, observed, detail, survived, tc.want.ID, tc.wantServes, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
 			}
 		})
+	}
+	for _, o := range []Outcome{unknownPLMNAccepted, unknownPLMNOtherPDU, unknownPLMNSilent, unknownPLMNReset} {
+		if o.Verdict != Fail || len(o.Refs) != 1 || o.Refs[0] != unknownPLMNRef {
+			t.Errorf("%s: %s citing %v, want FAIL citing the shall of 8.7.1.4", o.ID, o.Verdict, o.Refs)
+		}
+	}
+}
+
+// The declaration: the shall of 8.7.1.4 is the primary reference, and the
+// NG Setup is the stimulus, so the check needs no procedure first.
+func TestUnknownPLMNDeclaration(t *testing.T) {
+	c := ngSetupUnknownPLMN{}
+	if err := ValidateTest(c); err != nil {
+		t.Fatal(err)
+	}
+	if WorstVerdict(c) != Fail || len(NeedsOf(c).Procedures) != 0 {
+		t.Errorf("worst %s, needs %v; want FAIL and no procedure", WorstVerdict(c), NeedsOf(c).Procedures)
+	}
+	for _, r := range c.SpecRefs() {
+		if r.Primary != (r.Key() == unknownPLMNRef) {
+			t.Errorf("%s: primary %v; the shall of 8.7.1.4 is the primary reference", r.Key(), r.Primary)
+		}
 	}
 }
 
@@ -110,14 +137,15 @@ func TestNGSetupUnknownPLMNAgainstMock(t *testing.T) {
 		accept       bool
 		extra        []mockamf.PLMN
 		want         Verdict
+		wantOutcome  string
 		wantObserved string
 		wantDetail   string
 	}{
-		{name: "rejects", want: Pass, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "cause Misc unknown-PLMN-or-SNPN"},
-		{name: "accepts anyway", accept: true, want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)", wantDetail: unknownPLMNFailText},
+		{name: "rejects", want: Pass, wantOutcome: "setup-failure", wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "cause Misc unknown-PLMN-or-SNPN"},
+		{name: "accepts anyway", accept: true, want: Fail, wantOutcome: "accepted", wantObserved: "NG SETUP RESPONSE (accepted!)", wantDetail: unknownPLMNFailText},
 		// A core that also serves the stimulus PLMN cannot be tested: ERROR,
 		// never a false FAIL.
-		{name: "serves the stimulus PLMN too", extra: []mockamf.PLMN{{MCC: "999", MNC: "99"}}, want: Error,
+		{name: "serves the stimulus PLMN too", extra: []mockamf.PLMN{{MCC: "999", MNC: "99"}}, want: Error, wantOutcome: OutcomeError,
 			wantObserved: "AMF serves the stimulus PLMN", wantDetail: "the AMF serves the stimulus PLMN 999/99"},
 	}
 	for _, tc := range tests {
@@ -131,8 +159,8 @@ func TestNGSetupUnknownPLMNAgainstMock(t *testing.T) {
 			env := Env{AMFAddr: front.Addr,
 				GNB: gnb.Config{ID: 0x400, IDBits: 24, Name: "orbit-conf", MCC: "208", MNC: "93", TAC: 1, Slices: []gnb.SNSSAI{{SST: 1, SD: "010203"}}}}
 			res := runOne(context.Background(), ngSetupUnknownPLMN{}, env, 10*time.Second)
-			if res.Verdict != tc.want || res.Observed != tc.wantObserved || !strings.Contains(res.Detail, tc.wantDetail) {
-				t.Fatalf("= %s %q (%s), want %s %q", res.Verdict, res.Observed, res.Detail, tc.want, tc.wantObserved)
+			if res.Verdict != tc.want || res.Outcome != tc.wantOutcome || res.Observed != tc.wantObserved || !strings.Contains(res.Detail, tc.wantDetail) {
+				t.Fatalf("= %s %s %q (%s), want %s %s %q", res.Verdict, res.Outcome, res.Observed, res.Detail, tc.want, tc.wantOutcome, tc.wantObserved)
 			}
 			if !strings.Contains(res.Detail, "presented PLMN 999/99, TAC 257 (served: 208/93, TAC 1)") {
 				t.Errorf("detail does not say what was presented: %q", res.Detail)

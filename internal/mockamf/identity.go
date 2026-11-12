@@ -68,9 +68,10 @@ func imeisvRequest() *nasType.IMEISVRequest {
 
 // beforeAccept handles a Security Mode Complete or an Identity Response and
 // reports whether the Registration Accept is now due. A Security Mode
-// Complete has its NAS message container adopted and its IMEISV recorded,
-// and with WithIdentityRequest draws the Identity Request in place of the
-// Accept. An Identity Response is recorded, and makes the Accept due when
+// Complete has its NAS message container adopted and its IMEISV recorded;
+// one without a container is answered per WithMissingContainer and one
+// without a requested IMEISV per WithMissingIMEISV; and with
+// WithIdentityRequest it draws the Identity Request in place of the Accept. An Identity Response is recorded, and makes the Accept due when
 // it answers that request.
 func (a *AMF) beforeAccept(p *pipe, st *ueState, msg *f5nas.Message) (bool, error) {
 	if r := msg.IdentityResponse; r != nil {
@@ -92,6 +93,24 @@ func (a *AMF) beforeAccept(p *pipe, st *ueState, msg *f5nas.Message) (bool, erro
 	a.mu.Lock()
 	a.smcIMEISVs = append(a.smcIMEISVs, imeisv)
 	a.mu.Unlock()
+	if smc != nil && smc.NASMessageContainer == nil && !st.containerAsked {
+		switch a.missingContainer {
+		case RequestInitialNAS, RepeatSecurityModeCommand:
+			st.containerAsked = true
+			return false, a.onAuthenticated(p, st)
+		case RejectMissingContainer:
+			return false, a.rejectProtected(p, st, nasMessage.Cause5GMMProtocolErrorUnspecified)
+		}
+	}
+	if a.requestIMEISV && imeisv == nil {
+		switch a.missingIMEISV {
+		case IdentifyMissingIMEISV:
+			st.awaitingIdentity = true
+			return false, a.sendIdentityRequest(p, st, nasMessage.MobileIdentity5GSTypeImeisv, true)
+		case RejectMissingIMEISV:
+			return false, a.rejectProtected(p, st, nasMessage.Cause5GMMPEINotAccepted)
+		}
+	}
 	if a.identityAfterSMC {
 		st.awaitingIdentity = true
 		return false, a.sendIdentityRequest(p, st, a.identityType, true)

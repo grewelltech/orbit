@@ -1,13 +1,13 @@
 {
   "run":  {
-    "runId":  "run-6b9b7873",
+    "runId":  "run-0764ca58",
     "kind":  "RUN_KIND_FLEET",
     "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1793174968302423957",
-    "endedUnixNano":  "1793174970513200583"
+    "startedUnixNano":  "1794440557270474941",
+    "endedUnixNano":  "1794440559481812769"
   },
   "fleetProgress":  {
-    "elapsedMs":  "2218",
+    "elapsedMs":  "2230",
     "perGnb":  [
       {
         "gnb":  "orbit-gnb"
@@ -17,26 +17,26 @@
       {
         "procedure":  "attach",
         "count":  "2",
-        "p50Ms":  3.227,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "p50Ms":  2.941,
+        "p90Ms":  106.879,
+        "p99Ms":  106.879,
+        "p999Ms":  106.879,
+        "maxMs":  106.879
       },
       {
         "procedure":  "registration",
         "count":  "2",
-        "p50Ms":  3.223,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "p50Ms":  2.937,
+        "p90Ms":  106.879,
+        "p99Ms":  106.879,
+        "p999Ms":  106.879,
+        "maxMs":  106.879
       }
     ]
   },
   "fleetReport":  {
     "attached":  2,
-    "attachElapsedMs":  "207",
+    "attachElapsedMs":  "208",
     "perGnb":  [
       {
         "gnb":  "orbit-gnb",
@@ -48,22 +48,22 @@
       {
         "procedure":  "registration",
         "count":  "2",
-        "p50Ms":  3.223,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "p50Ms":  2.937,
+        "p90Ms":  106.879,
+        "p99Ms":  106.879,
+        "p999Ms":  106.879,
+        "maxMs":  106.879
       },
       {
         "procedure":  "attach",
         "count":  "2",
-        "p50Ms":  3.227,
-        "p90Ms":  105.791,
-        "p99Ms":  105.791,
-        "p999Ms":  105.791,
-        "maxMs":  105.791
+        "p50Ms":  2.941,
+        "p90Ms":  106.879,
+        "p99Ms":  106.879,
+        "p999Ms":  106.879,
+        "maxMs":  106.879
       }
     ],
-    "achievedRate":  9.662196937584072
+    "achievedRate":  9.634329690981861
   }
 }

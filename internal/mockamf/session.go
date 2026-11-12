@@ -61,7 +61,8 @@ type UPF interface {
 	// Resource Setup with its downlink tunnel.
 	SessionUp(s SessionInfo)
 	// PathSwitched is called after the PathSwitchRequestAcknowledge has
-	// been sent, once per switched session.
+	// been sent, once per switched session, and after an N2 handover's
+	// HANDOVER NOTIFY, once per session handed over.
 	PathSwitched(p PathSwitch)
 }
 
@@ -76,10 +77,15 @@ type pduSession struct {
 	ueIP net.IP
 	ul   Tunnel
 	dl   Tunnel
+	// pending is set while downlink data waits for a CM-IDLE UE
+	// (DownlinkData), guarded by AMF.mu.
+	pending bool
 }
 
-// onPDUSessionRequest answers a PDU Session Establishment Request carried in
-// a UL NAS Transport: it allocates the UE address and the UPF uplink TEID,
+// onPDUSessionRequest handles the 5GSM message of a UL NAS Transport. A PDU
+// Session Release Request is answered by onPDUSessionReleaseRequest and a
+// PDU Session Release Complete is counted. A PDU Session Establishment
+// Request is answered here: it allocates the UE address and the UPF uplink TEID,
 // and sends a PDU Session Resource Setup Request carrying the secured DL NAS
 // Transport with the Establishment Accept. Without a UPF the request is
 // ignored, which is the mock's behaviour from before sessions existed. A
@@ -98,7 +104,19 @@ func (a *AMF) onPDUSessionRequest(p *pipe, st *ueState, msg *f5nas.Message) erro
 	if err := sm.PlainNasDecode(&buf); err != nil {
 		return fmt.Errorf("mock amf decode 5GSM: %w", err)
 	}
-	if sm.GsmMessage == nil || sm.PDUSessionEstablishmentRequest == nil {
+	switch {
+	case sm.GsmMessage == nil:
+		return nil
+	case sm.PDUSessionReleaseRequest != nil:
+		a.smReleases.Add(1)
+		return a.onPDUSessionReleaseRequest(p, st, sm.PDUSessionReleaseRequest)
+	case sm.PDUSessionReleaseComplete != nil:
+		a.pduReleaseCompletes.Add(1)
+		return nil
+	case sm.PDUSessionEstablishmentRequest == nil:
+		return nil
+	}
+	if st.smSeen++; a.smLimited && st.smSeen > a.smAnswers {
 		return nil
 	}
 	req := sm.PDUSessionEstablishmentRequest
@@ -172,24 +190,35 @@ func (a *AMF) onPDUSessionSetupResponse(resp *ngapType.PDUSessionResourceSetupRe
 			}
 		}
 	}
+	dls := make(map[uint8]Tunnel, len(items))
+	for _, it := range items {
+		dls[it.id] = it.dl
+	}
+	a.sessionsUp(amfID, dls)
+	return nil
+}
+
+// sessionsUp records the gNB's downlink tunnel dls gives for each of a
+// UE's sessions, clears their pending downlink, and tells the UPF.
+func (a *AMF) sessionsUp(amfID int64, dls map[uint8]Tunnel) {
 	var up []SessionInfo
 	a.mu.Lock()
 	st := a.ues[amfID]
 	if st != nil {
-		for _, it := range items {
-			if s := st.sessions[it.id]; s != nil {
-				s.dl = it.dl
+		for id, dl := range dls {
+			if s := st.sessions[id]; s != nil {
+				s.dl, s.pending = dl, false
 				up = append(up, SessionInfo{SUPI: st.supi, PDUSessionID: s.id, UEIP: s.ueIP, QFI: defaultQFI, UL: s.ul, DL: s.dl})
 			}
 		}
 	}
+	a.wakeSessionsUpLocked()
 	a.mu.Unlock()
 	if a.cfg.UPF != nil {
 		for _, s := range up {
 			a.cfg.UPF.SessionUp(s)
 		}
 	}
-	return nil
 }
 
 // onPathSwitchRequest answers a target gNB's PathSwitchRequest on its own
@@ -200,7 +229,9 @@ func (a *AMF) onPDUSessionSetupResponse(resp *ngapType.PDUSessionResourceSetupRe
 // the listed sessions is known (always so without a UPF), it answers a
 // PathSwitchRequestFailure listing the requested sessions (TS 38.413
 // §8.4.4.3), as a real AMF would, so the caller fails at once instead of
-// waiting out its timeout.
+// waiting out its timeout. WithPathSwitchAnswer changes the answer. A
+// listed session whose setup response has not been read yet is waited for
+// first (awaitSessionsUp).
 func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapType.PathSwitchRequest) error {
 	var ranID, srcAMFID int64
 	var ranCaps *ngapType.UESecurityCapabilities
@@ -232,6 +263,16 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 	for id := range newDL {
 		requested = append(requested, id)
 	}
+	switch a.pathSwitchAnswer {
+	case IgnorePathSwitch:
+		return nil
+	case CrashOnPathSwitch:
+		a.crashed.Store(true)
+		return errCrashed
+	case FailPathSwitch:
+		return a.send(p, buildPathSwitchRequestFailure(srcAMFID, ranID, requested))
+	}
+	a.awaitSessionsUp(srcAMFID, requested)
 	var switches []PathSwitch
 	var switched []switchedItem
 	a.mu.Lock()
@@ -246,11 +287,13 @@ func (a *AMF) onPathSwitchRequest(p *pipe, states map[int64]*ueState, req *ngapT
 			continue
 		}
 		ps := PathSwitch{SUPI: st.supi, PDUSessionID: id, OldUL: s.ul, NewUL: s.ul, OldDL: s.dl, NewDL: dl}
-		si := switchedItem{id: id}
-		if a.cfg.ReallocateULOnPathSwitch {
+		si := switchedItem{id: id, noTransfer: a.pathSwitchAnswer == AckWithoutTransfer}
+		if a.cfg.ReallocateULOnPathSwitch || a.pathSwitchAnswer == AckWithNewUL || a.pathSwitchAnswer == AckHidingULChange {
 			ps.NewUL = Tunnel{Addr: s.ul.Addr, TEID: a.nextULTEID()}
-			ul := ps.NewUL
-			si.newUL = &ul
+			if a.pathSwitchAnswer != AckHidingULChange {
+				ul := ps.NewUL
+				si.newUL = &ul
+			}
 		}
 		s.dl, s.ul = ps.NewDL, ps.NewUL
 		switches = append(switches, ps)
@@ -400,6 +443,17 @@ func buildDLNASTransportN1SM(sm []byte, id uint8) (*f5nas.Message, error) {
 // the slice, and a transfer with the session AMBR, the UPF uplink tunnel,
 // PDU session type IPv4 and one QoS flow (5QI 9).
 func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []byte, ul Tunnel, sst uint8, sd []byte) (ngapType.NGAPPDU, error) {
+	transfer, err := setupRequestTransfer(ul)
+	if err != nil {
+		return ngapType.NGAPPDU{}, err
+	}
+	return setupRequestPDU(amfID, ranID, id, nasPDU, transfer, sst, sd), nil
+}
+
+// setupRequestTransfer encodes a PDU Session Resource Setup Request
+// Transfer: the session AMBR, the UPF uplink tunnel ul, PDU session type
+// IPv4 and one QoS flow (5QI 9).
+func setupRequestTransfer(ul Tunnel) (aper.OctetString, error) {
 	var tr ngapType.PDUSessionResourceSetupRequestTransfer
 	addTr := func(ieID int64, crit aper.Enumerated, fill func(*ngapType.PDUSessionResourceSetupRequestTransferIEs)) {
 		ie := ngapType.PDUSessionResourceSetupRequestTransferIEs{}
@@ -437,9 +491,14 @@ func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []
 	})
 	transfer, err := aper.MarshalWithParams(tr, "valueExt")
 	if err != nil {
-		return ngapType.NGAPPDU{}, fmt.Errorf("mock amf encode setup request transfer: %w", err)
+		return nil, fmt.Errorf("mock amf encode setup request transfer: %w", err)
 	}
+	return transfer, nil
+}
 
+// setupRequestPDU wraps one session's NAS PDU and transfer in a PDU Session
+// Resource Setup Request.
+func setupRequestPDU(amfID, ranID int64, id uint8, nasPDU []byte, transfer aper.OctetString, sst uint8, sd []byte) ngapType.NGAPPDU {
 	var pdu ngapType.NGAPPDU
 	pdu.Present = ngapType.NGAPPDUPresentInitiatingMessage
 	pdu.InitiatingMessage = new(ngapType.InitiatingMessage)
@@ -472,14 +531,16 @@ func buildPDUSessionResourceSetupRequest(amfID, ranID int64, id uint8, nasPDU []
 		item.PDUSessionResourceSetupRequestTransfer = transfer
 		ie.Value.PDUSessionResourceSetupListSUReq = &ngapType.PDUSessionResourceSetupListSUReq{List: []ngapType.PDUSessionResourceSetupItemSUReq{item}}
 	})
-	return pdu, nil
+	return pdu
 }
 
 // switchedItem is one session in a PathSwitchRequestAcknowledge; newUL is
-// set when the UPF's uplink tunnel was reallocated.
+// set when the transfer names a reallocated UPF uplink tunnel, and
+// noTransfer leaves the item's transfer empty.
 type switchedItem struct {
-	id    uint8
-	newUL *Tunnel
+	id         uint8
+	newUL      *Tunnel
+	noTransfer bool
 }
 
 // buildPathSwitchRequestAcknowledge builds the AMF's PathSwitchRequest
@@ -528,6 +589,9 @@ func buildPathSwitchRequestAcknowledge(amfID, ranID int64, switched []switchedIt
 		b, err := aper.MarshalWithParams(tr, "valueExt")
 		if err != nil {
 			return ngapType.NGAPPDU{}, fmt.Errorf("mock amf encode path switch ack transfer: %w", err)
+		}
+		if s.noTransfer {
+			b = aper.OctetString{}
 		}
 		item := ngapType.PDUSessionResourceSwitchedItem{}
 		item.PDUSessionID.Value = int64(s.id)

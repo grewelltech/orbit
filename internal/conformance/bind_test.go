@@ -187,7 +187,7 @@ func TestConfirmAliveUnderLoadIsError(t *testing.T) {
 		wantPrefix  string
 	}{
 		{name: "under load", load: "fleet", wantVerdict: Error, wantPrefix: ObservedAMFUnresponsiveUnderLoad},
-		{name: "idle core", wantVerdict: Fail, wantPrefix: ObservedAMFUnresponsive},
+		{name: "idle core", wantVerdict: Crash, wantPrefix: ObservedAMFUnresponsive},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -201,5 +201,25 @@ func TestConfirmAliveUnderLoadIsError(t *testing.T) {
 				t.Errorf("detail = %q", got.Detail)
 			}
 		})
+	}
+}
+
+// An AMF address that refuses the liveness probe's association is a core
+// that stopped answering: the probe reports it dead, not as an error.
+func TestAliveWhenTheAMFRefuses(t *testing.T) {
+	ln, err := isctp.ListenSCTP("sctp", &isctp.SCTPAddr{IPAddrs: []net.IPAddr{{IP: net.IPv4(127, 0, 0, 1)}}})
+	if err != nil {
+		t.Skipf("no kernel SCTP on this host: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	env := Env{AMFAddr: addr, Bind: "127.0.0.1"}
+	alive, err := env.Alive(ctx)
+	if err != nil || alive {
+		t.Fatalf("Alive against a closed listener = %v, %v; want false, nil", alive, err)
 	}
 }

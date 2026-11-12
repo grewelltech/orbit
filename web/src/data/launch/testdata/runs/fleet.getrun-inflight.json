@@ -1,12 +1,12 @@
 {
   "run":  {
-    "runId":  "run-6b9b7873",
+    "runId":  "run-0764ca58",
     "kind":  "RUN_KIND_FLEET",
     "state":  "RUN_STATE_RUNNING",
-    "startedUnixNano":  "1793174968302423957"
+    "startedUnixNano":  "1794440557270474941"
   },
   "fleetProgress":  {
-    "elapsedMs":  "4"
+    "elapsedMs":  "3"
   },
   "leases":  [
     {
@@ -18,7 +18,7 @@
     {
       "resource":  "LEASE_RESOURCE_GNB_ID",
       "plmn":  "208/93",
-      "amf":  "127.0.0.1:49197",
+      "amf":  "127.0.0.1:36791",
       "gnbId":  7
     },
     {

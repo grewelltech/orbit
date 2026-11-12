@@ -12,7 +12,7 @@ Versions read:
 - **TS 29.281:** V8.0.0 (`29281-800.zip`), V15.2.0 (`29281-f20.zip`), V15.5.0 (`29281-f50.zip`), V15.7.0 (`29281-f70.zip`), V16.2.0 (`29281-g20.zip`), V17.5.0 (`29281-h50.zip`), V18.4.0 (`29281-i40.zip`), V19.2.0 (`29281-j20.zip`).
 - **TS 29.244:** V14.0.0 (`29244-e00.zip`), V15.0.0 (`29244-f00.zip`), V15.3.0 (`29244-f30.zip`), V15.10.0 (`29244-fa0.zip`), V16.13.0 (`29244-gd0.zip`), V17.0.0 (`29244-h00.zip`), V17.10.0 (`29244-ha0.zip`), V18.10.0 (`29244-ia0.zip`), V19.6.0 (`29244-j60.zip`). Rel-20 (`29244-k00`, `k10`) exists on the archive and was not read.
 
-## TS 23.501 5.8.2.9.1 (UPF Constructing the "End marker" Packets), shall
+## TS 23.501 5.8.2.9.1 (UPF Constructing the "End marker" Packets), shall, primary
 
 > "On receiving this indication, the UPF shall construct end marker packet(s) and send it for each N3 GTP-U tunnel towards the source NG RAN after sending the last PDU on the old path."
 
@@ -49,11 +49,15 @@ TS 23.502 4.9.1.2.2 (Xn based inter NG-RAN handover without UPF re-allocation) o
 
 A conforming core's markers therefore usually reach the source gNB *before* the target gNB sees the Acknowledge. The check counts End Markers on the old F-TEID at the source gNB's N3 socket from the start of the handover, which precedes the Path Switch Request, until `datapath.EndMarkerGraceTTL` (5 s) after the Acknowledge. That is as long as the engine keeps the source tunnel. A marker before the handover starts is recorded in the detail and not counted. TS 23.502 is the sequencing rationale only. It is not in the check's references, because it has not been archive-verified.
 
-## Verdicts
+## Verdict
 
-- **PASS:** one or more End Markers on the old F-TEID within the window, and no G-PDU on that tunnel after the first of them.
-- **FAIL (absent):** no End Marker on the old F-TEID within the window. On SD-Core the likely cause is the UPF's `enable_end_marker` being off (`upf.jsonc`; the chart, the OnRamp fork and Ref 2 leave it unset), or the SMF not setting SNDEM.
-- **FAIL (ordering):** a G-PDU on the old F-TEID after the End Marker, which TS 23.501 5.8.2.9.1 rules out ("after sending the last PDU on the old path").
-- **ERROR:** the harness could not run the check. Causes are a fixed-port `--bind`, a registration, PDU session or path switch that did not complete, or a per-test timeout shorter than the window.
+- **Class:** conformance, from the shalls of TS 23.501 5.8.2.9.1 and TS 29.281 7.3.2. The check needs the Xn path switch, which `NGAP-PATH-SWITCH-ACK-TRANSFER` owns.
+- **Stimulus:** an Xn handover of the UE from gNB A to gNB B (a PATH SWITCH REQUEST from gNB B), given 5 s for the Acknowledge as in the owner check.
+- **PASS** `end-marker`: one or more End Markers on the old F-TEID within the window, and no G-PDU on that tunnel after the first of them.
+- **FAIL** `no-end-marker`: no End Marker on the old F-TEID within the window, the absence inferred within the 5 s after the Acknowledge that the source tunnel is kept (a bound of the check; TS 23.501 sets no timer). The likely cause in the detail names the UPF's End Marker handling or an SNDEM the SMF did not set (TS 29.244 8.2.31).
+- **FAIL** `g-pdu-after-end-marker`: a G-PDU on the old F-TEID after the End Marker, which TS 23.501 5.8.2.9.1 rules out ("after sending the last PDU on the old path").
+- **BLOCKED:** the core did not complete the UE's registration, its PDU session establishment, gNB B's NG Setup, or the Xn path switch (a PATH SWITCH REQUEST FAILURE, no answer within 5 s, or another answer: no path was switched, so no End Marker was due). The result names the procedure and its owner check.
+- **ERROR:** the harness could not run the check (a fixed-port `--bind`), a setup step failed for a reason on this host, the PATH SWITCH REQUEST could not be built or sent, or the per-test timeout was shorter than the wait for the Acknowledge or the window.
 - **SKIP:** no UE configured, or a target release older than Rel-15.
 - **Detail:** always records the old TEID, the source N3 socket, the End Marker counts (counted, before the handover, after the window, on other tunnels), whether a PDU Session Container with QFI was present, the downlink G-PDUs on the old path before the Acknowledge, and whether traffic was flowing. It never includes key material.
+- **Limits:** who builds the marker (UPF or SMF) and a QFI on it are not asserted.

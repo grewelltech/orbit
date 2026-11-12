@@ -305,6 +305,16 @@ func (b builder) conformance(base string) (*orbitv1.ConformanceWorkload, error) 
 	if v, ok := b.get(base + "categories"); ok {
 		cw.Categories = v.([]string)
 	}
+	if v, ok := b.get(base + "checks"); ok {
+		cw.Checks = v.([]string)
+	}
+	if v, ok := b.get(base + "groups"); ok {
+		cw.Groups = v.([]string)
+	}
+	if v, ok := b.get(base + "tags"); ok {
+		cw.Tags = v.([]string)
+	}
+	cw.Pack = b.str(base + "pack")
 	sel, err := b.gnbIDs(base + "gnb_ids.")
 	if err != nil {
 		return nil, err
@@ -371,7 +381,7 @@ func (b builder) expected(v any) (*orbitv1.ExpectedFailures, error) {
 	out := &orbitv1.ExpectedFailures{Core: checked.Core}
 	for _, e := range checked.Entries {
 		out.Entries = append(out.Entries, &orbitv1.ExpectedFailure{
-			Check: e.Check, Observed: e.Observed, Finding: e.Finding, Added: e.Added, Reason: e.Reason})
+			Check: e.Check, Verdict: string(e.Verdict), Observed: e.Observed, Finding: e.Finding, Added: e.Added, Reason: e.Reason})
 	}
 	return out, nil
 }

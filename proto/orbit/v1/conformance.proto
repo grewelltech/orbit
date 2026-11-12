@@ -18,7 +18,7 @@ service ConformanceService {
   rpc RunConformance(RunConformanceRequest) returns (stream ConformanceUpdate) {}
 
   // ListConformanceTests reports the registered tests without running them,
-  // so a client can render the table skeleton (and per-category counts)
+  // so a client can render the table skeleton (and per-group counts)
   // before or without a run.
   rpc ListConformanceTests(ListConformanceTestsRequest) returns (ListConformanceTestsResponse) {}
 }
@@ -39,12 +39,13 @@ message RunConformanceRequest {
   // Base gNB ID. Each test presents a distinct ID above this base, because an
   // AMF does not cleanly re-key a reused gNB ID from a new association.
   uint32 gnb_id_base = 5;         // default 700
-  // User-plane checks (the gtpu category) need the UPF's N3 endpoint and a
+  // User-plane checks (the GTP-U ones) need the UPF's N3 endpoint and a
   // local N3 source address to bind. Absent, those tests report SKIP.
   string upf_n3 = 6;              // host:port
   string n3_bind = 7;             // local ip[:port]
-  // Categories to run; empty runs everything.
-  repeated string categories = 8;
+  // Removed: categories were replaced by groups (ADR-0011). A request that
+  // names one is refused with the groups and checks that replace it.
+  repeated string categories = 8 [deprecated = true];
   // Per-test timeout in seconds (default 15). One hang must not stall the run.
   uint32 per_test_seconds = 9;
   // Local N2 source address for every check's SCTP association, as ip or
@@ -70,6 +71,12 @@ message RunConformanceRequest {
   string dnn = 16;                // PDU session DNN; default "internet"
   string gnb_n3 = 17;             // gNB N3 IP, reachable from the UPF; both gNBs use it
   string traffic = 18;            // optional echo peer host:port for traffic across the handover
+  // Groups to run: group paths or prefixes of them, in any case
+  // ("NGAP", "NAS / 5GMM common procedures"); empty runs every group.
+  repeated string groups = 20;
+  // Tags to run: negative | security | timing; a check with any of them
+  // runs. Empty runs every check. Tags never affect a verdict.
+  repeated string tags = 21;
   // The suite as a plan (ADR-0008 §2): one conformance workload with its
   // target, expected-failures list and gates, as `orbit conformance` builds
   // it. When set, every field above must be unset; the plan says it all.
@@ -99,13 +106,38 @@ message ConformanceUpdate {
   // The run the suite runs as (ADR-0008 §2), on every update, so a client
   // can follow it in the run history.
   string run_id = 10;
+  // The run's preflight, on every update once it has run: the setup the
+  // selected checks need, done once before any check. It is not a check.
+  repeated PreflightStep preflight = 11;
+}
+
+// PreflightStep is one step of a conformance run's preflight (ADR-0011
+// rule 6). A check that depends on a step that did not complete reports
+// ERROR without running; a step that completed makes a later failure of
+// the same setup inside a check the core's (BLOCKED).
+message PreflightStep {
+  string step = 1;                // NG Setup | registration | PDU session establishment | UPF probe
+  string status = 2;              // ok | failed | not run
+  string detail = 3;              // what was done, or why the step failed
 }
 
 message ConformanceResult {
   string id = 1;
-  string category = 2;
+  // Always empty: categories were replaced by groups (ADR-0011).
+  string category = 2 [deprecated = true];
+  // The check's group in the run's target release: specification /
+  // procedure family / procedure, by the specification's clause titles.
+  string group = 17;
+  // The check's tags (negative, security, timing), for filtering only.
+  repeated string tags = 18;
+  // The core regression pack the check belongs to; empty for a check of
+  // the default run. A pack check reports INFO, WARN, SKIP, BLOCKED,
+  // ERROR or CRASH, never PASS, FAIL or DEVIATION.
+  string pack = 19;
   string spec_ref = 3;
-  string verdict = 4;             // PASS | FAIL | ERROR | SKIP | DEVIATION
+  // One of the nine verdicts of ADR-0011: PASS | FAIL | DEVIATION | WARN |
+  // INFO | BLOCKED | CRASH | SKIP | ERROR.
+  string verdict = 4;
   string expected = 5;
   string observed = 6;
   string detail = 7;             // ends with the requirement line ("requires Rel-15 or later; <spec_ref>")
@@ -116,6 +148,22 @@ message ConformanceResult {
   // verdict stays FAIL. Unrelated to `expected`, the behaviour the spec
   // expects.
   ExpectedFailure expected_failure = 10;
+  // The check's declared outcome this result reports, by its ID
+  // ("silent-drop"); docs/conformance/checks.md lists every check's.
+  string outcome = 11;
+  // Why a WARN is one: security | availability | interoperability.
+  string criterion = 12;
+  // The references the outcome rests on, each rendered with its strength
+  // ("TS 38.413 10.6 (shall)"): the shall a FAIL violates, the should a
+  // DEVIATION does not follow.
+  repeated string outcome_refs = 13;
+  // Set on a BLOCKED result: the procedure the core did not complete
+  // ("registration") and the check that owns whether it completes.
+  string blocked_on = 14;
+  string owner = 15;
+  // Set on an owner check's result that reports a procedure it owns as not
+  // completing.
+  string not_completed = 16;
 }
 
 // StaleExpectation is an expected-failures entry whose check ran without the
@@ -126,6 +174,7 @@ message StaleExpectation {
   string expected_observed = 3;   // the entry's observed text
   string verdict = 4;             // what the check gave this run
   string observed = 5;
+  string expected_verdict = 6;    // the entry's verdict: FAIL, DEVIATION or WARN
 }
 
 // SpecRef is one clause a conformance check asserts, with the 3GPP release
@@ -139,6 +188,7 @@ message SpecRef {
   repeated SpecChange changed = 6;
   bool wording_unchanged = 7;
   string rendered = 8;            // the one-line rendering, as in spec_ref
+  bool primary = 9;               // the one reference that names what the check is about
 }
 
 // SpecVersion is one specification version whose wording was read.
@@ -163,13 +213,25 @@ message ConformanceTally {
   uint32 deviations = 5;
   // FAILs the expected-failures list tolerates; they are in `failed` too.
   uint32 expected_failures = 6;
+  // INFO results: behaviour recorded where no requirement applies.
+  uint32 info = 7;
+  // Always zero: the INFO-DIFF verdict was removed (ADR-0011).
+  uint32 info_diffs = 8 [deprecated = true];
+  uint32 warned = 9;              // WARN
+  uint32 blocked = 10;            // BLOCKED
+  uint32 crashed = 11;            // CRASH
 }
 
 message ListConformanceTestsRequest {}
 
 message ConformanceTestInfo {
   string id = 1;
-  string category = 2;
+  // Always empty: categories were replaced by groups (ADR-0011).
+  string category = 2 [deprecated = true];
+  // The check's group, in the latest release's clause titles.
+  string group = 6;
+  // The check's tags (negative, security, timing), for filtering only.
+  repeated string tags = 7;
   string spec_ref = 3;
   repeated SpecRef spec_refs = 4;
   uint32 min_release = 5;

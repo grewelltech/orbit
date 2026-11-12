@@ -47,8 +47,12 @@ var stimulusCapability5GMM = []byte{0, 0, 0}
 // NSSAI IE, from V17.1.0). A Reject with another cause, a #62 Reject
 // without the stimulus in the Rejected NSSAI IE, and the stimulus only in a
 // decoded Extended rejected NSSAI IE are FAIL; a #62 Reject without it but
-// with an IE Orbit cannot decode is ERROR. A core that allows a default
-// S-NSSAI instead accepts: the #62 rule did not apply, so SKIP (the
+// with an IE Orbit cannot decode is ERROR. A core that sends neither a
+// Reject nor an Accept, within nssaiWait or before releasing the UE
+// context, violates one of the two shalls that give an initial
+// registration request its answer (5.5.1.2.4, 5.5.1.2.5): FAIL. A core
+// that allows a default S-NSSAI instead accepts: the #62 rule's own
+// condition b) excludes that case, so SKIP as a permitted alternative (the
 // Accept's rejected NSSAI is a may, recorded only). An Accept allowing the
 // stimulus is a harness collision, ERROR. The Reject is read after the
 // Security Mode Command, through the UE's NAS security context.
@@ -57,11 +61,42 @@ type nasRegRejectedNSSAI struct {
 	wait time.Duration
 }
 
-func (nasRegRejectedNSSAI) ID() string         { return "NAS-REG-REJECTED-NSSAI" }
-func (nasRegRejectedNSSAI) Category() Category { return NAS }
+// The keys of the references the outcomes of NAS-REG-REJECTED-NSSAI rest
+// on.
+const (
+	nssai62Ref       = "TS 24.501 5.5.1.2.5 #62"
+	nssaiRejectedRef = "TS 24.501 5.5.1.2.5 rejected S-NSSAI in REGISTRATION REJECT"
+	nssaiAcceptRef   = "TS 24.501 5.5.1.2.4 rejected NSSAI in REGISTRATION ACCEPT"
+)
+
+// The outcomes of NAS-REG-REJECTED-NSSAI.
+var (
+	nssaiListed = Outcome{ID: "rejected-62-listed", Verdict: Pass, Refs: []string{nssai62Ref, nssaiRejectedRef},
+		Summary: "rejected with cause #62 and listed the requested S-NSSAI in the Rejected NSSAI IE"}
+	nssaiWrongCause = Outcome{ID: "wrong-cause", Verdict: Fail, Refs: []string{nssai62Ref},
+		Summary: "rejected the registration with a 5GMM cause other than #62"}
+	nssaiExtendedOnly = Outcome{ID: "extended-only", Verdict: Fail, Refs: []string{nssaiRejectedRef},
+		Summary: "listed the requested S-NSSAI only in the Extended rejected NSSAI IE, which the UE did not support"}
+	nssaiNotListed = Outcome{ID: "not-listed", Verdict: Fail, Refs: []string{nssaiRejectedRef},
+		Summary: "rejected with cause #62 without listing the requested S-NSSAI in the Rejected NSSAI IE"}
+	nssaiDefaultAllowed = Outcome{ID: "default-allowed", Verdict: Skip, Skip: SkipPermitted, Refs: []string{nssai62Ref, nssaiAcceptRef},
+		Summary: "accepted the registration with a default S-NSSAI, a case the #62 rule's condition b) excludes"}
+	nssaiUnanswered = Outcome{ID: "unanswered", Verdict: Fail, Refs: []string{initialRegAcceptRef, initialRegRejectRef},
+		Bound:   &Bound{Wait: nssaiWait, Source: initialNASBound},
+		Summary: "sent neither a Registration Reject nor a Registration Accept"}
+	nssaiReleased = Outcome{ID: "released", Verdict: Fail, Refs: []string{initialRegAcceptRef, initialRegRejectRef},
+		Summary: "released the UE context without a Registration Reject or Accept"}
+)
+
+// Outcomes declares what the check can report.
+func (nasRegRejectedNSSAI) Outcomes() []Outcome {
+	return []Outcome{nssaiListed, nssaiWrongCause, nssaiExtendedOnly, nssaiNotListed, nssaiDefaultAllowed, nssaiUnanswered, nssaiReleased}
+}
+
+func (nasRegRejectedNSSAI) ID() string { return "NAS-REG-REJECTED-NSSAI" }
 func (nasRegRejectedNSSAI) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.5.1.2.5 #62", Strength: Shall, Since: 16, Verified: ts24501NSSAI62Verified,
+		{Spec: "TS 24.501", Clause: "5.5.1.2.5 #62", Strength: Shall, Since: 16, Verified: ts24501NSSAI62Verified, Primary: true,
 			Changed: []SpecChange{
 				{Release: 16, Note: "V16.2.0 triggers on \"the absence of allowed S-NSSAI(s)\"; by V16.5.1 the a)/b) conditions (all requested S-NSSAIs rejected, and per the UE's NSSAA bit no allowed default S-NSSAI); V16.15.0 adds b) 1) iii)"},
 				{Release: 17, Note: "\"default S-NSSAIs\" replaces \"subscribed S-NSSAIs marked as default\"; a) reads \"all the S-NSSAI(s) included in the requested NSSAI are rejected\""},
@@ -79,6 +114,8 @@ func (nasRegRejectedNSSAI) SpecRefs() []SpecRef {
 				{Release: 17, Note: "the IE follows the UE's ER-NSSAI bit; SNPN onboarding excluded"},
 				{Release: 19, Note: "adds a Partially rejected NSSAI IE"},
 			}},
+		ref24501RegAccept,
+		ref24501RegReject,
 	}
 }
 
@@ -107,31 +144,40 @@ func stimulusSNSSAI(run ue.PDUSessionParams) ue.SNSSAI {
 func (c nasRegRejectedNSSAI) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: "a Registration Reject with 5GMM cause #62 whose Rejected NSSAI IE lists the only requested S-NSSAI, one the core does not serve, from a UE sending NSSAA and ER-NSSAI as not supported (TS 24.501 5.5.1.2.5, condition b) 2)); the Rejected NSSAI IE is required from V16.6.0. An Accept with a default S-NSSAI is SKIP"}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run NAS checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run NAS checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 
 	stim := stimulusSNSSAI(h.pdu)
 	o := c.probe(ctx, h, stim)
-	r.Verdict, r.Observed, r.Detail = judgeNSSAI(o, stim, c.waitTimeout())
-	r.Detail = joinDetail(r.Detail, fmt.Sprintf("stimulus: requested NSSAI is only SST %d SD %s; NSSAA and ER-NSSAI bits sent as 0 (not supported); condition exercised: 5.5.1.2.5 #62 b) 2)", stim.SST, stim.SD))
+	stimulus := fmt.Sprintf("stimulus: requested NSSAI is only SST %d SD %s; NSSAA and ER-NSSAI bits sent as 0 (not supported); condition exercised: 5.5.1.2.5 #62 b) 2)", stim.SST, stim.SD)
+	cleanup := ""
 	if o.registered {
 		dctx, cancel := context.WithTimeout(context.Background(), nssaiDeregisterWait)
 		err := h.Deregister(dctx)
 		cancel()
+		cleanup = "UE deregistered"
 		if err != nil {
-			r.Detail = joinDetail(r.Detail, fmt.Sprintf("deregistration failed (%v); the association was dropped", err))
-		} else {
-			r.Detail = joinDetail(r.Detail, "UE deregistered")
+			cleanup = fmt.Sprintf("deregistration failed (%v); the association was dropped", err)
 		}
 	}
+	switch {
+	case o.err != nil && ctx.Err() != nil:
+		return r.Errored("timed out during the registration",
+			fmt.Sprintf("the per-test timeout expired during the registration (%v); raise --per-test-timeout to at least %s", o.err, c.Budget()))
+	case o.err != nil:
+		r = r.SetupFailed("UE setup failed", o.err)
+		r.Detail = joinDetail(joinDetail(r.Detail, stimulus), cleanup)
+		return r
+	case o.authReject:
+		return r.BlockedBy(ProcRegistration, "Authentication Reject", joinDetail("the core refused to authenticate the run's own subscriber", stimulus))
+	}
+	out, observed, detail := judgeNSSAI(o, stim, c.waitTimeout())
+	r = r.As(out, observed, joinDetail(joinDetail(detail, stimulus), cleanup))
 	if r.Verdict == Error && ctx.Err() != nil {
 		return r
 	}
@@ -457,22 +503,25 @@ func allowedSNSSAIs(v []byte) [][]byte {
 	return out
 }
 
-// judgeNSSAI turns the outcome into a verdict.
-func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, string, string) {
+// nssaiUnansweredFailure is the failure message for a registration the core
+// left without a Registration Reject or Accept.
+const nssaiUnansweredFailure = "the registration requesting only an S-NSSAI the core does not serve got neither a Registration Reject nor a Registration Accept; whether the network accepted the request or could not, TS 24.501 5.5.1.2.4 or 5.5.1.2.5 required one."
+
+// judgeNSSAI maps the registration's outcome onto the check's outcomes; o
+// is a registration whose attach did not fail and was not ended by an
+// Authentication Reject (Run handles those). The ERRORs are what the check
+// cannot read or judge.
+func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Outcome, string, string) {
 	want := snssaiBytes(stim)
 	switch {
-	case o.err != nil:
-		return Error, "UE setup failed", o.err.Error()
-	case o.authReject:
-		return Error, "Authentication Reject", "this check needs a subscriber the core authenticates"
 	case o.sawReject() && errors.Is(o.rejectErr, nas.ErrIntegrity):
-		return Error, "Registration Reject failed integrity check", fmt.Sprintf("NAS PDU %x", o.shownReject())
+		return erroredOutcome, "Registration Reject failed integrity check", fmt.Sprintf("NAS PDU %x", o.shownReject())
 	case o.sawReject() && errors.Is(o.rejectErr, engine.ErrNoSecurityContext):
 		// Protected before any NAS security context: the UE cannot verify
 		// it, so its bytes are not judged (#187 review).
-		return Error, "Registration Reject protected before a NAS security context", fmt.Sprintf("its integrity cannot be verified, so the rejected NSSAI is not judged; NAS PDU %x", o.shownReject())
+		return erroredOutcome, "Registration Reject protected before a NAS security context", fmt.Sprintf("its integrity cannot be verified, so the rejected NSSAI is not judged; NAS PDU %x", o.shownReject())
 	case o.sawReject() && o.reject == nil:
-		return Error, "Registration Reject could not be deciphered", fmt.Sprintf("%v; NAS PDU %x", o.rejectErr, o.shownReject())
+		return erroredOutcome, "Registration Reject could not be deciphered", fmt.Sprintf("%v; NAS PDU %x", o.rejectErr, o.shownReject())
 	case o.reject != nil:
 		return judgeNSSAIReject(o.reject, want)
 	case o.acceptErr != nil:
@@ -485,9 +534,9 @@ func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, st
 		if o.acceptRaw == nil {
 			// Its type could not be read (a MAC that failed under NEA1-3):
 			// it was taken for the Accept, but may have been anything.
-			return Error, "a protected NAS PDU of unreadable type did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: %s", o.acceptErr, o.unreadableRaw, cleanup)
+			return erroredOutcome, "a protected NAS PDU of unreadable type did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: %s", o.acceptErr, o.unreadableRaw, cleanup)
 		}
-		return Error, "Registration Accept did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: %s", o.acceptErr, o.acceptRaw, cleanup)
+		return erroredOutcome, "Registration Accept did not decode", fmt.Sprintf("%v; NAS PDU %x; Cleanup: %s", o.acceptErr, o.acceptRaw, cleanup)
 	case o.accept != nil:
 		var allowed [][]byte
 		if o.accept.AllowedNSSAI != nil {
@@ -503,27 +552,27 @@ func judgeNSSAI(o nssaiOutcome, stim ue.SNSSAI, wait time.Duration) (Verdict, st
 		}
 		for _, a := range allowed {
 			if bytes.Equal(a, want) {
-				return Error, "stimulus S-NSSAI is allowed for this subscriber", detail + "; the stimulus must be an S-NSSAI the core does not serve"
+				return erroredOutcome, "stimulus S-NSSAI is allowed for this subscriber", detail + "; the stimulus must be an S-NSSAI the core does not serve"
 			}
 		}
-		return Skip, "core allowed default S-NSSAI(s); the #62 rule did not apply", detail
+		return nssaiDefaultAllowed, "core allowed default S-NSSAI(s); the #62 rule did not apply", detail
 	case o.released:
-		return Error, "released without a Registration Reject or Accept", "the core sent a UE Context Release Command; check the subscriber and the core's logs"
+		return nssaiReleased, "released without a Registration Reject or Accept", nssaiUnansweredFailure + " Recorded: the core sent a UE Context Release Command."
 	case o.noAnswer:
-		return Error, "no Registration Reject or Accept", fmt.Sprintf("none arrived within %s; check the subscriber and the core's logs", wait)
+		return nssaiUnanswered, "no Registration Reject or Accept", fmt.Sprintf("%s Recorded: none arrived within %s (absence inferred within this bound).", nssaiUnansweredFailure, wait)
 	}
-	return Error, "no outcome", "the registration ended without a recorded answer"
+	return erroredOutcome, "no outcome", "the registration ended without a recorded answer"
 }
 
 // judgeNSSAIReject judges a decoded Registration Reject against the
 // stimulus S-NSSAI want.
-func judgeNSSAIReject(plain, want []byte) (Verdict, string, string) {
+func judgeNSSAIReject(plain, want []byte) (Outcome, string, string) {
 	cause, ies, err := rejectIEs(plain)
 	if err != nil {
-		return Error, "Registration Reject did not decode", err.Error()
+		return erroredOutcome, "Registration Reject did not decode", err.Error()
 	}
 	if cause != cause62 {
-		return Fail, fmt.Sprintf("Registration Reject, 5GMM cause #%d", cause),
+		return nssaiWrongCause, fmt.Sprintf("Registration Reject, 5GMM cause #%d", cause),
 			fmt.Sprintf("the only requested S-NSSAI was rejected with 5GMM cause #%d, not #62 \"No network slices available\". TS 24.501 5.5.1.2.5 (from V16.2.0). Likely cause: AMF NSSAI handling.", cause)
 	}
 	// Undecodable IEs by kind: a Rejected NSSAI or Extended rejected NSSAI
@@ -557,8 +606,8 @@ func judgeNSSAIReject(plain, want []byte) (Verdict, string, string) {
 	if len(extended) > 0 {
 		recorded += fmt.Sprintf("; Extended rejected NSSAI %v", extended)
 	}
-	cannotDecode := func(bad []string) (Verdict, string, string) {
-		return Error, "Registration Reject #62 with an IE Orbit cannot decode",
+	cannotDecode := func(bad []string) (Outcome, string, string) {
+		return erroredOutcome, "Registration Reject #62 with an IE Orbit cannot decode",
 			strings.Join(bad, "; ") + ". Orbit's NAS codec covers about Rel-15/16, so this may be Orbit's gap. " + recorded
 	}
 	bad := append(append(badRejected, badExtended...), unknown...)
@@ -574,11 +623,11 @@ func judgeNSSAIReject(plain, want []byte) (Verdict, string, string) {
 		if len(bad) > 0 {
 			detail += "; also present, not decoded: " + strings.Join(bad, "; ")
 		}
-		return Pass, "Registration Reject #62, stimulus S-NSSAI in the Rejected NSSAI IE", detail
+		return nssaiListed, "Registration Reject #62, stimulus S-NSSAI in the Rejected NSSAI IE", detail
 	case len(badRejected) > 0 || len(badExtended) > 0:
 		return cannotDecode(bad)
 	case listsSNSSAI(extended, want):
-		return Fail, "Registration Reject #62, stimulus S-NSSAI only in the Extended rejected NSSAI IE",
+		return nssaiExtendedOnly, "Registration Reject #62, stimulus S-NSSAI only in the Extended rejected NSSAI IE",
 			"the UE did not set ER-NSSAI, so the rejected S-NSSAI shall be in the Rejected NSSAI IE. TS 24.501 5.5.1.2.5 (from V17.1.0). Likely cause: AMF NSSAI handling. " + recorded
 	case len(unknown) > 0:
 		return cannotDecode(unknown)
@@ -587,5 +636,5 @@ func judgeNSSAIReject(plain, want []byte) (Verdict, string, string) {
 	if listsSNSSAI(rejected, want[:1]) {
 		detail += "; an element with the stimulus's SST but no SD was listed; that is a different S-NSSAI (TS 23.003 28.4.2), so it does not report the requested one"
 	}
-	return Fail, "Registration Reject #62 without the stimulus S-NSSAI in the Rejected NSSAI IE", detail
+	return nssaiNotListed, "Registration Reject #62 without the stimulus S-NSSAI in the Rejected NSSAI IE", detail
 }

@@ -72,7 +72,7 @@ describe("what Launch sends", () => {
 describe("when Start needs keysBlocked's rule", () => {
   const remoteHttp = { protocol: "http:", hostname: "192.0.2.10" };
   const quick = quickTargetText({ name: "core", amf: "192.0.2.1:38412", mcc: "001", mnc: "01", sst: "1", sd: "", tac: "" });
-  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: []}\n";
+  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {groups: []}\n";
   it("a keyless run (a quick target) goes from a remote http dashboard", () => {
     expect(carriesSecrets({ targetYaml: quick, runYaml: suite })).toBe(false);
     expect(startBlocked(remoteHttp, "", { targetYaml: quick, runYaml: suite })).toBeUndefined();
@@ -80,7 +80,7 @@ describe("when Start needs keysBlocked's rule", () => {
   it("a ${VAR} that needs a value (all vars are secret) is blocked there", () => {
     const withVar = quick.replace("192.0.2.1:38412", "${LAB_AMF}");
     expect(startBlocked(remoteHttp, "", { targetYaml: withVar, runYaml: suite })).toContain("in the clear");
-    expect(startBlocked(remoteHttp, "", { targetYaml: quick, runYaml: suite.replace("categories: []", 'categories: ["${CATS}"]') })).toContain("in the clear");
+    expect(startBlocked(remoteHttp, "", { targetYaml: quick, runYaml: suite.replace("groups: []", 'groups: ["${CATS}"]') })).toContain("in the clear");
   });
   it("a key written out in a secret slot is blocked there", () => {
     const keyed = quick + "subscribers:\n    - name: main\n      ki: 00112233445566778899aabbccddeeff\n";
@@ -128,7 +128,7 @@ describe("the StartState Launch judges its run by (startStateFor)", () => {
   const remoteHttp = { protocol: "http:", hostname: "192.0.2.10" };
   const quick = quickTargetText({ name: "core", amf: "192.0.2.1:38412", mcc: "001", mnc: "01", sst: "1", sd: "", tac: "" });
   const keyed = quick + "subscribers:\n    - name: main\n      first_supi: \"001010000000001\"\n      ki: ${ORBIT_KI}\n      opc: ${ORBIT_OPC}\n";
-  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: [\"${CATS}\"]}\n";
+  const suite = "kind: run\nworkloads:\n  - name: s\n    conformance: {groups: [\"${CATS}\"]}\n";
   const input = { runYaml: suite, values: {}, workloads: 1, loc: remoteHttp, token: "" };
 
   it("a target's key ${VAR}s are set on the Targets page; the rest are asked for here", () => {
@@ -149,7 +149,7 @@ describe("the StartState Launch judges its run by (startStateFor)", () => {
     const keyedState = startStateFor({ ...input, targetYaml: keyed, refs: [] }).state;
     expect(keyedState.carriesSecrets).toBe(true);
     expect(whyNotStart({ ...keyedState, missingKeys: [], unsetVars: [] })).toContain("in the clear");
-    const quickState = startStateFor({ ...input, runYaml: "kind: run\nworkloads:\n  - name: s\n    conformance: {categories: []}\n", targetYaml: quick, refs: [] }).state;
+    const quickState = startStateFor({ ...input, runYaml: "kind: run\nworkloads:\n  - name: s\n    conformance: {groups: []}\n", targetYaml: quick, refs: [] }).state;
     expect(quickState.carriesSecrets).toBe(false);
     expect(whyNotStart(quickState)).toBeUndefined();
   });

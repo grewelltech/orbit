@@ -3,6 +3,7 @@ package gnb
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/free5gc/aper"
@@ -84,5 +85,129 @@ func TestHandoverAckTransferSDCoreQuirk(t *testing.T) {
 	}
 	if hex.EncodeToString(strict) != "0007c0ac11320d000000c80001" {
 		t.Errorf("strict transfer changed: %s", hex.EncodeToString(strict))
+	}
+}
+
+// handoverCommand builds a HANDOVER COMMAND whose PDU Session Resource
+// Handover List carries transfers as given, one item per entry, session IDs
+// from 1. withList false leaves the list out.
+func handoverCommand(transfers []aper.OctetString, withList bool) *ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentSuccessfulOutcome
+	pdu.SuccessfulOutcome = new(ngapType.SuccessfulOutcome)
+	pdu.SuccessfulOutcome.ProcedureCode.Value = ngapType.ProcedureCodeHandoverPreparation
+	pdu.SuccessfulOutcome.Value.Present = ngapType.SuccessfulOutcomePresentHandoverCommand
+	cmd := new(ngapType.HandoverCommand)
+	pdu.SuccessfulOutcome.Value.HandoverCommand = cmd
+	if !withList {
+		return &pdu
+	}
+	ie := ngapType.HandoverCommandIEs{}
+	ie.Id.Value = ngapType.ProtocolIEIDPDUSessionResourceHandoverList
+	ie.Value.Present = ngapType.HandoverCommandIEsPresentPDUSessionResourceHandoverList
+	ie.Value.PDUSessionResourceHandoverList = new(ngapType.PDUSessionResourceHandoverList)
+	for i, tr := range transfers {
+		item := ngapType.PDUSessionResourceHandoverItem{}
+		item.PDUSessionID.Value = int64(i + 1)
+		item.HandoverCommandTransfer = tr
+		ie.Value.PDUSessionResourceHandoverList.List = append(ie.Value.PDUSessionResourceHandoverList.List, item)
+	}
+	cmd.ProtocolIEs.List = append(cmd.ProtocolIEs.List, ie)
+	return &pdu
+}
+
+// ParseHandoverCommandItems keeps every item of the Handover List and says
+// of each whether its transfer is there and decodes, with or without a
+// forwarding tunnel in it; a command without the list, or another PDU, has
+// none.
+func TestParseHandoverCommandItems(t *testing.T) {
+	plain, err := aper.MarshalWithParams(ngapType.HandoverCommandTransfer{}, "valueExt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := gtpTunnelUP(GNBTunnel{Address: "10.0.0.9", TEID: 0x77})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwarding, err := aper.MarshalWithParams(ngapType.HandoverCommandTransfer{DLForwardingUPTNLInformation: &up}, "valueExt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ParseHandoverCommandItems(handoverCommand([]aper.OctetString{plain, forwarding, {}, {0xf8}}, true))
+	if !got.ListPresent || len(got.Items) != 4 {
+		t.Fatalf("parsed %+v, want a list of 4 items", got)
+	}
+	want := []struct{ transfer, decodeErr bool }{{true, false}, {true, false}, {false, false}, {false, true}}
+	for i, w := range want {
+		it := got.Items[i]
+		if it.PDUSessionID != int64(i+1) || it.HasTransfer() != w.transfer || (it.TransferErr != "") != w.decodeErr {
+			t.Errorf("item %d = %+v, want transfer %v, decode error %v", i+1, it, w.transfer, w.decodeErr)
+		}
+	}
+	if got.Items[2].TransferLen != 0 || got.Items[3].TransferLen != 1 {
+		t.Errorf("transfer lengths %d and %d, want 0 and 1", got.Items[2].TransferLen, got.Items[3].TransferLen)
+	}
+	if got := ParseHandoverCommandItems(handoverCommand(nil, false)); got.ListPresent || len(got.Items) != 0 {
+		t.Errorf("without the list: %+v", got)
+	}
+	var other ngapType.NGAPPDU
+	other.Present = ngapType.NGAPPDUPresentInitiatingMessage
+	other.InitiatingMessage = new(ngapType.InitiatingMessage)
+	if got := ParseHandoverCommandItems(&other); got.ListPresent || len(got.Items) != 0 {
+		t.Errorf("another PDU: %+v", got)
+	}
+}
+
+// preparationFailurePDU is a HANDOVER PREPARATION FAILURE carrying cause,
+// or no Cause IE when cause is nil.
+func preparationFailurePDU(cause *ngapType.Cause) *ngapType.NGAPPDU {
+	var pdu ngapType.NGAPPDU
+	pdu.Present = ngapType.NGAPPDUPresentUnsuccessfulOutcome
+	pdu.UnsuccessfulOutcome = new(ngapType.UnsuccessfulOutcome)
+	pdu.UnsuccessfulOutcome.ProcedureCode.Value = ngapType.ProcedureCodeHandoverPreparation
+	pdu.UnsuccessfulOutcome.Value.Present = ngapType.UnsuccessfulOutcomePresentHandoverPreparationFailure
+	pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure = new(ngapType.HandoverPreparationFailure)
+	if cause != nil {
+		ie := ngapType.HandoverPreparationFailureIEs{}
+		ie.Id.Value = ngapType.ProtocolIEIDCause
+		ie.Value.Present = ngapType.HandoverPreparationFailureIEsPresentCause
+		ie.Value.Cause = cause
+		list := &pdu.UnsuccessfulOutcome.Value.HandoverPreparationFailure.ProtocolIEs.List
+		*list = append(*list, ie)
+	}
+	return &pdu
+}
+
+// ParseHandoverCommand names a HANDOVER PREPARATION FAILURE and its cause,
+// and keeps its plain error for any other PDU.
+func TestParseHandoverCommandPreparationFailure(t *testing.T) {
+	var other ngapType.NGAPPDU
+	other.Present = ngapType.NGAPPDUPresentInitiatingMessage
+	other.InitiatingMessage = new(ngapType.InitiatingMessage)
+	for _, tc := range []struct {
+		name      string
+		pdu       *ngapType.NGAPPDU
+		wantCause string // "" when the error is not a preparation failure
+	}{
+		{name: "radio network cause", wantCause: "radio-network/32", pdu: preparationFailurePDU(&ngapType.Cause{
+			Present: ngapType.CausePresentRadioNetwork, RadioNetwork: &ngapType.CauseRadioNetwork{Value: 32}})},
+		{name: "misc cause", wantCause: "misc/5", pdu: preparationFailurePDU(&ngapType.Cause{
+			Present: ngapType.CausePresentMisc, Misc: &ngapType.CauseMisc{Value: 5}})},
+		{name: "no cause", wantCause: "unknown", pdu: preparationFailurePDU(nil)},
+		{name: "another PDU", pdu: &other},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseHandoverCommand(tc.pdu)
+			var refused *HandoverPreparationFailure
+			if got := errors.As(err, &refused); got != (tc.wantCause != "") {
+				t.Fatalf("err = %v; preparation failure %v, want %v", err, got, tc.wantCause != "")
+			}
+			if refused != nil && refused.Cause != tc.wantCause {
+				t.Errorf("cause %q, want %q", refused.Cause, tc.wantCause)
+			}
+			if err == nil {
+				t.Error("no error for a PDU that is not a HANDOVER COMMAND")
+			}
+		})
 	}
 }

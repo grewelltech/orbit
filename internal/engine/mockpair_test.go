@@ -34,7 +34,14 @@ type mockPair struct {
 	cfg     gnb.Config // source gNB; the target is ID 2
 }
 
-func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) *mockPair {
+func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool, amfOpts ...mockamf.Option) *mockPair {
+	t.Helper()
+	return newMockPairWith(t, net24, opts, reallocUL, amfOpts...)
+}
+
+// newMockPairWith is newMockPair with mock AMF options; the stub UPF's
+// downlink data notification goes to the mock AMF.
+func newMockPairWith(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool, amfOpts ...mockamf.Option) *mockPair {
 	t.Helper()
 	base := testnet.Base(net24)
 	upf, err := mockupf.Listen(base+"10:2152", opts)
@@ -46,10 +53,11 @@ func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) 
 		Ki: ki, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
 		MCC: "208", MNC: "93", SST: 1, SD: "010203",
 		UPF: upf, UPFAddress: base + "10", ReallocateULOnPathSwitch: reallocUL,
-	})
+	}, amfOpts...)
 	if err != nil {
 		t.Fatal(err)
 	}
+	upf.OnDownlinkData(amf.DownlinkData)
 	// Every PDU the mock answered with must have encoded: a dropped one
 	// would turn a mock defect into a silent engine timeout.
 	t.Cleanup(func() {
@@ -65,8 +73,9 @@ func newMockPair(t *testing.T, net24 int, opts mockupf.Options, reallocUL bool) 
 }
 
 // register attaches one UE with a PDU session through the source gNB and
-// returns its session with the data path open.
-func (p *mockPair) register(t testing.TB, m *Manager, supi string) *Session {
+// returns its session with the data path open. Each mod adjusts the UE's
+// configuration first.
+func (p *mockPair) register(t testing.TB, m *Manager, supi string, mods ...func(*UEConfig)) *Session {
 	t.Helper()
 	id, err := ue.ParseIdentity(supi, "208", "93", "0")
 	if err != nil {
@@ -74,12 +83,16 @@ func (p *mockPair) register(t testing.TB, m *Manager, supi string) *Session {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	res, err := m.Register(ctx, GNBSpec{Config: p.cfg, AMFAddr: p.amfAddr}, UEConfig{
+	ueCfg := UEConfig{
 		Identity:   id,
 		Sub:        auth.Subscription{SUPI: supi, Ki: p.ki, OPc: p.opc},
 		PDUSession: &ue.PDUSessionParams{PDUSessionID: 1, SST: 1, SD: "010203", DNN: "internet"},
 		GNBN3Addr:  p.srcN3,
-	})
+	}
+	for _, mod := range mods {
+		mod(&ueCfg)
+	}
+	res, err := m.Register(ctx, GNBSpec{Config: p.cfg, AMFAddr: p.amfAddr}, ueCfg)
 	if err != nil {
 		t.Fatalf("Register with a PDU session: %v", err)
 	}

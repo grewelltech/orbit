@@ -43,6 +43,14 @@ const (
 // fifth expiry abort and release the N1 NAS signalling connection, which on
 // N2 is a UE CONTEXT RELEASE COMMAND for the UE.
 //
+// The clause names no AUTHENTICATION REJECT. One that arrives once the four
+// retransmissions have been seen is recorded and the check keeps waiting
+// for the release, which alone decides the verdict. A reject after an
+// AUTHENTICATION REQUEST and before the four retransmissions answers
+// nothing the UE sent: the AMF ended the procedure where the clause has it
+// retransmit (FAIL). One in place of the AUTHENTICATION REQUEST is BLOCKED
+// on the registration: the procedure under test never started.
+//
 // The timer is not assumed to be the 6 s default, since an operator may
 // configure another value. The first retransmission is awaited for 1.5 ×
 // t3560Max. After that the timer is estimated as T_est = max(nominal, the
@@ -61,11 +69,39 @@ type nasT3560AuthRetransmit struct {
 	authWait time.Duration
 }
 
-func (nasT3560AuthRetransmit) ID() string         { return "NAS-T3560-AUTH-RETRANSMIT" }
-func (nasT3560AuthRetransmit) Category() Category { return NAS }
+// The key of the shall NAS-T3560-AUTH-RETRANSMIT's outcomes rest on.
+const t3560Ref = "TS 24.501 5.4.1.3.7 b)"
+
+// The outcomes of NAS-T3560-AUTH-RETRANSMIT.
+var (
+	t3560Released = Outcome{ID: "retransmitted-then-released", Verdict: Pass, Refs: []string{t3560Ref},
+		Summary: "retransmitted the AUTHENTICATION REQUEST on four T3560 expiries, then released the N1 NAS signalling connection"}
+	t3560WrongCount = Outcome{ID: "wrong-count", Verdict: Fail, Refs: []string{t3560Ref},
+		Bound: &Bound{Wait: t3560Max + t3560Max/2,
+			Source: "1.5 × the largest T3560 (24 s, TS 24.501 Table 10.2.2) for the first retransmission, then 1.5 × the timer estimated from the gaps"},
+		Summary: "retransmitted the AUTHENTICATION REQUEST other than four times"}
+	t3560RejectedEarly = Outcome{ID: "rejected-early", Verdict: Fail, Refs: []string{t3560Ref},
+		Summary: "ended the authentication with a reject before the four retransmissions"}
+	t3560ReleaseLate = Outcome{ID: "release-late", Verdict: Fail, Refs: []string{t3560Ref},
+		Summary: "released the N1 NAS signalling connection later than 0.5 × T_est after the fifth T3560 expiry"}
+	t3560NoRelease = Outcome{ID: "no-release", Verdict: Fail, Refs: []string{t3560Ref},
+		Bound:   &Bound{Source: "0.5 × the timer estimated from the gaps, after the inferred fifth T3560 expiry (TS 24.501 Table 10.2.2 default 6 s)"},
+		Summary: "did not release the N1 NAS signalling connection on the fifth T3560 expiry"}
+	// t3560Blocked is classifyT3560's marker for a registration that did
+	// not reach the AUTHENTICATION REQUEST; Run reports it as BLOCKED on
+	// the registration.
+	t3560Blocked = Outcome{ID: blockedID(ProcRegistration), Verdict: Blocked}
+)
+
+// Outcomes declares what the check can report.
+func (nasT3560AuthRetransmit) Outcomes() []Outcome {
+	return []Outcome{t3560Released, t3560WrongCount, t3560RejectedEarly, t3560ReleaseLate, t3560NoRelease}
+}
+
+func (nasT3560AuthRetransmit) ID() string { return "NAS-T3560-AUTH-RETRANSMIT" }
 func (nasT3560AuthRetransmit) SpecRefs() []SpecRef {
 	return []SpecRef{
-		{Spec: "TS 24.501", Clause: "5.4.1.3.7 b)", Strength: Shall, Since: 15, Verified: ts24501Verified, WordingUnchanged: true},
+		{Spec: "TS 24.501", Clause: "5.4.1.3.7 b)", Strength: Shall, Since: 15, Verified: ts24501Verified, WordingUnchanged: true, Primary: true},
 		{Spec: "TS 24.501", Clause: "Table 10.2.2 T3560", Strength: Descriptive, Since: 15, Verified: ts24501Verified,
 			Changed: []SpecChange{
 				{Release: 16, Note: "adds a WB-N1/CE mode value of 24s; the normal value stays 6s"},
@@ -108,14 +144,11 @@ func (c nasT3560AuthRetransmit) Run(ctx context.Context, env Env) Result {
 	r := Result{Expected: fmt.Sprintf("with the Authentication Response withheld, %d retransmissions of the Authentication Request at T3560 (%s by default), then a UE Context Release Command on the fifth expiry (TS 24.501 5.4.1.3.7 b))",
 		t3560Retransmissions, t3560Default)}
 	if !env.UE.Configured() {
-		r.Verdict, r.Observed = Skip, "no UE configured"
-		r.Detail = "set --supi, --ki/--opc and --gnb-n3 to run NAS checks"
-		return r
+		return r.Skipped(InputUE, "no UE configured", "set --supi, --ki/--opc and --gnb-n3 to run NAS checks")
 	}
 	h, err := NewUEHarness(env, nil)
 	if err != nil {
-		r.Verdict, r.Observed, r.Detail = Error, "harness setup failed", err.Error()
-		return r
+		return r.Errored("harness setup failed", err.Error())
 	}
 	defer h.Close()
 
@@ -129,31 +162,34 @@ func (c nasT3560AuthRetransmit) Run(ctx context.Context, env Env) Result {
 		}
 	})
 	_, err = h.RegisterWithProbe(actx, &engine.AttachProbe{
-		Withhold:   map[uint8]bool{f5nas.MsgTypeAuthenticationResponse: true},
-		OnDownlink: o.noteRelease,
-		OnNAS:      o.noteNAS,
+		Withhold:                  map[uint8]bool{f5nas.MsgTypeAuthenticationResponse: true},
+		OnDownlink:                o.noteRelease,
+		OnNAS:                     o.noteNAS,
+		AfterAuthenticationReject: o.rejectAfterRetransmissions,
 	})
 	noRequest.Stop()
 	o.stop()
 	snap := o.snapshot()
 	switch {
 	case err == nil:
-		r.Verdict, r.Observed = Error, "registration completed with the Authentication Response withheld"
-		r.Detail = "the harness did not withhold the reply"
-		return r
+		return r.Errored("registration completed with the Authentication Response withheld", "the harness did not withhold the reply")
 	case errors.Is(err, engine.ErrReleasedByCore), errors.Is(err, context.Canceled) && ctx.Err() == nil:
 		// The release, the window's end or no Authentication Request: judged below.
 	case ctx.Err() != nil:
-		r.Verdict, r.Observed = Error, "timed out before the T3560 window closed"
-		r.Detail = fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget())
-		return r
+		return r.Errored("timed out before the T3560 window closed", fmt.Sprintf("raise --per-test-timeout to at least %s", c.Budget()))
 	case snap.reject != "":
-		// An Authentication or Registration Reject: ERROR, judged below.
+		// A reject that ended the procedure: judged below.
 	default:
-		r.Verdict, r.Observed, r.Detail = Error, "UE setup failed during the T3560 procedure", err.Error()
-		return r
+		return r.SetupFailed("UE setup failed during the T3560 procedure", err)
 	}
-	r.Verdict, r.Observed, r.Detail = classifyT3560(snap, t, c.authRequestWait())
+	out, observed, detail := classifyT3560(snap, t, c.authRequestWait())
+	switch out.Verdict {
+	case Blocked:
+		return r.BlockedBy(ProcRegistration, observed, detail)
+	case Error:
+		return r.Errored(observed, detail)
+	}
+	r = r.As(out, observed, detail)
 	// The AMF answered throughout, so its state after the abort is checked
 	// the way the NGAP checks do; Manager.Register closed the association.
 	return confirmAlive(ctx, env, r, true, "the AMF stopped completing NG Setup after the T3560 procedure")
@@ -173,8 +209,8 @@ func estimate(times []time.Time, nominal time.Duration) time.Duration {
 }
 
 // retransmitObservation is what the probe saw of one NAS message the AMF
-// retransmits on a timer (msgType), plus any release or reject. note runs
-// on the attach goroutine, the deadline timer on its own.
+// retransmits on a timer (msgType), plus any release or reject. The note
+// methods run on the attach goroutine, the deadline timer on its own.
 //
 // The first message opens a wait of 1.5 × tmax for the first
 // retransmission. Each retransmission sets the next deadline at 1.5 × T_est
@@ -204,9 +240,12 @@ type retransmitObservation struct {
 type retransmitSnapshot struct {
 	times        []time.Time // each message of the watched type, the first included
 	release      time.Time   // the UE Context Release Command; zero if none
-	reject       string      // a reject that ended the procedure early
+	reject       string      // a reject the AMF sent: the message's name
+	rejectAt     time.Time   // when it came
+	rejectAfter  int         // how many watched messages had come before it
 	windowClosed bool        // a deadline ran out
 	refused      bool        // first judged the first message unusable
+	configUpdate bool        // a CONFIGURATION UPDATE COMMAND came before the first watched message
 }
 
 // noteRelease records a UE Context Release Command (AttachProbe.OnDownlink).
@@ -248,11 +287,32 @@ func (o *retransmitObservation) noteNAS(ev engine.NASEvent) {
 		default:
 			o.cancel() // a retransmission too many: the count is decided
 		}
+	case f5nas.MsgTypeConfigurationUpdateCommand:
+		if len(o.snap.times) == 0 {
+			o.snap.configUpdate = true
+		}
 	case f5nas.MsgTypeAuthenticationReject:
-		o.snap.reject = "Authentication Reject"
+		o.snap.reject, o.snap.rejectAt, o.snap.rejectAfter = "Authentication Reject", ev.At, len(o.snap.times)
 	case f5nas.MsgTypeRegistrationReject:
-		o.snap.reject = "Registration Reject"
+		o.snap.reject, o.snap.rejectAt, o.snap.rejectAfter = "Registration Reject", ev.At, len(o.snap.times)
 	}
+}
+
+// rejectAfterRetransmissions reports whether the Authentication Reject just
+// noted came once every expected retransmission had been seen
+// (AttachProbe.AfterAuthenticationReject): the attach then goes on, and the
+// deadline armed at the last retransmission still bounds the wait for the
+// release.
+func (o *retransmitObservation) rejectAfterRetransmissions() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.release && o.snap.afterRetransmissions(o.retransmissions)
+}
+
+// afterRetransmissions reports whether an Authentication Reject came after
+// at least want retransmissions of the watched message.
+func (s retransmitSnapshot) afterRetransmissions(want int) bool {
+	return s.reject == "Authentication Reject" && s.rejectAfter-1 >= want
 }
 
 // arm (re)starts the deadline timer for d; o.mu is held. A replaced
@@ -301,20 +361,39 @@ func (o *retransmitObservation) snapshot() retransmitSnapshot {
 	return s
 }
 
-// classifyT3560 judges a T3560 observation for nominal timer t. ERROR when
-// the procedure never reached an Authentication Request or a reject ended
-// it. Otherwise PASS for exactly four retransmissions then a UE Context
-// Release Command no later than 1.5 × T_est after the fourth (0.5 × T_est
-// after the inferred fifth expiry), and FAIL naming the first part that
-// missed: no retransmission, the wrong count, a late release or none. The
-// detail gives both parts, each gap and the estimated timer.
-func classifyT3560(s retransmitSnapshot, t, authWait time.Duration) (Verdict, string, string) {
-	if s.reject != "" {
-		return Error, s.reject + " before the T3560 window",
-			fmt.Sprintf("the AMF sent %s after %d Authentication Request(s); this check needs a subscriber the core authenticates", s.reject, len(s.times))
+// classifyT3560 judges a T3560 observation for nominal timer t.
+// t3560Blocked when the procedure never reached an Authentication Request
+// (a reject in its place included). A reject after an Authentication
+// Request and before the four retransmissions is FAIL: the UE answered
+// nothing, so the AMF ended the procedure where the clause has it
+// retransmit. A Registration Reject once the four retransmissions had come
+// ends the attach before the release can be watched for: ERROR. An
+// Authentication Reject after them is recorded in the detail and changes
+// nothing else. Otherwise PASS for exactly four retransmissions then a UE
+// Context Release Command no later than 1.5 × T_est after the fourth (0.5 ×
+// T_est after the inferred fifth expiry), and FAIL naming the first part
+// that missed: the wrong count, a late release or none. The detail gives
+// both parts, each gap and the estimated timer.
+func classifyT3560(s retransmitSnapshot, t, authWait time.Duration) (Outcome, string, string) {
+	rejectRecorded := s.afterRetransmissions(t3560Retransmissions)
+	switch early := s.reject != "" && !rejectRecorded; {
+	case early && len(s.times) == 0:
+		return t3560Blocked, s.reject + " before the T3560 window",
+			fmt.Sprintf("the AMF sent %s in place of an Authentication Request", s.reject)
+	case early && len(s.times)-1 < t3560Retransmissions:
+		n := len(s.times) - 1
+		return t3560RejectedEarly, fmt.Sprintf("%s after %d retransmissions of Authentication Request, want %d and then a release", s.reject, n, t3560Retransmissions),
+			strings.Join([]string{
+				fmt.Sprintf("AMF ended the authentication with %s instead of retransmitting Authentication Request on T3560 expiry (observed %d retransmissions, want %d). TS 24.501 5.4.1.3.7 b). Likely cause: the AMF aborts the procedure before the fifth T3560 expiry.", s.reject, n, t3560Retransmissions),
+				fmt.Sprintf("the Authentication Response was withheld, so the %s answers no response of the UE; it came %s s after the last Authentication Request", s.reject, seconds(s.rejectAt.Sub(s.times[len(s.times)-1]))),
+				retransmitTiming(s, t, estimate(s.times, t), "Authentication Request", "request", ""),
+			}, "; ")
+	case early:
+		return erroredOutcome, s.reject + " before the T3560 window closed",
+			fmt.Sprintf("the AMF sent %s after %d retransmissions of Authentication Request, and the registration ended there, so the release on the fifth expiry was not watched for", s.reject, len(s.times)-1)
 	}
 	if len(s.times) == 0 {
-		return Error, "registration did not reach Authentication Request",
+		return t3560Blocked, "registration did not reach Authentication Request",
 			fmt.Sprintf("no Authentication Request within %s of the Initial UE Message", authWait)
 	}
 	n := len(s.times) - 1
@@ -338,18 +417,22 @@ func classifyT3560(s retransmitSnapshot, t, authWait time.Duration) (Verdict, st
 		details = append(details, fmt.Sprintf("AMF did not release the N1 NAS signalling connection on the fifth T3560 expiry (no UE Context Release Command within %s, 0.5 x T_est, after the inferred fifth expiry, taken as one T_est after the last Authentication Request). TS 24.501 5.4.1.3.7 b). Likely cause: the AMF aborts locally without releasing.", est/2))
 	}
 	details = append(details, retransmitTiming(s, t, est, "Authentication Request", "request", ""))
+	if rejectRecorded {
+		details = append(details, fmt.Sprintf("Authentication Reject %s s after the last Authentication Request (recorded only: TS 24.501 5.4.1.3.7 b) requires the release of the N1 NAS signalling connection and names no reject)",
+			seconds(s.rejectAt.Sub(last))))
+	}
 
 	switch {
 	case n == 0:
-		return Fail, "no retransmission of Authentication Request", strings.Join(details, "; ")
+		return t3560WrongCount, "no retransmission of Authentication Request", strings.Join(details, "; ")
 	case !retransmitOK:
-		return Fail, fmt.Sprintf("%d retransmissions of Authentication Request, want %d", n, t3560Retransmissions), strings.Join(details, "; ")
+		return t3560WrongCount, fmt.Sprintf("%d retransmissions of Authentication Request, want %d", n, t3560Retransmissions), strings.Join(details, "; ")
 	case late:
-		return Fail, "UE Context Release Command late after the fifth T3560 expiry", strings.Join(details, "; ")
+		return t3560ReleaseLate, "UE Context Release Command late after the fifth T3560 expiry", strings.Join(details, "; ")
 	case !released:
-		return Fail, "no UE Context Release Command after the fifth T3560 expiry", strings.Join(details, "; ")
+		return t3560NoRelease, "no UE Context Release Command after the fifth T3560 expiry", strings.Join(details, "; ")
 	}
-	return Pass, fmt.Sprintf("%d retransmissions of Authentication Request, then UE Context Release Command", n), strings.Join(details, "; ")
+	return t3560Released, fmt.Sprintf("%d retransmissions of Authentication Request, then UE Context Release Command", n), strings.Join(details, "; ")
 }
 
 // retransmitTiming records the gaps between the watched messages (what,

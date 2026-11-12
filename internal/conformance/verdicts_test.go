@@ -66,8 +66,8 @@ func TestClassifyUnknownUE(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail, survived := classifyUnknownUE(tc.resp, tc.err, 1234*time.Millisecond)
-			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
+			o, observed, detail, survived := classifyUnknownUE(tc.resp, tc.err, 1234*time.Millisecond)
+			if v := covers(o).Verdict; v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
 				t.Errorf("= %s %q %q survived=%v, want %s %q with detail containing %q, survived=%v",
 					v, observed, detail, survived, tc.want, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
 			}
@@ -78,108 +78,110 @@ func TestClassifyUnknownUE(t *testing.T) {
 	}
 }
 
+func pduNGResetAcknowledge() *ngapType.NGAPPDU {
+	return &ngapType.NGAPPDU{Present: ngapType.NGAPPDUPresentSuccessfulOutcome,
+		SuccessfulOutcome: &ngapType.SuccessfulOutcome{ProcedureCode: ngapType.ProcedureCode{Value: ngapType.ProcedureCodeNGReset},
+			Value: ngapType.SuccessfulOutcomeValue{Present: ngapType.SuccessfulOutcomePresentNGResetAcknowledge, NGResetAcknowledge: &ngapType.NGResetAcknowledge{}}}}
+}
+
+// NGAP-NG-RESET-ACK asserts the NG RESET ACKNOWLEDGE 8.7.4.2.2 requires:
+// PASS only for it. Another PDU, no answer within ngResetWait and a lost
+// association each miss the shall and are FAIL, with their own outcome.
+func TestClassifyNGReset(t *testing.T) {
+	tests := []struct {
+		name         string
+		resp         *ngapType.NGAPPDU
+		err          error
+		want         Outcome
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "acknowledge", resp: pduNGResetAcknowledge(), want: ngResetAcked, wantObserved: "NG RESET ACKNOWLEDGE"},
+		{name: "another PDU", resp: pduErrorIndication(), want: ngResetOtherPDU, wantObserved: "InitiatingMessage(procedure 9)", wantDetail: "expected NG RESET ACKNOWLEDGE"},
+		{name: "no answer", err: context.DeadlineExceeded, want: ngResetNoAnswer, wantObserved: "no response",
+			wantDetail: "no NG RESET ACKNOWLEDGE within " + ngResetWait.String() + " of the NG RESET (absence inferred within this bound)"},
+		{name: "association lost", err: errReset, want: ngResetAssociationLost, wantObserved: "association reset", wantDetail: "connection reset"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := classifyNGReset(tc.resp, tc.err)
+			if covers(o).ID != tc.want.ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s (%s) %q %q, want %s (%s) %q with detail containing %q",
+					o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved, tc.wantDetail)
+			}
+		})
+	}
+	if ngResetAcked.Verdict != Pass || ngResetNoAnswer.Verdict != Fail || ngResetOtherPDU.Verdict != Fail || ngResetAssociationLost.Verdict != Fail {
+		t.Error("the verdicts of the NG RESET outcomes changed")
+	}
+}
+
 // NGAP-NGSETUP-MISSING-TALIST asserts the NG SETUP FAILURE 10.3.5 requires:
 // PASS for it (Criticality Diagnostics recorded either way). Everything else
-// misses the shall and is FAIL, with Observed keeping a silent drop, another
-// PDU, acceptance and a reset apart; the silent-drop detail names
+// misses the shall and is FAIL, with its own outcome for a silent drop,
+// another PDU, acceptance and a reset; the silent-drop detail names
 // ngSetupWait.
 func TestClassifyMissingTAList(t *testing.T) {
 	tests := []struct {
 		name         string
 		resp         *ngapType.NGAPPDU
 		err          error
-		want         Verdict
+		want         Outcome
 		wantObserved string
 		wantDetail   string
 		wantSurvived bool
 	}{
-		{name: "setup failure with criticality diagnostics", resp: pduNGSetupFailure(true), want: Pass, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics present", wantSurvived: true},
-		{name: "setup failure without criticality diagnostics", resp: pduNGSetupFailure(false), want: Pass, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics absent", wantSurvived: true},
-		{name: "accepted", resp: pduNGSetupResponse(), want: Fail, wantObserved: "NG SETUP RESPONSE (accepted!)", wantDetail: "accepted an NG Setup", wantSurvived: true},
-		{name: "error indication", resp: pduErrorIndication(), want: Fail, wantObserved: "InitiatingMessage(procedure 9)",
+		{name: "setup failure with criticality diagnostics", resp: pduNGSetupFailure(true), want: missingTAListRejected, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics present", wantSurvived: true},
+		{name: "setup failure without criticality diagnostics", resp: pduNGSetupFailure(false), want: missingTAListRejected, wantObserved: "NG SETUP FAILURE (rejected)", wantDetail: "Criticality Diagnostics absent", wantSurvived: true},
+		{name: "accepted", resp: pduNGSetupResponse(), want: missingTAListAccepted, wantObserved: "NG SETUP RESPONSE (accepted!)", wantDetail: "accepted an NG Setup", wantSurvived: true},
+		{name: "error indication", resp: pduErrorIndication(), want: missingTAListOtherPDU, wantObserved: "InitiatingMessage(procedure 9)",
 			wantDetail: "1.234s after the NG SETUP REQUEST instead of NG SETUP FAILURE", wantSurvived: true},
-		{name: "another PDU", resp: pduDownlinkNAS(), want: Fail, wantObserved: "InitiatingMessage(procedure 4)", wantDetail: "instead of NG SETUP FAILURE", wantSurvived: true},
-		{name: "silent drop", err: context.DeadlineExceeded, want: Fail, wantObserved: "silently dropped; association survived",
+		{name: "another PDU", resp: pduDownlinkNAS(), want: missingTAListOtherPDU, wantObserved: "InitiatingMessage(procedure 4)", wantDetail: "instead of NG SETUP FAILURE", wantSurvived: true},
+		{name: "silent drop", err: context.DeadlineExceeded, want: missingTAListSilent, wantObserved: "silently dropped; association survived",
 			wantDetail: "no NG SETUP FAILURE within " + ngSetupWait.String() + " of the NG SETUP REQUEST (absence inferred within this bound)", wantSurvived: true},
-		{name: "association reset", err: errReset, want: Fail, wantObserved: "association reset", wantDetail: "connection reset"},
+		{name: "association reset", err: errReset, want: missingTAListReset, wantObserved: "association reset", wantDetail: "connection reset"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail, survived := classifyMissingTAList(tc.resp, tc.err, 1234*time.Millisecond)
-			if v != tc.want || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
-				t.Errorf("= %s %q %q survived=%v, want %s %q with detail containing %q, survived=%v",
-					v, observed, detail, survived, tc.want, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
+			o, observed, detail, survived := classifyMissingTAList(tc.resp, tc.err, 1234*time.Millisecond)
+			if covers(o).ID != tc.want.ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) || survived != tc.wantSurvived {
+				t.Errorf("= %s (%s) %q %q survived=%v, want %s (%s) %q with detail containing %q, survived=%v",
+					o.ID, o.Verdict, observed, detail, survived, tc.want.ID, tc.want.Verdict, tc.wantObserved, tc.wantDetail, tc.wantSurvived)
 			}
 		})
 	}
-}
-
-// The worst verdict follows the references: FAIL when a check cites a shall,
-// DEVIATION when it cites only shoulds.
-func TestWorstVerdict(t *testing.T) {
-	ref := func(s Strength) SpecRef { return SpecRef{Spec: "TS 38.413", Clause: "10.6", Strength: s, Since: 15} }
-	tests := []struct {
-		name string
-		refs []SpecRef
-		want Verdict
-	}{
-		{name: "shall only", refs: []SpecRef{ref(Shall)}, want: Fail},
-		{name: "should only", refs: []SpecRef{ref(Should)}, want: Deviation},
-		{name: "shall and should", refs: []SpecRef{ref(Should), ref(Shall)}, want: Fail},
-		{name: "descriptive and shall", refs: []SpecRef{ref(Descriptive), ref(Shall)}, want: Fail},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := WorstVerdict(provTest{id: "X", refs: tc.refs}); got != tc.want {
-				t.Errorf("WorstVerdict = %s, want %s", got, tc.want)
-			}
-		})
+	for _, o := range []Outcome{missingTAListAccepted, missingTAListOtherPDU, missingTAListSilent, missingTAListReset} {
+		if o.Verdict != Fail || len(o.Refs) != 1 || o.Refs[0] != missingTAListRef {
+			t.Errorf("%s: %s citing %v, want FAIL citing the shall of 10.3.5", o.ID, o.Verdict, o.Refs)
+		}
 	}
 }
 
-// runOne enforces the rule whatever Run returns: a FAIL from a check citing
-// no shall is a DEVIATION, and a DEVIATION from a check citing no should is
-// a FAIL that says why; a check citing a should may deviate.
-func TestRunOneVerdictRule(t *testing.T) {
-	shall := SpecRef{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, WordingUnchanged: true}
-	should := SpecRef{Spec: "TS 38.413", Clause: "10.3.5", Strength: Should, Since: 15, WordingUnchanged: true}
+// runOne holds every result to the check's declaration: a check that
+// declares no outcomes cannot report a verdict on a core, and a result whose
+// verdict is not its outcome's is an ERROR.
+func TestRunOneHoldsResultsToTheDeclaration(t *testing.T) {
+	shall := SpecRef{Spec: "TS 38.413", Clause: "10.6", Strength: Shall, Since: 15, WordingUnchanged: true, Primary: true}
 	tests := []struct {
 		name       string
-		refs       []SpecRef
-		run        Verdict
-		observed   string
+		test       Test
 		want       Verdict
 		wantDetail string
 	}{
-		{name: "FAIL from a should-only check", refs: []SpecRef{should}, run: Fail, want: Deviation},
-		{name: "a crash on a should-only check stays FAIL", refs: []SpecRef{should}, run: Fail, observed: ObservedAMFUnresponsive + " (x)", want: Fail},
-		{name: "a dead UPF on a should-only check stays FAIL", refs: []SpecRef{should}, run: Fail, observed: ObservedUPFUnresponsive, want: Fail},
-		{name: "DEVIATION from a shall-only check", refs: []SpecRef{shall}, run: Deviation, want: Fail,
-			wantDetail: "scored FAIL: DEVIATION is reserved for a missed should"},
-		{name: "DEVIATION from a check citing a should", refs: []SpecRef{shall, should}, run: Deviation, want: Deviation},
-		{name: "FAIL from a shall check", refs: []SpecRef{shall}, run: Fail, want: Fail},
-		{name: "PASS", refs: []SpecRef{shall}, run: Pass, want: Pass},
+		{name: "a declared FAIL", test: provTest{id: "X", refs: []SpecRef{shall}, result: Result{Verdict: Fail}}, want: Fail},
+		{name: "a check that declares nothing", test: undeclaredTest{id: "X", refs: []SpecRef{shall}}, want: Error,
+			wantDetail: "without one of the check's declared outcomes"},
+		{name: "a DEVIATION from a check citing no should", test: provTest{id: "X", refs: []SpecRef{shall}, result: Result{Verdict: Deviation}}, want: Error,
+			wantDetail: "which the check neither declares nor has from its needs"},
+		{name: "an outcome with another verdict", test: provTest{id: "X", refs: []SpecRef{shall}, result: Result{Verdict: Pass, Outcome: verdictOutcomeID(Fail)}}, want: Error,
+			wantDetail: "it is declared FAIL"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			c := provTest{id: "X", refs: tc.refs, result: Result{Verdict: tc.run, Observed: tc.observed}}
-			res := runOne(context.Background(), c, Env{}, time.Second)
-			if res.Verdict != tc.want {
-				t.Errorf("verdict = %s, want %s", res.Verdict, tc.want)
-			}
-			if tc.wantDetail != "" && !strings.Contains(res.Detail, tc.wantDetail) {
-				t.Errorf("detail %q lacks %q", res.Detail, tc.wantDetail)
+			res := runOne(context.Background(), tc.test, Env{}, time.Second)
+			if res.Verdict != tc.want || !strings.Contains(res.Detail, tc.wantDetail) {
+				t.Errorf("= %s (%s), want %s with detail containing %q", res.Verdict, res.Detail, tc.want, tc.wantDetail)
 			}
 		})
-	}
-}
-
-// Every registered check cites a shall, so its worst verdict is FAIL: no
-// check is should-only today. A should-only check changes this on purpose.
-func TestEveryCheckWorstVerdictFail(t *testing.T) {
-	for _, c := range NewRegistry().Tests() {
-		if got := WorstVerdict(c); got != Fail {
-			t.Errorf("%s: WorstVerdict = %s; a should-only check must update this test", c.ID(), got)
-		}
 	}
 }

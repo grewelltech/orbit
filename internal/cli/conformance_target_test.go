@@ -35,7 +35,9 @@ func TestConformanceTargetReleaseSkipsAndPrintsRequirement(t *testing.T) {
 			t.Errorf("output lacks %s", id)
 		}
 	}
-	if strings.Count(out, "requires Rel-15 or later; TS ") < 3 || strings.Contains(out, "FAIL ") {
+	// A verdict starts its line, so a check ID that ends in "-FAIL" is not
+	// taken for one.
+	if strings.Count(out, "requires Rel-15 or later; TS ") < 3 || strings.Contains(out, "\nFAIL ") {
 		t.Errorf("each check must print its requirement line and none may FAIL:\n%s", out)
 	}
 	if !strings.Contains(out, "0 fail") {
@@ -61,7 +63,7 @@ func TestConformanceJSONRecordsTargetRelease(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, _ := runConformance(t, append([]string{"--json", "--category", "procedural"}, tc.args...)...)
+			out, _ := runConformance(t, append([]string{"--json", "--group", "NGAP / Interface Management Procedures"}, tc.args...)...)
 			var sum struct {
 				TargetRelease string
 				SpecTargets   map[string]string
@@ -102,7 +104,7 @@ func TestConformanceTextTargetLine(t *testing.T) {
 		{[]string{"--target-release", "unset"}, "target-release: unset\n"},
 		{[]string{"--target-release", "17"}, "target-release: Rel-17 (TS 29.244 at Rel-16)\n"},
 	} {
-		out, _ := runConformance(t, append([]string{"--category", "procedural"}, tc.args...)...)
+		out, _ := runConformance(t, append([]string{"--group", "NGAP / Interface Management Procedures"}, tc.args...)...)
 		if !strings.Contains(out, tc.want) {
 			t.Errorf("%v: output lacks %q:\n%s", tc.args, tc.want, out)
 		}
@@ -114,5 +116,26 @@ func TestConformanceTargetReleaseRejectsMalformed(t *testing.T) {
 	_, err := runConformance(t, "--target-release", "fifteen")
 	if err == nil || !strings.Contains(err.Error(), "--target-release: invalid release") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// --check narrows a --local run to the named checks, which keep the gNB
+// IDs they have in a full run.
+func TestConformanceCheckFilter(t *testing.T) {
+	out, err := runConformance(t, "--target-release", "Rel-14", "--check", "NGAP-NG-RESET-ACK", "--check", "ngap-unknown-ue-survives", "--json")
+	if err != nil {
+		t.Fatalf("conformance: %v\n%s", err, out)
+	}
+	var sum struct {
+		Total   int
+		Results []struct {
+			ID string `json:"id"`
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &sum); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if sum.Total != 2 || len(sum.Results) != 2 || sum.Results[0].ID != "NGAP-UNKNOWN-UE-SURVIVES" || sum.Results[1].ID != "NGAP-NG-RESET-ACK" {
+		t.Errorf("ran %+v, want the two named checks in registry order", sum)
 	}
 }

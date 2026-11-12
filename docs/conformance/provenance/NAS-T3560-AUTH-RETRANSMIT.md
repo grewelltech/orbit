@@ -1,17 +1,22 @@
 # NAS-T3560-AUTH-RETRANSMIT
 
-Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/](https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/). Versions read (orbit-architect, 2026-10-12 and 2026-10-18; issue #135): V15.0.0 (`24501-f00.zip`), V15.7.0 (`24501-f70.zip`), V16.15.0 (`24501-gf0.zip`), V17.18.1 (`24501-hi1.zip`), V18.14.0 (`24501-ie0.zip`), V19.8.0 (`24501-j80.zip`).
+Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/](https://www.3gpp.org/ftp/Specs/archive/24_series/24.501/). Versions read (2026-10-12 and 2026-10-18 for issue #135; 5.4.1.3.7 b), 5.4.1.2.4.4 a), 5.4.2.7 b), 5.4.1.3.5 and the T3560 row of Table 10.2.2 read again in every version on 2026-11-10): V15.0.0 (`24501-f00.zip`), V15.7.0 (`24501-f70.zip`), V16.15.0 (`24501-gf0.zip`), V17.18.1 (`24501-hi1.zip`), V18.14.0 (`24501-ie0.zip`), V19.8.0 (`24501-j80.zip`).
 
-## TS 24.501 5.4.1.3.7 b) (Abnormal cases on the network side, "Expiry of timer T3560"), shall
+## TS 24.501 5.4.1.3.7 b) (5G AKA based primary authentication and key agreement procedure, "Abnormal cases", item b) "Expiry of timer T3560."), shall, primary
 
 > "The network shall, on the first expiry of the timer T3560, retransmit the AUTHENTICATION REQUEST message and shall reset and start timer T3560. This retransmission is repeated four times, i.e. on the fifth expiry of timer T3560, the network shall abort the 5G AKA based primary authentication and key agreement procedure and any ongoing 5GMM specific procedure and release the N1 NAS signalling connection."
 
-- **Since:** Rel-15, V15.0.0 (`24501-f00.zip`). The clause is 5.4.1.3.7 item b) in V15.0.0, V15.7.0, V16.15.0 and V19.8.0 alike; the text in V15.0.0 and V19.8.0 starts identically.
-- **Changes:** none. The wording is present and unchanged in every version read, V15.0.0 through V19.8.0. Earlier drafts cited item c), which is wrong in every release read.
+- **Since:** Rel-15, V15.0.0 (`24501-f00.zip`).
+- **Read:** item b) of 5.4.1.3.7 itself, the 5G AKA paragraph, was read in each of the six versions on 2026-11-10: V15.0.0, V15.7.0, V16.15.0, V17.18.1, V18.14.0 and V19.8.0. In each the clause is titled "Abnormal cases", item a) is "Lower layer failure.", item b) is "Expiry of timer T3560." and item c) is "Authentication failure (5GMM cause #20 "MAC failure")."
+- **Changes:** none. The two quoted sentences of item b) are character for character the same in all six versions. Earlier drafts cited item c), which is wrong in every version read.
+- **Not this paragraph:** 5.4.1.2.4.4 a), the EAP based procedure's "Expiry of timer T3560.", is a sibling with its own wording, also read in the six versions and the same in each: "The AMF shall, on the first expiry of the timer T3560, retransmit the AUTHENTICATION REQUEST message and shall reset and start timer T3560. This retransmission is repeated four times, i.e. on the fifth expiry of timer T3560, the AMF shall abort the EAP based primary authentication and key agreement procedure and any ongoing 5GMM specific procedure, and release the N1 NAS signalling connection." It says "The AMF" where 5.4.1.3.7 b) says "The network", names the EAP based procedure, and has a comma before "and release". The check registers with 5G AKA and cites 5.4.1.3.7 b) only.
 - **Scope of the check:** the UE withholds its AUTHENTICATION RESPONSE. The check counts the AUTHENTICATION REQUESTs after the first (want four) and looks for the release of the N1 NAS signalling connection, which on N2 is a UE CONTEXT RELEASE COMMAND for the UE.
   - The timer is not assumed to be the default. The first retransmission is awaited for 1.5 × 24 s, the largest Table 10.2.2 value. After that the timer is estimated as T_est = max(6 s, the mean gap so far).
-  - Each next retransmission, and after the fourth the release, is due 1.5 × T_est after the last request, i.e. 0.5 × T_est after the inferred fifth expiry. The same pattern for EAP-AKA' (5.4.1.2.4.4 a)) and for the Security Mode Command (5.4.2.7 b), which says only that the procedure shall be aborted) is not cited.
-- **Verdicts:** four retransmissions, then the release: PASS. No retransmission, another count, a late release or no release: FAIL, since 5.4.1.3.7 b) is a shall. Observed names the first part that missed, and Detail gives both. A late release is reported as late; "aborts locally" is reserved for no release at all. A reject before the window, or no AUTHENTICATION REQUEST within 10 s: ERROR. A core that then stops completing NG Setup: the crash FAIL.
+  - Each next retransmission, and after the fourth the release, is due 1.5 × T_est after the last request, i.e. 0.5 × T_est after the inferred fifth expiry. The same pattern for the EAP based procedure (5.4.1.2.4.4 a), above) and for the Security Mode Command (5.4.2.7 b), which in all six versions ends "on the fifth expiry of timer T3560, the procedure shall be aborted" and names no release) is not cited.
+- **Verdicts:** see Verdict below.
+- **An AUTHENTICATION REJECT:** item b) names the abort and the release and no reject, in each of the six versions (5.4.1.3.7 b) read 2026-11-10, as above). Clause 5.4.1.3.5 ("If the authentication response (RES) returned by the UE is not valid, ... the network should send an AUTHENTICATION REJECT message to the UE", V15.7.0 through V19.8.0; in V15.0.0 the clause holds only an editor's note that the case is for further study) is another case: here there is no response.
+  - A reject that arrives once the four retransmissions have been seen is recorded in Detail ("Authentication Reject <t> s after the last Authentication Request (recorded only ...)") and the check keeps waiting for the release until its deadline, 1.5 × max(T_est, 24 s) after the fourth retransmission. The release decides as above: PASS when it follows in time, FAIL `no UE Context Release Command after the fifth T3560 expiry` when it does not. The UE sends nothing after the reject.
+  - A reject after an AUTHENTICATION REQUEST and before the four retransmissions is FAIL: the UE answered nothing, so the AMF ended the procedure where item b) has it retransmit. A reject in place of the AUTHENTICATION REQUEST is BLOCKED on the registration: the core did not start the procedure the check exercises. A REGISTRATION REJECT after the four retransmissions ends the attach before the release can be watched for: ERROR.
 
 ## TS 24.501 Table 10.2.2 T3560 (Timers of 5GS mobility management, AMF side), descriptive
 
@@ -20,3 +25,19 @@ Source: the 3GPP archive only, [https://www.3gpp.org/ftp/Specs/archive/24_series
 - **Since:** Rel-15, V15.0.0 (`24501-f00.zip`).
 - **Changes:** Rel-16 adds WB-N1/CE mode values (T3560 24s). Rel-17 onward adds "For access via a satellite NG-RAN cell, 11s". The normal value is 6s in every version read, V15.0.0 through V19.8.0.
 - **Use in the check:** descriptive only. The table value is a default the operator may configure, so the spacing of the retransmissions is recorded, not asserted. Detail gives each gap and the estimated timer, and notes a gap outside [0.5, 1.5] × the estimate ("gaps uneven") or × 6 s ("timer differs from the 6s default"). The 24s WB-N1/CE value, the largest in the table, bounds the wait for the first retransmission.
+
+## Verdict
+
+- **Class:** conformance, on the shall of 5.4.1.3.7 b). Needs the registration, owned by `NAS-INITIAL-REGISTRATION`, up to its AUTHENTICATION REQUEST.
+- **Stimulus:** a registration whose AUTHENTICATION RESPONSE the UE withholds.
+- **PASS** `retransmitted-then-released`: four retransmissions, then the release.
+- **FAIL** `wrong-count`: no retransmission, or a count other than four. The absence is inferred within the waits above (1.5 × 24 s for the first, the largest Table 10.2.2 value, then 1.5 × T_est).
+- **FAIL** `rejected-early`: a reject after an AUTHENTICATION REQUEST and before the four retransmissions.
+- **FAIL** `release-late`: the UE CONTEXT RELEASE COMMAND came later than 0.5 × T_est after the inferred fifth expiry.
+- **FAIL** `no-release`: no UE CONTEXT RELEASE COMMAND within 0.5 × T_est after the inferred fifth expiry ("aborts locally"), inferred from its absence within that bound.
+- Observed names the first part that missed, and Detail gives both.
+- **BLOCKED:** a reject in place of the AUTHENTICATION REQUEST, no AUTHENTICATION REQUEST within 10 s, or an attach that failed (`blocked-registration`, owned by `NAS-INITIAL-REGISTRATION`); the NG Setup not completed (`blocked-ng-setup`).
+- **ERROR:** the harness could not be set up, a local socket failed, the registration completed although the AUTHENTICATION RESPONSE was withheld, a REGISTRATION REJECT after the four retransmissions ended the attach before the release could be watched for, or the per-test timeout expired before the T3560 window closed.
+- **SKIP:** no UE configured, a population loading the core (the check needs an idle core), or a target release older than Rel-15.
+- **CRASH:** a core that then stops completing NG Setup.
+- **Limits:** budget up to 190 s; a core at the 6 s default ends in about 33 s.

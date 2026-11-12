@@ -200,18 +200,18 @@ func TestRenderedCommandRoundTrip(t *testing.T) {
 			"  - name: registration_p99_ms\n    slo: {metric: registration.p99_ms, op: \"<=\", threshold: 500ms}\n")},
 			wantWords: "orbit test load", contains: []string{"'--slo-reg-p99=500ms'"}},
 		{name: "load with a second workload and gate", in: plan.RenderInput{Template: "load", RunYAML: []byte(edit("load",
-			"until:", "  - name: suite\n    start: {after: load, phase: attached}\n    conformance: {categories: [nas], per_test_timeout_ms: 4000}\nuntil:",
+			"until:", "  - name: suite\n    start: {after: load, phase: attached}\n    conformance: {groups: [NAS], per_test_timeout_ms: 4000}\nuntil:",
 			`threshold: "0.99"}`, "threshold: \"0.99\"}\n  - name: reg\n    workload: load\n    slo: {metric: registration.p99_ms, op: \"<=\", threshold: 500ms}"))},
 			wantWords: "orbit test load"},
 		{name: "fleet behaviours", in: plan.RenderInput{Template: "fleet", RunYAML: []byte(edit("fleet", "behaviors: {}",
 			"behaviors: {mobility: {model: random_walk, speed_mps: 3}, latency: {target: 198.51.100.9, interval_ms: 500}}"))}, wantWords: "orbit test fleet"},
-		{name: "conformance with an inline list", in: plan.RenderInput{Template: "conformance", RunYAML: []byte(edit("conformance", "conformance: {categories: []}",
-			"conformance:\n      categories: [ngap]\n      expected:\n        core: lab\n        version: \"1\"\n        entries:\n          - {check: NGAP-NG-RESET-ACK, observed: FAIL, finding: EX-1, added: 2026-10-28, reason: a known gap}"))},
+		{name: "conformance with an inline list", in: plan.RenderInput{Template: "conformance", RunYAML: []byte(edit("conformance", "conformance: {groups: []}",
+			"conformance:\n      groups: [NGAP]\n      expected:\n        core: lab\n        version: \"1\"\n        entries:\n          - {check: NGAP-NG-RESET-ACK, observed: FAIL, finding: EX-1, added: 2026-10-28, reason: a known gap}"))},
 			wantWords: "orbit test conformance"},
 		{name: "the flag layer", in: plan.RenderInput{RunYAML: []byte(tmpl("load")), Template: "load",
 			Sets: []string{"workloads[load].attach.concurrency=8"}, Gates: []string{"attach.p99_ms<=1s"}}, wantWords: "orbit test load"},
 		// What --set cannot say goes as orbit run and the exported file.
-		{name: "two categories", in: plan.RenderInput{Template: "conformance", RunYAML: []byte(edit("conformance", "categories: []", "categories: [nas, ngap]"))},
+		{name: "two groups", in: plan.RenderInput{Template: "conformance", RunYAML: []byte(edit("conformance", "groups: []", "groups: [NAS, NGAP]"))},
 			wantWords: "orbit run"},
 		{name: "a removed gate", in: plan.RenderInput{Template: "load", RunYAML: []byte(tmpl("load")[:strings.Index(tmpl("load"), "gates:")])}, wantWords: "orbit run"},
 		{name: "no template", in: plan.RenderInput{RunYAML: []byte(edit("fleet", "count: 100", "count: 3"))}, wantWords: "orbit run"},
@@ -302,7 +302,7 @@ workloads:
     topology: {gnb_count: 4}
   - name: suite
     start: {after: pop, phase: attached}
-    conformance: {categories: [registration], expected: {core: lab, version: "1", entries: []}}
+    conformance: {groups: [NAS], expected: {core: lab, version: "1", entries: []}}
 gates:
   - name: reg
     workload: pop

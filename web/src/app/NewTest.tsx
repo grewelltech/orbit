@@ -18,7 +18,7 @@ const CHOICES: Choice[] = [
   {
     id: "conformance",
     title: "Conformance",
-    blurb: "Run the conformance suite against the target's core — every category, gated on no unexpected FAIL or ERROR.",
+    blurb: "Run the conformance suite against the target's core — every group, gated on no FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN outside the expected-failures list.",
     to: "/launch/conformance",
   },
   {

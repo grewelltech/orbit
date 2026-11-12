@@ -13,6 +13,7 @@ import { useRuns, type RunOutcome, type RunSummary } from "@/data/runs";
 import { Panel } from "@/components/Panel";
 import { StatTile } from "@/components/StatTile";
 import { PageLinks } from "./PageLinks";
+import { conformanceDigest } from "./conformanceDigest";
 
 type Filter = "all" | "performance" | "conformance";
 
@@ -46,14 +47,11 @@ function Outcome({ outcome }: { outcome?: RunOutcome }) {
   if (!outcome) return <span style={{ color: "var(--o-ink-3)" }}>—</span>;
   const parts: ReactNode[] = [];
 
-  if (outcome.conformance) {
+  const conf = conformanceDigest(outcome);
+  if (outcome.conformance && conf) {
     const c = outcome.conformance;
-    const realFail = Math.max(0, c.failed - c.expectedFailures);
-    // An ERROR is a failed check too (the suite couldn't judge it), so a run
-    // with errors must not read as a healthy green result.
-    const bad = realFail > 0 || c.errored > 0;
-    const color = bad ? "var(--o-error)" : "var(--o-ok, #2f9e52)";
-    const extra = [realFail > 0 ? `${realFail} fail` : "", c.errored > 0 ? `${c.errored} error` : ""].filter(Boolean).join(" · ");
+    const color = conf.bad ? "var(--o-error)" : "var(--o-ok, #2f9e52)";
+    const extra = conf.extra.join(" · ");
     parts.push(
       <span key="conf" style={{ color }}>
         {c.passed}/{c.total} pass{extra ? ` · ${extra}` : ""}

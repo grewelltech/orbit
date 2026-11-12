@@ -64,10 +64,17 @@ be a bare IP or `ip:0`, two gNBs may not name the same fixed `ip:port`, and
 liveness probe opens a second association from the same address. These are
 rejected before anything is dialled.
 
+A conformance check that holds two associations from two source addresses at
+once (`NGAP-DUPLICATE-RAN-NODE-ID`) takes the second from the target: the
+suite uses the first address of `ran.n2_source_ips`, and such a check the
+second, which this host must hold. `--bind` names one address, so with it
+alone, with `--local`, or in a run that also has a population, the check SKIPs.
+
 `--bind` is the **N2** source; the user plane has its own flags (`--gnb-n3` on
 the UE and load commands, `--n3-bind` on `conformance`, whose `--upf-n3` must be
-the UPF's primary N3 address: the GTP-U check confirms the UPF is alive with a
-GTP-U Echo Request, and a UPF may answer Echo only there). Each command prints
+the UPF's primary N3 address: the GTP-U checks send GTP-U Echo Requests, one
+to confirm the UPF is alive and one to assert the Echo Response, and a UPF may
+answer Echo only there). Each command prints
 the N2 source it actually used as `n2-source=<ip:port>`, with the real port,
 so a capture or an AMF-side log can be matched to the run. `conformance --json`
 records the configured bind as `N2Source` in `ip:0` form: every check dials its
@@ -184,7 +191,7 @@ orbit conformance -t lab1 --supi ""            # an empty flag clears a field: h
 ```
 
 On an interactive terminal `orbit conformance` prints its results as a
-colour-coded table — `verdict · test · category · spec · observed`, with a
+colour-coded table — `verdict · test · group · spec · observed`, with a
 tally — mirroring the dashboard's suite view. Piped, redirected or in CI it
 falls back to plain borderless text, and `--json` and the exit codes are
 unchanged, so scripts are unaffected.
@@ -596,7 +603,7 @@ the CLI.
   edit it:
   - workloads: a population (UEs, rate or ramp, gNBs, PDU session, keeping
     the UEs with latency, mobility or bulk traffic) or a conformance suite
-    (categories, an expected-failures file);
+    (groups, tags, an expected-failures file);
   - how it stops: every workload completes, a duration, or until stopped;
   - gates: one-click presets, or any metric, comparison and threshold. The
     attach-success, registration p99 and attach p99 presets come twice: on
@@ -1182,6 +1189,15 @@ registered:
   new 5G-GUTI is taken, and a CONFIGURATION UPDATE COMPLETE is sent when the
   command requests acknowledgement. A new TAI list or allowed NSSAI is only
   logged.
+- **Known limit:** a registered UE's downlink is read only while one of its
+  procedures waits for a message. A CONFIGURATION UPDATE COMMAND that arrives
+  while the UE is between procedures (registered, with none running) stays
+  queued until the UE's next procedure reads the downlink. An N2 handover
+  (or its cancellation) then processes it, late, and a CONFIGURATION UPDATE
+  COMPLETE the command asks for goes out late with it; any other procedure
+  (an Xn handover, a PDU session release, a Service Request, the
+  deregistration) skips or discards it unanswered. Either way the AMF may
+  retransmit the command on T3555 (TS 24.501 Table 10.2.2) meanwhile.
 - **Not supported:** the registration procedure for mobility and periodic
   registration update. A command with "registration requested" set
   (TS 24.501 5.4.4.3) is still acknowledged when it asks for that, but the UE
@@ -1423,18 +1439,39 @@ the CLI judges itself.
 ## Conformance / regression
 
 `orbit conformance` runs the spec-cited regression suite on the server against
-a live core, streaming each check's verdict, and exits 1 on a FAIL outside the
-expected-failures list or an ERROR: an integration-CI gate ([exit
-codes](#exit-codes)). The suite runs as a plan with the conformance gate.
+a live core, streaming each check's verdict, and exits 1 when its gate fails:
+an integration-CI gate ([exit codes](#exit-codes)). The default gate fails on
+a FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN outside the expected-failures
+list; `--gate spec` (or `name=spec`; `policy: spec` on a run file's
+conformance gate) fails on FAIL, CRASH, BLOCKED and ERROR only. A procedure
+owner with checks BLOCKED under it counts once and fails either gate: as its
+own verdict where the policy gates it, as BLOCKED where it does not (a WARN
+or DEVIATION under `--gate spec`, or a result the expected-failures list
+matched): checks the core kept from running leave no conformance to claim.
+The report ends with the gate line, which separates spec failures, warnings
+and owners that gate as BLOCKED, and lists the findings that fail the gate:
+`gate spec: failed: 1 spec failure, 0 warnings, 1 blocked: NGAP-HANDOVER-COMMAND-TRANSFER blocked 2 checks; 2 unexpected: ...`. The suite runs as a plan
+with the conformance gate.
 `--expected-failures` is read by the CLI and sent in the plan, so the file
 need not be on the server's host. `--local` (deprecated) runs the suite in the
 CLI process.
 
 ```sh
 orbit conformance --amf <host:port> [--bind <ip[:port]>] [--json] \
-    [--category negative-ie] [--gnb-base 0x400] [--per-test-timeout 15s] \
-    [--target-release Rel-16] [--expected-failures <core-list.yaml>]
+    [--group <path>] [--tag negative] [--check <ID>] [--pack <name>] [--gnb-base 0x400] [--per-test-timeout 15s] \
+    [--target-release Rel-16] [--expected-failures <core-list.yaml>] [--gate spec]
 ```
+
+Each run starts with a **preflight**, printed as its own section ahead of the
+checks: an NG Setup, and, only when a selected check needs it, a UE
+registered and deregistered, a PDU session, and a GTP-U Echo to the UPF. A
+check that depends on a step that failed reports ERROR without running (fix
+the setup), except the check that owns the step's procedure
+(NGAP-NG-SETUP, NAS-INITIAL-REGISTRATION, NAS-PDU-SESSION-ESTABLISHMENT),
+which runs and judges that procedure itself; after a passed preflight, the same setup failing inside a check
+is the core's doing and is reported BLOCKED. With no UE configured the
+preflight is the NG Setup alone and the UE checks SKIP. `--json` carries it
+as `Preflight`.
 
 Some checks wait out real NAS timer expiries and take minutes. Before each
 check runs, the suite prints it on stderr with the longest it can take (its
@@ -1445,20 +1482,90 @@ time every 30 s. stdout carries only the results, so `--json` stays clean.
 `--amf`:
 
 ```sh
-orbit conformance --list [--category nas] [--per-test-timeout 15s]
+orbit conformance --list [--group NAS] [--tag timing] [--check <ID>] [--per-test-timeout 15s]
 ```
+
+`--list` prints the checks in the order a run takes them, with each one's
+phase, tags and group. Most checks are in the `main` phase and run in a fixed order. The
+`stranding` phase follows: the checks that withhold a reply or break the UE's
+security context and so leave a UE context for the core's own timers to clear
+(`NAS-RETRANSMIT-NEW-COUNT`, the two NAS timer checks and
+`NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL`). The `disruptive` phase is last:
+`NGAP-PATH-SWITCH-SECCAP-MISMATCH`, whose Path Switch Request a core may not
+survive, runs after every other check has its verdict. A filtered run keeps
+this order, and a check's phase does not change its gNB IDs or subscribers.
 
 [checks.md](conformance/checks.md) has the same figures in its **Up to**
 column, at the default per-test timeout.
 
-The `mobility` category registers a real UE and hands it over by Xn, so it
-needs a subscriber and a gNB N3 address reachable from the UPF. Without
-`--supi` its checks SKIP with "no UE configured":
+### Selecting checks: groups, tags and IDs
+
+Every check has a **group**: the specification, the procedure family and
+the procedure its primary reference belongs to, in the specification's own
+clause titles, for example `NGAP / UE Mobility Management Procedures /
+Handover Preparation` or `NAS / 5GMM common procedures / Security mode
+control procedure` (ADR-0011 rule 9). The titles are those of the run's
+`--target-release`, or of the latest release the reference was read in when
+that release has no such clause or the target is `unset`.
+[checks.md](conformance/checks.md) lists every check's group.
+
+- `--group <path>` (repeatable) runs the checks in a group: the full path or
+  any prefix of it, segment by segment, in any case, with the spaces around
+  `/` optional. `NGAP`, `nas/5GMM common procedures` and `TS 24.501` (the
+  specification's number in place of its first segment) all work; `NG` or
+  `NAS / 5GMM common` select nothing. Repeat the flag for several groups (a
+  title can hold a comma, so the flag does not split on one).
+- `--tag <tag>` (repeatable or comma-separated) runs the checks with any of
+  the tags given: `negative` (the stimulus is malformed, unknown or
+  unexpected input), `security` (a security procedure or protection) or
+  `timing` (a timer, or the time between messages). Tags are for selection
+  only and never change a verdict.
+- `--check <ID>` (repeatable, or comma-separated, in any case) names checks.
+
+Each kind given narrows the run on top of the others. They narrow `--list`
+and a run, on the server or `--local`; each check keeps the gNB IDs and the
+subscribers it has in a full run. A group or ID that names no check, or an
+unknown tag, is refused before anything starts, and so is a selection that
+leaves no check. In a run file they are the workload's `conformance.groups`,
+`conformance.tags` and `conformance.checks`.
+
+**Moving from `--category`.** Categories are gone (ADR-0011). `--category`,
+a run file's `conformance.categories` and the API's `categories` are
+refused, never taken as an alias, with a message that names, for each
+category, the checks it held and the groups they are in now; for
+`negative-ie`, `security` and `timing` it names the tag of that kind too. Use
+`--group` for what a check is about, `--tag` for the kind of test, or
+`--check` for the exact set a category held:
+
+```text
+--category: categories were replaced by groups (ADR-0011): select with --group <path or prefix> (run file: conformance.groups) or --check <ID> (conformance.checks); "gtpu" is now the checks GTPU-UNKNOWN-TEID-ERRIND,GTPU-ECHO-RESPONSE,N3-DL-QFI-CONTAINER, in the groups "GTPv1-U / GTP-U Extension Header / PDU Session Container", "GTPv1-U / Path Management Messages / Echo Request", "GTPv1-U / Tunnel Management Messages / Error Indication"
+```
+
+### Core regression packs
+
+A **pack** holds checks for the behaviour of one named core (ADR-0011 rule
+1). It is keyed by a core-compatibility profile, the target's
+`core.profile`, and is never part of the default run: `--pack <name>` (run
+file `conformance.pack`) adds its checks to the run, after the default
+checks, and `--group`, `--tag` and `--check` narrow them like any other. The
+run is refused when the pack is for another profile than the target's, and
+a target with no profile, or `strict-3gpp`, has no pack: naming one is an
+error, not an empty run. `--local` has no target profile, so it runs no
+pack. A pack check never reports a conformance verdict: it can say INFO,
+WARN, SKIP or BLOCKED (and ERROR or CRASH, as any check), never PASS, FAIL
+or DEVIATION, and its results name the pack. There are no packs yet.
+
+### Checks that need a UE, a responder or a second address
+
+The handover checks (group `NGAP / UE Mobility Management Procedures`, and
+`GTPU-END-MARKER-ON-PATH-SWITCH`) register a real UE and hand it over, so they
+need a subscriber and a gNB N3 address reachable from the UPF. Without
+`--supi` they SKIP with "no UE configured":
 
 ```sh
 export ORBIT_KI=... ORBIT_OPC=...       # or --ki / --opc
 orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
-    --category mobility --supi 001010100007500 --dnn internet \
+    --group "NGAP / UE Mobility Management Procedures" --supi 001010100007500 --dnn internet \
     --gnb-n3 172.17.50.12 [--traffic 192.168.250.1:7] --per-test-timeout 20s
 ```
 
@@ -1485,7 +1592,85 @@ old and new tunnels indistinguishable. The detail records the old tunnel, the
 End Marker counts, whether the marker carried a QFI (recorded, not asserted),
 and the downlink seen before the switch. It never records the keys.
 
-The `nas` category also needs the UE flags (`--supi`, the keys and
+`NGAP-PAGING-ON-DL-DATA` (group `NAS / 5GMM connection management procedures / Paging procedure`) needs the UE flags and
+`--responder <name>`, a responder of the target on the N6 network; it SKIPs
+without either. It registers the UE with a PDU session, releases it to
+CM-IDLE with a UE Context Release Request, waits a second for the core to
+tell its UPF to buffer, and asks the responder for a one-second UDP flow to
+the UE's address (port 5001; nothing listens there). It passes when an NGAP
+PAGING naming the UE's 5G-S-TMSI arrives on the gNB's association within
+10 s (TS 24.501 5.6.2.2.1). The responder needs a route to the UE pool
+through the UPF's N6, as `orbit target probe` checks. The check sends one
+trigger per run: a UPF de-duplicates its downlink data notifications (SD-Core
+for 20 s per session), so leave at least that long between runs on one
+subscriber. The check takes up to 30 s. After a PAGING the UE answers with
+a Service Request and then deregisters; the detail records the TAI List for
+Paging and that answer, and asserts neither.
+
+`NAS-SERVICE-REQUEST-REACTIVATES` (group `NAS / 5GMM connection management procedures / Service request procedure`) needs the same: the
+UE flags and `--responder <name>`, and SKIPs without either. It registers the
+UE with a PDU session and asks the responder for its one-second UDP flow to
+the UE's address while the UE is connected. That flow must arrive on the UE's
+N3 tunnel within 5 s; when it does not, the verdict is an ERROR that names
+the responder's route, since the same traffic missing later would say nothing
+about the core. Once the flow has stopped the check releases the UE to
+CM-IDLE with a UE Context Release Request, waits a second, and sends a
+Service Request with the PDU session in its Uplink data status. It passes
+when the core answers Service Accept, sets the session's N3 tunnel up again
+(Initial Context Setup or PDU Session Resource Setup), and a second flow from
+the responder arrives on the gNB's new downlink tunnel within 5 s (TS 24.501
+5.6.1.4.1, 5.6.1.4 in Rel-15). It fails on a Service Reject, on no answer
+within 15 s, on an Accept without the tunnel, and on a tunnel no downlink
+arrives on. The check takes up to 46 s. The detail records the Service
+Accept's PDU session status and PDU session reactivation result, the new
+tunnel's endpoints and the delays, and asserts none of them.
+
+`NGAP-PATH-SWITCH-ACK-TRANSFER` makes the same Xn handover and judges the
+AMF's answer. It passes when a PATH SWITCH REQUEST ACKNOWLEDGE arrives within
+5 s and its Switched List carries a Path Switch Request Acknowledge Transfer
+for the UE's PDU session (TS 38.413 8.4.4.2, 9.2.3.9). The transfer's UL NG-U
+UP TNL Information is optional and never required. With `--traffic` the check
+also watches for 2 s after the Acknowledge: when the transfer kept the uplink
+endpoint and the echo peer, which answered before the handover, no longer
+answers, the check FAILs. Without `--traffic`, or with a peer that never
+answered, the detail says the uplink was not probed.
+
+`NGAP-HANDOVER-COMMAND-TRANSFER` hands the UE over to the second gNB by N2
+instead, and judges the HANDOVER COMMAND the source gNB receives. It passes
+when the command carries the PDU Session Resource Handover List and every
+item in it has a Handover Command Transfer that decodes (TS 38.413 8.4.1.2,
+9.2.3.2). The check always runs under the `strict-3gpp` core profile,
+whatever profile other commands use, so it reports how the core handles the
+conformant Handover Request Acknowledge. The check owns the N2 handover
+preparation: a HANDOVER PREPARATION FAILURE, no answer within 8 s or another
+answer is WARN (availability), and the checks that need the handover are
+BLOCKED naming this check.
+
+`NGAP-HANDOVER-CANCEL-ACK` prepares the same N2 handover and, once the
+HANDOVER COMMAND has arrived, cancels it from the source gNB with a HANDOVER
+CANCEL. TS 38.413 8.4.5 describes the HANDOVER CANCEL ACKNOWLEDGE without
+requiring it, and 8.4.5.4 has the source gNB take a missing one as a
+successful cancellation, so the acknowledge within 5 s and its absence are
+both INFO, which never gates; a dropped source association is WARN
+(availability). The UE stays on the first gNB.
+
+`NGAP-UE-CTX-RELEASE-ON-REQUEST` needs the UE flags too, and SKIPs without
+them. It registers the UE without a PDU session and
+has its gNB send a UE CONTEXT RELEASE REQUEST. It passes when the AMF answers
+with a UE CONTEXT RELEASE COMMAND within 5 s, and reports a DEVIATION, never a
+FAIL, when it does not (TS 38.413 8.3.2.2 says "should"). The released UE is
+still registered, so the check then deregisters it with an initial NAS
+message; the detail says how that went.
+
+One GTP-U check runs through the UE as well: `N3-DL-QFI-CONTAINER` registers
+the UE with a PDU session, sends to the `--traffic` echo peer, and samples the
+downlink G-PDUs that come back (up to 50, within 3 s). It passes when every
+one carries the PDU Session Container extension header with a QFI (TS 29.281
+5.2.2.7) and FAILs when any does not. It needs `--traffic` as well as the UE
+flags and SKIPs without either; it does not use `--upf-n3` or `--n3-bind`. An
+echo peer that returns nothing is an ERROR, since nothing was sampled.
+
+The NAS timer checks (`--tag timing`) also need the UE flags (`--supi`, the keys and
 `--gnb-n3`), and SKIPs without them. `NAS-T3560-AUTH-RETRANSMIT` registers the
 UE without a PDU session and withholds its Authentication Response. It passes
 when the AMF retransmits the Authentication Request four times, one T3560 apart,
@@ -1499,13 +1684,20 @@ does not assume the 6 s default:
 
 The detail gives each gap and the estimated timer, and notes a gap far from it
 or from the 6 s default. The check can take up to 190 s, so it raises its own
-timeout.
+timeout. An Authentication Reject that arrives after the four retransmissions
+is recorded in the detail and the check keeps waiting for the release, which
+alone decides the verdict: the clause requires the release and names no
+reject. An Authentication Reject before them is FAIL (`rejected-early`): the
+clause has the AMF retransmit four times, then release.
 
 `NAS-T3550-ACCEPT-RETRANSMIT` withholds the Registration Complete instead. It
 passes when the AMF retransmits the Registration Accept four times, one T3550
 apart, and then stops (TS 24.501 5.5.1.2.8 c)). A release is recorded but not
-required. It SKIPs if the core's Registration Accept assigns no 5G-GUTI,
-because T3550 then never starts. Its timing is estimated the same way, with
+required. A Registration Accept that assigns no 5G-GUTI is FAIL
+(TS 24.501 5.5.1.2.4: the 5G-GUTI reallocation is part of the initial
+registration), and T3550, which the 5G-GUTI starts, is then not measured; after
+a Configuration Update Command, the other way the clause lets the AMF assign
+one, it is SKIP. Its timing is estimated the same way, with
 18 s as the largest T3550, so it can take up to 145 s. A core at the default finishes in about 33 s, because the release
 ends the wait. `--per-test-timeout` is a floor for every check, and a check
 that needs longer says `per-test timeout raised to 3m10s for this check` in
@@ -1513,7 +1705,7 @@ its detail.
 
 ```sh
 orbit conformance --amf 172.17.50.11:38412 --mcc 001 --mnc 01 --sd 010203 \
-    --category nas --supi 001010100007500 --gnb-n3 172.17.50.12
+    --tag timing --supi 001010100007500 --gnb-n3 172.17.50.12
 ```
 
 The UE advertises NEA0 and 128-NIA2 by default and completes registration with
@@ -1531,9 +1723,10 @@ the keys.
 `orbit-unknown-dnn` on the run's slice. It passes on a PDU Session
 Establishment Reject with any 5GSM cause, or when the AMF returns the request
 unchanged in a DL NAS Transport with 5GMM cause #90 or #91. It fails on #90/#91
-with a different payload, on another answer, or on nothing within 10 s. It
-SKIPs when the core accepts the DNN, or when the AMF returns the request for
-congestion (#22, #67 or #69). The UE is deregistered at the end.
+with a different payload, on another answer, a release, or nothing within
+10 s. A core that accepts the DNN, or returns the request with another 5GMM
+cause, is INFO; one that returns it for congestion (#22, #67 or #69) SKIPs,
+the alternative TS 24.501 5.4.5.2.5 permits. The UE is deregistered at the end.
 
 `NAS-REG-REJECTED-NSSAI` applies from Rel-16. It registers the UE requesting
 only an S-NSSAI the core does not serve: the run's SST with SD `EEEEEE`
@@ -1544,7 +1737,72 @@ S-NSSAI appears only in the Extended rejected NSSAI IE. A core that falls
 back to a default slice accepts the UE; the check then SKIPs and deregisters
 the UE.
 
-The `security` category's `NAS-SMC-NO-NIA0-REPLAYED-CAPS` also needs the UE
+`NAS-DEREG-ACCEPT-NOT-SWITCH-OFF` (group `NAS / 5GMM specific procedures / De-registration procedure`) also needs the
+UE flags, and SKIPs without them. It registers the UE without a PDU session
+and deregisters it with a Deregistration Request that does not indicate
+switch-off. It passes on a Deregistration Accept (TS 24.501 5.5.2.2.2). It
+fails on none within 15 s, or on a UE Context Release Command in its place.
+The release after the Accept is recorded, not judged. If nothing answers, a
+switch-off Deregistration Request follows, so the core is not left holding the
+UE. The check can take up to 40 s, so it raises its own timeout.
+
+`NGAP-CTX-RELEASE-AFTER-SWITCH-OFF` registers the UE the same way and
+deregisters it with a switch-off, which gets no Deregistration Accept. It
+passes when the AMF then sends a UE Context Release Command naming the
+connection by both UE NGAP IDs (TS 38.413 8.3.3.2), and fails when the command
+names the UE by its AMF UE NGAP ID alone. It also fails when no command for
+the connection comes within 5 s: TS 23.502 4.2.2.3.2 step 8 has the AMF
+release the N2 signalling connection after the deregistration, and the check
+grades it as the requirement it states; the detail names the likely cause.
+The check owns that release: `NAS-REGISTRATION-AFTER-RELEASE`, which needs
+it, is BLOCKED naming this check when it does not come.
+
+`NAS-REGISTRATION-AFTER-RELEASE`, in the group `NAS / 5GMM specific procedures / Registration procedure`, registers the UE,
+deregisters it with a switch-off and, when the AMF's UE Context Release
+Command arrives, sends the UE Context Release Complete and at once a new
+initial Registration Request for the same SUPI, on the same association
+under a new RAN UE NGAP ID. It does so six times, with 0, 10, 20, 30, 40
+and 50 ms between the two messages: the requirement holds whenever the
+request arrives after the release completes, so the check sweeps arrival
+times evenly rather than choosing them. It passes when every registration draws a NAS
+message within 10 s (the Authentication Request is enough), and fails when
+one draws none: an initial registration is answered with an Accept or a
+Reject (TS 24.501 5.5.1.2.4, 5.5.1.2.5). On a core that sends no release
+after a switch-off it is BLOCKED, naming `NGAP-CTX-RELEASE-AFTER-SWITCH-OFF`. An answered registration is completed and the UE
+is deregistered at the end; the detail gives the measured gap and the first
+answer of each registration, and what an unanswered one left. It can take up
+to 176 s against a core that does not answer, and a few seconds otherwise.
+
+`NAS-REGISTRATION-DURING-OTHER-RELEASE`, in the same group, does the
+same with two subscribers and two gNBs: one UE registers on the check's own
+gNB, a second gNB (the check's handover-target gNB ID) completes NG Setup on an
+association of its own, and the first UE deregisters with a switch-off. When
+the AMF's UE Context Release Command arrives, the first gNB sends the UE
+Context Release Complete and the second gNB sends the other subscriber's
+initial Registration Request, 0, 10, 20, 30, 40 and 50 ms later: six attempts,
+the two UEs and gNBs taking turns. Another UE's registration can arrive at any
+time relative to a release, so the gaps sample the first 50 ms after the
+complete evenly rather than aiming at any one core. It is graded like
+`NAS-REGISTRATION-AFTER-RELEASE`: PASS when every registration draws a NAS
+message within 10 s, FAIL when one draws none (TS 24.501 5.5.1.2.4,
+5.5.1.2.5), BLOCKED on a missing release or a second gNB the core does not
+set up. It needs two subscribers in the pool (with one, the other UE is the
+same subscriber on its own association, and the detail says so) and can take
+up to 200 s against a core that does not answer.
+
+`NAS-PDU-RELEASE-UE-REQUESTED` registers the UE with a PDU session and sends
+a PDU Session Release Request. It passes when the core answers with a PDU
+Session Release Command (inside the NGAP command or in a Downlink NAS
+Transport) and a PDU Session Resource Release Command listing the session, and
+no downlink G-PDU arrives on the released tunnel from 1 s after them
+(TS 24.501 6.4.3.3 and 6.3.3.2; TS 23.502 4.3.4.2). It fails when neither
+command comes within 16 s, when one comes without the other, or when downlink
+continues. A PDU Session Release Reject SKIPs. `--traffic` names an optional
+UDP echo peer: the UE keeps sending to it on the released tunnel, which a UPF
+that kept the session would answer. Without it the tunnel is only watched.
+The UE is deregistered at the end, and the check can take up to 43 s.
+
+`NAS-SMC-NO-NIA0-REPLAYED-CAPS` (group `TS 33.501 / Requirements on the AMF / Signalling data integrity`, tag `security`) also needs the UE
 flags. It registers the UE three times, each time stopping at the Security
 Mode Command. The first registration offers the usual algorithms, and the AMF
 must not select NIA0 and must replay the UE's capabilities exactly. The second
@@ -1561,29 +1819,114 @@ clear and, if the core does not release it, sends a UE Context Release
 Request; the detail says what the cleanup achieved. A Ctrl-C or run deadline
 during this check's cleanup can delay the return by up to 5 s.
 
+`NAS-INTEGRITY-FAIL-DISCARD` registers the UE and sends three PDU Session
+Establishment Requests on the secured connection: a valid one, one with a
+corrupted MAC, and another valid one. It passes when the AMF answers the
+first and the third and stays silent on the second (TS 24.501 4.4.4.3). It
+fails when the bad-MAC request is answered, when a 5GMM STATUS follows it, or
+when the third request gets no answer. An AMF that releases the UE after the
+bad MAC is WARN (security): it acts on a message it should have discarded.
+One that selected 5G-IA0 is SKIP, and one that does not answer the first,
+valid request is BLOCKED on the PDU session establishment. The check needs a DNN
+the core serves (`--dnn`), since the first request must be answered. It
+releases the sessions it set up and deregisters the UE at the end.
+
+`NAS-REPLAY-DISCARD` works the same way, but its second message is the first
+request sent again byte for byte, so with the NAS COUNT the AMF has just
+accepted. It passes when nothing more answers the first request and the next
+valid request is answered (TS 33.501 6.4.3.2). It fails when the repeat is
+answered.
+
+`NAS-COUNT-NOT-ADVANCED-ON-MAC-FAIL` sends two valid requests, then the first
+one's bytes again, then a third valid request. The old bytes fail the
+integrity check, and the AMF must not have moved its stored uplink NAS COUNT
+for them (TS 24.501 4.4.3.3), so the third request must be answered. If it is
+not, the check fails, and the AMF can no longer verify anything this UE
+sends: the check then drops the association, and the core may keep the UE and
+its sessions until its own timers expire.
+
+`NAS-RETRANSMIT-NEW-COUNT` withholds the Registration Complete, like
+`NAS-T3550-ACCEPT-RETRANSMIT`, and reads the NAS COUNT of each Registration
+Accept the AMF retransmits. Each must be higher than the one before
+(TS 24.501 4.4.3.1), so an AMF that resends the stored PDU fails. An AMF that
+does not retransmit is INFO here (`NAS-T3550-ACCEPT-RETRANSMIT` grades that),
+and a retransmission that verifies at no NAS COUNT is WARN
+(interoperability). It can take up to 118 s.
+
+`NAS-BADMAC-REGISTRATION-AFTER-SMC` sets up one PDU session and then sends a
+Registration Request (mobility registration updating) with a corrupted MAC.
+It passes when the AMF stays silent, is WARN (security) when it releases the
+UE with no answer, and fails when the AMF answers with a Registration Accept, a Registration Reject, a Security
+Mode Command or a 5GMM STATUS without authenticating first. An Authentication
+Request (or an Identity Request) is SKIP: TS 24.501 4.4.4.3 can be read to
+permit it, and the result says so.
+
+Four more checks tagged `security` send what a conformant UE never sends, and need
+the UE flags. `NAS-INITIAL-MSG-CONTAINER-WINS` puts a Requested NSSAI the core
+does not serve in the unprotected initial message and the served one in the
+Security Mode Complete's NAS message container. It passes when the
+registration is answered as the container's request is when sent alone
+(TS 24.501 5.4.2.4), and fails otherwise; two conformant reference
+registrations show how the core answers each value, so it runs three
+registrations, each as its own subscriber when the pool has one for each,
+and can take up to 52 s. A core that refuses or drops the initial message
+before any Security Mode Command, or answers both values alike, is INFO: the
+container was not exercised. The other three
+grade no requirement, and report INFO, or WARN (security) where the core
+acts on what it could not verify: `NAS-INITIAL-MSG-NO-CONTAINER` leaves the
+container out and reports whether the core asks for the message again,
+registers the UE (WARN) or rejects; `NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED`
+sends the complete request in the clear and in the container and reports
+whether the core registers the UE, WARN when it does so without a Security
+Mode Command; `NAS-SMC-IMEISV-REQUEST` reports whether the Security Mode
+Command requests the IMEISV and what the core does when the UE leaves it
+out, WARN when it registers the UE without the IMEISV it requested.
+
+`NGAP-PATH-SWITCH-SECCAP-MISMATCH`, also tagged `security`, registers the UE with
+a PDU session and hands it over by Xn with a Path Switch Request whose UE
+Security Capabilities differ from the ones the AMF supplied at registration.
+It passes when the Path Switch Request Acknowledge carries the AMF's stored
+capabilities (TS 33.501 6.7.3.1), and fails when the Acknowledge has none,
+echoes the ones sent, or does not come. Like the mobility checks it needs
+`--gnb-n3` and a second gNB ID.
+
 Checks are framed as graceful-rejection / crash-safety regression guards. Each
 names the exact clauses it asserts and the 3GPP releases they come from,
 verified in the 3GPP archive through Rel-19, and every result ends with the
 release it requires and those clauses, for example
 `requires Rel-15 or later; TS 38.413 10.3.5 Reject IE bullet 1 (Rel-15 onward, wording unchanged through Rel-19)`.
 `--target-release` names the release the core claims: a check that requires a
-newer one reports SKIP, never FAIL. It defaults to Rel-18, the SD-Core
-release, with TS 29.244 (PFCP) pinned to Rel-16; an explicit value replaces
+newer one reports SKIP, never FAIL. It defaults to Rel-18, with TS 29.244
+(PFCP) pinned to Rel-16, a release and not a claim about any core; an explicit value replaces
 Rel-18 and the pin still applies where it is older, and `--target-release unset`
 runs every check. The output and `--json` record the targets
 (`target-release: Rel-18 (TS 29.244 at Rel-16)`, and `SpecTargets` in JSON).
 The evidence and caveats are in
 [docs/conformance/target-release.md](conformance/target-release.md).
-Every missed **shall** is FAIL and DEVIATION is reserved for a missed
-**should**. `--expected-failures <file>` names the core's list of known,
-tolerated FAILs, each matched exactly on check and observed text. A listed
-FAIL still prints FAIL, tagged `(expected: <finding>)`, but does not fail the
-gate. Entries whose check now gives something else print as stale. With no
-list, every FAIL gates. The format and rules are in
+The verdicts are those of
+[ADR-0011](adr/0011-conformance-verdicts-gates-and-grouping.md): PASS; FAIL (a
+cited shall violated); DEVIATION (a cited should not followed); WARN (no
+requirement, with security, availability or interoperability impact); INFO
+(no requirement, no impact); BLOCKED (the core did not complete a procedure
+the check needs first, naming the procedure and the check that owns it);
+CRASH (the core stopped answering after the stimulus); SKIP (not applicable:
+an older target release, a missing input, or an alternative the
+specification permits); ERROR (the tool could not run the check; fix the
+setup). A BLOCKED whose owner ran and reported the procedure as not
+completing counts once, under the owner. The tally counts every verdict
+(`... 1 warn, 2 info, 0 blocked, 0 crash, 0 skip, 0 error`), and
+`docs/conformance/checks.md` lists every outcome each check can report.
+`--expected-failures <file>` names the core's list of known, tolerated
+FAILs, DEVIATIONs and WARNs, each matched exactly on check, verdict and
+observed text. A listed result keeps its verdict, tagged
+`(expected: <finding>)`, but does not count at the gate. Entries whose check
+now gives something else print as stale. With no list, every gated result
+counts. The format and rules are in
 [docs/conformance/expected-failures.md](conformance/expected-failures.md).
-`--json` emits per-check verdict, expected/observed, the rendered `spec_ref`,
+`--json` emits per-check verdict, `group`, `tags` (and `pack` for a pack check), expected/observed, the rendered `spec_ref`,
 the structured `spec_refs` (clause, strength, since, verified versions,
-changes), `min_release` and, on a listed FAIL, `expected_failure`. The full table is
+changes), `min_release`, the declared `outcome` (with a WARN's criterion, a
+BLOCKED's procedure and owner) and, on a listed result, `expected_failure`. The full table is
 [docs/conformance/checks.md](conformance/checks.md), with the quoted normative
 text per check in [docs/conformance/provenance/](conformance/provenance/).
 
@@ -1618,7 +1961,7 @@ With `--wait` it follows the run to its end and exits with its result
 |---|---|---|---|
 | `load` | an attach storm: 100 UEs at 20/s | when the storm completes | attach success ≥ 0.99 |
 | `fleet` | 100 UEs attached at 10/s and kept, probing user-plane latency to the target's first responder's `data_ip` (idle, with a note, when the target has none) | after 5m | attach success ≥ 0.99 |
-| `conformance` | the conformance suite, every category | when the suite completes | no FAIL outside the expected list, no ERROR |
+| `conformance` | the conformance suite, every group | when the suite completes | no FAIL, CRASH, BLOCKED, ERROR, DEVIATION or WARN outside the expected list (the default policy) |
 
 `--for 10m` runs for that long instead of the template's stop. `--gate` adds
 a gate, `--set` changes any field (`--set workloads[load].attach.count=1000`),

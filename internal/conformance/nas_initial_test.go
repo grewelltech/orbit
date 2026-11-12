@@ -1,0 +1,603 @@
+package conformance
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/free5gc/nas/nasMessage"
+
+	"github.com/bgrewell/orbit/internal/mockamf"
+	"github.com/bgrewell/orbit/internal/mockamf/sctpfront"
+	"github.com/bgrewell/orbit/internal/nas"
+	"github.com/bgrewell/orbit/internal/ue/auth"
+)
+
+// initialNASMock starts a mock AMF behind a real SCTP listener for the
+// initial-NAS checks. Its Accept assigns a 5G-GUTI, so a registered UE can
+// deregister.
+func initialNASMock(t *testing.T, opts ...mockamf.Option) (*mockamf.AMF, *sctpfront.Front) {
+	t.Helper()
+	k, _ := auth.ParseHexKey("Ki", testKi)
+	opc, _ := auth.ParseHexKey("OPc", testOPc)
+	amf, err := mockamf.New(mockamf.Config{
+		Ki: k, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203",
+	}, append([]mockamf.Option{mockamf.WithGUTI()}, opts...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return amf, sctpfront.Start(t, amf)
+}
+
+// awaitClosed waits for every association of front to close.
+func awaitClosed(t *testing.T, front *sctpfront.Front) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for front.Active() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := front.Active(); n != 0 {
+		t.Errorf("%d associations still open after the check", n)
+	}
+}
+
+// rejectPlain is a plain Registration Reject with cause, as the checks read
+// one.
+func rejectPlain(cause uint8) []byte {
+	return []byte{nasMessage.Epd5GSMobilityManagementMessage, 0, 0x44, cause}
+}
+
+// judgeContainerWins passes only an answer that equals the one the
+// container's request gets alone and differs from the unprotected value's;
+// any other answer fails, named as the unprotected value's when it is that
+// one and as unanswered when the stimulus drew nothing; and a core that
+// answers both references alike is INFO unless the stimulus was answered
+// differently again.
+func TestJudgeContainerWins(t *testing.T) {
+	const accept, reject, other = "Registration Accept, allowed NSSAI 01010203, rejected NSSAI none",
+		"Registration Reject, 5GMM cause #62, rejected NSSAI 01eeeeee (cause 0)", "UE Context Release Command, no Registration Accept or Reject"
+	const none = "no Registration Accept or Reject"
+	tests := []struct {
+		name                   string
+		stim, served, unserved string
+		unanswered             bool
+		want                   Outcome
+		wantObserved           string
+		wantDetail             string
+	}{
+		{name: "container's request answered", stim: accept, served: accept, unserved: reject, want: containerWinsAnswered,
+			wantObserved: "registration answered on the request in the NAS message container"},
+		{name: "unprotected value answered", stim: reject, served: accept, unserved: reject, want: containerWinsUnprotected,
+			wantObserved: "registration answered on the unprotected Requested NSSAI, not the one in the NAS message container", wantDetail: initialMsgContainerWinsFailure},
+		{name: "another answer", stim: other, served: accept, unserved: reject, want: containerWinsOther,
+			wantObserved: "registration not answered as the request in the NAS message container is: " + other, wantDetail: initialMsgContainerWinsFailure},
+		{name: "no answer", stim: none, served: accept, unserved: reject, unanswered: true, want: containerWinsUnanswered,
+			wantObserved: "registration left without an answer after the SECURITY MODE COMPLETE", wantDetail: initialMsgContainerWinsFailure},
+		{name: "references alike", stim: accept, served: accept, unserved: accept, want: containerWinsAlike,
+			wantObserved: "core answers the served and the unserved Requested NSSAI alike; the two copies cannot be told apart", wantDetail: "NAS-REG-REJECTED-NSSAI"},
+		{name: "references alike, stimulus answered otherwise", stim: other, served: accept, unserved: accept, want: containerWinsOther,
+			wantObserved: "registration not answered as the request in the NAS message container is: " + other},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := judgeContainerWins(tc.stim, tc.served, tc.unserved, tc.unanswered)
+			if covers(o).ID != tc.want.ID || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s %q (%s), want %s %q with detail containing %q", o.ID, observed, detail, tc.want.ID, tc.wantObserved, tc.wantDetail)
+			}
+			for _, w := range []string{"stimulus answered: " + tc.stim, "the container's Requested NSSAI sent alone: " + tc.served, "the initial message's Requested NSSAI sent alone: " + tc.unserved} {
+				if !strings.Contains(detail, w) {
+					t.Errorf("detail %q lacks %q", detail, w)
+				}
+			}
+		})
+	}
+}
+
+// classifyContainerWinsEarly: before any Security Mode Command the
+// container was never sent; a Reject, readable or not, is the refusal
+// (INFO), a registration on the unprotected initial message WARN for
+// security, and a release or silence the drop (INFO).
+func TestClassifyContainerWinsEarly(t *testing.T) {
+	tests := []struct {
+		name         string
+		o            initialNASOutcome
+		want         Outcome
+		wantObserved string
+	}{
+		{name: "refused", o: initialNASOutcome{reject: rejectPlain(95), rejectBeforeSMC: true}, want: containerWinsRefused,
+			wantObserved: "core refuses non-cleartext IEs in the initial message (Registration Reject, 5GMM cause #95) before the container is consulted"},
+		{name: "refused unreadably", o: initialNASOutcome{rejectErr: nas.ErrIntegrity, rejectBeforeSMC: true}, want: containerWinsRefused,
+			wantObserved: "core refuses non-cleartext IEs in the initial message (Registration Reject that could not be read) before the container is consulted"},
+		{name: "accepted without SMC", o: initialNASOutcome{registered: true, accept: &nasMessage.RegistrationAccept{}}, want: containerWinsUnprotectedAccept,
+			wantObserved: "registration accepted on the unprotected initial message, without a SECURITY MODE COMMAND"},
+		{name: "released", o: initialNASOutcome{released: true}, want: containerWinsDropped,
+			wantObserved: "initial message with non-cleartext IEs ended before a SECURITY MODE COMMAND: UE Context Release Command, no Registration Accept or Reject"},
+		{name: "silent", o: initialNASOutcome{noAnswer: true}, want: containerWinsDropped,
+			wantObserved: "initial message with non-cleartext IEs ended before a SECURITY MODE COMMAND: no Registration Accept or Reject"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := classifyContainerWinsEarly(tc.o)
+			if covers(o).ID != tc.want.ID || observed != tc.wantObserved || !strings.Contains(detail, "5.4.2.4 did not apply") && o.ID != containerWinsUnprotectedAccept.ID {
+				t.Errorf("= %s %q (%s), want %s %q", o.ID, observed, detail, tc.want.ID, tc.wantObserved)
+			}
+		})
+	}
+}
+
+// initialNASUnjudged: the per-test timeout running out is ERROR, a failed
+// attach BLOCKED on the registration unless the fault is local, and an
+// Authentication Reject BLOCKED on the registration; anything else is the
+// check's to judge.
+func TestInitialNASUnjudged(t *testing.T) {
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	tests := []struct {
+		name         string
+		ctx          context.Context
+		o            initialNASOutcome
+		want         Verdict
+		wantObserved string
+	}{
+		{name: "timed out", ctx: expired, o: initialNASOutcome{err: context.Canceled}, want: Error, wantObserved: "timed out during the registration"},
+		{name: "attach failed", ctx: context.Background(), o: initialNASOutcome{err: errors.New("association lost")}, want: Blocked, wantObserved: "UE setup failed"},
+		{name: "authentication reject", ctx: context.Background(), o: initialNASOutcome{authReject: true}, want: Blocked, wantObserved: "Authentication Reject"},
+		{name: "judged", ctx: context.Background(), o: initialNASOutcome{smcs: 1, noAnswer: true}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, done := initialNASUnjudged(tc.ctx, Result{}, tc.o, "the registration", time.Minute)
+			if done != (tc.want != "") || r.Verdict != tc.want || r.Observed != tc.wantObserved {
+				t.Errorf("= %v %s %q (%s), want %s %q", done, r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			if r.Verdict == Blocked && r.BlockedOn != ProcRegistration {
+				t.Errorf("blocked on %q, want the registration", r.BlockedOn)
+			}
+		})
+	}
+}
+
+// NAS-INITIAL-MSG-CONTAINER-WINS against the mock AMF over real SCTP. A
+// mock that takes the container's request PASSes; one that keeps the
+// initial message's Requested NSSAI FAILs; one that answers every Requested
+// NSSAI alike, and one that refuses the initial message, are INFO; an
+// Authentication Reject is BLOCKED on the registration; no UE SKIPs. The initial message of the
+// stimulus carries the unserved S-NSSAI in the clear and its container the
+// served one; every accepted registration is deregistered and no
+// association stays open.
+func TestInitialMsgContainerWinsAgainstMock(t *testing.T) {
+	tests := []struct {
+		name         string
+		opts         []mockamf.Option
+		noUE         bool
+		pool         int // the check's subscriber block; 0 is the single SUPI
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+		wantRegs     int // Registration Requests the mock received
+		wantDeregs   int64
+	}{
+		{name: "container wins, a subscriber for each registration", pool: 3, opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}, want: Pass,
+			wantObserved: "registration answered on the request in the NAS message container", wantRegs: 3, wantDeregs: 2},
+		{name: "container wins", opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}, want: Pass,
+			wantObserved: "registration answered on the request in the NAS message container",
+			wantDetail: []string{"stimulus answered: Registration Accept, allowed NSSAI none, rejected NSSAI none",
+				"the initial message's Requested NSSAI sent alone: Registration Reject, 5GMM cause #62, rejected NSSAI 01eeeeee (cause 0)",
+				"after the stimulus the UE was deregistered", "after the second the association was closed with the UE not registered"},
+			wantRegs: 3, wantDeregs: 2},
+		{name: "container wins, the unserved S-NSSAI rejected inside an Accept", opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.AcceptDefaultNSSAI)}, want: Pass,
+			wantObserved: "registration answered on the request in the NAS message container",
+			wantDetail:   []string{"the initial message's Requested NSSAI sent alone: Registration Accept, allowed NSSAI 01010203, rejected NSSAI 01eeeeee (cause 0)"},
+			wantRegs:     3, wantDeregs: 3},
+		{name: "unprotected copy wins, the unserved S-NSSAI rejected inside an Accept", opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.AcceptDefaultNSSAI), mockamf.WithUnprotectedRegistrationWins()}, want: Fail,
+			wantObserved: "registration answered on the unprotected Requested NSSAI, not the one in the NAS message container", wantRegs: 3, wantDeregs: 3},
+		{name: "unprotected copy wins", opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI), mockamf.WithUnprotectedRegistrationWins()}, want: Fail,
+			wantObserved: "registration answered on the unprotected Requested NSSAI, not the one in the NAS message container",
+			wantDetail:   []string{initialMsgContainerWinsFailure, "stimulus answered: Registration Reject, 5GMM cause #62"}, wantRegs: 3, wantDeregs: 1},
+		{name: "every Requested NSSAI answered alike", want: Info,
+			wantObserved: "core answers the served and the unserved Requested NSSAI alike; the two copies cannot be told apart", wantRegs: 3, wantDeregs: 3},
+		{name: "initial message refused", opts: []mockamf.Option{mockamf.WithRejectNonCleartextIEs()}, want: Info,
+			wantObserved: "core refuses non-cleartext IEs in the initial message (Registration Reject, 5GMM cause #95) before the container is consulted",
+			wantDetail:   []string{"no SECURITY MODE COMPLETE and no NAS message container were sent", "the association was closed with the UE not registered"}, wantRegs: 1},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
+			wantObserved: "Authentication Reject", wantDetail: []string{"the stimulus registration", "the core did not complete a registration, which this check needs first"}, wantRegs: 1},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amf, front := initialNASMock(t, tc.opts...)
+			env := ueEnv(front.Addr, "", "127.0.0.1")
+			if tc.noUE {
+				env.UE = UESpec{}
+			}
+			env.UE.Subscribers = tc.pool
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			r := runOne(ctx, nasInitialMsgContainerWins{initialNASWaits{wait: 500 * time.Millisecond, settle: time.Millisecond}}, env, 20*time.Second)
+			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
+				t.Fatalf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			for _, w := range tc.wantDetail {
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
+				t.Error("detail carries key material")
+			}
+			initial, final := amf.InitialRegistrationRequests(), amf.RegistrationRequests()
+			if len(initial) != tc.wantRegs {
+				t.Fatalf("mock received %d Registration Requests, want %d", len(initial), tc.wantRegs)
+			}
+			if tc.wantRegs > 0 {
+				// The stimulus: the unserved S-NSSAI in the clear.
+				if iei, found, err := nas.NonCleartextRegistrationIE(initial[0]); err != nil || !found {
+					t.Errorf("stimulus initial message has no non-cleartext IE (iei %#x, err %v)", iei, err)
+				}
+				if !strings.Contains(string(initial[0]), "\xee\xee\xee") {
+					t.Errorf("stimulus initial message %x lacks the unserved S-NSSAI", initial[0])
+				}
+			}
+			if tc.wantRegs == 3 {
+				// One subscriber per registration with a block of three, the
+				// one SUPI without.
+				distinct := map[string]bool{}
+				for _, supi := range amf.RegistrationSUPIs() {
+					distinct[supi] = true
+				}
+				if want := max(tc.pool, 1); len(distinct) != want {
+					t.Errorf("registered %v, want %d distinct SUPIs", amf.RegistrationSUPIs(), want)
+				}
+				if !strings.Contains(string(final[0]), "\x01\x02\x03") || strings.Contains(string(final[0]), "\xee\xee\xee") {
+					t.Errorf("stimulus container request %x, want the served S-NSSAI only", final[0])
+				}
+				for i := 1; i < 3; i++ {
+					if _, found, err := nas.NonCleartextRegistrationIE(initial[i]); err != nil || found {
+						t.Errorf("reference %d's initial message has non-cleartext IEs (err %v)", i, err)
+					}
+				}
+			}
+			if got := amf.Deregistrations(); got != tc.wantDeregs {
+				t.Errorf("mock saw %d deregistrations, want %d", got, tc.wantDeregs)
+			}
+			if n := amf.EncodeErrors(); n != 0 {
+				t.Errorf("mock AMF dropped %d PDUs that failed to encode", n)
+			}
+			awaitClosed(t, front)
+		})
+	}
+}
+
+// The check is FAIL-class on two shalls, needs up to 52 s and declares one
+// UE at a time over three subscribers and the registration.
+func TestInitialMsgContainerWinsClass(t *testing.T) {
+	c := nasInitialMsgContainerWins{}
+	if err := ValidateTest(c); err != nil {
+		t.Fatal(err)
+	}
+	if VerdictClass(c) != Fail || c.Budget() != 52*time.Second || NeedsOf(c).UEs != 1 || NeedsOf(c).Subscribers != 3 || !NeedsOf(c).needs(ProcRegistration) {
+		t.Errorf("class %s, budget %s, needs %+v", VerdictClass(c), c.Budget(), NeedsOf(c))
+	}
+}
+
+// judgeNoContainer: an Accept, and a Reject with cause #62 for the
+// Requested NSSAI only the unprotected initial message carried, are WARN
+// for security; a second Security Mode Command, with or without RINMR, a
+// Reject with another cause or before the Security Mode Command, a release
+// and no answer are INFO, each with its own Observed.
+func TestJudgeNoContainer(t *testing.T) {
+	accept := &nasMessage.RegistrationAccept{}
+	tests := []struct {
+		name         string
+		o            initialNASOutcome
+		want         Outcome
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "second SMC with RINMR", o: initialNASOutcome{smcs: 2, secondRINMR: true}, want: noContainerOutRINMR, wantObserved: noContainerRINMR},
+		{name: "second SMC without RINMR", o: initialNASOutcome{smcs: 2}, want: noContainerOutSecondSMC, wantObserved: noContainerSecondSMC},
+		{name: "accepted", o: initialNASOutcome{smcs: 1, registered: true, accept: accept}, want: noContainerOutAccepted, wantObserved: noContainerAccepted,
+			wantDetail: "Registration Accept, allowed NSSAI none"},
+		{name: "accepted without SMC", o: initialNASOutcome{registered: true, accept: accept}, want: noContainerOutAccepted, wantObserved: noContainerAcceptedNoSMC},
+		{name: "rejected with #62", o: initialNASOutcome{smcs: 1, reject: rejectPlain(62)}, want: noContainerOutRejectedUnprotected,
+			wantObserved: "REGISTRATION REJECT, 5GMM cause #62, after the SECURITY MODE COMPLETE without the NAS message container",
+			wantDetail:   "the core went on with the unprotected values"},
+		{name: "rejected with another cause", o: initialNASOutcome{smcs: 1, reject: rejectPlain(111)}, want: noContainerOutRejected,
+			wantObserved: "REGISTRATION REJECT, 5GMM cause #111, after the SECURITY MODE COMPLETE without the NAS message container"},
+		{name: "unreadable reject", o: initialNASOutcome{smcs: 1, rejectErr: nas.ErrIntegrity}, want: noContainerOutRejected,
+			wantObserved: "REGISTRATION REJECT that could not be read, after the SECURITY MODE COMPLETE without the NAS message container"},
+		{name: "refused before the SMC", o: initialNASOutcome{reject: rejectPlain(95), rejectBeforeSMC: true}, want: noContainerOutRefused,
+			wantObserved: "initial message refused before the SECURITY MODE COMMAND (Registration Reject, 5GMM cause #95)", wantDetail: "was not exercised"},
+		{name: "released", o: initialNASOutcome{smcs: 1, released: true}, want: noContainerOutReleased, wantObserved: noContainerReleased},
+		{name: "no answer", o: initialNASOutcome{smcs: 1, noAnswer: true}, want: noContainerOutUnanswered, wantObserved: noContainerUnanswered, wantDetail: "within 10s"},
+		{name: "released before the SMC", o: initialNASOutcome{released: true}, want: noContainerOutDropped, wantObserved: noContainerDropped},
+		{name: "nothing before the SMC", o: initialNASOutcome{noAnswer: true}, want: noContainerOutDropped, wantObserved: noContainerDropped, wantDetail: "within 10s"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := judgeNoContainer(tc.o, initialNASWait)
+			if covers(o).ID != tc.want.ID || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s %q (%s), want %s %q with detail containing %q", o.ID, observed, detail, tc.want.ID, tc.wantObserved, tc.wantDetail)
+			}
+		})
+	}
+}
+
+// NAS-INITIAL-MSG-NO-CONTAINER against the mock AMF over real SCTP, as a
+// suite run scores it: a mock that asks for the initial NAS message again,
+// one that repeats the command without RINMR, one that rejects for another
+// reason, one that refuses the initial message and one that says nothing
+// are INFO; one that accepts and one that rejects on the unprotected
+// Requested NSSAI are WARN; an Authentication Reject is BLOCKED; nothing is
+// PASS or FAIL. The Security Mode Complete carries no container, and no
+// association stays open.
+func TestInitialMsgNoContainerAgainstMock(t *testing.T) {
+	tests := []struct {
+		name         string
+		opts         []mockamf.Option
+		noUE         bool
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+		wantSMCs     int64
+		wantDeregs   int64
+	}{
+		{name: "asks again with RINMR", opts: []mockamf.Option{mockamf.WithMissingContainer(mockamf.RequestInitialNAS)}, want: Info,
+			wantObserved: noContainerRINMR, wantDetail: []string{"the association was closed with the UE not registered", "a fresh NG Setup afterwards completes"}, wantSMCs: 2},
+		{name: "repeats the command", opts: []mockamf.Option{mockamf.WithMissingContainer(mockamf.RepeatSecurityModeCommand)}, want: Info,
+			wantObserved: noContainerSecondSMC, wantSMCs: 2},
+		{name: "accepts", want: Warn, wantObserved: noContainerAccepted,
+			wantDetail: []string{"Registration Accept, allowed NSSAI none", "state left: the UE was deregistered", "WARN for security impact"}, wantSMCs: 1, wantDeregs: 1},
+		{name: "goes on with the unprotected values", opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.Reject62NSSAI)}, want: Warn,
+			wantObserved: "REGISTRATION REJECT, 5GMM cause #62, after the SECURITY MODE COMPLETE without the NAS message container",
+			wantDetail:   []string{"rejected NSSAI 01eeeeee (cause 0)", "the core went on with the unprotected values"}, wantSMCs: 1},
+		{name: "rejects the missing container", opts: []mockamf.Option{mockamf.WithMissingContainer(mockamf.RejectMissingContainer)}, want: Info,
+			wantObserved: "REGISTRATION REJECT, 5GMM cause #111, after the SECURITY MODE COMPLETE without the NAS message container", wantSMCs: 1},
+		{name: "refuses the initial message", opts: []mockamf.Option{mockamf.WithRejectNonCleartextIEs()}, want: Info,
+			wantObserved: "initial message refused before the SECURITY MODE COMMAND (Registration Reject, 5GMM cause #95)"},
+		{name: "says nothing", opts: []mockamf.Option{mockamf.WithUnservedNSSAI(mockamf.IgnoreNSSAI)}, want: Info,
+			wantObserved: noContainerUnanswered, wantDetail: []string{"within 500ms"}, wantSMCs: 1},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantObserved: "Authentication Reject"},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amf, front := initialNASMock(t, tc.opts...)
+			env := ueEnv(front.Addr, "", "127.0.0.1")
+			if tc.noUE {
+				env.UE = UESpec{}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			reg := &Registry{}
+			reg.Register(nasInitialMsgNoContainer{initialNASWaits{wait: 500 * time.Millisecond}})
+			results := reg.Run(ctx, env, 20*time.Second)
+			r := results[0]
+			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
+				t.Fatalf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			for _, w := range append(tc.wantDetail, "requires Rel-15 or later; TS 24.501 4.4.6 a)") {
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			sum := Summarize(results)
+			if sum.OK() == GateDefault.Gates(tc.want) {
+				t.Errorf("summary %+v: under the default gate, OK = %v for a %s", sum, sum.OK(), tc.want)
+			}
+			if sum.Gate = GateSpec; sum.OK() != (tc.want != Blocked && tc.want != Error) || sum.Fail != 0 || sum.Pass != 0 {
+				t.Errorf("summary %+v: of these only BLOCKED and ERROR fail the spec gate, and nothing is PASS or FAIL", sum)
+			}
+			if got := amf.SecurityModeCommands(); got != tc.wantSMCs {
+				t.Errorf("mock sent %d Security Mode Commands, want %d", got, tc.wantSMCs)
+			}
+			if tc.wantSMCs > 0 {
+				// With no container the initial message stands as the request.
+				initial, final := amf.InitialRegistrationRequests(), amf.RegistrationRequests()
+				if len(initial) != 1 || string(initial[0]) != string(final[0]) {
+					t.Errorf("the mock took a request from a container: initial %x, final %x", initial, final)
+				}
+				if _, found, _ := nas.NonCleartextRegistrationIE(initial[0]); !found || !strings.Contains(string(initial[0]), "\xee\xee\xee") {
+					t.Errorf("initial message %x, want non-cleartext IEs with the unserved S-NSSAI", initial[0])
+				}
+			}
+			if got := amf.Deregistrations(); got != tc.wantDeregs {
+				t.Errorf("mock saw %d deregistrations, want %d", got, tc.wantDeregs)
+			}
+			if n := amf.EncodeErrors(); n != 0 {
+				t.Errorf("mock AMF dropped %d PDUs that failed to encode", n)
+			}
+			awaitClosed(t, front)
+		})
+	}
+}
+
+// judgeNonCleartext: an accepted registration, a Reject before or after
+// the Security Mode Command, a release and no answer are INFO; a
+// registration with no Security Mode Command at all is WARN for security.
+func TestJudgeNonCleartext(t *testing.T) {
+	accept := &nasMessage.RegistrationAccept{}
+	tests := []struct {
+		name         string
+		o            initialNASOutcome
+		want         Outcome
+		wantObserved string
+	}{
+		{name: "accepted", o: initialNASOutcome{smcs: 1, registered: true, accept: accept}, want: nonCleartextOutAccepted, wantObserved: nonCleartextAccepted},
+		{name: "accepted without SMC", o: initialNASOutcome{registered: true, accept: accept}, want: nonCleartextOutUnprotected, wantObserved: nonCleartextNoSMC},
+		{name: "refused before the SMC", o: initialNASOutcome{reject: rejectPlain(95), rejectBeforeSMC: true}, want: nonCleartextOutRefused,
+			wantObserved: "Registration Reject, 5GMM cause #95, before the SECURITY MODE COMMAND"},
+		{name: "rejected after the SMC", o: initialNASOutcome{smcs: 1, reject: rejectPlain(111)}, want: nonCleartextOutRejected,
+			wantObserved: "Registration Reject, 5GMM cause #111, after the SECURITY MODE COMPLETE"},
+		{name: "unreadable reject after the SMC", o: initialNASOutcome{smcs: 1, rejectErr: nas.ErrIntegrity}, want: nonCleartextOutRejected,
+			wantObserved: "Registration Reject that could not be read, after the SECURITY MODE COMPLETE"},
+		{name: "released", o: initialNASOutcome{smcs: 1, released: true}, want: nonCleartextOutReleased, wantObserved: nonCleartextReleased},
+		{name: "no answer", o: initialNASOutcome{noAnswer: true}, want: nonCleartextOutUnanswered, wantObserved: nonCleartextUnanswered},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if o, observed, detail := judgeNonCleartext(tc.o, initialNASWait); covers(o).ID != tc.want.ID || observed != tc.wantObserved {
+				t.Errorf("= %s %q (%s), want %s %q", o.ID, observed, detail, tc.want.ID, tc.wantObserved)
+			}
+		})
+	}
+}
+
+// NAS-INITIAL-MSG-NONCLEARTEXT-ACCEPTED against the mock AMF over real
+// SCTP, as a suite run scores it: a mock that registers the UE and one that
+// refuses the initial message are INFO, and neither gates; an
+// Authentication Reject is BLOCKED. The
+// initial message is the complete request, the container holds the same,
+// and the UE is deregistered.
+func TestInitialMsgNonCleartextAgainstMock(t *testing.T) {
+	tests := []struct {
+		name         string
+		opts         []mockamf.Option
+		noUE         bool
+		want         Verdict
+		wantObserved string
+		wantDetail   []string
+		wantDeregs   int64
+	}{
+		{name: "accepts", want: Info, wantObserved: nonCleartextAccepted,
+			wantDetail: []string{"Registration Accept, allowed NSSAI none", "state left: the UE was deregistered", "a fresh NG Setup afterwards completes"}, wantDeregs: 1},
+		{name: "refuses the initial message", opts: []mockamf.Option{mockamf.WithRejectNonCleartextIEs()}, want: Info,
+			wantObserved: "Registration Reject, 5GMM cause #95, before the SECURITY MODE COMMAND",
+			wantDetail:   []string{"state left: the association was closed with the UE not registered"}},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantObserved: "Authentication Reject"},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amf, front := initialNASMock(t, tc.opts...)
+			env := ueEnv(front.Addr, "", "127.0.0.1")
+			if tc.noUE {
+				env.UE = UESpec{}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			reg := &Registry{}
+			reg.Register(nasInitialMsgNonCleartextAccepted{initialNASWaits{wait: 500 * time.Millisecond}})
+			results := reg.Run(ctx, env, 20*time.Second)
+			r := results[0]
+			if r.Verdict != tc.want || r.Observed != tc.wantObserved {
+				t.Fatalf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			for _, w := range tc.wantDetail {
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			sum := Summarize(results)
+			if sum.OK() == GateDefault.Gates(tc.want) {
+				t.Errorf("summary %+v: under the default gate, OK = %v for a %s", sum, sum.OK(), tc.want)
+			}
+			if sum.Gate = GateSpec; sum.OK() != (tc.want != Blocked && tc.want != Error) || sum.Fail != 0 || sum.Pass != 0 {
+				t.Errorf("summary %+v: of these only BLOCKED and ERROR fail the spec gate, and nothing is PASS or FAIL", sum)
+			}
+			if !tc.noUE && tc.want != Blocked {
+				initial := amf.InitialRegistrationRequests()
+				if len(initial) != 1 {
+					t.Fatalf("mock received %d Registration Requests, want 1", len(initial))
+				}
+				if _, found, _ := nas.NonCleartextRegistrationIE(initial[0]); !found {
+					t.Errorf("initial message %x has cleartext IEs only", initial[0])
+				}
+				if final := amf.RegistrationRequests(); tc.want == Info && string(final[0]) != string(initial[0]) {
+					t.Errorf("container request %x differs from the initial message %x", final[0], initial[0])
+				}
+			}
+			if got := amf.Deregistrations(); got != tc.wantDeregs {
+				t.Errorf("mock saw %d deregistrations, want %d", got, tc.wantDeregs)
+			}
+			if n := amf.EncodeErrors(); n != 0 {
+				t.Errorf("mock AMF dropped %d PDUs that failed to encode", n)
+			}
+			awaitClosed(t, front)
+		})
+	}
+}
+
+// The two characterisation checks cite descriptive references alone, mark
+// one primary and declare their outcomes: none is PASS or FAIL, and the
+// worst is a WARN for security.
+func TestInitialMsgCharacterisationChecks(t *testing.T) {
+	for _, c := range []Test{nasInitialMsgNoContainer{}, nasInitialMsgNonCleartextAccepted{}} {
+		if err := ValidateTest(c); err != nil {
+			t.Error(err)
+		}
+		if VerdictClass(c) != Warn || MinRelease(c) != 15 || ExpectedDuration(c, DefaultPerTestTimeout) != 20*time.Second {
+			t.Errorf("%s: class %s, min %s, up to %s", c.ID(), VerdictClass(c), MinRelease(c), ExpectedDuration(c, DefaultPerTestTimeout))
+		}
+		primaries := 0
+		for _, r := range c.SpecRefs() {
+			if r.Strength != Descriptive {
+				t.Errorf("%s: %s %s is cited as %s", c.ID(), r.Spec, r.Clause, r.Strength)
+			}
+			if r.Primary {
+				primaries++
+			}
+		}
+		if primaries != 1 {
+			t.Errorf("%s: %d primary references, want 1", c.ID(), primaries)
+		}
+		for _, o := range AllOutcomes(c) {
+			if o.Verdict == Warn && o.Criterion != CriterionSecurity {
+				t.Errorf("%s: %s is WARN for %s, want security", c.ID(), o.ID, o.Criterion)
+			}
+		}
+	}
+}
+
+// nextSubscriber pauses only before a registration of the subscriber just
+// used: with a block that has a subscriber for the registration it switches
+// at once, and with a block of one it waits out the settle.
+func TestNextSubscriber(t *testing.T) {
+	tests := []struct {
+		name       string
+		block      int
+		settle     time.Duration
+		wantSUPI   string
+		wantPaused bool
+	}{
+		{name: "own subscriber, no pause", block: 3, settle: time.Hour, wantSUPI: "208930100000012"},
+		{name: "block of one, same subscriber after a pause", block: 1, settle: 60 * time.Millisecond, wantSUPI: "208930100000011", wantPaused: true},
+		{name: "no pool, same subscriber after a pause", block: 0, settle: 60 * time.Millisecond, wantSUPI: "208930100000011", wantPaused: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := ueEnv("192.0.2.1:38412", "", "127.0.0.1")
+			env.UE.Subscribers = tc.block
+			h, err := NewUEHarness(env, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			start := time.Now()
+			if err := nextSubscriber(ctx, h, 1, tc.settle); err != nil {
+				t.Fatal(err)
+			}
+			took := time.Since(start)
+			if h.supi != tc.wantSUPI {
+				t.Errorf("SUPI %s, want %s", h.supi, tc.wantSUPI)
+			}
+			if paused := took >= tc.settle; paused != tc.wantPaused {
+				t.Errorf("took %s with a settle of %s, want paused %v", took, tc.settle, tc.wantPaused)
+			}
+		})
+	}
+	// A harness with a UE registered refuses the switch.
+	h, err := NewUEHarness(ueEnv("192.0.2.1:38412", "", "127.0.0.1"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.registered = true
+	if err := nextSubscriber(context.Background(), h, 1, time.Millisecond); err == nil {
+		t.Error("nextSubscriber with a UE registered: no error")
+	}
+	h.registered = false
+}

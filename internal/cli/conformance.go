@@ -34,11 +34,16 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 		upfN3, n3Bind string
 		gnbBase       uint32
 		categories    []string
+		groups        []string
+		tagNames      []string
+		pack          string
+		checks        []string
 		jsonOut       bool
 		perTest       time.Duration
 		id            netIdentity
 		targetRelease string
 		expectedPath  string
+		responder     string
 		ueFlags       conformanceUEFlags
 		tf            thinFlags
 		gates         []string
@@ -53,13 +58,52 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			"could not start. --detach starts it and returns. --local (deprecated) runs it in this\n" +
 			"process. The core, keys and addresses come from the flags or a target (-t).",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cats := make([]conformance.Category, 0, len(categories))
-			for _, c := range categories {
-				cats = append(cats, conformance.Category(c))
+			target := conformance.DefaultTargetRelease
+			if targetRelease != "" {
+				t, err := conformance.ParseRelease(targetRelease)
+				if err != nil {
+					return exitWith(ExitCouldNotStart, fmt.Errorf("--target-release: %w", err))
+				}
+				target = t
+			}
+			if err := conformance.CategoriesRemoved(categories, target); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--category: %w", err))
 			}
 			reg := conformance.NewRegistry()
+			// --list shows a pack's checks without a target, and the server
+			// holds a run's pack to its target's core.profile; --local has
+			// no target profile, so it runs no pack.
+			profile, known := reg.PackProfile(pack)
+			switch {
+			case pack != "" && !known:
+				have := "none"
+				if names := reg.Packs(); len(names) > 0 {
+					have = strings.Join(names, ", ")
+				}
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--pack: unknown pack %q (have %s)", pack, have))
+			case tf.local:
+				profile = ""
+			}
+			if err := reg.UsePack(pack, profile); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--pack: %w", err))
+			}
+			if err := reg.Only(checks...); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--check: %w; --list names the checks", err))
+			}
+			if err := reg.Groups(target, groups...); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--group: %w", err))
+			}
+			if err := reg.Tagged(tagNames...); err != nil {
+				return exitWith(ExitCouldNotStart, fmt.Errorf("--tag: %w", err))
+			}
+			// A selection that leaves no check is refused, for --list as
+			// for a run, in the server's words.
+			if len(reg.Select()) == 0 {
+				sel := conformance.Selection{Checks: checks, Groups: groups, Tags: tagNames}
+				return exitWith(ExitCouldNotStart, sel.NoneSelected())
+			}
 			if list {
-				return printConformanceList(cmd.OutOrStdout(), reg.Select(cats...), perTest)
+				return printConformanceList(cmd.OutOrStdout(), reg.Select(), perTest, target)
 			}
 			if amf == "" {
 				return fmt.Errorf(`required flag(s) "amf" not set`)
@@ -67,8 +111,12 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			if !tf.local {
 				return thinConformance(cmd, serverURL, o, gates, tf.detach, jsonOut, expectedPath)
 			}
-			if tf.detach || len(gates) > 0 {
-				return exitWith(ExitCouldNotStart, errors.New("--detach and --gate run on the server; drop --local"))
+			policy, onServer := localGatePolicy(gates)
+			if tf.detach || onServer {
+				return exitWith(ExitCouldNotStart, errors.New("--detach and --gate other than conformance or spec run on the server; drop --local"))
+			}
+			if responder != "" {
+				return exitWith(ExitCouldNotStart, errors.New("--responder names a responder of the server's target; drop --local"))
 			}
 			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), localDeprecated)
 			// The list is read first, so a bad file fails before any dial.
@@ -90,14 +138,6 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			target := conformance.DefaultTargetRelease
-			if targetRelease != "" {
-				t, err := conformance.ParseRelease(targetRelease)
-				if err != nil {
-					return fmt.Errorf("--target-release: %w", err)
-				}
-				target = t
-			}
 			env := conformance.Env{
 				AMFAddr:       amf,
 				Bind:          bind,
@@ -112,14 +152,17 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 			// it may take, so a check that waits out NAS timers does not look
 			// like a hang; stdout keeps only the results.
 			ann := newAnnouncer(cmd.ErrOrStderr(), progressEvery)
-			ann.suite(reg.Select(cats...), perTest)
+			ann.suite(reg.Select(), perTest)
 			var results []conformance.Result
-			reg.RunWithStart(cmd.Context(), env, perTest, ann.start, func(res conformance.Result, _, _ int) {
-				ann.done()
-				results = append(results, res)
-			}, cats...)
+			preflight := reg.RunSuite(cmd.Context(), env, perTest, conformance.Hooks{Preflight: ann.preflight, Start: ann.start,
+				Result: func(res conformance.Result, _, _ int) {
+					ann.done()
+					results = append(results, res)
+				}})
 			expected.Apply(results)
 			sum := conformance.Summarize(results)
+			sum.Preflight = preflight
+			sum.Gate = policy
 			sum.Stale = expected.Stale(results)
 			sum.ExpectedFailures = expected.Label()
 			sum.N2Source = env.N2Source()
@@ -135,7 +178,7 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 				writeConformanceReport(out, id.String(), sum, expectedPath)
 			}
 			if !sum.OK() {
-				return gateFailed("conformance gate failed: %d fail (%d expected), %d error", sum.Fail, sum.ExpectedFail, sum.Error)
+				return gateFailed("conformance %s", sum.GateDetail())
 			}
 			return nil
 		},
@@ -147,21 +190,27 @@ func newConformanceCmd(serverURL *string, o options) *cobra.Command {
 	f.StringVar(&upfN3, "upf-n3", "", "UPF N3 endpoint host:port: the UPF's primary N3 address, which answers GTP-U Echo (enables GTP-U checks; run from the UPF access network)")
 	f.StringVar(&n3Bind, "n3-bind", "", "local N3 source host:port for GTP-U checks (e.g. 172.17.50.12:2152)")
 	f.Uint32Var(&gnbBase, "gnb-base", 0x400, "base gNB ID (each check uses a distinct one)")
-	f.StringSliceVar(&categories, "category", nil, "only run these categories (procedural, negative-ie, security, gtpu, timing, mobility, nas)")
+	f.StringSliceVar(&categories, "category", nil, "removed: categories were replaced by groups; use --group or --check")
+	_ = f.MarkHidden("category")
+	f.StringArrayVar(&groups, "group", nil, "only run the checks in this group: a group path or a prefix of it, in any case, e.g. NGAP or \"NAS / 5GMM common procedures\" (repeatable; --list shows each check's group)")
+	f.StringSliceVar(&tagNames, "tag", nil, "only run the checks with one of these tags: negative, security, timing (repeatable or comma-separated, on top of --group); tags never affect a verdict")
+	f.StringVar(&pack, "pack", "", "add the checks of this core regression pack to the run: it must be for the target's core.profile, and a target with no profile or strict-3gpp has none (there are no packs yet)")
+	f.StringSliceVar(&checks, "check", nil, "only run these checks, by ID (repeatable or comma-separated, on top of --group); each keeps the gNB IDs of a full run")
 	f.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	f.DurationVar(&perTest, "per-test-timeout", conformance.DefaultPerTestTimeout, "per-check timeout; a check that needs longer (NAS timer checks) gets its own budget")
-	f.BoolVar(&list, "list", false, "list the checks (filtered by --category) with how long each can take at --per-test-timeout, and the total, without running them")
+	f.BoolVar(&list, "list", false, "list the checks (filtered by --group, --tag and --check) in run order, with each one's group, tags and how long it can take at --per-test-timeout, and the total, without running them")
 	f.StringVar(&targetRelease, "target-release", "",
-		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, the SD-Core release; TS 29.244 pinned to Rel-16; \"unset\" runs every check)")
+		"3GPP release the core claims (Rel-15 or 15); checks that require a newer release SKIP, never FAIL (default Rel-18, with TS 29.244 pinned to Rel-16; \"unset\" runs every check); also the release whose clause titles name the groups")
 	f.StringVar(&expectedPath, "expected-failures", "",
-		"YAML list of this core's known, tolerated FAILs (docs/conformance/expected-failures.md); a listed FAIL still prints FAIL but does not fail the gate")
+		"YAML list of this core's known, tolerated FAILs, DEVIATIONs and WARNs (docs/conformance/expected-failures.md); a listed result keeps its verdict but does not fail the gate")
 	f.StringVar(&ueFlags.supi, "supi", "", supiFlagHelp+"; enables the mobility checks")
 	f.StringVar(&ueFlags.ki, "ki", "", kiFlagHelp)
 	f.StringVar(&ueFlags.opc, "opc", "", opcFlagHelp)
 	f.StringVar(&ueFlags.gnbN3, "gnb-n3", "", "gNB N3 IP for the mobility checks' data path (reachable from the UPF; both gNBs use it)")
+	f.StringVar(&responder, "responder", "", "target responder (by name) on the N6 network that sends downlink data to the UE, for the checks that need the core to page or downlink to flow; without one they SKIP")
 	f.StringVar(&ueFlags.traffic, "traffic", "", "optional echo peer host:port the mobility checks' UE sends to across the handover")
 	tf.add(f, "run the suite in this process, not on the server (deprecated: goes after this release)")
-	f.StringArrayVar(&gates, "gate", nil, "add a gate: conformance (the default one), or name=conformance; repeat for more")
+	f.StringArrayVar(&gates, "gate", nil, "add a gate: conformance (the default policy: FAIL, CRASH, BLOCKED, ERROR, DEVIATION and WARN gate), spec (FAIL, CRASH, BLOCKED and ERROR only), or name=conformance, name=spec; repeat for more")
 	f.Var(newNilStringSlice(&ueFlags.nasIntegrity), "nas-integrity", "NAS integrity algorithms the UE advertises: NIA1, NIA2, NIA3, comma-separated (default NIA2; NIA0 is refused)")
 	f.Var(newNilStringSlice(&ueFlags.nasCiphering), "nas-ciphering", "NAS ciphering algorithms the UE advertises: NEA0, NEA1, NEA2, NEA3, comma-separated (default NEA0; another cipher makes the NAS in pcaps unreadable)")
 	return cmd
@@ -242,6 +291,7 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 		return exitWith(ExitDidNotComplete, fmt.Errorf("run %s: the stream ended before the suite did", last.GetRunId()))
 	}
 	sum := conformance.Summarize(results)
+	sum.Gate = planGatePolicy(p)
 	sum.TargetRelease = conformance.Release(last.GetTargetRelease())
 	for name, rel := range last.GetSpecTargetReleases() {
 		sum.SpecTargets[name] = conformance.Release(rel)
@@ -249,7 +299,12 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 	sum.ExpectedFailures = last.GetExpectedFailuresCore()
 	for _, st := range last.GetStale() {
 		sum.Stale = append(sum.Stale, conformance.StaleExpectation{Check: st.GetCheck(), Finding: st.GetFinding(),
-			ExpectedObserved: st.GetExpectedObserved(), Verdict: conformance.Verdict(st.GetVerdict()), Observed: st.GetObserved()})
+			ExpectedVerdict: conformance.Verdict(st.GetExpectedVerdict()), ExpectedObserved: st.GetExpectedObserved(),
+			Verdict: conformance.Verdict(st.GetVerdict()), Observed: st.GetObserved()})
+	}
+	for _, step := range last.GetPreflight() {
+		sum.Preflight = append(sum.Preflight, conformance.PreflightResult{Step: conformance.PreflightStep(step.GetStep()),
+			Status: conformance.PreflightStatus(step.GetStatus()), Detail: step.GetDetail()})
 	}
 	core := p.GetTarget().GetCore()
 	sum.Network = &conformance.NetworkIdentity{MCC: core.GetPlmn().GetMcc(), MNC: core.GetPlmn().GetMnc(), TAC: core.GetTac()}
@@ -269,27 +324,61 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 	return waitRunWith(cmd.Context(), judged, cmd.ErrOrStderr(), runsClient(&runs), last.GetRunId(), nil, waitOpts{})
 }
 
+// planGatePolicy is the policy of the plan's conformance gate, the one
+// every run has (named conformance; --gate spec sets its policy): the gate
+// the report's own gate line speaks for. The server judges every gate of
+// the plan and the run's report lists each (waitRunWith).
+func planGatePolicy(p *orbitv1.RunPlan) conformance.GatePolicy {
+	for _, g := range p.GetGates() {
+		if g.GetName() == "conformance" && g.GetConformance() != nil {
+			if policy, err := conformance.ParseGatePolicy(g.GetConformance().GetPolicy()); err == nil {
+				return policy
+			}
+		}
+	}
+	return conformance.GateDefault
+}
+
 // resultFromProto is a streamed check result as the suite reports it.
 func resultFromProto(r *orbitv1.ConformanceResult) conformance.Result {
-	out := conformance.Result{ID: r.GetId(), Category: conformance.Category(r.GetCategory()), SpecRef: r.GetSpecRef(),
+	out := conformance.Result{ID: r.GetId(), Group: r.GetGroup(), SpecRef: r.GetSpecRef(),
 		MinRelease: conformance.Release(r.GetMinRelease()), Verdict: conformance.Verdict(r.GetVerdict()),
-		Expected: r.GetExpected(), Observed: r.GetObserved(), Detail: r.GetDetail()}
+		Expected: r.GetExpected(), Observed: r.GetObserved(), Detail: r.GetDetail(),
+		Outcome: r.GetOutcome(), Criterion: conformance.Criterion(r.GetCriterion()), Refs: r.GetOutcomeRefs(),
+		BlockedOn: conformance.Procedure(r.GetBlockedOn()), Owner: r.GetOwner(), NotCompleted: conformance.Procedure(r.GetNotCompleted())}
+	for _, tag := range r.GetTags() {
+		out.Tags = append(out.Tags, conformance.Tag(tag))
+	}
 	if x := r.GetExpectedFailure(); x != nil {
 		out.ExpectedFailure = &conformance.ExpectedFailure{Finding: x.GetFinding(), Added: x.GetAdded(), Reason: x.GetReason()}
 	}
 	return out
 }
 
-// printConformanceList prints --list: one line per check with its category,
-// required release and the longest it can take at perTest, then the total.
-func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration) error {
+// printConformanceList prints --list: one line per check, in the order a
+// run takes them, with its verdict class (conformance.VerdictClass),
+// required release, the longest it can take at perTest, the phase it runs
+// in, its tags and its group in release rel, then the total.
+func printConformanceList(w io.Writer, tests []conformance.Test, perTest time.Duration, rel conformance.Release) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "CHECK\tCATEGORY\tREQUIRES\tUP TO")
+	_, _ = fmt.Fprintln(tw, "CHECK\tCLASS\tREQUIRES\tUP TO\tPHASE\tTAGS\tGROUP")
 	var total time.Duration
 	for _, t := range tests {
 		d := conformance.ExpectedDuration(t, perTest)
 		total += d
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.ID(), t.Category(), conformance.MinRelease(t), d)
+		group := ""
+		if g, err := conformance.GroupOf(t, rel); err == nil {
+			group = g.String()
+		}
+		tags := "-"
+		if ts := conformance.TagsOf(t); len(ts) > 0 {
+			names := make([]string, len(ts))
+			for i, tag := range ts {
+				names[i] = string(tag)
+			}
+			tags = strings.Join(names, ",")
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID(), conformance.VerdictClass(t), conformance.MinRelease(t), d, conformance.PhaseOf(t), tags, group)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
@@ -335,9 +424,16 @@ func (a *announcer) suite(tests []conformance.Test, perTest time.Duration) {
 	a.printf("Running %d checks, up to %s in total\n", len(tests), total)
 }
 
+// preflight announces the run's preflight, a line per step.
+func (a *announcer) preflight(p conformance.Preflight) {
+	for _, step := range p {
+		a.printf("preflight: %s %s\n", step.Step, step.Status)
+	}
+}
+
 // start announces a check; a long one gets a progress line every a.every.
 func (a *announcer) start(t conformance.Test, expected time.Duration, index, total int) {
-	a.printf("[%d/%d] %s (%s): up to %s\n", index+1, total, t.ID(), t.Category(), expected)
+	a.printf("[%d/%d] %s: up to %s\n", index+1, total, t.ID(), expected)
 	if expected <= a.every {
 		return
 	}
@@ -392,22 +488,72 @@ func printConformanceText(out io.Writer, network string, sum conformance.Summary
 	if sum.ExpectedFailures != "" {
 		_, _ = fmt.Fprintf(out, "expected-failures: %s (%s)\n", sum.ExpectedFailures, expectedPath)
 	}
+	for _, line := range preflightLines(sum.Preflight) {
+		_, _ = fmt.Fprintln(out, line)
+	}
 	for _, r := range sum.Results {
 		verdict := string(r.Verdict)
 		if r.ExpectedFailure != nil {
 			verdict += " (expected: " + r.ExpectedFailure.Finding + ")"
 		}
-		_, _ = fmt.Fprintf(out, "%-5s [%-11s] %-26s %s\n", verdict, r.Category, r.ID, r.Observed)
+		_, _ = fmt.Fprintf(out, "%-5s %-26s %s\n", verdict, r.ID, r.Observed)
+		if r.Group != "" {
+			_, _ = fmt.Fprintf(out, "      group: %s\n", r.Group)
+		}
 		// Detail always ends with the requirement line: the release the
 		// check requires and its clauses.
 		_, _ = fmt.Fprintf(out, "      %s\n", r.Detail)
 	}
 	// Stale entries warn so the list gets pruned; they do not gate.
 	for _, st := range sum.Stale {
-		_, _ = fmt.Fprintf(out, "stale expected failure: %s %s: now %s %q\n", st.Check, st.Finding, st.Verdict, st.Observed)
+		_, _ = fmt.Fprintln(out, staleLine(st))
 	}
-	_, _ = fmt.Fprintf(out, "\n%d checks: %d pass, %d fail (%d expected), %d deviation, %d error, %d skip\n",
-		sum.Total, sum.Pass, sum.Fail, sum.ExpectedFail, sum.Deviation, sum.Error, sum.Skip)
+	_, _ = fmt.Fprintf(out, "\n%s\n%s\n", sum.TallyLine(), sum.GateDetail())
+}
+
+// staleLine reports a stale expected-failures entry with the verdict it
+// expects: "stale expected failure: X EX-1 (expected WARN): now PASS ...".
+func staleLine(st conformance.StaleExpectation) string {
+	return fmt.Sprintf("stale expected failure: %s %s (expected %s): now %s %q", st.Check, st.Finding, st.ExpectedVerdict, st.Verdict, st.Observed)
+}
+
+// localGatePolicy is the gate policy the --gate flags name: spec when one
+// is spec or name=spec, else the default. onServer is set when a flag
+// names a gate only a server run can apply (an SLO gate).
+func localGatePolicy(gates []string) (policy conformance.GatePolicy, onServer bool) {
+	policy = conformance.GateDefault
+	for _, g := range gates {
+		expr := g
+		if _, rest, ok := strings.Cut(g, "="); ok && !strings.ContainsAny(g, "<>") {
+			expr = rest
+		}
+		switch strings.TrimSpace(expr) {
+		case string(conformance.GateSpec):
+			policy = conformance.GateSpec
+		case "conformance":
+		default:
+			onServer = true
+		}
+	}
+	return policy, onServer
+}
+
+// preflightLines renders a run's preflight for the report: a "preflight:"
+// heading and one line per step with its status and detail. None for a run
+// without one.
+func preflightLines(p conformance.Preflight) []string {
+	if len(p) == 0 {
+		return nil
+	}
+	lines := []string{"preflight:"}
+	for _, step := range p {
+		line := fmt.Sprintf("  %-7s %s", step.Status, step.Step)
+		if step.Detail != "" {
+			line += ": " + step.Detail
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // conformanceUEFlags are the conformance flags describing the UE the

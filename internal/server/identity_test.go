@@ -58,7 +58,7 @@ func TestRunConformanceRequiresPLMN(t *testing.T) {
 func TestRunConformanceSDDefaultsToNone(t *testing.T) {
 	c := newConformanceClient(t)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 1, Categories: []string{"procedural"},
+		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 1, Groups: []string{interfaceGroup},
 	}))
 	if err != nil {
 		t.Fatal(err)

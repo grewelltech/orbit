@@ -149,6 +149,14 @@ message RunSummary {
   // True only when the run had at least one gate and every gate passed.
   // Read with gates_total: zero gates means "no gates", not "all passed".
   bool gates_ok = 14;
+
+  // The remaining conformance verdicts, summed like the headline above.
+  uint32 conformance_info = 15;
+  // Always zero: the INFO-DIFF verdict was removed (ADR-0011).
+  uint32 conformance_info_diffs = 16 [deprecated = true];
+  uint32 conformance_warned = 17;
+  uint32 conformance_blocked = 18;
+  uint32 conformance_crashed = 19;
 }
 
 // LoadRunSpec parameterises a rate-controlled attach storm. It mirrors the
@@ -526,6 +534,7 @@ message ConformanceProgress {
   uint32 ran = 2;                 // checks finished
   uint32 total = 3;               // checks selected
   string last_check = 4;          // the most recent check's ID
+  repeated PreflightStep preflight = 5;  // the run's preflight, once it has run
 }
 
 message RunTelemetryRequest {
@@ -602,7 +611,7 @@ message RunEvent {
 // ConformanceCheckEvent is one conformance check's verdict as it lands.
 message ConformanceCheckEvent {
   string check_id = 1;
-  string verdict = 2;   // PASS | FAIL | ERROR | SKIP | DEVIATION
+  string verdict = 2;   // PASS | FAIL | DEVIATION | WARN | INFO | BLOCKED | CRASH | SKIP | ERROR
   string workload = 3;  // the workload whose suite ran it; "" in a run with one suite
 }
 
@@ -724,4 +733,7 @@ message ConformanceSummary {
   // off (stopped, or at a deadline) and incomplete is set.
   uint32 total = 6;
   bool incomplete = 7;
+  // The run's preflight: the setup the selected checks need, done once
+  // before any check.
+  repeated PreflightStep preflight = 8;
 }

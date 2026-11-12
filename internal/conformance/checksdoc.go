@@ -8,7 +8,7 @@ import (
 //go:generate go run ./internal/gendocs ../../docs/conformance/checks.md
 
 // ChecksMarkdown renders the registry as the conformance checks table in
-// docs/conformance/checks.md: one row per check with its category, verdict
+// docs/conformance/checks.md: one row per check with its group, tags, verdict
 // class, minimum release and clauses (rendered by SpecRef.String, the same
 // line the CLI, JSON and API carry), then one section per check listing the
 // verified versions. A golden test fails when the committed file is stale;
@@ -20,13 +20,22 @@ func ChecksMarkdown(tests []Test) string {
 	fmt.Fprintf(&b, "Every check names the clauses it asserts and the 3GPP releases they come from, verified in the [3GPP archive](https://www.3gpp.org/ftp/Specs/archive/) through %s. ", LatestRelease)
 	b.WriteString("A check SKIPs, never FAILs, when it requires a newer release than `--target-release`. ")
 	b.WriteString("The quoted normative text for each check is in [provenance/](provenance/).\n\n")
+	fmt.Fprintf(&b, "**Verdict class** is the worst a check's declared outcomes can say of a core: `%s` for a missed shall, `%s` for a missed should, `%s` for behaviour no requirement covers that meets a criterion (security, availability or interoperability), `%s` for behaviour that is only recorded. In every class a core that does not survive a check's stimulus is `%s`. Each check's outcomes are listed below, under Declared outcomes.\n\n", Fail, Deviation, Warn, Info, Crash)
 	fmt.Fprintf(&b, "Default target: %s; see [target-release.md](target-release.md).\n\n", defaultTargetLine())
 	fmt.Fprintf(&b, "**Up to** is the longest a check can take at the default `--per-test-timeout` (%s): the timeout itself, or the check's own longer budget (for example to wait out NAS timer expiries). `orbit conformance --list` shows the same for the timeout given, and the run announces each check with it.\n\n", DefaultPerTestTimeout)
-	b.WriteString("| Check | Category | Verdict class | Requires | Up to | Clauses |\n")
-	b.WriteString("|---|---|---|---|---|---|\n")
+	b.WriteString(runOrderNote(tests))
+	b.WriteString("**Group** is derived from the check's primary reference: the specification, the procedure family and the procedure, by the specification's own clause titles in the latest release (ADR-0011 rule 9).\n\n")
+	b.WriteString("**Tags** say what kind of stimulus a check uses (`negative`: malformed, unknown or unexpected input; `security`: a security procedure or protection; `timing`: a timer or the time between messages); they select checks with `--tag` and never affect a verdict.\n\n")
+	fmt.Fprintf(&b, "The table is the default run. A core regression pack (`--pack`, ADR-0011 rule 1) runs only when a run names it, for a target with the pack's `core.profile`, and is not listed here; there are %d.\n\n", len(builtinPacks))
+	b.WriteString("| Check | Group | Tags | Verdict class | Requires | Up to | Clauses |\n")
+	b.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, t := range tests {
-		fmt.Fprintf(&b, "| [%s](provenance/%s.md) | %s | %s | %s | %s | %s |\n",
-			t.ID(), t.ID(), t.Category(), WorstVerdict(t), MinRelease(t), ExpectedDuration(t, DefaultPerTestTimeout),
+		group := ""
+		if g, err := GroupOf(t, 0); err == nil {
+			group = g.String()
+		}
+		fmt.Fprintf(&b, "| [%s](provenance/%s.md) | %s | %s | %s | %s | %s | %s |\n",
+			t.ID(), t.ID(), mdEscape(group), joinTags(TagsOf(t)), VerdictClass(t), MinRelease(t), ExpectedDuration(t, DefaultPerTestTimeout),
 			mdEscape(RenderRefs(t.SpecRefs())))
 	}
 	b.WriteString("\n## Verified versions\n")
@@ -41,10 +50,127 @@ func ChecksMarkdown(tests []Test) string {
 				}
 				fmt.Fprintf(&b, "%s %s %s (`%s`)", sep, v.Release, v.Version, v.Archive)
 			}
+			if r.Primary {
+				b.WriteString("; primary")
+			}
 			b.WriteString("\n")
 		}
 	}
+	b.WriteString(outcomesMarkdown(tests))
 	return b.String()
+}
+
+// outcomesMarkdown renders the declared outcomes of the checks in tests
+// that declare them: per check, what it owns and needs, then one row per
+// outcome with its verdict, what the verdict rests on (the reference of a
+// FAIL, DEVIATION or PASS, the criterion of a WARN, the condition of a SKIP,
+// the procedure and owner of a BLOCKED) and what the core did. It is the
+// review surface for ADR-0011 rules 2, 4 and 5. Empty when no check
+// declares outcomes.
+func outcomesMarkdown(tests []Test) string {
+	owner := map[Procedure]string{}
+	for _, t := range tests {
+		for _, p := range OwnsOf(t) {
+			owner[p] = t.ID()
+		}
+	}
+	var b strings.Builder
+	for _, t := range tests {
+		outs, ok := declared(t)
+		if !ok {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("\n## Declared outcomes\n\n")
+			b.WriteString("Every result is one of its check's outcomes below; a check cannot report another. ")
+			fmt.Fprintf(&b, "**Basis** is what the verdict rests on: the reference a `%s` violates (a shall), a `%s` does not follow (a should) or a `%s` met; the criterion of a `%s` (security, availability or interoperability; no requirement is violated); the condition of a `%s`; the procedure a `%s` names and the check that owns it. ", Fail, Deviation, Pass, Warn, Skip, Blocked)
+			fmt.Fprintf(&b, "An outcome inferred from the absence of an answer states the bound it was inferred within. Every check can also report `%s` (`%s`: the tool, the setup or the testbed kept it from running), `%s` (`%s`: the core stopped answering after the stimulus) and `%s` (`%s`: the target release is older than the check requires).\n", Error, OutcomeError, Crash, OutcomeCrash, Skip, OutcomeSkipRelease)
+		}
+		fmt.Fprintf(&b, "\n### %s outcomes\n\n", t.ID())
+		if owned := OwnsOf(t); len(owned) > 0 {
+			fmt.Fprintf(&b, "Owns: %s. ", joinProcedures(owned))
+		}
+		if needed := NeedsOf(t).Procedures; len(needed) > 0 {
+			fmt.Fprintf(&b, "Needs: %s.", joinProcedures(needed))
+		} else {
+			b.WriteString("Needs no procedure first.")
+		}
+		b.WriteString("\n\n| Outcome | Verdict | Basis | The core |\n|---|---|---|---|\n")
+		refs := map[string]SpecRef{}
+		for _, r := range t.SpecRefs() {
+			refs[r.Key()] = r
+		}
+		for _, o := range append(append([]Outcome(nil), outs...), derivedOutcomes(t)[3:]...) {
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", o.ID, o.Verdict, mdEscape(outcomeBasis(o, refs, owner)), mdEscape(o.Summary))
+		}
+	}
+	return b.String()
+}
+
+// outcomeBasis renders what an outcome's verdict rests on.
+func outcomeBasis(o Outcome, refs map[string]SpecRef, owner map[Procedure]string) string {
+	var parts []string
+	for _, k := range o.Refs {
+		parts = append(parts, fmt.Sprintf("%s (%s)", k, refs[k].Strength))
+	}
+	switch {
+	case o.Verdict == Warn:
+		parts = append([]string{string(o.Criterion)}, parts...)
+	case o.Verdict == Skip:
+		parts = append([]string{string(o.Skip)}, parts...)
+	case o.Verdict == Blocked:
+		who := owner[o.blocked]
+		if who == "" {
+			who = "no registered check"
+		}
+		parts = append(parts, fmt.Sprintf("%s (owner %s)", o.blocked, who))
+	case len(parts) == 0:
+		parts = append(parts, "no requirement")
+	}
+	if o.Bound != nil {
+		parts = append(parts, "absence within "+o.Bound.String())
+	}
+	if o.NotCompleted != "" {
+		parts = append(parts, fmt.Sprintf("reports %s as not completed", o.NotCompleted))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// joinProcedures renders procedures as a comma-separated list.
+func joinProcedures(ps []Procedure) string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = string(p)
+	}
+	return strings.Join(out, ", ")
+}
+
+// runOrderNote is the paragraph on the order a suite runs its checks in,
+// naming the checks of the later phases.
+func runOrderNote(tests []Test) string {
+	later := map[Phase][]string{}
+	for _, t := range tests {
+		later[PhaseOf(t)] = append(later[PhaseOf(t)], "`"+t.ID()+"`")
+	}
+	var b strings.Builder
+	b.WriteString("A suite runs the checks in the order of this table, except that the checks of two later phases run after all the others, in table order within a phase; `orbit conformance --list` prints the run order and each check's phase. ")
+	if ids := later[PhaseStranding]; len(ids) > 0 {
+		fmt.Fprintf(&b, "Phase `%s`, the checks that leave a UE context for the core's own timers to clear: %s. ", PhaseStranding, strings.Join(ids, ", "))
+	}
+	if ids := later[PhaseDisruptive]; len(ids) > 0 {
+		fmt.Fprintf(&b, "Phase `%s`, last of all, the checks whose stimulus a core may not survive: %s. ", PhaseDisruptive, strings.Join(ids, ", "))
+	}
+	b.WriteString("A check's gNB IDs and subscribers follow its place in the table, not in the run.\n\n")
+	return b.String()
+}
+
+// joinTags renders tags comma-separated, "" for none.
+func joinTags(ts []Tag) string {
+	out := make([]string, len(ts))
+	for i, t := range ts {
+		out[i] = string(t)
+	}
+	return strings.Join(out, ", ")
 }
 
 // mdEscape keeps a rendered reference from breaking a table cell.

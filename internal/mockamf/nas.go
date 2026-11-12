@@ -108,3 +108,15 @@ func buildRegistrationAccept(guti []byte) (*f5nas.Message, error) {
 	gmm.RegistrationAccept = acc
 	return m, nil
 }
+
+// buildDeregistrationAccept builds a plain Deregistration Accept (UE
+// originating de-registration, TS 24.501 §8.2.13), for the caller to wrap.
+func buildDeregistrationAccept() (*f5nas.Message, error) {
+	const mt = f5nas.MsgTypeDeregistrationAcceptUEOriginatingDeregistration
+	m, gmm := plainGmm(mt)
+	acc := nasMessage.NewDeregistrationAcceptUEOriginatingDeregistration(mt)
+	setPlainHeader(&acc.ExtendedProtocolDiscriminator, &acc.SpareHalfOctetAndSecurityHeaderType,
+		&acc.DeregistrationAcceptMessageIdentity, mt)
+	gmm.DeregistrationAcceptUEOriginatingDeregistration = acc
+	return m, nil
+}

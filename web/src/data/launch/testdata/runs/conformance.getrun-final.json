@@ -1,18 +1,25 @@
 {
   "run":  {
-    "runId":  "run-5c2e5ce6",
+    "runId":  "run-2c3e0d4a",
     "kind":  "RUN_KIND_CONFORMANCE",
     "state":  "RUN_STATE_COMPLETE",
-    "startedUnixNano":  "1793174968050822774",
-    "endedUnixNano":  "1793174968060067066"
+    "startedUnixNano":  "1794440557014040685",
+    "endedUnixNano":  "1794440557021898559"
   },
   "conformanceProgress":  {
     "tally":  {
-      "passed":  1,
-      "failed":  2
+      "failed":  2,
+      "deviations":  1
     },
     "ran":  3,
     "total":  3,
-    "lastCheck":  "NGAP-NGSETUP-UNKNOWN-PLMN"
+    "lastCheck":  "NGAP-RAN-CONFIG-UPDATE-TRANSFER-SYNTAX",
+    "preflight":  [
+      {
+        "step":  "NG Setup",
+        "status":  "ok",
+        "detail":  "gNB ID 36911, PLMN 208/93, TAC 1"
+      }
+    ]
   }
 }

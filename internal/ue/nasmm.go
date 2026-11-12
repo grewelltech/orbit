@@ -100,9 +100,26 @@ func WithCapability5GMM(value []byte) RegistrationOption {
 	}
 }
 
+// WithMobilityRegistration makes the request a registration update on an
+// existing security context: registration type "mobility registration
+// updating", the native key set ngKSI and no follow-on request. The caller
+// passes the UE's 5G-GUTI as the identity.
+func WithMobilityRegistration(ngKSI uint8) RegistrationOption {
+	return func(req *nasMessage.RegistrationRequest) error {
+		if ngKSI > 6 {
+			return fmt.Errorf("ngKSI %d is not a key set identifier (0 to 6)", ngKSI)
+		}
+		req.NgksiAndRegistrationType5GS.SetNasKeySetIdentifiler(ngKSI)
+		req.NgksiAndRegistrationType5GS.SetFOR(0)
+		req.NgksiAndRegistrationType5GS.SetRegistrationType5GS(nasMessage.RegistrationType5GSMobilityRegistrationUpdating)
+		return nil
+	}
+}
+
 // BuildRegistrationRequest builds the complete initial Registration Request
-// carrying the UE's SUCI (TS 24.501 §8.2.6). ngKSI is set to "no key
-// available" (7) on the first registration. Mandatory IEs plus the UE
+// carrying the UE's identity, a 5GS mobile identity value: its SUCI, or its
+// 5G-GUTI with WithMobilityRegistration (TS 24.501 §8.2.6). ngKSI is set to
+// "no key available" (7) on the first registration. Mandatory IEs plus the UE
 // security capability (so the AMF can run Security Mode Command), 5GMM
 // capability and requested NSSAI; each opt adjusts the result. A UE without
 // a 5G NAS security context sends CleartextRegistrationRequest of it, and
@@ -181,8 +198,8 @@ func BuildAuthenticationResponse(resStar []byte) ([]byte, error) {
 // (TS 24.501 §8.2.26). The complete Registration Request, with the
 // non-cleartext IEs the initial NAS message left out, goes in the NAS
 // Message Container (TS 24.501 §4.4.6 a), and the AMF takes it as the
-// message that triggered the registration. Each opt adjusts the result
-// (WithIMEISV). Returns the plain message for the caller to wrap with the
+// message that triggered the registration; an empty one leaves the
+// container out. Each opt adjusts the result (WithIMEISV). Returns the plain message for the caller to wrap with the
 // new security context.
 func BuildSecurityModeComplete(fullRegistrationRequest []byte, opts ...SecurityModeCompleteOption) (*f5nas.Message, error) {
 	m, gmm := newGmm(f5nas.MsgTypeSecurityModeComplete)
@@ -222,6 +239,9 @@ func BuildRegistrationComplete() (*f5nas.Message, error) {
 type AuthChallenge struct {
 	RAND [16]byte
 	AUTN [16]byte
+	// NgKSI is the key set identifier the AMF gave the keys this challenge
+	// derives (TS 24.501 9.11.3.32).
+	NgKSI uint8
 }
 
 // ParseAuthenticationRequest extracts the challenge from a decoded plain NAS
@@ -235,8 +255,9 @@ func ParseAuthenticationRequest(m *f5nas.Message) (*AuthChallenge, error) {
 		return nil, fmt.Errorf("Authentication Request missing RAND/AUTN (EAP-AKA' not supported in Phase 1a)")
 	}
 	return &AuthChallenge{
-		RAND: ar.AuthenticationParameterRAND.GetRANDValue(),
-		AUTN: ar.AuthenticationParameterAUTN.GetAUTN(),
+		RAND:  ar.GetRANDValue(),
+		AUTN:  ar.GetAUTN(),
+		NgKSI: ar.GetNasKeySetIdentifiler(),
 	}, nil
 }
 

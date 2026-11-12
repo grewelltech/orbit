@@ -1546,14 +1546,18 @@ func (x *LatencyProbe) GetTimeoutMs() uint64 {
 
 // ConformanceWorkload is the conformance suite as a workload.
 type ConformanceWorkload struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Categories       []string               `protobuf:"bytes,1,rep,name=categories,proto3" json:"categories,omitempty"` // empty runs everything
-	TargetRelease    string                 `protobuf:"bytes,2,opt,name=target_release,json=targetRelease,proto3" json:"target_release,omitempty"`
-	Expected         *ExpectedFailures      `protobuf:"bytes,3,opt,name=expected,proto3" json:"expected,omitempty"`
-	PerTestTimeoutMs uint32                 `protobuf:"varint,4,opt,name=per_test_timeout_ms,json=perTestTimeoutMs,proto3" json:"per_test_timeout_ms,omitempty"`
-	Nas              *NASAlgorithms         `protobuf:"bytes,5,opt,name=nas,proto3" json:"nas,omitempty"`
-	Responder        string                 `protobuf:"bytes,6,opt,name=responder,proto3" json:"responder,omitempty"` // for checks that need traffic
-	Traffic          string                 `protobuf:"bytes,7,opt,name=traffic,proto3" json:"traffic,omitempty"`     // echo peer host:port the mobility checks' UE sends to
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Removed: categories were replaced by groups (ADR-0011). A workload
+	// that names one is refused with the groups and checks that replace it.
+	//
+	// Deprecated: Marked as deprecated in orbit/v1/plan.proto.
+	Categories       []string          `protobuf:"bytes,1,rep,name=categories,proto3" json:"categories,omitempty"`
+	TargetRelease    string            `protobuf:"bytes,2,opt,name=target_release,json=targetRelease,proto3" json:"target_release,omitempty"`
+	Expected         *ExpectedFailures `protobuf:"bytes,3,opt,name=expected,proto3" json:"expected,omitempty"`
+	PerTestTimeoutMs uint32            `protobuf:"varint,4,opt,name=per_test_timeout_ms,json=perTestTimeoutMs,proto3" json:"per_test_timeout_ms,omitempty"`
+	Nas              *NASAlgorithms    `protobuf:"bytes,5,opt,name=nas,proto3" json:"nas,omitempty"`
+	Responder        string            `protobuf:"bytes,6,opt,name=responder,proto3" json:"responder,omitempty"` // for checks that need traffic
+	Traffic          string            `protobuf:"bytes,7,opt,name=traffic,proto3" json:"traffic,omitempty"`     // echo peer host:port the mobility checks' UE sends to
 	// The suite's gNB IDs: each check presents base + its registry index,
 	// plus its handover target and liveness probe at fixed offsets. first
 	// pins the base; assign takes a base from the rotation whose IDs are all
@@ -1561,8 +1565,23 @@ type ConformanceWorkload struct {
 	GnbIds         *GNBIDSelection `protobuf:"bytes,8,opt,name=gnb_ids,json=gnbIds,proto3" json:"gnb_ids,omitempty"`
 	SubscriberPool string          `protobuf:"bytes,9,opt,name=subscriber_pool,json=subscriberPool,proto3" json:"subscriber_pool,omitempty"` // the UE checks' subscriber; default the first pool
 	N3Bind         string          `protobuf:"bytes,10,opt,name=n3_bind,json=n3Bind,proto3" json:"n3_bind,omitempty"`                        // the GTP-U checks' local N3 source, ip:port; empty: they SKIP
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Check IDs to run (any case), on top of groups; empty runs every
+	// check the groups select. Each check keeps the gNB IDs and the
+	// subscribers it has in a full suite. An unknown ID is refused.
+	Checks []string `protobuf:"bytes,11,rep,name=checks,proto3" json:"checks,omitempty"`
+	// Groups to run: group paths or prefixes of them, in any case
+	// ("NGAP", "NAS / 5GMM common procedures"), read in the target release;
+	// empty runs every group.
+	Groups []string `protobuf:"bytes,12,rep,name=groups,proto3" json:"groups,omitempty"`
+	// Tags to run, on top of groups and checks: negative | security |
+	// timing; a check with any of them runs. Empty runs every check.
+	Tags []string `protobuf:"bytes,13,rep,name=tags,proto3" json:"tags,omitempty"`
+	// A core regression pack whose checks join the run (ADR-0011 rule 1).
+	// It must be for the target's core.profile; a target with no profile or
+	// strict-3gpp has no pack. Empty: the default run, no pack.
+	Pack          string `protobuf:"bytes,14,opt,name=pack,proto3" json:"pack,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ConformanceWorkload) Reset() {
@@ -1595,6 +1614,7 @@ func (*ConformanceWorkload) Descriptor() ([]byte, []int) {
 	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{15}
 }
 
+// Deprecated: Marked as deprecated in orbit/v1/plan.proto.
 func (x *ConformanceWorkload) GetCategories() []string {
 	if x != nil {
 		return x.Categories
@@ -1665,6 +1685,34 @@ func (x *ConformanceWorkload) GetN3Bind() string {
 	return ""
 }
 
+func (x *ConformanceWorkload) GetChecks() []string {
+	if x != nil {
+		return x.Checks
+	}
+	return nil
+}
+
+func (x *ConformanceWorkload) GetGroups() []string {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+func (x *ConformanceWorkload) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *ConformanceWorkload) GetPack() string {
+	if x != nil {
+		return x.Pack
+	}
+	return ""
+}
+
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).
 type ExpectedFailures struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1728,8 +1776,11 @@ type ExpectedFailure struct {
 	// The FAIL the entry tolerates, in a plan's own list
 	// (ConformanceWorkload.expected): the check's ID and its exact observed
 	// text. Unset on a result's matched entry.
-	Check         string `protobuf:"bytes,4,opt,name=check,proto3" json:"check,omitempty"`
-	Observed      string `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
+	Check    string `protobuf:"bytes,4,opt,name=check,proto3" json:"check,omitempty"`
+	Observed string `protobuf:"bytes,5,opt,name=observed,proto3" json:"observed,omitempty"`
+	// The verdict the entry tolerates: FAIL, DEVIATION or WARN; empty is
+	// FAIL (ADR-0011 rule 8). Unset on a result's matched entry.
+	Verdict       string `protobuf:"bytes,6,opt,name=verdict,proto3" json:"verdict,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1795,6 +1846,13 @@ func (x *ExpectedFailure) GetCheck() string {
 func (x *ExpectedFailure) GetObserved() string {
 	if x != nil {
 		return x.Observed
+	}
+	return ""
+}
+
+func (x *ExpectedFailure) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
 	}
 	return ""
 }
@@ -2211,11 +2269,15 @@ func (x *SLOGate) GetThreshold() float64 {
 	return 0
 }
 
-// ConformanceGate passes when no FAIL falls outside the expected-failures
-// list, no check ERRORed, and the suite ran to the end (Summary.OK, the
-// CLI's exit code).
+// ConformanceGate passes when the suite ran to the end and no result its
+// policy gates falls outside the expected-failures list (Summary.OK, the
+// CLI's exit code; ADR-0011 rule 8). A BLOCKED result counted under its
+// procedure's owner does not count again.
 type ConformanceGate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The gate policy: "default" (or empty) gates on FAIL, CRASH, BLOCKED,
+	// ERROR, DEVIATION and WARN; "spec" on FAIL, CRASH, BLOCKED and ERROR.
+	Policy        string `protobuf:"bytes,1,opt,name=policy,proto3" json:"policy,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2248,6 +2310,13 @@ func (x *ConformanceGate) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ConformanceGate.ProtoReflect.Descriptor instead.
 func (*ConformanceGate) Descriptor() ([]byte, []int) {
 	return file_orbit_v1_plan_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ConformanceGate) GetPolicy() string {
+	if x != nil {
+		return x.Policy
+	}
+	return ""
 }
 
 // GateResult is one gate as the report applied it.
@@ -2517,10 +2586,10 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"intervalMs\x12\x10\n" +
 	"\x03ues\x18\x03 \x01(\rR\x03ues\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\x9b\x03\n" +
-	"\x13ConformanceWorkload\x12\x1e\n" +
+	"timeout_ms\x18\x04 \x01(\x04R\ttimeoutMs\"\xf7\x03\n" +
+	"\x13ConformanceWorkload\x12\"\n" +
 	"\n" +
-	"categories\x18\x01 \x03(\tR\n" +
+	"categories\x18\x01 \x03(\tB\x02\x18\x01R\n" +
 	"categories\x12%\n" +
 	"\x0etarget_release\x18\x02 \x01(\tR\rtargetRelease\x126\n" +
 	"\bexpected\x18\x03 \x01(\v2\x1a.orbit.v1.ExpectedFailuresR\bexpected\x12-\n" +
@@ -2531,16 +2600,21 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\agnb_ids\x18\b \x01(\v2\x18.orbit.v1.GNBIDSelectionR\x06gnbIds\x12'\n" +
 	"\x0fsubscriber_pool\x18\t \x01(\tR\x0esubscriberPool\x12\x17\n" +
 	"\an3_bind\x18\n" +
-	" \x01(\tR\x06n3Bind\"[\n" +
+	" \x01(\tR\x06n3Bind\x12\x16\n" +
+	"\x06checks\x18\v \x03(\tR\x06checks\x12\x16\n" +
+	"\x06groups\x18\f \x03(\tR\x06groups\x12\x12\n" +
+	"\x04tags\x18\r \x03(\tR\x04tags\x12\x12\n" +
+	"\x04pack\x18\x0e \x01(\tR\x04pack\"[\n" +
 	"\x10ExpectedFailures\x123\n" +
 	"\aentries\x18\x01 \x03(\v2\x19.orbit.v1.ExpectedFailureR\aentries\x12\x12\n" +
-	"\x04core\x18\x02 \x01(\tR\x04core\"\x8b\x01\n" +
+	"\x04core\x18\x02 \x01(\tR\x04core\"\xa5\x01\n" +
 	"\x0fExpectedFailure\x12\x18\n" +
 	"\afinding\x18\x01 \x01(\tR\afinding\x12\x14\n" +
 	"\x05added\x18\x02 \x01(\tR\x05added\x12\x16\n" +
 	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x14\n" +
 	"\x05check\x18\x04 \x01(\tR\x05check\x12\x1a\n" +
-	"\bobserved\x18\x05 \x01(\tR\bobserved\"K\n" +
+	"\bobserved\x18\x05 \x01(\tR\bobserved\x12\x18\n" +
+	"\averdict\x18\x06 \x01(\tR\averdict\"K\n" +
 	"\rNASAlgorithms\x12\x1c\n" +
 	"\tintegrity\x18\x01 \x03(\tR\tintegrity\x12\x1c\n" +
 	"\tciphering\x18\x02 \x03(\tR\tciphering\":\n" +
@@ -2564,8 +2638,9 @@ const file_orbit_v1_plan_proto_rawDesc = "" +
 	"\aSLOGate\x12\x16\n" +
 	"\x06metric\x18\x01 \x01(\tR\x06metric\x12#\n" +
 	"\x02op\x18\x02 \x01(\x0e2\x13.orbit.v1.CompareOpR\x02op\x12\x1c\n" +
-	"\tthreshold\x18\x03 \x01(\x01R\tthreshold\"\x11\n" +
-	"\x0fConformanceGate\"|\n" +
+	"\tthreshold\x18\x03 \x01(\x01R\tthreshold\")\n" +
+	"\x0fConformanceGate\x12\x16\n" +
+	"\x06policy\x18\x01 \x01(\tR\x06policy\"|\n" +
 	"\n" +
 	"GateResult\x12\"\n" +
 	"\x04gate\x18\x01 \x01(\v2\x0e.orbit.v1.GateR\x04gate\x12\x16\n" +

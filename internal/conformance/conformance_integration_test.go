@@ -44,7 +44,7 @@ func TestLiveConformance(t *testing.T) {
 
 	errors := 0
 	for _, r := range results {
-		t.Logf("%-5s [%-11s] %-24s expected=%q observed=%q", r.Verdict, r.Category, r.ID, r.Expected, r.Observed)
+		t.Logf("%-5s [%s] %-24s expected=%q observed=%q", r.Verdict, r.Group, r.ID, r.Expected, r.Observed)
 		if r.Detail != "" {
 			t.Logf("        %s — %s", r.SpecRef, r.Detail)
 		}

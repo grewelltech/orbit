@@ -24,6 +24,11 @@ var ErrReleasedByCore = errors.New("the core released the UE context during the 
 // with a REGISTRATION REJECT that decoded (and, when protected, verified).
 var ErrRegistrationRejected = errors.New("AMF rejected registration")
 
+// ErrAuthenticationRejected is the error Attach returns when the core
+// answers with an AUTHENTICATION REJECT (and no probe asked to wait on after
+// it; see AttachProbe.AfterAuthenticationReject).
+var ErrAuthenticationRejected = errors.New("AMF rejected authentication")
+
 // AttachProbe lets a conformance check withhold the UE's reply to chosen
 // downlink NAS messages and watch what the core sends during an attach.
 //
@@ -88,6 +93,38 @@ type AttachProbe struct {
 	// attach waits for the Accept any downlink that does not decode counts;
 	// one whose MAC fails cannot be identified at all.
 	DeregisterUndecodableAccept bool
+	// AfterAuthenticationReject, when set, is asked at an AUTHENTICATION
+	// REJECT whether the attach goes on. True keeps it reading: the UE
+	// sends nothing more, and the attach ends at a UE CONTEXT RELEASE
+	// COMMAND (ErrReleasedByCore), at Stop or with its context, so a probe
+	// can see whether the core releases the connection after the reject.
+	// False, or no hook, ends the attach at the reject as usual. It is
+	// called after OnNAS for the same message, on the attach's goroutine,
+	// and must not block.
+	AfterAuthenticationReject func() bool
+	// InitialNAS, when set, builds the initial NAS message the UE sends,
+	// from the complete Registration Request that the Security Mode
+	// Complete carries. It replaces the conformant form, the cleartext IEs
+	// alone (ue.CleartextRegistrationRequest), for a check whose stimulus
+	// is an initial message TS 24.501 4.4.6 does not allow: one with
+	// non-cleartext IEs in the clear, or with values that differ from the
+	// protected copy.
+	InitialNAS func(complete []byte) ([]byte, error)
+	// OmitNASMessageContainer leaves the NAS message container, and with
+	// it the complete Registration Request, out of every Security Mode
+	// Complete the UE sends.
+	OmitNASMessageContainer bool
+	// OmitIMEISV leaves the IMEISV out of the Security Mode Complete even
+	// when the Security Mode Command requests it.
+	OmitIMEISV bool
+	// BeforeRegistration, when set, is called with the gNB's association
+	// before the Initial UE Message is sent, for a check whose stimulus is
+	// a non-UE-associated procedure on the association the UE then
+	// registers over. It runs on the attach's goroutine and may read from
+	// the association; a read it abandons takes the next downlink PDU, so
+	// after one it must return an error. An error ends the attach, wrapped,
+	// with nothing of the UE sent.
+	BeforeRegistration func(ctx context.Context, conn gnb.Transport) error
 }
 
 // UndecodableAcceptError is the error Attach returns when
@@ -182,6 +219,62 @@ type NASEvent struct {
 	// under NEA1-3 that is ciphertext.
 	Plain []byte
 	Err   error
+	// Count is the NAS COUNT evidence of a protected PDU checked under an
+	// installed security context: nil for a plain PDU, for a Security Mode
+	// Command (whose new-context header restarts the COUNT) and before any
+	// context. It does not depend on Err.
+	Count *NASCount
+}
+
+// NASCount is what the UE's NAS security context makes of a protected
+// downlink PDU's NAS COUNT, worked out without changing the context. The
+// PDU carries only the COUNT's sequence number, so the full COUNT is one
+// of two candidates: that sequence number with the stored overflow counter,
+// or with the counter after it. Together they cover every COUNT from 255
+// below the stored one to 256 above it.
+type NASCount struct {
+	// Stored is the context's stored downlink NAS COUNT before this PDU.
+	Stored uint32
+	// Candidates are the PDU's sequence number with the stored overflow
+	// counter, and with that counter plus one.
+	Candidates [2]uint32
+	// Verified reports, per candidate, whether the PDU's MAC verifies
+	// there.
+	Verified [2]bool
+	// Types is, per verified candidate, the 5GMM message type the PDU
+	// deciphers to there, 0 when unreadable.
+	Types [2]uint8
+}
+
+// Verifies returns the candidate COUNT the PDU's MAC verifies at and the
+// message type it deciphers to there; ok is false when it verifies at
+// neither.
+func (c NASCount) Verifies() (count uint32, msgType uint8, ok bool) {
+	for i, v := range c.Verified {
+		if v {
+			return c.Candidates[i], c.Types[i], true
+		}
+	}
+	return 0, 0, false
+}
+
+// nasCount works out raw's NASCount under sec.
+func nasCount(sec *nas.SecurityContext, raw []byte) *NASCount {
+	if len(raw) < 7 {
+		return nil
+	}
+	c := &NASCount{Stored: sec.RxCount()}
+	overflow := c.Stored &^ 0xff
+	c.Candidates = [2]uint32{overflow | uint32(raw[6]), (overflow + 0x100) | uint32(raw[6])}
+	for i, cand := range c.Candidates {
+		m, plain, err := sec.DecodeSecurePlainAt(raw, cand)
+		if errors.Is(err, nas.ErrIntegrity) || (err != nil && plain == nil) {
+			continue
+		}
+		c.Verified[i] = true
+		c.Types[i] = NASEvent{Msg: m, Plain: plain}.MessageType()
+	}
+	return c
 }
 
 // MessageType is the PDU's 5GMM message type: the decoded message's when it
@@ -295,8 +388,8 @@ func procedureCode(pdu *ngapType.NGAPPDU) (int64, bool) {
 	return 0, false
 }
 
-// procedureName names the NGAP procedures an attach can see; others are
-// "procedure N".
+// procedureName names the NGAP procedures an attach or a NAS probe can see;
+// others are "procedure N".
 func procedureName(code int64) string {
 	switch code {
 	case ngapType.ProcedureCodeDownlinkNASTransport:
@@ -307,6 +400,10 @@ func procedureName(code int64) string {
 		return "UEContextRelease"
 	case ngapType.ProcedureCodePDUSessionResourceSetup:
 		return "PDUSessionResourceSetup"
+	case ngapType.ProcedureCodePDUSessionResourceRelease:
+		return "PDUSessionResourceRelease"
+	case ngapType.ProcedureCodePDUSessionResourceModify:
+		return "PDUSessionResourceModify"
 	case ngapType.ProcedureCodeErrorIndication:
 		return "ErrorIndication"
 	}
@@ -428,25 +525,9 @@ type pduResult struct {
 	err error
 }
 
-// readPDUs reads downlink PDUs on one goroutine until a read fails or done
-// closes, so a wait that runs out never leaves a read behind to swallow the
-// next PDU.
+// readPDUs reads the attach's association (readAssociation).
 func (s *attachState) readPDUs(done <-chan struct{}) <-chan pduResult {
-	ch := make(chan pduResult)
-	go func() {
-		for {
-			pdu, err := gnb.ReadPDU(context.Background(), s.conn)
-			select {
-			case ch <- pduResult{pdu, err}:
-			case <-done:
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return ch
+	return readAssociation(s.conn, done)
 }
 
 // awaitRelease takes downlink PDUs from pdus, each reported to the probe,

@@ -48,6 +48,10 @@ func runSummary(a *orbitv1.RunArchive) *orbitv1.RunSummary {
 			s.ConformanceErrored += t.GetErrored()
 			s.ConformanceSkipped += t.GetSkipped()
 			s.ConformanceDeviations += t.GetDeviations()
+			s.ConformanceInfo += t.GetInfo()
+			s.ConformanceWarned += t.GetWarned()
+			s.ConformanceBlocked += t.GetBlocked()
+			s.ConformanceCrashed += t.GetCrashed()
 			s.ConformanceExpectedFailures += t.GetExpectedFailures()
 		}
 		if l := rr.GetLoad(); l != nil {

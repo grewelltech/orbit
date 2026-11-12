@@ -429,7 +429,7 @@ func runEventProto(ev engine.RunEvent) *orbitv1.RunEvent {
 // checkText is a conformance check's verdict event as the suite emits it,
 // "<check> <verdict>", which a mixed run's workload prefixes with
 // "[<workload>] " (engine/mixed.go); a workload's name holds no brackets.
-var checkText = regexp.MustCompile(`^(?:\[([^][]+)\] )?(\S+) (PASS|FAIL|ERROR|SKIP|DEVIATION)$`)
+var checkText = regexp.MustCompile(`^(?:\[([^][]+)\] )?(\S+) (` + conformance.VerdictPattern() + `)$`)
 
 // checkEvent is a CONFORMANCE event's verdict as fields, beside its text
 // for older clients; nil for any other event.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
@@ -14,7 +15,7 @@ import (
 
 // writeConformanceReport renders a conformance run for the terminal. On an
 // interactive terminal it draws a colored, box-drawn table mirroring the web
-// dashboard's SuiteResults (verdict · test · category · spec · observed) with
+// dashboard's SuiteResults (verdict · test · group · spec · observed) with
 // a tally footer; otherwise — a pipe, a file, a CI log, or a test buffer — it
 // falls back to the plain borderless text of printConformanceText, so scripts
 // and golden tests see unchanged output. --json never reaches here.
@@ -46,12 +47,18 @@ func verdictStyle(re *lipgloss.Renderer, v conformance.Verdict, tolerated bool) 
 			return re.NewStyle().Foreground(lipgloss.Color("8")) // dim: a tolerated FAIL
 		}
 		return s.Foreground(lipgloss.Color("1")) // red
+	case conformance.Crash:
+		return s.Foreground(lipgloss.Color("1")).Reverse(true) // red, reversed: the core stopped answering
+	case conformance.Blocked:
+		return s.Foreground(lipgloss.Color("5")) // magenta: the core blocked the check
 	case conformance.Error:
 		return s.Foreground(lipgloss.Color("9")) // bright red
-	case conformance.Deviation:
+	case conformance.Deviation, conformance.Warn:
 		return s.Foreground(lipgloss.Color("3")) // yellow
 	case conformance.Skip:
 		return re.NewStyle().Foreground(lipgloss.Color("8")) // dim
+	case conformance.Info:
+		return re.NewStyle().Foreground(lipgloss.Color("4")) // blue
 	default:
 		return re.NewStyle()
 	}
@@ -72,6 +79,15 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 	if sum.ExpectedFailures != "" {
 		_, _ = fmt.Fprintln(out, label.Render("expected-failures:"), sum.ExpectedFailures+faint.Render(" ("+expectedPath+")"))
 	}
+	// The preflight is the run's setup, not a check: its own lines, ahead of
+	// the table.
+	for i, text := range preflightLines(sum.Preflight) {
+		if i == 0 {
+			_, _ = fmt.Fprintln(out, label.Render(text))
+			continue
+		}
+		_, _ = fmt.Fprintln(out, text)
+	}
 
 	// Rows, keeping the verdict and tolerated flag per row so the verdict cell
 	// can be colored in the StyleFunc (which only gets row/col indexes).
@@ -90,7 +106,7 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 		rows = append(rows, row{
 			verdict:   r.Verdict,
 			tolerated: tolerated,
-			cells:     []string{verdict, r.ID, string(r.Category), r.SpecRef, r.Observed},
+			cells:     []string{verdict, r.ID, r.Group, r.SpecRef, r.Observed},
 		})
 	}
 
@@ -108,7 +124,7 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 		Width(width).
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(border).
-		Headers("VERDICT", "TEST", "CATEGORY", "SPEC", "OBSERVED").
+		Headers("VERDICT", "TEST", "GROUP", "SPEC", "OBSERVED").
 		StyleFunc(func(r, c int) lipgloss.Style {
 			if r == table.HeaderRow {
 				return re.NewStyle().Bold(true).Padding(0, 1)
@@ -127,9 +143,9 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 	// Per-check detail for anything that needs explaining: an ERROR's Detail is
 	// often the only account of why (Observed can be empty), and a SKIP's names
 	// the flags that would exercise it (e.g. --supi/--ki/--opc/--gnb-n3). Only
-	// PASS rows are self-explanatory, so only they stay out of the way.
+	// PASS and INFO rows are self-explanatory, so only they stay out of the way.
 	for _, r := range sum.Results {
-		if r.Verdict == conformance.Pass || r.Detail == "" {
+		if r.Verdict == conformance.Pass || r.Verdict == conformance.Info || r.Detail == "" {
 			continue
 		}
 		_, _ = fmt.Fprintf(out, "%s %s\n",
@@ -139,31 +155,30 @@ func printConformanceTable(out io.Writer, network string, sum conformance.Summar
 
 	// Stale expected-failures warn (they do not gate), as in the plain output.
 	for _, st := range sum.Stale {
-		_, _ = fmt.Fprintln(out, faint.Render(fmt.Sprintf("stale expected failure: %s %s: now %s %q", st.Check, st.Finding, st.Verdict, st.Observed)))
+		_, _ = fmt.Fprintln(out, faint.Render(staleLine(st)))
 	}
 
 	_, _ = fmt.Fprintln(out, conformanceTally(re, sum))
+	_, _ = fmt.Fprintln(out, sum.GateDetail())
 	if hasTolerated(sum) {
-		_, _ = fmt.Fprintln(out, faint.Render("* FAIL tolerated by the expected-failures list"))
+		_, _ = fmt.Fprintln(out, faint.Render("* tolerated by the expected-failures list"))
 	}
 }
 
-// conformanceTally renders the colored one-line summary.
+// conformanceTally renders the colored one-line summary: every verdict's
+// count, in the order of conformance.Verdicts.
 func conformanceTally(re *lipgloss.Renderer, sum conformance.Summary) string {
-	col := func(code, s string) string { return re.NewStyle().Foreground(lipgloss.Color(code)).Render(s) }
-	passFail := fmt.Sprintf("%s, %s",
-		col("2", fmt.Sprintf("%d pass", sum.Pass)),
-		col("1", fmt.Sprintf("%d fail", sum.Fail)),
-	)
-	if sum.ExpectedFail > 0 {
-		passFail += re.NewStyle().Foreground(lipgloss.Color("8")).Render(fmt.Sprintf(" (%d expected)", sum.ExpectedFail))
+	faint := re.NewStyle().Foreground(lipgloss.Color("8"))
+	var parts []string
+	for _, v := range conformance.Verdicts() {
+		style := verdictStyle(re, v, false).Bold(false).Reverse(false)
+		part := style.Render(fmt.Sprintf("%d %s", sum.Count(v), v.Label()))
+		if v == conformance.Fail && sum.ExpectedFail > 0 {
+			part += faint.Render(fmt.Sprintf(" (%d expected)", sum.ExpectedFail))
+		}
+		parts = append(parts, part)
 	}
-	return fmt.Sprintf("%d checks: %s, %s, %s, %s",
-		sum.Total, passFail,
-		col("3", fmt.Sprintf("%d deviation", sum.Deviation)),
-		col("9", fmt.Sprintf("%d error", sum.Error)),
-		col("8", fmt.Sprintf("%d skip", sum.Skip)),
-	)
+	return fmt.Sprintf("%d checks: %s", sum.Total, strings.Join(parts, ", "))
 }
 
 func hasTolerated(sum conformance.Summary) bool {

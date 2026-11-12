@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,8 +48,8 @@ func TestListConformanceTests(t *testing.T) {
 		t.Fatal("no tests registered; the dashboard would render an empty table")
 	}
 	for _, tst := range res.Msg.GetTests() {
-		if tst.GetId() == "" || tst.GetCategory() == "" {
-			t.Errorf("test missing id/category: %+v", tst)
+		if tst.GetId() == "" || tst.GetGroup() == "" {
+			t.Errorf("test missing id/group: %+v", tst)
 		}
 	}
 }
@@ -82,7 +83,7 @@ func TestRunConformanceStreamsAndSummarises(t *testing.T) {
 		connect.NewRequest(&orbitv1.RunConformanceRequest{
 			AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01",
 			PerTestSeconds: 2,
-			Categories:     []string{"procedural"},
+			Groups:         []string{interfaceGroup},
 		}))
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +116,7 @@ func TestRunConformanceStreamsAndSummarises(t *testing.T) {
 		t.Fatal("stream did not end with the summary")
 	}
 	tally := last.GetTally()
-	total := tally.GetPassed() + tally.GetFailed() + tally.GetErrored() + tally.GetSkipped() + tally.GetDeviations()
+	total := tally.GetPassed() + tally.GetFailed() + tally.GetErrored() + tally.GetSkipped() + tally.GetDeviations() + tally.GetInfo() + tally.GetWarned() + tally.GetBlocked() + tally.GetCrashed()
 	if int(total) != results {
 		t.Errorf("tally totals %d but %d tests ran — a result was not counted", total, results)
 	}
@@ -241,7 +242,7 @@ func TestRunConformanceDefaultTargets(t *testing.T) {
 			c := newConformanceClient(t)
 			stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
 				AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2,
-				Categories: []string{"procedural"}, TargetRelease: tc.target,
+				Groups: []string{interfaceGroup}, TargetRelease: tc.target,
 			}))
 			if err != nil {
 				t.Fatal(err)
@@ -269,7 +270,8 @@ func TestRunConformanceDefaultTargets(t *testing.T) {
 
 // A FAIL the server's list tolerates carries its entry on the wire and is
 // counted in the tally's expected_failures as well as failed; other
-// verdicts are never counted there. Stale entries carry what the check gave.
+// verdicts are never counted there, and INFO, WARN, BLOCKED and CRASH each
+// count only in their own field. Stale entries carry what the check gave.
 func TestConformanceExpectedFailureProto(t *testing.T) {
 	var tally orbitv1.ConformanceTally
 	tolerated := conformance.Result{ID: "A", Verdict: conformance.Fail, Observed: "o",
@@ -283,9 +285,28 @@ func TestConformanceExpectedFailureProto(t *testing.T) {
 	if c := cloneTally(&tally); c.GetExpectedFailures() != 1 {
 		t.Errorf("cloneTally dropped expected_failures: %+v", c)
 	}
+	for _, r := range []conformance.Result{{ID: "D", Verdict: conformance.Info}, {ID: "E", Verdict: conformance.Warn}, {ID: "F", Verdict: conformance.Warn},
+		{ID: "G", Verdict: conformance.Blocked}, {ID: "H", Verdict: conformance.Crash}} {
+		addToTally(&tally, r)
+	}
+	if c := cloneTally(&tally); c.GetInfo() != 1 || c.GetWarned() != 2 || c.GetBlocked() != 1 || c.GetCrashed() != 1 || c.GetFailed() != 2 || c.GetExpectedFailures() != 1 || c.GetErrored() != 1 || c.GetPassed() != 0 || c.GetDeviations() != 0 {
+		t.Errorf("tally with every verdict = %+v", c)
+	}
 	p := resultProto(tolerated)
 	if e := p.GetExpectedFailure(); e.GetFinding() != "EX-1" || e.GetAdded() != "2026-10-12" || e.GetReason() != "example" || p.GetVerdict() != "FAIL" {
 		t.Errorf("result proto = %+v", p)
+	}
+	blocked := resultProto(conformance.Result{ID: "C", Verdict: conformance.Blocked, Outcome: "blocked-registration",
+		BlockedOn: conformance.ProcRegistration, Owner: "NAS-X"})
+	if blocked.GetOutcome() != "blocked-registration" || blocked.GetBlockedOn() != "registration" || blocked.GetOwner() != "NAS-X" {
+		t.Errorf("BLOCKED result proto = %+v", blocked)
+	}
+	warned := resultProto(conformance.Result{ID: "D", Verdict: conformance.Warn, Outcome: "refused", Criterion: conformance.CriterionAvailability,
+		NotCompleted: conformance.ProcNGSetup, Refs: []string{"TS 38.413 8.7.1.3 (should)"},
+		SpecRefs: []conformance.SpecRef{{Spec: "TS 38.413", Clause: "8.7.1.2", Strength: conformance.Descriptive, Since: 15, Primary: true}}})
+	if warned.GetCriterion() != "availability" || warned.GetNotCompleted() != "NG Setup" || len(warned.GetOutcomeRefs()) != 1 ||
+		len(warned.GetSpecRefs()) != 1 || !warned.GetSpecRefs()[0].GetPrimary() {
+		t.Errorf("WARN result proto = %+v", warned)
 	}
 	if resultProto(conformance.Result{ID: "B", Verdict: conformance.Fail}).GetExpectedFailure() != nil {
 		t.Error("an untolerated FAIL carries an expected_failure")
@@ -305,7 +326,7 @@ func TestRunConformanceCarriesExpectedFailuresCore(t *testing.T) {
 	}
 	c := conformanceClientWith(t, x)
 	stream, err := c.RunConformance(context.Background(), connect.NewRequest(&orbitv1.RunConformanceRequest{
-		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2, Categories: []string{"negative-ie"},
+		AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01", PerTestSeconds: 2, Groups: []string{erroneousGroup},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -335,7 +356,7 @@ func TestRunConformanceCarriesExpectedFailuresCore(t *testing.T) {
 // workload, is refused.
 func TestRunConformancePlan(t *testing.T) {
 	legacy := &orbitv1.RunConformanceRequest{AmfAddress: "127.0.0.1:1", Mcc: "001", Mnc: "01",
-		PerTestSeconds: 2, Categories: []string{"procedural"}}
+		PerTestSeconds: 2, Groups: []string{interfaceGroup}}
 	suite := func(mut ...func(p *orbitv1.RunPlan)) *orbitv1.RunPlan {
 		p := conformancePlan(legacy)
 		for _, m := range mut {
@@ -347,6 +368,9 @@ func TestRunConformancePlan(t *testing.T) {
 		name    string
 		req     *orbitv1.RunConformanceRequest
 		wantErr string
+		// wantIDs are the checks a plan that names checks runs, in order;
+		// nil expects the legacy request's count.
+		wantIDs []string
 	}{
 		{name: "a conformance plan", req: &orbitv1.RunConformanceRequest{Plan: suite()}},
 		{name: "a plan and a legacy field", req: &orbitv1.RunConformanceRequest{Plan: suite(), Mcc: "001"},
@@ -355,20 +379,29 @@ func TestRunConformancePlan(t *testing.T) {
 			wantErr: "runs one conformance workload"},
 		{name: "two workloads", req: &orbitv1.RunConformanceRequest{Plan: mixedPlan()},
 			wantErr: "runs one conformance workload"},
+		{name: "a plan naming checks", req: &orbitv1.RunConformanceRequest{Plan: suite(func(p *orbitv1.RunPlan) {
+			p.GetWorkloads()[0].GetConformance().Checks = []string{"ngap-ng-reset-ack", "NGAP-RAN-CONFIG-UPDATE-ACK"}
+		})}, wantIDs: []string{"NGAP-RAN-CONFIG-UPDATE-ACK", "NGAP-NG-RESET-ACK"}},
+		{name: "a plan naming an unknown check", req: &orbitv1.RunConformanceRequest{Plan: suite(func(p *orbitv1.RunPlan) {
+			p.GetWorkloads()[0].GetConformance().Checks = []string{"NGAP-NO-SUCH-CHECK"}
+		})}, wantErr: `unknown check "NGAP-NO-SUCH-CHECK"`},
 		{name: "a plan the build refuses", req: &orbitv1.RunConformanceRequest{Plan: suite(func(p *orbitv1.RunPlan) {
 			p.GetWorkloads()[0].GetConformance().Categories = []string{"bogus"}
 		})}, wantErr: "bogus"},
 	}
+	var ids []string
 	count := func(t *testing.T, req *orbitv1.RunConformanceRequest) (int, *orbitv1.ConformanceUpdate, error) {
 		stream, err := newConformanceClient(t).RunConformance(context.Background(), connect.NewRequest(req))
 		if err != nil {
 			t.Fatal(err)
 		}
 		n := 0
+		ids = nil
 		var last *orbitv1.ConformanceUpdate
 		for stream.Receive() {
-			if stream.Msg().GetResult() != nil {
+			if r := stream.Msg().GetResult(); r != nil {
 				n++
+				ids = append(ids, r.GetId())
 			}
 			last = stream.Msg()
 		}
@@ -390,6 +423,12 @@ func TestRunConformancePlan(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.wantIDs != nil {
+				if !slices.Equal(ids, tc.wantIDs) || !last.GetDone() {
+					t.Errorf("ran %v, want %v", ids, tc.wantIDs)
+				}
+				return
 			}
 			if n != want || !last.GetDone() || last.GetRunId() == "" {
 				t.Errorf("%d results (want %d, as the legacy request gives), last = %v", n, want, last)

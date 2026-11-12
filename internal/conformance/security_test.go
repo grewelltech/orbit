@@ -1,7 +1,9 @@
 package conformance
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -30,6 +32,7 @@ func smcPDU(t *testing.T, ia, ea uint8, replayed []byte) []byte {
 	smc.SetMessageType(f5nas.MsgTypeSecurityModeCommand)
 	smc.SelectedNASSecurityAlgorithms.SetTypeOfIntegrityProtectionAlgorithm(ia)
 	smc.SelectedNASSecurityAlgorithms.SetTypeOfCipheringAlgorithm(ea)
+	smc.SetNasKeySetIdentifiler(3)
 	smc.ReplayedUESecurityCapabilities.SetLen(uint8(len(replayed)))
 	copy(smc.ReplayedUESecurityCapabilities.Buffer, replayed)
 	m.SecurityModeCommand = smc
@@ -44,7 +47,7 @@ func smcPDU(t *testing.T, ia, ea uint8, replayed []byte) []byte {
 // the protected PDU without the key, and refuses anything else.
 func TestParseSMC(t *testing.T) {
 	f, err := parseSMC(smcPDU(t, nas.NIA2, nas.NEA0, normalUECaps.Buffer))
-	if err != nil || f.integrity != nas.NIA2 || f.ciphering != nas.NEA0 || string(f.replayed) != string(normalUECaps.Buffer) {
+	if err != nil || f.integrity != nas.NIA2 || f.ciphering != nas.NEA0 || string(f.replayed) != string(normalUECaps.Buffer) || f.ngKSI != 3 {
 		t.Errorf("parseSMC = %+v, %v", f, err)
 	}
 	if _, err := parseSMC([]byte{0x7e, 0x00, 0x56}); err == nil {
@@ -59,73 +62,88 @@ func TestParseSMC(t *testing.T) {
 }
 
 // Each sub-result: NIA0, differing capabilities and a skipped command FAIL
-// every UE; a reject or release passes the two non-conforming UEs but is
-// ERROR for the normal one; an algorithm the UE did not offer is recorded
-// only. A FAIL of the NIA0-only UE notes that the core's algorithm order
-// decides which FAIL it gives, and a cleanup is recorded.
+// every UE; a reject, a release or no answer passes the two non-conforming
+// UEs but is BLOCKED on the registration for the normal one; an attach that
+// fails first is the setup's to judge; an algorithm the UE did not offer is
+// recorded only. A FAIL of the NIA0-only UE notes that the core's algorithm
+// order decides which FAIL it gives, and a cleanup is recorded.
 func TestJudgeSMC(t *testing.T) {
 	tampered := append([]byte(nil), normalUECaps.Buffer...)
 	tampered[0] ^= 0x01
+	blocked := classifiedBlocked(ProcRegistration)
 	tests := []struct {
 		name         string
 		o            smcOutcome
 		u            smcStimulus
-		want         Verdict
+		want         Outcome
+		wantVerdict  Verdict
 		wantObserved string
 		wantDetail   []string
 	}{
-		{name: "normal: NIA2", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, normalUECaps.Buffer)}, want: Pass,
+		{name: "normal: NIA2", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, normalUECaps.Buffer)}, want: smcSecured,
 			wantObserved: "NIA2 selected, capabilities replayed", wantDetail: []string{"selected 128-NIA2 and NEA0"}},
-		{name: "normal: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, normalUECaps.Buffer)}, want: Fail,
+		{name: "normal: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, normalUECaps.Buffer)}, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected",
 			wantDetail:   []string{"AMF selected NIA0 for a normal registration (UE offered NEA0/NEA1/NEA2, NIA0/NIA1/NIA2). TS 33.501 5.5.2."}},
-		{name: "normal: capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, tampered)}, want: Fail,
+		{name: "normal: capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, tampered)}, want: smcCapsDiffer,
 			wantObserved: "replayed UE security capabilities differ",
 			wantDetail:   []string{"Replayed UE security capabilities differ from those sent. TS 33.501 6.7.2 step 1b.", "Sent e0e0, replayed e1e0."}},
-		{name: "normal: NIA0 and capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, tampered)}, want: Fail,
+		{name: "normal: NIA0 and capabilities differ", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, tampered)}, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected", wantDetail: []string{"TS 33.501 5.5.2", "TS 33.501 6.7.2 step 1b"}},
-		{name: "normal: skipped", o: smcOutcome{acceptFirst: true}, want: Fail, wantObserved: "Security Mode Command skipped",
+		{name: "normal: skipped", o: smcOutcome{acceptFirst: true}, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command before the Registration Accept (UE offered NEA0/NEA1/NEA2, NIA0/NIA1/NIA2). TS 33.501 5.5.2. " + noEmergencyNote}},
-		{name: "normal: skipped, plain Accept", o: smcOutcome{acceptFirst: true, plainAccept: true, cleanup: "x"}, want: Fail,
+		{name: "normal: skipped, plain Accept", o: smcOutcome{acceptFirst: true, plainAccept: true, cleanup: "x"}, want: smcSkipped,
 			wantObserved: "Security Mode Command skipped",
 			wantDetail:   []string{"no Security Mode Command; registration proceeded without NAS security (UE offered", "Cleanup: x."}},
-		{name: "normal: rejected", o: smcOutcome{reject: "Registration Reject"}, want: Error, wantObserved: "Registration Reject before the Security Mode Command"},
-		{name: "normal: released", o: smcOutcome{released: true}, want: Error, wantObserved: "released before the Security Mode Command"},
-		{name: "normal: nothing", o: smcOutcome{noAnswer: true}, want: Error, wantObserved: "no Security Mode Command, reject or release"},
-		{name: "NIA0/NIA3: NIA3", o: smcOutcome{smc: smcPDU(t, nas.NIA3, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: Pass,
+		{name: "normal: rejected", o: smcOutcome{reject: "Registration Reject"}, want: blocked, wantObserved: "Registration Reject before the Security Mode Command"},
+		{name: "normal: released", o: smcOutcome{released: true}, want: blocked, wantObserved: "released before the Security Mode Command"},
+		{name: "normal: nothing", o: smcOutcome{noAnswer: true}, want: blocked, wantObserved: "no Security Mode Command, reject or release"},
+		{name: "normal: attach failed", o: smcOutcome{setupErr: engine.ErrRegistrationRejected}, wantVerdict: Blocked,
+			wantObserved: "registration failed before the Security Mode Command"},
+		{name: "normal: harness failure", o: smcOutcome{err: errors.New("x")}, want: classifiedError, wantObserved: "UE setup failed"},
+		{name: "normal: undecodable command", o: smcOutcome{smc: []byte{0x7e, 0x00, 0x56}}, want: classifiedError, wantObserved: "Security Mode Command did not decode"},
+		{name: "NIA0/NIA3: NIA3", o: smcOutcome{smc: smcPDU(t, nas.NIA3, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: smcSecured,
 			wantObserved: "NIA3 selected, capabilities replayed"},
-		{name: "NIA0/NIA3: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: Pass,
+		{name: "NIA0/NIA3: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: smcSecured,
 			wantDetail: []string{"an algorithm the UE did not offer (recorded, not scored)"}},
-		{name: "NIA0/NIA3: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: Fail,
+		{name: "NIA0/NIA3: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA0, nia0nia3Caps.Buffer)}, u: nia0nia3UE, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected", wantDetail: []string{"UE offered NEA0/NEA3, NIA0/NIA3"}},
-		{name: "NIA0/NIA3: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0nia3UE, want: Pass, wantObserved: "Registration Reject"},
-		{name: "NIA0/NIA3: released", o: smcOutcome{released: true}, u: nia0nia3UE, want: Pass, wantObserved: "UE Context Release Command"},
-		{name: "NIA0/NIA3: skipped", o: smcOutcome{acceptFirst: true}, u: nia0nia3UE, want: Fail, wantObserved: "Security Mode Command skipped"},
-		{name: "NIA0-only: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0OnlyUE, want: Pass, wantObserved: "Registration Reject",
+		{name: "NIA0/NIA3: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0nia3UE, want: smcSecured, wantObserved: "Registration Reject"},
+		{name: "NIA0/NIA3: released", o: smcOutcome{released: true}, u: nia0nia3UE, want: smcSecured, wantObserved: "UE Context Release Command"},
+		{name: "NIA0/NIA3: skipped", o: smcOutcome{acceptFirst: true}, u: nia0nia3UE, want: smcSkipped, wantObserved: "Security Mode Command skipped"},
+		{name: "NIA0-only: rejected", o: smcOutcome{reject: "Registration Reject"}, u: nia0OnlyUE, want: smcSecured, wantObserved: "Registration Reject",
 			wantDetail: []string{"rejected the UE offering NEA0/NEA1/NEA2, NIA0"}},
-		{name: "NIA0-only: released", o: smcOutcome{released: true}, u: nia0OnlyUE, want: Pass, wantObserved: "UE Context Release Command"},
-		{name: "NIA0-only: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA2, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: Fail,
+		{name: "NIA0-only: released", o: smcOutcome{released: true}, u: nia0OnlyUE, want: smcSecured, wantObserved: "UE Context Release Command"},
+		{name: "NIA0-only: NIA0", o: smcOutcome{smc: smcPDU(t, nas.NIA0, nas.NEA2, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: smcNIA0Selected,
 			wantObserved: "NIA0 selected", wantDetail: []string{"AMF selected NIA0", noEmergencyNote, nia0OnlyOrderNote}},
 		{name: "NIA0-only: plain Accept", o: smcOutcome{acceptFirst: true, plainAccept: true, cleanup: "plain switch-off Deregistration Request sent; the core released the UE context (UE Context Release Complete sent)"},
-			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			u: nia0OnlyUE, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command; registration proceeded without NAS security (UE offered NEA0/NEA1/NEA2, NIA0). TS 33.501 5.5.2.",
 				nia0OnlyOrderNote, "Cleanup: plain switch-off Deregistration Request sent; the core released the UE context (UE Context Release Complete sent)."}},
 		{name: "NIA0-only: plain Accept that did not decode", o: smcOutcome{acceptFirst: true, plainAccept: true,
 			noCleanup: fmt.Errorf("%w: bad", engine.ErrDownlinkNASDecode)},
-			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			u: nia0OnlyUE, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"Cleanup: skipped, the plain Registration Accept did not decode: decode downlink NAS: bad."}},
 		{name: "NIA0-only: attach ended before the cleanup", o: smcOutcome{acceptFirst: true, plainAccept: true, noCleanup: context.DeadlineExceeded},
-			u: nia0OnlyUE, want: Fail, wantObserved: "Security Mode Command skipped",
+			u: nia0OnlyUE, want: smcSkipped, wantObserved: "Security Mode Command skipped",
 			wantDetail: []string{"Cleanup: skipped, the attach ended before cleanup: context deadline exceeded."}},
-		{name: "NIA0-only: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: Pass,
+		{name: "NIA0-only: NIA2, not offered", o: smcOutcome{smc: smcPDU(t, nas.NIA2, nas.NEA0, nia0OnlyCaps.Buffer)}, u: nia0OnlyUE, want: smcSecured,
 			wantDetail: []string{"an algorithm the UE did not offer (recorded, not scored)"}},
-		{name: "NIA0-only: nothing", o: smcOutcome{noAnswer: true}, u: nia0OnlyUE, want: Error, wantObserved: "no Security Mode Command, reject or release"},
+		{name: "NIA0-only: nothing", o: smcOutcome{noAnswer: true}, u: nia0OnlyUE, want: smcSecured, wantObserved: "no Security Mode Command, reject or release",
+			wantDetail: []string{"no NIA0 was selected and no command skipped"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := judgeSMC(tc.o, tc.u)
-			if s.v != tc.want || (tc.wantObserved != "" && s.observed != tc.wantObserved) {
-				t.Errorf("= %s %q (%s), want %s %q", s.v, s.observed, s.detail, tc.want, tc.wantObserved)
+			want := tc.wantVerdict
+			if want == "" {
+				want = covers(tc.want).Verdict
+				if s.o.ID != tc.want.ID {
+					t.Errorf("outcome %q, want %q", s.o.ID, tc.want.ID)
+				}
+			}
+			if s.verdict() != want || (tc.wantObserved != "" && s.observed != tc.wantObserved) {
+				t.Errorf("= %s %q (%s), want %s %q", s.verdict(), s.observed, s.detail, want, tc.wantObserved)
 			}
 			for _, w := range tc.wantDetail {
 				if !strings.Contains(s.detail, w) {
@@ -139,11 +157,13 @@ func TestJudgeSMC(t *testing.T) {
 	}
 }
 
-// FAIL beats ERROR beats PASS, Observed names the first sub-result with the
-// worst verdict, and Detail says when the two non-conforming UEs failed the
-// same way.
+// FAIL beats BLOCKED and ERROR, which beat PASS; Observed names the first
+// sub-result that decides, and Detail says when the two non-conforming UEs
+// failed the same way.
 func TestCombineSMC(t *testing.T) {
-	sub := func(n string, v Verdict, obs string) subResult { return subResult{name: n, v: v, observed: obs} }
+	sub := func(n string, o Outcome, obs string) subResult { return subResult{name: n, o: o, observed: obs} }
+	notRun := func(n string) subResult { return subResult{name: n, notRun: true, observed: "not run"} }
+	blocked := classifiedBlocked(ProcRegistration)
 	const same = "failed the same way"
 	tests := []struct {
 		name         string
@@ -152,31 +172,37 @@ func TestCombineSMC(t *testing.T) {
 		wantObserved string
 		wantSame     bool
 	}{
-		{name: "all pass", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Pass, "ok"), sub("NIA0-only UE", Pass, "ok")},
+		{name: "all pass", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcSecured, "ok"), sub("NIA0-only UE", smcSecured, "ok")},
 			want: Pass, wantObserved: "normal UE: ok; NIA0/NIA3 UE: ok; NIA0-only UE: ok"},
-		{name: "second fails", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Fail, "NIA0 selected"), sub("NIA0-only UE", Pass, "ok")},
+		{name: "second fails", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcNIA0Selected, "NIA0 selected"), sub("NIA0-only UE", smcSecured, "ok")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: NIA0 selected"},
-		{name: "only the last fails", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Pass, "ok"), sub("NIA0-only UE", Fail, "Security Mode Command skipped")},
+		{name: "only the last fails", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcSecured, "ok"), sub("NIA0-only UE", smcSkipped, "Security Mode Command skipped")},
 			want: Fail, wantObserved: "NIA0-only UE: Security Mode Command skipped"},
-		{name: "error then fail", subs: []subResult{sub("normal UE", Error, "x"), sub("NIA0/NIA3 UE", Fail, "y"), sub("NIA0-only UE", Pass, "ok")},
+		{name: "error then fail", subs: []subResult{sub("normal UE", classifiedError, "x"), sub("NIA0/NIA3 UE", smcNIA0Selected, "y"), sub("NIA0-only UE", smcSecured, "ok")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: y"},
-		{name: "error, rest not run", subs: []subResult{sub("normal UE", Error, "x"), sub("NIA0/NIA3 UE", Skip, "not run"), sub("NIA0-only UE", Skip, "not run")},
-			want: Error, wantObserved: "normal UE: x"},
-		{name: "last two fail the same way", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Fail, "Security Mode Command skipped"), sub("NIA0-only UE", Fail, "Security Mode Command skipped")},
+		{name: "blocked, rest not run", subs: []subResult{sub("normal UE", blocked, "x"), notRun("NIA0/NIA3 UE"), notRun("NIA0-only UE")},
+			want: Blocked, wantObserved: "normal UE: x"},
+		{name: "pass, then an error", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", classifiedError, "x"), sub("NIA0-only UE", smcSecured, "ok")},
+			want: Error, wantObserved: "NIA0/NIA3 UE: x"},
+		{name: "last two fail the same way", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcSkipped, "Security Mode Command skipped"), sub("NIA0-only UE", smcSkipped, "Security Mode Command skipped")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: Security Mode Command skipped", wantSame: true},
-		{name: "last two fail differently", subs: []subResult{sub("normal UE", Pass, "ok"), sub("NIA0/NIA3 UE", Fail, "NIA0 selected"), sub("NIA0-only UE", Fail, "Security Mode Command skipped")},
+		{name: "last two fail differently", subs: []subResult{sub("normal UE", smcSecured, "ok"), sub("NIA0/NIA3 UE", smcNIA0Selected, "NIA0 selected"), sub("NIA0-only UE", smcSkipped, "Security Mode Command skipped")},
 			want: Fail, wantObserved: "NIA0/NIA3 UE: NIA0 selected"},
-		{name: "normal and last fail the same way", subs: []subResult{sub("normal UE", Fail, "NIA0 selected"), sub("NIA0/NIA3 UE", Pass, "ok"), sub("NIA0-only UE", Fail, "NIA0 selected")},
+		{name: "normal and last fail the same way", subs: []subResult{sub("normal UE", smcNIA0Selected, "NIA0 selected"), sub("NIA0/NIA3 UE", smcSecured, "ok"), sub("NIA0-only UE", smcNIA0Selected, "NIA0 selected")},
 			want: Fail, wantObserved: "normal UE: NIA0 selected"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v, observed, detail := combineSMC(tc.subs...)
-			if v != tc.want || observed != tc.wantObserved {
-				t.Errorf("= %s %q, want %s %q", v, observed, tc.want, tc.wantObserved)
+			s, observed, detail := combineSMC(tc.subs...)
+			if s.verdict() != tc.want || observed != tc.wantObserved {
+				t.Errorf("= %s %q, want %s %q", s.verdict(), observed, tc.want, tc.wantObserved)
 			}
 			for _, s := range tc.subs {
-				if !strings.Contains(detail, s.name+": "+string(s.v)) {
+				label := string(s.verdict())
+				if s.notRun {
+					label = "NOT RUN"
+				}
+				if !strings.Contains(detail, s.name+": "+label) {
 					t.Errorf("detail %q lacks %s", detail, s.name)
 				}
 			}
@@ -192,8 +218,8 @@ func TestCombineSMC(t *testing.T) {
 // in its order it rejects or releases both non-conforming UEs (PASS), falls
 // back to NIA0 (FAIL) or skips the command with a plain Accept (FAIL, the
 // UE cleaned up); forcing NIA0, tampering the capabilities or skipping the
-// command FAILs; an Authentication Reject or no answer is ERROR; a core that
-// dies at the release is the crash FAIL; no UE SKIPs.
+// command FAILs; an Authentication Reject or no answer is BLOCKED on the
+// registration; a core that dies at the release is CRASH; no UE SKIPs.
 func TestSMCCheckAgainstMock(t *testing.T) {
 	noNIA3 := mockamf.WithIntegrityOrder(nas.NIA2, nas.NIA1)
 	skip := mockamf.WithNoCommonIntegrity(mockamf.SkipNoCommonIntegrity)
@@ -227,23 +253,23 @@ func TestSMCCheckAgainstMock(t *testing.T) {
 			}},
 		{name: "plain Accept for the NIA0-only UE", opts: []mockamf.Option{skip}, want: Fail,
 			wantObserved: "NIA0-only UE: Security Mode Command skipped",
-			wantDetail:   []string{"NIA0/NIA3 UE: PASS NIA3 selected", "Cleanup: plain switch-off Deregistration Request sent; " + released + "; requires Rel-15"}},
+			wantDetail:   []string{"NIA0/NIA3 UE: PASS NIA3 selected", "Cleanup: plain switch-off Deregistration Request sent; " + released + "; violates TS 33.501 5.5.2 (shall)"}},
 		{name: "plain Accept, release request ignored", opts: []mockamf.Option{skip, mockamf.WithNoReleaseOnDeregistration(), mockamf.WithIgnoreUEContextReleaseRequest()}, want: Fail,
 			wantObserved: "NIA0-only UE: Security Mode Command skipped",
-			wantDetail:   []string{"UE Context Release Request sent; no UE Context Release Command within 500ms; the association is closed with the UE context still held; requires Rel-15"}},
+			wantDetail:   []string{"UE Context Release Request sent; no UE Context Release Command within 500ms; the association is closed with the UE context still held; violates TS 33.501 5.5.2 (shall)"}},
 		{name: "NIA0 always", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Fail, wantObserved: "normal UE: NIA0 selected"},
 		{name: "tampered capabilities", opts: []mockamf.Option{mockamf.WithSMCTamperCaps()}, want: Fail,
 			wantObserved: "normal UE: replayed UE security capabilities differ"},
 		{name: "skipped", opts: []mockamf.Option{mockamf.WithSkipSMC()}, want: Fail, wantObserved: "normal UE: Security Mode Command skipped",
 			wantDetail: []string{"no Security Mode Command before the Registration Accept (UE offered NEA0/NEA1/NEA2, NIA0/NIA1/NIA2)"}},
-		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Error,
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
 			wantObserved: "normal UE: Authentication Reject before the Security Mode Command",
-			wantDetail:   []string{"NIA0/NIA3 UE: SKIP not run", "NIA0-only UE: SKIP not run"}},
-		{name: "no answer", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Error,
+			wantDetail:   []string{"NIA0/NIA3 UE: NOT RUN not run", "NIA0-only UE: NOT RUN not run", "blocked: the core did not complete a registration"}},
+		{name: "no answer", opts: []mockamf.Option{mockamf.WithNoAuthenticationRequest()}, want: Blocked,
 			wantObserved: "normal UE: no Security Mode Command, reject or release"},
-		{name: "core dies at the release", dead: true, want: Fail,
+		{name: "core dies at the release", dead: true, want: Crash,
 			opts:         []mockamf.Option{noNIA3, mockamf.WithNoCommonIntegrity(mockamf.ReleaseNoCommonIntegrity), mockamf.WithCrashAfterRelease()},
-			wantObserved: ObservedAMFUnresponsive + " (NIA0-only UE: UE setup failed)"},
+			wantObserved: ObservedAMFUnresponsive + " (NIA0-only UE: registration failed before the Security Mode Command)"},
 		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
 	}
 	for _, tc := range tests {
@@ -284,5 +310,564 @@ func TestSMCCheckAgainstMock(t *testing.T) {
 				t.Errorf("%d associations still open after the check", front.Active())
 			}
 		})
+	}
+}
+
+// testUplinkWaits are an uplink check's bounds scaled for the mock.
+var testUplinkWaits = uplinkWaits{register: 3 * time.Second, answer: 1500 * time.Millisecond, quiet: 300 * time.Millisecond, settle: 30 * time.Millisecond, cleanup: 400 * time.Millisecond}
+
+// uplinkMock starts a mock AMF behind a real SCTP listener for the checks
+// that drive uplink NAS by hand: it assigns a 5G-GUTI, and with upf it
+// answers PDU session requests.
+func uplinkMock(t *testing.T, upf bool, opts ...mockamf.Option) (*mockamf.AMF, *sctpfront.Front) {
+	t.Helper()
+	k, _ := auth.ParseHexKey("Ki", testKi)
+	opc, _ := auth.ParseHexKey("OPc", testOPc)
+	cfg := mockamf.Config{
+		Ki: k, OPc: opc, SQN: []byte{0, 0, 0, 0, 0, 0x21}, AMF: []byte{0x80, 0x00},
+		MCC: "208", MNC: "93", SST: 1, SD: "010203",
+	}
+	if upf {
+		cfg.UPF, cfg.UPFAddress = nopUPF{}, "127.0.0.1"
+	}
+	amf, err := mockamf.New(cfg, append([]mockamf.Option{mockamf.WithGUTI()}, opts...)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return amf, sctpfront.Start(t, amf)
+}
+
+// uplinkCase is one row of an uplink check's table against the mock.
+type uplinkCase struct {
+	name         string
+	opts         []mockamf.Option
+	noUPF, noUE  bool
+	want         Verdict
+	wantObserved string
+	// observedPrefix matches wantObserved as a prefix of Observed, for an
+	// Observed that ends in a measured delay.
+	observedPrefix bool
+	wantDetail     []string
+	// wantDereg and wantReleases are the Deregistration Requests and PDU
+	// Session Release Requests the mock must have received.
+	wantDereg, wantReleases int64
+	// wantReplays is how many uplinks the mock must have seen repeat an
+	// accepted NAS COUNT.
+	wantReplays int64
+	// wantBadMACs, when set, is how many uplinks the mock must have seen
+	// fail the integrity check.
+	wantBadMACs int64
+}
+
+// runUplinkCases runs check for each row against its own mock.
+func runUplinkCases(t *testing.T, check Test, tests []uplinkCase) {
+	t.Helper()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			amf, front := uplinkMock(t, !tc.noUPF, tc.opts...)
+			env := ueEnv(front.Addr, "", "127.0.0.1")
+			if tc.noUE {
+				env.UE = UESpec{}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			r := runOne(ctx, check, env, 15*time.Second)
+			observedOK := r.Observed == tc.wantObserved
+			if tc.observedPrefix {
+				observedOK = strings.HasPrefix(r.Observed, tc.wantObserved)
+			}
+			if r.Verdict != tc.want || !observedOK {
+				t.Errorf("= %s %q (%s), want %s %q", r.Verdict, r.Observed, r.Detail, tc.want, tc.wantObserved)
+			}
+			for _, w := range tc.wantDetail {
+				if !strings.Contains(r.Detail, w) {
+					t.Errorf("detail %q lacks %q", r.Detail, w)
+				}
+			}
+			if strings.Contains(r.Detail, testKi) || strings.Contains(r.Detail, testOPc) {
+				t.Error("detail carries key material")
+			}
+			if got := amf.Deregistrations(); got != tc.wantDereg {
+				t.Errorf("mock saw %d Deregistration Requests, want %d", got, tc.wantDereg)
+			}
+			if got := amf.PDUSessionReleaseRequests(); got != tc.wantReleases {
+				t.Errorf("mock saw %d PDU Session Release Requests, want %d", got, tc.wantReleases)
+			}
+			if got := amf.BadMACUplinks(); tc.wantBadMACs != 0 && got != tc.wantBadMACs {
+				t.Errorf("mock saw %d bad-MAC uplinks, want %d", got, tc.wantBadMACs)
+			}
+			if got := amf.ReplayedUplinks(); got != tc.wantReplays {
+				t.Errorf("mock saw %d replayed uplinks, want %d", got, tc.wantReplays)
+			}
+			if amf.EncodeErrors() != 0 {
+				t.Errorf("mock dropped %d downlink PDUs that did not encode", amf.EncodeErrors())
+			}
+			assertNoAssociations(t, front)
+		})
+	}
+}
+
+const (
+	cleanReleased = "Deregistration Request sent and the core released the UE context"
+	cleanDropped  = "the association was dropped, and the core may keep a half-registered UE until its own timers expire"
+	cleanGone     = "cleanup: the UE was already released, so the association was only dropped"
+)
+
+// Every verdict branch of the bad-MAC discard check against the mock AMF
+// over a real SCTP listener: the conformant mock PASSes; one that processes
+// the message, answers it with a 5GMM STATUS, or stops answering after it
+// FAILs; a release after it is WARN; an unanswered first request is BLOCKED
+// on the PDU session and a failed registration on the registration; 5G-IA0
+// and no UE SKIP. The UE is deregistered and
+// its sessions released wherever it still can be.
+func TestIntegrityFailDiscardAgainstMock(t *testing.T) {
+	bad := func(b mockamf.UplinkAction) []mockamf.Option { return []mockamf.Option{mockamf.WithBadMACUplink(b)} }
+	const failure = "AMF processed an uplink NAS message that failed integrity check. TS 24.501 4.4.4.3. Likely cause: AMF integrity check not enforced on this message type."
+	runUplinkCases(t, nasIntegrityFailDiscard{waits: testUplinkWaits}, []uplinkCase{
+		{name: "discarded", want: Pass, wantObserved: "bad-MAC request discarded; a valid request after it was answered",
+			wantDetail: []string{"nothing answered the bad-MAC request within 300ms", "PDU Session Release Request sent for session 2, 4", cleanReleased}, wantDereg: 1, wantReleases: 2},
+		{name: "processed", opts: bad(mockamf.ProcessUplink), want: Fail, wantObserved: "bad-MAC request answered: PDU Session Resource Setup Request",
+			wantDetail: []string{failure, "session 2, 3", cleanReleased}, wantDereg: 1, wantReleases: 2},
+		{name: "5GMM STATUS", opts: bad(mockamf.StatusOnUplink), want: Fail, wantObserved: "5GMM STATUS after the bad-MAC request",
+			wantDetail: []string{failure, "A 5GMM STATUS is an answer", cleanReleased}, wantDereg: 1, wantReleases: 1},
+		{name: "state changed", opts: bad(mockamf.MuteOnUplink), want: Fail, wantObserved: "valid request not answered after the bad-MAC request",
+			wantDetail: []string{failure, "got none within 1.5s", "That the message changed the AMF's state is inferred from this: the valid follow-up request, answered in the same way before the stimulus, went unanswered after it", "no UE Context Release Command within 400ms", cleanDropped}},
+		{name: "released", opts: bad(mockamf.ReleaseOnUplink), want: Warn, wantObserved: "UE released after the bad-MAC request; discard not confirmed",
+			wantDetail: []string{"the AMF sent a UE Context Release Command", "neither the discard the clause requires nor an answer", cleanGone, "WARN for security impact"}},
+		{name: "existing session released", opts: bad(mockamf.ReleaseSessionOnUplink), want: Fail, observedPrefix: true,
+			wantObserved: "bad-MAC request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail:   []string{failure, "within 300ms of it, the check's quiet window, the AMF acted on the UE's registration or PDU sessions", "attributed to the bad-MAC request by timing", cleanReleased}, wantDereg: 1, wantBadMACs: 1},
+		{name: "first request unanswered", noUPF: true, want: Blocked, wantObserved: "a valid PDU Session Establishment Request got no answer",
+			wantDetail: []string{"within 1.5s", cleanReleased, "PDU session establishment"}, wantDereg: 1},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
+			wantDetail: []string{"is not applicable when 5G-IA0 is used"}},
+		{name: "authentication reject", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked, wantObserved: "UE registration failed"},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	})
+}
+
+// Every verdict branch of the replay discard check against the mock AMF
+// over a real SCTP listener: the conformant mock PASSes; one that processes
+// the repeat, answers it with a 5GMM STATUS, or stops answering after it
+// FAILs; a release after it is WARN and an unanswered first request BLOCKED
+// on the PDU session; 5G-IA0 and no UE SKIP. The mock counts exactly one
+// repeated NAS COUNT.
+func TestReplayDiscardAgainstMock(t *testing.T) {
+	replay := func(act mockamf.UplinkAction) []mockamf.Option {
+		return []mockamf.Option{mockamf.WithReplayedUplink(act)}
+	}
+	const failure = "AMF accepted a replayed NAS message (repeated NAS COUNT). TS 33.501 6.4.3.2. Likely cause: NAS COUNT replay check missing."
+	runUplinkCases(t, nasReplayDiscard{waits: testUplinkWaits}, []uplinkCase{
+		{name: "discarded", want: Pass, wantObserved: "replayed request discarded; a valid request after it was answered",
+			wantDetail: []string{"nothing answered the replayed request within 300ms", "PDU Session Release Request sent for session 2, 3", cleanReleased}, wantDereg: 1, wantReleases: 2, wantReplays: 1},
+		{name: "processed", opts: replay(mockamf.ProcessUplink), want: Fail, wantObserved: "replayed request answered: PDU Session Resource Setup Request",
+			wantDetail: []string{failure, cleanReleased}, wantDereg: 1, wantReleases: 1, wantReplays: 1},
+		{name: "5GMM STATUS", opts: replay(mockamf.StatusOnUplink), want: Fail, wantObserved: "5GMM STATUS after the replayed request",
+			wantDetail: []string{failure, cleanReleased}, wantDereg: 1, wantReleases: 1, wantReplays: 1},
+		{name: "state changed", opts: replay(mockamf.MuteOnUplink), want: Fail, wantObserved: "valid request not answered after the replayed request",
+			wantDetail: []string{failure, "That the message changed the AMF's state is inferred from this: the valid follow-up request, answered in the same way before the stimulus, went unanswered after it", cleanDropped}, wantReplays: 1},
+		{name: "released", opts: replay(mockamf.ReleaseOnUplink), want: Warn, wantObserved: "UE released after the replayed request; discard not confirmed",
+			wantDetail: []string{cleanGone}, wantReplays: 1},
+		{name: "existing session released", opts: replay(mockamf.ReleaseSessionOnUplink), want: Fail, observedPrefix: true,
+			wantObserved: "replayed request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail:   []string{failure, "attributed to the replayed request by timing", "processed, not discarded", cleanReleased}, wantDereg: 1, wantReplays: 1},
+		{name: "first request unanswered", noUPF: true, want: Blocked, wantObserved: "a valid PDU Session Establishment Request got no answer",
+			wantDetail: []string{cleanReleased}, wantDereg: 1},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0"},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	})
+}
+
+// The replay check's texts name the replay, and its failure message cites
+// the pinned clause.
+func TestJudgeDiscardReplay(t *testing.T) {
+	w := uplinkWaits{}.withDefaults()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	outs := replayDiscardOutcomes
+	tests := []struct {
+		name         string
+		o            discardOutcome
+		want         Outcome
+		wantObserved string
+		wantDetail   string
+	}{
+		{name: "answered again", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Accept"}}, want: outs.answered,
+			wantObserved: "replayed request answered: PDU Session Establishment Accept", wantDetail: "TS 33.501 6.4.3.2."},
+		{name: "status", o: discardOutcome{first: "a", status: true}, want: outs.status, wantObserved: "5GMM STATUS after the replayed request"},
+		{name: "existing session released", o: discardOutcome{first: "a", sent: t0, acted: []coreAction{{at: t0.Add(25 * time.Millisecond), what: "PDU Session Resource Release Command for session 2"}}},
+			want: outs.actedOn, wantObserved: "replayed request not answered, but acted on: PDU Session Resource Release Command for session 2, 25ms after the replayed request",
+			wantDetail: "TS 33.501 6.4.3.2."},
+		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: outs.released,
+			wantObserved: "UE released after the replayed request; discard not confirmed"},
+		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: outs.stateChanged, wantObserved: "valid request not answered after the replayed request", wantDetail: "NAS COUNT replay check missing"},
+		{name: "pass", o: discardOutcome{first: "a", followUp: "b"}, want: outs.discarded, wantObserved: "replayed request discarded; a valid request after it was answered", wantDetail: "nothing answered the replayed request within 5s"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := judgeDiscard(tc.o, replayStimulus, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || observed != tc.wantObserved || !strings.Contains(detail, tc.wantDetail) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q with %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved, tc.wantDetail)
+			}
+		})
+	}
+}
+
+// Every verdict branch of the NAS COUNT check against the mock AMF over a
+// real SCTP listener: the conformant mock PASSes, and so does one that
+// checks the old sequence number at its original COUNT and then discards
+// the repeat; a mock that stores the COUNT before the MAC check FAILs (C
+// unanswered), and one that answers the re-sent A FAILs under 4.4.3.2; A or
+// B unanswered is BLOCKED on the PDU session and a release after the bad
+// MAC is WARN; 5G-IA0 and no UE SKIP. Where the security context still works the UE is deregistered;
+// where it does not, the association is dropped.
+func TestCountNotAdvancedAgainstMock(t *testing.T) {
+	runUplinkCases(t, nasCountNotAdvanced{waits: testUplinkWaits}, []uplinkCase{
+		{name: "count kept", want: Pass, wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
+			wantDetail: []string{"A sent again got no answer within 300ms", "PDU Session Release Request sent for session 2, 3, 4", cleanReleased}, wantDereg: 1, wantReleases: 3, wantBadMACs: 1},
+		{name: "old COUNT verified, then discarded", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate()}, want: Pass,
+			wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced", wantDetail: []string{cleanReleased}, wantDereg: 1, wantReleases: 3, wantReplays: 1},
+		{name: "count stored before the MAC check", opts: []mockamf.Option{mockamf.WithUplinkCountBeforeMAC()}, want: Fail, wantObserved: countFailObserved,
+			wantDetail: []string{countFailure, "got none within 1.5s with the association up", "no UE Context Release Command within 400ms", cleanDropped}, wantBadMACs: 5},
+		{name: "re-sent request answered", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate(), mockamf.WithReplayedUplink(mockamf.ProcessUplink)}, want: Fail,
+			wantObserved: "re-sent request answered (PDU Session Resource Setup Request): an already accepted NAS COUNT was accepted again",
+			wantDetail:   []string{"TS 24.501 4.4.3.2.", "The request sent after it was not judged.", cleanReleased}, wantDereg: 1, wantReleases: 2, wantReplays: 1},
+		{name: "re-sent request acted on at the old COUNT", opts: []mockamf.Option{mockamf.WithLaxUplinkCountEstimate(), mockamf.WithReplayedUplink(mockamf.ReleaseSessionOnUplink)}, want: Fail,
+			observedPrefix: true, wantObserved: "re-sent request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail: []string{countActedFailure, "attributed to the re-sent A by timing", "PDU Session Release Request sent for session 3;", cleanReleased}, wantDereg: 1, wantReleases: 1, wantReplays: 1},
+		{name: "re-sent request acted on despite the bad MAC", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseSessionOnUplink)}, want: Fail,
+			observedPrefix: true, wantObserved: "re-sent request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail: []string{countActedFailure, cleanReleased}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
+		{name: "A unanswered", noUPF: true, want: Blocked, wantObserved: "PDU Session Establishment Request A got no answer",
+			wantDetail: []string{cleanReleased}, wantDereg: 1},
+		{name: "B unanswered", opts: []mockamf.Option{mockamf.WithPDUSessionAnswers(1)}, want: Blocked, wantObserved: "PDU Session Establishment Request B got no answer",
+			wantDetail: []string{"PDU Session Release Request sent for session 2;", cleanReleased}, wantDereg: 1, wantReleases: 1},
+		{name: "released after the bad MAC", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Warn,
+			wantObserved: "UE released after the re-sent request; the stored NAS COUNT could not be judged",
+			wantDetail:   []string{"the AMF sent a UE Context Release Command", cleanGone}, wantBadMACs: 1},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0",
+			wantDetail: []string{"Integrity verification", "5G-IA0"}},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	})
+}
+
+// Every branch of the NAS COUNT verdict from a constructed outcome.
+func TestJudgeCount(t *testing.T) {
+	w := uplinkWaits{}.withDefaults()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	release := []coreAction{{at: t0.Add(40 * time.Millisecond), what: "PDU Session Resource Release Command for session 2"}}
+	both := [2]string{"a", "b"}
+	blocked := classifiedBlocked(ProcPDUSession)
+	tests := []struct {
+		name         string
+		o            countOutcome
+		want         Outcome
+		wantObserved string
+		wantDetail   []string
+	}{
+		{name: "harness failure", o: countOutcome{err: errors.New("write failed")}, want: classifiedError, wantObserved: "harness failure"},
+		{name: "released early", o: countOutcome{answers: [2]string{"a", ""}, goneEarly: "the AMF sent a UE Context Release Command"}, want: blocked, wantObserved: "UE released before the re-sent request"},
+		{name: "A unanswered", o: countOutcome{}, want: blocked, wantObserved: "PDU Session Establishment Request A got no answer", wantDetail: []string{"within 10s"}},
+		{name: "B unanswered", o: countOutcome{answers: [2]string{"a", ""}}, want: blocked, wantObserved: "PDU Session Establishment Request B got no answer"},
+		{name: "re-sent answered", o: countOutcome{answers: both, replayed: &smReply{name: "PDU Session Establishment Accept"}, third: "c"}, want: countReplayAccepted,
+			wantObserved: "re-sent request answered (PDU Session Establishment Accept): an already accepted NAS COUNT was accepted again", wantDetail: []string{"TS 24.501 4.4.3.2."}},
+		{name: "re-sent answered wins over an action", o: countOutcome{answers: both, replayed: &smReply{name: "x"}, sent: t0, acted: release}, want: countReplayAccepted},
+		{name: "re-sent acted on", o: countOutcome{answers: both, sent: t0, acted: release}, want: countActedOn,
+			wantObserved: "re-sent request not answered, but acted on: PDU Session Resource Release Command for session 2, 40ms after the re-sent request",
+			wantDetail:   []string{countActedFailure, "within 5s of it", "attributed to the re-sent A by timing"}},
+		{name: "re-sent acted on, then released", o: countOutcome{answers: both, sent: t0, acted: release, gone: "the AMF sent a UE Context Release Command"}, want: countActedOn,
+			wantDetail: []string{"; then the AMF sent a UE Context Release Command"}},
+		{name: "C answered, an action after C noted", o: countOutcome{answers: both, third: "c", sent: t0, later: release}, want: countKept,
+			wantDetail: []string{"after C was sent, the AMF also sent (not judged): PDU Session Resource Release Command for session 2"}},
+		{name: "C answered", o: countOutcome{answers: both, third: "c"}, want: countKept, wantObserved: "valid request answered after the re-sent one; the stored NAS COUNT was not advanced",
+			wantDetail: []string{"within 5s", "C was answered (c)"}},
+		{name: "C answered, then released", o: countOutcome{answers: both, third: "c", gone: "gone"}, want: countKept},
+		{name: "released before C", o: countOutcome{answers: both, gone: "the association was lost (EOF)"}, want: countReleased,
+			wantObserved: "UE released after the re-sent request; the stored NAS COUNT could not be judged", wantDetail: []string{"the association was lost (EOF)"}},
+		{name: "C unanswered", o: countOutcome{answers: both}, want: countAdvanced, wantObserved: countFailObserved, wantDetail: []string{countFailure, "got none within 10s"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := judgeCount(tc.o, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
+			}
+			for _, want := range tc.wantDetail {
+				if !strings.Contains(detail, want) {
+					t.Errorf("detail %q lacks %q", detail, want)
+				}
+			}
+		})
+	}
+}
+
+// The failure message is the one the check's issue fixes.
+func TestCountFailureMessage(t *testing.T) {
+	const want = "AMF did not process a valid uplink NAS message sent after a MAC-failed message with a lower sequence number. TS 24.501 4.4.3.3. Likely cause: the stored uplink NAS COUNT is advanced before the integrity check passes."
+	if countFailure != want {
+		t.Errorf("countFailure = %q", countFailure)
+	}
+}
+
+// Every verdict branch of the bad-MAC registration check against the mock
+// AMF over a real SCTP listener: no answer PASSes and a release is WARN; a
+// Registration Accept, a Registration Reject, a Security Mode Command and a
+// 5GMM STATUS with no authentication first FAIL; an Authentication Request
+// and an Identity Request SKIP with the ambiguity named; a PDU session that
+// is rejected or not answered is BLOCKED on the PDU session, and a UE that
+// does not register BLOCKED on the registration; 5G-IA0 and no UE SKIP. The
+// session is released and the UE deregistered wherever it still is one.
+func TestBadMACRegistrationAgainstMock(t *testing.T) {
+	reg := func(b mockamf.BadMACRegistration) []mockamf.Option {
+		return []mockamf.Option{mockamf.WithBadMACRegistration(b)}
+	}
+	const released = "PDU Session Release Request sent for session 2; " + cleanReleased
+	runUplinkCases(t, nasBadMACRegistration{waits: testUplinkWaits}, []uplinkCase{
+		{name: "discarded", want: Pass, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST",
+			wantDetail: []string{"nothing answered it within 300ms", released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
+		{name: "released", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseOnUplink)}, want: Warn,
+			wantObserved: "UE released after the bad-MAC REGISTRATION REQUEST, with no answer",
+			wantDetail:   []string{"the AMF sent a UE Context Release Command", "the release acts on the message", cleanGone}, wantBadMACs: 1},
+		{name: "session released", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.ReleaseSessionOnUplink)}, want: Fail, observedPrefix: true,
+			wantObserved: "PDU session acted on after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, ",
+			wantDetail:   []string{badMACRegFailure, "both readings of the clause forbid it", cleanReleased}, wantDereg: 1, wantBadMACs: 1},
+		{name: "accepted without authentication", opts: reg(mockamf.AcceptBadMACRegistration), want: Fail,
+			wantObserved: "REGISTRATION ACCEPT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it",
+			wantDetail:   []string{badMACRegFailure, "both readings of the clause forbid it", released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
+		{name: "re-authenticated", opts: reg(mockamf.ReauthenticateBadMACRegistration), want: Skip, wantObserved: badMACRegReauth,
+			wantDetail: []string{"the AMF answered with AUTHENTICATION REQUEST", "it is not graded", released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
+		{name: "rejected", opts: reg(mockamf.RejectBadMACRegistration), want: Fail,
+			wantObserved: "REGISTRATION REJECT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it",
+			wantDetail:   []string{badMACRegFailure, released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
+		{name: "security mode command", opts: reg(mockamf.SMCBadMACRegistration), want: Fail,
+			wantObserved: "SECURITY MODE COMMAND after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it",
+			wantDetail:   []string{badMACRegFailure, released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
+		{name: "5GMM STATUS", opts: []mockamf.Option{mockamf.WithBadMACUplink(mockamf.StatusOnUplink)}, want: Fail,
+			wantObserved: "5GMM STATUS after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it",
+			wantDetail:   []string{badMACRegFailure, released}, wantDereg: 1, wantReleases: 1, wantBadMACs: 1},
+		{name: "PDU session rejected", opts: []mockamf.Option{mockamf.WithUnknownDNN("internet", mockamf.RejectDNN, 0)}, want: Blocked,
+			wantObserved: "no PDU session established",
+			wantDetail:   []string{"answered with PDU Session Establishment Reject", cleanReleased}, wantDereg: 1},
+		{name: "PDU session unanswered", noUPF: true, want: Blocked, wantObserved: "no PDU session established",
+			wantDetail: []string{"got no answer within 1.5s", cleanReleased}, wantDereg: 1},
+		{name: "registration fails", opts: []mockamf.Option{mockamf.WithAuthenticationReject()}, want: Blocked,
+			wantObserved: "UE registration failed"},
+		{name: "5G-IA0 selected", opts: []mockamf.Option{mockamf.WithSMCIntegrity(nas.NIA0)}, want: Skip, wantObserved: "the core selected 5G-IA0"},
+		{name: "no UE", noUE: true, want: Skip, wantObserved: "no UE configured"},
+	})
+}
+
+// The grading rule: FAIL only for an answer both readings of 4.4.4.3
+// forbid, SKIP for one a reading allows, and other messages are not answers.
+func TestClassifyBadMACRegAnswer(t *testing.T) {
+	tests := []struct {
+		mt       uint8
+		want     badMACRegAnswer
+		wantName string
+	}{
+		{f5nas.MsgTypeAuthenticationRequest, allowedByOneReading, "AUTHENTICATION REQUEST"},
+		{f5nas.MsgTypeIdentityRequest, allowedByOneReading, "IDENTITY REQUEST"},
+		{f5nas.MsgTypeRegistrationAccept, forbiddenByBoth, "REGISTRATION ACCEPT"},
+		{f5nas.MsgTypeRegistrationReject, forbiddenByBoth, "REGISTRATION REJECT"},
+		{f5nas.MsgTypeSecurityModeCommand, forbiddenByBoth, "SECURITY MODE COMMAND"},
+		{f5nas.MsgTypeStatus5GMM, forbiddenByBoth, "5GMM STATUS"},
+		{f5nas.MsgTypeAuthenticationReject, forbiddenByBoth, "AUTHENTICATION REJECT"},
+		{f5nas.MsgTypeDeregistrationRequestUETerminatedDeregistration, forbiddenByBoth, "DEREGISTRATION REQUEST"},
+		{f5nas.MsgTypeConfigurationUpdateCommand, unrelatedAnswer, "5GMM message type 0x54"},
+		{f5nas.MsgTypeDLNASTransport, unrelatedAnswer, "5GMM message type 0x68"},
+	}
+	for _, tc := range tests {
+		if got, name := classifyBadMACRegAnswer(tc.mt); got != tc.want || name != tc.wantName {
+			t.Errorf("classifyBadMACRegAnswer(%#x) = %d %q, want %d %q", tc.mt, got, name, tc.want, tc.wantName)
+		}
+	}
+}
+
+// Every branch of the bad-MAC registration verdict from a constructed
+// outcome; the first answer the rule classifies decides.
+func TestJudgeBadMACRegistration(t *testing.T) {
+	w := uplinkWaits{}.withDefaults()
+	with := func(answers ...uint8) badMACRegOutcome { return badMACRegOutcome{session: "s", answers: answers} }
+	undecoded := with(f5nas.MsgTypeConfigurationUpdateCommand)
+	undecoded.undecoded = []string{"bad (NAS 7e02)"}
+	authThenUndecoded := with(f5nas.MsgTypeAuthenticationRequest)
+	authThenUndecoded.undecoded = []string{"bad (NAS 7e02)"}
+	released := with()
+	released.gone = "the association was lost (EOF)"
+	acceptThenReleased := with(f5nas.MsgTypeRegistrationAccept)
+	acceptThenReleased.gone = "the AMF sent a UE Context Release Command"
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	acted := func(o badMACRegOutcome) badMACRegOutcome {
+		o.sent = t0
+		o.acted = []coreAction{{at: t0.Add(30 * time.Millisecond), what: "PDU Session Resource Release Command for session 2"}}
+		return o
+	}
+	actedReleased := acted(with())
+	actedReleased.gone = "the AMF sent a UE Context Release Command"
+	actedUndecoded := acted(with())
+	actedUndecoded.undecoded = []string{"bad (NAS 7e02)"}
+	blocked := classifiedBlocked(ProcPDUSession)
+	tests := []struct {
+		name         string
+		o            badMACRegOutcome
+		want         Outcome
+		wantObserved string
+		wantDetail   []string
+	}{
+		{name: "harness failure", o: badMACRegOutcome{err: errors.New("no 5G-GUTI")}, want: classifiedError, wantObserved: "harness failure", wantDetail: []string{"no 5G-GUTI"}},
+		{name: "released early", o: badMACRegOutcome{goneEarly: "the AMF sent a UE Context Release Command"}, want: blocked, wantObserved: "the UE was released before the stimulus"},
+		{name: "session rejected", o: badMACRegOutcome{sessionAnswer: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN"}, want: blocked,
+			wantObserved: "no PDU session established", wantDetail: []string{"answered with PDU Session Establishment Reject"}},
+		{name: "session unanswered", o: badMACRegOutcome{}, want: blocked, wantObserved: "no PDU session established", wantDetail: []string{"within 10s"}},
+		{name: "silence", o: with(), want: badMACRegDiscarded, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST", wantDetail: []string{"within 5s"}},
+		{name: "unrelated message only", o: with(f5nas.MsgTypeConfigurationUpdateCommand), want: badMACRegDiscarded, wantObserved: "no answer to the bad-MAC REGISTRATION REQUEST",
+			wantDetail: []string{"not answers to a registration: 5GMM message type 0x54"}},
+		{name: "released", o: released, want: badMACRegReleased, wantObserved: "UE released after the bad-MAC REGISTRATION REQUEST, with no answer", wantDetail: []string{"the association was lost (EOF)"}},
+		{name: "authentication request", o: with(f5nas.MsgTypeAuthenticationRequest), want: badMACRegReauthenticated, wantObserved: badMACRegReauth, wantDetail: []string{"it is not graded"}},
+		{name: "authentication, then accept", o: with(f5nas.MsgTypeAuthenticationRequest, f5nas.MsgTypeRegistrationAccept), want: badMACRegReauthenticated, wantObserved: badMACRegReauth},
+		{name: "authentication, then an undecodable PDU", o: authThenUndecoded, want: badMACRegReauthenticated, wantObserved: badMACRegReauth},
+		{name: "identity request", o: with(f5nas.MsgTypeIdentityRequest), want: badMACRegIdentityRequested, wantObserved: badMACRegIdentity},
+		{name: "session released", o: acted(with()), want: badMACRegActedOn,
+			wantObserved: "PDU session acted on after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it: PDU Session Resource Release Command for session 2, 30ms after the bad-MAC REGISTRATION REQUEST",
+			wantDetail:   []string{badMACRegFailure, "both readings of the clause forbid it"}},
+		{name: "session released, then authentication", o: acted(with(f5nas.MsgTypeAuthenticationRequest)), want: badMACRegActedOn,
+			wantDetail: []string{"The AUTHENTICATION REQUEST came only after it."}},
+		{name: "session released, then accept", o: acted(with(f5nas.MsgTypeRegistrationAccept)), want: badMACRegProcessed},
+		{name: "session released, then the UE", o: actedReleased, want: badMACRegActedOn, wantDetail: []string{"; then the AMF sent a UE Context Release Command"}},
+		{name: "session released, an undecodable PDU", o: actedUndecoded, want: badMACRegActedOn},
+		{name: "accept", o: with(f5nas.MsgTypeRegistrationAccept), want: badMACRegProcessed,
+			wantObserved: "REGISTRATION ACCEPT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it", wantDetail: []string{badMACRegFailure}},
+		{name: "unrelated, then accept", o: with(f5nas.MsgTypeConfigurationUpdateCommand, f5nas.MsgTypeRegistrationAccept), want: badMACRegProcessed},
+		{name: "accept, then released", o: acceptThenReleased, want: badMACRegProcessed},
+		{name: "reject", o: with(f5nas.MsgTypeRegistrationReject), want: badMACRegProcessed, wantObserved: "REGISTRATION REJECT after the bad-MAC REGISTRATION REQUEST, with no AUTHENTICATION REQUEST before it"},
+		{name: "status", o: with(f5nas.MsgTypeStatus5GMM), want: badMACRegProcessed},
+		{name: "security mode command", o: with(f5nas.MsgTypeSecurityModeCommand), want: badMACRegProcessed},
+		{name: "network deregistration", o: with(f5nas.MsgTypeDeregistrationRequestUETerminatedDeregistration), want: badMACRegProcessed},
+		{name: "undecodable downlink", o: undecoded, want: classifiedError, wantObserved: "a downlink NAS PDU after the stimulus did not decode",
+			wantDetail: []string{"bad (NAS 7e02)", "5GMM message type 0x54"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := judgeBadMACRegistration(tc.o, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
+			}
+			for _, want := range tc.wantDetail {
+				if !strings.Contains(detail, want) {
+					t.Errorf("detail %q lacks %q", detail, want)
+				}
+			}
+		})
+	}
+}
+
+// The texts are the ones the check's issue fixes.
+func TestBadMACRegistrationTexts(t *testing.T) {
+	const fail = "AMF processed a REGISTRATION REQUEST that failed the integrity check after secure exchange was established, without re-authenticating. TS 24.501 4.4.4.3. Likely cause: the AMF applies the integrity-failure exemption list after secure exchange."
+	const skip = "AMF re-authenticated after a bad-MAC REGISTRATION REQUEST after secure exchange; TS 24.501 4.4.4.3 does not settle whether its message-specific rules apply after secure exchange"
+	if badMACRegFailure != fail || badMACRegReauth != skip {
+		t.Errorf("failure %q, skip %q", badMACRegFailure, badMACRegReauth)
+	}
+}
+
+// Every branch of the discard verdict from a constructed outcome.
+func TestJudgeDiscard(t *testing.T) {
+	w := uplinkWaits{}.withDefaults()
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	release := []coreAction{{at: t0.Add(25 * time.Millisecond), what: "PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2"}}
+	dereg := []coreAction{{at: t0.Add(1500 * time.Millisecond), what: "network-initiated Deregistration Request", dereg: true}}
+	outs := integrityDiscardOutcomes
+	blocked := classifiedBlocked(ProcPDUSession)
+	tests := []struct {
+		name         string
+		o            discardOutcome
+		want         Outcome
+		wantObserved string
+		wantDetail   []string
+	}{
+		{name: "harness failure", o: discardOutcome{err: errors.New("write failed")}, want: classifiedError, wantObserved: "harness failure", wantDetail: []string{"write failed"}},
+		{name: "released before", o: discardOutcome{goneFirst: "the AMF sent a UE Context Release Command"}, want: blocked, wantObserved: "UE released before the bad-MAC request"},
+		{name: "no first answer", o: discardOutcome{}, want: blocked, wantObserved: "a valid PDU Session Establishment Request got no answer", wantDetail: []string{"within 10s"}},
+		{name: "answered", o: discardOutcome{first: "a", reply: &smReply{name: "PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN"}}, want: outs.answered,
+			wantObserved: "bad-MAC request answered: PDU Session Establishment Reject, 5GSM cause #27 missing or unknown DNN", wantDetail: []string{"TS 24.501 4.4.4.3."}},
+		{name: "answer wins over a release", o: discardOutcome{first: "a", reply: &smReply{name: "x"}, gone: "gone"}, want: outs.answered, wantObserved: "bad-MAC request answered: x"},
+		{name: "status", o: discardOutcome{first: "a", status: true}, want: outs.status, wantObserved: "5GMM STATUS after the bad-MAC request"},
+		{name: "status wins over an action", o: discardOutcome{first: "a", status: true, sent: t0, acted: release}, want: outs.status, wantObserved: "5GMM STATUS after the bad-MAC request"},
+		{name: "answer wins over an action", o: discardOutcome{first: "a", reply: &smReply{name: "x"}, sent: t0, acted: release}, want: outs.answered, wantObserved: "bad-MAC request answered: x"},
+		{name: "session released", o: discardOutcome{first: "a", sent: t0, acted: release}, want: outs.actedOn,
+			wantObserved: "bad-MAC request not answered, but acted on: PDU Session Resource Release Command for session 2, carrying a PDU Session Release Command for session 2, 25ms after the bad-MAC request",
+			wantDetail:   []string{"TS 24.501 4.4.4.3.", "within 5s of it, the check's quiet window, the AMF acted on the UE's registration or PDU sessions", "attributed to the bad-MAC request by timing"}},
+		{name: "deregistered", o: discardOutcome{first: "a", sent: t0, acted: dereg}, want: outs.actedOn,
+			wantObserved: "bad-MAC request not answered, but acted on: network-initiated Deregistration Request, 1.5s after the bad-MAC request"},
+		{name: "action wins over a release", o: discardOutcome{first: "a", sent: t0, acted: release, gone: "the AMF sent a UE Context Release Command"}, want: outs.actedOn,
+			wantDetail: []string{"25ms after the bad-MAC request; then the AMF sent a UE Context Release Command)"}},
+		{name: "released after", o: discardOutcome{first: "a", gone: "the association was lost (EOF)"}, want: outs.released,
+			wantObserved: "UE released after the bad-MAC request; discard not confirmed", wantDetail: []string{"the association was lost (EOF)"}},
+		{name: "follow-up unanswered", o: discardOutcome{first: "a"}, want: outs.stateChanged, wantObserved: "valid request not answered after the bad-MAC request", wantDetail: []string{"got none within 10s"}},
+		{name: "pass", o: discardOutcome{first: "a", followUp: "b", undecoded: []string{"bad (NAS 7e02)"}}, want: outs.discarded,
+			wantObserved: "bad-MAC request discarded; a valid request after it was answered", wantDetail: []string{"within 5s", "1 downlink NAS PDU(s) after the bad-MAC request did not decode: bad (NAS 7e02)"}},
+		{name: "pass, an action after the follow-up noted", o: discardOutcome{first: "a", followUp: "b", sent: t0, later: dereg}, want: outs.discarded,
+			wantObserved: "bad-MAC request discarded; a valid request after it was answered",
+			wantDetail:   []string{"the AMF also sent (not judged): network-initiated Deregistration Request, 1.5s after the bad-MAC request"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			o, observed, detail := judgeDiscard(tc.o, badMACStimulus, w)
+			if o.ID != covers(tc.want).ID || o.Verdict != tc.want.Verdict || (tc.wantObserved != "" && observed != tc.wantObserved) {
+				t.Errorf("= %s %s %q (%s), want %s %s %q", o.ID, o.Verdict, observed, detail, tc.want.ID, tc.want.Verdict, tc.wantObserved)
+			}
+			for _, want := range tc.wantDetail {
+				if !strings.Contains(detail, want) {
+					t.Errorf("detail %q lacks %q", detail, want)
+				}
+			}
+		})
+	}
+}
+
+// corruptMAC inverts octets 3 to 6 and nothing else, on a copy.
+func TestCorruptMAC(t *testing.T) {
+	tests := []struct{ in, want []byte }{
+		{[]byte{0x7e, 0x02, 1, 2, 3, 4, 9, 0x7e}, []byte{0x7e, 0x02, 0xfe, 0xfd, 0xfc, 0xfb, 9, 0x7e}},
+		{[]byte{0x7e, 0x02, 1}, []byte{0x7e, 0x02, 0xfe}},
+		{nil, nil},
+	}
+	for _, tc := range tests {
+		in := append([]byte(nil), tc.in...)
+		if got := corruptMAC(in); !bytes.Equal(got, tc.want) || !bytes.Equal(in, tc.in) {
+			t.Errorf("corruptMAC(%x) = %x (input now %x), want %x", tc.in, got, in, tc.want)
+		}
+	}
+}
+
+// describeActions names each action with its delay after the stimulus, and
+// sessionActions leaves the Deregistration Request out.
+func TestDescribeAndFilterActions(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rel := coreAction{at: t0.Add(25*time.Millisecond + 300*time.Microsecond), what: "PDU Session Resource Release Command for session 2"}
+	same := coreAction{at: t0, what: "PDU Session Modification Command for session 3"}
+	dereg := coreAction{at: t0.Add(2 * time.Second), what: "network-initiated Deregistration Request", dereg: true}
+	tests := []struct {
+		name    string
+		actions []coreAction
+		want    string
+	}{
+		{name: "none", want: ""},
+		{name: "one", actions: []coreAction{rel}, want: "PDU Session Resource Release Command for session 2, 25ms after the stimulus"},
+		{name: "no measurable delay", actions: []coreAction{same}, want: "PDU Session Modification Command for session 3, under 1ms after the stimulus"},
+		{name: "several", actions: []coreAction{rel, dereg},
+			want: "PDU Session Resource Release Command for session 2, 25ms after the stimulus; network-initiated Deregistration Request, 2s after the stimulus"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := describeActions(tc.actions, t0, "stimulus"); got != tc.want {
+				t.Errorf("describeActions = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := sessionActions([]coreAction{rel, dereg, same}); len(got) != 2 || got[0].what != rel.what || got[1].what != same.what {
+		t.Errorf("sessionActions = %+v, want the release and the modification", got)
+	}
+	if got := sessionActions([]coreAction{dereg}); len(got) != 0 {
+		t.Errorf("sessionActions of a Deregistration Request alone = %+v, want none", got)
 	}
 }

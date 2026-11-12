@@ -94,7 +94,7 @@ ran:
   n2_source_ips: [127.0.0.1]
 `)
 	file := filepath.Join(t.TempDir(), "suite.yaml")
-	if err := os.WriteFile(file, []byte("kind: run\nworkloads:\n  - name: suite\n    conformance: {categories: [negative-ie], per_test_timeout_ms: 3000}\n"), 0o600); err != nil {
+	if err := os.WriteFile(file, []byte("kind: run\nworkloads:\n  - name: suite\n    conformance: {groups: [NGAP], per_test_timeout_ms: 3000}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	const notice = `notice: core.plmn.mcc: env $ORBIT_MCC (208) overrode target `

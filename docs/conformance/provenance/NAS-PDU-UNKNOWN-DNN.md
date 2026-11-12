@@ -43,7 +43,7 @@ V15.0.0:
 - **Required from V15.1.0:** the stimulus is a DNN the core does not support, so the shall applies from V15.1.0 under both readings. Only a core built on V15.0.0 could legally drop the request. Since cannot express a version, so the check's Expected says so.
 - **Use in the check:**
   - The AMF returning the request is path (B), judged under 5.4.5.3.2.
-  - A congestion send-back is SKIP.
+  - A congestion send-back is SKIP, the alternative this item permits.
 
 ## TS 24.501 5.4.5.3.2 (case e) of 5.4.5.3.1) (network-initiated NAS transport), shall
 
@@ -67,10 +67,10 @@ Payload container type is "N1 SM information", and the Payload container carries
 - **Use in the check:**
   - #90 or #91 with a payload container byte-equal to the request the UE sent is PASS (B). Which of the two causes was used is recorded, not asserted.
   - #90 or #91 with any other payload is FAIL, including an AMF-built PDU SESSION ESTABLISHMENT REJECT.
-  - The request returned byte-equal with #22, #67 or #69 is SKIP, for every target release. The congestion path is conformant, and the unknown-DNN path was not exercised. The detail records the cause and whether a Back-off timer value IE was present.
-  - The request returned with any other 5GMM cause is ERROR, not judged.
+  - The request returned byte-equal with #22, #67 or #69 is SKIP (permitted alternative), for every target release. The congestion path is conformant, and the unknown-DNN path was not exercised. The detail records the cause and whether a Back-off timer value IE was present.
+  - The request returned with any other 5GMM cause is INFO, not judged: the AMF may return the request for another case of 5.4.5.3.1.
 
-## TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (UE-requested PDU session establishment not accepted by the network), shall
+## TS 24.501 6.4.1.4.1 (6.4.1.4 in V15.1.0 to V15.7.0) (UE-requested PDU session establishment not accepted by the network), shall, primary
 
 > "If the connectivity with the requested DN is rejected by the network, the SMF shall create a PDU SESSION ESTABLISHMENT REJECT message."
 
@@ -100,27 +100,28 @@ Payload container type is "N1 SM information", and the Payload container carries
 - **Since:** Rel-15, V15.0.0 (`24501-f00.zip`). Annex B is informative.
 - **Changes:** none. The wording is the same in every version from V15.0.0 to V20.1.0.
 
-## Verdicts
+## Verdict
 
-- **PASS (A):** a PDU SESSION ESTABLISHMENT REJECT, any 5GSM cause.
-  - **Known limit:** an AMF-built Reject with no 5GMM cause looks the same on the wire as an SMF's Reject, so it also scores PASS (A). The detail says the two cannot be told apart.
-- **PASS (B):** a DL NAS TRANSPORT with #90/#91 whose payload is byte-equal to the request the UE sent.
+- **Class:** conformance, three shalls (6.4.1.4.1, 5.4.5.2.5 a) 1), 5.4.5.3.2).
+- **Stimulus:** one registration with a PDU SESSION ESTABLISHMENT REQUEST for DNN `orbit-unknown-dnn` on the run's slice; the answer is awaited for 10 s.
+- **PASS** `rejected` (6.4.1.4.1): a PDU SESSION ESTABLISHMENT REJECT, any 5GSM cause.
+  - **Known limit:** an AMF-built Reject with no 5GMM cause looks the same on the wire as an SMF's Reject, so it also scores PASS. The detail says the two cannot be told apart.
+- **PASS** `returned` (5.4.5.2.5 a) 1), 5.4.5.3.2): a DL NAS TRANSPORT with #90/#91 whose payload is byte-equal to the request the UE sent.
 - **FAIL:**
-  - #90/#91 with another payload. The likely cause depends on the payload. If it is a PDU SESSION ESTABLISHMENT REJECT: "AMF returns its own Reject in the payload container instead of the un-forwarded message". Otherwise: "AMF returns a payload other than the un-forwarded 5GSM message".
-  - The request returned byte-equal with no 5GMM cause: 5.4.5.3.2 requires one. The likely cause is "AMF returned the request without the 5GMM cause 5.4.5.3.2 requires".
-  - Nothing back within 10 s. Either the SMF shall reject or the AMF shall return the message, so this FAIL cites both.
-  - A 5GMM STATUS and nothing else within 10 s (Open5GS v2.8.0 answers with a 5GMM STATUS, cause #91). 5.4.5.2.5 a) 1) has the AMF send back the 5GSM message, which a 5GMM STATUS does not carry. Observed names the STATUS and its 5GMM cause; the wait is not cut short, so a Reject or send-back that follows the STATUS is still judged. The likely cause is "the AMF reports the failure in a 5GMM STATUS instead of sending back the 5GSM message".
-  - Any other decoded answer, for example a 5GSM STATUS. Its 5GSM cause is recorded. #43 or a protocol-error cause (#95 to #101, #111) adds "check the stimulus".
-- **SKIP:**
-  - The core accepted the stimulus DNN, either by establishing the session or with an Accept in a plain DL NAS TRANSPORT. No shall forbids accepting it.
-  - A congestion send-back (#22/#67/#69, case f)).
-  - No UE configured.
-- **ERROR:**
-  - A registration or harness failure.
-  - A downlink after the request that fails the integrity check ("downlink NAS after the request failed integrity check", with its message type when the header is readable).
-  - A downlink after the request that does not decode, or a Reject or 5GSM STATUS payload that does not decode. Orbit's codec covers about Rel-15/16, so this may be Orbit's gap; the raw NAS is in the detail.
-  - The request returned with a 5GMM cause other than #90/#91/#22/#67/#69.
-- A core that then stops completing NG Setup is the crash FAIL.
+  - `wrong-payload` (5.4.5.2.5 a) 1), 5.4.5.3.2): #90/#91 with another payload. The likely cause depends on the payload. If it is a PDU SESSION ESTABLISHMENT REJECT: "AMF returns its own Reject in the payload container instead of the un-forwarded message". Otherwise: "AMF returns a payload other than the un-forwarded 5GSM message".
+  - `returned-without-cause` (5.4.5.3.2): the request returned byte-equal with no 5GMM cause. The likely cause is "AMF returned the request without the 5GMM cause 5.4.5.3.2 requires".
+  - `no-answer` (all three): nothing back within 10 s, a bound of the check. Either the SMF shall reject or the AMF shall return the message, so this FAIL cites both.
+  - `5gmm-status-only` (all three): a 5GMM STATUS and nothing else within 10 s. 5.4.5.2.5 a) 1) has the AMF send back the 5GSM message, which a 5GMM STATUS does not carry. Observed names the STATUS and its 5GMM cause; the wait is not cut short, so a Reject or send-back that follows the STATUS is still judged. The likely cause is "the AMF reports the failure in a 5GMM STATUS instead of sending back the 5GSM message".
+  - `released` (all three): a UE CONTEXT RELEASE COMMAND after the request and neither answer.
+  - `unexpected-answer` (all three): any other decoded answer, for example a 5GSM STATUS. Its 5GSM cause is recorded. #43 or a protocol-error cause (#95 to #101, #111) adds "check the stimulus".
+- **SKIP (permitted alternative)** `congestion` (5.4.5.2.5 a) 1)): a congestion send-back (#22/#67/#69, case f)).
+- **INFO** `accepted`: the core accepted the stimulus DNN, either by establishing the session or with an Accept in a plain DL NAS TRANSPORT. No shall forbids accepting it, and none of the WARN criteria applies.
+- **INFO** `returned-other-cause`: the request returned with a 5GMM cause other than #90/#91/#22/#67/#69. The AMF may return a request for another case of 5.4.5.3.1, so the DNN is not judged.
+- **WARN (interoperability)** `integrity-failed`: a downlink after the request that fails the integrity check ("downlink NAS after the request failed integrity check", with its message type when the header is readable). A UE discards such a message, so the answer cannot be judged.
+- **BLOCKED** (registration): the UE did not register, or the registration did not reach the request within 10 s.
+- **CRASH:** the AMF no longer completes an NG Setup after the request.
+- **ERROR:** a harness failure; a downlink before the request, or after it, that does not decode, or a Reject or 5GSM STATUS payload that does not decode (Orbit's codec covers about Rel-15/16, so this may be Orbit's gap; the raw NAS is in the detail); an attach that failed after the request other than by a release; the per-test timeout.
+- **SKIP:** no UE configured, or a target release older than Rel-15.
 
 The answer is decoded through the UE's NAS security context, which verifies the MAC and deciphers. Whenever registration completed, the UE is deregistered at the end, on every verdict, including both decode ERRORs: the UE is RM-REGISTERED by then, and switch-off deregistration uses the uplink context, which a downlink failure does not touch. The association is dropped without a deregistration in two cases only: when the deregistration itself fails or times out, and when the attach fails after the request was sent (the check's deadline, an SCTP read error, or a UE Context Release Command, where the core released the UE context itself). The detail records both cases.
 

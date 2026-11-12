@@ -181,7 +181,9 @@ message LatencyProbe {
 
 // ConformanceWorkload is the conformance suite as a workload.
 message ConformanceWorkload {
-  repeated string categories = 1;   // empty runs everything
+  // Removed: categories were replaced by groups (ADR-0011). A workload
+  // that names one is refused with the groups and checks that replace it.
+  repeated string categories = 1 [deprecated = true];
   string target_release = 2;
   ExpectedFailures expected = 3;
   uint32 per_test_timeout_ms = 4;
@@ -195,6 +197,21 @@ message ConformanceWorkload {
   GNBIDSelection gnb_ids = 8;
   string subscriber_pool = 9;       // the UE checks' subscriber; default the first pool
   string n3_bind = 10;              // the GTP-U checks' local N3 source, ip:port; empty: they SKIP
+  // Check IDs to run (any case), on top of groups; empty runs every
+  // check the groups select. Each check keeps the gNB IDs and the
+  // subscribers it has in a full suite. An unknown ID is refused.
+  repeated string checks = 11;
+  // Groups to run: group paths or prefixes of them, in any case
+  // ("NGAP", "NAS / 5GMM common procedures"), read in the target release;
+  // empty runs every group.
+  repeated string groups = 12;
+  // Tags to run, on top of groups and checks: negative | security |
+  // timing; a check with any of them runs. Empty runs every check.
+  repeated string tags = 13;
+  // A core regression pack whose checks join the run (ADR-0011 rule 1).
+  // It must be for the target's core.profile; a target with no profile or
+  // strict-3gpp has no pack. Empty: the default run, no pack.
+  string pack = 14;
 }
 
 // ExpectedFailures is a core's tolerated FAILs (docs/conformance/expected-failures.md).
@@ -214,6 +231,9 @@ message ExpectedFailure {
   // text. Unset on a result's matched entry.
   string check = 4;
   string observed = 5;
+  // The verdict the entry tolerates: FAIL, DEVIATION or WARN; empty is
+  // FAIL (ADR-0011 rule 8). Unset on a result's matched entry.
+  string verdict = 6;
 }
 
 // NASAlgorithms are the NAS security algorithms the UE offers, as
@@ -276,10 +296,15 @@ enum CompareOp {
   COMPARE_OP_GT = 4;
 }
 
-// ConformanceGate passes when no FAIL falls outside the expected-failures
-// list, no check ERRORed, and the suite ran to the end (Summary.OK, the
-// CLI's exit code).
-message ConformanceGate {}
+// ConformanceGate passes when the suite ran to the end and no result its
+// policy gates falls outside the expected-failures list (Summary.OK, the
+// CLI's exit code; ADR-0011 rule 8). A BLOCKED result counted under its
+// procedure's owner does not count again.
+message ConformanceGate {
+  // The gate policy: "default" (or empty) gates on FAIL, CRASH, BLOCKED,
+  // ERROR, DEVIATION and WARN; "spec" on FAIL, CRASH, BLOCKED and ERROR.
+  string policy = 1;
+}
 
 // GateResult is one gate as the report applied it.
 message GateResult {

@@ -109,7 +109,7 @@ func kernelDial(la, ra *isctp.SCTPAddr, init isctp.InitMsg) (rawConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c, nil
+	return kernelConn{c}, nil
 }
 
 // DefaultDialTimeout bounds an N2 dial whose context carries no deadline. A
@@ -580,6 +580,38 @@ func (c *Conn) ReadMsg(buf []byte) (payload []byte, stream uint16, ppid uint32, 
 }
 
 func (c *Conn) Close() error { return c.c.Close() }
+
+// SetNoDelay sets or clears SCTP_NODELAY on the association. Without it the
+// kernel holds a small DATA chunk back while an earlier one is
+// unacknowledged, for up to the peer's delayed SACK (about 200 ms), so two
+// PDUs written one after the other can leave that far apart; with it each
+// leaves when written. A Dial leaves the kernel's default, off.
+func (c *Conn) SetNoDelay(on bool) error {
+	sc, ok := c.c.(interface {
+		SyscallConn() (syscall.RawConn, error)
+	})
+	if !ok {
+		return errors.New("sctp: SCTP_NODELAY: the association has no socket")
+	}
+	rc, err := sc.SyscallConn()
+	if err != nil {
+		return fmt.Errorf("sctp: SCTP_NODELAY: %w", err)
+	}
+	v := 0
+	if on {
+		v = 1
+	}
+	var serr error
+	if err := rc.Control(func(fd uintptr) {
+		serr = unix.SetsockoptInt(int(fd), isctp.SOL_SCTP, isctp.SCTP_NODELAY, v)
+	}); err != nil {
+		return fmt.Errorf("sctp: SCTP_NODELAY: %w", err)
+	}
+	if serr != nil {
+		return fmt.Errorf("sctp: SCTP_NODELAY: %w", serr)
+	}
+	return nil
+}
 
 // LocalAddr returns the association's local (source) address as the kernel
 // bound it — with the real port when the caller asked for :0 — so a command

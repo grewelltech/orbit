@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	orbitv1 "github.com/bgrewell/orbit/gen/orbit/v1"
+	"github.com/bgrewell/orbit/internal/conformance"
 	"github.com/bgrewell/orbit/internal/engine"
 )
 
@@ -168,7 +169,7 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 		}
 		res := &orbitv1.GateResult{Gate: g}
 		if g.GetConformance() != nil {
-			res.Passed, res.Observed, res.Detail = judgeSuite(r.GetConformance())
+			res.Passed, res.Observed, res.Detail = judgeSuite(r.GetConformance(), conformance.GatePolicy(g.GetConformance().GetPolicy()))
 			r.Gates = append(r.Gates, res)
 			r.GatesPassed = r.GatesPassed && res.Passed
 			continue
@@ -189,30 +190,39 @@ func applyGates(r *orbitv1.RunReport, gates []*orbitv1.Gate) {
 	}
 }
 
-// judgeSuite is the conformance gate (ADR-0008 §2): it passes when the
-// suite ran to the end and no check FAILed outside the expected-failures
-// list or ERRORed, Summary.OK as the CLI's exit code has it. observed is
-// how many did. An incomplete suite fails: an unmeasured suite is not a
+// judgeSuite is the conformance gate (ADR-0008 §2) under policy (ADR-0011
+// rule 8; empty is the default): it passes when the suite ran to the end
+// and no finding the policy gates remains (conformance.GateFindings, as
+// Summary.OK gives the CLI's exit code): no result outside the
+// expected-failures list with a gated verdict, a BLOCKED counted under its
+// procedure's owner counting once, as the owner's (conformance.GateDetail
+// is the detail). observed is how many findings gate. An incomplete suite fails: an unmeasured suite is not a
 // passed one.
-func judgeSuite(c *orbitv1.ConformanceSummary) (passed bool, observed float64, detail string) {
+func judgeSuite(c *orbitv1.ConformanceSummary, policy conformance.GatePolicy) (passed bool, observed float64, detail string) {
 	if c == nil {
 		return false, 0, "no report to judge"
-	}
-	if len(c.GetResults()) == 0 {
-		return false, 0, "no checks ran"
 	}
 	if c.GetIncomplete() {
 		return false, 0, fmt.Sprintf("suite incomplete: %d of %d checks ran", len(c.GetResults()), c.GetTotal())
 	}
-	var bad []string
+	if len(c.GetResults()) == 0 {
+		return false, 0, "no checks ran"
+	}
+	if policy == "" {
+		policy = conformance.GateDefault
+	}
+	results := make([]conformance.Result, 0, len(c.GetResults()))
 	for _, r := range c.GetResults() {
-		switch {
-		case r.GetVerdict() == "FAIL" && r.GetExpectedFailure() == nil, r.GetVerdict() == "ERROR":
-			bad = append(bad, r.GetId()+" "+r.GetVerdict())
+		res := conformance.Result{ID: r.GetId(), Verdict: conformance.Verdict(r.GetVerdict()), Owner: r.GetOwner(),
+			BlockedOn: conformance.Procedure(r.GetBlockedOn()), NotCompleted: conformance.Procedure(r.GetNotCompleted())}
+		if e := r.GetExpectedFailure(); e != nil {
+			res.ExpectedFailure = &conformance.ExpectedFailure{Finding: e.GetFinding(), Added: e.GetAdded(), Reason: e.GetReason()}
 		}
+		results = append(results, res)
 	}
-	if len(bad) > 0 {
-		return false, float64(len(bad)), fmt.Sprintf("%d unexpected: %s", len(bad), strings.Join(bad, ", "))
+	if bad := conformance.GateFindings(results, policy); len(bad) > 0 {
+		return false, float64(len(bad)), conformance.GateDetail(results, policy)
 	}
-	return true, 0, fmt.Sprintf("%d checks, no unexpected FAIL or ERROR", len(c.GetResults()))
+	line := conformance.GateLine(results, policy)
+	return true, 0, fmt.Sprintf("%s; %d checks", line, len(c.GetResults()))
 }

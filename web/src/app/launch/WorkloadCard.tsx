@@ -1,6 +1,6 @@
 /**
  * One workload of the run: a population (attach, topology, behaviours) or
- * a conformance suite (categories, the expected-failures list). Fields the
+ * a conformance suite (groups, the expected-failures list). Fields the
  * form has no control for (a traffic mix, a start) stay in the run file as
  * written, and the YAML editor reaches them.
  */
@@ -10,30 +10,30 @@ import type { Document } from "yaml";
 import { Panel } from "@/components/Panel";
 import { ConformanceService } from "@/gen/orbit/v1/conformance_pb";
 import { orbitTransport } from "@/data/transport";
-import { expectedEntries, inlineExpected, pickedFileRefusal, removeWorkload, setCategories, setKeepUEs, type WorkloadView } from "@/data/launch/form";
+import { expectedEntries, inlineExpected, pickedFileRefusal, removeWorkload, setGroups, setKeepUEs, type WorkloadView } from "@/data/launch/form";
 import { BEHAVIOR_FIELDS } from "@/data/launch/runschema.gen";
 import { readImportFile } from "@/data/targets/importexport";
 import { getValue, type Step } from "@/data/targets/yamlio";
 import { buttonStyle, FieldRow } from "../targets/fields";
 import { RunCheck, RunChoice, RunText, type Edit } from "./RunFields";
 
-/** The categories the server's suite has (ListConformanceTests), fetched once per page. */
-function useCategories(): string[] {
-  const [cats, setCats] = useState<string[]>([]);
+/** The groups the server's suite has (ListConformanceTests), fetched once per page. */
+function useGroups(): string[] {
+  const [groups, setGroupList] = useState<string[]>([]);
   const client = useMemo(() => createClient(ConformanceService, orbitTransport()), []);
   useEffect(() => {
     let live = true;
     client
       .listConformanceTests({})
-      .then((r) => live && setCats([...new Set(r.tests.map((t) => t.category))].sort()))
+      .then((r) => live && setGroupList([...new Set(r.tests.map((t) => t.group).filter((g) => g !== ""))].sort()))
       .catch(() => {
-        /* no server, or a token prompt: the categories stay a free list */
+        /* no server, or a token prompt: the groups stay a free list */
       });
     return () => {
       live = false;
     };
   }, [client]);
-  return cats;
+  return groups;
 }
 
 /** A behaviours field's control, from its schema entry (runschema.gen.ts). */
@@ -61,9 +61,9 @@ function BehaviorField({ doc, edit, base, path, values }: { doc: Document; edit:
 
 export function WorkloadCard({ doc, edit, w, values, onNotice }: { doc: Document; edit: Edit; w: WorkloadView; values: Readonly<Record<string, string>>; onNotice: (n: string) => void }) {
   const base: Step[] = ["workloads", w.index];
-  const categories = useCategories();
+  const groups = useGroups();
   const keeps = doc.getIn([...base, "behaviors"], true) !== undefined;
-  const picked = getValue(doc, [...base, "conformance", "categories"]);
+  const picked = getValue(doc, [...base, "conformance", "groups"]);
   const chosen = Array.isArray(picked) ? picked : [];
   const entries = expectedEntries(doc, w.index);
 
@@ -112,20 +112,20 @@ export function WorkloadCard({ doc, edit, w, values, onNotice }: { doc: Document
           </>
         ) : (
           <>
-            <FieldRow label="categories" path={`${base.join(".")}.conformance.categories`}>
+            <FieldRow label="groups" path={`${base.join(".")}.conformance.groups`}>
               <span className="flex flex-wrap gap-x-3 gap-y-1">
-                {(categories.length > 0 ? categories : chosen).map((c) => (
+                {(groups.length > 0 ? groups : chosen).map((c) => (
                   <label key={c} className="o-label flex items-center gap-1" style={{ color: "var(--o-ink-2)", textTransform: "none" }}>
                     <input
                       type="checkbox"
                       checked={chosen.includes(c)}
-                      onChange={(e) => edit((d) => setCategories(d, w.index, e.target.checked ? [...chosen, c] : chosen.filter((x) => x !== c)))}
+                      onChange={(e) => edit((d) => setGroups(d, w.index, e.target.checked ? [...chosen, c] : chosen.filter((x) => x !== c)))}
                     />
                     {c}
                   </label>
                 ))}
                 <span className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-                  {chosen.length === 0 ? "none ticked: every category" : ""}
+                  {chosen.length === 0 ? "none ticked: every group" : ""}
                 </span>
               </span>
             </FieldRow>
