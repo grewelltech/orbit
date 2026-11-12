@@ -291,7 +291,7 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 		return exitWith(ExitDidNotComplete, fmt.Errorf("run %s: the stream ended before the suite did", last.GetRunId()))
 	}
 	sum := conformance.Summarize(results)
-	sum.Gate, _ = localGatePolicy(gates)
+	sum.Gate = planGatePolicy(p)
 	sum.TargetRelease = conformance.Release(last.GetTargetRelease())
 	for name, rel := range last.GetSpecTargetReleases() {
 		sum.SpecTargets[name] = conformance.Release(rel)
@@ -322,6 +322,21 @@ func thinConformance(cmd *cobra.Command, serverURL *string, o options, gates []s
 	// The run's gates judged it: its report gives the exit, as --wait's.
 	runs := *serverURL
 	return waitRunWith(cmd.Context(), judged, cmd.ErrOrStderr(), runsClient(&runs), last.GetRunId(), nil, waitOpts{})
+}
+
+// planGatePolicy is the policy of the plan's conformance gate, the one
+// every run has (named conformance; --gate spec sets its policy): the gate
+// the report's own gate line speaks for. The server judges every gate of
+// the plan and the run's report lists each (waitRunWith).
+func planGatePolicy(p *orbitv1.RunPlan) conformance.GatePolicy {
+	for _, g := range p.GetGates() {
+		if g.GetName() == "conformance" && g.GetConformance() != nil {
+			if policy, err := conformance.ParseGatePolicy(g.GetConformance().GetPolicy()); err == nil {
+				return policy
+			}
+		}
+	}
+	return conformance.GateDefault
 }
 
 // resultFromProto is a streamed check result as the suite reports it.

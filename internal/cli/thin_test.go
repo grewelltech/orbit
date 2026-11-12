@@ -301,6 +301,15 @@ func TestThinConformanceGateFails(t *testing.T) {
 	if got := ExitCode(r.execErr); got != ExitGateFailed || strings.Count(r.out, "gate spec: failed: ") < 2 {
 		t.Errorf("--gate spec: exit %d, want %d, with the spec gate line in the report and the gate's detail:\n%s", got, ExitGateFailed, r.out)
 	}
+	// A named spec gate is a second gate: the report's line speaks for the
+	// conformance gate, under the default policy, and the server reports
+	// each gate with its own policy.
+	r = runOrbit(t, targetDir(t, lab1), "--server", lab.url, "conformance", "--amf", "127.0.0.1:1", "--mcc", "001", "--mnc", "01",
+		"--group", "NGAP / Interface Management Procedures", "--per-test-timeout", "1s", "--gate", "mine=spec")
+	if got := ExitCode(r.execErr); got != ExitGateFailed || strings.Count(r.out, "gate default: failed: ") < 2 ||
+		!strings.Contains(r.out, "gate mine: FAIL  gate spec: failed: ") || strings.Count(r.out, "gate spec: failed: ") != 1 {
+		t.Errorf("--gate mine=spec: exit %d, want %d, with the default line in the report and each gate's own:\n%s", got, ExitGateFailed, r.out)
+	}
 }
 
 // --gate names the policy --local applies: spec with spec or name=spec,
