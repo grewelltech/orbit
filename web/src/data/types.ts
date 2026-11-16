@@ -197,7 +197,8 @@ export interface TestEvent {
  * `connected` and `disconnected` are about REACHABILITY, not about whether
  * anything is happening: a server with no run to watch is connected and idle,
  * not disconnected. Conflating the two made an idle dashboard permanently
- * report a connection problem it did not have.
+ * report a connection problem it did not have. `unauthorized` is reachable
+ * too: the server answered and refused the API token.
  */
 export type SourceState =
   | "connecting"

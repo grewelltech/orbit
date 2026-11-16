@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@connectrpc/connect";
-import { isAuthRefusal, orbitTransport } from "./transport";
+import { isAuthRefusal, isLockout, orbitTransport } from "./transport";
 import { RunKind, RunService, RunState, type Run as PbRun } from "@/gen/orbit/v1/run_pb";
 
 /** One selectable run. */
@@ -161,14 +161,16 @@ export interface RunsState {
 }
 
 /**
- * Why a poll failed: the server could not be reached, or it answered and
- * refused the API token (none given yet, a wrong one, or a lockout) — the
- * token prompt is then open, and the server is not down.
+ * Why a poll failed: the server could not be reached; it answered and
+ * refused the API token (none given yet, or a wrong one), so the token
+ * prompt is open; or it refused this address for a while after too many
+ * wrong tokens. Only the first means the server is down.
  */
-export type RunsProblem = "unreachable" | "unauthorized" | null;
+export type RunsProblem = "unreachable" | "unauthorized" | "locked" | null;
 
 /** The problem a failed ListRuns call reports. */
 export function pollProblem(err: unknown): Exclude<RunsProblem, null> {
+  if (isLockout(err)) return "locked";
   return isAuthRefusal(err) ? "unauthorized" : "unreachable";
 }
 
@@ -181,7 +183,9 @@ export function problemNotice(problem: RunsProblem, loaded: boolean): { text: st
     case null:
       return null;
     case "unauthorized":
-      return { text: "the server needs its API token — enter it to load runs", warn: true };
+      return { text: "API token required — enter it to load runs", warn: true };
+    case "locked":
+      return { text: "API token required — too many wrong tokens from this address; wait 30 s, then try again", warn: true };
     case "unreachable":
       return loaded
         ? { text: "server unreachable — showing the last known runs (reconnecting…)", warn: true }

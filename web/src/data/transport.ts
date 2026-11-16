@@ -61,7 +61,9 @@ export const authRequired = new Emitter<AuthRefusal>();
 
 function refusal(err: unknown, sent: boolean): AuthRefusal | null {
   const code = ConnectError.from(err).code;
-  if (code === Code.ResourceExhausted) return "locked"; // only the auth layer answers this
+  // The dashboard's calls get ResourceExhausted only from the auth layer
+  // (the server's other use, a busy responder join, is not a dashboard call).
+  if (code === Code.ResourceExhausted) return "locked";
   if (code === Code.Unauthenticated) return sent ? "invalid" : "missing";
   return null;
 }
@@ -72,7 +74,14 @@ function refusal(err: unknown, sent: boolean): AuthRefusal | null {
  * reachability.
  */
 export function isAuthRefusal(err: unknown): boolean {
+  // Whether a token was sent only tells "missing" from "invalid", which
+  // does not matter here.
   return refusal(err, false) !== null;
+}
+
+/** Whether a failed call was refused because this address is locked out for wrong tokens. */
+export function isLockout(err: unknown): boolean {
+  return refusal(err, false) === "locked";
 }
 
 /**
