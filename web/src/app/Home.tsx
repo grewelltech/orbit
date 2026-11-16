@@ -9,7 +9,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
-import { useRuns, type RunOutcome, type RunSummary } from "@/data/runs";
+import { problemNotice, useRuns, type RunOutcome, type RunSummary } from "@/data/runs";
 import { Panel } from "@/components/Panel";
 import { StatTile } from "@/components/StatTile";
 import { PageLinks } from "./PageLinks";
@@ -156,7 +156,8 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 export function Home() {
-  const { runs, loaded, error } = useRuns();
+  const { runs, loaded, problem } = useRuns();
+  const notice = problemNotice(problem, loaded);
   const [filter, setFilter] = useState<Filter>("all");
 
   const active = useMemo(() => runs.filter((r) => r.active && matchesFilter(r, filter)), [runs, filter]);
@@ -197,21 +198,19 @@ export function Home() {
           </Link>
         </div>
 
-        {error && (
+        {notice && (
           <div
             className="o-label shrink-0 border px-3 py-2"
             role="status"
             style={{
               textTransform: "none",
-              color: loaded ? "var(--o-warn, #c9820c)" : "var(--o-error)",
+              color: notice.warn ? "var(--o-warn, #c9820c)" : "var(--o-error)",
               borderColor: "var(--o-border)",
               background: "var(--o-surface)",
               borderRadius: "var(--o-radius)",
             }}
           >
-            {loaded
-              ? "server unreachable — showing the last known runs (reconnecting…)"
-              : "can't reach the server — retrying…"}
+            {notice.text}
           </div>
         )}
 
@@ -244,7 +243,9 @@ export function Home() {
             <RunTable runs={active} />
           ) : (
             <p className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-              {!loaded && error ? (
+              {!loaded && problem === "unauthorized" ? (
+                "waiting for the API token…"
+              ) : !loaded && problem ? (
                 "waiting for the server…"
               ) : (
                 <>
@@ -260,7 +261,7 @@ export function Home() {
             <RunTable runs={past} />
           ) : (
             <p className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-              {!loaded && error ? "—" : "no finished runs match this filter yet"}
+              {!loaded && problem ? "—" : "no finished runs match this filter yet"}
             </p>
           )}
         </Panel>

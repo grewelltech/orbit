@@ -20,7 +20,7 @@
  * an instant data path.
  */
 import { createClient, type Client } from "@connectrpc/connect";
-import { orbitTransport } from "./transport";
+import { isAuthRefusal, orbitTransport } from "./transport";
 import {
   RunService,
   RunState,
@@ -126,9 +126,10 @@ export class ConnectSource implements TelemetrySource {
       try {
         run = await this.selectRun(signal);
       } catch (err) {
-        // listRuns failed: this is the real "cannot reach the server" case.
+        // listRuns failed: the server could not be reached, or it answered
+        // and refused the token (the token prompt is open).
         if (signal.aborted) return;
-        this.setConn("disconnected");
+        this.setConn(isAuthRefusal(err) ? "unauthorized" : "disconnected");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }

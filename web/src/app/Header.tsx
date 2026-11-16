@@ -16,6 +16,7 @@ const SOURCE_STATUS: Record<SourceState, { status: Status; label: string }> = {
   live: { status: "active", label: "live" },
   stalled: { status: "warn", label: "stalled" },
   disconnected: { status: "idle", label: "disconnected" },
+  unauthorized: { status: "warn", label: "token required" },
   error: { status: "error", label: "error" },
 };
 
