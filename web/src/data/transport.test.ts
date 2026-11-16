@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Code, ConnectError, createClient, createRouterTransport } from "@connectrpc/connect";
 import { RunService } from "@/gen/orbit/v1/run_pb";
-import { authInterceptor, loadToken, saveToken, type TokenStore } from "./transport";
+import { authInterceptor, isAuthRefusal, loadToken, saveToken, type TokenStore } from "./transport";
 
 const TOKEN = "t".repeat(32);
 
@@ -151,5 +151,17 @@ describe("token storage", () => {
     expect(loadToken(broken)).toBe("");
     expect(() => saveToken(TOKEN, broken)).not.toThrow();
     expect(loadToken(undefined)).toBe("");
+  });
+});
+
+describe("isAuthRefusal", () => {
+  it.each([
+    ["no or a wrong token", new ConnectError("a bearer token is required", Code.Unauthenticated), true],
+    ["a lockout", new ConnectError("too many invalid bearer tokens", Code.ResourceExhausted), true],
+    ["an unreachable server", new ConnectError("HTTP status 502 Bad Gateway", Code.Unavailable), false],
+    ["a network failure", new TypeError("Failed to fetch"), false],
+    ["another refusal", new ConnectError("no", Code.FailedPrecondition), false],
+  ])("%s → %s", (_name, err, want) => {
+    expect(isAuthRefusal(err)).toBe(want);
   });
 });

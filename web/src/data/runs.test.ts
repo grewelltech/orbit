@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { RunKind, RunSchema, RunState } from "@/gen/orbit/v1/run_pb";
-import { __test } from "./runs";
+import { Code, ConnectError } from "@connectrpc/connect";
+import { __test, pollProblem, problemNotice } from "./runs";
 
 const { summarise } = __test;
 
@@ -43,5 +44,34 @@ describe("summarise", () => {
   it("falls back to the id when a run has no name", () => {
     expect(summarise(run({ name: "" })).name).toBe("");
     expect(summarise(run({ name: "" })).runId).toBe("run-1");
+  });
+});
+
+describe("poll problems", () => {
+  it("tells a token refusal from an unreachable server", () => {
+    expect(pollProblem(new ConnectError("a bearer token is required", Code.Unauthenticated))).toBe("unauthorized");
+    expect(pollProblem(new ConnectError("locked", Code.ResourceExhausted))).toBe("unauthorized");
+    expect(pollProblem(new ConnectError("HTTP status 502 Bad Gateway", Code.Unavailable))).toBe("unreachable");
+    expect(pollProblem(new TypeError("Failed to fetch"))).toBe("unreachable");
+  });
+
+  it("never says the server is unreachable while it waits for the token", () => {
+    for (const loaded of [false, true]) {
+      const n = problemNotice("unauthorized", loaded);
+      expect(n?.text).toMatch(/token/);
+      expect(n?.text).not.toMatch(/reach/);
+      expect(n?.warn).toBe(true);
+    }
+  });
+
+  it("reports an unreachable server, as a warning once a list was loaded", () => {
+    expect(problemNotice("unreachable", false)).toEqual({ text: "can't reach the server — retrying…", warn: false });
+    expect(problemNotice("unreachable", true)?.warn).toBe(true);
+    expect(problemNotice("unreachable", true)?.text).toMatch(/last known runs/);
+  });
+
+  it("shows nothing when the poll succeeded", () => {
+    expect(problemNotice(null, false)).toBeNull();
+    expect(problemNotice(null, true)).toBeNull();
   });
 });

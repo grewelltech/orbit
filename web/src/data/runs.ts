@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@connectrpc/connect";
-import { orbitTransport } from "./transport";
+import { isAuthRefusal, orbitTransport } from "./transport";
 import { RunKind, RunService, RunState, type Run as PbRun } from "@/gen/orbit/v1/run_pb";
 
 /** One selectable run. */
@@ -155,9 +155,38 @@ export interface RunsState {
   /** True once a ListRuns call has succeeded at least once — tells an empty
    * list ("no runs") apart from never having reached the server. */
   loaded: boolean;
-  /** True when the most recent poll failed: the server is unreachable and the
-   * list (if any) is stale. */
-  error: boolean;
+  /** Why the most recent poll failed, or null when it succeeded; on a failure
+   * the list (if any) is stale. */
+  problem: RunsProblem;
+}
+
+/**
+ * Why a poll failed: the server could not be reached, or it answered and
+ * refused the API token (none given yet, a wrong one, or a lockout) — the
+ * token prompt is then open, and the server is not down.
+ */
+export type RunsProblem = "unreachable" | "unauthorized" | null;
+
+/** The problem a failed ListRuns call reports. */
+export function pollProblem(err: unknown): Exclude<RunsProblem, null> {
+  return isAuthRefusal(err) ? "unauthorized" : "unreachable";
+}
+
+/**
+ * The notice the run list shows for a failed poll, and whether it is a
+ * warning (a stale list is still shown) or an error; null when there is none.
+ */
+export function problemNotice(problem: RunsProblem, loaded: boolean): { text: string; warn: boolean } | null {
+  switch (problem) {
+    case null:
+      return null;
+    case "unauthorized":
+      return { text: "the server needs its API token — enter it to load runs", warn: true };
+    case "unreachable":
+      return loaded
+        ? { text: "server unreachable — showing the last known runs (reconnecting…)", warn: true }
+        : { text: "can't reach the server — retrying…", warn: false };
+  }
 }
 
 export function useRuns(baseUrl?: string): RunsState {
@@ -169,19 +198,19 @@ export function useRuns(baseUrl?: string): RunsState {
       ),
     [baseUrl],
   );
-  const [state, setState] = useState<RunsState>({ runs: [], loaded: false, error: false });
+  const [state, setState] = useState<RunsState>({ runs: [], loaded: false, problem: null });
 
   useEffect(() => {
     let stop = false;
     const tick = async () => {
       try {
         const { runs: got } = await client.listRuns({});
-        if (!stop) setState({ runs: got.map(summarise), loaded: true, error: false });
-      } catch {
-        // Keep the last list and retry, but flag that this poll failed so the
-        // caller can distinguish an unreachable server from an empty list
-        // instead of presenting a down server as "nothing running".
-        if (!stop) setState((s) => ({ ...s, error: true }));
+        if (!stop) setState({ runs: got.map(summarise), loaded: true, problem: null });
+      } catch (err) {
+        // Keep the last list and retry, but flag why this poll failed so the
+        // caller can tell an unreachable server, or one waiting for its token,
+        // from an empty list instead of presenting either as "nothing running".
+        if (!stop) setState((s) => ({ ...s, problem: pollProblem(err) }));
       }
     };
     void tick();

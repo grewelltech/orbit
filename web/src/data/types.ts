@@ -205,4 +205,5 @@ export type SourceState =
   | "live" // streaming a run's frames
   | "stalled"
   | "disconnected" // the server could not be reached
+  | "unauthorized" // the server was reached but refused the API token (or none was given)
   | "error";

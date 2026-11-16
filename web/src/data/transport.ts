@@ -67,6 +67,15 @@ function refusal(err: unknown, sent: boolean): AuthRefusal | null {
 }
 
 /**
+ * Whether a failed call was refused for its token (missing, wrong, or locked
+ * out): the server was reached and answered, so the failure is not one of
+ * reachability.
+ */
+export function isAuthRefusal(err: unknown): boolean {
+  return refusal(err, false) !== null;
+}
+
+/**
  * The interceptor: sets Authorization from the token getter, and reports a
  * refusal for the token to onRefused — whether it arrives as the response
  * (unary, or a stream refused before it starts) or from inside a stream.
