@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Code, ConnectError, createClient, createRouterTransport } from "@connectrpc/connect";
 import { RunService } from "@/gen/orbit/v1/run_pb";
-import { authInterceptor, isAuthRefusal, loadToken, saveToken, type TokenStore } from "./transport";
+import { authInterceptor, isAuthRefusal, isLockout, loadToken, saveToken, type TokenStore } from "./transport";
 
 const TOKEN = "t".repeat(32);
 
@@ -163,5 +163,11 @@ describe("isAuthRefusal", () => {
     ["another refusal", new ConnectError("no", Code.FailedPrecondition), false],
   ])("%s → %s", (_name, err, want) => {
     expect(isAuthRefusal(err)).toBe(want);
+  });
+
+  it("tells a lockout from a missing or wrong token", () => {
+    expect(isLockout(new ConnectError("locked", Code.ResourceExhausted))).toBe(true);
+    expect(isLockout(new ConnectError("a bearer token is required", Code.Unauthenticated))).toBe(false);
+    expect(isLockout(new TypeError("Failed to fetch"))).toBe(false);
   });
 });

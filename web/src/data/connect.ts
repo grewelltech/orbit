@@ -19,7 +19,7 @@
  * configures one, and stays null otherwise — never a zero that would read as
  * an instant data path.
  */
-import { createClient, type Client } from "@connectrpc/connect";
+import { createClient, type Client, type Transport } from "@connectrpc/connect";
 import { isAuthRefusal, orbitTransport } from "./transport";
 import {
   RunService,
@@ -50,6 +50,8 @@ export interface ConnectOptions {
   baseUrl?: string;
   /** Watch a specific run instead of auto-selecting the active one. */
   runId?: string;
+  /** The transport to call the server with; orbitTransport(baseUrl) when unset. */
+  transport?: Transport;
 }
 
 export class ConnectSource implements TelemetrySource {
@@ -77,7 +79,7 @@ export class ConnectSource implements TelemetrySource {
   constructor(opts: ConnectOptions = {}) {
     this.client = createClient(
       RunService,
-      orbitTransport(opts.baseUrl),
+      opts.transport ?? orbitTransport(opts.baseUrl),
     );
     this.pinnedRunId = opts.runId;
   }
@@ -155,7 +157,9 @@ export class ConnectSource implements TelemetrySource {
         await this.streamRun(run.runId, signal);
       } catch (err) {
         if (signal.aborted) return;
-        this.setConn("error");
+        // A stream refused for its token (revoked, rotated, locked out) is
+        // not a fault either.
+        this.setConn(isAuthRefusal(err) ? "unauthorized" : "error");
         await sleep(POLL_INTERVAL_MS, signal);
         continue;
       }

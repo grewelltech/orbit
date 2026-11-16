@@ -50,18 +50,22 @@ describe("summarise", () => {
 describe("poll problems", () => {
   it("tells a token refusal from an unreachable server", () => {
     expect(pollProblem(new ConnectError("a bearer token is required", Code.Unauthenticated))).toBe("unauthorized");
-    expect(pollProblem(new ConnectError("locked", Code.ResourceExhausted))).toBe("unauthorized");
+    expect(pollProblem(new ConnectError("locked", Code.ResourceExhausted))).toBe("locked");
     expect(pollProblem(new ConnectError("HTTP status 502 Bad Gateway", Code.Unavailable))).toBe("unreachable");
     expect(pollProblem(new TypeError("Failed to fetch"))).toBe("unreachable");
   });
 
   it("never says the server is unreachable while it waits for the token", () => {
-    for (const loaded of [false, true]) {
-      const n = problemNotice("unauthorized", loaded);
-      expect(n?.text).toMatch(/token/);
-      expect(n?.text).not.toMatch(/reach/);
-      expect(n?.warn).toBe(true);
+    for (const problem of ["unauthorized", "locked"] as const) {
+      for (const loaded of [false, true]) {
+        const n = problemNotice(problem, loaded);
+        expect(n?.text).toMatch(/API token required/);
+        expect(n?.text).not.toMatch(/reach/);
+        expect(n?.warn).toBe(true);
+      }
     }
+    // A lockout says to wait: the right token does not help until it ends.
+    expect(problemNotice("locked", false)?.text).toMatch(/wait 30 s/);
   });
 
   it("reports an unreachable server, as a warning once a list was loaded", () => {

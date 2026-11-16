@@ -243,7 +243,7 @@ export function Home() {
             <RunTable runs={active} />
           ) : (
             <p className="o-label" style={{ color: "var(--o-ink-3)", textTransform: "none" }}>
-              {!loaded && problem === "unauthorized" ? (
+              {!loaded && (problem === "unauthorized" || problem === "locked") ? (
                 "waiting for the API token…"
               ) : !loaded && problem ? (
                 "waiting for the server…"
